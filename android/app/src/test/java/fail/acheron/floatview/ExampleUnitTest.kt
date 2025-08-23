@@ -1,4 +1,4 @@
-package com.example.floatview
+package fail.acheron.floatview
 
 import org.junit.Test
 

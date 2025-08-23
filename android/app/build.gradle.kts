@@ -4,11 +4,11 @@ plugins {
 }
 
 android {
-    namespace = "com.example.floatview"
+    namespace = "fail.acheron.floatview"
     compileSdk = 36
 
     defaultConfig {
-        applicationId = "com.example.floatview"
+        applicationId = "fail.acheron.floatview"
         minSdk = 24
         targetSdk = 36
         versionCode = 1

@@ -176,14 +176,14 @@
             <div id="wsStatus" class="websocket-status websocket-disconnected">
                 🔴 Disconnected
             </div>
-            
+
             <button onclick="toggleWebSocket()" id="wsToggle" class="toggle-button">Connect</button>
-            
+
             <!-- Always show messages for debugging -->
             <div class="messages" id="messages"></div>
-            
+
             <div id="wsControls" style="display: none;">
-                <input type="text" id="messageInput" class="message-input" 
+                <input type="text" id="messageInput" class="message-input"
                        placeholder="Type a message..." onkeypress="handleKeyPress(event)">
                 <button onclick="sendMessage()" class="send-button" id="sendBtn">Send Message</button>
             </div>
@@ -213,7 +213,7 @@
             console.log('toggleWebSocket called, isConnected:', isConnected);
             console.log('websocket exists:', !!websocket);
             console.log('websocket readyState:', websocket ? websocket.readyState : 'null');
-            
+
             if (isConnected) {
                 console.log('Calling disconnectWebSocket');
                 disconnectWebSocket();
@@ -229,7 +229,7 @@
                 console.log('Attempting to connect to WebSocket:', wsUrl);
                 console.log('Current location:', window.location);
                 addMessage('System', 'Attempting to connect to: ' + wsUrl, 'system');
-                
+
                 websocket = new WebSocket(wsUrl);
 
                 websocket.onopen = function(event) {
@@ -255,7 +255,7 @@
                     console.log('WebSocket onclose event triggered', event);
                     console.log('Close code:', event.code, 'Close reason:', event.reason);
                     console.log('Current isConnected:', isConnected);
-                    
+
                     // Only update status if not already updated by manual disconnect
                     if (isConnected) {
                         isConnected = false;
@@ -284,15 +284,15 @@
             if (websocket) {
                 console.log('Closing WebSocket, current readyState:', websocket.readyState);
                 addMessage('System', 'Disconnecting WebSocket...', 'system');
-                
+
                 // Close the WebSocket with normal closure code
                 websocket.close(1000, 'User disconnected');
                 websocket = null;
-                
+
                 // Immediately update status to disconnected
                 isConnected = false;
                 updateConnectionStatus(false);
-                
+
                 addMessage('System', 'WebSocket disconnected manually', 'system');
             } else {
                 console.log('No WebSocket to disconnect');
@@ -342,7 +342,7 @@
         function sendMessage() {
             const messageInput = document.getElementById('messageInput');
             const message = messageInput.value.trim();
-            
+
             if (message && websocket && isConnected) {
                 // Create JSON message
                 const messageData = {
@@ -350,7 +350,7 @@
                     content: message,
                     timestamp: Date.now()
                 };
-                
+
                 try {
                     // Send as JSON string
                     const jsonString = JSON.stringify(messageData);
@@ -376,13 +376,13 @@
                 console.error('Messages container not found');
                 return;
             }
-            
+
             const messageElement = document.createElement('div');
             messageElement.className = `message ${type}`;
-            
+
             const timestamp = new Date().toLocaleTimeString();
             messageElement.innerHTML = `<strong>${sender}</strong> (${timestamp})<br>${content}`;
-            
+
             messagesContainer.appendChild(messageElement);
             messagesContainer.scrollTop = messagesContainer.scrollHeight;
         }
@@ -390,7 +390,7 @@
         // Auto-connect on page load (commented out for debugging)
         window.addEventListener('load', function() {
             console.log('Page loaded, WebSocket connection available via Connect button');
-            
+
             // Check WebSocket support
             if (typeof WebSocket === 'undefined') {
                 console.error('WebSocket is not supported');
@@ -399,14 +399,14 @@
                 console.log('WebSocket is supported');
                 addMessage('System', 'WebSocket is supported - Click Connect to establish connection', 'system');
             }
-            
+
             // Debug info
             console.log('Current URL:', window.location.href);
             console.log('Host:', window.location.host);
             console.log('Protocol:', window.location.protocol);
-            
+
             addMessage('System', `Page loaded. Current URL: ${window.location.href}`, 'system');
-            
+
             // setTimeout(connectWebSocket, 1000); // Give the server a moment to be ready
         });
     </script>
