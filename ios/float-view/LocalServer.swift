@@ -348,7 +348,7 @@ class LocalServer: ObservableObject {
 
     private func loadWebFile(path: String) -> String? {
         // Remove leading slash and decode URL encoding
-        let fileName = String(path.dropFirst())
+        let fileName = path.first == "/" ? String(path.dropFirst()) : path
         guard !fileName.isEmpty,
               !fileName.contains("..") else { // Basic security check
             return nil
