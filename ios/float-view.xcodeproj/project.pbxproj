@@ -6,7 +6,12 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		BA3A10B12E5C0EED005406DA /* web in Resources */ = {isa = PBXBuildFile; fileRef = BA3A10B02E5C0EED005406DA /* web */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXFileReference section */
+		BA3A10B02E5C0EED005406DA /* web */ = {isa = PBXFileReference; lastKnownFileType = folder; name = web; path = ../web; sourceTree = "<group>"; };
 		BA4ABF1C2E5BDF4600B47684 /* float-view.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "float-view.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
@@ -32,6 +37,7 @@
 		BA4ABF132E5BDF4600B47684 = {
 			isa = PBXGroup;
 			children = (
+				BA3A10B02E5C0EED005406DA /* web */,
 				BA4ABF1E2E5BDF4600B47684 /* float-view */,
 				BA4ABF1D2E5BDF4600B47684 /* Products */,
 			);
@@ -109,6 +115,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				BA3A10B12E5C0EED005406DA /* web in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
