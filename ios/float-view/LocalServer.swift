@@ -9,13 +9,8 @@ import Foundation
 import Network
 
 class LocalServer: ObservableObject {
-    static let shared: LocalServer = {
-        let instance = LocalServer()
-        print("LocalServer.shared created - starting server immediately...")
-        instance.start()
-        return instance
-    }()
-    
+    static let shared = LocalServer()
+
     private var listener: NWListener?
     private var connections: [NWConnection] = []
     @Published var isRunning = false
@@ -32,7 +27,6 @@ class LocalServer: ObservableObject {
             parameters.allowLocalEndpointReuse = true
 
             listener = try NWListener(using: parameters, on: .any)
-
             listener?.newConnectionHandler = { [weak self] connection in
                 self?.handleConnection(connection)
             }
@@ -51,10 +45,12 @@ class LocalServer: ObservableObject {
                     print("Server failed: \(error)")
                     DispatchQueue.main.async {
                         self?.isRunning = false
+                        self?.port = 0
                     }
                 case .cancelled:
                     DispatchQueue.main.async {
                         self?.isRunning = false
+                        self?.port = 0
                     }
                 default:
                     break
@@ -117,13 +113,13 @@ class LocalServer: ObservableObject {
 
     private func processRequest(data: Data, connection: NWConnection) {
         guard let requestString = String(data: data, encoding: .utf8) else {
-            sendResponse(connection: connection, status: "400 Bad Request", contentType: "text/plain", body: "Bad Request")
+            sendResponse(connection: connection, status: "400 Bad Request", contentType: "text/plain", body: "Bad Request - req not utf8")
             return
         }
 
         let lines = requestString.components(separatedBy: "\r\n")
         guard let requestLine = lines.first else {
-            sendResponse(connection: connection, status: "400 Bad Request", contentType: "text/plain", body: "Bad Request")
+            sendResponse(connection: connection, status: "400 Bad Request", contentType: "text/plain", body: "Bad Request - failed to parse first line")
             return
         }
 
@@ -159,21 +155,18 @@ class LocalServer: ObservableObject {
         // Handle HTTP requests
         switch path {
         case "/":
-            let html = loadHtmlFile(filename: "index.html")
-            sendResponse(connection: connection, status: "200 OK", contentType: "text/html", body: html)
+            sendResponse(connection: connection, status: "200 OK", contentType: "text/html", body: loadHtmlFile(filename: "index.html"))
         case "/api/status":
             let json = """
                 {"status":"ok","message":"Local server is running","port":\(port)}
                 """
             sendResponse(connection: connection, status: "200 OK", contentType: "application/json", body: json)
         default:
-            // Try to serve files from the web directory
             if let fileContent = loadWebFile(path: path) {
                 let contentType = getContentType(for: path)
                 sendResponse(connection: connection, status: "200 OK", contentType: contentType, body: fileContent)
             } else {
-                let html = loadHtmlFile(filename: "404.html")
-                sendResponse(connection: connection, status: "404 Not Found", contentType: "text/html", body: html)
+                sendResponse(connection: connection, status: "404 Not Found", contentType: "text/html", body: loadHtmlFile(filename: "404.html"))
             }
         }
     }
@@ -186,7 +179,6 @@ class LocalServer: ObservableObject {
         }
 
         let acceptKey = generateWebSocketAcceptKey(webSocketKey)
-
         let response = """
             HTTP/1.1 101 Switching Protocols\r
             Upgrade: websocket\r
@@ -196,9 +188,7 @@ class LocalServer: ObservableObject {
 
             """
 
-        let responseData = response.data(using: .utf8)!
-
-        connection.send(content: responseData, completion: .contentProcessed { error in
+        connection.send(content: response.data(using: .utf8)!, completion: .contentProcessed { error in
             if let error = error {
                 print("Error sending WebSocket handshake: \(error)")
                 connection.cancel()
@@ -206,13 +196,10 @@ class LocalServer: ObservableObject {
             }
 
             print("WebSocket connection established")
-
-            // Send welcome message
             let welcomeMessage = """
                 {"type":"welcome","message":"Connected to Float View Mobile","clientId":"client_\(Int(Date().timeIntervalSince1970))"}
                 """
             self.sendWebSocketMessage(connection: connection, message: welcomeMessage)
-
             self.handleWebSocketMessages(connection: connection)
         })
     }
@@ -367,7 +354,6 @@ class LocalServer: ObservableObject {
             return nil
         }
 
-        // First try to load from the app bundle
         if let bundleUrl = Bundle.main.url(forResource: fileName, withExtension: nil, subdirectory: "web") {
             do {
                 let content = try String(contentsOf: bundleUrl, encoding: .utf8)
@@ -375,26 +361,6 @@ class LocalServer: ObservableObject {
                 return content
             } catch {
                 print("Error reading bundled web file web/\(fileName): \(error)")
-            }
-        }
-
-        // Fallback: try to load from filesystem (for development)
-        let developmentPaths = [
-            Bundle.main.bundlePath + "/../../../web/" + fileName,
-            Bundle.main.bundlePath + "/../../web/" + fileName
-        ]
-
-        for filePath in developmentPaths {
-            if FileManager.default.fileExists(atPath: filePath) {
-                do {
-                    let fileURL = URL(fileURLWithPath: filePath)
-                    let content = try String(contentsOf: fileURL, encoding: .utf8)
-                    print("Successfully loaded web file from development path: \(filePath)")
-                    return content
-                } catch {
-                    print("Error reading web file at \(filePath): \(error)")
-                    continue
-                }
             }
         }
 
@@ -431,25 +397,12 @@ class LocalServer: ObservableObject {
     }
 
     private func loadHtmlFile(filename: String) -> String {
-        print("🔍 Attempting to load HTML file: \(filename)")
+        if let text = loadWebFile(path: filename) {
+            return text.replacingOccurrences(of: "{{PORT}}", with: "\(port)")
+        }
 
-
-            if let bundleUrl = Bundle.main.url(forResource: filename, withExtension: nil, subdirectory: "web") {
-                do {
-                    var html = try String(contentsOf: bundleUrl, encoding: .utf8)
-                    // Replace the port placeholder with the actual port number
-                    html = html.replacingOccurrences(of: "{{PORT}}", with: "\(port)")
-                    print("✅ Successfully loaded HTML file from app bundle: \(filename)")
-                    return html
-                } catch {
-                    print("❌ Error reading bundled HTML file \(filename): \(error)")
-                }
-            } else {
-                print("📂 File not found: \(filename)")
-            }
-
-        print("⚠️  Could not find HTML file \(filename) in app bundle or development paths - using fallback")
-        return "<html><body>💩️</body></html>"
+        print("⚠️ Could not find HTML file \(filename)!")
+        return "<html><body>💩️Could not find: \(filename)</body></html>"
     }
 }
 
@@ -457,6 +410,9 @@ struct WebSocketFrame {
     let opcode: Int
     let payload: String
 }
+
+// Import CommonCrypto for SHA-1
+import CommonCrypto
 
 // Extension to add SHA-1 hashing
 extension Data {
@@ -468,6 +424,3 @@ extension Data {
         return Data(digest)
     }
 }
-
-// Import CommonCrypto for SHA-1
-import CommonCrypto
