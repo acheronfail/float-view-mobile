@@ -5,6 +5,8 @@ _default:
 areload:
   cd android && ./gradlew installDebug && adb shell am start -n fail.acheron.floatview/.MainActivity
 
-# FIXME: this just builds it, make it run
+# re-install and re-launch the debug app on ios simulator
 ireload:
-  cd ios && xcodebuild -scheme float-view -configuration Debug -sdk iphonesimulator build
+  cd ios && xcodebuild -scheme float-view -configuration Debug -sdk iphonesimulator build \
+    && xcrun simctl boot "iPhone 16" || true \
+    && xcrun simctl launch --console --terminate-running-process booted fail.acheron.float-view
