@@ -20,21 +20,6 @@ import androidx.core.content.ContextCompat
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 
-/**
- * Simple BLE helper with no external dependencies.
- * Responsibilities:
- *  - Request runtime permissions needed for BLE scanning/connecting
- *  - Scan for devices advertising specific service UUIDs
- *  - Connect / Disconnect to a selected device (verifying it exposes desired service)
- *
- * NOTE: Ensure AndroidManifest declares (as needed per min / target sdk):
- *  <uses-permission android:name="android.permission.BLUETOOTH" />
- *  <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" />
- *  <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" /> (pre Android 12 for scans)
- *  <uses-permission android:name="android.permission.BLUETOOTH_SCAN" android:usesPermissionFlags="neverForLocation" /> (Android 12+)
- *  <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" /> (Android 12+)
- *  <uses-permission android:name="android.permission.BLUETOOTH_ADVERTISE" /> (only if advertising)
- */
 class BluetoothModule(private val context: Context) {
 
     interface ScanListener {
@@ -50,8 +35,9 @@ class BluetoothModule(private val context: Context) {
         fun onError(message: String)
     }
 
-    private val logTag = "BluetoothModule"
-    private val bluetoothManager: BluetoothManager? = context.getSystemService(Context.BLUETOOTH_SERVICE) as? BluetoothManager
+    private val logTag = "FloatView_BluetoothModule"
+    private val bluetoothManager: BluetoothManager? =
+            context.getSystemService(Context.BLUETOOTH_SERVICE) as? BluetoothManager
     private val bluetoothAdapter: BluetoothAdapter? = bluetoothManager?.adapter
     private val foundDevices = ConcurrentHashMap<String, BluetoothDevice>()
     private var bluetoothGatt: BluetoothGatt? = null
@@ -62,36 +48,39 @@ class BluetoothModule(private val context: Context) {
     private fun requiredRuntimePermissions(): Array<String> {
         val perms = mutableListOf<String>()
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            perms += Manifest.permission.BLUETOOTH
             perms += Manifest.permission.BLUETOOTH_SCAN
             perms += Manifest.permission.BLUETOOTH_CONNECT
-        } else {
-            // Location still required for BLE scan results visibility pre-Android 12
+        }
+        // Location permission is required for BLE scanning
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             perms += Manifest.permission.ACCESS_FINE_LOCATION
         }
         return perms.toTypedArray()
     }
 
-    fun hasAllPermissions(activity: Activity): Boolean = requiredRuntimePermissions().all {
-        ContextCompat.checkSelfPermission(activity, it) == PackageManager.PERMISSION_GRANTED
-    }
+    fun hasAllPermissions(activity: Activity): Boolean =
+            requiredRuntimePermissions().all {
+                ContextCompat.checkSelfPermission(activity, it) == PackageManager.PERMISSION_GRANTED
+            }
 
     fun requestPermissionsIfNeeded(activity: Activity, requestCode: Int): Boolean {
         if (hasAllPermissions(activity)) return true
-        val needed = requiredRuntimePermissions().filter {
-            ContextCompat.checkSelfPermission(activity, it) != PackageManager.PERMISSION_GRANTED
-        }
+        val needed =
+                requiredRuntimePermissions().filter {
+                    ContextCompat.checkSelfPermission(activity, it) !=
+                            PackageManager.PERMISSION_GRANTED
+                }
+
         if (needed.isNotEmpty()) {
             ActivityCompat.requestPermissions(activity, needed.toTypedArray(), requestCode)
         }
+
         return false
     }
 
     // --- Scanning ---
-    fun startScan(
-        serviceUuids: List<UUID>,
-        durationMs: Long = 10_000L,
-        listener: ScanListener
-    ) {
+    fun startScan(serviceUuids: List<UUID>, durationMs: Long = 10_000L, listener: ScanListener) {
         if (isScanning) {
             listener.onError("Scan already in progress")
             return
@@ -109,42 +98,52 @@ class BluetoothModule(private val context: Context) {
             return
         }
 
-        val scanner: BluetoothLeScanner = bluetoothAdapter.bluetoothLeScanner ?: run {
-            listener.onError("BLE scanner unavailable")
-            return
-        }
+        val scanner: BluetoothLeScanner =
+                bluetoothAdapter.bluetoothLeScanner
+                        ?: run {
+                            listener.onError("BLE scanner unavailable")
+                            return
+                        }
 
         foundDevices.clear()
 
-        val filters = if (serviceUuids.isNotEmpty()) {
-            serviceUuids.map { uuid ->
-                ScanFilter.Builder().setServiceUuid(ParcelUuid(uuid)).build()
-            }
-        } else emptyList()
-
-        val settings = ScanSettings.Builder()
-            .setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY)
-            .build()
-
-        val callback = object : ScanCallback() {
-            override fun onScanResult(callbackType: Int, result: ScanResult) {
-                val device = result.device ?: return
-                if (device.address.isNullOrBlank()) return
-                if (foundDevices.putIfAbsent(device.address, device) == null) {
-                    Log.d(logTag, "Found device ${device.address} (${device.name ?: "Unnamed"})")
-                    listener.onDeviceFound(device)
+        val filters =
+                if (serviceUuids.isNotEmpty()) {
+                    serviceUuids.map { uuid ->
+                        Log.d(logTag, "Adding service filter for UUID: $uuid")
+                        ScanFilter.Builder().setServiceUuid(ParcelUuid(uuid)).build()
+                    }
+                } else {
+                    Log.d(logTag, "No service filters - scanning for all devices")
+                    emptyList()
                 }
-            }
 
-            override fun onBatchScanResults(results: MutableList<ScanResult>) {
-                results.forEach { onScanResult(ScanSettings.CALLBACK_TYPE_ALL_MATCHES, it) }
-            }
+        val settings =
+                ScanSettings.Builder().setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY).build()
 
-            override fun onScanFailed(errorCode: Int) {
-                isScanning = false
-                listener.onError("Scan failed: $errorCode")
-            }
-        }
+        val callback =
+                object : ScanCallback() {
+                    override fun onScanResult(callbackType: Int, result: ScanResult) {
+                        val device = result.device ?: return
+                        if (device.address.isNullOrBlank()) return
+                        if (foundDevices.putIfAbsent(device.address, device) == null) {
+                            Log.d(
+                                    logTag,
+                                    "Found device ${device.address} (${device.name ?: "Unnamed"})"
+                            )
+                            listener.onDeviceFound(device)
+                        }
+                    }
+
+                    override fun onBatchScanResults(results: MutableList<ScanResult>) {
+                        results.forEach { onScanResult(ScanSettings.CALLBACK_TYPE_ALL_MATCHES, it) }
+                    }
+
+                    override fun onScanFailed(errorCode: Int) {
+                        isScanning = false
+                        listener.onError("Scan failed: $errorCode")
+                    }
+                }
 
         try {
             isScanning = true
@@ -157,23 +156,21 @@ class BluetoothModule(private val context: Context) {
         }
 
         // Stop scan after duration
-        mainHandler.postDelayed({
-            stopScanInternal(scanner, callback, listener)
-        }, durationMs)
+        mainHandler.postDelayed({ stopScanInternal(scanner, callback, listener) }, durationMs)
     }
 
     private fun stopScanInternal(
-        scanner: BluetoothLeScanner,
-        callback: ScanCallback,
-        listener: ScanListener
+            scanner: BluetoothLeScanner,
+            callback: ScanCallback,
+            listener: ScanListener
     ) {
         if (!isScanning) return
         try {
             scanner.stopScan(callback)
-        } catch (_: Exception) { }
+        } catch (_: Exception) {}
         isScanning = false
         listener.onScanStopped(foundDevices.values.toList())
-    Log.d(logTag, "Scan stopped. Devices found: ${foundDevices.size}")
+        Log.d(logTag, "Scan stopped. Devices found: ${foundDevices.size}")
     }
 
     fun stopScan() {
@@ -184,51 +181,64 @@ class BluetoothModule(private val context: Context) {
 
     // --- Connection ---
     fun connect(
-        device: BluetoothDevice,
-        requiredServices: List<UUID>,
-        listener: ConnectionListener
+            device: BluetoothDevice,
+            requiredServices: List<UUID>,
+            listener: ConnectionListener
     ) {
         if (bluetoothGatt != null) {
             listener.onError("Already connected or connecting")
             return
         }
         try {
-            bluetoothGatt = device.connectGatt(context, false, object : BluetoothGattCallback() {
-                override fun onConnectionStateChange(gatt: BluetoothGatt, status: Int, newState: Int) {
-                    if (status != BluetoothGatt.GATT_SUCCESS) {
-                        Log.e(logTag, "Connection failed: status=$status")
-                        listener.onError("Connection failed: $status")
-                        closeGatt()
-                        return
-                    }
-                    if (newState == BluetoothProfile.STATE_CONNECTED) {
-                        Log.d(logTag, "Connected to GATT server")
-                        listener.onConnected(gatt)
-                        gatt.discoverServices()
-                    } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
-                        Log.d(logTag, "Disconnected from GATT server")
-                        listener.onDisconnected()
-                        closeGatt()
-                    }
-                }
+            bluetoothGatt =
+                    device.connectGatt(
+                            context,
+                            false,
+                            object : BluetoothGattCallback() {
+                                override fun onConnectionStateChange(
+                                        gatt: BluetoothGatt,
+                                        status: Int,
+                                        newState: Int
+                                ) {
+                                    if (status != BluetoothGatt.GATT_SUCCESS) {
+                                        Log.e(logTag, "Connection failed: status=$status")
+                                        listener.onError("Connection failed: $status")
+                                        closeGatt()
+                                        return
+                                    }
+                                    if (newState == BluetoothProfile.STATE_CONNECTED) {
+                                        Log.d(logTag, "Connected to GATT server")
+                                        listener.onConnected(gatt)
+                                        gatt.discoverServices()
+                                    } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
+                                        Log.d(logTag, "Disconnected from GATT server")
+                                        listener.onDisconnected()
+                                        closeGatt()
+                                    }
+                                }
 
-                override fun onServicesDiscovered(gatt: BluetoothGatt, status: Int) {
-                    if (status != BluetoothGatt.GATT_SUCCESS) {
-                        listener.onError("Service discovery failed: $status")
-                        return
-                    }
-                    val gattServices = gatt.services ?: emptyList()
-                    val present = requiredServices.all { req ->
-                        gattServices.any { it.uuid == req }
-                    }
-                    if (!present) {
-                        listener.onError("Required service missing")
-                        gatt.disconnect()
-                        return
-                    }
-                    listener.onReady(gatt)
-                }
-            })
+                                override fun onServicesDiscovered(
+                                        gatt: BluetoothGatt,
+                                        status: Int
+                                ) {
+                                    if (status != BluetoothGatt.GATT_SUCCESS) {
+                                        listener.onError("Service discovery failed: $status")
+                                        return
+                                    }
+                                    val gattServices = gatt.services ?: emptyList()
+                                    val present =
+                                            requiredServices.all { req ->
+                                                gattServices.any { it.uuid == req }
+                                            }
+                                    if (!present) {
+                                        listener.onError("Required service missing")
+                                        gatt.disconnect()
+                                        return
+                                    }
+                                    listener.onReady(gatt)
+                                }
+                            }
+                    )
         } catch (se: SecurityException) {
             listener.onError("Missing permissions: ${se.message}")
             closeGatt()
@@ -241,13 +251,13 @@ class BluetoothModule(private val context: Context) {
     fun disconnect() {
         try {
             bluetoothGatt?.disconnect()
-        } catch (_: Exception) { }
+        } catch (_: Exception) {}
     }
 
     private fun closeGatt() {
         try {
             bluetoothGatt?.close()
-        } catch (_: Exception) { }
+        } catch (_: Exception) {}
         bluetoothGatt = null
     }
 }
