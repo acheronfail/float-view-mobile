@@ -4,15 +4,15 @@ import android.bluetooth.BluetoothDevice
 import android.os.Bundle
 import android.util.Log
 import android.webkit.WebView
-import android.webkit.WebViewClient
 import androidx.appcompat.app.AppCompatActivity
 import java.util.UUID
 
 class MainActivity : AppCompatActivity() {
 
     private lateinit var webView: WebView
-    private val TAG = "FloatViewApp"
-    // Minimal integration of BluetoothModule
+    private lateinit var webViewModule: WebViewModule
+    private val TAG = "FloatView_MainActivity"
+
     private lateinit var bluetoothModule: BluetoothModule
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -20,29 +20,10 @@ class MainActivity : AppCompatActivity() {
 
         Log.d(TAG, "MainActivity onCreate started")
 
-        // Create and configure WebView
-        webView = WebView(this)
-        webView.settings.javaScriptEnabled = true
-        webView.settings.domStorageEnabled = true
-        webView.settings.allowFileAccess = false
-        webView.settings.allowContentAccess = false
-        webView.webViewClient =
-                object : WebViewClient() {
-                    override fun onReceivedError(
-                            view: WebView?,
-                            errorCode: Int,
-                            description: String?,
-                            failingUrl: String?
-                    ) {
-                        Log.e(TAG, "WebView error: $errorCode - $description for URL: $failingUrl")
-                    }
-
-                    override fun onPageFinished(view: WebView?, url: String?) {
-                        Log.d(TAG, "Page finished loading: $url")
-                    }
-                }
-
-        setContentView(webView)
+        // Initialize WebView via module
+        webViewModule = WebViewModule(this)
+        webView = webViewModule.init()
+        setContentView(webView) // Keep layout simple for now
 
         // Start the singleton local server
         LocalServer.start(this, webView)
@@ -105,5 +86,6 @@ class MainActivity : AppCompatActivity() {
     override fun onDestroy() {
         super.onDestroy()
         LocalServer.stop()
+        if (this::webViewModule.isInitialized) webViewModule.destroy()
     }
 }
