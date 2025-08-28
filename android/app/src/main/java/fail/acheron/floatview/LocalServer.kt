@@ -121,7 +121,13 @@ object LocalServer {
           sendResponse(output, "200 OK", "application/json", """{"status":"ok"}""")
         }
         else -> {
-          sendResponse(output, "404 Not Found", "text/html", get404Html())
+          // Try to serve static file from web directory
+          val staticFileResponse = tryServeStaticFile(path)
+          if (staticFileResponse != null) {
+            sendResponse(output, "200 OK", staticFileResponse.contentType, staticFileResponse.content)
+          } else {
+            sendResponse(output, "404 Not Found", "text/html", get404Html())
+          }
         }
       }
     } catch (e: IOException) {
@@ -301,6 +307,66 @@ object LocalServer {
     return b.append("}").toString()
   }
 
+  private data class StaticFileResponse(val content: String, val contentType: String)
+
+  private fun tryServeStaticFile(path: String): StaticFileResponse? {
+    val activity = activityRef?.get() ?: return null
+    
+    // Clean up the path and remove leading slash, query params, and fragments
+    var cleanPath = path.removePrefix("/")
+    
+    // Remove query parameters and fragments
+    val queryIndex = cleanPath.indexOf('?')
+    if (queryIndex != -1) {
+      cleanPath = cleanPath.substring(0, queryIndex)
+    }
+    val fragmentIndex = cleanPath.indexOf('#')
+    if (fragmentIndex != -1) {
+      cleanPath = cleanPath.substring(0, fragmentIndex)
+    }
+    
+    // Skip empty paths
+    if (cleanPath.isEmpty()) {
+      return null
+    }
+    
+    val webPath = "web/$cleanPath"
+    Log.d(TAG, "Trying to serve static file: $webPath")
+    
+    try {
+        val content = activity.assets.open(webPath).bufferedReader().use { it.readText() }
+        val contentType = getMimeType(cleanPath)
+        Log.d(TAG, "Successfully served static file: $webPath as $contentType")
+        return StaticFileResponse(content, contentType)
+      } catch (e: IOException) {
+        Log.d(TAG, "Static file not found: $webPath (${e.message})")
+        return null
+      }
+  }
+
+  private fun getMimeType(filePath: String): String {
+    val extension = filePath.substringAfterLast('.', "").lowercase()
+    return when (extension) {
+      "html" -> "text/html"
+      "css" -> "text/css"
+      "js" -> "application/javascript"
+      "json" -> "application/json"
+      "png" -> "image/png"
+      "jpg", "jpeg" -> "image/jpeg"
+      "gif" -> "image/gif"
+      "svg" -> "image/svg+xml"
+      "ico" -> "image/x-icon"
+      "txt" -> "text/plain"
+      "xml" -> "application/xml"
+      "pdf" -> "application/pdf"
+      "woff" -> "font/woff"
+      "woff2" -> "font/woff2"
+      "ttf" -> "font/ttf"
+      "eot" -> "application/vnd.ms-fontobject"
+      else -> "application/octet-stream"
+    }
+  }
+
   private fun sendResponse(out: PrintWriter, status: String, contentType: String, body: String) {
     out.println("HTTP/1.1 $status")
     out.println("Content-Type: $contentType")
@@ -314,6 +380,7 @@ object LocalServer {
   private fun getMainHtml(port: Int): String {
     val activity = activityRef?.get() ?: return getFallbackMainHtml(port)
     return try {
+      // FIXME: port interpolation here needs to be updated for svelte
       val html = activity.assets.open("web/index.html").bufferedReader().use { it.readText() }
       html.replace("{{PORT}}", port.toString())
     } catch (e: IOException) {
@@ -329,15 +396,7 @@ object LocalServer {
     """.trimIndent()
 
   private fun get404Html(): String {
-    val activity =
-            activityRef?.get()
-                    ?: return """<!DOCTYPE html><html><body><h1>404</h1></body></html>""".trimIndent()
-    return try {
-      activity.assets.open("web/404.html").bufferedReader().use { it.readText() }
-    } catch (e: IOException) {
-      Log.e(TAG, "404.html read error: ${e.message}", e)
-      """<!DOCTYPE html><html><body><h1>404 - Not Found</h1></body></html>""".trimIndent()
-    }
+    return """<!DOCTYPE html><html><body><h1>404 - Not Found</h1></body></html>""".trimIndent()
   }
 
   @Synchronized

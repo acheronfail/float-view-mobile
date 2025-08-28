@@ -42,11 +42,9 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private val targetServiceUuid: UUID = UUID.fromString("6e400001-b5a3-f393-e0a9-e50e24dcca9e")
-
     private fun startBleScan() {
         bluetoothModule.startScan(
-                listOf(targetServiceUuid),
+                listOf(BluetoothModule.VescService),
                 10_000L,
                 object : BluetoothModule.ScanListener {
                     override fun onDeviceFound(device: BluetoothDevice) {
@@ -78,7 +76,7 @@ class MainActivity : AppCompatActivity() {
 
         bluetoothModule.connect(
                 device,
-                listOf(targetServiceUuid),
+                listOf(BluetoothModule.VescService),
                 object : BluetoothModule.ConnectionListener {
                     override fun onConnected(gatt: BluetoothGatt) {
                         Log.d(TAG, "Connected to device: ${device.address}")

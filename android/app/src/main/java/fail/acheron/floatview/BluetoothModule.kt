@@ -22,6 +22,16 @@ import java.util.concurrent.ConcurrentHashMap
 
 class BluetoothModule(private val context: Context) {
 
+    companion object {
+        val RescueService = UUID.fromString("99eb1511-a9e9-4024-b0a4-3dc4b4fabfb0")
+        val RescueCharacteristicConf = UUID.fromString("99eb1513-a9e9-4024-b0a4-3dc4b4fabfb0")
+        val RescueCharacteristicHwVer = UUID.fromString("99eb1515-a9e9-4024-b0a4-3dc4b4fabfb0")
+        val CharacteristicFw = UUID.fromString("99eb1514-a9e9-4024-b0a4-3dc4b4fabfb0")
+        val VescService = UUID.fromString("6e400001-b5a3-f393-e0a9-e50e24dcca9e")
+        val VescCharacteristicsRx = UUID.fromString("6e400002-b5a3-f393-e0a9-e50e24dcca9e")
+        val VescCharacteristicsTx = UUID.fromString("6e400003-b5a3-f393-e0a9-e50e24dcca9e")
+    }
+
     interface ScanListener {
         fun onDeviceFound(device: BluetoothDevice)
         fun onScanStopped(devices: List<BluetoothDevice>)
@@ -52,10 +62,10 @@ class BluetoothModule(private val context: Context) {
             perms += Manifest.permission.BLUETOOTH_SCAN
             perms += Manifest.permission.BLUETOOTH_CONNECT
         }
+
         // Location permission is required for BLE scanning
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            perms += Manifest.permission.ACCESS_FINE_LOCATION
-        }
+        perms += Manifest.permission.ACCESS_COARSE_LOCATION
+        perms += Manifest.permission.ACCESS_FINE_LOCATION
         return perms.toTypedArray()
     }
 
@@ -190,6 +200,11 @@ class BluetoothModule(private val context: Context) {
             return
         }
         try {
+            // TODO: investigate - `requestConnectionPriorityForDevice - HIGH`
+            // TODO: detect disconnects (out of range, etc)
+            // TODO: reconnection logic/timers
+            // TODO: start monitoring logs:
+            // TODO: monitorCharacteristicForDevice for constant updates of the char (VescCharacteristicsTx)
             bluetoothGatt =
                     device.connectGatt(
                             context,
