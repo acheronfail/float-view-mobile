@@ -1,5 +1,8 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
+	import { ProgressRing } from '@skeletonlabs/skeleton-svelte';
+	import { ChevronRight } from '@lucide/svelte';
+
 	import { backendClient } from '../lib/backend-client';
 	import {
 		parseMessage,
@@ -14,7 +17,12 @@
 	let isScanning = $state(false);
 	let isConnecting = $state(false);
 	let isConnected = $state(false);
-	let bleDevices = $state<Array<ZScanDevice>>([]);
+	let bleDevices = $state<Array<ZScanDevice>>([
+		{
+			name: 'name',
+			address: 'address:as:fd'
+		}
+	]);
 
 	function handleScanMessage(msg: ZScanMessage) {
 		switch (msg.event) {
@@ -101,11 +109,23 @@
 	});
 </script>
 
-<div class="flex flex-col items-center justify-center gap-2 p-2">
+<div class="flex h-screen flex-col items-center gap-2 p-2">
 	<h1 class="text-3xl font-bold">Welcome!</h1>
 
 	{#if ws}
-		<button class="rounded border p-1" onclick={scanDevices}>scan devices</button>
+		<div class="flex flex-row items-center gap-2">
+			<button class="btn preset-filled-primary-500" onclick={scanDevices} disabled={isScanning}>
+				scan devices
+			</button>
+			{#if isScanning}
+				<ProgressRing
+					value={null}
+					size="size-6"
+					meterStroke="stroke-primary-600-400"
+					trackStroke="stroke-primary-50-950"
+				/>
+			{/if}
+		</div>
 
 		{#if bleDevices.length > 0 || isScanning}
 			<h2 class="text-2xl font-bold">Devices found:</h2>
@@ -113,27 +133,39 @@
 				{#each bleDevices as device}
 					<li>
 						<button
-							class="flex flex-col items-center justify-center gap-1 rounded border p-1"
+							class="btn preset-filled-surface-100-900 border-surface-600 w-lg flex flex-row items-center justify-between gap-1 border text-left shadow-xl"
+							disabled={isConnecting || isConnected}
 							onclick={() => connectBleDevice(device.address)}
 						>
-							<span class="font-bold">{device.name}</span>
-							<span class="text-sm">{device.address}</span>
+							<div class="flex w-full flex-col items-center gap-1">
+								<div class="w-full font-bold">{device.name}</div>
+								<div class="w-full text-sm">{device.address}</div>
+							</div>
+							<div>
+								{#if isConnecting}
+									<ProgressRing
+										value={null}
+										size="size-6"
+										meterStroke="stroke-surface-600-400"
+										trackStroke="stroke-surface-50-950"
+									/>
+								{:else}
+									<ChevronRight class="h-6 w-6" />
+								{/if}
+							</div>
 						</button>
 					</li>
 				{/each}
 			</ul>
 		{/if}
 
-		{#if isScanning}
-			<div class="animate-pulse rounded border bg-yellow-200 p-1">Scanning...</div>
-		{/if}
-
-		{#if isConnecting}
-			<div class="animate-pulse rounded border bg-yellow-200 p-1">Connecting...</div>
-		{/if}
-
 		{#if isConnected}
-			<button class="rounded border p-1" onclick={disconnectBleDevice}>disconnect</button>
+			<div class="flex flex-col items-center gap-2">
+				<h2 class="text-2xl font-bold">Connected!</h2>
+				<button class="btn preset-filled-error-500" onclick={disconnectBleDevice}>
+					disconnect
+				</button>
+			</div>
 		{/if}
 	{/if}
 </div>
