@@ -1,7 +1,41 @@
 import z from 'zod';
 
 /*
- * WebSockets
+ * Commands (from the frontend)
+ */
+
+// eslint-disable-next-line @typescript-eslint/no-empty-object-type
+type empty = {};
+
+type WsCommandDef = {
+	scan: empty;
+	connect: { address: string };
+	disconnect: empty;
+};
+
+export type WsCommand<K extends keyof WsCommandDef = keyof WsCommandDef> = {
+	cmd: K;
+	data: WsCommandDef[K];
+};
+
+const commandFactories: {
+	[K in keyof WsCommandDef]: (data: WsCommandDef[K]) => { cmd: K; data: WsCommandDef[K] };
+} = {
+	scan: () => ({ cmd: 'scan', data: {} }),
+	connect: (data) => ({ cmd: 'connect', data }),
+	disconnect: () => ({ cmd: 'disconnect', data: {} })
+};
+
+export const sendCommand = <K extends keyof WsCommandDef>(
+	ws: WebSocket,
+	cmd: K,
+	data: WsCommandDef[K]
+) => {
+	ws.send(JSON.stringify(commandFactories[cmd](data)));
+};
+
+/*
+ * Messages (from the backend)
  */
 
 const createMessage = <T extends string, E extends string, D extends z.ZodTypeAny>(
@@ -56,7 +90,8 @@ export type ZScanMessage = z.infer<typeof ScanMessage>;
 const ConnectStatus = z.union([
 	z.literal('start'),
 	z.literal('connecting'),
-	z.literal('connected')
+	z.literal('connected'),
+	z.literal('disconnected')
 ]);
 
 export const ConnectMessage = z.discriminatedUnion('event', [
@@ -77,3 +112,12 @@ export const WsMessage = z.discriminatedUnion('topic', [
 ]);
 
 export type ZWsMessage = z.infer<typeof WsMessage>;
+
+export const parseMessage = (ev: MessageEvent<unknown>): ZWsMessage => {
+	if (typeof ev.data !== 'string') {
+		throw new Error('Invalid message format');
+	}
+
+	const json = JSON.parse(ev.data);
+	return WsMessage.parse(json);
+};

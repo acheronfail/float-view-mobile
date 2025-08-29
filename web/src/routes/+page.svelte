@@ -1,10 +1,19 @@
 <script lang="ts">
-	import { backendClient, commands, parseMessage } from '../lib/backend-client';
-	import type { ZConnectMessage, ZScanDevice, ZScanMessage } from '../lib/backend-client.types';
+	import { onMount } from 'svelte';
+	import { backendClient } from '../lib/backend-client';
+	import {
+		parseMessage,
+		sendCommand,
+		type ZConnectMessage,
+		type ZScanDevice,
+		type ZScanMessage
+	} from '../lib/backend-client.types';
 
 	let ws = $state<WebSocket | null>(null);
 
 	let isScanning = $state(false);
+	let isConnecting = $state(false);
+	let isConnected = $state(false);
 	let bleDevices = $state<Array<ZScanDevice>>([]);
 
 	function handleScanMessage(msg: ZScanMessage) {
@@ -22,7 +31,18 @@
 		}
 	}
 
-	function handleConnectMessage(msg: ZConnectMessage) {}
+	function handleConnectMessage(msg: ZConnectMessage) {
+		switch (msg.event) {
+			case 'status':
+				isConnecting = msg.data.status === 'start' || msg.data.status === 'connecting';
+				isConnected = msg.data.status === 'connected';
+				break;
+			case 'error':
+				alert(`Connect error: ${msg.data.message}`);
+				isConnected = false;
+				break;
+		}
+	}
 
 	async function connectWebsocket() {
 		if (ws) return ws;
@@ -32,7 +52,7 @@
 
 		ws.addEventListener('message', (event) => {
 			const msg = parseMessage(event);
-			console.debug(msg);
+			console.debug(['ws', msg.topic, msg.event].join(':'), msg.data);
 
 			switch (msg.topic) {
 				case 'socket':
@@ -48,30 +68,37 @@
 		});
 
 		ws.addEventListener('close', (event) => {
-			console.debug(event);
 			ws = null;
+			connectWebsocket();
 		});
 
 		return ws;
 	}
 
-	async function scanDevices() {
+	async function runHandlingErrors(fn: (ws: WebSocket) => void) {
 		try {
-			const ws = await connectWebsocket();
-			ws.send(commands.scan());
+			fn(await connectWebsocket());
 		} catch (err) {
 			alert(String(err));
 		}
 	}
 
-	async function connectBleDevice(address: string) {
-		try {
-			const ws = await connectWebsocket();
-			ws.send(commands.connect(address));
-		} catch (err) {
-			alert(String(err));
-		}
-	}
+	const scanDevices = () => {
+		bleDevices = [];
+		runHandlingErrors((ws) => sendCommand(ws, 'scan', {}));
+	};
+
+	const connectBleDevice = (address: string) => {
+		runHandlingErrors((ws) => sendCommand(ws, 'connect', { address }));
+	};
+
+	const disconnectBleDevice = () => {
+		runHandlingErrors((ws) => sendCommand(ws, 'disconnect', {}));
+	};
+
+	onMount(() => {
+		connectWebsocket();
+	});
 </script>
 
 <div class="flex flex-col items-center justify-center gap-2 p-2">
@@ -80,13 +107,9 @@
 	{#if ws}
 		<button class="rounded border p-1" onclick={scanDevices}>scan devices</button>
 
-		{#if isScanning}
-			<div class="animate-pulse rounded border bg-yellow-200 p-1">Scanning...</div>
-		{/if}
-
 		{#if bleDevices.length > 0 || isScanning}
 			<h2 class="text-2xl font-bold">Devices found:</h2>
-			<ul>
+			<ul class="flex w-full flex-col items-center gap-2">
 				{#each bleDevices as device}
 					<li>
 						<button
@@ -99,6 +122,18 @@
 					</li>
 				{/each}
 			</ul>
+		{/if}
+
+		{#if isScanning}
+			<div class="animate-pulse rounded border bg-yellow-200 p-1">Scanning...</div>
+		{/if}
+
+		{#if isConnecting}
+			<div class="animate-pulse rounded border bg-yellow-200 p-1">Connecting...</div>
+		{/if}
+
+		{#if isConnected}
+			<button class="rounded border p-1" onclick={disconnectBleDevice}>disconnect</button>
 		{/if}
 	{/if}
 </div>

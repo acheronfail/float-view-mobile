@@ -1,5 +1,3 @@
-import { WsMessage, type ZWsMessage } from './backend-client.types';
-
 /**
  * Client to communicate with the iOS/Android backends
  */
@@ -24,21 +22,3 @@ class BackendClient {
 }
 
 export const backendClient = new BackendClient();
-
-/*
- * WebSocket
- */
-
-export const commands = {
-	scan: () => JSON.stringify({ cmd: 'scan', data: {} }),
-	connect: (address: string) => JSON.stringify({ cmd: 'connect', data: { address } })
-};
-
-export const parseMessage = (ev: MessageEvent<unknown>): ZWsMessage => {
-	if (typeof ev.data !== 'string') {
-		throw new Error('Invalid message format');
-	}
-
-	const json = JSON.parse(ev.data);
-	return WsMessage.parse(json);
-};

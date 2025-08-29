@@ -8,11 +8,22 @@ export default defineConfig({
 	build: {
 		rollupOptions: {
 			output: {
-				hashCharacters: 'hex',
+				hashCharacters: 'hex'
 				// assetFileNames: '[hash][extname]'
 			}
 		}
 	},
+
+	server: {
+		proxy: {
+			'/ws': {
+				target: 'ws://localhost:3001',
+				ws: true,
+				changeOrigin: true
+			}
+		}
+	},
+
 	test: {
 		expect: { requireAssertions: true },
 		projects: [
