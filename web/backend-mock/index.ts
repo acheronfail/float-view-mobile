@@ -37,9 +37,9 @@ wss.on('connection', (ws) => {
 				case 'scan':
 					reply(createMessage('scan', 'status', { status: 'start' }));
 					await sleep(200);
-					reply(createMessage('scan', 'device', { name: 'device1', address: 'device1' }));
+					reply(createMessage('scan', 'device', { name: 'ExpressA', address: '11:22:33:44:55' }));
 					await sleep(500);
-					reply(createMessage('scan', 'device', { name: 'device2', address: 'device2' }));
+					reply(createMessage('scan', 'device', { name: 'ExpressB', address: 'aa:bb:cc:dd:ee' }));
 					await sleep(300);
 					reply(createMessage('scan', 'status', { status: 'complete' }));
 
