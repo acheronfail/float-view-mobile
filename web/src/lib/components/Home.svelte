@@ -101,40 +101,35 @@
 		connectingAddress = address;
 		runHandlingErrors(() => ws && sendCommand(ws, 'connect', { address }));
 	};
-
-
 </script>
 
 <div class="container mx-auto max-w-md px-4 py-6">
 	<!-- Header -->
 	<div class="mb-8 text-center">
 		<h1
-			class="mb-2 bg-gradient-to-r from-blue-600 via-purple-600 to-indigo-600 bg-clip-text text-4xl font-bold text-transparent"
+			class="bg-gradient-to-r from-blue-600 via-purple-600 to-indigo-600 bg-clip-text text-4xl font-bold text-transparent"
 		>
 			Float View
 		</h1>
-		<p class="text-sm text-gray-600 dark:text-gray-300">Connect to your BLE devices</p>
+		<p class="text-sm text-gray-600 dark:text-gray-300">A simple VESC companion</p>
 	</div>
 
 	{#if ws}
-		<!-- Scan Section -->
-		<div class="mb-6 rounded-2xl bg-white p-6 shadow-lg dark:bg-gray-800">
-			<div class="flex flex-col items-center gap-4">
-				<button
-					class="btn preset-filled-primary-500 w-full transform rounded-xl px-6 py-3 text-lg font-semibold transition-all duration-200 active:scale-95 disabled:cursor-not-allowed disabled:opacity-50"
-					onclick={scanDevices}
-					disabled={isScanning}
-				>
-					{isScanning ? 'Looking...' : 'Look for VESCs'}
-				</button>
-			</div>
-		</div>
-
 		<!-- Devices Section -->
 		<div class="mb-6 rounded-2xl bg-white p-6 shadow-lg dark:bg-gray-800">
 			<h2 class="mb-4 text-center text-xl font-bold text-gray-800 dark:text-white">
 				Devices Found ({bleDevices.length})
 			</h2>
+
+			<div class="mb-4 flex justify-center">
+				<button
+					class="btn btn-sm preset-filled-primary-500 text-lg font-semibold disabled:cursor-not-allowed disabled:opacity-50"
+					onpointerdown={scanDevices}
+					disabled={isScanning}
+				>
+					{isScanning ? 'Looking...' : 'Look for VESCs'}
+				</button>
+			</div>
 
 			{#if bleDevices.length === 0}
 				<div class="py-8 text-center text-gray-500 dark:text-gray-400">
@@ -149,9 +144,9 @@
 					{#each bleDevices as device (device.address)}
 						<li animate:flip in:slide out:fade>
 							<button
-								class="btn preset-filled-surface-100-900 border-surface-200 dark:border-surface-700 w-full transform rounded-xl border p-4 text-left shadow-sm transition-all duration-200 hover:shadow-md active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50"
+								class="card preset-filled-surface-100-900 border-surface-200 dark:border-surface-700 w-full border p-2 text-left shadow-xl hover:shadow-md disabled:cursor-not-allowed disabled:opacity-50"
 								disabled={isConnecting}
-								onclick={() => connectBleDevice(device.address)}
+								onpointerdown={() => connectBleDevice(device.address)}
 							>
 								<div class="flex w-full items-center justify-between">
 									<div class="min-w-0 flex-1">
