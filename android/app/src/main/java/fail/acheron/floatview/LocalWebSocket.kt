@@ -8,26 +8,35 @@ import java.nio.charset.StandardCharsets
 import java.security.MessageDigest
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.ExecutorService
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 
 class LocalWebSocket() {
   data class WebSocketClient(
           val socket: Socket,
           val output: OutputStream,
           val input: InputStream,
-          val id: String
+          val id: String,
+          val handlers: MutableMap<String, WsHandler>
   )
 
-    val TAG = "FloatView_LocalWebSocket"
+  val logTag = "FloatView_LocalWebSocket"
   val webSocketClients = ConcurrentHashMap<String, WebSocketClient>()
 
-    fun isWebsocketUpgrade(ctx: Context): Boolean {
-        return ctx.path == "/ws" &&
-                      ctx.requestHeaders["upgrade"]?.lowercase() == "websocket" &&
-                      ctx.requestHeaders["connection"]?.lowercase()?.contains("upgrade") == true
+  fun isWebsocketUpgrade(ctx: Context): Boolean {
+    return ctx.path == "/ws" &&
+            ctx.requestHeaders["upgrade"]?.lowercase() == "websocket" &&
+            ctx.requestHeaders["connection"]?.lowercase()?.contains("upgrade") == true
+  }
 
-    }
-
-  fun handleWebSocketUpgrade(socket: Socket, headers: Map<String, String>, executor: ExecutorService) {
+  fun handleWebSocketUpgrade(
+          socket: Socket,
+          headers: Map<String, String>,
+          executor: ExecutorService,
+          handlers: MutableMap<String, WsHandler>
+  ) {
     try {
       val key = headers["sec-websocket-key"] ?: return
       val acceptKey = generateWebSocketAcceptKey(key)
@@ -46,40 +55,45 @@ class LocalWebSocket() {
       output.write(response.toByteArray())
       output.flush()
       val clientId = "client_${System.currentTimeMillis()}"
-      val client = WebSocketClient(socket, output, socket.getInputStream(), clientId)
+      val client = WebSocketClient(socket, output, socket.getInputStream(), clientId, handlers)
       webSocketClients[clientId] = client
-      sendWebSocketMessage(
-              client,
-              createJsonMessage("welcome", "clientId" to clientId, "message" to "Connected")
-      )
+      sendWebSocketMessage(client, wsMessage("socket", "welcome", buildJsonObject {}))
       executor.execute { handleWebSocketMessages(client) }
     } catch (e: Exception) {
-      Log.e(TAG, "WebSocket upgrade error: ${e.message}", e)
+      Log.e(logTag, "WebSocket upgrade error: ${e.message}", e)
       try {
         socket.close()
       } catch (_: Exception) {}
     }
   }
 
-  fun handleWebSocketMessages(client: WebSocketClient) {
+  private fun handleWebSocketMessages(client: WebSocketClient) {
+    val topic = "socket"
     try {
       val buffer = ByteArray(1024)
       while (!client.socket.isClosed) {
         val bytesRead = client.input.read(buffer)
         if (bytesRead <= 0) break
         val frame = parseWebSocketFrame(buffer, bytesRead) ?: continue
-        if (!isValidJson(frame.payload)) {
-          sendWebSocketMessage(client, createJsonMessage("error", "message" to "Invalid JSON"))
+
+        val payload = Json.decodeFromString<WebSocketCommand>(frame.payload)
+        val handler = client.handlers[payload.cmd]
+        if (handler == null) {
+          sendWebSocketMessage(
+                  client,
+                  wsMessage(
+                          topic,
+                          "error",
+                          buildJsonObject { put("message", "Unknown command: ${payload.cmd}") }
+                  )
+          )
           continue
         }
-        val echo =
-                """{"type":"echo","original":${frame.payload},"timestamp":${System.currentTimeMillis()}}"""
-        sendWebSocketMessage(client, echo)
-        val broadcast = """{"type":"broadcast","message":${frame.payload},"from":"${client.id}"}"""
-        broadcastToOtherClients(client.id, broadcast)
+
+        handler(payload.data) { msg -> sendWebSocketMessage(client, msg) }
       }
     } catch (e: Exception) {
-      Log.d(TAG, "WebSocket client ${client.id} disconnected: ${e.message}")
+      Log.d(logTag, "WebSocket client ${client.id} disconnected: ${e.message}")
     } finally {
       webSocketClients.remove(client.id)
       try {
@@ -88,18 +102,18 @@ class LocalWebSocket() {
     }
   }
 
-  fun sendWebSocketMessage(client: WebSocketClient, message: String) {
+  private fun sendWebSocketMessage(client: WebSocketClient, message: JsonObject) {
     try {
-      val bytes = message.toByteArray(StandardCharsets.UTF_8)
+      val bytes = message.toString().toByteArray(StandardCharsets.UTF_8)
       val frame = createWebSocketFrame(bytes)
       client.output.write(frame)
       client.output.flush()
     } catch (e: Exception) {
-      Log.e(TAG, "Send WS error: ${e.message}", e)
+      Log.e(logTag, "Send WS error: ${e.message}", e)
     }
   }
 
-  fun broadcastToOtherClients(excludeId: String, message: String) {
+  fun broadcastToOtherClients(excludeId: String, message: JsonObject) {
     webSocketClients.values.forEach { if (it.id != excludeId) sendWebSocketMessage(it, message) }
   }
 
@@ -120,7 +134,7 @@ class LocalWebSocket() {
               ((buffer[offset].toInt() and 0xFF) shl 8) or (buffer[offset + 1].toInt() and 0xFF)
       offset += 2
     } else if (payloadLength == 127) {
-      Log.w(TAG, "WS payload too large")
+      Log.w(logTag, "WS payload too large")
       return null
     }
     val maskingKey =
@@ -143,7 +157,7 @@ class LocalWebSocket() {
     return WebSocketFrame(opcode, str)
   }
 
-  fun createWebSocketFrame(payload: ByteArray): ByteArray {
+  private fun createWebSocketFrame(payload: ByteArray): ByteArray {
     val length = payload.size
     val headerSize =
             when {
@@ -166,30 +180,11 @@ class LocalWebSocket() {
     return frame
   }
 
-  fun generateWebSocketAcceptKey(key: String): String {
+  private fun generateWebSocketAcceptKey(key: String): String {
     val magic = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
     val digest =
             MessageDigest.getInstance("SHA-1")
                     .digest((key + magic).toByteArray(StandardCharsets.UTF_8))
     return Base64.encodeToString(digest, Base64.NO_WRAP)
-  }
-
-  private fun createJsonMessage(type: String, vararg pairs: Pair<String, Any>): String {
-    val b = StringBuilder().append("{\"type\":\"$type\"")
-    pairs.forEach { (k, v) ->
-      b.append(",\"$k\":")
-      when (v) {
-        is String -> b.append("\"$v\"")
-        is Number -> b.append(v)
-        else -> b.append("\"$v\"")
-      }
-    }
-    return b.append("}").toString()
-  }
-
-    private fun isValidJson(s: String): Boolean {
-    val t = s.trim()
-    return t.isNotEmpty() &&
-            ((t.startsWith("{") && t.endsWith("}")) || (t.startsWith("[") && t.endsWith("]")))
   }
 }

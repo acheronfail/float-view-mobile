@@ -41,16 +41,15 @@ class VescBle(private val context: Context) {
 
     interface ConnectionListener {
         fun onConnected(gatt: BluetoothGatt)
-        /**
-         * services discovered and contain target service(s)
-         */
+        /** services discovered and contain target service(s) */
         fun onReady(gatt: BluetoothGatt)
         fun onDisconnected()
         fun onError(message: String)
     }
 
     private val logTag = "FloatView_BluetoothModule"
-    private val bleManager = context.getSystemService(Context.BLUETOOTH_SERVICE) as? BluetoothManager
+    private val bleManager =
+            context.getSystemService(Context.BLUETOOTH_SERVICE) as? BluetoothManager
     private val bluetoothAdapter = bleManager?.adapter
     private val foundDevices = ConcurrentHashMap<String, BluetoothDevice>()
 
@@ -213,11 +212,6 @@ class VescBle(private val context: Context) {
         }
 
         try {
-            // TODO: investigate - `requestConnectionPriorityForDevice - HIGH`
-            // TODO: detect disconnects (out of range, etc)
-            // TODO: reconnection logic/timers
-            // TODO: start monitoring logs:
-            // TODO: monitorCharacteristicForDevice for constant updates of the char (VescCharacteristicsTx)
             bluetoothGatt =
                     device.connectGatt(
                             context,

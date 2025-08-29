@@ -34,12 +34,18 @@ class MainActivity : AppCompatActivity() {
         // Start the singleton local server
         LocalServer.start(this, webView)
 
-        var bleDevices: List<BluetoothDevice> = listOf()
-        LocalServer.addRoute("/api/ble/scan") { ctx: Context ->
+        LocalServer.addHandler("scan") { _, reply ->
+            val topic = "scan"
+
             if (!vescBle.requestPermissionsIfNeeded(this, 1001)) {
-                ctx.setJson(errorResponse("permissions not granted"))
-                ctx.send()
-                return@addRoute
+                reply(
+                        wsMessage(
+                                topic,
+                                "error",
+                                buildJsonObject { put("message", "no permissions") }
+                        )
+                )
+                return@addHandler
             }
 
             vescBle.startScan(
@@ -47,81 +53,144 @@ class MainActivity : AppCompatActivity() {
                     3_000L,
                     object : VescBle.ScanListener {
                         @SuppressLint("MissingPermission")
+                        override fun onDeviceFound(device: BluetoothDevice) {
+                            Thread {
+                                        reply(
+                                                wsMessage(
+                                                        topic,
+                                                        "device",
+                                                        buildJsonObject {
+                                                            put("name", device.name)
+                                                            put("address", device.address)
+                                                        }
+                                                )
+                                        )
+                                    }
+                                    .start()
+                        }
+
+                        @SuppressLint("MissingPermission")
                         override fun onScanStopped(devices: List<BluetoothDevice>) {
                             Log.d(TAG, "BLE scan complete. Devices count: ${devices.size}")
-                            // Execute the response on a background thread to avoid NetworkOnMainThreadException
-                            bleDevices = devices
-                            Thread {
-                                        ctx.setJson(successResponse(buildJsonArray {
-                                            bleDevices.forEach { device ->
-                                                add(buildJsonObject {
-                                                    put("name", device.name ?: "Unknown")
-                                                    put("id", device.address)
-                                                })
-                                            }
-                                        }))
-                                        ctx.send()
-                                    }
+                            Thread { reply(wsMessage(topic, "complete", buildJsonObject {})) }
                                     .start()
                         }
 
                         override fun onError(message: String) {
                             Log.e(TAG, "BLE scan error: $message")
-                            ctx.setJson(errorResponse(message)).send()
+                            Thread {
+                                        reply(
+                                                wsMessage(
+                                                        topic,
+                                                        "error",
+                                                        buildJsonObject { put("message", message) }
+                                                )
+                                        )
+                                    }
+                                    .start()
                         }
                     }
             )
         }
 
-        LocalServer.addRoute("/api/ble/connect") { ctx: Context ->
-            val bleConnectRequest = Json.decodeFromString<BleConnectRequest>(ctx.getRequestBody())
-            val connected = connectToDevice(bleConnectRequest.deviceId)
-            if (connected) {
-                ctx.setJson(successResponse(buildJsonObject { put("status", "connected") }))
-            } else {
-                ctx.setJson(errorResponse("not found"))
+        LocalServer.addHandler("connect") { req, reply ->
+            val topic = "connect"
+
+            val jsonAddress = req["address"]
+            if (jsonAddress == null) {
+                reply(wsMessage(topic, "error", buildJsonObject { put("message", "no address") }))
+                return@addHandler
             }
-            ctx.send()
-        }
 
-    }
+            val address = jsonAddress.jsonPrimitive.contentOrNull
+            if (address == null) {
+                reply(wsMessage(topic, "error", buildJsonObject { put("message", "no address") }))
+                return@addHandler
+            }
 
-    private fun connectToDevice(address: String): Boolean {
-        Log.d(TAG, "Connecting to device: $address")
+            reply(wsMessage(topic, "status", buildJsonObject { put("status", "start") }))
+            val didStartConnecting =
+                    vescBle.connect(
+                            address,
+                            listOf(VescBle.VescService),
+                            object : VescBle.ConnectionListener {
+                                override fun onConnected(gatt: BluetoothGatt) {
+                                    Log.d(TAG, "Connected to device: ${gatt.device.address}")
+                                    reply(
+                                            wsMessage(
+                                                    topic,
+                                                    "status",
+                                                    buildJsonObject { put("status", "connected") }
+                                            )
+                                    )
+                                }
 
-        return vescBle.connect(
-                address,
-                listOf(VescBle.VescService),
-                object : VescBle.ConnectionListener {
-                    override fun onConnected(gatt: BluetoothGatt) {
-                        Log.d(TAG, "Connected to device: ${gatt.device.address}")
-                    }
+                                override fun onReady(gatt: BluetoothGatt) {
+                                    Log.d(TAG, "Device ready: ${gatt.device.address}")
+                                    reply(
+                                            wsMessage(
+                                                    topic,
+                                                    "ready",
+                                                    buildJsonObject { put("address", address) }
+                                            )
+                                    )
 
-                    override fun onReady(gatt: BluetoothGatt) {
-                        Log.d(TAG, "Device ready: ${gatt.device.address}")
+                                    // TODO: investigate - `requestConnectionPriorityForDevice -
+                                    // HIGH`
+                                    // TODO: detect disconnects (out of range, etc)
+                                    // TODO: reconnection logic/timers
+                                    // TODO: start monitoring logs:
+                                    // TODO: monitorCharacteristicForDevice for constant updates of
+                                    // the char (VescCharacteristicsTx)
+                                    // Log all available services and characteristics
+                                    logAvailableCharacteristics(gatt)
 
-                        // Log all available services and characteristics
-                        logAvailableCharacteristics(gatt)
+                                    // Wait 5 seconds then disconnect
+                                    mainHandler.postDelayed(
+                                            {
+                                                Log.d(
+                                                        TAG,
+                                                        "Disconnecting from device after 5 seconds"
+                                                )
+                                                vescBle.disconnect()
+                                            },
+                                            5000
+                                    )
+                                }
 
-                        // Wait 5 seconds then disconnect
-                        mainHandler.postDelayed(
-                                {
-                                    Log.d(TAG, "Disconnecting from device after 5 seconds")
-                                    vescBle.disconnect()
-                                },
-                                5000
+                                override fun onDisconnected() {
+                                    reply(
+                                            wsMessage(
+                                                    topic,
+                                                    "disconnect",
+                                                    buildJsonObject { put("address", address) }
+                                            )
+                                    )
+                                }
+
+                                override fun onError(message: String) {
+                                    reply(
+                                            wsMessage(
+                                                    topic,
+                                                    "error",
+                                                    buildJsonObject { put("message", message) }
+                                            )
+                                    )
+                                }
+                            }
+                    )
+            if (didStartConnecting) {
+                reply(wsMessage(topic, "status", buildJsonObject { put("status", "connecting") }))
+            } else {
+                reply(
+                        wsMessage(
+                                topic,
+                                "error",
+                                buildJsonObject { put("message", "no device found") }
                         )
-                    }
-
-                    override fun onDisconnected() {
-                        Log.d(TAG, "Disconnected from device: ${address}")
-                    }
-
-                    override fun onError(message: String) {
-                        Log.e(TAG, "Connection error: $message")
-                    }
-                }
-        )
+                )
+            }
+        }
     }
 
     private fun logAvailableCharacteristics(gatt: BluetoothGatt) {

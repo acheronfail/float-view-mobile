@@ -6,21 +6,14 @@ import android.annotation.SuppressLint
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.*
 
-// Helper functions for creating JSON responses concisely
-fun successResponse(data: JsonElement) = buildJsonObject {
-    put("kind", "success")
-    put("data", data)
-}
-
-fun errorResponse(message: String) = buildJsonObject {
-    put("kind", "error")
-    put("data", buildJsonObject {
-        put("message", message)
-    })
-}
-
 /*
- * Requests
+ * WebSocket
  */
 
-@Serializable data class BleConnectRequest(val deviceId: String)
+@Serializable data class WebSocketCommand(val cmd: String, val data: JsonObject)
+
+fun wsMessage(topic: String, event: String, data: JsonObject) = buildJsonObject {
+    put("topic", topic)
+    put("event", event)
+    put("data", data)
+}

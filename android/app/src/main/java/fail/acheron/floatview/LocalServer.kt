@@ -9,20 +9,28 @@ import java.net.ServerSocket
 import java.net.Socket
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executors
+import kotlinx.serialization.json.JsonObject
+
+typealias WsHandler = (req: JsonObject, reply: (json: JsonObject) -> Unit) -> Unit
 
 object LocalServer {
   private const val TAG = "FloatView_LocalServer"
 
-  private val webSocket =  LocalWebSocket()
+  private val webSocket = LocalWebSocket()
   private var serverSocket: ServerSocket? = null
   private val executor = Executors.newCachedThreadPool()
   private var webViewRef: WeakReference<WebView>? = null
   private var activityRef: WeakReference<Activity>? = null
   private var started = false
   private val routes = ConcurrentHashMap<String, (Context) -> Unit>()
+  private val wsHandlers = mutableMapOf<String, WsHandler>()
 
-  fun addRoute(name: String, handler: (Context) -> Unit) {
-    routes[name] = handler;
+  fun addRoute(path: String, handler: (Context) -> Unit) {
+    routes[path] = handler
+  }
+
+  fun addHandler(commandName: String, handler: WsHandler) {
+    wsHandlers[commandName] = handler
   }
 
   @Synchronized
@@ -76,7 +84,7 @@ object LocalServer {
 
       if (webSocket.isWebsocketUpgrade(ctx)) {
         isWebSocketUpgrade = true
-        webSocket.handleWebSocketUpgrade(socket, ctx.requestHeaders, executor)
+        webSocket.handleWebSocketUpgrade(socket, ctx.requestHeaders, executor, wsHandlers)
         return
       }
 
@@ -142,14 +150,14 @@ object LocalServer {
     Log.d(TAG, "Trying to serve static file: $webPath")
 
     try {
-        val content = activity.assets.open(webPath).bufferedReader().use { it.readText() }
-        val contentType = getMimeType(cleanPath)
-        Log.d(TAG, "Successfully served static file: $webPath as $contentType")
-        return StaticFileResponse(content, contentType)
-      } catch (e: IOException) {
-        Log.d(TAG, "Static file not found: $webPath (${e.message})")
-        return null
-      }
+      val content = activity.assets.open(webPath).bufferedReader().use { it.readText() }
+      val contentType = getMimeType(cleanPath)
+      Log.d(TAG, "Successfully served static file: $webPath as $contentType")
+      return StaticFileResponse(content, contentType)
+    } catch (e: IOException) {
+      Log.d(TAG, "Static file not found: $webPath (${e.message})")
+      return null
+    }
   }
 
   private fun getMimeType(filePath: String): String {

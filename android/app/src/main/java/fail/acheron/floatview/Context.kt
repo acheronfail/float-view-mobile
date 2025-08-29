@@ -1,11 +1,11 @@
 package fail.acheron.floatview
 
 import android.util.Log
-import kotlinx.serialization.json.JsonObject
 import java.io.*
 import java.io.PrintWriter
 import java.net.Socket
 import java.util.TreeMap
+import kotlinx.serialization.json.JsonObject
 
 class Context(private val socket: Socket) {
     private val TAG = "FloatView_LocalServerContext"

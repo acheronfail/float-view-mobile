@@ -1,5 +1,11 @@
 <script lang="ts">
-	import { backendClient } from '../lib/backend-client';
+	import { backendClient, commands, parseMessage } from '../lib/backend-client';
+	import type {
+		ZBleScanDevice,
+		ZConnectMessage,
+		ZScanMessage,
+		ZScanStatus
+	} from '../lib/backend-client.types';
 
 	let preText = $state('');
 	let wsText = $state('');
@@ -7,53 +13,83 @@
 
 	let ws = $state<WebSocket | null>(null);
 
-	async function connectWebsocket() {
-		if (!ws) {
-			wsState = 'connecting';
-			const result = await backendClient.connectWebsocket();
-			ws = result[0];
-			ws.addEventListener('message', (event) => {
-				const data = JSON.parse(event.data);
-				wsText += JSON.stringify(data, null, 2);
-			});
-			ws.addEventListener('close', (event) => {
-				wsState = 'disconnected';
-				ws = null;
-				wsText += '--- CLOSED: ' + event.code + ' ' + event.reason + ' ---\n';
-			});
-			wsState = 'connected';
-		} else {
-			ws.close(1000, 'User disconnected');
-			ws = null;
-			wsState = 'disconnected';
-			wsText = '';
+	let isScanning = $state(false);
+	let bleDevices = $state<Array<ZBleScanDevice>>([]);
+
+	function handleScanMessage(msg: ZScanMessage) {
+		switch (msg.event) {
+			case 'device':
+				bleDevices.push(msg.data);
+				break;
+			case 'status':
+				isScanning = msg.data.status === 'start';
+				break;
+			case 'error':
+				alert(`Scan error: ${msg.data.message}`);
+				isScanning = false;
+				break;
 		}
 	}
 
-	let bleDevices = $state<Array<{ name: string; id: string }>>([]);
+	function handleConnectMessage(msg: ZConnectMessage) {}
+
+	async function connectWebsocket() {
+		if (ws) return ws;
+
+		wsState = 'connecting';
+		const result = await backendClient.connectWebsocket();
+		ws = result[0];
+
+		ws.addEventListener('message', (event) => {
+			const msg = parseMessage(event);
+			console.debug(msg);
+
+			switch (msg.topic) {
+				case 'socket':
+					return;
+				case 'scan':
+					return handleScanMessage(msg);
+				case 'connect':
+					return handleConnectMessage(msg);
+				default:
+					console.warn('Unknown message topic:', msg);
+					return;
+			}
+		});
+
+		ws.addEventListener('close', (event) => {
+			wsState = 'disconnected';
+			ws = null;
+			wsText += '--- CLOSED: ' + event.code + ' ' + event.reason + ' ---\n';
+		});
+
+		wsState = 'connected';
+
+		return ws;
+	}
+
+	function disconnectWebsocket() {
+		if (!ws) return;
+
+		ws.close(1000, 'User disconnected');
+		ws = null;
+		wsState = 'disconnected';
+		wsText = '';
+	}
+
 	async function scanDevices() {
 		try {
-			const response = await backendClient.scanBleDevices();
-			if (response.kind === 'error') {
-				alert(String(response.data.message));
-				return;
-			}
-			console.log(response);
-			bleDevices = response.data;
+			const ws = await connectWebsocket();
+			ws.send(commands.scan());
 		} catch (err) {
 			alert(String(err));
 		}
 	}
 
-	async function connectBleDevice(id: string) {
+	async function connectBleDevice(address: string) {
 		try {
-			const response = await backendClient.connectBleDevice(id);
-			if (response.kind === 'error') {
-				alert(String(response.data.message));
-				return;
-			}
-
-			preText = response.data.status + ' --- now use websocket?';
+			const ws = await connectWebsocket();
+			ws.send(commands.connect(address));
 		} catch (err) {
 			alert(String(err));
 		}
@@ -66,20 +102,30 @@
 	<button class="rounded border p-1" onclick={scanDevices}>scan devices</button>
 	<pre>{preText}</pre>
 
-	{#if bleDevices.length > 0}
-		<h2 class="text-2xl font-bold">BLE Devices</h2>
+	{#if isScanning}
+		<div class="animate-pulse rounded border bg-yellow-200 p-1">Scanning...</div>
+	{/if}
+
+	{#if bleDevices.length > 0 || isScanning}
+		<h2 class="text-2xl font-bold">Devices found:</h2>
 		<ul>
 			{#each bleDevices as device}
 				<li>
-					<button class="rounded border p-1" onclick={() => connectBleDevice(device.id)}>
-						{device.name} ({device.id})
+					<button
+						class="flex flex-col items-center justify-center gap-1 rounded border p-1"
+						onclick={() => connectBleDevice(device.address)}
+					>
+						<span class="font-bold">{device.name}</span>
+						<span class="text-sm">{device.address}</span>
 					</button>
 				</li>
 			{/each}
 		</ul>
 	{/if}
 
-	<button class="rounded border p-1" onclick={connectWebsocket}> connect websocket </button>
+	{#if ws}
+		<button class="rounded border p-1" onclick={disconnectWebsocket}>Disconnect</button>
+	{/if}
 	<pre>WS: {wsState}</pre>
 	<pre>{wsText}</pre>
 </div>
