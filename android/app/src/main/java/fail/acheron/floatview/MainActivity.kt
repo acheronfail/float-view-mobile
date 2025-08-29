@@ -25,43 +25,45 @@ class MainActivity : AppCompatActivity() {
 
         Log.d(TAG, "MainActivity onCreate started")
 
-        // Initialize WebView via module
         webViewModule = WebViewModule(this)
         webView = webViewModule.init()
-        setContentView(webView) // Keep layout simple for now
+        setContentView(webView)
+
+        bluetoothModule = BluetoothModule(this)
 
         // Start the singleton local server
         LocalServer.start(this, webView)
-
-        // Initialize Bluetooth module (permissions may prompt user)
-        bluetoothModule = BluetoothModule(this)
-        // If permissions already granted, start scan immediately; otherwise request then scan in
-        // callback
-        if (bluetoothModule.requestPermissionsIfNeeded(this, 1001)) {
-            startBleScan()
+        LocalServer.addRoute("/api/status") { ctx: LocalServerContext ->
+            ctx.setJson("""{"status":"all good"}""")
+            ctx.send()
         }
-    }
+        LocalServer.addRoute("/api/ble/scan") { ctx: LocalServerContext ->
+            if (!bluetoothModule.requestPermissionsIfNeeded(this, 1001)) {
+                ctx.setJson("""{"error":"invalid permissions","kind":"permissions"}""")
+                ctx.send()
+                return@addRoute
+            }
 
-    private fun startBleScan() {
-        bluetoothModule.startScan(
+            val devices = mutableListOf<BluetoothDevice>()
+            bluetoothModule.startScan(
                 listOf(BluetoothModule.VescService),
-                10_000L,
+                3_000L,
                 object : BluetoothModule.ScanListener {
                     override fun onDeviceFound(device: BluetoothDevice) {
                         Log.d(
                                 TAG,
                                 "BLE device with target service found: ${device.address} (${device.name})"
                         )
-
-                        // Stop scanning after first device found
-                        bluetoothModule.stopScan()
-
-                        // Connect to the device
-                        connectToDevice(device)
+                        devices.add(device)
                     }
 
                     override fun onScanStopped(devices: List<BluetoothDevice>) {
                         Log.d(TAG, "BLE scan complete. Devices count: ${devices.size}")
+                        // Execute the response on a background thread to avoid NetworkOnMainThreadException
+                        Thread {
+                            ctx.setJson("[${devices.joinToString(",") { """{"name":"${it.name}","id":"${it.address}"}""" }}]")
+                            ctx.send()
+                        }.start()
                     }
 
                     override fun onError(message: String) {
@@ -69,6 +71,7 @@ class MainActivity : AppCompatActivity() {
                     }
                 }
         )
+        }
     }
 
     private fun connectToDevice(device: BluetoothDevice) {
@@ -179,7 +182,6 @@ class MainActivity : AppCompatActivity() {
                             }
             if (allGranted) {
                 Log.d(TAG, "All BLE permissions granted; starting scan")
-                startBleScan()
             } else {
                 Log.w(TAG, "BLE permissions denied; cannot start scan")
             }

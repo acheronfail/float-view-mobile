@@ -38,12 +38,22 @@
 			alert(String(err));
 		}
 	}
+
+  async function scanDevices() {
+    try {
+      const devices = await backendClient.scanBleDevices();
+      preText = JSON.stringify(devices, null, 2);
+    } catch (err) {
+      alert(String(err));
+    }
+  }
 </script>
 
 <div class="flex flex-col items-center justify-center gap-2 p-2">
 	<h1 class="text-3xl font-bold">Welcome!</h1>
 
-	<button class="rounded border p-1" onclick={pingStatus}> ping status </button>
+	<button class="rounded border p-1" onclick={scanDevices}>scan devices</button>
+	<button class="rounded border p-1" onclick={pingStatus}>ping status</button>
 	<pre>{preText}</pre>
 
 	<button class="rounded border p-1" onclick={connectWebsocket}> connect websocket </button>

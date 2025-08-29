@@ -24,6 +24,7 @@ object LocalServer {
   private var webViewRef: WeakReference<WebView>? = null
   private var activityRef: WeakReference<Activity>? = null
   private var started = false
+  private val routes = ConcurrentHashMap<String, (LocalServerContext) -> Unit>()
 
   data class WebSocketClient(
           val socket: Socket,
@@ -31,6 +32,10 @@ object LocalServer {
           val input: InputStream,
           val id: String
   )
+
+  fun addRoute(name: String, handler: (LocalServerContext) -> Unit) {
+    routes.put(name, handler);
+  }
 
   @Synchronized
   fun start(activity: Activity, webView: WebView) {
@@ -77,6 +82,7 @@ object LocalServer {
 
   private fun handleRequest(socket: Socket) {
     var isWebSocketUpgrade = false
+    var handler: ((LocalServerContext) -> Unit)? = null
     try {
       val input = BufferedReader(InputStreamReader(socket.getInputStream()))
       val output = PrintWriter(socket.getOutputStream(), true)
@@ -111,14 +117,19 @@ object LocalServer {
         return
       }
 
+      val ctx = LocalServerContext(socket, output)
+      handler = routes[path]
+      if (handler != null) {
+        Log.d(TAG, "Running handler!")
+        handler(ctx)
+        return
+      }
+
       when (path) {
         "/" -> {
           val port = serverSocket?.localPort ?: 0
           val html = getMainHtml(port)
           sendResponse(output, "200 OK", "text/html", html)
-        }
-        "/api/status" -> {
-          sendResponse(output, "200 OK", "application/json", """{"status":"ok"}""")
         }
         else -> {
           // Try to serve static file from web directory
@@ -133,8 +144,9 @@ object LocalServer {
     } catch (e: IOException) {
       Log.e(TAG, "Request error: ${e.message}", e)
     } finally {
-      if (!isWebSocketUpgrade) {
+      if (!isWebSocketUpgrade && handler == null) {
         try {
+          Log.d(TAG, "Closing request!")
           socket.close()
         } catch (_: Exception) {}
       }

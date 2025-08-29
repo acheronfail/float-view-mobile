@@ -25,7 +25,7 @@ class BackendClient {
 	}
 
 	public async scanBleDevices() {
-		// TODO: implement backend endpoint and hit it
+		return this.fetch('/api/ble/scan');
 	}
 
 	public connectWebsocket() {
