@@ -1,5 +1,6 @@
 package fail.acheron.floatview
 
+import android.annotation.SuppressLint
 import android.bluetooth.BluetoothDevice
 import android.bluetooth.BluetoothGatt
 import android.os.Bundle
@@ -13,10 +14,10 @@ import kotlinx.serialization.json.*
 class MainActivity : AppCompatActivity() {
 
     private lateinit var webView: WebView
-    private lateinit var webViewModule: WebViewModule
+    private lateinit var localWebView: LocalWebView
     private val TAG = "FloatView_MainActivity"
 
-    private lateinit var bluetoothModule: BluetoothModule
+    private lateinit var vescBle: VescBle
     private val mainHandler = Handler(Looper.getMainLooper())
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -24,31 +25,31 @@ class MainActivity : AppCompatActivity() {
 
         Log.d(TAG, "MainActivity onCreate started")
 
-        webViewModule = WebViewModule(this)
-        webView = webViewModule.init()
+        localWebView = LocalWebView(this)
+        webView = localWebView.init()
         setContentView(webView)
 
-        bluetoothModule = BluetoothModule(this)
+        vescBle = VescBle(this)
 
         // Start the singleton local server
         LocalServer.start(this, webView)
 
         var bleDevices: List<BluetoothDevice> = listOf()
-        LocalServer.addRoute("/api/ble/scan") { ctx: LocalServerContext ->
-            if (!bluetoothModule.requestPermissionsIfNeeded(this, 1001)) {
+        LocalServer.addRoute("/api/ble/scan") { ctx: Context ->
+            if (!vescBle.requestPermissionsIfNeeded(this, 1001)) {
                 ctx.setJson(errorResponse("permissions not granted"))
                 ctx.send()
                 return@addRoute
             }
 
-            bluetoothModule.startScan(
-                    listOf(BluetoothModule.VescService),
+            vescBle.startScan(
+                    listOf(VescBle.VescService),
                     3_000L,
-                    object : BluetoothModule.ScanListener {
+                    object : VescBle.ScanListener {
+                        @SuppressLint("MissingPermission")
                         override fun onScanStopped(devices: List<BluetoothDevice>) {
                             Log.d(TAG, "BLE scan complete. Devices count: ${devices.size}")
-                            // Execute the response on a background thread to avoid
-                            // NetworkOnMainThreadException
+                            // Execute the response on a background thread to avoid NetworkOnMainThreadException
                             bleDevices = devices
                             Thread {
                                         ctx.setJson(successResponse(buildJsonArray {
@@ -66,40 +67,38 @@ class MainActivity : AppCompatActivity() {
 
                         override fun onError(message: String) {
                             Log.e(TAG, "BLE scan error: $message")
-
-                            ctx.setJson(errorResponse(message))
+                            ctx.setJson(errorResponse(message)).send()
                         }
                     }
             )
         }
-        LocalServer.addRoute("/api/ble/connect") { ctx: LocalServerContext ->
-            val bleConnectRequest = Json.decodeFromString<BleConnectRequest>(ctx.getBody())
-            val device = bleDevices.find { it.address == bleConnectRequest.deviceId }
-            if (device != null) {
-                connectToDevice(device)
-                ctx.setJson(successResponse(buildJsonObject {
-                    put("status", "connecting")
-                }))
+
+        LocalServer.addRoute("/api/ble/connect") { ctx: Context ->
+            val bleConnectRequest = Json.decodeFromString<BleConnectRequest>(ctx.getRequestBody())
+            val connected = connectToDevice(bleConnectRequest.deviceId)
+            if (connected) {
+                ctx.setJson(successResponse(buildJsonObject { put("status", "connected") }))
             } else {
                 ctx.setJson(errorResponse("not found"))
             }
             ctx.send()
         }
+
     }
 
-    private fun connectToDevice(device: BluetoothDevice) {
-        Log.d(TAG, "Connecting to device: ${device.address}")
+    private fun connectToDevice(address: String): Boolean {
+        Log.d(TAG, "Connecting to device: $address")
 
-        bluetoothModule.connect(
-                device,
-                listOf(BluetoothModule.VescService),
-                object : BluetoothModule.ConnectionListener {
+        return vescBle.connect(
+                address,
+                listOf(VescBle.VescService),
+                object : VescBle.ConnectionListener {
                     override fun onConnected(gatt: BluetoothGatt) {
-                        Log.d(TAG, "Connected to device: ${device.address}")
+                        Log.d(TAG, "Connected to device: ${gatt.device.address}")
                     }
 
                     override fun onReady(gatt: BluetoothGatt) {
-                        Log.d(TAG, "Device ready: ${device.address}")
+                        Log.d(TAG, "Device ready: ${gatt.device.address}")
 
                         // Log all available services and characteristics
                         logAvailableCharacteristics(gatt)
@@ -108,14 +107,14 @@ class MainActivity : AppCompatActivity() {
                         mainHandler.postDelayed(
                                 {
                                     Log.d(TAG, "Disconnecting from device after 5 seconds")
-                                    bluetoothModule.disconnect()
+                                    vescBle.disconnect()
                                 },
                                 5000
                         )
                     }
 
                     override fun onDisconnected() {
-                        Log.d(TAG, "Disconnected from device: ${device.address}")
+                        Log.d(TAG, "Disconnected from device: ${address}")
                     }
 
                     override fun onError(message: String) {
@@ -204,6 +203,6 @@ class MainActivity : AppCompatActivity() {
     override fun onDestroy() {
         super.onDestroy()
         LocalServer.stop()
-        if (this::webViewModule.isInitialized) webViewModule.destroy()
+        if (this::localWebView.isInitialized) localWebView.destroy()
     }
 }

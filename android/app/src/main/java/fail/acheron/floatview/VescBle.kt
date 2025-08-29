@@ -1,6 +1,7 @@
 package fail.acheron.floatview
 
 import android.Manifest
+import android.annotation.SuppressLint
 import android.app.Activity
 import android.bluetooth.*
 import android.bluetooth.le.BluetoothLeScanner
@@ -20,16 +21,16 @@ import androidx.core.content.ContextCompat
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 
-class BluetoothModule(private val context: Context) {
+class VescBle(private val context: Context) {
 
     companion object {
+        val VescService = UUID.fromString("6e400001-b5a3-f393-e0a9-e50e24dcca9e")
+        val VescCharacteristicsRx = UUID.fromString("6e400002-b5a3-f393-e0a9-e50e24dcca9e")
+        val VescCharacteristicsTx = UUID.fromString("6e400003-b5a3-f393-e0a9-e50e24dcca9e")
         val RescueService = UUID.fromString("99eb1511-a9e9-4024-b0a4-3dc4b4fabfb0")
         val RescueCharacteristicConf = UUID.fromString("99eb1513-a9e9-4024-b0a4-3dc4b4fabfb0")
         val RescueCharacteristicHwVer = UUID.fromString("99eb1515-a9e9-4024-b0a4-3dc4b4fabfb0")
         val CharacteristicFw = UUID.fromString("99eb1514-a9e9-4024-b0a4-3dc4b4fabfb0")
-        val VescService = UUID.fromString("6e400001-b5a3-f393-e0a9-e50e24dcca9e")
-        val VescCharacteristicsRx = UUID.fromString("6e400002-b5a3-f393-e0a9-e50e24dcca9e")
-        val VescCharacteristicsTx = UUID.fromString("6e400003-b5a3-f393-e0a9-e50e24dcca9e")
     }
 
     interface ScanListener {
@@ -40,16 +41,19 @@ class BluetoothModule(private val context: Context) {
 
     interface ConnectionListener {
         fun onConnected(gatt: BluetoothGatt)
-        fun onReady(gatt: BluetoothGatt) // services discovered and contain target service(s)
+        /**
+         * services discovered and contain target service(s)
+         */
+        fun onReady(gatt: BluetoothGatt)
         fun onDisconnected()
         fun onError(message: String)
     }
 
     private val logTag = "FloatView_BluetoothModule"
-    private val bluetoothManager: BluetoothManager? =
-            context.getSystemService(Context.BLUETOOTH_SERVICE) as? BluetoothManager
-    private val bluetoothAdapter: BluetoothAdapter? = bluetoothManager?.adapter
+    private val bleManager = context.getSystemService(Context.BLUETOOTH_SERVICE) as? BluetoothManager
+    private val bluetoothAdapter = bleManager?.adapter
     private val foundDevices = ConcurrentHashMap<String, BluetoothDevice>()
+
     private var bluetoothGatt: BluetoothGatt? = null
     private var isScanning = false
     private val mainHandler = Handler(Looper.getMainLooper())
@@ -133,6 +137,7 @@ class BluetoothModule(private val context: Context) {
 
         val callback =
                 object : ScanCallback() {
+                    @SuppressLint("MissingPermission")
                     override fun onScanResult(callbackType: Int, result: ScanResult) {
                         val device = result.device ?: return
                         if (device.address.isNullOrBlank()) return
@@ -169,6 +174,7 @@ class BluetoothModule(private val context: Context) {
         mainHandler.postDelayed({ stopScanInternal(scanner, callback, listener) }, durationMs)
     }
 
+    @SuppressLint("MissingPermission")
     private fun stopScanInternal(
             scanner: BluetoothLeScanner,
             callback: ScanCallback,
@@ -191,14 +197,21 @@ class BluetoothModule(private val context: Context) {
 
     // --- Connection ---
     fun connect(
-            device: BluetoothDevice,
+            address: String,
             requiredServices: List<UUID>,
             listener: ConnectionListener
-    ) {
+    ): Boolean {
         if (bluetoothGatt != null) {
             listener.onError("Already connected or connecting")
-            return
+            return false
         }
+
+        val device = foundDevices[address]
+        if (device == null) {
+            listener.onError("Device $address not known!")
+            return false
+        }
+
         try {
             // TODO: investigate - `requestConnectionPriorityForDevice - HIGH`
             // TODO: detect disconnects (out of range, etc)
@@ -254,21 +267,26 @@ class BluetoothModule(private val context: Context) {
                                 }
                             }
                     )
+            return true
         } catch (se: SecurityException) {
             listener.onError("Missing permissions: ${se.message}")
             closeGatt()
+            return false
         } catch (e: Exception) {
             listener.onError("Connect error: ${e.message}")
             closeGatt()
+            return false
         }
     }
 
+    @SuppressLint("MissingPermission")
     fun disconnect() {
         try {
             bluetoothGatt?.disconnect()
         } catch (_: Exception) {}
     }
 
+    @SuppressLint("MissingPermission")
     private fun closeGatt() {
         try {
             bluetoothGatt?.close()

@@ -1,6 +1,9 @@
 _default:
   just -l
 
+setup:
+  cd web && npm install
+
 dev-web:
   cd web && npm run dev
 

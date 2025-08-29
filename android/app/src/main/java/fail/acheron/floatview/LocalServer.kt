@@ -11,20 +11,18 @@ import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executors
 
 object LocalServer {
-
   private const val TAG = "FloatView_LocalServer"
 
-  // --- State ---
   private val webSocket =  LocalWebSocket()
   private var serverSocket: ServerSocket? = null
   private val executor = Executors.newCachedThreadPool()
   private var webViewRef: WeakReference<WebView>? = null
   private var activityRef: WeakReference<Activity>? = null
   private var started = false
-  private val routes = ConcurrentHashMap<String, (LocalServerContext) -> Unit>()
+  private val routes = ConcurrentHashMap<String, (Context) -> Unit>()
 
-  fun addRoute(name: String, handler: (LocalServerContext) -> Unit) {
-    routes.put(name, handler);
+  fun addRoute(name: String, handler: (Context) -> Unit) {
+    routes[name] = handler;
   }
 
   @Synchronized
@@ -72,9 +70,9 @@ object LocalServer {
 
   private fun handleRequest(socket: Socket) {
     var isWebSocketUpgrade = false
-    var handler: ((LocalServerContext) -> Unit)? = null
+    var handler: ((Context) -> Unit)? = null
     try {
-      val ctx = LocalServerContext(socket)
+      val ctx = Context(socket)
 
       if (webSocket.isWebsocketUpgrade(ctx)) {
         isWebSocketUpgrade = true
@@ -177,22 +175,10 @@ object LocalServer {
     }
   }
 
-  private fun sendResponse(out: PrintWriter, status: String, contentType: String, body: String) {
-    out.println("HTTP/1.1 $status")
-    out.println("Content-Type: $contentType")
-    out.println("Content-Length: ${body.toByteArray().size}")
-    out.println("Connection: close")
-    out.println()
-    out.print(body)
-    out.flush()
-  }
-
   private fun getMainHtml(port: Int): String {
     val activity = activityRef?.get() ?: return getFallbackMainHtml(port)
     return try {
-      // FIXME: port interpolation here needs to be updated for svelte
-      val html = activity.assets.open("web/index.html").bufferedReader().use { it.readText() }
-      html.replace("{{PORT}}", port.toString())
+      activity.assets.open("web/index.html").bufferedReader().use { it.readText() }
     } catch (e: IOException) {
       Log.e(TAG, "index.html read error: ${e.message}", e)
       getFallbackMainHtml(port)

@@ -5,9 +5,8 @@ import android.app.Activity
 import android.util.Log
 import android.webkit.WebChromeClient
 import android.webkit.WebView
-import android.webkit.WebViewClient
 
-class WebViewModule(private val activity: Activity) {
+class LocalWebView(private val activity: Activity) {
 
     companion object {
         private const val TAG = "FloatView_WebViewModule"
@@ -26,6 +25,7 @@ class WebViewModule(private val activity: Activity) {
         webView.settings.domStorageEnabled = true
         webView.settings.allowFileAccess = false
         webView.settings.allowContentAccess = false
+        // needed for `alert()/confirm()/etc` dialogs to work
         webView.webChromeClient = WebChromeClient()
         return webView
     }

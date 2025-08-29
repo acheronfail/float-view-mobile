@@ -5,13 +5,14 @@ import kotlinx.serialization.json.JsonObject
 import java.io.*
 import java.io.PrintWriter
 import java.net.Socket
+import java.util.TreeMap
 
-class LocalServerContext(private val socket: Socket) {
+class Context(private val socket: Socket) {
     private val TAG = "FloatView_LocalServerContext"
 
     var status = 404
-    val requestHeaders = mutableMapOf<String, String>()
-    val responseHeaders = mutableMapOf<String, String>()
+    val requestHeaders = TreeMap<String, String>(String.CASE_INSENSITIVE_ORDER)
+    val responseHeaders = TreeMap<String, String>(String.CASE_INSENSITIVE_ORDER)
     private var isSent = false
     private var body = ""
     private var requestBody: String? = null
@@ -37,7 +38,7 @@ class LocalServerContext(private val socket: Socket) {
         var line: String?
         do {
             line = input.readLine()
-            if (line != null && line.isNotEmpty()) {
+            if (!line.isNullOrEmpty()) {
                 val idx = line.indexOf(":")
                 if (idx > 0) {
                     val k = line.substring(0, idx).trim().lowercase()
@@ -45,14 +46,14 @@ class LocalServerContext(private val socket: Socket) {
                     requestHeaders[k] = v
                 }
             }
-        } while (line != null && line.isNotEmpty())
+        } while (!line.isNullOrEmpty())
     }
 
     fun isSent(): Boolean {
         return isSent
     }
 
-    fun getBody(): String {
+    fun getRequestBody(): String {
         if (requestBody != null) {
             return requestBody!!
         }
@@ -79,29 +80,29 @@ class LocalServerContext(private val socket: Socket) {
         return requestBody!!
     }
 
-    fun setStatus(value: Int): LocalServerContext {
+    fun setStatus(value: Int): Context {
         status = value
         return this
     }
 
-    fun setText(contentType: String, value: String): LocalServerContext {
+    fun setText(contentType: String, value: String): Context {
         body = value
         status = 200
-        responseHeaders.put("Content-Type", contentType)
+        responseHeaders["Content-Type"] = contentType
         return this
     }
 
-    fun setHtml(value: String): LocalServerContext {
+    fun setHtml(value: String): Context {
         body = value
         status = 200
-        responseHeaders.put("Content-Type", "text/html")
+        responseHeaders["Content-Type"] = "text/html"
         return this
     }
 
-    fun setJson(value: JsonObject): LocalServerContext {
+    fun setJson(value: JsonObject): Context {
         body = value.toString()
         status = 200
-        responseHeaders.put("Content-Type", "application/json")
+        responseHeaders["Content-Type"] = "application/json"
         return this
     }
 
@@ -112,12 +113,11 @@ class LocalServerContext(private val socket: Socket) {
         }
 
         isSent = true
-        responseHeaders.put("Connection", "close")
-        responseHeaders.put("Content-Length", "${body.toByteArray().size}")
+        responseHeaders["Connection"] = "close"
+        responseHeaders["Content-Length"] = "${body.toByteArray().size}"
 
         output.println("HTTP/1.1 $status")
         responseHeaders.forEach { output.println("${it.key}: ${it.value}") }
-        responseHeaders.forEach { Log.d(TAG, "${it.key}: ${it.value}") }
         output.println()
         output.print(body)
         output.flush()

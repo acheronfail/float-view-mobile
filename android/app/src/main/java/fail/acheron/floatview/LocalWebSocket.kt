@@ -20,7 +20,7 @@ class LocalWebSocket() {
     val TAG = "FloatView_LocalWebSocket"
   val webSocketClients = ConcurrentHashMap<String, WebSocketClient>()
 
-    fun isWebsocketUpgrade(ctx: LocalServerContext): Boolean {
+    fun isWebsocketUpgrade(ctx: Context): Boolean {
         return ctx.path == "/ws" &&
                       ctx.requestHeaders["upgrade"]?.lowercase() == "websocket" &&
                       ctx.requestHeaders["connection"]?.lowercase()?.contains("upgrade") == true
