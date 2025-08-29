@@ -1,3 +1,4 @@
+import { BleConnectResult, BleScanResult } from './backend-client.types';
 import { ResponseError } from './errors/response';
 
 /**
@@ -20,12 +21,20 @@ class BackendClient {
 		return parse ? parse(json) : (json as T);
 	}
 
-	public async status() {
-		return this.fetch('/api/status');
+	public async scanBleDevices() {
+		return this.fetch('/api/ble/scan', undefined, BleScanResult.parse);
 	}
 
-	public async scanBleDevices() {
-		return this.fetch('/api/ble/scan');
+	public async connectBleDevice(deviceId: string) {
+		return this.fetch(
+			`/api/ble/connect`,
+			{
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ deviceId })
+			},
+			BleConnectResult.parse
+		);
 	}
 
 	public connectWebsocket() {

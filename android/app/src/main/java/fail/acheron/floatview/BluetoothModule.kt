@@ -33,8 +33,8 @@ class BluetoothModule(private val context: Context) {
     }
 
     interface ScanListener {
-        fun onDeviceFound(device: BluetoothDevice)
-        fun onScanStopped(devices: List<BluetoothDevice>)
+        fun onDeviceFound(device: BluetoothDevice) {}
+        fun onScanStopped(devices: List<BluetoothDevice>) {}
         fun onError(message: String)
     }
 

@@ -3,6 +3,7 @@ package fail.acheron.floatview
 import android.annotation.SuppressLint
 import android.app.Activity
 import android.util.Log
+import android.webkit.WebChromeClient
 import android.webkit.WebView
 import android.webkit.WebViewClient
 
@@ -25,20 +26,7 @@ class WebViewModule(private val activity: Activity) {
         webView.settings.domStorageEnabled = true
         webView.settings.allowFileAccess = false
         webView.settings.allowContentAccess = false
-        webView.webViewClient = object : WebViewClient() {
-            override fun onReceivedError(
-                view: WebView?,
-                errorCode: Int,
-                description: String?,
-                failingUrl: String?
-            ) {
-                Log.e(TAG, "WebView error: $errorCode - $description for URL: $failingUrl")
-            }
-
-            override fun onPageFinished(view: WebView?, url: String?) {
-                Log.d(TAG, "Page finished loading: $url")
-            }
-        }
+        webView.webChromeClient = WebChromeClient()
         return webView
     }
 

@@ -30,31 +30,54 @@
 		}
 	}
 
-	async function pingStatus() {
+	let bleDevices = $state<Array<{ name: string; id: string }>>([]);
+	async function scanDevices() {
 		try {
-			const status = await backendClient.status();
-			preText = JSON.stringify(status, null, 2);
+			const response = await backendClient.scanBleDevices();
+			if (response.kind === 'error') {
+				alert(String(response.data.message));
+				return;
+			}
+			console.log(response);
+			bleDevices = response.data;
 		} catch (err) {
 			alert(String(err));
 		}
 	}
 
-  async function scanDevices() {
-    try {
-      const devices = await backendClient.scanBleDevices();
-      preText = JSON.stringify(devices, null, 2);
-    } catch (err) {
-      alert(String(err));
-    }
-  }
+	async function connectBleDevice(id: string) {
+		try {
+			const response = await backendClient.connectBleDevice(id);
+			if (response.kind === 'error') {
+				alert(String(response.data.message));
+				return;
+			}
+
+			preText = response.data.status + ' --- now use websocket?';
+		} catch (err) {
+			alert(String(err));
+		}
+	}
 </script>
 
 <div class="flex flex-col items-center justify-center gap-2 p-2">
 	<h1 class="text-3xl font-bold">Welcome!</h1>
 
 	<button class="rounded border p-1" onclick={scanDevices}>scan devices</button>
-	<button class="rounded border p-1" onclick={pingStatus}>ping status</button>
 	<pre>{preText}</pre>
+
+	{#if bleDevices.length > 0}
+		<h2 class="text-2xl font-bold">BLE Devices</h2>
+		<ul>
+			{#each bleDevices as device}
+				<li>
+					<button class="rounded border p-1" onclick={() => connectBleDevice(device.id)}>
+						{device.name} ({device.id})
+					</button>
+				</li>
+			{/each}
+		</ul>
+	{/if}
 
 	<button class="rounded border p-1" onclick={connectWebsocket}> connect websocket </button>
 	<pre>WS: {wsState}</pre>

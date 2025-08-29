@@ -2,14 +2,13 @@ package fail.acheron.floatview
 
 import android.bluetooth.BluetoothDevice
 import android.bluetooth.BluetoothGatt
-import android.bluetooth.BluetoothGattCharacteristic
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
 import android.webkit.WebView
 import androidx.appcompat.app.AppCompatActivity
-import java.util.UUID
+import kotlinx.serialization.json.*
 
 class MainActivity : AppCompatActivity() {
 
@@ -33,44 +32,58 @@ class MainActivity : AppCompatActivity() {
 
         // Start the singleton local server
         LocalServer.start(this, webView)
-        LocalServer.addRoute("/api/status") { ctx: LocalServerContext ->
-            ctx.setJson("""{"status":"all good"}""")
-            ctx.send()
-        }
+
+        var bleDevices: List<BluetoothDevice> = listOf()
         LocalServer.addRoute("/api/ble/scan") { ctx: LocalServerContext ->
             if (!bluetoothModule.requestPermissionsIfNeeded(this, 1001)) {
-                ctx.setJson("""{"error":"invalid permissions","kind":"permissions"}""")
+                ctx.setJson(errorResponse("permissions not granted"))
                 ctx.send()
                 return@addRoute
             }
 
-            val devices = mutableListOf<BluetoothDevice>()
             bluetoothModule.startScan(
-                listOf(BluetoothModule.VescService),
-                3_000L,
-                object : BluetoothModule.ScanListener {
-                    override fun onDeviceFound(device: BluetoothDevice) {
-                        Log.d(
-                                TAG,
-                                "BLE device with target service found: ${device.address} (${device.name})"
-                        )
-                        devices.add(device)
-                    }
+                    listOf(BluetoothModule.VescService),
+                    3_000L,
+                    object : BluetoothModule.ScanListener {
+                        override fun onScanStopped(devices: List<BluetoothDevice>) {
+                            Log.d(TAG, "BLE scan complete. Devices count: ${devices.size}")
+                            // Execute the response on a background thread to avoid
+                            // NetworkOnMainThreadException
+                            bleDevices = devices
+                            Thread {
+                                        ctx.setJson(successResponse(buildJsonArray {
+                                            bleDevices.forEach { device ->
+                                                add(buildJsonObject {
+                                                    put("name", device.name ?: "Unknown")
+                                                    put("id", device.address)
+                                                })
+                                            }
+                                        }))
+                                        ctx.send()
+                                    }
+                                    .start()
+                        }
 
-                    override fun onScanStopped(devices: List<BluetoothDevice>) {
-                        Log.d(TAG, "BLE scan complete. Devices count: ${devices.size}")
-                        // Execute the response on a background thread to avoid NetworkOnMainThreadException
-                        Thread {
-                            ctx.setJson("[${devices.joinToString(",") { """{"name":"${it.name}","id":"${it.address}"}""" }}]")
-                            ctx.send()
-                        }.start()
-                    }
+                        override fun onError(message: String) {
+                            Log.e(TAG, "BLE scan error: $message")
 
-                    override fun onError(message: String) {
-                        Log.e(TAG, "BLE scan error: $message")
+                            ctx.setJson(errorResponse(message))
+                        }
                     }
-                }
-        )
+            )
+        }
+        LocalServer.addRoute("/api/ble/connect") { ctx: LocalServerContext ->
+            val bleConnectRequest = Json.decodeFromString<BleConnectRequest>(ctx.getBody())
+            val device = bleDevices.find { it.address == bleConnectRequest.deviceId }
+            if (device != null) {
+                connectToDevice(device)
+                ctx.setJson(successResponse(buildJsonObject {
+                    put("status", "connecting")
+                }))
+            } else {
+                ctx.setJson(errorResponse("not found"))
+            }
+            ctx.send()
         }
     }
 
