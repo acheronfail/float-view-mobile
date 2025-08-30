@@ -191,6 +191,42 @@ class MainActivity : AppCompatActivity() {
                 )
             }
         }
+
+        LocalServer.addHandler("data") { req, reply ->
+            val shouldLog = req["log"]!!.jsonPrimitive.boolean
+            if (!shouldLog) {
+                // TODO: stop logging interval
+                return@addHandler
+            }
+
+            val intervalMs = req["intervalMs"]!!.jsonPrimitive.double
+            // TODO: start sending VESC log data back
+            reply(wsMessage("data", "log", buildJsonObject {
+                put("adc1", 0)
+                put("adc2", 0)
+                put("ah", 0)
+                put("altitude", 0)
+                put("currentBattery", 0)
+                put("currentMotor", 0)
+                put("distance", 0)
+                put("duty", 0)
+                put("gpsAccuracy", 0)
+                put("gpsLatitude", 0)
+                put("gpsLongitude", 0)
+                put("motorFault", 0)
+                put("pitch", 0)
+                put("roll", 0)
+                put("speed", 0)
+                put("state", 0)
+                put("stateRaw", 0)
+                put("tempMosfet", 0)
+                put("tempMotor", 0)
+                put("time", 0)
+                put("truePitch", 0)
+                put("voltage", 0)
+                put("wh", 0)
+            }))
+        }
     }
 
     private fun logAvailableCharacteristics(gatt: BluetoothGatt) {
