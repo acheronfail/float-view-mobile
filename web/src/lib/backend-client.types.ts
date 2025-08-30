@@ -11,6 +11,7 @@ type WsCommandDef = {
 	scan: empty;
 	connect: { address: string };
 	disconnect: empty;
+	data: { log: false } | { log: true; intervalMs: number };
 };
 
 export type WsCommand<K extends keyof WsCommandDef = keyof WsCommandDef> = {
@@ -23,7 +24,8 @@ const commandFactories: {
 } = {
 	scan: () => ({ cmd: 'scan', data: {} }),
 	connect: (data) => ({ cmd: 'connect', data }),
-	disconnect: () => ({ cmd: 'disconnect', data: {} })
+	disconnect: () => ({ cmd: 'disconnect', data: {} }),
+	data: (data) => ({ cmd: 'data', data })
 };
 
 export const sendCommand = <K extends keyof WsCommandDef>(
@@ -102,13 +104,68 @@ export const ConnectMessage = z.discriminatedUnion('event', [
 export type ZConnectMessage = z.infer<typeof ConnectMessage>;
 
 /*
+ * Data messages
+ */
+
+export const DataMessage = z.discriminatedUnion('event', [
+	createMessage('data', 'error', ErrorData),
+	createMessage(
+		'data',
+		'log',
+		z.object({
+			adc1: z.number(),
+			adc2: z.number(),
+			ah: z.number(),
+			ahCharged: z.number().optional(),
+			altitude: z.number(),
+			bmsFault: z.number().optional(),
+			bmsTemp: z.number().optional(),
+			bmsTempBattery: z.number().optional(),
+			currentBattery: z.number(),
+			currentBooster: z.number().optional(),
+			currentFieldWeakening: z.number().optional(),
+			currentMotor: z.number(),
+			distance: z.number(),
+			duty: z.number(),
+			erpm: z.number().optional(),
+			gpsAccuracy: z.number(),
+			gpsLatitude: z.number(),
+			gpsLongitude: z.number(),
+			motorFault: z.number(),
+			pitch: z.number(),
+			requestedAmps: z.number().optional(),
+			roll: z.number(),
+			setpoint: z.number().optional(),
+			setpointAtr: z.number().optional(),
+			setpointBreakTilt: z.number().optional(),
+			setpointCarve: z.number().optional(),
+			setpointRemote: z.number().optional(),
+			setpointTorqueTilt: z.number().optional(),
+			speed: z.number(),
+			state: z.string(),
+			stateRaw: z.number(),
+			tempBattery: z.number().optional(),
+			tempMosfet: z.number(),
+			tempMotor: z.number(),
+			time: z.number(),
+			truePitch: z.number(),
+			voltage: z.number(),
+			wh: z.number(),
+			whCharged: z.number().optional()
+		})
+	)
+]);
+export type ZDataMessage = z.infer<typeof DataMessage>;
+
+/*
  * All messages
  */
 
 export const WsMessage = z.discriminatedUnion('topic', [
 	SocketMessage,
 	ScanMessage,
-	ConnectMessage
+	ConnectMessage,
+	DataMessage
 ]);
 
 export type ZWsMessage = z.infer<typeof WsMessage>;
