@@ -32,15 +32,10 @@
 			untrack(() => {
 				const msg = parseMessage(event);
 				switch (msg.topic) {
-					case 'socket':
-						return;
 					case 'scan':
 						return handleScanMessage(msg);
 					case 'connect':
 						return handleConnectMessage(msg);
-					default:
-						console.warn('Unknown message topic:', msg);
-						return;
 				}
 			});
 
@@ -67,15 +62,15 @@
 		switch (msg.event) {
 			case 'status':
 				isConnecting = msg.data.status === 'start' || msg.data.status === 'connecting';
-				if (msg.data.status === 'connected') {
+				if (msg.data.status === 'ready') {
 					bleDevices = bleDevices.filter((d) => d.address === connectingAddress);
 					isConnecting = false;
 					connectedAddress = connectingAddress;
 					connectingAddress = null;
 				}
-				if (msg.data.status === 'disconnected') {
-					connectingAddress = null;
-				}
+				break;
+			case 'disconnect':
+				connectedAddress = null;
 				break;
 			case 'error':
 				alert(`Connect error: ${msg.data.message}`);

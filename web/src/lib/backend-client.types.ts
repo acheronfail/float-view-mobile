@@ -93,12 +93,12 @@ const ConnectStatus = z.union([
 	z.literal('start'),
 	z.literal('connecting'),
 	z.literal('connected'),
-	z.literal('disconnected')
+	z.literal('ready')
 ]);
 
 export const ConnectMessage = z.discriminatedUnion('event', [
 	createMessage('connect', 'error', ErrorData),
-	createMessage('connect', 'disconnect', EmptyData),
+	createMessage('connect', 'disconnect', z.object({ reason: z.string() })),
 	createMessage('connect', 'status', z.object({ status: ConnectStatus }))
 ]);
 export type ZConnectMessage = z.infer<typeof ConnectMessage>;
@@ -176,5 +176,9 @@ export const parseMessage = (ev: MessageEvent<unknown>): ZWsMessage => {
 	}
 
 	const json = JSON.parse(ev.data);
-	return WsMessage.parse(json);
+	try {
+		return WsMessage.parse(json);
+	} catch (err) {
+		throw { err, json };
+	}
 };

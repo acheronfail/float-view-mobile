@@ -50,7 +50,7 @@ class MainActivity : AppCompatActivity() {
                 }
 
                 override fun onScanComplete() {
-                    reply(wsMessage(topic, "complete", buildJsonObject {}))
+                    reply(wsMessage(topic, "status", buildJsonObject { put("status", "complete") }))
                 }
 
                 override fun onScanError(message: String) {
@@ -66,6 +66,8 @@ class MainActivity : AppCompatActivity() {
             if (!vescManager.startScan()) {
                 reply(wsMessage(topic, "error", buildJsonObject { put("message", "Failed to start scan") }))
             }
+
+            reply(wsMessage(topic, "status", buildJsonObject { put("status", "start") }))
         }
     }
 
@@ -99,10 +101,10 @@ class MainActivity : AppCompatActivity() {
                             reply(wsMessage(topic, "status", buildJsonObject { put("status", "connected") }))
                         }
                         VescManager.ConnectionStatus.READY -> {
-                            reply(wsMessage(topic, "ready", buildJsonObject { put("address", address) }))
+                            reply(wsMessage(topic, "status", buildJsonObject { put("status", "ready") }))
                         }
                         VescManager.ConnectionStatus.DISCONNECTED -> {
-                            reply(wsMessage(topic, "disconnect", buildJsonObject { put("address", address) }))
+                            Log.e(TAG, "Disconnected from device")
                         }
                     }
                 }
@@ -113,21 +115,22 @@ class MainActivity : AppCompatActivity() {
 
                 override fun onFirmwareVersionReceived(command: Int, data: ByteArray) {
                     Log.d(TAG, "Firmware version received - Command: $command, Data: ${data.joinToString(" ") { "%02X".format(it) }}")
-                    // Auto-disconnect after receiving firmware version for demo purposes
-                    android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
-                        Log.d(TAG, "Disconnecting from device after firmware version check")
-                        vescManager.disconnect()
-                    }, 2000)
                 }
 
                 override fun onCommandError(command: Int, message: String) {
                     Log.e(TAG, "Command error - Command: $command, Error: $message")
                     vescManager.disconnect()
+                    reply(wsMessage(topic, "disconnect", buildJsonObject { put("reason", "command error") }))
                 }
             })
 
             reply(wsMessage(topic, "status", buildJsonObject { put("status", "start") }))
             vescManager.connectAndGetFirmware(address)
+        }
+
+        LocalServer.addHandler("disconnect") { _, reply ->
+            vescManager.disconnect()
+            reply(wsMessage("connect", "disconnect", buildJsonObject { put("reason", "websocket requested") }))
         }
     }
 
@@ -162,7 +165,7 @@ class MainActivity : AppCompatActivity() {
                                 put("pitch", 0)
                                 put("roll", 0)
                                 put("speed", 0)
-                                put("state", 0)
+                                put("state", "riding")
                                 put("stateRaw", 0)
                                 put("tempMosfet", 0)
                                 put("tempMotor", 0)

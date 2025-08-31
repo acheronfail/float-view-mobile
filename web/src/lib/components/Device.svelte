@@ -34,12 +34,12 @@
 		const handler = (event: MessageEvent) =>
 			untrack(() => {
 				const msg = parseMessage(event);
-				if (
-					msg.topic === 'connect' &&
-					msg.event === 'status' &&
-					msg.data.status === 'disconnected'
-				) {
+				if (msg.topic === 'connect' && msg.event === 'disconnect') {
 					connectedAddress = null;
+					// TODO: be able to differentiate between user-initiated disconnect and error
+					if (msg.data?.reason !== 'websocket requested') {
+						setTimeout(() => alert(`Disconnected: ${msg.data?.reason ?? 'unknown reason'}`));
+					}
 				}
 
 				if (msg.topic === 'data' && msg.event === 'log') {

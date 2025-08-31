@@ -90,7 +90,7 @@ class LocalWebSocket() {
           continue
         }
 
-        handler(payload.data) { msg -> sendWebSocketMessage(client, msg) }
+        handler(payload.data) { msg -> Thread { sendWebSocketMessage(client, msg) }.start() }
       }
     } catch (e: Exception) {
       Log.d(logTag, "WebSocket client ${client.id} disconnected: ${e.message}")

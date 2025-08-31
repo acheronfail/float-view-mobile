@@ -5,6 +5,9 @@ import android.bluetooth.BluetoothGatt
 import android.bluetooth.BluetoothGattCharacteristic
 import android.bluetooth.BluetoothGattDescriptor
 import android.bluetooth.BluetoothGattCallback
+import android.bluetooth.BluetoothManager
+import android.bluetooth.BluetoothProfile
+import android.os.Build
 import android.util.Log
 
 val COMM_FW_VERSION = 0
@@ -21,18 +24,33 @@ class VescCommands(private val gatt: BluetoothGatt) {
     private val commandCallbacks = mutableMapOf<Int, CommandCallback>()
 
     // Cache characteristics for better performance
-    private val writeCharacteristic: BluetoothGattCharacteristic by lazy {
-        gatt.getService(VescBle.VescService).getCharacteristic(VescBle.VescCharacteristicsRx)
+    private val writeCharacteristic: BluetoothGattCharacteristic? by lazy {
+        try {
+            gatt.getService(VescBle.VescService)?.getCharacteristic(VescBle.VescCharacteristicsRx)
+        } catch (e: Exception) {
+            Log.e(logTag, "Error getting write characteristic: ${e.message}")
+            null
+        }
     }
 
-    private val readCharacteristic: BluetoothGattCharacteristic by lazy {
-        gatt.getService(VescBle.VescService).getCharacteristic(VescBle.VescCharacteristicsTx)
+    private val readCharacteristic: BluetoothGattCharacteristic? by lazy {
+        try {
+            gatt.getService(VescBle.VescService)?.getCharacteristic(VescBle.VescCharacteristicsTx)
+        } catch (e: Exception) {
+            Log.e(logTag, "Error getting read characteristic: ${e.message}")
+            null
+        }
     }
 
     @SuppressLint("MissingPermission")
     fun enableNotifications(): Boolean {
         try {
             val char = readCharacteristic
+            if (char == null) {
+                Log.e(logTag, "Read characteristic not available")
+                return false
+            }
+
             val success = gatt.setCharacteristicNotification(char, true)
             if (!success) {
                 Log.e(logTag, "Failed to enable notifications")
@@ -45,14 +63,23 @@ class VescCommands(private val gatt: BluetoothGatt) {
                 return false
             }
 
-            val writeSuccess = gatt.writeDescriptor(descriptor, BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE)
-            if (writeSuccess != BluetoothGatt.GATT_SUCCESS) {
-                Log.e(logTag, "Failed to write notification descriptor")
-                return false
+            val writeSuccess = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+                gatt.writeDescriptor(descriptor, BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE)
+            } else {
+                descriptor.value = BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
+                gatt.writeDescriptor(descriptor)
             }
 
-            Log.d(logTag, "Notifications enabled successfully")
-            return true
+            when (writeSuccess) {
+                BluetoothGatt.GATT_SUCCESS, true -> {
+                    Log.d(logTag, "Notifications enabled successfully")
+                    return true
+                }
+                else -> {
+                    Log.e(logTag, "Failed to write notification descriptor, result: $writeSuccess")
+                    return false
+                }
+            }
         } catch (e: Exception) {
             Log.e(logTag, "Error enabling notifications: ${e.message}")
             return false
@@ -120,33 +147,187 @@ class VescCommands(private val gatt: BluetoothGatt) {
         }
     }
 
+    @SuppressLint("MissingPermission")
     fun monitor() {
-        val char = writeCharacteristic
-        gatt.setCharacteristicNotification(char, true)
+        try {
+            val char = writeCharacteristic
+            if (char == null) {
+                Log.e(logTag, "Write characteristic not available for monitoring")
+                return
+            }
 
-        val descriptor = char.getDescriptor(VescBle.BleClientCharacteristicConfig)
-        descriptor?.let { desc ->
-            gatt.writeDescriptor(desc, BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE)
+            val success = gatt.setCharacteristicNotification(char, true)
+            if (!success) {
+                Log.e(logTag, "Failed to set characteristic notification for monitoring")
+                return
+            }
+
+            val descriptor = char.getDescriptor(VescBle.BleClientCharacteristicConfig)
+            if (descriptor == null) {
+                Log.e(logTag, "Descriptor not found for monitoring")
+                return
+            }
+
+            val writeResult = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+                gatt.writeDescriptor(descriptor, BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE)
+            } else {
+                descriptor.value = BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
+                gatt.writeDescriptor(descriptor)
+            }
+
+            when (writeResult) {
+                BluetoothGatt.GATT_SUCCESS, true -> {
+                    Log.d(logTag, "Monitoring enabled successfully")
+                }
+                else -> {
+                    Log.e(logTag, "Failed to write descriptor for monitoring, result: $writeResult")
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(logTag, "Exception in monitor: ${e.message}")
         }
     }
 
+    @SuppressLint("MissingPermission")
     fun getFwVersion(callback: CommandCallback) {
-        // Register the callback for this command
-        commandCallbacks[COMM_FW_VERSION] = callback
+        try {
+            // Check if the device is connected
+            // Note: We can't easily check connection state from GATT object alone
+            // But we can check if services are available which indicates readiness
+            if (gatt.getService(VescBle.VescService) == null) {
+                Log.e(logTag, "VESC service not available - connection may not be ready")
+                callback.onError(COMM_FW_VERSION, "GATT connection not ready")
+                return
+            }
 
-        // TODO: detect if need to use can or not, rather than hardcoding
-        val canId = 1
-        val payload = mutableListOf(COMM_FORWARD_CAN, canId, COMM_FW_VERSION)
-        val packet = generateVescPacket(payload)
+            // Register the callback for this command
+            commandCallbacks[COMM_FW_VERSION] = callback
 
-        val characteristic = writeCharacteristic
-        val result = gatt.writeCharacteristic(characteristic, packet, BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE)
+            // TODO: detect if need to use can or not, rather than hardcoding
+            val canId = 1
+            val payload = mutableListOf(COMM_FORWARD_CAN, canId, COMM_FW_VERSION)
+            val packet = generateVescPacket(payload)
 
-        if (result != BluetoothGatt.GATT_SUCCESS) {
-            Log.e(logTag, "Failed to write firmware version command")
-            callback.onError(COMM_FW_VERSION, "Failed to send command")
-        } else {
-            Log.d(logTag, "Firmware version command sent successfully")
+            Log.d(logTag, "Generated packet: ${packet.joinToString(" ") { "%02X".format(it) }}")
+            Log.d(logTag, "Packet size: ${packet.size} bytes")
+
+            val characteristic = writeCharacteristic
+
+            // Check if characteristic is available
+            if (characteristic == null) {
+                Log.e(logTag, "Write characteristic not available")
+                callback.onError(COMM_FW_VERSION, "Write characteristic not available")
+                return
+            }
+
+            // Determine appropriate write type based on characteristic properties
+            val supportsWriteNoResponse = (characteristic.properties and BluetoothGattCharacteristic.PROPERTY_WRITE_NO_RESPONSE) != 0
+            val supportsWrite = (characteristic.properties and BluetoothGattCharacteristic.PROPERTY_WRITE) != 0
+
+            val writeType = when {
+                supportsWrite -> BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
+                supportsWriteNoResponse -> BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
+                else -> {
+                    Log.e(logTag, "Characteristic doesn't support any write operations")
+                    callback.onError(COMM_FW_VERSION, "Characteristic doesn't support write operations")
+                    return
+                }
+            }
+
+            Log.d(logTag, "Using write type: $writeType for characteristic with properties: ${characteristic.properties}")
+
+            // Check if packet size is within reasonable limits (most BLE devices support at least 20 bytes)
+            if (packet.size > 20) {
+                Log.w(logTag, "Packet size (${packet.size}) may exceed MTU limit, consider requesting MTU increase")
+            }
+
+            // Use the newer API for Android API 33+
+            val result = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                gatt.writeCharacteristic(characteristic, packet, writeType)
+            } else {
+                // Legacy API for older Android versions
+                characteristic.value = packet
+                characteristic.writeType = writeType
+                gatt.writeCharacteristic(characteristic)
+            }
+
+            when (result) {
+                BluetoothGatt.GATT_SUCCESS, true -> {
+                    Log.d(logTag, "Firmware version command sent successfully")
+                }
+                else -> {
+                    val errorMessage = when (result) {
+                        201 -> "GATT_FAILURE - Generic failure"
+                        133 -> "GATT_INTERNAL_ERROR - Internal error"
+                        8 -> "GATT_INSUFFICIENT_AUTHENTICATION - Insufficient authentication"
+                        15 -> "GATT_INSUFFICIENT_ENCRYPTION - Insufficient encryption"
+                        143 -> "GATT_WRITE_NOT_PERMITTED - Write not permitted"
+                        else -> "Unknown error code: $result"
+                    }
+                    Log.e(logTag, "Failed to write firmware version command - $errorMessage")
+                    callback.onError(COMM_FW_VERSION, "Failed to send command: $errorMessage")
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(logTag, "Exception in getFwVersion: ${e.message}")
+            callback.onError(COMM_FW_VERSION, "Exception: ${e.message}")
+        }
+    }
+
+    /**
+     * Request a larger MTU for better performance
+     */
+    @SuppressLint("MissingPermission")
+    fun requestMtu(mtuSize: Int = 247): Boolean {
+        return try {
+            val result = gatt.requestMtu(mtuSize)
+            Log.d(logTag, "Requested MTU $mtuSize, result: $result")
+            result
+        } catch (e: Exception) {
+            Log.e(logTag, "Error requesting MTU: ${e.message}")
+            false
+        }
+    }
+
+    /**
+     * Check if GATT connection and required characteristics are available
+     */
+    fun isReady(): Boolean {
+        try {
+            val service = gatt.getService(VescBle.VescService)
+            if (service == null) {
+                Log.e(logTag, "VESC service not found")
+                return false
+            }
+
+            val rxChar = service.getCharacteristic(VescBle.VescCharacteristicsRx)
+            val txChar = service.getCharacteristic(VescBle.VescCharacteristicsTx)
+
+            if (rxChar == null || txChar == null) {
+                Log.e(logTag, "Required characteristics not found - RX: $rxChar, TX: $txChar")
+                return false
+            }
+
+            // Check characteristic properties
+            Log.d(logTag, "RX Characteristic properties: ${rxChar.properties}")
+            Log.d(logTag, "TX Characteristic properties: ${txChar.properties}")
+
+            // Check if RX characteristic supports write operations
+            val supportsWrite = (rxChar.properties and BluetoothGattCharacteristic.PROPERTY_WRITE) != 0
+            val supportsWriteNoResponse = (rxChar.properties and BluetoothGattCharacteristic.PROPERTY_WRITE_NO_RESPONSE) != 0
+
+            Log.d(logTag, "RX supports WRITE: $supportsWrite, WRITE_NO_RESPONSE: $supportsWriteNoResponse")
+
+            if (!supportsWrite && !supportsWriteNoResponse) {
+                Log.e(logTag, "RX characteristic doesn't support write operations")
+                return false
+            }
+
+            Log.d(logTag, "GATT connection is ready")
+            return true
+        } catch (e: Exception) {
+            Log.e(logTag, "Error checking GATT readiness: ${e.message}")
+            return false
         }
     }
 

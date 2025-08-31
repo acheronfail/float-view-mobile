@@ -4,6 +4,8 @@ import android.app.Activity
 import android.bluetooth.BluetoothDevice
 import android.bluetooth.BluetoothGatt
 import android.bluetooth.BluetoothGattCharacteristic
+import android.os.Handler
+import android.os.Looper
 import android.util.Log
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
@@ -133,24 +135,37 @@ class VescManager(private val activity: Activity) {
         val vescCommands = VescCommands(gatt)
         this.vescCommands = vescCommands
 
+        // Check if GATT connection is ready
+        if (!vescCommands.isReady()) {
+            Log.e(TAG, "GATT connection not ready for VESC commands")
+            disconnect()
+            return
+        }
+
+        // Request larger MTU for better performance
+        vescCommands.requestMtu(247)
+
         if (!vescCommands.enableNotifications()) {
             Log.e(TAG, "Failed to enable notifications")
             disconnect()
             return
         }
 
-        // Send firmware version command
-        vescCommands.getFwVersion(object : VescCommands.CommandCallback {
-            override fun onResponse(command: Int, data: ByteArray) {
-                Log.d(TAG, "Firmware version response - Command: $command, Data: ${data.joinToString(" ") { "%02X".format(it) }}")
-                listener?.onFirmwareVersionReceived(command, data)
-            }
+        // Give a small delay for notifications to be fully set up
+        Handler(Looper.getMainLooper()).postDelayed({
+            // Send firmware version command
+            vescCommands.getFwVersion(object : VescCommands.CommandCallback {
+                override fun onResponse(command: Int, data: ByteArray) {
+                    Log.d(TAG, "Firmware version response - Command: $command, Data: ${data.joinToString(" ") { "%02X".format(it) }}")
+                    listener?.onFirmwareVersionReceived(command, data)
+                }
 
-            override fun onError(command: Int, message: String) {
-                Log.e(TAG, "Firmware version error - Command: $command, Error: $message")
-                listener?.onCommandError(command, message)
-            }
-        })
+                override fun onError(command: Int, message: String) {
+                    Log.e(TAG, "Firmware version error - Command: $command, Error: $message")
+                    listener?.onCommandError(command, message)
+                }
+            })
+        }, 100) // 100ms delay
 
         // Log all available services and characteristics for debugging
         logAvailableCharacteristics(gatt)
