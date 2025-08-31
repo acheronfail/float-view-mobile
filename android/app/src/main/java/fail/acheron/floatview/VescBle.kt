@@ -191,12 +191,6 @@ class VescBle(private val context: Context) {
         Log.d(logTag, "Scan stopped. Devices found: ${foundDevices.size}")
     }
 
-    fun stopScan() {
-        // This simplified module doesn't retain scanner/callback references externally.
-        // For manual stop before timeout, we could restart with 0 duration; instead just set flag.
-        isScanning = false
-    }
-
     // --- Connection ---
     fun connect(
             address: String,

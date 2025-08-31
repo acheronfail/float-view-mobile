@@ -63,15 +63,10 @@ class VescCommands(private val gatt: BluetoothGatt) {
                 return false
             }
 
-            val writeSuccess = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
-                gatt.writeDescriptor(descriptor, BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE)
-            } else {
-                descriptor.value = BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
-                gatt.writeDescriptor(descriptor)
-            }
+            val writeSuccess = gatt.writeDescriptor(descriptor, BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE)
 
             when (writeSuccess) {
-                BluetoothGatt.GATT_SUCCESS, true -> {
+                BluetoothGatt.GATT_SUCCESS -> {
                     Log.d(logTag, "Notifications enabled successfully")
                     return true
                 }
@@ -91,7 +86,7 @@ class VescCommands(private val gatt: BluetoothGatt) {
             Log.d(logTag, "Received data: ${value.joinToString(" ") { "%02X".format(it) }}")
 
             // Parse the VESC packet to extract the command and payload
-            val parsedCommand = parseVescResponse(value)
+            val parsedCommand = parseVescCharacteristicResponse(value)
             if (parsedCommand != null) {
                 val (command, data) = parsedCommand
                 // Call the appropriate callback for this command
@@ -103,7 +98,7 @@ class VescCommands(private val gatt: BluetoothGatt) {
         }
     }
 
-    private fun parseVescResponse(data: ByteArray): Pair<Int, ByteArray>? {
+    private fun parseVescCharacteristicResponse(data: ByteArray): Pair<Int, ByteArray>? {
         try {
             if (data.size < 5) return null // Minimum packet size
 
@@ -140,7 +135,7 @@ class VescCommands(private val gatt: BluetoothGatt) {
             if (payload.isEmpty()) return null
             val command = payload[0].toInt() and 0xFF
 
-            return Pair(command, payload)
+            return Pair(command, payload.sliceArray(1 until payload.size))
         } catch (e: Exception) {
             Log.e(logTag, "Error parsing VESC response: ${e.message}")
             return null
@@ -168,15 +163,10 @@ class VescCommands(private val gatt: BluetoothGatt) {
                 return
             }
 
-            val writeResult = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
-                gatt.writeDescriptor(descriptor, BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE)
-            } else {
-                descriptor.value = BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
-                gatt.writeDescriptor(descriptor)
-            }
+            val writeResult = gatt.writeDescriptor(descriptor, BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE)
 
             when (writeResult) {
-                BluetoothGatt.GATT_SUCCESS, true -> {
+                BluetoothGatt.GATT_SUCCESS -> {
                     Log.d(logTag, "Monitoring enabled successfully")
                 }
                 else -> {
@@ -242,17 +232,10 @@ class VescCommands(private val gatt: BluetoothGatt) {
             }
 
             // Use the newer API for Android API 33+
-            val result = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                gatt.writeCharacteristic(characteristic, packet, writeType)
-            } else {
-                // Legacy API for older Android versions
-                characteristic.value = packet
-                characteristic.writeType = writeType
-                gatt.writeCharacteristic(characteristic)
-            }
+            val result = gatt.writeCharacteristic(characteristic, packet, writeType)
 
             when (result) {
-                BluetoothGatt.GATT_SUCCESS, true -> {
+                BluetoothGatt.GATT_SUCCESS -> {
                     Log.d(logTag, "Firmware version command sent successfully")
                 }
                 else -> {

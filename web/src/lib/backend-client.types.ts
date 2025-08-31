@@ -111,6 +111,19 @@ export const DataMessage = z.discriminatedUnion('event', [
 	createMessage('data', 'error', ErrorData),
 	createMessage(
 		'data',
+		'firmware',
+		z.object({
+			major: z.number(),
+			minor: z.number(),
+			name: z.string(),
+			uuid: z.string(),
+			isPaired: z.boolean(),
+			betaVersion: z.number(),
+			hwType: z.number()
+		})
+	),
+	createMessage(
+		'data',
 		'log',
 		z.object({
 			adc1: z.number(),

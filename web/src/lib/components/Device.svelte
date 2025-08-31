@@ -14,6 +14,7 @@
 	let showRawData = $state(false);
 	let scrolledMoreThanHalf = $state(false);
 
+	let fw = $state<Extract<ZDataMessage, { event: 'firmware' }>['data'] | null>(null);
 	let data = $state<Extract<ZDataMessage, { event: 'log' }>['data'] | null>(null);
 
 	// ask backend to start logging
@@ -42,8 +43,15 @@
 					}
 				}
 
-				if (msg.topic === 'data' && msg.event === 'log') {
-					data = msg.data;
+				if (msg.topic === 'data') {
+					switch (msg.event) {
+						case 'firmware':
+							fw = msg.data;
+							break;
+						case 'log':
+							data = msg.data;
+							break;
+					}
 				}
 			});
 
@@ -171,6 +179,14 @@
 <div
 	class="border-surface-600 bg-surface-950 flex flex-col items-center justify-center gap-2 border-t py-12 text-center"
 >
+	{#if fw}
+		<div class="text-surface-400 flex flex-col gap-1 text-sm">
+			<span>Firmware: v{fw.major}.{fw.minor.toString().padStart(2, '0')}</span>
+			<span>(hw: {fw.hwType}, {fw.betaVersion ? `beta${fw.betaVersion}` : ''}, id: {fw.uuid})</span>
+		</div>
+	{:else}
+		<div class="text-surface-400 text-sm">Firmware: unknown</div>
+	{/if}
 	<button class="btn preset-filled-error-100-900" onpointerdown={disconnect}> disconnect </button>
 	<button
 		class="btn preset-filled-secondary-100-900"
