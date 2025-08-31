@@ -1,22 +1,34 @@
 _default:
-  just -l
+  @just --choose
 
+# setup the repository for development
 setup:
   cd web && npm install
+  cd android && ./gradlew dependencies
 
+# run the web app in dev mode (hot reload, etc)
 wdev:
   cd web && npm run dev
 
+# build the web app in watch mode (for development with native apps)
 wwatch:
   #!/bin/bash
   set -e
-  touch .lock
-  trap 'rm -f .lock' EXIT
+  echo $$ > .wwatch.pid
+  trap 'rm -f .wwatch.pid' EXIT INT TERM
   cd web && npm run build -- --watch --mode development --minify false
 
 _check_watch:
-  if [ ! -f .lock ]; then
-    echo "Make sure to run `just wwatch` for fresh web assets!"
+  #!/bin/bash
+  if [ ! -f .wwatch.pid ]; then
+    echo -e "\033[1;33mWarning: Make sure to run \`just wwatch\` for fresh web assets!\033[0m"
+    exit
+  fi
+  # Check if the process is actually running
+  if ! kill -0 $(cat .wwatch.pid) 2>/dev/null; then
+    echo -e "\033[1;33mWarning: wwatch process is not running (stale PID file). Please run \`just wwatch\` again!\033[0m"
+    rm -f .wwatch.pid
+    exit
   fi
 
 # re-install and re-launch the debug app on android (emulator or device)
