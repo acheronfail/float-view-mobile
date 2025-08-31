@@ -9,6 +9,7 @@ import android.bluetooth.BluetoothManager
 import android.bluetooth.BluetoothProfile
 import android.os.Build
 import android.util.Log
+import kotlin.collections.listOf
 
 val COMM_FW_VERSION = 0
 val COMM_FORWARD_CAN = 34
@@ -178,24 +179,26 @@ class VescCommands(private val gatt: BluetoothGatt) {
         }
     }
 
+    // TODO: create enum for command
     @SuppressLint("MissingPermission")
-    fun getFwVersion(callback: CommandCallback) {
+    fun sendCommand(command: Int, payload: MutableList<Int>, callback: CommandCallback) {
         try {
             // Check if the device is connected
             // Note: We can't easily check connection state from GATT object alone
             // But we can check if services are available which indicates readiness
             if (gatt.getService(VescBle.VescService) == null) {
                 Log.e(logTag, "VESC service not available - connection may not be ready")
-                callback.onError(COMM_FW_VERSION, "GATT connection not ready")
+                callback.onError(command, "GATT connection not ready")
                 return
             }
 
             // Register the callback for this command
-            commandCallbacks[COMM_FW_VERSION] = callback
+            commandCallbacks[command] = callback
 
-            // TODO: detect if need to use can or not, rather than hardcoding
+            // TODO: detect if need to use can or not, rather than hardcoding here
+            // TODO: scan for VESCs on can bus, rather than hardcoding
             val canId = 1
-            val payload = mutableListOf(COMM_FORWARD_CAN, canId, COMM_FW_VERSION)
+            payload.addAll(0, listOf(COMM_FORWARD_CAN, canId))
             val packet = generateVescPacket(payload)
 
             Log.d(logTag, "Generated packet: ${packet.joinToString(" ") { "%02X".format(it) }}")
@@ -206,7 +209,7 @@ class VescCommands(private val gatt: BluetoothGatt) {
             // Check if characteristic is available
             if (characteristic == null) {
                 Log.e(logTag, "Write characteristic not available")
-                callback.onError(COMM_FW_VERSION, "Write characteristic not available")
+                callback.onError(command, "Write characteristic not available")
                 return
             }
 
@@ -219,7 +222,7 @@ class VescCommands(private val gatt: BluetoothGatt) {
                 supportsWriteNoResponse -> BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
                 else -> {
                     Log.e(logTag, "Characteristic doesn't support any write operations")
-                    callback.onError(COMM_FW_VERSION, "Characteristic doesn't support write operations")
+                    callback.onError(command, "Characteristic doesn't support write operations")
                     return
                 }
             }
@@ -231,9 +234,7 @@ class VescCommands(private val gatt: BluetoothGatt) {
                 Log.w(logTag, "Packet size (${packet.size}) may exceed MTU limit, consider requesting MTU increase")
             }
 
-            // Use the newer API for Android API 33+
             val result = gatt.writeCharacteristic(characteristic, packet, writeType)
-
             when (result) {
                 BluetoothGatt.GATT_SUCCESS -> {
                     Log.d(logTag, "Firmware version command sent successfully")
@@ -248,12 +249,12 @@ class VescCommands(private val gatt: BluetoothGatt) {
                         else -> "Unknown error code: $result"
                     }
                     Log.e(logTag, "Failed to write firmware version command - $errorMessage")
-                    callback.onError(COMM_FW_VERSION, "Failed to send command: $errorMessage")
+                    callback.onError(command, "Failed to send command: $errorMessage")
                 }
             }
         } catch (e: Exception) {
-            Log.e(logTag, "Exception in getFwVersion: ${e.message}")
-            callback.onError(COMM_FW_VERSION, "Exception: ${e.message}")
+            Log.e(logTag, "Exception in sendCommand: ${e.message}")
+            callback.onError(command, "Exception: ${e.message}")
         }
     }
 

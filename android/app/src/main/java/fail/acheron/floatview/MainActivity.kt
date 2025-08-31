@@ -81,7 +81,7 @@ class MainActivity : AppCompatActivity() {
                                 address: String?
                         ) {}
                         override fun onConnectionError(message: String) {}
-                        override fun onFirmwareVersionReceived(command: Int, data: ByteArray) {}
+                        override fun onVescResponse(command: Int, data: ByteArray) {}
                         override fun onCommandError(command: Int, message: String) {}
                     }
             )
@@ -170,55 +170,66 @@ class MainActivity : AppCompatActivity() {
                             )
                         }
 
-                        override fun onFirmwareVersionReceived(command: Int, data: ByteArray) {
-                            val parser = VescBuffer(data)
-                            val major = parser.readUInt8()
-                            val minor = parser.readUInt8()
-                            var name = parser.readString()
-                            if (name.isEmpty()) name = "Unknown"
+                        override fun onVescResponse(command: Int, data: ByteArray) {
+                            when (command) {
+                                COMM_FW_VERSION -> {
 
-                            var uuid: String? = null
-                            if (parser.size() - parser.index >= 12) {
-                                val sb = StringBuilder()
-                                for (i in 0 until 12) {
-                                    val v = parser.readUInt8()
-                                    if (v < 10) {
-                                        sb.append("0")
-                                        sb.append(v.toString(16))
-                                    } else {
-                                        sb.append(v.toString(16).uppercase())
-                                    }
-                                }
-                                uuid = sb.toString()
-                            }
-                            var isPaired: Boolean? = null
-                            if (parser.size() - parser.index >= 1) {
-                                isPaired = parser.readUInt8() != 0
-                            }
-                            var betaVersion: Int? = null
-                            if (parser.size() - parser.index >= 1) {
-                                betaVersion = parser.readUInt8()
-                            }
-                            var hwType: Int? = null
-                            if (parser.size() - parser.index >= 1) {
-                                hwType = parser.readUInt8()
-                            }
+                                    val parser = VescBuffer(data)
+                                    val major = parser.readUInt8()
+                                    val minor = parser.readUInt8()
+                                    var name = parser.readString()
+                                    if (name.isEmpty()) name = "Unknown"
 
-                            reply(
-                                    wsMessage(
-                                            "data",
-                                            "firmware",
-                                            buildJsonObject {
-                                                put("major", major)
-                                                put("minor", minor)
-                                                put("name", name)
-                                                put("uuid", uuid)
-                                                put("isPaired", isPaired)
-                                                put("betaVersion", betaVersion)
-                                                put("hwType", hwType)
+                                    var uuid: String? = null
+                                    if (parser.size() - parser.index >= 12) {
+                                        val sb = StringBuilder()
+                                        for (i in 0 until 12) {
+                                            val v = parser.readUInt8()
+                                            if (v < 10) {
+                                                sb.append("0")
+                                                sb.append(v.toString(16))
+                                            } else {
+                                                sb.append(v.toString(16).uppercase())
                                             }
+                                        }
+                                        uuid = sb.toString()
+                                    }
+                                    var isPaired: Boolean? = null
+                                    if (parser.size() - parser.index >= 1) {
+                                        isPaired = parser.readUInt8() != 0
+                                    }
+                                    var betaVersion: Int? = null
+                                    if (parser.size() - parser.index >= 1) {
+                                        betaVersion = parser.readUInt8()
+                                    }
+                                    var hwType: Int? = null
+                                    if (parser.size() - parser.index >= 1) {
+                                        hwType = parser.readUInt8()
+                                    }
+
+                                    reply(
+                                            wsMessage(
+                                                    "data",
+                                                    "firmware",
+                                                    buildJsonObject {
+                                                        put("major", major)
+                                                        put("minor", minor)
+                                                        put("name", name)
+                                                        put("uuid", uuid)
+                                                        put("isPaired", isPaired)
+                                                        put("betaVersion", betaVersion)
+                                                        put("hwType", hwType)
+                                                    }
+                                            )
                                     )
-                            )
+                                }
+                                else -> {
+                                    Log.w(
+                                            TAG,
+                                            "Unhandled VESC response - Command: $command, Data: ${data.joinToString(" ") { "%02X".format(it) }}"
+                                    )
+                                }
+                            }
                         }
 
                         override fun onCommandError(command: Int, message: String) {
