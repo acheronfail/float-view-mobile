@@ -24,6 +24,8 @@ import java.util.concurrent.ConcurrentHashMap
 class VescBle(private val context: Context) {
 
     companion object {
+        val BleClientCharacteristicConfig = UUID.fromString("00002902-0000-1000-8000-00805f9b34fb")
+
         val VescService = UUID.fromString("6e400001-b5a3-f393-e0a9-e50e24dcca9e")
         val VescCharacteristicsRx = UUID.fromString("6e400002-b5a3-f393-e0a9-e50e24dcca9e")
         val VescCharacteristicsTx = UUID.fromString("6e400003-b5a3-f393-e0a9-e50e24dcca9e")
@@ -45,6 +47,7 @@ class VescBle(private val context: Context) {
         fun onReady(gatt: BluetoothGatt)
         fun onDisconnected()
         fun onError(message: String)
+        fun onCharacteristicChanged(characteristic: BluetoothGattCharacteristic, value: ByteArray) {}
     }
 
     private val logTag = "FloatView_BluetoothModule"
@@ -258,6 +261,14 @@ class VescBle(private val context: Context) {
                                         return
                                     }
                                     listener.onReady(gatt)
+                                }
+
+                                override fun onCharacteristicChanged(
+                                        gatt: BluetoothGatt,
+                                        characteristic: BluetoothGattCharacteristic,
+                                        value: ByteArray
+                                ) {
+                                    listener.onCharacteristicChanged(characteristic, value)
                                 }
                             }
                     )

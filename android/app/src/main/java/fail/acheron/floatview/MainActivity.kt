@@ -1,11 +1,6 @@
 package fail.acheron.floatview
 
-import android.annotation.SuppressLint
-import android.bluetooth.BluetoothDevice
-import android.bluetooth.BluetoothGatt
 import android.os.Bundle
-import android.os.Handler
-import android.os.Looper
 import android.util.Log
 import android.webkit.WebView
 import androidx.appcompat.app.AppCompatActivity
@@ -17,8 +12,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var localWebView: LocalWebView
     private val TAG = "FloatView_MainActivity"
 
-    private lateinit var vescBle: VescBle
-    private val mainHandler = Handler(Looper.getMainLooper())
+    private lateinit var vescManager: VescManager
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -29,70 +23,53 @@ class MainActivity : AppCompatActivity() {
         webView = localWebView.init()
         setContentView(webView)
 
-        vescBle = VescBle(this)
+        vescManager = VescManager(this)
 
         // Start the singleton local server
         LocalServer.start(this, webView)
 
+        setupWebSocketHandlers()
+    }
+
+    private fun setupWebSocketHandlers() {
+        setupScanHandler()
+        setupConnectHandler()
+        setupDataHandler()
+    }
+
+    private fun setupScanHandler() {
         LocalServer.addHandler("scan") { _, reply ->
             val topic = "scan"
 
-            if (!vescBle.requestPermissionsIfNeeded(this, 1001)) {
-                reply(
-                        wsMessage(
-                                topic,
-                                "error",
-                                buildJsonObject { put("message", "no permissions") }
-                        )
-                )
-                return@addHandler
+            vescManager.setListener(object : VescManager.VescManagerListener {
+                override fun onScanDeviceFound(name: String?, address: String) {
+                    reply(wsMessage(topic, "device", buildJsonObject {
+                        put("name", name)
+                        put("address", address)
+                    }))
+                }
+
+                override fun onScanComplete() {
+                    reply(wsMessage(topic, "complete", buildJsonObject {}))
+                }
+
+                override fun onScanError(message: String) {
+                    reply(wsMessage(topic, "error", buildJsonObject { put("message", message) }))
+                }
+
+                override fun onConnectionStatusChanged(status: VescManager.ConnectionStatus, address: String?) {}
+                override fun onConnectionError(message: String) {}
+                override fun onFirmwareVersionReceived(command: Int, data: ByteArray) {}
+                override fun onCommandError(command: Int, message: String) {}
+            })
+
+            if (!vescManager.startScan()) {
+                reply(wsMessage(topic, "error", buildJsonObject { put("message", "Failed to start scan") }))
             }
-
-            vescBle.startScan(
-                    listOf(VescBle.VescService),
-                    3_000L,
-                    object : VescBle.ScanListener {
-                        @SuppressLint("MissingPermission")
-                        override fun onDeviceFound(device: BluetoothDevice) {
-                            Thread {
-                                        reply(
-                                                wsMessage(
-                                                        topic,
-                                                        "device",
-                                                        buildJsonObject {
-                                                            put("name", device.name)
-                                                            put("address", device.address)
-                                                        }
-                                                )
-                                        )
-                                    }
-                                    .start()
-                        }
-
-                        @SuppressLint("MissingPermission")
-                        override fun onScanStopped(devices: List<BluetoothDevice>) {
-                            Log.d(TAG, "BLE scan complete. Devices count: ${devices.size}")
-                            Thread { reply(wsMessage(topic, "complete", buildJsonObject {})) }
-                                    .start()
-                        }
-
-                        override fun onError(message: String) {
-                            Log.e(TAG, "BLE scan error: $message")
-                            Thread {
-                                        reply(
-                                                wsMessage(
-                                                        topic,
-                                                        "error",
-                                                        buildJsonObject { put("message", message) }
-                                                )
-                                        )
-                                    }
-                                    .start()
-                        }
-                    }
-            )
         }
+    }
 
+    private fun setupConnectHandler() {
         LocalServer.addHandler("connect") { req, reply ->
             val topic = "connect"
 
@@ -108,90 +85,53 @@ class MainActivity : AppCompatActivity() {
                 return@addHandler
             }
 
+            vescManager.setListener(object : VescManager.VescManagerListener {
+                override fun onScanDeviceFound(name: String?, address: String) {}
+                override fun onScanComplete() {}
+                override fun onScanError(message: String) {}
+
+                override fun onConnectionStatusChanged(status: VescManager.ConnectionStatus, address: String?) {
+                    when (status) {
+                        VescManager.ConnectionStatus.CONNECTING -> {
+                            reply(wsMessage(topic, "status", buildJsonObject { put("status", "connecting") }))
+                        }
+                        VescManager.ConnectionStatus.CONNECTED -> {
+                            reply(wsMessage(topic, "status", buildJsonObject { put("status", "connected") }))
+                        }
+                        VescManager.ConnectionStatus.READY -> {
+                            reply(wsMessage(topic, "ready", buildJsonObject { put("address", address) }))
+                        }
+                        VescManager.ConnectionStatus.DISCONNECTED -> {
+                            reply(wsMessage(topic, "disconnect", buildJsonObject { put("address", address) }))
+                        }
+                    }
+                }
+
+                override fun onConnectionError(message: String) {
+                    reply(wsMessage(topic, "error", buildJsonObject { put("message", message) }))
+                }
+
+                override fun onFirmwareVersionReceived(command: Int, data: ByteArray) {
+                    Log.d(TAG, "Firmware version received - Command: $command, Data: ${data.joinToString(" ") { "%02X".format(it) }}")
+                    // Auto-disconnect after receiving firmware version for demo purposes
+                    android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+                        Log.d(TAG, "Disconnecting from device after firmware version check")
+                        vescManager.disconnect()
+                    }, 2000)
+                }
+
+                override fun onCommandError(command: Int, message: String) {
+                    Log.e(TAG, "Command error - Command: $command, Error: $message")
+                    vescManager.disconnect()
+                }
+            })
+
             reply(wsMessage(topic, "status", buildJsonObject { put("status", "start") }))
-            val didStartConnecting =
-                    vescBle.connect(
-                            address,
-                            listOf(VescBle.VescService),
-                            object : VescBle.ConnectionListener {
-                                override fun onConnected(gatt: BluetoothGatt) {
-                                    Log.d(TAG, "Connected to device: ${gatt.device.address}")
-                                    reply(
-                                            wsMessage(
-                                                    topic,
-                                                    "status",
-                                                    buildJsonObject { put("status", "connected") }
-                                            )
-                                    )
-                                }
-
-                                override fun onReady(gatt: BluetoothGatt) {
-                                    Log.d(TAG, "Device ready: ${gatt.device.address}")
-                                    reply(
-                                            wsMessage(
-                                                    topic,
-                                                    "ready",
-                                                    buildJsonObject { put("address", address) }
-                                            )
-                                    )
-
-                                    // TODO: investigate - `requestConnectionPriorityForDevice -
-                                    // HIGH`
-                                    // TODO: detect disconnects (out of range, etc)
-                                    // TODO: reconnection logic/timers
-                                    // TODO: start monitoring logs:
-                                    // TODO: monitorCharacteristicForDevice for constant updates of
-                                    // the char (VescCharacteristicsTx)
-                                    // Log all available services and characteristics
-                                    logAvailableCharacteristics(gatt)
-
-                                    // Wait 5 seconds then disconnect
-                                    mainHandler.postDelayed(
-                                            {
-                                                Log.d(
-                                                        TAG,
-                                                        "Disconnecting from device after 5 seconds"
-                                                )
-                                                vescBle.disconnect()
-                                            },
-                                            5000
-                                    )
-                                }
-
-                                override fun onDisconnected() {
-                                    reply(
-                                            wsMessage(
-                                                    topic,
-                                                    "disconnect",
-                                                    buildJsonObject { put("address", address) }
-                                            )
-                                    )
-                                }
-
-                                override fun onError(message: String) {
-                                    reply(
-                                            wsMessage(
-                                                    topic,
-                                                    "error",
-                                                    buildJsonObject { put("message", message) }
-                                            )
-                                    )
-                                }
-                            }
-                    )
-            if (didStartConnecting) {
-                reply(wsMessage(topic, "status", buildJsonObject { put("status", "connecting") }))
-            } else {
-                reply(
-                        wsMessage(
-                                topic,
-                                "error",
-                                buildJsonObject { put("message", "no device found") }
-                        )
-                )
-            }
+            vescManager.connectAndGetFirmware(address)
         }
+    }
 
+    private fun setupDataHandler() {
         LocalServer.addHandler("data") { req, reply ->
             val shouldLog = req["log"]!!.jsonPrimitive.boolean
             if (!shouldLog) {
@@ -199,90 +139,41 @@ class MainActivity : AppCompatActivity() {
                 return@addHandler
             }
 
+            @Suppress("UNUSED_VARIABLE")
             val intervalMs = req["intervalMs"]!!.jsonPrimitive.double
-            // TODO: start sending VESC log data back
-            reply(wsMessage("data", "log", buildJsonObject {
-                put("adc1", 0)
-                put("adc2", 0)
-                put("ah", 0)
-                put("altitude", 0)
-                put("currentBattery", 0)
-                put("currentMotor", 0)
-                put("distance", 0)
-                put("duty", 0)
-                put("gpsAccuracy", 0)
-                put("gpsLatitude", 0)
-                put("gpsLongitude", 0)
-                put("motorFault", 0)
-                put("pitch", 0)
-                put("roll", 0)
-                put("speed", 0)
-                put("state", 0)
-                put("stateRaw", 0)
-                put("tempMosfet", 0)
-                put("tempMotor", 0)
-                put("time", 0)
-                put("truePitch", 0)
-                put("voltage", 0)
-                put("wh", 0)
-            }))
+            // TODO: start sending VESC log data back with interval: ${intervalMs}ms
+            reply(
+                    wsMessage(
+                            "data",
+                            "log",
+                            buildJsonObject {
+                                put("adc1", 0)
+                                put("adc2", 0)
+                                put("ah", 0)
+                                put("altitude", 0)
+                                put("currentBattery", 0)
+                                put("currentMotor", 0)
+                                put("distance", 0)
+                                put("duty", 0)
+                                put("gpsAccuracy", 0)
+                                put("gpsLatitude", 0)
+                                put("gpsLongitude", 0)
+                                put("motorFault", 0)
+                                put("pitch", 0)
+                                put("roll", 0)
+                                put("speed", 0)
+                                put("state", 0)
+                                put("stateRaw", 0)
+                                put("tempMosfet", 0)
+                                put("tempMotor", 0)
+                                put("time", 0)
+                                put("truePitch", 0)
+                                put("voltage", 0)
+                                put("wh", 0)
+                            }
+                    )
+            )
         }
-    }
-
-    private fun logAvailableCharacteristics(gatt: BluetoothGatt) {
-        Log.d(TAG, "=== Available Services and Characteristics ===")
-
-        val services = gatt.services
-        Log.d(TAG, "Total services found: ${services.size}")
-
-        for (service in services) {
-            Log.d(TAG, "Service UUID: ${service.uuid}")
-            Log.d(TAG, "  Service type: ${service.type}")
-
-            val characteristics = service.characteristics
-            Log.d(TAG, "  Characteristics count: ${characteristics.size}")
-
-            for (characteristic in characteristics) {
-                Log.d(TAG, "    Characteristic UUID: ${characteristic.uuid}")
-                Log.d(TAG, "    Properties: ${getPropertiesString(characteristic.properties)}")
-                Log.d(TAG, "    Permissions: ${characteristic.permissions}")
-
-                val descriptors = characteristic.descriptors
-                if (descriptors.isNotEmpty()) {
-                    Log.d(TAG, "    Descriptors count: ${descriptors.size}")
-                    for (descriptor in descriptors) {
-                        Log.d(TAG, "      Descriptor UUID: ${descriptor.uuid}")
-                    }
-                }
-            }
-        }
-        Log.d(TAG, "=== End of Services and Characteristics ===")
-    }
-
-    private fun getPropertiesString(properties: Int): String {
-        val props = mutableListOf<String>()
-        if (properties and android.bluetooth.BluetoothGattCharacteristic.PROPERTY_READ != 0)
-                props.add("READ")
-        if (properties and android.bluetooth.BluetoothGattCharacteristic.PROPERTY_WRITE != 0)
-                props.add("WRITE")
-        if (properties and
-                        android.bluetooth.BluetoothGattCharacteristic.PROPERTY_WRITE_NO_RESPONSE !=
-                        0
-        )
-                props.add("WRITE_NO_RESPONSE")
-        if (properties and android.bluetooth.BluetoothGattCharacteristic.PROPERTY_NOTIFY != 0)
-                props.add("NOTIFY")
-        if (properties and android.bluetooth.BluetoothGattCharacteristic.PROPERTY_INDICATE != 0)
-                props.add("INDICATE")
-        if (properties and android.bluetooth.BluetoothGattCharacteristic.PROPERTY_BROADCAST != 0)
-                props.add("BROADCAST")
-        if (properties and android.bluetooth.BluetoothGattCharacteristic.PROPERTY_EXTENDED_PROPS !=
-                        0
-        )
-                props.add("EXTENDED_PROPS")
-        if (properties and android.bluetooth.BluetoothGattCharacteristic.PROPERTY_SIGNED_WRITE != 0)
-                props.add("SIGNED_WRITE")
-        return if (props.isEmpty()) "NONE" else props.joinToString(", ")
     }
 
     override fun onRequestPermissionsResult(
@@ -298,9 +189,9 @@ class MainActivity : AppCompatActivity() {
                                 it == android.content.pm.PackageManager.PERMISSION_GRANTED
                             }
             if (allGranted) {
-                Log.d(TAG, "All BLE permissions granted; starting scan")
+                Log.d(TAG, "All BLE permissions granted")
             } else {
-                Log.w(TAG, "BLE permissions denied; cannot start scan")
+                Log.w(TAG, "BLE permissions denied")
             }
         }
     }
@@ -309,5 +200,6 @@ class MainActivity : AppCompatActivity() {
         super.onDestroy()
         LocalServer.stop()
         if (this::localWebView.isInitialized) localWebView.destroy()
+        if (this::vescManager.isInitialized) vescManager.disconnect()
     }
 }
