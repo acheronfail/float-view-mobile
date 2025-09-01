@@ -29,6 +29,165 @@ class MainActivity : AppCompatActivity() {
         LocalServer.start(this, webView)
 
         setupWebSocketHandlers()
+
+        vescManager.setListener(
+                object : VescManager.VescManagerListener {
+                    override fun onScanDeviceFound(name: String?, address: String) {
+                        LocalServer.webSocket.broadcastMessage(
+                                wsMessage(
+                                        "scan",
+                                        "device",
+                                        buildJsonObject {
+                                            put("name", name)
+                                            put("address", address)
+                                        }
+                                )
+                        )
+                    }
+
+                    override fun onScanComplete() {
+                        LocalServer.webSocket.broadcastMessage(
+                                wsMessage(
+                                        "scan",
+                                        "status",
+                                        buildJsonObject { put("status", "complete") }
+                                )
+                        )
+                    }
+
+                    override fun onScanError(message: String) {
+                        LocalServer.webSocket.broadcastMessage(
+                                wsMessage(
+                                        "scan",
+                                        "error",
+                                        buildJsonObject { put("message", message) }
+                                )
+                        )
+                    }
+
+                    override fun onConnectionStatusChanged(
+                            status: VescManager.ConnectionStatus,
+                            address: String?
+                    ) {
+                        when (status) {
+                            VescManager.ConnectionStatus.CONNECTING -> {
+                                LocalServer.webSocket.broadcastMessage(
+                                        wsMessage(
+                                                "connect",
+                                                "status",
+                                                buildJsonObject { put("status", "connecting") }
+                                        )
+                                )
+                            }
+                            VescManager.ConnectionStatus.CONNECTED -> {
+                                LocalServer.webSocket.broadcastMessage(
+                                        wsMessage(
+                                                "connect",
+                                                "status",
+                                                buildJsonObject { put("status", "connected") }
+                                        )
+                                )
+                            }
+                            VescManager.ConnectionStatus.READY -> {
+                                LocalServer.webSocket.broadcastMessage(
+                                        wsMessage(
+                                                "connect",
+                                                "status",
+                                                buildJsonObject { put("status", "ready") }
+                                        )
+                                )
+                            }
+                            VescManager.ConnectionStatus.DISCONNECTED -> {
+                                Log.e(TAG, "Disconnected from device")
+                            }
+                        }
+                    }
+
+                    override fun onConnectionError(message: String) {
+                        LocalServer.webSocket.broadcastMessage(
+                                wsMessage(
+                                        "connect",
+                                        "error",
+                                        buildJsonObject { put("message", message) }
+                                )
+                        )
+                    }
+
+                    override fun onVescResponse(command: Int, data: ByteArray) {
+                        when (command) {
+                            COMM_FW_VERSION -> {
+
+                                val parser = VescBuffer(data)
+                                val major = parser.readUInt8()
+                                val minor = parser.readUInt8()
+                                var name = parser.readString()
+                                if (name.isEmpty()) name = "Unknown"
+
+                                var uuid: String? = null
+                                if (parser.size() - parser.index >= 12) {
+                                    val sb = StringBuilder()
+                                    for (i in 0 until 12) {
+                                        val v = parser.readUInt8()
+                                        if (v < 10) {
+                                            sb.append("0")
+                                            sb.append(v.toString(16))
+                                        } else {
+                                            sb.append(v.toString(16).uppercase())
+                                        }
+                                    }
+                                    uuid = sb.toString()
+                                }
+                                var isPaired: Boolean? = null
+                                if (parser.size() - parser.index >= 1) {
+                                    isPaired = parser.readUInt8() != 0
+                                }
+                                var betaVersion: Int? = null
+                                if (parser.size() - parser.index >= 1) {
+                                    betaVersion = parser.readUInt8()
+                                }
+                                var hwType: Int? = null
+                                if (parser.size() - parser.index >= 1) {
+                                    hwType = parser.readUInt8()
+                                }
+
+                                LocalServer.webSocket.broadcastMessage(
+                                        wsMessage(
+                                                "data",
+                                                "firmware",
+                                                buildJsonObject {
+                                                    put("major", major)
+                                                    put("minor", minor)
+                                                    put("name", name)
+                                                    put("uuid", uuid)
+                                                    put("isPaired", isPaired)
+                                                    put("betaVersion", betaVersion)
+                                                    put("hwType", hwType)
+                                                }
+                                        )
+                                )
+                            }
+                            else -> {
+                                Log.w(
+                                        TAG,
+                                        "Unhandled VESC response - Command: $command, Data: ${data.joinToString(" ") { "%02X".format(it) }}"
+                                )
+                            }
+                        }
+                    }
+
+                    override fun onCommandError(command: Int, message: String) {
+                        Log.e(TAG, "Command error - Command: $command, Error: $message")
+                        vescManager.disconnect()
+                        LocalServer.webSocket.broadcastMessage(
+                                wsMessage(
+                                        "connect",
+                                        "disconnect",
+                                        buildJsonObject { put("reason", "command error") }
+                                )
+                        )
+                    }
+                }
+        )
     }
 
     private fun setupWebSocketHandlers() {
@@ -38,56 +197,11 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun setupScanHandler() {
-        LocalServer.addHandler("scan") { _, reply ->
+        LocalServer.addHandler("scan") { _ ->
             val topic = "scan"
 
-            vescManager.setListener(
-                    object : VescManager.VescManagerListener {
-                        override fun onScanDeviceFound(name: String?, address: String) {
-                            reply(
-                                    wsMessage(
-                                            topic,
-                                            "device",
-                                            buildJsonObject {
-                                                put("name", name)
-                                                put("address", address)
-                                            }
-                                    )
-                            )
-                        }
-
-                        override fun onScanComplete() {
-                            reply(
-                                    wsMessage(
-                                            topic,
-                                            "status",
-                                            buildJsonObject { put("status", "complete") }
-                                    )
-                            )
-                        }
-
-                        override fun onScanError(message: String) {
-                            reply(
-                                    wsMessage(
-                                            topic,
-                                            "error",
-                                            buildJsonObject { put("message", message) }
-                                    )
-                            )
-                        }
-
-                        override fun onConnectionStatusChanged(
-                                status: VescManager.ConnectionStatus,
-                                address: String?
-                        ) {}
-                        override fun onConnectionError(message: String) {}
-                        override fun onVescResponse(command: Int, data: ByteArray) {}
-                        override fun onCommandError(command: Int, message: String) {}
-                    }
-            )
-
             if (!vescManager.startScan()) {
-                reply(
+                LocalServer.webSocket.broadcastMessage(
                         wsMessage(
                                 topic,
                                 "error",
@@ -96,163 +210,44 @@ class MainActivity : AppCompatActivity() {
                 )
             }
 
-            reply(wsMessage(topic, "status", buildJsonObject { put("status", "start") }))
+            LocalServer.webSocket.broadcastMessage(
+                    wsMessage(topic, "status", buildJsonObject { put("status", "start") })
+            )
         }
     }
 
     private fun setupConnectHandler() {
-        LocalServer.addHandler("connect") { req, reply ->
-            val topic = "connect"
-
+        LocalServer.addHandler("connect") { req ->
             val jsonAddress = req["address"]
             if (jsonAddress == null) {
-                reply(wsMessage(topic, "error", buildJsonObject { put("message", "no address") }))
+                LocalServer.webSocket.broadcastMessage(
+                        wsMessage(
+                                "connect",
+                                "error",
+                                buildJsonObject { put("message", "no address") }
+                        )
+                )
                 return@addHandler
             }
 
             val address = jsonAddress.jsonPrimitive.contentOrNull
             if (address == null) {
-                reply(wsMessage(topic, "error", buildJsonObject { put("message", "no address") }))
+                LocalServer.webSocket.broadcastMessage(
+                        wsMessage(
+                                "connect",
+                                "error",
+                                buildJsonObject { put("message", "no address") }
+                        )
+                )
                 return@addHandler
             }
 
-            vescManager.setListener(
-                    object : VescManager.VescManagerListener {
-                        override fun onScanDeviceFound(name: String?, address: String) {}
-                        override fun onScanComplete() {}
-                        override fun onScanError(message: String) {}
-
-                        override fun onConnectionStatusChanged(
-                                status: VescManager.ConnectionStatus,
-                                address: String?
-                        ) {
-                            when (status) {
-                                VescManager.ConnectionStatus.CONNECTING -> {
-                                    reply(
-                                            wsMessage(
-                                                    topic,
-                                                    "status",
-                                                    buildJsonObject { put("status", "connecting") }
-                                            )
-                                    )
-                                }
-                                VescManager.ConnectionStatus.CONNECTED -> {
-                                    reply(
-                                            wsMessage(
-                                                    topic,
-                                                    "status",
-                                                    buildJsonObject { put("status", "connected") }
-                                            )
-                                    )
-                                }
-                                VescManager.ConnectionStatus.READY -> {
-                                    reply(
-                                            wsMessage(
-                                                    topic,
-                                                    "status",
-                                                    buildJsonObject { put("status", "ready") }
-                                            )
-                                    )
-                                }
-                                VescManager.ConnectionStatus.DISCONNECTED -> {
-                                    Log.e(TAG, "Disconnected from device")
-                                }
-                            }
-                        }
-
-                        override fun onConnectionError(message: String) {
-                            reply(
-                                    wsMessage(
-                                            topic,
-                                            "error",
-                                            buildJsonObject { put("message", message) }
-                                    )
-                            )
-                        }
-
-                        override fun onVescResponse(command: Int, data: ByteArray) {
-                            when (command) {
-                                COMM_FW_VERSION -> {
-
-                                    val parser = VescBuffer(data)
-                                    val major = parser.readUInt8()
-                                    val minor = parser.readUInt8()
-                                    var name = parser.readString()
-                                    if (name.isEmpty()) name = "Unknown"
-
-                                    var uuid: String? = null
-                                    if (parser.size() - parser.index >= 12) {
-                                        val sb = StringBuilder()
-                                        for (i in 0 until 12) {
-                                            val v = parser.readUInt8()
-                                            if (v < 10) {
-                                                sb.append("0")
-                                                sb.append(v.toString(16))
-                                            } else {
-                                                sb.append(v.toString(16).uppercase())
-                                            }
-                                        }
-                                        uuid = sb.toString()
-                                    }
-                                    var isPaired: Boolean? = null
-                                    if (parser.size() - parser.index >= 1) {
-                                        isPaired = parser.readUInt8() != 0
-                                    }
-                                    var betaVersion: Int? = null
-                                    if (parser.size() - parser.index >= 1) {
-                                        betaVersion = parser.readUInt8()
-                                    }
-                                    var hwType: Int? = null
-                                    if (parser.size() - parser.index >= 1) {
-                                        hwType = parser.readUInt8()
-                                    }
-
-                                    reply(
-                                            wsMessage(
-                                                    "data",
-                                                    "firmware",
-                                                    buildJsonObject {
-                                                        put("major", major)
-                                                        put("minor", minor)
-                                                        put("name", name)
-                                                        put("uuid", uuid)
-                                                        put("isPaired", isPaired)
-                                                        put("betaVersion", betaVersion)
-                                                        put("hwType", hwType)
-                                                    }
-                                            )
-                                    )
-                                }
-                                else -> {
-                                    Log.w(
-                                            TAG,
-                                            "Unhandled VESC response - Command: $command, Data: ${data.joinToString(" ") { "%02X".format(it) }}"
-                                    )
-                                }
-                            }
-                        }
-
-                        override fun onCommandError(command: Int, message: String) {
-                            Log.e(TAG, "Command error - Command: $command, Error: $message")
-                            vescManager.disconnect()
-                            reply(
-                                    wsMessage(
-                                            topic,
-                                            "disconnect",
-                                            buildJsonObject { put("reason", "command error") }
-                                    )
-                            )
-                        }
-                    }
-            )
-
-            reply(wsMessage(topic, "status", buildJsonObject { put("status", "start") }))
             vescManager.connectAndGetFirmware(address)
         }
 
-        LocalServer.addHandler("disconnect") { _, reply ->
+        LocalServer.addHandler("disconnect") { _ ->
             vescManager.disconnect()
-            reply(
+            LocalServer.webSocket.broadcastMessage(
                     wsMessage(
                             "connect",
                             "disconnect",
@@ -263,7 +258,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun setupDataHandler() {
-        LocalServer.addHandler("data") { req, reply ->
+        LocalServer.addHandler("data") { req ->
             val shouldLog = req["log"]!!.jsonPrimitive.boolean
             if (!shouldLog) {
                 // TODO: stop logging interval
@@ -272,7 +267,7 @@ class MainActivity : AppCompatActivity() {
 
             @Suppress("UNUSED_VARIABLE") val intervalMs = req["intervalMs"]!!.jsonPrimitive.double
             // TODO: start sending VESC log data back with interval: ${intervalMs}ms
-            reply(
+            LocalServer.webSocket.broadcastMessage(
                     wsMessage(
                             "data",
                             "log",

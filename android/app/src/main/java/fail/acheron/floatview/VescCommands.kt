@@ -198,7 +198,8 @@ class VescCommands(private val gatt: BluetoothGatt) {
             // TODO: detect if need to use can or not, rather than hardcoding here
             // TODO: scan for VESCs on can bus, rather than hardcoding
             val canId = 1
-            payload.addAll(0, listOf(COMM_FORWARD_CAN, canId))
+            payload.addAll(0, listOf(COMM_FORWARD_CAN, canId, command))
+            Log.d(logTag, "Generated payload: ${payload.joinToString(" ") { "%02X".format(it) }}")
             val packet = generateVescPacket(payload)
 
             Log.d(logTag, "Generated packet: ${packet.joinToString(" ") { "%02X".format(it) }}")

@@ -90,7 +90,7 @@ class LocalWebSocket() {
           continue
         }
 
-        handler(payload.data) { msg -> Thread { sendWebSocketMessage(client, msg) }.start() }
+        handler(payload.data)
       }
     } catch (e: Exception) {
       Log.d(logTag, "WebSocket client ${client.id} disconnected: ${e.message}")
@@ -113,8 +113,8 @@ class LocalWebSocket() {
     }
   }
 
-  fun broadcastToOtherClients(excludeId: String, message: JsonObject) {
-    webSocketClients.values.forEach { if (it.id != excludeId) sendWebSocketMessage(it, message) }
+  fun broadcastMessage(message: JsonObject) {
+    Thread() { webSocketClients.values.forEach { sendWebSocketMessage(it, message) } }.start()
   }
 
   data class WebSocketFrame(val opcode: Int, val payload: String)

@@ -11,12 +11,12 @@ import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executors
 import kotlinx.serialization.json.JsonObject
 
-typealias WsHandler = (req: JsonObject, reply: (json: JsonObject) -> Unit) -> Unit
+typealias WsHandler = (req: JsonObject) -> Unit
 
 object LocalServer {
   private const val TAG = "FloatView_LocalServer"
 
-  private val webSocket = LocalWebSocket()
+  val webSocket = LocalWebSocket()
   private var serverSocket: ServerSocket? = null
   private val executor = Executors.newCachedThreadPool()
   private var webViewRef: WeakReference<WebView>? = null

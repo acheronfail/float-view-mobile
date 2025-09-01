@@ -152,6 +152,9 @@ class VescManager(private val activity: Activity) {
         Handler(Looper.getMainLooper())
                 .postDelayed(
                         {
+                            // Log all available services and characteristics for debugging
+                            logAvailableCharacteristics(gatt)
+
                             // Request firmware version
                             // TODO: check for float/refloat package + its version
                             // TODO: read motor/app config as well for sanity checks
@@ -171,9 +174,6 @@ class VescManager(private val activity: Activity) {
                         },
                         100
                 )
-
-        // Log all available services and characteristics for debugging
-        logAvailableCharacteristics(gatt)
     }
 
     /** Disconnect from the current device */
