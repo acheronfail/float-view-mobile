@@ -3,279 +3,252 @@ import Foundation
 
 class VescCommands {
 
-    // MARK: - Command Callback Protocol
+  // MARK: - Command Callback Protocol
 
-    enum CommandResult {
-        case response(command: Int, data: Data)
-        case error(command: Int, message: String)
+  enum CommandResult {
+    case response(command: Int, data: Data)
+    case error(command: Int, message: String)
+  }
+
+  // VESC Command Constants
+  static let COMM_FW_VERSION = 0
+  static let COMM_FORWARD_CAN = 34
+
+  typealias CommandCallback = (CommandResult) -> Void
+
+  // MARK: - Properties
+
+  private let peripheral: CBPeripheral
+  private var commandCallbacks: [Int: CommandCallback] = [:]
+
+  // Cache characteristics for better performance
+  private var writeCharacteristic: CBCharacteristic?
+  private var readCharacteristic: CBCharacteristic?
+
+  // MARK: - Initialization
+
+  init(peripheral: CBPeripheral) {
+    self.peripheral = peripheral
+  }
+
+  // MARK: - Public Methods
+
+  func isReady() -> Bool {
+    return writeCharacteristic != nil && readCharacteristic != nil
+  }
+
+  func enableNotifications() {
+    guard let char = readCharacteristic else {
+      print("Read characteristic not available")
+      return
     }
 
-    // VESC Command Constants
-    static let COMM_FW_VERSION = 0
-    static let COMM_FORWARD_CAN = 34
+    // Set notification state
+    peripheral.setNotifyValue(true, for: char)
 
-    typealias CommandCallback = (CommandResult) -> Void
+    // Note: In iOS, we don't manually write to the descriptor like in Android
+    // The CBPeripheral.setNotifyValue method handles this automatically
 
-    // MARK: - Properties
+    print("Notifications enabled successfully")
+  }
 
-    private let peripheral: CBPeripheral
-    private var commandCallbacks: [Int: CommandCallback] = [:]
-
-    // Cache characteristics for better performance
-    private var writeCharacteristic: CBCharacteristic?
-    private var readCharacteristic: CBCharacteristic?
-
-    // MARK: - Initialization
-
-    init(peripheral: CBPeripheral) {
-        self.peripheral = peripheral
+  func sendCommand(command: Int, data: [UInt8], completion: @escaping CommandCallback) {
+    if writeCharacteristic == nil {
         cacheCharacteristics()
+        enableNotifications()
     }
 
-    // MARK: - Public Methods
-
-    func isReady() -> Bool {
-        return writeCharacteristic != nil && readCharacteristic != nil
+    guard let writeChar = writeCharacteristic else {
+      completion(.error(command: command, message: "Write characteristic not available"))
+      return
     }
 
-    func enableNotifications() -> Bool {
-        guard let char = readCharacteristic else {
-            print("Read characteristic not available")
-            return false
-        }
+    // Store the callback for this command
+    commandCallbacks[command] = completion
 
-        // Set notification state
-        peripheral.setNotifyValue(true, for: char)
+    // Create payload with CAN forwarding (matching Android implementation)
+    // TODO: detect if need to use CAN or not, rather than hardcoding here
+    // TODO: scan for VESCs on CAN bus, rather than hardcoding
+    let canId: UInt8 = 1  // Use 16 to match Android's working packet
+    var payload = [UInt8(VescCommands.COMM_FORWARD_CAN), canId, UInt8(command)]
+    payload.append(contentsOf: data)
 
-        // Note: In iOS, we don't manually write to the descriptor like in Android
-        // The CBPeripheral.setNotifyValue method handles this automatically
+    print("VescCommands: Sending command \(command) with CAN forwarding (CAN ID: \(canId))")
+    print(
+      "VescCommands: Generated payload: \(payload.map { String(format: "%02X", $0) }.joined(separator: " "))"
+    )
 
-        print("Notifications enabled successfully")
-        return true
-    }
+    // Create VESC packet using the entire payload (not just command)
+    let packet = createVescPacket(payload: payload)
+    print(
+      "VescCommands: Generated packet: \(packet.map { String(format: "%02X", $0) }.joined(separator: " "))"
+    )
 
-    func sendCommand(command: Int, data: [UInt8], completion: @escaping CommandCallback) {
-        guard let writeChar = writeCharacteristic else {
-            completion(.error(command: command, message: "Write characteristic not available"))
-            return
-        }
+    // Write to characteristic
+    let writeData = Data(packet)
+    peripheral.writeValue(writeData, for: writeChar, type: .withResponse)
+  }
 
-        // Store the callback for this command
-        commandCallbacks[command] = completion
+  func onCharacteristicChanged(characteristic: CBCharacteristic, value: Data) {
+    print("VescCommands: Characteristic changed - UUID: \(characteristic.uuid)")
+    print("VescCommands: Expected TX UUID: \(VescBle.vescCharacteristicsTx)")
+    print("VescCommands: UUIDs match: \(characteristic.uuid == VescBle.vescCharacteristicsTx)")
 
-        // Create payload with CAN forwarding (matching Android implementation)
-        // TODO: detect if need to use CAN or not, rather than hardcoding here
-        // TODO: scan for VESCs on CAN bus, rather than hardcoding
-        let canId: UInt8 = 1  // Use 16 to match Android's working packet
-        var payload = [UInt8(VescCommands.COMM_FORWARD_CAN), canId, UInt8(command)]
-        payload.append(contentsOf: data)
+    if characteristic.uuid == VescBle.vescCharacteristicsTx {
+      print(
+        "VescCommands: Received data: \(value.map { String(format: "%02X", $0) }.joined(separator: " "))"
+      )
 
-        print("VescCommands: Sending command \(command) with CAN forwarding (CAN ID: \(canId))")
-        print("VescCommands: Generated payload: \(payload.map { String(format: "%02X", $0) }.joined(separator: " "))")
-
-        // Create VESC packet using the entire payload (not just command)
-        let packet = createVescPacketFromPayload(payload: payload)
-        print("VescCommands: Generated packet: \(packet.map { String(format: "%02X", $0) }.joined(separator: " "))")
-
-        // Write to characteristic
-        let writeData = Data(packet)
-        peripheral.writeValue(writeData, for: writeChar, type: .withResponse)
-    }
-
-    func onCharacteristicChanged(characteristic: CBCharacteristic, value: Data) {
-        print("VescCommands: Characteristic changed - UUID: \(characteristic.uuid)")
-        print("VescCommands: Expected TX UUID: \(VescBle.vescCharacteristicsTx)")
-        print("VescCommands: UUIDs match: \(characteristic.uuid == VescBle.vescCharacteristicsTx)")
-
-        if characteristic.uuid == VescBle.vescCharacteristicsTx {
-            print("VescCommands: Received data: \(value.map { String(format: "%02X", $0) }.joined(separator: " "))")
-
-            // Parse the VESC packet to extract the command and payload
-            if let (command, data) = parseVescCharacteristicResponse(value) {
-                print("VescCommands: Parsed command: \(command), data length: \(data.count)")
-                // Call the appropriate callback for this command
-                if let callback = commandCallbacks[command] {
-                    print("VescCommands: Calling callback for command: \(command)")
-                    callback(.response(command: command, data: data))
-                    commandCallbacks.removeValue(forKey: command)
-                } else {
-                    print("VescCommands: No callback registered for command: \(command)")
-                }
-            } else {
-                print("VescCommands: Failed to parse VESC response")
-            }
+      // Parse the VESC packet to extract the command and payload
+      if let (command, data) = parseVescCharacteristicResponse(value) {
+        print("VescCommands: Parsed command: \(command), data length: \(data.count)")
+        // Call the appropriate callback for this command
+        if let callback = commandCallbacks[command] {
+          print("VescCommands: Calling callback for command: \(command)")
+          callback(.response(command: command, data: data))
+          commandCallbacks.removeValue(forKey: command)
         } else {
-            print("VescCommands: Ignoring data from non-TX characteristic: \(characteristic.uuid)")
+          print("VescCommands: No callback registered for command: \(command)")
         }
+      } else {
+        print("VescCommands: Failed to parse VESC response")
+      }
+    } else {
+      print("VescCommands: Ignoring data from non-TX characteristic: \(characteristic.uuid)")
+    }
+  }
+
+  func cleanup() {
+    commandCallbacks.removeAll()
+    writeCharacteristic = nil
+    readCharacteristic = nil
+  }
+
+  // MARK: - Private Methods
+
+  private func cacheCharacteristics() {
+    guard let services = peripheral.services else { return }
+
+    for service in services {
+      if service.uuid == VescBle.vescServiceUUID {
+        guard let characteristics = service.characteristics else { continue }
+
+        for characteristic in characteristics {
+          switch characteristic.uuid {
+          case VescBle.vescCharacteristicsRx:
+            writeCharacteristic = characteristic
+          case VescBle.vescCharacteristicsTx:
+            readCharacteristic = characteristic
+          default:
+            break
+          }
+        }
+        break
+      }
     }
 
-    func cleanup() {
-        commandCallbacks.removeAll()
-        writeCharacteristic = nil
-        readCharacteristic = nil
+    print(
+      "Cached characteristics - Write: \(writeCharacteristic != nil), Read: \(readCharacteristic != nil)"
+    )
+  }
+
+  private func createVescPacket(payload: [UInt8]) -> [UInt8] {
+    var packet: [UInt8] = []
+
+    // Start byte
+    packet.append(2)  // VESC start byte (0x02)
+
+    // Payload length
+    let payloadLength = payload.count
+    if payloadLength < 256 {
+      packet.append(UInt8(payloadLength))
+    } else {
+      packet.append(3)  // Extended length indicator
+      packet.append(UInt8(payloadLength >> 8))
+      packet.append(UInt8(payloadLength & 0xFF))
     }
 
-    // MARK: - Private Methods
+    // Payload (already includes command and data)
+    packet.append(contentsOf: payload)
 
-    private func cacheCharacteristics() {
-        guard let services = peripheral.services else { return }
+    // CRC16 (calculated on payload only, like Android)
+    let crc = calculateCRC16(data: payload)
+    packet.append(UInt8(crc >> 8))
+    packet.append(UInt8(crc & 0xFF))
 
-        for service in services {
-            if service.uuid == VescBle.vescServiceUUID {
-                guard let characteristics = service.characteristics else { continue }
+    // End byte
+    packet.append(3)  // VESC end byte (0x03)
 
-                for characteristic in characteristics {
-                    switch characteristic.uuid {
-                    case VescBle.vescCharacteristicsRx:
-                        writeCharacteristic = characteristic
-                    case VescBle.vescCharacteristicsTx:
-                        readCharacteristic = characteristic
-                    default:
-                        break
-                    }
-                }
-                break
-            }
-        }
+    return packet
+  }
 
-        print("Cached characteristics - Write: \(writeCharacteristic != nil), Read: \(readCharacteristic != nil)")
+  private func parseVescCharacteristicResponse(_ data: Data) -> (command: Int, data: Data)? {
+    let bytes = Array(data)
+
+    guard bytes.count >= 5 else { return nil }  // Minimum packet size
+    guard bytes[0] == 2 else { return nil }  // Check start byte
+    guard bytes[bytes.count - 1] == 3 else { return nil }  // Check end byte
+
+    var index = 1
+    var payloadLength: Int
+
+    // Parse length
+    if bytes[index] == 3 {  // Extended length
+      guard bytes.count >= 7 else { return nil }
+      payloadLength = Int(bytes[index + 1]) << 8 | Int(bytes[index + 2])
+      index += 3
+    } else {
+      payloadLength = Int(bytes[index])
+      index += 1
     }
 
-    private func createVescPacket(command: Int, data: [UInt8]) -> [UInt8] {
-        var packet: [UInt8] = []
+    guard bytes.count >= index + payloadLength + 3 else { return nil }  // payload + CRC + end
 
-        // Start byte
-        packet.append(2) // VESC start byte (0x02)
+    // Extract command
+    let command = Int(bytes[index])
+    index += 1
 
-        // Payload length
-        let payloadLength = 1 + data.count // command + data
-        if payloadLength < 256 {
-            packet.append(UInt8(payloadLength))
-        } else {
-            packet.append(3) // Extended length indicator
-            packet.append(UInt8(payloadLength >> 8))
-            packet.append(UInt8(payloadLength & 0xFF))
-        }
+    // Extract data
+    let dataLength = payloadLength - 1  // subtract command byte
+    let responseData = Data(bytes[index..<index + dataLength])
 
-        // Command
-        packet.append(UInt8(command))
+    // TODO: Verify CRC16 if needed
 
-        // Data
-        packet.append(contentsOf: data)
+    return (command: command, data: responseData)
+  }
 
-        // CRC16
-        let crc = calculateCRC16(data: Array(packet[1...]))
-        packet.append(UInt8(crc >> 8))
-        packet.append(UInt8(crc & 0xFF))
+  private func calculateCRC16(data: [UInt8]) -> UInt16 {
+    var checksum: UInt16 = 0
 
-        // End byte
-        packet.append(3) // VESC end byte (0x03)
-
-        return packet
+    for byte in data {
+      let tableIndex = Int(((checksum >> 8) ^ UInt16(byte)) & 0xFF)
+      checksum = CRC_16_TABLE[tableIndex] ^ (checksum << 8)
+      checksum = checksum & 0xFFFF  // Keep it as 16-bit value
     }
 
-    private func createVescPacketFromPayload(payload: [UInt8]) -> [UInt8] {
-        var packet: [UInt8] = []
+    return checksum
+  }
 
-        // Start byte
-        packet.append(2) // VESC start byte (0x02)
-
-        // Payload length
-        let payloadLength = payload.count
-        if payloadLength < 256 {
-            packet.append(UInt8(payloadLength))
-        } else {
-            packet.append(3) // Extended length indicator
-            packet.append(UInt8(payloadLength >> 8))
-            packet.append(UInt8(payloadLength & 0xFF))
-        }
-
-        // Payload (already includes command and data)
-        packet.append(contentsOf: payload)
-
-        // CRC16 (calculated on payload only, like Android)
-        print("VescCommands: CRC input data: \(payload.map { String(format: "%02X", $0) }.joined(separator: " "))")
-        let crc = calculateCRC16(data: payload)
-        print("VescCommands: Calculated CRC: \(String(format: "%04X", crc)) -> bytes: \(String(format: "%02X", UInt8(crc >> 8))) \(String(format: "%02X", UInt8(crc & 0xFF)))")
-        packet.append(UInt8(crc >> 8))
-        packet.append(UInt8(crc & 0xFF))
-
-        // End byte
-        packet.append(3) // VESC end byte (0x03)
-
-        return packet
-    }
-
-    private func parseVescCharacteristicResponse(_ data: Data) -> (command: Int, data: Data)? {
-        let bytes = Array(data)
-
-        guard bytes.count >= 5 else { return nil } // Minimum packet size
-        guard bytes[0] == 2 else { return nil } // Check start byte
-        guard bytes[bytes.count - 1] == 3 else { return nil } // Check end byte
-
-        var index = 1
-        var payloadLength: Int
-
-        // Parse length
-        if bytes[index] == 3 { // Extended length
-            guard bytes.count >= 7 else { return nil }
-            payloadLength = Int(bytes[index + 1]) << 8 | Int(bytes[index + 2])
-            index += 3
-        } else {
-            payloadLength = Int(bytes[index])
-            index += 1
-        }
-
-        guard bytes.count >= index + payloadLength + 3 else { return nil } // payload + CRC + end
-
-        // Extract command
-        let command = Int(bytes[index])
-        index += 1
-
-        // Extract data
-        let dataLength = payloadLength - 1 // subtract command byte
-        let responseData = Data(bytes[index..<index + dataLength])
-
-        // TODO: Verify CRC16 if needed
-
-        return (command: command, data: responseData)
-    }
-
-    private func calculateCRC16(data: [UInt8]) -> UInt16 {
-        var checksum: UInt16 = 0
-
-        // Debug: Test with known Android values
-        if data == [0x22, 0x10, 0x00] {
-            print("VescCommands: Testing CRC with Android payload [22 10 00]")
-        }
-
-        for byte in data {
-            let tableIndex = Int(((checksum >> 8) ^ UInt16(byte)) & 0xFF)
-            checksum = CRC_16_TABLE[tableIndex] ^ (checksum << 8)
-            checksum = checksum & 0xFFFF // Keep it as 16-bit value
-        }
-
-        return checksum
-    }    // CRC-16 lookup table (same as Android)
-    private let CRC_16_TABLE: [UInt16] = [
-        0x0000, 0x1021, 0x2042, 0x3063, 0x4084, 0x50a5, 0x60c6, 0x70e7, 0x8108, 0x9129, 0xa14a, 0xb16b, 0xc18c, 0xd1ad,
-        0xe1ce, 0xf1ef, 0x1231, 0x0210, 0x3273, 0x2252, 0x52b5, 0x4294, 0x72f7, 0x62d6, 0x9339, 0x8318, 0xb37b, 0xa35a,
-        0xd3bd, 0xc39c, 0xf3ff, 0xe3de, 0x2462, 0x3443, 0x0420, 0x1401, 0x64e6, 0x74c7, 0x44a4, 0x5485, 0xa56a, 0xb54b,
-        0x8528, 0x9509, 0xe5ee, 0xf5cf, 0xc5ac, 0xd58d, 0x3653, 0x2672, 0x1611, 0x0630, 0x76d7, 0x66f6, 0x5695, 0x46b4,
-        0xb75b, 0xa77a, 0x9719, 0x8738, 0xf7df, 0xe7fe, 0xd79d, 0xc7bc, 0x48c4, 0x58e5, 0x6886, 0x78a7, 0x0840, 0x1861,
-        0x2802, 0x3823, 0xc9cc, 0xd9ed, 0xe98e, 0xf9af, 0x8948, 0x9969, 0xa90a, 0xb92b, 0x5af5, 0x4ad4, 0x7ab7, 0x6a96,
-        0x1a71, 0x0a50, 0x3a33, 0x2a12, 0xdbfd, 0xcbdc, 0xfbbf, 0xeb9e, 0x9b79, 0x8b58, 0xbb3b, 0xab1a, 0x6ca6, 0x7c87,
-        0x4ce4, 0x5cc5, 0x2c22, 0x3c03, 0x0c60, 0x1c41, 0xedae, 0xfd8f, 0xcdec, 0xddcd, 0xad2a, 0xbd0b, 0x8d68, 0x9d49,
-        0x7e97, 0x6eb6, 0x5ed5, 0x4ef4, 0x3e13, 0x2e32, 0x1e51, 0x0e70, 0xff9f, 0xefbe, 0xdfdd, 0xcffc, 0xbf1b, 0xaf3a,
-        0x9f59, 0x8f78, 0x9188, 0x81a9, 0xb1ca, 0xa1eb, 0xd10c, 0xc12d, 0xf14e, 0xe16f, 0x1080, 0x00a1, 0x30c2, 0x20e3,
-        0x5004, 0x4025, 0x7046, 0x6067, 0x83b9, 0x9398, 0xa3fb, 0xb3da, 0xc33d, 0xd31c, 0xe37f, 0xf35e, 0x02b1, 0x1290,
-        0x22f3, 0x32d2, 0x4235, 0x5214, 0x6277, 0x7256, 0xb5ea, 0xa5cb, 0x95a8, 0x8589, 0xf56e, 0xe54f, 0xd52c, 0xc50d,
-        0x34e2, 0x24c3, 0x14a0, 0x0481, 0x7466, 0x6447, 0x5424, 0x4405, 0xa7db, 0xb7fa, 0x8799, 0x97b8, 0xe75f, 0xf77e,
-        0xc71d, 0xd73c, 0x26d3, 0x36f2, 0x0691, 0x16b0, 0x6657, 0x7676, 0x4615, 0x5634, 0xd94c, 0xc96d, 0xf90e, 0xe92f,
-        0x99c8, 0x89e9, 0xb98a, 0xa9ab, 0x5844, 0x4865, 0x7806, 0x6827, 0x18c0, 0x08e1, 0x3882, 0x28a3, 0xcb7d, 0xdb5c,
-        0xeb3f, 0xfb1e, 0x8bf9, 0x9bd8, 0xabbb, 0xbb9a, 0x4a75, 0x5a54, 0x6a37, 0x7a16, 0x0af1, 0x1ad0, 0x2ab3, 0x3a92,
-        0xfd2e, 0xed0f, 0xdd6c, 0xcd4d, 0xbdaa, 0xad8b, 0x9de8, 0x8dc9, 0x7c26, 0x6c07, 0x5c64, 0x4c45, 0x3ca2, 0x2c83,
-        0x1ce0, 0x0cc1, 0xef1f, 0xff3e, 0xcf5d, 0xdf7c, 0xaf9b, 0xbfba, 0x8fd9, 0x9ff8, 0x6e17, 0x7e36, 0x4e55, 0x5e74,
-        0x2e93, 0x3eb2, 0x0ed1, 0x1ef0
-    ]
+  // CRC-16 lookup table
+  private let CRC_16_TABLE: [UInt16] = [
+    0x0000, 0x1021, 0x2042, 0x3063, 0x4084, 0x50a5, 0x60c6, 0x70e7, 0x8108, 0x9129, 0xa14a, 0xb16b, 0xc18c, 0xd1ad,
+    0xe1ce, 0xf1ef, 0x1231, 0x0210, 0x3273, 0x2252, 0x52b5, 0x4294, 0x72f7, 0x62d6, 0x9339, 0x8318, 0xb37b, 0xa35a,
+    0xd3bd, 0xc39c, 0xf3ff, 0xe3de, 0x2462, 0x3443, 0x0420, 0x1401, 0x64e6, 0x74c7, 0x44a4, 0x5485, 0xa56a, 0xb54b,
+    0x8528, 0x9509, 0xe5ee, 0xf5cf, 0xc5ac, 0xd58d, 0x3653, 0x2672, 0x1611, 0x0630, 0x76d7, 0x66f6, 0x5695, 0x46b4,
+    0xb75b, 0xa77a, 0x9719, 0x8738, 0xf7df, 0xe7fe, 0xd79d, 0xc7bc, 0x48c4, 0x58e5, 0x6886, 0x78a7, 0x0840, 0x1861,
+    0x2802, 0x3823, 0xc9cc, 0xd9ed, 0xe98e, 0xf9af, 0x8948, 0x9969, 0xa90a, 0xb92b, 0x5af5, 0x4ad4, 0x7ab7, 0x6a96,
+    0x1a71, 0x0a50, 0x3a33, 0x2a12, 0xdbfd, 0xcbdc, 0xfbbf, 0xeb9e, 0x9b79, 0x8b58, 0xbb3b, 0xab1a, 0x6ca6, 0x7c87,
+    0x4ce4, 0x5cc5, 0x2c22, 0x3c03, 0x0c60, 0x1c41, 0xedae, 0xfd8f, 0xcdec, 0xddcd, 0xad2a, 0xbd0b, 0x8d68, 0x9d49,
+    0x7e97, 0x6eb6, 0x5ed5, 0x4ef4, 0x3e13, 0x2e32, 0x1e51, 0x0e70, 0xff9f, 0xefbe, 0xdfdd, 0xcffc, 0xbf1b, 0xaf3a,
+    0x9f59, 0x8f78, 0x9188, 0x81a9, 0xb1ca, 0xa1eb, 0xd10c, 0xc12d, 0xf14e, 0xe16f, 0x1080, 0x00a1, 0x30c2, 0x20e3,
+    0x5004, 0x4025, 0x7046, 0x6067, 0x83b9, 0x9398, 0xa3fb, 0xb3da, 0xc33d, 0xd31c, 0xe37f, 0xf35e, 0x02b1, 0x1290,
+    0x22f3, 0x32d2, 0x4235, 0x5214, 0x6277, 0x7256, 0xb5ea, 0xa5cb, 0x95a8, 0x8589, 0xf56e, 0xe54f, 0xd52c, 0xc50d,
+    0x34e2, 0x24c3, 0x14a0, 0x0481, 0x7466, 0x6447, 0x5424, 0x4405, 0xa7db, 0xb7fa, 0x8799, 0x97b8, 0xe75f, 0xf77e,
+    0xc71d, 0xd73c, 0x26d3, 0x36f2, 0x0691, 0x16b0, 0x6657, 0x7676, 0x4615, 0x5634, 0xd94c, 0xc96d, 0xf90e, 0xe92f,
+    0x99c8, 0x89e9, 0xb98a, 0xa9ab, 0x5844, 0x4865, 0x7806, 0x6827, 0x18c0, 0x08e1, 0x3882, 0x28a3, 0xcb7d, 0xdb5c,
+    0xeb3f, 0xfb1e, 0x8bf9, 0x9bd8, 0xabbb, 0xbb9a, 0x4a75, 0x5a54, 0x6a37, 0x7a16, 0x0af1, 0x1ad0, 0x2ab3, 0x3a92,
+    0xfd2e, 0xed0f, 0xdd6c, 0xcd4d, 0xbdaa, 0xad8b, 0x9de8, 0x8dc9, 0x7c26, 0x6c07, 0x5c64, 0x4c45, 0x3ca2, 0x2c83,
+    0x1ce0, 0x0cc1, 0xef1f, 0xff3e, 0xcf5d, 0xdf7c, 0xaf9b, 0xbfba, 0x8fd9, 0x9ff8, 0x6e17, 0x7e36, 0x4e55, 0x5e74,
+    0x2e93, 0x3eb2, 0x0ed1, 0x1ef0
+  ]
 }
