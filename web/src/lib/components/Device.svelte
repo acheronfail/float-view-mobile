@@ -1,7 +1,12 @@
 <script lang="ts">
-	import { untrack } from 'svelte';
+	import { onMount, untrack } from 'svelte';
 	import { ArrowDown, ArrowUp } from '@lucide/svelte';
-	import { parseMessage, sendCommand, type ZDataMessage } from '../backend-client.types';
+	import {
+		parseMessage,
+		sendCommand,
+		type ZCommandMessage,
+		type ZDataMessage
+	} from '../backend-client.types';
 
 	let {
 		ws,
@@ -14,7 +19,9 @@
 	let showRawData = $state(false);
 	let scrolledMoreThanHalf = $state(false);
 
-	let fw = $state<Extract<ZDataMessage, { event: 'firmware' }>['data'] | null>(null);
+	let fw = $state<
+		Extract<Extract<ZCommandMessage, { event: 'result' }>['data'], { command: 0 }>['data'] | null
+	>(null);
 	let data = $state<Extract<ZDataMessage, { event: 'log' }>['data'] | null>(null);
 
 	// ask backend to start logging
@@ -43,11 +50,12 @@
 					}
 				}
 
+				if (msg.topic === 'command' && msg.event === 'result' && msg.data.command === 0) {
+					fw = msg.data.data;
+				}
+
 				if (msg.topic === 'data') {
 					switch (msg.event) {
-						case 'firmware':
-							fw = msg.data;
-							break;
 						case 'log':
 							data = msg.data;
 							break;
@@ -92,6 +100,10 @@
 	};
 
 	const fmt = (n: number | undefined, digits = 2) => n?.toFixed(digits);
+
+	onMount(() => {
+		if (ws) sendCommand(ws, 'command', { command: 0 });
+	});
 </script>
 
 <div class="flex min-h-screen w-full flex-col">

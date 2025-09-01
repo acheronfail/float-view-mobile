@@ -11,6 +11,7 @@ type WsCommandDef = {
 	scan: empty;
 	connect: { address: string };
 	disconnect: empty;
+	command: { command: number };
 	data: { log: false } | { log: true; intervalMs: number };
 };
 
@@ -24,6 +25,7 @@ const commandFactories: {
 } = {
 	scan: () => ({ cmd: 'scan', data: {} }),
 	connect: (data) => ({ cmd: 'connect', data }),
+	command: (data) => ({ cmd: 'command', data }),
 	disconnect: () => ({ cmd: 'disconnect', data: {} }),
 	data: (data) => ({ cmd: 'data', data })
 };
@@ -33,6 +35,7 @@ export const sendCommand = <K extends keyof WsCommandDef>(
 	cmd: K,
 	data: WsCommandDef[K]
 ) => {
+	console.debug(['>', cmd].join(':'), data);
 	ws.send(JSON.stringify(commandFactories[cmd](data)));
 };
 
@@ -104,24 +107,38 @@ export const ConnectMessage = z.discriminatedUnion('event', [
 export type ZConnectMessage = z.infer<typeof ConnectMessage>;
 
 /*
+ * Command messages
+ */
+
+export const CommandMessage = z.discriminatedUnion('event', [
+	createMessage('command', 'error', ErrorData),
+	createMessage(
+		'command',
+		'result',
+		z.discriminatedUnion('command', [
+			z.object({
+				command: z.literal(0),
+				data: z.object({
+					major: z.number(),
+					minor: z.number(),
+					name: z.string(),
+					uuid: z.string(),
+					isPaired: z.boolean(),
+					betaVersion: z.number(),
+					hwType: z.number()
+				})
+			})
+		])
+	)
+]);
+export type ZCommandMessage = z.infer<typeof CommandMessage>;
+
+/*
  * Data messages
  */
 
 export const DataMessage = z.discriminatedUnion('event', [
 	createMessage('data', 'error', ErrorData),
-	createMessage(
-		'data',
-		'firmware',
-		z.object({
-			major: z.number(),
-			minor: z.number(),
-			name: z.string(),
-			uuid: z.string(),
-			isPaired: z.boolean(),
-			betaVersion: z.number(),
-			hwType: z.number()
-		})
-	),
 	createMessage(
 		'data',
 		'log',
@@ -178,7 +195,8 @@ export const WsMessage = z.discriminatedUnion('topic', [
 	SocketMessage,
 	ScanMessage,
 	ConnectMessage,
-	DataMessage
+	DataMessage,
+	CommandMessage
 ]);
 
 export type ZWsMessage = z.infer<typeof WsMessage>;
@@ -192,6 +210,7 @@ export const parseMessage = (ev: MessageEvent<unknown>): ZWsMessage => {
 	try {
 		return WsMessage.parse(json);
 	} catch (err) {
-		throw { err, json };
+		console.error({ err, json });
+		throw err;
 	}
 };

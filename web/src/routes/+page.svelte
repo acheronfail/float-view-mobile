@@ -18,7 +18,7 @@
 
 		ws.addEventListener('message', (event) => {
 			const msg = parseMessage(event);
-			console.debug(['ws', msg.topic, msg.event].join(':'), msg.data);
+			console.debug(['<', msg.topic, msg.event].join(':'), msg.data);
 		});
 
 		ws.addEventListener('close', (event) => {
