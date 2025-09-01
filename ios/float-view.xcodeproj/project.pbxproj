@@ -11,7 +11,7 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
-		BA3A10B02E5C0EED005406DA /* web */ = {isa = PBXFileReference; lastKnownFileType = folder; name = web; path = ../web; sourceTree = "<group>"; };
+		BA3A10B02E5C0EED005406DA /* web */ = {isa = PBXFileReference; lastKnownFileType = folder; name = web; path = ../web/build; sourceTree = "<group>"; };
 		BA4ABF1C2E5BDF4600B47684 /* float-view.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "float-view.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 

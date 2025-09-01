@@ -158,7 +158,7 @@ class LocalServer: ObservableObject {
     case "/":
       sendResponse(
         connection: connection, status: "200 OK", contentType: "text/html",
-        body: loadHtmlFile(filename: "index.html"))
+        body: loadHtmlFile(path: "index.html"))
     case "/api/status":
       let json = """
         {"status":"ok","message":"Local server is running","port":\(port)}
@@ -173,7 +173,8 @@ class LocalServer: ObservableObject {
       } else {
         sendResponse(
           connection: connection, status: "404 Not Found", contentType: "text/html",
-          body: loadHtmlFile(filename: "404.html"))
+          body: fallbackHtml(path: path)
+        )
       }
     }
   }
@@ -372,7 +373,7 @@ class LocalServer: ObservableObject {
     }
 
     if let bundleUrl = Bundle.main.url(
-      forResource: fileName, withExtension: nil, subdirectory: "web")
+      forResource: fileName, withExtension: nil, subdirectory: "build")
     {
       do {
         let content = try String(contentsOf: bundleUrl, encoding: .utf8)
@@ -415,13 +416,17 @@ class LocalServer: ObservableObject {
     }
   }
 
-  private func loadHtmlFile(filename: String) -> String {
-    if let text = loadWebFile(path: filename) {
+  private func loadHtmlFile(path: String) -> String {
+    if let text = loadWebFile(path: path) {
       return text.replacingOccurrences(of: "{{PORT}}", with: "\(port)")
     }
 
-    print("⚠️ Could not find HTML file \(filename)!")
-    return "<html><body>💩️Could not find: \(filename)</body></html>"
+    print("⚠️ Could not find HTML file \(path)!")
+    return fallbackHtml(path: path)
+  }
+
+  private func fallbackHtml(path: String) -> String {
+    return "<html><head><meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\"></head><body style=\"color: white\">💩️Could not find: \(path)</body></html>"
   }
 }
 
