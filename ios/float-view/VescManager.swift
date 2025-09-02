@@ -44,7 +44,7 @@ class VescManager: NSObject, ObservableObject {
   /** Connect to a VESC device and get firmware version */
   func connect(address: String) {
     guard let peripheral = foundDevices[address] else {
-      return LocalServer.shared.webSocket.broadcastMessage(
+      return LocalServer.shared.broadcastMessage(
         wsMessage(topic: "connect", event: "error", data: ["message": "Device not found"])
       )
     }
@@ -52,7 +52,7 @@ class VescManager: NSObject, ObservableObject {
     // setup to receive events from the device
     peripheral.delegate = self
 
-    LocalServer.shared.webSocket.broadcastMessage(
+    LocalServer.shared.broadcastMessage(
       wsMessage(topic: "connect", event: "status", data: ["status": "connecting"])
     )
 
@@ -69,7 +69,7 @@ class VescManager: NSObject, ObservableObject {
 
     connectedDevice = nil
 
-    LocalServer.shared.webSocket.broadcastMessage(
+    LocalServer.shared.broadcastMessage(
       wsMessage(
         topic: "connect",
         event: "disconnect",
@@ -105,7 +105,7 @@ class VescManager: NSObject, ObservableObject {
 
   func send(command: Int, payload data: [UInt8] = []) {
     guard let vescMessaging = vescMessaging else {
-      return LocalServer.shared.webSocket.broadcastMessage(
+      return LocalServer.shared.broadcastMessage(
         wsMessage(
           topic: "command",
           event: "error",
@@ -119,7 +119,7 @@ class VescManager: NSObject, ObservableObject {
       case .response(let command, let data):
         vescParser.parse(command: command, data: data)
       case .error(let command, let message):
-        LocalServer.shared.webSocket.broadcastMessage(
+        LocalServer.shared.broadcastMessage(
           wsMessage(
             topic: "command",
             event: "error",
@@ -138,13 +138,13 @@ class VescManager: NSObject, ObservableObject {
 
   func startScan(serviceUUIDs: [CBUUID], timeoutMs: Double = 3000.0) {
     guard !isScanning else {
-      return LocalServer.shared.webSocket.broadcastMessage(
+      return LocalServer.shared.broadcastMessage(
         wsMessage(topic: "scan", event: "error", data: ["message": "Scan already in progress"])
       )
     }
 
     guard centralManager.state == .poweredOn else {
-      return LocalServer.shared.webSocket.broadcastMessage(
+      return LocalServer.shared.broadcastMessage(
         wsMessage(
           topic: "scan",
           event: "error",
@@ -154,7 +154,7 @@ class VescManager: NSObject, ObservableObject {
     }
 
     guard hasPermissions() else {
-      return LocalServer.shared.webSocket.broadcastMessage(
+      return LocalServer.shared.broadcastMessage(
         wsMessage(
           topic: "scan",
           event: "error",
@@ -173,7 +173,7 @@ class VescManager: NSObject, ObservableObject {
     ]
 
     isScanning = true
-    LocalServer.shared.webSocket.broadcastMessage(
+    LocalServer.shared.broadcastMessage(
       wsMessage(topic: "scan", event: "status", data: ["status": "start"])
     )
 
@@ -199,7 +199,7 @@ class VescManager: NSObject, ObservableObject {
     isScanning = false
 
     print("VescBle: Scan stopped. Devices found: \(Array(foundDevices.values).count)")
-    LocalServer.shared.webSocket.broadcastMessage(
+    LocalServer.shared.broadcastMessage(
       wsMessage(topic: "scan", event: "status", data: ["status": "complete"])
     )
   }
@@ -249,7 +249,7 @@ extension VescManager: CBCentralManagerDelegate {
     let address = peripheral.identifier.uuidString
     if foundDevices[address] == nil {
       foundDevices[address] = peripheral
-      LocalServer.shared.webSocket.broadcastMessage(
+      LocalServer.shared.broadcastMessage(
         wsMessage(
           topic: "scan",
           event: "device",
@@ -263,7 +263,7 @@ extension VescManager: CBCentralManagerDelegate {
    * Connected to the device
    */
   func centralManager(_ central: CBCentralManager, didConnect peripheral: CBPeripheral) {
-    LocalServer.shared.webSocket.broadcastMessage(
+    LocalServer.shared.broadcastMessage(
       wsMessage(topic: "connect", event: "status", data: ["status": "connected"])
     )
 
@@ -279,7 +279,7 @@ extension VescManager: CBCentralManagerDelegate {
   ) {
     connectedDevice = nil
     let errorMessage = error?.localizedDescription ?? "Unknown connection error"
-    LocalServer.shared.webSocket.broadcastMessage(
+    LocalServer.shared.broadcastMessage(
       wsMessage(
         topic: "connect",
         event: "error",
@@ -296,7 +296,7 @@ extension VescManager: CBCentralManagerDelegate {
   ) {
     connectedDevice = nil
     if let error = error {
-      LocalServer.shared.webSocket.broadcastMessage(
+      LocalServer.shared.broadcastMessage(
         wsMessage(
           topic: "connect",
           event: "disconnect",
@@ -313,7 +313,7 @@ extension VescManager: CBPeripheralDelegate {
    */
   func peripheral(_ peripheral: CBPeripheral, didDiscoverServices error: Error?) {
     if let error = error {
-      return LocalServer.shared.webSocket.broadcastMessage(
+      return LocalServer.shared.broadcastMessage(
         wsMessage(
           topic: "connect",
           event: "error",
@@ -323,7 +323,7 @@ extension VescManager: CBPeripheralDelegate {
     }
 
     guard let services = peripheral.services else {
-      return LocalServer.shared.webSocket.broadcastMessage(
+      return LocalServer.shared.broadcastMessage(
         wsMessage(
           topic: "connect",
           event: "error",
@@ -334,7 +334,7 @@ extension VescManager: CBPeripheralDelegate {
 
     guard services.contains(where: { service in service.uuid == VescManager.vescService }) else {
       disconnect()
-      return LocalServer.shared.webSocket.broadcastMessage(
+      return LocalServer.shared.broadcastMessage(
         wsMessage(
           topic: "connect",
           event: "error",
@@ -356,7 +356,7 @@ extension VescManager: CBPeripheralDelegate {
     _ peripheral: CBPeripheral, didDiscoverCharacteristicsFor service: CBService, error: Error?
   ) {
     if let error = error {
-      return LocalServer.shared.webSocket.broadcastMessage(
+      return LocalServer.shared.broadcastMessage(
         wsMessage(
           topic: "connect",
           event: "error",
@@ -387,7 +387,7 @@ extension VescManager: CBPeripheralDelegate {
     error: Error?
   ) {
     if let error = error {
-      return LocalServer.shared.webSocket.broadcastMessage(
+      return LocalServer.shared.broadcastMessage(
         wsMessage(
           topic: "connect",
           event: "error",
@@ -404,7 +404,7 @@ extension VescManager: CBPeripheralDelegate {
         ?? []
       if let rx = chars.first(where: { $0.uuid == VescManager.vescCharacteristicsRx }) {
         vescMessaging = VescMessaging(peripheral: peripheral, vescRx: rx)
-        LocalServer.shared.webSocket.broadcastMessage(
+        LocalServer.shared.broadcastMessage(
           wsMessage(
             topic: "connect",
             event: "status",
@@ -412,7 +412,7 @@ extension VescManager: CBPeripheralDelegate {
           )
         )
       } else {
-        LocalServer.shared.webSocket.broadcastMessage(
+        LocalServer.shared.broadcastMessage(
           wsMessage(
             topic: "connect",
             event: "error",
@@ -433,7 +433,7 @@ extension VescManager: CBPeripheralDelegate {
     _ peripheral: CBPeripheral, didUpdateValueFor characteristic: CBCharacteristic, error: Error?
   ) {
     if let error = error {
-      return LocalServer.shared.webSocket.broadcastMessage(
+      return LocalServer.shared.broadcastMessage(
         wsMessage(
           topic: "command",
           event: "error",
@@ -444,7 +444,7 @@ extension VescManager: CBPeripheralDelegate {
 
     guard let data = characteristic.value else { return }
     guard let vescCommands = vescMessaging else {
-      return LocalServer.shared.webSocket.broadcastMessage(
+      return LocalServer.shared.broadcastMessage(
         wsMessage(
           topic: "command",
           event: "error",

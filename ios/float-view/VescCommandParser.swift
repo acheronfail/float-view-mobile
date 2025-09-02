@@ -49,7 +49,7 @@ class VescCommandParser {
       hwType = Int(parser.readUInt8())
     }
 
-    LocalServer.shared.webSocket.broadcastMessage(
+    LocalServer.shared.broadcastMessage(
       wsMessage(
         topic: "command",
         event: "result",

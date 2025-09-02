@@ -5,7 +5,7 @@ import Network
 class LocalServer: ObservableObject {
   static let shared = LocalServer()
 
-  let webSocket = LocalWebSocket()
+  private let webSocket = LocalWebSocket()
   private var listener: NWListener?
   private var connections: [NWConnection] = []
   @Published var isRunning = false
@@ -17,6 +17,10 @@ class LocalServer: ObservableObject {
 
   func addRoute(_ path: String, handler: @escaping (HttpContext) -> Void) {
     routes[path] = handler
+  }
+
+  func broadcastMessage(_ message: [String: Any]) {
+    webSocket.broadcastMessage(message)
   }
 
   func addHandler(_ commandName: String, handler: @escaping WsHandler) {

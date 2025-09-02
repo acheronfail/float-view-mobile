@@ -36,7 +36,7 @@ struct FloatViewApp: App {
 
     LocalServer.shared.addHandler("connect") { [vescManager] (data: [String: Any]) in
       guard let address = data["address"] as? String else {
-        LocalServer.shared.webSocket.broadcastMessage(
+        LocalServer.shared.broadcastMessage(
           wsMessage(topic: "connect", event: "error", data: ["message": "no address"])
         )
         return
@@ -55,8 +55,12 @@ struct FloatViewApp: App {
       if let cmd = command {
         vescManager.send(command: cmd, payload: payload)
       } else {
-        LocalServer.shared.webSocket.broadcastMessage(
-          wsMessage(topic: "command", event: "error", data: ["message": "no command"])
+        LocalServer.shared.broadcastMessage(
+          wsMessage(
+            topic: "command",
+            event: "error",
+            data: ["message": "no command"]
+          )
         )
       }
     }
@@ -73,7 +77,7 @@ struct FloatViewApp: App {
       print("TODO: log with interval: \(intervalMs)ms")
 
       // Send mock VESC data
-      LocalServer.shared.webSocket.broadcastMessage(
+      LocalServer.shared.broadcastMessage(
         wsMessage(
           topic: "data", event: "log",
           data: [
