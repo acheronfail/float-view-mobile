@@ -1,7 +1,7 @@
 import CoreBluetooth
 import Foundation
 
-class VescMessaging {
+class VescBluetoothLayer {
 
   // MARK: - Command Callback Protocol
 
@@ -45,16 +45,20 @@ class VescMessaging {
     // TODO: scan for VESCs on CAN bus, and inject here if needed
 
     let canId: UInt8 = 1  // Use 16 to match Android's working packet
-    var payload = [UInt8(VescMessaging.COMM_FORWARD_CAN), canId, UInt8(command)]
+    var payload = [UInt8(VescBluetoothLayer.COMM_FORWARD_CAN), canId, UInt8(command)]
     payload.append(contentsOf: data)
 
     // Create VESC packet using the entire payload (not just command)
     let packet = createVescPacket(payload: payload)
+      print(
+        "Generated payload: \(payload.map { String(format: "%02X", $0) }.joined(separator: " "))"
+      )
     print(
       "Generated packet: \(packet.map { String(format: "%02X", $0) }.joined(separator: " "))"
     )
 
-    // Write to characteristic
+    // Write to characteristic - we will receive the response in peripheral(_:didUpdateValueFor:error:)
+    // in the VescManager class
     peripheral.writeValue(Data(packet), for: writeChar, type: .withResponse)
   }
 
@@ -148,7 +152,7 @@ class VescMessaging {
   private func calculateCRC16(data: [UInt8]) -> UInt16 {
     var checksum: UInt16 = 0
 
-    for byte in data {
+    for byte in data {  
       let tableIndex = Int(((checksum >> 8) ^ UInt16(byte)) & 0xFF)
       checksum = CRC_16_TABLE[tableIndex] ^ (checksum << 8)
       checksum = checksum & 0xFFFF  // Keep it as 16-bit value

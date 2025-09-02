@@ -7,11 +7,6 @@ import android.webkit.WebChromeClient
 import android.webkit.WebView
 
 class LocalWebView(private val activity: Activity) {
-
-    companion object {
-        private const val TAG = "FloatView_WebViewModule"
-    }
-
     lateinit var webView: WebView
         private set
 
@@ -19,7 +14,6 @@ class LocalWebView(private val activity: Activity) {
     fun init(): WebView {
         if (this::webView.isInitialized) return webView
 
-        Log.d(TAG, "Initializing WebView")
         webView = WebView(activity)
         webView.settings.javaScriptEnabled = true
         webView.settings.domStorageEnabled = true
@@ -33,12 +27,11 @@ class LocalWebView(private val activity: Activity) {
     fun destroy() {
         if (!this::webView.isInitialized) return
         try {
-            Log.d(TAG, "Destroying WebView")
             webView.stopLoading()
             webView.webChromeClient = null
             webView.destroy()
         } catch (e: Exception) {
-            Log.w(TAG, "Error destroying WebView: ${e.message}", e)
+            printError("Error destroying WebView: ${e.message}", e)
         }
     }
 }

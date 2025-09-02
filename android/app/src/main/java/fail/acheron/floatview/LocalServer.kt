@@ -14,18 +14,16 @@ import kotlinx.serialization.json.JsonObject
 typealias WsHandler = (req: JsonObject) -> Unit
 
 object LocalServer {
-  private const val TAG = "FloatView_LocalServer"
-
   private val webSocket = LocalWebSocket()
   private var serverSocket: ServerSocket? = null
   private val executor = Executors.newCachedThreadPool()
   private var webViewRef: WeakReference<WebView>? = null
   private var activityRef: WeakReference<Activity>? = null
   private var started = false
-  private val routes = ConcurrentHashMap<String, (Context) -> Unit>()
+  private val routes = ConcurrentHashMap<String, (LocalWebContext) -> Unit>()
   private val wsHandlers = mutableMapOf<String, WsHandler>()
 
-  fun addRoute(path: String, handler: (Context) -> Unit) {
+  fun addRoute(path: String, handler: (LocalWebContext) -> Unit) {
     routes[path] = handler
   }
 
@@ -40,27 +38,26 @@ object LocalServer {
   @Synchronized
   fun start(activity: Activity, webView: WebView) {
     if (started) {
-      Log.d(TAG, "LocalServer already started; ignoring start() call")
+      printError("LocalServer already started; ignoring start() call")
       return
     }
 
-    Log.d(TAG, "LocalServer starting...")
     webViewRef = WeakReference(webView)
     activityRef = WeakReference(activity)
     executor.execute {
       try {
         serverSocket = ServerSocket(0)
         val port = serverSocket!!.localPort
-        Log.d(TAG, "LocalServer listening on port $port")
+        print("LocalServer listening on port $port")
         val url = "http://127.0.0.1:$port"
         activity.runOnUiThread {
-          Log.d(TAG, "LocalServer loading URL: $url")
+          print("LocalServer loading URL: $url")
           webView.loadUrl(url)
         }
         started = true
         acceptLoop()
       } catch (e: IOException) {
-        Log.e(TAG, "LocalServer failed to start: ${e.message}", e)
+        printError("LocalServer failed to start: ${e.message}", e)
       }
     }
   }
@@ -75,16 +72,16 @@ object LocalServer {
       } catch (e: IOException) {
         if (serverSocket?.isClosed == true) break
 
-        Log.e(TAG, "Accept error: ${e.message}", e)
+        printError("Accept error: ${e.message}", e)
       }
     }
   }
 
   private fun handleRequest(socket: Socket) {
     var isWebSocketUpgrade = false
-    var handler: ((Context) -> Unit)? = null
+    var handler: ((LocalWebContext) -> Unit)? = null
     try {
-      val ctx = Context(socket)
+      val ctx = LocalWebContext(socket)
 
       if (webSocket.isWebsocketUpgrade(ctx)) {
         isWebSocketUpgrade = true
@@ -94,7 +91,6 @@ object LocalServer {
 
       handler = routes[ctx.path]
       if (handler != null) {
-        Log.d(TAG, "Running handler!")
         handler(ctx)
         return
       }
@@ -116,11 +112,10 @@ object LocalServer {
         }
       }
     } catch (e: Exception) {
-      Log.e(TAG, "Request error: ${e.message}", e)
+      printError("Request error: ${e.message}", e)
     } finally {
       if (!isWebSocketUpgrade && handler == null) {
         try {
-          Log.d(TAG, "Closing request!")
           socket.close()
         } catch (_: Exception) {}
       }
@@ -151,15 +146,13 @@ object LocalServer {
     }
 
     val webPath = "web/$cleanPath"
-    Log.d(TAG, "Trying to serve static file: $webPath")
-
     try {
       val content = activity.assets.open(webPath).bufferedReader().use { it.readText() }
       val contentType = getMimeType(cleanPath)
-      Log.d(TAG, "Successfully served static file: $webPath as $contentType")
+      print("Successfully served static file: $webPath as $contentType")
       return StaticFileResponse(content, contentType)
     } catch (e: IOException) {
-      Log.d(TAG, "Static file not found: $webPath (${e.message})")
+      printError("Static file not found: $webPath (${e.message})")
       return null
     }
   }
@@ -192,7 +185,7 @@ object LocalServer {
     return try {
       activity.assets.open("web/index.html").bufferedReader().use { it.readText() }
     } catch (e: IOException) {
-      Log.e(TAG, "index.html read error: ${e.message}", e)
+      printError("index.html read error: ${e.message}", e)
       getFallbackMainHtml(port)
     }
   }
@@ -210,7 +203,7 @@ object LocalServer {
   @Synchronized
   fun stop() {
     if (!started) return
-    Log.d(TAG, "LocalServer stopping...")
+    print("LocalServer stopping...")
     // Close WS clients
     webSocket.webSocketClients.values.forEach { c ->
       try {

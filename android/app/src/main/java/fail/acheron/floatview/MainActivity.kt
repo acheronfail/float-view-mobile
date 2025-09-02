@@ -1,222 +1,76 @@
 package fail.acheron.floatview
 
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.util.Log
 import android.webkit.WebView
+import android.widget.FrameLayout
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
 import kotlinx.serialization.json.*
+
+fun print(vararg messages: Any) {
+    messages.forEach { message -> Log.d("FloatView", message.toString()) }
+}
+
+fun printError(vararg messages: Any) {
+    messages.forEach { message -> Log.e("FloatView", message.toString()) }
+}
 
 class MainActivity : AppCompatActivity() {
 
     private lateinit var webView: WebView
     private lateinit var localWebView: LocalWebView
-    private val TAG = "FloatView_MainActivity"
-
     private lateinit var vescManager: VescManager
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        Log.d(TAG, "MainActivity onCreate started")
+        // Enable edge-to-edge display
+        WindowCompat.setDecorFitsSystemWindows(window, false)
 
         localWebView = LocalWebView(this)
         webView = localWebView.init()
-        setContentView(webView)
+
+        // Create a container to handle insets
+        val container = FrameLayout(this)
+        container.setBackgroundColor(
+                getColor(android.R.color.black)
+        ) // Set background color for safe areas
+        container.addView(
+                webView,
+                FrameLayout.LayoutParams(
+                        FrameLayout.LayoutParams.MATCH_PARENT,
+                        FrameLayout.LayoutParams.MATCH_PARENT
+                )
+        )
+        setContentView(container)
+
+        // Apply window insets as padding to the container
+        ViewCompat.setOnApplyWindowInsetsListener(container) { view, insets ->
+            val systemBars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
+            val displayCutout = insets.getInsets(WindowInsetsCompat.Type.displayCutout())
+
+            // Take the maximum of system bars and display cutout for each side
+            val topInset = maxOf(systemBars.top, displayCutout.top)
+            val bottomInset = maxOf(systemBars.bottom, displayCutout.bottom)
+            val leftInset = maxOf(systemBars.left, displayCutout.left)
+            val rightInset = maxOf(systemBars.right, displayCutout.right)
+            view.setPadding(leftInset, topInset, rightInset, bottomInset)
+
+            insets
+        }
 
         vescManager = VescManager(this)
 
         // Start the singleton local server
         LocalServer.start(this, webView)
 
-        setupWebSocketHandlers()
+        LocalServer.addHandler("scan") { _ -> vescManager.startScan() }
 
-        vescManager.setListener(
-                object : VescManager.VescManagerListener {
-                    override fun onScanDeviceFound(name: String?, address: String) {
-                        LocalServer.broadcastMessage(
-                                wsMessage(
-                                        "scan",
-                                        "device",
-                                        buildJsonObject {
-                                            put("name", name)
-                                            put("address", address)
-                                        }
-                                )
-                        )
-                    }
-
-                    override fun onScanComplete() {
-                        LocalServer.broadcastMessage(
-                                wsMessage(
-                                        "scan",
-                                        "status",
-                                        buildJsonObject { put("status", "complete") }
-                                )
-                        )
-                    }
-
-                    override fun onScanError(message: String) {
-                        LocalServer.broadcastMessage(
-                                wsMessage(
-                                        "scan",
-                                        "error",
-                                        buildJsonObject { put("message", message) }
-                                )
-                        )
-                    }
-
-                    override fun onConnectionStatusChanged(
-                            status: VescManager.ConnectionStatus,
-                            address: String?
-                    ) {
-                        when (status) {
-                            VescManager.ConnectionStatus.CONNECTING -> {
-                                LocalServer.broadcastMessage(
-                                        wsMessage(
-                                                "connect",
-                                                "status",
-                                                buildJsonObject { put("status", "connecting") }
-                                        )
-                                )
-                            }
-                            VescManager.ConnectionStatus.CONNECTED -> {
-                                LocalServer.broadcastMessage(
-                                        wsMessage(
-                                                "connect",
-                                                "status",
-                                                buildJsonObject { put("status", "connected") }
-                                        )
-                                )
-                            }
-                            VescManager.ConnectionStatus.READY -> {
-                                LocalServer.broadcastMessage(
-                                        wsMessage(
-                                                "connect",
-                                                "status",
-                                                buildJsonObject { put("status", "ready") }
-                                        )
-                                )
-                            }
-                            VescManager.ConnectionStatus.DISCONNECTED -> {
-                                Log.e(TAG, "Disconnected from device")
-                            }
-                        }
-                    }
-
-                    override fun onConnectionError(message: String) {
-                        LocalServer.broadcastMessage(
-                                wsMessage(
-                                        "connect",
-                                        "error",
-                                        buildJsonObject { put("message", message) }
-                                )
-                        )
-                    }
-
-                    override fun onVescResponse(command: Int, data: ByteArray) {
-                        when (command) {
-                            COMM_FW_VERSION -> {
-
-                                val parser = VescBuffer(data)
-                                val major = parser.readUInt8()
-                                val minor = parser.readUInt8()
-                                var name = parser.readString()
-                                if (name.isEmpty()) name = "Unknown"
-
-                                var uuid: String? = null
-                                if (parser.size() - parser.index >= 12) {
-                                    val sb = StringBuilder()
-                                    for (i in 0 until 12) {
-                                        val v = parser.readUInt8()
-                                        if (v < 10) {
-                                            sb.append("0")
-                                            sb.append(v.toString(16))
-                                        } else {
-                                            sb.append(v.toString(16).uppercase())
-                                        }
-                                    }
-                                    uuid = sb.toString()
-                                }
-                                var isPaired: Boolean? = null
-                                if (parser.size() - parser.index >= 1) {
-                                    isPaired = parser.readUInt8() != 0
-                                }
-                                var betaVersion: Int? = null
-                                if (parser.size() - parser.index >= 1) {
-                                    betaVersion = parser.readUInt8()
-                                }
-                                var hwType: Int? = null
-                                if (parser.size() - parser.index >= 1) {
-                                    hwType = parser.readUInt8()
-                                }
-
-                                LocalServer.broadcastMessage(
-                                        wsMessage(
-                                                "data",
-                                                "firmware",
-                                                buildJsonObject {
-                                                    put("major", major)
-                                                    put("minor", minor)
-                                                    put("name", name)
-                                                    put("uuid", uuid)
-                                                    put("isPaired", isPaired)
-                                                    put("betaVersion", betaVersion)
-                                                    put("hwType", hwType)
-                                                }
-                                        )
-                                )
-                            }
-                            else -> {
-                                Log.w(
-                                        TAG,
-                                        "Unhandled VESC response - Command: $command, Data: ${data.joinToString(" ") { "%02X".format(it) }}"
-                                )
-                            }
-                        }
-                    }
-
-                    override fun onCommandError(command: Int, message: String) {
-                        Log.e(TAG, "Command error - Command: $command, Error: $message")
-                        vescManager.disconnect()
-                        LocalServer.broadcastMessage(
-                                wsMessage(
-                                        "connect",
-                                        "disconnect",
-                                        buildJsonObject { put("reason", "command error") }
-                                )
-                        )
-                    }
-                }
-        )
-    }
-
-    private fun setupWebSocketHandlers() {
-        setupScanHandler()
-        setupConnectHandler()
-        setupDataHandler()
-    }
-
-    private fun setupScanHandler() {
-        LocalServer.addHandler("scan") { _ ->
-            val topic = "scan"
-
-            if (!vescManager.startScan()) {
-                LocalServer.broadcastMessage(
-                        wsMessage(
-                                topic,
-                                "error",
-                                buildJsonObject { put("message", "Failed to start scan") }
-                        )
-                )
-            }
-
-            LocalServer.broadcastMessage(
-                    wsMessage(topic, "status", buildJsonObject { put("status", "start") })
-            )
-        }
-    }
-
-    private fun setupConnectHandler() {
         LocalServer.addHandler("connect") { req ->
             val jsonAddress = req["address"]
             if (jsonAddress == null) {
@@ -242,7 +96,7 @@ class MainActivity : AppCompatActivity() {
                 return@addHandler
             }
 
-            vescManager.connectAndGetFirmware(address)
+            vescManager.connect(address)
         }
 
         LocalServer.addHandler("disconnect") { _ ->
@@ -255,9 +109,14 @@ class MainActivity : AppCompatActivity() {
                     )
             )
         }
-    }
 
-    private fun setupDataHandler() {
+        LocalServer.addHandler("command") { req ->
+            val command = req["command"]!!.jsonPrimitive.int
+            val payload = req["payload"]?.jsonArray?.map { it.jsonPrimitive.int } ?: listOf()
+            Handler(Looper.getMainLooper())
+                    .postDelayed({ vescManager.sendCommand(command, payload) }, 1000)
+        }
+
         LocalServer.addHandler("data") { req ->
             val shouldLog = req["log"]!!.jsonPrimitive.boolean
             if (!shouldLog) {
@@ -298,26 +157,6 @@ class MainActivity : AppCompatActivity() {
                             }
                     )
             )
-        }
-    }
-
-    override fun onRequestPermissionsResult(
-            requestCode: Int,
-            permissions: Array<out String>,
-            grantResults: IntArray
-    ) {
-        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
-        if (requestCode == 1001) {
-            val allGranted =
-                    grantResults.isNotEmpty() &&
-                            grantResults.all {
-                                it == android.content.pm.PackageManager.PERMISSION_GRANTED
-                            }
-            if (allGranted) {
-                Log.d(TAG, "All BLE permissions granted")
-            } else {
-                Log.w(TAG, "BLE permissions denied")
-            }
         }
     }
 

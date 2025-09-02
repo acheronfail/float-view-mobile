@@ -1,18 +1,19 @@
 import Foundation
 
-class VescCommandParser {
-  func parse(command: Int, data: Data) {
+class VescCommandLayer {
+  func parse(command: Int, data: Data) -> [String: Any]? {
     switch command {
-    case VescMessaging.COMM_FW_VERSION:
-      parseFirmware(command, data)
+    case VescBluetoothLayer.COMM_FW_VERSION:
+      return parseFirmware(command, data)
     default:
       print(
-        "FloatView_FloatViewApp: Unhandled VESC response - Command: \(command), Data: \(data.map { String(format: "%02X", $0) }.joined(separator: " "))"
+        "Unhandled VESC response - Command: \(command), Data: \(data.map { String(format: "%02X", $0) }.joined(separator: " "))"
       )
+      return nil
     }
   }
 
-  private func parseFirmware(_ command: Int, _ data: Data) {
+  private func parseFirmware(_ command: Int, _ data: Data) -> [String: Any] {
     let parser = VescBuffer(data: data)
 
     let major = parser.readUInt8()
@@ -49,22 +50,14 @@ class VescCommandParser {
       hwType = Int(parser.readUInt8())
     }
 
-    LocalServer.shared.broadcastMessage(
-      wsMessage(
-        topic: "command",
-        event: "result",
-        data: [
-          "command": command,
-          "data": [
-            "major": major,
-            "minor": minor,
-            "name": name,
-            "uuid": uuid as Any,
-            "isPaired": isPaired as Any,
-            "betaVersion": betaVersion as Any,
-            "hwType": hwType as Any,
-          ],
-        ])
-    )
+    return [
+      "major": major,
+      "minor": minor,
+      "name": name,
+      "uuid": uuid as Any,
+      "isPaired": isPaired as Any,
+      "betaVersion": betaVersion as Any,
+      "hwType": hwType as Any,
+    ]
   }
 }

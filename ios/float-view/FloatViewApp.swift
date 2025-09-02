@@ -31,7 +31,7 @@ struct FloatViewApp: App {
 
   private func setupWebSocketHandlers() {
     LocalServer.shared.addHandler("scan") { [vescManager] (data: [String: Any]) in
-      vescManager.startScan(serviceUUIDs: [VescManager.vescService])
+      vescManager.startScan()
     }
 
     LocalServer.shared.addHandler("connect") { [vescManager] (data: [String: Any]) in

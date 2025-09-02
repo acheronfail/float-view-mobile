@@ -7,9 +7,7 @@ import java.net.Socket
 import java.util.TreeMap
 import kotlinx.serialization.json.JsonObject
 
-class Context(private val socket: Socket) {
-    private val TAG = "FloatView_LocalServerContext"
-
+class LocalWebContext(private val socket: Socket) {
     var status = 404
     val requestHeaders = TreeMap<String, String>(String.CASE_INSENSITIVE_ORDER)
     val responseHeaders = TreeMap<String, String>(String.CASE_INSENSITIVE_ORDER)
@@ -32,7 +30,7 @@ class Context(private val socket: Socket) {
 
         method = parts[0]
         path = parts[1]
-        Log.d(TAG, "Request: $method $path")
+        print("Request: $method $path")
 
         // Headers
         var line: String?
@@ -80,26 +78,26 @@ class Context(private val socket: Socket) {
         return requestBody!!
     }
 
-    fun setStatus(value: Int): Context {
+    fun setStatus(value: Int): LocalWebContext {
         status = value
         return this
     }
 
-    fun setText(contentType: String, value: String): Context {
+    fun setText(contentType: String, value: String): LocalWebContext {
         body = value
         status = 200
         responseHeaders["Content-Type"] = contentType
         return this
     }
 
-    fun setHtml(value: String): Context {
+    fun setHtml(value: String): LocalWebContext {
         body = value
         status = 200
         responseHeaders["Content-Type"] = "text/html"
         return this
     }
 
-    fun setJson(value: JsonObject): Context {
+    fun setJson(value: JsonObject): LocalWebContext {
         body = value.toString()
         status = 200
         responseHeaders["Content-Type"] = "application/json"
@@ -108,7 +106,7 @@ class Context(private val socket: Socket) {
 
     fun send() {
         if (isSent) {
-            Log.e(TAG, "Cannot send already sent response!")
+            printError("Cannot send already sent response!")
             return
         }
 
@@ -122,7 +120,5 @@ class Context(private val socket: Socket) {
         output.print(body)
         output.flush()
         socket.close()
-
-        Log.d(TAG, "Sent response!")
     }
 }

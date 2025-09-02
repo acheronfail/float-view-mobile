@@ -22,10 +22,9 @@ class LocalWebSocket() {
           val handlers: MutableMap<String, WsHandler>
   )
 
-  val logTag = "FloatView_LocalWebSocket"
   val webSocketClients = ConcurrentHashMap<String, WebSocketClient>()
 
-  fun isWebsocketUpgrade(ctx: Context): Boolean {
+  fun isWebsocketUpgrade(ctx: LocalWebContext): Boolean {
     return ctx.path == "/ws" &&
             ctx.requestHeaders["upgrade"]?.lowercase() == "websocket" &&
             ctx.requestHeaders["connection"]?.lowercase()?.contains("upgrade") == true
@@ -60,7 +59,7 @@ class LocalWebSocket() {
       sendWebSocketMessage(client, wsMessage("socket", "welcome", buildJsonObject {}))
       executor.execute { handleWebSocketMessages(client) }
     } catch (e: Exception) {
-      Log.e(logTag, "WebSocket upgrade error: ${e.message}", e)
+      printError("WebSocket upgrade error: ${e.message}", e)
       try {
         socket.close()
       } catch (_: Exception) {}
@@ -75,8 +74,9 @@ class LocalWebSocket() {
         val bytesRead = client.input.read(buffer)
         if (bytesRead <= 0) break
         val frame = parseWebSocketFrame(buffer, bytesRead) ?: continue
-
         val payload = Json.decodeFromString<WebSocketCommand>(frame.payload)
+        print("ws<:${payload.cmd}:${payload.data}")
+
         val handler = client.handlers[payload.cmd]
         if (handler == null) {
           sendWebSocketMessage(
@@ -93,7 +93,7 @@ class LocalWebSocket() {
         handler(payload.data)
       }
     } catch (e: Exception) {
-      Log.d(logTag, "WebSocket client ${client.id} disconnected: ${e.message}")
+      printError("WebSocket client ${client.id} disconnected: ${e.message} ${e.stackTraceToString()}")
     } finally {
       webSocketClients.remove(client.id)
       try {
@@ -109,11 +109,12 @@ class LocalWebSocket() {
       client.output.write(frame)
       client.output.flush()
     } catch (e: Exception) {
-      Log.e(logTag, "Send WS error: ${e.message}", e)
+      printError("Send WS error: ${e.message}", e)
     }
   }
 
   fun broadcastMessage(message: JsonObject) {
+    print("ws>:${message}")
     Thread() { webSocketClients.values.forEach { sendWebSocketMessage(it, message) } }.start()
   }
 
@@ -134,7 +135,7 @@ class LocalWebSocket() {
               ((buffer[offset].toInt() and 0xFF) shl 8) or (buffer[offset + 1].toInt() and 0xFF)
       offset += 2
     } else if (payloadLength == 127) {
-      Log.w(logTag, "WS payload too large")
+      printError("WS payload too large")
       return null
     }
     val maskingKey =
