@@ -33,7 +33,7 @@ class MainActivity : AppCompatActivity() {
         vescManager.setListener(
                 object : VescManager.VescManagerListener {
                     override fun onScanDeviceFound(name: String?, address: String) {
-                        LocalServer.webSocket.broadcastMessage(
+                        LocalServer.broadcastMessage(
                                 wsMessage(
                                         "scan",
                                         "device",
@@ -46,7 +46,7 @@ class MainActivity : AppCompatActivity() {
                     }
 
                     override fun onScanComplete() {
-                        LocalServer.webSocket.broadcastMessage(
+                        LocalServer.broadcastMessage(
                                 wsMessage(
                                         "scan",
                                         "status",
@@ -56,7 +56,7 @@ class MainActivity : AppCompatActivity() {
                     }
 
                     override fun onScanError(message: String) {
-                        LocalServer.webSocket.broadcastMessage(
+                        LocalServer.broadcastMessage(
                                 wsMessage(
                                         "scan",
                                         "error",
@@ -71,7 +71,7 @@ class MainActivity : AppCompatActivity() {
                     ) {
                         when (status) {
                             VescManager.ConnectionStatus.CONNECTING -> {
-                                LocalServer.webSocket.broadcastMessage(
+                                LocalServer.broadcastMessage(
                                         wsMessage(
                                                 "connect",
                                                 "status",
@@ -80,7 +80,7 @@ class MainActivity : AppCompatActivity() {
                                 )
                             }
                             VescManager.ConnectionStatus.CONNECTED -> {
-                                LocalServer.webSocket.broadcastMessage(
+                                LocalServer.broadcastMessage(
                                         wsMessage(
                                                 "connect",
                                                 "status",
@@ -89,7 +89,7 @@ class MainActivity : AppCompatActivity() {
                                 )
                             }
                             VescManager.ConnectionStatus.READY -> {
-                                LocalServer.webSocket.broadcastMessage(
+                                LocalServer.broadcastMessage(
                                         wsMessage(
                                                 "connect",
                                                 "status",
@@ -104,7 +104,7 @@ class MainActivity : AppCompatActivity() {
                     }
 
                     override fun onConnectionError(message: String) {
-                        LocalServer.webSocket.broadcastMessage(
+                        LocalServer.broadcastMessage(
                                 wsMessage(
                                         "connect",
                                         "error",
@@ -150,7 +150,7 @@ class MainActivity : AppCompatActivity() {
                                     hwType = parser.readUInt8()
                                 }
 
-                                LocalServer.webSocket.broadcastMessage(
+                                LocalServer.broadcastMessage(
                                         wsMessage(
                                                 "data",
                                                 "firmware",
@@ -178,7 +178,7 @@ class MainActivity : AppCompatActivity() {
                     override fun onCommandError(command: Int, message: String) {
                         Log.e(TAG, "Command error - Command: $command, Error: $message")
                         vescManager.disconnect()
-                        LocalServer.webSocket.broadcastMessage(
+                        LocalServer.broadcastMessage(
                                 wsMessage(
                                         "connect",
                                         "disconnect",
@@ -201,7 +201,7 @@ class MainActivity : AppCompatActivity() {
             val topic = "scan"
 
             if (!vescManager.startScan()) {
-                LocalServer.webSocket.broadcastMessage(
+                LocalServer.broadcastMessage(
                         wsMessage(
                                 topic,
                                 "error",
@@ -210,7 +210,7 @@ class MainActivity : AppCompatActivity() {
                 )
             }
 
-            LocalServer.webSocket.broadcastMessage(
+            LocalServer.broadcastMessage(
                     wsMessage(topic, "status", buildJsonObject { put("status", "start") })
             )
         }
@@ -220,7 +220,7 @@ class MainActivity : AppCompatActivity() {
         LocalServer.addHandler("connect") { req ->
             val jsonAddress = req["address"]
             if (jsonAddress == null) {
-                LocalServer.webSocket.broadcastMessage(
+                LocalServer.broadcastMessage(
                         wsMessage(
                                 "connect",
                                 "error",
@@ -232,7 +232,7 @@ class MainActivity : AppCompatActivity() {
 
             val address = jsonAddress.jsonPrimitive.contentOrNull
             if (address == null) {
-                LocalServer.webSocket.broadcastMessage(
+                LocalServer.broadcastMessage(
                         wsMessage(
                                 "connect",
                                 "error",
@@ -247,7 +247,7 @@ class MainActivity : AppCompatActivity() {
 
         LocalServer.addHandler("disconnect") { _ ->
             vescManager.disconnect()
-            LocalServer.webSocket.broadcastMessage(
+            LocalServer.broadcastMessage(
                     wsMessage(
                             "connect",
                             "disconnect",
@@ -267,7 +267,7 @@ class MainActivity : AppCompatActivity() {
 
             @Suppress("UNUSED_VARIABLE") val intervalMs = req["intervalMs"]!!.jsonPrimitive.double
             // TODO: start sending VESC log data back with interval: ${intervalMs}ms
-            LocalServer.webSocket.broadcastMessage(
+            LocalServer.broadcastMessage(
                     wsMessage(
                             "data",
                             "log",

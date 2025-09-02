@@ -16,7 +16,7 @@ typealias WsHandler = (req: JsonObject) -> Unit
 object LocalServer {
   private const val TAG = "FloatView_LocalServer"
 
-  val webSocket = LocalWebSocket()
+  private val webSocket = LocalWebSocket()
   private var serverSocket: ServerSocket? = null
   private val executor = Executors.newCachedThreadPool()
   private var webViewRef: WeakReference<WebView>? = null
@@ -31,6 +31,10 @@ object LocalServer {
 
   fun addHandler(commandName: String, handler: WsHandler) {
     wsHandlers[commandName] = handler
+  }
+
+  fun broadcastMessage(message: JsonObject) {
+    webSocket.broadcastMessage(message)
   }
 
   @Synchronized
