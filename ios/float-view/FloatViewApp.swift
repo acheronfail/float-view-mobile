@@ -31,7 +31,7 @@ struct FloatViewApp: App {
 
   private func setupWebSocketHandlers() {
     LocalServer.shared.addHandler("scan") { [vescManager] (data: [String: Any]) in
-      vescManager.startScan()
+      vescManager.startScan(serviceUUIDs: [VescManager.vescService])
     }
 
     LocalServer.shared.addHandler("connect") { [vescManager] (data: [String: Any]) in
@@ -51,8 +51,9 @@ struct FloatViewApp: App {
 
     LocalServer.shared.addHandler("command") { [vescManager] (data: [String: Any]) in
       let command = data["command"] as? Int
+      let payload = data["payload"] as? [UInt8] ?? []
       if let cmd = command {
-        vescManager.command(cmd)
+        vescManager.send(command: cmd, payload: payload)
       } else {
         LocalServer.shared.webSocket.broadcastMessage(
           wsMessage(topic: "command", event: "error", data: ["message": "no command"])
@@ -69,7 +70,7 @@ struct FloatViewApp: App {
       }
 
       let intervalMs = data["intervalMs"] as? Double ?? 1000.0
-      print("FloatViewApp: Starting data logging with interval: \(intervalMs)ms")
+      print("TODO: log with interval: \(intervalMs)ms")
 
       // Send mock VESC data
       LocalServer.shared.webSocket.broadcastMessage(
