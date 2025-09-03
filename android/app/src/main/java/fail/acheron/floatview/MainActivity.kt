@@ -99,13 +99,29 @@ class MainActivity : AppCompatActivity() {
             vescManager.connect(address)
         }
 
-        LocalServer.addHandler("disconnect") { _ ->
+        LocalServer.addHandler("disconnect") { req ->
+            val address = req["address"]?.jsonPrimitive?.contentOrNull
+            if (address == null) {
+                LocalServer.broadcastMessage(
+                        wsMessage(
+                                "disconnect",
+                                "error",
+                                buildJsonObject { put("message", "no address") }
+                        )
+                )
+                return@addHandler
+            }
+
             vescManager.disconnect()
             LocalServer.broadcastMessage(
                     wsMessage(
-                            "connect",
                             "disconnect",
-                            buildJsonObject { put("reason", "websocket requested") }
+                            "complete",
+                            buildJsonObject {
+                                // NOTE: backend only supports a single device for now
+                                put("address", address)
+                                put("reason", "websocket requested")
+                            }
                     )
             )
         }

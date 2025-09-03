@@ -23,7 +23,7 @@ const config = {
 		}),
 		prerender: {
 			crawl: true,
-			entries: ["/"],
+			entries: ["/", "/device/[address]"],
 		},
 	},
 };

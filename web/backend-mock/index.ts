@@ -44,20 +44,32 @@ wss.on('connection', (ws) => {
 					reply(createMessage('scan', 'status', { status: 'complete' }));
 					break;
 				case 'connect':
-					reply(createMessage('connect', 'status', { status: 'start' }));
-					await sleep(100);
-					reply(createMessage('connect', 'status', { status: 'connecting' }));
-					await sleep(500);
-					reply(createMessage('connect', 'status', { status: 'connected' }));
-					await sleep(500);
-					reply(createMessage('connect', 'status', { status: 'ready' }));
+					{
+						const address = 'address' in message.data ? message.data['address'] : null;
+						if (!address) return console.error('No address in message', message);
+
+						reply(createMessage('connect', 'status', { address, status: 'start' }));
+						await sleep(100);
+						reply(createMessage('connect', 'status', { address, status: 'connecting' }));
+						await sleep(500);
+						reply(createMessage('connect', 'status', { address, status: 'connected' }));
+						await sleep(500);
+						reply(createMessage('connect', 'status', { address, status: 'ready' }));
+					}
 					break;
 				case 'disconnect':
-					await sleep(100);
-					reply(createMessage('connect', 'disconnect', { reason: 'websocket requested' }));
-					if (logInterval) {
-						clearInterval(logInterval);
-						logInterval = null;
+					{
+						const address = 'address' in message.data ? message.data['address'] : null;
+						if (!address) return console.error('No address in message', message);
+
+						await sleep(100);
+						reply(
+							createMessage('disconnect', 'complete', { address, reason: 'websocket requested' })
+						);
+						if (logInterval) {
+							clearInterval(logInterval);
+							logInterval = null;
+						}
 					}
 					break;
 				case 'command':

@@ -60,7 +60,8 @@ class VescManager: NSObject, ObservableObject {
     peripheral.delegate = self
 
     LocalServer.shared.broadcastMessage(
-      wsMessage(topic: "connect", event: "status", data: ["status": "connecting"])
+      wsMessage(
+        topic: "connect", event: "status", data: ["address": address, "status": "connecting"])
     )
 
     // start connecting to the device - we'll handle the rest in the delegate methods
@@ -71,18 +72,19 @@ class VescManager: NSObject, ObservableObject {
   /** Disconnect from the current device */
   func disconnect() {
     if let peripheral = connectedDevice {
+      let address = peripheral.identifier.uuidString
       centralManager.cancelPeripheralConnection(peripheral)
-    }
 
-    connectedDevice = nil
+      connectedDevice = nil
 
-    LocalServer.shared.broadcastMessage(
-      wsMessage(
-        topic: "connect",
-        event: "disconnect",
-        data: ["reason": "user requested"]
+      LocalServer.shared.broadcastMessage(
+        wsMessage(
+          topic: "disconnect",
+          event: "complete",
+          data: ["address": address, "reason": "websocket requested"]
+        )
       )
-    )
+    }
   }
 
   /** Check if permissions are granted */
@@ -277,8 +279,10 @@ extension VescManager: CBCentralManagerDelegate {
    * Connected to the device
    */
   func centralManager(_ central: CBCentralManager, didConnect peripheral: CBPeripheral) {
+    let address = peripheral.identifier.uuidString
     LocalServer.shared.broadcastMessage(
-      wsMessage(topic: "connect", event: "status", data: ["status": "connected"])
+      wsMessage(
+        topic: "connect", event: "status", data: ["address": address, "status": "connected"])
     )
 
     // after connection attempt to discover all services
@@ -310,11 +314,12 @@ extension VescManager: CBCentralManagerDelegate {
   ) {
     connectedDevice = nil
     if let error = error {
+      let address = peripheral.identifier.uuidString
       LocalServer.shared.broadcastMessage(
         wsMessage(
-          topic: "connect",
-          event: "disconnect",
-          data: ["reason": error.localizedDescription]
+          topic: "disconnect",
+          event: "complete",
+          data: ["address": address, "reason": error.localizedDescription]
         )
       )
     }
@@ -416,13 +421,14 @@ extension VescManager: CBPeripheralDelegate {
       let chars =
         peripheral.services?.first(where: { $0.uuid == VescManager.vescService })?.characteristics
         ?? []
+      let address = peripheral.identifier.uuidString
       if let rx = chars.first(where: { $0.uuid == VescManager.vescCharacteristicsRx }) {
         vescMessaging = VescBluetoothLayer(peripheral: peripheral, vescRx: rx)
         LocalServer.shared.broadcastMessage(
           wsMessage(
             topic: "connect",
             event: "status",
-            data: ["status": "ready"]
+            data: ["address": address, "status": "ready"]
           )
         )
       } else {

@@ -85,7 +85,6 @@ class VescManager(private val activity: Activity) {
         return false
     }
 
-
     /*
      * Scanning
      */
@@ -132,11 +131,7 @@ class VescManager(private val activity: Activity) {
         }
 
         LocalServer.broadcastMessage(
-                wsMessage(
-                        "scan",
-                        "status",
-                        buildJsonObject { put("status", "start") }
-                )
+                wsMessage("scan", "status", buildJsonObject { put("status", "start") })
         )
 
         isScanning = true
@@ -214,7 +209,14 @@ class VescManager(private val activity: Activity) {
         }
 
         LocalServer.broadcastMessage(
-                wsMessage("connect", "status", buildJsonObject { put("status", "connecting") })
+                wsMessage(
+                        "connect",
+                        "status",
+                        buildJsonObject {
+                            put("address", address)
+                            put("status", "connecting")
+                        }
+                )
         )
 
         try {
@@ -222,7 +224,13 @@ class VescManager(private val activity: Activity) {
             connectedDevice = device.connectGatt(activity, false, this.bluetoothGattCallback)
         } catch (error: SecurityException) {
             LocalServer.broadcastMessage(
-                wsMessage("connect", "error", buildJsonObject { put("message", "Permission denied: ${error.message}") })
+                    wsMessage(
+                            "connect",
+                            "error",
+                            buildJsonObject {
+                                put("message", "Permission denied: ${error.message}")
+                            }
+                    )
             )
         }
     }
@@ -242,55 +250,59 @@ class VescManager(private val activity: Activity) {
     fun sendCommand(command: Int, payload: List<Int>) {
         if (vescBluetoothLayer == null) {
             return LocalServer.broadcastMessage(
-                wsMessage(
-                    "command",
-                    "error",
-                    buildJsonObject { put("message", "VescBluetoothLayer not ready!") }
-                )
+                    wsMessage(
+                            "command",
+                            "error",
+                            buildJsonObject { put("message", "VescBluetoothLayer not ready!") }
+                    )
             )
         }
 
-        vescBluetoothLayer!!.send(command, payload, object : VescBluetoothLayer.CommandCallback {
-            override fun onResponse(command: Int, data: ByteArray) {
-                val result = vescCommandLayer.parse(command, data)
-                if (result == null) {
-                    return LocalServer.broadcastMessage(
-                        wsMessage(
-                            "command",
-                            "error",
-                            buildJsonObject {
-                                put("command", command)
-                                put("message", "Failed to parse command response")
-                            }
+        vescBluetoothLayer!!.send(
+                command,
+                payload,
+                object : VescBluetoothLayer.CommandCallback {
+                    override fun onResponse(command: Int, data: ByteArray) {
+                        val result = vescCommandLayer.parse(command, data)
+                        if (result == null) {
+                            return LocalServer.broadcastMessage(
+                                    wsMessage(
+                                            "command",
+                                            "error",
+                                            buildJsonObject {
+                                                put("command", command)
+                                                put("message", "Failed to parse command response")
+                                            }
+                                    )
+                            )
+                        }
+
+                        return LocalServer.broadcastMessage(
+                                wsMessage(
+                                        "command",
+                                        "result",
+                                        buildJsonObject {
+                                            put("command", command)
+                                            put("data", result)
+                                        }
+                                )
                         )
-                    )
+                    }
+
+                    override fun onError(command: Int, message: String) {
+                        return LocalServer.broadcastMessage(
+                                wsMessage(
+                                        "command",
+                                        "error",
+                                        buildJsonObject {
+                                            put("command", command)
+                                            put("message", message)
+                                        }
+                                )
+                        )
+                    }
                 }
-
-                return LocalServer.broadcastMessage(
-                    wsMessage(
-                        "command",
-                        "result",
-                        buildJsonObject {
-                            put("command", command)
-                            put("data", result)
-                        }
-                    )
-                )
-            }
-
-            override fun onError(command: Int, message: String) {
-                return LocalServer.broadcastMessage(
-                    wsMessage(
-                        "command",
-                        "error",
-                        buildJsonObject {
-                            put("command", command)
-                            put("message", message)
-                        }
-                    )
-                )
-            }
-        })
+        )
     }
 
     /*
@@ -301,7 +313,8 @@ class VescManager(private val activity: Activity) {
             object : ScanCallback() {
                 override fun onScanResult(callbackType: Int, result: ScanResult?) {
                     if (callbackType == ScanSettings.CALLBACK_TYPE_ALL_MATCHES && result != null) {
-                        if (foundDevices.putIfAbsent(result.device.address, result.device) == null) {
+                        if (foundDevices.putIfAbsent(result.device.address, result.device) == null
+                        ) {
                             try {
                                 LocalServer.broadcastMessage(
                                         wsMessage(
@@ -346,158 +359,224 @@ class VescManager(private val activity: Activity) {
      * BluetoothGattCallback
      */
 
-    private val bluetoothGattCallback = object : BluetoothGattCallback() {
-        /*
-         * Once we are connected to the device, find its services
-         */
-        override fun onConnectionStateChange(gatt: BluetoothGatt?, status: Int, newState: Int) {
-            if (status != BluetoothGatt.GATT_SUCCESS) {
-                return LocalServer.broadcastMessage(
-                        wsMessage(
-                                "connect",
-                                "error",
-                                buildJsonObject { put("message", "Failed to connect: $status") }
+    private val bluetoothGattCallback =
+            object : BluetoothGattCallback() {
+                /*
+                 * Once we are connected to the device, find its services
+                 */
+                override fun onConnectionStateChange(
+                        gatt: BluetoothGatt?,
+                        status: Int,
+                        newState: Int
+                ) {
+                    if (status != BluetoothGatt.GATT_SUCCESS) {
+                        return LocalServer.broadcastMessage(
+                                wsMessage(
+                                        "connect",
+                                        "error",
+                                        buildJsonObject {
+                                            put("message", "Failed to connect: $status")
+                                        }
+                                )
                         )
-                )
-            }
+                    }
 
-            when (newState) {
-                BluetoothGatt.STATE_CONNECTED -> {
+                    var gattDevice = connectedDevice
+                    if (gattDevice == null) {
+                        return LocalServer.broadcastMessage(
+                                wsMessage(
+                                        "connect",
+                                        "error",
+                                        buildJsonObject {
+                                            put(
+                                                    "message",
+                                                    "Bad state - no connected device reference"
+                                            )
+                                        }
+                                )
+                        )
+                    }
+
+                    when (newState) {
+                        BluetoothGatt.STATE_CONNECTED -> {
+                            LocalServer.broadcastMessage(
+                                    wsMessage(
+                                            "connect",
+                                            "status",
+                                            buildJsonObject {
+                                                put("address", gattDevice.device.address)
+                                                put("status", "connected")
+                                            }
+                                    )
+                            )
+
+                            try {
+                                gattDevice.requestMtu(250)
+                                gattDevice.discoverServices()
+                            } catch (error: SecurityException) {
+                                disconnect()
+                                LocalServer.broadcastMessage(
+                                        wsMessage(
+                                                "connect",
+                                                "error",
+                                                buildJsonObject {
+                                                    put(
+                                                            "message",
+                                                            "Permission denied: ${error.message}"
+                                                    )
+                                                }
+                                        )
+                                )
+                            }
+                        }
+                        BluetoothGatt.STATE_DISCONNECTED -> {
+                            connectedDevice = null
+                            stopScan()
+                        }
+                    }
+                }
+
+                /*
+                 * When services are discovered, next find the characteristics
+                 */
+                @SuppressLint("NewApi")
+                override fun onServicesDiscovered(gatt: BluetoothGatt?, status: Int) {
+                    if (status != BluetoothGatt.GATT_SUCCESS) {
+                        return LocalServer.broadcastMessage(
+                                wsMessage(
+                                        "connect",
+                                        "error",
+                                        buildJsonObject {
+                                            put("message", "Failed to discover services: $status")
+                                        }
+                                )
+                        )
+                    }
+
+                    // setup notifications on the VESC transmission line, so we can get responses to
+                    // commands
+                    val gattDevice = connectedDevice
+                    if (gattDevice == null) {
+                        return LocalServer.broadcastMessage(
+                                wsMessage(
+                                        "connect",
+                                        "error",
+                                        buildJsonObject {
+                                            put(
+                                                    "message",
+                                                    "Device was null when discovering services"
+                                            )
+                                        }
+                                )
+                        )
+                    }
+
+                    val vescTx =
+                            gattDevice
+                                    .getService(VescService)
+                                    ?.getCharacteristic(VescCharacteristicsTx)
+                    if (vescTx == null) {
+                        return LocalServer.broadcastMessage(
+                                wsMessage(
+                                        "connect",
+                                        "error",
+                                        buildJsonObject {
+                                            put("message", "Failed to find VESC tx characteristic")
+                                        }
+                                )
+                        )
+                    }
+
+                    try {
+                        // TODO:  increase in iOS as well if needed, properly parse chunks as well
+
+                        if (!gattDevice.setCharacteristicNotification(vescTx, true)) {
+                            return LocalServer.broadcastMessage(
+                                    wsMessage(
+                                            "connect",
+                                            "error",
+                                            buildJsonObject {
+                                                put(
+                                                        "message",
+                                                        "Failed to setup notifications on VESC tx characteristic"
+                                                )
+                                            }
+                                    )
+                            )
+                        }
+
+                        print(
+                                "Successfully enabled notifications on TX characteristic: ${vescTx.uuid}"
+                        )
+                    } catch (error: SecurityException) {
+                        return LocalServer.broadcastMessage(
+                                wsMessage(
+                                        "connect",
+                                        "error",
+                                        buildJsonObject {
+                                            put("message", "Permission denied: ${error.message}")
+                                        }
+                                )
+                        )
+                    }
+
+                    // unlike iOS, android doesn't have an event for when notifications are enabled
+                    // on a
+                    // characteristic, so we just continue on here
+                    val vescRx =
+                            gattDevice
+                                    .getService(VescService)
+                                    ?.getCharacteristic(VescCharacteristicsRx)
+                    if (vescRx == null) {
+                        return LocalServer.broadcastMessage(
+                                wsMessage(
+                                        "connect",
+                                        "error",
+                                        buildJsonObject {
+                                            put("message", "Failed to find VESC rx characteristic")
+                                        }
+                                )
+                        )
+                    }
+
+                    // Use the connected device's gatt instead of the parameter
+                    vescBluetoothLayer = VescBluetoothLayer(gattDevice, vescRx)
                     LocalServer.broadcastMessage(
                             wsMessage(
                                     "connect",
                                     "status",
-                                    buildJsonObject { put("status", "connected") }
+                                    buildJsonObject {
+                                        put("address", gattDevice.device.address)
+                                        put("status", "ready")
+                                    }
                             )
                     )
+                }
 
-                    try {
-                        connectedDevice?.requestMtu(250)
-                        connectedDevice?.discoverServices()
-                    } catch (error: SecurityException) {
-                        disconnect()
-                        LocalServer.broadcastMessage(
-                            wsMessage(
-                        "connect",
-                        "error",
-                        buildJsonObject { put("message", "Permission denied: ${error.message}") }
-                            )
+                /*
+                 * We receive VESC responses here since we requested notifications on the characteristic
+                 */
+                override fun onCharacteristicChanged(
+                        gatt: BluetoothGatt,
+                        characteristic: BluetoothGattCharacteristic,
+                        value: ByteArray
+                ) {
+                    if (vescBluetoothLayer == null) {
+                        return LocalServer.broadcastMessage(
+                                wsMessage(
+                                        "command",
+                                        "error",
+                                        buildJsonObject {
+                                            put(
+                                                    "message",
+                                                    "bad state: vesc bluetooth manager is null"
+                                            )
+                                        }
+                                )
                         )
                     }
-                }
-                BluetoothGatt.STATE_DISCONNECTED -> {
-                    connectedDevice = null
-                    stopScan()
+
+                    vescBluetoothLayer!!.parseResponse(value)
                 }
             }
-        }
-
-        /*
-         * When services are discovered, next find the characteristics
-         */
-        @SuppressLint("NewApi")
-        override fun onServicesDiscovered(gatt: BluetoothGatt?, status: Int) {
-            if (status != BluetoothGatt.GATT_SUCCESS) {
-                return LocalServer.broadcastMessage(
-                        wsMessage(
-                                "connect",
-                                "error",
-                                buildJsonObject { put("message", "Failed to discover services: $status") }
-                        )
-                )
-            }
-
-            // setup notifications on the VESC transmission line, so we can get responses to commands
-            val btDevice = connectedDevice
-            if (btDevice == null) {
-                return LocalServer.broadcastMessage(
-                        wsMessage(
-                                "connect",
-                                "error",
-                                buildJsonObject { put("message", "Device was null when discovering services") }
-                        )
-                )
-            }
-
-            val vescTx = btDevice.getService(VescService)?.getCharacteristic(VescCharacteristicsTx)
-            if (vescTx == null) {
-                return LocalServer.broadcastMessage(
-                        wsMessage(
-                                "connect",
-                                "error",
-                                buildJsonObject { put("message", "Failed to find VESC tx characteristic") }
-                        )
-                )
-            }
-
-
-            try {
-                // TODO:  increase in iOS as well if needed, properly parse chunks as well
-
-                if (!btDevice.setCharacteristicNotification(vescTx, true)) {
-                    return LocalServer.broadcastMessage(
-                            wsMessage(
-                                    "connect",
-                                    "error",
-                                    buildJsonObject { put("message", "Failed to setup notifications on VESC tx characteristic") }
-                            )
-                    )
-                }
-
-                print("Successfully enabled notifications on TX characteristic: ${vescTx.uuid}")
-            } catch (error: SecurityException) {
-                return LocalServer.broadcastMessage(
-                        wsMessage(
-                                "connect",
-                                "error",
-                                buildJsonObject { put("message", "Permission denied: ${error.message}") }
-                        )
-                )
-            }
-
-            // unlike iOS, android doesn't have an event for when notifications are enabled on a
-            // characteristic, so we just continue on here
-            val vescRx = btDevice.getService(VescService)?.getCharacteristic(VescCharacteristicsRx)
-            if (vescRx == null) {
-                return LocalServer.broadcastMessage(
-                        wsMessage(
-                                "connect",
-                                "error",
-                                buildJsonObject { put("message", "Failed to find VESC rx characteristic") }
-                        )
-                )
-            }
-
-            // Use the connected device's gatt instead of the parameter
-            vescBluetoothLayer = VescBluetoothLayer(btDevice, vescRx)
-            LocalServer.broadcastMessage(
-                    wsMessage(
-                            "connect",
-                            "status",
-                            buildJsonObject { put("status", "ready") }
-                    )
-            )
-        }
-
-        /*
-         * We receive VESC responses here since we requested notifications on the characteristic
-         */
-        override fun onCharacteristicChanged(
-            gatt: BluetoothGatt,
-            characteristic: BluetoothGattCharacteristic,
-            value: ByteArray
-        ) {
-            if (vescBluetoothLayer == null) {
-                return LocalServer.broadcastMessage(
-                        wsMessage(
-                                "command",
-                                "error",
-                                buildJsonObject { put("message", "bad state: vesc bluetooth manager is null") }
-                        )
-                )
-            }
-
-            vescBluetoothLayer!!.parseResponse(value)
-        }
-    }
 }

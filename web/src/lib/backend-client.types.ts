@@ -10,7 +10,7 @@ type empty = {};
 type WsCommandDef = {
 	scan: empty;
 	connect: { address: string };
-	disconnect: empty;
+	disconnect: { address: string };
 	command: { command: number };
 	data: { log: false } | { log: true; intervalMs: number };
 };
@@ -26,7 +26,7 @@ const commandFactories: {
 	scan: () => ({ cmd: 'scan', data: {} }),
 	connect: (data) => ({ cmd: 'connect', data }),
 	command: (data) => ({ cmd: 'command', data }),
-	disconnect: () => ({ cmd: 'disconnect', data: {} }),
+	disconnect: (data) => ({ cmd: 'disconnect', data }),
 	data: (data) => ({ cmd: 'data', data })
 };
 
@@ -93,7 +93,6 @@ export type ZScanMessage = z.infer<typeof ScanMessage>;
  */
 
 const ConnectStatus = z.union([
-	z.literal('start'),
 	z.literal('connecting'),
 	z.literal('connected'),
 	z.literal('ready')
@@ -101,10 +100,19 @@ const ConnectStatus = z.union([
 
 export const ConnectMessage = z.discriminatedUnion('event', [
 	createMessage('connect', 'error', ErrorData),
-	createMessage('connect', 'disconnect', z.object({ reason: z.string() })),
-	createMessage('connect', 'status', z.object({ status: ConnectStatus }))
+	createMessage('connect', 'status', z.object({ address: z.string(), status: ConnectStatus }))
 ]);
 export type ZConnectMessage = z.infer<typeof ConnectMessage>;
+
+/*
+ * Disconnect messages
+ */
+
+export const DisconnectMessage = z.discriminatedUnion('event', [
+	createMessage('disconnect', 'error', ErrorData),
+	createMessage('disconnect', 'complete', z.object({ address: z.string(), reason: z.string() })),
+]);
+export type ZDisconnectMessage = z.infer<typeof DisconnectMessage>;
 
 /*
  * Command messages
@@ -197,6 +205,7 @@ export const WsMessage = z.discriminatedUnion('topic', [
 	SocketMessage,
 	ScanMessage,
 	ConnectMessage,
+	DisconnectMessage,
 	DataMessage,
 	CommandMessage
 ]);

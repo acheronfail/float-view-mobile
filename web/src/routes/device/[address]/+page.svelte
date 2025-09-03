@@ -6,15 +6,21 @@
 		sendCommand,
 		type ZCommandFirmwareResponse,
 		type ZDataLogResponse
-	} from '../backend-client.types';
+	} from '../../../lib/backend-client.types';
+	import { getAppContext } from '../../../lib/context/app.svelte';
+	import { goto } from '$app/navigation';
+	import type { PageProps } from './$types';
 
-	let {
-		ws,
-		connectedAddress = $bindable(null)
-	}: {
-		ws: WebSocket | null;
-		connectedAddress: string | null;
-	} = $props();
+	let app = getAppContext();
+
+	let { params }: PageProps = $props();
+
+	$effect(() => {
+		console.log(app.connectedAddresses);
+		if (!app.connectedAddresses.has(params.address)) {
+			goto('/');
+		}
+	});
 
 	let showRawData = $state(false);
 	let scrolledMoreThanHalf = $state(false);
@@ -24,30 +30,20 @@
 
 	// ask backend to start logging
 	$effect(() => {
-		if (!ws) return;
-		sendCommand(ws, 'data', { log: true, intervalMs: import.meta.env.DEV ? 1000 : 200 });
+		if (!app.ws) return;
+		sendCommand(app.ws, 'data', { log: true, intervalMs: import.meta.env.DEV ? 1000 : 200 });
 		return () => {
-			if (ws) {
-				sendCommand(ws, 'data', { log: false });
+			if (app.ws) {
+				sendCommand(app.ws, 'data', { log: false });
 			}
 		};
 	});
 
-	// listen for disconnect event
+	// listen for responses and data events
 	$effect(() => {
-		if (!ws) return;
-
 		const handler = (event: MessageEvent) =>
 			untrack(() => {
 				const msg = parseMessage(event);
-				if (msg.topic === 'connect' && msg.event === 'disconnect') {
-					connectedAddress = null;
-					// TODO: be able to differentiate between user-initiated disconnect and error
-					if (msg.data?.reason !== 'websocket requested') {
-						setTimeout(() => alert(`Disconnected: ${msg.data?.reason ?? 'unknown reason'}`));
-					}
-				}
-
 				if (msg.topic === 'command' && msg.event === 'result' && msg.data.command === 0) {
 					fw = msg.data.data;
 				}
@@ -61,8 +57,8 @@
 				}
 			});
 
-		ws.addEventListener('message', handler);
-		return () => ws.removeEventListener('message', handler);
+		app.ws?.addEventListener('message', handler);
+		return () => app.ws?.removeEventListener('message', handler);
 	});
 
 	// track scroll position
@@ -94,13 +90,19 @@
 	}
 
 	const disconnect = () => {
-		runHandlingErrors(() => ws && sendCommand(ws, 'disconnect', {}));
+		runHandlingErrors(
+			() =>
+				app.ws &&
+				sendCommand(app.ws, 'disconnect', {
+					address: params.address
+				})
+		);
 	};
 
 	const fmt = (n: number | undefined, digits = 2) => n?.toFixed(digits);
 
 	onMount(() => {
-		if (ws) sendCommand(ws, 'command', { command: 0 });
+		if (app.ws) sendCommand(app.ws, 'command', { command: 0 });
 	});
 </script>
 
@@ -159,7 +161,7 @@
 		<div class="grid grid-cols-6 rounded-lg p-2">
 			<div class="text-center">1</div>
 			<div class="col-span-4 rounded p-2 text-center font-mono text-sm">
-				{connectedAddress}
+				{params.address}
 			</div>
 			<div></div>
 		</div>
