@@ -3,6 +3,34 @@ import { createServer } from 'http';
 import { WebSocketServer } from 'ws';
 import { WsCommand, ZDataMessage, type ZWsMessage } from '../src/lib/backend-client.types.js';
 
+import { WsMessage } from '../src/lib/proto/ws_message';
+
+// TODO: translate backend to use protobuf messages
+type Command = NonNullable<WsMessage['message']>['$case'];
+type Payload<K extends Command> = Extract<NonNullable<WsMessage['message']>, { $case: K }>['value'];
+const encodeMessage = <K extends Command>($case: K, value: Payload<K>) => {
+	const message = { $case, value } as NonNullable<WsMessage['message']>;
+	return WsMessage.encode({ message }).finish();
+};
+
+const decodeMessage = (data: Uint8Array<ArrayBuffer>) => {
+	const { message } = WsMessage.decode(data);
+	return message;
+};
+
+console.log(
+	encodeMessage('scanDevice', {
+		address: 'AAAC',
+		name: 'BBBB'
+	}),
+	decodeMessage(
+		encodeMessage('scanDevice', {
+			address: 'AAAC',
+			name: 'BBBB'
+		})
+	)
+);
+
 const PORT = 3001;
 
 const app = express();

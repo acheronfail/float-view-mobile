@@ -1,1 +1,8 @@
+# local development
 .wwatch.pid
+
+# proto
+/web/src/lib/proto
+/android/app/src/main/java/fail/acheron/floatview/proto
+/ios/float-view/proto
+/vendor

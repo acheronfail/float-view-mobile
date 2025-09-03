@@ -1,0 +1,9 @@
+syntax = "proto3";
+
+package fail.acheron.floatview.proto;
+option swift_prefix="";
+
+message DisconnectComplete {
+  string address = 1;
+  string reason = 2;
+}

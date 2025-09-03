@@ -1,0 +1,15 @@
+syntax = "proto3";
+
+package fail.acheron.floatview.proto;
+option swift_prefix="";
+
+enum ConnectionState {
+  CONNECTING = 0;
+  CONNECTED = 1;
+  READY = 2;
+}
+
+message ConnectStatus {
+  string address = 1;
+  ConnectionState status = 2;
+}

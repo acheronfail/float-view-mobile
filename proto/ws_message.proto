@@ -1,0 +1,44 @@
+syntax = "proto3";
+
+package fail.acheron.floatview.proto;
+option swift_prefix="";
+
+import "socket.proto";
+import "scan.proto";
+import "connect.proto";
+import "disconnect.proto";
+import "command.proto";
+import "data.proto";
+
+message ErrorData {
+  string message = 1;
+}
+
+message WsMessage {
+  oneof message {
+    // Socket messages
+    SocketWelcome socket_welcome = 1;
+    ErrorData socket_error = 2;
+
+    // Scan messages
+    ScanStart scan_start = 3;
+    ScanComplete scan_complete = 4;
+    ScanDevice scan_device = 5;
+    ErrorData scan_error = 6;
+
+    // Connect messages
+    ConnectStatus connect_status = 7;
+    ErrorData connect_error = 8;
+
+    // Disconnect messages
+    DisconnectComplete disconnect_complete = 9;
+    ErrorData disconnect_error = 10;
+
+    // Command messages
+    CommandFirmware command_firmware = 11;
+    ErrorData command_error = 12;
+
+    // Data messages
+    DataLog data_log = 13;
+  }
+}

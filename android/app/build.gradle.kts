@@ -42,6 +42,8 @@ dependencies {
     implementation(libs.androidx.appcompat)
     implementation(libs.material)
     implementation(libs.kotlinx.serialization.json)
+    implementation("com.google.protobuf:protobuf-javalite:4.32.0")
+    implementation("com.google.protobuf:protobuf-kotlin-lite:4.32.0")
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)

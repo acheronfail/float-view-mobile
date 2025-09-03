@@ -19,6 +19,21 @@ struct FloatViewApp: App {
 
     // Now setup handlers and listeners
     setupWebSocketHandlers()
+
+    // TODO: use messages here
+    let msg = WsMessage.with {
+      $0.scanDevice = ScanDevice.with {
+        $0.address = "AAAC"
+        $0.name = "BBBB"
+      }
+    }
+
+    do {
+      let data = try msg.serializedData()
+      print("data: \(Array(data))")
+    } catch {
+      print("Error serializing protobuf: \(error)")
+    }
   }
 
   var body: some Scene {

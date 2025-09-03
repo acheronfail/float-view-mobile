@@ -1,0 +1,14 @@
+syntax = "proto3";
+
+package fail.acheron.floatview.proto;
+option swift_prefix="";
+
+message CommandFirmware {
+  uint32 major = 1;
+  uint32 minor = 2;
+  string name = 3;
+  string uuid = 4;
+  bool is_paired = 5;
+  uint32 beta_version = 6;
+  uint32 hw_type = 7;
+}

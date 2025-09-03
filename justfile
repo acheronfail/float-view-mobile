@@ -3,8 +3,45 @@ _default:
 
 # setup the repository for development
 setup:
+  npm install
   cd web && npm install
   cd android && ./gradlew dependencies
+  just proto
+
+# TODO: make sure `brew install swift-protobuf` is installed before running
+protodir_swift := "ios/float-view/proto"
+protodir_kotlin := "android/app/src/main/java"
+protodir_typescript := "web/src/lib/proto"
+proto:
+  rm -rf "{{protodir_typescript}}"
+  mkdir -p "{{protodir_typescript}}"
+  protoc \
+    --plugin=node_modules/ts-proto/protoc-gen-ts_proto \
+    --proto_path=proto \
+    --ts_proto_out="{{protodir_typescript}}" \
+    --ts_proto_opt=env=both \
+    --ts_proto_opt=oneof=unions-value \
+    --ts_proto_opt=outputTypeRegistry=false \
+    --ts_proto_opt=outputServices=false \
+    --ts_proto_opt=outputClientImpl=false \
+    --ts_proto_opt=esModuleInterop=false \
+    proto/*.proto
+
+  rm -rf "{{protodir_kotlin}}/fail/acheron/floatview/proto"
+  mkdir -p "{{protodir_kotlin}}/fail/acheron/floatview/proto"
+  protoc \
+    --java_out=lite:"{{protodir_kotlin}}" \
+    --kotlin_out=lite:"{{protodir_kotlin}}" \
+    --proto_path=proto \
+    proto/*.proto
+
+  rm -rf "{{protodir_swift}}"
+  mkdir -p "{{protodir_swift}}"
+  protoc \
+    --swift_out="{{protodir_swift}}" \
+    --swift_opt=FileNaming=DropPath \
+    --proto_path=proto \
+    proto/*.proto
 
 # run the web app in dev mode (hot reload, etc)
 wdev:

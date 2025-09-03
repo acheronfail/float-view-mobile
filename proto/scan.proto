@@ -1,0 +1,13 @@
+syntax = "proto3";
+
+package fail.acheron.floatview.proto;
+option swift_prefix="";
+
+message ScanStart {}
+
+message ScanComplete {}
+
+message ScanDevice {
+  string address = 1;
+  string name = 2;
+}

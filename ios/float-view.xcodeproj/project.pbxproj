@@ -8,6 +8,8 @@
 
 /* Begin PBXBuildFile section */
 		BA3A10B12E5C0EED005406DA /* web in Resources */ = {isa = PBXBuildFile; fileRef = BA3A10B02E5C0EED005406DA /* web */; };
+		BAB619EB2E68F12200AA76F6 /* SwiftProtobuf in Frameworks */ = {isa = PBXBuildFile; productRef = BAB619EA2E68F12200AA76F6 /* SwiftProtobuf */; };
+		BAB619ED2E68F12200AA76F6 /* SwiftProtobufPluginLibrary in Frameworks */ = {isa = PBXBuildFile; productRef = BAB619EC2E68F12200AA76F6 /* SwiftProtobufPluginLibrary */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -28,6 +30,8 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				BAB619ED2E68F12200AA76F6 /* SwiftProtobufPluginLibrary in Frameworks */,
+				BAB619EB2E68F12200AA76F6 /* SwiftProtobuf in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -71,6 +75,8 @@
 			);
 			name = "float-view";
 			packageProductDependencies = (
+				BAB619EA2E68F12200AA76F6 /* SwiftProtobuf */,
+				BAB619EC2E68F12200AA76F6 /* SwiftProtobufPluginLibrary */,
 			);
 			productName = "float-view";
 			productReference = BA4ABF1C2E5BDF4600B47684 /* float-view.app */;
@@ -100,6 +106,9 @@
 			);
 			mainGroup = BA4ABF132E5BDF4600B47684;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				BAB619E92E68F12200AA76F6 /* XCRemoteSwiftPackageReference "swift-protobuf" */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = BA4ABF1D2E5BDF4600B47684 /* Products */;
 			projectDirPath = "";
@@ -335,6 +344,30 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		BAB619E92E68F12200AA76F6 /* XCRemoteSwiftPackageReference "swift-protobuf" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/apple/swift-protobuf.git";
+			requirement = {
+				kind = exactVersion;
+				version = 1.31.0;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		BAB619EA2E68F12200AA76F6 /* SwiftProtobuf */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = BAB619E92E68F12200AA76F6 /* XCRemoteSwiftPackageReference "swift-protobuf" */;
+			productName = SwiftProtobuf;
+		};
+		BAB619EC2E68F12200AA76F6 /* SwiftProtobufPluginLibrary */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = BAB619E92E68F12200AA76F6 /* XCRemoteSwiftPackageReference "swift-protobuf" */;
+			productName = SwiftProtobufPluginLibrary;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = BA4ABF142E5BDF4600B47684 /* Project object */;
 }

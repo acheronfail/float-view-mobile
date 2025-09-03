@@ -1,0 +1,30 @@
+syntax = "proto3";
+
+package fail.acheron.floatview.proto;
+option swift_prefix="";
+
+message DataLog {
+  double adc1 = 1;
+  double adc2 = 2;
+  double ah = 3;
+  double altitude = 4;
+  double currentBattery = 5;
+  double currentMotor = 6;
+  double distance = 7;
+  double duty = 8;
+  double gpsAccuracy = 9;
+  double gpsLatitude = 10;
+  double gpsLongitude = 11;
+  double motorFault = 12;
+  double pitch = 13;
+  double roll = 14;
+  double speed = 15;
+  string state = 16;
+  double stateRaw = 17;
+  double tempMosfet = 18;
+  double tempMotor = 19;
+  double time = 20;
+  double truePitch = 21;
+  double voltage = 22;
+  double wh = 23;
+}
