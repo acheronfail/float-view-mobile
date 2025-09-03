@@ -49,13 +49,43 @@ wss.on('connection', (ws) => {
 					reply(createMessage('connect', 'status', { status: 'connecting' }));
 					await sleep(500);
 					reply(createMessage('connect', 'status', { status: 'connected' }));
+					await sleep(500);
+					reply(createMessage('connect', 'status', { status: 'ready' }));
 					break;
 				case 'disconnect':
 					await sleep(100);
-					reply(createMessage('connect', 'status', { status: 'disconnected' }));
+					reply(createMessage('connect', 'disconnect', { reason: 'websocket requested' }));
 					if (logInterval) {
 						clearInterval(logInterval);
 						logInterval = null;
+					}
+					break;
+				case 'command':
+					{
+						const command = 'command' in message.data ? message.data['command'] : null;
+						const payload = 'payload' in message.data ? message.data['payload'] : null;
+						await sleep(100);
+						switch (command) {
+							case 0:
+								reply(
+									createMessage('command', 'result', {
+										command,
+										data: {
+											major: 6,
+											minor: 6,
+											betaVersion: 42,
+											hwType: 0,
+											isPaired: false,
+											name: 'TestDevice',
+											uuid: '0000-0000-0000-0000-000000000000'
+										}
+									})
+								);
+								break;
+							default:
+								console.error('Unknown command:', { command, payload });
+								break;
+						}
 					}
 					break;
 				case 'data': {

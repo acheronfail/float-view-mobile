@@ -110,6 +110,17 @@ export type ZConnectMessage = z.infer<typeof ConnectMessage>;
  * Command messages
  */
 
+export const CommandFirmwareResponse = z.object({
+	major: z.number(),
+	minor: z.number(),
+	name: z.string(),
+	uuid: z.string(),
+	isPaired: z.boolean(),
+	betaVersion: z.number(),
+	hwType: z.number()
+});
+export type ZCommandFirmwareResponse = z.infer<typeof CommandFirmwareResponse>;
+
 export const CommandMessage = z.discriminatedUnion('event', [
 	createMessage('command', 'error', ErrorData),
 	createMessage(
@@ -118,15 +129,7 @@ export const CommandMessage = z.discriminatedUnion('event', [
 		z.discriminatedUnion('command', [
 			z.object({
 				command: z.literal(0),
-				data: z.object({
-					major: z.number(),
-					minor: z.number(),
-					name: z.string(),
-					uuid: z.string(),
-					isPaired: z.boolean(),
-					betaVersion: z.number(),
-					hwType: z.number()
-				})
+				data: CommandFirmwareResponse
 			})
 		])
 	)
@@ -137,53 +140,52 @@ export type ZCommandMessage = z.infer<typeof CommandMessage>;
  * Data messages
  */
 
+export const DataLogResponse = z.object({
+	adc1: z.number(),
+	adc2: z.number(),
+	ah: z.number(),
+	ahCharged: z.number().optional(),
+	altitude: z.number(),
+	bmsFault: z.number().optional(),
+	bmsTemp: z.number().optional(),
+	bmsTempBattery: z.number().optional(),
+	currentBattery: z.number(),
+	currentBooster: z.number().optional(),
+	currentFieldWeakening: z.number().optional(),
+	currentMotor: z.number(),
+	distance: z.number(),
+	duty: z.number(),
+	erpm: z.number().optional(),
+	gpsAccuracy: z.number(),
+	gpsLatitude: z.number(),
+	gpsLongitude: z.number(),
+	motorFault: z.number(),
+	pitch: z.number(),
+	requestedAmps: z.number().optional(),
+	roll: z.number(),
+	setpoint: z.number().optional(),
+	setpointAtr: z.number().optional(),
+	setpointBreakTilt: z.number().optional(),
+	setpointCarve: z.number().optional(),
+	setpointRemote: z.number().optional(),
+	setpointTorqueTilt: z.number().optional(),
+	speed: z.number(),
+	state: z.string(),
+	stateRaw: z.number(),
+	tempBattery: z.number().optional(),
+	tempMosfet: z.number(),
+	tempMotor: z.number(),
+	time: z.number(),
+	truePitch: z.number(),
+	voltage: z.number(),
+	wh: z.number(),
+	whCharged: z.number().optional()
+});
+export type ZDataLogResponse = z.infer<typeof DataLogResponse>;
+
 export const DataMessage = z.discriminatedUnion('event', [
 	createMessage('data', 'error', ErrorData),
-	createMessage(
-		'data',
-		'log',
-		z.object({
-			adc1: z.number(),
-			adc2: z.number(),
-			ah: z.number(),
-			ahCharged: z.number().optional(),
-			altitude: z.number(),
-			bmsFault: z.number().optional(),
-			bmsTemp: z.number().optional(),
-			bmsTempBattery: z.number().optional(),
-			currentBattery: z.number(),
-			currentBooster: z.number().optional(),
-			currentFieldWeakening: z.number().optional(),
-			currentMotor: z.number(),
-			distance: z.number(),
-			duty: z.number(),
-			erpm: z.number().optional(),
-			gpsAccuracy: z.number(),
-			gpsLatitude: z.number(),
-			gpsLongitude: z.number(),
-			motorFault: z.number(),
-			pitch: z.number(),
-			requestedAmps: z.number().optional(),
-			roll: z.number(),
-			setpoint: z.number().optional(),
-			setpointAtr: z.number().optional(),
-			setpointBreakTilt: z.number().optional(),
-			setpointCarve: z.number().optional(),
-			setpointRemote: z.number().optional(),
-			setpointTorqueTilt: z.number().optional(),
-			speed: z.number(),
-			state: z.string(),
-			stateRaw: z.number(),
-			tempBattery: z.number().optional(),
-			tempMosfet: z.number(),
-			tempMotor: z.number(),
-			time: z.number(),
-			truePitch: z.number(),
-			voltage: z.number(),
-			wh: z.number(),
-			whCharged: z.number().optional()
-		})
-	)
+	createMessage('data', 'log', DataLogResponse)
 ]);
 export type ZDataMessage = z.infer<typeof DataMessage>;
 

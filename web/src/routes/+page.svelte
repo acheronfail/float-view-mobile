@@ -10,11 +10,25 @@
 
 	let connectedAddress = $state<string | null>(null);
 
+	let retries = 0;
 	async function connectWebsocket() {
 		if (ws) return ws;
 
-		const result = await backendClient.connectWebsocket();
-		ws = result[0];
+		try {
+			const result = await backendClient.connectWebsocket();
+			ws = result[0];
+		} catch (error) {
+			console.error('Failed to connect to websocket', error);
+			if (retries < 5) {
+				retries++;
+				setTimeout(connectWebsocket, 500 * retries * retries);
+			}
+
+			console.error('Max retries reached!');
+			return;
+		}
+
+		retries = 0;
 
 		ws.addEventListener('message', (event) => {
 			const msg = parseMessage(event);

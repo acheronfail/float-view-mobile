@@ -4,8 +4,8 @@
 	import {
 		parseMessage,
 		sendCommand,
-		type ZCommandMessage,
-		type ZDataMessage
+		type ZCommandFirmwareResponse,
+		type ZDataLogResponse
 	} from '../backend-client.types';
 
 	let {
@@ -19,10 +19,8 @@
 	let showRawData = $state(false);
 	let scrolledMoreThanHalf = $state(false);
 
-	let fw = $state<
-		Extract<Extract<ZCommandMessage, { event: 'result' }>['data'], { command: 0 }>['data'] | null
-	>(null);
-	let data = $state<Extract<ZDataMessage, { event: 'log' }>['data'] | null>(null);
+	let fw = $state<ZCommandFirmwareResponse | null>(null);
+	let data = $state<ZDataLogResponse | null>(null);
 
 	// ask backend to start logging
 	$effect(() => {
