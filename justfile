@@ -5,6 +5,10 @@ _default:
 setup:
   cd web && npm install
   cd android && ./gradlew dependencies
+  just generate
+
+generate:
+  cd web && npm run generate
 
 # run the web app in dev mode (hot reload, etc)
 wdev:

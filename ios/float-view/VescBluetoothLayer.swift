@@ -2,24 +2,12 @@ import CoreBluetooth
 import Foundation
 
 class VescBluetoothLayer {
-
-  // MARK: - Command Callback Protocol
-
-  enum CommandResult {
-    case response(command: Int, data: Data)
-    case error(command: Int, message: String)
-  }
-
   // TODO create enum for these in VescCommandParser
   static let COMM_FW_VERSION = 0
   static let COMM_FORWARD_CAN = 34
 
-  typealias CommandCallback = (CommandResult) -> Void
-
-  // MARK: - Properties
-
   private let peripheral: CBPeripheral
-  private var commandCallbacks: [Int: CommandCallback] = [:]
+  private let vescCommandLayer: VescCommandLayer
 
   // Cache characteristics for better performance
   private let writeChar: CBCharacteristic
@@ -29,30 +17,23 @@ class VescBluetoothLayer {
   init(peripheral: CBPeripheral, vescRx: CBCharacteristic) {
     self.peripheral = peripheral
     self.writeChar = vescRx
+    self.vescCommandLayer = VescCommandLayer(peripheral.identifier.uuidString)
   }
 
   // MARK: - Public Methods
 
-  func send(command: Int, data: [UInt8], completion: @escaping CommandCallback) {
-    // Store the callback for this command
-    guard commandCallbacks[command] == nil else {
-      return completion(.error(command: command, message: "Command already in progress"))
-    }
-
-    commandCallbacks[command] = completion
-
+  func send(command: Int, data: [UInt8]) {
     // TODO: detect if need to use CAN or not, rather than hardcoding here
     // TODO: scan for VESCs on CAN bus, and inject here if needed
-
     let canId: UInt8 = 1  // Use 16 to match Android's working packet
     var payload = [UInt8(VescBluetoothLayer.COMM_FORWARD_CAN), canId, UInt8(command)]
     payload.append(contentsOf: data)
 
     // Create VESC packet using the entire payload (not just command)
     let packet = createVescPacket(payload: payload)
-      print(
-        "Generated payload: \(payload.map { String(format: "%02X", $0) }.joined(separator: " "))"
-      )
+    print(
+      "Generated payload: \(payload.map { String(format: "%02X", $0) }.joined(separator: " "))"
+    )
     print(
       "Generated packet: \(packet.map { String(format: "%02X", $0) }.joined(separator: " "))"
     )
@@ -68,18 +49,12 @@ class VescBluetoothLayer {
     )
 
     if let (command, data) = parseVescCharacteristicResponse(data) {
-      // Call the appropriate callback for this command
-      if let callback = commandCallbacks[command] {
-        callback(.response(command: command, data: data))
-        commandCallbacks.removeValue(forKey: command)
-      } else {
-        print("No callback registered for command: \(command)")
-      }
+      vescCommandLayer.parse(command: command, data: data)
+    } else {
+      LocalServer.shared.broadcastMessage(
+        BackendMessage.commandError(command: nil, message: "Failed to parse VESC response")
+      )
     }
-  }
-
-  func cleanUp() {
-    commandCallbacks.removeAll()
   }
 
   // MARK: - Private Methods
@@ -152,7 +127,7 @@ class VescBluetoothLayer {
   private func calculateCRC16(data: [UInt8]) -> UInt16 {
     var checksum: UInt16 = 0
 
-    for byte in data {  
+    for byte in data {
       let tableIndex = Int(((checksum >> 8) ^ UInt16(byte)) & 0xFF)
       checksum = CRC_16_TABLE[tableIndex] ^ (checksum << 8)
       checksum = checksum & 0xFFFF  // Keep it as 16-bit value

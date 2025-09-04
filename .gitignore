@@ -1,1 +1,6 @@
+# local development files
 .wwatch.pid
+
+# generated
+ios/float-view/BackendMessage.swift
+android/app/src/main/java/fail/acheron/floatview/BackendMessage.kt

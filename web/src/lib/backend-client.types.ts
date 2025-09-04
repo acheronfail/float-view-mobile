@@ -1,7 +1,7 @@
 import z from 'zod';
 
 /*
- * Commands (from the frontend)
+ * Commands (frontend -> backend)
  */
 
 // eslint-disable-next-line @typescript-eslint/no-empty-object-type
@@ -11,8 +11,8 @@ type WsCommandDef = {
 	scan: empty;
 	connect: { address: string };
 	disconnect: { address: string };
-	command: { command: number };
-	data: { log: false } | { log: true; intervalMs: number };
+	command: { address: string; command: number };
+	data: { address: string; log: false } | { address: string; log: true; intervalMs: number };
 };
 
 export type WsCommand<K extends keyof WsCommandDef = keyof WsCommandDef> = {
@@ -40,82 +40,7 @@ export const sendCommand = <K extends keyof WsCommandDef>(
 };
 
 /*
- * Messages (from the backend)
- */
-
-const createMessage = <T extends string, E extends string, D extends z.ZodTypeAny>(
-	topic: T,
-	event: E,
-	data: D
-) =>
-	z.object({
-		topic: z.literal(topic),
-		event: z.literal(event),
-		data
-	});
-
-/*
- * Common
- */
-
-const ErrorData = z.object({ message: z.string() });
-const EmptyData = z.object({});
-
-/*
- * Socket messages
- */
-
-export const SocketMessage = z.discriminatedUnion('event', [
-	createMessage('socket', 'error', ErrorData),
-	createMessage('socket', 'welcome', EmptyData)
-]);
-export type ZSocketMessage = z.infer<typeof SocketMessage>;
-
-/*
- * Scan messages
- */
-
-export const ScanStatus = z.union([z.literal('start'), z.literal('complete')]);
-export type ZScanStatus = z.infer<typeof ScanStatus>;
-
-export const ScanDevice = z.object({ address: z.string(), name: z.string() });
-export type ZScanDevice = z.infer<typeof ScanDevice>;
-
-export const ScanMessage = z.discriminatedUnion('event', [
-	createMessage('scan', 'error', ErrorData),
-	createMessage('scan', 'device', ScanDevice),
-	createMessage('scan', 'status', z.object({ status: ScanStatus }))
-]);
-export type ZScanMessage = z.infer<typeof ScanMessage>;
-
-/*
- * Connect messages
- */
-
-const ConnectStatus = z.union([
-	z.literal('connecting'),
-	z.literal('connected'),
-	z.literal('ready')
-]);
-
-export const ConnectMessage = z.discriminatedUnion('event', [
-	createMessage('connect', 'error', ErrorData),
-	createMessage('connect', 'status', z.object({ address: z.string(), status: ConnectStatus }))
-]);
-export type ZConnectMessage = z.infer<typeof ConnectMessage>;
-
-/*
- * Disconnect messages
- */
-
-export const DisconnectMessage = z.discriminatedUnion('event', [
-	createMessage('disconnect', 'error', ErrorData),
-	createMessage('disconnect', 'complete', z.object({ address: z.string(), reason: z.string() })),
-]);
-export type ZDisconnectMessage = z.infer<typeof DisconnectMessage>;
-
-/*
- * Command messages
+ * Messages (backend -> frontend)
  */
 
 export const CommandFirmwareResponse = z.object({
@@ -128,25 +53,6 @@ export const CommandFirmwareResponse = z.object({
 	hwType: z.number()
 });
 export type ZCommandFirmwareResponse = z.infer<typeof CommandFirmwareResponse>;
-
-export const CommandMessage = z.discriminatedUnion('event', [
-	createMessage('command', 'error', ErrorData),
-	createMessage(
-		'command',
-		'result',
-		z.discriminatedUnion('command', [
-			z.object({
-				command: z.literal(0),
-				data: CommandFirmwareResponse
-			})
-		])
-	)
-]);
-export type ZCommandMessage = z.infer<typeof CommandMessage>;
-
-/*
- * Data messages
- */
 
 export const DataLogResponse = z.object({
 	adc1: z.number(),
@@ -191,35 +97,47 @@ export const DataLogResponse = z.object({
 });
 export type ZDataLogResponse = z.infer<typeof DataLogResponse>;
 
-export const DataMessage = z.discriminatedUnion('event', [
-	createMessage('data', 'error', ErrorData),
-	createMessage('data', 'log', DataLogResponse)
+const CommonError = { message: z.string() };
+export const BackendMessage = z.discriminatedUnion('kind', [
+	z.object({ kind: z.literal('socketWelcome') }),
+	z.object({ kind: z.literal('socketError') }).extend(CommonError),
+
+	z.object({ kind: z.literal('scanStart') }),
+	z.object({ kind: z.literal('scanComplete') }),
+	z.object({ kind: z.literal('scanDevice'), address: z.string(), name: z.string() }),
+	z.object({ kind: z.literal('scanError') }).extend(CommonError),
+
+	z.object({ kind: z.literal('connectStart'), address: z.string() }),
+	z.object({ kind: z.literal('connectComplete'), address: z.string() }),
+	z.object({ kind: z.literal('connectReady'), address: z.string() }),
+	z.object({ kind: z.literal('connectError') }).extend(CommonError),
+
+	z.object({ kind: z.literal('disconnectUnexpected'), address: z.string(), reason: z.string() }),
+	z.object({ kind: z.literal('disconnectComplete'), address: z.string() }),
+	z.object({ kind: z.literal('disconnectError'), address: z.string() }).extend(CommonError),
+
+	z.object({
+		kind: z.literal('commandFirmware'),
+		address: z.string(),
+		firmware: CommandFirmwareResponse
+	}),
+	z.object({ kind: z.literal('commandError'), command: z.number().optional() }).extend(CommonError),
+
+	z.object({ kind: z.literal('logStart'), address: z.string(), intervalMs: z.number() }),
+	z.object({ kind: z.literal('logStop'), address: z.string() }),
+	z.object({ kind: z.literal('logData'), address: z.string(), data: DataLogResponse }),
+	z.object({ kind: z.literal('logError') }).extend(CommonError)
 ]);
-export type ZDataMessage = z.infer<typeof DataMessage>;
+export type ZBackendMessage = z.infer<typeof BackendMessage>;
 
-/*
- * All messages
- */
-
-export const WsMessage = z.discriminatedUnion('topic', [
-	SocketMessage,
-	ScanMessage,
-	ConnectMessage,
-	DisconnectMessage,
-	DataMessage,
-	CommandMessage
-]);
-
-export type ZWsMessage = z.infer<typeof WsMessage>;
-
-export const parseMessage = (ev: MessageEvent<unknown>): ZWsMessage => {
+export const parseMessage = (ev: MessageEvent<unknown>): ZBackendMessage => {
 	if (typeof ev.data !== 'string') {
 		throw new Error('Invalid message format');
 	}
 
 	const json = JSON.parse(ev.data);
 	try {
-		return WsMessage.parse(json);
+		return BackendMessage.parse(json);
 	} catch (err) {
 		console.error({ err, json });
 		throw err;

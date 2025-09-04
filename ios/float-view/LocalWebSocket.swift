@@ -52,10 +52,7 @@ class LocalWebSocket {
         }
 
         self?.webSocketClients[clientId] = client
-        let welcomeMessage = self?.wsMessage(topic: "socket", event: "welcome", data: [:])
-        if let welcomeMessage = welcomeMessage {
-          self?.sendWebSocketMessage(client: client, message: welcomeMessage)
-        }
+        self?.sendWebSocketMessage(client: client, message: BackendMessage.socketWelcome())
         self?.handleWebSocketMessages(client: client)
       }
     )
@@ -90,14 +87,7 @@ class LocalWebSocket {
               if let handler = client.getHandler(cmd) {
                 handler(data)
               } else {
-                let errorMessage = self?.wsMessage(
-                  topic: "socket",
-                  event: "error",
-                  data: ["message": "Unknown command: \(cmd)"]
-                )
-                if let errorMessage = errorMessage {
-                  self?.sendWebSocketMessage(client: client, message: errorMessage)
-                }
+                self?.sendWebSocketMessage(client: client, message: BackendMessage.socketError(message: "Unhandled websocket command: \(cmd)"))
               }
             }
           } catch {
@@ -131,7 +121,7 @@ class LocalWebSocket {
   }
 
   func broadcastMessage(_ message: [String: Any]) {
-    print("ws>: '\(message["topic"] ?? "?")': \(message["event"] ?? "?")")
+    print("ws>: '\(message)'")
     queue.async { [weak self] in
       self?.webSocketClients.values.forEach { client in
         self?.sendWebSocketMessage(client: client, message: message)
@@ -218,15 +208,6 @@ class LocalWebSocket {
     let combined = key + magicString
     let hash = combined.data(using: .utf8)!.sha1
     return hash.base64EncodedString()
-  }
-
-  // Helper function to create websocket messages
-  private func wsMessage(topic: String, event: String, data: [String: Any] = [:]) -> [String: Any] {
-    return [
-      "topic": topic,
-      "event": event,
-      "data": data,
-    ]
   }
 
   func removeAllClients() {

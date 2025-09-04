@@ -37,7 +37,7 @@ struct FloatViewApp: App {
     LocalServer.shared.addHandler("connect") { [vescManager] (data: [String: Any]) in
       guard let address = data["address"] as? String else {
         LocalServer.shared.broadcastMessage(
-          wsMessage(topic: "connect", event: "error", data: ["message": "no address"])
+          BackendMessage.connectError(message: "No address given in command")
         )
         return
       }
@@ -56,17 +56,23 @@ struct FloatViewApp: App {
         vescManager.send(command: cmd, payload: payload)
       } else {
         LocalServer.shared.broadcastMessage(
-          wsMessage(
-            topic: "command",
-            event: "error",
-            data: ["message": "no command"]
-          )
+          BackendMessage.commandError(command: nil, message: "No command given")
         )
       }
     }
 
     LocalServer.shared.addHandler("data") { (data: [String: Any]) in
-      guard let shouldLog = data["log"] as? Bool else { return }
+      guard let address = data["address"] as? String else {
+        return LocalServer.shared.broadcastMessage(
+          BackendMessage.logError(message: "No address given in command")
+        )
+      }
+
+      guard let shouldLog = data["log"] as? Bool else {
+        return LocalServer.shared.broadcastMessage(
+          BackendMessage.logError(message: "No log given in command")
+        )
+      }
 
       if !shouldLog {
         // TODO: stop logging interval
@@ -78,33 +84,15 @@ struct FloatViewApp: App {
 
       // Send mock VESC data
       LocalServer.shared.broadcastMessage(
-        wsMessage(
-          topic: "data", event: "log",
-          data: [
-            "adc1": 0,
-            "adc2": 0,
-            "ah": 0,
-            "altitude": 0,
-            "currentBattery": 0,
-            "currentMotor": 0,
-            "distance": 0,
-            "duty": 0,
-            "gpsAccuracy": 0,
-            "gpsLatitude": 0,
-            "gpsLongitude": 0,
-            "motorFault": 0,
-            "pitch": 0,
-            "roll": 0,
-            "speed": 0,
-            "state": "riding",
-            "stateRaw": 0,
-            "tempMosfet": 0,
-            "tempMotor": 0,
-            "time": 0,
-            "truePitch": 0,
-            "voltage": 0,
-            "wh": 0,
-          ])
+        BackendMessage.logData(
+          address: address,
+          data: DataObject.build { builder in
+            builder.speed = 15.8
+            builder.voltage = 54.2
+            builder.currentBattery = 24.6
+            builder.state = "ACTIVE"
+          }
+        )
       )
     }
   }

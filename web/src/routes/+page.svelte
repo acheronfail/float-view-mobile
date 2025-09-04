@@ -3,13 +3,7 @@
 	import { ProgressRing } from '@skeletonlabs/skeleton-svelte';
 	import { flip } from 'svelte/animate';
 	import { slide, fade } from 'svelte/transition';
-	import {
-		parseMessage,
-		sendCommand,
-		type ZConnectMessage,
-		type ZScanDevice,
-		type ZScanMessage
-	} from '../lib/backend-client.types';
+	import { parseMessage, sendCommand } from '../lib/backend-client.types';
 	import { untrack } from 'svelte';
 	import { getAppContext } from '../lib/context/app.svelte';
 	import { goto } from '$app/navigation';
@@ -17,7 +11,7 @@
 	let isScanning = $state(false);
 	let isConnecting = $state(false);
 	let connectingAddress = $state<string | null>(null);
-	let bleDevices = $state<Array<ZScanDevice>>([]);
+	let bleDevices = $state<Array<{ name: string; address: string }>>([]);
 
 	let app = getAppContext();
 
@@ -25,51 +19,40 @@
 		const handler = (event: MessageEvent) =>
 			untrack(() => {
 				const msg = parseMessage(event);
-				switch (msg.topic) {
-					case 'scan':
-						return handleScanMessage(msg);
-					case 'connect':
-						return handleConnectMessage(msg);
+				switch (msg.kind) {
+					case 'scanDevice':
+						bleDevices.push(msg);
+						break;
+					case 'scanStart':
+						isScanning = true;
+						break;
+					case 'scanComplete':
+						isScanning = false;
+						break;
+					case 'scanError':
+						alert(`Scan error: ${msg.message}`);
+						isScanning = false;
+						break;
+					case 'connectStart':
+						isConnecting = true;
+						break;
+					case 'connectReady':
+						app.connectedAddresses.add(msg.address);
+						bleDevices = bleDevices.filter((d) => d.address === msg.address);
+						goto(`/device/${msg.address}`);
+						isConnecting = false;
+						connectingAddress = null;
+						break;
+					case 'connectError':
+						alert(`Connect error: ${msg.message}`);
+						connectingAddress = null;
+						break;
 				}
 			});
 
 		app.ws?.addEventListener('message', handler);
 		return () => app.ws?.removeEventListener('message', handler);
 	});
-
-	function handleScanMessage(msg: ZScanMessage) {
-		switch (msg.event) {
-			case 'device':
-				bleDevices.push(msg.data);
-				break;
-			case 'status':
-				isScanning = msg.data.status === 'start';
-				break;
-			case 'error':
-				alert(`Scan error: ${msg.data.message}`);
-				isScanning = false;
-				break;
-		}
-	}
-
-	function handleConnectMessage(msg: ZConnectMessage) {
-		switch (msg.event) {
-			case 'status':
-				isConnecting = msg.data.status === 'connecting';
-				if (msg.data.status === 'ready') {
-					app.connectedAddresses.add(msg.data.address);
-					bleDevices = bleDevices.filter((d) => d.address === msg.data.address);
-					goto(`/device/${msg.data.address}`);
-					isConnecting = false;
-					connectingAddress = null;
-				}
-				break;
-			case 'error':
-				alert(`Connect error: ${msg.data.message}`);
-				connectingAddress = null;
-				break;
-		}
-	}
 
 	async function runHandlingErrors(fn: () => void) {
 		try {

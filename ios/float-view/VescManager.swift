@@ -27,8 +27,7 @@ class VescManager: NSObject, ObservableObject {
   // MARK: - Properties
 
   private var centralManager: CBCentralManager!
-  private var vescMessaging: VescBluetoothLayer?
-  private let vescParser = VescCommandLayer()
+  private var vescBluetoothLayer: VescBluetoothLayer?
 
   // MARK: - Initialization
 
@@ -45,14 +44,13 @@ class VescManager: NSObject, ObservableObject {
   func connect(address: String) {
     guard connectedDevice == nil else {
       return LocalServer.shared.broadcastMessage(
-        wsMessage(
-          topic: "connect", event: "error", data: ["message": "Already connected to a device"])
+        BackendMessage.connectError(message: "Already connected to a device")
       )
     }
 
     guard let peripheral = foundDevices[address] else {
       return LocalServer.shared.broadcastMessage(
-        wsMessage(topic: "connect", event: "error", data: ["message": "Device not found"])
+        BackendMessage.connectError(message: "Device not found")
       )
     }
 
@@ -60,8 +58,7 @@ class VescManager: NSObject, ObservableObject {
     peripheral.delegate = self
 
     LocalServer.shared.broadcastMessage(
-      wsMessage(
-        topic: "connect", event: "status", data: ["address": address, "status": "connecting"])
+      BackendMessage.connectStart(address: address)
     )
 
     // start connecting to the device - we'll handle the rest in the delegate methods
@@ -78,11 +75,7 @@ class VescManager: NSObject, ObservableObject {
       connectedDevice = nil
 
       LocalServer.shared.broadcastMessage(
-        wsMessage(
-          topic: "disconnect",
-          event: "complete",
-          data: ["address": address, "reason": "websocket requested"]
-        )
+        BackendMessage.disconnectComplete(address: address)
       )
     }
   }
@@ -113,47 +106,13 @@ class VescManager: NSObject, ObservableObject {
   }
 
   func send(command: Int, payload data: [UInt8] = []) {
-    guard let vescMessaging = vescMessaging else {
+    guard let vescBluetoothLayer = vescBluetoothLayer else {
       return LocalServer.shared.broadcastMessage(
-        wsMessage(
-          topic: "command",
-          event: "error",
-          data: ["message": "VescCommands not setup!"]
-        )
+        BackendMessage.commandError(command: nil, message: "VescCommands not setup!")
       )
     }
 
-    vescMessaging.send(command: command, data: data) { [self] result in
-      switch result {
-      case .response(let command, let data):
-        let data = vescParser.parse(command: command, data: data)
-        guard data != nil else {
-          return LocalServer.shared.broadcastMessage(
-            wsMessage(
-              topic: "command",
-              event: "error",
-              data: ["command": command, "message": "Failed to parse command response"]
-            )
-          )
-        }
-
-        LocalServer.shared.broadcastMessage(
-          wsMessage(
-            topic: "command",
-            event: "result",
-            data: ["command": command, "data": data]
-          )
-        )
-      case .error(let command, let message):
-        LocalServer.shared.broadcastMessage(
-          wsMessage(
-            topic: "command",
-            event: "error",
-            data: ["command": command, "message": message]
-          )
-        )
-      }
-    }
+    vescBluetoothLayer.send(command: command, data: data)
   }
 
   // MARK: - Scanning
@@ -165,30 +124,19 @@ class VescManager: NSObject, ObservableObject {
   func startScan(timeoutMs: Double = 3000.0) {
     guard !isScanning else {
       return LocalServer.shared.broadcastMessage(
-        wsMessage(topic: "scan", event: "error", data: ["message": "Scan already in progress"])
+        BackendMessage.scanError(message: "Scan already in progress")
       )
     }
 
     guard centralManager.state == .poweredOn else {
       return LocalServer.shared.broadcastMessage(
-        wsMessage(
-          topic: "scan",
-          event: "error",
-          data: ["message": "Bluetooth not powered on. State: \(centralManager.state.rawValue)"]
-        )
+        BackendMessage.scanError(message: "Bluetooth not powered on. State: \(centralManager.state.rawValue)")
       )
     }
 
     guard hasPermissions() else {
       return LocalServer.shared.broadcastMessage(
-        wsMessage(
-          topic: "scan",
-          event: "error",
-          data: [
-            "message":
-              "Bluetooth permissions not granted. Authorization: \(CBCentralManager.authorization.rawValue)"
-          ]
-        )
+        BackendMessage.scanError(message: "Bluetooth permissions not granted. Authorization: \(CBCentralManager.authorization.rawValue)")
       )
     }
 
@@ -200,7 +148,7 @@ class VescManager: NSObject, ObservableObject {
 
     isScanning = true
     LocalServer.shared.broadcastMessage(
-      wsMessage(topic: "scan", event: "status", data: ["status": "start"])
+        BackendMessage.scanStart()
     )
 
     centralManager.scanForPeripherals(withServices: [VescManager.vescService], options: scanOptions)
@@ -222,7 +170,7 @@ class VescManager: NSObject, ObservableObject {
 
     print("VescBle: Scan stopped. Devices found: \(Array(foundDevices.values).count)")
     LocalServer.shared.broadcastMessage(
-      wsMessage(topic: "scan", event: "status", data: ["status": "complete"])
+        BackendMessage.scanComplete()
     )
   }
 }
@@ -266,11 +214,7 @@ extension VescManager: CBCentralManagerDelegate {
     if foundDevices[address] == nil {
       foundDevices[address] = peripheral
       LocalServer.shared.broadcastMessage(
-        wsMessage(
-          topic: "scan",
-          event: "device",
-          data: ["name": peripheral.name ?? "Unnamed", "address": address]
-        )
+        BackendMessage.scanDevice(address: address, name: peripheral.name ?? "Unknown name")
       )
     }
   }
@@ -281,8 +225,7 @@ extension VescManager: CBCentralManagerDelegate {
   func centralManager(_ central: CBCentralManager, didConnect peripheral: CBPeripheral) {
     let address = peripheral.identifier.uuidString
     LocalServer.shared.broadcastMessage(
-      wsMessage(
-        topic: "connect", event: "status", data: ["address": address, "status": "connected"])
+      BackendMessage.connectComplete(address: address)
     )
 
     // after connection attempt to discover all services
@@ -298,11 +241,7 @@ extension VescManager: CBCentralManagerDelegate {
     connectedDevice = nil
     let errorMessage = error?.localizedDescription ?? "Unknown connection error"
     LocalServer.shared.broadcastMessage(
-      wsMessage(
-        topic: "connect",
-        event: "error",
-        data: ["message": errorMessage]
-      )
+      BackendMessage.connectError(message: errorMessage)
     )
   }
 
@@ -316,11 +255,7 @@ extension VescManager: CBCentralManagerDelegate {
     if let error = error {
       let address = peripheral.identifier.uuidString
       LocalServer.shared.broadcastMessage(
-        wsMessage(
-          topic: "disconnect",
-          event: "complete",
-          data: ["address": address, "reason": error.localizedDescription]
-        )
+      BackendMessage.disconnectError(address: address, message: error.localizedDescription)
       )
     }
   }
@@ -333,32 +268,21 @@ extension VescManager: CBPeripheralDelegate {
   func peripheral(_ peripheral: CBPeripheral, didDiscoverServices error: Error?) {
     if let error = error {
       return LocalServer.shared.broadcastMessage(
-        wsMessage(
-          topic: "connect",
-          event: "error",
-          data: ["message": "Service discovery error: \(error.localizedDescription)"]
-        )
+        BackendMessage.connectError(message: "Service discovery error: \(error.localizedDescription)")
       )
     }
 
     guard let services = peripheral.services else {
+      disconnect()
       return LocalServer.shared.broadcastMessage(
-        wsMessage(
-          topic: "connect",
-          event: "error",
-          data: ["message": "No services found"]
-        )
+        BackendMessage.connectError(message: "No services found")
       )
     }
 
     guard services.contains(where: { service in service.uuid == VescManager.vescService }) else {
       disconnect()
       return LocalServer.shared.broadcastMessage(
-        wsMessage(
-          topic: "connect",
-          event: "error",
-          data: ["message": "No VESC service found"]
-        )
+        BackendMessage.connectError(message: "No VESC service found")
       )
     }
 
@@ -375,12 +299,9 @@ extension VescManager: CBPeripheralDelegate {
     _ peripheral: CBPeripheral, didDiscoverCharacteristicsFor service: CBService, error: Error?
   ) {
     if let error = error {
+      disconnect()
       return LocalServer.shared.broadcastMessage(
-        wsMessage(
-          topic: "connect",
-          event: "error",
-          data: ["message": "Characteristic discovery error: \(error.localizedDescription)"]
-        )
+        BackendMessage.connectError(message: "Characteristic discovery error: \(error.localizedDescription)")
       )
     }
 
@@ -406,12 +327,9 @@ extension VescManager: CBPeripheralDelegate {
     error: Error?
   ) {
     if let error = error {
+      disconnect()
       return LocalServer.shared.broadcastMessage(
-        wsMessage(
-          topic: "connect",
-          event: "error",
-          data: ["message": "Characteristic notification error: \(error.localizedDescription)"]
-        )
+        BackendMessage.connectError(message: "Characteristic notification error: \(error.localizedDescription)")
       )
     }
 
@@ -423,23 +341,14 @@ extension VescManager: CBPeripheralDelegate {
         ?? []
       let address = peripheral.identifier.uuidString
       if let rx = chars.first(where: { $0.uuid == VescManager.vescCharacteristicsRx }) {
-        vescMessaging = VescBluetoothLayer(peripheral: peripheral, vescRx: rx)
+        vescBluetoothLayer = VescBluetoothLayer(peripheral: peripheral, vescRx: rx)
         LocalServer.shared.broadcastMessage(
-          wsMessage(
-            topic: "connect",
-            event: "status",
-            data: ["address": address, "status": "ready"]
-          )
+          BackendMessage.connectReady(address: address)
         )
       } else {
+        disconnect()
         LocalServer.shared.broadcastMessage(
-          wsMessage(
-            topic: "connect",
-            event: "error",
-            data: [
-              "message": "Notifications enabled, but failed to find all VESC rx characteristic"
-            ]
-          )
+          BackendMessage.connectError(message: "Notifications enabled, but failed to find all VESC rx characteristic")
         )
       }
 
@@ -454,27 +363,17 @@ extension VescManager: CBPeripheralDelegate {
   ) {
     if let error = error {
       return LocalServer.shared.broadcastMessage(
-        wsMessage(
-          topic: "command",
-          event: "error",
-          data: ["message": "Error receiving update from VESC tx: \(error.localizedDescription)"]
-        )
+        BackendMessage.logError(message: "Error receiving update from VESC tx: \(error.localizedDescription)")
       )
     }
 
     guard let data = characteristic.value else { return }
-    guard let vescMessaging = vescMessaging else {
+    guard let vescBluetoothLayer = vescBluetoothLayer else {
       return LocalServer.shared.broadcastMessage(
-        wsMessage(
-          topic: "command",
-          event: "error",
-          data: ["message": "Received data but VescCommands not initialized"]
-        )
+        BackendMessage.logError(message: "Received data but VescCommands not initialized")
       )
     }
 
-    print(
-      "Received data on VESC tx: \(data.map { String(format: "%02X", $0) }.joined(separator: " "))")
-    vescMessaging.parseResponse(data)
+    vescBluetoothLayer.parseResponse(data)
   }
 }

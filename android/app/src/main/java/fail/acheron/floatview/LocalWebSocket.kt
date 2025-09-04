@@ -1,7 +1,8 @@
 package fail.acheron.floatview
 
+import android.annotation.SuppressLint
 import android.util.Base64
-import android.util.Log
+import kotlinx.serialization.Serializable
 import java.io.*
 import java.net.Socket
 import java.nio.charset.StandardCharsets
@@ -11,7 +12,11 @@ import java.util.concurrent.ExecutorService
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
-import kotlinx.serialization.json.put
+
+// TODO: also generate this as well?
+@SuppressLint("UnsafeOptInUsageError")
+@Serializable
+data class WebSocketCommand(val cmd: String, val data: JsonObject)
 
 class LocalWebSocket() {
   data class WebSocketClient(
@@ -56,7 +61,7 @@ class LocalWebSocket() {
       val clientId = "client_${System.currentTimeMillis()}"
       val client = WebSocketClient(socket, output, socket.getInputStream(), clientId, handlers)
       webSocketClients[clientId] = client
-      sendWebSocketMessage(client, wsMessage("socket", "welcome", buildJsonObject {}))
+      sendWebSocketMessage(client, BackendMessage.socketWelcome())
       executor.execute { handleWebSocketMessages(client) }
     } catch (e: Exception) {
       printError("WebSocket upgrade error: ${e.message}", e)
@@ -67,7 +72,6 @@ class LocalWebSocket() {
   }
 
   private fun handleWebSocketMessages(client: WebSocketClient) {
-    val topic = "socket"
     try {
       val buffer = ByteArray(1024)
       while (!client.socket.isClosed) {
@@ -81,11 +85,7 @@ class LocalWebSocket() {
         if (handler == null) {
           sendWebSocketMessage(
                   client,
-                  wsMessage(
-                          topic,
-                          "error",
-                          buildJsonObject { put("message", "Unknown command: ${payload.cmd}") }
-                  )
+                  BackendMessage.socketError("Unknown command: ${payload.cmd}")
           )
           continue
         }
@@ -93,7 +93,9 @@ class LocalWebSocket() {
         handler(payload.data)
       }
     } catch (e: Exception) {
-      printError("WebSocket client ${client.id} disconnected: ${e.message} ${e.stackTraceToString()}")
+      printError(
+              "WebSocket client ${client.id} disconnected: ${e.message} ${e.stackTraceToString()}"
+      )
     } finally {
       webSocketClients.remove(client.id)
       try {

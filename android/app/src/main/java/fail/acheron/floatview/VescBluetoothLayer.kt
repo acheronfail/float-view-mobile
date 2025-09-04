@@ -12,90 +12,67 @@ class VescBluetoothLayer(
         private val gatt: BluetoothGatt,
         private val vescRx: BluetoothGattCharacteristic
 ) {
-
-    interface CommandCallback {
-        fun onResponse(command: Int, data: ByteArray)
-        fun onError(command: Int, message: String)
-    }
-
-    private val commandCallbacks = mutableMapOf<Int, CommandCallback>()
+    private val vescCommandLayer = VescCommandLayer(gatt.device.address)
 
     fun parseResponse(bytes: ByteArray) {
         val parsed = parseVescCharacteristicResponse(bytes)
-        if (parsed == null) {
-            printError(
-                    "Failed to parse VESC response: ${bytes.joinToString(" ") { "%02X".format(it) }}"
-            )
-        } else {
+        if (parsed != null) {
             val (command, response) = parsed
-            val callback = commandCallbacks[command]
-            if (callback != null) {
-                callback.onResponse(command, response)
-                commandCallbacks.remove(command)
-            } else {
-                printError("No callback registered for command: $command")
-            }
+            vescCommandLayer.parse(command, response)
+        } else {
+            LocalServer.broadcastMessage(
+                    BackendMessage.commandError(null, "Failed to parse VESC response")
+            )
         }
     }
 
     private fun parseVescCharacteristicResponse(data: ByteArray): Pair<Int, ByteArray>? {
-        try {
-            if (data.size < 5) return null // Minimum packet size
-            var index = 0
+        if (data.size < 5) return null // Minimum packet size
+        var index = 0
 
-            // Check start byte
-            if (data[index] != 2.toByte() && data[index] != 3.toByte()) return null
-            val isLongPacket = data[index] == 3.toByte()
-            index++
+        // Check start byte
+        if (data[index] != 2.toByte() && data[index] != 3.toByte()) return null
+        val isLongPacket = data[index] == 3.toByte()
+        index++
 
-            // Read length
-            val payloadLength =
-                    if (isLongPacket) {
-                        if (data.size < 6) return null
-                        val lengthHigh = data[index++].toInt() and 0xFF
-                        val lengthLow = data[index++].toInt() and 0xFF
-                        (lengthHigh shl 8) or lengthLow
-                    } else {
-                        data[index++].toInt() and 0xFF
-                    }
+        // Read length
+        val payloadLength =
+                if (isLongPacket) {
+                    if (data.size < 6) return null
+                    val lengthHigh = data[index++].toInt() and 0xFF
+                    val lengthLow = data[index++].toInt() and 0xFF
+                    (lengthHigh shl 8) or lengthLow
+                } else {
+                    data[index++].toInt() and 0xFF
+                }
 
-            if (data.size < index + payloadLength + 3) return null // payload + CRC + end
+        if (data.size < index + payloadLength + 3) return null // payload + CRC + end
 
-            // Extract payload
-            val payload = data.sliceArray(index until index + payloadLength)
-            index += payloadLength
+        // Extract payload
+        val payload = data.sliceArray(index until index + payloadLength)
+        index += payloadLength
 
-            // Skip CRC validation for now
-            index += 2
+        // Skip CRC validation for now
+        index += 2
 
-            // Check end byte
-            if (data[index] != 3.toByte()) return null
+        // Check end byte
+        if (data[index] != 3.toByte()) return null
 
-            // Extract command from payload
-            if (payload.isEmpty()) return null
-            val command = payload[0].toInt() and 0xFF
+        // Extract command from payload
+        if (payload.isEmpty()) return null
+        val command = payload[0].toInt() and 0xFF
 
-            return Pair(command, payload.sliceArray(1 until payload.size))
-        } catch (e: Exception) {
-            printError("Error parsing VESC response: ${e.message}")
-            return null
-        }
+        return Pair(command, payload.sliceArray(1 until payload.size))
     }
 
-    // TODO: create enum for command
+    // TODO: create enum for command?
     @SuppressLint("NewApi")
-    fun send(command: Int, data: List<Int>, callback: CommandCallback) {
-        if (commandCallbacks[command] != null) {
-            return callback.onError(command, "Command already in progress")
-        }
-
-        commandCallbacks[command] = callback
-
+    fun send(command: Int, commandData: List<Int>) {
         // TODO: detect if need to use can or not, rather than hardcoding here
         // TODO: scan for VESCs on can bus, rather than hardcoding
         val canId = 1
         val payload = mutableListOf(COMM_FORWARD_CAN, canId, command)
-        payload.addAll(data)
+        payload.addAll(commandData)
 
         val packet = generateVescPacket(payload)
 
@@ -103,7 +80,8 @@ class VescBluetoothLayer(
         print("Command packet: ${packet.joinToString(" ") { "%02X".format(it) }}")
 
         try {
-            // we write the data here, and we will receive the response in the `onCharacteristicChanged`
+            // we write the data here, and we will receive the response in the
+            // `onCharacteristicChanged`
             // callback function in the `VescManager` class
             val result =
                     gatt.writeCharacteristic(
@@ -113,18 +91,21 @@ class VescBluetoothLayer(
                     )
 
             if (result != BluetoothStatusCodes.SUCCESS) {
-                commandCallbacks.remove(command)
-                return callback.onError(command, "Failed to write characteristic: $result")
+                LocalServer.broadcastMessage(
+                        BackendMessage.commandError(
+                                command.toDouble(),
+                                "Failed to write characteristic: $result"
+                        )
+                )
             }
         } catch (error: SecurityException) {
-            commandCallbacks.remove(command)
-            return callback.onError(command, "Permission denied: ${error.message}")
+            LocalServer.broadcastMessage(
+                    BackendMessage.commandError(
+                            command.toDouble(),
+                            "Permission denied: ${error.message}"
+                    )
+            )
         }
-    }
-
-    /** Clean up resources and clear callbacks */
-    fun cleanUp() {
-        commandCallbacks.clear()
     }
 
     private fun generateVescPacket(data: List<Int>): ByteArray {

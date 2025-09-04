@@ -31,10 +31,14 @@
 	// ask backend to start logging
 	$effect(() => {
 		if (!app.ws) return;
-		sendCommand(app.ws, 'data', { log: true, intervalMs: import.meta.env.DEV ? 1000 : 200 });
+		sendCommand(app.ws, 'data', {
+			address: params.address,
+			log: true,
+			intervalMs: import.meta.env.DEV ? 1000 : 200
+		});
 		return () => {
 			if (app.ws) {
-				sendCommand(app.ws, 'data', { log: false });
+				sendCommand(app.ws, 'data', { address: params.address, log: false });
 			}
 		};
 	});
@@ -44,16 +48,12 @@
 		const handler = (event: MessageEvent) =>
 			untrack(() => {
 				const msg = parseMessage(event);
-				if (msg.topic === 'command' && msg.event === 'result' && msg.data.command === 0) {
-					fw = msg.data.data;
-				}
-
-				if (msg.topic === 'data') {
-					switch (msg.event) {
-						case 'log':
-							data = msg.data;
-							break;
-					}
+				if (msg.kind === 'commandError') {
+					alert(`Command error: ${msg.message}`);
+				} else if (msg.kind === 'commandFirmware' && msg.address === params.address) {
+					fw = msg.firmware;
+				} else if (msg.kind === 'logData' && msg.address === params.address) {
+					data = msg.data;
 				}
 			});
 
@@ -102,7 +102,14 @@
 	const fmt = (n: number | undefined, digits = 2) => n?.toFixed(digits);
 
 	onMount(() => {
-		if (app.ws) sendCommand(app.ws, 'command', { command: 0 });
+		// TODO: open modal while all these initial things load here
+		// TODO: get float/refloat config and versions
+		// TODO: get app config
+		// TODO: get motor config
+		// TODO: basic checks?
+		if (app.ws) {
+			sendCommand(app.ws, 'command', { address: params.address, command: 0 });
+		}
 	});
 </script>
 

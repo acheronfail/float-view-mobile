@@ -1,7 +1,7 @@
 import express from 'express';
 import { createServer } from 'http';
 import { WebSocketServer } from 'ws';
-import { WsCommand, ZDataMessage, type ZWsMessage } from '../src/lib/backend-client.types.js';
+import { WsCommand, ZBackendMessage, ZDataLogResponse } from '../src/lib/backend-client.types.js';
 
 const PORT = 3001;
 
@@ -9,24 +9,12 @@ const app = express();
 const server = createServer(app);
 const wss = new WebSocketServer({ server });
 
-function createMessage<T extends ZWsMessage>(
-	topic: T['topic'],
-	event: T['event'],
-	data: T['data']
-): T {
-	return {
-		topic,
-		event,
-		data
-	} as T;
-}
-
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 wss.on('connection', (ws) => {
-	const reply = (msg: ZWsMessage) => ws.send(JSON.stringify(msg));
+	const reply = (msg: ZBackendMessage) => ws.send(JSON.stringify(msg));
 
-	reply(createMessage('socket', 'welcome', {}));
+	reply({ kind: 'socketWelcome' });
 
 	let logInterval: NodeJS.Timeout | null = null;
 	ws.on('message', async (data) => {
@@ -35,26 +23,24 @@ wss.on('connection', (ws) => {
 			console.debug({ message });
 			switch (message.cmd) {
 				case 'scan':
-					reply(createMessage('scan', 'status', { status: 'start' }));
+					reply({ kind: 'scanStart' });
 					await sleep(200);
-					reply(createMessage('scan', 'device', { name: 'ExpressA', address: '11:22:33:44:55' }));
+					reply({ kind: 'scanDevice', name: 'ExpressA', address: '11:22:33:44:55' });
 					await sleep(500);
-					reply(createMessage('scan', 'device', { name: 'ExpressB', address: 'aa:bb:cc:dd:ee' }));
+					reply({ kind: 'scanDevice', name: 'ExpressB', address: 'aa:bb:cc:dd:ee' });
 					await sleep(300);
-					reply(createMessage('scan', 'status', { status: 'complete' }));
+					reply({ kind: 'scanComplete' });
 					break;
 				case 'connect':
 					{
 						const address = 'address' in message.data ? message.data['address'] : null;
 						if (!address) return console.error('No address in message', message);
 
-						reply(createMessage('connect', 'status', { address, status: 'start' }));
-						await sleep(100);
-						reply(createMessage('connect', 'status', { address, status: 'connecting' }));
+						reply({ kind: 'connectStart', address });
 						await sleep(500);
-						reply(createMessage('connect', 'status', { address, status: 'connected' }));
+						reply({ kind: 'connectComplete', address });
 						await sleep(500);
-						reply(createMessage('connect', 'status', { address, status: 'ready' }));
+						reply({ kind: 'connectReady', address });
 					}
 					break;
 				case 'disconnect':
@@ -63,9 +49,7 @@ wss.on('connection', (ws) => {
 						if (!address) return console.error('No address in message', message);
 
 						await sleep(100);
-						reply(
-							createMessage('disconnect', 'complete', { address, reason: 'websocket requested' })
-						);
+						reply({ kind: 'disconnectComplete', address });
 						if (logInterval) {
 							clearInterval(logInterval);
 							logInterval = null;
@@ -76,23 +60,23 @@ wss.on('connection', (ws) => {
 					{
 						const command = 'command' in message.data ? message.data['command'] : null;
 						const payload = 'payload' in message.data ? message.data['payload'] : null;
+						const address = 'address' in message.data ? message.data['address'] : null;
 						await sleep(100);
 						switch (command) {
 							case 0:
-								reply(
-									createMessage('command', 'result', {
-										command,
-										data: {
-											major: 6,
-											minor: 6,
-											betaVersion: 42,
-											hwType: 0,
-											isPaired: false,
-											name: 'TestDevice',
-											uuid: '0000-0000-0000-0000-000000000000'
-										}
-									})
-								);
+								reply({
+									kind: 'commandFirmware',
+									address: address!,
+									firmware: {
+										major: 6,
+										minor: 6,
+										betaVersion: 42,
+										hwType: 0,
+										isPaired: false,
+										name: 'TestDevice',
+										uuid: '0000-0000-0000-0000-000000000000'
+									}
+								});
 								break;
 							default:
 								console.error('Unknown command:', { command, payload });
@@ -101,10 +85,11 @@ wss.on('connection', (ws) => {
 					}
 					break;
 				case 'data': {
+					const address = 'address' in message.data ? message.data['address'] : null;
 					if ('log' in message.data && message.data.log) {
 						const getMockData = mockDataCreator();
 						logInterval = setInterval(
-							() => reply(createMessage('data', 'log', getMockData())),
+							() => reply({ kind: 'logData', address: address!, data: getMockData() }),
 							message.data.intervalMs
 						);
 					} else if (logInterval) {
@@ -113,11 +98,11 @@ wss.on('connection', (ws) => {
 					break;
 				}
 				default:
-					reply(createMessage('socket', 'error', { message: 'Unknown command' }));
+					reply({ kind: 'socketError', message: 'Unknown command' });
 			}
 		} catch (error) {
 			console.error('Error parsing WebSocket message:', error);
-			reply(createMessage('socket', 'error', { message: 'Invalid message format' }));
+			reply({ kind: 'socketError', message: 'Invalid message format' });
 		}
 	});
 
@@ -134,8 +119,7 @@ server.listen(PORT, () => {
 	console.log(`Mock server started on ${PORT}`);
 });
 
-type LogData = Extract<ZDataMessage, { event: 'log' }>['data'];
-function mockDataCreator(): () => LogData {
+function mockDataCreator(): () => ZDataLogResponse {
 	const randBw = (min: number, max: number) => Math.random() * (max - min) + min;
 	const d = {
 		adc1: randBw(2, 3.2),

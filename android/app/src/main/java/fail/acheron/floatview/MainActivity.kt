@@ -74,25 +74,13 @@ class MainActivity : AppCompatActivity() {
         LocalServer.addHandler("connect") { req ->
             val jsonAddress = req["address"]
             if (jsonAddress == null) {
-                LocalServer.broadcastMessage(
-                        wsMessage(
-                                "connect",
-                                "error",
-                                buildJsonObject { put("message", "no address") }
-                        )
-                )
+                LocalServer.broadcastMessage(BackendMessage.connectError("no address"))
                 return@addHandler
             }
 
             val address = jsonAddress.jsonPrimitive.contentOrNull
             if (address == null) {
-                LocalServer.broadcastMessage(
-                        wsMessage(
-                                "connect",
-                                "error",
-                                buildJsonObject { put("message", "no address") }
-                        )
-                )
+                LocalServer.broadcastMessage(BackendMessage.connectError("no address"))
                 return@addHandler
             }
 
@@ -102,28 +90,13 @@ class MainActivity : AppCompatActivity() {
         LocalServer.addHandler("disconnect") { req ->
             val address = req["address"]?.jsonPrimitive?.contentOrNull
             if (address == null) {
-                LocalServer.broadcastMessage(
-                        wsMessage(
-                                "disconnect",
-                                "error",
-                                buildJsonObject { put("message", "no address") }
-                        )
-                )
+                LocalServer.broadcastMessage(BackendMessage.disconnectError("no address"))
                 return@addHandler
             }
 
             vescManager.disconnect()
-            LocalServer.broadcastMessage(
-                    wsMessage(
-                            "disconnect",
-                            "complete",
-                            buildJsonObject {
-                                // NOTE: backend only supports a single device for now
-                                put("address", address)
-                                put("reason", "websocket requested")
-                            }
-                    )
-            )
+            // NOTE: backend only supports a single device for now
+            LocalServer.broadcastMessage(BackendMessage.disconnectComplete(address))
         }
 
         LocalServer.addHandler("command") { req ->
@@ -134,6 +107,7 @@ class MainActivity : AppCompatActivity() {
         }
 
         LocalServer.addHandler("data") { req ->
+            val address = req["address"]!!.jsonPrimitive.content
             val shouldLog = req["log"]!!.jsonPrimitive.boolean
             if (!shouldLog) {
                 // TODO: stop logging interval
@@ -143,33 +117,11 @@ class MainActivity : AppCompatActivity() {
             @Suppress("UNUSED_VARIABLE") val intervalMs = req["intervalMs"]!!.jsonPrimitive.double
             // TODO: start sending VESC log data back with interval: ${intervalMs}ms
             LocalServer.broadcastMessage(
-                    wsMessage(
-                            "data",
-                            "log",
-                            buildJsonObject {
-                                put("adc1", 0)
-                                put("adc2", 0)
-                                put("ah", 0)
-                                put("altitude", 0)
-                                put("currentBattery", 0)
-                                put("currentMotor", 0)
-                                put("distance", 0)
-                                put("duty", 0)
-                                put("gpsAccuracy", 0)
-                                put("gpsLatitude", 0)
-                                put("gpsLongitude", 0)
-                                put("motorFault", 0)
-                                put("pitch", 0)
-                                put("roll", 0)
-                                put("speed", 0)
-                                put("state", "riding")
-                                put("stateRaw", 0)
-                                put("tempMosfet", 0)
-                                put("tempMotor", 0)
-                                put("time", 0)
-                                put("truePitch", 0)
-                                put("voltage", 0)
-                                put("wh", 0)
+                    BackendMessage.logData(
+                            address,
+                            DataObject.build {
+                                state = "riding"
+                                speed = 42.2
                             }
                     )
             )

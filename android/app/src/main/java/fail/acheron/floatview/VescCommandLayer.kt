@@ -1,24 +1,25 @@
 package fail.acheron.floatview
 
-import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.buildJsonObject
-import kotlinx.serialization.json.put
-
-class VescCommandLayer {
-    fun parse(command: Int, response: ByteArray): JsonObject? {
+class VescCommandLayer(private val address: String) {
+    fun parse(command: Int, response: ByteArray) {
         val parser = VescBuffer(response)
         when (command) {
-            COMM_FW_VERSION -> return parseFirmware(parser)
+            COMM_FW_VERSION ->
+                    LocalServer.broadcastMessage(
+                            BackendMessage.commandFirmware(address, parseFirmware(parser))
+                    )
             else -> {
-                printError(
-                        "Unhandled command $command: ${response.joinToString(", ") { "%02X".format(it) }}"
+                LocalServer.broadcastMessage(
+                        BackendMessage.commandError(
+                                command.toDouble(),
+                                "No parser for command: $command"
+                        )
                 )
-                return null
             }
         }
     }
 
-    private fun parseFirmware(parser: VescBuffer): JsonObject {
+    private fun parseFirmware(parser: VescBuffer): FirmwareObject {
         val major = parser.readUInt8()
         val minor = parser.readUInt8()
         var name = parser.readString()
@@ -54,14 +55,14 @@ class VescCommandLayer {
             hwType = parser.readUInt8()
         }
 
-        return buildJsonObject {
-            put("major", major)
-            put("minor", minor)
-            put("name", name)
-            put("uuid", uuid)
-            put("isPaired", isPaired)
-            put("betaVersion", betaVersion)
-            put("hwType", hwType)
+        return FirmwareObject.build {
+            this.major = major.toDouble()
+            this.minor = minor.toDouble()
+            this.name = name
+            this.uuid = uuid ?: ""
+            this.isPaired = isPaired ?: false
+            this.betaVersion = betaVersion?.toDouble() ?: 0.0
+            this.hwType = hwType?.toDouble() ?: 0.0
         }
     }
 }

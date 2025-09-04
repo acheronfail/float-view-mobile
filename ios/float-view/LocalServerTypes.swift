@@ -158,16 +158,6 @@ private struct AnyCodableDict: Codable {
     }
 }
 
-// MARK: - Message Builder Functions
-
-func wsMessage(topic: String, event: String, data: [String: Any] = [:]) -> [String: Any] {
-    return [
-        "topic": topic,
-        "event": event,
-        "data": data
-    ]
-}
-
 // MARK: - Handler Types
 
 typealias WsHandler = ([String: Any]) -> Void

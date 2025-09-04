@@ -31,15 +31,13 @@
 
 		app.ws.addEventListener('message', (event) => {
 			const msg = parseMessage(event);
-			console.debug(['<', msg.topic, msg.event].join(':'), msg.data);
+			console.debug('<', msg);
 
-			if (msg.topic === 'disconnect' && msg.event === 'complete') {
-				app.connectedAddresses.delete(msg.data.address);
-
-				// TODO: be able to differentiate between user-initiated disconnect and error
-				if (msg.data.reason !== 'websocket requested') {
-					setTimeout(() => alert(`Disconnected: ${msg.data.reason ?? 'unknown reason'}`));
-				}
+			if (msg.kind === 'disconnectComplete') {
+				app.connectedAddresses.delete(msg.address);
+			} else if (msg.kind === 'disconnectUnexpected') {
+				app.connectedAddresses.delete(msg.address);
+				alert(`Disconnected: ${msg.reason ?? 'unknown reason'}`)
 			}
 		});
 
