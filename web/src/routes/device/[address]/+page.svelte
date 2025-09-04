@@ -4,7 +4,7 @@
 	import {
 		parseMessage,
 		sendCommand,
-		type ZCommandFirmwareResponse,
+		type ZCommandFirmware,
 		type ZDataLogResponse
 	} from '../../../lib/backend-client.types';
 	import { getAppContext } from '../../../lib/context/app.svelte';
@@ -25,7 +25,7 @@
 	let showRawData = $state(false);
 	let scrolledMoreThanHalf = $state(false);
 
-	let fw = $state<ZCommandFirmwareResponse | null>(null);
+	let fw = $state<ZCommandFirmware | null>(null);
 	let data = $state<ZDataLogResponse | null>(null);
 
 	// ask backend to start logging

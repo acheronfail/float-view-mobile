@@ -5,9 +5,6 @@ import android.bluetooth.BluetoothGatt
 import android.bluetooth.BluetoothGattCharacteristic
 import android.bluetooth.BluetoothStatusCodes
 
-val COMM_FW_VERSION = 0
-val COMM_FORWARD_CAN = 34
-
 class VescBluetoothLayer(
         private val gatt: BluetoothGatt,
         private val vescRx: BluetoothGattCharacteristic

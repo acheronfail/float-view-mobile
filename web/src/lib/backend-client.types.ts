@@ -1,4 +1,5 @@
 import z from 'zod';
+import { CommPacketId } from './vesc.commands';
 
 /*
  * Commands (frontend -> backend)
@@ -7,11 +8,18 @@ import z from 'zod';
 // eslint-disable-next-line @typescript-eslint/no-empty-object-type
 type empty = {};
 
+// TODO: zod-ify so we can generate code from it as well
 type WsCommandDef = {
 	scan: empty;
 	connect: { address: string };
 	disconnect: { address: string };
-	command: { address: string; command: number };
+	// TODO: JS doesn't need to know details of packets, since we'll need all that in the backends for bg processing
+	// >>>>: so just send "high level" commands here and have the backends translate these into actual commands
+	// TODO: look into ways of generating the Kotlin/Swift code necessary for this... precomputed payloads?
+	// TODO: test getting float package type
+	// https://github.com/lukash/refloat/blob/5bde1f98a344410085960f88aa13d6c94f3dc24b/src/main.c#L2142
+	// PacketTypes.COMM_CUSTOM_APP_DATA, AppPacketTypes.FLOAT (101), RefloatCommPacketId.COMMAND_GET_RTDATA,
+	command: { address: string; command: CommPacketId; payload: number[] };
 	data: { address: string; log: false } | { address: string; log: true; intervalMs: number };
 };
 
@@ -43,7 +51,7 @@ export const sendCommand = <K extends keyof WsCommandDef>(
  * Messages (backend -> frontend)
  */
 
-export const CommandFirmwareResponse = z.object({
+export const CommandFirmware = z.object({
 	major: z.number(),
 	minor: z.number(),
 	name: z.string(),
@@ -52,7 +60,7 @@ export const CommandFirmwareResponse = z.object({
 	betaVersion: z.number(),
 	hwType: z.number()
 });
-export type ZCommandFirmwareResponse = z.infer<typeof CommandFirmwareResponse>;
+export type ZCommandFirmware = z.infer<typeof CommandFirmware>;
 
 export const DataLogResponse = z.object({
 	adc1: z.number(),
@@ -99,30 +107,38 @@ export type ZDataLogResponse = z.infer<typeof DataLogResponse>;
 
 const CommonError = { message: z.string() };
 export const BackendMessage = z.discriminatedUnion('kind', [
+	// socket
 	z.object({ kind: z.literal('socketWelcome') }),
 	z.object({ kind: z.literal('socketError') }).extend(CommonError),
 
+	// scan
 	z.object({ kind: z.literal('scanStart') }),
 	z.object({ kind: z.literal('scanComplete') }),
 	z.object({ kind: z.literal('scanDevice'), address: z.string(), name: z.string() }),
 	z.object({ kind: z.literal('scanError') }).extend(CommonError),
 
+	// connect
 	z.object({ kind: z.literal('connectStart'), address: z.string() }),
 	z.object({ kind: z.literal('connectComplete'), address: z.string() }),
 	z.object({ kind: z.literal('connectReady'), address: z.string() }),
 	z.object({ kind: z.literal('connectError') }).extend(CommonError),
 
+	// disconnect
 	z.object({ kind: z.literal('disconnectUnexpected'), address: z.string(), reason: z.string() }),
 	z.object({ kind: z.literal('disconnectComplete'), address: z.string() }),
 	z.object({ kind: z.literal('disconnectError'), address: z.string() }).extend(CommonError),
 
+	// command
 	z.object({
 		kind: z.literal('commandFirmware'),
 		address: z.string(),
-		firmware: CommandFirmwareResponse
+		firmware: CommandFirmware
 	}),
-	z.object({ kind: z.literal('commandError'), command: z.number().optional() }).extend(CommonError),
+	z
+		.object({ kind: z.literal('commandError'), command: z.enum(CommPacketId).optional() })
+		.extend(CommonError),
 
+	// log
 	z.object({ kind: z.literal('logStart'), address: z.string(), intervalMs: z.number() }),
 	z.object({ kind: z.literal('logStop'), address: z.string() }),
 	z.object({ kind: z.literal('logData'), address: z.string(), data: DataLogResponse }),
