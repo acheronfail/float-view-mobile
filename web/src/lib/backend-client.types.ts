@@ -126,7 +126,7 @@ export const BackendMessage = z.discriminatedUnion('kind', [
 	// disconnect
 	z.object({ kind: z.literal('disconnectUnexpected'), address: z.string(), reason: z.string() }),
 	z.object({ kind: z.literal('disconnectComplete'), address: z.string() }),
-	z.object({ kind: z.literal('disconnectError'), address: z.string() }).extend(CommonError),
+	z.object({ kind: z.literal('disconnectError'), address: z.string().optional() }).extend(CommonError),
 
 	// command
 	z.object({

@@ -24,7 +24,8 @@ class MainActivity : AppCompatActivity() {
 
     private lateinit var webView: WebView
     private lateinit var localWebView: LocalWebView
-    private lateinit var vescManager: VescManager
+    private lateinit var vescBluetooth: VescBluetooth
+    private lateinit var vescCommandGenerator: VescCommandGenerator
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -64,12 +65,13 @@ class MainActivity : AppCompatActivity() {
             insets
         }
 
-        vescManager = VescManager(this)
+        vescBluetooth = VescBluetooth(this)
+        vescCommandGenerator = VescCommandGenerator()
 
         // Start the singleton local server
         LocalServer.start(this, webView)
 
-        LocalServer.addHandler("scan") { _ -> vescManager.startScan() }
+        LocalServer.addHandler("scan") { _ -> vescBluetooth.startScan() }
 
         LocalServer.addHandler("connect") { req ->
             val jsonAddress = req["address"]
@@ -84,26 +86,36 @@ class MainActivity : AppCompatActivity() {
                 return@addHandler
             }
 
-            vescManager.connect(address)
+            vescBluetooth.connect(address)
         }
 
         LocalServer.addHandler("disconnect") { req ->
             val address = req["address"]?.jsonPrimitive?.contentOrNull
             if (address == null) {
-                LocalServer.broadcastMessage(BackendMessage.disconnectError("no address"))
+                LocalServer.broadcastMessage(BackendMessage.disconnectError(null, "no address"))
                 return@addHandler
             }
 
-            vescManager.disconnect()
+            vescBluetooth.disconnect()
             // NOTE: backend only supports a single device for now
             LocalServer.broadcastMessage(BackendMessage.disconnectComplete(address))
         }
 
         LocalServer.addHandler("command") { req ->
-            val command = req["command"]!!.jsonPrimitive.int
+            val commandInt = req["command"]?.jsonPrimitive?.intOrNull
+            if (commandInt == null) {
+                return@addHandler LocalServer.broadcastMessage(BackendMessage.commandError(null, "no command"))
+            }
+            val command = CommPacketId.fromInt(commandInt)
+            if (command == null) {
+                return@addHandler LocalServer.broadcastMessage(BackendMessage.commandError(null, "no command"))
+            }
+
+            // TODO: parse commands here and map to vescCommandGenerator[method]
+
             val payload = req["payload"]?.jsonArray?.map { it.jsonPrimitive.int } ?: listOf()
             Handler(Looper.getMainLooper())
-                    .postDelayed({ vescManager.sendCommand(command, payload) }, 1000)
+                    .postDelayed({ vescBluetooth.sendCommand(command, payload) }, 1000)
         }
 
         LocalServer.addHandler("data") { req ->
@@ -132,6 +144,6 @@ class MainActivity : AppCompatActivity() {
         super.onDestroy()
         LocalServer.stop()
         if (this::localWebView.isInitialized) localWebView.destroy()
-        if (this::vescManager.isInitialized) vescManager.disconnect()
+        if (this::vescBluetooth.isInitialized) vescBluetooth.disconnect()
     }
 }

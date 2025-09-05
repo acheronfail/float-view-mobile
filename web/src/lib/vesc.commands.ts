@@ -1,3 +1,6 @@
+import z from 'zod';
+import { RefloatCommand, RefloatPackageId } from './refloat.commands';
+
 // https://github.com/vedderb/bldc/blob/e7ca1a26517b1010bbe49a2ca25add810d2d93f2/datatypes.h#L942
 export enum CommPacketId {
 	COMM_FW_VERSION = 0,
@@ -189,3 +192,23 @@ export enum CommPacketId {
 
 	COMM_MOTOR_ESTOP = 159
 }
+
+/**
+ * The arguments to send with each command.
+ * Note that responses are handled in the VescCommandLayer classes.
+ * TODO: finish off the rest of these as we need them
+ * https://github.com/lukash/refloat/blob/5bde1f98a344410085960f88aa13d6c94f3dc24b/src/main.c#L2133
+ */
+export const VescCommands = z.discriminatedUnion('command', [
+	z.object({
+		command: z.literal(CommPacketId.COMM_FW_VERSION),
+		version: z.number()
+	}),
+	z.object({
+		command: z.literal(CommPacketId.COMM_CUSTOM_APP_DATA),
+		appId: z.literal(RefloatPackageId),
+		customAppCommand: RefloatCommand
+	})
+]);
+
+// TODO: generate Kotlin+Swift parsers for these commands

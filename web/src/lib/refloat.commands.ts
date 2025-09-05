@@ -1,7 +1,7 @@
 import z from 'zod';
 import { VescDataType } from './vesc.types';
 
-export const VescPackageId = 101;
+export const RefloatPackageId = 101;
 
 // https://github.com/lukash/refloat/blob/5bde1f98a344410085960f88aa13d6c94f3dc24b/src/main.c#L1232
 export enum RefloatCommPacketId {
@@ -48,31 +48,7 @@ export enum RefloatCommPacketId {
  * TODO: finish off the rest of these as we need them
  * https://github.com/lukash/refloat/blob/5bde1f98a344410085960f88aa13d6c94f3dc24b/src/main.c#L2133
  */
-export type RefloatCommArguments<K extends RefloatCommPacketId> = {
-	[RefloatCommPacketId.COMMAND_INFO]: [/** version */ VescDataType.UInt8];
-	[RefloatCommPacketId.COMMAND_GET_RTDATA]: [];
-	[RefloatCommPacketId.COMMAND_RT_TUNE]: unknown;
-	[RefloatCommPacketId.COMMAND_TUNE_DEFAULTS]: unknown;
-	[RefloatCommPacketId.COMMAND_CFG_SAVE]: unknown;
-	[RefloatCommPacketId.COMMAND_CFG_RESTORE]: unknown;
-	[RefloatCommPacketId.COMMAND_TUNE_OTHER]: unknown;
-	[RefloatCommPacketId.COMMAND_RC_MOVE]: unknown;
-	[RefloatCommPacketId.COMMAND_BOOSTER]: unknown;
-	[RefloatCommPacketId.COMMAND_PRINT_INFO]: unknown;
-	[RefloatCommPacketId.COMMAND_GET_ALLDATA]: unknown;
-	[RefloatCommPacketId.COMMAND_EXPERIMENT]: unknown;
-	[RefloatCommPacketId.COMMAND_LOCK]: unknown;
-	[RefloatCommPacketId.COMMAND_HANDTEST]: unknown;
-	[RefloatCommPacketId.COMMAND_TUNE_TILT]: unknown;
-	[RefloatCommPacketId.COMMAND_FLYWHEEL]: unknown;
-	[RefloatCommPacketId.COMMAND_REALTIME_DATA]: unknown;
-	[RefloatCommPacketId.COMMAND_REALTIME_DATA_IDS]: unknown;
-	[RefloatCommPacketId.COMMAND_ALERTS_LIST]: unknown;
-	[RefloatCommPacketId.COMMAND_ALERTS_CONTROL]: unknown;
-	[RefloatCommPacketId.COMMAND_DATA_RECORD_REQUEST]: unknown;
-}[K];
-
-export const RefloatCommands = z.discriminatedUnion('command', [
+export const RefloatCommand = z.discriminatedUnion('command', [
 	z.object({
 		command: z.literal(RefloatCommPacketId.COMMAND_INFO),
 		version: z.number().describe(VescDataType.UInt8)

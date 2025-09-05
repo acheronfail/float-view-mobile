@@ -1,5 +1,6 @@
 package fail.acheron.floatview
 
+import CommPacketId
 import android.Manifest
 import android.annotation.SuppressLint
 import android.app.Activity
@@ -23,7 +24,7 @@ import androidx.core.content.ContextCompat
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 
-class VescManager(private val activity: Activity) {
+class VescBluetooth(private val activity: Activity) {
         companion object {
                 val BleClientCharacteristicConfig =
                         UUID.fromString("00002902-0000-1000-8000-00805f9b34fb")
@@ -45,7 +46,7 @@ class VescManager(private val activity: Activity) {
         private val foundDevices = ConcurrentHashMap<String, BluetoothDevice>()
         private val mainHandler = Handler(Looper.getMainLooper())
         private var isScanning = false
-        private var vescBluetoothLayer: VescBluetoothLayer? = null
+        private var vescBlePacketLayer: VescBlePacketLayer? = null
 
         /*
          * Permissions
@@ -123,7 +124,7 @@ class VescManager(private val activity: Activity) {
                 val filters =
                         listOf(
                                 ScanFilter.Builder()
-                                        .setServiceUuid(ParcelUuid(VescManager.VescService))
+                                        .setServiceUuid(ParcelUuid(VescBluetooth.VescService))
                                         .build()
                         )
 
@@ -205,14 +206,14 @@ class VescManager(private val activity: Activity) {
          * Commands
          */
 
-        fun sendCommand(command: Int, payload: List<Int>) {
-                if (vescBluetoothLayer == null) {
+        fun sendCommand(command: CommPacketId, payload: List<Int>) {
+                if (vescBlePacketLayer == null) {
                         return LocalServer.broadcastMessage(
                                 BackendMessage.connectError("VescBluetoothLayer not ready!")
                         )
                 }
 
-                vescBluetoothLayer!!.send(
+                vescBlePacketLayer!!.send(
                         command,
                         payload,
                 )
@@ -387,7 +388,7 @@ class VescManager(private val activity: Activity) {
                                 }
 
                                 // Use the connected device's gatt instead of the parameter
-                                vescBluetoothLayer = VescBluetoothLayer(gattDevice, vescRx)
+                                vescBlePacketLayer = VescBlePacketLayer(gattDevice, vescRx)
                                 LocalServer.broadcastMessage(
                                         BackendMessage.connectReady(gattDevice.device.address)
                                 )
@@ -401,7 +402,7 @@ class VescManager(private val activity: Activity) {
                                 characteristic: BluetoothGattCharacteristic,
                                 value: ByteArray
                         ) {
-                                if (vescBluetoothLayer == null) {
+                                if (vescBlePacketLayer == null) {
                                         return LocalServer.broadcastMessage(
                                                 BackendMessage.connectError(
                                                         "bad state: vesc bluetooth manager is null"
@@ -409,7 +410,7 @@ class VescManager(private val activity: Activity) {
                                         )
                                 }
 
-                                vescBluetoothLayer!!.parseResponse(value)
+                                vescBlePacketLayer!!.parseResponse(value)
                         }
                 }
 }

@@ -1,21 +1,70 @@
 package fail.acheron.floatview
 
+import CommPacketId
 import android.annotation.SuppressLint
 import android.bluetooth.BluetoothGatt
 import android.bluetooth.BluetoothGattCharacteristic
 import android.bluetooth.BluetoothStatusCodes
 
-class VescBluetoothLayer(
+class VescBlePacketLayer(
         private val gatt: BluetoothGatt,
         private val vescRx: BluetoothGattCharacteristic
 ) {
-    private val vescCommandLayer = VescCommandLayer(gatt.device.address)
+    val vescParser = VescCommandParser()
+
+    @SuppressLint("NewApi")
+    fun send(command: CommPacketId, payload: List<Int>) {
+        val packet = createBlePacket(payload)
+        print("Command payload: ${payload.joinToString(" ") { "%02X".format(it) }}")
+        print("Command packet: ${packet.joinToString(" ") { "%02X".format(it) }}")
+
+        try {
+            // we write the data here, and we will receive the response in the
+            // `onCharacteristicChanged` callback function in the `VescManager` class
+            val result =
+                    gatt.writeCharacteristic(
+                            vescRx,
+                            packet,
+                            BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
+                    )
+
+            if (result != BluetoothStatusCodes.SUCCESS) {
+                LocalServer.broadcastMessage(
+                        BackendMessage.commandError(
+                                command.value.toDouble(),
+                                "Failed to write characteristic: $result"
+                        )
+                )
+            }
+        } catch (error: SecurityException) {
+            LocalServer.broadcastMessage(
+                    BackendMessage.commandError(
+                            command.value.toDouble(),
+                            "Permission denied: ${error.message}"
+                    )
+            )
+        }
+    }
 
     fun parseResponse(bytes: ByteArray) {
-        val parsed = parseVescCharacteristicResponse(bytes)
+        val parsed = parseBlePacket(bytes)
         if (parsed != null) {
             val (command, response) = parsed
-            vescCommandLayer.parse(command, response)
+            val buf = VescBuffer(response)
+            when (CommPacketId.fromInt(command)) {
+                CommPacketId.COMM_FW_VERSION ->
+                        LocalServer.broadcastMessage(
+                                BackendMessage.commandFirmware(gatt.device.address, vescParser.firmware(buf))
+                        )
+                else -> {
+                    LocalServer.broadcastMessage(
+                            BackendMessage.commandError(
+                                    command.toDouble(),
+                                    "No parser for command: $command"
+                            )
+                    )
+                }
+            }
         } else {
             LocalServer.broadcastMessage(
                     BackendMessage.commandError(null, "Failed to parse VESC response")
@@ -23,7 +72,7 @@ class VescBluetoothLayer(
         }
     }
 
-    private fun parseVescCharacteristicResponse(data: ByteArray): Pair<Int, ByteArray>? {
+    private fun parseBlePacket(data: ByteArray): Pair<Int, ByteArray>? {
         if (data.size < 5) return null // Minimum packet size
         var index = 0
 
@@ -62,50 +111,7 @@ class VescBluetoothLayer(
         return Pair(command, payload.sliceArray(1 until payload.size))
     }
 
-    // TODO: create enum for command?
-    @SuppressLint("NewApi")
-    fun send(command: Int, commandData: List<Int>) {
-        // TODO: detect if need to use can or not, rather than hardcoding here
-        // TODO: scan for VESCs on can bus, rather than hardcoding
-        val canId = 1
-        val payload = mutableListOf(COMM_FORWARD_CAN, canId, command)
-        payload.addAll(commandData)
-
-        val packet = generateVescPacket(payload)
-
-        print("Command payload: ${payload.joinToString(" ") { "%02X".format(it) }}")
-        print("Command packet: ${packet.joinToString(" ") { "%02X".format(it) }}")
-
-        try {
-            // we write the data here, and we will receive the response in the
-            // `onCharacteristicChanged`
-            // callback function in the `VescManager` class
-            val result =
-                    gatt.writeCharacteristic(
-                            vescRx,
-                            packet,
-                            BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
-                    )
-
-            if (result != BluetoothStatusCodes.SUCCESS) {
-                LocalServer.broadcastMessage(
-                        BackendMessage.commandError(
-                                command.toDouble(),
-                                "Failed to write characteristic: $result"
-                        )
-                )
-            }
-        } catch (error: SecurityException) {
-            LocalServer.broadcastMessage(
-                    BackendMessage.commandError(
-                            command.toDouble(),
-                            "Permission denied: ${error.message}"
-                    )
-            )
-        }
-    }
-
-    private fun generateVescPacket(data: List<Int>): ByteArray {
+    private fun createBlePacket(data: List<Int>): ByteArray {
         val payload = data.map { it.toByte() }.toByteArray()
         val packetSizeWithoutPayload = 5 // Beginning (1) + Length (1) + CRC16 (2) + End (1)
 
