@@ -11,6 +11,9 @@ export function generateKotlinEnums(enums: Enums) {
     }
     lines.push(`    ;`);
     lines.push(``);
+
+    lines.push(`    operator fun invoke() = value`);
+
     lines.push(`    companion object {`);
     lines.push(`        private val map = values().associateBy(${enumName}::value)`);
     lines.push(`        fun fromInt(type: Int) = map[type]`);

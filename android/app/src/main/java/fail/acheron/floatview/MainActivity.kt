@@ -1,8 +1,7 @@
 package fail.acheron.floatview
 
+import BackendCommand
 import android.os.Bundle
-import android.os.Handler
-import android.os.Looper
 import android.util.Log
 import android.webkit.WebView
 import android.widget.FrameLayout
@@ -10,7 +9,6 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
-import kotlinx.serialization.json.*
 
 fun print(vararg messages: Any) {
     messages.forEach { message -> Log.d("FloatView", message.toString()) }
@@ -24,8 +22,8 @@ class MainActivity : AppCompatActivity() {
 
     private lateinit var webView: WebView
     private lateinit var localWebView: LocalWebView
-    private lateinit var vescBluetooth: VescBluetooth
-    private lateinit var vescCommandGenerator: VescCommandGenerator
+    private lateinit var vescBle: VescBle
+    private lateinit var vescCmds: VescCommandGenerator
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -65,78 +63,31 @@ class MainActivity : AppCompatActivity() {
             insets
         }
 
-        vescBluetooth = VescBluetooth(this)
-        vescCommandGenerator = VescCommandGenerator()
+        vescBle = VescBle(this)
+        vescCmds = VescCommandGenerator()
 
         // Start the singleton local server
         LocalServer.start(this, webView)
-
-        LocalServer.addHandler("scan") { _ -> vescBluetooth.startScan() }
-
-        LocalServer.addHandler("connect") { req ->
-            val jsonAddress = req["address"]
-            if (jsonAddress == null) {
-                LocalServer.broadcastMessage(BackendMessage.connectError("no address"))
-                return@addHandler
-            }
-
-            val address = jsonAddress.jsonPrimitive.contentOrNull
-            if (address == null) {
-                LocalServer.broadcastMessage(BackendMessage.connectError("no address"))
-                return@addHandler
-            }
-
-            vescBluetooth.connect(address)
-        }
-
-        LocalServer.addHandler("disconnect") { req ->
-            val address = req["address"]?.jsonPrimitive?.contentOrNull
-            if (address == null) {
-                LocalServer.broadcastMessage(BackendMessage.disconnectError(null, "no address"))
-                return@addHandler
-            }
-
-            vescBluetooth.disconnect()
-            // NOTE: backend only supports a single device for now
-            LocalServer.broadcastMessage(BackendMessage.disconnectComplete(address))
-        }
-
-        LocalServer.addHandler("command") { req ->
-            val commandInt = req["command"]?.jsonPrimitive?.intOrNull
-            if (commandInt == null) {
-                return@addHandler LocalServer.broadcastMessage(BackendMessage.commandError(null, "no command"))
-            }
-            val command = CommPacketId.fromInt(commandInt)
-            if (command == null) {
-                return@addHandler LocalServer.broadcastMessage(BackendMessage.commandError(null, "no command"))
-            }
-
-            // TODO: parse commands here and map to vescCommandGenerator[method]
-
-            val payload = req["payload"]?.jsonArray?.map { it.jsonPrimitive.int } ?: listOf()
-            Handler(Looper.getMainLooper())
-                    .postDelayed({ vescBluetooth.sendCommand(command, payload) }, 1000)
-        }
-
-        LocalServer.addHandler("data") { req ->
-            val address = req["address"]!!.jsonPrimitive.content
-            val shouldLog = req["log"]!!.jsonPrimitive.boolean
-            if (!shouldLog) {
-                // TODO: stop logging interval
-                return@addHandler
-            }
-
-            @Suppress("UNUSED_VARIABLE") val intervalMs = req["intervalMs"]!!.jsonPrimitive.double
-            // TODO: start sending VESC log data back with interval: ${intervalMs}ms
-            LocalServer.broadcastMessage(
-                    BackendMessage.logData(
-                            address,
-                            DataObject.build {
-                                state = "riding"
-                                speed = 42.2
+        LocalServer.setHandler { msg ->
+            when (msg) {
+                is BackendCommand.Scan -> vescBle.startScan()
+                is BackendCommand.Connect -> vescBle.connect(msg.address)
+                is BackendCommand.Disconnect -> vescBle.disconnect()
+                is BackendCommand.Command -> {
+                    when (msg.cmd) {
+                        is Cmd.CommFwVersion -> vescBle.sendCommand(vescCmds.firmware())
+                        is Cmd.CommCustomAppData -> {
+                            val cmd = msg.cmd.appCommand
+                            when (cmd) {
+                                is AppCommand.CommandInfo -> vescBle.sendCommand(vescCmds.refloatInfo(cmd.version.toInt()))
+                                is AppCommand.CommandGetRtdata -> vescBle.sendCommand(vescCmds.refloatRtdata())
                             }
-                    )
-            )
+                        }
+                    }
+                }
+                is BackendCommand.LogStart -> {/* TODO */}
+                is BackendCommand.LogStop -> {/* TODO */}
+            }
         }
     }
 
@@ -144,6 +95,6 @@ class MainActivity : AppCompatActivity() {
         super.onDestroy()
         LocalServer.stop()
         if (this::localWebView.isInitialized) localWebView.destroy()
-        if (this::vescBluetooth.isInitialized) vescBluetooth.disconnect()
+        if (this::vescBle.isInitialized) vescBle.disconnect()
     }
 }

@@ -52,7 +52,7 @@ class VescBluetoothLayer {
       vescCommandLayer.parse(command: command, data: data)
     } else {
       LocalServer.shared.broadcastMessage(
-        BackendMessage.commandError(command: nil, message: "Failed to parse VESC response")
+        BackendMessage.commandError(message: "Failed to parse VESC response")
       )
     }
   }

@@ -1,9 +1,13 @@
 import { pascalCase } from 'change-case';
-import { getKindEnumName, Property, Schema } from '../common';
+import { getKindEnumName, Property, VariantSchema } from '../common';
 
 function getTypeName(fieldName: string, fieldSchema: Property, required: string[]) {
 	const isOptional = !required.includes(fieldName);
 	const suffix = isOptional ? '?' : '';
+	if ('anyOf' in fieldSchema) {
+		throw new Error('Variants are not supportd here');
+	}
+
 	switch (fieldSchema.type) {
 		case 'string':
 			return 'String' + suffix;
@@ -14,15 +18,20 @@ function getTypeName(fieldName: string, fieldSchema: Property, required: string[
 	}
 }
 
-function generateSealedClass(className: string, schema: Schema, classes: Map<string, string[]>) {
+function generateSealedClass(
+	className: string,
+	schema: VariantSchema,
+	classes: Map<string, string[]>
+) {
 	const lines = ['@Serializable', `sealed class ${className} {`];
-	const variantNames: string[] = [];
-	for (const variant of schema.anyOf) {
+	const variants = schema.anyOf.map((variant) => {
 		const { kind, ...rest } = variant.properties;
 		const name = pascalCase(kind.type === 'string' ? kind.const : getKindEnumName(kind));
 		const parameters = Object.entries(rest);
-		variantNames.push(name);
+		return { name, parameters, kind, required: variant.required };
+	});
 
+	for (const { name, parameters, kind, required } of variants) {
 		lines.push('  @Serializable');
 		lines.push(`  @SerialName("${kind.const}")`);
 		if (parameters.length === 0) {
@@ -30,8 +39,7 @@ function generateSealedClass(className: string, schema: Schema, classes: Map<str
 		} else {
 			const parametersString = parameters
 				.map(([name, def]) => {
-					const typeName =
-						'anyOf' in def ? pascalCase(name) : getTypeName(name, def, variant.required);
+					const typeName = 'anyOf' in def ? pascalCase(name) : getTypeName(name, def, required);
 					if ('anyOf' in def) {
 						if (!classes.has(typeName)) {
 							classes.set(typeName, generateSealedClass(typeName, def, classes));
@@ -50,8 +58,8 @@ function generateSealedClass(className: string, schema: Schema, classes: Map<str
 	lines.push('    private val json = Json {');
 	lines.push('      serializersModule = SerializersModule {');
 	lines.push(`        polymorphic(${className}::class) {`);
-	for (const variantName of variantNames) {
-		lines.push(`          subclass(${variantName}::class)`);
+	for (const { name } of variants) {
+		lines.push(`          subclass(${name}::class)`);
 	}
 	lines.push('        }');
 	lines.push('        classDiscriminator = "kind"');
@@ -64,13 +72,25 @@ function generateSealedClass(className: string, schema: Schema, classes: Map<str
 	lines.push('  }');
 	lines.push('');
 
+	const variantEnum = variants[0].kind.description;
+	lines.push(`  fun kind(): ${variantEnum ? variantEnum : 'String'} {`);
+	lines.push('    return when (this) {');
+	for (const { name, kind } of variants) {
+		lines.push(
+			`      is ${name} -> ${variantEnum ? `${variantEnum}.fromInt(${kind.const})!!` : JSON.stringify(kind.const)}`
+		);
+	}
+	lines.push('    }');
+	lines.push('  }');
+	lines.push('');
+
 	lines.push('}');
 	lines.push('');
 
 	return lines;
 }
 
-export function generateKotlinBackendCommands(schema: Schema) {
+export function generateKotlinBackendCommands(schema: VariantSchema) {
 	const classes = new Map<string, string[]>();
 	const backendCommandLines = generateSealedClass('BackendCommand', schema, classes);
 	return [

@@ -16,7 +16,6 @@ class VescCommandLayer {
     default:
       LocalServer.shared.broadcastMessage(
         BackendMessage.commandError(
-          command: Double(command),
           message: "No parser for command: \(command)"
         )
       )

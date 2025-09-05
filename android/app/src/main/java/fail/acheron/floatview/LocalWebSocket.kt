@@ -1,22 +1,14 @@
 package fail.acheron.floatview
 
-import android.annotation.SuppressLint
+import BackendCommand
 import android.util.Base64
-import kotlinx.serialization.Serializable
 import java.io.*
 import java.net.Socket
 import java.nio.charset.StandardCharsets
 import java.security.MessageDigest
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.ExecutorService
-import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.buildJsonObject
-
-// TODO: also generate this as well?
-@SuppressLint("UnsafeOptInUsageError")
-@Serializable
-data class WebSocketCommand(val cmd: String, val data: JsonObject)
 
 class LocalWebSocket() {
   data class WebSocketClient(
@@ -24,11 +16,14 @@ class LocalWebSocket() {
           val output: OutputStream,
           val input: InputStream,
           val id: String,
-          val handlers: MutableMap<String, WsHandler>
   )
 
   val webSocketClients = ConcurrentHashMap<String, WebSocketClient>()
+    private var handleMessage: (cmd: BackendCommand) -> Unit = {}
 
+    fun setHandler(newHandler: (cmd: BackendCommand) -> Unit) {
+        handleMessage = newHandler
+    }
   fun isWebsocketUpgrade(ctx: LocalWebContext): Boolean {
     return ctx.path == "/ws" &&
             ctx.requestHeaders["upgrade"]?.lowercase() == "websocket" &&
@@ -39,7 +34,6 @@ class LocalWebSocket() {
           socket: Socket,
           headers: Map<String, String>,
           executor: ExecutorService,
-          handlers: MutableMap<String, WsHandler>
   ) {
     try {
       val key = headers["sec-websocket-key"] ?: return
@@ -59,7 +53,7 @@ class LocalWebSocket() {
       output.write(response.toByteArray())
       output.flush()
       val clientId = "client_${System.currentTimeMillis()}"
-      val client = WebSocketClient(socket, output, socket.getInputStream(), clientId, handlers)
+      val client = WebSocketClient(socket, output, socket.getInputStream(), clientId)
       webSocketClients[clientId] = client
       sendWebSocketMessage(client, BackendMessage.socketWelcome())
       executor.execute { handleWebSocketMessages(client) }
@@ -78,19 +72,9 @@ class LocalWebSocket() {
         val bytesRead = client.input.read(buffer)
         if (bytesRead <= 0) break
         val frame = parseWebSocketFrame(buffer, bytesRead) ?: continue
-        val payload = Json.decodeFromString<WebSocketCommand>(frame.payload)
-        print("ws<:${payload.cmd}:${payload.data}")
-
-        val handler = client.handlers[payload.cmd]
-        if (handler == null) {
-          sendWebSocketMessage(
-                  client,
-                  BackendMessage.socketError("Unknown command: ${payload.cmd}")
-          )
-          continue
-        }
-
-        handler(payload.data)
+        val command = BackendCommand.fromJson(frame.payload)
+        print("ws<:${command.kind()}")
+        handleMessage(command)
       }
     } catch (e: Exception) {
       printError(

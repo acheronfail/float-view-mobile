@@ -1,7 +1,7 @@
 package fail.acheron.floatview
 
+import BackendCommand
 import android.app.Activity
-import android.util.Log
 import android.webkit.WebView
 import java.io.*
 import java.lang.ref.WeakReference
@@ -11,7 +11,7 @@ import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executors
 import kotlinx.serialization.json.JsonObject
 
-typealias WsHandler = (req: JsonObject) -> Unit
+typealias WsHandler = (cmd: BackendCommand) -> Unit
 
 object LocalServer {
   private val webSocket = LocalWebSocket()
@@ -21,14 +21,9 @@ object LocalServer {
   private var activityRef: WeakReference<Activity>? = null
   private var started = false
   private val routes = ConcurrentHashMap<String, (LocalWebContext) -> Unit>()
-  private val wsHandlers = mutableMapOf<String, WsHandler>()
 
-  fun addRoute(path: String, handler: (LocalWebContext) -> Unit) {
-    routes[path] = handler
-  }
-
-  fun addHandler(commandName: String, handler: WsHandler) {
-    wsHandlers[commandName] = handler
+  fun setHandler(handler: (cmd: BackendCommand) -> Unit) {
+    webSocket.setHandler(handler)
   }
 
   fun broadcastMessage(message: JsonObject) {
@@ -85,7 +80,7 @@ object LocalServer {
 
       if (webSocket.isWebsocketUpgrade(ctx)) {
         isWebSocketUpgrade = true
-        webSocket.handleWebSocketUpgrade(socket, ctx.requestHeaders, executor, wsHandlers)
+        webSocket.handleWebSocketUpgrade(socket, ctx.requestHeaders, executor)
         return
       }
 

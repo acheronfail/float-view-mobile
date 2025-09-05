@@ -56,7 +56,7 @@ struct FloatViewApp: App {
         vescManager.send(command: cmd, payload: payload)
       } else {
         LocalServer.shared.broadcastMessage(
-          BackendMessage.commandError(command: nil, message: "No command given")
+          BackendMessage.commandError(message: "No command given")
         )
       }
     }

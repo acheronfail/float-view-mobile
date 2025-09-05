@@ -1,13 +1,14 @@
 package fail.acheron.floatview
 
 class VescCommandGenerator(private var canId: Int? = null) {
-    private fun getPayload(): MutableList<Int> {
+    private fun getPayload(vararg values: Int): MutableList<Int> {
         val payload = mutableListOf<Int>()
         canId?.also { canId ->
-            payload.add(CommPacketId.COMM_FORWARD_CAN.value)
+            payload.add(CommPacketId.COMM_FORWARD_CAN())
             payload.add(canId)
         }
 
+        payload.addAll(values.toList())
         return payload
     }
 
@@ -16,8 +17,22 @@ class VescCommandGenerator(private var canId: Int? = null) {
     }
 
     fun firmware(): List<Int> {
-        val payload = getPayload()
-        payload.add(CommPacketId.COMM_FW_VERSION.value)
-        return payload
+        return getPayload(CommPacketId.COMM_FW_VERSION())
+    }
+
+    /*
+     * Refloat commands
+     */
+
+    private fun getRefloatPayload(vararg values: Int): List<Int> {
+        return getPayload(CommPacketId.COMM_CUSTOM_APP_DATA(), 101, *values)
+    }
+
+    fun refloatInfo(version: Int): List<Int> {
+        return getRefloatPayload(RefloatCommPacketId.COMMAND_INFO(), version)
+    }
+
+    fun refloatRtdata(): List<Int> {
+        return getRefloatPayload(RefloatCommPacketId.COMMAND_GET_RTDATA())
     }
 }

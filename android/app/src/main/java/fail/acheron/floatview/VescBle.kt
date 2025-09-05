@@ -1,6 +1,5 @@
 package fail.acheron.floatview
 
-import CommPacketId
 import android.Manifest
 import android.annotation.SuppressLint
 import android.app.Activity
@@ -24,7 +23,7 @@ import androidx.core.content.ContextCompat
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 
-class VescBluetooth(private val activity: Activity) {
+class VescBle(private val activity: Activity) {
         companion object {
                 val BleClientCharacteristicConfig =
                         UUID.fromString("00002902-0000-1000-8000-00805f9b34fb")
@@ -124,7 +123,7 @@ class VescBluetooth(private val activity: Activity) {
                 val filters =
                         listOf(
                                 ScanFilter.Builder()
-                                        .setServiceUuid(ParcelUuid(VescBluetooth.VescService))
+                                        .setServiceUuid(ParcelUuid(VescBle.VescService))
                                         .build()
                         )
 
@@ -206,17 +205,14 @@ class VescBluetooth(private val activity: Activity) {
          * Commands
          */
 
-        fun sendCommand(command: CommPacketId, payload: List<Int>) {
+        fun sendCommand(payload: List<Int> = listOf()) {
                 if (vescBlePacketLayer == null) {
                         return LocalServer.broadcastMessage(
                                 BackendMessage.connectError("VescBluetoothLayer not ready!")
                         )
                 }
 
-                vescBlePacketLayer!!.send(
-                        command,
-                        payload,
-                )
+                vescBlePacketLayer!!.send(payload)
         }
 
         /*

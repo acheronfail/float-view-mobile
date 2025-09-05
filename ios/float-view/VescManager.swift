@@ -108,7 +108,7 @@ class VescManager: NSObject, ObservableObject {
   func send(command: Int, payload data: [UInt8] = []) {
     guard let vescBluetoothLayer = vescBluetoothLayer else {
       return LocalServer.shared.broadcastMessage(
-        BackendMessage.commandError(command: nil, message: "VescCommands not setup!")
+        BackendMessage.commandError(message: "VescCommands not setup!")
       )
     }
 

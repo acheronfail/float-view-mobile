@@ -13,7 +13,7 @@ class VescBlePacketLayer(
     val vescParser = VescCommandParser()
 
     @SuppressLint("NewApi")
-    fun send(command: CommPacketId, payload: List<Int>) {
+    fun send(payload: List<Int>) {
         val packet = createBlePacket(payload)
         print("Command payload: ${payload.joinToString(" ") { "%02X".format(it) }}")
         print("Command packet: ${packet.joinToString(" ") { "%02X".format(it) }}")
@@ -31,7 +31,6 @@ class VescBlePacketLayer(
             if (result != BluetoothStatusCodes.SUCCESS) {
                 LocalServer.broadcastMessage(
                         BackendMessage.commandError(
-                                command.value.toDouble(),
                                 "Failed to write characteristic: $result"
                         )
                 )
@@ -39,7 +38,6 @@ class VescBlePacketLayer(
         } catch (error: SecurityException) {
             LocalServer.broadcastMessage(
                     BackendMessage.commandError(
-                            command.value.toDouble(),
                             "Permission denied: ${error.message}"
                     )
             )
@@ -59,7 +57,6 @@ class VescBlePacketLayer(
                 else -> {
                     LocalServer.broadcastMessage(
                             BackendMessage.commandError(
-                                    command.toDouble(),
                                     "No parser for command: $command"
                             )
                     )
@@ -67,7 +64,7 @@ class VescBlePacketLayer(
             }
         } else {
             LocalServer.broadcastMessage(
-                    BackendMessage.commandError(null, "Failed to parse VESC response")
+                    BackendMessage.commandError("Failed to parse VESC response")
             )
         }
     }

@@ -1,5 +1,5 @@
 import z from 'zod';
-import { CommPacketId, VescCommand } from './vesc.commands';
+import { VescCommand } from './vesc.commands';
 
 /*
  * Commands (frontend -> backend)
@@ -104,9 +104,7 @@ export const BackendMessage = z.discriminatedUnion('kind', [
 		address: z.string(),
 		firmware: CommandFirmware
 	}),
-	z
-		.object({ kind: z.literal('commandError'), command: z.enum(CommPacketId).optional() })
-		.extend(CommonError),
+	z.object({ kind: z.literal('commandError') }).extend(CommonError),
 
 	// log
 	z.object({ kind: z.literal('logStart'), address: z.string(), intervalMs: z.number() }),
