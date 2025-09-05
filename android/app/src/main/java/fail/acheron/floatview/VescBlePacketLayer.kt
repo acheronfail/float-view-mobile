@@ -13,10 +13,11 @@ class VescBlePacketLayer(
     val vescParser = VescCommandParser()
 
     @SuppressLint("NewApi")
-    fun send(payload: List<Int>) {
+    fun send(payload: List<Int>, writeType: Int = BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT) {
         val packet = createBlePacket(payload)
         print("Command payload: ${payload.joinToString(" ") { "%02X".format(it) }}")
         print("Command packet: ${packet.joinToString(" ") { "%02X".format(it) }}")
+        print("Write Type: $writeType")
 
         try {
             // we write the data here, and we will receive the response in the
@@ -25,7 +26,7 @@ class VescBlePacketLayer(
                     gatt.writeCharacteristic(
                             vescRx,
                             packet,
-                            BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
+                            writeType
                     )
 
             if (result != BluetoothStatusCodes.SUCCESS) {
@@ -54,6 +55,10 @@ class VescBlePacketLayer(
                         LocalServer.broadcastMessage(
                                 BackendMessage.commandFirmware(gatt.device.address, vescParser.firmware(buf))
                         )
+                CommPacketId.COMM_CUSTOM_APP_DATA -> {
+                    // TODO: build type to send back to frontend
+                    vescParser.refloatRtData(buf)
+                }
                 else -> {
                     LocalServer.broadcastMessage(
                             BackendMessage.commandError(

@@ -12,6 +12,10 @@ class VescBuffer(private val buffer: ByteArray) {
 
     fun size(): Int = buffer.size
 
+    override fun toString(): String {
+        return buffer.joinToString(", ", "[", "]") { (it.toInt() and 0xFF).toString() }
+    }
+
     fun slice(expected: Int): ByteArray {
         return if (index + expected <= buffer.size) {
             val value = buffer.copyOfRange(index, index + expected - 1)
@@ -20,6 +24,13 @@ class VescBuffer(private val buffer: ByteArray) {
         } else {
             ByteArray(0)
         }
+    }
+
+    fun readUint8Pair(): Pair<Int, Int> {
+        val byte = readUInt8()
+        val upper = (byte shr 4) and 0x0F  // Extract upper 4 bits
+        val lower = byte and 0x0F          // Extract lower 4 bits
+        return Pair(upper, lower)
     }
 
     fun readUInt8(): Int {

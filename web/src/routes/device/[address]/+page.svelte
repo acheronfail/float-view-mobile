@@ -106,24 +106,25 @@
 		// TODO: get motor config
 		// TODO: basic checks?
 
-		app.sendCommand({
-			kind: 'command',
-			address: params.address,
-			command: { kind: CommPacketId.COMM_FW_VERSION }
-		});
+		// TODO: need to send synchronously!
 
 		app.sendCommand({
 			kind: 'command',
 			address: params.address,
-			command: {
-				kind: CommPacketId.COMM_CUSTOM_APP_DATA,
-				appId: RefloatPackageId,
-				customAppCommand: {
-					kind: RefloatCommPacketId.COMMAND_INFO,
-					version: 2
-				}
-			}
+			cmd: { kind: CommPacketId.COMM_FW_VERSION }
 		});
+
+		setTimeout(() => {
+			app.sendCommand({
+				kind: 'command',
+				address: params.address,
+				cmd: {
+					kind: CommPacketId.COMM_CUSTOM_APP_DATA,
+					appId: RefloatPackageId,
+					appCommand: { kind: RefloatCommPacketId.COMMAND_GET_RTDATA }
+				}
+			});
+		}, 1000);
 	});
 </script>
 

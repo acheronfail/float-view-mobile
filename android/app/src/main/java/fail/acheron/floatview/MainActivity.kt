@@ -1,6 +1,7 @@
 package fail.acheron.floatview
 
 import BackendCommand
+import android.bluetooth.BluetoothGattCharacteristic
 import android.os.Bundle
 import android.util.Log
 import android.webkit.WebView
@@ -65,6 +66,7 @@ class MainActivity : AppCompatActivity() {
 
         vescBle = VescBle(this)
         vescCmds = VescCommandGenerator()
+        vescCmds.setCanId(1)
 
         // Start the singleton local server
         LocalServer.start(this, webView)
@@ -79,14 +81,25 @@ class MainActivity : AppCompatActivity() {
                         is Cmd.CommCustomAppData -> {
                             val cmd = msg.cmd.appCommand
                             when (cmd) {
-                                is AppCommand.CommandInfo -> vescBle.sendCommand(vescCmds.refloatInfo(cmd.version.toInt()))
-                                is AppCommand.CommandGetRtdata -> vescBle.sendCommand(vescCmds.refloatRtdata())
+                                is AppCommand.CommandInfo ->
+                                        vescBle.sendCommand(
+                                                vescCmds.refloatInfo(cmd.version.toInt())
+                                        )
+                                is AppCommand.CommandGetRtdata ->
+                                        vescBle.sendCommand(
+                                                vescCmds.refloatRtdata(),
+                                                BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
+                                        )
                             }
                         }
                     }
                 }
-                is BackendCommand.LogStart -> {/* TODO */}
-                is BackendCommand.LogStop -> {/* TODO */}
+                is BackendCommand.LogStart -> {
+                    /* TODO */
+                }
+                is BackendCommand.LogStop -> {
+                    /* TODO */
+                }
             }
         }
     }

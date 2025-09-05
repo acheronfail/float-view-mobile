@@ -194,25 +194,36 @@ class VescBle(private val activity: Activity) {
         }
 
         fun disconnect() {
+                val address = connectedDevice?.device?.address
                 try {
                         connectedDevice?.disconnect()
                 } catch (error: SecurityException) {}
                 connectedDevice = null
                 isScanning = false
+
+                if (address != null) {
+                        LocalServer.broadcastMessage(BackendMessage.disconnectComplete(address))
+                } else {
+                        LocalServer.broadcastMessage(BackendMessage.disconnectError(null, "No connected device"))
+                }
         }
 
         /*
          * Commands
          */
 
-        fun sendCommand(payload: List<Int> = listOf()) {
+        fun sendCommand(payload: List<Int>, writeType: Int? = null) {
                 if (vescBlePacketLayer == null) {
                         return LocalServer.broadcastMessage(
                                 BackendMessage.connectError("VescBluetoothLayer not ready!")
                         )
                 }
 
-                vescBlePacketLayer!!.send(payload)
+                if (writeType != null) {
+                        vescBlePacketLayer!!.send(payload, writeType)
+                } else {
+                        vescBlePacketLayer!!.send(payload)
+                }
         }
 
         /*
@@ -295,7 +306,7 @@ class VescBle(private val activity: Activity) {
                                                 )
 
                                                 try {
-                                                        gattDevice.requestMtu(250)
+                                                        gattDevice.requestMtu(500)
                                                         gattDevice.discoverServices()
                                                 } catch (error: SecurityException) {
                                                         disconnect()
