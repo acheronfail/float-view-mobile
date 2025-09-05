@@ -31,7 +31,7 @@
 
 		app.ws.addEventListener('message', (event) => {
 			const msg = parseMessage(event);
-			console.debug('<', msg);
+			console.debug('<recv', msg);
 
 			if (msg.kind === 'disconnectComplete') {
 				app.connectedAddresses.delete(msg.address);

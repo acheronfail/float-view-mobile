@@ -199,16 +199,11 @@ export enum CommPacketId {
  * TODO: finish off the rest of these as we need them
  * https://github.com/lukash/refloat/blob/5bde1f98a344410085960f88aa13d6c94f3dc24b/src/main.c#L2133
  */
-export const VescCommands = z.discriminatedUnion('command', [
+export const VescCommand = z.discriminatedUnion('kind', [
+	z.object({ kind: z.literal(CommPacketId.COMM_FW_VERSION) }),
 	z.object({
-		command: z.literal(CommPacketId.COMM_FW_VERSION),
-		version: z.number()
-	}),
-	z.object({
-		command: z.literal(CommPacketId.COMM_CUSTOM_APP_DATA),
+		kind: z.literal(CommPacketId.COMM_CUSTOM_APP_DATA),
 		appId: z.literal(RefloatPackageId),
 		customAppCommand: RefloatCommand
 	})
 ]);
-
-// TODO: generate Kotlin+Swift parsers for these commands

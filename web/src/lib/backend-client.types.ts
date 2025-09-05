@@ -1,51 +1,44 @@
 import z from 'zod';
-import { CommPacketId } from './vesc.commands';
+import { CommPacketId, VescCommand } from './vesc.commands';
 
 /*
  * Commands (frontend -> backend)
  */
 
-// eslint-disable-next-line @typescript-eslint/no-empty-object-type
-type empty = {};
+export const BackendCommand = z.discriminatedUnion('kind', [
+	z.object({ kind: z.literal('scan') }),
+	z.object({ kind: z.literal('connect'), address: z.string() }),
+	z.object({ kind: z.literal('disconnect'), address: z.string() }),
+	z.object({ kind: z.literal('logStart'), address: z.string(), intervalMs: z.number() }),
+	z.object({ kind: z.literal('logStop'), address: z.string() }),
+	z.object({ kind: z.literal('command'), address: z.string(), command: VescCommand })
+]);
+export type ZBackendCommand = z.infer<typeof BackendCommand>;
 
-// TODO: zod-ify so we can generate code from it as well
-type WsCommandDef = {
-	scan: empty;
-	connect: { address: string };
-	disconnect: { address: string };
-	// TODO: JS doesn't need to know details of packets, since we'll need all that in the backends for bg processing
-	// >>>>: so just send "high level" commands here and have the backends translate these into actual commands
-	// TODO: look into ways of generating the Kotlin/Swift code necessary for this... precomputed payloads?
-	// TODO: test getting float package type
-	// https://github.com/lukash/refloat/blob/5bde1f98a344410085960f88aa13d6c94f3dc24b/src/main.c#L2142
-	// PacketTypes.COMM_CUSTOM_APP_DATA, AppPacketTypes.FLOAT (101), RefloatCommPacketId.COMMAND_GET_RTDATA,
-	command: { address: string; command: CommPacketId; payload: number[] };
-	data: { address: string; log: false } | { address: string; log: true; intervalMs: number };
-};
+// TODO: generate kotlin + swift
+// import android.annotation.SuppressLint
+// import kotlinx.serialization.SerialName
+// import kotlinx.serialization.Serializable
+// import kotlinx.serialization.decodeFromString
+// import kotlinx.serialization.json.Json
+// import kotlinx.serialization.modules.SerializersModule
+// import kotlinx.serialization.modules.polymorphic
+// import kotlinx.serialization.modules.subclass
+// import org.junit.Test
 
-export type WsCommand<K extends keyof WsCommandDef = keyof WsCommandDef> = {
-	cmd: K;
-	data: WsCommandDef[K];
-};
+// import org.junit.Assert.*
 
-const commandFactories: {
-	[K in keyof WsCommandDef]: (data: WsCommandDef[K]) => { cmd: K; data: WsCommandDef[K] };
-} = {
-	scan: () => ({ cmd: 'scan', data: {} }),
-	connect: (data) => ({ cmd: 'connect', data }),
-	command: (data) => ({ cmd: 'command', data }),
-	disconnect: (data) => ({ cmd: 'disconnect', data }),
-	data: (data) => ({ cmd: 'data', data })
-};
+// @Serializable
+// sealed class BackendCommand {
 
-export const sendCommand = <K extends keyof WsCommandDef>(
-	ws: WebSocket,
-	cmd: K,
-	data: WsCommandDef[K]
-) => {
-	console.debug(['>', cmd].join(':'), data);
-	ws.send(JSON.stringify(commandFactories[cmd](data)));
-};
+//     @Serializable
+//     @SerialName("scan")
+//     class Scan : BackendCommand()
+
+//     @Serializable
+//     @SerialName("connect")
+//     data class Connect(val address: String) : BackendCommand()
+// }
 
 /*
  * Messages (backend -> frontend)
@@ -62,7 +55,7 @@ export const CommandFirmware = z.object({
 });
 export type ZCommandFirmware = z.infer<typeof CommandFirmware>;
 
-export const DataLogResponse = z.object({
+export const RefloatRtData = z.object({
 	adc1: z.number(),
 	adc2: z.number(),
 	ah: z.number(),
@@ -103,7 +96,7 @@ export const DataLogResponse = z.object({
 	wh: z.number(),
 	whCharged: z.number().optional()
 });
-export type ZDataLogResponse = z.infer<typeof DataLogResponse>;
+export type ZRefloatRtData = z.infer<typeof RefloatRtData>;
 
 const CommonError = { message: z.string() };
 export const BackendMessage = z.discriminatedUnion('kind', [
@@ -126,7 +119,9 @@ export const BackendMessage = z.discriminatedUnion('kind', [
 	// disconnect
 	z.object({ kind: z.literal('disconnectUnexpected'), address: z.string(), reason: z.string() }),
 	z.object({ kind: z.literal('disconnectComplete'), address: z.string() }),
-	z.object({ kind: z.literal('disconnectError'), address: z.string().optional() }).extend(CommonError),
+	z
+		.object({ kind: z.literal('disconnectError'), address: z.string().optional() })
+		.extend(CommonError),
 
 	// command
 	z.object({
@@ -141,7 +136,7 @@ export const BackendMessage = z.discriminatedUnion('kind', [
 	// log
 	z.object({ kind: z.literal('logStart'), address: z.string(), intervalMs: z.number() }),
 	z.object({ kind: z.literal('logStop'), address: z.string() }),
-	z.object({ kind: z.literal('logData'), address: z.string(), data: DataLogResponse }),
+	z.object({ kind: z.literal('logData'), address: z.string(), data: RefloatRtData }),
 	z.object({ kind: z.literal('logError') }).extend(CommonError)
 ]);
 export type ZBackendMessage = z.infer<typeof BackendMessage>;

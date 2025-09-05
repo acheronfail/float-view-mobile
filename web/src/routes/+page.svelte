@@ -3,7 +3,7 @@
 	import { ProgressRing } from '@skeletonlabs/skeleton-svelte';
 	import { flip } from 'svelte/animate';
 	import { slide, fade } from 'svelte/transition';
-	import { parseMessage, sendCommand } from '../lib/backend-client.types';
+	import { parseMessage } from '../lib/backend-client.types';
 	import { untrack } from 'svelte';
 	import { getAppContext } from '../lib/context/app.svelte';
 	import { goto } from '$app/navigation';
@@ -64,12 +64,12 @@
 
 	const scanDevices = () => {
 		bleDevices = [];
-		runHandlingErrors(() => app.ws && sendCommand(app.ws, 'scan', {}));
+		runHandlingErrors(() => app.sendCommand({ kind: 'scan' }));
 	};
 
 	const connectBleDevice = (address: string) => {
 		connectingAddress = address;
-		runHandlingErrors(() => app.ws && sendCommand(app.ws, 'connect', { address }));
+		runHandlingErrors(() => app.sendCommand({ kind: 'connect', address }));
 	};
 </script>
 

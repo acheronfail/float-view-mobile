@@ -1,7 +1,12 @@
 import express from 'express';
 import { createServer } from 'http';
 import { WebSocketServer } from 'ws';
-import { WsCommand, ZBackendMessage, ZDataLogResponse } from '../src/lib/backend-client.types.js';
+import {
+	ZBackendCommand,
+	ZBackendMessage,
+	ZRefloatRtData
+} from '../src/lib/backend-client.types.js';
+import { CommPacketId } from '../src/lib/vesc.commands.js';
 
 const PORT = 3001;
 
@@ -19,9 +24,9 @@ wss.on('connection', (ws) => {
 	let logInterval: NodeJS.Timeout | null = null;
 	ws.on('message', async (data) => {
 		try {
-			const message: WsCommand = JSON.parse(data.toString());
+			const message: ZBackendCommand = JSON.parse(data.toString());
 			console.debug({ message });
-			switch (message.cmd) {
+			switch (message.kind) {
 				case 'scan':
 					reply({ kind: 'scanStart' });
 					await sleep(200);
@@ -33,9 +38,7 @@ wss.on('connection', (ws) => {
 					break;
 				case 'connect':
 					{
-						const address = 'address' in message.data ? message.data['address'] : null;
-						if (!address) return console.error('No address in message', message);
-
+						const { address } = message;
 						reply({ kind: 'connectStart', address });
 						await sleep(500);
 						reply({ kind: 'connectComplete', address });
@@ -45,9 +48,7 @@ wss.on('connection', (ws) => {
 					break;
 				case 'disconnect':
 					{
-						const address = 'address' in message.data ? message.data['address'] : null;
-						if (!address) return console.error('No address in message', message);
-
+						const { address } = message;
 						await sleep(100);
 						reply({ kind: 'disconnectComplete', address });
 						if (logInterval) {
@@ -58,12 +59,10 @@ wss.on('connection', (ws) => {
 					break;
 				case 'command':
 					{
-						const command = 'command' in message.data ? message.data['command'] : null;
-						const payload = 'payload' in message.data ? message.data['payload'] : null;
-						const address = 'address' in message.data ? message.data['address'] : null;
+						const { address, command } = message;
 						await sleep(100);
-						switch (command) {
-							case 0:
+						switch (command.kind) {
+							case CommPacketId.COMM_FW_VERSION:
 								reply({
 									kind: 'commandFirmware',
 									address: address!,
@@ -79,24 +78,26 @@ wss.on('connection', (ws) => {
 								});
 								break;
 							default:
-								console.error('Unknown command:', { command, payload });
+								console.error('Unhandled command:', command);
 								break;
 						}
 					}
 					break;
-				case 'data': {
-					const address = 'address' in message.data ? message.data['address'] : null;
-					if ('log' in message.data && message.data.log) {
+				case 'logStart':
+					{
+						const { address, intervalMs } = message;
 						const getMockData = mockDataCreator();
 						logInterval = setInterval(
 							() => reply({ kind: 'logData', address: address!, data: getMockData() }),
-							message.data.intervalMs
+							intervalMs
 						);
-					} else if (logInterval) {
-						clearInterval(logInterval);
 					}
+
 					break;
-				}
+				case 'logStop':
+					if (logInterval) clearInterval(logInterval);
+					break;
+
 				default:
 					reply({ kind: 'socketError', message: 'Unknown command' });
 			}
@@ -119,7 +120,7 @@ server.listen(PORT, () => {
 	console.log(`Mock server started on ${PORT}`);
 });
 
-function mockDataCreator(): () => ZDataLogResponse {
+function mockDataCreator(): () => ZRefloatRtData {
 	const randBw = (min: number, max: number) => Math.random() * (max - min) + min;
 	const d = {
 		adc1: randBw(2, 3.2),

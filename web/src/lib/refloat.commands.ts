@@ -48,12 +48,12 @@ export enum RefloatCommPacketId {
  * TODO: finish off the rest of these as we need them
  * https://github.com/lukash/refloat/blob/5bde1f98a344410085960f88aa13d6c94f3dc24b/src/main.c#L2133
  */
-export const RefloatCommand = z.discriminatedUnion('command', [
+export const RefloatCommand = z.discriminatedUnion('kind', [
 	z.object({
-		command: z.literal(RefloatCommPacketId.COMMAND_INFO),
+		kind: z.literal(RefloatCommPacketId.COMMAND_INFO),
 		version: z.number().describe(VescDataType.UInt8)
 	}),
 	z.object({
-		command: z.literal(RefloatCommPacketId.COMMAND_GET_RTDATA)
+		kind: z.literal(RefloatCommPacketId.COMMAND_GET_RTDATA)
 	})
 ]);

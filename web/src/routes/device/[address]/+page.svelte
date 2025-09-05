@@ -3,13 +3,14 @@
 	import { ArrowDown, ArrowUp } from '@lucide/svelte';
 	import {
 		parseMessage,
-		sendCommand,
 		type ZCommandFirmware,
-		type ZDataLogResponse
+		type ZRefloatRtData
 	} from '../../../lib/backend-client.types';
 	import { getAppContext } from '../../../lib/context/app.svelte';
 	import { goto } from '$app/navigation';
 	import type { PageProps } from './$types';
+	import { CommPacketId } from '../../../lib/vesc.commands';
+	import { RefloatCommPacketId, RefloatPackageId } from '../../../lib/refloat.commands';
 
 	let app = getAppContext();
 
@@ -26,20 +27,23 @@
 	let scrolledMoreThanHalf = $state(false);
 
 	let fw = $state<ZCommandFirmware | null>(null);
-	let data = $state<ZDataLogResponse | null>(null);
+	let rtData = $state<ZRefloatRtData | null>(null);
+
+	let ready = $derived(() => !!fw);
 
 	// ask backend to start logging
 	$effect(() => {
-		if (!app.ws) return;
-		sendCommand(app.ws, 'data', {
+		// only start logging when everything is setup
+		if (!app.ws || !ready) return;
+
+		app.sendCommand({
+			kind: 'logStart',
 			address: params.address,
-			log: true,
 			intervalMs: import.meta.env.DEV ? 1000 : 200
 		});
+
 		return () => {
-			if (app.ws) {
-				sendCommand(app.ws, 'data', { address: params.address, log: false });
-			}
+			app.sendCommand({ kind: 'logStop', address: params.address });
 		};
 	});
 
@@ -53,7 +57,7 @@
 				} else if (msg.kind === 'commandFirmware' && msg.address === params.address) {
 					fw = msg.firmware;
 				} else if (msg.kind === 'logData' && msg.address === params.address) {
-					data = msg.data;
+					rtData = msg.data;
 				}
 			});
 
@@ -90,13 +94,7 @@
 	}
 
 	const disconnect = () => {
-		runHandlingErrors(
-			() =>
-				app.ws &&
-				sendCommand(app.ws, 'disconnect', {
-					address: params.address
-				})
-		);
+		runHandlingErrors(() => app.sendCommand({ kind: 'disconnect', address: params.address }));
 	};
 
 	const fmt = (n: number | undefined, digits = 2) => n?.toFixed(digits);
@@ -107,19 +105,35 @@
 		// TODO: get app config
 		// TODO: get motor config
 		// TODO: basic checks?
-		if (app.ws) {
-			sendCommand(app.ws, 'command', { address: params.address, command: 0 });
-		}
+
+		app.sendCommand({
+			kind: 'command',
+			address: params.address,
+			command: { kind: CommPacketId.COMM_FW_VERSION }
+		});
+
+		app.sendCommand({
+			kind: 'command',
+			address: params.address,
+			command: {
+				kind: CommPacketId.COMM_CUSTOM_APP_DATA,
+				appId: RefloatPackageId,
+				customAppCommand: {
+					kind: RefloatCommPacketId.COMMAND_INFO,
+					version: 2
+				}
+			}
+		});
 	});
 </script>
 
 <div class="flex min-h-screen w-full flex-col">
 	{#if showRawData}
 		<div class="p-4 font-mono text-sm">
-			{#if data}
+			{#if rtData}
 				<h3 class="mb-4 text-lg font-bold">Raw Data:</h3>
 				<ul class="space-y-1">
-					{#each Object.entries(data) as [key, value]}
+					{#each Object.entries(rtData) as [key, value]}
 						<li class="flex justify-between border-b border-gray-700 pb-1">
 							<span class="text-primary-400">{key}:</span>
 							<span class="text-success-300 text-right">{JSON.stringify(value)}</span>
@@ -134,33 +148,33 @@
 		<!-- Top row: adc1, state, adc2 -->
 		<div class="grid grid-cols-6 gap-2 rounded-lg p-2">
 			<div class="flex items-center justify-center rounded bg-yellow-950 p-2">
-				{fmt(data?.adc1) ?? '?'}
+				{fmt(rtData?.adc1) ?? '?'}
 			</div>
 			<div class="col-span-4 flex items-center justify-center rounded bg-green-900 p-2">
-				{data?.state ?? '-'}
+				{rtData?.state ?? '-'}
 			</div>
 			<div class="flex items-center justify-center rounded bg-yellow-950 p-2">
-				{fmt(data?.adc2) ?? '?'}
+				{fmt(rtData?.adc2) ?? '?'}
 			</div>
 		</div>
 
 		<!-- Middle row: three columns a, b, c -->
 		<div class="grid flex-1 grid-cols-8 rounded-lg">
 			<div class="flex items-center justify-center rounded">
-				{fmt(data?.voltage) ?? '?'}V
+				{fmt(rtData?.voltage) ?? '?'}V
 			</div>
 			<div class="col-span-6 flex items-center justify-center rounded">
 				<!-- TODO: easy to grok gauges + pitch/roll visualisations -->
 				<ul class="font-mono">
-					<li>Speed: {fmt(data?.speed ?? 0)} km/h</li>
-					<li>Duty: {fmt(data?.duty ?? 0, 0)}%</li>
-					<li>Pitch: {fmt(data?.truePitch ?? 0)}°</li>
-					<li>Roll: {fmt(data?.roll ?? 0)}°</li>
+					<li>Speed: {fmt(rtData?.speed ?? 0)} km/h</li>
+					<li>Duty: {fmt(rtData?.duty ?? 0, 0)}%</li>
+					<li>Pitch: {fmt(rtData?.truePitch ?? 0)}°</li>
+					<li>Roll: {fmt(rtData?.roll ?? 0)}°</li>
 				</ul>
 			</div>
 			<div class="flex flex-col items-center justify-center rounded">
-				<div>{fmt(data?.currentMotor) ?? '?'}A</div>
-				<div>{fmt(data?.currentBattery) ?? '?'}A</div>
+				<div>{fmt(rtData?.currentMotor) ?? '?'}A</div>
+				<div>{fmt(rtData?.currentBattery) ?? '?'}A</div>
 			</div>
 		</div>
 
