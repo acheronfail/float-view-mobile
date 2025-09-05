@@ -42,6 +42,8 @@ export enum RefloatCommPacketId {
 	// commands above 200 are unstable and can change protocol at any time
 }
 
+const id = (id: RefloatCommPacketId) => z.literal(id).describe('RefloatCommPacketId');
+
 /**
  * The arguments to send with each command.
  * Note that responses are handled in the VescCommandLayer classes.
@@ -50,10 +52,10 @@ export enum RefloatCommPacketId {
  */
 export const RefloatCommand = z.discriminatedUnion('kind', [
 	z.object({
-		kind: z.literal(RefloatCommPacketId.COMMAND_INFO),
+		kind: id(RefloatCommPacketId.COMMAND_INFO),
 		version: z.number().describe(VescDataType.UInt8)
 	}),
 	z.object({
-		kind: z.literal(RefloatCommPacketId.COMMAND_GET_RTDATA)
+		kind: id(RefloatCommPacketId.COMMAND_GET_RTDATA)
 	})
 ]);

@@ -193,6 +193,8 @@ export enum CommPacketId {
 	COMM_MOTOR_ESTOP = 159
 }
 
+const id = (id: CommPacketId) => z.literal(id).describe('CommPacketId');
+
 /**
  * The arguments to send with each command.
  * Note that responses are handled in the VescCommandLayer classes.
@@ -200,10 +202,10 @@ export enum CommPacketId {
  * https://github.com/lukash/refloat/blob/5bde1f98a344410085960f88aa13d6c94f3dc24b/src/main.c#L2133
  */
 export const VescCommand = z.discriminatedUnion('kind', [
-	z.object({ kind: z.literal(CommPacketId.COMM_FW_VERSION) }),
+	z.object({ kind: id(CommPacketId.COMM_FW_VERSION) }),
 	z.object({
-		kind: z.literal(CommPacketId.COMM_CUSTOM_APP_DATA),
+		kind: id(CommPacketId.COMM_CUSTOM_APP_DATA),
 		appId: z.literal(RefloatPackageId),
-		customAppCommand: RefloatCommand
+		appCommand: RefloatCommand
 	})
 ]);

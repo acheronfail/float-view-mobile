@@ -1,6 +1,6 @@
-import { Schema } from "../types";
+import { Schema } from "../common";
 
-export function generateSwiftBackendMessages(banner: string, schema: Schema) {
+export function generateSwiftBackendMessages(schema: Schema) {
 	const structDefinitions: Map<string, string[]> = new Map();
 	const getSwiftType = (name: string, def: Schema, required: string[]): [string, string] => {
 		const isOptional = !required.includes(name);
@@ -99,5 +99,5 @@ export function generateSwiftBackendMessages(banner: string, schema: Schema) {
 	}
 	backendClassLines.push('}');
 
-	return [banner, ...structDefinitions.values(), ...backendClassLines].flat().join('\n');
+	return [...structDefinitions.values(), ...backendClassLines].flat().join('\n');
 }

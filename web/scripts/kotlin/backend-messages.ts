@@ -1,14 +1,18 @@
-import { Schema } from '../types';
+import { Property, VariantSchema } from '../common';
 
-export function generateKotlinBackendMessages(banner: string, schema: Schema) {
+export function generateKotlinBackendMessages(schema: VariantSchema) {
 	const dataClassDefinitions: Map<string, string[]> = new Map();
 	const getKotlinTypeAndDefault = (
 		name: string,
-		def: Schema,
+		def: Property,
 		required: string[]
 	): [string, string] => {
 		const isOptional = !required.includes(name);
 		const suffix = isOptional ? '?' : '';
+		if ('anyOf' in def) {
+			throw new Error(`Variants not supported here: ${JSON.stringify(def)}`);
+		}
+
 		switch (def.type) {
 			case 'string':
 				return ['String' + suffix, isOptional ? 'null' : '""'];
@@ -21,7 +25,7 @@ export function generateKotlinBackendMessages(banner: string, schema: Schema) {
 				if (!dataClassDefinitions.has(typeName)) {
 					const lines = [`data class ${typeName}(`];
 
-					const fields = Object.entries<Schema>(def.properties ?? {}).map(([propName, propDef]) => [
+					const fields = Object.entries(def.properties ?? {}).map(([propName, propDef]) => [
 						propName,
 						...getKotlinTypeAndDefault(propName, propDef, def.required ?? [])
 					]);
@@ -32,7 +36,7 @@ export function generateKotlinBackendMessages(banner: string, schema: Schema) {
 					lines.push(') {');
 					lines.push('  fun toJsonObject(): JsonObject {');
 					lines.push('    return buildJsonObject {');
-					for (const [propName] of Object.entries<Schema>(def.properties ?? {})) {
+					for (const [propName] of Object.entries(def.properties ?? {})) {
 						lines.push(`      put("${propName}", ${propName})`);
 					}
 					lines.push('    }');
@@ -66,7 +70,7 @@ export function generateKotlinBackendMessages(banner: string, schema: Schema) {
 				return [typeName, isOptional ? 'null' : '?'];
 			}
 			default:
-				throw new Error(`Unsupported type: ${def.type}`);
+				throw new Error(`Unsupported type: ${JSON.stringify(def)}`);
 		}
 	};
 
@@ -79,7 +83,7 @@ export function generateKotlinBackendMessages(banner: string, schema: Schema) {
 		const { kind, ...rest } = variant.properties ?? {};
 		const { const: name } = kind;
 
-		const parameters = Object.entries<Schema>(rest).map(([propName, propDef]) => [
+		const parameters = Object.entries(rest).map(([propName, propDef]) => [
 			propName,
 			...getKotlinTypeAndDefault(propName, propDef, required)
 		]);
@@ -105,7 +109,6 @@ export function generateKotlinBackendMessages(banner: string, schema: Schema) {
 	backendClassLines.push('}');
 
 	return [
-		banner,
 		'package fail.acheron.floatview',
 		'',
 		'import kotlinx.serialization.json.*',

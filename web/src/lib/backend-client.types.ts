@@ -11,34 +11,9 @@ export const BackendCommand = z.discriminatedUnion('kind', [
 	z.object({ kind: z.literal('disconnect'), address: z.string() }),
 	z.object({ kind: z.literal('logStart'), address: z.string(), intervalMs: z.number() }),
 	z.object({ kind: z.literal('logStop'), address: z.string() }),
-	z.object({ kind: z.literal('command'), address: z.string(), command: VescCommand })
+	z.object({ kind: z.literal('command'), address: z.string(), cmd: VescCommand })
 ]);
 export type ZBackendCommand = z.infer<typeof BackendCommand>;
-
-// TODO: generate kotlin + swift
-// import android.annotation.SuppressLint
-// import kotlinx.serialization.SerialName
-// import kotlinx.serialization.Serializable
-// import kotlinx.serialization.decodeFromString
-// import kotlinx.serialization.json.Json
-// import kotlinx.serialization.modules.SerializersModule
-// import kotlinx.serialization.modules.polymorphic
-// import kotlinx.serialization.modules.subclass
-// import org.junit.Test
-
-// import org.junit.Assert.*
-
-// @Serializable
-// sealed class BackendCommand {
-
-//     @Serializable
-//     @SerialName("scan")
-//     class Scan : BackendCommand()
-
-//     @Serializable
-//     @SerialName("connect")
-//     data class Connect(val address: String) : BackendCommand()
-// }
 
 /*
  * Messages (backend -> frontend)

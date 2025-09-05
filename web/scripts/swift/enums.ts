@@ -1,7 +1,7 @@
-import { Enums, enumVariants } from "../types";
+import { Enums, enumVariants } from "../common";
 
-export function generateSwiftEnums(banner: string, enums: Enums) {
-  const lines = [banner];
+export function generateSwiftEnums(enums: Enums) {
+  const lines: string[] = [];
 
   for (const [enumName, e] of Object.entries(enums)) {
     const variants = enumVariants(e);
