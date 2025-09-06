@@ -19,7 +19,7 @@ export type ZBackendCommand = z.infer<typeof BackendCommand>;
  * Messages (backend -> frontend)
  */
 
-export const CommandFirmware = z.object({
+export const VFirmware = z.object({
 	major: z.number(),
 	minor: z.number(),
 	name: z.string(),
@@ -28,48 +28,50 @@ export const CommandFirmware = z.object({
 	betaVersion: z.number(),
 	hwType: z.number()
 });
-export type ZCommandFirmware = z.infer<typeof CommandFirmware>;
+export type ZVFirmware = z.infer<typeof VFirmware>;
 
-export const RefloatRtData = z.object({
-	adc1: z.number(),
-	adc2: z.number(),
-	ah: z.number(),
-	ahCharged: z.number().optional(),
-	altitude: z.number(),
-	bmsFault: z.number().optional(),
-	bmsTemp: z.number().optional(),
-	bmsTempBattery: z.number().optional(),
-	currentBattery: z.number(),
-	currentBooster: z.number().optional(),
-	currentFieldWeakening: z.number().optional(),
-	currentMotor: z.number(),
-	distance: z.number(),
-	duty: z.number(),
-	erpm: z.number().optional(),
-	gpsAccuracy: z.number(),
-	gpsLatitude: z.number(),
-	gpsLongitude: z.number(),
-	motorFault: z.number(),
-	pitch: z.number(),
-	requestedAmps: z.number().optional(),
-	roll: z.number(),
-	setpoint: z.number().optional(),
-	setpointAtr: z.number().optional(),
-	setpointBreakTilt: z.number().optional(),
-	setpointCarve: z.number().optional(),
-	setpointRemote: z.number().optional(),
-	setpointTorqueTilt: z.number().optional(),
-	speed: z.number(),
-	state: z.string(),
-	stateRaw: z.number(),
-	tempBattery: z.number().optional(),
+export const VGetValues = z.object({
 	tempMosfet: z.number(),
 	tempMotor: z.number(),
-	time: z.number(),
-	truePitch: z.number(),
+	currentMotor: z.number(),
+	currentBattery: z.number(),
+	id: z.number(),
+	iq: z.number(),
+	dutyCycle: z.number(),
+	erpm: z.number(),
 	voltage: z.number(),
-	wh: z.number(),
-	whCharged: z.number().optional()
+	ampHoursConsumed: z.number(),
+	ampHoursCharged: z.number(),
+	wattHoursConsumed: z.number(),
+	wattHoursCharged: z.number(),
+	tachValue: z.number(),
+	tachAbs: z.number(),
+	faultCode: z.number()
+});
+export type ZVGetValues = z.infer<typeof VGetValues>;
+
+export const RefloatRtData = z.object({
+	balanceCurrent: z.number(),
+	imuBalancePitch: z.number(),
+	imuRoll: z.number(),
+	satState: z.number(),
+	state: z.number(),
+	footpadState: z.number(),
+	beepReason: z.number(),
+	adc1: z.number(),
+	adc2: z.number(),
+	setpoint: z.number(),
+	setpointAtr: z.number(),
+	setpointBrakeTilt: z.number(),
+	setpointTorqueTilt: z.number(),
+	setpointTurnTilt: z.number(),
+	setpointRemote: z.number(),
+	imuPitch: z.number(),
+	motorFilterCurrent: z.number(),
+	atrAccelerationDiff: z.number(),
+	boosterCurrent: z.number(),
+	motorDirCurrent: z.number(),
+	remoteInput: z.number()
 });
 export type ZRefloatRtData = z.infer<typeof RefloatRtData>;
 
@@ -98,13 +100,27 @@ export const BackendMessage = z.discriminatedUnion('kind', [
 		.object({ kind: z.literal('disconnectError'), address: z.string().optional() })
 		.extend(CommonError),
 
-	// command
-	z.object({
-		kind: z.literal('commandFirmware'),
-		address: z.string(),
-		firmware: CommandFirmware
-	}),
+	// commands
 	z.object({ kind: z.literal('commandError') }).extend(CommonError),
+
+	// vesc commands
+	z.object({
+		kind: z.literal('vescFirmware'),
+		address: z.string(),
+		firmware: VFirmware
+	}),
+	z.object({
+		kind: z.literal('vescGetValues'),
+		address: z.string(),
+		getValues: VGetValues
+	}),
+
+	// refloat commands
+	z.object({
+		kind: z.literal('refloatRtData'),
+		address: z.string(),
+		refloatRtData: RefloatRtData
+	}),
 
 	// log
 	z.object({ kind: z.literal('logStart'), address: z.string(), intervalMs: z.number() }),

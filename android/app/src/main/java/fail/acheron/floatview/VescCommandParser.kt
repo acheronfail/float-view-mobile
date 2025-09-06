@@ -1,6 +1,12 @@
 package fail.acheron.floatview
 
+// TODO: a lot of "toDouble" being called, probably should keep proper types in generated classes
+
 class VescCommandParser() {
+    /*
+     * Vesc command
+     */
+
     fun firmware(buf: VescBuffer): FirmwareObject {
         val major = buf.readUInt8()
         val minor = buf.readUInt8()
@@ -48,71 +54,69 @@ class VescCommandParser() {
         }
     }
 
-    /** Refloat */
-    fun refloatInfo(buf: VescBuffer) {
-        val appId = buf.readUInt8()
-        val appPacketId = buf.readUInt8()
-
-        // TODO:
+    fun getValues(buf: VescBuffer): GetValuesObject {
+        return GetValuesObject.build {
+            this.tempMosfet = buf.readDouble16(10)
+            this.tempMotor = buf.readDouble16(10)
+            this.currentMotor = buf.readDouble32(100)
+            this.currentBattery = buf.readDouble32(100)
+            this.id = buf.readDouble32(100)
+            this.iq = buf.readDouble32(100)
+            this.dutyCycle = buf.readDouble16(1000)
+            this.erpm = buf.readDouble32(1)
+            this.voltage = buf.readDouble16(10)
+            this.ampHoursConsumed = buf.readDouble32(10000)
+            this.ampHoursCharged = buf.readDouble32(10000)
+            this.wattHoursConsumed = buf.readDouble32(10000)
+            this.wattHoursCharged = buf.readDouble32(10000)
+            this.tachValue = buf.readInt32().toDouble()
+            this.tachAbs = buf.readInt32().toDouble()
+            this.faultCode = buf.readInt8().toDouble()
+        }
     }
 
-    fun refloatRtData(buf: VescBuffer) {
-        val appId = buf.readUInt8()
-        val appPacketId = buf.readUInt8()
+    /**
+     * Refloat commands NOTE: the `appId` and `appPacketId` are stripped before calling these
+     * functions
+     */
+    fun refloatInfo(buf: VescBuffer) {
+        // TODO:
+        print(buf)
+    }
 
-        val balanceCurrent = buf.readFloat32()
-        val imuBalancePitch = buf.readFloat32()
-        val imuRoll = buf.readFloat32()
+    fun refloatRtData(buf: VescBuffer): RefloatRtDataObject {
+        return RefloatRtDataObject.build {
+            this.balanceCurrent = buf.readFloat32().toDouble()
+            this.imuBalancePitch = buf.readFloat32().toDouble()
+            this.imuRoll = buf.readFloat32().toDouble()
 
-        val (state, satState) = buf.readUint8Pair()
-        val (footpadState, beepReason) = buf.readUint8Pair()
-        val adc1 = buf.readFloat32()
-        val adc2 = buf.readFloat32()
+            val (state, satState) = buf.readUint8Pair()
+            this.state = state.toDouble()
+            this.satState = satState.toDouble()
 
-        val setpoint = buf.readFloat32()
-        val setpointAtr = buf.readFloat32()
-        val setpointBrakeTilt = buf.readFloat32()
-        val setpointTorqueTilt = buf.readFloat32()
-        val setpointTurnTilt = buf.readFloat32()
-        val setpointRemote = buf.readFloat32()
+            val (footpadState, beepReason) = buf.readUint8Pair()
+            this.footpadState = footpadState.toDouble()
+            this.beepReason = beepReason.toDouble()
 
-        val imuPitch = buf.readFloat32()
-        val motorFilterCurrent = buf.readFloat32()
-        val atrAccelerationDiff = buf.readFloat32()
+            this.adc1 = buf.readFloat32().toDouble()
+            this.adc2 = buf.readFloat32().toDouble()
 
-        // TODO: switch on state
-        val boosterCurrent = buf.readFloat32()
-        val motorDirCurrent = buf.readFloat32()
+            this.setpoint = buf.readFloat32().toDouble()
+            this.setpointAtr = buf.readFloat32().toDouble()
+            this.setpointBrakeTilt = buf.readFloat32().toDouble()
+            this.setpointTorqueTilt = buf.readFloat32().toDouble()
+            this.setpointTurnTilt = buf.readFloat32().toDouble()
+            this.setpointRemote = buf.readFloat32().toDouble()
 
-        val remoteInput = buf.readFloat32()
+            this.imuPitch = buf.readFloat32().toDouble()
+            this.motorFilterCurrent = buf.readFloat32().toDouble()
+            this.atrAccelerationDiff = buf.readFloat32().toDouble()
 
-        val dataMap =
-                mapOf(
-                        "appId" to appId,
-                        "appPacketId" to appPacketId,
-                        "balanceCurrent" to balanceCurrent,
-                        "imuBalancePitch" to imuBalancePitch,
-                        "imuRoll" to imuRoll,
-                        "state" to state,
-                        "satState" to satState,
-                        "footpadState" to footpadState,
-                        "beepReason" to beepReason,
-                        "adc1" to adc1,
-                        "adc2" to adc2,
-                        "setpoint" to setpoint,
-                        "setpointAtr" to setpointAtr,
-                        "setpointBrakeTilt" to setpointBrakeTilt,
-                        "setpointTorqueTilt" to setpointTorqueTilt,
-                        "setpointTurnTilt" to setpointTurnTilt,
-                        "setpointRemote" to setpointRemote,
-                        "imuPitch" to imuPitch,
-                        "motorFilterCurrent" to motorFilterCurrent,
-                        "atrAccelerationDiff" to atrAccelerationDiff,
-                        "boosterCurrent" to boosterCurrent,
-                        "motorDirCurrent" to motorDirCurrent,
-                        "remoteInput" to remoteInput
-                )
+            // TODO: switch on state
+            this.boosterCurrent = buf.readFloat32().toDouble()
+            this.motorDirCurrent = buf.readFloat32().toDouble()
 
-        println("Refloat Info Data: $dataMap")
+            this.remoteInput = buf.readFloat32().toDouble()
+        }
     }
 }

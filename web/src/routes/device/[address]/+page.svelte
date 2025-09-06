@@ -3,7 +3,7 @@
 	import { ArrowDown, ArrowUp } from '@lucide/svelte';
 	import {
 		parseMessage,
-		type ZCommandFirmware,
+		type ZVFirmware,
 		type ZRefloatRtData
 	} from '../../../lib/backend-client.types';
 	import { getAppContext } from '../../../lib/context/app.svelte';
@@ -26,7 +26,7 @@
 	let showRawData = $state(false);
 	let scrolledMoreThanHalf = $state(false);
 
-	let fw = $state<ZCommandFirmware | null>(null);
+	let fw = $state<ZVFirmware | null>(null);
 	let rtData = $state<ZRefloatRtData | null>(null);
 
 	let ready = $derived(() => !!fw);
@@ -54,7 +54,7 @@
 				const msg = parseMessage(event);
 				if (msg.kind === 'commandError') {
 					alert(`Command error: ${msg.message}`);
-				} else if (msg.kind === 'commandFirmware' && msg.address === params.address) {
+				} else if (msg.kind === 'vescFirmware' && msg.address === params.address) {
 					fw = msg.firmware;
 				} else if (msg.kind === 'logData' && msg.address === params.address) {
 					rtData = msg.data;
@@ -106,7 +106,7 @@
 		// TODO: get motor config
 		// TODO: basic checks?
 
-		// TODO: need to send synchronously!
+		// FIXME: need to send synchronously - fix this in backend
 
 		app.sendCommand({
 			kind: 'command',
@@ -162,20 +162,20 @@
 		<!-- Middle row: three columns a, b, c -->
 		<div class="grid flex-1 grid-cols-8 rounded-lg">
 			<div class="flex items-center justify-center rounded">
-				{fmt(rtData?.voltage) ?? '?'}V
+				TODO V
 			</div>
 			<div class="col-span-6 flex items-center justify-center rounded">
 				<!-- TODO: easy to grok gauges + pitch/roll visualisations -->
 				<ul class="font-mono">
-					<li>Speed: {fmt(rtData?.speed ?? 0)} km/h</li>
-					<li>Duty: {fmt(rtData?.duty ?? 0, 0)}%</li>
-					<li>Pitch: {fmt(rtData?.truePitch ?? 0)}°</li>
-					<li>Roll: {fmt(rtData?.roll ?? 0)}°</li>
+					<li>Speed: TODO km/h</li>
+					<li>Duty: TODO%</li>
+					<li>Pitch: {fmt(rtData?.imuPitch ?? 0)}°</li>
+					<li>Roll: {fmt(rtData?.imuRoll ?? 0)}°</li>
 				</ul>
 			</div>
 			<div class="flex flex-col items-center justify-center rounded">
-				<div>{fmt(rtData?.currentMotor) ?? '?'}A</div>
-				<div>{fmt(rtData?.currentBattery) ?? '?'}A</div>
+				<div>?{fmt(rtData?.motorDirCurrent) ?? '?'}A</div>
+				<div>?{fmt(rtData?.motorFilterCurrent) ?? '?'}A</div>
 			</div>
 		</div>
 

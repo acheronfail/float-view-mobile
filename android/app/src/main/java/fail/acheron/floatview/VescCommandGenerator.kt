@@ -16,8 +16,16 @@ class VescCommandGenerator(private var canId: Int? = null) {
         canId = id
     }
 
+    /*
+     * Vesc commands
+     */
+
     fun firmware(): List<Int> {
         return getPayload(CommPacketId.COMM_FW_VERSION())
+    }
+
+    fun getValues(): List<Int> {
+        return getPayload(CommPacketId.COMM_GET_VALUES())
     }
 
     /*

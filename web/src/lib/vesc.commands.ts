@@ -203,6 +203,7 @@ const id = (id: CommPacketId) => z.literal(id).describe('CommPacketId');
  */
 export const VescCommand = z.discriminatedUnion('kind', [
 	z.object({ kind: id(CommPacketId.COMM_FW_VERSION) }),
+	z.object({ kind: id(CommPacketId.COMM_GET_VALUES) }),
 	z.object({
 		kind: id(CommPacketId.COMM_CUSTOM_APP_DATA),
 		appId: z.literal(RefloatPackageId),

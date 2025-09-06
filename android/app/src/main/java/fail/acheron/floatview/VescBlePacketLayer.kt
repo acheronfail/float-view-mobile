@@ -22,25 +22,16 @@ class VescBlePacketLayer(
         try {
             // we write the data here, and we will receive the response in the
             // `onCharacteristicChanged` callback function in the `VescManager` class
-            val result =
-                    gatt.writeCharacteristic(
-                            vescRx,
-                            packet,
-                            writeType
-                    )
+            val result = gatt.writeCharacteristic(vescRx, packet, writeType)
 
             if (result != BluetoothStatusCodes.SUCCESS) {
                 LocalServer.broadcastMessage(
-                        BackendMessage.commandError(
-                                "Failed to write characteristic: $result"
-                        )
+                        BackendMessage.commandError("Failed to write characteristic: $result")
                 )
             }
         } catch (error: SecurityException) {
             LocalServer.broadcastMessage(
-                    BackendMessage.commandError(
-                            "Permission denied: ${error.message}"
-                    )
+                    BackendMessage.commandError("Permission denied: ${error.message}")
             )
         }
     }
@@ -53,19 +44,40 @@ class VescBlePacketLayer(
             when (CommPacketId.fromInt(command)) {
                 CommPacketId.COMM_FW_VERSION ->
                         LocalServer.broadcastMessage(
-                                BackendMessage.commandFirmware(gatt.device.address, vescParser.firmware(buf))
+                                BackendMessage.vescFirmware(
+                                        gatt.device.address,
+                                        vescParser.firmware(buf)
+                                )
                         )
                 CommPacketId.COMM_CUSTOM_APP_DATA -> {
-                    // TODO: build type to send back to frontend
-                    vescParser.refloatRtData(buf)
+                    buf.readUInt8() // appId
+                    val refloatPacketId = RefloatCommPacketId.fromInt(buf.readUInt8())
+                    if (refloatPacketId == null) {
+                        return LocalServer.broadcastMessage(
+                                BackendMessage.commandError("Unknown Refloat packet ID: $command")
+                        )
+                    }
+
+                    when (refloatPacketId) {
+                        RefloatCommPacketId.COMMAND_GET_RTDATA ->
+                                LocalServer.broadcastMessage(
+                                        BackendMessage.refloatRtData(
+                                                gatt.device.address,
+                                                vescParser.refloatRtData(buf)
+                                        )
+                                )
+                        else ->
+                                LocalServer.broadcastMessage(
+                                        BackendMessage.commandError(
+                                                "No parser for app command: $command"
+                                        )
+                                )
+                    }
                 }
-                else -> {
-                    LocalServer.broadcastMessage(
-                            BackendMessage.commandError(
-                                    "No parser for command: $command"
-                            )
-                    )
-                }
+                else ->
+                        LocalServer.broadcastMessage(
+                                BackendMessage.commandError("No parser for command: $command")
+                        )
             }
         } else {
             LocalServer.broadcastMessage(

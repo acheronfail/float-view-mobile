@@ -78,12 +78,14 @@ class MainActivity : AppCompatActivity() {
                 is BackendCommand.Command -> {
                     when (msg.cmd) {
                         is Cmd.CommFwVersion -> vescBle.sendCommand(vescCmds.firmware())
+                        is Cmd.CommGetValues -> vescBle.sendCommand(vescCmds.getValues())
                         is Cmd.CommCustomAppData -> {
                             val cmd = msg.cmd.appCommand
                             when (cmd) {
                                 is AppCommand.CommandInfo ->
                                         vescBle.sendCommand(
-                                                vescCmds.refloatInfo(cmd.version.toInt())
+                                                vescCmds.refloatInfo(cmd.version.toInt()),
+                                                BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
                                         )
                                 is AppCommand.CommandGetRtdata ->
                                         vescBle.sendCommand(
