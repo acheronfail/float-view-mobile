@@ -77,6 +77,9 @@ class LocalWebSocket {
             let command =
               try JSONSerialization.jsonObject(with: payload, options: []) as? [String: Any]
 
+              // FIXME: use this object and setup handler - remove "handlers" logic
+              let cmd = try JSONDecoder().decode(BackendCommand.self, from: payload)
+              
             if let command = command,
               let cmd = command["cmd"] as? String,
               let data = command["data"] as? [String: Any]

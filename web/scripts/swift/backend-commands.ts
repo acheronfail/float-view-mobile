@@ -51,6 +51,10 @@ function generateEnums(className: string, schema: VariantSchema, classes: Map<st
 	lines.push('');
 	lines.push('  private enum CodingKeys: String, CodingKey {');
 	lines.push('    case kind');
+	const codingKeys = new Set(variants.map((v) => v.parameters.map((p) => p.name)).flat());
+	for (const codingKey of codingKeys) {
+		lines.push(`    case ${codingKey}`);
+	}
 	lines.push('  }');
 	lines.push('');
 
@@ -76,11 +80,29 @@ function generateEnums(className: string, schema: VariantSchema, classes: Map<st
 	}
 	lines.push('    default:');
 	lines.push('      throw DecodingError.dataCorruptedError(');
-	lines.push('        DecodingError.Context(');
-	lines.push('          codingPath: decoder.codingPath,');
-	lines.push('          debugDescription: "Unknown kind: \\(kind)"');
-	lines.push('        )');
+	lines.push('        forKey: .kind,');
+	lines.push('        in: container,');
+	lines.push('        debugDescription: "Unknown kind: \\(kind)"');
 	lines.push('      )');
+	lines.push('    }');
+	lines.push('  }');
+	lines.push('');
+
+	lines.push('  func encode(to encoder: Encoder) throws {');
+	lines.push('    var container = encoder.container(keyedBy: CodingKeys.self)');
+	lines.push('    switch self {');
+	for (const { name, parameters } of variants) {
+		if (parameters.length === 0) {
+			lines.push(`    case .${name}:`);
+			lines.push(`      try container.encode("${name}", forKey: .kind)`);
+		} else {
+			lines.push(`    case .${name}(${parameters.map((p) => `let ${p.name}`).join(', ')}):`);
+			lines.push(`      try container.encode("${name}", forKey: .kind)`);
+			for (const param of parameters) {
+				lines.push(`      try container.encode(${param.name}, forKey: .${param.name})`);
+			}
+		}
+	}
 	lines.push('    }');
 	lines.push('  }');
 	lines.push('}');
