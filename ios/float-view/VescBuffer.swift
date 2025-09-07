@@ -26,6 +26,13 @@ class VescBuffer {
         }
     }
 
+    func readUInt8Pair() -> (UInt8, UInt8) {
+        let byte = readUInt8()
+        let upper = (byte >> 4) & 0x0F  // Upper 4 bits
+        let lower = byte & 0x0F         // Lower 4 bits
+        return (upper, lower)
+    }
+
     func readUInt8() -> UInt8 {
         guard index < buffer.count else { return 0 }
         let value = buffer[index]

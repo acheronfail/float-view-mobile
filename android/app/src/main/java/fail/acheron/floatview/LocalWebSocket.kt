@@ -1,6 +1,5 @@
 package fail.acheron.floatview
 
-import BackendCommand
 import android.util.Base64
 import java.io.*
 import java.net.Socket

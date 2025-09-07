@@ -3,12 +3,11 @@ import Foundation
 import Network
 
 class LocalWebSocket {
-  private let logTag = "FloatView_LocalWebSocket"
   private let queue = DispatchQueue(label: "LocalWebSocket")
   private var webSocketClients: [String: WebSocketClient] = [:]
-  private var webSocketHandler: (command: BackendCommand) -> Void = { _ in }
+  private var webSocketHandler: (BackendCommand) -> Void = { _ in }
 
-  func setHandler(_ handler:(command: BackendCommand) -> Void) {
+  func setHandler(_ handler: @escaping (BackendCommand) -> Void) {
     webSocketHandler = handler
   }
 
@@ -19,8 +18,7 @@ class LocalWebSocket {
 
   func handleWebSocketUpgrade(
     connection: NWConnection,
-    headers: [String: String],
-    handlers: [String: WsHandler]
+    headers: [String: String]
   ) {
     guard let webSocketKey = headers["sec-websocket-key"] else {
       print("Missing sec-websocket-key header")
@@ -51,11 +49,6 @@ class LocalWebSocket {
         let clientId = "client_\(Int(Date().timeIntervalSince1970))"
         let client = WebSocketClient(connection: connection, id: clientId)
 
-        // Add handlers to client
-        for (commandName, handler) in handlers {
-          client.addHandler(commandName, handler: handler)
-        }
-
         self?.webSocketClients[clientId] = client
         self?.sendWebSocketMessage(client: client, message: BackendMessage.socketWelcome())
         self?.handleWebSocketMessages(client: client)
@@ -65,10 +58,10 @@ class LocalWebSocket {
 
   private func handleWebSocketMessages(client: WebSocketClient) {
     client.connection.receive(minimumIncompleteLength: 1, maximumLength: 8192) {
-      [weak self] data, _, isComplete, error in
+      [webSocketHandler, weak self] data, _, isComplete, error in
       if let error = error {
         print(
-          "\(self?.logTag ?? "LocalWebSocket"): WebSocket client \(client.id) disconnected: \(error)"
+          "WebSocket client \(client.id) disconnected: \(error)"
         )
         self?.webSocketClients.removeValue(forKey: client.id)
         client.connection.cancel()
@@ -77,13 +70,13 @@ class LocalWebSocket {
 
       if let data = data, !data.isEmpty {
         if let frame = self?.parseWebSocketFrame(data: data) {
-          do {
             let payload = frame.payload.data(using: .utf8) ?? Data()
+          do {
             let cmd = try JSONDecoder().decode(BackendCommand.self, from: payload)
             print("ws<: \(cmd)")
-            handler(cmd)
+              webSocketHandler(cmd)
           } catch {
-            print("\(self?.logTag ?? "LocalWebSocket"): Error parsing JSON command: \(error)")
+            print("Error parsing JSON command: \(error)\n\(String(data: payload, encoding: .utf8))")
           }
         }
       }
@@ -108,7 +101,7 @@ class LocalWebSocket {
         }
       )
     } catch {
-      print("\(logTag): Error serializing message: \(error)")
+      print("Error serializing message: \(error)")
     }
   }
 

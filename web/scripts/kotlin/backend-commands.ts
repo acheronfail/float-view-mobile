@@ -96,6 +96,8 @@ export function generateKotlinBackendCommands(schema: VariantSchema) {
 	return [
 		'@file:Suppress("UnsafeOptInUsageError", "Unused")',
 		'',
+		'package fail.acheron.floatview',
+		'',
 		'import kotlinx.serialization.SerialName',
 		'import kotlinx.serialization.Serializable',
 		'import kotlinx.serialization.json.Json',

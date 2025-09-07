@@ -1,9 +1,9 @@
 import CoreBluetooth
 import Foundation
 
-class VescBluetoothLayer {
+class VescBlePacketLayer {
   private let peripheral: CBPeripheral
-  private let vescCommandLayer: VescCommandLayer
+  private let vescParser: VescCommandParser
 
   // Cache characteristics for better performance
   private let writeChar: CBCharacteristic
@@ -13,7 +13,7 @@ class VescBluetoothLayer {
   init(peripheral: CBPeripheral, vescRx: CBCharacteristic) {
     self.peripheral = peripheral
     self.writeChar = vescRx
-    self.vescCommandLayer = VescCommandLayer(peripheral.identifier.uuidString)
+    self.vescParser = VescCommandParser()
   }
 
   // MARK: - Public Methods
@@ -38,8 +38,49 @@ class VescBluetoothLayer {
       "Received data: \(data.map { String(format: "%02X", $0) }.joined(separator: " "))"
     )
 
+    let address = peripheral.identifier.uuidString
     if let (command, data) = parseVescCharacteristicResponse(data) {
-      vescCommandLayer.parse(command: command, data: data)
+        if let id = CommPacketId(rawValue: command) {
+            let buf = VescBuffer(data: data)
+            switch id {
+            case .COMM_FW_VERSION:
+              LocalServer.shared.broadcastMessage(
+                BackendMessage.vescFirmware(address: address, firmware: vescParser.firmware(buf))
+              )
+            case .COMM_CUSTOM_APP_DATA:
+                let _ = buf.readUInt8() // appId
+                let appPacketId = buf.readUInt8()
+                let refloatPacketId = RefloatCommPacketId(rawValue: Int(appPacketId))
+                guard refloatPacketId != nil else {
+                    return LocalServer.shared.broadcastMessage(
+                        BackendMessage.commandError(message: "Unknown Refloat packet ID: \(appPacketId)")
+                    )
+                }
+                
+                switch refloatPacketId {
+                case .COMMAND_GET_RTDATA:
+                    LocalServer.shared.broadcastMessage(
+                        BackendMessage.refloatRtData(address: address, refloatRtData: vescParser.refloatRtData(buf))
+                    )
+                default:
+                    LocalServer.shared.broadcastMessage(
+                      BackendMessage.commandError(
+                        message: "No parser for app command: \(String(describing: refloatPacketId))"
+                      )
+                    )
+                }
+            default:
+              LocalServer.shared.broadcastMessage(
+                BackendMessage.commandError(
+                  message: "No parser for command: \(command)"
+                )
+              )
+            }
+        } else {
+            LocalServer.shared.broadcastMessage(
+              BackendMessage.commandError(message: "Unknown command: \(command)")
+            )
+        }
     } else {
       LocalServer.shared.broadcastMessage(
         BackendMessage.commandError(message: "Failed to parse VESC response")

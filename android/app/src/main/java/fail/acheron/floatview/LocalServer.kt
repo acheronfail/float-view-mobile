@@ -1,6 +1,5 @@
 package fail.acheron.floatview
 
-import BackendCommand
 import android.app.Activity
 import android.webkit.WebView
 import java.io.*
@@ -10,8 +9,6 @@ import java.net.Socket
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executors
 import kotlinx.serialization.json.JsonObject
-
-typealias WsHandler = (cmd: BackendCommand) -> Unit
 
 object LocalServer {
   private val webSocket = LocalWebSocket()

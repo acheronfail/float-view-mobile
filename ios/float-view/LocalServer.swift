@@ -18,7 +18,7 @@ class LocalServer: ObservableObject {
     routes[path] = handler
   }
 
-  func setHandler(_ handler: (command: BackendCommand) -> Void) {
+  func setHandler(_ handler: @escaping (BackendCommand) -> Void) {
     webSocket.setHandler(handler)
   }
 
@@ -162,7 +162,7 @@ class LocalServer: ObservableObject {
 
     // Handle WebSocket upgrade
     if webSocket.isWebSocketUpgrade(path: path, headers: headers) {
-      webSocket.handleWebSocketUpgrade(connection: connection, headers: headers, handlers: wsHandlers)
+      webSocket.handleWebSocketUpgrade(connection: connection, headers: headers)
       return
     }
 

@@ -34,7 +34,7 @@ function generateEnums(className: string, schema: VariantSchema, classes: Map<st
 			return { name, typeName };
 		});
 
-		return { name, parameters, required: variant.required };
+		return { kind, name, parameters, required: variant.required };
 	});
 
 	for (const { name, parameters } of variants) {
@@ -58,13 +58,14 @@ function generateEnums(className: string, schema: VariantSchema, classes: Map<st
 	lines.push('  }');
 	lines.push('');
 
+	const kindType = variants[0].kind.type === 'string' ? 'String' : 'Int';
 	lines.push('  init(from decoder: Decoder) throws {');
 	lines.push('    let container = try decoder.container(keyedBy: CodingKeys.self)');
-	lines.push('    let kind = try container.decode(String.self, forKey: .kind)');
+	lines.push(`    let kind = try container.decode(${kindType}.self, forKey: .kind)`);
 	lines.push('');
 	lines.push('    switch kind {');
-	for (const { name, parameters } of variants) {
-		lines.push(`    case "${name}":`);
+	for (const { kind, name, parameters } of variants) {
+		lines.push(`    case ${kind.type === 'string' ? `"${kind.const}"` : kind.const}:`);
 		for (const param of parameters) {
 			lines.push(
 				`      let ${param.name} = try container.decode(${param.typeName}.self, forKey: .${param.name})`

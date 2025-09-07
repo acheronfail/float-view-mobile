@@ -1,19 +1,19 @@
 
 class VescCommandGenerator {
-  private var canId: Int? = nil
+  private var canId: UInt8? = nil
 
-  func setCanId(_ id: Int?) {
+  func setCanId(_ id: UInt8?) {
     canId = id
   }
 
-  private func getPayload(_ values: Int...) -> [UInt8] {
-    let payload = [Int]()
+  private func getPayload(_ values: UInt8...) -> [UInt8] {
+    var payload = [UInt8]()
     if let id = canId {
-      payload.add(CommPacketId.CommForwardCan)
-      payload.add(id)
+      payload.append(UInt8(CommPacketId.COMM_FORWARD_CAN.rawValue))
+      payload.append(id)
     }
-
-    payload.add(contentsOf: values)
+    
+    payload.append(contentsOf: values)
     return payload
   }
 
@@ -22,30 +22,28 @@ class VescCommandGenerator {
    */
 
   func firmware() -> [UInt8] {
-    return getPayload(CommPacketId.CommFwVersion)
+      return getPayload(UInt8(CommPacketId.COMM_FW_VERSION.rawValue))
   }
 
   func commGetValues() -> [UInt8] {
-    return getPayload(CommPacketId.CommGetValues)
+      return getPayload(UInt8(CommPacketId.COMM_GET_VALUES.rawValue))
   }
 
   /*
    * Refloat commands
    */
 
-  private func getRefloatPayload(_ values: Int...) -> [UInt8] {
-    var payload = [Int]()
-    payload.add(CommPacketId.CommCustomAppData)
-    payload.add(101)
-    payload.add(contentsOf: values)
+  private func getRefloatPayload(_ values: UInt8...) -> [UInt8] {
+    var payload = getPayload(UInt8(CommPacketId.COMM_CUSTOM_APP_DATA.rawValue), 101)
+    payload.append(contentsOf: values)
     return payload
   }
 
   func refloatInfo(version: Int) -> [UInt8] {
-    return getRefloatPayload(RefloatCommPacketId.CommandInfo, version)
+      return getRefloatPayload(UInt8(RefloatCommPacketId.COMMAND_INFO.rawValue), UInt8(version))
   }
 
   func refloatRtdata() -> [UInt8] {
-    return getRefloatPayload(RefloatCommPacketId.CommandGetRtdata)
+      return getRefloatPayload(UInt8(RefloatCommPacketId.COMMAND_GET_RTDATA.rawValue))
   }
 }

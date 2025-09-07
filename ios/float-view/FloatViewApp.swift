@@ -8,13 +8,13 @@ func print(_ items: Any..., separator: String = " ", terminator: String = "\n") 
 @main
 struct FloatViewApp: App {
 
-  private let vescManager: VescManager
+  private let vescManager: VescBle
   private let vescCommands: VescCommandGenerator
 
   init() {
     LocalServer.shared.start()
 
-    vescManager = VescManager()
+    vescManager = VescBle()
     vescCommands = VescCommandGenerator()
     // TODO: don't hard-code
     vescCommands.setCanId(1)
@@ -35,21 +35,21 @@ struct FloatViewApp: App {
       switch cmd {
         case .scan: vescManager.startScan()
         case .connect(let address): vescManager.connect(address: address)
-        case .disconnect(let address): vescManager.disconnect()
+      case .disconnect( _): vescManager.disconnect()
         case .logStart(let address, let intervalMs):
           print("TODO: logStart for \(address) with interval \(intervalMs)ms")
         case .logStop(let address):
           print("TODO: logStop for \(address)")
-        case .command(let address, let cmd):
+      case .command( _, let cmd):
           switch (cmd) {
             case .commFwVersion:
               vescManager.send(vescCommands.firmware())
             case .commGetValues:
-              vescManager.send(vescCommands.getValues())
-            case .commCustomAppData(let appId, let appCommand):
+              vescManager.send(vescCommands.commGetValues())
+          case .commCustomAppData( _, let appCommand):
               switch appCommand {
                 case .commandInfo(let version):
-                  vescManager.send(vescCommands.refloatInfo(version: version))
+                  vescManager.send(vescCommands.refloatInfo(version: Int(version)))
                 case .commandGetRtdata:
                   vescManager.send(vescCommands.refloatRtdata())
               }

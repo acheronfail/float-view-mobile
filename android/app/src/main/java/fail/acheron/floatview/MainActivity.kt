@@ -1,6 +1,5 @@
 package fail.acheron.floatview
 
-import BackendCommand
 import android.bluetooth.BluetoothGattCharacteristic
 import android.os.Bundle
 import android.util.Log
