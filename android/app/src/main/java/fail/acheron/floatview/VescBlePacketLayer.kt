@@ -14,6 +14,7 @@ class VescBlePacketLayer(
     private val commandQueue = ArrayDeque<Pair<List<Int>, Int>>()
     private var waitingForResponse = false
 
+    // FIXME: timeouts in case we never get a response
     @SuppressLint("NewApi")
     fun send(payload: List<Int>, writeType: Int = BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT) {
         if (waitingForResponse) {

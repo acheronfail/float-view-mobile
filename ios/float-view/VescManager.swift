@@ -105,14 +105,14 @@ class VescManager: NSObject, ObservableObject {
     return centralManager.state == .poweredOn && hasPermissions()
   }
 
-  func send(command: Int, payload data: [UInt8] = []) {
+  func send(_ payload data: [UInt8] = [], writeType: CBCharacteristicWriteType = .withResponse) {
     guard let vescBluetoothLayer = vescBluetoothLayer else {
       return LocalServer.shared.broadcastMessage(
         BackendMessage.commandError(message: "VescCommands not setup!")
       )
     }
 
-    vescBluetoothLayer.send(command: command, data: data)
+    vescBluetoothLayer.send(payload, writeType)
   }
 
   // MARK: - Scanning

@@ -9,16 +9,17 @@ func print(_ items: Any..., separator: String = " ", terminator: String = "\n") 
 struct FloatViewApp: App {
 
   private let vescManager: VescManager
+  private let vescCommands: VescCommandGenerator
 
   init() {
-    // Start server synchronously right now, before any views are created
     LocalServer.shared.start()
 
-    // Initialize VescManager and listener first
     vescManager = VescManager()
+    vescCommands = VescCommandGenerator()
+    // TODO: don't hard-code
+    vescCommands.setCanId(1)
 
-    // Now setup handlers and listeners
-    setupWebSocketHandlers()
+    setupWebSocketHandler()
   }
 
   var body: some Scene {
@@ -29,71 +30,31 @@ struct FloatViewApp: App {
 
   // MARK: - WebSocket Handler Setup (similar to MainActivity.kt)
 
-  private func setupWebSocketHandlers() {
-    LocalServer.shared.addHandler("scan") { [vescManager] (data: [String: Any]) in
-      vescManager.startScan()
-    }
-
-    LocalServer.shared.addHandler("connect") { [vescManager] (data: [String: Any]) in
-      guard let address = data["address"] as? String else {
-        LocalServer.shared.broadcastMessage(
-          BackendMessage.connectError(message: "No address given in command")
-        )
-        return
-      }
-
-      vescManager.connect(address: address)
-    }
-
-    LocalServer.shared.addHandler("disconnect") { [vescManager] (data: [String: Any]) in
-      vescManager.disconnect()
-    }
-
-    LocalServer.shared.addHandler("command") { [vescManager] (data: [String: Any]) in
-      let command = data["command"] as? Int
-      let payload = data["payload"] as? [UInt8] ?? []
-      if let cmd = command {
-        vescManager.send(command: cmd, payload: payload)
-      } else {
-        LocalServer.shared.broadcastMessage(
-          BackendMessage.commandError(message: "No command given")
-        )
-      }
-    }
-
-    LocalServer.shared.addHandler("data") { (data: [String: Any]) in
-      guard let address = data["address"] as? String else {
-        return LocalServer.shared.broadcastMessage(
-          BackendMessage.logError(message: "No address given in command")
-        )
-      }
-
-      guard let shouldLog = data["log"] as? Bool else {
-        return LocalServer.shared.broadcastMessage(
-          BackendMessage.logError(message: "No log given in command")
-        )
-      }
-
-      if !shouldLog {
-        // TODO: stop logging interval
-        return
-      }
-
-      let intervalMs = data["intervalMs"] as? Double ?? 1000.0
-      print("TODO: log with interval: \(intervalMs)ms")
-
-      // Send mock VESC data
-      LocalServer.shared.broadcastMessage(
-        BackendMessage.logData(
-          address: address,
-          data: DataObject.build { builder in
-            builder.speed = 15.8
-            builder.voltage = 54.2
-            builder.currentBattery = 24.6
-            builder.state = "ACTIVE"
+  private func setupWebSocketHandler() {
+    LocalServer.shared.setHandler { [vescManager] (cmd: BackendCommand) in
+      switch cmd {
+        case .scan: vescManager.startScan()
+        case .connect(let address): vescManager.connect(address: address)
+        case .disconnect(let address): vescManager.disconnect()
+        case .logStart(let address, let intervalMs):
+          print("TODO: logStart for \(address) with interval \(intervalMs)ms")
+        case .logStop(let address):
+          print("TODO: logStop for \(address)")
+        case .command(let address, let cmd):
+          switch (cmd) {
+            case .commFwVersion:
+              vescManager.send(vescCommands.firmware())
+            case .commGetValues:
+              vescManager.send(vescCommands.getValues())
+            case .commCustomAppData(let appId, let appCommand):
+              switch appCommand {
+                case .commandInfo(let version):
+                  vescManager.send(vescCommands.refloatInfo(version: version))
+                case .commandGetRtdata:
+                  vescManager.send(vescCommands.refloatRtdata())
+              }
           }
-        )
-      )
+      }
     }
   }
 

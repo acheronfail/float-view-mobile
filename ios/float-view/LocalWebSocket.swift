@@ -4,8 +4,13 @@ import Network
 
 class LocalWebSocket {
   private let logTag = "FloatView_LocalWebSocket"
-  private var webSocketClients: [String: WebSocketClient] = [:]
   private let queue = DispatchQueue(label: "LocalWebSocket")
+  private var webSocketClients: [String: WebSocketClient] = [:]
+  private var webSocketHandler: (command: BackendCommand) -> Void = { _ in }
+
+  func setHandler(_ handler:(command: BackendCommand) -> Void) {
+    webSocketHandler = handler
+  }
 
   func isWebSocketUpgrade(path: String, headers: [String: String]) -> Bool {
     return path == "/ws" && headers["upgrade"]?.lowercased() == "websocket"
@@ -74,25 +79,9 @@ class LocalWebSocket {
         if let frame = self?.parseWebSocketFrame(data: data) {
           do {
             let payload = frame.payload.data(using: .utf8) ?? Data()
-            let command =
-              try JSONSerialization.jsonObject(with: payload, options: []) as? [String: Any]
-
-              // FIXME: use this object and setup handler - remove "handlers" logic
-              let cmd = try JSONDecoder().decode(BackendCommand.self, from: payload)
-              
-            if let command = command,
-              let cmd = command["cmd"] as? String,
-              let data = command["data"] as? [String: Any]
-            {
-
-              print("ws<: '\(cmd)': \(data)")
-
-              if let handler = client.getHandler(cmd) {
-                handler(data)
-              } else {
-                self?.sendWebSocketMessage(client: client, message: BackendMessage.socketError(message: "Unhandled websocket command: \(cmd)"))
-              }
-            }
+            let cmd = try JSONDecoder().decode(BackendCommand.self, from: payload)
+            print("ws<: \(cmd)")
+            handler(cmd)
           } catch {
             print("\(self?.logTag ?? "LocalWebSocket"): Error parsing JSON command: \(error)")
           }

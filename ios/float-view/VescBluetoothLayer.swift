@@ -2,10 +2,6 @@ import CoreBluetooth
 import Foundation
 
 class VescBluetoothLayer {
-  // TODO create enum for these in VescCommandParser
-  static let COMM_FW_VERSION = 0
-  static let COMM_FORWARD_CAN = 34
-
   private let peripheral: CBPeripheral
   private let vescCommandLayer: VescCommandLayer
 
@@ -22,14 +18,8 @@ class VescBluetoothLayer {
 
   // MARK: - Public Methods
 
-  func send(command: Int, data: [UInt8]) {
-    // TODO: detect if need to use CAN or not, rather than hardcoding here
-    // TODO: scan for VESCs on CAN bus, and inject here if needed
-    let canId: UInt8 = 1  // Use 16 to match Android's working packet
-    var payload = [UInt8(VescBluetoothLayer.COMM_FORWARD_CAN), canId, UInt8(command)]
-    payload.append(contentsOf: data)
-
-    // Create VESC packet using the entire payload (not just command)
+  // FIXME: create command queue (with timeouts)
+  func send(_ payload: [UInt8], writeType: CBCharacteristicWriteType = .withResponse) {
     let packet = createVescPacket(payload: payload)
     print(
       "Generated payload: \(payload.map { String(format: "%02X", $0) }.joined(separator: " "))"
@@ -40,7 +30,7 @@ class VescBluetoothLayer {
 
     // Write to characteristic - we will receive the response in peripheral(_:didUpdateValueFor:error:)
     // in the VescManager class
-    peripheral.writeValue(Data(packet), for: writeChar, type: .withResponse)
+    peripheral.writeValue(Data(packet), for: writeChar, type: writeType)
   }
 
   func parseResponse(_ data: Data) {

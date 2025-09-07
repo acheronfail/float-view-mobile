@@ -13,18 +13,17 @@ class LocalServer: ObservableObject {
 
   private let queue = DispatchQueue(label: "LocalServer")
   private var routes: [String: (HttpContext) -> Void] = [:]
-  private var wsHandlers: [String: WsHandler] = [:]
 
   func addRoute(_ path: String, handler: @escaping (HttpContext) -> Void) {
     routes[path] = handler
   }
 
-  func broadcastMessage(_ message: [String: Any]) {
-    webSocket.broadcastMessage(message)
+  func setHandler(_ handler: (command: BackendCommand) -> Void) {
+    webSocket.setHandler(handler)
   }
 
-  func addHandler(_ commandName: String, handler: @escaping WsHandler) {
-    wsHandlers[commandName] = handler
+  func broadcastMessage(_ message: [String: Any]) {
+    webSocket.broadcastMessage(message)
   }
 
   func start() {
