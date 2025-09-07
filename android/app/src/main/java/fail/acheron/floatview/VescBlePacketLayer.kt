@@ -11,9 +11,20 @@ class VescBlePacketLayer(
         private val vescRx: BluetoothGattCharacteristic
 ) {
     val vescParser = VescCommandParser()
+    private val commandQueue = ArrayDeque<Pair<List<Int>, Int>>()
+    private var waitingForResponse = false
 
     @SuppressLint("NewApi")
     fun send(payload: List<Int>, writeType: Int = BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT) {
+        if (waitingForResponse) {
+            commandQueue.addFirst(Pair(payload, writeType))
+        } else {
+            sendPacket(payload, writeType)
+            waitingForResponse = true
+        }
+    }
+
+    private fun sendPacket(payload: List<Int>, writeType: Int = BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT) {
         val packet = createBlePacket(payload)
         print("Command payload: ${payload.joinToString(" ") { "%02X".format(it) }}")
         print("Command packet: ${packet.joinToString(" ") { "%02X".format(it) }}")
@@ -37,6 +48,14 @@ class VescBlePacketLayer(
     }
 
     fun parseResponse(bytes: ByteArray) {
+        // If we've any queued commands send them now
+        try {
+            val (payload, writeType) = commandQueue.removeLast()
+            sendPacket(payload, writeType)
+        } catch (e: NoSuchElementException) {
+            waitingForResponse = false
+        }
+
         val parsed = parseBlePacket(bytes)
         if (parsed != null) {
             val (command, response) = parsed

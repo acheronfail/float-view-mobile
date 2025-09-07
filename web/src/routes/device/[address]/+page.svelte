@@ -106,25 +106,21 @@
 		// TODO: get motor config
 		// TODO: basic checks?
 
-		// FIXME: need to send synchronously - fix this in backend
-
 		app.sendCommand({
 			kind: 'command',
 			address: params.address,
 			cmd: { kind: CommPacketId.COMM_FW_VERSION }
 		});
 
-		setTimeout(() => {
-			app.sendCommand({
-				kind: 'command',
-				address: params.address,
-				cmd: {
-					kind: CommPacketId.COMM_CUSTOM_APP_DATA,
-					appId: RefloatPackageId,
-					appCommand: { kind: RefloatCommPacketId.COMMAND_GET_RTDATA }
-				}
-			});
-		}, 1000);
+		app.sendCommand({
+			kind: 'command',
+			address: params.address,
+			cmd: {
+				kind: CommPacketId.COMM_CUSTOM_APP_DATA,
+				appId: RefloatPackageId,
+				appCommand: { kind: RefloatCommPacketId.COMMAND_GET_RTDATA }
+			}
+		});
 	});
 </script>
 
@@ -161,9 +157,7 @@
 
 		<!-- Middle row: three columns a, b, c -->
 		<div class="grid flex-1 grid-cols-8 rounded-lg">
-			<div class="flex items-center justify-center rounded">
-				TODO V
-			</div>
+			<div class="flex items-center justify-center rounded">TODO V</div>
 			<div class="col-span-6 flex items-center justify-center rounded">
 				<!-- TODO: easy to grok gauges + pitch/roll visualisations -->
 				<ul class="font-mono">

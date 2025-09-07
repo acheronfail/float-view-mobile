@@ -59,12 +59,12 @@ wss.on('connection', (ws) => {
 					break;
 				case 'command':
 					{
-						const { address, command } = message;
+						const { address, cmd } = message;
 						await sleep(100);
-						switch (command.kind) {
+						switch (cmd.kind) {
 							case CommPacketId.COMM_FW_VERSION:
 								reply({
-									kind: 'commandFirmware',
+									kind: 'vescFirmware',
 									address: address!,
 									firmware: {
 										major: 6,
@@ -78,7 +78,7 @@ wss.on('connection', (ws) => {
 								});
 								break;
 							default:
-								console.error('Unhandled command:', command);
+								console.error('Unhandled command:', cmd);
 								break;
 						}
 					}
@@ -122,46 +122,28 @@ server.listen(PORT, () => {
 
 function mockDataCreator(): () => ZRefloatRtData {
 	const randBw = (min: number, max: number) => Math.random() * (max - min) + min;
-	const d = {
+	const d: ZRefloatRtData = {
+		balanceCurrent: 0,
+		imuBalancePitch: randBw(-10, 10),
+		imuRoll: randBw(-10, 10),
+		satState: 0,
+		state: 0,
+		footpadState: 0,
+		beepReason: 0,
 		adc1: randBw(2, 3.2),
 		adc2: randBw(2, 3.2),
-		ah: 0,
-		ahCharged: 0,
-		altitude: randBw(100, 120),
-		bmsFault: 0,
-		bmsTemp: 0,
-		bmsTempBattery: 0,
-		currentBattery: randBw(-10, 15),
-		currentBooster: 0,
-		currentFieldWeakening: 0,
-		currentMotor: randBw(-40, 50),
-		distance: 42,
-		duty: randBw(0, 95),
-		erpm: randBw(0, 5000),
-		gpsAccuracy: 0,
-		gpsLatitude: 0,
-		gpsLongitude: 0,
-		motorFault: 0,
-		pitch: randBw(-10, 10),
-		requestedAmps: 0,
-		roll: randBw(-10, 10),
 		setpoint: randBw(-10, 10),
 		setpointAtr: 0,
-		setpointBreakTilt: 0,
-		setpointCarve: 0,
-		setpointRemote: 0,
+		setpointBrakeTilt: 0,
 		setpointTorqueTilt: 0,
-		speed: randBw(0, 45),
-		state: 'RIDING',
-		stateRaw: 0,
-		tempBattery: 0,
-		tempMosfet: 0,
-		tempMotor: 0,
-		time: 0,
-		truePitch: randBw(-10, 10),
-		voltage: randBw(60, 84),
-		wh: 0,
-		whCharged: 0
+		setpointTurnTilt: 0,
+		setpointRemote: 0,
+		imuPitch: randBw(-10, 10),
+		motorFilterCurrent: 0,
+		atrAccelerationDiff: 0,
+		boosterCurrent: 0,
+		motorDirCurrent: 0,
+		remoteInput: 0,
 	};
 
 	function smooth(current: number, min: number, max: number, maxChange: number = 0.1): number {
@@ -172,15 +154,10 @@ function mockDataCreator(): () => ZRefloatRtData {
 	return () => {
 		d.adc1 = smooth(d.adc1, 2, 3.2, 0.05);
 		d.adc2 = smooth(d.adc2, 2, 3.2, 0.05);
-		d.altitude = smooth(d.altitude, 100, 120, 0.02);
-		d.duty = smooth(d.duty, 0, 95, 0.1);
-		d.erpm = smooth(d.erpm ?? 0, 0, 5000, 0.1);
-		d.pitch = smooth(d.pitch, -10, 10, 0.2);
-		d.roll = smooth(d.roll, -10, 10, 0.2);
+		d.imuRoll = smooth(d.imuRoll, -10, 10, 0.2);
 		d.setpoint = smooth(d.setpoint ?? 0, -10, 10, 0.15);
-		d.speed = smooth(d.speed, 0, 45, 0.08);
-		d.truePitch = smooth(d.truePitch, -10, 10, 0.2);
-		d.voltage = smooth(d.voltage, 60, 84, 0.03);
+		d.imuBalancePitch = smooth(d.imuBalancePitch, -10, 10, 0.2);
+		d.imuPitch = smooth(d.imuPitch, -10, 10, 0.2);
 
 		return d;
 	};

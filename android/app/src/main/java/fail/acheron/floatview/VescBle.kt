@@ -403,6 +403,7 @@ class VescBle(private val activity: Activity) {
 
                         /*
                          * We receive VESC responses here since we requested notifications on the characteristic
+                         * TODO: do we need to ever merge together split packets?
                          */
                         override fun onCharacteristicChanged(
                                 gatt: BluetoothGatt,
