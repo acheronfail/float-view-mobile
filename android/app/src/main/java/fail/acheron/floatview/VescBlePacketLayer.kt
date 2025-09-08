@@ -4,6 +4,12 @@ import android.annotation.SuppressLint
 import android.bluetooth.BluetoothGatt
 import android.bluetooth.BluetoothGattCharacteristic
 import android.bluetooth.BluetoothStatusCodes
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 class VescBlePacketLayer(
         private val gatt: BluetoothGatt,
@@ -11,38 +17,13 @@ class VescBlePacketLayer(
 ) {
     val vescParser = VescCommandParser()
     private val commandQueue = ArrayDeque<Pair<List<Int>, Int>>()
+    private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
+    private var commandTimer: Job? = null
+    private var isProcessingCommand = false
 
-    // FIXME: timeouts in case we never get a response
-    @SuppressLint("NewApi")
     fun send(payload: List<Int>, writeType: Int = BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT) {
-        if (commandQueue.size > 0) {
-            commandQueue.addFirst(Pair(payload, writeType))
-        } else {
-            sendPacket(payload, writeType)
-        }
-    }
-
-    private fun sendPacket(payload: List<Int>, writeType: Int = BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT) {
-        val packet = createBlePacket(payload)
-        print("Command payload: ${payload.joinToString(" ") { "%02X".format(it) }}")
-        print("Command packet: ${packet.joinToString(" ") { "%02X".format(it) }}")
-        print("Write Type: $writeType")
-
-        try {
-            // we write the data here, and we will receive the response in the
-            // `onCharacteristicChanged` callback function in the `VescManager` class
-            val result = gatt.writeCharacteristic(vescRx, packet, writeType)
-
-            if (result != BluetoothStatusCodes.SUCCESS) {
-                LocalServer.broadcastMessage(
-                        BackendMessage.commandError("Failed to write characteristic: $result")
-                )
-            }
-        } catch (error: SecurityException) {
-            LocalServer.broadcastMessage(
-                    BackendMessage.commandError("Permission denied: ${error.message}")
-            )
-        }
+        commandQueue.add(Pair(payload, writeType))
+        processNextCommand()
     }
 
     fun parseResponse(bytes: ByteArray) {
@@ -100,6 +81,50 @@ class VescBlePacketLayer(
             LocalServer.broadcastMessage(
                     BackendMessage.commandError("Failed to parse VESC response")
             )
+        }
+    }
+
+    private fun processNextCommand() {
+        if (isProcessingCommand || commandQueue.isEmpty()) return
+
+        val (payload, writeType) = commandQueue.removeLast()
+        isProcessingCommand = true
+        sendPacket(payload, writeType)
+    }
+
+    private fun handleCommandComplete() {
+        commandTimer?.cancel()
+        commandTimer = null
+        isProcessingCommand = false
+        processNextCommand()
+    }
+
+    @SuppressLint("NewApi")
+    private fun sendPacket(payload: List<Int>, writeType: Int = BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT) {
+        val packet = createBlePacket(payload)
+        print("Command payload: ${payload.joinToString(" ") { "%02X".format(it) }}")
+        print("Command packet: ${packet.joinToString(" ") { "%02X".format(it) }}")
+        print("Write Type: $writeType")
+
+        try {
+            // we write the data here, and we will receive the response in the
+            // `onCharacteristicChanged` callback function in the `VescManager` class
+            val result = gatt.writeCharacteristic(vescRx, packet, writeType)
+
+            if (result != BluetoothStatusCodes.SUCCESS) {
+                LocalServer.broadcastMessage(
+                        BackendMessage.commandError("Failed to write characteristic: $result")
+                )
+            }
+        } catch (error: SecurityException) {
+            LocalServer.broadcastMessage(
+                    BackendMessage.commandError("Permission denied: ${error.message}")
+            )
+        }
+
+        commandTimer = scope.launch {
+            delay(1000L)
+            handleCommandComplete()
         }
     }
 
