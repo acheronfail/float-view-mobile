@@ -3,10 +3,10 @@ import Foundation
 
 class VescBlePacketLayer {
   private let peripheral: CBPeripheral
-  private let vescParser: VescCommandParser
-
-  // Cache characteristics for better performance
   private let writeChar: CBCharacteristic
+  private let vescParser: VescCommandParser
+  private var commandQueue = [([UInt8], CBCharacteristicWriteType)]()
+  private var commandTimer: Timer?
 
   // MARK: - Initialization
 
@@ -18,8 +18,16 @@ class VescBlePacketLayer {
 
   // MARK: - Public Methods
 
-  // FIXME: create command queue (with timeouts)
   func send(_ payload: [UInt8], writeType: CBCharacteristicWriteType = .withResponse) {
+    if commandQueue.isEmpty {
+      sendPacket(payload, writeType: writeType)
+    }
+
+    commandQueue.insert((payload, writeType), at: 0)
+  }
+
+  private func sendPacket(_ payload: [UInt8], writeType: CBCharacteristicWriteType = .withResponse)
+  {
     let packet = createVescPacket(payload: payload)
     print(
       "Generated payload: \(payload.map { String(format: "%02X", $0) }.joined(separator: " "))"
@@ -31,56 +39,70 @@ class VescBlePacketLayer {
     // Write to characteristic - we will receive the response in peripheral(_:didUpdateValueFor:error:)
     // in the VescManager class
     peripheral.writeValue(Data(packet), for: writeChar, type: writeType)
+
+    commandTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: false) { [weak self] _ in
+      print("Command (\(payload)) timed out!")
+      // self?.commandQueue
+    }
   }
 
   func parseResponse(_ data: Data) {
-    print(
-      "Received data: \(data.map { String(format: "%02X", $0) }.joined(separator: " "))"
-    )
+    commandTimer?.invalidate()
+    commandTimer = nil
+
+    // Remove the command that just got a response
+    let _ = commandQueue.popLast()
+
+    // If there's another command waiting, send it now
+    if !commandQueue.isEmpty {
+      let (payload, writeType) = commandQueue[commandQueue.count - 1]
+      sendPacket(payload, writeType: writeType)
+    }
 
     let address = peripheral.identifier.uuidString
     if let (command, data) = parseVescCharacteristicResponse(data) {
-        if let id = CommPacketId(rawValue: command) {
-            let buf = VescBuffer(data: data)
-            switch id {
-            case .COMM_FW_VERSION:
-              LocalServer.shared.broadcastMessage(
-                BackendMessage.vescFirmware(address: address, firmware: vescParser.firmware(buf))
-              )
-            case .COMM_CUSTOM_APP_DATA:
-                let _ = buf.readUInt8() // appId
-                let appPacketId = buf.readUInt8()
-                let refloatPacketId = RefloatCommPacketId(rawValue: Int(appPacketId))
-                guard refloatPacketId != nil else {
-                    return LocalServer.shared.broadcastMessage(
-                        BackendMessage.commandError(message: "Unknown Refloat packet ID: \(appPacketId)")
-                    )
-                }
-                
-                switch refloatPacketId {
-                case .COMMAND_GET_RTDATA:
-                    LocalServer.shared.broadcastMessage(
-                        BackendMessage.refloatRtData(address: address, refloatRtData: vescParser.refloatRtData(buf))
-                    )
-                default:
-                    LocalServer.shared.broadcastMessage(
-                      BackendMessage.commandError(
-                        message: "No parser for app command: \(String(describing: refloatPacketId))"
-                      )
-                    )
-                }
-            default:
-              LocalServer.shared.broadcastMessage(
-                BackendMessage.commandError(
-                  message: "No parser for command: \(command)"
-                )
-              )
-            }
-        } else {
-            LocalServer.shared.broadcastMessage(
-              BackendMessage.commandError(message: "Unknown command: \(command)")
+      if let id = CommPacketId(rawValue: command) {
+        let buf = VescBuffer(data: data)
+        switch id {
+        case .COMM_FW_VERSION:
+          LocalServer.shared.broadcastMessage(
+            BackendMessage.vescFirmware(address: address, firmware: vescParser.firmware(buf))
+          )
+        case .COMM_CUSTOM_APP_DATA:
+          let _ = buf.readUInt8()  // appId
+          let appPacketId = buf.readUInt8()
+          let refloatPacketId = RefloatCommPacketId(rawValue: Int(appPacketId))
+          guard refloatPacketId != nil else {
+            return LocalServer.shared.broadcastMessage(
+              BackendMessage.commandError(message: "Unknown Refloat packet ID: \(appPacketId)")
             )
+          }
+
+          switch refloatPacketId {
+          case .COMMAND_GET_RTDATA:
+            LocalServer.shared.broadcastMessage(
+              BackendMessage.refloatRtData(
+                address: address, refloatRtData: vescParser.refloatRtData(buf))
+            )
+          default:
+            LocalServer.shared.broadcastMessage(
+              BackendMessage.commandError(
+                message: "No parser for app command: \(String(describing: refloatPacketId))"
+              )
+            )
+          }
+        default:
+          LocalServer.shared.broadcastMessage(
+            BackendMessage.commandError(
+              message: "No parser for command: \(command)"
+            )
+          )
         }
+      } else {
+        LocalServer.shared.broadcastMessage(
+          BackendMessage.commandError(message: "Unknown command: \(command)")
+        )
+      }
     } else {
       LocalServer.shared.broadcastMessage(
         BackendMessage.commandError(message: "Failed to parse VESC response")
