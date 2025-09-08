@@ -7,6 +7,7 @@ class VescBlePacketLayer {
   private let vescParser: VescCommandParser
   private var commandQueue = [([UInt8], CBCharacteristicWriteType)]()
   private var commandTimer: Timer?
+  private var isProcessingCommand = false
 
   // MARK: - Initialization
 
@@ -19,45 +20,13 @@ class VescBlePacketLayer {
   // MARK: - Public Methods
 
   func send(_ payload: [UInt8], writeType: CBCharacteristicWriteType = .withResponse) {
-    if commandQueue.isEmpty {
-      sendPacket(payload, writeType: writeType)
-    }
-
-    commandQueue.insert((payload, writeType), at: 0)
-  }
-
-  private func sendPacket(_ payload: [UInt8], writeType: CBCharacteristicWriteType = .withResponse)
-  {
-    let packet = createVescPacket(payload: payload)
-    print(
-      "Generated payload: \(payload.map { String(format: "%02X", $0) }.joined(separator: " "))"
-    )
-    print(
-      "Generated packet: \(packet.map { String(format: "%02X", $0) }.joined(separator: " "))"
-    )
-
-    // Write to characteristic - we will receive the response in peripheral(_:didUpdateValueFor:error:)
-    // in the VescManager class
-    peripheral.writeValue(Data(packet), for: writeChar, type: writeType)
-
-    commandTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: false) { [weak self] _ in
-      print("Command (\(payload)) timed out!")
-      // self?.commandQueue
-    }
+    commandQueue.append((payload, writeType))
+    processNextCommand()
   }
 
   func parseResponse(_ data: Data) {
-    commandTimer?.invalidate()
-    commandTimer = nil
-
-    // Remove the command that just got a response
-    let _ = commandQueue.popLast()
-
-    // If there's another command waiting, send it now
-    if !commandQueue.isEmpty {
-      let (payload, writeType) = commandQueue[commandQueue.count - 1]
-      sendPacket(payload, writeType: writeType)
-    }
+    // Command completed successfully, process next one
+    handleCommandComplete()
 
     let address = peripheral.identifier.uuidString
     if let (command, data) = parseVescCharacteristicResponse(data) {
@@ -111,6 +80,42 @@ class VescBlePacketLayer {
   }
 
   // MARK: - Private Methods
+
+  private func processNextCommand() {
+    // Don't start a new command if we're already processing one
+    guard !isProcessingCommand && !commandQueue.isEmpty else { return }
+
+    let (payload, writeType) = commandQueue.removeFirst()
+    isProcessingCommand = true
+    sendPacket(payload: payload, writeType: writeType)
+  }
+
+  private func handleCommandComplete() {
+    commandTimer?.invalidate()
+    commandTimer = nil
+    isProcessingCommand = false
+    processNextCommand()
+  }
+
+  private func sendPacket(payload: [UInt8], writeType: CBCharacteristicWriteType = .withResponse) {
+    let packet = createVescPacket(payload: payload)
+    print(
+      "Generated payload: \(payload.map { String(format: "%02X", $0) }.joined(separator: " "))"
+    )
+    print(
+      "Generated packet: \(packet.map { String(format: "%02X", $0) }.joined(separator: " "))"
+    )
+
+    // Write to characteristic - we will receive the response in peripheral(_:didUpdateValueFor:error:)
+    // in the VescManager class
+    peripheral.writeValue(Data(packet), for: writeChar, type: writeType)
+
+    // Set up timeout - if no response in 1 second, drop this command and continue
+    commandTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: false) { [weak self] _ in
+      print("Command timed out, dropping and continuing with next command")
+      self?.handleCommandComplete()
+    }
+  }
 
   private func createVescPacket(payload: [UInt8]) -> [UInt8] {
     var packet: [UInt8] = []
