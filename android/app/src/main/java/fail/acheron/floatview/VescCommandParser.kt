@@ -1,7 +1,5 @@
 package fail.acheron.floatview
 
-// TODO: a lot of "toDouble" being called, probably should keep proper types in generated classes
-
 class VescCommandParser() {
     /*
      * Vesc command
@@ -18,7 +16,7 @@ class VescCommandParser() {
             val sb = StringBuilder()
             for (i in 0 until 12) {
                 val v = buf.readUInt8()
-                if (v < 10) {
+                if (v < 10U) {
                     sb.append("0")
                     sb.append(v.toString(16))
                 } else {
@@ -30,27 +28,27 @@ class VescCommandParser() {
 
         var isPaired: Boolean? = null
         if (buf.size() - buf.index >= 1) {
-            isPaired = buf.readUInt8() != 0
+            isPaired = buf.readUInt8() != 0U
         }
 
-        var betaVersion: Int? = null
+        var betaVersion: UInt? = null
         if (buf.size() - buf.index >= 1) {
             betaVersion = buf.readUInt8()
         }
 
-        var hwType: Int? = null
+        var hwType: UInt? = null
         if (buf.size() - buf.index >= 1) {
             hwType = buf.readUInt8()
         }
 
         return FirmwareObject.build {
-            this.major = major.toDouble()
-            this.minor = minor.toDouble()
+            this.major = major
+            this.minor = minor
             this.name = name
             this.uuid = uuid ?: ""
             this.isPaired = isPaired ?: false
-            this.betaVersion = betaVersion?.toDouble() ?: 0.0
-            this.hwType = hwType?.toDouble() ?: 0.0
+            this.betaVersion = betaVersion ?: 0U
+            this.hwType = hwType ?: 0U
         }
     }
 
@@ -69,9 +67,16 @@ class VescCommandParser() {
             this.ampHoursCharged = buf.readDouble32(10000)
             this.wattHoursConsumed = buf.readDouble32(10000)
             this.wattHoursCharged = buf.readDouble32(10000)
-            this.tachValue = buf.readInt32().toDouble()
-            this.tachAbs = buf.readInt32().toDouble()
-            this.faultCode = buf.readInt8().toDouble()
+            this.tachValue = buf.readInt32()
+            this.tachAbs = buf.readInt32()
+            this.faultCode = buf.readInt8()
+        }
+    }
+
+    fun getValuesSetup(buf: VescBuffer): GetValuesObject {
+        print(buf)
+        return GetValuesObject.build {
+            // TODO: implement
         }
     }
 
@@ -86,37 +91,37 @@ class VescCommandParser() {
 
     fun refloatRtData(buf: VescBuffer): RefloatRtDataObject {
         return RefloatRtDataObject.build {
-            this.balanceCurrent = buf.readFloat32().toDouble()
-            this.imuBalancePitch = buf.readFloat32().toDouble()
-            this.imuRoll = buf.readFloat32().toDouble()
+            this.balanceCurrent = buf.readFloat32()
+            this.imuBalancePitch = buf.readFloat32()
+            this.imuRoll = buf.readFloat32()
 
             val (state, satState) = buf.readUint8Pair()
-            this.state = state.toDouble()
-            this.satState = satState.toDouble()
+            this.state = state
+            this.satState = satState
 
             val (footpadState, beepReason) = buf.readUint8Pair()
-            this.footpadState = footpadState.toDouble()
-            this.beepReason = beepReason.toDouble()
+            this.footpadState = footpadState
+            this.beepReason = beepReason
 
-            this.adc1 = buf.readFloat32().toDouble()
-            this.adc2 = buf.readFloat32().toDouble()
+            this.adc1 = buf.readFloat32()
+            this.adc2 = buf.readFloat32()
 
-            this.setpoint = buf.readFloat32().toDouble()
-            this.setpointAtr = buf.readFloat32().toDouble()
-            this.setpointBrakeTilt = buf.readFloat32().toDouble()
-            this.setpointTorqueTilt = buf.readFloat32().toDouble()
-            this.setpointTurnTilt = buf.readFloat32().toDouble()
-            this.setpointRemote = buf.readFloat32().toDouble()
+            this.setpoint = buf.readFloat32()
+            this.setpointAtr = buf.readFloat32()
+            this.setpointBrakeTilt = buf.readFloat32()
+            this.setpointTorqueTilt = buf.readFloat32()
+            this.setpointTurnTilt = buf.readFloat32()
+            this.setpointRemote = buf.readFloat32()
 
-            this.imuPitch = buf.readFloat32().toDouble()
-            this.motorFilterCurrent = buf.readFloat32().toDouble()
-            this.atrAccelerationDiff = buf.readFloat32().toDouble()
+            this.imuPitch = buf.readFloat32()
+            this.motorFilterCurrent = buf.readFloat32()
+            this.atrAccelerationDiff = buf.readFloat32()
 
             // TODO: switch on state
-            this.boosterCurrent = buf.readFloat32().toDouble()
-            this.motorDirCurrent = buf.readFloat32().toDouble()
+            this.boosterCurrent = buf.readFloat32()
+            this.motorDirCurrent = buf.readFloat32()
 
-            this.remoteInput = buf.readFloat32().toDouble()
+            this.remoteInput = buf.readFloat32()
         }
     }
 }

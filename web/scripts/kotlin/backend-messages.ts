@@ -44,8 +44,12 @@ export function generateKotlinBackendMessages(schema: VariantSchema) {
 					lines.push(') {');
 					lines.push('  fun toJsonObject(): JsonObject {');
 					lines.push('    return buildJsonObject {');
-					for (const [propName] of Object.entries(def.properties ?? {})) {
-						lines.push(`      put("${propName}", ${propName})`);
+					for (const [propName, typeName] of fields) {
+						if (typeName.includes('Int')) {
+							lines.push(`      put("${propName}", ${propName}.toDouble())`);
+						} else {
+							lines.push(`      put("${propName}", ${propName})`);
+						}
 					}
 					lines.push('    }');
 					lines.push('  }');

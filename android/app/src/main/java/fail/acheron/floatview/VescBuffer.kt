@@ -26,15 +26,15 @@ class VescBuffer(private val buffer: ByteArray) {
         }
     }
 
-    fun readUint8Pair(): Pair<Int, Int> {
+    fun readUint8Pair(): Pair<UInt, UInt> {
         val byte = readUInt8()
-        val upper = (byte shr 4) and 0x0F  // Extract upper 4 bits
-        val lower = byte and 0x0F          // Extract lower 4 bits
+        val upper = (byte shr 4) and 0x0FU  // Extract upper 4 bits
+        val lower = byte and 0x0FU          // Extract lower 4 bits
         return Pair(upper, lower)
     }
 
-    fun readUInt8(): Int {
-        val value = buffer[index].toInt() and 0xFF
+    fun readUInt8(): UInt {
+        val value = buffer[index].toUInt() and 0xFFU
         index += 1
         return value
     }
@@ -91,8 +91,8 @@ class VescBuffer(private val buffer: ByteArray) {
         val sb = StringBuilder()
         while (index < buffer.size) {
             val b = readUInt8()
-            if (b == 0x00) break
-            sb.append(b.toChar())
+            if (b == 0x00U) break
+            sb.append(b.toInt().toChar())
         }
         return sb.toString()
     }

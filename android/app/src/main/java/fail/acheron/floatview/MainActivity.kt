@@ -78,6 +78,7 @@ class MainActivity : AppCompatActivity() {
                     when (msg.cmd) {
                         is Cmd.CommFwVersion -> vescBle.sendCommand(vescCmds.firmware())
                         is Cmd.CommGetValues -> vescBle.sendCommand(vescCmds.getValues())
+                        is Cmd.CommGetValuesSetup -> vescBle.sendCommand(vescCmds.getValuesSetup())
                         is Cmd.CommCustomAppData -> {
                             val cmd = msg.cmd.appCommand
                             when (cmd) {
@@ -89,6 +90,11 @@ class MainActivity : AppCompatActivity() {
                                 is AppCommand.CommandGetRtdata ->
                                         vescBle.sendCommand(
                                                 vescCmds.refloatRtdata(),
+                                                BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
+                                        )
+                                is AppCommand.CommandGetAlldata ->
+                                        vescBle.sendCommand(
+                                                vescCmds.refloatGetAlldata(cmd.mode),
                                                 BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
                                         )
                             }

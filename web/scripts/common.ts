@@ -59,14 +59,14 @@ export function getKindEnumName(field: Property) {
 export const VescDataTypeToKotlinType: Record<VescDataType, [string, string]> = {
 	[VescDataType.Double16]: ['Double', '0.0'],
 	[VescDataType.Double32]: ['Double', '0.0'],
-	[VescDataType.Float32]: ['Float', '0.0'],
+	[VescDataType.Float32]: ['Float', '0.0f'],
 	[VescDataType.Int8]: ['Int', '0'],
 	[VescDataType.Int16]: ['Int', '0'],
 	[VescDataType.Int32]: ['Int', '0'],
 	[VescDataType.String]: ['String', '""'],
-	[VescDataType.UInt8]: ['UInt', '0'],
-	[VescDataType.UInt16]: ['UInt', '0'],
-	[VescDataType.UInt32]: ['UInt', '0'],
+	[VescDataType.UInt8]: ['UInt', '0U'],
+	[VescDataType.UInt16]: ['UInt', '0U'],
+	[VescDataType.UInt32]: ['UInt', '0U'],
 };
 
 export const VescDataTypeToSwiftType: Record<VescDataType, [string, string]> = {

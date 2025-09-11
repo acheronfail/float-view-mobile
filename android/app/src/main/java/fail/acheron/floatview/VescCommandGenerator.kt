@@ -28,6 +28,10 @@ class VescCommandGenerator(private var canId: Int? = null) {
         return getPayload(CommPacketId.COMM_GET_VALUES())
     }
 
+    fun getValuesSetup(): List<Int> {
+        return getPayload(CommPacketId.COMM_GET_VALUES_SETUP())
+    }
+
     /*
      * Refloat commands
      */
@@ -42,5 +46,9 @@ class VescCommandGenerator(private var canId: Int? = null) {
 
     fun refloatRtdata(): List<Int> {
         return getRefloatPayload(RefloatCommPacketId.COMMAND_GET_RTDATA())
+    }
+
+    fun refloatGetAlldata(mode: Int): List<Int> {
+        return getRefloatPayload(RefloatCommPacketId.COMMAND_GET_ALLDATA(), mode)
     }
 }

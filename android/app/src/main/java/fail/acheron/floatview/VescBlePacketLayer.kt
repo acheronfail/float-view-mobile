@@ -49,7 +49,7 @@ class VescBlePacketLayer(
                         )
                 CommPacketId.COMM_CUSTOM_APP_DATA -> {
                     buf.readUInt8() // appId
-                    val refloatPacketId = RefloatCommPacketId.fromInt(buf.readUInt8())
+                    val refloatPacketId = RefloatCommPacketId.fromInt(buf.readInt8())
                     if (refloatPacketId == null) {
                         return LocalServer.broadcastMessage(
                                 BackendMessage.commandError("Unknown Refloat packet ID: $command")

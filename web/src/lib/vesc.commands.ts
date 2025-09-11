@@ -218,13 +218,13 @@ export const VescCommand = z.discriminatedUnion('kind', [
  */
 
 export const VFirmware = z.object({
-	major: z.number(),
-	minor: z.number(),
+	major: typedNumber(VescDataType.UInt8),
+	minor: typedNumber(VescDataType.UInt8),
 	name: z.string(),
 	uuid: z.string(),
 	isPaired: z.boolean(),
-	betaVersion: z.number(),
-	hwType: z.number()
+	betaVersion: typedNumber(VescDataType.UInt8),
+	hwType: typedNumber(VescDataType.UInt8)
 });
 export type ZVFirmware = z.infer<typeof VFirmware>;
 
