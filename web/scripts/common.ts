@@ -1,5 +1,6 @@
 import { CommPacketId } from '../src/lib/vesc.commands';
 import { RefloatCommPacketId } from '../src/lib/refloat.commands';
+import { VescDataType } from '../src/lib/vesc.types';
 
 export type VariantSchema = {
 	anyOf: ObjectSchema[];
@@ -54,3 +55,29 @@ export function getKindEnumName(field: Property) {
 			throw new Error(`Unknown enum mapping: ${JSON.stringify(field)}`);
 	}
 }
+
+export const VescDataTypeToKotlinType: Record<VescDataType, [string, string]> = {
+	[VescDataType.Double16]: ['Double', '0.0'],
+	[VescDataType.Double32]: ['Double', '0.0'],
+	[VescDataType.Float32]: ['Float', '0.0'],
+	[VescDataType.Int8]: ['Int', '0'],
+	[VescDataType.Int16]: ['Int', '0'],
+	[VescDataType.Int32]: ['Int', '0'],
+	[VescDataType.String]: ['String', '""'],
+	[VescDataType.UInt8]: ['UInt', '0'],
+	[VescDataType.UInt16]: ['UInt', '0'],
+	[VescDataType.UInt32]: ['UInt', '0'],
+};
+
+export const VescDataTypeToSwiftType: Record<VescDataType, [string, string]> = {
+	[VescDataType.Double16]: ['Double', '0.0'],
+	[VescDataType.Double32]: ['Double', '0.0'],
+	[VescDataType.Float32]: ['Float', '0.0'],
+	[VescDataType.Int8]: ['Int8', '0'],
+	[VescDataType.Int16]: ['Int16', '0'],
+	[VescDataType.Int32]: ['Int32', '0'],
+	[VescDataType.String]: ['String', '""'],
+	[VescDataType.UInt8]: ['UInt8', '0'],
+	[VescDataType.UInt16]: ['UInt16', '0'],
+	[VescDataType.UInt32]: ['UInt32', '0'],
+};

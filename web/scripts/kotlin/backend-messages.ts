@@ -1,4 +1,4 @@
-import { Property, VariantSchema } from '../common';
+import { Property, VariantSchema, VescDataTypeToKotlinType } from '../common';
 
 export function generateKotlinBackendMessages(schema: VariantSchema) {
 	const dataClassDefinitions: Map<string, string[]> = new Map();
@@ -11,6 +11,14 @@ export function generateKotlinBackendMessages(schema: VariantSchema) {
 		const suffix = isOptional ? '?' : '';
 		if ('anyOf' in def) {
 			throw new Error(`Variants not supported here: ${JSON.stringify(def)}`);
+		}
+
+		if ('description' in def && typeof def.description === 'string') {
+			const knownType = VescDataTypeToKotlinType[def.description];
+			if (knownType) {
+				const [typeName, defaultValue] = knownType;
+				return [typeName + suffix, isOptional ? 'null' : defaultValue];
+			}
 		}
 
 		switch (def.type) {

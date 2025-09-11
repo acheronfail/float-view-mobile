@@ -1,10 +1,22 @@
-import { Schema } from "../common";
+import { Property, VariantSchema, VescDataTypeToSwiftType } from '../common';
 
-export function generateSwiftBackendMessages(schema: Schema) {
+export function generateSwiftBackendMessages(schema: VariantSchema) {
 	const structDefinitions: Map<string, string[]> = new Map();
-	const getSwiftType = (name: string, def: Schema, required: string[]): [string, string] => {
+	const getSwiftType = (name: string, def: Property, required: string[]): [string, string] => {
 		const isOptional = !required.includes(name);
 		const suffix = isOptional ? '?' : '';
+		if ('anyOf' in def) {
+			throw new Error(`Variants not supported here: ${JSON.stringify(def)}`);
+		}
+
+		if ('description' in def && typeof def.description === 'string') {
+			const knownType = VescDataTypeToSwiftType[def.description];
+			if (knownType) {
+				const [typeName, defaultValue] = knownType;
+				return [typeName + suffix, isOptional ? 'null' : defaultValue];
+			}
+		}
+
 		switch (def.type) {
 			case 'string':
 				return ['String' + suffix, isOptional ? 'nil' : '""'];
@@ -15,7 +27,7 @@ export function generateSwiftBackendMessages(schema: Schema) {
 			case 'object': {
 				const typeName = `${name[0].toUpperCase() + name.slice(1)}Object`;
 				if (!structDefinitions.has(typeName)) {
-					const fields = Object.entries<Schema>(def.properties ?? {}).map(([propName, propDef]) => [
+					const fields = Object.entries(def.properties ?? {}).map(([propName, propDef]) => [
 						propName,
 						...getSwiftType(propName, propDef, def.required ?? [])
 					]);
@@ -28,7 +40,7 @@ export function generateSwiftBackendMessages(schema: Schema) {
 					structLines.push('');
 					structLines.push('  func toDictionary() -> [String:Any?] {');
 					structLines.push('    return [');
-					for (const [propName] of Object.entries<Schema>(def.properties ?? {})) {
+					for (const [propName] of Object.entries(def.properties ?? {})) {
 						structLines.push(`      "${propName}": ${propName},`);
 					}
 					structLines.push('    ]');
@@ -63,7 +75,7 @@ export function generateSwiftBackendMessages(schema: Schema) {
 				return [typeName, isOptional ? 'nil' : '?'];
 			}
 			default:
-				throw new Error(`Unsupported type: ${def.type}`);
+				throw new Error(`Unsupported type: ${JSON.stringify(def)}`);
 		}
 	};
 
@@ -75,7 +87,7 @@ export function generateSwiftBackendMessages(schema: Schema) {
 		const { kind, ...rest } = variant.properties ?? {};
 		const { const: name } = kind;
 
-		const parameters = Object.entries<Schema>(rest).map(([propName, propDef]) => [
+		const parameters = Object.entries(rest).map(([propName, propDef]) => [
 			propName,
 			...getSwiftType(propName, propDef, required)
 		]);

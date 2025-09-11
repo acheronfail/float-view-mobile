@@ -1,23 +1,22 @@
 <script lang="ts">
 	import { onMount, untrack } from 'svelte';
 	import { ArrowDown, ArrowUp } from '@lucide/svelte';
-	import {
-		parseMessage,
-		type ZVFirmware,
-		type ZRefloatRtData
-	} from '../../../lib/backend-client.types';
+	import { parseMessage } from '../../../lib/backend-client.types';
 	import { getAppContext } from '../../../lib/context/app.svelte';
 	import { goto } from '$app/navigation';
 	import type { PageProps } from './$types';
-	import { CommPacketId } from '../../../lib/vesc.commands';
-	import { RefloatCommPacketId, RefloatPackageId } from '../../../lib/refloat.commands';
+	import { CommPacketId, type ZVFirmware, type ZVGetValues } from '../../../lib/vesc.commands';
+	import {
+		RefloatCommPacketId,
+		RefloatPackageId,
+		type ZRefloatRtData
+	} from '../../../lib/refloat.commands';
 
 	let app = getAppContext();
 
 	let { params }: PageProps = $props();
 
 	$effect(() => {
-		console.log(app.connectedAddresses);
 		if (!app.connectedAddresses.has(params.address)) {
 			goto('/');
 		}
@@ -27,6 +26,7 @@
 	let scrolledMoreThanHalf = $state(false);
 
 	let fw = $state<ZVFirmware | null>(null);
+	let vv = $state<ZVGetValues | null>(null);
 	let rtData = $state<ZRefloatRtData | null>(null);
 
 	let ready = $derived(() => !!fw);
@@ -56,6 +56,8 @@
 					alert(`Command error: ${msg.message}`);
 				} else if (msg.kind === 'vescFirmware' && msg.address === params.address) {
 					fw = msg.firmware;
+				} else if (msg.kind === 'vescGetValues' && msg.address === params.address) {
+					vv = msg.getValues;
 				} else if (msg.kind === 'logData' && msg.address === params.address) {
 					rtData = msg.data;
 				}
@@ -115,6 +117,12 @@
 		app.sendCommand({
 			kind: 'command',
 			address: params.address,
+			cmd: { kind: CommPacketId.COMM_GET_VALUES }
+		});
+
+		app.sendCommand({
+			kind: 'command',
+			address: params.address,
 			cmd: {
 				kind: CommPacketId.COMM_CUSTOM_APP_DATA,
 				appId: RefloatPackageId,
@@ -157,12 +165,13 @@
 
 		<!-- Middle row: three columns a, b, c -->
 		<div class="grid flex-1 grid-cols-8 rounded-lg">
-			<div class="flex items-center justify-center rounded">TODO V</div>
+			<div class="flex items-center justify-center rounded">{fmt(vv?.voltage ?? 0)} V</div>
 			<div class="col-span-6 flex items-center justify-center rounded">
 				<!-- TODO: easy to grok gauges + pitch/roll visualisations -->
+				<!-- TODO: where to get speed from? -->
 				<ul class="font-mono">
-					<li>Speed: TODO km/h</li>
-					<li>Duty: TODO%</li>
+					<li>Speed: {fmt(vv?.erpm ?? 0)} km/h</li>
+					<li>Duty: {fmt(vv?.dutyCycle ?? 0)}%</li>
 					<li>Pitch: {fmt(rtData?.imuPitch ?? 0)}°</li>
 					<li>Roll: {fmt(rtData?.imuRoll ?? 0)}°</li>
 				</ul>

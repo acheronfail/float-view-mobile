@@ -1,12 +1,9 @@
 import express from 'express';
 import { createServer } from 'http';
 import { WebSocketServer } from 'ws';
-import {
-	ZBackendCommand,
-	ZBackendMessage,
-	ZRefloatRtData
-} from '../src/lib/backend-client.types.js';
-import { CommPacketId } from '../src/lib/vesc.commands.js';
+import { ZBackendCommand, ZBackendMessage } from '../src/lib/backend-client.types.js';
+import { CommPacketId, ZVGetValues } from '../src/lib/vesc.commands.js';
+import { ZRefloatRtData } from '../src/lib/refloat.commands.js';
 
 const PORT = 3001;
 
@@ -20,6 +17,8 @@ wss.on('connection', (ws) => {
 	const reply = (msg: ZBackendMessage) => ws.send(JSON.stringify(msg));
 
 	reply({ kind: 'socketWelcome' });
+
+	const getMockVGetValues = mockVGetValuesCreator();
 
 	let logInterval: NodeJS.Timeout | null = null;
 	ws.on('message', async (data) => {
@@ -77,6 +76,13 @@ wss.on('connection', (ws) => {
 									}
 								});
 								break;
+							case CommPacketId.COMM_GET_VALUES:
+								reply({
+									kind: 'vescGetValues',
+									address: address!,
+									getValues: getMockVGetValues()
+								});
+								break;
 							default:
 								console.error('Unhandled command:', cmd);
 								break;
@@ -86,7 +92,7 @@ wss.on('connection', (ws) => {
 				case 'logStart':
 					{
 						const { address, intervalMs } = message;
-						const getMockData = mockDataCreator();
+						const getMockData = mockRefloatRtDataCreator();
 						logInterval = setInterval(
 							() => reply({ kind: 'logData', address: address!, data: getMockData() }),
 							intervalMs
@@ -120,7 +126,7 @@ server.listen(PORT, () => {
 	console.log(`Mock server started on ${PORT}`);
 });
 
-function mockDataCreator(): () => ZRefloatRtData {
+function mockRefloatRtDataCreator(): () => ZRefloatRtData {
 	const randBw = (min: number, max: number) => Math.random() * (max - min) + min;
 	const d: ZRefloatRtData = {
 		balanceCurrent: 0,
@@ -143,7 +149,7 @@ function mockDataCreator(): () => ZRefloatRtData {
 		atrAccelerationDiff: 0,
 		boosterCurrent: 0,
 		motorDirCurrent: 0,
-		remoteInput: 0,
+		remoteInput: 0
 	};
 
 	function smooth(current: number, min: number, max: number, maxChange: number = 0.1): number {
@@ -158,6 +164,53 @@ function mockDataCreator(): () => ZRefloatRtData {
 		d.setpoint = smooth(d.setpoint ?? 0, -10, 10, 0.15);
 		d.imuBalancePitch = smooth(d.imuBalancePitch, -10, 10, 0.2);
 		d.imuPitch = smooth(d.imuPitch, -10, 10, 0.2);
+
+		return d;
+	};
+}
+
+function mockVGetValuesCreator(): () => ZVGetValues {
+	const randBw = (min: number, max: number) => Math.random() * (max - min) + min;
+	const d: ZVGetValues = {
+		tempMosfet: randBw(25, 45), // MOSFET temperature in Celsius
+		tempMotor: randBw(20, 40), // Motor temperature in Celsius
+		currentMotor: randBw(-5, 15), // Motor current in Amps
+		currentBattery: randBw(-3, 12), // Battery current in Amps
+		id: randBw(-2, 8), // Direct axis current
+		iq: randBw(-10, 25), // Quadrature axis current
+		dutyCycle: randBw(0, 0.3), // Duty cycle (0-1)
+		erpm: randBw(-3000, 8000), // Electrical RPM
+		voltage: randBw(45, 58), // Battery voltage
+		ampHoursConsumed: randBw(0, 5), // Amp hours consumed
+		ampHoursCharged: randBw(0, 0.5), // Amp hours charged (regenerative braking)
+		wattHoursConsumed: randBw(0, 250), // Watt hours consumed
+		wattHoursCharged: randBw(0, 25), // Watt hours charged
+		tachValue: randBw(0, 100000), // Tachometer value
+		tachAbs: randBw(0, 100000), // Absolute tachometer value
+		faultCode: 0 // No fault
+	};
+
+	function smooth(current: number, min: number, max: number, maxChange: number = 0.1): number {
+		const change = (Math.random() - 0.5) * 2 * maxChange * (max - min);
+		return Math.max(min, Math.min(max, current + change));
+	}
+
+	return () => {
+		d.tempMosfet = smooth(d.tempMosfet, 25, 45, 0.05);
+		d.tempMotor = smooth(d.tempMotor, 20, 40, 0.05);
+		d.currentMotor = smooth(d.currentMotor, -5, 15, 0.2);
+		d.currentBattery = smooth(d.currentBattery, -3, 12, 0.2);
+		d.id = smooth(d.id, -2, 8, 0.15);
+		d.iq = smooth(d.iq, -10, 25, 0.3);
+		d.dutyCycle = smooth(d.dutyCycle, 0, 0.3, 0.1);
+		d.erpm = smooth(d.erpm, -3000, 8000, 0.2);
+		d.voltage = smooth(d.voltage, 45, 58, 0.02);
+		d.ampHoursConsumed = smooth(d.ampHoursConsumed, 0, 5, 0.01);
+		d.ampHoursCharged = smooth(d.ampHoursCharged, 0, 0.5, 0.01);
+		d.wattHoursConsumed = smooth(d.wattHoursConsumed, 0, 250, 0.01);
+		d.wattHoursCharged = smooth(d.wattHoursCharged, 0, 25, 0.01);
+		d.tachValue += randBw(-50, 100); // Tachometer increments
+		d.tachAbs += randBw(-50, 100);
 
 		return d;
 	};

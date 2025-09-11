@@ -1,4 +1,4 @@
-import z from 'zod';
+import z, { number } from 'zod';
 import { VescDataType } from './vesc.types';
 
 export const RefloatPackageId = 101;
@@ -53,9 +53,46 @@ const id = (id: RefloatCommPacketId) => z.literal(id).describe('RefloatCommPacke
 export const RefloatCommand = z.discriminatedUnion('kind', [
 	z.object({
 		kind: id(RefloatCommPacketId.COMMAND_INFO),
-		version: z.number().describe(VescDataType.UInt8)
+		version: number(VescDataType.Int8)
 	}),
 	z.object({
 		kind: id(RefloatCommPacketId.COMMAND_GET_RTDATA)
 	})
 ]);
+
+/*
+ * Responses
+ */
+
+export const RefloatRtData = z.object({
+	balanceCurrent: z.number(),
+	imuBalancePitch: z.number(),
+	imuRoll: z.number(),
+	satState: z.number(),
+	state: z.number(),
+	footpadState: z.number(),
+	beepReason: z.number(),
+	adc1: z.number(),
+	adc2: z.number(),
+	setpoint: z.number(),
+	setpointAtr: z.number(),
+	setpointBrakeTilt: z.number(),
+	setpointTorqueTilt: z.number(),
+	setpointTurnTilt: z.number(),
+	setpointRemote: z.number(),
+	imuPitch: z.number(),
+	motorFilterCurrent: z.number(),
+	atrAccelerationDiff: z.number(),
+	boosterCurrent: z.number(),
+	motorDirCurrent: z.number(),
+	remoteInput: z.number()
+});
+export type ZRefloatRtData = z.infer<typeof RefloatRtData>;
+
+export const refloatResponseSchemas = [
+	z.object({
+		kind: z.literal('refloatRtData'),
+		address: z.string(),
+		refloatRtData: RefloatRtData
+	})
+];

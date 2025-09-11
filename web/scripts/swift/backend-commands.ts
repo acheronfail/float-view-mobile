@@ -1,11 +1,19 @@
 import { camelCase, pascalCase } from 'change-case';
-import { getKindEnumName, Property, VariantSchema } from '../common';
+import { getKindEnumName, Property, VariantSchema, VescDataTypeToSwiftType } from '../common';
 
 function getTypeName(fieldName: string, fieldSchema: Property, required: string[]) {
 	const isOptional = !required.includes(fieldName);
 	const suffix = isOptional ? '?' : '';
 	if ('anyOf' in fieldSchema) {
 		throw new Error(`Variants not supported here: ${JSON.stringify(fieldSchema)}`);
+	}
+
+	if ('description' in fieldSchema && typeof fieldSchema.description === 'string') {
+		const knownType = VescDataTypeToSwiftType[fieldSchema.description];
+		if (knownType) {
+			const [typeName] = knownType;
+			return typeName + suffix;
+		}
 	}
 
 	switch (fieldSchema.type) {

@@ -1,5 +1,5 @@
 import { pascalCase } from 'change-case';
-import { getKindEnumName, Property, VariantSchema } from '../common';
+import { getKindEnumName, Property, VariantSchema, VescDataTypeToKotlinType } from '../common';
 
 function getTypeName(fieldName: string, fieldSchema: Property, required: string[]) {
 	const isOptional = !required.includes(fieldName);
@@ -8,6 +8,15 @@ function getTypeName(fieldName: string, fieldSchema: Property, required: string[
 		throw new Error('Variants are not supportd here');
 	}
 
+	if ('description' in fieldSchema && typeof fieldSchema.description === 'string') {
+		const knownType = VescDataTypeToKotlinType[fieldSchema.description];
+		if (knownType) {
+			const [typeName] = knownType;
+			return typeName + suffix;
+		}
+	}
+
+	// console.log(fieldSchema);
 	switch (fieldSchema.type) {
 		case 'string':
 			return 'String' + suffix;

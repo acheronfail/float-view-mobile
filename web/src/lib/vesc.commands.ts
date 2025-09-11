@@ -1,5 +1,6 @@
 import z from 'zod';
 import { RefloatCommand, RefloatPackageId } from './refloat.commands';
+import { number, VescDataType } from './vesc.types';
 
 // https://github.com/vedderb/bldc/blob/e7ca1a26517b1010bbe49a2ca25add810d2d93f2/datatypes.h#L942
 export enum CommPacketId {
@@ -204,9 +205,89 @@ const id = (id: CommPacketId) => z.literal(id).describe('CommPacketId');
 export const VescCommand = z.discriminatedUnion('kind', [
 	z.object({ kind: id(CommPacketId.COMM_FW_VERSION) }),
 	z.object({ kind: id(CommPacketId.COMM_GET_VALUES) }),
+	z.object({ kind: id(CommPacketId.COMM_GET_VALUES_SETUP) }),
 	z.object({
 		kind: id(CommPacketId.COMM_CUSTOM_APP_DATA),
 		appId: z.literal(RefloatPackageId),
 		appCommand: RefloatCommand
 	})
 ]);
+
+/*
+ * Responses
+ */
+
+export const VFirmware = z.object({
+	major: z.number(),
+	minor: z.number(),
+	name: z.string(),
+	uuid: z.string(),
+	isPaired: z.boolean(),
+	betaVersion: z.number(),
+	hwType: z.number()
+});
+export type ZVFirmware = z.infer<typeof VFirmware>;
+
+export const VGetValues = z.object({
+	tempMosfet: number(VescDataType.Double16),
+	tempMotor: number(VescDataType.Double16),
+	currentMotor: number(VescDataType.Double32),
+	currentBattery: number(VescDataType.Double32),
+	id: number(VescDataType.Double32),
+	iq: number(VescDataType.Double32),
+	dutyCycle: number(VescDataType.Double16),
+	erpm: number(VescDataType.Double32),
+	voltage: number(VescDataType.Double16),
+	ampHoursConsumed: number(VescDataType.Double32),
+	ampHoursCharged: number(VescDataType.Double32),
+	wattHoursConsumed: number(VescDataType.Double32),
+	wattHoursCharged: number(VescDataType.Double32),
+	tachValue: number(VescDataType.Int32),
+	tachAbs: number(VescDataType.Int32),
+	faultCode: number(VescDataType.Int8)
+});
+export type ZVGetValues = z.infer<typeof VGetValues>;
+
+export const VGetValuesSetup = z.object({
+	tempMosfet: number(VescDataType.Double16),
+	tempMotor: number(VescDataType.Double16),
+	currentMotor: number(VescDataType.Double32),
+	currentBattery: number(VescDataType.Double32),
+	dutyCycle: number(VescDataType.Double16),
+	erpm: number(VescDataType.Double32),
+	speed: number(VescDataType.Double32),
+	voltage: number(VescDataType.Double16),
+	batteryLevel: number(VescDataType.Double16),
+	ampHoursConsumed: number(VescDataType.Double32),
+	ampHoursCharged: number(VescDataType.Double32),
+	wattHoursConsumed: number(VescDataType.Double32),
+	wattHoursCharged: number(VescDataType.Double32),
+	tachValue: number(VescDataType.Int32),
+	tachAbs: number(VescDataType.Int32),
+	pidPos: number(VescDataType.Double32),
+	faultCode: number(VescDataType.Int8),
+	controllerId: number(VescDataType.Int8),
+	numVescs: number(VescDataType.Int8),
+	wattHoursRemaining: number(VescDataType.Double32),
+	odometer: number(VescDataType.UInt32),
+	loopTime: number(VescDataType.UInt32)
+});
+export type ZVGetValuesSetup = z.infer<typeof VGetValuesSetup>;
+
+export const vescResponseSchemas = [
+	z.object({
+		kind: z.literal('vescFirmware'),
+		address: z.string(),
+		firmware: VFirmware
+	}),
+	z.object({
+		kind: z.literal('vescGetValues'),
+		address: z.string(),
+		getValues: VGetValues
+	}),
+	z.object({
+		kind: z.literal('vescGetValuesSetup'),
+		address: z.string(),
+		getValues: VGetValuesSetup
+	})
+];

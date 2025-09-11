@@ -1,5 +1,6 @@
 import z from 'zod';
-import { VescCommand } from './vesc.commands';
+import { VescCommand, vescResponseSchemas } from './vesc.commands';
+import { refloatResponseSchemas, RefloatRtData } from './refloat.commands';
 
 /*
  * Commands (frontend -> backend)
@@ -18,62 +19,6 @@ export type ZBackendCommand = z.infer<typeof BackendCommand>;
 /*
  * Messages (backend -> frontend)
  */
-
-export const VFirmware = z.object({
-	major: z.number(),
-	minor: z.number(),
-	name: z.string(),
-	uuid: z.string(),
-	isPaired: z.boolean(),
-	betaVersion: z.number(),
-	hwType: z.number()
-});
-export type ZVFirmware = z.infer<typeof VFirmware>;
-
-export const VGetValues = z.object({
-	tempMosfet: z.number(),
-	tempMotor: z.number(),
-	currentMotor: z.number(),
-	currentBattery: z.number(),
-	id: z.number(),
-	iq: z.number(),
-	dutyCycle: z.number(),
-	erpm: z.number(),
-	voltage: z.number(),
-	ampHoursConsumed: z.number(),
-	ampHoursCharged: z.number(),
-	wattHoursConsumed: z.number(),
-	wattHoursCharged: z.number(),
-	tachValue: z.number(),
-	tachAbs: z.number(),
-	faultCode: z.number()
-});
-export type ZVGetValues = z.infer<typeof VGetValues>;
-
-export const RefloatRtData = z.object({
-	balanceCurrent: z.number(),
-	imuBalancePitch: z.number(),
-	imuRoll: z.number(),
-	satState: z.number(),
-	state: z.number(),
-	footpadState: z.number(),
-	beepReason: z.number(),
-	adc1: z.number(),
-	adc2: z.number(),
-	setpoint: z.number(),
-	setpointAtr: z.number(),
-	setpointBrakeTilt: z.number(),
-	setpointTorqueTilt: z.number(),
-	setpointTurnTilt: z.number(),
-	setpointRemote: z.number(),
-	imuPitch: z.number(),
-	motorFilterCurrent: z.number(),
-	atrAccelerationDiff: z.number(),
-	boosterCurrent: z.number(),
-	motorDirCurrent: z.number(),
-	remoteInput: z.number()
-});
-export type ZRefloatRtData = z.infer<typeof RefloatRtData>;
 
 const CommonError = { message: z.string() };
 export const BackendMessage = z.discriminatedUnion('kind', [
@@ -103,24 +48,8 @@ export const BackendMessage = z.discriminatedUnion('kind', [
 	// commands
 	z.object({ kind: z.literal('commandError') }).extend(CommonError),
 
-	// vesc commands
-	z.object({
-		kind: z.literal('vescFirmware'),
-		address: z.string(),
-		firmware: VFirmware
-	}),
-	z.object({
-		kind: z.literal('vescGetValues'),
-		address: z.string(),
-		getValues: VGetValues
-	}),
-
-	// refloat commands
-	z.object({
-		kind: z.literal('refloatRtData'),
-		address: z.string(),
-		refloatRtData: RefloatRtData
-	}),
+	...vescResponseSchemas,
+	...refloatResponseSchemas,
 
 	// log
 	z.object({ kind: z.literal('logStart'), address: z.string(), intervalMs: z.number() }),
