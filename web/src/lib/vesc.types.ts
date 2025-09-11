@@ -1,6 +1,7 @@
 import z from 'zod';
 
-export const number = (type: VescDataType) => z.number().describe(type);
+export const typedNumber = (type: VescDataType) => z.number().describe(type);
+export const typedLiteral = (value: number, type: VescDataType) => z.literal(value).describe(type);
 
 export enum VescDataType {
 	UInt8 = 'uint8',

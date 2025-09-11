@@ -1,6 +1,6 @@
 import z from 'zod';
 import { RefloatCommand, RefloatPackageId } from './refloat.commands';
-import { number, VescDataType } from './vesc.types';
+import { typedNumber, VescDataType } from './vesc.types';
 
 // https://github.com/vedderb/bldc/blob/e7ca1a26517b1010bbe49a2ca25add810d2d93f2/datatypes.h#L942
 export enum CommPacketId {
@@ -229,48 +229,48 @@ export const VFirmware = z.object({
 export type ZVFirmware = z.infer<typeof VFirmware>;
 
 export const VGetValues = z.object({
-	tempMosfet: number(VescDataType.Double16),
-	tempMotor: number(VescDataType.Double16),
-	currentMotor: number(VescDataType.Double32),
-	currentBattery: number(VescDataType.Double32),
-	id: number(VescDataType.Double32),
-	iq: number(VescDataType.Double32),
-	dutyCycle: number(VescDataType.Double16),
-	erpm: number(VescDataType.Double32),
-	voltage: number(VescDataType.Double16),
-	ampHoursConsumed: number(VescDataType.Double32),
-	ampHoursCharged: number(VescDataType.Double32),
-	wattHoursConsumed: number(VescDataType.Double32),
-	wattHoursCharged: number(VescDataType.Double32),
-	tachValue: number(VescDataType.Int32),
-	tachAbs: number(VescDataType.Int32),
-	faultCode: number(VescDataType.Int8)
+	tempMosfet: typedNumber(VescDataType.Double16),
+	tempMotor: typedNumber(VescDataType.Double16),
+	currentMotor: typedNumber(VescDataType.Double32),
+	currentBattery: typedNumber(VescDataType.Double32),
+	id: typedNumber(VescDataType.Double32),
+	iq: typedNumber(VescDataType.Double32),
+	dutyCycle: typedNumber(VescDataType.Double16),
+	erpm: typedNumber(VescDataType.Double32),
+	voltage: typedNumber(VescDataType.Double16),
+	ampHoursConsumed: typedNumber(VescDataType.Double32),
+	ampHoursCharged: typedNumber(VescDataType.Double32),
+	wattHoursConsumed: typedNumber(VescDataType.Double32),
+	wattHoursCharged: typedNumber(VescDataType.Double32),
+	tachValue: typedNumber(VescDataType.Int32),
+	tachAbs: typedNumber(VescDataType.Int32),
+	faultCode: typedNumber(VescDataType.Int8)
 });
 export type ZVGetValues = z.infer<typeof VGetValues>;
 
 export const VGetValuesSetup = z.object({
-	tempMosfet: number(VescDataType.Double16),
-	tempMotor: number(VescDataType.Double16),
-	currentMotor: number(VescDataType.Double32),
-	currentBattery: number(VescDataType.Double32),
-	dutyCycle: number(VescDataType.Double16),
-	erpm: number(VescDataType.Double32),
-	speed: number(VescDataType.Double32),
-	voltage: number(VescDataType.Double16),
-	batteryLevel: number(VescDataType.Double16),
-	ampHoursConsumed: number(VescDataType.Double32),
-	ampHoursCharged: number(VescDataType.Double32),
-	wattHoursConsumed: number(VescDataType.Double32),
-	wattHoursCharged: number(VescDataType.Double32),
-	tachValue: number(VescDataType.Int32),
-	tachAbs: number(VescDataType.Int32),
-	pidPos: number(VescDataType.Double32),
-	faultCode: number(VescDataType.Int8),
-	controllerId: number(VescDataType.Int8),
-	numVescs: number(VescDataType.Int8),
-	wattHoursRemaining: number(VescDataType.Double32),
-	odometer: number(VescDataType.UInt32),
-	loopTime: number(VescDataType.UInt32)
+	tempMosfet: typedNumber(VescDataType.Double16),
+	tempMotor: typedNumber(VescDataType.Double16),
+	currentMotor: typedNumber(VescDataType.Double32),
+	currentBattery: typedNumber(VescDataType.Double32),
+	dutyCycle: typedNumber(VescDataType.Double16),
+	erpm: typedNumber(VescDataType.Double32),
+	speed: typedNumber(VescDataType.Double32),
+	voltage: typedNumber(VescDataType.Double16),
+	batteryLevel: typedNumber(VescDataType.Double16),
+	ampHoursConsumed: typedNumber(VescDataType.Double32),
+	ampHoursCharged: typedNumber(VescDataType.Double32),
+	wattHoursConsumed: typedNumber(VescDataType.Double32),
+	wattHoursCharged: typedNumber(VescDataType.Double32),
+	tachValue: typedNumber(VescDataType.Int32),
+	tachAbs: typedNumber(VescDataType.Int32),
+	pidPos: typedNumber(VescDataType.Double32),
+	faultCode: typedNumber(VescDataType.Int8),
+	controllerId: typedNumber(VescDataType.Int8),
+	numVescs: typedNumber(VescDataType.Int8),
+	wattHoursRemaining: typedNumber(VescDataType.Double32),
+	odometer: typedNumber(VescDataType.UInt32),
+	loopTime: typedNumber(VescDataType.UInt32)
 });
 export type ZVGetValuesSetup = z.infer<typeof VGetValuesSetup>;
 

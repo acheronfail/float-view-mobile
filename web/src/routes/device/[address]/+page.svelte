@@ -29,6 +29,8 @@
 	let vv = $state<ZVGetValues | null>(null);
 	let rtData = $state<ZRefloatRtData | null>(null);
 
+	// TODO: all data state - and send commands
+
 	let ready = $derived(() => !!fw);
 
 	// ask backend to start logging
@@ -117,16 +119,10 @@
 		app.sendCommand({
 			kind: 'command',
 			address: params.address,
-			cmd: { kind: CommPacketId.COMM_GET_VALUES }
-		});
-
-		app.sendCommand({
-			kind: 'command',
-			address: params.address,
 			cmd: {
 				kind: CommPacketId.COMM_CUSTOM_APP_DATA,
 				appId: RefloatPackageId,
-				appCommand: { kind: RefloatCommPacketId.COMMAND_GET_RTDATA }
+				appCommand: { kind: RefloatCommPacketId.COMMAND_GET_ALLDATA, mode: 4 }
 			}
 		});
 	});
