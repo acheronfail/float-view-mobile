@@ -1,6 +1,23 @@
 # Float View local API v1 proposal
 
-Status: design proposal, not yet the implemented contract.
+Status: accepted direction; Phase 1 implementation is in progress.
+
+Implemented so far:
+
+- `api/asyncapi.yaml` and JSON Schema 2020-12 definitions for common, system,
+  Bluetooth, device, telemetry, and logging state;
+- schema-validated `system.hello` request/response examples;
+- committed generated TypeScript, Swift, and Kotlin models with drift checks;
+- a transport-neutral TypeScript JSON-RPC client;
+- `/api/v1/ws` mock support for `system.hello` and `system.getSnapshot`;
+- stable error envelopes and focused client/mock-handler tests;
+- Swift and Kotlin example round-trip tests;
+- a reusable black-box system conformance suite running against the real mock
+  WebSocket.
+
+The legacy `/ws` contract remains the active UI/native path. Authentication,
+other operations, native service boundaries, native v1 dispatch, and
+hardware-backed conformance remain to be implemented.
 
 ## Decision summary
 
@@ -13,6 +30,11 @@ protocol while adding correlation, stable errors, notifications, version
 negotiation, and a standard request/response shape. Protobuf is not recommended
 for v1 because binary encoding and browser tooling add complexity without solving
 the harder problem: defining identical lifecycle behavior on every platform.
+
+VESC protocol behavior follows the precedence and provenance policy in
+[`reference-implementations.md`](reference-implementations.md). VESC Tool is the
+canonical implementation reference; the API contract does not expose its
+internal Qt types or make either upstream repository a build dependency.
 
 The HTTP server should serve only:
 
@@ -205,7 +227,7 @@ or `failed`. Duplicate advertisements update the same opaque `deviceId`.
 
 ### Devices and connections
 
-- `device.list`
+- `device.getActive`
 - `device.connect({ deviceId, timeoutMs })`
 - `device.disconnect({ deviceId })`
 - `device.get({ deviceId })`
@@ -228,8 +250,52 @@ ready -> reconnecting -> ready | disconnected
 
 `device.connect` succeeds when the backend accepts and begins the connection
 attempt; readiness is reported by state/event. A duplicate connect is idempotent
-when compatible with the existing attempt. The v1 capability may set
-`maxConnections: 1` without baking that limitation into response shapes.
+when compatible with the existing attempt. Exactly zero or one device may be
+actively connecting/connected. A request for a different device while one is
+active returns `invalid_state`. Active-connection state is a nullable singleton;
+discovery results, saved devices, and historical sessions remain collections.
+
+An unexpected disconnect may enter bounded `reconnecting` state for the active
+Session. The user setting defaults to five minutes and may disable or shorten
+reconnection. Explicit disconnect never reconnects. Every attempt and gap is a
+session event.
+
+### Saved devices
+
+- `savedDevices.list`
+- `savedDevices.get({ savedDeviceId })`
+- `savedDevices.rename({ savedDeviceId, name })`
+- `savedDevices.forget({ savedDeviceId })`
+
+A successful first connection saves a platform-local reconnect binding by
+default. `savedDeviceId` is opaque and persistent within that installation.
+Historical sessions retain an immutable device snapshot when a saved device is
+renamed or forgotten.
+
+### Board profiles
+
+- `boardProfiles.get({ savedDeviceId })`
+- `boardProfiles.update({ savedDeviceId, expectedRevision, patch })`
+- `boardProfiles.resetFields({ savedDeviceId, expectedRevision, fields })`
+- `boardProfiles.refreshDiscovery({ savedDeviceId })`
+- `boardProfiles.getDiscovery({ savedDeviceId })`
+
+Events:
+
+- `boardProfiles.changed`
+- `boardProfiles.discoveryChanged`
+
+Profiles contain versioned app-local identity/visual, battery topology and
+chemistry, motor/drivetrain, rail, voltage/speed calibration, controller CAN, and
+VBMS settings. All fields are optional; saving a device creates a partial
+profile and missing values are warnings, not logging blockers. Discoverable
+fields retain discovered, configured, and effective values; manual mode wins
+until explicitly returned to automatic. Updates use optimistic concurrency.
+
+Profiles never write controller configuration. Effective profile/discovery
+snapshots are copied into sessions so completed analysis remains reproducible.
+Detailed fields and validation are specified in
+[`board-profiles.md`](board-profiles.md).
 
 ### VESC domain
 
@@ -263,26 +329,107 @@ only a small bounded queue per client; when the UI is slow it drops/coalesces ol
 samples and reports a `droppedSincePrevious` count. Native logging uses its own
 sampling path and must never depend on WebSocket delivery.
 
+Logging uses adaptive native rates. The initial defaults are 1 Hz while
+connected but not riding, with a 2 Hz lightweight Refloat ride-state probe; 10 Hz
+while riding; and a 15-second post-ride period at the riding rate.
+Requested/effective rates and every mode transition are persisted. Faults,
+footpad edges, alerts, and state transitions are recorded regardless of periodic
+cadence.
+
 ### Logging
 
-- `logging.start({ deviceId, profile, intervalMs, destination? })`
 - `logging.stop({ jobId })`
-- `logging.list`
 - `logging.get({ jobId })`
-- `logging.listFiles`
-- `logging.export({ logId, format })`
-- `logging.delete({ logId })` — idempotent, explicit, and separately tested.
+- `logging.getActive`
+- `logging.getStorageState`
 
 Events:
 
 - `logging.jobChanged`
-- `logging.storageWarning`
+- `logging.samplingModeChanged`
+- `logging.storageChanged`
+- `logging.samplesCommitted`
 
-`logging.start` returns a durable `jobId`. A job state includes requested versus
-effective interval, timestamps, sample/error counts, bytes written, background
-capability, and last error. The backend persists job metadata before confirming
-start. WebSocket disconnect and WebView destruction do not stop a job. App/OS
-termination behavior is capability-defined and visible in later snapshots.
+Normal product flow creates a durable session and starts its logging job
+automatically when a connection reaches `ready`. Manual `logging.start` is a
+test/advanced capability. A job state includes its `sessionId`, requested versus
+effective rates, sampling mode, timestamps, sample/error counts, bytes written,
+background capability, and last error. The backend persists job/session metadata
+before reporting normal Live readiness. WebSocket disconnect and WebView
+destruction do not stop a job. App/OS termination behavior is capability-defined
+and visible in later snapshots.
+The complete persistence, recovery, background-lifecycle, WebView teardown, and
+bounded query semantics are defined in
+[`durable-logging.md`](durable-logging.md).
+
+### Sessions
+
+- `sessions.list({ filters, sort, cursor, limit })`
+- `sessions.getFilterOptions`
+- `sessions.get({ sessionId })`
+- `sessions.getSummary({ sessionId })`
+- `sessions.querySeries({ sessionId, range, fields, resolution, cursor? })`
+- `sessions.listEvents({ sessionId, range, types?, cursor? })`
+- `sessions.getDiagnosticWindow({ sessionId, eventId?, centerElapsedMs?, beforeMs, afterMs, fields?, cursor? })`
+- `sessions.export({ sessionId, format })`
+- `sessions.delete({ sessionId })` — explicit, confirmed by the frontend,
+  idempotent, and separately tested.
+
+Session groups:
+
+- `sessionGroups.list({ filters, sort, cursor, limit })`
+- `sessionGroups.get({ sessionGroupId })`
+- `sessionGroups.unlink({ sessionGroupId })`
+
+An optional user setting automatically creates reversible catalog groups for
+eligible Sessions with the same `deviceHistoryId` and a gap within the configured
+window. It is disabled by default; the suggested enabled window is two hours.
+Groups never merge per-session databases. Overview/review combines bounded
+member queries in the shared frontend; a diagnostic window always names the
+concrete member `sessionId`.
+
+Events:
+
+- `sessions.created`
+- `sessions.updated`
+
+`sessions.list` performs indexed server-side filtering by historical device,
+date, riding/total duration, distance, state, and integrity, with cursor
+pagination. `sessions.getFilterOptions` includes forgotten historical device
+groups without exposing a deleted platform reconnect binding.
+Review queries return bounded rollups; diagnostic queries return bounded lossless
+windows. User-facing APIs use `sessionId`; the earlier proposed `logId` name is
+retired.
+
+### Settings
+
+- `settings.get`
+- `settings.update({ expectedRevision, patch })`
+
+Settings include requested/effective idle probe and persistence rates, riding
+rate, post-ride tail, active-session reconnection duration, automatic
+session-linking enabled/window, alert output choices, and diagnostic raw-packet
+caps. Updates use optimistic concurrency. Backends validate and clamp values to
+capability-advertised limits and return both requested and effective values.
+
+### Alerts
+
+- `alerts.listRules`
+- `alerts.replaceRules({ version, rules })`
+
+Events:
+
+- `alerts.triggered`
+
+The shared UI authors declarative rules. A minimal native evaluator applies
+threshold, boolean-edge, duration/debounce, hysteresis, and cooldown behavior to
+every normalized sample before UI coalescing so alerts still work when the
+WebView is absent. Rule semantics, ordering, and fixtures are contract-owned and
+identical on every backend. Native code owns only background evaluation and
+platform alert output; rule UX and visualization stay in the shared frontend.
+The first configurable rules cover duty cycle, high/low pack voltage,
+motor/controller temperature, individual/combined footpad state, and connection
+loss. Alerts are advisory and acknowledgement does not disable the rule.
 
 ## Stable errors
 
@@ -291,6 +438,7 @@ families:
 
 - `invalid_state`
 - `unsupported`
+- `unsupported_firmware`
 - `permission_required`
 - `bluetooth_unavailable`
 - `scan_failed`
@@ -399,7 +547,13 @@ CI should initially require schema/generation, web/mock conformance, native unit
 tests, and fake-adapter conformance. Simulator/emulator and hardware jobs can be
 separate while infrastructure matures.
 
-## Migration plan
+## Historical migration plan
+
+The phases below describe the original incremental migration. The project has
+since chosen a clean native reset so iOS, Android, and macOS can begin from the
+same boundaries. Use [`reset-roadmap.md`](reset-roadmap.md) as the active
+execution plan and [`vertical-slice-v1.md`](vertical-slice-v1.md) as the
+acceptance specification. This section remains as design history.
 
 ### Phase 0: freeze and characterize
 
@@ -417,6 +571,8 @@ separate while infrastructure matures.
 ### Phase 2: testable native cores
 
 - Introduce the application service and injected adapter/clock/store interfaces.
+- Implement and recovery-test native durable log stores before relying on live
+  UI telemetry as the product logging path.
 - Move direct `LocalServer.broadcastMessage` calls out of BLE/protocol classes.
 - Run conformance scenarios in Android and iOS fake-adapter test hosts.
 - Replace or fully harden the handwritten WebSocket framing.
@@ -427,9 +583,9 @@ separate while infrastructure matures.
   bounded telemetry on both platforms.
 - Require identical fixture and black-box results.
 
-### Phase 4: durable logging/background behavior
+### Phase 4: durable logging/background hardening
 
-- Add native log stores and jobs.
+- Harden native log stores and jobs already established in the testable cores.
 - Add Android foreground-service ownership and iOS background/restoration design.
 - Test WebView loss, process/lifecycle transitions, disk pressure, and export.
 
@@ -438,17 +594,16 @@ separate while infrastructure matures.
 - Extract reusable Swift modules and add the macOS host.
 - Add Linux/BlueZ and Windows/WinRT adapters after macOS conformance passes.
 
-## Open decisions before implementation
+## Resolved implementation decisions and remaining gate
 
-1. Is v1 intentionally read-only, with configuration and firmware writes deferred?
-   This proposal recommends yes.
-2. Must logging resume after full app process termination, or only survive WebView
-   and foreground/background transitions where the OS keeps the app alive?
-3. What log format is canonical: a compact binary event log with CSV/JSON export,
-   or a directly writable SQLite/columnar format?
-4. Is one active board an acceptable advertised v1 limit, while retaining
-   multi-device-shaped APIs?
-5. Which VESC and Refloat firmware versions form the initial compatibility and
-   hardware test matrix?
-6. Should opaque device identity be session-only initially, or should the native
-   backend provide a separately scoped persisted board identity?
+The first release is read-only and uses persisted opaque saved-device identity,
+one permanent active-connection slot, the SQLite catalog/per-session design, and
+honest platform-qualified restoration rather than a promise of uninterrupted
+execution after force-quit. The initial protocol target is VESC 6.06 with Refloat
+1.2; see [`implementation-scope-lock.md`](implementation-scope-lock.md) for the
+hardware/OS matrix and later compatibility pass.
+
+The only unresolved cross-cutting release decision is the project/distribution
+license. AGPL-3.0 is the current candidate. It does not block independent R0-R5
+architecture work, but it must be accepted before public distribution or code
+reuse whose terms depend on it.

@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://float-view.local/api/v1/schemas/bluetooth.schema.json",
+  "title": "Float View Bluetooth API types",
+  "$defs": {
+    "BluetoothRadioState": {
+      "type": "string",
+      "enum": ["unknown", "unsupported", "powered_off", "powered_on", "resetting"]
+    },
+    "BluetoothPermissionState": {
+      "type": "string",
+      "enum": ["unknown", "not_required", "not_determined", "denied", "restricted", "granted"]
+    },
+    "BluetoothState": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["radio", "scanPermission", "connectPermission"],
+      "properties": {
+        "radio": { "$ref": "#/$defs/BluetoothRadioState" },
+        "scanPermission": { "$ref": "#/$defs/BluetoothPermissionState" },
+        "connectPermission": { "$ref": "#/$defs/BluetoothPermissionState" }
+      }
+    }
+  },
+  "$ref": "#/$defs/BluetoothState"
+}

@@ -1,0 +1,127 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://float-view.local/api/v1/schemas/common.schema.json",
+  "title": "Float View API common types",
+  "$defs": {
+    "JsonRpcId": {
+      "oneOf": [{ "type": "string", "minLength": 1, "maxLength": 128 }, { "type": "integer" }]
+    },
+    "ApiVersion": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["major", "minor"],
+      "properties": {
+        "major": { "type": "integer", "minimum": 1 },
+        "minor": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "ClientInfo": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "version"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1, "maxLength": 100 },
+        "version": { "type": "string", "minLength": 1, "maxLength": 100 }
+      }
+    },
+    "BackendPlatform": {
+      "type": "string",
+      "enum": ["mock", "android", "ios", "macos", "linux", "windows"]
+    },
+    "BackendInfo": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "version", "platform"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1, "maxLength": 100 },
+        "version": { "type": "string", "minLength": 1, "maxLength": 100 },
+        "platform": { "$ref": "#/$defs/BackendPlatform" }
+      }
+    },
+    "Capability": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "available"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1, "maxLength": 100 },
+        "available": { "type": "boolean" },
+        "constraints": {
+          "type": "object",
+          "additionalProperties": {
+            "type": ["string", "number", "integer", "boolean", "null"]
+          }
+        }
+      }
+    },
+    "ErrorKind": {
+      "type": "string",
+      "enum": [
+        "invalid_state",
+        "unsupported",
+        "permission_required",
+        "bluetooth_unavailable",
+        "scan_failed",
+        "device_not_found",
+        "connection_failed",
+        "connection_timeout",
+        "device_not_ready",
+        "protocol_error",
+        "command_timeout",
+        "rate_limited",
+        "storage_unavailable",
+        "background_unavailable",
+        "cancelled",
+        "internal"
+      ]
+    },
+    "RpcErrorData": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "recoverable"],
+      "properties": {
+        "kind": { "$ref": "#/$defs/ErrorKind" },
+        "recoverable": { "type": "boolean" },
+        "details": {
+          "type": "object",
+          "additionalProperties": true
+        }
+      }
+    },
+    "RpcError": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "message", "data"],
+      "properties": {
+        "code": {
+          "oneOf": [
+            { "type": "integer", "minimum": -32099, "maximum": -32000 },
+            {
+              "type": "integer",
+              "enum": [-32700, -32600, -32601, -32602, -32603]
+            }
+          ]
+        },
+        "message": { "type": "string", "minLength": 1 },
+        "data": { "$ref": "#/$defs/RpcErrorData" }
+      }
+    },
+    "RpcErrorResponse": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["jsonrpc", "id", "error"],
+      "properties": {
+        "jsonrpc": { "const": "2.0" },
+        "id": {
+          "oneOf": [{ "$ref": "#/$defs/JsonRpcId" }, { "type": "null" }]
+        },
+        "error": { "$ref": "#/$defs/RpcError" }
+      }
+    }
+  },
+  "oneOf": [
+    { "$ref": "#/$defs/ApiVersion" },
+    { "$ref": "#/$defs/BackendInfo" },
+    { "$ref": "#/$defs/Capability" },
+    { "$ref": "#/$defs/RpcErrorResponse" }
+  ]
+}

@@ -10,6 +10,21 @@ setup:
 generate:
   cd web && npm run generate
 
+# validate the versioned local API schemas and generated TypeScript models
+api-check:
+  cd web && npm run api:check
+
+# run the black-box API v1 system suite against the development mock
+api-conformance:
+  cd web && npm run api:conformance:mock
+
+# compile and round-trip test the generated Swift and Kotlin v1 models
+api-native-check:
+  swiftc api/generated/swift/FloatViewAPI.swift api/tests/swift/ContractSmoke.swift \
+    -o /tmp/float-view-api-contract-smoke
+  /tmp/float-view-api-contract-smoke api/examples/system.hello.response.json
+  cd android && ./gradlew :api-models:test
+
 # run the web app in dev mode (hot reload, etc)
 wdev:
   cd web && npm run dev

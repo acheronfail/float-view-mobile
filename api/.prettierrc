@@ -1,0 +1,13 @@
+{
+  "printWidth": 100,
+  "overrides": [
+    {
+      "files": "*.ts",
+      "options": {
+        "useTabs": true,
+        "singleQuote": true,
+        "trailingComma": "none"
+      }
+    }
+  ]
+}

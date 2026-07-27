@@ -16,16 +16,48 @@ The product architecture is deliberate:
 - The UI talks only to a versioned, platform-neutral API served on the local
   device. It must not know about CoreBluetooth, Android GATT, BlueZ, WinRT, or
   platform-specific device identifiers.
-- iOS and Android are the first supported backends. macOS is next; Linux and
-  Windows are intended later.
+- iOS, Android, and macOS are implemented together for the first slice, with one
+  shared Apple core. Linux and Windows are intended later.
 - Every backend must be testable with fake Bluetooth devices and against the same
   black-box conformance suite. A feature is not cross-platform merely because it
   has the same method name.
 
-The proposed API and test architecture is in
-[`docs/api-v1-proposal.md`](docs/api-v1-proposal.md). Treat it as a proposal until
-its open decisions are resolved, then promote the accepted contract into an
-`api/` source-of-truth directory.
+The planning document index is [`docs/README.md`](docs/README.md). Accepted
+first-release product/platform choices are locked in
+[`docs/implementation-scope-lock.md`](docs/implementation-scope-lock.md). The proposed
+API and test architecture is in
+[`docs/api-v1-proposal.md`](docs/api-v1-proposal.md). The Phase 1 contract
+foundation is accepted and lives under `api/`; remaining operation shapes are
+proposals until promoted into committed schemas, but accepted scope follows the
+scope-lock document.
+
+The active implementation sequence is
+[`docs/reset-roadmap.md`](docs/reset-roadmap.md), and the first cross-platform
+acceptance target is specified in
+[`docs/vertical-slice-v1.md`](docs/vertical-slice-v1.md). Update roadmap status
+and evidence as milestones land. If the historical migration section in the API
+proposal conflicts with the reset roadmap, the reset roadmap wins.
+Executable milestone gates and evidence requirements are defined in
+[`docs/verification-plan.md`](docs/verification-plan.md).
+Reference precedence, upstream pins, licensing boundaries, and deletion of the
+original implementation are defined in
+[`docs/reference-implementations.md`](docs/reference-implementations.md).
+Native durable logging, background execution, WebView teardown, recovery, and
+sample-query behavior are defined in
+[`docs/durable-logging.md`](docs/durable-logging.md). Logging is the primary
+product capability.
+
+Logs support three equal core experiences: low-latency live display/native
+alerting, fast long-ride review, and lossless high-resolution incident diagnosis.
+All three consume one sequenced native sample pipeline and canonical log; never
+create a UI-only or separately decoded logging path.
+
+The Device/Sessions navigation, saved-device behavior, automatic logging,
+adaptive sampling, review/diagnosis flow, and user-facing session model are
+defined in [`docs/product-experience.md`](docs/product-experience.md).
+Per-board identity, battery, motor, rails/visual, CAN/BMS, calibration, discovery
+and override rules are defined in
+[`docs/board-profiles.md`](docs/board-profiles.md).
 
 ## Repository map
 
@@ -39,6 +71,17 @@ its open decisions are resolved, then promote the accepted contract into an
     devices and telemetry.
   - `web/scripts/generate.ts`: generates native command/message types.
   - `web/build/`: ignored static build output consumed by both native apps.
+- `api/`: committed API v1 source of truth.
+  - `api/asyncapi.yaml`: channel and operation documentation.
+  - `api/schemas/`: JSON Schema 2020-12 payload definitions.
+  - `api/examples/`: schema-validated protocol examples.
+  - `api/generated/typescript/models.ts`: committed generated web/mock types.
+  - `api/generated/swift/FloatViewAPI.swift` and
+    `api/generated/kotlin/FloatViewAPI.kt`: committed native v1 models.
+  - Never edit generated API files directly.
+- `conformance/`: platform-neutral black-box API behavior suites.
+- `references/` (planned in R0): pinned upstream metadata and protocol
+  traceability. It contains no vendored VESC Tool or private Floaty source.
 - `android/`: Kotlin Android shell and native backend.
   - `MainActivity.kt`: WebView/bootstrap and current command dispatch.
   - `LocalServer.kt`, `LocalWebSocket.kt`, `LocalWebContext.kt`: embedded HTTP and
@@ -81,8 +124,15 @@ The browser-only development path runs Vite and
 
 ## Source-of-truth and generated code
 
-Today, the Zod definitions under `web/src/lib/` are the contract source. Running
-`just generate` creates:
+Two contracts temporarily coexist during migration:
+
+- API v1 is spec-first. `api/schemas/` is its source of truth, and
+  `api/generated/typescript/models.ts` is generated and committed.
+- The native apps still use the legacy contract whose Zod definitions live under
+  `web/src/lib/`.
+
+Running `just generate` regenerates API v1 TypeScript plus the legacy native
+outputs:
 
 - `ios/float-view/Generated_*.swift`
 - `android/app/src/main/java/fail/acheron/floatview/Generated_*.kt`
@@ -94,8 +144,10 @@ The current generator is narrow and assumes specific Zod JSON Schema shapes.
 Exercise care with new unions, optional fields, booleans, arrays, maps, and nested
 objects; add generator tests before relying on a new shape.
 
-The target architecture should become spec-first: versioned JSON Schemas and an
-AsyncAPI document in `api/`, with generated TypeScript, Swift, and Kotlin models.
+Run `just api-check` to validate the v1 schemas/examples and fail if generated
+TypeScript, Swift, or Kotlin has drifted. Run `just api-conformance` against the
+development mock. The standalone Android `:api-models` module compiles and
+serialization-tests Kotlin models without depending on the legacy app target.
 Do not create a second hand-maintained definition of the same API.
 
 ## Architecture boundaries to preserve
@@ -119,6 +171,24 @@ Dependencies point downward. BLE and protocol code must not broadcast directly t
 the global WebSocket server in the target design; emit typed results/events to the
 application service instead. The WebSocket is a presentation transport, not the
 owner of connections or logging.
+
+The WebView is disposable. Tear it down when backgrounded to reduce resource use;
+Bluetooth and logging continue in the native owner where the OS permits. On
+foreground, create a fresh WebView/token and reconstruct state from a snapshot
+plus durable sample queries. No correctness state may exist only in JavaScript.
+
+Native backends stay minimal. They own only platform Bluetooth/protocol I/O,
+sequencing, durable SQLite work and generic bounded queries, the declarative
+alert evaluator needed without a WebView, background/lifecycle behavior, native
+alert output, local transport, and security. Charts, maps, ride review, units,
+trend interpretation, alert authoring UX, and diagnostic workflows belong in
+the shared frontend.
+
+Prefer OS frameworks and shared specifications/assets over runtime dependencies.
+Do not add a native ORM, generic BLE wrapper, cross-platform UI runtime, database
+server, or large networking framework without an accepted decision covering why
+OS APIs are insufficient plus size, resource, security, licensing, maintenance,
+and cross-platform test impact.
 
 Use injected interfaces for Bluetooth, clocks/timers, persistence, and event
 sinks. Production implementations call platform APIs; tests use deterministic
@@ -149,8 +219,24 @@ stream should be decodable in a unit test without a phone or Bluetooth radio.
 - Version the protocol with semantic major/minor versions. Reject incompatible
   majors during `system.hello`; advertise capabilities for optional platform or
   firmware features.
-- Design collection-shaped responses even if v1 supports only one active BLE
-  connection.
+- Exactly zero or one board may actively connect. This is a permanent product
+  constraint: represent active connection as a nullable singleton, while
+  discovery, saved devices, sessions, and linked-session groups remain
+  collections.
+- Use persistent opaque `savedDeviceId` values for saved platform bindings and
+  copy immutable device snapshots into sessions. Forgetting a device never
+  deletes or detaches its history.
+- User-visible recordings are `Session` objects identified by `sessionId`.
+  `jobId` identifies active native execution only; do not reintroduce `logId`.
+- A ready connection automatically creates a durable session/job before normal
+  Live state. Default adaptive sampling uses a 2 Hz Refloat ride-state probe,
+  persists at 1 Hz idle and 10 Hz riding, and has a 15-second riding-rate
+  post-ride tail, configurable within advertised limits.
+- Board Profiles are app-local and versioned. Manual fields override discovered
+  values until returned to automatic; profile editing never writes VESC/BMS
+  configuration. Every field is optional. Snapshot effective profiles into
+  sessions, preserve raw observations as canonical, and calculate display
+  corrections reproducibly in the frontend.
 - Bind only to loopback, validate the WebSocket `Origin`, and require an
   unguessable per-launch session token. Do not expose a LAN server by default.
 - Keep the static HTTP surface small. Use the WebSocket for API requests,
@@ -169,8 +255,18 @@ stream should be decodable in a unit test without a phone or Bluetooth radio.
   suspended or destroyed.
 - Keep polling, decoding, and log writing out of the WebView. Rate-limit UI events
   separately from native log sampling.
+- Store logs in Application Support using the native SQLite catalog/per-session
+  design, with tested file protection, WAL recovery, migrations, and integrity.
+- iOS uses `bluetooth-central` and CoreBluetooth state restoration, but must
+  record gaps when suspension prevents polling; never promise arbitrary
+  background timers.
 - Do not assume an app can run arbitrary timers forever in the background.
   Surface capability/actual job state honestly.
+- Qualify physical iOS 17, 18, and 26 separately. On iOS 26, use a logging Live
+  Activity only when the hardware comparison proves the required CoreBluetooth
+  behavior. Do not request background location merely to keep the app alive.
+- macOS logging continues without a window through a visible native background
+  owner; explicit quit flushes/stops unless a later helper design is accepted.
 - macOS should reuse the Swift application-service, CoreBluetooth, and protocol
   modules while replacing only the host/lifecycle pieces.
 
@@ -180,8 +276,12 @@ stream should be decodable in a unit test without a phone or Bluetooth radio.
   radio/permission states in the API.
 - Background BLE/logging belongs in an appropriate foreground service with a
   notification when required by Android.
+- Use a `connectedDevice` foreground service and platform SQLite app-private
+  stores. Activity and WebView destruction must not affect the active job.
 - Do not let an `Activity` own a connection or logging job that must survive
   recreation.
+- Maintain Android 10/API 29 support and include a Galaxy S9 in physical
+  qualification.
 
 ### Future Linux and Windows
 
@@ -198,7 +298,9 @@ stream should be decodable in a unit test without a phone or Bluetooth radio.
   difficult to unit test.
 - The API is fire-and-forget and message-kind based: it lacks request IDs,
   deterministic request completion, formal error codes, negotiation,
-  capabilities, and reconnect snapshots.
+  capabilities, and reconnect snapshots. API v1 solves these for
+  `system.hello`/`system.getSnapshot`, but the UI and native backends still use
+  the legacy endpoint.
 - The handwritten WebSocket servers parse one read as one complete text frame and
   do not fully implement fragmentation, continuation, ping/pong, close frames, or
   stream reassembly. Replace or harden this before treating it as infrastructure.
@@ -256,7 +358,10 @@ From the repository root:
 
 ```sh
 just setup       # npm install, Gradle dependency resolution, generation
-just generate    # regenerate ignored Swift/Kotlin API models
+just generate    # regenerate legacy native outputs and committed v1 models
+just api-check   # validate API v1 and check committed TypeScript generation drift
+just api-conformance
+                 # run black-box API v1 system scenarios against the mock
 just wdev        # Vite UI + mock backend
 just wwatch      # continuously rebuild web/build for native development
 just adev        # install/launch Android debug app; requires wwatch
@@ -283,8 +388,23 @@ build. The native apps do not build the web project themselves.
 
 ## Working practices
 
-- Read this file and `docs/api-v1-proposal.md` before changing boundaries or the
-  wire contract.
+- Read this file, `docs/reset-roadmap.md`, `docs/vertical-slice-v1.md`,
+  `docs/verification-plan.md`, `docs/implementation-scope-lock.md`,
+  `docs/reference-implementations.md`, `docs/durable-logging.md`,
+  `docs/product-experience.md`,
+  `docs/board-profiles.md`, and `docs/api-v1-proposal.md` before changing
+  boundaries or the wire contract.
+- Treat the current implementation as frozen historical evidence during R0 and
+  remove it in R1 after fixtures and an immutable recovery ref exist. Do not
+  build the uniform implementation by refactoring or copying the legacy stack.
+- Treat `vedderb/vesc_tool` as the canonical implementation reference. Floaty
+  reuse is owner-authorized but supplementary; preserve its provenance and
+  resolve behavioral conflicts in favor of VESC Tool and hardware evidence.
+- During the reset, classify legacy files using the R0 inventory before removing
+  them. Preserve useful behavior as sanitized fixtures, not copied legacy source.
+- Do not mark a roadmap milestone complete without updating its evidence and
+  satisfying every listed platform exit gate and its cumulative
+  `just verify-rN` command.
 - Keep changes narrow; do not mix an API migration, BLE rewrite, and UI redesign
   without independently testable stages.
 - Prefer explicit state machines and typed events over callback-driven booleans.

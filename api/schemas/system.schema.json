@@ -1,0 +1,125 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://float-view.local/api/v1/schemas/system.schema.json",
+  "title": "Float View system API",
+  "$defs": {
+    "ApiRange": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["major", "minMinor", "maxMinor"],
+      "properties": {
+        "major": { "type": "integer", "minimum": 1 },
+        "minMinor": { "type": "integer", "minimum": 0 },
+        "maxMinor": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "Limits": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["maxConnections", "minTelemetryIntervalMs", "maxMessageBytes"],
+      "properties": {
+        "maxConnections": { "type": "integer", "minimum": 1 },
+        "minTelemetryIntervalMs": { "type": "integer", "minimum": 1 },
+        "maxMessageBytes": { "type": "integer", "minimum": 1024 }
+      }
+    },
+    "Snapshot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["revision", "bluetooth", "devices", "telemetrySubscriptions", "loggingJobs"],
+      "properties": {
+        "revision": { "type": "integer", "minimum": 0 },
+        "bluetooth": { "$ref": "bluetooth.schema.json#/$defs/BluetoothState" },
+        "devices": {
+          "type": "array",
+          "items": { "$ref": "devices.schema.json#/$defs/Device" }
+        },
+        "telemetrySubscriptions": {
+          "type": "array",
+          "items": {
+            "$ref": "telemetry.schema.json#/$defs/TelemetrySubscription"
+          }
+        },
+        "loggingJobs": {
+          "type": "array",
+          "items": { "$ref": "logging.schema.json#/$defs/LoggingJob" }
+        }
+      }
+    },
+    "HelloParams": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["client", "api"],
+      "properties": {
+        "client": { "$ref": "common.schema.json#/$defs/ClientInfo" },
+        "api": { "$ref": "#/$defs/ApiRange" }
+      }
+    },
+    "HelloResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["api", "backend", "capabilities", "limits", "snapshot"],
+      "properties": {
+        "api": { "$ref": "common.schema.json#/$defs/ApiVersion" },
+        "backend": { "$ref": "common.schema.json#/$defs/BackendInfo" },
+        "capabilities": {
+          "type": "array",
+          "items": { "$ref": "common.schema.json#/$defs/Capability" }
+        },
+        "limits": { "$ref": "#/$defs/Limits" },
+        "snapshot": { "$ref": "#/$defs/Snapshot" }
+      }
+    },
+    "HelloRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["jsonrpc", "id", "method", "params"],
+      "properties": {
+        "jsonrpc": { "const": "2.0" },
+        "id": { "$ref": "common.schema.json#/$defs/JsonRpcId" },
+        "method": { "const": "system.hello" },
+        "params": { "$ref": "#/$defs/HelloParams" }
+      }
+    },
+    "HelloResponse": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["jsonrpc", "id", "result"],
+      "properties": {
+        "jsonrpc": { "const": "2.0" },
+        "id": { "$ref": "common.schema.json#/$defs/JsonRpcId" },
+        "result": { "$ref": "#/$defs/HelloResult" }
+      }
+    },
+    "GetSnapshotRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["jsonrpc", "id", "method"],
+      "properties": {
+        "jsonrpc": { "const": "2.0" },
+        "id": { "$ref": "common.schema.json#/$defs/JsonRpcId" },
+        "method": { "const": "system.getSnapshot" },
+        "params": {
+          "type": "object",
+          "additionalProperties": false
+        }
+      }
+    },
+    "GetSnapshotResponse": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["jsonrpc", "id", "result"],
+      "properties": {
+        "jsonrpc": { "const": "2.0" },
+        "id": { "$ref": "common.schema.json#/$defs/JsonRpcId" },
+        "result": { "$ref": "#/$defs/Snapshot" }
+      }
+    }
+  },
+  "oneOf": [
+    { "$ref": "#/$defs/HelloRequest" },
+    { "$ref": "#/$defs/HelloResponse" },
+    { "$ref": "#/$defs/GetSnapshotRequest" },
+    { "$ref": "#/$defs/GetSnapshotResponse" }
+  ]
+}

@@ -1,9 +1,12 @@
 import express from 'express';
 import { createServer } from 'http';
-import { WebSocketServer } from 'ws';
+import path from 'node:path';
+import { pathToFileURL } from 'node:url';
+import { type WebSocket, WebSocketServer } from 'ws';
 import { ZBackendCommand, ZBackendMessage } from '../src/lib/backend-client.types.js';
 import { CommPacketId, ZVGetValues } from '../src/lib/vesc.commands.js';
 import { ZRefloatRtData } from '../src/lib/refloat.commands.js';
+import { handleApiV1Payload } from './api-v1.js';
 
 const PORT = 3001;
 
@@ -11,9 +14,31 @@ const app = express();
 const server = createServer(app);
 const wss = new WebSocketServer({ server });
 
+app.get('/api/v1/health', (_request, response) => {
+	response.json({ status: 'ok', api: { major: 1, minor: 0 } });
+});
+
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
-wss.on('connection', (ws) => {
+wss.on('connection', (ws, request) => {
+	const path = new URL(request.url ?? '/', 'ws://localhost').pathname;
+	if (path === '/api/v1/ws') {
+		const session = { initialized: false };
+		ws.on('message', (data) => {
+			ws.send(JSON.stringify(handleApiV1Payload(session, data.toString())));
+		});
+		return;
+	}
+
+	if (path !== '/ws') {
+		ws.close(1008, 'Unknown WebSocket endpoint');
+		return;
+	}
+
+	setupLegacyConnection(ws);
+});
+
+function setupLegacyConnection(ws: WebSocket) {
 	const reply = (msg: ZBackendMessage) => ws.send(JSON.stringify(msg));
 
 	reply({ kind: 'socketWelcome' });
@@ -120,11 +145,41 @@ wss.on('connection', (ws) => {
 	ws.on('error', (error) => {
 		console.error('WebSocket error:', error);
 	});
-});
+}
 
-server.listen(PORT, () => {
-	console.log(`Mock server started on ${PORT}`);
-});
+export function startMockServer(port = PORT): Promise<number> {
+	return new Promise((resolve, reject) => {
+		const handleError = (error: Error) => reject(error);
+		server.once('error', handleError);
+		server.listen(port, '127.0.0.1', () => {
+			server.removeListener('error', handleError);
+			const address = server.address();
+			if (!address || typeof address === 'string') {
+				reject(new Error('Mock server did not bind a TCP port'));
+				return;
+			}
+			resolve(address.port);
+		});
+	});
+}
+
+export function stopMockServer(): Promise<void> {
+	return new Promise((resolve, reject) => {
+		wss.close((webSocketError) => {
+			server.close((serverError) => {
+				const error = webSocketError ?? serverError;
+				if (error) reject(error);
+				else resolve();
+			});
+		});
+	});
+}
+
+const isMain =
+	!!process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href;
+if (isMain) {
+	startMockServer().then((port) => console.log(`Mock server started on ${port}`));
+}
 
 function mockRefloatRtDataCreator(): () => ZRefloatRtData {
 	const randBw = (min: number, max: number) => Math.random() * (max - min) + min;

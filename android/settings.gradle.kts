@@ -21,3 +21,4 @@ dependencyResolutionManagement {
 
 rootProject.name = "Float View"
 include(":app")
+include(":api-models")
