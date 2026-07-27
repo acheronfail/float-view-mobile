@@ -31,24 +31,24 @@ class VescCommandParser {
       isPaired = buf.readUInt8() != 0
     }
 
-    var betaVersion = 0
+    var betaVersion = UInt8(0)
     if buf.size - buf.index >= 1 {
-      betaVersion = Int(buf.readUInt8())
+      betaVersion = buf.readUInt8()
     }
 
-    var hwType = 0
+    var hwType = UInt8(0)
     if buf.size - buf.index >= 1 {
-      hwType = Int(buf.readUInt8())
+      hwType = buf.readUInt8()
     }
 
     return FirmwareObject.build { builder in
-      builder.major = Double(major)
-      builder.minor = Double(minor)
+      builder.major = major
+      builder.minor = minor
       builder.name = name
       builder.uuid = uuid ?? ""
       builder.isPaired = isPaired
-      builder.betaVersion = Double(betaVersion)
-      builder.hwType = Double(hwType)
+      builder.betaVersion = betaVersion
+      builder.hwType = hwType
     }
   }
 
@@ -67,9 +67,9 @@ class VescCommandParser {
       builder.ampHoursCharged = buf.readDouble32(scale: 10000)
       builder.wattHoursConsumed = buf.readDouble32(scale: 10000)
       builder.wattHoursCharged = buf.readDouble32(scale: 10000)
-      builder.tachValue = Double(buf.readInt32())
-      builder.tachAbs = Double(buf.readInt32())
-      builder.faultCode = Double(buf.readInt8())
+      builder.tachValue = buf.readInt32()
+      builder.tachAbs = buf.readInt32()
+      builder.faultCode = buf.readInt8()
     }
   }
 
@@ -79,37 +79,120 @@ class VescCommandParser {
 
   func refloatRtData(_ buf: VescBuffer) -> RefloatRtDataObject {
     return RefloatRtDataObject.build { builder in
-      builder.balanceCurrent = Double(buf.readFloat32())
-      builder.imuBalancePitch = Double(buf.readFloat32())
-      builder.imuRoll = Double(buf.readFloat32())
+      builder.balanceCurrent = buf.readFloat32()
+      builder.imuBalancePitch = buf.readFloat32()
+      builder.imuRoll = buf.readFloat32()
 
       let (state, satState) = buf.readUInt8Pair()
-      builder.state = Double(state)
-      builder.satState = Double(satState)
+      builder.state = state
+      builder.satState = satState
 
       let (footpadState, beepReason) = buf.readUInt8Pair()
-      builder.footpadState = Double(footpadState)
-      builder.beepReason = Double(beepReason)
+      builder.footpadState = footpadState
+      builder.beepReason = beepReason
 
-      builder.adc1 = Double(buf.readFloat32())
-      builder.adc2 = Double(buf.readFloat32())
+      builder.adc1 = buf.readFloat32()
+      builder.adc2 = buf.readFloat32()
 
-      builder.setpoint = Double(buf.readFloat32())
-      builder.setpointAtr = Double(buf.readFloat32())
-      builder.setpointBrakeTilt = Double(buf.readFloat32())
-      builder.setpointTorqueTilt = Double(buf.readFloat32())
-      builder.setpointTurnTilt = Double(buf.readFloat32())
-      builder.setpointRemote = Double(buf.readFloat32())
+      builder.setpoint = buf.readFloat32()
+      builder.setpointAtr = buf.readFloat32()
+      builder.setpointBrakeTilt = buf.readFloat32()
+      builder.setpointTorqueTilt = buf.readFloat32()
+      builder.setpointTurnTilt = buf.readFloat32()
+      builder.setpointRemote = buf.readFloat32()
 
-      builder.imuPitch = Double(buf.readFloat32())
-      builder.motorFilterCurrent = Double(buf.readFloat32())
-      builder.atrAccelerationDiff = Double(buf.readFloat32())
+      builder.imuPitch = buf.readFloat32()
+      builder.motorFilterCurrent = buf.readFloat32()
+      builder.atrAccelerationDiff = buf.readFloat32()
 
       // TODO: switch on state
-      builder.boosterCurrent = Double(buf.readFloat32())
-      builder.motorDirCurrent = Double(buf.readFloat32())
+      builder.boosterCurrent = buf.readFloat32()
+      builder.motorDirCurrent = buf.readFloat32()
 
-      builder.remoteInput = Double(buf.readFloat32())
+      builder.remoteInput = buf.readFloat32()
+    }
+  }
+
+  func refloatAllDataFault(_ buf: VescBuffer) -> RefloatAllDataFaultObject {
+    return RefloatAllDataFaultObject.build { builder in
+      builder.fault = buf.readUInt8()
+    }
+  }
+
+  func refloatAllData1(_ buf: VescBuffer) -> RefloatAllData1Object {
+    return RefloatAllData1Object.build { builder in
+      builder.balanceCurrent = buf.readDouble16(scale: 10)
+      builder.imuBalancePitch = buf.readDouble16(scale: 10)
+      builder.imuRoll = buf.readDouble16(scale: 10)
+
+      let (state, satState) = buf.readUInt8Pair()
+      builder.state = state
+      builder.satState = satState
+
+      let (footpadState, beepReason) = buf.readUInt8Pair()
+      builder.footpadState = footpadState
+      builder.beepReason = beepReason
+
+      builder.adc1 = buf.readUInt8() / 50
+      builder.adc2 = buf.readUInt8() / 50
+
+      builder.setpoint = (buf.readUInt8() - 128) / 5
+      builder.setpointAtr = (buf.readUInt8() - 128) / 5
+      builder.setpointBrakeTilt = (buf.readUInt8() - 128) / 5
+      builder.setpointTorqueTilt = (buf.readUInt8() - 128) / 5
+      builder.setpointTurnTilt = (buf.readUInt8() - 128) / 5
+      builder.setpointRemote = (buf.readUInt8() - 128) / 5
+
+      builder.imuPitch = buf.readDouble16(scale: 10)
+      builder.boosterCurrent = buf.readUInt8() - 128
+      builder.batteryVoltage = buf.readDouble16(scale: 10)
+      builder.motorErpm = buf.readInt16()
+      builder.motorSpeed = buf.readDouble16(scale: 10)
+      builder.motorCurrent = buf.readDouble16(scale: 10)
+      builder.motorBatteryCurrent = buf.readDouble16(scale: 10)
+      builder.motorDutyRaw = (buf.readUInt8() - 128) / 100
+
+      let focId = buf.readUInt8() / 3
+      if focId != 222 {
+        builder.focId = nil
+      }
+    }
+  }
+
+  func refloatAllData2(_ buf: VescBuffer) -> RefloatAllData2Object {
+    let data1 = refloatAllData1(buf)
+    return RefloatAllData2Object.build { builder in
+      builder.distance = buf.readFloat32()
+
+      builder.mosfetTemp = buf.readUInt8() / 2
+      builder.motorTemp = buf.readUInt8() / 2
+      builder.batteryTemp = buf.readUInt8() // unused
+    }
+  }
+
+  func refloatAllData3(_ buf: VescBuffer) -> RefloatAllData3Object {
+    let data1 = refloatAllData1(buf)
+    let data2 = refloatAllData2(buf)
+    return RefloatAllData3Object.build { builder in
+      builder.odometer = buf.readUInt32()
+
+      builder.ampHours = buf.readDouble16(scale: 10)
+      builder.ampHoursCharged = buf.readDouble16(scale: 10)
+
+      builder.wattHours = buf.readDouble16(scale: 1)
+      builder.wattHoursCharged = buf.readDouble16(scale: 1)
+
+      builder.batteryLevel = buf.readUInt8() / 2
+    }
+  }
+
+  func refloatAllData4(_ buf: VescBuffer) -> RefloatAllData4Object {
+    let data1 = refloatAllData1(buf)
+    let data2 = refloatAllData2(buf)
+    let data3 = refloatAllData3(buf)
+    return RefloatAllData4Object.build { builder in
+      builder.chargingCurrent = buf.readDouble16(scale: 10)
+      builder.chargingVoltage = buf.readDouble16(scale: 10)
     }
   }
 }

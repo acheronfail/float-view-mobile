@@ -12,7 +12,7 @@ class VescCommandGenerator {
       payload.append(UInt8(CommPacketId.COMM_FORWARD_CAN.rawValue))
       payload.append(id)
     }
-    
+
     payload.append(contentsOf: values)
     return payload
   }
@@ -27,6 +27,10 @@ class VescCommandGenerator {
 
   func commGetValues() -> [UInt8] {
       return getPayload(UInt8(CommPacketId.COMM_GET_VALUES.rawValue))
+  }
+
+  func commGetValuesSetup() -> [UInt8] {
+      return getPayload(UInt8(CommPacketId.COMM_GET_VALUES_SETUP.rawValue))
   }
 
   /*
@@ -45,5 +49,9 @@ class VescCommandGenerator {
 
   func refloatRtdata() -> [UInt8] {
       return getRefloatPayload(UInt8(RefloatCommPacketId.COMMAND_GET_RTDATA.rawValue))
+  }
+
+  func refloatGetAlldata(_ mode: Int8) -> [UInt8] {
+      return getRefloatPayload(UInt8(RefloatCommPacketId.COMMAND_GET_ALLDATA.rawValue), UInt8(mode))
   }
 }

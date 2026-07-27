@@ -105,67 +105,88 @@ export type ZRefloatAllDataFault = z.infer<typeof RefloatAllDataFault>;
 
 const RefloatAllData1 = z.object({
 	mode: z.literal('fault'),
-	balanceCurrent: typedNumber(VescDataType.UInt8),
-	imuBalancePitch: typedNumber(VescDataType.UInt8),
-	imuRoll: typedNumber(VescDataType.UInt8),
+
+	/** 10 */
+	balanceCurrent: typedNumber(VescDataType.Double16),
+	/** 10 */
+	imuBalancePitch: typedNumber(VescDataType.Double16),
+	/** 10 */
+	imuRoll: typedNumber(VescDataType.Double16),
+
 	satState: typedNumber(VescDataType.UInt8),
 	state: typedNumber(VescDataType.UInt8),
 	footpadState: typedNumber(VescDataType.UInt8),
 	beepReason: typedNumber(VescDataType.UInt8),
+
+	/** x / 50 */
 	adc1: typedNumber(VescDataType.UInt8),
+	/** x / 50 */
 	adc2: typedNumber(VescDataType.UInt8),
-	setpoint: typedNumber(VescDataType.Float32),
-	setpointAtr: typedNumber(VescDataType.Float32),
-	setpointBrakeTilt: typedNumber(VescDataType.Float32),
-	setpointTorqueTilt: typedNumber(VescDataType.Float32),
-	setpointTurnTilt: typedNumber(VescDataType.Float32),
-	setpointRemote: typedNumber(VescDataType.Float32),
-	imuPitch: typedNumber(VescDataType.Float32),
-	boosterCurrent: typedNumber(VescDataType.Float32),
-	motorBatteryVoltage: typedNumber(VescDataType.Float32),
-	motorErpm: typedNumber(VescDataType.Float32),
-	motorSpeed: typedNumber(VescDataType.Float32),
-	motorCurrent: typedNumber(VescDataType.Float32),
-	motorBatteryCurrent: typedNumber(VescDataType.Float32),
-	motorDutyRaw: typedNumber(VescDataType.Float32),
-	focId: typedNumber(VescDataType.Float32).optional(), // NOTE: magic value is 222
-	// if mode == 2 these are set
-	distance: typedNumber(VescDataType.Float32),
-	mosfetTemp: typedNumber(VescDataType.Float32),
-	motorTemp: typedNumber(VescDataType.Float32),
-	// if mode == 3 these are set
-	odometer: typedNumber(VescDataType.Float32),
-	ampHours: typedNumber(VescDataType.Float32),
-	ampHoursCharged: typedNumber(VescDataType.Float32),
-	wattHours: typedNumber(VescDataType.Float32),
-	wattHoursCharged: typedNumber(VescDataType.Float32),
-	batteryLevel: typedNumber(VescDataType.Float32),
-	// if mode == 4 these are set
-	chargingCurrent: typedNumber(VescDataType.Float32),
-	chargingVoltage: typedNumber(VescDataType.Float32)
+
+	/** (x - 128) / 5 */
+	setpoint: typedNumber(VescDataType.UInt8),
+	/** (x - 128) / 5 */
+	setpointAtr: typedNumber(VescDataType.UInt8),
+	/** (x - 128) / 5 */
+	setpointBrakeTilt: typedNumber(VescDataType.UInt8),
+	/** (x - 128) / 5 */
+	setpointTorqueTilt: typedNumber(VescDataType.UInt8),
+	/** (x - 128) / 5 */
+	setpointTurnTilt: typedNumber(VescDataType.UInt8),
+	/** (x - 128) / 5 */
+	setpointRemote: typedNumber(VescDataType.UInt8),
+
+	/** 10 */
+	imuPitch: typedNumber(VescDataType.Double16),
+	/** x - 128 */
+	boosterCurrent: typedNumber(VescDataType.UInt8),
+	/** 10 */
+	batteryVoltage: typedNumber(VescDataType.Double16),
+	motorErpm: typedNumber(VescDataType.Int16),
+	/** 10 */
+	motorSpeed: typedNumber(VescDataType.Double16),
+	/** 10 */
+	motorCurrent: typedNumber(VescDataType.Double16),
+	/** 10 */
+	motorBatteryCurrent: typedNumber(VescDataType.Double16),
+	/** (x - 128) / 100 */
+	motorDutyRaw: typedNumber(VescDataType.UInt8),
+	/** (x / 3) NOTE: magic value is 222 */
+	focId: typedNumber(VescDataType.UInt8).optional()
 });
 export type ZRefloatAllData1 = z.infer<typeof RefloatAllData1>;
 
 const RefloatAllData2 = RefloatAllData1.extend({
 	distance: typedNumber(VescDataType.Float32),
-	mosfetTemp: typedNumber(VescDataType.Float32),
-	motorTemp: typedNumber(VescDataType.Float32)
+	/** x / 2 */
+	mosfetTemp: typedNumber(VescDataType.UInt8),
+	/** x / 2 */
+	motorTemp: typedNumber(VescDataType.UInt8),
+	/** NOTE unused */
+	batteryTemp: typedNumber(VescDataType.UInt8)
 });
 export type ZRefloatAllData2 = z.infer<typeof RefloatAllData2>;
 
 const RefloatAllData3 = RefloatAllData2.extend({
-	odometer: typedNumber(VescDataType.Float32),
-	ampHours: typedNumber(VescDataType.Float32),
-	ampHoursCharged: typedNumber(VescDataType.Float32),
-	wattHours: typedNumber(VescDataType.Float32),
-	wattHoursCharged: typedNumber(VescDataType.Float32),
-	batteryLevel: typedNumber(VescDataType.Float32),
+	odometer: typedNumber(VescDataType.UInt32),
+	/** 10 */
+	ampHours: typedNumber(VescDataType.Double16),
+	/** 10 */
+	ampHoursCharged: typedNumber(VescDataType.Double16),
+	/** 1 */
+	wattHours: typedNumber(VescDataType.Double16),
+	/** 1 */
+	wattHoursCharged: typedNumber(VescDataType.Double16),
+	/** x / 2 */
+	batteryLevel: typedNumber(VescDataType.UInt8)
 });
 export type ZRefloatAllData3 = z.infer<typeof RefloatAllData3>;
 
 const RefloatAllData4 = RefloatAllData3.extend({
-	chargingCurrent: typedNumber(VescDataType.Float32),
-	chargingVoltage: typedNumber(VescDataType.Float32)
+	/** 10 */
+	chargingCurrent: typedNumber(VescDataType.Double16),
+	/** 10 */
+	chargingVoltage: typedNumber(VescDataType.Double16)
 });
 export type ZRefloatAllData4 = z.infer<typeof RefloatAllData4>;
 
@@ -178,26 +199,26 @@ export const refloatResponseSchemas = [
 	z.object({
 		kind: z.literal('refloatAllDataFault'),
 		address: z.string(),
-		data: RefloatAllDataFault
+		refloatAllDataFault: RefloatAllDataFault
 	}),
 	z.object({
 		kind: z.literal('refloatAllData1'),
 		address: z.string(),
-		data: RefloatAllData1
+		refloatAllData1: RefloatAllData1
 	}),
 	z.object({
 		kind: z.literal('refloatAllData2'),
 		address: z.string(),
-		data: RefloatAllData2
+		refloatAllData2: RefloatAllData2
 	}),
 	z.object({
 		kind: z.literal('refloatAllData3'),
 		address: z.string(),
-		data: RefloatAllData3
+		refloatAllData3: RefloatAllData3
 	}),
 	z.object({
 		kind: z.literal('refloatAllData4'),
 		address: z.string(),
-		data: RefloatAllData4
+		refloatAllData4: RefloatAllData4
 	})
 ];

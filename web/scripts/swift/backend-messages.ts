@@ -13,7 +13,7 @@ export function generateSwiftBackendMessages(schema: VariantSchema) {
 			const knownType = VescDataTypeToSwiftType[def.description];
 			if (knownType) {
 				const [typeName, defaultValue] = knownType;
-				return [typeName + suffix, isOptional ? 'null' : defaultValue];
+				return [typeName + suffix, isOptional ? 'nil' : defaultValue];
 			}
 		}
 

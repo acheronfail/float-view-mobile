@@ -53,6 +53,12 @@ class VescBlePacketLayer {
               BackendMessage.refloatRtData(
                 address: address, refloatRtData: vescParser.refloatRtData(buf))
             )
+          case .COMMAND_GET_ALLDATA:
+            let mode = buf.readUInt8()
+            if mode == 69 {
+              LocalServer.shared.broadcastMessage(BackendMessage.refloatAllDataFault(address: address, refloatAllDataFault: vescParser.refloatAllDataFault(buf)))
+            }
+
           default:
             LocalServer.shared.broadcastMessage(
               BackendMessage.commandError(

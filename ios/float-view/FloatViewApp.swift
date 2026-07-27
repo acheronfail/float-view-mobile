@@ -46,12 +46,16 @@ struct FloatViewApp: App {
               vescManager.send(vescCommands.firmware())
             case .commGetValues:
               vescManager.send(vescCommands.commGetValues())
+          case .commGetValuesSetup:
+              vescManager.send(vescCommands.commGetValuesSetup())
           case .commCustomAppData( _, let appCommand):
               switch appCommand {
                 case .commandInfo(let version):
                   vescManager.send(vescCommands.refloatInfo(version: Int(version)))
                 case .commandGetRtdata:
                   vescManager.send(vescCommands.refloatRtdata())
+              case .commandGetAlldata(let mode):
+                vescManager.send(vescCommands.refloatGetAlldata(mode))
               }
           }
       }
