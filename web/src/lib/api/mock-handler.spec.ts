@@ -68,7 +68,8 @@ describe('mock API v1 handler', () => {
 
 		expect('result' in response && response.result).toMatchObject({
 			revision: 0,
-			devices: [],
+			knownDevices: [],
+			activeConnection: null,
 			loggingJobs: []
 		});
 	});

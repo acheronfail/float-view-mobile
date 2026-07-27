@@ -16,6 +16,18 @@
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
+		F10A00012F00000000000001 /* FloatViewCore */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			name = FloatViewCore;
+			path = ../apple/Sources/FloatViewCore;
+			sourceTree = "<group>";
+		};
+		F10A00022F00000000000002 /* FloatViewHost */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			name = FloatViewHost;
+			path = ../apple/Sources/FloatViewHost;
+			sourceTree = "<group>";
+		};
 		BA4ABF1E2E5BDF4600B47684 /* float-view */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			path = "float-view";
@@ -38,6 +50,8 @@
 			isa = PBXGroup;
 			children = (
 				BA3A10B02E5C0EED005406DA /* web */,
+				F10A00012F00000000000001 /* FloatViewCore */,
+				F10A00022F00000000000002 /* FloatViewHost */,
 				BA4ABF1E2E5BDF4600B47684 /* float-view */,
 				BA4ABF1D2E5BDF4600B47684 /* Products */,
 			);
@@ -68,6 +82,8 @@
 			);
 			fileSystemSynchronizedGroups = (
 				BA4ABF1E2E5BDF4600B47684 /* float-view */,
+				F10A00012F00000000000001 /* FloatViewCore */,
+				F10A00022F00000000000002 /* FloatViewHost */,
 			);
 			name = "float-view";
 			packageProductDependencies = (
@@ -185,7 +201,7 @@
 				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 18.5;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
@@ -243,7 +259,7 @@
 				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 18.5;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
@@ -265,6 +281,7 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_NSBluetoothAlwaysUsageDescription = "This app uses Bluetooth to communicate with VESC devices";
 				INFOPLIST_KEY_NSBluetoothPeripheralUsageDescription = "This app uses Bluetooth to communicate with VESC devices";
+				INFOPLIST_KEY_NSAppTransportSecurity_NSAllowsLocalNetworking = YES;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -295,6 +312,7 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_NSBluetoothAlwaysUsageDescription = "This app uses Bluetooth to communicate with VESC devices";
 				INFOPLIST_KEY_NSBluetoothPeripheralUsageDescription = "This app uses Bluetooth to communicate with VESC devices";
+				INFOPLIST_KEY_NSAppTransportSecurity_NSAllowsLocalNetworking = YES;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;

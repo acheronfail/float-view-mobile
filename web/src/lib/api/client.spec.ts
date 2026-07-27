@@ -68,7 +68,8 @@ describe('ApiClient', () => {
 					scanPermission: 'granted',
 					connectPermission: 'granted'
 				},
-				devices: [],
+				knownDevices: [],
+				activeConnection: null,
 				telemetrySubscriptions: [],
 				loggingJobs: []
 			}

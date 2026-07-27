@@ -25,9 +25,9 @@
       }
     ],
     "limits": {
-      "maxConnections": 1,
       "minTelemetryIntervalMs": 200,
-      "maxMessageBytes": 65536
+      "maxMessageBytes": 65536,
+      "maxReconnectDurationMs": 3600000
     },
     "snapshot": {
       "revision": 0,
@@ -36,7 +36,8 @@
         "scanPermission": "granted",
         "connectPermission": "granted"
       },
-      "devices": [],
+      "knownDevices": [],
+      "activeConnection": null,
       "telemetrySubscriptions": [],
       "loggingJobs": []
     }

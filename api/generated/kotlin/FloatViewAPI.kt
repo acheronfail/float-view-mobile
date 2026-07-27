@@ -159,6 +159,550 @@ data class LoggingJob(
   val lastError: RpcErrorData? = null
 )
 
+typealias EmptyParams = Map<String, JsonElement>
+
+@Serializable
+data class AcceptedResult(
+  val accepted: Boolean
+)
+
+@Serializable
+data class SavedDevice(
+  val savedDeviceId: String,
+  val deviceHistoryId: String,
+  val displayName: String,
+  val advertisedName: JsonElement? = null,
+  val lastSeenAt: JsonElement? = null,
+  val lastConnectedAt: JsonElement? = null,
+  val profileComplete: Boolean
+)
+
+@Serializable
+data class BoardProfile(
+  val savedDeviceId: String,
+  val revision: Int,
+  val values: Map<String, JsonElement>,
+  val missingFields: List<String>
+)
+
+@Serializable
+enum class SessionState {
+  @SerialName("active") ACTIVE,
+  @SerialName("completed") COMPLETED,
+  @SerialName("interrupted") INTERRUPTED,
+  @SerialName("partial") PARTIAL,
+  @SerialName("failed") FAILED
+}
+
+@Serializable
+data class Session(
+  val sessionId: String,
+  val deviceHistoryId: String,
+  val displayName: String,
+  val startedAt: String,
+  val endedAt: JsonElement? = null,
+  val state: SessionState,
+  val integrity: String,
+  val sampleCount: Int,
+  val eventCount: Int,
+  val ridingElapsedMs: Int,
+  val totalElapsedMs: Int,
+  val distanceM: JsonElement? = null,
+  val maxSpeedMps: JsonElement? = null,
+  val maxDutyCycle: JsonElement? = null
+)
+
+@Serializable
+data class SessionGroup(
+  val sessionGroupId: String,
+  val deviceHistoryId: String,
+  val sessionIds: List<String>,
+  val totalElapsedMs: Int,
+  val distanceM: JsonElement? = null
+)
+
+@Serializable
+data class Settings(
+  val revision: Int,
+  val idleProbeIntervalMs: Int,
+  val idlePersistIntervalMs: Int,
+  val ridingPersistIntervalMs: Int,
+  val postRideTailMs: Int,
+  val reconnectDurationMs: Int,
+  val automaticSessionLinkingEnabled: Boolean,
+  val sessionLinkWindowMs: Int,
+  val rawPacketCaptureEnabled: Boolean
+)
+
+@Serializable
+data class AlertRule(
+  val ruleId: String,
+  val kind: String,
+  val enabled: Boolean,
+  val threshold: JsonElement,
+  val durationMs: Int? = null,
+  val hysteresis: Double? = null,
+  val cooldownMs: Int
+)
+
+@Serializable
+data class StorageState(
+  val availableBytes: Int,
+  val level: String,
+  val warningBytes: Int,
+  val criticalBytes: Int,
+  val stopBytes: Int
+)
+
+@Serializable
+data class FirmwareInfo(
+  val vescVersion: String,
+  val packageName: String,
+  val packageVersion: String,
+  val hardwareName: JsonElement? = null,
+  val supported: Boolean
+)
+
+@Serializable
+data class SeriesPoint(
+  val elapsedMs: Int,
+  val values: Map<String, JsonElement>
+)
+
+@Serializable
+data class SessionEvent(
+  val eventId: String,
+  val elapsedMs: Int,
+  val kind: String,
+  val details: Map<String, JsonElement>
+)
+
+@Serializable
+data class CursorPage(
+  val items: List<JsonElement>,
+  val nextCursor: JsonElement
+)
+
+@Serializable
+data class BluetoothGetStateRequest(
+  val jsonrpc: String = "2.0",
+  val id: JsonRpcId,
+  val method: String = "bluetooth.getState",
+  val params: EmptyParams
+)
+
+@Serializable
+data class BluetoothGetStateResponse(
+  val jsonrpc: String = "2.0",
+  val id: JsonRpcId,
+  val result: BluetoothState
+)
+
+@Serializable
+data class BluetoothRequestPermissionRequest(
+  val jsonrpc: String = "2.0",
+  val id: JsonRpcId,
+  val method: String = "bluetooth.requestPermission",
+  val params: EmptyParams
+)
+
+@Serializable
+data class BluetoothRequestPermissionResponse(
+  val jsonrpc: String = "2.0",
+  val id: JsonRpcId,
+  val result: BluetoothState
+)
+
+@Serializable
+data class DiscoveryStartRequest(
+  val jsonrpc: String = "2.0",
+  val id: JsonRpcId,
+  val method: String = "discovery.start",
+  val params: Map<String, JsonElement>
+)
+
+@Serializable
+data class DiscoveryStartResponse(
+  val jsonrpc: String = "2.0",
+  val id: JsonRpcId,
+  val result: Map<String, JsonElement>
+)
+
+@Serializable
+data class DiscoveryStopRequest(
+  val jsonrpc: String = "2.0",
+  val id: JsonRpcId,
+  val method: String = "discovery.stop",
+  val params: Map<String, JsonElement>
+)
+
+@Serializable
+data class DiscoveryStopResponse(
+  val jsonrpc: String = "2.0",
+  val id: JsonRpcId,
+  val result: AcceptedResult
+)
+
+@Serializable
+data class DeviceConnectRequest(
+  val jsonrpc: String = "2.0",
+  val id: JsonRpcId,
+  val method: String = "device.connect",
+  val params: Map<String, JsonElement>
+)
+
+@Serializable
+data class DeviceConnectResponse(
+  val jsonrpc: String = "2.0",
+  val id: JsonRpcId,
+  val result: Device
+)
+
+@Serializable
+data class DeviceDisconnectRequest(
+  val jsonrpc: String = "2.0",
+  val id: JsonRpcId,
+  val method: String = "device.disconnect",
+  val params: EmptyParams
+)
+
+@Serializable
+data class DeviceDisconnectResponse(
+  val jsonrpc: String = "2.0",
+  val id: JsonRpcId,
+  val result: AcceptedResult
+)
+
+@Serializable
+data class DeviceGetActiveRequest(
+  val jsonrpc: String = "2.0",
+  val id: JsonRpcId,
+  val method: String = "device.getActive",
+  val params: EmptyParams
+)
+
+@Serializable
+data class DeviceGetActiveResponse(
+  val jsonrpc: String = "2.0",
+  val id: JsonRpcId,
+  val result: JsonElement
+)
+
+@Serializable
+data class SavedDevicesListRequest(
+  val jsonrpc: String = "2.0",
+  val id: JsonRpcId,
+  val method: String = "savedDevices.list",
+  val params: EmptyParams
+)
+
+@Serializable
+data class SavedDevicesListResponse(
+  val jsonrpc: String = "2.0",
+  val id: JsonRpcId,
+  val result: List<SavedDevice>
+)
+
+@Serializable
+data class SavedDevicesGetRequest(
+  val jsonrpc: String = "2.0",
+  val id: JsonRpcId,
+  val method: String = "savedDevices.get",
+  val params: Map<String, JsonElement>
+)
+
+@Serializable
+data class SavedDevicesGetResponse(
+  val jsonrpc: String = "2.0",
+  val id: JsonRpcId,
+  val result: SavedDevice
+)
+
+@Serializable
+data class SavedDevicesRenameRequest(
+  val jsonrpc: String = "2.0",
+  val id: JsonRpcId,
+  val method: String = "savedDevices.rename",
+  val params: Map<String, JsonElement>
+)
+
+@Serializable
+data class SavedDevicesRenameResponse(
+  val jsonrpc: String = "2.0",
+  val id: JsonRpcId,
+  val result: SavedDevice
+)
+
+@Serializable
+data class SavedDevicesForgetRequest(
+  val jsonrpc: String = "2.0",
+  val id: JsonRpcId,
+  val method: String = "savedDevices.forget",
+  val params: Map<String, JsonElement>
+)
+
+@Serializable
+data class SavedDevicesForgetResponse(
+  val jsonrpc: String = "2.0",
+  val id: JsonRpcId,
+  val result: AcceptedResult
+)
+
+@Serializable
+data class BoardProfilesGetRequest(
+  val jsonrpc: String = "2.0",
+  val id: JsonRpcId,
+  val method: String = "boardProfiles.get",
+  val params: Map<String, JsonElement>
+)
+
+@Serializable
+data class BoardProfilesGetResponse(
+  val jsonrpc: String = "2.0",
+  val id: JsonRpcId,
+  val result: BoardProfile
+)
+
+@Serializable
+data class BoardProfilesUpdateRequest(
+  val jsonrpc: String = "2.0",
+  val id: JsonRpcId,
+  val method: String = "boardProfiles.update",
+  val params: Map<String, JsonElement>
+)
+
+@Serializable
+data class BoardProfilesUpdateResponse(
+  val jsonrpc: String = "2.0",
+  val id: JsonRpcId,
+  val result: BoardProfile
+)
+
+@Serializable
+data class SettingsGetRequest(
+  val jsonrpc: String = "2.0",
+  val id: JsonRpcId,
+  val method: String = "settings.get",
+  val params: EmptyParams
+)
+
+@Serializable
+data class SettingsGetResponse(
+  val jsonrpc: String = "2.0",
+  val id: JsonRpcId,
+  val result: Settings
+)
+
+@Serializable
+data class SettingsUpdateRequest(
+  val jsonrpc: String = "2.0",
+  val id: JsonRpcId,
+  val method: String = "settings.update",
+  val params: Map<String, JsonElement>
+)
+
+@Serializable
+data class SettingsUpdateResponse(
+  val jsonrpc: String = "2.0",
+  val id: JsonRpcId,
+  val result: Settings
+)
+
+@Serializable
+data class SessionsListRequest(
+  val jsonrpc: String = "2.0",
+  val id: JsonRpcId,
+  val method: String = "sessions.list",
+  val params: Map<String, JsonElement>
+)
+
+@Serializable
+data class SessionsListResponse(
+  val jsonrpc: String = "2.0",
+  val id: JsonRpcId,
+  val result: Map<String, JsonElement>
+)
+
+@Serializable
+data class SessionsGetRequest(
+  val jsonrpc: String = "2.0",
+  val id: JsonRpcId,
+  val method: String = "sessions.get",
+  val params: Map<String, JsonElement>
+)
+
+@Serializable
+data class SessionsGetResponse(
+  val jsonrpc: String = "2.0",
+  val id: JsonRpcId,
+  val result: Session
+)
+
+@Serializable
+data class SessionsGetSummaryRequest(
+  val jsonrpc: String = "2.0",
+  val id: JsonRpcId,
+  val method: String = "sessions.getSummary",
+  val params: Map<String, JsonElement>
+)
+
+@Serializable
+data class SessionsGetSummaryResponse(
+  val jsonrpc: String = "2.0",
+  val id: JsonRpcId,
+  val result: Session
+)
+
+@Serializable
+data class SessionsQuerySeriesRequest(
+  val jsonrpc: String = "2.0",
+  val id: JsonRpcId,
+  val method: String = "sessions.querySeries",
+  val params: Map<String, JsonElement>
+)
+
+@Serializable
+data class SessionsQuerySeriesResponse(
+  val jsonrpc: String = "2.0",
+  val id: JsonRpcId,
+  val result: List<SeriesPoint>
+)
+
+@Serializable
+data class SessionsListEventsRequest(
+  val jsonrpc: String = "2.0",
+  val id: JsonRpcId,
+  val method: String = "sessions.listEvents",
+  val params: Map<String, JsonElement>
+)
+
+@Serializable
+data class SessionsListEventsResponse(
+  val jsonrpc: String = "2.0",
+  val id: JsonRpcId,
+  val result: List<SessionEvent>
+)
+
+@Serializable
+data class SessionsGetDiagnosticWindowRequest(
+  val jsonrpc: String = "2.0",
+  val id: JsonRpcId,
+  val method: String = "sessions.getDiagnosticWindow",
+  val params: Map<String, JsonElement>
+)
+
+@Serializable
+data class SessionsGetDiagnosticWindowResponse(
+  val jsonrpc: String = "2.0",
+  val id: JsonRpcId,
+  val result: List<SeriesPoint>
+)
+
+@Serializable
+data class SessionsExportRequest(
+  val jsonrpc: String = "2.0",
+  val id: JsonRpcId,
+  val method: String = "sessions.export",
+  val params: Map<String, JsonElement>
+)
+
+@Serializable
+data class SessionsExportResponse(
+  val jsonrpc: String = "2.0",
+  val id: JsonRpcId,
+  val result: Map<String, JsonElement>
+)
+
+@Serializable
+data class SessionsDeleteRequest(
+  val jsonrpc: String = "2.0",
+  val id: JsonRpcId,
+  val method: String = "sessions.delete",
+  val params: Map<String, JsonElement>
+)
+
+@Serializable
+data class SessionsDeleteResponse(
+  val jsonrpc: String = "2.0",
+  val id: JsonRpcId,
+  val result: AcceptedResult
+)
+
+@Serializable
+data class SessionGroupsListRequest(
+  val jsonrpc: String = "2.0",
+  val id: JsonRpcId,
+  val method: String = "sessionGroups.list",
+  val params: EmptyParams
+)
+
+@Serializable
+data class SessionGroupsListResponse(
+  val jsonrpc: String = "2.0",
+  val id: JsonRpcId,
+  val result: List<SessionGroup>
+)
+
+@Serializable
+data class AlertsListRulesRequest(
+  val jsonrpc: String = "2.0",
+  val id: JsonRpcId,
+  val method: String = "alerts.listRules",
+  val params: EmptyParams
+)
+
+@Serializable
+data class AlertsListRulesResponse(
+  val jsonrpc: String = "2.0",
+  val id: JsonRpcId,
+  val result: List<AlertRule>
+)
+
+@Serializable
+data class AlertsReplaceRulesRequest(
+  val jsonrpc: String = "2.0",
+  val id: JsonRpcId,
+  val method: String = "alerts.replaceRules",
+  val params: Map<String, JsonElement>
+)
+
+@Serializable
+data class AlertsReplaceRulesResponse(
+  val jsonrpc: String = "2.0",
+  val id: JsonRpcId,
+  val result: List<AlertRule>
+)
+
+@Serializable
+data class LoggingGetStorageStateRequest(
+  val jsonrpc: String = "2.0",
+  val id: JsonRpcId,
+  val method: String = "logging.getStorageState",
+  val params: EmptyParams
+)
+
+@Serializable
+data class LoggingGetStorageStateResponse(
+  val jsonrpc: String = "2.0",
+  val id: JsonRpcId,
+  val result: StorageState
+)
+
+@Serializable
+data class VescGetFirmwareInfoRequest(
+  val jsonrpc: String = "2.0",
+  val id: JsonRpcId,
+  val method: String = "vesc.getFirmwareInfo",
+  val params: EmptyParams
+)
+
+@Serializable
+data class VescGetFirmwareInfoResponse(
+  val jsonrpc: String = "2.0",
+  val id: JsonRpcId,
+  val result: FirmwareInfo
+)
+
 @Serializable
 data class ApiRange(
   val major: Int,
@@ -168,16 +712,17 @@ data class ApiRange(
 
 @Serializable
 data class Limits(
-  val maxConnections: Int,
   val minTelemetryIntervalMs: Int,
-  val maxMessageBytes: Int
+  val maxMessageBytes: Int,
+  val maxReconnectDurationMs: Int
 )
 
 @Serializable
 data class Snapshot(
   val revision: Int,
   val bluetooth: BluetoothState,
-  val devices: List<Device>,
+  val knownDevices: List<Device>,
+  val activeConnection: JsonElement,
   val telemetrySubscriptions: List<TelemetrySubscription>,
   val loggingJobs: List<LoggingJob>
 )

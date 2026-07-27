@@ -14,43 +14,13 @@ struct WebView: UIViewRepresentable {
   func makeUIView(context: Context) -> WKWebView {
     let configuration = WKWebViewConfiguration()
 
-    // Configure WebView settings for local development
-    configuration.setValue(true, forKey: "allowUniversalAccessFromFileURLs")
-    configuration.preferences.setValue(true, forKey: "allowFileAccessFromFileURLs")
-    configuration.preferences.setValue(true, forKey: "developerExtrasEnabled")
-
     let webView = WKWebView(frame: .zero, configuration: configuration)
 
     if #available(iOS 16.4, *) {
         webView.isInspectable = true
     }
 
-    // Set black background using KVO-compliant methods
-    webView.setValue(false, forKey: "opaque")
-
-    // Set background color via CSS injection
-    // let css = """
-    //   body {
-    //       background-color: black !important;
-    //       color: white !important;
-    //       margin: 0;
-    //       padding: 0;
-    //   }
-    //   html {
-    //       background-color: black !important;
-    //       color: white !important;
-    //   }
-    //   """
-
-    // let script = WKUserScript(
-    //   source:
-    //     "var style = document.createElement('style'); style.innerHTML = '\(css)'; document.head.appendChild(style);",
-    //   injectionTime: .atDocumentStart,
-    //   forMainFrameOnly: false
-    // )
-
-    // webView.configuration.userContentController.addUserScript(script)
-
+    webView.isOpaque = false
     return webView
   }
 

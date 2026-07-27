@@ -1,163 +1,152 @@
 <script lang="ts">
-	import { SearchX, ChevronRight } from '@lucide/svelte';
-	import { ProgressRing } from '@skeletonlabs/skeleton-svelte';
-	import { flip } from 'svelte/animate';
-	import { slide, fade } from 'svelte/transition';
-	import { parseMessage } from '../lib/backend-client.types';
-	import { untrack } from 'svelte';
-	import { getAppContext } from '../lib/context/app.svelte';
-	import { goto } from '$app/navigation';
+	import { onMount } from 'svelte';
+	import { apiStore } from '$lib/api/store.svelte';
 
-	let isScanning = $state(false);
-	let isConnecting = $state(false);
-	let connectingAddress = $state<string | null>(null);
-	let bleDevices = $state<Array<{ name: string; address: string }>>([]);
+	let selectedTab = $state<'device' | 'sessions'>('device');
 
-	let app = getAppContext();
-
-	$effect(() => {
-		const handler = (event: MessageEvent) =>
-			untrack(() => {
-				const msg = parseMessage(event);
-				switch (msg.kind) {
-					case 'scanDevice':
-						bleDevices.push(msg);
-						break;
-					case 'scanStart':
-						isScanning = true;
-						break;
-					case 'scanComplete':
-						isScanning = false;
-						break;
-					case 'scanError':
-						alert(`Scan error: ${msg.message}`);
-						isScanning = false;
-						break;
-					case 'connectStart':
-						isConnecting = true;
-						break;
-					case 'connectReady':
-						app.connectedAddresses.add(msg.address);
-						bleDevices = bleDevices.filter((d) => d.address === msg.address);
-						goto(`/device/${msg.address}`);
-						isConnecting = false;
-						connectingAddress = null;
-						break;
-					case 'connectError':
-						alert(`Connect error: ${msg.message}`);
-						connectingAddress = null;
-						break;
-				}
-			});
-
-		app.ws?.addEventListener('message', handler);
-		return () => app.ws?.removeEventListener('message', handler);
+	onMount(() => {
+		void apiStore.connect();
+		return () => apiStore.close();
 	});
-
-	async function runHandlingErrors(fn: () => void) {
-		try {
-			fn();
-		} catch (err) {
-			alert(String(err));
-		}
-	}
-
-	const scanDevices = () => {
-		bleDevices = [];
-		runHandlingErrors(() => app.sendCommand({ kind: 'scan' }));
-	};
-
-	const connectBleDevice = (address: string) => {
-		connectingAddress = address;
-		runHandlingErrors(() => app.sendCommand({ kind: 'connect', address }));
-	};
 </script>
 
-<div class="container mx-auto max-w-md px-4 py-6">
-	<!-- Header -->
-	<div class="mb-8 text-center">
-		<h1
-			class="bg-gradient-to-r from-blue-600 via-purple-600 to-indigo-600 bg-clip-text text-4xl font-bold text-transparent"
+<div class="mx-auto flex min-h-screen max-w-3xl flex-col px-4 py-6">
+	<header class="mb-6">
+		<h1 class="text-3xl font-semibold">Float View</h1>
+		<p class="text-sm text-slate-400">Durable VESC sessions</p>
+	</header>
+
+	<nav aria-label="Primary" class="mb-6 grid grid-cols-2 rounded-xl bg-slate-900 p-1">
+		<button
+			class:!bg-indigo-600={selectedTab === 'device'}
+			class="rounded-lg px-4 py-2"
+			onclick={() => (selectedTab = 'device')}>Device</button
 		>
-			Float View
-		</h1>
-		<p class="text-sm text-gray-600 dark:text-gray-300">A simple VESC companion</p>
-	</div>
+		<button
+			class:!bg-indigo-600={selectedTab === 'sessions'}
+			class="rounded-lg px-4 py-2"
+			onclick={() => (selectedTab = 'sessions')}>Sessions</button
+		>
+	</nav>
 
-	{#if app.ws}
-		<!-- Devices Section -->
-		<div class="mb-6 rounded-2xl bg-white p-6 shadow-lg dark:bg-gray-800">
-			<h2 class="mb-4 text-center text-xl font-bold text-gray-800 dark:text-white">
-				Devices Found ({bleDevices.length})
-			</h2>
-
-			<div class="mb-4 flex justify-center">
-				<button
-					class="btn btn-sm preset-filled-primary-500 text-lg font-semibold disabled:cursor-not-allowed disabled:opacity-50"
-					onpointerdown={scanDevices}
-					disabled={isScanning}
+	{#if selectedTab === 'device'}
+		<section aria-labelledby="device-heading" class="rounded-2xl bg-slate-900 p-5">
+			{#if apiStore.status === 'connected'}
+				{#if apiStore.snapshot?.activeConnection}
+					<h2 id="device-heading" class="text-xl font-medium">Live</h2>
+					<p class="mt-2 text-lg">{apiStore.snapshot.activeConnection.name}</p>
+					<p class="mt-1 text-emerald-300">Logging is active in the native backend</p>
+					<p class="mt-1 text-sm text-slate-400">
+						{apiStore.snapshot.loggingJobs[0]?.effectiveIntervalMs ?? 1000} ms persisted cadence
+					</p>
+					<button
+						class="mt-5 rounded-lg bg-rose-700 px-4 py-2 disabled:opacity-50"
+						disabled={apiStore.busy}
+						onclick={() => apiStore.disconnectDevice()}>Stop and disconnect</button
+					>
+				{:else}
+					<h2 id="device-heading" class="text-xl font-medium">Saved devices</h2>
+					{#if apiStore.savedDevices.length}
+						<ul class="mt-3 space-y-2">
+							{#each apiStore.savedDevices as device (device.savedDeviceId)}
+								<li class="flex items-center justify-between rounded-lg bg-slate-800 p-3">
+									<span>{device.displayName}</span>
+									<span class="text-sm text-slate-400">
+										{device.profileComplete ? 'Configured' : 'Setup available'}
+									</span>
+								</li>
+							{/each}
+						</ul>
+					{:else}
+						<p class="mt-3 text-slate-300">No saved boards yet.</p>
+					{/if}
+					<button
+						class="mt-4 rounded-lg bg-indigo-600 px-4 py-2 disabled:opacity-50"
+						disabled={apiStore.busy}
+						onclick={() => apiStore.scan()}>Scan for a board</button
+					>
+					{#if apiStore.discoveredDevices.length}
+						<h3 class="mt-6 font-medium">Nearby boards</h3>
+						<ul class="mt-2 space-y-2">
+							{#each apiStore.discoveredDevices as device (device.deviceId)}
+								<li class="flex items-center justify-between rounded-lg bg-slate-800 p-3">
+									<span>{device.name}</span>
+									<button
+										class="rounded-md bg-indigo-600 px-3 py-1 disabled:opacity-50"
+										disabled={apiStore.busy}
+										onclick={() => apiStore.connectDevice(device.deviceId)}>Connect</button
+									>
+								</li>
+							{/each}
+						</ul>
+					{/if}
+				{/if}
+				{#if apiStore.error}<p role="alert" class="mt-3 text-amber-300">{apiStore.error}</p>{/if}
+			{:else if apiStore.status === 'failed'}
+				<p role="alert" class="mt-3 text-amber-300">{apiStore.error}</p>
+				<button class="mt-4 rounded-lg bg-slate-700 px-4 py-2" onclick={() => apiStore.connect()}
+					>Retry</button
 				>
-					{isScanning ? 'Looking...' : 'Look for VESCs'}
-				</button>
-			</div>
-
-			{#if bleDevices.length === 0}
-				<div class="py-8 text-center text-gray-500 dark:text-gray-400">
-					<div class="mx-auto mb-3 h-16 w-16 opacity-50">
-						<SearchX class="h-16 w-16" />
+			{:else}
+				<p class="mt-3 text-slate-400">Starting native backend…</p>
+			{/if}
+		</section>
+	{:else}
+		<section aria-labelledby="sessions-heading" class="rounded-2xl bg-slate-900 p-5">
+			{#if apiStore.selectedSession}
+				<button class="mb-4 text-indigo-300" onclick={() => apiStore.closeSession()}
+					>← Sessions</button
+				>
+				<h2 id="sessions-heading" class="text-xl font-medium">Review</h2>
+				<p class="mt-2 text-lg">{apiStore.selectedSession.displayName}</p>
+				<div class="mt-4 grid grid-cols-2 gap-3">
+					<div class="rounded-lg bg-slate-800 p-3">
+						<p class="text-sm text-slate-400">Samples</p>
+						<p class="text-xl">{apiStore.selectedSession.sampleCount}</p>
 					</div>
-					<p class="text-sm">No devices found yet</p>
-					<p class="mt-1 text-xs">Tap scan to discover nearby devices</p>
+					<div class="rounded-lg bg-slate-800 p-3">
+						<p class="text-sm text-slate-400">Distance</p>
+						<p class="text-xl">
+							{((apiStore.selectedSession.distanceM ?? 0) / 1000).toFixed(2)} km
+						</p>
+					</div>
+				</div>
+				<div class="mt-5 rounded-lg border border-slate-700 p-4">
+					<h3 class="font-medium">Ride trends</h3>
+					<p class="mt-2 text-sm text-slate-400">
+						Bounded series queries power the Svelte/SVG charts here.
+					</p>
+					<button class="mt-3 rounded-md bg-slate-700 px-3 py-2">Open diagnostic zoom</button>
 				</div>
 			{:else}
-				<ul class="space-y-3">
-					{#each bleDevices as device (device.address)}
-						<li animate:flip in:slide out:fade>
-							<button
-								class="card preset-filled-surface-100-900 border-surface-200 dark:border-surface-700 w-full border p-2 text-left shadow-xl hover:shadow-md disabled:cursor-not-allowed disabled:opacity-50"
-								disabled={isConnecting}
-								onpointerdown={() => connectBleDevice(device.address)}
-							>
-								<div class="flex w-full items-center justify-between">
-									<div class="min-w-0 flex-1">
-										<div class="truncate font-semibold text-gray-800 dark:text-white">
-											{device.name || 'Unknown Device'}
-										</div>
-										<div class="font-mono text-sm text-gray-500 dark:text-gray-400">
-											{device.address}
-										</div>
-									</div>
-									<div class="ml-4 flex-shrink-0">
-										{#if connectingAddress === device.address}
-											<ProgressRing
-												value={null}
-												size="size-6"
-												meterStroke="stroke-surface-600-400"
-												trackStroke="stroke-surface-50-950"
-											/>
-										{:else}
-											<ChevronRight class="h-5 w-5 text-gray-400 dark:text-gray-500" />
-										{/if}
-									</div>
-								</div>
-							</button>
-						</li>
-					{/each}
-				</ul>
+				<h2 id="sessions-heading" class="text-xl font-medium">Sessions</h2>
+				<div class="mt-3 flex gap-2 text-sm">
+					<button class="rounded-md bg-slate-800 px-3 py-2">Device</button>
+					<button class="rounded-md bg-slate-800 px-3 py-2">Date</button>
+					<button class="rounded-md bg-slate-800 px-3 py-2">Duration</button>
+					<button class="rounded-md bg-slate-800 px-3 py-2">Distance</button>
+				</div>
+				{#if apiStore.sessions.length}
+					<ul class="mt-4 space-y-2">
+						{#each apiStore.sessions as session (session.sessionId)}
+							<li>
+								<button
+									class="w-full rounded-lg bg-slate-800 p-3 text-left"
+									onclick={() => apiStore.openSession(session.sessionId)}
+								>
+									<span class="block font-medium">{session.displayName}</span>
+									<span class="text-sm text-slate-400">
+										{session.state} · {Math.round(session.totalElapsedMs / 60000)} min ·
+										{((session.distanceM ?? 0) / 1000).toFixed(2)} km
+									</span>
+								</button>
+							</li>
+						{/each}
+					</ul>
+				{:else}
+					<p class="mt-3 text-slate-300">Recorded sessions will appear here.</p>
+				{/if}
 			{/if}
-		</div>
-	{:else}
-		<!-- Loading State -->
-		<div class="rounded-2xl bg-white p-8 shadow-lg dark:bg-gray-800">
-			<div class="flex flex-col items-center justify-center text-center">
-				<ProgressRing
-					value={null}
-					size="size-8"
-					meterStroke="stroke-primary-600-400"
-					trackStroke="stroke-primary-50-950"
-				/>
-				<p class="mt-4 text-gray-600 dark:text-gray-300">Starting up...</p>
-			</div>
-		</div>
+		</section>
 	{/if}
 </div>

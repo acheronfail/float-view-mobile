@@ -93,6 +93,7 @@ async function withClient<T>(
 
 export async function runSystemConformance(
   createClient: ConformanceClientFactory,
+  options: { includeProductScenarios?: boolean } = {},
 ): Promise<ConformanceScenarioResult[]> {
   const scenarios: Array<[string, () => Promise<void>]> = [
     [
@@ -157,8 +158,13 @@ export async function runSystemConformance(
             "Snapshot revision must be stable without intervening state changes",
           );
           assert(
-            Array.isArray(refreshed.devices),
-            "Snapshot devices must be an array",
+            Array.isArray(refreshed.knownDevices),
+            "Snapshot knownDevices must be an array",
+          );
+          assert(
+            refreshed.activeConnection === null ||
+              typeof refreshed.activeConnection === "object",
+            "Snapshot activeConnection must be a device or null",
           );
           assert(
             Array.isArray(refreshed.telemetrySubscriptions),
@@ -183,12 +189,157 @@ export async function runSystemConformance(
             -32601,
             "unsupported",
           );
+      }),
+    ],
+    [
+      "discovers connects logs and disconnects as one durable workflow",
+      () =>
+        withClient(createClient, async (client) => {
+          await client.request("system.hello", {
+            client: { name: "float-view-conformance", version: "1.0.0" },
+            api: { major: 1, minMinor: 0, maxMinor: 0 },
+          });
+          await client.request("discovery.start", { timeoutMs: 1_000 });
+          const discovered = asRecord(
+            await client.request("system.getSnapshot", {}),
+            "discovery snapshot",
+          );
+          assert(
+            Array.isArray(discovered.knownDevices) &&
+              discovered.knownDevices.length > 0,
+            "Discovery must produce at least one fake board",
+          );
+          const first = asRecord(
+            discovered.knownDevices[0],
+            "discovered board",
+          );
+          const connected = asRecord(
+            await client.request("device.connect", {
+              deviceId: first.deviceId,
+              timeoutMs: 5_000,
+            }),
+            "connected board",
+          );
+          assert(connected.state === "ready", "Connected board must become ready");
+
+          const active = asRecord(
+            await client.request("system.getSnapshot", {}),
+            "active snapshot",
+          );
+          assert(
+            asRecord(active.activeConnection, "active connection").deviceId ===
+              first.deviceId,
+            "Snapshot must identify the singleton active board",
+          );
+          assert(
+            Array.isArray(active.loggingJobs) &&
+              active.loggingJobs.length === 1,
+            "Ready must create exactly one logging job",
+          );
+
+          const firmware = asRecord(
+            await client.request("vesc.getFirmwareInfo", {}),
+            "firmware info",
+          );
+          assert(
+            firmware.vescVersion === "6.06" &&
+              firmware.packageName === "refloat" &&
+              firmware.packageVersion === "1.2",
+            "Fixture must report the initial supported firmware profile",
+          );
+
+          await client.request("device.disconnect", {});
+          const stopped = asRecord(
+            await client.request("system.getSnapshot", {}),
+            "disconnected snapshot",
+          );
+          assert(
+            stopped.activeConnection === null &&
+              Array.isArray(stopped.loggingJobs) &&
+              stopped.loggingJobs.length === 0,
+            "Explicit disconnect must close logging before clearing the connection",
+          );
+          const page = asRecord(
+            await client.request("sessions.list", { limit: 20 }),
+            "session page",
+          );
+          assert(
+            Array.isArray(page.items) && page.items.length === 1,
+            "Workflow must leave one reviewable session",
+          );
+          const session = asRecord(page.items[0], "completed session");
+          assert(
+            session.state === "completed" && Number(session.sampleCount) > 0,
+            "Disconnected session must be completed with committed samples",
+          );
+        }),
+    ],
+    [
+      "persists profile and settings updates with revision checks",
+      () =>
+        withClient(createClient, async (client) => {
+          await client.request("system.hello", {
+            client: { name: "float-view-conformance", version: "1.0.0" },
+            api: { major: 1, minMinor: 0, maxMinor: 0 },
+          });
+          await client.request("discovery.start", {});
+          await client.request("device.connect", {
+            deviceId: "fixture-thor300",
+          });
+          const saved = (await client.request("savedDevices.list", {})) as unknown[];
+          const savedDevice = asRecord(saved[0], "saved board");
+          const profile = asRecord(
+            await client.request("boardProfiles.get", {
+              savedDeviceId: savedDevice.savedDeviceId,
+            }),
+            "board profile",
+          );
+          const updated = asRecord(
+            await client.request("boardProfiles.update", {
+              savedDeviceId: savedDevice.savedDeviceId,
+              expectedRevision: profile.revision,
+              patch: { seriesCount: 18, motor: "hypercore_xr" },
+            }),
+            "updated profile",
+          );
+          assert(
+            updated.revision === 1 &&
+              asRecord(updated.values, "profile values").seriesCount === 18,
+            "Profile update must preserve values and advance the revision",
+          );
+          await expectApiError(
+            client.request("boardProfiles.update", {
+              savedDeviceId: savedDevice.savedDeviceId,
+              expectedRevision: 0,
+              patch: { seriesCount: 20 },
+            }),
+            -32000,
+            "invalid_state",
+          );
+
+          const settings = asRecord(
+            await client.request("settings.get", {}),
+            "settings",
+          );
+          const changed = asRecord(
+            await client.request("settings.update", {
+              expectedRevision: settings.revision,
+              patch: { automaticSessionLinkingEnabled: true },
+            }),
+            "updated settings",
+          );
+          assert(
+            changed.automaticSessionLinkingEnabled === true &&
+              changed.revision === 1,
+            "Settings update must be revisioned",
+          );
         }),
     ],
   ];
 
+  const selected = options.includeProductScenarios === false ? scenarios.slice(0, 4) : scenarios;
   const results: ConformanceScenarioResult[] = [];
-  for (const [name, scenario] of scenarios) {
+  for (const [name, scenario] of selected) {
     const startedAt = performance.now();
     await scenario();
     results.push({ name, durationMs: performance.now() - startedAt });

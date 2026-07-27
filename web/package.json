@@ -4,7 +4,7 @@
 	"version": "0.0.1",
 	"type": "module",
 	"scripts": {
-		"dev": "concurrently --kill-others \"tsx --watch backend-mock/index.ts\" \"vite dev\"",
+		"dev": "concurrently --kill-others \"node --import tsx --watch backend-mock/index.ts\" \"vite dev\"",
 		"build": "vite build",
 		"preview": "vite preview",
 		"prepare": "svelte-kit sync || echo ''",
@@ -14,10 +14,11 @@
 		"lint": "prettier --check . && eslint .",
 		"test:unit": "vitest",
 		"test": "npm run test:unit -- --run",
-		"generate": "tsx scripts/generate.ts && npm run api:generate",
-		"api:generate": "tsx scripts/api/generate-typescript.ts && tsx scripts/api/generate-native.ts",
-		"api:check": "tsx scripts/api/validate.ts && tsx scripts/api/generate-typescript.ts --check && tsx scripts/api/generate-native.ts --check",
-		"api:conformance:mock": "tsx scripts/conformance/mock.ts"
+		"generate": "npm run api:generate",
+		"api:generate": "node --import tsx scripts/api/generate-typescript.ts && node --import tsx scripts/api/generate-native.ts",
+		"api:check": "node --import tsx scripts/api/validate.ts && node --import tsx scripts/api/generate-typescript.ts --check && node --import tsx scripts/api/generate-native.ts --check",
+		"api:conformance:mock": "node --import tsx scripts/conformance/mock.ts",
+		"api:conformance:apple": "node --import tsx scripts/conformance/apple.ts"
 	},
 	"devDependencies": {
 		"@eslint/compat": "^1.2.5",

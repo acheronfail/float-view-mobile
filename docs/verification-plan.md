@@ -468,7 +468,8 @@ It must run R6 software gates, then:
 - verify iOS 17, 18, and 26 separately; on iOS 26 compare active logging with the
   logging Live Activity enabled and disabled, then keep the mechanism only when
   it improves or preserves the required CoreBluetooth behavior;
-- verify no first-release build requests location permission;
+- verify iOS requests no location permission and Android's API 29-30 location
+  permission is scan-only, version-capped, and produces no location data;
 - verify the mobile WebView is released by 30 seconds after backgrounding and
   immediately under injected memory pressure;
 - verify Android `connectedDevice` foreground-service ownership and notification

@@ -15,17 +15,17 @@ const config = {
 			// base: '/path'
 		},
 		adapter: adapter({
-			pages: "build",
-			assets: "build",
+			pages: 'build',
+			assets: 'build',
 			fallback: undefined,
 			precompress: false,
-			strict: true,
+			strict: true
 		}),
 		prerender: {
 			crawl: true,
-			entries: ["/", "/device/[address]"],
-		},
-	},
+			entries: ['*']
+		}
+	}
 };
 
 export default config;

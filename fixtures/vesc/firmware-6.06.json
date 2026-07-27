@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "id": "vesc-firmware-6.06-synthetic",
+  "provenance": "synthetic from VESC Tool command layout; hardware capture required at R6",
+  "firmware": "6.06",
+  "frameHex": "020b00060654484f52333030002ad803",
+  "chunkSizes": [2, 1, 4, 9],
+  "validCrc": true,
+  "expected": {
+    "commandId": 0,
+    "major": 6,
+    "minor": 6,
+    "hardwareName": "THOR300"
+  }
+}

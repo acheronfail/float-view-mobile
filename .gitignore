@@ -1,6 +1,7 @@
 # local development files
 .wwatch.pid
 
-# generated
-ios/float-view/Generated_*.swift
-android/app/src/main/java/fail/acheron/floatview/Generated_*.kt
+# generated/build evidence
+artifacts/verification/
+apple/.build/
+android/**/build/

@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "id": "vesc-realtime-values-synthetic",
+  "provenance": "synthetic from VESC Tool COMM_GET_VALUES scaling",
+  "firmware": "6.06",
+  "frameHex": "02360400fa00e6000004d2fffffe0c00000000000004d201f40000271002040000006400000000000003e8000000000001e2400001e24000ec9f03",
+  "chunkSizes": [7, 1, 13, 38],
+  "validCrc": true,
+  "expected": {
+    "commandId": 4,
+    "controllerTempC": 25.0,
+    "motorTempC": 23.0,
+    "motorCurrentA": 12.34,
+    "batteryCurrentA": -5.0,
+    "dutyCycle": 0.5,
+    "erpm": 10000,
+    "packVoltageV": 51.6,
+    "faultCode": 0
+  }
+}

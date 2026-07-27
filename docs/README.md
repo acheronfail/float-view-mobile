@@ -29,6 +29,8 @@ Read these documents in this order when changing architecture or the local API:
 10. [`../api/README.md`](../api/README.md) and
     [`../api/compatibility.md`](../api/compatibility.md) — implemented contract
     source of truth and compatibility policy.
+11. [`implementation-notes.md`](implementation-notes.md) — ambiguities found
+    during implementation and the bounded resolution used to continue.
 
 When documents conflict:
 

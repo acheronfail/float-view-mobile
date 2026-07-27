@@ -122,6 +122,545 @@ export interface LoggingJob {
 	lastError?: RpcErrorData;
 }
 
+export type EmptyParams = Record<string, never>;
+
+export interface AcceptedResult {
+	accepted: boolean;
+}
+
+export interface SavedDevice {
+	savedDeviceId: string;
+	deviceHistoryId: string;
+	displayName: string;
+	advertisedName?: string | null;
+	lastSeenAt?: string | null;
+	lastConnectedAt?: string | null;
+	profileComplete: boolean;
+}
+
+export interface BoardProfile {
+	savedDeviceId: string;
+	revision: number;
+	values: Record<string, unknown>;
+	missingFields: Array<string>;
+}
+
+export type SessionState = 'active' | 'completed' | 'interrupted' | 'partial' | 'failed';
+
+export interface Session {
+	sessionId: string;
+	deviceHistoryId: string;
+	displayName: string;
+	startedAt: string;
+	endedAt?: string | null;
+	state: SessionState;
+	integrity: 'complete' | 'gaps' | 'recovered' | 'corrupt';
+	sampleCount: number;
+	eventCount: number;
+	ridingElapsedMs: number;
+	totalElapsedMs: number;
+	distanceM?: number | null;
+	maxSpeedMps?: number | null;
+	maxDutyCycle?: number | null;
+}
+
+export interface SessionGroup {
+	sessionGroupId: string;
+	deviceHistoryId: string;
+	sessionIds: Array<string>;
+	totalElapsedMs: number;
+	distanceM?: number | null;
+}
+
+export interface Settings {
+	revision: number;
+	idleProbeIntervalMs: number;
+	idlePersistIntervalMs: number;
+	ridingPersistIntervalMs: number;
+	postRideTailMs: number;
+	reconnectDurationMs: number;
+	automaticSessionLinkingEnabled: boolean;
+	sessionLinkWindowMs: number;
+	rawPacketCaptureEnabled: boolean;
+}
+
+export interface AlertRule {
+	ruleId: string;
+	kind:
+		| 'duty_high'
+		| 'voltage_low'
+		| 'voltage_high'
+		| 'motor_temperature_high'
+		| 'controller_temperature_high'
+		| 'footpad'
+		| 'connection_loss';
+	enabled: boolean;
+	threshold: number | null;
+	durationMs?: number;
+	hysteresis?: number;
+	cooldownMs: number;
+}
+
+export interface StorageState {
+	availableBytes: number;
+	level: 'normal' | 'warning' | 'critical' | 'stop';
+	warningBytes: number;
+	criticalBytes: number;
+	stopBytes: number;
+}
+
+export interface FirmwareInfo {
+	vescVersion: string;
+	packageName: string;
+	packageVersion: string;
+	hardwareName?: string | null;
+	supported: boolean;
+}
+
+export interface SeriesPoint {
+	elapsedMs: number;
+	values: Record<string, number | null>;
+}
+
+export interface SessionEvent {
+	eventId: string;
+	elapsedMs: number;
+	kind: string;
+	details: Record<string, unknown>;
+}
+
+export interface CursorPage {
+	items: Array<unknown>;
+	nextCursor: string | null;
+}
+
+export interface BluetoothGetStateRequest {
+	jsonrpc: '2.0';
+	id: JsonRpcId;
+	method: 'bluetooth.getState';
+	params: EmptyParams;
+}
+
+export interface BluetoothGetStateResponse {
+	jsonrpc: '2.0';
+	id: JsonRpcId;
+	result: BluetoothState;
+}
+
+export interface BluetoothRequestPermissionRequest {
+	jsonrpc: '2.0';
+	id: JsonRpcId;
+	method: 'bluetooth.requestPermission';
+	params: EmptyParams;
+}
+
+export interface BluetoothRequestPermissionResponse {
+	jsonrpc: '2.0';
+	id: JsonRpcId;
+	result: BluetoothState;
+}
+
+export interface DiscoveryStartRequest {
+	jsonrpc: '2.0';
+	id: JsonRpcId;
+	method: 'discovery.start';
+	params: {
+		timeoutMs?: number;
+	};
+}
+
+export interface DiscoveryStartResponse {
+	jsonrpc: '2.0';
+	id: JsonRpcId;
+	result: {
+		scanId: string;
+	};
+}
+
+export interface DiscoveryStopRequest {
+	jsonrpc: '2.0';
+	id: JsonRpcId;
+	method: 'discovery.stop';
+	params: {
+		scanId: string;
+	};
+}
+
+export interface DiscoveryStopResponse {
+	jsonrpc: '2.0';
+	id: JsonRpcId;
+	result: AcceptedResult;
+}
+
+export interface DeviceConnectRequest {
+	jsonrpc: '2.0';
+	id: JsonRpcId;
+	method: 'device.connect';
+	params: {
+		deviceId: string;
+		timeoutMs?: number;
+	};
+}
+
+export interface DeviceConnectResponse {
+	jsonrpc: '2.0';
+	id: JsonRpcId;
+	result: Device;
+}
+
+export interface DeviceDisconnectRequest {
+	jsonrpc: '2.0';
+	id: JsonRpcId;
+	method: 'device.disconnect';
+	params: EmptyParams;
+}
+
+export interface DeviceDisconnectResponse {
+	jsonrpc: '2.0';
+	id: JsonRpcId;
+	result: AcceptedResult;
+}
+
+export interface DeviceGetActiveRequest {
+	jsonrpc: '2.0';
+	id: JsonRpcId;
+	method: 'device.getActive';
+	params: EmptyParams;
+}
+
+export interface DeviceGetActiveResponse {
+	jsonrpc: '2.0';
+	id: JsonRpcId;
+	result: Device | null;
+}
+
+export interface SavedDevicesListRequest {
+	jsonrpc: '2.0';
+	id: JsonRpcId;
+	method: 'savedDevices.list';
+	params: EmptyParams;
+}
+
+export interface SavedDevicesListResponse {
+	jsonrpc: '2.0';
+	id: JsonRpcId;
+	result: Array<SavedDevice>;
+}
+
+export interface SavedDevicesGetRequest {
+	jsonrpc: '2.0';
+	id: JsonRpcId;
+	method: 'savedDevices.get';
+	params: {
+		savedDeviceId: string;
+	};
+}
+
+export interface SavedDevicesGetResponse {
+	jsonrpc: '2.0';
+	id: JsonRpcId;
+	result: SavedDevice;
+}
+
+export interface SavedDevicesRenameRequest {
+	jsonrpc: '2.0';
+	id: JsonRpcId;
+	method: 'savedDevices.rename';
+	params: {
+		savedDeviceId: string;
+		name: string;
+	};
+}
+
+export interface SavedDevicesRenameResponse {
+	jsonrpc: '2.0';
+	id: JsonRpcId;
+	result: SavedDevice;
+}
+
+export interface SavedDevicesForgetRequest {
+	jsonrpc: '2.0';
+	id: JsonRpcId;
+	method: 'savedDevices.forget';
+	params: {
+		savedDeviceId: string;
+	};
+}
+
+export interface SavedDevicesForgetResponse {
+	jsonrpc: '2.0';
+	id: JsonRpcId;
+	result: AcceptedResult;
+}
+
+export interface BoardProfilesGetRequest {
+	jsonrpc: '2.0';
+	id: JsonRpcId;
+	method: 'boardProfiles.get';
+	params: {
+		savedDeviceId: string;
+	};
+}
+
+export interface BoardProfilesGetResponse {
+	jsonrpc: '2.0';
+	id: JsonRpcId;
+	result: BoardProfile;
+}
+
+export interface BoardProfilesUpdateRequest {
+	jsonrpc: '2.0';
+	id: JsonRpcId;
+	method: 'boardProfiles.update';
+	params: {
+		savedDeviceId: string;
+		expectedRevision: number;
+		patch: Record<string, unknown>;
+	};
+}
+
+export interface BoardProfilesUpdateResponse {
+	jsonrpc: '2.0';
+	id: JsonRpcId;
+	result: BoardProfile;
+}
+
+export interface SettingsGetRequest {
+	jsonrpc: '2.0';
+	id: JsonRpcId;
+	method: 'settings.get';
+	params: EmptyParams;
+}
+
+export interface SettingsGetResponse {
+	jsonrpc: '2.0';
+	id: JsonRpcId;
+	result: Settings;
+}
+
+export interface SettingsUpdateRequest {
+	jsonrpc: '2.0';
+	id: JsonRpcId;
+	method: 'settings.update';
+	params: {
+		expectedRevision: number;
+		patch: Record<string, unknown>;
+	};
+}
+
+export interface SettingsUpdateResponse {
+	jsonrpc: '2.0';
+	id: JsonRpcId;
+	result: Settings;
+}
+
+export interface SessionsListRequest {
+	jsonrpc: '2.0';
+	id: JsonRpcId;
+	method: 'sessions.list';
+	params: {
+		cursor?: string | null;
+		limit?: number;
+		filters?: Record<string, unknown>;
+		sort?: Record<string, unknown>;
+	};
+}
+
+export interface SessionsListResponse {
+	jsonrpc: '2.0';
+	id: JsonRpcId;
+	result: {
+		items: Array<Session>;
+		nextCursor: string | null;
+	};
+}
+
+export interface SessionsGetRequest {
+	jsonrpc: '2.0';
+	id: JsonRpcId;
+	method: 'sessions.get';
+	params: {
+		sessionId: string;
+	};
+}
+
+export interface SessionsGetResponse {
+	jsonrpc: '2.0';
+	id: JsonRpcId;
+	result: Session;
+}
+
+export interface SessionsGetSummaryRequest {
+	jsonrpc: '2.0';
+	id: JsonRpcId;
+	method: 'sessions.getSummary';
+	params: {
+		sessionId: string;
+	};
+}
+
+export interface SessionsGetSummaryResponse {
+	jsonrpc: '2.0';
+	id: JsonRpcId;
+	result: Session;
+}
+
+export interface SessionsQuerySeriesRequest {
+	jsonrpc: '2.0';
+	id: JsonRpcId;
+	method: 'sessions.querySeries';
+	params: {
+		sessionId: string;
+		startElapsedMs: number;
+		endElapsedMs: number;
+		fields: Array<string>;
+		maxPoints: number;
+	};
+}
+
+export interface SessionsQuerySeriesResponse {
+	jsonrpc: '2.0';
+	id: JsonRpcId;
+	result: Array<SeriesPoint>;
+}
+
+export interface SessionsListEventsRequest {
+	jsonrpc: '2.0';
+	id: JsonRpcId;
+	method: 'sessions.listEvents';
+	params: {
+		sessionId: string;
+		startElapsedMs: number;
+		endElapsedMs: number;
+	};
+}
+
+export interface SessionsListEventsResponse {
+	jsonrpc: '2.0';
+	id: JsonRpcId;
+	result: Array<SessionEvent>;
+}
+
+export interface SessionsGetDiagnosticWindowRequest {
+	jsonrpc: '2.0';
+	id: JsonRpcId;
+	method: 'sessions.getDiagnosticWindow';
+	params: {
+		sessionId: string;
+		centerElapsedMs: number;
+		beforeMs: number;
+		afterMs: number;
+		fields: Array<string>;
+	};
+}
+
+export interface SessionsGetDiagnosticWindowResponse {
+	jsonrpc: '2.0';
+	id: JsonRpcId;
+	result: Array<SeriesPoint>;
+}
+
+export interface SessionsExportRequest {
+	jsonrpc: '2.0';
+	id: JsonRpcId;
+	method: 'sessions.export';
+	params: {
+		sessionId: string;
+		format: 'float-view-archive' | 'csv';
+	};
+}
+
+export interface SessionsExportResponse {
+	jsonrpc: '2.0';
+	id: JsonRpcId;
+	result: {
+		exportId: string;
+		fileName: string;
+	};
+}
+
+export interface SessionsDeleteRequest {
+	jsonrpc: '2.0';
+	id: JsonRpcId;
+	method: 'sessions.delete';
+	params: {
+		sessionId: string;
+	};
+}
+
+export interface SessionsDeleteResponse {
+	jsonrpc: '2.0';
+	id: JsonRpcId;
+	result: AcceptedResult;
+}
+
+export interface SessionGroupsListRequest {
+	jsonrpc: '2.0';
+	id: JsonRpcId;
+	method: 'sessionGroups.list';
+	params: EmptyParams;
+}
+
+export interface SessionGroupsListResponse {
+	jsonrpc: '2.0';
+	id: JsonRpcId;
+	result: Array<SessionGroup>;
+}
+
+export interface AlertsListRulesRequest {
+	jsonrpc: '2.0';
+	id: JsonRpcId;
+	method: 'alerts.listRules';
+	params: EmptyParams;
+}
+
+export interface AlertsListRulesResponse {
+	jsonrpc: '2.0';
+	id: JsonRpcId;
+	result: Array<AlertRule>;
+}
+
+export interface AlertsReplaceRulesRequest {
+	jsonrpc: '2.0';
+	id: JsonRpcId;
+	method: 'alerts.replaceRules';
+	params: {
+		rules: Array<AlertRule>;
+	};
+}
+
+export interface AlertsReplaceRulesResponse {
+	jsonrpc: '2.0';
+	id: JsonRpcId;
+	result: Array<AlertRule>;
+}
+
+export interface LoggingGetStorageStateRequest {
+	jsonrpc: '2.0';
+	id: JsonRpcId;
+	method: 'logging.getStorageState';
+	params: EmptyParams;
+}
+
+export interface LoggingGetStorageStateResponse {
+	jsonrpc: '2.0';
+	id: JsonRpcId;
+	result: StorageState;
+}
+
+export interface VescGetFirmwareInfoRequest {
+	jsonrpc: '2.0';
+	id: JsonRpcId;
+	method: 'vesc.getFirmwareInfo';
+	params: EmptyParams;
+}
+
+export interface VescGetFirmwareInfoResponse {
+	jsonrpc: '2.0';
+	id: JsonRpcId;
+	result: FirmwareInfo;
+}
+
 export interface ApiRange {
 	major: number;
 	minMinor: number;
@@ -129,15 +668,16 @@ export interface ApiRange {
 }
 
 export interface Limits {
-	maxConnections: number;
 	minTelemetryIntervalMs: number;
 	maxMessageBytes: number;
+	maxReconnectDurationMs: number;
 }
 
 export interface Snapshot {
 	revision: number;
 	bluetooth: BluetoothState;
-	devices: Array<Device>;
+	knownDevices: Array<Device>;
+	activeConnection: Device | null;
 	telemetrySubscriptions: Array<TelemetrySubscription>;
 	loggingJobs: Array<LoggingJob>;
 }
@@ -192,6 +732,151 @@ export interface TelemetrySubscription {
 }
 
 export interface ApiMethods {
+	'bluetooth.getState': { params: EmptyParams; result: BluetoothState };
+	'bluetooth.requestPermission': { params: EmptyParams; result: BluetoothState };
+	'discovery.start': {
+		params: {
+			timeoutMs?: number;
+		};
+		result: {
+			scanId: string;
+		};
+	};
+	'discovery.stop': {
+		params: {
+			scanId: string;
+		};
+		result: AcceptedResult;
+	};
+	'device.connect': {
+		params: {
+			deviceId: string;
+			timeoutMs?: number;
+		};
+		result: Device;
+	};
+	'device.disconnect': { params: EmptyParams; result: AcceptedResult };
+	'device.getActive': { params: EmptyParams; result: Device | null };
+	'savedDevices.list': { params: EmptyParams; result: Array<SavedDevice> };
+	'savedDevices.get': {
+		params: {
+			savedDeviceId: string;
+		};
+		result: SavedDevice;
+	};
+	'savedDevices.rename': {
+		params: {
+			savedDeviceId: string;
+			name: string;
+		};
+		result: SavedDevice;
+	};
+	'savedDevices.forget': {
+		params: {
+			savedDeviceId: string;
+		};
+		result: AcceptedResult;
+	};
+	'boardProfiles.get': {
+		params: {
+			savedDeviceId: string;
+		};
+		result: BoardProfile;
+	};
+	'boardProfiles.update': {
+		params: {
+			savedDeviceId: string;
+			expectedRevision: number;
+			patch: Record<string, unknown>;
+		};
+		result: BoardProfile;
+	};
+	'settings.get': { params: EmptyParams; result: Settings };
+	'settings.update': {
+		params: {
+			expectedRevision: number;
+			patch: Record<string, unknown>;
+		};
+		result: Settings;
+	};
+	'sessions.list': {
+		params: {
+			cursor?: string | null;
+			limit?: number;
+			filters?: Record<string, unknown>;
+			sort?: Record<string, unknown>;
+		};
+		result: {
+			items: Array<Session>;
+			nextCursor: string | null;
+		};
+	};
+	'sessions.get': {
+		params: {
+			sessionId: string;
+		};
+		result: Session;
+	};
+	'sessions.getSummary': {
+		params: {
+			sessionId: string;
+		};
+		result: Session;
+	};
+	'sessions.querySeries': {
+		params: {
+			sessionId: string;
+			startElapsedMs: number;
+			endElapsedMs: number;
+			fields: Array<string>;
+			maxPoints: number;
+		};
+		result: Array<SeriesPoint>;
+	};
+	'sessions.listEvents': {
+		params: {
+			sessionId: string;
+			startElapsedMs: number;
+			endElapsedMs: number;
+		};
+		result: Array<SessionEvent>;
+	};
+	'sessions.getDiagnosticWindow': {
+		params: {
+			sessionId: string;
+			centerElapsedMs: number;
+			beforeMs: number;
+			afterMs: number;
+			fields: Array<string>;
+		};
+		result: Array<SeriesPoint>;
+	};
+	'sessions.export': {
+		params: {
+			sessionId: string;
+			format: 'float-view-archive' | 'csv';
+		};
+		result: {
+			exportId: string;
+			fileName: string;
+		};
+	};
+	'sessions.delete': {
+		params: {
+			sessionId: string;
+		};
+		result: AcceptedResult;
+	};
+	'sessionGroups.list': { params: EmptyParams; result: Array<SessionGroup> };
+	'alerts.listRules': { params: EmptyParams; result: Array<AlertRule> };
+	'alerts.replaceRules': {
+		params: {
+			rules: Array<AlertRule>;
+		};
+		result: Array<AlertRule>;
+	};
+	'logging.getStorageState': { params: EmptyParams; result: StorageState };
+	'vesc.getFirmwareInfo': { params: EmptyParams; result: FirmwareInfo };
 	'system.hello': { params: HelloParams; result: HelloResult };
 	'system.getSnapshot': { params: Record<string, never>; result: Snapshot };
 }

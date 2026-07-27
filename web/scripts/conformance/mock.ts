@@ -1,18 +1,19 @@
 import WebSocket from 'ws';
-import { startMockServer, stopMockServer } from '../../backend-mock/index.js';
+import { getMockBootstrap, startMockServer, stopMockServer } from '../../backend-mock/index.js';
 import { connectApiClient } from '../../src/lib/api/client.js';
 import { runSystemConformance, type ConformanceClient } from '../../../conformance/src/system.ts';
 import type { ApiMethod } from '../../../api/generated/typescript/models.js';
 
 const port = await startMockServer(0);
-const url = `ws://127.0.0.1:${port}/api/v1/ws`;
+const bootstrap = getMockBootstrap(port);
 
 try {
 	const results = await runSystemConformance(async (): Promise<ConformanceClient> => {
 		const client = await connectApiClient(
-			url,
+			bootstrap.webSocketUrl,
 			2_000,
-			(socketUrl) => new WebSocket(socketUrl) as unknown as globalThis.WebSocket
+			(socketUrl) =>
+				new WebSocket(socketUrl, { origin: bootstrap.origin }) as unknown as globalThis.WebSocket
 		);
 		return {
 			request(method, params) {

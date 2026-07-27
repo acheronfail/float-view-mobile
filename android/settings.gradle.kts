@@ -22,3 +22,7 @@ dependencyResolutionManagement {
 rootProject.name = "Float View"
 include(":app")
 include(":api-models")
+include(":core")
+include(":protocol")
+include(":logging")
+include(":bluetooth")

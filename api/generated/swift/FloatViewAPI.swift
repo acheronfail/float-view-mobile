@@ -290,6 +290,1275 @@ public struct LoggingJob: Codable, Sendable, Equatable {
   }
 }
 
+public typealias EmptyParams = [String: JSONValue]
+
+public struct AcceptedResult: Codable, Sendable, Equatable {
+  public let accepted: Bool
+
+  public init(
+    accepted: Bool
+  ) {
+    self.accepted = accepted
+  }
+}
+
+public struct SavedDevice: Codable, Sendable, Equatable {
+  public let savedDeviceId: String
+  public let deviceHistoryId: String
+  public let displayName: String
+  public let advertisedName: JSONValue?
+  public let lastSeenAt: JSONValue?
+  public let lastConnectedAt: JSONValue?
+  public let profileComplete: Bool
+
+  public init(
+    savedDeviceId: String,
+    deviceHistoryId: String,
+    displayName: String,
+    advertisedName: JSONValue? = nil,
+    lastSeenAt: JSONValue? = nil,
+    lastConnectedAt: JSONValue? = nil,
+    profileComplete: Bool
+  ) {
+    self.savedDeviceId = savedDeviceId
+    self.deviceHistoryId = deviceHistoryId
+    self.displayName = displayName
+    self.advertisedName = advertisedName
+    self.lastSeenAt = lastSeenAt
+    self.lastConnectedAt = lastConnectedAt
+    self.profileComplete = profileComplete
+  }
+}
+
+public struct BoardProfile: Codable, Sendable, Equatable {
+  public let savedDeviceId: String
+  public let revision: Int
+  public let values: [String: JSONValue]
+  public let missingFields: [String]
+
+  public init(
+    savedDeviceId: String,
+    revision: Int,
+    values: [String: JSONValue],
+    missingFields: [String]
+  ) {
+    self.savedDeviceId = savedDeviceId
+    self.revision = revision
+    self.values = values
+    self.missingFields = missingFields
+  }
+}
+
+public enum SessionState: String, Codable, Sendable, Equatable {
+  case active = "active"
+  case completed = "completed"
+  case interrupted = "interrupted"
+  case partial = "partial"
+  case failed = "failed"
+}
+
+public struct Session: Codable, Sendable, Equatable {
+  public let sessionId: String
+  public let deviceHistoryId: String
+  public let displayName: String
+  public let startedAt: String
+  public let endedAt: JSONValue?
+  public let state: SessionState
+  public let integrity: String
+  public let sampleCount: Int
+  public let eventCount: Int
+  public let ridingElapsedMs: Int
+  public let totalElapsedMs: Int
+  public let distanceM: JSONValue?
+  public let maxSpeedMps: JSONValue?
+  public let maxDutyCycle: JSONValue?
+
+  public init(
+    sessionId: String,
+    deviceHistoryId: String,
+    displayName: String,
+    startedAt: String,
+    endedAt: JSONValue? = nil,
+    state: SessionState,
+    integrity: String,
+    sampleCount: Int,
+    eventCount: Int,
+    ridingElapsedMs: Int,
+    totalElapsedMs: Int,
+    distanceM: JSONValue? = nil,
+    maxSpeedMps: JSONValue? = nil,
+    maxDutyCycle: JSONValue? = nil
+  ) {
+    self.sessionId = sessionId
+    self.deviceHistoryId = deviceHistoryId
+    self.displayName = displayName
+    self.startedAt = startedAt
+    self.endedAt = endedAt
+    self.state = state
+    self.integrity = integrity
+    self.sampleCount = sampleCount
+    self.eventCount = eventCount
+    self.ridingElapsedMs = ridingElapsedMs
+    self.totalElapsedMs = totalElapsedMs
+    self.distanceM = distanceM
+    self.maxSpeedMps = maxSpeedMps
+    self.maxDutyCycle = maxDutyCycle
+  }
+}
+
+public struct SessionGroup: Codable, Sendable, Equatable {
+  public let sessionGroupId: String
+  public let deviceHistoryId: String
+  public let sessionIds: [String]
+  public let totalElapsedMs: Int
+  public let distanceM: JSONValue?
+
+  public init(
+    sessionGroupId: String,
+    deviceHistoryId: String,
+    sessionIds: [String],
+    totalElapsedMs: Int,
+    distanceM: JSONValue? = nil
+  ) {
+    self.sessionGroupId = sessionGroupId
+    self.deviceHistoryId = deviceHistoryId
+    self.sessionIds = sessionIds
+    self.totalElapsedMs = totalElapsedMs
+    self.distanceM = distanceM
+  }
+}
+
+public struct Settings: Codable, Sendable, Equatable {
+  public let revision: Int
+  public let idleProbeIntervalMs: Int
+  public let idlePersistIntervalMs: Int
+  public let ridingPersistIntervalMs: Int
+  public let postRideTailMs: Int
+  public let reconnectDurationMs: Int
+  public let automaticSessionLinkingEnabled: Bool
+  public let sessionLinkWindowMs: Int
+  public let rawPacketCaptureEnabled: Bool
+
+  public init(
+    revision: Int,
+    idleProbeIntervalMs: Int,
+    idlePersistIntervalMs: Int,
+    ridingPersistIntervalMs: Int,
+    postRideTailMs: Int,
+    reconnectDurationMs: Int,
+    automaticSessionLinkingEnabled: Bool,
+    sessionLinkWindowMs: Int,
+    rawPacketCaptureEnabled: Bool
+  ) {
+    self.revision = revision
+    self.idleProbeIntervalMs = idleProbeIntervalMs
+    self.idlePersistIntervalMs = idlePersistIntervalMs
+    self.ridingPersistIntervalMs = ridingPersistIntervalMs
+    self.postRideTailMs = postRideTailMs
+    self.reconnectDurationMs = reconnectDurationMs
+    self.automaticSessionLinkingEnabled = automaticSessionLinkingEnabled
+    self.sessionLinkWindowMs = sessionLinkWindowMs
+    self.rawPacketCaptureEnabled = rawPacketCaptureEnabled
+  }
+}
+
+public struct AlertRule: Codable, Sendable, Equatable {
+  public let ruleId: String
+  public let kind: String
+  public let enabled: Bool
+  public let threshold: JSONValue
+  public let durationMs: Int?
+  public let hysteresis: Double?
+  public let cooldownMs: Int
+
+  public init(
+    ruleId: String,
+    kind: String,
+    enabled: Bool,
+    threshold: JSONValue,
+    durationMs: Int? = nil,
+    hysteresis: Double? = nil,
+    cooldownMs: Int
+  ) {
+    self.ruleId = ruleId
+    self.kind = kind
+    self.enabled = enabled
+    self.threshold = threshold
+    self.durationMs = durationMs
+    self.hysteresis = hysteresis
+    self.cooldownMs = cooldownMs
+  }
+}
+
+public struct StorageState: Codable, Sendable, Equatable {
+  public let availableBytes: Int
+  public let level: String
+  public let warningBytes: Int
+  public let criticalBytes: Int
+  public let stopBytes: Int
+
+  public init(
+    availableBytes: Int,
+    level: String,
+    warningBytes: Int,
+    criticalBytes: Int,
+    stopBytes: Int
+  ) {
+    self.availableBytes = availableBytes
+    self.level = level
+    self.warningBytes = warningBytes
+    self.criticalBytes = criticalBytes
+    self.stopBytes = stopBytes
+  }
+}
+
+public struct FirmwareInfo: Codable, Sendable, Equatable {
+  public let vescVersion: String
+  public let packageName: String
+  public let packageVersion: String
+  public let hardwareName: JSONValue?
+  public let supported: Bool
+
+  public init(
+    vescVersion: String,
+    packageName: String,
+    packageVersion: String,
+    hardwareName: JSONValue? = nil,
+    supported: Bool
+  ) {
+    self.vescVersion = vescVersion
+    self.packageName = packageName
+    self.packageVersion = packageVersion
+    self.hardwareName = hardwareName
+    self.supported = supported
+  }
+}
+
+public struct SeriesPoint: Codable, Sendable, Equatable {
+  public let elapsedMs: Int
+  public let values: [String: JSONValue]
+
+  public init(
+    elapsedMs: Int,
+    values: [String: JSONValue]
+  ) {
+    self.elapsedMs = elapsedMs
+    self.values = values
+  }
+}
+
+public struct SessionEvent: Codable, Sendable, Equatable {
+  public let eventId: String
+  public let elapsedMs: Int
+  public let kind: String
+  public let details: [String: JSONValue]
+
+  public init(
+    eventId: String,
+    elapsedMs: Int,
+    kind: String,
+    details: [String: JSONValue]
+  ) {
+    self.eventId = eventId
+    self.elapsedMs = elapsedMs
+    self.kind = kind
+    self.details = details
+  }
+}
+
+public struct CursorPage: Codable, Sendable, Equatable {
+  public let items: [JSONValue]
+  public let nextCursor: JSONValue
+
+  public init(
+    items: [JSONValue],
+    nextCursor: JSONValue
+  ) {
+    self.items = items
+    self.nextCursor = nextCursor
+  }
+}
+
+public struct BluetoothGetStateRequest: Codable, Sendable, Equatable {
+  public let jsonrpc: String
+  public let id: JsonRpcId
+  public let method: String
+  public let params: EmptyParams
+
+  public init(
+    jsonrpc: String = "2.0",
+    id: JsonRpcId,
+    method: String = "bluetooth.getState",
+    params: EmptyParams
+  ) {
+    self.jsonrpc = jsonrpc
+    self.id = id
+    self.method = method
+    self.params = params
+  }
+}
+
+public struct BluetoothGetStateResponse: Codable, Sendable, Equatable {
+  public let jsonrpc: String
+  public let id: JsonRpcId
+  public let result: BluetoothState
+
+  public init(
+    jsonrpc: String = "2.0",
+    id: JsonRpcId,
+    result: BluetoothState
+  ) {
+    self.jsonrpc = jsonrpc
+    self.id = id
+    self.result = result
+  }
+}
+
+public struct BluetoothRequestPermissionRequest: Codable, Sendable, Equatable {
+  public let jsonrpc: String
+  public let id: JsonRpcId
+  public let method: String
+  public let params: EmptyParams
+
+  public init(
+    jsonrpc: String = "2.0",
+    id: JsonRpcId,
+    method: String = "bluetooth.requestPermission",
+    params: EmptyParams
+  ) {
+    self.jsonrpc = jsonrpc
+    self.id = id
+    self.method = method
+    self.params = params
+  }
+}
+
+public struct BluetoothRequestPermissionResponse: Codable, Sendable, Equatable {
+  public let jsonrpc: String
+  public let id: JsonRpcId
+  public let result: BluetoothState
+
+  public init(
+    jsonrpc: String = "2.0",
+    id: JsonRpcId,
+    result: BluetoothState
+  ) {
+    self.jsonrpc = jsonrpc
+    self.id = id
+    self.result = result
+  }
+}
+
+public struct DiscoveryStartRequest: Codable, Sendable, Equatable {
+  public let jsonrpc: String
+  public let id: JsonRpcId
+  public let method: String
+  public let params: [String: JSONValue]
+
+  public init(
+    jsonrpc: String = "2.0",
+    id: JsonRpcId,
+    method: String = "discovery.start",
+    params: [String: JSONValue]
+  ) {
+    self.jsonrpc = jsonrpc
+    self.id = id
+    self.method = method
+    self.params = params
+  }
+}
+
+public struct DiscoveryStartResponse: Codable, Sendable, Equatable {
+  public let jsonrpc: String
+  public let id: JsonRpcId
+  public let result: [String: JSONValue]
+
+  public init(
+    jsonrpc: String = "2.0",
+    id: JsonRpcId,
+    result: [String: JSONValue]
+  ) {
+    self.jsonrpc = jsonrpc
+    self.id = id
+    self.result = result
+  }
+}
+
+public struct DiscoveryStopRequest: Codable, Sendable, Equatable {
+  public let jsonrpc: String
+  public let id: JsonRpcId
+  public let method: String
+  public let params: [String: JSONValue]
+
+  public init(
+    jsonrpc: String = "2.0",
+    id: JsonRpcId,
+    method: String = "discovery.stop",
+    params: [String: JSONValue]
+  ) {
+    self.jsonrpc = jsonrpc
+    self.id = id
+    self.method = method
+    self.params = params
+  }
+}
+
+public struct DiscoveryStopResponse: Codable, Sendable, Equatable {
+  public let jsonrpc: String
+  public let id: JsonRpcId
+  public let result: AcceptedResult
+
+  public init(
+    jsonrpc: String = "2.0",
+    id: JsonRpcId,
+    result: AcceptedResult
+  ) {
+    self.jsonrpc = jsonrpc
+    self.id = id
+    self.result = result
+  }
+}
+
+public struct DeviceConnectRequest: Codable, Sendable, Equatable {
+  public let jsonrpc: String
+  public let id: JsonRpcId
+  public let method: String
+  public let params: [String: JSONValue]
+
+  public init(
+    jsonrpc: String = "2.0",
+    id: JsonRpcId,
+    method: String = "device.connect",
+    params: [String: JSONValue]
+  ) {
+    self.jsonrpc = jsonrpc
+    self.id = id
+    self.method = method
+    self.params = params
+  }
+}
+
+public struct DeviceConnectResponse: Codable, Sendable, Equatable {
+  public let jsonrpc: String
+  public let id: JsonRpcId
+  public let result: Device
+
+  public init(
+    jsonrpc: String = "2.0",
+    id: JsonRpcId,
+    result: Device
+  ) {
+    self.jsonrpc = jsonrpc
+    self.id = id
+    self.result = result
+  }
+}
+
+public struct DeviceDisconnectRequest: Codable, Sendable, Equatable {
+  public let jsonrpc: String
+  public let id: JsonRpcId
+  public let method: String
+  public let params: EmptyParams
+
+  public init(
+    jsonrpc: String = "2.0",
+    id: JsonRpcId,
+    method: String = "device.disconnect",
+    params: EmptyParams
+  ) {
+    self.jsonrpc = jsonrpc
+    self.id = id
+    self.method = method
+    self.params = params
+  }
+}
+
+public struct DeviceDisconnectResponse: Codable, Sendable, Equatable {
+  public let jsonrpc: String
+  public let id: JsonRpcId
+  public let result: AcceptedResult
+
+  public init(
+    jsonrpc: String = "2.0",
+    id: JsonRpcId,
+    result: AcceptedResult
+  ) {
+    self.jsonrpc = jsonrpc
+    self.id = id
+    self.result = result
+  }
+}
+
+public struct DeviceGetActiveRequest: Codable, Sendable, Equatable {
+  public let jsonrpc: String
+  public let id: JsonRpcId
+  public let method: String
+  public let params: EmptyParams
+
+  public init(
+    jsonrpc: String = "2.0",
+    id: JsonRpcId,
+    method: String = "device.getActive",
+    params: EmptyParams
+  ) {
+    self.jsonrpc = jsonrpc
+    self.id = id
+    self.method = method
+    self.params = params
+  }
+}
+
+public struct DeviceGetActiveResponse: Codable, Sendable, Equatable {
+  public let jsonrpc: String
+  public let id: JsonRpcId
+  public let result: JSONValue
+
+  public init(
+    jsonrpc: String = "2.0",
+    id: JsonRpcId,
+    result: JSONValue
+  ) {
+    self.jsonrpc = jsonrpc
+    self.id = id
+    self.result = result
+  }
+}
+
+public struct SavedDevicesListRequest: Codable, Sendable, Equatable {
+  public let jsonrpc: String
+  public let id: JsonRpcId
+  public let method: String
+  public let params: EmptyParams
+
+  public init(
+    jsonrpc: String = "2.0",
+    id: JsonRpcId,
+    method: String = "savedDevices.list",
+    params: EmptyParams
+  ) {
+    self.jsonrpc = jsonrpc
+    self.id = id
+    self.method = method
+    self.params = params
+  }
+}
+
+public struct SavedDevicesListResponse: Codable, Sendable, Equatable {
+  public let jsonrpc: String
+  public let id: JsonRpcId
+  public let result: [SavedDevice]
+
+  public init(
+    jsonrpc: String = "2.0",
+    id: JsonRpcId,
+    result: [SavedDevice]
+  ) {
+    self.jsonrpc = jsonrpc
+    self.id = id
+    self.result = result
+  }
+}
+
+public struct SavedDevicesGetRequest: Codable, Sendable, Equatable {
+  public let jsonrpc: String
+  public let id: JsonRpcId
+  public let method: String
+  public let params: [String: JSONValue]
+
+  public init(
+    jsonrpc: String = "2.0",
+    id: JsonRpcId,
+    method: String = "savedDevices.get",
+    params: [String: JSONValue]
+  ) {
+    self.jsonrpc = jsonrpc
+    self.id = id
+    self.method = method
+    self.params = params
+  }
+}
+
+public struct SavedDevicesGetResponse: Codable, Sendable, Equatable {
+  public let jsonrpc: String
+  public let id: JsonRpcId
+  public let result: SavedDevice
+
+  public init(
+    jsonrpc: String = "2.0",
+    id: JsonRpcId,
+    result: SavedDevice
+  ) {
+    self.jsonrpc = jsonrpc
+    self.id = id
+    self.result = result
+  }
+}
+
+public struct SavedDevicesRenameRequest: Codable, Sendable, Equatable {
+  public let jsonrpc: String
+  public let id: JsonRpcId
+  public let method: String
+  public let params: [String: JSONValue]
+
+  public init(
+    jsonrpc: String = "2.0",
+    id: JsonRpcId,
+    method: String = "savedDevices.rename",
+    params: [String: JSONValue]
+  ) {
+    self.jsonrpc = jsonrpc
+    self.id = id
+    self.method = method
+    self.params = params
+  }
+}
+
+public struct SavedDevicesRenameResponse: Codable, Sendable, Equatable {
+  public let jsonrpc: String
+  public let id: JsonRpcId
+  public let result: SavedDevice
+
+  public init(
+    jsonrpc: String = "2.0",
+    id: JsonRpcId,
+    result: SavedDevice
+  ) {
+    self.jsonrpc = jsonrpc
+    self.id = id
+    self.result = result
+  }
+}
+
+public struct SavedDevicesForgetRequest: Codable, Sendable, Equatable {
+  public let jsonrpc: String
+  public let id: JsonRpcId
+  public let method: String
+  public let params: [String: JSONValue]
+
+  public init(
+    jsonrpc: String = "2.0",
+    id: JsonRpcId,
+    method: String = "savedDevices.forget",
+    params: [String: JSONValue]
+  ) {
+    self.jsonrpc = jsonrpc
+    self.id = id
+    self.method = method
+    self.params = params
+  }
+}
+
+public struct SavedDevicesForgetResponse: Codable, Sendable, Equatable {
+  public let jsonrpc: String
+  public let id: JsonRpcId
+  public let result: AcceptedResult
+
+  public init(
+    jsonrpc: String = "2.0",
+    id: JsonRpcId,
+    result: AcceptedResult
+  ) {
+    self.jsonrpc = jsonrpc
+    self.id = id
+    self.result = result
+  }
+}
+
+public struct BoardProfilesGetRequest: Codable, Sendable, Equatable {
+  public let jsonrpc: String
+  public let id: JsonRpcId
+  public let method: String
+  public let params: [String: JSONValue]
+
+  public init(
+    jsonrpc: String = "2.0",
+    id: JsonRpcId,
+    method: String = "boardProfiles.get",
+    params: [String: JSONValue]
+  ) {
+    self.jsonrpc = jsonrpc
+    self.id = id
+    self.method = method
+    self.params = params
+  }
+}
+
+public struct BoardProfilesGetResponse: Codable, Sendable, Equatable {
+  public let jsonrpc: String
+  public let id: JsonRpcId
+  public let result: BoardProfile
+
+  public init(
+    jsonrpc: String = "2.0",
+    id: JsonRpcId,
+    result: BoardProfile
+  ) {
+    self.jsonrpc = jsonrpc
+    self.id = id
+    self.result = result
+  }
+}
+
+public struct BoardProfilesUpdateRequest: Codable, Sendable, Equatable {
+  public let jsonrpc: String
+  public let id: JsonRpcId
+  public let method: String
+  public let params: [String: JSONValue]
+
+  public init(
+    jsonrpc: String = "2.0",
+    id: JsonRpcId,
+    method: String = "boardProfiles.update",
+    params: [String: JSONValue]
+  ) {
+    self.jsonrpc = jsonrpc
+    self.id = id
+    self.method = method
+    self.params = params
+  }
+}
+
+public struct BoardProfilesUpdateResponse: Codable, Sendable, Equatable {
+  public let jsonrpc: String
+  public let id: JsonRpcId
+  public let result: BoardProfile
+
+  public init(
+    jsonrpc: String = "2.0",
+    id: JsonRpcId,
+    result: BoardProfile
+  ) {
+    self.jsonrpc = jsonrpc
+    self.id = id
+    self.result = result
+  }
+}
+
+public struct SettingsGetRequest: Codable, Sendable, Equatable {
+  public let jsonrpc: String
+  public let id: JsonRpcId
+  public let method: String
+  public let params: EmptyParams
+
+  public init(
+    jsonrpc: String = "2.0",
+    id: JsonRpcId,
+    method: String = "settings.get",
+    params: EmptyParams
+  ) {
+    self.jsonrpc = jsonrpc
+    self.id = id
+    self.method = method
+    self.params = params
+  }
+}
+
+public struct SettingsGetResponse: Codable, Sendable, Equatable {
+  public let jsonrpc: String
+  public let id: JsonRpcId
+  public let result: Settings
+
+  public init(
+    jsonrpc: String = "2.0",
+    id: JsonRpcId,
+    result: Settings
+  ) {
+    self.jsonrpc = jsonrpc
+    self.id = id
+    self.result = result
+  }
+}
+
+public struct SettingsUpdateRequest: Codable, Sendable, Equatable {
+  public let jsonrpc: String
+  public let id: JsonRpcId
+  public let method: String
+  public let params: [String: JSONValue]
+
+  public init(
+    jsonrpc: String = "2.0",
+    id: JsonRpcId,
+    method: String = "settings.update",
+    params: [String: JSONValue]
+  ) {
+    self.jsonrpc = jsonrpc
+    self.id = id
+    self.method = method
+    self.params = params
+  }
+}
+
+public struct SettingsUpdateResponse: Codable, Sendable, Equatable {
+  public let jsonrpc: String
+  public let id: JsonRpcId
+  public let result: Settings
+
+  public init(
+    jsonrpc: String = "2.0",
+    id: JsonRpcId,
+    result: Settings
+  ) {
+    self.jsonrpc = jsonrpc
+    self.id = id
+    self.result = result
+  }
+}
+
+public struct SessionsListRequest: Codable, Sendable, Equatable {
+  public let jsonrpc: String
+  public let id: JsonRpcId
+  public let method: String
+  public let params: [String: JSONValue]
+
+  public init(
+    jsonrpc: String = "2.0",
+    id: JsonRpcId,
+    method: String = "sessions.list",
+    params: [String: JSONValue]
+  ) {
+    self.jsonrpc = jsonrpc
+    self.id = id
+    self.method = method
+    self.params = params
+  }
+}
+
+public struct SessionsListResponse: Codable, Sendable, Equatable {
+  public let jsonrpc: String
+  public let id: JsonRpcId
+  public let result: [String: JSONValue]
+
+  public init(
+    jsonrpc: String = "2.0",
+    id: JsonRpcId,
+    result: [String: JSONValue]
+  ) {
+    self.jsonrpc = jsonrpc
+    self.id = id
+    self.result = result
+  }
+}
+
+public struct SessionsGetRequest: Codable, Sendable, Equatable {
+  public let jsonrpc: String
+  public let id: JsonRpcId
+  public let method: String
+  public let params: [String: JSONValue]
+
+  public init(
+    jsonrpc: String = "2.0",
+    id: JsonRpcId,
+    method: String = "sessions.get",
+    params: [String: JSONValue]
+  ) {
+    self.jsonrpc = jsonrpc
+    self.id = id
+    self.method = method
+    self.params = params
+  }
+}
+
+public struct SessionsGetResponse: Codable, Sendable, Equatable {
+  public let jsonrpc: String
+  public let id: JsonRpcId
+  public let result: Session
+
+  public init(
+    jsonrpc: String = "2.0",
+    id: JsonRpcId,
+    result: Session
+  ) {
+    self.jsonrpc = jsonrpc
+    self.id = id
+    self.result = result
+  }
+}
+
+public struct SessionsGetSummaryRequest: Codable, Sendable, Equatable {
+  public let jsonrpc: String
+  public let id: JsonRpcId
+  public let method: String
+  public let params: [String: JSONValue]
+
+  public init(
+    jsonrpc: String = "2.0",
+    id: JsonRpcId,
+    method: String = "sessions.getSummary",
+    params: [String: JSONValue]
+  ) {
+    self.jsonrpc = jsonrpc
+    self.id = id
+    self.method = method
+    self.params = params
+  }
+}
+
+public struct SessionsGetSummaryResponse: Codable, Sendable, Equatable {
+  public let jsonrpc: String
+  public let id: JsonRpcId
+  public let result: Session
+
+  public init(
+    jsonrpc: String = "2.0",
+    id: JsonRpcId,
+    result: Session
+  ) {
+    self.jsonrpc = jsonrpc
+    self.id = id
+    self.result = result
+  }
+}
+
+public struct SessionsQuerySeriesRequest: Codable, Sendable, Equatable {
+  public let jsonrpc: String
+  public let id: JsonRpcId
+  public let method: String
+  public let params: [String: JSONValue]
+
+  public init(
+    jsonrpc: String = "2.0",
+    id: JsonRpcId,
+    method: String = "sessions.querySeries",
+    params: [String: JSONValue]
+  ) {
+    self.jsonrpc = jsonrpc
+    self.id = id
+    self.method = method
+    self.params = params
+  }
+}
+
+public struct SessionsQuerySeriesResponse: Codable, Sendable, Equatable {
+  public let jsonrpc: String
+  public let id: JsonRpcId
+  public let result: [SeriesPoint]
+
+  public init(
+    jsonrpc: String = "2.0",
+    id: JsonRpcId,
+    result: [SeriesPoint]
+  ) {
+    self.jsonrpc = jsonrpc
+    self.id = id
+    self.result = result
+  }
+}
+
+public struct SessionsListEventsRequest: Codable, Sendable, Equatable {
+  public let jsonrpc: String
+  public let id: JsonRpcId
+  public let method: String
+  public let params: [String: JSONValue]
+
+  public init(
+    jsonrpc: String = "2.0",
+    id: JsonRpcId,
+    method: String = "sessions.listEvents",
+    params: [String: JSONValue]
+  ) {
+    self.jsonrpc = jsonrpc
+    self.id = id
+    self.method = method
+    self.params = params
+  }
+}
+
+public struct SessionsListEventsResponse: Codable, Sendable, Equatable {
+  public let jsonrpc: String
+  public let id: JsonRpcId
+  public let result: [SessionEvent]
+
+  public init(
+    jsonrpc: String = "2.0",
+    id: JsonRpcId,
+    result: [SessionEvent]
+  ) {
+    self.jsonrpc = jsonrpc
+    self.id = id
+    self.result = result
+  }
+}
+
+public struct SessionsGetDiagnosticWindowRequest: Codable, Sendable, Equatable {
+  public let jsonrpc: String
+  public let id: JsonRpcId
+  public let method: String
+  public let params: [String: JSONValue]
+
+  public init(
+    jsonrpc: String = "2.0",
+    id: JsonRpcId,
+    method: String = "sessions.getDiagnosticWindow",
+    params: [String: JSONValue]
+  ) {
+    self.jsonrpc = jsonrpc
+    self.id = id
+    self.method = method
+    self.params = params
+  }
+}
+
+public struct SessionsGetDiagnosticWindowResponse: Codable, Sendable, Equatable {
+  public let jsonrpc: String
+  public let id: JsonRpcId
+  public let result: [SeriesPoint]
+
+  public init(
+    jsonrpc: String = "2.0",
+    id: JsonRpcId,
+    result: [SeriesPoint]
+  ) {
+    self.jsonrpc = jsonrpc
+    self.id = id
+    self.result = result
+  }
+}
+
+public struct SessionsExportRequest: Codable, Sendable, Equatable {
+  public let jsonrpc: String
+  public let id: JsonRpcId
+  public let method: String
+  public let params: [String: JSONValue]
+
+  public init(
+    jsonrpc: String = "2.0",
+    id: JsonRpcId,
+    method: String = "sessions.export",
+    params: [String: JSONValue]
+  ) {
+    self.jsonrpc = jsonrpc
+    self.id = id
+    self.method = method
+    self.params = params
+  }
+}
+
+public struct SessionsExportResponse: Codable, Sendable, Equatable {
+  public let jsonrpc: String
+  public let id: JsonRpcId
+  public let result: [String: JSONValue]
+
+  public init(
+    jsonrpc: String = "2.0",
+    id: JsonRpcId,
+    result: [String: JSONValue]
+  ) {
+    self.jsonrpc = jsonrpc
+    self.id = id
+    self.result = result
+  }
+}
+
+public struct SessionsDeleteRequest: Codable, Sendable, Equatable {
+  public let jsonrpc: String
+  public let id: JsonRpcId
+  public let method: String
+  public let params: [String: JSONValue]
+
+  public init(
+    jsonrpc: String = "2.0",
+    id: JsonRpcId,
+    method: String = "sessions.delete",
+    params: [String: JSONValue]
+  ) {
+    self.jsonrpc = jsonrpc
+    self.id = id
+    self.method = method
+    self.params = params
+  }
+}
+
+public struct SessionsDeleteResponse: Codable, Sendable, Equatable {
+  public let jsonrpc: String
+  public let id: JsonRpcId
+  public let result: AcceptedResult
+
+  public init(
+    jsonrpc: String = "2.0",
+    id: JsonRpcId,
+    result: AcceptedResult
+  ) {
+    self.jsonrpc = jsonrpc
+    self.id = id
+    self.result = result
+  }
+}
+
+public struct SessionGroupsListRequest: Codable, Sendable, Equatable {
+  public let jsonrpc: String
+  public let id: JsonRpcId
+  public let method: String
+  public let params: EmptyParams
+
+  public init(
+    jsonrpc: String = "2.0",
+    id: JsonRpcId,
+    method: String = "sessionGroups.list",
+    params: EmptyParams
+  ) {
+    self.jsonrpc = jsonrpc
+    self.id = id
+    self.method = method
+    self.params = params
+  }
+}
+
+public struct SessionGroupsListResponse: Codable, Sendable, Equatable {
+  public let jsonrpc: String
+  public let id: JsonRpcId
+  public let result: [SessionGroup]
+
+  public init(
+    jsonrpc: String = "2.0",
+    id: JsonRpcId,
+    result: [SessionGroup]
+  ) {
+    self.jsonrpc = jsonrpc
+    self.id = id
+    self.result = result
+  }
+}
+
+public struct AlertsListRulesRequest: Codable, Sendable, Equatable {
+  public let jsonrpc: String
+  public let id: JsonRpcId
+  public let method: String
+  public let params: EmptyParams
+
+  public init(
+    jsonrpc: String = "2.0",
+    id: JsonRpcId,
+    method: String = "alerts.listRules",
+    params: EmptyParams
+  ) {
+    self.jsonrpc = jsonrpc
+    self.id = id
+    self.method = method
+    self.params = params
+  }
+}
+
+public struct AlertsListRulesResponse: Codable, Sendable, Equatable {
+  public let jsonrpc: String
+  public let id: JsonRpcId
+  public let result: [AlertRule]
+
+  public init(
+    jsonrpc: String = "2.0",
+    id: JsonRpcId,
+    result: [AlertRule]
+  ) {
+    self.jsonrpc = jsonrpc
+    self.id = id
+    self.result = result
+  }
+}
+
+public struct AlertsReplaceRulesRequest: Codable, Sendable, Equatable {
+  public let jsonrpc: String
+  public let id: JsonRpcId
+  public let method: String
+  public let params: [String: JSONValue]
+
+  public init(
+    jsonrpc: String = "2.0",
+    id: JsonRpcId,
+    method: String = "alerts.replaceRules",
+    params: [String: JSONValue]
+  ) {
+    self.jsonrpc = jsonrpc
+    self.id = id
+    self.method = method
+    self.params = params
+  }
+}
+
+public struct AlertsReplaceRulesResponse: Codable, Sendable, Equatable {
+  public let jsonrpc: String
+  public let id: JsonRpcId
+  public let result: [AlertRule]
+
+  public init(
+    jsonrpc: String = "2.0",
+    id: JsonRpcId,
+    result: [AlertRule]
+  ) {
+    self.jsonrpc = jsonrpc
+    self.id = id
+    self.result = result
+  }
+}
+
+public struct LoggingGetStorageStateRequest: Codable, Sendable, Equatable {
+  public let jsonrpc: String
+  public let id: JsonRpcId
+  public let method: String
+  public let params: EmptyParams
+
+  public init(
+    jsonrpc: String = "2.0",
+    id: JsonRpcId,
+    method: String = "logging.getStorageState",
+    params: EmptyParams
+  ) {
+    self.jsonrpc = jsonrpc
+    self.id = id
+    self.method = method
+    self.params = params
+  }
+}
+
+public struct LoggingGetStorageStateResponse: Codable, Sendable, Equatable {
+  public let jsonrpc: String
+  public let id: JsonRpcId
+  public let result: StorageState
+
+  public init(
+    jsonrpc: String = "2.0",
+    id: JsonRpcId,
+    result: StorageState
+  ) {
+    self.jsonrpc = jsonrpc
+    self.id = id
+    self.result = result
+  }
+}
+
+public struct VescGetFirmwareInfoRequest: Codable, Sendable, Equatable {
+  public let jsonrpc: String
+  public let id: JsonRpcId
+  public let method: String
+  public let params: EmptyParams
+
+  public init(
+    jsonrpc: String = "2.0",
+    id: JsonRpcId,
+    method: String = "vesc.getFirmwareInfo",
+    params: EmptyParams
+  ) {
+    self.jsonrpc = jsonrpc
+    self.id = id
+    self.method = method
+    self.params = params
+  }
+}
+
+public struct VescGetFirmwareInfoResponse: Codable, Sendable, Equatable {
+  public let jsonrpc: String
+  public let id: JsonRpcId
+  public let result: FirmwareInfo
+
+  public init(
+    jsonrpc: String = "2.0",
+    id: JsonRpcId,
+    result: FirmwareInfo
+  ) {
+    self.jsonrpc = jsonrpc
+    self.id = id
+    self.result = result
+  }
+}
+
 public struct ApiRange: Codable, Sendable, Equatable {
   public let major: Int
   public let minMinor: Int
@@ -307,38 +1576,41 @@ public struct ApiRange: Codable, Sendable, Equatable {
 }
 
 public struct Limits: Codable, Sendable, Equatable {
-  public let maxConnections: Int
   public let minTelemetryIntervalMs: Int
   public let maxMessageBytes: Int
+  public let maxReconnectDurationMs: Int
 
   public init(
-    maxConnections: Int,
     minTelemetryIntervalMs: Int,
-    maxMessageBytes: Int
+    maxMessageBytes: Int,
+    maxReconnectDurationMs: Int
   ) {
-    self.maxConnections = maxConnections
     self.minTelemetryIntervalMs = minTelemetryIntervalMs
     self.maxMessageBytes = maxMessageBytes
+    self.maxReconnectDurationMs = maxReconnectDurationMs
   }
 }
 
 public struct Snapshot: Codable, Sendable, Equatable {
   public let revision: Int
   public let bluetooth: BluetoothState
-  public let devices: [Device]
+  public let knownDevices: [Device]
+  public let activeConnection: JSONValue
   public let telemetrySubscriptions: [TelemetrySubscription]
   public let loggingJobs: [LoggingJob]
 
   public init(
     revision: Int,
     bluetooth: BluetoothState,
-    devices: [Device],
+    knownDevices: [Device],
+    activeConnection: JSONValue,
     telemetrySubscriptions: [TelemetrySubscription],
     loggingJobs: [LoggingJob]
   ) {
     self.revision = revision
     self.bluetooth = bluetooth
-    self.devices = devices
+    self.knownDevices = knownDevices
+    self.activeConnection = activeConnection
     self.telemetrySubscriptions = telemetrySubscriptions
     self.loggingJobs = loggingJobs
   }

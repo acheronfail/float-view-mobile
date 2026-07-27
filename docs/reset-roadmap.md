@@ -1,6 +1,6 @@
 # Float View backend reset roadmap
 
-Status: approved plan; implementation has not started.
+Status: implementation in progress through the R0-R5 foundation.
 
 Last updated: 2026-07-28.
 
@@ -62,18 +62,25 @@ immutable session snapshots.
 
 | Milestone | Outcome                                                          | Status      |
 | --------- | ---------------------------------------------------------------- | ----------- |
-| R0        | Preserve evidence and define the deletion boundary               | Not started |
-| R1        | Remove legacy product code and establish the new module skeleton | Not started |
-| R2        | Run iOS, Android, and macOS shells against fake backends         | Not started |
-| R3        | Freeze the vertical-slice API and product experience foundation  | Not started |
-| R4        | Pass shared protocol fixtures in Swift and Kotlin                | Not started |
-| R5        | Pass durable logging/service tests and fake conformance          | Not started |
+| R0        | Preserve evidence and define the deletion boundary               | Complete    |
+| R1        | Remove legacy product code and establish the new module skeleton | Complete    |
+| R2        | Run iOS, Android, and macOS shells against fake backends         | Blocked     |
+| R3        | Freeze the vertical-slice API and product experience foundation  | In progress |
+| R4        | Pass shared protocol fixtures in Swift and Kotlin                | In progress |
+| R5        | Pass durable logging/service tests and fake conformance          | In progress |
 | R6        | Connect and stream through real native Bluetooth adapters        | Not started |
 | R7        | Prove platform background durability and disconnect cleanup      | Not started |
 | R8        | Pass repeated hardware acceptance on all three platforms         | Not started |
 
 Allowed status values are `Not started`, `In progress`, `Blocked`, and
 `Complete`. When blocked, add the reason and owner immediately below the table.
+
+R2 blocker (environment verification): Android and iOS now compile with
+application-owned authenticated loopback hosts, but no Android emulator/device
+is attached and this Mac has no usable iOS simulator runtime. Their black-box
+host runs therefore cannot be executed here; macOS passes the system suite.
+Details and rejected workarounds are in
+[`implementation-notes.md`](implementation-notes.md).
 
 ## Target repository shape
 
@@ -515,11 +522,15 @@ Record new entries without rewriting older decisions. Use `Proposed`, `Accepted`
 
 Add links here as milestones complete:
 
-- R0 inventory:
-- fixture corpus:
-- API conformance report:
-- Swift test report:
-- Android test report:
+- R0 inventory: [`../references/legacy-inventory.json`](../references/legacy-inventory.json)
+- fixture corpus: [`../fixtures/`](../fixtures/)
+- R1 boundaries: `just dependency-check` (7 modules; no legacy runtime references)
+- API conformance: `just conformance-mock` (6 scenarios)
+- Apple loopback conformance: `just conformance-macos` (4 system scenarios)
+- Swift tests: `just test-core` (9 deterministic tests)
+- Android tests/build: `./gradlew test assembleDebug` (169 tasks; successful)
+- protocol parity: `just test-protocol` (4 Swift and 4 Kotlin fixture tests)
+- storage/alerts: `just test-storage && just test-alerts`
 - iOS hardware report:
 - Android hardware report:
 - macOS hardware report:

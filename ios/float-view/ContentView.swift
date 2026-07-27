@@ -1,39 +1,33 @@
 import SwiftUI
 
-struct ContentView: View {
-  @ObservedObject var server: LocalServer
+final class AppBackend: ObservableObject {
+  let server: LoopbackServer
+  @Published var url: URL?
 
-  init(server: LocalServer) {
-    self.server = server
+  init() {
+    let webRoot = Bundle.main.resourceURL!.appending(path: "web")
+    server = LoopbackServer(webRoot: webRoot)
+    do {
+      try server.start()
+      url = URL(string: server.origin)
+    } catch {
+      url = nil
+    }
   }
 
-  var body: some View {
-    Group {
-      if server.isRunning {
-        WebView(url: URL(string: "http://localhost:\(server.port)")!).ignoresSafeArea()
-      } else {
-        VStack {
-          ProgressView("Starting FloatView...")
-            .progressViewStyle(CircularProgressViewStyle())
-            .foregroundColor(.white)
-          if server.isRunning {
-            Text("Server running on port \(server.port)")
-              .padding(.top)
-              .foregroundColor(.white)
-              .font(.caption)
-          }
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color.black)
-      }
-    }
-    .background(Color.black)
-    .onDisappear {
-      server.stop()
-    }
+  deinit {
+    server.stop()
   }
 }
 
-#Preview {
-  ContentView(server: LocalServer.shared)
+struct ContentView: View {
+  @StateObject private var backend = AppBackend()
+
+  var body: some View {
+    if let url = backend.url {
+      WebView(url: url).ignoresSafeArea()
+    } else {
+      ContentUnavailableView("Backend unavailable", systemImage: "exclamationmark.triangle")
+    }
+  }
 }

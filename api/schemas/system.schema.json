@@ -16,23 +16,40 @@
     "Limits": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["maxConnections", "minTelemetryIntervalMs", "maxMessageBytes"],
+      "required": [
+        "minTelemetryIntervalMs",
+        "maxMessageBytes",
+        "maxReconnectDurationMs"
+      ],
       "properties": {
-        "maxConnections": { "type": "integer", "minimum": 1 },
         "minTelemetryIntervalMs": { "type": "integer", "minimum": 1 },
-        "maxMessageBytes": { "type": "integer", "minimum": 1024 }
+        "maxMessageBytes": { "type": "integer", "minimum": 1024 },
+        "maxReconnectDurationMs": { "type": "integer", "minimum": 0 }
       }
     },
     "Snapshot": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["revision", "bluetooth", "devices", "telemetrySubscriptions", "loggingJobs"],
+      "required": [
+        "revision",
+        "bluetooth",
+        "knownDevices",
+        "activeConnection",
+        "telemetrySubscriptions",
+        "loggingJobs"
+      ],
       "properties": {
         "revision": { "type": "integer", "minimum": 0 },
         "bluetooth": { "$ref": "bluetooth.schema.json#/$defs/BluetoothState" },
-        "devices": {
+        "knownDevices": {
           "type": "array",
           "items": { "$ref": "devices.schema.json#/$defs/Device" }
+        },
+        "activeConnection": {
+          "oneOf": [
+            { "$ref": "devices.schema.json#/$defs/Device" },
+            { "type": "null" }
+          ]
         },
         "telemetrySubscriptions": {
           "type": "array",

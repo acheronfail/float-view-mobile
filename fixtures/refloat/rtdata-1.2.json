@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "id": "refloat-1.2-rtdata-zero-synthetic",
+  "provenance": "synthetic from owner-authorized Floaty and legacy enum/layout comparison; hardware capture required at R6",
+  "firmware": "6.06",
+  "package": "refloat",
+  "packageVersion": "1.2",
+  "frameHex": "024b2465010000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000008f7b03",
+  "chunkSizes": [4, 8, 1, 25, 42],
+  "validCrc": true,
+  "expected": {
+    "commandId": 36,
+    "appId": 101,
+    "packetId": 1,
+    "rideState": 0,
+    "footpadState": 0
+  }
+}
