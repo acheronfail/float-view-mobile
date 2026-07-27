@@ -366,6 +366,14 @@ just wdev        # Vite UI + mock backend
 just wwatch      # continuously rebuild web/build for native development
 just adev        # install/launch Android debug app; requires wwatch
 just idev        # build/launch iOS simulator app; requires wwatch
+just ios-device-list
+                 # list physical iOS device IDs
+just ios-device-run <device-id>
+                 # build, sign, install, and launch on physical iOS
+just android-device-list
+                 # list Android devices and authorization state
+just android-device-run [serial]
+                 # build, install, and launch on physical Android
 ```
 
 Focused checks:

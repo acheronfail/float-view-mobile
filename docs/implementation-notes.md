@@ -26,21 +26,29 @@ Resolution:
 R7 verification should assert absence of GPS/location data collection and no iOS
 location permission, while accepting the legacy Android BLE scan permission.
 
-## Xcode simulator runtime unavailable
+## iOS host environment and physical smoke test
 
-Recorded: 2026-07-28. Status: environment gate; core implementation continues.
+Recorded: 2026-07-28. Status: physical iOS 18 shell/bootstrap smoke passed.
 
-Xcode 26.3 and the iPhoneSimulator 26.2 SDK are installed, but Xcode reports no
-eligible simulator runtime/destination and the attached iOS 26.2 device also
-lacks matching platform support. Consequently `xcodebuild` cannot currently
-package or launch the iOS host.
+The earlier simulator/device environment blocker was resolved by installing the
+iOS 26.3.1 simulator runtime and enabling Developer Mode on the physical test
+device. A signed Debug build was then built, installed, and launched on an
+iPhone 12 running iOS 18.6.1.
 
-The R1 implementation type-checks the complete iOS host plus shared Apple core
-against the iOS 17 simulator target using the installed SDK, and the Apple Swift
-package builds/tests on macOS. `just build-ios-app` remains the packaging gate
-and must pass after installing an eligible simulator runtime. R0-R5 pure
-protocol, application, storage, and API behavior continue to be implemented and
-tested without treating a simulator skip as success.
+The physical smoke test verified:
+
+- development signing, provisioning, installation, and launch;
+- bundled Svelte assets served from the authenticated loopback origin;
+- WKWebView rendering and the Device/Sessions navigation;
+- bootstrap retrieval, WebSocket upgrade, `system.hello`,
+  `system.getSnapshot`, `savedDevices.list`, and `sessions.list`;
+- stable empty Device and Sessions states.
+
+The test exposed and resolved two host defects: the iOS shell looked for bundled
+assets under `web/` while Xcode copied them as `build/`, and the native host did
+not yet return the empty collection responses required by UI startup. This is
+R2 shell evidence only. It does not verify CoreBluetooth discovery, a VESC
+connection, logging, background behavior, or clean disconnect.
 
 ## Apple loopback WebSocket repeated-frame trap
 
@@ -52,8 +60,30 @@ zero-based integer subscripts. The parser now normalizes the buffer before
 indexing. The authenticated Apple loopback host passes all four system
 conformance scenarios over one persistent connection.
 
-iOS still needs to consume the same `FloatViewHost` target, and Android needs
-the equivalent host before R2 can complete.
+The iOS and macOS shells now consume this shared `FloatViewHost`; Android keeps
+an equivalent platform implementation behind the same API contract.
+
+## Android 10 physical shell smoke test
+
+Recorded: 2026-07-28. Status: physical Android 10 shell/bootstrap smoke passed.
+
+A Debug APK was built, installed, and launched on a Samsung Galaxy S9+
+(`SM-G965F`) running Android 10/API 29. The test verified the application-owned
+loopback server, WebView startup, authenticated WebSocket bootstrap, Device and
+Sessions empty states, tab navigation, and a Home/reopen lifecycle cycle without
+changing the application process or emitting an AndroidRuntime/Chromium error.
+
+The first physical run exposed a `NoSuchMethodError` because
+`BufferedInputStream.readNBytes` is unavailable on API 29 even though the app
+compiled against a newer Java/Android API. The loopback WebSocket reader now
+uses a bounded compatibility read loop and successfully boots on API 29. The
+same run also exposed and fixed a duplicate `android:networkSecurityConfig`
+attribute that made the app manifest unparsable.
+
+This S9+ is representative API 29 evidence but does not replace the explicit
+Galaxy S9 qualification target. This is R2 shell evidence only; Bluetooth,
+runtime permission behavior, VESC connection, durable logging, background
+service behavior, and disconnect cleanup remain unverified.
 
 ## Synthetic COMM_GET_VALUES fixture layout
 

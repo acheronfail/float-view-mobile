@@ -128,11 +128,14 @@ class LoopbackServer(private val assets: AssetManager) {
             if (first < 0 || second < 0) return
             val opcode = first and 0x0f
             var length = second and 0x7f
-            if (length == 126) length = (input.read() shl 8) or input.read()
+            if (length == 126) {
+                val extendedLength = readExactly(input, 2) ?: return
+                length = ((extendedLength[0].toInt() and 0xff) shl 8) or
+                    (extendedLength[1].toInt() and 0xff)
+            }
             if (length == 127 || length > 65_536) return
-            val mask = if ((second and 0x80) != 0) input.readNBytes(4) else ByteArray(0)
-            val payload = input.readNBytes(length)
-            if (payload.size != length) return
+            val mask = if ((second and 0x80) != 0) readExactly(input, 4) ?: return else ByteArray(0)
+            val payload = readExactly(input, length) ?: return
             if (mask.isNotEmpty()) payload.indices.forEach { payload[it] =
                 (payload[it].toInt() xor mask[it % 4].toInt()).toByte()
             }
@@ -149,6 +152,17 @@ class LoopbackServer(private val assets: AssetManager) {
                 9 -> frame(output, 10, payload)
             }
         }
+    }
+
+    private fun readExactly(input: BufferedInputStream, length: Int): ByteArray? {
+        val bytes = ByteArray(length)
+        var offset = 0
+        while (offset < length) {
+            val count = input.read(bytes, offset, length - offset)
+            if (count < 0) return null
+            offset += count
+        }
+        return bytes
     }
 
     private fun handleRequest(request: JSONObject, initialized: Boolean): JSONObject {
@@ -189,6 +203,14 @@ class LoopbackServer(private val assets: AssetManager) {
         }
         if (!initialized) return failure(-32000, "invalid_state", "system.hello required")
         if (method == "system.getSnapshot") return success(snapshot())
+        if (method == "savedDevices.list") return success(JSONArray())
+        if (method == "sessions.list") {
+            return success(
+                JSONObject()
+                    .put("items", JSONArray())
+                    .put("nextCursor", JSONObject.NULL),
+            )
+        }
         return failure(-32601, "unsupported", "Unknown method: $method")
     }
 

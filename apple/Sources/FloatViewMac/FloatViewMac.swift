@@ -12,7 +12,7 @@ enum FloatViewMac {
       ?? URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
         .deletingLastPathComponent().appending(path: "web/build")
     if CommandLine.arguments.contains("--test-host") {
-      let server = LoopbackServer(webRoot: root)
+      let server = LoopbackServer(webRoot: root, platform: "macos")
       try server.start()
       let readiness: [String: Any] = [
         "webSocketUrl": "ws://127.0.0.1:\(server.port)/api/v1/ws",
@@ -39,7 +39,7 @@ private final class MacAppDelegate: NSObject, NSApplicationDelegate {
   private var window: NSWindow?
 
   init(webRoot: URL) {
-    server = LoopbackServer(webRoot: webRoot)
+    server = LoopbackServer(webRoot: webRoot, platform: "macos")
   }
 
   func applicationDidFinishLaunching(_ notification: Notification) {

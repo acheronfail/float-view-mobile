@@ -177,6 +177,8 @@ by the milestone shown; they must not be added as no-op placeholders.
 | `just build-android`                               | Compile the Android debug host and all JVM modules                                     | R1                      |
 | `just build-ios`                                   | Compile the iOS host for the configured simulator                                      | R1                      |
 | `just build-macos`                                 | Compile the macOS host and shared Swift package                                        | R1                      |
+| `just ios-device-run <device-id>`                  | Build, sign, install, and launch the current bundle on physical iOS                     | Available now           |
+| `just android-device-run [serial]`                 | Build, install, and launch the current bundle on physical Android                       | Available now           |
 | `just run-mock`                                    | Run the web UI with the deterministic development backend                              | R2                      |
 | `just run-android-fake`                            | Install/launch Android with a scripted fake adapter                                    | R2                      |
 | `just run-ios-fake`                                | Build/launch iOS simulator with a scripted fake adapter                                | R2                      |

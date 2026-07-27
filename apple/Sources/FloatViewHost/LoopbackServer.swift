@@ -7,12 +7,14 @@ public final class LoopbackServer: @unchecked Sendable {
   public let token: String
   public private(set) var port: UInt16 = 0
   public var origin: String { "http://127.0.0.1:\(port)" }
+  private let platform: String
   private let webRoot: URL
   private let queue = DispatchQueue(label: "fail.acheron.float-view.loopback")
   private var listener: NWListener?
 
-  public init(webRoot: URL) {
+  public init(webRoot: URL, platform: String) {
     self.webRoot = webRoot
+    self.platform = platform
     token = Self.randomToken()
   }
 
@@ -156,7 +158,7 @@ public final class LoopbackServer: @unchecked Sendable {
       initialized = true
       return response([
         "api": ["major": 1, "minor": 0],
-        "backend": ["name": "float-view-apple", "version": "0.1.0", "platform": "macos"],
+        "backend": ["name": "float-view-apple", "version": "0.1.0", "platform": platform],
         "capabilities": [["name": "system.snapshot", "available": true]],
         "limits": ["minTelemetryIntervalMs": 50, "maxMessageBytes": 65_536, "maxReconnectDurationMs": 3_600_000],
         "snapshot": snapshot(),
@@ -164,6 +166,10 @@ public final class LoopbackServer: @unchecked Sendable {
     }
     guard initialized else { return failure(-32000, "invalid_state", "system.hello required") }
     if method == "system.getSnapshot" { return response(snapshot()) }
+    if method == "savedDevices.list" { return response([Any]()) }
+    if method == "sessions.list" {
+      return response(["items": [Any](), "nextCursor": NSNull()])
+    }
     return failure(-32601, "unsupported", "Unknown method: \(method)")
   }
 

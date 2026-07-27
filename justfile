@@ -165,3 +165,101 @@ idev: _check_watch
   cd ios && xcodebuild -scheme float-view -configuration Debug -sdk iphonesimulator build \
     && xcrun simctl boot "iPhone 16" || true \
     && xcrun simctl launch --console --terminate-running-process booted fail.acheron.float-view
+
+# list physical iOS devices and the IDs accepted by xcodebuild
+ios-device-list:
+  xcrun xctrace list devices
+
+# build and sign the current web bundle and iOS app for a physical device
+ios-device-build device: build-web
+  #!/usr/bin/env bash
+  set -euo pipefail
+  derived_data="${FLOAT_VIEW_IOS_DERIVED_DATA:-/tmp/float-view-ios-device}"
+  xcodebuild \
+    -project ios/float-view.xcodeproj \
+    -scheme float-view \
+    -configuration Debug \
+    -destination "id={{device}}" \
+    -derivedDataPath "$derived_data" \
+    -allowProvisioningUpdates \
+    build
+
+# build, install, and launch the app on a physical iOS device
+ios-device-run device:
+  #!/usr/bin/env bash
+  set -euo pipefail
+  derived_data="${FLOAT_VIEW_IOS_DERIVED_DATA:-/tmp/float-view-ios-device}"
+  app_path="$derived_data/Build/Products/Debug-iphoneos/float-view.app"
+  just ios-device-build "{{device}}"
+  xcrun devicectl device install app --device "{{device}}" "$app_path"
+  xcrun devicectl device process launch \
+    --device "{{device}}" \
+    --terminate-existing \
+    fail.acheron.float-view
+
+# launch the installed iOS app attached to its console; Ctrl-C also terminates it
+ios-device-console device:
+  xcrun devicectl device process launch --device "{{device}}" \
+    --terminate-existing --console fail.acheron.float-view
+
+# list Android devices and their USB-debugging authorization state
+android-device-list:
+  adb devices -l
+
+# build the current web bundle and Android debug APK for a physical device
+android-device-build: build-web
+  cd android && ./gradlew :app:assembleDebug :app:testDebugUnitTest
+
+# build, install, and launch on an authorized Android device
+#
+# The serial is optional only when exactly one authorized device is attached.
+android-device-run serial="":
+  #!/usr/bin/env bash
+  set -euo pipefail
+  serial="{{serial}}"
+  if [[ -z "$serial" ]]; then
+    serial="$(adb devices | awk 'NR > 1 && $2 == "device" { print $1 }')"
+    count="$(printf '%s\n' "$serial" | sed '/^$/d' | wc -l | tr -d ' ')"
+    if [[ "$count" != "1" ]]; then
+      echo "Expected exactly one authorized Android device; pass its serial explicitly:" >&2
+      adb devices -l >&2
+      exit 1
+    fi
+  fi
+
+  just android-device-build
+  adb -s "$serial" install -r android/app/build/outputs/apk/debug/app-debug.apk
+  adb -s "$serial" logcat -c
+  adb -s "$serial" shell am force-stop fail.acheron.floatview
+  adb -s "$serial" shell am start -W \
+    -n fail.acheron.floatview/fail.acheron.floatview.MainActivity
+
+  pid="$(adb -s "$serial" shell pidof fail.acheron.floatview | tr -d '\r')"
+  if [[ -z "$pid" ]]; then
+    echo "Float View did not remain running; inspect with: just android-device-logs $serial" >&2
+    exit 1
+  fi
+  echo "Float View is running on $serial with PID $pid"
+
+# print logs from the running Android app, or recent fatal/WebView errors if stopped
+android-device-logs serial="":
+  #!/usr/bin/env bash
+  set -euo pipefail
+  serial="{{serial}}"
+  if [[ -z "$serial" ]]; then
+    serial="$(adb devices | awk 'NR > 1 && $2 == "device" { print $1 }')"
+    count="$(printf '%s\n' "$serial" | sed '/^$/d' | wc -l | tr -d ' ')"
+    if [[ "$count" != "1" ]]; then
+      echo "Expected exactly one authorized Android device; pass its serial explicitly:" >&2
+      adb devices -l >&2
+      exit 1
+    fi
+  fi
+
+  pid="$(adb -s "$serial" shell pidof fail.acheron.floatview | tr -d '\r')"
+  if [[ -n "$pid" ]]; then
+    adb -s "$serial" logcat --pid="$pid" -d -v time
+  else
+    adb -s "$serial" logcat -d -v time | \
+      grep -E 'FATAL EXCEPTION|AndroidRuntime|fail\.acheron\.floatview|chromium'
+  fi

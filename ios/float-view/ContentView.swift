@@ -5,8 +5,8 @@ final class AppBackend: ObservableObject {
   @Published var url: URL?
 
   init() {
-    let webRoot = Bundle.main.resourceURL!.appending(path: "web")
-    server = LoopbackServer(webRoot: webRoot)
+    let webRoot = Bundle.main.resourceURL!.appendingPathComponent("build", isDirectory: true)
+    server = LoopbackServer(webRoot: webRoot, platform: "ios")
     do {
       try server.start()
       url = URL(string: server.origin)

@@ -75,11 +75,12 @@ immutable session snapshots.
 Allowed status values are `Not started`, `In progress`, `Blocked`, and
 `Complete`. When blocked, add the reason and owner immediately below the table.
 
-R2 blocker (environment verification): Android and iOS now compile with
-application-owned authenticated loopback hosts, but no Android emulator/device
-is attached and this Mac has no usable iOS simulator runtime. Their black-box
-host runs therefore cannot be executed here; macOS passes the system suite.
-Details and rejected workarounds are in
+R2 blocker (remaining fake/conformance verification): the iOS host passes a
+physical iPhone 12/iOS 18.6.1 shell/bootstrap smoke test, the Android host passes
+the equivalent test on a Galaxy S9+/Android 10/API 29, and a usable iOS
+simulator runtime is installed. The complete scripted-fake shell/conformance
+gate has not yet run across all three platforms. macOS passes the system suite.
+Details and evidence are in
 [`implementation-notes.md`](implementation-notes.md).
 
 ## Target repository shape
