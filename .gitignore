@@ -1,7 +1,17 @@
-# local development files
+.DS_Store
 .wwatch.pid
 
-# generated/build evidence
-artifacts/verification/
-apple/.build/
-android/**/build/
+frontend/node_modules/
+frontend/.svelte-kit/
+frontend/build/
+conformance/node_modules/
+backends/apple/.build/
+backends/apple/ios/.build/
+backends/android/.gradle/
+backends/android/.idea/
+backends/android/.kotlin/
+backends/android/**/build/
+
+# Native hosts embed this generated output; it is never source.
+backends/apple/Sources/FloatViewMac/Resources/index.html
+backends/apple/Sources/FloatViewMac/Resources/sql/

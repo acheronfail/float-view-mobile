@@ -1,9 +1,0 @@
-{
-  "jsonrpc": "2.0",
-  "id": "export-1",
-  "result": {
-    "exportId": "export-2026-07-28",
-    "fileName": "float-view-export-2026-07-28.csv",
-    "delivery": "presented"
-  }
-}

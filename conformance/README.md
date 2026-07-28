@@ -1,25 +1,16 @@
-# Float View backend conformance
+# Conformance
 
-The conformance suite treats a backend as a black box. It connects through the
-same versioned WebSocket used by the shared UI and verifies behavioral semantics,
-not platform implementation details.
-
-Current system scenarios verify:
-
-- requests before `system.hello` fail consistently;
-- incompatible major versions return the stable `unsupported` error;
-- v1.0 negotiation includes capabilities and an authoritative snapshot;
-- a later snapshot is queryable and structurally consistent;
-- unknown methods return the standard JSON-RPC method-not-found code plus the
-  stable Float View error kind.
-
-Run the suite against the development mock:
+This is the only executable acceptance suite for the frontend/backend contract.
+It imports the hand-written contract from `frontend/`, drives every backend as a
+black box, and owns both deterministic and physical VESC simulation.
 
 ```sh
-cd web
-npm run api:conformance:mock
+npm ci
+npm test
+npm run mock
 ```
 
-`conformance/src/system.ts` depends only on a small request/close interface.
-Android, iOS, macOS, Linux, and Windows test hosts should adapt their WebSocket
-client to that interface and execute the same scenarios.
+Android, iOS, and macOS adapters launch or locate their application and expose a
+loopback WebSocket URL; scenarios and assertions remain shared. Physical runs
+add a serial-controlled `tools/vesc-test-device` byte bridge. Passing runs retain
+no evidence; failures print bounded first-failure context.

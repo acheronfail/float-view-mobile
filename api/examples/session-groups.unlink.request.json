@@ -1,8 +1,0 @@
-{
-  "jsonrpc": "2.0",
-  "id": "group-unlink-1",
-  "method": "sessionGroups.unlink",
-  "params": {
-    "sessionGroupId": "group-2026-07-28"
-  }
-}

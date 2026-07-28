@@ -1,0 +1,212 @@
+package fail.acheron.floatview.protocol
+
+import java.nio.file.Files
+import java.nio.file.Path
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertThrows
+import org.junit.Test
+import fail.acheron.floatview.backend.VescProtocolMessage
+import fail.acheron.floatview.backend.RideState
+
+private fun String.hexBytes(): ByteArray =
+    chunked(2).map { it.toInt(16).toByte() }.toByteArray()
+
+private fun fixture(path: String): String {
+    val json = String(Files.readAllBytes(Path.of(System.getProperty("floatViewFixtureRoot"), path)))
+    return Regex("\"frameHex\"\\s*:\\s*\"([0-9a-f]+)\"").find(json)!!.groupValues[1]
+}
+
+private fun fixtureCases(path: String): List<String> {
+    val json = String(Files.readAllBytes(Path.of(System.getProperty("floatViewFixtureRoot"), path)))
+    return Regex("\"frameHex\"\\s*:\\s*\"([0-9a-f]+)\"")
+        .findAll(json)
+        .map { it.groupValues[1] }
+        .toList()
+}
+
+class VescProtocolTest {
+    @Test
+    fun firmwareFixtureDecodesAcrossChunks() {
+        val frame = fixture("vesc/firmware-6.06.json").hexBytes()
+        val stream = VescFrameStreamDecoder()
+        val sizes = listOf(2, 1, 4, 9)
+        var offset = 0
+        val payloads = sizes.flatMap { size ->
+            stream.append(frame.copyOfRange(offset, offset + size)).also { offset += size }
+        }
+        assertEquals(FirmwareInfo(6, 6, "THOR300"), VescPayloadDecoder.firmware(payloads.single()))
+    }
+
+    @Test
+    fun realtimeAndRefloatFixturesDecode() {
+        val values = VescPayloadDecoder.realtime(
+            VescFrameCodec.decode(fixture("vesc/realtime-values.json").hexBytes()),
+        )
+        assertEquals(25.0, values.controllerTempC, 0.0)
+        assertEquals(23.0, values.motorTempC, 0.0)
+        assertEquals(12.34, values.motorCurrentA, 0.0)
+        assertEquals(-5.0, values.batteryCurrentA, 0.0)
+        assertEquals(0.5, values.dutyCycle, 0.0)
+        assertEquals(10_000, values.erpm)
+        assertEquals(51.6, values.packVoltageV, 0.0)
+        assertEquals(0, values.faultCode)
+        assertEquals(VescFault.fromCode(0), values.fault)
+
+        val faultValues = VescPayloadDecoder.realtime(
+            VescFrameCodec.decode(fixture("vesc/realtime-values-over-voltage.json").hexBytes()),
+        )
+        assertEquals(1, faultValues.faultCode)
+        assertEquals(VescFault.fromCode(1), faultValues.fault)
+        assertEquals("over_voltage", faultValues.fault.kind.stableName)
+        assertEquals(VescFault.Kind.UNKNOWN, VescFault.fromCode(255).kind)
+        assertEquals(255, VescFault.fromCode(255).code)
+
+        val refloat = VescPayloadDecoder.refloatRealtime(
+            VescFrameCodec.decode(fixture("refloat/rtdata-1.2.json").hexBytes()),
+        )
+        assertEquals(RefloatRealtime(101, 1, 0, 0), refloat)
+    }
+
+    @Test
+    fun corruptCrcIsRejected() {
+        assertThrows(VescProtocolException.InvalidCrc::class.java) {
+            VescFrameCodec.decode("020b00060654484f52333030002ad903".hexBytes())
+        }
+    }
+
+    @Test
+    fun longFramesNoiseMultiplePacketsAndTruncation() {
+        val payload = byteArrayOf(4) + ByteArray(255)
+        val longFrame = VescFrameCodec.encode(payload)
+        assertEquals(3, longFrame.first().toInt())
+        assertEquals(payload.toList(), VescFrameCodec.decode(longFrame).toList())
+
+        val shortFrame = VescFrameCodec.encode(byteArrayOf(0, 6, 6, 0))
+        val stream = VescFrameStreamDecoder()
+        val packets = stream.append(byteArrayOf(0xff.toByte(), 1) + shortFrame + shortFrame)
+        assertEquals(2, packets.size)
+        assertEquals(packets[0].toList(), packets[1].toList())
+
+        val truncated = VescFrameStreamDecoder()
+        assertEquals(emptyList<ByteArray>(), truncated.append(shortFrame.dropLast(1).toByteArray()))
+        assertEquals(1, truncated.append(byteArrayOf(shortFrame.last())).size)
+    }
+
+    @Test
+    fun canDiscoveryAndForwardedFirmwarePreserveCanIdentity() {
+        val service = VescProtocolService()
+        assertEquals(
+            listOf(62),
+            VescFrameCodec.decode(service.canPingRequest()).map { it.toInt() and 0xff },
+        )
+        assertEquals(
+            VescProtocolMessage.CanDevices(listOf(7, 42)),
+            service.receive(VescFrameCodec.encode(byteArrayOf(62, 42, 7, 42))).single(),
+        )
+
+        assertEquals(
+            listOf(34, 42, 0),
+            VescFrameCodec.decode(service.firmwareRequest(42)).map { it.toInt() and 0xff },
+        )
+        val firmwareFrame = fixture("vesc/firmware-6.06.json").hexBytes()
+        val firmware = service.receive(firmwareFrame).single() as VescProtocolMessage.Firmware
+        assertEquals(42, firmware.value.canId)
+        assertEquals("THOR300", firmware.value.hardwareName)
+
+        assertEquals(
+            listOf(34, 42, 36, 101, 0, 2, 0),
+            VescFrameCodec.decode(service.refloatInfoRequest(42)).map { it.toInt() and 0xff },
+        )
+        assertEquals(
+            VescProtocolMessage.RefloatInfo("1.2"),
+            service.receive(VescFrameCodec.encode(byteArrayOf(36, 101, 0, 12))).single(),
+        )
+    }
+
+    @Test
+    fun refloatRealtimeIdsAndDataNormalizeCoreTelemetry() {
+        val service = VescProtocolService()
+        assertEquals(
+            listOf(34, 42, 36, 101, 32),
+            VescFrameCodec.decode(service.refloatTelemetryIdsRequest(42))
+                .map { it.toInt() and 0xff },
+        )
+        assertEquals(
+            listOf(34, 42, 36, 101, 31),
+            VescFrameCodec.decode(service.refloatTelemetryRequest(42)).map { it.toInt() and 0xff },
+        )
+        val fields = listOf(
+            "motor.speed",
+            "motor.erpm",
+            "motor.current",
+            "motor.duty_cycle",
+            "motor.batt_voltage",
+            "motor.batt_current",
+            "motor.mosfet_temp",
+            "motor.motor_temp",
+        )
+        val idsPayload = mutableListOf(36, 101, 32, fields.size)
+        fields.forEach { field ->
+            idsPayload += field.length
+            idsPayload += field.encodeToByteArray().map { it.toInt() and 0xff }
+        }
+        idsPayload += 0
+        val layout = service.receive(
+            VescFrameCodec.encode(idsPayload.map(Int::toByte).toByteArray()),
+        ).single()
+        assertEquals(
+            VescProtocolMessage.RefloatTelemetryLayout(fields, emptyList()),
+            layout,
+        )
+
+        val payload = byteArrayOf(
+            36, 101, 31,
+            0, 0, 0, 0, 0, 1,
+            3, 0x40, 0, 0,
+            0x49, 0x00,
+            0x64, 0x00,
+            0x48, 0x00,
+            0x38, 0x00,
+            0x54, 0x00,
+            0xc4.toByte(), 0x00,
+            0x50, 0x00,
+            0x4c, 0x00,
+        )
+
+        val message = service.receive(VescFrameCodec.encode(payload)).single()
+            as VescProtocolMessage.RefloatTelemetry
+        assertEquals(RideState.RIDING, message.value.rideState)
+        assertEquals(1, message.value.footpadState)
+        assertEquals(64.0, message.value.packVoltageV, 0.0)
+        assertEquals(0.5, message.value.dutyCycle, 0.0)
+        assertEquals(32.0, message.value.controllerTempC!!, 0.0)
+        assertEquals(16.0, message.value.motorTempC!!, 0.0)
+        assertEquals(8.0, message.value.motorCurrentA, 0.0)
+        assertEquals(-4.0, message.value.batteryCurrentA, 0.0)
+        assertEquals(1024, message.value.erpm)
+        assertEquals(36.0, message.value.speedKph, 0.0)
+    }
+
+    @Test
+    fun androidHardwareRefloatCaptureDecodes() {
+        val service = VescProtocolService()
+        val messages = fixtureCases("refloat/rtdata-1.2.3-android-hardware.json")
+            .flatMap { service.receive(it.hexBytes()) }
+
+        assertEquals(3, messages.size)
+        assertEquals(VescProtocolMessage.RefloatInfo("1.2.3"), messages[0])
+        val layout = messages[1] as VescProtocolMessage.RefloatTelemetryLayout
+        assertEquals(16, layout.fields.size)
+        assertEquals(10, layout.runtimeFields.size)
+        assertEquals(
+            listOf("motor.speed", "motor.erpm", "motor.current"),
+            layout.fields.take(3),
+        )
+        val telemetry = (messages[2] as VescProtocolMessage.RefloatTelemetry).value
+        assertEquals(RideState.IDLE, telemetry.rideState)
+        assertEquals(0, telemetry.footpadState)
+        assertEquals(0.0, telemetry.motorCurrentA, 0.0)
+        assertEquals(0.0, telemetry.batteryCurrentA, 0.0)
+        assertEquals(0, telemetry.erpm)
+    }
+}

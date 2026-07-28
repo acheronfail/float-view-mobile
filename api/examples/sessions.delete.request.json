@@ -1,8 +1,0 @@
-{
-  "jsonrpc": "2.0",
-  "id": "delete-1",
-  "method": "sessions.delete",
-  "params": {
-    "sessionId": "session-2026-07-28"
-  }
-}

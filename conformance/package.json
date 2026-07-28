@@ -1,4 +1,23 @@
 {
+  "name": "float-view-conformance",
   "private": true,
-  "type": "module"
+  "type": "module",
+  "scripts": {
+    "check": "tsc --noEmit",
+    "test": "node --import tsx --test test/**/*.test.ts",
+    "mock": "node --import tsx src/run.ts mock",
+    "macos": "node --import tsx src/run.ts macos",
+    "ios": "node --import tsx src/run.ts ios",
+    "android": "node --import tsx src/run.ts android"
+  },
+  "dependencies": {
+    "serialport": "^13.0.0",
+    "ws": "^8.18.3"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "@types/ws": "^8.18.1",
+    "tsx": "^4.20.5",
+    "typescript": "^5.7.2"
+  }
 }
