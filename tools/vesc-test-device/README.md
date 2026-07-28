@@ -3,9 +3,7 @@
 This directory contains the programmable BLE test peripheral described in
 [`../../docs/vesc-test-device-plan.md`](../../docs/vesc-test-device-plan.md).
 
-T0 completed on 2026-07-28. T1 firmware and the macOS transport harness are
-implemented; the cross-platform Float View exit gate is still open. The current
-implementation:
+T0 and T1 completed on 2026-07-28. The current implementation:
 
 - targets ESP32-S3 with ESP-IDF v6.0.2 and NimBLE;
 - advertises the canonical VESC UART service UUID;
@@ -115,6 +113,21 @@ permissions needed for BLE scanning. On Android 10 it also sets location
 app-ops to `allow`, because a headless instrumentation APK has no foreground
 Activity and some vendor stacks otherwise suppress scan results. Uninstalling
 `fail.acheron.floatview.bluetooth.test` removes that test-package state.
+
+Run the physical iOS production-adapter acceptance:
+
+```sh
+python tools/vesc-test-device/host/t1_ios_verify.py \
+  --usb-serial "$FLOAT_VIEW_ESP_USB_SERIAL" \
+  --ios-device-id "$FLOAT_VIEW_IOS_DEVICE_ID"
+```
+
+The iOS orchestrator builds and signs the `float-view-hardware` scheme before
+arming the fixture. The scheme uses a minimal test-only host app and compiles
+the shared production `CoreBluetoothAdapter` source directly into its XCTest
+bundle; it does not start the Float View UI, backend, storage, or WebView.
+`FLOAT_VIEW_IOS_DEVICE_ID` is the physical device identifier accepted by
+`xcodebuild`, and must remain local lab configuration.
 
 ## T1 USB control protocol
 

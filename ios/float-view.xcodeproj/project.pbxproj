@@ -15,6 +15,8 @@
 		BA3A10B02E5C0EED005406DA /* web */ = {isa = PBXFileReference; lastKnownFileType = folder; name = web; path = ../web/build; sourceTree = "<group>"; };
 		BA4ABF1C2E5BDF4600B47684 /* float-view.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "float-view.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		F10A00042F00000000000004 /* sql */ = {isa = PBXFileReference; lastKnownFileType = folder; path = ../logging/sql; sourceTree = "<group>"; };
+		F10B00072F00000000000007 /* float-view-hardware-tests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "float-view-hardware-tests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
+		F10C00072F00000000000007 /* float-view-hardware-host.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "float-view-hardware-host.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -53,10 +55,34 @@
 			path = "float-view";
 			sourceTree = "<group>";
 		};
+		F10B00022F00000000000002 /* float-view-hardware-tests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = "float-view-hardware-tests";
+			sourceTree = "<group>";
+		};
+		F10C00022F00000000000002 /* float-view-hardware-host */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = "float-view-hardware-host";
+			sourceTree = "<group>";
+		};
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
 		BA4ABF192E5BDF4600B47684 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		F10B00042F00000000000004 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		F10C00042F00000000000004 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -77,6 +103,8 @@
 				F10A00062F00000000000006 /* FloatViewLogging */,
 				F10A00072F00000000000007 /* FloatViewProtocol */,
 				BA4ABF1E2E5BDF4600B47684 /* float-view */,
+				F10B00022F00000000000002 /* float-view-hardware-tests */,
+				F10C00022F00000000000002 /* float-view-hardware-host */,
 				BA4ABF1D2E5BDF4600B47684 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -85,6 +113,8 @@
 			isa = PBXGroup;
 			children = (
 				BA4ABF1C2E5BDF4600B47684 /* float-view.app */,
+				F10B00072F00000000000007 /* float-view-hardware-tests.xctest */,
+				F10C00072F00000000000007 /* float-view-hardware-host.app */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -119,7 +149,64 @@
 			productReference = BA4ABF1C2E5BDF4600B47684 /* float-view.app */;
 			productType = "com.apple.product-type.application";
 		};
+		F10B00012F00000000000001 /* float-view-hardware-tests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = F10B000C2F0000000000000C /* Build configuration list for PBXNativeTarget "float-view-hardware-tests" */;
+			buildPhases = (
+				F10B00032F00000000000003 /* Sources */,
+				F10B00042F00000000000004 /* Frameworks */,
+				F10B00052F00000000000005 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				F10C000B2F0000000000000B /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				F10A00012F00000000000001 /* FloatViewCore */,
+				F10A00032F00000000000003 /* FloatViewBluetooth */,
+				F10B00022F00000000000002 /* float-view-hardware-tests */,
+			);
+			name = "float-view-hardware-tests";
+			packageProductDependencies = (
+			);
+			productName = "float-view-hardware-tests";
+			productReference = F10B00072F00000000000007 /* float-view-hardware-tests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
+		F10C00012F00000000000001 /* float-view-hardware-host */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = F10C000C2F0000000000000C /* Build configuration list for PBXNativeTarget "float-view-hardware-host" */;
+			buildPhases = (
+				F10C00032F00000000000003 /* Sources */,
+				F10C00042F00000000000004 /* Frameworks */,
+				F10C00052F00000000000005 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				F10C00022F00000000000002 /* float-view-hardware-host */,
+			);
+			name = "float-view-hardware-host";
+			packageProductDependencies = (
+			);
+			productName = "float-view-hardware-host";
+			productReference = F10C00072F00000000000007 /* float-view-hardware-host.app */;
+			productType = "com.apple.product-type.application";
+		};
 /* End PBXNativeTarget section */
+
+/* Begin PBXContainerItemProxy section */
+		F10C000A2F0000000000000A /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = BA4ABF142E5BDF4600B47684 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = F10C00012F00000000000001;
+			remoteInfo = "float-view-hardware-host";
+		};
+/* End PBXContainerItemProxy section */
 
 /* Begin PBXProject section */
 		BA4ABF142E5BDF4600B47684 /* Project object */ = {
@@ -130,6 +217,13 @@
 				LastUpgradeCheck = 1640;
 				TargetAttributes = {
 					BA4ABF1B2E5BDF4600B47684 = {
+						CreatedOnToolsVersion = 16.4;
+					};
+					F10B00012F00000000000001 = {
+						CreatedOnToolsVersion = 16.4;
+						TestTargetID = F10C00012F00000000000001;
+					};
+					F10C00012F00000000000001 = {
 						CreatedOnToolsVersion = 16.4;
 					};
 				};
@@ -149,6 +243,8 @@
 			projectRoot = "";
 			targets = (
 				BA4ABF1B2E5BDF4600B47684 /* float-view */,
+				F10B00012F00000000000001 /* float-view-hardware-tests */,
+				F10C00012F00000000000001 /* float-view-hardware-host */,
 			);
 		};
 /* End PBXProject section */
@@ -163,6 +259,20 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		F10B00052F00000000000005 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		F10C00052F00000000000005 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
@@ -173,7 +283,29 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		F10B00032F00000000000003 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		F10C00032F00000000000003 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		F10C000B2F0000000000000B /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = F10C00012F00000000000001 /* float-view-hardware-host */;
+			targetProxy = F10C000A2F0000000000000A /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
 		BA4ABF252E5BDF4900B47684 /* Debug */ = {
@@ -345,6 +477,94 @@
 			};
 			name = Release;
 		};
+		F10B000D2F0000000000000D /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = 8C86BN6TXL;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_NSBluetoothAlwaysUsageDescription = "This test uses Bluetooth to verify the VESC test device.";
+				INFOPLIST_KEY_NSBluetoothPeripheralUsageDescription = "This test uses Bluetooth to verify the VESC test device.";
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = "fail.acheron.float-view.hardware-tests";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/float-view-hardware-host.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/float-view-hardware-host";
+			};
+			name = Debug;
+		};
+		F10B000E2F0000000000000E /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = 8C86BN6TXL;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_NSBluetoothAlwaysUsageDescription = "This test uses Bluetooth to verify the VESC test device.";
+				INFOPLIST_KEY_NSBluetoothPeripheralUsageDescription = "This test uses Bluetooth to verify the VESC test device.";
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = "fail.acheron.float-view.hardware-tests";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/float-view-hardware-host.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/float-view-hardware-host";
+			};
+			name = Release;
+		};
+		F10C000D2F0000000000000D /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 8C86BN6TXL;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_NSBluetoothAlwaysUsageDescription = "This test host uses Bluetooth to verify the VESC test device.";
+				INFOPLIST_KEY_NSBluetoothPeripheralUsageDescription = "This test host uses Bluetooth to verify the VESC test device.";
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "fail.acheron.float-view.hardware-host";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		F10C000E2F0000000000000E /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 8C86BN6TXL;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_NSBluetoothAlwaysUsageDescription = "This test host uses Bluetooth to verify the VESC test device.";
+				INFOPLIST_KEY_NSBluetoothPeripheralUsageDescription = "This test host uses Bluetooth to verify the VESC test device.";
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "fail.acheron.float-view.hardware-host";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -362,6 +582,24 @@
 			buildConfigurations = (
 				BA4ABF282E5BDF4900B47684 /* Debug */,
 				BA4ABF292E5BDF4900B47684 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		F10B000C2F0000000000000C /* Build configuration list for PBXNativeTarget "float-view-hardware-tests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				F10B000D2F0000000000000D /* Debug */,
+				F10B000E2F0000000000000E /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		F10C000C2F0000000000000C /* Build configuration list for PBXNativeTarget "float-view-hardware-host" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				F10C000D2F0000000000000D /* Debug */,
+				F10C000E2F0000000000000E /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

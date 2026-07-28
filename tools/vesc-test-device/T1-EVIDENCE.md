@@ -1,6 +1,6 @@
 # T1 production-shaped VESC GATT transport evidence
 
-Status: transport implementation complete; milestone exit gate incomplete.
+Status: complete.
 
 Date: 2026-07-28
 
@@ -75,12 +75,26 @@ passed on a physical Samsung Galaxy S9 running Android 10/API 29:
 }
 ```
 
+The production iOS adapter source built in a dedicated signed XCTest bundle and
+passed on a physical iPhone 12 running iOS 18.6.1:
+
+```json
+{
+  "schemaVersion": 1,
+  "kind": "vesc-test-device-t1-ios",
+  "passed": true,
+  "gattWriteHex": "102030405060",
+  "notificationHex": "deadbeef0102",
+  "xcodeResult": "TEST SUCCEEDED"
+}
+```
+
 This proves on the physical fixture that:
 
 - the explicit test name and canonical VESC service are discoverable through
   Float View's production filtered CoreBluetooth and Android BLE scans;
 - one central can connect, discover the canonical write/notify
-  characteristics, and subscribe on macOS and Android;
+  characteristics, and subscribe on macOS, Android, and iOS;
 - client bytes arrive unchanged in the USB `gattWrite` event;
 - host-supplied bytes arrive unchanged in the client notification;
 - host-commanded disconnect completes;
@@ -97,14 +111,11 @@ Python sources compile, the Swift client type-checks, and the touched files pass
 | Firmware deliverables | Pass | Implemented under `firmware/`; parser suite passes |
 | Float View production scan/adapter on macOS | Pass | Physical acceptance compiles and runs the shared `CoreBluetoothAdapter` source |
 | Float View production scan/adapter on Android | Pass | Production `AndroidBluetoothAdapter` instrumentation on Galaxy S9/API 29 |
-| Float View production scan/adapter on iOS | Not run | Physical devices are available, but the iOS project does not yet contain a signed device test target |
-| Exact bytes, client to host | Pass on macOS and Android | `102030405060` |
-| Exact bytes, host to client | Pass on macOS and Android | `deadbeef0102` |
+| Float View production scan/adapter on iOS | Pass | Signed XCTest using shared `CoreBluetoothAdapter` source on iPhone 12/iOS 18.6.1 |
+| Exact bytes, client to host | Pass on all three platforms | `102030405060` |
+| Exact bytes, host to client | Pass on all three platforms | `deadbeef0102` |
 | Safe state after host loss | Pass | Verified after a six-second host absence |
 
-T1 must not be marked complete until the same production Float View adapter
-test passes on physical iOS. macOS and iOS share adapter source, but the iOS
-CoreBluetooth runtime and signed-device lifecycle gate must not be inferred
-from macOS. The standalone CoreBluetooth client remains useful as an
-independent fixture diagnostic; the recorded macOS acceptance above uses the
-production adapter.
+All T1 exit gates are satisfied. The standalone CoreBluetooth client remains
+useful as an independent fixture diagnostic; the recorded macOS and iOS
+acceptance runs use the shared production adapter source.

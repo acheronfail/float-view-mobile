@@ -1,8 +1,6 @@
 # Programmable VESC Bluetooth test device
 
-Status: active implementation plan. T0 is complete; T1 transport implementation
-and production macOS/Android adapter verification are complete, with physical
-iOS acceptance still open.
+Status: active implementation plan. T0 and T1 are complete; T2 is next.
 
 This document defines a programmable Bluetooth Low Energy peripheral for
 testing Float View's real CoreBluetooth and Android GATT paths without requiring
@@ -356,7 +354,7 @@ Deliverables:
 Exit gate:
 
 - [x] Float View discovers the ESP through its production macOS scan filter;
-- [ ] Android, iOS, and macOS each connect, discover characteristics, enable
+- [x] Android, iOS, and macOS each connect, discover characteristics, enable
   notifications, write a probe frame, receive a response, and disconnect;
 - [x] captured client writes arrive byte-for-byte at the host using Float
   View's production macOS CoreBluetooth adapter;
@@ -365,7 +363,7 @@ Exit gate:
 - [x] unplugging or terminating the host returns the ESP to a safe
   non-advertising/disconnected state.
 
-The implementation evidence and remaining platform matrix are recorded in
+The implementation evidence and completed platform matrix are recorded in
 [`../tools/vesc-test-device/T1-EVIDENCE.md`](../tools/vesc-test-device/T1-EVIDENCE.md).
 
 ### T2: host protocol and scenario engine
