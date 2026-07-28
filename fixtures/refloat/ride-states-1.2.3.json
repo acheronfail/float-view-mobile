@@ -23,7 +23,7 @@
       "name": "riding",
       "commandId": 36,
       "frameHex": "023624651f0406008c829d03c000008c82ad010000000000003b18544b00004fbed3a6c0dcbf78597e202000000000000000000000000000e9f503",
-      "chunkSizes": [59],
+      "chunkSizes": [19, 20, 20],
       "validCrc": true,
       "expected": {
         "appId": 101,
@@ -36,7 +36,7 @@
       "name": "footpad-warning",
       "commandId": 36,
       "frameHex": "023624651f0406008c829d034000008c82ad010000000000003b18544b00004fbed3a6c0dcbf78597e2020000000000000000000000000000bf403",
-      "chunkSizes": [1, 2, 3, 5, 8, 13, 27],
+      "chunkSizes": [1, 2, 3, 5, 8, 13, 7, 20],
       "validCrc": true,
       "expected": {
         "appId": 101,
@@ -49,7 +49,7 @@
       "name": "post-ride-tail",
       "commandId": 36,
       "frameHex": "023624651f0406008c829d020000008c82ad010000000000003b18544b00004fbed3a6c0dcbf78597e20200000000000000000000000000026c703",
-      "chunkSizes": [7, 11, 19, 22],
+      "chunkSizes": [7, 11, 19, 20, 2],
       "validCrc": true,
       "expected": {
         "appId": 101,
@@ -63,7 +63,7 @@
       "name": "return-to-idle",
       "commandId": 36,
       "frameHex": "023624651f0406008c829d020000008c82ad010000000000003b18544b00004fbed3a6c0dcbf78597e20200000000000000000000000000026c703",
-      "chunkSizes": [4, 8, 1, 25, 21],
+      "chunkSizes": [4, 8, 1, 20, 20, 6],
       "validCrc": true,
       "expected": {
         "appId": 101,

@@ -64,6 +64,17 @@ private func bytes(_ hex: String) -> [UInt8] {
   #expect(values.erpm == 10_000)
   #expect(values.packVoltageV == 51.6)
   #expect(values.faultCode == 0)
+  #expect(values.fault == VescFault(code: 0))
+
+  let faultFrame = try VescFrameCodec.decode(
+    bytes(fixture("fixtures/vesc/realtime-values-over-voltage.json").frameHex)
+  )
+  let faultValues = try VescPayloadDecoder.realtime(faultFrame)
+  #expect(faultValues.faultCode == 1)
+  #expect(faultValues.fault == VescFault(code: 1))
+  #expect(faultValues.fault.kind.rawValue == "over_voltage")
+  #expect(VescFault(code: 255).kind == .unknown)
+  #expect(VescFault(code: 255).code == 255)
 
   let refloat = try VescFrameCodec.decode(bytes(fixture("fixtures/refloat/rtdata-1.2.json").frameHex))
   #expect(

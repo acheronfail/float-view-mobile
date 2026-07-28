@@ -20,6 +20,10 @@ const rideScenarioPath = resolve(
   repositoryRoot,
   "conformance/scenarios/vesc-test-device/express-thor-refloat-ride.json",
 );
+const unexpectedDisconnectScenarioPath = resolve(
+  repositoryRoot,
+  "conformance/scenarios/vesc-test-device/express-thor-refloat-unexpected-disconnect.json",
+);
 
 test("scenario loader validates the committed first identity slice", async () => {
   const scenario = await loadScenario(scenarioPath);
@@ -191,6 +195,14 @@ test("ride-state fixtures preserve valid frames and exact state and footpad bits
   }
 });
 
+test("over-voltage fixture preserves a valid frame and normalized VESC fault code", async () => {
+  const fixture = await loadFixture("fixtures/vesc/realtime-values-over-voltage.json");
+  const payload = decodeFrame(fixture.frame);
+  assert.equal(payload[0], 4);
+  assert.equal(payload[29], 1);
+  assert.deepEqual(fixture.chunkSizes, [3, 5, 8, 13, 30]);
+});
+
 test("ride scenario passes deterministic idle, riding, post-ride, and return cadence", async () => {
   const { engine, manifest } = await runRideScenario();
   assert.equal(manifest.passed, true);
@@ -260,6 +272,40 @@ test("engine emits an explicit host disconnect action from a scheduled occurrenc
     ruleId: "refloatTelemetry",
     phase: "unexpectedDisconnect",
   });
+});
+
+test("unexpected-disconnect scenario passes at the riding barrier and records the action", async () => {
+  let now = 0;
+  const engine = new ScenarioEngine(
+    await loadScenario(unexpectedDisconnectScenarioPath),
+    { monotonicMilliseconds: () => now },
+  );
+  const identity = [
+    Uint8Array.of(0),
+    Uint8Array.of(62),
+    Uint8Array.of(34, 42, 0),
+    Uint8Array.of(34, 42, 36, 101, 0, 2, 0),
+    Uint8Array.of(34, 42, 36, 101, 32),
+  ];
+  for (const request of identity) await engine.receiveGattWrite(encodeFrame(request));
+
+  for (let occurrence = 1; occurrence <= 6; occurrence += 1) {
+    if (occurrence === 2 || occurrence === 3) now += 500;
+    else if (occurrence >= 4) now += 100;
+    const [action] = await engine.receiveGattWrite(
+      encodeFrame(Uint8Array.of(34, 42, 36, 101, 31)),
+    );
+    assert.equal(action?.kind, occurrence === 6 ? "disconnect" : "notify");
+  }
+
+  const manifest = engine.verify();
+  assert.equal(manifest.passed, true);
+  assert.equal(manifest.ruleCounts.refloatTelemetry, 6);
+  assert.ok(manifest.cadence?.every((result) => result.passed));
+  assert.equal(
+    engine.transcriptSnapshot().find((entry) => entry.phase === "unexpectedDisconnect")?.occurrence,
+    6,
+  );
 });
 
 async function runRideScenario(slowOccurrence?: number) {

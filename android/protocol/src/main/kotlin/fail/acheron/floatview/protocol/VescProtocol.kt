@@ -31,7 +31,28 @@ data class RealtimeValues(
     val erpm: Int,
     val packVoltageV: Double,
     val faultCode: Int,
+    val fault: VescFault = VescFault.fromCode(faultCode),
 )
+
+data class VescFault(val code: Int, val kind: Kind) {
+    enum class Kind(val stableName: String) {
+        NONE("none"),
+        OVER_VOLTAGE("over_voltage"),
+        UNKNOWN("unknown"),
+    }
+
+    companion object {
+        fun fromCode(code: Int): VescFault =
+            VescFault(
+                code,
+                when (code) {
+                    0 -> Kind.NONE
+                    1 -> Kind.OVER_VOLTAGE
+                    else -> Kind.UNKNOWN
+                },
+            )
+    }
+}
 
 data class RefloatRealtime(
     val appId: Int,

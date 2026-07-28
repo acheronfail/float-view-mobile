@@ -27,6 +27,7 @@
 #include "os/os_mbuf.h"
 #include "services/gap/ble_svc_gap.h"
 #include "services/gatt/ble_svc_gatt.h"
+#include "status_led.h"
 
 #define CONTROL_PROTOCOL_VERSION 1
 #define DEVICE_NAME "FloatView Test VESC"
@@ -346,6 +347,8 @@ static int gap_event(struct ble_gap_event *event, void *argument) {
                     state.notify_subscribed = false;
                     xSemaphoreGive(state_mutex);
                 }
+                ESP_ERROR_CHECK_WITHOUT_ABORT(
+                    status_led_set_connected(true));
                 emit_advertising_changed(false, "connected");
                 snprintf(
                     fields, sizeof(fields),
@@ -371,6 +374,8 @@ static int gap_event(struct ble_gap_event *event, void *argument) {
                 restart = state.armed && state.host_active && state.configured;
                 xSemaphoreGive(state_mutex);
             }
+            ESP_ERROR_CHECK_WITHOUT_ABORT(
+                status_led_set_connected(false));
             snprintf(
                 fields, sizeof(fields),
                 "\"reason\":%d", event->disconnect.reason);
@@ -454,6 +459,7 @@ static int gap_event(struct ble_gap_event *event, void *argument) {
 }
 
 static void stack_reset(int reason) {
+    ESP_ERROR_CHECK_WITHOUT_ABORT(status_led_set_connected(false));
     char fields[80];
     snprintf(
         fields, sizeof(fields),
@@ -828,6 +834,7 @@ void app_main(void) {
         return;
     }
 
+    ESP_ERROR_CHECK(status_led_init());
     emit_event(
         "booted",
         "\"firmware\":\"t1\",\"target\":\"esp32s3\","

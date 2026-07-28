@@ -23,13 +23,23 @@ interface SessionEvidence {
   sqliteIntegrity: string;
   activeConnection: boolean;
   activeSession: boolean;
+  mode: "ride" | "unexpected-disconnect";
+  closeReason: string;
+  sawUnexpectedDisconnectReason: boolean;
 }
+
+type VerificationMode = SessionEvidence["mode"];
 
 function argument(name: string): string {
   const index = process.argv.indexOf(name);
   const value = index < 0 ? undefined : process.argv[index + 1];
   if (!value) throw new Error(`missing required ${name}`);
   return value;
+}
+
+function optionalArgument(name: string): string | undefined {
+  const index = process.argv.indexOf(name);
+  return index < 0 ? undefined : process.argv[index + 1];
 }
 
 async function compileClient(output: string): Promise<void> {
@@ -67,9 +77,18 @@ function temporaryModuleCache(output: string): string {
 
 async function main(): Promise<void> {
   const port = argument("--port");
+  const mode = optionalArgument("--mode") ?? "ride";
+  if (mode !== "ride" && mode !== "unexpected-disconnect") {
+    throw new Error(`unsupported --mode ${mode}`);
+  }
+  const verificationMode: VerificationMode = mode;
+  const scenarioName = verificationMode === "ride"
+    ? "express-thor-refloat-ride.json"
+    : "express-thor-refloat-unexpected-disconnect.json";
   const scenarioPath = resolve(
     repositoryRoot,
-    "conformance/scenarios/vesc-test-device/express-thor-refloat-ride.json",
+    "conformance/scenarios/vesc-test-device",
+    scenarioName,
   );
   const temporary = await mkdtemp(join(tmpdir(), "float-view-t3-"));
   const clientPath = join(temporary, "t3-macos-session-client");
@@ -91,7 +110,7 @@ async function main(): Promise<void> {
 
     const child = spawn(
       clientPath,
-      [logRoot, resolve(repositoryRoot, "logging/sql")],
+      [logRoot, resolve(repositoryRoot, "logging/sql"), verificationMode],
       { stdio: ["ignore", "pipe", "inherit"] },
     );
     const exit = new Promise<number | null>((resolvePromise, reject) => {
@@ -101,22 +120,40 @@ async function main(): Promise<void> {
     const lines = createInterface({ input: child.stdout! });
     let session: SessionEvidence | undefined;
     let clientFailure: string | undefined;
+    const clientDiagnostics: unknown[] = [];
     for await (const line of lines) {
       const event = JSON.parse(line) as { kind?: string; code?: string; detail?: string };
       if (event.kind === "failed") {
         clientFailure = `macOS session client failed: ${event.code} ${event.detail ?? ""}`.trim();
       }
       if (event.kind === "passed") session = event as unknown as SessionEvidence;
+      else if (event.kind !== "failed") clientDiagnostics.push(event);
     }
     const code = await exit;
-    await runner.waitForIdle();
+    let runnerFailure: string | undefined;
+    try {
+      await runner.waitForIdle();
+    } catch (error) {
+      runnerFailure = error instanceof Error ? error.message : String(error);
+    }
     const manifest = runner.engine.verify();
-    if (clientFailure || code !== 0 || !session) {
-      process.stderr.write(`${JSON.stringify({ clientFailure, code, scenario: manifest }, null, 2)}\n`);
-      throw new Error(clientFailure ?? `macOS session client exited ${code} without passing`);
+    if (runnerFailure || clientFailure || code !== 0 || !session) {
+      process.stderr.write(
+        `${JSON.stringify({
+          runnerFailure,
+          clientFailure,
+          code,
+          clientDiagnostics,
+          scenario: manifest,
+          transcriptTail: runner.engine.transcriptSnapshot().slice(-40),
+        }, null, 2)}\n`,
+      );
+      throw new Error(
+        runnerFailure ?? clientFailure ?? `macOS session client exited ${code} without passing`,
+      );
     }
     if (!manifest.passed) throw new Error(`scenario failed: ${manifest.firstViolation}`);
-    const evidence = { ...manifest, platform: "macos", session };
+    const evidence = { ...manifest, platform: "macos", mode: verificationMode, session };
     const evidenceDirectory = resolve(
       repositoryRoot,
       "artifacts/verification/vesc-test-device",

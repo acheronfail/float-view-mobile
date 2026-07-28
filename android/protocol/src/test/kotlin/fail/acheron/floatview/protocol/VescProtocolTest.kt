@@ -50,6 +50,16 @@ class VescProtocolTest {
         assertEquals(10_000, values.erpm)
         assertEquals(51.6, values.packVoltageV, 0.0)
         assertEquals(0, values.faultCode)
+        assertEquals(VescFault.fromCode(0), values.fault)
+
+        val faultValues = VescPayloadDecoder.realtime(
+            VescFrameCodec.decode(fixture("vesc/realtime-values-over-voltage.json").hexBytes()),
+        )
+        assertEquals(1, faultValues.faultCode)
+        assertEquals(VescFault.fromCode(1), faultValues.fault)
+        assertEquals("over_voltage", faultValues.fault.kind.stableName)
+        assertEquals(VescFault.Kind.UNKNOWN, VescFault.fromCode(255).kind)
+        assertEquals(255, VescFault.fromCode(255).code)
 
         val refloat = VescPayloadDecoder.refloatRealtime(
             VescFrameCodec.decode(fixture("refloat/rtdata-1.2.json").hexBytes()),

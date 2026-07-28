@@ -42,6 +42,27 @@ public struct RealtimeValues: Equatable, Sendable {
   public let erpm: Int32
   public let packVoltageV: Double
   public let faultCode: UInt8
+  public let fault: VescFault
+}
+
+public struct VescFault: Equatable, Sendable {
+  public enum Kind: String, Equatable, Sendable {
+    case none
+    case overVoltage = "over_voltage"
+    case unknown
+  }
+
+  public let code: UInt8
+  public let kind: Kind
+
+  public init(code: UInt8) {
+    self.code = code
+    self.kind = switch code {
+    case 0: .none
+    case 1: .overVoltage
+    default: .unknown
+    }
+  }
 }
 
 public struct RefloatRealtime: Equatable, Sendable {
@@ -219,7 +240,8 @@ public enum VescPayloadDecoder {
       dutyCycle: duty,
       erpm: erpm,
       packVoltageV: packVoltage,
-      faultCode: fault
+      faultCode: fault,
+      fault: VescFault(code: fault)
     )
   }
 

@@ -345,6 +345,7 @@ Deliverables:
 - [x] canonical service/write/notify characteristic table;
 - [x] connectable advertising with explicit test name and manufacturer marker;
 - [x] one-central enforcement;
+- [x] onboard connection LED mirrors the BLE connected/disconnected lifecycle;
 - [x] notification subscription tracking;
 - [x] raw GATT write events over USB;
 - [x] host-commanded notifications and disconnect;
@@ -394,38 +395,38 @@ Exit gate:
 Host-only and completed physical-gate evidence are recorded in
 [`../tools/vesc-test-device/T2-EVIDENCE.md`](../tools/vesc-test-device/T2-EVIDENCE.md).
 
-### T3: deterministic Express/Thor/Refloat ride
+### T3: deterministic Express/Thor/Refloat ride — complete (2026-07-28)
 
 Target effort: three to five days.
 
 Deliverables:
 
 - [x] the deterministic ride scenario portion of the first slice described above;
-- [ ] idle, riding, post-ride, fault/footpad, and return-to-idle values
-  (ride/footpad states complete; explicit fault normalization remains);
+- [x] idle, riding, post-ride, fault/footpad, and return-to-idle values
+  (fault coverage uses a CRC-valid synthetic over-voltage `COMM_GET_VALUES`
+  variant with stable normalization and raw-code preservation);
 - [x] captured and adversarial notification chunk patterns;
 - [x] request-cadence assertions;
 - [x] application-session extraction and integrity assertions
-  (implemented and physically verified on macOS);
+  (implemented and physically verified on macOS, Android, and iOS);
 - [x] one guided command that arms the ESP and runs the host-side scenario for a
   selected platform.
 
 Exit gate:
 
-- the complete first-slice workflow passes sequentially on Android, iOS, and
+- [x] the complete first-slice workflow passes sequentially on Android, iOS, and
   macOS;
-- all required observations in the first-slice section are present in one
+- [x] all required observations in the first-slice section are present in one
   machine-readable evidence manifest per platform;
-- each run ends with no BLE connection, pending notification, host command,
+- [x] each run ends with no BLE connection, pending notification, host command,
   application timer, or active logging job;
-- the same scenario and response assets are used on all three platforms.
+- [x] the same scenario and response assets are used on all three platforms.
 
 T3 is the first useful delivery. It should land before broad error injection.
 Guided app interaction is acceptable at T3 as long as the scenario transcript
 and session evidence are machine-readable. T4 removes that manual step.
 
-Current host and physical macOS evidence and the remaining physical platform matrix are
-recorded in
+Host and physical macOS, Android, and iOS evidence are recorded in
 [`../tools/vesc-test-device/T3-EVIDENCE.md`](../tools/vesc-test-device/T3-EVIDENCE.md).
 
 ### T4: platform automation and repository verification
@@ -440,8 +441,8 @@ Deliverables:
 - `just vesc-test-device-flash [port]`;
 - `just vesc-test-device-run <scenario> [port]`;
 - `just vesc-test-device-smoke <platform> <scenario>`;
-- Android physical-device driver using ADB/instrumentation;
-- iOS physical-device driver using XCUITest/CoreDevice-compatible tooling;
+- [x] Android physical-device driver using ADB/instrumentation;
+- [x] iOS physical-device driver using XCTest/CoreDevice-compatible tooling;
 - macOS application/test driver;
 - debug/test-only selection of the manufacturer marker through normal
   application-service operations;

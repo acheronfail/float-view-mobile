@@ -71,7 +71,15 @@
       "response": {
         "fixture": "fixtures/refloat/rtdata-1.2.3-android-hardware.json",
         "case": "dynamic-realtime-field-ids",
-        "chunking": { "mode": "fixture" }
+        "chunking": {
+          "mode": "sizes",
+          "sizes": [
+            20, 20, 20, 20, 20, 20, 20,
+            20, 20, 20, 20, 20, 20, 20,
+            20, 20, 20, 20, 20, 20, 12
+          ],
+          "interChunkDelayMs": 10
+        }
       }
     },
     {
@@ -178,7 +186,7 @@
       },
       {
         "ruleId": "refloatTelemetry",
-        "fromOccurrence": 166,
+        "fromOccurrence": 167,
         "toOccurrence": 168,
         "intervalMs": 500,
         "toleranceMs": 250,

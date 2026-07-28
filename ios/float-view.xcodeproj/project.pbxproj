@@ -9,6 +9,7 @@
 /* Begin PBXBuildFile section */
 		BA3A10B12E5C0EED005406DA /* web in Resources */ = {isa = PBXBuildFile; fileRef = BA3A10B02E5C0EED005406DA /* web */; };
 		F10A00052F00000000000005 /* sql in Resources */ = {isa = PBXBuildFile; fileRef = F10A00042F00000000000004 /* sql */; };
+		F10B000F2F0000000000000F /* sql in Resources */ = {isa = PBXBuildFile; fileRef = F10A00042F00000000000004 /* sql */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -165,6 +166,8 @@
 			fileSystemSynchronizedGroups = (
 				F10A00012F00000000000001 /* FloatViewCore */,
 				F10A00032F00000000000003 /* FloatViewBluetooth */,
+				F10A00062F00000000000006 /* FloatViewLogging */,
+				F10A00072F00000000000007 /* FloatViewProtocol */,
 				F10B00022F00000000000002 /* float-view-hardware-tests */,
 			);
 			name = "float-view-hardware-tests";
@@ -263,6 +266,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				F10B000F2F0000000000000F /* sql in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

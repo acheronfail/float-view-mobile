@@ -12,6 +12,8 @@ T0, T1, and T2 completed on 2026-07-28. The current implementation:
 - accepts sequenced, versioned JSON-line commands over USB Serial/JTAG;
 - emits sequenced raw GATT-write and connection events;
 - sends host-supplied notification bytes and host-commanded disconnects;
+- lights the onboard status LED while a BLE central is connected and turns it
+  off on disconnect;
 - enforces one central, bounded input/output, and one pending notification;
 - returns to a disconnected, non-advertising state after host loss.
 - runs a schema-validated, deterministic TypeScript scenario engine;
@@ -36,6 +38,12 @@ consistent with the commonly fitted ESP32-S3FH4R2.
 The carrier has an onboard antenna. Generic Super Mini batches vary, and some
 have been reported with a reversed antenna, so T0 BLE range results apply to
 this individual fixture rather than every board sold under the same name.
+
+The board's one-pixel WS2812 status LED is connected to GPIO48. Firmware drives
+it through ESP-IDF's RMT peripheral at low white brightness: off at boot and
+while advertising, on for the lifetime of a BLE connection, and off again on
+disconnect or Bluetooth stack reset. This mirrors the visible connection
+indicator on VESC Express devices.
 
 ## Toolchain
 
@@ -217,3 +225,55 @@ Run it only after explicit operator approval.
 The physical macOS gate passed on 2026-07-28. Its machine-readable manifest and
 bounded transcript are written under
 `artifacts/verification/vesc-test-device/express-thor-refloat-ride-passed-*`.
+
+The short T3 unexpected-disconnect verifier uses the same production path but
+commands the ESP to drop BLE during riding. Reconnection is deliberately
+disabled for this cleanup-specific gate; reconnect success and expiry variants
+remain T5 scenarios:
+
+```sh
+cd tools/vesc-test-device/host
+npm run verify:macos:unexpected-disconnect -- --port "$FLOAT_VIEW_ESP_PORT"
+```
+
+This is also a physical Bluetooth run and requires explicit operator approval.
+
+The Android T3 verifier builds and installs the debug app and instrumentation,
+launches the real foreground Activity, drives the same scenarios through the
+production Android GATT/application/logging stack, and pulls sanitized durable
+session evidence:
+
+```sh
+cd tools/vesc-test-device/host
+npm run verify:android:ride -- \
+  --port "$FLOAT_VIEW_ESP_PORT" --serial "$ANDROID_SERIAL"
+npm run verify:android:unexpected-disconnect -- \
+  --port "$FLOAT_VIEW_ESP_PORT" --serial "$ANDROID_SERIAL"
+```
+
+Both Android 10 gates passed on 2026-07-28. The manifests and bounded
+transcripts are written under
+`artifacts/verification/vesc-test-device/*-android-*-passed-*`. The real
+foreground Activity is required because Android 10 treats location-backed BLE
+scans from a headless instrumentation process as background. Scenario
+notifications remain at or below the default 20-byte ATT payload, and the large
+Refloat layout uses 10 ms inter-chunk pacing.
+
+The iOS T3 verifier builds a signed XCTest host containing the production
+CoreBluetooth adapter, application service, VESC codec, adaptive sampler, and
+SQLite store. It emits sanitized durable-session evidence back to the host
+runner:
+
+```sh
+cd tools/vesc-test-device/host
+npm run verify:ios:ride -- \
+  --port "$FLOAT_VIEW_ESP_PORT" --device "$FLOAT_VIEW_IOS_DEVICE_ID"
+npm run verify:ios:unexpected-disconnect -- \
+  --port "$FLOAT_VIEW_ESP_PORT" --device "$FLOAT_VIEW_IOS_DEVICE_ID"
+```
+
+Both iOS gates passed on 2026-07-28. The manifests and bounded transcripts are
+written under `artifacts/verification/vesc-test-device/*-ios-*-passed-*`.
+Physical iOS delivery jitter produced 148 of the scenario's nominal 160 durable
+samples, above the platform gate of 144 (90%), while all 168 telemetry responses
+and every request-cadence phase passed.
