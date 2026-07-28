@@ -8,11 +8,13 @@
 
 /* Begin PBXBuildFile section */
 		BA3A10B12E5C0EED005406DA /* web in Resources */ = {isa = PBXBuildFile; fileRef = BA3A10B02E5C0EED005406DA /* web */; };
+		F10A00052F00000000000005 /* sql in Resources */ = {isa = PBXBuildFile; fileRef = F10A00042F00000000000004 /* sql */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
 		BA3A10B02E5C0EED005406DA /* web */ = {isa = PBXFileReference; lastKnownFileType = folder; name = web; path = ../web/build; sourceTree = "<group>"; };
 		BA4ABF1C2E5BDF4600B47684 /* float-view.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "float-view.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		F10A00042F00000000000004 /* sql */ = {isa = PBXFileReference; lastKnownFileType = folder; path = ../logging/sql; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -26,6 +28,24 @@
 			isa = PBXFileSystemSynchronizedRootGroup;
 			name = FloatViewHost;
 			path = ../apple/Sources/FloatViewHost;
+			sourceTree = "<group>";
+		};
+		F10A00032F00000000000003 /* FloatViewBluetooth */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			name = FloatViewBluetooth;
+			path = ../apple/Sources/FloatViewBluetooth;
+			sourceTree = "<group>";
+		};
+		F10A00062F00000000000006 /* FloatViewLogging */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			name = FloatViewLogging;
+			path = ../apple/Sources/FloatViewLogging;
+			sourceTree = "<group>";
+		};
+		F10A00072F00000000000007 /* FloatViewProtocol */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			name = FloatViewProtocol;
+			path = ../apple/Sources/FloatViewProtocol;
 			sourceTree = "<group>";
 		};
 		BA4ABF1E2E5BDF4600B47684 /* float-view */ = {
@@ -50,8 +70,12 @@
 			isa = PBXGroup;
 			children = (
 				BA3A10B02E5C0EED005406DA /* web */,
+				F10A00042F00000000000004 /* sql */,
 				F10A00012F00000000000001 /* FloatViewCore */,
 				F10A00022F00000000000002 /* FloatViewHost */,
+				F10A00032F00000000000003 /* FloatViewBluetooth */,
+				F10A00062F00000000000006 /* FloatViewLogging */,
+				F10A00072F00000000000007 /* FloatViewProtocol */,
 				BA4ABF1E2E5BDF4600B47684 /* float-view */,
 				BA4ABF1D2E5BDF4600B47684 /* Products */,
 			);
@@ -84,6 +108,9 @@
 				BA4ABF1E2E5BDF4600B47684 /* float-view */,
 				F10A00012F00000000000001 /* FloatViewCore */,
 				F10A00022F00000000000002 /* FloatViewHost */,
+				F10A00032F00000000000003 /* FloatViewBluetooth */,
+				F10A00062F00000000000006 /* FloatViewLogging */,
+				F10A00072F00000000000007 /* FloatViewProtocol */,
 			);
 			name = "float-view";
 			packageProductDependencies = (
@@ -132,6 +159,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				BA3A10B12E5C0EED005406DA /* web in Resources */,
+				F10A00052F00000000000005 /* sql in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

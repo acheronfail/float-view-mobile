@@ -2,6 +2,11 @@ package fail.acheron.floatview
 
 import android.content.res.AssetManager
 import android.util.Base64
+import fail.acheron.floatview.core.ApplicationService
+import fail.acheron.floatview.core.ActiveConnectionSnapshot
+import fail.acheron.floatview.core.BluetoothState
+import fail.acheron.floatview.core.ConnectionState
+import fail.acheron.floatview.core.DiscoveredDevice
 import java.io.BufferedInputStream
 import java.io.BufferedOutputStream
 import java.net.InetAddress
@@ -14,7 +19,10 @@ import java.util.concurrent.Executors
 import org.json.JSONArray
 import org.json.JSONObject
 
-class LoopbackServer(private val assets: AssetManager) {
+class LoopbackServer(
+    private val assets: AssetManager,
+    private val applicationService: ApplicationService? = null,
+) {
     private val executor = Executors.newCachedThreadPool()
     private val token = ByteArray(32).also(SecureRandom()::nextBytes)
         .let { Base64.encodeToString(it, Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING) }
@@ -191,7 +199,16 @@ class LoopbackServer(private val assets: AssetManager) {
                     )
                     .put(
                         "capabilities",
-                        JSONArray().put(JSONObject().put("name", "system.snapshot").put("available", true)),
+                        JSONArray()
+                            .put(JSONObject().put("name", "system.snapshot").put("available", true))
+                            .put(
+                                JSONObject().put("name", "bluetooth.discovery")
+                                    .put("available", applicationService != null),
+                            )
+                            .put(
+                                JSONObject().put("name", "device.connection")
+                                    .put("available", applicationService != null),
+                            ),
                     )
                     .put(
                         "limits",
@@ -203,6 +220,110 @@ class LoopbackServer(private val assets: AssetManager) {
         }
         if (!initialized) return failure(-32000, "invalid_state", "system.hello required")
         if (method == "system.getSnapshot") return success(snapshot())
+        if (method == "bluetooth.getState") return success(bluetooth())
+        if (method == "bluetooth.requestPermission") {
+            val service = applicationService
+                ?: return failure(-32601, "unsupported", "Bluetooth is unavailable")
+            return success(bluetooth(service.requestBluetoothPermission()))
+        }
+        if (method == "discovery.start") {
+            val service = applicationService
+                ?: return failure(-32601, "unsupported", "Discovery is unavailable")
+            return try {
+                success(JSONObject().put("scanId", service.startDiscovery()))
+            } catch (error: IllegalStateException) {
+                val state = service.discoverySnapshot().bluetoothState
+                if (
+                    state.scanPermission.name != "GRANTED" &&
+                    state.scanPermission.name != "NOT_REQUIRED"
+                ) {
+                    failure(-32003, "permission_required", "Bluetooth scan permission is required")
+                } else {
+                    failure(-32000, "invalid_state", "Bluetooth is not powered on")
+                }
+            }
+        }
+        if (method == "discovery.stop") {
+            val service = applicationService
+                ?: return failure(-32601, "unsupported", "Discovery is unavailable")
+            val scanId = request.optJSONObject("params")?.optString("scanId").orEmpty()
+            if (scanId.isEmpty()) return failure(-32602, "protocol_error", "scanId is required")
+            return try {
+                service.stopDiscovery(scanId)
+                success(JSONObject().put("accepted", true))
+            } catch (_: IllegalArgumentException) {
+                failure(-32000, "invalid_state", "Unknown active scan")
+            }
+        }
+        if (method == "device.connect") {
+            val service = applicationService
+                ?: return failure(-32601, "unsupported", "Connections are unavailable")
+            val deviceId = request.optJSONObject("params")?.optString("deviceId").orEmpty()
+            if (deviceId.isEmpty()) {
+                return failure(-32602, "protocol_error", "deviceId is required")
+            }
+            return try {
+                service.connect(fail.acheron.floatview.core.DeviceId(deviceId))
+                val active = service.activeConnectionSnapshot()
+                    ?: return failure(-32004, "connection_failed", "Connection did not start")
+                success(connection(active))
+            } catch (error: IllegalArgumentException) {
+                if (error.message == "Unknown device") {
+                    failure(-32002, "not_found", "The discovered board is no longer available")
+                } else {
+                    failure(-32000, "invalid_state", "Another board is active")
+                }
+            } catch (_: Exception) {
+                failure(-32004, "connection_failed", "Unable to connect")
+            }
+        }
+        if (method == "device.disconnect") {
+            val service = applicationService
+                ?: return failure(-32601, "unsupported", "Connections are unavailable")
+            return try {
+                service.disconnect()
+                success(JSONObject().put("accepted", true))
+            } catch (_: Exception) {
+                failure(-32004, "connection_failed", "Unable to disconnect cleanly")
+            }
+        }
+        if (method == "device.getActive") {
+            val active = applicationService?.activeConnectionSnapshot()
+                ?: return success(JSONObject.NULL)
+            return success(connection(active))
+        }
+        if (method == "vesc.getFirmwareInfo") {
+            val service = applicationService
+                ?: return failure(-32601, "unsupported", "VESC protocol is unavailable")
+            return try {
+                val firmware = service.requestFirmwareInfo()
+                    ?: return failure(
+                        -32007,
+                        "device_not_ready",
+                        "Waiting for the VESC firmware response",
+                    )
+                val packageVersion = service.refloatPackageVersionSnapshot()
+                    ?: return failure(
+                        -32007,
+                        "device_not_ready",
+                        "Waiting for the Refloat package response",
+                    )
+                success(
+                    JSONObject()
+                        .put("vescVersion", "${firmware.major}.${firmware.minor.toString().padStart(2, '0')}")
+                        .put("packageName", "refloat")
+                        .put("packageVersion", packageVersion)
+                        .put("hardwareName", firmware.hardwareName ?: JSONObject.NULL)
+                        .put(
+                            "supported",
+                            (packageVersion == "1.2" || packageVersion.startsWith("1.2.")) &&
+                                (firmware.major > 6 || (firmware.major == 6 && firmware.minor >= 2)),
+                        ),
+                )
+            } catch (_: IllegalStateException) {
+                failure(-32007, "device_not_ready", "The VESC connection is not ready")
+            }
+        }
         if (method == "savedDevices.list") return success(JSONArray())
         if (method == "sessions.list") {
             return success(
@@ -214,17 +335,54 @@ class LoopbackServer(private val assets: AssetManager) {
         return failure(-32601, "unsupported", "Unknown method: $method")
     }
 
-    private fun snapshot() = JSONObject()
+    private fun snapshot(): JSONObject {
+        val discovery = applicationService?.discoverySnapshot()
+        return JSONObject()
         .put("revision", 0)
+        .put("bluetooth", discovery?.let { bluetooth(it.bluetoothState) } ?: bluetooth())
         .put(
-            "bluetooth",
-            JSONObject().put("radio", "powered_on").put("scanPermission", "granted")
-                .put("connectPermission", "granted"),
+            "knownDevices",
+            JSONArray(discovery?.knownDevices?.map(::device) ?: emptyList<JSONObject>()),
         )
-        .put("knownDevices", JSONArray())
-        .put("activeConnection", JSONObject.NULL)
+        .put(
+            "activeConnection",
+            applicationService?.activeConnectionSnapshot()?.let(::connection) ?: JSONObject.NULL,
+        )
         .put("telemetrySubscriptions", JSONArray())
         .put("loggingJobs", JSONArray())
+    }
+
+    private fun bluetooth(
+        state: BluetoothState? = applicationService?.discoverySnapshot()?.bluetoothState,
+    ) = JSONObject()
+        .put("radio", state?.radio?.name?.lowercase() ?: "unknown")
+        .put("scanPermission", state?.scanPermission?.name?.lowercase() ?: "unknown")
+        .put("connectPermission", state?.connectPermission?.name?.lowercase() ?: "unknown")
+
+    private fun device(value: DiscoveredDevice) = JSONObject()
+        .put("deviceId", value.id.value)
+        .put("name", value.advertisedName ?: "")
+        .put("state", "discovered")
+        .put("lastSeenAt", value.lastSeenAt.toString())
+
+    private fun connection(value: ActiveConnectionSnapshot) = JSONObject()
+        .put("deviceId", value.deviceId.value)
+        .put("name", value.advertisedName ?: "")
+        .put(
+            "state",
+            when (value.state) {
+                ConnectionState.DISCONNECTED -> "disconnected"
+                ConnectionState.CONNECTING -> "connecting"
+                ConnectionState.CONNECTED -> "connected"
+                ConnectionState.DISCOVERING_SERVICES,
+                ConnectionState.ENABLING_NOTIFICATIONS,
+                -> "discovering_services"
+                ConnectionState.READY -> "ready"
+                ConnectionState.RECONNECTING -> "reconnecting"
+                ConnectionState.DISCONNECTING -> "disconnecting"
+                ConnectionState.FAILED -> "failed"
+            },
+        )
 
     private fun frame(output: BufferedOutputStream, opcode: Int, payload: ByteArray) {
         output.write(0x80 or opcode)

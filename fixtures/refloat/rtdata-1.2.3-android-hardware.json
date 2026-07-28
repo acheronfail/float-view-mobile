@@ -1,0 +1,50 @@
+{
+  "schemaVersion": 1,
+  "id": "refloat-1.2.3-android-hardware",
+  "provenance": "sanitized read-only Android 10 capture from Thor300 VESC 6.06 with Refloat 1.2.3 through VESC Express; controller sensor values are known-bad and are not plausibility evidence",
+  "firmware": "6.06",
+  "package": "refloat",
+  "packageVersion": "1.2.3",
+  "transport": "vesc-express-can-forward",
+  "cases": [
+    {
+      "name": "versioned-info-v2",
+      "commandId": 36,
+      "frameHex": "023d24650002005265666c6f617400000000000000000000000000010203330000000000000000000000000000000000000010825f31000027100000000000383803",
+      "chunkSizes": [20, 20, 20, 6],
+      "validCrc": true,
+      "expected": {
+        "appId": 101,
+        "packetId": 0,
+        "packageVersion": "1.2.3"
+      }
+    },
+    {
+      "name": "dynamic-realtime-field-ids",
+      "commandId": 36,
+      "frameHex": "030196246520100b6d6f746f722e73706565640a6d6f746f722e6572706d0d6d6f746f722e63757272656e74116d6f746f722e6469725f63757272656e74126d6f746f722e66696c745f63757272656e74106d6f746f722e647574795f6379636c65126d6f746f722e626174745f766f6c74616765126d6f746f722e626174745f63757272656e74116d6f746f722e6d6f736665745f74656d70106d6f746f722e6d6f746f725f74656d7009696d752e706974636811696d752e62616c616e63655f706974636808696d752e726f6c6c0c666f6f747061642e616463310c666f6f747061642e616463320c72656d6f74652e696e7075740a08736574706f696e740c6174722e736574706f696e74136272616b655f74696c742e736574706f696e7414746f727175655f74696c742e736574706f696e74127475726e5f74696c742e736574706f696e740f72656d6f74652e736574706f696e740f62616c616e63655f63757272656e740e6174722e616363656c5f646966660f6174722e73706565645f626f6f73740f626f6f737465722e63757272656e747b8503",
+      "chunkSizes": [20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 12],
+      "validCrc": true,
+      "expected": {
+        "appId": 101,
+        "packetId": 32,
+        "fieldCount": 16,
+        "runtimeFieldCount": 10
+      }
+    },
+    {
+      "name": "idle-realtime-data",
+      "commandId": 36,
+      "frameHex": "023624651f0406008c829d020000008c82ad010000000000003b18544b00004fbed3a6c0dcbf78597e20200000000000000000000000000026c703",
+      "chunkSizes": [20, 20, 19],
+      "validCrc": true,
+      "expected": {
+        "appId": 101,
+        "packetId": 31,
+        "rideState": "idle",
+        "footpadState": 0,
+        "numericPlausibility": "not-asserted-known-bad-controller"
+      }
+    }
+  ]
+}

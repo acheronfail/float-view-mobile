@@ -9,6 +9,7 @@ import fail.acheron.floatview.core.LogStorePort
 import fail.acheron.floatview.core.SessionId
 import fail.acheron.floatview.core.SessionRecord
 import fail.acheron.floatview.core.TelemetrySample
+import org.json.JSONObject
 import java.io.File
 import java.time.Instant
 import java.util.UUID
@@ -36,12 +37,26 @@ class SQLiteLogStore(
         val sessionId = SessionId(UUID.randomUUID().toString())
         val jobId = JobId(UUID.randomUUID().toString())
         val fileName = "session-${sessionId.value}.sqlite"
-        val db = SQLiteDatabase.openOrCreateDatabase(File(root, fileName), null)
-        executeScript(db, asset("session-v1.sql"))
-        val started = at.toEpochMilli()
-        catalog.writableDatabase.beginTransaction()
+        val sessionFile = File(root, fileName)
+        // Force catalog creation before creating the per-session file so a
+        // catalog migration/configuration failure cannot leave an orphan.
+        val catalogDb = catalog.writableDatabase
+        val db = SQLiteDatabase.openOrCreateDatabase(sessionFile, null)
         try {
-            catalog.writableDatabase.execSQL(
+            check(db.enableWriteAheadLogging()) {
+                "Unable to enable WAL for durable session logging"
+            }
+            executePragma(db, "PRAGMA synchronous = FULL")
+            executeScript(db, asset("session-v1.sql"), skipPragmas = true)
+        } catch (error: Exception) {
+            db.close()
+            SQLiteDatabase.deleteDatabase(sessionFile)
+            throw error
+        }
+        val started = at.toEpochMilli()
+        catalogDb.beginTransaction()
+        try {
+            catalogDb.execSQL(
                 """
                 INSERT OR IGNORE INTO saved_device(
                   saved_device_id, device_history_id, opaque_platform_id, display_name, created_at_ms
@@ -49,7 +64,7 @@ class SQLiteLogStore(
                 """.trimIndent(),
                 arrayOf("saved-${deviceId.value}", "history-${deviceId.value}", deviceId.value, "Board", started),
             )
-            catalog.writableDatabase.execSQL(
+            catalogDb.execSQL(
                 """
                 INSERT INTO session_catalog(
                   session_id, job_id, device_history_id, device_snapshot_json,
@@ -60,9 +75,13 @@ class SQLiteLogStore(
                 """.trimIndent(),
                 arrayOf(sessionId.value, jobId.value, "history-${deviceId.value}", fileName, started),
             )
-            catalog.writableDatabase.setTransactionSuccessful()
+            catalogDb.setTransactionSuccessful()
+        } catch (error: Exception) {
+            db.close()
+            SQLiteDatabase.deleteDatabase(sessionFile)
+            throw error
         } finally {
-            catalog.writableDatabase.endTransaction()
+            catalogDb.endTransaction()
         }
         sessionDb = db
         return SessionRecord(sessionId, jobId, deviceId, at, 0, true).also { current = it }
@@ -91,7 +110,8 @@ class SQLiteLogStore(
                     arrayOf(
                         sample.sequence, sample.observedAt.toEpochMilli(), sample.elapsedMs,
                         sample.rideState.name.lowercase(), sample.packVoltageV, sample.dutyCycle,
-                        sample.controllerTempC, sample.motorTempC, sample.footpadState, "{}",
+                        sample.controllerTempC, sample.motorTempC, sample.footpadState,
+                        JSONObject(sample.extension).toString(),
                     ),
                 )
             }
@@ -111,7 +131,7 @@ class SQLiteLogStore(
     override fun close(jobId: JobId, at: Instant, reason: String): SessionRecord {
         val record = requireNotNull(current) { "No active session" }
         require(record.jobId == jobId) { "Wrong logging job" }
-        sessionDb?.execSQL("PRAGMA wal_checkpoint(FULL)")
+        sessionDb?.let { executePragma(it, "PRAGMA wal_checkpoint(FULL)") }
         sessionDb?.close()
         sessionDb = null
         catalog.writableDatabase.execSQL(
@@ -143,9 +163,25 @@ class SQLiteLogStore(
     private fun asset(name: String): String =
         appContext.assets.open(name).bufferedReader().use { it.readText() }
 
-    private fun executeScript(db: SQLiteDatabase, script: String) {
+    private fun executePragma(db: SQLiteDatabase, statement: String) {
+        db.rawQuery(statement, null).use { cursor ->
+            while (cursor.moveToNext()) {
+                // Consume result rows so SQLite completes query-style PRAGMAs
+                // before the database is used or closed.
+            }
+        }
+    }
+
+    private fun executeScript(
+        db: SQLiteDatabase,
+        script: String,
+        skipPragmas: Boolean = false,
+    ) {
         script.lineSequence()
             .filterNot { it.trimStart().startsWith("--") }
+            .filterNot {
+                skipPragmas && it.trimStart().startsWith("PRAGMA", ignoreCase = true)
+            }
             .joinToString("\n")
             .split(';')
             .map(String::trim)
@@ -155,13 +191,21 @@ class SQLiteLogStore(
 
     private class CatalogOpenHelper(private val appContext: Context, path: String) :
         SQLiteOpenHelper(appContext, path, null, LogSchema.CATALOG_VERSION) {
+        init {
+            setWriteAheadLoggingEnabled(true)
+        }
+
         override fun onConfigure(db: SQLiteDatabase) {
             db.setForeignKeyConstraintsEnabled(true)
+            db.execSQL("PRAGMA synchronous = FULL")
         }
         override fun onCreate(db: SQLiteDatabase) {
             val script = appContext.assets.open("catalog-v1.sql").bufferedReader().use { it.readText() }
             script.lineSequence()
                 .filterNot { it.trimStart().startsWith("--") }
+                // SQLiteOpenHelper wraps onCreate in a transaction. WAL and
+                // synchronous mode are configured above, outside this script.
+                .filterNot { it.trimStart().startsWith("PRAGMA", ignoreCase = true) }
                 .joinToString("\n")
                 .split(';')
                 .map(String::trim)

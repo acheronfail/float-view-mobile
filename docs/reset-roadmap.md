@@ -68,7 +68,7 @@ immutable session snapshots.
 | R3        | Freeze the vertical-slice API and product experience foundation  | In progress |
 | R4        | Pass shared protocol fixtures in Swift and Kotlin                | In progress |
 | R5        | Pass durable logging/service tests and fake conformance          | In progress |
-| R6        | Connect and stream through real native Bluetooth adapters        | Not started |
+| R6        | Connect and stream through real native Bluetooth adapters        | In progress |
 | R7        | Prove platform background durability and disconnect cleanup      | Not started |
 | R8        | Pass repeated hardware acceptance on all three platforms         | Not started |
 
@@ -376,6 +376,15 @@ Exit gate:
 
 Canonical software verification: `just verify-r6`. Completion additionally
 requires a passing `hardware-smoke` run on iOS, Android, and macOS.
+
+Status: in progress. Android 10, an iPhone 12, and macOS have physically passed
+discovery, Nordic UART
+setup/CCCD confirmation, Express-to-primary CAN discovery, VESC 6.06 and Refloat
+1.2.3 identification, modern dynamic telemetry decoding, adaptive durable idle
+persistence, SQLite integrity, and explicit disconnect. Android's sanitized
+frames pass the shared Swift/Kotlin protocol suite. The formal profile-aware
+hardware-smoke runner and the remaining radio/permission/range failure-path
+gates are still required before R6 is complete.
 
 Deliverables:
 

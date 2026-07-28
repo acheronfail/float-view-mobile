@@ -44,7 +44,17 @@ async function json(path) {
 }
 
 const upstreams = await json('references/upstreams.json');
-assert(upstreams.repositories.length === 4, 'all four pinned references are required');
+const requiredRepositories = [
+  'vedderb/vesc_tool',
+  'acheronfail/floaty',
+  'lukash/refloat',
+  'acheronfail/float-view',
+  'local/float-view-mobile'
+];
+const pinnedRepositories = new Set(upstreams.repositories.map(({ repository }) => repository));
+for (const repository of requiredRepositories) {
+  assert(pinnedRepositories.has(repository), `required pinned reference is missing: ${repository}`);
+}
 for (const repository of upstreams.repositories) {
   assert(/^[0-9a-f]{40}$/.test(repository.revision), `invalid revision for ${repository.repository}`);
 }

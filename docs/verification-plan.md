@@ -277,6 +277,23 @@ compatible firmware versions, telemetry expectations, sample interval limits,
 and device setup instructions. The runner records opaque or redacted device
 identity.
 
+During native R6 bring-up, the lower-level evidence commands are:
+
+```sh
+just ios-device-verify-latest-session <device-id> [destination]
+just android-device-protocol-capture [serial]
+just android-device-verify-latest-session [serial] [/tmp/session.sqlite]
+just macos-device-verify-latest-session
+```
+
+The iOS command copies the app-private session directory through CoreDevice,
+including its WAL sidecars. The Android capture command reads only the bounded
+debug-build capture. The three session-verification commands must be run after
+an explicit disconnect; they select the newest app-private session, check SQLite
+integrity, report sequence/cadence facts, and show the newest extension payload.
+These commands are diagnostics, not substitutes for the profile-aware
+`hardware-smoke` acceptance runner.
+
 ## Milestone verification
 
 ### R0: evidence preservation

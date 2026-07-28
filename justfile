@@ -25,17 +25,54 @@ build-macos:
   cd apple && CLANG_MODULE_CACHE_PATH=/tmp/float-view-clang \
     swift build --disable-sandbox --scratch-path /tmp/float-view-swift-build --product FloatViewMac
 
+# build and launch the real macOS host with the current shared web bundle
+macos-device-run: build-web build-macos
+  FLOAT_VIEW_WEB_ROOT="{{justfile_directory()}}/web/build" \
+    /tmp/float-view-swift-build/arm64-apple-macosx/debug/FloatViewMac
+
+# copy and verify the newest local macOS session without touching the live store
+macos-device-verify-latest-session:
+  #!/usr/bin/env bash
+  set -euo pipefail
+  source_root="$HOME/Library/Application Support/FloatView/Sessions"
+  if [[ ! -f "$source_root/catalog.sqlite" ]]; then
+    echo "No macOS Float View log catalog found." >&2
+    exit 1
+  fi
+  destination="$(mktemp -d /tmp/float-view-macos-session.XXXXXX)"
+  cp -R "$source_root/." "$destination/"
+  catalog="$destination/catalog.sqlite"
+  latest_name="$(sqlite3 "$catalog" \
+    'SELECT file_name FROM session_catalog ORDER BY started_at_ms DESC LIMIT 1;')"
+  if [[ -z "$latest_name" || ! -f "$destination/$latest_name" ]]; then
+    echo "No session database found. Connect once and disconnect cleanly first." >&2
+    exit 1
+  fi
+  echo "Copied macOS logs to $destination"
+  sqlite3 "$catalog" <<'SQL'
+  PRAGMA integrity_check;
+  SELECT
+    state, close_reason, committed_sequence
+  FROM session_catalog
+  ORDER BY started_at_ms DESC
+  LIMIT 1;
+  SQL
+  sqlite3 "$destination/$latest_name" <<'SQL'
+  PRAGMA integrity_check;
+  SELECT
+    count(*) AS samples,
+    min(sequence) AS first_sequence,
+    max(sequence) AS last_sequence,
+    max(monotonic_elapsed_ms) AS elapsed_ms
+  FROM sample;
+  SELECT extension_json FROM sample ORDER BY sequence DESC LIMIT 1;
+  SELECT committed_sequence FROM commit_marker WHERE singleton = 1;
+  SQL
+
 build-android:
   cd android && ./gradlew test assembleDebug
 
-build-ios:
-  CLANG_MODULE_CACHE_PATH=/tmp/float-view-clang swiftc -typecheck \
-    -target arm64-apple-ios17.0-simulator \
-    -sdk /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk \
-    ios/float-view/ContentView.swift ios/float-view/FloatViewApp.swift ios/float-view/WebView.swift \
-    apple/Sources/FloatViewCore/Domain.swift apple/Sources/FloatViewCore/AdaptiveLogging.swift \
-    apple/Sources/FloatViewCore/ApplicationService.swift \
-    apple/Sources/FloatViewHost/LoopbackServer.swift
+build-ios: build-ios-app
 
 build-ios-app:
   cd ios && xcodebuild -project float-view.xcodeproj -scheme float-view \
@@ -106,6 +143,15 @@ verify-r5: verify-r4
   just test-core
   just test-storage
   just test-alerts
+
+test-bluetooth:
+  cd android && ./gradlew :bluetooth:test :bluetooth:assembleDebug
+  cd apple && CLANG_MODULE_CACHE_PATH=/tmp/float-view-clang \
+    swift test --disable-sandbox --scratch-path /tmp/float-view-swift-build
+  just build-ios-app
+
+verify-r6: verify-r5
+  just test-bluetooth
 
 # setup the repository for development
 setup:
@@ -202,6 +248,56 @@ ios-device-console device:
   xcrun devicectl device process launch --device "{{device}}" \
     --terminate-existing --console fail.acheron.float-view
 
+# copy the iOS app-private log store and verify the newest closed session
+ios-device-verify-latest-session device destination="":
+  #!/usr/bin/env bash
+  set -euo pipefail
+  destination="{{destination}}"
+  if [[ -z "$destination" ]]; then
+    destination="$(mktemp -d /tmp/float-view-ios-session.XXXXXX)"
+  elif [[ -e "$destination" ]]; then
+    echo "Destination already exists; choose a new directory: $destination" >&2
+    exit 1
+  fi
+  xcrun devicectl device copy from \
+    --device "{{device}}" \
+    --domain-type appDataContainer \
+    --domain-identifier fail.acheron.float-view \
+    --source 'Library/Application Support/FloatView/Sessions' \
+    --destination "$destination" \
+    --timeout 30
+  catalog="$destination/catalog.sqlite"
+  if [[ ! -f "$catalog" ]]; then
+    echo "Copied container did not contain the Float View catalog." >&2
+    exit 1
+  fi
+  latest_name="$(sqlite3 "$catalog" \
+    'SELECT file_name FROM session_catalog ORDER BY started_at_ms DESC LIMIT 1;')"
+  if [[ -z "$latest_name" || ! -f "$destination/$latest_name" ]]; then
+    echo "No session database found. Connect once and disconnect cleanly first." >&2
+    exit 1
+  fi
+  echo "Copied iOS logs to $destination"
+  sqlite3 "$catalog" <<'SQL'
+  PRAGMA integrity_check;
+  SELECT
+    state, close_reason, committed_sequence
+  FROM session_catalog
+  ORDER BY started_at_ms DESC
+  LIMIT 1;
+  SQL
+  sqlite3 "$destination/$latest_name" <<'SQL'
+  PRAGMA integrity_check;
+  SELECT
+    count(*) AS samples,
+    min(sequence) AS first_sequence,
+    max(sequence) AS last_sequence,
+    max(monotonic_elapsed_ms) AS elapsed_ms
+  FROM sample;
+  SELECT extension_json FROM sample ORDER BY sequence DESC LIMIT 1;
+  SELECT committed_sequence FROM commit_marker WHERE singleton = 1;
+  SQL
+
 # list Android devices and their USB-debugging authorization state
 android-device-list:
   adb devices -l
@@ -263,3 +359,59 @@ android-device-logs serial="":
     adb -s "$serial" logcat -d -v time | \
       grep -E 'FATAL EXCEPTION|AndroidRuntime|fail\.acheron\.floatview|chromium'
   fi
+
+# print the bounded, debug-only raw protocol capture used to create sanitized fixtures
+android-device-protocol-capture serial="":
+  #!/usr/bin/env bash
+  set -euo pipefail
+  serial="{{serial}}"
+  if [[ -z "$serial" ]]; then
+    serial="$(adb devices | awk 'NR > 1 && $2 == "device" { print $1 }')"
+    count="$(printf '%s\n' "$serial" | sed '/^$/d' | wc -l | tr -d ' ')"
+    if [[ "$count" != "1" ]]; then
+      echo "Expected exactly one authorized Android device; pass its serial explicitly:" >&2
+      adb devices -l >&2
+      exit 1
+    fi
+  fi
+  adb -s "$serial" logcat -d -v time \
+    -s FloatViewProtocolCapture:D '*:S'
+
+# pull and integrity-check the newest cleanly closed Android session database
+android-device-verify-latest-session serial="" output="/tmp/float-view-android-session.sqlite":
+  #!/usr/bin/env bash
+  set -euo pipefail
+  serial="{{serial}}"
+  output="{{output}}"
+  if [[ -z "$serial" ]]; then
+    serial="$(adb devices | awk 'NR > 1 && $2 == "device" { print $1 }')"
+    count="$(printf '%s\n' "$serial" | sed '/^$/d' | wc -l | tr -d ' ')"
+    if [[ "$count" != "1" ]]; then
+      echo "Expected exactly one authorized Android device; pass its serial explicitly:" >&2
+      adb devices -l >&2
+      exit 1
+    fi
+  fi
+  latest_name="$(adb -s "$serial" shell run-as fail.acheron.floatview \
+    ls -t files/float-view/logs | tr -d '\r' |
+    awk '/^session-.*\.sqlite$/ { print; exit }')"
+  if [[ -z "$latest_name" ]]; then
+    echo "No session database found. Connect once and disconnect cleanly first." >&2
+    exit 1
+  fi
+  latest="files/float-view/logs/$latest_name"
+  adb -s "$serial" exec-out run-as fail.acheron.floatview cat "$latest" > "$output"
+  echo "Pulled $latest to $output"
+  # Open normally because a database configured for WAL may need a transient
+  # local -shm file even after the Android writer checkpointed and closed it.
+  sqlite3 "$output" <<'SQL'
+  PRAGMA integrity_check;
+  SELECT
+    count(*) AS samples,
+    min(sequence) AS first_sequence,
+    max(sequence) AS last_sequence,
+    max(monotonic_elapsed_ms) AS elapsed_ms
+  FROM sample;
+  SELECT extension_json FROM sample ORDER BY sequence DESC LIMIT 1;
+  SELECT committed_sequence FROM commit_marker WHERE singleton = 1;
+  SQL

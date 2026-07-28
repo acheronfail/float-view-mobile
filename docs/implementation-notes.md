@@ -85,6 +85,126 @@ Galaxy S9 qualification target. This is R2 shell evidence only; Bluetooth,
 runtime permission behavior, VESC connection, durable logging, background
 service behavior, and disconnect cleanup remain unverified.
 
+## Android 10 VESC discovery, primary-controller selection, and durable close
+
+Recorded: 2026-07-28. Status: partial R6/R7 hardware evidence; telemetry remains
+pending.
+
+The Samsung Galaxy S9+/Android 10 test device granted the legacy location-based
+BLE scan permission, discovered one VESC UART transport advertising as
+`ExpressT`, connected over GATT, discovered the Nordic UART service and both
+required characteristics, enabled local notifications, and received a
+successful CCCD write callback. The connection then reached `ready` and
+automatically created a durable session.
+
+The first ready attempt exposed two Android SQLite differences that the JVM
+tests could not detect: query-style PRAGMAs cannot be passed to `execSQL`, and
+`SQLiteOpenHelper.onCreate` runs inside a transaction where journal mode cannot
+be changed. Android now configures catalog/session WAL explicitly, filters
+schema PRAGMAs from DDL execution, removes partial session databases on create
+failure, and transitions the connection to `failed` rather than claiming a
+logging-capable ready state.
+
+After the fix, an explicit disconnect produced:
+
+- SQLite `integrity_check = ok` for both the catalog and per-session database;
+- one catalog session in `completed`/`complete` state;
+- `close_reason = explicit_disconnect` with a non-null end time;
+- a flushed, readable session schema;
+- an Android Bluetooth client disconnect and GATT client unregister.
+
+The session contains zero telemetry samples because this test intentionally
+preceded the first telemetry command. The read-only firmware sequence is now
+implemented in both native cores and was verified on the same hardware:
+
+- the directly connected VESC Express transport reported `VESC Express T`,
+  VESC 6.05, hardware type `CUSTOM_MODULE`;
+- `COMM_PING_CAN` returned the available CAN nodes;
+- sequential `COMM_FORWARD_CAN` firmware requests retained their CAN identity;
+- the first hardware type `VESC` node was selected as the primary controller;
+- the primary reported `Thor300`, VESC 7.00 before the fixture was reflashed;
+- the UI displayed the primary controller rather than the transport module.
+
+The forwarding constants, hardware-type values, and packet layout were checked
+against the pinned VESC Tool source. Refloat package identification uses the
+owner-authorized pinned Floaty reference: forwarded
+`COMM_CUSTOM_APP_DATA [101, GET_INFO]`, with a response byte encoded in tenths.
+Both native cores now test the complete ordered Express → CAN nodes → primary
+VESC → Refloat version sequence. Physical Refloat 1.2 confirmation initially
+waited on the fixture update to VESC 6.06 and Refloat 1.2.
+
+The fixture was subsequently updated and Android physically verified:
+
+- the primary reports `Thor300`, VESC 6.06;
+- Refloat INFO reports the 1.2 release line;
+- the UI reports the combination as supported;
+- the automatic session closes without reconnecting.
+
+The first telemetry implementation used the supplementary legacy
+`GET_ALL_DATA` response. It proved a 2 Hz idle request cadence, 1 Hz adaptive
+durable persistence, sequence gaps that preserve dropped/non-persisted sample
+identity, and a clean SQLite checkpoint: 175 samples over 228 seconds,
+`committed_sequence = 451`, and `integrity_check = ok`.
+
+The test controller is known to report invalid sensor values, so those numeric
+values are not sensor-accuracy evidence. They remain useful transport data only.
+Value accuracy, real riding-state transitions, and threshold alerts require a
+known-good controller. Until then, hardware acceptance on this fixture is limited
+to discovery, framing, dynamic field identification, response ordering, bounded
+cadence, durable persistence/integrity, lifecycle recovery, and deterministic
+disconnect. Tests must not add plausibility ranges derived from this fixture.
+
+Inspection of the pinned Refloat v1.2.0 source then identified the canonical
+modern interface: versioned INFO v2, `REALTIME_DATA_IDS` (32), and
+`REALTIME_DATA` (31). The native implementations now request the dynamic field
+IDs, decode Refloat's extended float16 values by ID, extract package RUNNING and
+footpad states from their documented flag bytes, probe at 2 Hz idle, switch to
+10 Hz riding, and feed one canonical sample into adaptive durable logging.
+Swift and Kotlin cover the byte layout and rate transition deterministically.
+A subsequent Android hardware run confirmed versioned INFO `1.2.3`, the complete
+dynamic layout (16 persisted fields plus 10 runtime fields), fragmented
+`REALTIME_DATA` responses, and clean disconnect. The sanitized capture is
+committed as `fixtures/refloat/rtdata-1.2.3-android-hardware.json` and is decoded
+across its original notification boundaries by both Swift and Kotlin tests.
+
+The same run durably committed 32 idle samples from received sequences 1 through
+78 over 41,918 milliseconds. Sequence gaps reflect the configured 1 Hz idle
+persistence policy rather than packet loss. The closed database reported
+`integrity_check = ok`, `committed_sequence = 78`, and a populated extension
+payload. The reproducible evidence commands are
+`just android-device-protocol-capture` and
+`just android-device-verify-latest-session`.
+
+The identical read-only workflow then passed on an iPhone 12: it discovered and
+connected through the Express transport, selected the Thor300 primary, reported
+VESC 6.06 and Refloat 1.2.3, and disconnected cleanly. A CoreDevice copy of the
+app-private store showed catalog and session `integrity_check = ok`, a
+`completed` session with `close_reason = explicit_disconnect`, four persisted
+idle samples from received sequences 1 through 10 over 7,525 milliseconds, and
+`committed_sequence = 10`. The final sample contained the same current/ERPM/speed
+extension fields as Android. Reproduce the durable inspection with
+`just ios-device-verify-latest-session <device-id>`.
+
+The macOS host then passed the same physical path. Its intended 29.9-second run
+closed as `completed`/`explicit_disconnect`, persisted 20 idle samples from
+received sequences 1 through 55, and reported catalog/session
+`integrity_check = ok`. A user-initiated second reconnect began three seconds
+later and closed after 10.2 seconds with zero samples; this was not mistaken for
+the intended evidence run. It exposed that the dynamic field-layout request was
+one-shot. Both native cores now retry that read-only request at one-second
+intervals, stop after five attempts, close the logging session with
+`refloat_telemetry_layout_timeout`, and fail/disconnect visibly instead of
+leaving a zero-sample session presented as healthy. Deterministic Swift/Kotlin
+tests cover both recovery and bounded failure. Reproduce local durable
+inspection with `just macos-device-verify-latest-session`.
+
+The canonical sample now preserves Refloat motor current, battery current, ERPM,
+and speed in the session schema's `extension_json`, using the same API field
+names on Apple and Android. Voltage, duty cycle, temperatures, ride state, and
+footpad state remain indexed first-class columns. This keeps the initial schema
+generic while retaining every currently decoded value for later review and
+diagnosis.
+
 ## Synthetic COMM_GET_VALUES fixture layout
 
 Recorded: 2026-07-28. Status: bounded pending R6 capture.

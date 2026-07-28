@@ -34,11 +34,20 @@
 			{#if apiStore.status === 'connected'}
 				{#if apiStore.snapshot?.activeConnection}
 					<h2 id="device-heading" class="text-xl font-medium">Live</h2>
-					<p class="mt-2 text-lg">{apiStore.snapshot.activeConnection.name}</p>
-					<p class="mt-1 text-emerald-300">Logging is active in the native backend</p>
-					<p class="mt-1 text-sm text-slate-400">
-						{apiStore.snapshot.loggingJobs[0]?.effectiveIntervalMs ?? 1000} ms persisted cadence
-					</p>
+					<p class="mt-2 text-lg">{apiStore.snapshot.activeConnection.name || 'VESC board'}</p>
+					{#if apiStore.snapshot.activeConnection.state === 'ready'}
+						<p class="mt-1 text-emerald-300">Connected · durable session active</p>
+						{#if apiStore.firmware}
+							<p class="mt-1 text-sm text-slate-300">
+								{apiStore.firmware.hardwareName || 'VESC'} · VESC {apiStore.firmware.vescVersion}
+								· {apiStore.firmware.packageName} {apiStore.firmware.packageVersion}
+							</p>
+						{/if}
+					{:else}
+						<p class="mt-1 text-amber-300">
+							Connection state: {apiStore.snapshot.activeConnection.state.replaceAll('_', ' ')}
+						</p>
+					{/if}
 					<button
 						class="mt-5 rounded-lg bg-rose-700 px-4 py-2 disabled:opacity-50"
 						disabled={apiStore.busy}

@@ -6,9 +6,12 @@
 | Firmware version response | VESC Tool `commands.cpp`, `datatypes.h` | Legacy `VescCommandParser` | `fixtures/vesc/firmware-6.06.json` |
 | `COMM_GET_VALUES` normalized telemetry | VESC Tool `commands.cpp`, `datatypes.h` | Floaty and legacy parser field scaling | `fixtures/vesc/realtime-values.json` |
 | BLE UART service and characteristic UUIDs | VESC Tool `bleuart.cpp`, `bleuart.h` | Legacy CoreBluetooth/GATT adapters | `fixtures/vesc/gatt-profile.json` |
-| Refloat custom app ID and RT data packet | Refloat 1.2 hardware capture required before R6 | Floaty and legacy command enums/parsers | `fixtures/refloat/rtdata-1.2.json` |
+| Refloat package INFO v2, realtime field IDs, state/footpad flags and float16 telemetry | Refloat v1.2.0 `INFO.md`, `REALTIME_DATA.md`, `REALTIME_DATA_IDS.md`, `float16.md`, `src/main.c`, and `src/rt_data.h` at `747a2f4` | Android 10 read-only capture from Thor300 VESC 6.06 / Refloat 1.2.3 through VESC Express; Floaty legacy behavior | `fixtures/refloat/rtdata-1.2.3-android-hardware.json`; `fixtures/refloat/rtdata-1.2.json` remains a legacy synthetic compatibility fixture |
 
-The synthetic protocol fixtures below validate framing, chunk reassembly, CRC,
-scaling, and normalized model parity. The Refloat payload is deliberately marked
-synthetic; R6 must add a sanitized Thor/XRV/PintV hardware capture before claiming
-hardware compatibility.
+The fixtures validate framing, chunk reassembly, CRC, scaling, and normalized
+model parity. The old Refloat payload is deliberately marked synthetic and
+represents the legacy command. Modern Refloat 1.2 INFO/field-ID/realtime behavior
+is exercised in Swift and Kotlin using the sanitized Android hardware capture.
+Its controller is known to report invalid sensor values, so the fixture proves
+protocol interpretation and parity but deliberately makes no numeric
+plausibility claim.

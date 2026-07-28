@@ -1,5 +1,9 @@
+#if SWIFT_PACKAGE
 import CSQLite
 import FloatViewCore
+#else
+import SQLite3
+#endif
 import Foundation
 
 public enum SQLiteLogStoreError: Error {
@@ -147,13 +151,20 @@ public final class SQLiteLogStore: LogStorePort, @unchecked Sendable {
     do {
       for sample in samples {
         let optional: (Double?) -> SQLiteValue = { $0.map(SQLiteValue.real) ?? .null }
+        let extensionData = try JSONSerialization.data(
+          withJSONObject: sample.extensionFields,
+          options: [.sortedKeys]
+        )
+        guard let extensionJSON = String(data: extensionData, encoding: .utf8) else {
+          throw SQLiteLogStoreError.sqlite("Unable to encode sample extension fields")
+        }
         try session.statement(
           """
           INSERT OR IGNORE INTO sample(
             sequence, observed_at_ms, monotonic_elapsed_ms, ride_state,
             raw_pack_voltage_v, duty_cycle, controller_temp_c, motor_temp_c,
             footpad_state, extension_json
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, '{}')
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
           """,
           values: [
             .integer(sample.sequence),
@@ -162,6 +173,7 @@ public final class SQLiteLogStore: LogStorePort, @unchecked Sendable {
             optional(sample.packVoltageV), optional(sample.dutyCycle),
             optional(sample.controllerTempC), optional(sample.motorTempC),
             sample.footpadState.map { .integer(Int64($0)) } ?? .null,
+            .text(extensionJSON),
           ]
         )
       }

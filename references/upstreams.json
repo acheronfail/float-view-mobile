@@ -32,6 +32,21 @@
       ]
     },
     {
+      "repository": "lukash/refloat",
+      "revision": "747a2f4fa27e44f8c4d1f0b90e709c7a1159198e",
+      "role": "canonical-refloat-1.2-package-protocol",
+      "license": "GPL-3.0-or-later",
+      "access": "public",
+      "relevantPaths": [
+        "doc/commands/INFO.md",
+        "doc/commands/REALTIME_DATA.md",
+        "doc/commands/REALTIME_DATA_IDS.md",
+        "doc/commands/float16.md",
+        "src/main.c",
+        "src/rt_data.h"
+      ]
+    },
+    {
       "repository": "acheronfail/float-view",
       "revision": "fae1663c437f9862d008b610cb938950a1b410d6",
       "role": "review-ux-reference",

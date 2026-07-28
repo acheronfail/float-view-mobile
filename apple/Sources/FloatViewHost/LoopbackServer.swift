@@ -2,6 +2,9 @@ import CryptoKit
 import Foundation
 import Network
 import Security
+#if SWIFT_PACKAGE
+import FloatViewCore
+#endif
 
 public final class LoopbackServer: @unchecked Sendable {
   public let token: String
@@ -9,12 +12,18 @@ public final class LoopbackServer: @unchecked Sendable {
   public var origin: String { "http://127.0.0.1:\(port)" }
   private let platform: String
   private let webRoot: URL
+  private let applicationService: ApplicationService?
   private let queue = DispatchQueue(label: "fail.acheron.float-view.loopback")
   private var listener: NWListener?
 
-  public init(webRoot: URL, platform: String) {
+  public init(
+    webRoot: URL,
+    platform: String,
+    applicationService: ApplicationService? = nil
+  ) {
     self.webRoot = webRoot
     self.platform = platform
+    self.applicationService = applicationService
     token = Self.randomToken()
   }
 
@@ -159,13 +168,116 @@ public final class LoopbackServer: @unchecked Sendable {
       return response([
         "api": ["major": 1, "minor": 0],
         "backend": ["name": "float-view-apple", "version": "0.1.0", "platform": platform],
-        "capabilities": [["name": "system.snapshot", "available": true]],
+        "capabilities": capabilities(),
         "limits": ["minTelemetryIntervalMs": 50, "maxMessageBytes": 65_536, "maxReconnectDurationMs": 3_600_000],
         "snapshot": snapshot(),
       ])
     }
     guard initialized else { return failure(-32000, "invalid_state", "system.hello required") }
     if method == "system.getSnapshot" { return response(snapshot()) }
+    if method == "bluetooth.getState" {
+      return response(bluetoothPayload())
+    }
+    if method == "bluetooth.requestPermission" {
+      guard let applicationService else {
+        return failure(-32601, "unsupported", "Bluetooth is unavailable")
+      }
+      return response(bluetoothPayload(applicationService.requestBluetoothPermission()))
+    }
+    if method == "discovery.start" {
+      guard let applicationService else {
+        return failure(-32601, "unsupported", "Discovery is unavailable")
+      }
+      do {
+        return response(["scanId": try applicationService.startDiscovery()])
+      } catch let error as ApplicationError {
+        return applicationFailure(error, failure: failure)
+      } catch {
+        return failure(-32005, "scan_failed", "Unable to start discovery")
+      }
+    }
+    if method == "discovery.stop" {
+      guard let applicationService else {
+        return failure(-32601, "unsupported", "Discovery is unavailable")
+      }
+      guard let params = request["params"] as? [String: Any],
+            let scanID = params["scanId"] as? String
+      else {
+        return failure(-32602, "protocol_error", "scanId is required")
+      }
+      do {
+        try applicationService.stopDiscovery(scanID: scanID)
+        return response(["accepted": true])
+      } catch let error as ApplicationError {
+        return applicationFailure(error, failure: failure)
+      } catch {
+        return failure(-32005, "scan_failed", "Unable to stop discovery")
+      }
+    }
+    if method == "device.connect" {
+      guard let applicationService else {
+        return failure(-32601, "unsupported", "Connections are unavailable")
+      }
+      guard let params = request["params"] as? [String: Any],
+            let deviceID = params["deviceId"] as? String, !deviceID.isEmpty
+      else {
+        return failure(-32602, "protocol_error", "deviceId is required")
+      }
+      do {
+        try applicationService.connect(DeviceID(deviceID))
+        guard let active = applicationService.activeConnectionSnapshot() else {
+          return failure(-32004, "connection_failed", "Connection did not start")
+        }
+        return response(connectionPayload(active))
+      } catch let error as ApplicationError {
+        return applicationFailure(error, failure: failure)
+      } catch {
+        return failure(-32004, "connection_failed", "Unable to connect")
+      }
+    }
+    if method == "device.disconnect" {
+      guard let applicationService else {
+        return failure(-32601, "unsupported", "Connections are unavailable")
+      }
+      do {
+        try applicationService.disconnect()
+        return response(["accepted": true])
+      } catch {
+        return failure(-32004, "connection_failed", "Unable to disconnect cleanly")
+      }
+    }
+    if method == "device.getActive" {
+      guard let active = applicationService?.activeConnectionSnapshot() else {
+        return response(NSNull())
+      }
+      return response(connectionPayload(active))
+    }
+    if method == "vesc.getFirmwareInfo" {
+      guard let applicationService else {
+        return failure(-32601, "unsupported", "VESC protocol is unavailable")
+      }
+      do {
+        guard let firmware = try applicationService.requestFirmwareInfo() else {
+          return failure(-32007, "device_not_ready", "Waiting for the VESC firmware response")
+        }
+        guard let packageVersion = applicationService.refloatPackageVersionSnapshot() else {
+          return failure(-32007, "device_not_ready", "Waiting for the Refloat package response")
+        }
+        let hardwareName: Any = firmware.hardwareName.map { $0 as Any } ?? NSNull()
+        return response([
+          "vescVersion": "\(firmware.major).\(String(format: "%02d", firmware.minor))",
+          "packageName": "refloat",
+          "packageVersion": packageVersion,
+          "hardwareName": hardwareName,
+          "supported": (packageVersion == "1.2" || packageVersion.hasPrefix("1.2.")) &&
+            (firmware.major > 6 || (firmware.major == 6 && firmware.minor >= 2)),
+        ])
+      } catch let error as ApplicationError {
+        return applicationFailure(error, failure: failure)
+      } catch {
+        return failure(-32007, "device_not_ready", "Unable to read VESC firmware information")
+      }
+    }
     if method == "savedDevices.list" { return response([Any]()) }
     if method == "sessions.list" {
       return response(["items": [Any](), "nextCursor": NSNull()])
@@ -174,12 +286,89 @@ public final class LoopbackServer: @unchecked Sendable {
   }
 
   private func snapshot() -> [String: Any] {
-    [
+    let discovery = applicationService?.discoverySnapshot()
+    return [
       "revision": 0,
-      "bluetooth": ["radio": "powered_on", "scanPermission": "granted", "connectPermission": "granted"],
-      "knownDevices": [], "activeConnection": NSNull(),
+      "bluetooth": discovery.map { bluetoothPayload($0.bluetoothState) } ??
+        ["radio": "unknown", "scanPermission": "unknown", "connectPermission": "unknown"],
+      "knownDevices": discovery?.knownDevices.map(devicePayload) ?? [],
+      "activeConnection": applicationService?.activeConnectionSnapshot().map(connectionPayload) ??
+        NSNull(),
       "telemetrySubscriptions": [], "loggingJobs": [],
     ]
+  }
+
+  private func capabilities() -> [[String: Any]] {
+    [
+      ["name": "system.snapshot", "available": true],
+      ["name": "bluetooth.discovery", "available": applicationService != nil],
+      ["name": "device.connection", "available": applicationService != nil],
+    ]
+  }
+
+  private func bluetoothPayload() -> [String: Any] {
+    guard let applicationService else {
+      return ["radio": "unknown", "scanPermission": "unknown", "connectPermission": "unknown"]
+    }
+    return bluetoothPayload(applicationService.discoverySnapshot().bluetoothState)
+  }
+
+  private func bluetoothPayload(_ state: BluetoothState) -> [String: Any] {
+    [
+      "radio": state.radio.rawValue,
+      "scanPermission": state.scanPermission.rawValue,
+      "connectPermission": state.connectPermission.rawValue,
+    ]
+  }
+
+  private func devicePayload(_ device: KnownDevice) -> [String: Any] {
+    [
+      "deviceId": device.deviceID.value,
+      "name": device.name ?? "",
+      "state": "discovered",
+      "lastSeenAt": ISO8601DateFormatter().string(from: device.lastSeenAt),
+    ]
+  }
+
+  private func connectionPayload(_ connection: ActiveConnectionSnapshot) -> [String: Any] {
+    [
+      "deviceId": connection.deviceID.value,
+      "name": connection.name ?? "",
+      "state": deviceState(connection.state),
+    ]
+  }
+
+  private func deviceState(_ state: ConnectionState) -> String {
+    switch state {
+    case .disconnected: "disconnected"
+    case .connecting: "connecting"
+    case .connected: "connected"
+    case .discoveringServices, .enablingNotifications: "discovering_services"
+    case .ready: "ready"
+    case .reconnecting: "reconnecting"
+    case .disconnecting: "disconnecting"
+    case .failed: "failed"
+    }
+  }
+
+  private func applicationFailure(
+    _ error: ApplicationError,
+    failure: (Int, String, String) -> Data
+  ) -> Data {
+    switch error {
+    case .bluetoothUnavailable:
+      failure(-32000, "invalid_state", "Bluetooth is not powered on")
+    case .permissionRequired:
+      failure(-32003, "permission_required", "Bluetooth scan permission is required")
+    case .invalidScan:
+      failure(-32000, "invalid_state", "Unknown active scan")
+    case .activeDeviceConflict:
+      failure(-32000, "invalid_state", "Another board is active")
+    case .unknownDevice:
+      failure(-32002, "not_found", "The discovered board is no longer available")
+    case .deviceNotReady:
+      failure(-32007, "device_not_ready", "The VESC connection is not ready")
+    }
   }
 
   private func respond(

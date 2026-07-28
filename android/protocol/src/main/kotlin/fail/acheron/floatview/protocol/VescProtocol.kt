@@ -1,5 +1,11 @@
 package fail.acheron.floatview.protocol
 
+import fail.acheron.floatview.core.FirmwareRecord
+import fail.acheron.floatview.core.VescProtocolMessage
+import fail.acheron.floatview.core.VescProtocolPort
+import fail.acheron.floatview.core.RefloatTelemetryRecord
+import fail.acheron.floatview.core.RideState
+
 sealed class VescProtocolException(message: String) : Exception(message) {
     data object InvalidFrame : VescProtocolException("Invalid VESC frame")
     data object InvalidCrc : VescProtocolException("Invalid VESC CRC")
@@ -8,7 +14,13 @@ sealed class VescProtocolException(message: String) : Exception(message) {
     data object TruncatedPayload : VescProtocolException("Truncated VESC payload")
 }
 
-data class FirmwareInfo(val major: Int, val minor: Int, val hardwareName: String)
+data class FirmwareInfo(
+    val major: Int,
+    val minor: Int,
+    val hardwareName: String,
+    val firmwareName: String? = null,
+    val hardwareType: Int = 0,
+)
 
 data class RealtimeValues(
     val controllerTempC: Double,
@@ -144,10 +156,28 @@ object VescPayloadDecoder {
             throw VescProtocolException.UnsupportedCommand(payload.firstOrNull()?.toInt() ?: 255)
         }
         val end = (3 until payload.size).firstOrNull { payload[it].toInt() == 0 } ?: payload.size
+        var offset = minOf(end + 1, payload.size)
+        if (payload.size - offset >= 12) offset += 12 // UUID
+        val hardwareType =
+            if (payload.size - offset >= 3) payload[offset + 2].toInt() and 0xff else 0
+        repeat(8) {
+            if (offset < payload.size) offset++ // paired through NRF flags
+        }
+        val firmwareName =
+            if (offset < payload.size) {
+                val firmwareNameEnd =
+                    (offset until payload.size).firstOrNull { payload[it].toInt() == 0 }
+                        ?: payload.size
+                payload.copyOfRange(offset, firmwareNameEnd).decodeToString().ifEmpty { null }
+            } else {
+                null
+            }
         return FirmwareInfo(
             payload[1].toInt() and 0xff,
             payload[2].toInt() and 0xff,
             payload.copyOfRange(3, end).decodeToString(),
+            firmwareName,
+            hardwareType,
         )
     }
 
@@ -178,6 +208,219 @@ object VescPayloadDecoder {
             payload[2].toInt() and 0xff,
             payload[3].toInt() and 0xff,
             payload[4].toInt() and 0xff,
+        )
+    }
+}
+
+class VescProtocolService : VescProtocolPort {
+    private var stream = VescFrameStreamDecoder()
+    private var pendingFirmwareCanId: Int? = null
+    private var realtimeFields = emptyList<String>()
+    private var realtimeRuntimeFields = emptyList<String>()
+
+    @Synchronized
+    override fun reset() {
+        stream = VescFrameStreamDecoder()
+        pendingFirmwareCanId = null
+        realtimeFields = emptyList()
+        realtimeRuntimeFields = emptyList()
+    }
+
+    @Synchronized
+    override fun firmwareRequest(canId: Int?): ByteArray {
+        require(canId == null || canId in 0..255) { "CAN ID must fit in one byte" }
+        pendingFirmwareCanId = canId
+        val payload =
+            if (canId == null) byteArrayOf(0)
+            else byteArrayOf(34, canId.toByte(), 0)
+        return VescFrameCodec.encode(payload)
+    }
+
+    override fun canPingRequest(): ByteArray = VescFrameCodec.encode(byteArrayOf(62))
+
+    override fun refloatInfoRequest(canId: Int?): ByteArray {
+        require(canId == null || canId in 0..255) { "CAN ID must fit in one byte" }
+        val command = byteArrayOf(36, 101, 0, 2, 0)
+        val payload =
+            if (canId == null) command
+            else byteArrayOf(34, canId.toByte()) + command
+        return VescFrameCodec.encode(payload)
+    }
+
+    override fun refloatTelemetryIdsRequest(canId: Int): ByteArray {
+        require(canId in 0..255) { "CAN ID must fit in one byte" }
+        return VescFrameCodec.encode(byteArrayOf(34, canId.toByte(), 36, 101, 32))
+    }
+
+    override fun refloatTelemetryRequest(canId: Int): ByteArray {
+        require(canId in 0..255) { "CAN ID must fit in one byte" }
+        return VescFrameCodec.encode(byteArrayOf(34, canId.toByte(), 36, 101, 31))
+    }
+
+    @Synchronized
+    override fun receive(bytes: ByteArray): List<VescProtocolMessage> =
+        stream.append(bytes).mapNotNull { payload ->
+            when (payload.firstOrNull()?.toInt()?.and(0xff)) {
+                0 -> {
+                    val info = VescPayloadDecoder.firmware(payload)
+                    VescProtocolMessage.Firmware(
+                        FirmwareRecord(
+                            info.major,
+                            info.minor,
+                            info.hardwareName,
+                            info.firmwareName,
+                            info.hardwareType,
+                            pendingFirmwareCanId,
+                        ),
+                    )
+                }
+                62 -> VescProtocolMessage.CanDevices(
+                    payload.drop(1).map { it.toInt() and 0xff }.distinct().sorted(),
+                )
+                36 -> {
+                    if (
+                        payload.size >= 4 &&
+                        payload[1].toInt() and 0xff == 101 &&
+                        payload[2].toInt() and 0xff == 0
+                    ) {
+                        VescProtocolMessage.RefloatInfo(decodeRefloatVersion(payload))
+                    } else if (
+                        payload.size >= 5 &&
+                        payload[1].toInt() and 0xff == 101 &&
+                        payload[2].toInt() and 0xff == 32
+                    ) {
+                        val (fields, runtimeFields) = decodeRealtimeFields(payload)
+                        realtimeFields = fields
+                        realtimeRuntimeFields = runtimeFields
+                        VescProtocolMessage.RefloatTelemetryLayout(fields, runtimeFields)
+                    } else if (
+                        payload.size >= 13 &&
+                        payload[1].toInt() and 0xff == 101 &&
+                        payload[2].toInt() and 0xff == 31
+                    ) {
+                        VescProtocolMessage.RefloatTelemetry(decodeRealtimeData(payload))
+                    } else if (
+                        payload.size >= 35 &&
+                        payload[1].toInt() and 0xff == 101 &&
+                        payload[2].toInt() and 0xff == 10
+                    ) {
+                        VescProtocolMessage.RefloatTelemetry(decodeRefloatTelemetry(payload))
+                    } else {
+                        null
+                    }
+                }
+                else -> null
+            }
+        }
+
+    private fun decodeRefloatVersion(payload: ByteArray): String {
+        val responseVersion = payload[3].toInt() and 0xff
+        if (responseVersion > 10) return "${responseVersion / 10}.${responseVersion % 10}"
+        require(responseVersion == 2 && payload.size >= 61) {
+            "Truncated Refloat INFO v2 response"
+        }
+        return "${payload[25].toInt() and 0xff}.${payload[26].toInt() and 0xff}." +
+            "${payload[27].toInt() and 0xff}"
+    }
+
+    private fun decodeRealtimeFields(payload: ByteArray): Pair<List<String>, List<String>> {
+        var index = 3
+        fun list(): List<String> {
+            require(index < payload.size) { "Truncated Refloat field list" }
+            val count = payload[index++].toInt() and 0xff
+            return List(count) {
+                require(index < payload.size) { "Truncated Refloat field ID" }
+                val length = payload[index++].toInt() and 0xff
+                require(index + length <= payload.size) { "Truncated Refloat field ID" }
+                payload.copyOfRange(index, index + length).decodeToString().also {
+                    index += length
+                }
+            }
+        }
+        return list() to list()
+    }
+
+    private fun decodeRealtimeData(payload: ByteArray): RefloatTelemetryRecord {
+        require(realtimeFields.isNotEmpty()) { "Refloat telemetry IDs are unavailable" }
+        val mask = payload[3].toInt() and 0xff
+        val baseCount = realtimeFields.size
+        val runtimeCount = if (mask and 0x1 != 0) realtimeRuntimeFields.size else 0
+        require(payload.size >= 13 + (baseCount + runtimeCount) * 2) {
+            "Truncated Refloat realtime response"
+        }
+        var index = 13
+        val values = linkedMapOf<String, Double>()
+        for (field in realtimeFields) {
+            values[field] = decodeFloat16(payload, index)
+            index += 2
+        }
+        if (runtimeCount > 0) {
+            for (field in realtimeRuntimeFields) {
+                values[field] = decodeFloat16(payload, index)
+                index += 2
+            }
+        }
+        val state = payload[9].toInt() and 0x03
+        val footpad = (payload[10].toInt() ushr 6) and 0x03
+        return RefloatTelemetryRecord(
+            rideState = if (state == 3) RideState.RIDING else RideState.IDLE,
+            boardState = state,
+            footpadState = footpad,
+            packVoltageV = values["motor.batt_voltage"] ?: 0.0,
+            dutyCycle = values["motor.duty_cycle"] ?: 0.0,
+            controllerTempC = values["motor.mosfet_temp"],
+            motorTempC = values["motor.motor_temp"],
+            motorCurrentA = values["motor.current"] ?: 0.0,
+            batteryCurrentA = values["motor.batt_current"] ?: 0.0,
+            erpm = (values["motor.erpm"] ?: 0.0).toInt(),
+            speedKph = (values["motor.speed"] ?: 0.0) * 3.6,
+        )
+    }
+
+    private fun decodeFloat16(payload: ByteArray, index: Int): Double {
+        val bits =
+            ((payload[index].toInt() and 0xff) shl 8) or
+                (payload[index + 1].toInt() and 0xff)
+        val sign = if (bits and 0x8000 == 0) 1.0 else -1.0
+        val exponent = bits ushr 10 and 0x1f
+        val fraction = bits and 0x03ff
+        return if (exponent == 0) {
+            sign * fraction * Math.scalb(1.0, -24)
+        } else {
+            sign * (1.0 + fraction / 1024.0) * Math.scalb(1.0, exponent - 15)
+        }
+    }
+
+    private fun decodeRefloatTelemetry(payload: ByteArray): RefloatTelemetryRecord {
+        val detailLevel = payload[3].toInt() and 0xff
+        require(detailLevel in 1..3) { "Unsupported Refloat detail level" }
+        require(payload.size >= if (detailLevel >= 3) 55 else if (detailLevel >= 2) 42 else 35) {
+            "Truncated Refloat telemetry response"
+        }
+        fun unsigned(index: Int) = payload[index].toInt() and 0xff
+        fun signed16(index: Int): Int =
+            ((unsigned(index) shl 8) or unsigned(index + 1)).toShort().toInt()
+        val state = unsigned(10) and 0x0f
+        val switchBits = unsigned(11) and 0x0f
+        val adc1 = unsigned(12) / 50.0
+        val adc2 = unsigned(13) / 50.0
+        val footpad = when (switchBits) {
+            2 -> 3
+            1 -> if (adc1 > adc2) 1 else 2
+            else -> 0
+        }
+        return RefloatTelemetryRecord(
+            rideState = if (state in 1..5) RideState.RIDING else RideState.IDLE,
+            boardState = state,
+            footpadState = footpad,
+            packVoltageV = signed16(23) / 10.0,
+            dutyCycle = (unsigned(33) - 128) / 100.0,
+            controllerTempC = if (detailLevel >= 2) unsigned(39) / 2.0 else null,
+            motorTempC = if (detailLevel >= 2) unsigned(40) / 2.0 else null,
+            motorCurrentA = signed16(29) / 10.0,
+            batteryCurrentA = signed16(31) / 10.0,
+            erpm = signed16(25),
+            speedKph = signed16(27) / 10.0 * 3.6,
         )
     }
 }

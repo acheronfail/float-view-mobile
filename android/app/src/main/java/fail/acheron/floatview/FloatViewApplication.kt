@@ -3,12 +3,15 @@ package fail.acheron.floatview
 import android.app.Application
 
 class FloatViewApplication : Application() {
+    lateinit var runtime: BackendRuntime
+        private set
     lateinit var backend: LoopbackServer
         private set
 
     override fun onCreate() {
         super.onCreate()
-        backend = LoopbackServer(assets).also { it.start() }
+        runtime = BackendRuntime(this)
+        backend = LoopbackServer(assets, runtime.applicationService).also { it.start() }
     }
 
     override fun onTerminate() {

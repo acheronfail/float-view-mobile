@@ -1,12 +1,13 @@
 import type {
 	Device,
+	FirmwareInfo,
 	HelloResult,
 	SavedDevice,
 	Session,
 	Snapshot
 } from '../../../../api/generated/typescript/models.js';
 import { connectBootstrap, loadBootstrap } from './bootstrap';
-import type { ApiClient } from './client';
+import { ApiRequestError, type ApiClient } from './client';
 
 export type ApiConnectionStatus = 'starting' | 'connected' | 'reconnecting' | 'failed';
 
@@ -17,6 +18,7 @@ export class ApiStore {
 	error = $state<string | null>(null);
 	savedDevices = $state<SavedDevice[]>([]);
 	discoveredDevices = $state<Device[]>([]);
+	firmware = $state<FirmwareInfo | null>(null);
 	sessions = $state<Session[]>([]);
 	selectedSession = $state<Session | null>(null);
 	busy = $state(false);
@@ -56,23 +58,77 @@ export class ApiStore {
 
 	async scan(): Promise<void> {
 		await this.run(async (client) => {
-			await client.request('discovery.start', { timeoutMs: 5_000 });
+			let scan;
+			try {
+				scan = await client.request('discovery.start', { timeoutMs: 5_000 });
+			} catch (error) {
+				if (error instanceof ApiRequestError && error.data.kind === 'permission_required') {
+					await client.request('bluetooth.requestPermission', {});
+					throw new Error('Bluetooth permission requested. Allow it, then scan again.');
+				}
+				throw error;
+			}
+			await new Promise((resolve) => setTimeout(resolve, 5_000));
+			await client.request('discovery.stop', { scanId: scan.scanId });
 			await this.refreshCollections();
 		});
 	}
 
 	async connectDevice(deviceId: string): Promise<void> {
 		await this.run(async (client) => {
+			this.firmware = null;
 			await client.request('device.connect', { deviceId, timeoutMs: 10_000 });
-			await this.refreshCollections();
+			const deadline = Date.now() + 10_000;
+			do {
+				await this.refreshCollections();
+				const state = this.snapshot?.activeConnection?.state;
+				if (state === 'ready') {
+					await this.loadFirmwareInfo(client);
+					return;
+				}
+				if (state === 'failed' || state === 'disconnected') return;
+				if (!this.snapshot?.activeConnection) {
+					throw new Error('The board disconnected before its VESC service became ready.');
+				}
+				await new Promise((resolve) => setTimeout(resolve, 250));
+			} while (Date.now() < deadline);
+			throw new Error('The board did not finish connecting within 10 seconds.');
 		});
 	}
 
 	async disconnectDevice(): Promise<void> {
 		await this.run(async (client) => {
 			await client.request('device.disconnect', {});
-			await this.refreshCollections();
+			const deadline = Date.now() + 10_000;
+			do {
+				await this.refreshCollections();
+				if (!this.snapshot?.activeConnection) {
+					this.firmware = null;
+					return;
+				}
+				if (this.snapshot.activeConnection.state === 'failed') {
+					throw new Error('The board did not disconnect cleanly.');
+				}
+				await new Promise((resolve) => setTimeout(resolve, 250));
+			} while (Date.now() < deadline);
+			throw new Error('The board did not finish disconnecting within 10 seconds.');
 		});
+	}
+
+	private async loadFirmwareInfo(client: ApiClient): Promise<void> {
+		const deadline = Date.now() + 5_000;
+		do {
+			try {
+				this.firmware = await client.request('vesc.getFirmwareInfo', {});
+				return;
+			} catch (error) {
+				if (!(error instanceof ApiRequestError) || error.data.kind !== 'device_not_ready') {
+					throw error;
+				}
+			}
+			await new Promise((resolve) => setTimeout(resolve, 100));
+		} while (Date.now() < deadline);
+		throw new Error('The VESC did not return firmware information within 5 seconds.');
 	}
 
 	async openSession(sessionId: string): Promise<void> {
