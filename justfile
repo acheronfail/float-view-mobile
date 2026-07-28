@@ -153,13 +153,26 @@ test-bluetooth:
 test-hardware-smoke:
   node scripts/test-hardware-smoke.mjs
 
+test-hardware-r6-failure:
+  node scripts/test-hardware-r6-failure.mjs
+
 # validate a redacted physical run against a strictly read-only hardware profile
 hardware-smoke platform profile evidence="":
   node scripts/hardware-smoke.mjs "{{platform}}" "{{profile}}" "{{evidence}}"
 
+# print the guided R6 failure-state procedure and optionally create a new,
+# non-overwriting redacted evidence template
+hardware-r6-guide platform profile output="":
+  node scripts/hardware-r6-failure.mjs guide "{{platform}}" "{{profile}}" "{{output}}"
+
+# validate a completed guided R6 failure-state evidence record
+hardware-r6-verify platform profile evidence:
+  node scripts/hardware-r6-failure.mjs verify "{{platform}}" "{{profile}}" "{{evidence}}"
+
 verify-r6: verify-r5
   just test-bluetooth
   just test-hardware-smoke
+  just test-hardware-r6-failure
 
 # setup the repository for development
 setup:
@@ -410,6 +423,19 @@ android-device-verify-latest-session serial="" output="/tmp/float-view-android-s
   latest="files/float-view/logs/$latest_name"
   adb -s "$serial" exec-out run-as fail.acheron.floatview cat "$latest" > "$output"
   echo "Pulled $latest to $output"
+  catalog_copy="$(mktemp -d /tmp/float-view-android-catalog.XXXXXX)"
+  for name in catalog.sqlite catalog.sqlite-wal catalog.sqlite-shm; do
+    adb -s "$serial" exec-out run-as fail.acheron.floatview \
+      cat "files/float-view/logs/$name" > "$catalog_copy/$name"
+  done
+  sqlite3 "$catalog_copy/catalog.sqlite" <<'SQL'
+  PRAGMA integrity_check;
+  SELECT
+    state, close_reason, committed_sequence
+  FROM session_catalog
+  ORDER BY started_at_ms DESC
+  LIMIT 1;
+  SQL
   # Open normally because a database configured for WAL may need a transient
   # local -shm file even after the Android writer checkpointed and closed it.
   sqlite3 "$output" <<'SQL'
@@ -423,3 +449,9 @@ android-device-verify-latest-session serial="" output="/tmp/float-view-android-s
   SELECT extension_json FROM sample ORDER BY sequence DESC LIMIT 1;
   SELECT committed_sequence FROM commit_marker WHERE singleton = 1;
   SQL
+
+# inspect, deny, or restore the API-level-correct Android Bluetooth permission.
+# Deny/restore are test-only reversible device setup actions; they never run as
+# part of an unattended verification gate.
+android-r6-permission action="status" serial="":
+  bash scripts/android-r6-permission.sh "{{action}}" "{{serial}}"

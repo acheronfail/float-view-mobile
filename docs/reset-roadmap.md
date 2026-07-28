@@ -388,6 +388,16 @@ orchestration and the remaining platform radio/permission framework gates are
 still required before R6 is complete. Shared-core unexpected-disconnect,
 out-of-range-style recovery, bounded exponential backoff/window expiry, and
 explicit-disconnect cancellation are implemented and deterministically tested.
+The remaining physical failure paths now share a checked-in scenario definition,
+redacted evidence template/validator, and guided per-platform command. Android
+permission denial/restoration is reproducible through an API-level-aware ADB
+recipe. Native cores now terminally close an active session when connect
+permission becomes denied/restricted instead of retrying indefinitely.
+Android 10 has physically passed four of the five guided scenarios after adding
+radio broadcasts and a bounded GATT-attempt watchdog: permission denial,
+radio-cycle recovery, VESC power-loss recovery, and explicit disconnect. The
+native Board Profile get/update path is the remaining blocker for local-override
+evidence; mock-only conformance does not satisfy that gate.
 
 Deliverables:
 

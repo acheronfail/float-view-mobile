@@ -215,6 +215,45 @@ permission as `not_required` because `BLUETOOTH` is manifest-only; API 31 and
 newer require both `BLUETOOTH_SCAN` and `BLUETOOTH_CONNECT`. The production
 adapter consumes this policy instead of duplicating SDK checks.
 
+Android also persists whether each runtime permission request has resolved, so a
+missing permission remains `not_determined` before the prompt and becomes
+`denied` after an actual refusal. Both native application services treat a
+denied/restricted connect permission as terminal for an active session, close it
+with `bluetooth_permission_denied`, release the adapter, and schedule no retry.
+
+The R6 physical failure gates now use one shared declarative scenario file and a
+redaction-enforcing evidence runner. `just hardware-r6-guide` prints the
+permission, radio-cycle, out-of-range, explicit-disconnect, and local-profile
+override procedure and optionally creates a non-overwriting template;
+`just hardware-r6-verify` accepts it only when every expected state is present.
+Android permission denial/restoration is reproducible with
+`just android-r6-permission`; iOS/macOS privacy and radio changes remain explicit
+user actions.
+
+Physical Android 10 failure qualification then found and fixed three integration
+gaps:
+
+- Samsung silently restored fine location when the test helper left the
+  implicitly granted coarse-location group member; reset now revokes both;
+- the shared UI displayed the same generic message after denial and grant; it
+  now polls the request result, reports denied/restricted explicitly, and begins
+  scanning immediately after a grant;
+- Android GATT did not publish adapter radio changes and a reconnecting
+  `connectGatt` could wait forever for a callback. The adapter now observes
+  `ACTION_STATE_CHANGED` and gives every GATT setup attempt a ten-second
+  watchdog that releases stale resources and emits a terminal attempt result.
+
+After those fixes, the Galaxy S9 physically passed permission denial, radio
+off/on, VESC power-loss recovery, and explicit disconnect. Radio-off produced no
+adapter connect request; radio-on returned to ready without creating a second
+session. VESC power loss retried at approximately 1/2/4/8-second delays and
+returned to the same session. Explicit disconnect produced no later attempt, and
+a temporary catalog/WAL/SHM copy passed integrity with
+`completed`/`explicit_disconnect` at committed sequence 177. The redacted
+failure evidence remains intentionally incomplete because native
+`boardProfiles.get/update` is not implemented; profile-override isolation must
+not be claimed from mock-only behavior.
+
 The cumulative `just verify-r6` software gate passes with these changes,
 including generated-model drift, boundary checks, web type/lint/unit tests,
 Swift and Kotlin protocol/application/storage/alert/Bluetooth tests, all three

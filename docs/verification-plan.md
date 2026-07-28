@@ -199,6 +199,8 @@ by the milestone shown; they must not be added as no-op placeholders.
 | `just test-bluetooth-apple`                        | Run CoreBluetooth adapter integration tests                                            | R6                      |
 | `just test-background`                             | Run lifecycle, WebView teardown, service/restoration, and gap tests                    | R7                      |
 | `just hardware-smoke <platform> <profile>`         | Perform one read-only device workflow                                                  | R6/R7                   |
+| `just hardware-r6-guide <platform> <profile>`      | Print the failure-state runbook and optionally create a redacted evidence template      | R6                      |
+| `just hardware-r6-verify <platform> <profile> <e>` | Validate permission/radio/loss/disconnect/profile evidence against shared expectations  | R6                      |
 | `just hardware-soak <platform> <profile> <cycles>` | Repeat workflow and check resources/cleanup                                            | R8                      |
 | `just verify`                                      | Run the latest completed non-hardware cumulative gate                                  | R1 onward               |
 | `just verify-ci`                                   | Run all software gates supported by the CI host matrix                                 | R2 onward               |
@@ -470,6 +472,22 @@ session completion, and terminal connection state. Platform launch and database
 extraction remain separate `*-device-*` recipes until a test-only control host
 can orchestrate the UI-independent workflow; recorded evidence must not claim
 that orchestration is already automatic.
+
+The remaining failure paths use the shared
+`hardware/scenarios/r6-failure-states.json` definition. Both native application
+services cover its state transitions with deterministic fakes. The guided
+hardware runner creates non-overwriting evidence templates, validates every
+expected observation, and rejects sensitive identity/raw-data fields. Android
+permission denial/restoration has a reproducible ADB setup command; privacy and
+radio controls that iOS/macOS intentionally reserve for the user remain guided
+manual actions rather than debug backdoors.
+
+The Android 10 shell may also reject `svc bluetooth` because Samsung withholds
+the shell Bluetooth-admin permission. In that case the tester uses Quick
+Settings; identifier-free debug traces prove radio state, adapter attempt count,
+connection transitions, and session create/close count. Debug traces must remain
+disabled in release builds and must never contain device/session identifiers or
+telemetry.
 
 Run the profile across the declared Thor300, Thor301, XRV, and PintV inventory
 before release qualification. R6 milestone completion may use a documented

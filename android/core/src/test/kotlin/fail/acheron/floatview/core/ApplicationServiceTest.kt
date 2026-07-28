@@ -302,6 +302,40 @@ class ApplicationServiceTest {
         assertEquals(ConnectionState.RECONNECTING, service.connectionState)
     }
 
+    @Test
+    fun `denied connect permission terminates the active session without retrying`() {
+        val bluetooth = FakeBluetooth()
+        val scheduler = FakeScheduler()
+        val store = FakeStore()
+        val service = ApplicationService(
+            bluetooth,
+            FakeClock(),
+            store,
+            scheduler = scheduler,
+        ) {}
+        val id = DeviceId("fixture")
+
+        service.onBluetoothEvent(BluetoothEvent.DeviceFound(id, "ExpressT", -40))
+        service.connect(id)
+        service.onBluetoothEvent(BluetoothEvent.ConnectionChanged(id, ConnectionState.READY))
+        service.onBluetoothEvent(
+            BluetoothEvent.StateChanged(
+                BluetoothState(
+                    BluetoothRadioState.UNKNOWN,
+                    BluetoothPermissionState.DENIED,
+                    BluetoothPermissionState.DENIED,
+                ),
+            ),
+        )
+
+        assertEquals(ConnectionState.DISCONNECTED, service.connectionState)
+        assertEquals(null, service.activeDeviceId)
+        assertEquals(null, store.active())
+        assertEquals(listOf("bluetooth_permission_denied"), store.closeReasons)
+        assertEquals(listOf(id), bluetooth.disconnected)
+        assertTrue(scheduler.intervals.isEmpty())
+    }
+
     private class FakeBluetooth : BluetoothPort {
         var startCount = 0
         var stopCount = 0
@@ -426,14 +460,17 @@ class ApplicationServiceTest {
     private class FakeStore : LogStorePort {
         private var current: SessionRecord? = null
         val appended = mutableListOf<TelemetrySample>()
+        val closeReasons = mutableListOf<String>()
         override fun create(deviceId: DeviceId, at: Instant): SessionRecord =
             SessionRecord(SessionId("session"), JobId("job"), deviceId, at, 0, true)
                 .also { current = it }
         override fun append(jobId: JobId, samples: List<TelemetrySample>) {
             appended += samples
         }
-        override fun close(jobId: JobId, at: Instant, reason: String): SessionRecord =
-            requireNotNull(current).copy(active = false).also { current = null }
+        override fun close(jobId: JobId, at: Instant, reason: String): SessionRecord {
+            closeReasons += reason
+            return requireNotNull(current).copy(active = false).also { current = null }
+        }
         override fun active() = current
     }
 

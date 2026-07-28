@@ -129,11 +129,18 @@ public final class ApplicationService: @unchecked Sendable {
     switch event {
     case .stateChanged(let state):
       bluetoothState = state
-      if state.radio != .poweredOn, activeScanID != nil {
+      if (state.radio != .poweredOn || !Self.permissionAllowsUse(state.scanPermission)),
+         activeScanID != nil
+      {
         bluetooth.stopDiscovery()
         activeScanID = nil
       }
-      if state.radio != .poweredOn,
+      if Self.permissionIsTerminal(state.connectPermission),
+         activeDeviceID != nil,
+         !explicitDisconnect
+      {
+        finishReconnect(reason: "bluetooth_permission_denied")
+      } else if state.radio != .poweredOn,
          activeDeviceID != nil,
          logStore.active() != nil,
          !explicitDisconnect
@@ -575,6 +582,14 @@ public final class ApplicationService: @unchecked Sendable {
   private static let telemetryLayoutRetryIntervalMs: Int64 = 1_000
   private static let maxTelemetryLayoutAttempts = 5
   private static let maxReconnectBackoffMs: Int64 = 30_000
+
+  private static func permissionAllowsUse(_ state: BluetoothPermissionState) -> Bool {
+    state == .granted || state == .notRequired
+  }
+
+  private static func permissionIsTerminal(_ state: BluetoothPermissionState) -> Bool {
+    state == .denied || state == .restricted
+  }
 }
 
 public enum ApplicationError: Error, Equatable {

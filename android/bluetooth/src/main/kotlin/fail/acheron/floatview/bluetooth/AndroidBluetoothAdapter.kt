@@ -1,5 +1,6 @@
 package fail.acheron.floatview.bluetooth
 
+import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothDevice
 import android.bluetooth.BluetoothGatt
 import android.bluetooth.BluetoothGattCallback
@@ -11,9 +12,14 @@ import android.bluetooth.le.ScanCallback
 import android.bluetooth.le.ScanFilter
 import android.bluetooth.le.ScanResult
 import android.bluetooth.le.ScanSettings
+import android.content.BroadcastReceiver
 import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import android.os.ParcelUuid
 import android.util.Log
 import fail.acheron.floatview.core.BluetoothEvent
@@ -27,15 +33,19 @@ import java.util.UUID
 
 fun interface BluetoothPermissionRequester {
     fun request(permissions: Array<String>)
+
+    fun wasResolved(permission: String): Boolean = false
 }
 
 class AndroidBluetoothAdapter(
     context: Context,
     private val permissionRequester: BluetoothPermissionRequester,
     private val eventHandler: (BluetoothEvent) -> Unit,
+    private val diagnosticHandler: (String) -> Unit = {},
 ) : BluetoothPort {
     private val applicationContext = context.applicationContext
     private val manager = applicationContext.getSystemService(BluetoothManager::class.java)
+    private val handler = Handler(Looper.getMainLooper())
     private val opaqueIds = mutableMapOf<String, DeviceId>()
     private val devicesById = mutableMapOf<DeviceId, BluetoothDevice>()
     private var activeDeviceId: DeviceId? = null
@@ -44,6 +54,14 @@ class AndroidBluetoothAdapter(
     private var notifyCharacteristic: BluetoothGattCharacteristic? = null
     private val pendingWrites = ArrayDeque<ByteArray>()
     private var writeInFlight = false
+    private var connectionTimeout: Runnable? = null
+    private val radioReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            if (intent?.action == BluetoothAdapter.ACTION_STATE_CHANGED) {
+                eventHandler(BluetoothEvent.StateChanged(currentState()))
+            }
+        }
+    }
     private val scanCallback = object : ScanCallback() {
         override fun onScanResult(callbackType: Int, result: ScanResult) {
             val address = try {
@@ -64,6 +82,20 @@ class AndroidBluetoothAdapter(
 
         override fun onScanFailed(errorCode: Int) {
             eventHandler(BluetoothEvent.ScanFailed("android_scan_error_$errorCode"))
+        }
+    }
+
+    init {
+        val filter = IntentFilter(BluetoothAdapter.ACTION_STATE_CHANGED)
+        if (Build.VERSION.SDK_INT >= 33) {
+            applicationContext.registerReceiver(
+                radioReceiver,
+                filter,
+                Context.RECEIVER_NOT_EXPORTED,
+            )
+        } else {
+            @Suppress("DEPRECATION")
+            applicationContext.registerReceiver(radioReceiver, filter)
         }
     }
 
@@ -129,6 +161,7 @@ class AndroidBluetoothAdapter(
     }
 
     override fun connect(deviceId: DeviceId) {
+        diagnosticHandler("connect_requested")
         val device = synchronized(this) {
             if (activeGatt != null && activeDeviceId != deviceId) null else devicesById[deviceId]
         }
@@ -150,6 +183,7 @@ class AndroidBluetoothAdapter(
                     gattCallback,
                     BluetoothDevice.TRANSPORT_LE,
                 )
+                activeGatt?.let { scheduleConnectionTimeout(deviceId, it) }
             }
         } catch (_: SecurityException) {
             failConnection(deviceId, "permission_required")
@@ -213,6 +247,7 @@ class AndroidBluetoothAdapter(
     }
 
     override fun disconnect(deviceId: DeviceId) {
+        cancelConnectionTimeout()
         val gatt = synchronized(this) {
             if (deviceId == activeDeviceId) activeGatt else null
         }
@@ -252,6 +287,7 @@ class AndroidBluetoothAdapter(
                     }
                 }
                 newState == BluetoothProfile.STATE_DISCONNECTED -> {
+                    cancelConnectionTimeout()
                     clearConnection(gatt)
                     eventHandler(
                         BluetoothEvent.ConnectionChanged(deviceId, ConnectionState.DISCONNECTED),
@@ -308,6 +344,7 @@ class AndroidBluetoothAdapter(
                     // routing enabled; notification receipt remains the proof
                     // that this compatibility path is usable.
                     Log.w(LOG_TAG, "Notification CCCD absent; using VESC compatibility path")
+                    cancelConnectionTimeout()
                     eventHandler(
                         BluetoothEvent.ConnectionChanged(deviceId, ConnectionState.READY),
                     )
@@ -336,6 +373,7 @@ class AndroidBluetoothAdapter(
                 descriptor.uuid == CLIENT_CHARACTERISTIC_CONFIGURATION &&
                 status == BluetoothGatt.GATT_SUCCESS
             ) {
+                cancelConnectionTimeout()
                 eventHandler(BluetoothEvent.ConnectionChanged(deviceId, ConnectionState.READY))
             } else {
                 failConnection(deviceId, "vesc_cccd_write_failed")
@@ -380,6 +418,7 @@ class AndroidBluetoothAdapter(
     }
 
     private fun failConnection(deviceId: DeviceId, reason: String) {
+        cancelConnectionTimeout()
         Log.w(LOG_TAG, "Connection failed: $reason")
         eventHandler(BluetoothEvent.ScanFailed(reason))
         eventHandler(BluetoothEvent.ConnectionChanged(deviceId, ConnectionState.FAILED))
@@ -416,20 +455,43 @@ class AndroidBluetoothAdapter(
         }
     }
 
-    private fun permissionState(permission: String?): BluetoothPermissionState =
-        if (permission == null) {
-            BluetoothPermissionState.NOT_REQUIRED
-        } else if (
-            applicationContext.checkSelfPermission(permission) == PackageManager.PERMISSION_GRANTED
-        ) {
-            BluetoothPermissionState.GRANTED
-        } else {
-            BluetoothPermissionState.NOT_DETERMINED
+    private fun scheduleConnectionTimeout(deviceId: DeviceId, gatt: BluetoothGatt) {
+        cancelConnectionTimeout()
+        val timeout = Runnable {
+            val timedOut = synchronized(this) {
+                activeGatt === gatt && activeDeviceId == deviceId
+            }
+            if (!timedOut) return@Runnable
+            diagnosticHandler("connect_timeout")
+            eventHandler(BluetoothEvent.ScanFailed("connection_timeout"))
+            eventHandler(BluetoothEvent.ConnectionChanged(deviceId, ConnectionState.FAILED))
+            clearConnection(gatt)
+            eventHandler(BluetoothEvent.ConnectionChanged(deviceId, ConnectionState.DISCONNECTED))
         }
+        connectionTimeout = timeout
+        handler.postDelayed(timeout, CONNECTION_ATTEMPT_TIMEOUT_MS)
+    }
+
+    private fun cancelConnectionTimeout() {
+        val timeout = synchronized(this) {
+            connectionTimeout.also { connectionTimeout = null }
+        }
+        timeout?.let(handler::removeCallbacks)
+    }
+
+    private fun permissionState(permission: String?): BluetoothPermissionState =
+        AndroidBluetoothPermissionPolicy.state(
+            permission = permission,
+            granted = permission != null &&
+                applicationContext.checkSelfPermission(permission) ==
+                PackageManager.PERMISSION_GRANTED,
+            requestResolved = permission?.let(permissionRequester::wasResolved) ?: false,
+        )
 
     companion object {
         private const val LOG_TAG = "FloatViewBluetooth"
         private const val MAX_PENDING_WRITES = 32
+        private const val CONNECTION_ATTEMPT_TIMEOUT_MS = 10_000L
         private val CLIENT_CHARACTERISTIC_CONFIGURATION =
             UUID.fromString("00002902-0000-1000-8000-00805f9b34fb")
     }

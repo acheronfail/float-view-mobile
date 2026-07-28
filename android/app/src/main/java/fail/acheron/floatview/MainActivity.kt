@@ -36,6 +36,7 @@ class MainActivity : AppCompatActivity() {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
         if (requestCode == BluetoothPermissionBroker.BLUETOOTH_PERMISSION_REQUEST) {
             val runtime = (application as FloatViewApplication).runtime
+            runtime.permissionBroker.recordResult(permissions)
             runtime.applicationService.onBluetoothEvent(
                 fail.acheron.floatview.core.BluetoothEvent.StateChanged(
                     runtime.bluetooth.currentState(),

@@ -1,5 +1,7 @@
 package fail.acheron.floatview.bluetooth
 
+import fail.acheron.floatview.core.BluetoothPermissionState
+
 /**
  * Runtime permission requirements only. Manifest-only permissions are declared
  * by the host but intentionally surface as NOT_REQUIRED in the domain API.
@@ -19,5 +21,16 @@ data class AndroidBluetoothPermissionPolicy(
             } else {
                 AndroidBluetoothPermissionPolicy(FINE_LOCATION, null)
             }
+
+        fun state(
+            permission: String?,
+            granted: Boolean,
+            requestResolved: Boolean,
+        ): BluetoothPermissionState = when {
+            permission == null -> BluetoothPermissionState.NOT_REQUIRED
+            granted -> BluetoothPermissionState.GRANTED
+            requestResolved -> BluetoothPermissionState.DENIED
+            else -> BluetoothPermissionState.NOT_DETERMINED
+        }
     }
 }

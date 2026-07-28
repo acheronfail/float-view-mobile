@@ -102,11 +102,23 @@ class ApplicationService(
         when (event) {
             is BluetoothEvent.StateChanged -> {
                 bluetoothState = event.state
-                if (event.state.radio != BluetoothRadioState.POWERED_ON && activeScanId != null) {
+                if (
+                    (
+                        event.state.radio != BluetoothRadioState.POWERED_ON ||
+                            !permissionAllowsUse(event.state.scanPermission)
+                        ) &&
+                    activeScanId != null
+                ) {
                     bluetooth.stopDiscovery()
                     activeScanId = null
                 }
                 if (
+                    permissionIsTerminal(event.state.connectPermission) &&
+                    activeDeviceId != null &&
+                    !explicitDisconnect
+                ) {
+                    finishReconnect("bluetooth_permission_denied")
+                } else if (
                     event.state.radio != BluetoothRadioState.POWERED_ON &&
                     activeDeviceId != null &&
                     logStore.active() != null &&
@@ -493,6 +505,14 @@ class ApplicationService(
         firmwareDiscoveryStarted = false
         protocol?.reset()
     }
+
+    private fun permissionAllowsUse(state: BluetoothPermissionState): Boolean =
+        state == BluetoothPermissionState.GRANTED ||
+            state == BluetoothPermissionState.NOT_REQUIRED
+
+    private fun permissionIsTerminal(state: BluetoothPermissionState): Boolean =
+        state == BluetoothPermissionState.DENIED ||
+            state == BluetoothPermissionState.RESTRICTED
 
     private companion object {
         const val VESC_HARDWARE_TYPE = 0

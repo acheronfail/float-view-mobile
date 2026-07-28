@@ -31,3 +31,42 @@ scan/connect/disconnect, and platform-specific database extraction remain the
 reproducible `*-device-*` recipes in the `justfile`. A later test-control host
 will orchestrate those pieces without exposing control or unsafe commands in a
 release build.
+
+## R6 failure-state qualification
+
+The remaining permission, radio-cycle, out-of-range, explicit-disconnect, and
+local-profile-override gates share one checked-in scenario definition:
+`hardware/scenarios/r6-failure-states.json`. Generate a new evidence template
+without overwriting an existing file:
+
+```sh
+just hardware-r6-guide ios vesc-6_06-refloat-1_2 /tmp/ios-r6-failures.json
+```
+
+The command prints the ordered procedure to stderr and creates a redacted JSON
+template. After filling only its observations and notes, validate it with:
+
+```sh
+just hardware-r6-verify ios vesc-6_06-refloat-1_2 /tmp/ios-r6-failures.json
+```
+
+The validator requires every declared terminal state, rejects incomplete
+scenarios, and refuses fields that could contain device/session identifiers,
+tokens, raw packets, or telemetry.
+
+Android permission setup can be reproduced without navigating system settings:
+
+```sh
+just android-r6-permission status
+just android-r6-permission deny
+just android-r6-permission grant
+just android-r6-permission reset
+```
+
+These reversible commands are intentionally manual and never run inside
+`verify-r6`. `reset` moves only Float View's permission-history preference aside
+and restores the OS permission to its pre-prompt state; on Android 10 it revokes
+both members of the legacy fine/coarse location permission group so Samsung
+cannot silently restore fine location. Session databases are untouched. iOS and
+macOS permission/radio changes remain user actions because the applications
+must not automate or bypass their platform privacy controls.

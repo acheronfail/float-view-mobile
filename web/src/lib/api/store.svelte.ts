@@ -1,4 +1,5 @@
 import type {
+	BluetoothState,
 	Device,
 	FirmwareInfo,
 	HelloResult,
@@ -10,6 +11,21 @@ import { connectBootstrap, loadBootstrap } from './bootstrap';
 import { ApiRequestError, type ApiClient } from './client';
 
 export type ApiConnectionStatus = 'starting' | 'connected' | 'reconnecting' | 'failed';
+export type PermissionOutcome = 'ready' | 'pending' | 'denied' | 'restricted';
+
+export function permissionOutcome(state: BluetoothState): PermissionOutcome {
+	switch (state.scanPermission) {
+		case 'granted':
+		case 'not_required':
+			return 'ready';
+		case 'denied':
+			return 'denied';
+		case 'restricted':
+			return 'restricted';
+		default:
+			return 'pending';
+	}
+}
 
 export class ApiStore {
 	status = $state<ApiConnectionStatus>('starting');
@@ -64,14 +80,43 @@ export class ApiStore {
 			} catch (error) {
 				if (error instanceof ApiRequestError && error.data.kind === 'permission_required') {
 					await client.request('bluetooth.requestPermission', {});
-					throw new Error('Bluetooth permission requested. Allow it, then scan again.');
+					const state = await this.waitForPermissionResolution(client);
+					this.updateBluetoothState(state);
+					switch (permissionOutcome(state)) {
+						case 'ready':
+							scan = await client.request('discovery.start', { timeoutMs: 5_000 });
+							break;
+						case 'denied':
+							throw new Error(
+								'Bluetooth permission denied. Enable Bluetooth access for Float View in system settings, then scan again.'
+							);
+						case 'restricted':
+							throw new Error('Bluetooth access is restricted by system policy.');
+						case 'pending':
+							throw new Error('Bluetooth permission requested. Allow it, then scan again.');
+					}
+				} else {
+					throw error;
 				}
-				throw error;
 			}
 			await new Promise((resolve) => setTimeout(resolve, 5_000));
 			await client.request('discovery.stop', { scanId: scan.scanId });
 			await this.refreshCollections();
 		});
+	}
+
+	private async waitForPermissionResolution(client: ApiClient): Promise<BluetoothState> {
+		const deadline = Date.now() + 30_000;
+		let state = await client.request('bluetooth.getState', {});
+		while (permissionOutcome(state) === 'pending' && Date.now() < deadline) {
+			await new Promise((resolve) => setTimeout(resolve, 250));
+			state = await client.request('bluetooth.getState', {});
+		}
+		return state;
+	}
+
+	private updateBluetoothState(bluetooth: BluetoothState): void {
+		if (this.snapshot) this.snapshot = { ...this.snapshot, bluetooth };
 	}
 
 	async connectDevice(deviceId: string): Promise<void> {

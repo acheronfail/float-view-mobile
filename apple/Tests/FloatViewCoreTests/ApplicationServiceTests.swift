@@ -332,6 +332,37 @@ func radioOffWaitsInsideReconnectWindowUntilPoweredOn() throws {
   #expect(service.connectionState == .reconnecting)
 }
 
+@Test
+func deniedConnectPermissionTerminatesTheActiveSessionWithoutRetrying() throws {
+  let bluetooth = FakeBluetooth()
+  let scheduler = FakeScheduler()
+  let store = MemoryStore()
+  let service = ApplicationService(
+    bluetooth: bluetooth,
+    clock: FixedClock(),
+    logStore: store,
+    scheduler: scheduler,
+    events: IgnoreEvents()
+  )
+  let id = DeviceID("fixture")
+
+  try service.receive(.deviceFound(id, name: "ExpressT", rssi: -40))
+  try service.connect(id)
+  try service.receive(.connectionChanged(id, .ready))
+  try service.receive(
+    .stateChanged(
+      .init(radio: .unknown, scanPermission: .denied, connectPermission: .denied)
+    )
+  )
+
+  #expect(service.connectionState == .disconnected)
+  #expect(service.activeDeviceID == nil)
+  #expect(store.active() == nil)
+  #expect(store.closeReasons == ["bluetooth_permission_denied"])
+  #expect(bluetooth.disconnected == [id])
+  #expect(scheduler.intervals.isEmpty)
+}
+
 private final class FakeBluetooth: BluetoothPort, @unchecked Sendable {
   var state: BluetoothState
   var startCount = 0
@@ -521,6 +552,7 @@ private final class MutableClock: ClockPort, @unchecked Sendable {
 private final class MemoryStore: LogStorePort, @unchecked Sendable {
   private var record: SessionRecord?
   var appended: [TelemetrySample] = []
+  var closeReasons: [String] = []
   func create(deviceID: DeviceID, at: Date) throws -> SessionRecord {
     let result = SessionRecord(
       sessionID: SessionID("session"),
@@ -536,7 +568,8 @@ private final class MemoryStore: LogStorePort, @unchecked Sendable {
   func append(jobID _: JobID, samples: [TelemetrySample]) throws {
     appended += samples
   }
-  func close(jobID _: JobID, at _: Date, reason _: String) throws -> SessionRecord {
+  func close(jobID _: JobID, at _: Date, reason: String) throws -> SessionRecord {
+    closeReasons.append(reason)
     let result = try #require(record).withActive(false)
     record = nil
     return result

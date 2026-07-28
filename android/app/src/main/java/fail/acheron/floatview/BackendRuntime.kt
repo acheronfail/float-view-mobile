@@ -7,7 +7,10 @@ import fail.acheron.floatview.bluetooth.AndroidBluetoothAdapter
 import fail.acheron.floatview.bluetooth.BluetoothPermissionRequester
 import fail.acheron.floatview.core.ApplicationService
 import fail.acheron.floatview.core.BluetoothEvent
+import fail.acheron.floatview.core.BluetoothState
 import fail.acheron.floatview.core.ClockPort
+import fail.acheron.floatview.core.ConnectionState
+import fail.acheron.floatview.core.SessionRecord
 import fail.acheron.floatview.core.SystemScheduler
 import fail.acheron.floatview.logging.SQLiteLogStore
 import fail.acheron.floatview.protocol.VescProtocolService
@@ -16,9 +19,17 @@ import java.time.Instant
 import java.util.concurrent.atomic.AtomicInteger
 
 class BackendRuntime(application: FloatViewApplication) {
-    val permissionBroker = BluetoothPermissionBroker()
+    private val debuggable =
+        application.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0
+    val permissionBroker = BluetoothPermissionBroker(application)
     private val relay = BluetoothEventRelay()
-    val bluetooth = AndroidBluetoothAdapter(application, permissionBroker, relay::emit)
+    val bluetooth = AndroidBluetoothAdapter(
+        application,
+        permissionBroker,
+        relay::emit,
+    ) { diagnostic ->
+        if (debuggable) Log.d("FloatViewState", "adapter $diagnostic")
+    }
     val applicationService = ApplicationService(
         bluetooth,
         SystemClock,
@@ -30,11 +41,27 @@ class BackendRuntime(application: FloatViewApplication) {
         if (event is Throwable) {
             Log.e("FloatViewBackend", "Native backend operation failed", event)
         }
+        if (debuggable) {
+            when (event) {
+                is BluetoothState -> Log.d(
+                    "FloatViewState",
+                    "bluetooth radio=${event.radio.name.lowercase()} " +
+                        "scanPermission=${event.scanPermission.name.lowercase()} " +
+                        "connectPermission=${event.connectPermission.name.lowercase()}",
+                )
+                is ConnectionState -> Log.d(
+                    "FloatViewState",
+                    "connection state=${event.name.lowercase()}",
+                )
+                is SessionRecord -> Log.d(
+                    "FloatViewState",
+                    "session active=${event.active}",
+                )
+            }
+        }
     }
 
     init {
-        val debuggable =
-            application.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0
         val remainingDebugCaptures = AtomicInteger(64)
         relay.handler = { event ->
             if (
@@ -52,9 +79,12 @@ class BackendRuntime(application: FloatViewApplication) {
     }
 }
 
-class BluetoothPermissionBroker : BluetoothPermissionRequester {
+class BluetoothPermissionBroker(application: FloatViewApplication) : BluetoothPermissionRequester {
+    private val preferences =
+        application.getSharedPreferences("bluetooth-permission-history", 0)
     private var activity = WeakReference<Activity>(null)
     private var pending: Array<String>? = null
+    private val awaitingResult = mutableSetOf<String>()
 
     @Synchronized
     fun attach(value: Activity) {
@@ -77,9 +107,24 @@ class BluetoothPermissionBroker : BluetoothPermissionRequester {
             pending = permissions
             return
         }
+        awaitingResult += permissions
         current.runOnUiThread {
             current.requestPermissions(permissions, BLUETOOTH_PERMISSION_REQUEST)
         }
+    }
+
+    @Synchronized
+    override fun wasResolved(permission: String): Boolean =
+        permission !in awaitingResult && preferences.getBoolean(permission, false)
+
+    @Synchronized
+    fun recordResult(permissions: Array<out String>) {
+        preferences.edit().also { editor ->
+            permissions.forEach { permission ->
+                awaitingResult -= permission
+                editor.putBoolean(permission, true)
+            }
+        }.apply()
     }
 
     companion object {

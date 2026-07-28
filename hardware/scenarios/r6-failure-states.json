@@ -1,0 +1,79 @@
+{
+  "schemaVersion": 1,
+  "id": "r6-failure-states",
+  "supportedPlatforms": ["android", "ios", "macos"],
+  "scenarios": [
+    {
+      "id": "permission_denied",
+      "title": "Bluetooth permission denied",
+      "instructions": [
+        "Start with Float View stopped and Bluetooth permission denied in the platform settings.",
+        "Launch Float View and attempt discovery.",
+        "Record the API permission and error states without including a device identifier."
+      ],
+      "expected": {
+        "permissionState": "denied",
+        "discoveryErrorKind": "permission_required",
+        "sessionCreated": false
+      }
+    },
+    {
+      "id": "radio_cycle",
+      "title": "Bluetooth radio off and recovery",
+      "instructions": [
+        "Connect and wait for a durable session to become active.",
+        "Turn Bluetooth off, wait for the reconnecting state, then turn Bluetooth on.",
+        "Confirm the backend reconnects to ready without replacing the active session."
+      ],
+      "expected": {
+        "stateWhileOff": "reconnecting",
+        "connectAttemptsWhileOff": 0,
+        "recoveredState": "ready",
+        "sameSession": true
+      }
+    },
+    {
+      "id": "out_of_range_recovery",
+      "title": "Unexpected disconnect and recovery",
+      "instructions": [
+        "Connect and wait for a durable session to become active.",
+        "Power off or move the fixture out of range until the backend reports reconnecting.",
+        "Restore the fixture and confirm a bounded reconnect returns to ready on the same session."
+      ],
+      "expected": {
+        "lossState": "reconnecting",
+        "reconnectAttemptObserved": true,
+        "recoveredState": "ready",
+        "sameSession": true
+      }
+    },
+    {
+      "id": "explicit_disconnect",
+      "title": "Explicit disconnect remains terminal",
+      "instructions": [
+        "Use Stop and disconnect while the device is ready.",
+        "Wait longer than the first reconnect delay.",
+        "Confirm the session closes explicitly and no reconnect attempt occurs."
+      ],
+      "expected": {
+        "terminalState": "disconnected",
+        "reconnectAttemptsAfterDisconnect": 0,
+        "closeReason": "explicit_disconnect"
+      }
+    },
+    {
+      "id": "local_profile_override",
+      "title": "Board Profile override remains local",
+      "instructions": [
+        "Record a raw discovered value and apply a different manual Board Profile override.",
+        "Confirm the effective app value changes while the raw observation remains unchanged.",
+        "Confirm the protocol capture contains no configuration, firmware, or motor-control write."
+      ],
+      "expected": {
+        "effectiveValueChanged": true,
+        "rawObservationPreserved": true,
+        "privilegedBleWritesObserved": 0
+      }
+    }
+  ]
+}
