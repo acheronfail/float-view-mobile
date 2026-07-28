@@ -398,8 +398,11 @@ radio broadcasts and a bounded GATT-attempt watchdog: permission denial,
 radio-cycle recovery, VESC power-loss recovery, and explicit disconnect. The
 same four native scenarios pass on an iPhone 12/iOS 18.6.1 using identifier-free
 CoreBluetooth/application-service traces and durable SQLite inspection. The
-native Board Profile get/update path is the remaining blocker for local-override
-evidence; mock-only conformance does not satisfy that gate.
+same scenarios pass on macOS from a signed user-local app bundle. Its 218572 ms
+session passed catalog/session integrity with 306 committed observations and
+106 adaptively persisted samples. The native Board Profile get/update path is
+the remaining blocker for local-override evidence; mock-only conformance does
+not satisfy that gate.
 
 Deliverables:
 
@@ -425,13 +428,24 @@ Exit gate:
 Canonical software verification: `just verify-r7`. Completion additionally
 requires the 60-second hardware logging scenario on all three platforms.
 
-Status: not started. An early iPhone 12 probe confirmed the native connection
-owner can process CoreBluetooth radio/loss recovery while the UI is backgrounded,
-but foreground reconstruction fails because the suspended loopback page cannot
-reload. The WebView/listener/token lifecycle and persisted-sample continuity
-remain unproven and are explicit R7 blockers. Startup now recovers catalog rows
-left active by process termination as interrupted rather than leaving false
-active sessions.
+Status: in progress. The Apple hosts now separate the lifetime native owner from
+a disposable frontend lifecycle coordinator. A physical iPhone 12/iOS 18.6.1
+run destroyed the loopback listener and WKWebView on background, created a fresh
+port/token/WebView on foreground, and reconstructed the same connected durable
+session after 60 seconds. The corresponding macOS run closed its window for 30
+seconds, kept the native job and Dock process alive, and reopened a fresh
+frontend generation showing the same connection; the eventual explicit close
+produced an integrity-valid 218572 ms session. Startup recovers catalog rows left
+active by process termination as interrupted rather than leaving false active
+sessions.
+
+The exported iOS session passed catalog/session integrity with
+`completed`/`explicit_disconnect`, 391 committed observations, 143 persisted
+samples, 197910 ms elapsed, and a maximum persisted-sample gap of 1561 ms. This
+proves idle-rate native logging continued through the tested 60-second
+background interval. Android foreground-service ownership, Apple process
+restoration, macOS sleep/wake and active-session quit, pressure and locked-file
+tests, and paginated sample reconstruction remain R7 blockers.
 
 Deliverables:
 

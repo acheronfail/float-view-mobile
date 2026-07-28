@@ -21,7 +21,14 @@ public final class CoreBluetoothAdapter: NSObject, BluetoothPort, @unchecked Sen
   private let eventHandler: EventHandler
   private let diagnosticHandler: DiagnosticHandler
   private let queue: DispatchQueue
-  private lazy var central = CBCentralManager(delegate: self, queue: queue)
+  private let restorationIdentifier: String?
+  private lazy var central = CBCentralManager(
+    delegate: self,
+    queue: queue,
+    options: restorationIdentifier.map {
+      [CBCentralManagerOptionRestoreIdentifierKey: $0]
+    }
+  )
   private var peripheralsByID: [DeviceID: CBPeripheral] = [:]
   private var activeDeviceID: DeviceID?
   private var activePeripheral: CBPeripheral?
@@ -33,11 +40,13 @@ public final class CoreBluetoothAdapter: NSObject, BluetoothPort, @unchecked Sen
   public init(
     queue: DispatchQueue = DispatchQueue(label: "fail.acheron.float-view.bluetooth"),
     eventHandler: @escaping EventHandler,
-    diagnosticHandler: @escaping DiagnosticHandler = { _ in }
+    diagnosticHandler: @escaping DiagnosticHandler = { _ in },
+    restorationIdentifier: String? = nil
   ) {
     self.queue = queue
     self.eventHandler = eventHandler
     self.diagnosticHandler = diagnosticHandler
+    self.restorationIdentifier = restorationIdentifier
     super.init()
     _ = central
   }
@@ -201,6 +210,23 @@ public final class CoreBluetoothAdapter: NSObject, BluetoothPort, @unchecked Sen
 }
 
 extension CoreBluetoothAdapter: CBCentralManagerDelegate {
+  public func centralManager(
+    _: CBCentralManager,
+    willRestoreState dictionary: [String: Any]
+  ) {
+    guard let restored = dictionary[CBCentralManagerRestoredStatePeripheralsKey]
+      as? [CBPeripheral],
+      let peripheral = restored.first
+    else {
+      diagnosticHandler("restoration_without_peripheral")
+      return
+    }
+    let deviceID = DeviceID(peripheral.identifier.uuidString)
+    peripheralsByID[deviceID] = peripheral
+    peripheral.delegate = self
+    diagnosticHandler("peripheral_binding_restored")
+  }
+
   public func centralManagerDidUpdateState(_: CBCentralManager) {
     eventHandler(.stateChanged(currentState()))
   }

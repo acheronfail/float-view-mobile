@@ -25,10 +25,47 @@ build-macos:
   cd apple && CLANG_MODULE_CACHE_PATH=/tmp/float-view-clang \
     swift build --disable-sandbox --scratch-path /tmp/float-view-swift-build --product FloatViewMac
 
-# build and launch the real macOS host with the current shared web bundle
-macos-device-run: build-web build-macos
-  FLOAT_VIEW_WEB_ROOT="{{justfile_directory()}}/web/build" \
-    /tmp/float-view-swift-build/arm64-apple-macosx/debug/FloatViewMac
+# assemble the real macOS app bundle with its web UI and log-store migrations
+build-macos-app: build-web build-macos
+  #!/usr/bin/env bash
+  set -euo pipefail
+  bundle_root="/tmp/float-view-macos-app/Float View.app"
+  contents="$bundle_root/Contents"
+  install -d "$contents/MacOS" "$contents/Resources/web" "$contents/Resources/sql"
+  install -m 755 \
+    /tmp/float-view-swift-build/arm64-apple-macosx/debug/FloatViewMac \
+    "$contents/MacOS/FloatViewMac"
+  install -m 644 apple/FloatViewMac-Info.plist "$contents/Info.plist"
+  ditto web/build "$contents/Resources/web"
+  ditto logging/sql "$contents/Resources/sql"
+  plutil -lint "$contents/Info.plist"
+  codesign --force --deep --sign - \
+    --identifier fail.acheron.float-view.macos \
+    "$bundle_root"
+  echo "$bundle_root"
+
+# install the signed development bundle at a stable user-local path for TCC
+macos-device-install: build-macos-app
+  #!/usr/bin/env bash
+  set -euo pipefail
+  source_bundle="/tmp/float-view-macos-app/Float View.app"
+  installed_bundle="$HOME/Applications/Float View.app"
+  install -d "$HOME/Applications"
+  ditto "$source_bundle" "$installed_bundle"
+  codesign --force --deep --sign - \
+    --identifier fail.acheron.float-view.macos \
+    "$installed_bundle"
+  /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister \
+    -f "$installed_bundle"
+  echo "$installed_bundle"
+
+# build, install, and launch the real macOS host attached to its console
+macos-device-run: macos-device-install
+  "$HOME/Applications/Float View.app/Contents/MacOS/FloatViewMac"
+
+# launch the installed macOS app through Launch Services
+macos-device-open: macos-device-install
+  open -n "$HOME/Applications/Float View.app"
 
 # copy and verify the newest local macOS session without touching the live store
 macos-device-verify-latest-session:
@@ -124,10 +161,22 @@ conformance-mock:
   cd web && npm run api:conformance:mock
 
 conformance-macos:
-  cd apple && CLANG_MODULE_CACHE_PATH=/tmp/float-view-clang \
-    swift build --disable-sandbox --scratch-path /tmp/float-view-swift-build --product FloatViewMac
-  cd web && FLOAT_VIEW_APPLE_HOST=/tmp/float-view-swift-build/arm64-apple-macosx/debug/FloatViewMac \
-    npm run api:conformance:apple
+  #!/usr/bin/env bash
+  set -euo pipefail
+  (
+    cd apple
+    CLANG_MODULE_CACHE_PATH=/tmp/float-view-clang \
+      swift build --disable-sandbox --scratch-path /tmp/float-view-swift-build \
+      --product FloatViewMac
+  )
+  test_log_root="$(mktemp -d /tmp/float-view-macos-conformance.XXXXXX)"
+  trap 'rm -rf "$test_log_root"' EXIT
+  (
+    cd web
+    FLOAT_VIEW_APPLE_HOST=/tmp/float-view-swift-build/arm64-apple-macosx/debug/FloatViewMac \
+      FLOAT_VIEW_LOG_ROOT="$test_log_root" \
+      npm run api:conformance:apple
+  )
 
 verify-r2: verify-r1
   just conformance-macos

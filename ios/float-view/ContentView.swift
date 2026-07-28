@@ -1,10 +1,11 @@
 import SwiftUI
 
+@MainActor
 final class AppBackend: ObservableObject {
-  let server: LoopbackServer
   let bluetooth: CoreBluetoothAdapter
   let applicationService: ApplicationService
-  @Published var url: URL?
+  @Published private(set) var frontend: FrontendEndpoint?
+  private let frontendLifecycle: FrontendLifecycleCoordinator
 
   init() {
     let relay = BluetoothEventRelay()
@@ -14,7 +15,8 @@ final class AppBackend: ObservableObject {
         #if DEBUG
         print("[FloatViewState] adapter \(diagnostic)")
         #endif
-      }
+      },
+      restorationIdentifier: "fail.acheron.float-view.bluetooth-central"
     )
     let applicationSupport = try! FileManager.default.url(
       for: .applicationSupportDirectory,
@@ -56,21 +58,53 @@ final class AppBackend: ObservableObject {
     let webRoot = Bundle.main.resourceURL!.appendingPathComponent("build", isDirectory: true)
     self.bluetooth = bluetooth
     self.applicationService = applicationService
-    server = LoopbackServer(
-      webRoot: webRoot,
-      platform: "ios",
-      applicationService: applicationService
-    )
+    let frontendLifecycle = FrontendLifecycleCoordinator {
+      LoopbackServer(
+        webRoot: webRoot,
+        platform: "ios",
+        applicationService: applicationService
+      )
+    }
+    self.frontendLifecycle = frontendLifecycle
+    activateFrontend()
+  }
+
+  func enterBackground() {
+    guard frontend != nil else { return }
+    #if DEBUG
+    print("[FloatViewState] frontend state=stopped reason=background")
+    #endif
+    frontend = nil
+    frontendLifecycle.deactivate()
+  }
+
+  func enterForeground() {
+    guard frontend == nil else { return }
+    activateFrontend()
+  }
+
+  func recoverFrontend() {
+    frontend = nil
+    frontendLifecycle.deactivate()
+    activateFrontend()
+  }
+
+  private func activateFrontend() {
     do {
-      try server.start()
-      url = URL(string: server.origin)
+      frontend = try frontendLifecycle.activate()
+      #if DEBUG
+      print("[FloatViewState] frontend state=ready generation=\(frontend!.generation)")
+      #endif
     } catch {
-      url = nil
+      frontend = nil
+      #if DEBUG
+      print("[FloatViewState] frontend state=failed")
+      #endif
     }
   }
 
   deinit {
-    server.stop()
+    frontendLifecycle.deactivate()
   }
 }
 
@@ -123,12 +157,31 @@ private struct DebugEventSink: EventSink {
 
 struct ContentView: View {
   @StateObject private var backend = AppBackend()
+  @Environment(\.scenePhase) private var scenePhase
 
   var body: some View {
-    if let url = backend.url {
-      WebView(url: url).ignoresSafeArea()
-    } else {
-      ContentUnavailableView("Backend unavailable", systemImage: "exclamationmark.triangle")
+    Group {
+      if let frontend = backend.frontend {
+        WebView(url: frontend.origin, onContentProcessTerminated: backend.recoverFrontend)
+          .id(frontend.generation)
+          .ignoresSafeArea()
+      } else if scenePhase == .background {
+        Color.black.ignoresSafeArea()
+      } else {
+        ContentUnavailableView("Backend unavailable", systemImage: "exclamationmark.triangle")
+      }
+    }
+    .onChange(of: scenePhase, initial: true) { _, phase in
+      switch phase {
+      case .active:
+        backend.enterForeground()
+      case .background:
+        backend.enterBackground()
+      case .inactive:
+        break
+      @unknown default:
+        break
+      }
     }
   }
 }

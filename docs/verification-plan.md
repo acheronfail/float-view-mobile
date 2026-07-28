@@ -177,6 +177,10 @@ by the milestone shown; they must not be added as no-op placeholders.
 | `just build-android`                               | Compile the Android debug host and all JVM modules                                     | R1                      |
 | `just build-ios`                                   | Compile the iOS host for the configured simulator                                      | R1                      |
 | `just build-macos`                                 | Compile the macOS host and shared Swift package                                        | R1                      |
+| `just build-macos-app`                             | Assemble/sign the macOS `.app` with web and SQL resources                              | Available now           |
+| `just macos-device-install`                        | Install/register the development app in `~/Applications`                               | Available now           |
+| `just macos-device-run`                            | Build/install/launch macOS attached to identifier-free traces                           | Available now           |
+| `just macos-device-open`                           | Build/install/launch macOS through Launch Services                                      | Available now           |
 | `just ios-device-run <device-id>`                  | Build, sign, install, and launch the current bundle on physical iOS                     | Available now           |
 | `just android-device-run [serial]`                 | Build, install, and launch the current bundle on physical Android                       | Available now           |
 | `just run-mock`                                    | Run the web UI with the deterministic development backend                              | R2                      |
@@ -493,9 +497,19 @@ Apple debug builds use the same identifier-free evidence vocabulary for
 Bluetooth state, adapter connection requests, connection transitions, active
 session count, and startup recovery count. The iPhone 12/iOS 18.6.1 run passed
 permission denial, radio cycling, peripheral power-loss recovery, and explicit
-disconnect. Its separate background probe is not accepted R7 evidence: the
-native owner remained active, but the foreground loopback page failed to reload
-and persisted sample continuity was not demonstrated.
+disconnect. A later 60-second background probe destroyed the listener/WebView,
+created a fresh frontend generation on return, and reconstructed the same
+connected durable session. Its exported catalog/session databases passed
+integrity with `completed`/`explicit_disconnect`, 391 committed observations,
+143 persisted samples, 197910 ms elapsed, and a largest persisted-sample gap of
+1561 ms. This accepts idle-rate native logging continuity for the tested iPhone
+12/iOS 18.6.1 interval; iOS 17 and 26 remain independently required.
+
+The signed macOS development app physically passed permission
+denial/restoration, radio cycling, peripheral power-loss recovery, window
+close/reopen with the same native session, and explicit disconnect. The copied
+store passed catalog/session integrity with `completed`/`explicit_disconnect`,
+306 committed observations, 106 persisted samples, and 218572 ms elapsed.
 
 Run the profile across the declared Thor300, Thor301, XRV, and PintV inventory
 before release qualification. R6 milestone completion may use a documented

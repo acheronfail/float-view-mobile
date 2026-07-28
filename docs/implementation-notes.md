@@ -265,17 +265,42 @@ single OS-owned pending CoreBluetooth connection without replacing the durable
 session. Explicit disconnect produced no later request; copied catalog/session
 databases passed integrity and reported `completed`/`explicit_disconnect`.
 
-This qualification also exposed two lifecycle gaps that remain R7 work. A
-background/foreground Settings round-trip can close the WebSocket and invalidate
-the loopback page; the native backend continues, but the current WKWebView shows
-Load Failed and cannot reconstruct state. The API store now reconnects a closed
-socket before sending a new command when the page itself survives, but complete
-foreground recovery requires restarting the loopback listener with a fresh
-token/WebView and snapshot. Both production stores now mark catalog rows left
-active by process termination as `interrupted`/`process_interruption` at backend
-startup, with deterministic Apple persistence coverage. The interrupted
-physical runs did not contain enough committed samples to claim iOS background
-logging continuity.
+This qualification originally exposed two lifecycle gaps for R7. The API store
+first learned to reconnect a closed socket when the page survived, and the Apple
+hosts now go further: a shared frontend lifecycle coordinator owns only the
+disposable loopback server and issues a fresh port, token, and generation for
+each frontend. On iOS, entering the background destroys the server and
+WKWebView; foreground activation creates both again while the native Bluetooth,
+application-service, and SQLite owners remain alive. A physical 60-second
+iPhone 12/iOS 18.6.1 background run traced generation 1 stopping and generation
+2 starting, and the UI reconstructed the same connected durable session after a
+brief Backend Unavailable state. Both production stores also mark catalog rows
+left active by process termination as
+`interrupted`/`process_interruption` at backend startup, with deterministic Apple
+persistence coverage.
+
+iOS now declares `bluetooth-central`, supplies a stable CoreBluetooth restoration
+identifier, and safely accepts a restored peripheral binding without claiming
+that process-level job restoration already exists. The exported physical
+background session passed catalog/session integrity and reported
+`completed`/`explicit_disconnect`, 391 committed observations, 143 adaptively
+persisted samples, and 197910 ms elapsed. Its largest gap between persisted
+samples was 1561 ms, so the 60-second background interval did not suspend
+idle-rate native polling on this iPhone 12/iOS 18.6.1 run.
+
+The same coordinator now powers the macOS host. A real signed development
+`.app` contains the shared web assets and SQL migrations, installs at
+`~/Applications/Float View.app`, and has its own persistent Bluetooth TCC
+identity. Closing the window destroys its WKWebView and loopback server but
+leaves the native owner and Dock process alive; reopening creates generation 2
+and reconstructs the same connected session. The physical macOS run passed
+permission denial/restoration, radio off/on recovery, VESC power-loss recovery,
+explicit disconnect, and window close/reopen. Its copied databases passed both
+integrity checks and reported `completed`/`explicit_disconnect`, 306 committed
+observations, 106 adaptively persisted samples, and 218572 ms elapsed. Startup
+also recovered each session interrupted by the two window-ownership crashes
+found during bring-up. The crash was fixed by making the programmatic NSWindow
+owner-managed rather than allowing AppKit and Swift to release it independently.
 
 The cumulative `just verify-r6` software gate passes with these changes,
 including generated-model drift, boundary checks, web type/lint/unit tests,
