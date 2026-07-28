@@ -383,8 +383,11 @@ setup/CCCD confirmation, Express-to-primary CAN discovery, VESC 6.06 and Refloat
 1.2.3 identification, modern dynamic telemetry decoding, adaptive durable idle
 persistence, SQLite integrity, and explicit disconnect. Android's sanitized
 frames pass the shared Swift/Kotlin protocol suite. The formal profile-aware
-hardware-smoke runner and the remaining radio/permission/range failure-path
-gates are still required before R6 is complete.
+hardware-smoke validator now passes all three redacted records. Full workflow
+orchestration and the remaining platform radio/permission framework gates are
+still required before R6 is complete. Shared-core unexpected-disconnect,
+out-of-range-style recovery, bounded exponential backoff/window expiry, and
+explicit-disconnect cancellation are implemented and deterministically tested.
 
 Deliverables:
 

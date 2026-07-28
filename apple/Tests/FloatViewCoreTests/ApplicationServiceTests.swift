@@ -230,10 +230,113 @@ func missingRefloatLayoutRetriesFinitelyAndFailsLoggingSession() throws {
   #expect(bluetooth.writes.filter { $0 == Data([32, 42]) }.count == 5)
 }
 
+@Test
+func unexpectedDisconnectUsesBoundedBackoffAndPreservesSessionOnRecovery() throws {
+  let bluetooth = FakeBluetooth()
+  let scheduler = FakeScheduler()
+  let store = MemoryStore()
+  let service = ApplicationService(
+    bluetooth: bluetooth,
+    clock: FixedClock(),
+    logStore: store,
+    scheduler: scheduler,
+    events: IgnoreEvents()
+  )
+  let id = DeviceID("fixture")
+
+  try service.receive(.deviceFound(id, name: "ExpressT", rssi: -40))
+  try service.connect(id)
+  try service.receive(.connectionChanged(id, .ready))
+  let active = store.active()
+  try service.receive(.connectionChanged(id, .disconnected))
+
+  #expect(service.connectionState == .reconnecting)
+  #expect(scheduler.intervals == [1_000])
+  scheduler.fire(0)
+  #expect(bluetooth.connected == [id, id])
+  try service.receive(.connectionChanged(id, .ready))
+  #expect(service.connectionState == .ready)
+  #expect(store.active() == active)
+
+  try service.disconnect()
+  try service.receive(.connectionChanged(id, .disconnected))
+  #expect(service.connectionState == .disconnected)
+  #expect(scheduler.intervals == [1_000])
+}
+
+@Test
+func reconnectWindowExpiryClosesDurableSession() throws {
+  let bluetooth = FakeBluetooth()
+  let scheduler = FakeScheduler()
+  let clock = MutableClock()
+  let store = MemoryStore()
+  let service = ApplicationService(
+    bluetooth: bluetooth,
+    clock: clock,
+    logStore: store,
+    scheduler: scheduler,
+    events: IgnoreEvents(),
+    samplingSettings: .init(reconnectDurationMs: 2_500)
+  )
+  let id = DeviceID("fixture")
+
+  try service.receive(.deviceFound(id, name: "ExpressT", rssi: -40))
+  try service.connect(id)
+  try service.receive(.connectionChanged(id, .ready))
+  try service.receive(.connectionChanged(id, .disconnected))
+  clock.date = Date(timeIntervalSince1970: 1)
+  scheduler.fire(0)
+  try service.receive(.connectionChanged(id, .failed))
+  #expect(scheduler.intervals == [1_000, 1_500])
+  clock.date = Date(timeIntervalSince1970: 2.5)
+  scheduler.fire(1)
+
+  #expect(service.connectionState == .disconnected)
+  #expect(service.activeDeviceID == nil)
+  #expect(store.active() == nil)
+  #expect(bluetooth.disconnected == [id])
+}
+
+@Test
+func radioOffWaitsInsideReconnectWindowUntilPoweredOn() throws {
+  let bluetooth = FakeBluetooth()
+  let scheduler = FakeScheduler()
+  let service = ApplicationService(
+    bluetooth: bluetooth,
+    clock: FixedClock(),
+    logStore: MemoryStore(),
+    scheduler: scheduler,
+    events: IgnoreEvents()
+  )
+  let id = DeviceID("fixture")
+
+  try service.receive(.deviceFound(id, name: "ExpressT", rssi: -40))
+  try service.connect(id)
+  try service.receive(.connectionChanged(id, .ready))
+  try service.receive(
+    .stateChanged(
+      .init(radio: .poweredOff, scanPermission: .granted, connectPermission: .granted)
+    )
+  )
+  scheduler.fire(0)
+  #expect(bluetooth.connected == [id])
+  #expect(scheduler.intervals == [1_000, 1_000])
+
+  try service.receive(
+    .stateChanged(
+      .init(radio: .poweredOn, scanPermission: .granted, connectPermission: .granted)
+    )
+  )
+  scheduler.fire(1)
+  #expect(bluetooth.connected == [id, id])
+  #expect(service.connectionState == .reconnecting)
+}
+
 private final class FakeBluetooth: BluetoothPort, @unchecked Sendable {
   var state: BluetoothState
   var startCount = 0
   var stopCount = 0
+  var connected: [DeviceID] = []
   var disconnected: [DeviceID] = []
   var writes: [Data] = []
 
@@ -251,7 +354,7 @@ private final class FakeBluetooth: BluetoothPort, @unchecked Sendable {
   func requestPermission() {}
   func startDiscovery() { startCount += 1 }
   func stopDiscovery() { stopCount += 1 }
-  func connect(_: DeviceID) {}
+  func connect(_ deviceID: DeviceID) { connected.append(deviceID) }
   func write(_ bytes: Data, to _: DeviceID) { writes.append(bytes) }
   func disconnect(_ deviceID: DeviceID) { disconnected.append(deviceID) }
 }
@@ -377,6 +480,15 @@ private final class TelemetryProtocol: VescProtocolPort, @unchecked Sendable {
 private final class FakeScheduler: SchedulerPort, @unchecked Sendable {
   var intervals: [Int64] = []
   var actions: [@Sendable () -> Void] = []
+  func schedule(
+    afterMilliseconds: Int64,
+    action: @escaping @Sendable () -> Void
+  ) -> any CancellationPort {
+    intervals.append(afterMilliseconds)
+    actions.append(action)
+    return FakeCancellation()
+  }
+
   func scheduleRepeating(
     everyMilliseconds: Int64,
     action: @escaping @Sendable () -> Void

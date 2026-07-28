@@ -156,12 +156,19 @@ fun interface CancellationPort {
 }
 
 interface SchedulerPort {
+    fun schedule(delayMs: Long, action: () -> Unit): CancellationPort
     fun scheduleRepeating(intervalMs: Long, action: () -> Unit): CancellationPort
 }
 
 class SystemScheduler : SchedulerPort {
     private val executor = Executors.newSingleThreadScheduledExecutor { runnable ->
         Thread(runnable, "float-view-telemetry").apply { isDaemon = true }
+    }
+
+    override fun schedule(delayMs: Long, action: () -> Unit): CancellationPort {
+        require(delayMs >= 0)
+        val future = executor.schedule(action, delayMs, TimeUnit.MILLISECONDS)
+        return CancellationPort { future.cancel(false) }
     }
 
     override fun scheduleRepeating(intervalMs: Long, action: () -> Unit): CancellationPort {

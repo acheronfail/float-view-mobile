@@ -1,6 +1,5 @@
 package fail.acheron.floatview.bluetooth
 
-import android.Manifest
 import android.bluetooth.BluetoothDevice
 import android.bluetooth.BluetoothGatt
 import android.bluetooth.BluetoothGattCallback
@@ -69,8 +68,9 @@ class AndroidBluetoothAdapter(
     }
 
     override fun currentState(): BluetoothState {
-        val scanPermission = permissionState(scanPermission())
-        val connectPermission = permissionState(connectPermission())
+        val policy = AndroidBluetoothPermissionPolicy.forApi(Build.VERSION.SDK_INT)
+        val scanPermission = permissionState(policy.scanPermission)
+        val connectPermission = permissionState(policy.connectPermission)
         val radio = when {
             manager.adapter == null -> BluetoothRadioState.UNSUPPORTED
             Build.VERSION.SDK_INT >= 31 &&
@@ -89,7 +89,8 @@ class AndroidBluetoothAdapter(
     }
 
     override fun requestPermission() {
-        val required = listOf(scanPermission(), connectPermission())
+        val policy = AndroidBluetoothPermissionPolicy.forApi(Build.VERSION.SDK_INT)
+        val required = listOfNotNull(policy.scanPermission, policy.connectPermission)
             .distinct()
             .filter { applicationContext.checkSelfPermission(it) != PackageManager.PERMISSION_GRANTED }
         if (required.isNotEmpty()) permissionRequester.request(required.toTypedArray())
@@ -415,22 +416,12 @@ class AndroidBluetoothAdapter(
         }
     }
 
-    private fun scanPermission(): String =
-        if (Build.VERSION.SDK_INT >= 31) {
-            Manifest.permission.BLUETOOTH_SCAN
-        } else {
-            Manifest.permission.ACCESS_FINE_LOCATION
-        }
-
-    private fun connectPermission(): String =
-        if (Build.VERSION.SDK_INT >= 31) {
-            Manifest.permission.BLUETOOTH_CONNECT
-        } else {
-            Manifest.permission.BLUETOOTH
-        }
-
-    private fun permissionState(permission: String): BluetoothPermissionState =
-        if (applicationContext.checkSelfPermission(permission) == PackageManager.PERMISSION_GRANTED) {
+    private fun permissionState(permission: String?): BluetoothPermissionState =
+        if (permission == null) {
+            BluetoothPermissionState.NOT_REQUIRED
+        } else if (
+            applicationContext.checkSelfPermission(permission) == PackageManager.PERMISSION_GRANTED
+        ) {
             BluetoothPermissionState.GRANTED
         } else {
             BluetoothPermissionState.NOT_DETERMINED

@@ -150,8 +150,16 @@ test-bluetooth:
     swift test --disable-sandbox --scratch-path /tmp/float-view-swift-build
   just build-ios-app
 
+test-hardware-smoke:
+  node scripts/test-hardware-smoke.mjs
+
+# validate a redacted physical run against a strictly read-only hardware profile
+hardware-smoke platform profile evidence="":
+  node scripts/hardware-smoke.mjs "{{platform}}" "{{profile}}" "{{evidence}}"
+
 verify-r6: verify-r5
   just test-bluetooth
+  just test-hardware-smoke
 
 # setup the repository for development
 setup:

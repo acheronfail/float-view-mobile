@@ -195,9 +195,117 @@ class ApplicationServiceTest {
         )
     }
 
+    @Test
+    fun `unexpected disconnect uses bounded backoff and preserves the session on recovery`() {
+        val bluetooth = FakeBluetooth()
+        val scheduler = FakeScheduler()
+        val store = FakeStore()
+        val service = ApplicationService(
+            bluetooth,
+            FakeClock(),
+            store,
+            scheduler = scheduler,
+        ) {}
+        val id = DeviceId("fixture")
+
+        service.onBluetoothEvent(BluetoothEvent.DeviceFound(id, "ExpressT", -40))
+        service.connect(id)
+        service.onBluetoothEvent(BluetoothEvent.ConnectionChanged(id, ConnectionState.READY))
+        val active = store.active()
+        service.onBluetoothEvent(BluetoothEvent.ConnectionChanged(id, ConnectionState.DISCONNECTED))
+
+        assertEquals(ConnectionState.RECONNECTING, service.connectionState)
+        assertEquals(listOf(1_000L), scheduler.intervals)
+        scheduler.fire(0)
+        assertEquals(listOf(id, id), bluetooth.connected)
+        service.onBluetoothEvent(BluetoothEvent.ConnectionChanged(id, ConnectionState.READY))
+        assertEquals(ConnectionState.READY, service.connectionState)
+        assertEquals(active, store.active())
+
+        service.disconnect()
+        service.onBluetoothEvent(BluetoothEvent.ConnectionChanged(id, ConnectionState.DISCONNECTED))
+        assertEquals(ConnectionState.DISCONNECTED, service.connectionState)
+        assertEquals(listOf(1_000L), scheduler.intervals)
+    }
+
+    @Test
+    fun `reconnect window expiry closes the durable session`() {
+        val bluetooth = FakeBluetooth()
+        val scheduler = FakeScheduler()
+        val clock = FakeClock()
+        val store = FakeStore()
+        val service = ApplicationService(
+            bluetooth,
+            clock,
+            store,
+            scheduler = scheduler,
+            samplingSettings = SamplingSettings(reconnectDurationMs = 2_500),
+        ) {}
+        val id = DeviceId("fixture")
+
+        service.onBluetoothEvent(BluetoothEvent.DeviceFound(id, "ExpressT", -40))
+        service.connect(id)
+        service.onBluetoothEvent(BluetoothEvent.ConnectionChanged(id, ConnectionState.READY))
+        service.onBluetoothEvent(BluetoothEvent.ConnectionChanged(id, ConnectionState.DISCONNECTED))
+        clock.monotonicMs = 1_000
+        scheduler.fire(0)
+        service.onBluetoothEvent(BluetoothEvent.ConnectionChanged(id, ConnectionState.FAILED))
+        assertEquals(listOf(1_000L, 1_500L), scheduler.intervals)
+        clock.monotonicMs = 2_500
+        scheduler.fire(1)
+
+        assertEquals(ConnectionState.DISCONNECTED, service.connectionState)
+        assertEquals(null, service.activeDeviceId)
+        assertEquals(null, store.active())
+        assertEquals(listOf(id), bluetooth.disconnected)
+    }
+
+    @Test
+    fun `radio off waits inside the reconnect window until powered on`() {
+        val bluetooth = FakeBluetooth()
+        val scheduler = FakeScheduler()
+        val service = ApplicationService(
+            bluetooth,
+            FakeClock(),
+            FakeStore(),
+            scheduler = scheduler,
+        ) {}
+        val id = DeviceId("fixture")
+
+        service.onBluetoothEvent(BluetoothEvent.DeviceFound(id, "ExpressT", -40))
+        service.connect(id)
+        service.onBluetoothEvent(BluetoothEvent.ConnectionChanged(id, ConnectionState.READY))
+        service.onBluetoothEvent(
+            BluetoothEvent.StateChanged(
+                BluetoothState(
+                    BluetoothRadioState.POWERED_OFF,
+                    BluetoothPermissionState.GRANTED,
+                    BluetoothPermissionState.GRANTED,
+                ),
+            ),
+        )
+        scheduler.fire(0)
+        assertEquals(listOf(id), bluetooth.connected)
+        assertEquals(listOf(1_000L, 1_000L), scheduler.intervals)
+
+        service.onBluetoothEvent(
+            BluetoothEvent.StateChanged(
+                BluetoothState(
+                    BluetoothRadioState.POWERED_ON,
+                    BluetoothPermissionState.GRANTED,
+                    BluetoothPermissionState.GRANTED,
+                ),
+            ),
+        )
+        scheduler.fire(1)
+        assertEquals(listOf(id, id), bluetooth.connected)
+        assertEquals(ConnectionState.RECONNECTING, service.connectionState)
+    }
+
     private class FakeBluetooth : BluetoothPort {
         var startCount = 0
         var stopCount = 0
+        val connected = mutableListOf<DeviceId>()
         val disconnected = mutableListOf<DeviceId>()
         val writes = mutableListOf<ByteArray>()
         override fun currentState() = BluetoothState(
@@ -208,7 +316,7 @@ class ApplicationServiceTest {
         override fun requestPermission() = Unit
         override fun startDiscovery() { startCount++ }
         override fun stopDiscovery() { stopCount++ }
-        override fun connect(deviceId: DeviceId) = Unit
+        override fun connect(deviceId: DeviceId) { connected += deviceId }
         override fun write(deviceId: DeviceId, bytes: ByteArray) { writes += bytes }
         override fun disconnect(deviceId: DeviceId) { disconnected += deviceId }
     }
@@ -295,6 +403,11 @@ class ApplicationServiceTest {
     private class FakeScheduler : SchedulerPort {
         val intervals = mutableListOf<Long>()
         private val actions = mutableListOf<() -> Unit>()
+        override fun schedule(delayMs: Long, action: () -> Unit): CancellationPort {
+            intervals += delayMs
+            actions += action
+            return CancellationPort {}
+        }
         override fun scheduleRepeating(intervalMs: Long, action: () -> Unit): CancellationPort {
             intervals += intervalMs
             actions += action
@@ -305,7 +418,8 @@ class ApplicationServiceTest {
 
     private class FakeClock : ClockPort {
         var instant: Instant = Instant.EPOCH
-        override fun monotonicMillis() = 0L
+        var monotonicMs = 0L
+        override fun monotonicMillis() = monotonicMs
         override fun now(): Instant = instant
     }
 

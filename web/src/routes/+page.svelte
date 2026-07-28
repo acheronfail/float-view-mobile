@@ -40,7 +40,8 @@
 						{#if apiStore.firmware}
 							<p class="mt-1 text-sm text-slate-300">
 								{apiStore.firmware.hardwareName || 'VESC'} · VESC {apiStore.firmware.vescVersion}
-								· {apiStore.firmware.packageName} {apiStore.firmware.packageVersion}
+								· {apiStore.firmware.packageName}
+								{apiStore.firmware.packageVersion}
 							</p>
 						{/if}
 					{:else}

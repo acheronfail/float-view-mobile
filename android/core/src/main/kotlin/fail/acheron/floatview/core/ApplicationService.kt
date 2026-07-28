@@ -10,6 +10,7 @@ class ApplicationService(
     private val events: EventSink,
 ) {
     private val sampling = AdaptiveSamplingPolicy(samplingSettings)
+    private val reconnectDurationMs = samplingSettings.reconnectDurationMs
     private var explicitDisconnect = false
     private var scanSequence = 0
     private val knownDevicesById = linkedMapOf<DeviceId, DiscoveredDevice>()
@@ -24,6 +25,9 @@ class ApplicationService(
     private var telemetryIntervalMs: Long? = null
     private var telemetryStartedAtMs: Long? = null
     private var telemetrySequence = 0L
+    private var reconnectTimer: CancellationPort? = null
+    private var reconnectStartedAtMs: Long? = null
+    private var reconnectAttempt = 0
     var activeDeviceId: DeviceId? = null
         private set
     var connectionState: ConnectionState = ConnectionState.DISCONNECTED
@@ -82,6 +86,7 @@ class ApplicationService(
         }
         activeDeviceId = deviceId
         explicitDisconnect = false
+        cancelReconnect()
         telemetryTimer?.cancel()
         telemetryTimer = null
         telemetryIntervalMs = null
@@ -100,6 +105,14 @@ class ApplicationService(
                 if (event.state.radio != BluetoothRadioState.POWERED_ON && activeScanId != null) {
                     bluetooth.stopDiscovery()
                     activeScanId = null
+                }
+                if (
+                    event.state.radio != BluetoothRadioState.POWERED_ON &&
+                    activeDeviceId != null &&
+                    logStore.active() != null &&
+                    !explicitDisconnect
+                ) {
+                    beginReconnect()
                 }
                 events.publish(event.state)
             }
@@ -132,22 +145,25 @@ class ApplicationService(
                     }
                 }
                 if (event.state == ConnectionState.READY) {
+                    cancelReconnect()
+                    transition(ConnectionState.READY)
                     startFirmwareDiscovery(event.deviceId)
+                    return
                 }
                 if (
-                    event.state == ConnectionState.DISCONNECTED &&
+                    (event.state == ConnectionState.FAILED ||
+                        event.state == ConnectionState.DISCONNECTED) &&
                     !explicitDisconnect &&
                     logStore.active() != null
                 ) {
-                    transition(ConnectionState.RECONNECTING)
+                    beginReconnect()
+                    return
+                }
+                transition(event.state)
+                if (event.state == ConnectionState.DISCONNECTED) {
+                    cancelReconnect()
+                    activeDeviceId = null
                     resetFirmwareDiscovery()
-                    bluetooth.connect(event.deviceId)
-                } else {
-                    transition(event.state)
-                    if (event.state == ConnectionState.DISCONNECTED) {
-                        activeDeviceId = null
-                        resetFirmwareDiscovery()
-                    }
                 }
             }
             is BluetoothEvent.Notification -> {
@@ -195,6 +211,7 @@ class ApplicationService(
         val deviceId = activeDeviceId ?: return
         transition(ConnectionState.DISCONNECTING)
         explicitDisconnect = true
+        cancelReconnect()
         cancelTelemetryLayoutRetry()
         stopTelemetryPolling()
         logStore.active()?.let {
@@ -333,6 +350,76 @@ class ApplicationService(
         bluetooth.disconnect(deviceId)
     }
 
+    private fun beginReconnect() {
+        if (reconnectDurationMs <= 0) {
+            finishReconnect("unexpected_disconnect")
+            return
+        }
+        if (reconnectStartedAtMs == null) {
+            reconnectStartedAtMs = clock.monotonicMillis()
+            reconnectAttempt = 0
+        }
+        transition(ConnectionState.RECONNECTING)
+        resetFirmwareDiscovery()
+        scheduleReconnectAttempt()
+    }
+
+    private fun scheduleReconnectAttempt() {
+        val timer = scheduler
+        if (timer == null) {
+            finishReconnect("reconnect_unavailable")
+            return
+        }
+        if (reconnectTimer != null || reconnectStartedAtMs == null) return
+        val elapsed = clock.monotonicMillis() - requireNotNull(reconnectStartedAtMs)
+        val remaining = reconnectDurationMs - elapsed
+        if (remaining <= 0) {
+            finishReconnect("reconnect_timeout")
+            return
+        }
+        val delay = minOf(1_000L shl minOf(reconnectAttempt, 5), MAX_RECONNECT_BACKOFF_MS, remaining)
+        reconnectTimer = timer.schedule(delay, ::performReconnectAttempt)
+    }
+
+    @Synchronized
+    private fun performReconnectAttempt() {
+        reconnectTimer = null
+        val deviceId = activeDeviceId ?: return
+        if (connectionState != ConnectionState.RECONNECTING) return
+        val elapsed = clock.monotonicMillis() - (reconnectStartedAtMs ?: return)
+        if (elapsed >= reconnectDurationMs) {
+            finishReconnect("reconnect_timeout")
+            return
+        }
+        if (bluetoothState.radio != BluetoothRadioState.POWERED_ON) {
+            scheduleReconnectAttempt()
+            return
+        }
+        reconnectAttempt += 1
+        bluetooth.connect(deviceId)
+    }
+
+    private fun finishReconnect(reason: String) {
+        val deviceId = activeDeviceId
+        cancelReconnect()
+        logStore.active()?.let {
+            events.publish(logStore.close(it.jobId, clock.now(), reason))
+        }
+        explicitDisconnect = true
+        if (deviceId != null) bluetooth.disconnect(deviceId)
+        activeDeviceId = null
+        resetFirmwareDiscovery()
+        transition(ConnectionState.DISCONNECTED)
+        events.publish(reason)
+    }
+
+    private fun cancelReconnect() {
+        reconnectTimer?.cancel()
+        reconnectTimer = null
+        reconnectStartedAtMs = null
+        reconnectAttempt = 0
+    }
+
     private fun startTelemetryPolling() {
         if (scheduler == null || firmware?.canId == null) return
         restartTelemetryPolling(IDLE_PROBE_INTERVAL_MS)
@@ -413,5 +500,6 @@ class ApplicationService(
         const val RIDING_PROBE_INTERVAL_MS = 100L
         const val TELEMETRY_LAYOUT_RETRY_INTERVAL_MS = 1_000L
         const val MAX_TELEMETRY_LAYOUT_ATTEMPTS = 5
+        const val MAX_RECONNECT_BACKOFF_MS = 30_000L
     }
 }

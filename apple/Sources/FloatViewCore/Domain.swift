@@ -281,6 +281,10 @@ public protocol CancellationPort: AnyObject, Sendable {
 }
 
 public protocol SchedulerPort: Sendable {
+  func schedule(
+    afterMilliseconds: Int64,
+    action: @escaping @Sendable () -> Void
+  ) -> any CancellationPort
   func scheduleRepeating(
     everyMilliseconds: Int64,
     action: @escaping @Sendable () -> Void
@@ -294,6 +298,18 @@ public final class SystemScheduler: SchedulerPort, @unchecked Sendable {
     queue: DispatchQueue = DispatchQueue(label: "fail.acheron.float-view.telemetry")
   ) {
     self.queue = queue
+  }
+
+  public func schedule(
+    afterMilliseconds: Int64,
+    action: @escaping @Sendable () -> Void
+  ) -> any CancellationPort {
+    precondition(afterMilliseconds >= 0)
+    let source = DispatchSource.makeTimerSource(queue: queue)
+    source.schedule(deadline: .now() + .milliseconds(Int(afterMilliseconds)))
+    source.setEventHandler(handler: action)
+    source.resume()
+    return DispatchTimerCancellation(source)
   }
 
   public func scheduleRepeating(

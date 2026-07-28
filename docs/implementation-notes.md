@@ -198,6 +198,29 @@ leaving a zero-sample session presented as healthy. Deterministic Swift/Kotlin
 tests cover both recovery and bounded failure. Reproduce local durable
 inspection with `just macos-device-verify-latest-session`.
 
+Unexpected connection loss no longer calls the platform adapter in an immediate,
+unbounded loop. Both application services now retain the active durable session,
+enter `reconnecting`, schedule one-shot attempts with exponential delays from
+one second up to a 30-second cap, and stop at the configured reconnection window
+(five minutes by default). A successful `ready` transition keeps the same
+session. Window expiry closes it with `reconnect_timeout`; unavailable scheduling
+and disabled reconnection also terminate explicitly. Explicit user disconnect
+cancels every pending reconnect before closing. Fake-clock Swift/Kotlin tests
+cover recovery, backoff bounds, timeout closure, and the no-reconnect explicit
+path.
+
+Android runtime permission selection is now an independently tested policy:
+API 29/Android 10 requires fine location for BLE scanning and reports connect
+permission as `not_required` because `BLUETOOTH` is manifest-only; API 31 and
+newer require both `BLUETOOTH_SCAN` and `BLUETOOTH_CONNECT`. The production
+adapter consumes this policy instead of duplicating SDK checks.
+
+The cumulative `just verify-r6` software gate passes with these changes,
+including generated-model drift, boundary checks, web type/lint/unit tests,
+Swift and Kotlin protocol/application/storage/alert/Bluetooth tests, all three
+native builds, mock and macOS black-box conformance, and validation of the three
+recorded hardware-smoke evidence files.
+
 The canonical sample now preserves Refloat motor current, battery current, ERPM,
 and speed in the session schema's `extension_json`, using the same API field
 names on Apple and Android. Voltage, duty cycle, temperatures, ride state, and

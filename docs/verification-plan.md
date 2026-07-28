@@ -463,6 +463,14 @@ disconnect, find that session through the catalog API, and confirm the OS no
 longer reports an active app connection. R6 is not complete until all three
 named hardware runs are recorded.
 
+The first accepted profile and redacted physical records live under `hardware/`.
+`just hardware-smoke` validates their fixed read-only operation allowlist,
+firmware/package range, sample/duration minimums, both integrity results, clean
+session completion, and terminal connection state. Platform launch and database
+extraction remain separate `*-device-*` recipes until a test-only control host
+can orchestrate the UI-independent workflow; recorded evidence must not claim
+that orchestration is already automatic.
+
 Run the profile across the declared Thor300, Thor301, XRV, and PintV inventory
 before release qualification. R6 milestone completion may use a documented
 representative subset only if the remaining board runs are explicitly assigned

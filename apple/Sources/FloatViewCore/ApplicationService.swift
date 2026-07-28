@@ -7,6 +7,7 @@ public final class ApplicationService: @unchecked Sendable {
   private let protocolCodec: VescProtocolPort?
   private let scheduler: (any SchedulerPort)?
   private let events: EventSink
+  private let reconnectDurationMs: Int64
   private let lock = NSRecursiveLock()
   private var sampling: AdaptiveSamplingPolicy
   private var explicitDisconnect = false
@@ -23,6 +24,9 @@ public final class ApplicationService: @unchecked Sendable {
   private var telemetryIntervalMs: Int64?
   private var telemetryStartedAtMs: Int64?
   private var telemetrySequence: Int64 = 0
+  private var reconnectTimer: (any CancellationPort)?
+  private var reconnectStartedAtMs: Int64?
+  private var reconnectAttempt = 0
 
   public private(set) var activeDeviceID: DeviceID?
   public private(set) var connectionState: ConnectionState = .disconnected
@@ -50,6 +54,7 @@ public final class ApplicationService: @unchecked Sendable {
     self.protocolCodec = protocolCodec
     self.scheduler = scheduler
     self.events = events
+    self.reconnectDurationMs = samplingSettings.reconnectDurationMs
     self.sampling = AdaptiveSamplingPolicy(settings: samplingSettings)
     self.bluetoothState = bluetooth.currentState()
   }
@@ -106,6 +111,7 @@ public final class ApplicationService: @unchecked Sendable {
     }
     activeDeviceID = deviceID
     explicitDisconnect = false
+    cancelReconnect()
     telemetryTimer?.cancel()
     telemetryTimer = nil
     telemetryIntervalMs = nil
@@ -126,6 +132,13 @@ public final class ApplicationService: @unchecked Sendable {
       if state.radio != .poweredOn, activeScanID != nil {
         bluetooth.stopDiscovery()
         activeScanID = nil
+      }
+      if state.radio != .poweredOn,
+         activeDeviceID != nil,
+         logStore.active() != nil,
+         !explicitDisconnect
+      {
+        beginReconnect()
       }
       events.publish(state)
     case .deviceFound(let deviceID, let name, let rssi):
@@ -154,17 +167,24 @@ public final class ApplicationService: @unchecked Sendable {
           return
         }
       }
-      if state == .ready { startFirmwareDiscovery(deviceID) }
-      if state == .disconnected, !explicitDisconnect, logStore.active() != nil {
-        transition(.reconnecting)
+      if state == .ready {
+        cancelReconnect()
+        transition(.ready)
+        startFirmwareDiscovery(deviceID)
+        return
+      }
+      if (state == .failed || state == .disconnected),
+         !explicitDisconnect,
+         logStore.active() != nil
+      {
+        beginReconnect()
+        return
+      }
+      transition(state)
+      if state == .disconnected {
+        cancelReconnect()
+        activeDeviceID = nil
         resetFirmwareDiscovery()
-        bluetooth.connect(deviceID)
-      } else {
-        transition(state)
-        if state == .disconnected {
-          activeDeviceID = nil
-          resetFirmwareDiscovery()
-        }
       }
     case .notification(let deviceID, let bytes):
       guard deviceID == activeDeviceID else { return }
@@ -205,6 +225,7 @@ public final class ApplicationService: @unchecked Sendable {
     guard let deviceID = activeDeviceID else { return }
     transition(.disconnecting)
     explicitDisconnect = true
+    cancelReconnect()
     cancelTelemetryLayoutRetry()
     stopTelemetryPolling()
     if let active = logStore.active() {
@@ -383,6 +404,86 @@ public final class ApplicationService: @unchecked Sendable {
     bluetooth.disconnect(deviceID)
   }
 
+  private func beginReconnect() {
+    guard reconnectDurationMs > 0 else {
+      finishReconnect(reason: "unexpected_disconnect")
+      return
+    }
+    if reconnectStartedAtMs == nil {
+      reconnectStartedAtMs = clock.monotonicMilliseconds()
+      reconnectAttempt = 0
+    }
+    transition(.reconnecting)
+    resetFirmwareDiscovery()
+    scheduleReconnectAttempt()
+  }
+
+  private func scheduleReconnectAttempt() {
+    guard let scheduler,
+          reconnectTimer == nil,
+          reconnectStartedAtMs != nil
+    else {
+      if scheduler == nil { finishReconnect(reason: "reconnect_unavailable") }
+      return
+    }
+    let elapsed = clock.monotonicMilliseconds() - (reconnectStartedAtMs ?? 0)
+    let remaining = reconnectDurationMs - elapsed
+    guard remaining > 0 else {
+      finishReconnect(reason: "reconnect_timeout")
+      return
+    }
+    let exponent = min(reconnectAttempt, 5)
+    let delay = min(Int64(1_000) << exponent, Self.maxReconnectBackoffMs, remaining)
+    reconnectTimer = scheduler.schedule(afterMilliseconds: delay) { [weak self] in
+      self?.performReconnectAttempt()
+    }
+  }
+
+  private func performReconnectAttempt() {
+    lock.lock()
+    defer { lock.unlock() }
+    reconnectTimer = nil
+    guard connectionState == .reconnecting, let deviceID = activeDeviceID else { return }
+    let elapsed = clock.monotonicMilliseconds() - (reconnectStartedAtMs ?? 0)
+    guard elapsed < reconnectDurationMs else {
+      finishReconnect(reason: "reconnect_timeout")
+      return
+    }
+    guard bluetoothState.radio == .poweredOn else {
+      scheduleReconnectAttempt()
+      return
+    }
+    reconnectAttempt += 1
+    bluetooth.connect(deviceID)
+  }
+
+  private func finishReconnect(reason: String) {
+    let deviceID = activeDeviceID
+    cancelReconnect()
+    if let active = logStore.active() {
+      do {
+        events.publish(
+          try logStore.close(jobID: active.jobID, at: clock.now(), reason: reason)
+        )
+      } catch {
+        events.publish(String(describing: error))
+      }
+    }
+    explicitDisconnect = true
+    if let deviceID { bluetooth.disconnect(deviceID) }
+    activeDeviceID = nil
+    resetFirmwareDiscovery()
+    transition(.disconnected)
+    events.publish(reason)
+  }
+
+  private func cancelReconnect() {
+    reconnectTimer?.cancel()
+    reconnectTimer = nil
+    reconnectStartedAtMs = nil
+    reconnectAttempt = 0
+  }
+
   private func startTelemetryPolling() {
     guard scheduler != nil, firmware?.canID != nil else { return }
     restartTelemetryPolling(everyMilliseconds: Self.idleProbeIntervalMs)
@@ -473,6 +574,7 @@ public final class ApplicationService: @unchecked Sendable {
   private static let ridingProbeIntervalMs: Int64 = 100
   private static let telemetryLayoutRetryIntervalMs: Int64 = 1_000
   private static let maxTelemetryLayoutAttempts = 5
+  private static let maxReconnectBackoffMs: Int64 = 30_000
 }
 
 public enum ApplicationError: Error, Equatable {
