@@ -1,0 +1,31 @@
+schema: spec-driven
+
+context: |
+  Float View is a cross-platform toolkit for VESC-based devices.
+  One SvelteKit static UI is shared by Android, iOS, and macOS. Thin native
+  hosts own Bluetooth, background execution, durable SQLite logging, platform
+  lifecycle, and an authenticated loopback JSON-RPC/WebSocket server.
+  Committed schemas under api/ are the wire-contract source of truth. Native
+  application services own product state; transports, Bluetooth adapters,
+  VESC protocol code, persistence, and UI remain separate domains.
+  The project is still in test-stage: incompatible databases are deleted and
+  recreated from the current schema rather than migrated.
+  Prefer deletion, standard libraries, and small maintained dependencies.
+  Keep the development loop centered on the root justfile. `just verify` is
+  the complete software gate.
+
+rules:
+  proposal:
+    - Keep proposals concise and include explicit non-goals.
+    - Identify code, scripts, dependencies, or compatibility machinery that can be removed.
+    - Call out any cross-platform API or persistence behavior change.
+  specs:
+    - Describe platform-neutral observable behavior, not framework-specific implementation.
+    - Include failure, reconnect, lifecycle, ordering, and bounded-resource scenarios where relevant.
+  design:
+    - Preserve the dependency boundaries described in AGENTS.md.
+    - Justify every new dependency by the code and complexity it replaces.
+    - Do not introduce database migrations while stored data remains disposable test data.
+  tasks:
+    - Keep tasks independently verifiable and avoid wrapper scripts for simple commands.
+    - End with focused checks followed by `just verify`.
