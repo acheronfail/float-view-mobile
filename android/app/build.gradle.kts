@@ -1,7 +1,6 @@
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
-    alias(libs.plugins.kotlin.serialization)
 }
 
 android {
@@ -37,7 +36,6 @@ android {
 }
 
 dependencies {
-    implementation(project(":api-models"))
     implementation(project(":core"))
     implementation(project(":protocol"))
     implementation(project(":logging"))
@@ -45,7 +43,9 @@ dependencies {
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.appcompat)
     implementation(libs.material)
-    implementation(libs.kotlinx.serialization.json)
+    implementation(libs.ktor.server.cio)
+    implementation(libs.ktor.server.core)
+    implementation(libs.ktor.server.websockets)
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)

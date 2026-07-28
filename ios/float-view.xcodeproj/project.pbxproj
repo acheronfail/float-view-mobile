@@ -11,6 +11,8 @@
 		F10A00052F00000000000005 /* sql in Resources */ = {isa = PBXBuildFile; fileRef = F10A00042F00000000000004 /* sql */; };
 		F10B000F2F0000000000000F /* sql in Resources */ = {isa = PBXBuildFile; fileRef = F10A00042F00000000000004 /* sql */; };
 		F10C00102F00000000000010 /* sql in Resources */ = {isa = PBXBuildFile; fileRef = F10A00042F00000000000004 /* sql */; };
+		F10D00012F00000000000001 /* FlyingFox in Frameworks */ = {isa = PBXBuildFile; productRef = F10D00042F00000000000004 /* FlyingFox */; };
+		F10D00022F00000000000002 /* FlyingFox in Frameworks */ = {isa = PBXBuildFile; productRef = F10D00052F00000000000005 /* FlyingFox */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -74,6 +76,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				F10D00012F00000000000001 /* FlyingFox in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -88,6 +91,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				F10D00022F00000000000002 /* FlyingFox in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -146,6 +150,7 @@
 			);
 			name = "float-view";
 			packageProductDependencies = (
+				F10D00042F00000000000004 /* FlyingFox */,
 			);
 			productName = "float-view";
 			productReference = BA4ABF1C2E5BDF4600B47684 /* float-view.app */;
@@ -198,6 +203,7 @@
 			);
 			name = "float-view-hardware-host";
 			packageProductDependencies = (
+				F10D00052F00000000000005 /* FlyingFox */,
 			);
 			productName = "float-view-hardware-host";
 			productReference = F10C00072F00000000000007 /* float-view-hardware-host.app */;
@@ -246,6 +252,9 @@
 			minimizedProjectReferenceProxies = 1;
 			preferredProjectObjectVersion = 77;
 			productRefGroup = BA4ABF1D2E5BDF4600B47684 /* Products */;
+			packageReferences = (
+				F10D00032F00000000000003 /* XCRemoteSwiftPackageReference "FlyingFox" */,
+			);
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
@@ -614,6 +623,30 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		F10D00032F00000000000003 /* XCRemoteSwiftPackageReference "FlyingFox" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/swhitty/FlyingFox.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 0.27.1;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		F10D00042F00000000000004 /* FlyingFox */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = F10D00032F00000000000003 /* XCRemoteSwiftPackageReference "FlyingFox" */;
+			productName = FlyingFox;
+		};
+		F10D00052F00000000000005 /* FlyingFox */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = F10D00032F00000000000003 /* XCRemoteSwiftPackageReference "FlyingFox" */;
+			productName = FlyingFox;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = BA4ABF142E5BDF4600B47684 /* Project object */;
 }

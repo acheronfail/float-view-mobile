@@ -266,7 +266,7 @@ private func repositoryRoot() -> URL {
   #expect(try restarted.recoverInterrupted() == 0)
 }
 
-@Test func schemaV3ResumesAnInterruptedSessionDeletion() throws {
+@Test func startupResumesAnInterruptedSessionDeletion() throws {
   let root = FileManager.default.temporaryDirectory
     .appending(path: "float-view-delete-recovery-\(UUID().uuidString)")
   defer { try? FileManager.default.removeItem(at: root) }
@@ -299,54 +299,27 @@ private func repositoryRoot() -> URL {
   #expect(try sqliteInt(catalogURL, "SELECT COUNT(*) FROM session_catalog") == 0)
 }
 
-@Test func schemaV2BackfillsExistingSessionSummaries() throws {
+@Test func outdatedStorageIsDeletedAndRecreated() throws {
   let root = FileManager.default.temporaryDirectory
-    .appending(path: "float-view-summary-migration-\(UUID().uuidString)")
+    .appending(path: "float-view-schema-reset-\(UUID().uuidString)")
   defer { try? FileManager.default.removeItem(at: root) }
   try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
   let schema = repositoryRoot().appending(path: "logging/sql")
-  let catalogURL = root.appending(path: "catalog.sqlite")
-  try sqliteExecute(catalogURL, String(contentsOf: schema.appending(path: "catalog-v1.sql")))
-  try sqliteExecute(
-    catalogURL,
-    """
-    INSERT INTO session_catalog(
-      session_id, job_id, device_history_id, device_snapshot_json,
-      profile_snapshot_json, profile_revision, file_name, started_at_ms,
-      state, integrity, requested_idle_ms, effective_idle_ms,
-      requested_riding_ms, effective_riding_ms
-    ) VALUES (
-      'legacy-session', 'legacy-job', 'legacy-history', '{"displayName":"Legacy board"}',
-      '{}', 0, 'session-legacy.sqlite', 0, 'completed', 'complete',
-      1000, 1000, 100, 100
-    );
-    """
-  )
-  let sessionURL = root.appending(path: "session-legacy.sqlite")
-  try sqliteExecute(sessionURL, String(contentsOf: schema.appending(path: "session-v1.sql")))
-  try sqliteExecute(
-    sessionURL,
-    """
-    INSERT INTO sample(
-      sequence, observed_at_ms, monotonic_elapsed_ms, ride_state,
-      raw_pack_voltage_v, duty_cycle, extension_json
-    ) VALUES
-      (1, 0, 0, 'idle', 60, 0.1, '{"speedKph":0}'),
-      (2, 1000, 1000, 'riding', 59, 0.7, '{"speedKph":18}');
-    """
-  )
+  let stale = root.appending(path: "old.sqlite")
+  try Data("old data".utf8).write(to: stale)
+  try Data("outdated".utf8).write(to: root.appending(path: ".schema-version"))
 
   let store = try SQLiteLogStore(
     root: root,
     schemaDirectory: schema,
     availableBytes: { 2_000_000_000 }
   )
-  let summary = try store.session(sessionID: "legacy-session")
-  #expect(summary.displayName == "Legacy board")
-  #expect(summary.sampleCount == 2)
-  #expect(summary.totalElapsedMs == 1_000)
-  #expect(summary.ridingElapsedMs == 1_000)
-  #expect(summary.maxDutyCycle == 0.7)
+  #expect(!FileManager.default.fileExists(atPath: stale.path))
+  #expect(try store.sessions(SessionListQuery()).items.isEmpty)
+  #expect(
+    try String(contentsOf: root.appending(path: ".schema-version"), encoding: .utf8)
+      == LogSchema.storageVersion
+  )
 }
 
 @Test func storageThresholdsMatchContract() {
@@ -429,55 +402,6 @@ private func repositoryRoot() -> URL {
   let persisted = try reopened.boardProfile(savedDeviceID: saved.savedDeviceID)
   #expect(persisted == updated)
   #expect(try reopened.savedDevices().first?.profileComplete == false)
-}
-
-@Test func boardProfileMigrationRekeysLegacyPlatformDerivedIdentifiers() throws {
-  let root = FileManager.default.temporaryDirectory
-    .appending(path: "float-view-profile-migration-\(UUID().uuidString)")
-  defer { try? FileManager.default.removeItem(at: root) }
-  try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-  let catalogURL = root.appending(path: "catalog.sqlite")
-  try sqliteExecute(
-    catalogURL,
-    String(contentsOf: repositoryRoot().appending(path: "logging/sql/catalog-v1.sql"))
-  )
-  try sqliteExecute(
-    catalogURL,
-    """
-    INSERT INTO saved_device(
-      saved_device_id, device_history_id, opaque_platform_id, display_name, created_at_ms
-    ) VALUES ('saved-platform-id', 'history-platform-id', 'platform-id', 'Board', 0);
-    INSERT INTO board_profile(saved_device_id, revision, json, updated_at_ms)
-      VALUES ('saved-platform-id', 1, '{"seriesCount":18}', 0);
-    INSERT INTO session_catalog(
-      session_id, job_id, device_history_id, device_snapshot_json,
-      profile_snapshot_json, profile_revision, file_name, started_at_ms,
-      state, integrity, requested_idle_ms, effective_idle_ms,
-      requested_riding_ms, effective_riding_ms
-    ) VALUES (
-      'session', 'job', 'history-platform-id',
-      '{"savedDeviceId":"saved-platform-id","deviceHistoryId":"history-platform-id"}',
-      '{}', 0, 'session.sqlite', 0, 'completed', 'complete', 1000, 1000, 100, 100
-    );
-    """
-  )
-
-  let store = try SQLiteLogStore(
-    root: root,
-    schemaDirectory: repositoryRoot().appending(path: "logging/sql"),
-    availableBytes: { 2_000_000_000 }
-  )
-  let migrated = try #require(store.savedDevices().first)
-  #expect(!migrated.savedDeviceID.contains("platform-id"))
-  #expect(!migrated.deviceHistoryID.contains("platform-id"))
-  #expect(try store.boardProfile(savedDeviceID: migrated.savedDeviceID).revision == 1)
-  let storedSnapshot = try sqliteText(
-    catalogURL, "SELECT device_snapshot_json FROM session_catalog"
-  )
-  let snapshot = try #require(storedSnapshot)
-  #expect(snapshot.contains(migrated.savedDeviceID))
-  #expect(snapshot.contains(migrated.deviceHistoryID))
-  #expect(!snapshot.contains("platform-id"))
 }
 
 private func sqliteExecute(_ url: URL, _ sql: String) throws {

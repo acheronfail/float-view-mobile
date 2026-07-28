@@ -42,14 +42,12 @@ class SQLiteLogStore(
     rootDirectory: File = File(context.filesDir, "float-view/logs"),
 ) : LogStorePort, ProductStorePort, SessionStorePort {
     private val appContext = context.applicationContext
-    private val root = rootDirectory.apply { mkdirs() }
+    private val root = prepareStorageRoot(rootDirectory)
     private val catalog = CatalogOpenHelper(appContext, File(root, "catalog.sqlite").path)
     private var current: SessionRecord? = null
     private var sessionDb: SQLiteDatabase? = null
 
     init {
-        backfillV2Summaries(catalog.writableDatabase)
-        migrateLegacySavedDeviceIdentifiers(catalog.writableDatabase)
         resumePendingDeletes(catalog.writableDatabase)
         cleanupStagedExports()
     }
@@ -65,7 +63,7 @@ class SQLiteLogStore(
         val fileName = "session-${sessionId.value}.sqlite"
         val sessionFile = File(root, fileName)
         // Force catalog creation before creating the per-session file so a
-        // catalog migration/configuration failure cannot leave an orphan.
+        // catalog configuration failure cannot leave an orphan.
         val catalogDb = catalog.writableDatabase
         val db = SQLiteDatabase.openOrCreateDatabase(sessionFile, null)
         try {
@@ -73,8 +71,7 @@ class SQLiteLogStore(
                 "Unable to enable WAL for durable session logging"
             }
             executePragma(db, "PRAGMA synchronous = FULL")
-            executeScript(db, asset("session-v1.sql"), skipPragmas = true)
-            executeScript(db, asset("session-v2.sql"))
+            executeScript(db, asset("session.sql"), skipPragmas = true)
         } catch (error: Exception) {
             db.close()
             SQLiteDatabase.deleteDatabase(sessionFile)
@@ -970,113 +967,6 @@ class SQLiteLogStore(
         )
     }
 
-    private fun backfillV2Summaries(catalogDb: SQLiteDatabase) {
-        val completed = catalogDb.rawQuery(
-            """
-            SELECT CAST(value AS INTEGER) FROM schema_metadata
-            WHERE key = 'summary_backfill_version'
-            """.trimIndent(),
-            null,
-        ).use { cursor -> cursor.moveToFirst() && cursor.getInt(0) == 2 }
-        if (completed) return
-        val files = catalogDb.rawQuery(
-            "SELECT session_id, file_name FROM session_catalog",
-            null,
-        ).use { cursor ->
-            buildList {
-                while (cursor.moveToNext()) add(cursor.getString(0) to cursor.getString(1))
-            }
-        }
-        for ((sessionId, fileName) in files) {
-            val file = File(root, fileName)
-            if (!file.exists()) continue
-            val db = SQLiteDatabase.openDatabase(file.path, null, SQLiteDatabase.OPEN_READWRITE)
-            try {
-                val version = db.rawQuery(
-                    """
-                    SELECT CAST(value AS INTEGER) FROM schema_metadata
-                    WHERE key = 'session_version'
-                    """.trimIndent(),
-                    null,
-                ).use { cursor -> if (cursor.moveToFirst()) cursor.getInt(0) else 1 }
-                if (version < LogSchema.SESSION_VERSION) {
-                    executeScript(db, asset("session-v2.sql"))
-                }
-                var committedSequence = 0L
-                var count = 0L
-                var lastElapsed: Long? = null
-                var previousSpeed: Double? = null
-                var ridingElapsed = 0L
-                var distance = 0.0
-                var maxSpeed: Double? = null
-                var maxDuty: Double? = null
-                db.rawQuery(
-                    """
-                    SELECT sequence, monotonic_elapsed_ms, ride_state, duty_cycle, extension_json
-                    FROM sample ORDER BY monotonic_elapsed_ms, sequence
-                    """.trimIndent(),
-                    null,
-                ).use { cursor ->
-                    while (cursor.moveToNext()) {
-                        committedSequence = cursor.getLong(0)
-                        val elapsed = cursor.getLong(1)
-                        val riding = cursor.getString(2) == "riding"
-                        val duty = cursor.optionalDouble(3)?.let { kotlin.math.abs(it) }
-                        val speed = try {
-                            JSONObject(cursor.getString(4))
-                                .takeIf { it.has("speedKph") && !it.isNull("speedKph") }
-                                ?.getDouble("speedKph")
-                                ?.let { kotlin.math.abs(it) / 3.6 }
-                        } catch (_: Exception) {
-                            null
-                        }
-                        lastElapsed?.let { previousElapsed ->
-                            val delta = maxOf(0, elapsed - previousElapsed)
-                            if (riding) ridingElapsed += delta
-                            if (speed != null) {
-                                distance +=
-                                    ((previousSpeed ?: speed) + speed) * 0.5 * delta / 1_000.0
-                            }
-                        }
-                        if (speed != null) maxSpeed = maxOf(maxSpeed ?: speed, speed)
-                        if (duty != null) maxDuty = maxOf(maxDuty ?: duty, duty)
-                        lastElapsed = elapsed
-                        previousSpeed = speed
-                        count += 1
-                    }
-                }
-                catalogDb.execSQL(
-                    """
-                    UPDATE session_catalog SET committed_sequence = ?, sample_count = ?,
-                      riding_elapsed_ms = ?, total_elapsed_ms = ?, distance_m = ?,
-                      max_speed_mps = ?, max_duty_cycle = ?, last_sample_elapsed_ms = ?,
-                      last_speed_mps = ? WHERE session_id = ?
-                    """.trimIndent(),
-                    arrayOf(
-                        committedSequence,
-                        count,
-                        ridingElapsed,
-                        lastElapsed ?: 0,
-                        distance,
-                        maxSpeed,
-                        maxDuty,
-                        lastElapsed,
-                        previousSpeed,
-                        sessionId,
-                    ),
-                )
-            } finally {
-                db.close()
-            }
-        }
-        catalogDb.execSQL(
-            """
-            INSERT OR REPLACE INTO schema_metadata(key, value)
-            VALUES ('summary_backfill_version', '2')
-            """.trimIndent(),
-        )
-    }
-
     private fun openSession(sessionId: String): SQLiteDatabase {
         val fileName = catalog.writableDatabase.rawQuery(
             "SELECT file_name FROM session_catalog WHERE session_id = ? AND pending_delete = 0",
@@ -1087,13 +977,7 @@ class SQLiteLogStore(
         }
         val file = File(root, fileName)
         if (!file.exists()) throw SessionStoreException.SessionNotFound
-        val db = SQLiteDatabase.openDatabase(file.path, null, SQLiteDatabase.OPEN_READWRITE)
-        val version = db.rawQuery(
-            "SELECT CAST(value AS INTEGER) FROM schema_metadata WHERE key = 'session_version'",
-            null,
-        ).use { cursor -> if (cursor.moveToFirst()) cursor.getInt(0) else 1 }
-        if (version < LogSchema.SESSION_VERSION) executeScript(db, asset("session-v2.sql"))
-        return db
+        return SQLiteDatabase.openDatabase(file.path, null, SQLiteDatabase.OPEN_READWRITE)
     }
 
     private fun readSeries(
@@ -1270,76 +1154,6 @@ class SQLiteLogStore(
         )
     }
 
-    private fun migrateLegacySavedDeviceIdentifiers(db: SQLiteDatabase) {
-        val legacy = db.rawQuery(
-            """
-            SELECT saved_device_id, device_history_id
-            FROM saved_device
-            WHERE saved_device_id = 'saved-' || opaque_platform_id
-               OR device_history_id = 'history-' || opaque_platform_id
-            """.trimIndent(),
-            null,
-        ).use { cursor ->
-            buildList {
-                while (cursor.moveToNext()) add(cursor.getString(0) to cursor.getString(1))
-            }
-        }
-        if (legacy.isEmpty()) return
-        db.beginTransaction()
-        try {
-            db.execSQL("PRAGMA defer_foreign_keys = ON")
-            legacy.forEach { (oldSavedDeviceId, oldDeviceHistoryId) ->
-                val savedDeviceId = UUID.randomUUID().toString()
-                val deviceHistoryId = UUID.randomUUID().toString()
-                val snapshots = db.rawQuery(
-                    """
-                    SELECT session_id, device_snapshot_json FROM session_catalog
-                    WHERE device_history_id = ?
-                    """.trimIndent(),
-                    arrayOf(oldDeviceHistoryId),
-                ).use { cursor ->
-                    buildList {
-                        while (cursor.moveToNext()) add(cursor.getString(0) to cursor.getString(1))
-                    }
-                }
-                db.execSQL(
-                    """
-                    UPDATE saved_device SET saved_device_id = ?, device_history_id = ?
-                    WHERE saved_device_id = ?
-                    """.trimIndent(),
-                    arrayOf(savedDeviceId, deviceHistoryId, oldSavedDeviceId),
-                )
-                db.execSQL(
-                    "UPDATE board_profile SET saved_device_id = ? WHERE saved_device_id = ?",
-                    arrayOf(savedDeviceId, oldSavedDeviceId),
-                )
-                db.execSQL(
-                    "UPDATE session_catalog SET device_history_id = ? WHERE device_history_id = ?",
-                    arrayOf(deviceHistoryId, oldDeviceHistoryId),
-                )
-                db.execSQL(
-                    "UPDATE session_group SET device_history_id = ? WHERE device_history_id = ?",
-                    arrayOf(deviceHistoryId, oldDeviceHistoryId),
-                )
-                snapshots.forEach { (sessionId, snapshotJson) ->
-                    val snapshot = JSONObject(snapshotJson)
-                        .put("savedDeviceId", savedDeviceId)
-                        .put("deviceHistoryId", deviceHistoryId)
-                    db.execSQL(
-                        """
-                        UPDATE session_catalog SET device_snapshot_json = ?
-                        WHERE session_id = ?
-                        """.trimIndent(),
-                        arrayOf(snapshot.toString(), sessionId),
-                    )
-                }
-            }
-            db.setTransactionSuccessful()
-        } finally {
-            db.endTransaction()
-        }
-    }
-
     private fun boardProfile(
         db: SQLiteDatabase,
         savedDeviceId: String,
@@ -1455,7 +1269,7 @@ class SQLiteLogStore(
     }
 
     private class CatalogOpenHelper(private val appContext: Context, path: String) :
-        SQLiteOpenHelper(appContext, path, null, LogSchema.CATALOG_VERSION) {
+        SQLiteOpenHelper(appContext, path, null, 1) {
         init {
             setWriteAheadLoggingEnabled(true)
         }
@@ -1465,7 +1279,7 @@ class SQLiteLogStore(
             db.execSQL("PRAGMA synchronous = FULL")
         }
         override fun onCreate(db: SQLiteDatabase) {
-            val script = appContext.assets.open("catalog-v1.sql").bufferedReader().use { it.readText() }
+            val script = appContext.assets.open("catalog.sql").bufferedReader().use { it.readText() }
             script.lineSequence()
                 .filterNot { it.trimStart().startsWith("--") }
                 // SQLiteOpenHelper wraps onCreate in a transaction. WAL and
@@ -1476,35 +1290,13 @@ class SQLiteLogStore(
                 .map(String::trim)
                 .filter(String::isNotEmpty)
                 .forEach(db::execSQL)
-            val migration = appContext.assets.open("catalog-v2.sql")
-                .bufferedReader().use { it.readText() }
-            migration.lineSequence()
-                .filterNot { it.trimStart().startsWith("--") }
-                .joinToString("\n")
-                .split(';')
-                .map(String::trim)
-                .filter(String::isNotEmpty)
-                .forEach(db::execSQL)
-            applyMigration(db, "catalog-v3.sql")
         }
         override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
-            if (oldVersion < 2 && newVersion >= 2) {
-                applyMigration(db, "catalog-v2.sql")
-            }
-            if (oldVersion < 3 && newVersion >= 3) {
-                applyMigration(db, "catalog-v3.sql")
-            }
+            error("Storage version marker did not reset an outdated catalog")
         }
 
-        private fun applyMigration(db: SQLiteDatabase, assetName: String) {
-            val script = appContext.assets.open(assetName).bufferedReader().use { it.readText() }
-            script.lineSequence()
-                .filterNot { it.trimStart().startsWith("--") }
-                .joinToString("\n")
-                .split(';')
-                .map(String::trim)
-                .filter(String::isNotEmpty)
-                .forEach(db::execSQL)
+        override fun onDowngrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
+            error("Storage version marker did not reset an outdated catalog")
         }
     }
 

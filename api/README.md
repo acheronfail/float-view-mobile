@@ -3,11 +3,6 @@
 This directory is the source of truth for the versioned local API between the
 shared web UI and every native backend.
 
-The active delivery sequence is documented in
-[`../docs/reset-roadmap.md`](../docs/reset-roadmap.md). The lifecycle acceptance
-contract for the first connect/read/log/disconnect slice is
-[`../docs/vertical-slice-v1.md`](../docs/vertical-slice-v1.md).
-
 ```text
 asyncapi.yaml                 WebSocket channel and operations
 schemas/*.schema.json         JSON Schema 2020-12 payload definitions
@@ -43,14 +38,11 @@ cd ../android
 ./gradlew :api-models:test
 ```
 
-The current implementation is intentionally additive:
-
-- `/api/v1/ws` is JSON-RPC 2.0 and currently supports `system.hello` followed by
-  `system.getSnapshot` in the development mock.
-- `/ws` remains the legacy protocol used by iOS, Android, and the existing UI.
-
-Do not send legacy messages to the v1 endpoint or add v1 fields to the legacy Zod
-contract. Migrate one complete, conformant operation at a time.
+`/api/v1/ws` is the sole UI transport. The mock and native hosts implement the
+same JSON-RPC envelope and `system.snapshotChanged` notification. Some product
+operations are still ahead of the committed schema; do not advertise them as
+contract-complete until schema, examples, generated models, mock, conformance,
+Swift, and Kotlin agree.
 
 The black-box system suite is under `conformance/` and can be run against the
-mock with `just api-conformance`.
+mock with `just verify` or `cd web && npm run api:conformance:mock`.

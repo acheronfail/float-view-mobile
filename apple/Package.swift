@@ -15,12 +15,18 @@ let package = Package(
     .library(name: "FloatViewHost", targets: ["FloatViewHost"]),
     .executable(name: "FloatViewMac", targets: ["FloatViewMac"]),
   ],
+  dependencies: [
+    .package(url: "https://github.com/swhitty/FlyingFox.git", from: "0.27.1"),
+  ],
   targets: [
     .systemLibrary(name: "CSQLite"),
     .target(name: "FloatViewProtocol", dependencies: ["FloatViewCore"]),
     .target(name: "FloatViewLogging", dependencies: ["FloatViewCore", "CSQLite"]),
     .target(name: "FloatViewBluetooth", dependencies: ["FloatViewCore"]),
-    .target(name: "FloatViewHost", dependencies: ["FloatViewCore"]),
+    .target(
+      name: "FloatViewHost",
+      dependencies: ["FloatViewCore", .product(name: "FlyingFox", package: "FlyingFox")]
+    ),
     .target(name: "FloatViewCore"),
     .executableTarget(
       name: "FloatViewMac",

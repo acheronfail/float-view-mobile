@@ -110,16 +110,6 @@ private final class Database: @unchecked Sendable {
     return Int(sqlite3_column_int64(statement, 0))
   }
 
-  func optionalScalarInt(_ sql: String) throws -> Int? {
-    var statement: OpaquePointer?
-    guard sqlite3_prepare_v2(handle, sql, -1, &statement, nil) == SQLITE_OK else {
-      throw SQLiteLogStoreError.sqlite(String(cString: sqlite3_errmsg(handle)))
-    }
-    defer { sqlite3_finalize(statement) }
-    guard sqlite3_step(statement) == SQLITE_ROW else { return nil }
-    return Int(sqlite3_column_int64(statement, 0))
-  }
-
   private func bind(_ values: [SQLiteValue], to statement: OpaquePointer?) {
     for (index, value) in values.enumerated() {
       let position = Int32(index + 1)
@@ -161,7 +151,7 @@ public final class SQLiteLogStore: LogStorePort, ProductStorePort, SessionStoreP
     self.root = root
     self.schemaDirectory = schemaDirectory
     self.availableBytes = availableBytes
-    try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+    try Self.prepareStorageRoot(root)
     #if os(iOS)
     // Sessions must remain writable after the user has unlocked once so native
     // background BLE logging does not depend on the WebView or an unlocked UI.
@@ -172,21 +162,21 @@ public final class SQLiteLogStore: LogStorePort, ProductStorePort, SessionStoreP
     )
     #endif
     catalog = try Database(url: root.appending(path: "catalog.sqlite"))
-    try catalog.execute(String(contentsOf: schemaDirectory.appending(path: "catalog-v1.sql")))
-    var catalogVersion = try catalog.scalarInt(
-      "SELECT CAST(value AS INTEGER) FROM schema_metadata WHERE key = 'catalog_version'"
-    )
-    if catalogVersion < 2 {
-      try catalog.execute(String(contentsOf: schemaDirectory.appending(path: "catalog-v2.sql")))
-      catalogVersion = 2
-    }
-    if catalogVersion < 3 {
-      try catalog.execute(String(contentsOf: schemaDirectory.appending(path: "catalog-v3.sql")))
-    }
-    try backfillV2Summaries()
-    try migrateLegacySavedDeviceIdentifiers()
+    try catalog.execute(String(contentsOf: schemaDirectory.appending(path: "catalog.sql")))
     try resumePendingDeletes()
     try cleanupStagedExports()
+  }
+
+  private static func prepareStorageRoot(_ root: URL) throws {
+    let fileManager = FileManager.default
+    let marker = root.appending(path: ".schema-version")
+    let storedVersion = try? String(contentsOf: marker, encoding: .utf8)
+      .trimmingCharacters(in: .whitespacesAndNewlines)
+    if fileManager.fileExists(atPath: root.path), storedVersion != LogSchema.storageVersion {
+      try fileManager.removeItem(at: root)
+    }
+    try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+    try Data(LogSchema.storageVersion.utf8).write(to: marker, options: .atomic)
   }
 
   public func create(deviceID: DeviceID, at: Date) throws -> SessionRecord {
@@ -200,8 +190,7 @@ public final class SQLiteLogStore: LogStorePort, ProductStorePort, SessionStoreP
     let jobID = JobID(UUID().uuidString)
     let fileName = "session-\(sessionID.value).sqlite"
     let session = try Database(url: root.appending(path: fileName))
-    try session.execute(String(contentsOf: schemaDirectory.appending(path: "session-v1.sql")))
-    try session.execute(String(contentsOf: schemaDirectory.appending(path: "session-v2.sql")))
+    try session.execute(String(contentsOf: schemaDirectory.appending(path: "session.sql")))
     let timestamp = Int64(at.timeIntervalSince1970 * 1_000)
     let savedDevice = try ensureSavedDeviceLocked(deviceID: deviceID, at: at)
     let profile = try boardProfileLocked(savedDeviceID: savedDevice.savedDeviceID, at: at)
@@ -235,82 +224,6 @@ public final class SQLiteLogStore: LogStorePort, ProductStorePort, SessionStoreP
     )
     current = record
     return record
-  }
-
-  private func migrateLegacySavedDeviceIdentifiers() throws {
-    let legacy = try catalog.query(
-      """
-      SELECT saved_device_id, device_history_id
-      FROM saved_device
-      WHERE saved_device_id = 'saved-' || opaque_platform_id
-         OR device_history_id = 'history-' || opaque_platform_id
-      """,
-      map: { statement in
-        (
-          savedDeviceID: Self.columnText(statement, 0)!,
-          deviceHistoryID: Self.columnText(statement, 1)!
-        )
-      }
-    )
-    guard !legacy.isEmpty else { return }
-    try catalog.execute("BEGIN IMMEDIATE")
-    do {
-      try catalog.execute("PRAGMA defer_foreign_keys = ON")
-      for item in legacy {
-        let savedDeviceID = UUID().uuidString
-        let deviceHistoryID = UUID().uuidString
-        let snapshots = try catalog.query(
-          """
-          SELECT session_id, device_snapshot_json FROM session_catalog
-          WHERE device_history_id = ?
-          """,
-          values: [.text(item.deviceHistoryID)],
-          map: { statement in
-            (
-              sessionID: Self.columnText(statement, 0)!,
-              json: Self.columnText(statement, 1)!
-            )
-          }
-        )
-        try catalog.statement(
-          """
-          UPDATE saved_device SET saved_device_id = ?, device_history_id = ?
-          WHERE saved_device_id = ?
-          """,
-          values: [
-            .text(savedDeviceID), .text(deviceHistoryID), .text(item.savedDeviceID),
-          ]
-        )
-        try catalog.statement(
-          "UPDATE board_profile SET saved_device_id = ? WHERE saved_device_id = ?",
-          values: [.text(savedDeviceID), .text(item.savedDeviceID)]
-        )
-        try catalog.statement(
-          "UPDATE session_catalog SET device_history_id = ? WHERE device_history_id = ?",
-          values: [.text(deviceHistoryID), .text(item.deviceHistoryID)]
-        )
-        try catalog.statement(
-          "UPDATE session_group SET device_history_id = ? WHERE device_history_id = ?",
-          values: [.text(deviceHistoryID), .text(item.deviceHistoryID)]
-        )
-        for snapshot in snapshots {
-          guard var value = try JSONSerialization.jsonObject(
-            with: Data(snapshot.json.utf8)
-          ) as? [String: Any]
-          else { throw ProductStoreError.invalidProfilePatch }
-          value["savedDeviceId"] = savedDeviceID
-          value["deviceHistoryId"] = deviceHistoryID
-          try catalog.statement(
-            "UPDATE session_catalog SET device_snapshot_json = ? WHERE session_id = ?",
-            values: [.text(try Self.jsonString(value)), .text(snapshot.sessionID)]
-          )
-        }
-      }
-      try catalog.execute("COMMIT")
-    } catch {
-      try? catalog.execute("ROLLBACK")
-      throw error
-    }
   }
 
   public func append(jobID: JobID, samples: [TelemetrySample]) throws {
@@ -1166,113 +1079,13 @@ public final class SQLiteLogStore: LogStorePort, ProductStorePort, SessionStoreP
     )
   }
 
-  private func backfillV2Summaries() throws {
-    if try catalog.optionalScalarInt(
-      "SELECT CAST(value AS INTEGER) FROM schema_metadata WHERE key = 'summary_backfill_version'"
-    ) == 2 {
-      return
-    }
-    let files = try catalog.query(
-      "SELECT session_id, file_name FROM session_catalog",
-      map: { (sessionID: Self.columnText($0, 0)!, fileName: Self.columnText($0, 1)!) }
-    )
-    for item in files {
-      let sessionURL = root.appending(path: item.fileName)
-      guard FileManager.default.fileExists(atPath: sessionURL.path) else {
-        try catalog.statement(
-          "UPDATE session_catalog SET integrity = 'corrupt' WHERE session_id = ?",
-          values: [.text(item.sessionID)]
-        )
-        continue
-      }
-      let database = try Database(url: sessionURL)
-      guard let version = try? database.scalarInt(
-        "SELECT CAST(value AS INTEGER) FROM schema_metadata WHERE key = 'session_version'"
-      ) else {
-        try catalog.statement(
-          "UPDATE session_catalog SET integrity = 'corrupt' WHERE session_id = ?",
-          values: [.text(item.sessionID)]
-        )
-        continue
-      }
-      if version < LogSchema.sessionVersion {
-        try database.execute(String(contentsOf: schemaDirectory.appending(path: "session-v2.sql")))
-      }
-      let samples = try database.query(
-        """
-        SELECT sequence, monotonic_elapsed_ms, ride_state, duty_cycle, extension_json
-        FROM sample ORDER BY monotonic_elapsed_ms, sequence
-        """
-      ) { statement in
-        (
-          sequence: sqlite3_column_int64(statement, 0),
-          elapsed: sqlite3_column_int64(statement, 1),
-          riding: Self.columnText(statement, 2) == RideState.riding.rawValue,
-          duty: Self.columnDouble(statement, 3),
-          extensionJSON: Self.columnText(statement, 4) ?? "{}"
-        )
-      }
-      var previousElapsed: Int64?
-      var previousSpeed: Double?
-      var ridingElapsed: Int64 = 0
-      var distance = 0.0
-      var maxSpeed: Double?
-      var maxDuty: Double?
-      for sample in samples {
-        let extensionFields = (try? JSONSerialization.jsonObject(
-          with: Data(sample.extensionJSON.utf8)
-        )) as? [String: Double]
-        let speed = extensionFields?["speedKph"].map { abs($0) / 3.6 }
-        if let previousElapsed {
-          let delta = max(0, sample.elapsed - previousElapsed)
-          if sample.riding { ridingElapsed += delta }
-          if let speed {
-            distance += ((previousSpeed ?? speed) + speed) * 0.5 * Double(delta) / 1_000
-          }
-        }
-        if let speed { maxSpeed = max(maxSpeed ?? speed, speed) }
-        if let duty = sample.duty.map(abs) { maxDuty = max(maxDuty ?? duty, duty) }
-        previousElapsed = sample.elapsed
-        previousSpeed = speed
-      }
-      try catalog.statement(
-        """
-        UPDATE session_catalog SET committed_sequence = ?, sample_count = ?,
-          riding_elapsed_ms = ?, total_elapsed_ms = ?, distance_m = ?,
-          max_speed_mps = ?, max_duty_cycle = ?, last_sample_elapsed_ms = ?,
-          last_speed_mps = ? WHERE session_id = ?
-        """,
-        values: [
-          .integer(samples.last?.sequence ?? 0), .integer(Int64(samples.count)),
-          .integer(ridingElapsed), .integer(samples.last?.elapsed ?? 0), .real(distance),
-          maxSpeed.map(SQLiteValue.real) ?? .null,
-          maxDuty.map(SQLiteValue.real) ?? .null,
-          samples.last.map { .integer($0.elapsed) } ?? .null,
-          previousSpeed.map(SQLiteValue.real) ?? .null,
-          .text(item.sessionID),
-        ]
-      )
-    }
-    try catalog.statement(
-      "INSERT OR REPLACE INTO schema_metadata(key, value) VALUES ('summary_backfill_version', '2')",
-      values: []
-    )
-  }
-
   private func openSessionLocked(sessionID: String) throws -> Database {
     guard let fileName = try catalog.query(
       "SELECT file_name FROM session_catalog WHERE session_id = ? AND pending_delete = 0",
       values: [.text(sessionID)],
       map: { Self.columnText($0, 0)! }
     ).first else { throw SessionStoreError.sessionNotFound }
-    let database = try Database(url: root.appending(path: fileName))
-    let version = try database.scalarInt(
-      "SELECT CAST(value AS INTEGER) FROM schema_metadata WHERE key = 'session_version'"
-    )
-    if version < LogSchema.sessionVersion {
-      try database.execute(String(contentsOf: schemaDirectory.appending(path: "session-v2.sql")))
-    }
-    return database
+    return try Database(url: root.appending(path: fileName))
   }
 
   private func readSeries(

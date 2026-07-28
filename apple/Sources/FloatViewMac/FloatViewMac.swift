@@ -173,6 +173,8 @@ private final class MacBackendRuntime: @unchecked Sendable {
   private let bluetooth: CoreBluetoothAdapter
   private let applicationService: ApplicationService
   private let webRoot: URL
+  private let events: EventHub
+  private let eventSubscription: EventSubscription
   let testSavedDeviceID: String?
 
   init(webRoot: URL) {
@@ -259,6 +261,8 @@ private final class MacBackendRuntime: @unchecked Sendable {
       testSavedDeviceID = nil
     }
     let settings = try! logStore.settings()
+    let events = EventHub()
+    let debugEvents = DebugEventSink()
     let applicationService = ApplicationService(
       bluetooth: bluetooth,
       clock: SystemClock(),
@@ -267,7 +271,7 @@ private final class MacBackendRuntime: @unchecked Sendable {
       sessionStore: logStore,
       protocolCodec: VescProtocolService(),
       scheduler: SystemScheduler(),
-      events: DebugEventSink(),
+      events: events,
       samplingSettings: SamplingSettings(
         idleProbeIntervalMs: settings.idleProbeIntervalMs,
         idlePersistIntervalMs: settings.idlePersistIntervalMs,
@@ -282,6 +286,8 @@ private final class MacBackendRuntime: @unchecked Sendable {
     self.bluetooth = bluetooth
     self.applicationService = applicationService
     self.webRoot = webRoot
+    self.events = events
+    eventSubscription = events.subscribe { debugEvents.publish($0) }
   }
 
   func makeServer(
@@ -291,7 +297,8 @@ private final class MacBackendRuntime: @unchecked Sendable {
       webRoot: webRoot,
       platform: "macos",
       applicationService: applicationService,
-      exportPresenter: exportPresenter
+      exportPresenter: exportPresenter,
+      events: events
     )
   }
 

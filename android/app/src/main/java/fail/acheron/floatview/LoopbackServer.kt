@@ -8,6 +8,7 @@ import fail.acheron.floatview.core.BluetoothState
 import fail.acheron.floatview.core.BoardProfileRecord
 import fail.acheron.floatview.core.ConnectionState
 import fail.acheron.floatview.core.DiscoveredDevice
+import fail.acheron.floatview.core.EventHub
 import fail.acheron.floatview.core.ProductStoreException
 import fail.acheron.floatview.core.SavedDeviceRecord
 import fail.acheron.floatview.core.SessionEventRecord
@@ -18,16 +19,30 @@ import fail.acheron.floatview.core.SessionSeriesPoint
 import fail.acheron.floatview.core.SessionStoreException
 import fail.acheron.floatview.core.SessionSummaryRecord
 import fail.acheron.floatview.core.SettingsRecord
-import java.io.BufferedInputStream
-import java.io.BufferedOutputStream
-import java.net.InetAddress
-import java.net.ServerSocket
-import java.net.Socket
-import java.nio.ByteBuffer
-import java.security.MessageDigest
+import fail.acheron.floatview.core.SessionRecord
 import java.security.SecureRandom
 import java.time.Instant
-import java.util.concurrent.Executors
+import io.ktor.http.ContentType
+import io.ktor.http.HttpStatusCode
+import io.ktor.server.application.install
+import io.ktor.server.cio.CIO
+import io.ktor.server.engine.EmbeddedServer
+import io.ktor.server.engine.embeddedServer
+import io.ktor.server.request.header
+import io.ktor.server.response.respondBytes
+import io.ktor.server.response.respondText
+import io.ktor.server.routing.get
+import io.ktor.server.routing.routing
+import io.ktor.server.websocket.WebSockets
+import io.ktor.server.websocket.webSocket
+import io.ktor.websocket.CloseReason
+import io.ktor.websocket.Frame
+import io.ktor.websocket.close
+import io.ktor.websocket.readText
+import io.ktor.websocket.send
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.launch
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -35,155 +50,110 @@ class LoopbackServer(
     private val assets: AssetManager,
     private val applicationService: ApplicationService? = null,
     private val exportPresenter: ((SessionExportRecord) -> Boolean)? = null,
+    private val events: EventHub? = null,
 ) {
-    private val executor = Executors.newCachedThreadPool()
     private val token = ByteArray(32).also(SecureRandom()::nextBytes)
         .let { Base64.encodeToString(it, Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING) }
-    private var server: ServerSocket? = null
-    val port: Int get() = requireNotNull(server).localPort
+    private var server: EmbeddedServer<*, *>? = null
+    private var boundPort = 0
+    val port: Int get() = boundPort
     val origin: String get() = "http://127.0.0.1:$port"
 
     fun start() {
         if (server != null) return
-        val socket = ServerSocket(0, 16, InetAddress.getByName("127.0.0.1"))
-        server = socket
-        executor.execute {
-            while (!socket.isClosed) {
-                try {
-                    val client = socket.accept()
-                    executor.execute { handle(client) }
-                } catch (_: Exception) {
-                    if (!socket.isClosed) continue
+        val started = embeddedServer(CIO, host = "127.0.0.1", port = 0) {
+            install(WebSockets) { maxFrameSize = 65_536 }
+            routing {
+                get("/api/bootstrap") {
+                    call.respondText(
+                        JSONObject()
+                            .put("apiVersion", JSONObject().put("major", 1).put("minor", 0))
+                            .put("webSocketUrl", "ws://127.0.0.1:$port/api/v1/ws")
+                            .put("sessionToken", token)
+                            .toString(),
+                        ContentType.Application.Json,
+                    )
+                }
+                webSocket("/api/v1/ws") {
+                    if (
+                        call.request.queryParameters["token"] != token ||
+                        call.request.header("Origin") != origin
+                    ) {
+                        close(CloseReason(CloseReason.Codes.VIOLATED_POLICY, "Forbidden"))
+                        return@webSocket
+                    }
+                    // Bound memory without dropping request responses. State
+                    // notifications are best-effort and naturally coalesce
+                    // while one message is queued.
+                    val messages = Channel<String>(capacity = 1)
+                    val forwarding = launch {
+                        for (message in messages) send(message)
+                    }
+                    val subscription = events?.subscribe { event ->
+                        if (event.invalidatesSnapshot()) {
+                            messages.trySend(SNAPSHOT_CHANGED_NOTIFICATION)
+                        }
+                    }
+                    var initialized = false
+                    try {
+                        for (frame in incoming) {
+                            if (frame !is Frame.Text) continue
+                            val request = try {
+                                JSONObject(frame.readText())
+                            } catch (_: Exception) {
+                                close(CloseReason(CloseReason.Codes.CANNOT_ACCEPT, "Invalid JSON"))
+                                return@webSocket
+                            }
+                            val response = handleRequest(request, initialized)
+                            if (
+                                request.optString("method") == "system.hello" &&
+                                !response.has("error")
+                            ) {
+                                initialized = true
+                            }
+                            messages.send(response.toString())
+                        }
+                    } finally {
+                        subscription?.close()
+                        messages.close()
+                        forwarding.join()
+                    }
+                }
+                get("/{path...}") {
+                    val relative = call.parameters.getAll("path")
+                        ?.joinToString("/")
+                        ?.ifEmpty { "index.html" }
+                        ?: "index.html"
+                    if (relative.split('/').any { it == ".." }) {
+                        call.respondBytes(ByteArray(0), status = HttpStatusCode.Forbidden)
+                        return@get
+                    }
+                    val body = try {
+                        assets.open("web/$relative").use { it.readBytes() }
+                    } catch (_: Exception) {
+                        call.respondBytes(ByteArray(0), status = HttpStatusCode.NotFound)
+                        return@get
+                    }
+                    val contentType = when (relative.substringAfterLast('.', "")) {
+                        "html" -> ContentType.Text.Html
+                        "js" -> ContentType.Application.JavaScript
+                        "css" -> ContentType.Text.CSS
+                        "svg" -> ContentType.Image.SVG
+                        else -> ContentType.Application.OctetStream
+                    }
+                    call.respondBytes(body, contentType)
                 }
             }
         }
+        started.start(wait = false)
+        boundPort = runBlocking { started.engine.resolvedConnectors().single().port }
+        server = started
     }
 
     fun stop() {
-        server?.close()
+        server?.stop(100, 500)
         server = null
-        executor.shutdownNow()
-    }
-
-    private fun handle(socket: Socket) = socket.use {
-        val input = BufferedInputStream(it.getInputStream())
-        val output = BufferedOutputStream(it.getOutputStream())
-        val headerBytes = ArrayList<Byte>()
-        var tail = ""
-        while (!tail.endsWith("\r\n\r\n") && headerBytes.size <= 65_536) {
-            val value = input.read()
-            if (value < 0) return
-            headerBytes += value.toByte()
-            tail = (tail + value.toChar()).takeLast(4)
-        }
-        val lines = headerBytes.toByteArray().decodeToString().split("\r\n")
-        val target = lines.firstOrNull()?.split(' ')?.getOrNull(1) ?: return
-        val headers = lines.drop(1).mapNotNull { line ->
-            val index = line.indexOf(':')
-            if (index < 0) null else line.substring(0, index).lowercase() to
-                line.substring(index + 1).trim()
-        }.toMap()
-
-        if (target.startsWith("/api/v1/ws")) {
-            val queryToken = target.substringAfter("token=", "").substringBefore('&')
-            if (
-                queryToken != token ||
-                headers["origin"] != origin ||
-                headers["upgrade"]?.lowercase() != "websocket"
-            ) {
-                http(output, "403 Forbidden", "text/plain", ByteArray(0))
-                return
-            }
-            val key = headers["sec-websocket-key"] ?: return
-            val accept = Base64.encodeToString(
-                MessageDigest.getInstance("SHA-1")
-                    .digest((key + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11").toByteArray()),
-                Base64.NO_WRAP,
-            )
-            output.write(
-                (
-                    "HTTP/1.1 101 Switching Protocols\r\n" +
-                        "Upgrade: websocket\r\nConnection: Upgrade\r\n" +
-                        "Sec-WebSocket-Accept: $accept\r\n\r\n"
-                    ).toByteArray(),
-            )
-            output.flush()
-            websocket(input, output)
-            return
-        }
-        if (target == "/api/bootstrap") {
-            val body = JSONObject()
-                .put("apiVersion", JSONObject().put("major", 1).put("minor", 0))
-                .put("webSocketUrl", "ws://127.0.0.1:$port/api/v1/ws")
-                .put("sessionToken", token)
-                .toString().toByteArray()
-            http(output, "200 OK", "application/json", body)
-            return
-        }
-        val relative = if (target == "/") "index.html" else target.substringBefore('?').drop(1)
-        if (relative.split('/').any { segment -> segment == ".." }) {
-            http(output, "403 Forbidden", "text/plain", ByteArray(0))
-            return
-        }
-        val body = try {
-            assets.open("web/$relative").use { stream -> stream.readBytes() }
-        } catch (_: Exception) {
-            http(output, "404 Not Found", "text/plain", ByteArray(0))
-            return
-        }
-        val type = when (relative.substringAfterLast('.', "")) {
-            "html" -> "text/html"
-            "js" -> "text/javascript"
-            "css" -> "text/css"
-            "svg" -> "image/svg+xml"
-            else -> "application/octet-stream"
-        }
-        http(output, "200 OK", type, body)
-    }
-
-    private fun websocket(input: BufferedInputStream, output: BufferedOutputStream) {
-        var initialized = false
-        while (true) {
-            val first = input.read()
-            val second = input.read()
-            if (first < 0 || second < 0) return
-            val opcode = first and 0x0f
-            var length = second and 0x7f
-            if (length == 126) {
-                val extendedLength = readExactly(input, 2) ?: return
-                length = ((extendedLength[0].toInt() and 0xff) shl 8) or
-                    (extendedLength[1].toInt() and 0xff)
-            }
-            if (length == 127 || length > 65_536) return
-            val mask = if ((second and 0x80) != 0) readExactly(input, 4) ?: return else ByteArray(0)
-            val payload = readExactly(input, length) ?: return
-            if (mask.isNotEmpty()) payload.indices.forEach { payload[it] =
-                (payload[it].toInt() xor mask[it % 4].toInt()).toByte()
-            }
-            when (opcode) {
-                1 -> {
-                    val request = try { JSONObject(payload.decodeToString()) } catch (_: Exception) { return }
-                    val response = handleRequest(request, initialized)
-                    if (request.optString("method") == "system.hello" && !response.has("error")) {
-                        initialized = true
-                    }
-                    frame(output, 1, response.toString().toByteArray())
-                }
-                8 -> return
-                9 -> frame(output, 10, payload)
-            }
-        }
-    }
-
-    private fun readExactly(input: BufferedInputStream, length: Int): ByteArray? {
-        val bytes = ByteArray(length)
-        var offset = 0
-        while (offset < length) {
-            val count = input.read(bytes, offset, length - offset)
-            if (count < 0) return null
-            offset += count
-        }
-        return bytes
+        boundPort = 0
     }
 
     private fun handleRequest(request: JSONObject, initialized: Boolean): JSONObject {
@@ -826,29 +796,20 @@ class LoopbackServer(
             failure(-32602, "protocol_error", "Invalid Settings patch")
     }
 
-    private fun frame(output: BufferedOutputStream, opcode: Int, payload: ByteArray) {
-        output.write(0x80 or opcode)
-        when {
-            payload.size < 126 -> output.write(payload.size)
-            payload.size <= 65_535 -> {
-                output.write(126)
-                output.write(payload.size shr 8)
-                output.write(payload.size)
-            }
-            else -> return
-        }
-        output.write(payload)
-        output.flush()
+    private fun Any.invalidatesSnapshot(): Boolean =
+        this is BluetoothState ||
+            this is ConnectionState ||
+            this is DiscoveredDevice ||
+            this is SessionRecord ||
+            this is BoardProfileRecord ||
+            this is SettingsRecord
+
+    private companion object {
+        val SNAPSHOT_CHANGED_NOTIFICATION = JSONObject()
+            .put("jsonrpc", "2.0")
+            .put("method", "system.snapshotChanged")
+            .put("params", JSONObject())
+            .toString()
     }
 
-    private fun http(output: BufferedOutputStream, status: String, type: String, body: ByteArray) {
-        output.write(
-            (
-                "HTTP/1.1 $status\r\nContent-Type: $type\r\nContent-Length: ${body.size}\r\n" +
-                    "Cache-Control: no-store\r\nConnection: close\r\n\r\n"
-                ).toByteArray(),
-        )
-        output.write(body)
-        output.flush()
-    }
 }

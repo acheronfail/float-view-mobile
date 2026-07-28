@@ -1,5 +1,5 @@
-/* T1 transport firmware for the Float View programmable VESC test device.
- * Project license is pending; see docs/implementation-scope-lock.md.
+/* Transport firmware for the Float View programmable VESC test device.
+ * Project license is pending.
  */
 
 #include <inttypes.h>
@@ -766,7 +766,7 @@ static void process_command(const char *line) {
     } else {
         emit_command_error(
             command_sequence, kind, "unsupportedCommand",
-            "Command kind is not supported by T1");
+            "Command kind is not supported");
     }
 
 }

@@ -2,12 +2,6 @@ PRAGMA journal_mode = WAL;
 PRAGMA foreign_keys = ON;
 PRAGMA synchronous = FULL;
 
-CREATE TABLE IF NOT EXISTS schema_metadata (
-  key TEXT PRIMARY KEY NOT NULL,
-  value TEXT NOT NULL
-);
-INSERT OR IGNORE INTO schema_metadata(key, value) VALUES ('catalog_version', '1');
-
 CREATE TABLE IF NOT EXISTS saved_device (
   saved_device_id TEXT PRIMARY KEY NOT NULL,
   device_history_id TEXT UNIQUE NOT NULL,
@@ -45,10 +39,26 @@ CREATE TABLE IF NOT EXISTS session_catalog (
   effective_idle_ms INTEGER NOT NULL,
   requested_riding_ms INTEGER NOT NULL,
   effective_riding_ms INTEGER NOT NULL,
-  close_reason TEXT
+  close_reason TEXT,
+  riding_elapsed_ms INTEGER NOT NULL DEFAULT 0,
+  total_elapsed_ms INTEGER NOT NULL DEFAULT 0,
+  distance_m REAL,
+  max_speed_mps REAL,
+  max_duty_cycle REAL,
+  last_sample_elapsed_ms INTEGER,
+  last_speed_mps REAL,
+  pending_delete INTEGER NOT NULL DEFAULT 0 CHECK (pending_delete IN (0, 1))
 );
 CREATE INDEX IF NOT EXISTS session_catalog_device_started
   ON session_catalog(device_history_id, started_at_ms DESC);
+CREATE INDEX IF NOT EXISTS session_catalog_started
+  ON session_catalog(started_at_ms DESC, session_id DESC);
+CREATE INDEX IF NOT EXISTS session_catalog_total_elapsed
+  ON session_catalog(total_elapsed_ms DESC, session_id DESC);
+CREATE INDEX IF NOT EXISTS session_catalog_distance
+  ON session_catalog(distance_m DESC, session_id DESC);
+CREATE INDEX IF NOT EXISTS session_catalog_pending_delete
+  ON session_catalog(pending_delete, started_at_ms DESC);
 
 CREATE TABLE IF NOT EXISTS session_group (
   session_group_id TEXT PRIMARY KEY NOT NULL,

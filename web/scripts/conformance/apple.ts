@@ -1,6 +1,8 @@
 import { spawn } from 'node:child_process';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { createInterface } from 'node:readline';
-import { resolve as resolvePath } from 'node:path';
+import { join, resolve as resolvePath } from 'node:path';
 import WebSocket from 'ws';
 import {
 	runBoardProfileConformance,
@@ -12,11 +14,13 @@ import {
 
 const executable =
 	process.env.FLOAT_VIEW_APPLE_HOST ?? '../apple/.build/arm64-apple-macosx/debug/FloatViewMac';
+const logRoot = mkdtempSync(join(tmpdir(), 'float-view-apple-conformance-'));
 const child = spawn(executable, ['--test-host'], {
 	cwd: process.cwd(),
 	env: {
 		...process.env,
 		FLOAT_VIEW_WEB_ROOT: resolvePath(process.cwd(), 'build'),
+		FLOAT_VIEW_LOG_ROOT: logRoot,
 		FLOAT_VIEW_TEST_SEED_PROFILE: '1'
 	},
 	stdio: ['ignore', 'pipe', 'inherit']
@@ -38,6 +42,10 @@ const readiness = await new Promise<{
 	});
 	child.once('exit', (code) => reject(new Error(`Apple host exited early: ${code}`)));
 });
+
+// FlyingFox reports its bound address before the accept loop is observable by
+// a separate process on some macOS versions.
+await new Promise((resolve) => setTimeout(resolve, 100));
 
 let socketToClose: WebSocket | undefined;
 const sharedClient = new Promise<ConformanceClient>((resolve, reject) => {
@@ -86,4 +94,5 @@ for (const result of results)
 	console.log(`PASS ${result.name} (${result.durationMs.toFixed(1)}ms)`);
 socketToClose?.terminate();
 child.kill('SIGTERM');
+rmSync(logRoot, { recursive: true, force: true });
 console.log(`Apple loopback host passed ${results.length} system conformance scenarios.`);

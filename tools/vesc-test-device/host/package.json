@@ -6,7 +6,6 @@
     "check": "tsc --noEmit",
     "test": "node --import tsx --test test/**/*.test.ts",
     "doctor": "node --import tsx src/doctor.ts",
-    "verify:macos": "node --import tsx src/verify-macos.ts",
     "verify:macos:ride": "node --import tsx src/verify-macos-ride.ts",
     "verify:macos:unexpected-disconnect": "node --import tsx src/verify-macos-ride.ts --mode unexpected-disconnect",
     "verify:android:ride": "node --import tsx src/verify-android.ts",

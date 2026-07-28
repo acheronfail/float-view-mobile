@@ -360,3 +360,16 @@ interface SessionStorePort {
 fun interface EventSink {
     fun publish(event: Any)
 }
+
+class EventHub : EventSink {
+    private val listeners = java.util.concurrent.CopyOnWriteArrayList<(Any) -> Unit>()
+
+    override fun publish(event: Any) {
+        listeners.forEach { it(event) }
+    }
+
+    fun subscribe(listener: (Any) -> Unit): AutoCloseable {
+        listeners += listener
+        return AutoCloseable { listeners -= listener }
+    }
+}

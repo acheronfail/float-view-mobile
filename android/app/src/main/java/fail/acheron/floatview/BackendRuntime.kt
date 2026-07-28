@@ -12,6 +12,7 @@ import fail.acheron.floatview.core.BluetoothEvent
 import fail.acheron.floatview.core.BluetoothState
 import fail.acheron.floatview.core.ClockPort
 import fail.acheron.floatview.core.ConnectionState
+import fail.acheron.floatview.core.EventHub
 import fail.acheron.floatview.core.SamplingSettings
 import fail.acheron.floatview.core.SessionExportRecord
 import fail.acheron.floatview.core.SessionRecord
@@ -30,6 +31,7 @@ class BackendRuntime(application: FloatViewApplication) {
     val permissionBroker = BluetoothPermissionBroker(application)
     val exportPresentationBroker = ExportPresentationBroker(application)
     private val relay = BluetoothEventRelay()
+    val events = EventHub()
     private val logStore = SQLiteLogStore(application).also { store ->
         val recovered = store.recoverInterrupted()
         if (debuggable) Log.d("FloatViewState", "recovery interruptedSessions=$recovered")
@@ -58,7 +60,9 @@ class BackendRuntime(application: FloatViewApplication) {
                 idleProbeIntervalMs = settings.idleProbeIntervalMs,
             )
         },
-    ) { event ->
+    ) { event -> events.publish(event) }
+
+    private val eventSubscription = events.subscribe { event ->
         // Stable diagnostic only; never log device identifiers or telemetry.
         if (event is Throwable) {
             Log.e("FloatViewBackend", "Native backend operation failed", event)

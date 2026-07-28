@@ -1,12 +1,6 @@
 PRAGMA journal_mode = WAL;
 PRAGMA synchronous = FULL;
 
-CREATE TABLE IF NOT EXISTS schema_metadata (
-  key TEXT PRIMARY KEY NOT NULL,
-  value TEXT NOT NULL
-);
-INSERT OR IGNORE INTO schema_metadata(key, value) VALUES ('session_version', '1');
-
 CREATE TABLE IF NOT EXISTS sample (
   sequence INTEGER PRIMARY KEY NOT NULL,
   observed_at_ms INTEGER NOT NULL,
@@ -17,7 +11,11 @@ CREATE TABLE IF NOT EXISTS sample (
   controller_temp_c REAL,
   motor_temp_c REAL,
   footpad_state INTEGER,
-  extension_json TEXT NOT NULL DEFAULT '{}'
+  extension_json TEXT NOT NULL DEFAULT '{}',
+  motor_current_a REAL,
+  battery_current_a REAL,
+  erpm REAL,
+  speed_kph REAL
 );
 CREATE INDEX IF NOT EXISTS sample_elapsed ON sample(monotonic_elapsed_ms);
 

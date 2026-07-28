@@ -688,3 +688,35 @@ public extension SessionStorePort {
 public protocol EventSink: Sendable {
   func publish(_ event: any Sendable)
 }
+
+public final class EventHub: EventSink, @unchecked Sendable {
+  private let lock = NSLock()
+  private var listeners: [UUID: @Sendable (any Sendable) -> Void] = [:]
+
+  public init() {}
+
+  public func publish(_ event: any Sendable) {
+    let current = lock.withLock { Array(listeners.values) }
+    current.forEach { $0(event) }
+  }
+
+  public func subscribe(
+    _ listener: @escaping @Sendable (any Sendable) -> Void
+  ) -> EventSubscription {
+    let id = UUID()
+    lock.withLock { listeners[id] = listener }
+    return EventSubscription { [weak self] in
+      _ = self?.lock.withLock { self?.listeners.removeValue(forKey: id) }
+    }
+  }
+}
+
+public final class EventSubscription: @unchecked Sendable {
+  private let cancelHandler: @Sendable () -> Void
+
+  fileprivate init(_ cancelHandler: @escaping @Sendable () -> Void) {
+    self.cancelHandler = cancelHandler
+  }
+
+  deinit { cancelHandler() }
+}

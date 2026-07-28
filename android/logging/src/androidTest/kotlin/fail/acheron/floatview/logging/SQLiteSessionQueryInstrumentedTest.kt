@@ -14,6 +14,7 @@ import java.time.Instant
 import kotlin.math.abs
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -125,47 +126,19 @@ class SQLiteSessionQueryInstrumentedTest {
     }
 
     @Test
-    fun schemaV2BackfillsExistingSessionSummaries() {
+    fun outdatedStorageIsDeletedAndRecreated() {
         val logs = File(root, "logs").apply { mkdirs() }
-        val catalog = SQLiteDatabase.openOrCreateDatabase(File(logs, "catalog.sqlite"), null)
-        executeAsset(catalog, "catalog-v1.sql")
-        catalog.execSQL(
-            """
-            INSERT INTO session_catalog(
-              session_id, job_id, device_history_id, device_snapshot_json,
-              profile_snapshot_json, profile_revision, file_name, started_at_ms,
-              state, integrity, requested_idle_ms, effective_idle_ms,
-              requested_riding_ms, effective_riding_ms
-            ) VALUES (
-              'legacy-session', 'legacy-job', 'legacy-history', '{"displayName":"Legacy board"}',
-              '{}', 0, 'session-legacy.sqlite', 0, 'completed', 'complete',
-              1000, 1000, 100, 100
-            )
-            """.trimIndent(),
-        )
-        catalog.version = 1
-        catalog.close()
-        val session = SQLiteDatabase.openOrCreateDatabase(File(logs, "session-legacy.sqlite"), null)
-        executeAsset(session, "session-v1.sql")
-        session.execSQL(
-            """
-            INSERT INTO sample(
-              sequence, observed_at_ms, monotonic_elapsed_ms, ride_state,
-              raw_pack_voltage_v, duty_cycle, extension_json
-            ) VALUES
-              (1, 0, 0, 'idle', 60, 0.1, '{"speedKph":0}'),
-              (2, 1000, 1000, 'riding', 59, 0.7, '{"speedKph":18}')
-            """.trimIndent(),
-        )
-        session.close()
+        val stale = File(logs, "old.sqlite").apply { writeText("old data") }
+        File(logs, ".schema-version").writeText("outdated")
 
-        val store = SQLiteLogStore(context, availableBytes = { 2_000_000_000 })
-        val summary = store.session("legacy-session")
-        assertEquals("Legacy board", summary.displayName)
-        assertEquals(2, summary.sampleCount)
-        assertEquals(1_000, summary.totalElapsedMs)
-        assertEquals(1_000, summary.ridingElapsedMs)
-        assertEquals(0.7, summary.maxDutyCycle)
+        val store = SQLiteLogStore(
+            context,
+            availableBytes = { 2_000_000_000 },
+            rootDirectory = logs,
+        )
+        assertFalse(stale.exists())
+        assertTrue(store.sessions(SessionListQuery()).items.isEmpty())
+        assertEquals(LogSchema.STORAGE_VERSION, File(logs, ".schema-version").readText())
     }
 
     @Test
@@ -277,7 +250,7 @@ class SQLiteSessionQueryInstrumentedTest {
     }
 
     @Test
-    fun schemaV3ResumesAnInterruptedSessionDeletion() {
+    fun startupResumesAnInterruptedSessionDeletion() {
         val store = SQLiteLogStore(context, availableBytes = { 2_000_000_000 })
         val record = store.create(DeviceId("delete-recovery"), Instant.EPOCH)
         store.close(record.jobId, Instant.EPOCH, "test")
@@ -305,15 +278,4 @@ class SQLiteSessionQueryInstrumentedTest {
         assertTrue(restarted.sessions(SessionListQuery()).items.isEmpty())
     }
 
-    private fun executeAsset(db: SQLiteDatabase, name: String) {
-        context.assets.open(name).bufferedReader().use { it.readText() }
-            .lineSequence()
-            .filterNot { it.trimStart().startsWith("--") }
-            .filterNot { it.trimStart().startsWith("PRAGMA", ignoreCase = true) }
-            .joinToString("\n")
-            .split(';')
-            .map(String::trim)
-            .filter(String::isNotEmpty)
-            .forEach(db::execSQL)
-    }
 }

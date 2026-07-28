@@ -15,6 +15,7 @@ class FloatViewApplication : Application() {
             assets,
             runtime.applicationService,
             runtime.exportPresentationBroker::present,
+            runtime.events,
         ).also { it.start() }
     }
 

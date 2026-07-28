@@ -5,7 +5,7 @@ info:
   description: |
     The platform-neutral contract between the shared web UI and a native Float
     View backend. This initial contract implements version negotiation and state
-    snapshots while the legacy /ws protocol remains available during migration.
+    snapshots and coarse state-change notifications.
 defaultContentType: application/json
 servers:
   local:
@@ -29,6 +29,8 @@ channels:
         $ref: "#/components/messages/getSnapshotRequest"
       getSnapshotResponse:
         $ref: "#/components/messages/getSnapshotResponse"
+      snapshotChanged:
+        $ref: "#/components/messages/snapshotChanged"
       errorResponse:
         $ref: "#/components/messages/errorResponse"
 operations:
@@ -60,6 +62,13 @@ operations:
     messages:
       - $ref: "#/channels/api/messages/getSnapshotResponse"
       - $ref: "#/channels/api/messages/errorResponse"
+  sendSnapshotChanged:
+    action: send
+    channel:
+      $ref: "#/channels/api"
+    summary: Tell clients to refresh the authoritative snapshot and collections.
+    messages:
+      - $ref: "#/channels/api/messages/snapshotChanged"
 components:
   messages:
     helloRequest:
@@ -82,3 +91,17 @@ components:
       name: JSON-RPC error response
       payload:
         $ref: "./schemas/common.schema.json#/$defs/RpcErrorResponse"
+    snapshotChanged:
+      name: system.snapshotChanged notification
+      payload:
+        type: object
+        additionalProperties: false
+        required: [jsonrpc, method, params]
+        properties:
+          jsonrpc:
+            const: "2.0"
+          method:
+            const: system.snapshotChanged
+          params:
+            type: object
+            additionalProperties: false

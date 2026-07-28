@@ -49,6 +49,8 @@ export class ApiStore {
 	exportStatus = $state<string | null>(null);
 	busy = $state(false);
 	private client: ApiClient | null = null;
+	private unsubscribeSnapshot: (() => void) | null = null;
+	private refreshTimer: ReturnType<typeof setTimeout> | null = null;
 
 	constructor(
 		private readonly bootstrapLoader = loadBootstrap,
@@ -57,6 +59,8 @@ export class ApiStore {
 
 	async connect(): Promise<void> {
 		this.status = this.client ? 'reconnecting' : 'starting';
+		this.unsubscribeSnapshot?.();
+		this.unsubscribeSnapshot = null;
 		this.client?.close();
 		this.client = null;
 		try {
@@ -67,6 +71,9 @@ export class ApiStore {
 				api: { major: 1, minMinor: 0, maxMinor: 0 }
 			});
 			this.snapshot = this.hello.snapshot;
+			this.unsubscribeSnapshot = this.client.onNotification('system.snapshotChanged', () =>
+				this.scheduleRefresh()
+			);
 			await this.refreshCollections();
 			this.status = 'connected';
 			this.error = null;
@@ -127,13 +134,12 @@ export class ApiStore {
 	}
 
 	private async waitForPermissionResolution(client: ApiClient): Promise<BluetoothState> {
-		const deadline = Date.now() + 30_000;
-		let state = await client.request('bluetooth.getState', {});
-		while (permissionOutcome(state) === 'pending' && Date.now() < deadline) {
-			await new Promise((resolve) => setTimeout(resolve, 250));
-			state = await client.request('bluetooth.getState', {});
-		}
-		return state;
+		const snapshot = await this.waitForSnapshot(
+			client,
+			(value) => permissionOutcome(value.bluetooth) !== 'pending',
+			30_000
+		);
+		return snapshot.bluetooth;
 	}
 
 	private updateBluetoothState(bluetooth: BluetoothState): void {
@@ -144,40 +150,25 @@ export class ApiStore {
 		await this.run(async (client) => {
 			this.firmware = null;
 			await client.request('device.connect', { deviceId, timeoutMs: 10_000 });
-			const deadline = Date.now() + 10_000;
-			do {
-				await this.refreshCollections();
-				const state = this.snapshot?.activeConnection?.state;
-				if (state === 'ready') {
-					await this.loadFirmwareInfo(client);
-					return;
-				}
-				if (state === 'failed' || state === 'disconnected') return;
-				if (!this.snapshot?.activeConnection) {
-					throw new Error('The board disconnected before its VESC service became ready.');
-				}
-				await new Promise((resolve) => setTimeout(resolve, 250));
-			} while (Date.now() < deadline);
-			throw new Error('The board did not finish connecting within 10 seconds.');
+			const snapshot = await this.waitForSnapshot(client, (value) => {
+				const state = value.activeConnection?.state;
+				return state === 'ready' || state === 'failed' || state === 'disconnected';
+			});
+			if (snapshot.activeConnection?.state === 'ready') await this.loadFirmwareInfo(client);
 		});
 	}
 
 	async disconnectDevice(): Promise<void> {
 		await this.run(async (client) => {
 			await client.request('device.disconnect', {});
-			const deadline = Date.now() + 10_000;
-			do {
-				await this.refreshCollections();
-				if (!this.snapshot?.activeConnection) {
-					this.firmware = null;
-					return;
-				}
-				if (this.snapshot.activeConnection.state === 'failed') {
-					throw new Error('The board did not disconnect cleanly.');
-				}
-				await new Promise((resolve) => setTimeout(resolve, 250));
-			} while (Date.now() < deadline);
-			throw new Error('The board did not finish disconnecting within 10 seconds.');
+			const snapshot = await this.waitForSnapshot(
+				client,
+				(value) => !value.activeConnection || value.activeConnection.state === 'failed'
+			);
+			if (snapshot.activeConnection?.state === 'failed') {
+				throw new Error('The board did not disconnect cleanly.');
+			}
+			this.firmware = null;
 		});
 	}
 
@@ -310,6 +301,10 @@ export class ApiStore {
 	}
 
 	close(): void {
+		this.unsubscribeSnapshot?.();
+		this.unsubscribeSnapshot = null;
+		if (this.refreshTimer) clearTimeout(this.refreshTimer);
+		this.refreshTimer = null;
 		this.client?.close();
 		this.client = null;
 	}
@@ -327,6 +322,53 @@ export class ApiStore {
 		} finally {
 			this.busy = false;
 		}
+	}
+
+	private scheduleRefresh(): void {
+		if (this.refreshTimer) return;
+		this.refreshTimer = setTimeout(() => {
+			this.refreshTimer = null;
+			void this.refreshCollections().catch((error) => {
+				this.error = error instanceof Error ? error.message : String(error);
+			});
+		}, 50);
+	}
+
+	private waitForSnapshot(
+		client: ApiClient,
+		matches: (snapshot: Snapshot) => boolean,
+		timeoutMs = 10_000
+	): Promise<Snapshot> {
+		return new Promise((resolve, reject) => {
+			let checking = false;
+			const timeout = setTimeout(() => {
+				unsubscribe();
+				reject(new Error('Timed out waiting for backend state'));
+			}, timeoutMs);
+			const finish = (snapshot: Snapshot) => {
+				if (!matches(snapshot)) return false;
+				clearTimeout(timeout);
+				unsubscribe();
+				this.snapshot = snapshot;
+				resolve(snapshot);
+				return true;
+			};
+			const check = async () => {
+				if (checking) return;
+				checking = true;
+				try {
+					finish(await client.request('system.getSnapshot', {}));
+				} catch (error) {
+					clearTimeout(timeout);
+					unsubscribe();
+					reject(error);
+				} finally {
+					checking = false;
+				}
+			};
+			const unsubscribe = client.onNotification('system.snapshotChanged', check);
+			void check();
+		});
 	}
 }
 

@@ -16,6 +16,4 @@ negotiates a minor version through `system.hello`.
 - A capability may be advertised as available only when that backend passes its
   corresponding conformance scenarios.
 
-During migration, `/ws` carries the legacy uncorrelated protocol and
-`/api/v1/ws` carries JSON-RPC 2.0. The endpoints must not accept each other's
-message shapes.
+`/api/v1/ws` is the sole UI protocol endpoint.

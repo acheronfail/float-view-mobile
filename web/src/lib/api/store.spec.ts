@@ -186,6 +186,10 @@ class FakeClient {
 		}
 	}
 
+	onNotification(): () => void {
+		return () => {};
+	}
+
 	close(): void {
 		this.isOpen = false;
 	}

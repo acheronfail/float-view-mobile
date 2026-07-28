@@ -7,6 +7,7 @@ final class AppBackend: ObservableObject {
   let applicationService: ApplicationService
   @Published private(set) var frontend: FrontendEndpoint?
   private let frontendLifecycle: FrontendLifecycleCoordinator
+  private let eventSubscription: EventSubscription
 
   init() {
     let relay = BluetoothEventRelay()
@@ -45,6 +46,8 @@ final class AppBackend: ObservableObject {
     try! logStore.recoverInterrupted()
     #endif
     let settings = try! logStore.settings()
+    let events = EventHub()
+    let debugEvents = DebugEventSink()
     let applicationService = ApplicationService(
       bluetooth: bluetooth,
       clock: SystemClock(),
@@ -53,7 +56,7 @@ final class AppBackend: ObservableObject {
       sessionStore: logStore,
       protocolCodec: VescProtocolService(),
       scheduler: SystemScheduler(),
-      events: DebugEventSink(),
+      events: events,
       samplingSettings: SamplingSettings(
         idleProbeIntervalMs: settings.idleProbeIntervalMs,
         idlePersistIntervalMs: settings.idlePersistIntervalMs,
@@ -69,6 +72,7 @@ final class AppBackend: ObservableObject {
     let webRoot = Bundle.main.resourceURL!.appendingPathComponent("build", isDirectory: true)
     self.bluetooth = bluetooth
     self.applicationService = applicationService
+    eventSubscription = events.subscribe { debugEvents.publish($0) }
     let frontendLifecycle = FrontendLifecycleCoordinator {
       LoopbackServer(
         webRoot: webRoot,
@@ -76,7 +80,8 @@ final class AppBackend: ObservableObject {
         applicationService: applicationService,
         exportPresenter: { @Sendable value in
           IOSExportPresenter.schedule(value)
-        }
+        },
+        events: events
       )
     }
     self.frontendLifecycle = frontendLifecycle

@@ -1,6 +1,18 @@
 package fail.acheron.floatview.logging
 
+import java.io.File
+
 object LogSchema {
-    const val CATALOG_VERSION = 3
-    const val SESSION_VERSION = 2
+    const val STORAGE_VERSION = "1"
+}
+
+internal fun prepareStorageRoot(root: File): File {
+    val marker = File(root, ".schema-version")
+    val storedVersion = marker.takeIf(File::isFile)?.readText()?.trim()
+    if (root.exists() && storedVersion != LogSchema.STORAGE_VERSION) {
+        check(root.deleteRecursively()) { "Unable to reset outdated logging storage" }
+    }
+    check(root.mkdirs() || root.isDirectory) { "Unable to create logging storage" }
+    marker.writeText(LogSchema.STORAGE_VERSION)
+    return root
 }
