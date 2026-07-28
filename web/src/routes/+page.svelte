@@ -3,6 +3,32 @@
 	import { apiStore } from '$lib/api/store.svelte';
 
 	let selectedTab = $state<'device' | 'sessions'>('device');
+	let seriesCount = $state<number | undefined>();
+	let parallelCount = $state<number | undefined>();
+	let motor = $state('');
+
+	async function editBoardProfile(savedDeviceId: string) {
+		await apiStore.openBoardProfile(savedDeviceId);
+		const values = apiStore.selectedBoardProfile?.values;
+		seriesCount = typeof values?.seriesCount === 'number' ? values.seriesCount : undefined;
+		parallelCount = typeof values?.parallelCount === 'number' ? values.parallelCount : undefined;
+		motor = typeof values?.motor === 'string' ? values.motor : '';
+	}
+
+	async function saveBoardProfile() {
+		if (
+			seriesCount === undefined ||
+			parallelCount === undefined ||
+			!Number.isInteger(seriesCount) ||
+			!Number.isInteger(parallelCount) ||
+			seriesCount < 1 ||
+			parallelCount < 1 ||
+			!motor
+		) {
+			return;
+		}
+		await apiStore.updateBoardProfile({ seriesCount, parallelCount, motor });
+	}
 
 	onMount(() => {
 		void apiStore.connect();
@@ -56,14 +82,71 @@
 					>
 				{:else}
 					<h2 id="device-heading" class="text-xl font-medium">Saved devices</h2>
-					{#if apiStore.savedDevices.length}
+					{#if apiStore.selectedBoardProfile}
+						<button class="text-indigo-300" onclick={() => apiStore.closeBoardProfile()}>
+							← Saved devices
+						</button>
+						<h3 class="mt-3 text-lg font-medium">Board settings</h3>
+						<p class="mt-1 text-sm text-slate-400">
+							Local app metadata only · revision {apiStore.selectedBoardProfile.revision}
+						</p>
+						<div class="mt-4 grid gap-3 sm:grid-cols-2">
+							<label class="text-sm">
+								<span class="mb-1 block text-slate-300">Battery series cells (S)</span>
+								<input
+									class="w-full rounded-md bg-slate-800 px-3 py-2"
+									type="number"
+									min="1"
+									max="36"
+									bind:value={seriesCount}
+								/>
+							</label>
+							<label class="text-sm">
+								<span class="mb-1 block text-slate-300">Battery parallel cells (P)</span>
+								<input
+									class="w-full rounded-md bg-slate-800 px-3 py-2"
+									type="number"
+									min="1"
+									max="20"
+									bind:value={parallelCount}
+								/>
+							</label>
+							<label class="text-sm sm:col-span-2">
+								<span class="mb-1 block text-slate-300">Motor</span>
+								<select class="w-full rounded-md bg-slate-800 px-3 py-2" bind:value={motor}>
+									<option value="">Choose a motor</option>
+									<option value="hypercore_xr">Hypercore (XR)</option>
+									<option value="superflux_hs">Superflux HS</option>
+									<option value="custom">Custom / other</option>
+								</select>
+							</label>
+						</div>
+						{#if apiStore.selectedBoardProfile.missingFields.length}
+							<p class="mt-3 text-sm text-amber-300">
+								Missing: {apiStore.selectedBoardProfile.missingFields.join(', ')}
+							</p>
+						{:else}
+							<p class="mt-3 text-sm text-emerald-300">Core board setup complete</p>
+						{/if}
+						<button
+							class="mt-4 rounded-lg bg-indigo-600 px-4 py-2 disabled:opacity-50"
+							disabled={apiStore.busy}
+							onclick={saveBoardProfile}>Save board settings</button
+						>
+					{:else if apiStore.savedDevices.length}
 						<ul class="mt-3 space-y-2">
 							{#each apiStore.savedDevices as device (device.savedDeviceId)}
 								<li class="flex items-center justify-between rounded-lg bg-slate-800 p-3">
-									<span>{device.displayName}</span>
-									<span class="text-sm text-slate-400">
-										{device.profileComplete ? 'Configured' : 'Setup available'}
-									</span>
+									<div>
+										<span class="block">{device.displayName}</span>
+										<span class="text-sm text-slate-400">
+											{device.profileComplete ? 'Configured' : 'Setup available'}
+										</span>
+									</div>
+									<button
+										class="rounded-md bg-slate-700 px-3 py-1"
+										onclick={() => editBoardProfile(device.savedDeviceId)}>Settings</button
+									>
 								</li>
 							{/each}
 						</ul>

@@ -400,9 +400,15 @@ same four native scenarios pass on an iPhone 12/iOS 18.6.1 using identifier-free
 CoreBluetooth/application-service traces and durable SQLite inspection. The
 same scenarios pass on macOS from a signed user-local app bundle. Its 218572 ms
 session passed catalog/session integrity with 306 committed observations and
-106 adaptively persisted samples. The native Board Profile get/update path is
-the remaining blocker for local-override evidence; mock-only conformance does
-not satisfy that gate.
+106 adaptively persisted samples. Board Profile get/update is now wired through
+the shared UI and both native SQLite stores with bounds validation, optimistic
+revision checks, immutable session-start snapshots, and active-session change
+events. Swift persistence tests, macOS black-box conformance, and an Android 10
+instrumentation run pass. Android 10, iPhone 12/iOS 18.6.1, and macOS have now
+physically passed local-only 18S/2P/Hypercore overrides, native persistence,
+process restart, reconnect identity reuse, and historical session-link
+preservation. Legacy platform-derived saved/history identifiers are atomically
+rekeyed without changing the private platform binding or losing profiles.
 
 Deliverables:
 
@@ -573,11 +579,16 @@ Add links here as milestones complete:
 - fixture corpus: [`../fixtures/`](../fixtures/)
 - R1 boundaries: `just dependency-check` (7 modules; no legacy runtime references)
 - API conformance: `just conformance-mock` (6 scenarios)
-- Apple loopback conformance: `just conformance-macos` (4 system scenarios)
-- Swift tests: `just test-core` (9 deterministic tests)
+- Apple loopback conformance: `just conformance-macos` (5 system/profile scenarios)
+- Swift tests: `just test-core` (29 deterministic tests)
 - Android tests/build: `./gradlew test assembleDebug` (169 tasks; successful)
 - protocol parity: `just test-protocol` (4 Swift and 4 Kotlin fixture tests)
 - storage/alerts: `just test-storage && just test-alerts`
+- Board Profiles: `just test-profiles`; Android 10 also passes
+  `./gradlew :logging:connectedDebugAndroidTest`
+- physical Board Profiles: Android 10, iPhone 12/iOS 18.6.1, and macOS each
+  preserved revision 1 (`18S`, `2P`, `hypercore_xr`) across process restart and
+  reconnected to one opaque saved board without rewriting prior session snapshots
 - iOS hardware report:
 - Android hardware report:
 - macOS hardware report:

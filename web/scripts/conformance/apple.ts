@@ -2,13 +2,21 @@ import { spawn } from 'node:child_process';
 import { createInterface } from 'node:readline';
 import { resolve as resolvePath } from 'node:path';
 import WebSocket from 'ws';
-import { runSystemConformance, type ConformanceClient } from '../../../conformance/src/system.js';
+import {
+	runBoardProfileConformance,
+	runSystemConformance,
+	type ConformanceClient
+} from '../../../conformance/src/system.js';
 
 const executable =
 	process.env.FLOAT_VIEW_APPLE_HOST ?? '../apple/.build/arm64-apple-macosx/debug/FloatViewMac';
 const child = spawn(executable, ['--test-host'], {
 	cwd: process.cwd(),
-	env: { ...process.env, FLOAT_VIEW_WEB_ROOT: resolvePath(process.cwd(), 'build') },
+	env: {
+		...process.env,
+		FLOAT_VIEW_WEB_ROOT: resolvePath(process.cwd(), 'build'),
+		FLOAT_VIEW_TEST_SEED_PROFILE: '1'
+	},
 	stdio: ['ignore', 'pipe', 'inherit']
 });
 
@@ -16,6 +24,7 @@ const readiness = await new Promise<{
 	webSocketUrl: string;
 	sessionToken: string;
 	origin: string;
+	savedDeviceId: string;
 }>((resolve, reject) => {
 	const lines = createInterface({ input: child.stdout });
 	lines.once('line', (line) => {
@@ -66,6 +75,8 @@ const sharedClient = new Promise<ConformanceClient>((resolve, reject) => {
 });
 
 const results = await runSystemConformance(() => sharedClient, { includeProductScenarios: false });
+const client = await sharedClient;
+results.push(await runBoardProfileConformance(client, readiness.savedDeviceId));
 
 for (const result of results)
 	console.log(`PASS ${result.name} (${result.durationMs.toFixed(1)}ms)`);

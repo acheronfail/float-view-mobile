@@ -5,8 +5,11 @@ import android.util.Base64
 import fail.acheron.floatview.core.ApplicationService
 import fail.acheron.floatview.core.ActiveConnectionSnapshot
 import fail.acheron.floatview.core.BluetoothState
+import fail.acheron.floatview.core.BoardProfileRecord
 import fail.acheron.floatview.core.ConnectionState
 import fail.acheron.floatview.core.DiscoveredDevice
+import fail.acheron.floatview.core.ProductStoreException
+import fail.acheron.floatview.core.SavedDeviceRecord
 import java.io.BufferedInputStream
 import java.io.BufferedOutputStream
 import java.net.InetAddress
@@ -208,6 +211,10 @@ class LoopbackServer(
                             .put(
                                 JSONObject().put("name", "device.connection")
                                     .put("available", applicationService != null),
+                            )
+                            .put(
+                                JSONObject().put("name", "boardProfiles.local")
+                                    .put("available", applicationService != null),
                             ),
                     )
                     .put(
@@ -324,7 +331,68 @@ class LoopbackServer(
                 failure(-32007, "device_not_ready", "The VESC connection is not ready")
             }
         }
-        if (method == "savedDevices.list") return success(JSONArray())
+        if (method == "savedDevices.list") {
+            val service = applicationService
+                ?: return failure(-32601, "unsupported", "Saved devices are unavailable")
+            return try {
+                success(JSONArray(service.savedDevices().map(::savedDevice)))
+            } catch (_: Exception) {
+                failure(-32005, "storage_unavailable", "Unable to read saved devices")
+            }
+        }
+        if (method == "boardProfiles.get") {
+            val service = applicationService
+                ?: return failure(-32601, "unsupported", "Board Profiles are unavailable")
+            val savedDeviceId = request.optJSONObject("params")
+                ?.optString("savedDeviceId")
+                .orEmpty()
+            if (savedDeviceId.isEmpty()) {
+                return failure(-32602, "protocol_error", "savedDeviceId is required")
+            }
+            return try {
+                success(boardProfile(service.boardProfile(savedDeviceId)))
+            } catch (error: ProductStoreException) {
+                productStoreFailure(error, ::failure)
+            } catch (_: Exception) {
+                failure(-32005, "storage_unavailable", "Unable to read Board Profile")
+            }
+        }
+        if (method == "boardProfiles.update") {
+            val service = applicationService
+                ?: return failure(-32601, "unsupported", "Board Profiles are unavailable")
+            val params = request.optJSONObject("params")
+                ?: return failure(-32602, "protocol_error", "Board Profile parameters are required")
+            val savedDeviceId = params.optString("savedDeviceId")
+            val expectedRevision = params.opt("expectedRevision")
+            val patch = params.optJSONObject("patch")
+            if (
+                savedDeviceId.isEmpty() ||
+                expectedRevision !is Number ||
+                expectedRevision.toInt() < 0 ||
+                patch == null
+            ) {
+                return failure(
+                    -32602,
+                    "protocol_error",
+                    "savedDeviceId, expectedRevision, and an object patch are required",
+                )
+            }
+            return try {
+                success(
+                    boardProfile(
+                        service.updateBoardProfile(
+                            savedDeviceId,
+                            expectedRevision.toInt(),
+                            patch.toString(),
+                        ),
+                    ),
+                )
+            } catch (error: ProductStoreException) {
+                productStoreFailure(error, ::failure)
+            } catch (_: Exception) {
+                failure(-32005, "storage_unavailable", "Unable to update Board Profile")
+            }
+        }
         if (method == "sessions.list") {
             return success(
                 JSONObject()
@@ -383,6 +451,33 @@ class LoopbackServer(
                 ConnectionState.FAILED -> "failed"
             },
         )
+
+    private fun savedDevice(value: SavedDeviceRecord) = JSONObject()
+        .put("savedDeviceId", value.savedDeviceId)
+        .put("deviceHistoryId", value.deviceHistoryId)
+        .put("displayName", value.displayName)
+        .put("advertisedName", value.advertisedName ?: JSONObject.NULL)
+        .put("lastSeenAt", value.lastSeenAt?.toString() ?: JSONObject.NULL)
+        .put("lastConnectedAt", value.lastConnectedAt?.toString() ?: JSONObject.NULL)
+        .put("profileComplete", value.profileComplete)
+
+    private fun boardProfile(value: BoardProfileRecord) = JSONObject()
+        .put("savedDeviceId", value.savedDeviceId)
+        .put("revision", value.revision)
+        .put("values", JSONObject(value.valuesJson))
+        .put("missingFields", JSONArray(value.missingFields))
+
+    private fun productStoreFailure(
+        error: ProductStoreException,
+        failure: (Int, String, String) -> JSONObject,
+    ): JSONObject = when (error) {
+        ProductStoreException.SavedDeviceNotFound ->
+            failure(-32004, "device_not_found", "Saved device not found")
+        is ProductStoreException.ProfileRevisionConflict ->
+            failure(-32000, "invalid_state", "Profile revision conflict")
+        ProductStoreException.InvalidProfilePatch ->
+            failure(-32602, "protocol_error", "Invalid Board Profile patch")
+    }
 
     private fun frame(output: BufferedOutputStream, opcode: Int, payload: ByteArray) {
         output.write(0x80 or opcode)

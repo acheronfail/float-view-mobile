@@ -243,6 +243,59 @@ public struct SessionRecord: Sendable, Codable, Equatable {
   }
 }
 
+public struct SavedDeviceRecord: Sendable, Codable, Equatable {
+  public let savedDeviceID: String
+  public let deviceHistoryID: String
+  public let displayName: String
+  public let advertisedName: String?
+  public let lastSeenAt: Date?
+  public let lastConnectedAt: Date?
+  public let profileComplete: Bool
+
+  public init(
+    savedDeviceID: String,
+    deviceHistoryID: String,
+    displayName: String,
+    advertisedName: String? = nil,
+    lastSeenAt: Date? = nil,
+    lastConnectedAt: Date? = nil,
+    profileComplete: Bool
+  ) {
+    self.savedDeviceID = savedDeviceID
+    self.deviceHistoryID = deviceHistoryID
+    self.displayName = displayName
+    self.advertisedName = advertisedName
+    self.lastSeenAt = lastSeenAt
+    self.lastConnectedAt = lastConnectedAt
+    self.profileComplete = profileComplete
+  }
+}
+
+public struct BoardProfileRecord: Sendable, Codable, Equatable {
+  public let savedDeviceID: String
+  public let revision: Int
+  public let valuesJSON: String
+  public let missingFields: [String]
+
+  public init(
+    savedDeviceID: String,
+    revision: Int,
+    valuesJSON: String,
+    missingFields: [String]
+  ) {
+    self.savedDeviceID = savedDeviceID
+    self.revision = revision
+    self.valuesJSON = valuesJSON
+    self.missingFields = missingFields
+  }
+}
+
+public enum ProductStoreError: Error, Equatable {
+  case savedDeviceNotFound
+  case profileRevisionConflict(currentRevision: Int)
+  case invalidProfilePatch
+}
+
 public enum BluetoothEvent: Sendable {
   case stateChanged(BluetoothState)
   case deviceFound(DeviceID, name: String?, rssi: Int?)
@@ -358,6 +411,17 @@ public protocol LogStorePort: AnyObject, Sendable {
   func append(jobID: JobID, samples: [TelemetrySample]) throws
   func close(jobID: JobID, at: Date, reason: String) throws -> SessionRecord
   func active() -> SessionRecord?
+}
+
+public protocol ProductStorePort: AnyObject, Sendable {
+  func savedDevices() throws -> [SavedDeviceRecord]
+  func boardProfile(savedDeviceID: String) throws -> BoardProfileRecord
+  func updateBoardProfile(
+    savedDeviceID: String,
+    expectedRevision: Int,
+    patchJSON: String,
+    at: Date
+  ) throws -> BoardProfileRecord
 }
 
 public protocol EventSink: Sendable {

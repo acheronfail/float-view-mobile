@@ -4,6 +4,7 @@ public final class ApplicationService: @unchecked Sendable {
   private let bluetooth: BluetoothPort
   private let clock: ClockPort
   private let logStore: LogStorePort
+  private let productStore: (any ProductStorePort)?
   private let protocolCodec: VescProtocolPort?
   private let scheduler: (any SchedulerPort)?
   private let events: EventSink
@@ -43,6 +44,7 @@ public final class ApplicationService: @unchecked Sendable {
     bluetooth: BluetoothPort,
     clock: ClockPort,
     logStore: LogStorePort,
+    productStore: (any ProductStorePort)? = nil,
     protocolCodec: VescProtocolPort? = nil,
     scheduler: (any SchedulerPort)? = nil,
     events: EventSink,
@@ -51,6 +53,7 @@ public final class ApplicationService: @unchecked Sendable {
     self.bluetooth = bluetooth
     self.clock = clock
     self.logStore = logStore
+    self.productStore = productStore
     self.protocolCodec = protocolCodec
     self.scheduler = scheduler
     self.events = events
@@ -66,6 +69,32 @@ public final class ApplicationService: @unchecked Sendable {
     bluetooth.requestPermission()
     bluetoothState = bluetooth.currentState()
     return bluetoothState
+  }
+
+  public func savedDevices() throws -> [SavedDeviceRecord] {
+    guard let productStore else { throw ApplicationError.productStoreUnavailable }
+    return try productStore.savedDevices()
+  }
+
+  public func boardProfile(savedDeviceID: String) throws -> BoardProfileRecord {
+    guard let productStore else { throw ApplicationError.productStoreUnavailable }
+    return try productStore.boardProfile(savedDeviceID: savedDeviceID)
+  }
+
+  public func updateBoardProfile(
+    savedDeviceID: String,
+    expectedRevision: Int,
+    patchJSON: String
+  ) throws -> BoardProfileRecord {
+    guard let productStore else { throw ApplicationError.productStoreUnavailable }
+    let profile = try productStore.updateBoardProfile(
+      savedDeviceID: savedDeviceID,
+      expectedRevision: expectedRevision,
+      patchJSON: patchJSON,
+      at: clock.now()
+    )
+    events.publish(profile)
+    return profile
   }
 
   public func startDiscovery() throws -> String {
@@ -599,4 +628,5 @@ public enum ApplicationError: Error, Equatable {
   case invalidScan
   case unknownDevice
   case deviceNotReady
+  case productStoreUnavailable
 }

@@ -4,6 +4,7 @@ class ApplicationService(
     private val bluetooth: BluetoothPort,
     private val clock: ClockPort,
     private val logStore: LogStorePort,
+    private val productStore: ProductStorePort? = null,
     private val protocol: VescProtocolPort? = null,
     private val scheduler: SchedulerPort? = null,
     samplingSettings: SamplingSettings = SamplingSettings(),
@@ -47,6 +48,22 @@ class ApplicationService(
         bluetoothState = bluetooth.currentState()
         return bluetoothState
     }
+
+    fun savedDevices(): List<SavedDeviceRecord> =
+        requireNotNull(productStore) { "Product store is unavailable" }.savedDevices()
+
+    fun boardProfile(savedDeviceId: String): BoardProfileRecord =
+        requireNotNull(productStore) { "Product store is unavailable" }
+            .boardProfile(savedDeviceId)
+
+    fun updateBoardProfile(
+        savedDeviceId: String,
+        expectedRevision: Int,
+        patchJson: String,
+    ): BoardProfileRecord =
+        requireNotNull(productStore) { "Product store is unavailable" }
+            .updateBoardProfile(savedDeviceId, expectedRevision, patchJson, clock.now())
+            .also(events::publish)
 
     @Synchronized
     fun startDiscovery(): String {

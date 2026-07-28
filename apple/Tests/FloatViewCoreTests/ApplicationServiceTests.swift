@@ -22,6 +22,34 @@ func readyCreatesDurableSession() throws {
 }
 
 @Test
+func boardProfileUpdatesRemainLocalAndPublishPersistedRevision() throws {
+  let bluetooth = FakeBluetooth()
+  let products = MemoryProductStore()
+  let events = CollectingEvents()
+  let service = ApplicationService(
+    bluetooth: bluetooth,
+    clock: FixedClock(),
+    logStore: MemoryStore(),
+    productStore: products,
+    events: events
+  )
+
+  let initial = try service.boardProfile(savedDeviceID: "saved-board")
+  let updated = try service.updateBoardProfile(
+    savedDeviceID: "saved-board",
+    expectedRevision: initial.revision,
+    patchJSON: #"{"seriesCount":18}"#
+  )
+
+  #expect(updated.revision == 1)
+  #expect(products.profile == updated)
+  #expect(events.values.count == 1)
+  #expect(events.values.first as? BoardProfileRecord == updated)
+  #expect(bluetooth.connected.isEmpty)
+  #expect(bluetooth.writes.isEmpty)
+}
+
+@Test
 func discoveryOwnsScanAndDeduplicatesDevices() throws {
   let bluetooth = FakeBluetooth()
   let clock = MutableClock()
@@ -609,12 +637,65 @@ private final class FailingStore: LogStorePort, @unchecked Sendable {
   func active() -> SessionRecord? { nil }
 }
 
+private final class MemoryProductStore: ProductStorePort, @unchecked Sendable {
+  var profile = BoardProfileRecord(
+    savedDeviceID: "saved-board",
+    revision: 0,
+    valuesJSON: "{}",
+    missingFields: ["seriesCount", "parallelCount", "motor"]
+  )
+
+  func savedDevices() throws -> [SavedDeviceRecord] {
+    [
+      SavedDeviceRecord(
+        savedDeviceID: "saved-board",
+        deviceHistoryID: "history-board",
+        displayName: "Board",
+        profileComplete: false
+      ),
+    ]
+  }
+
+  func boardProfile(savedDeviceID: String) throws -> BoardProfileRecord {
+    guard savedDeviceID == profile.savedDeviceID else {
+      throw ProductStoreError.savedDeviceNotFound
+    }
+    return profile
+  }
+
+  func updateBoardProfile(
+    savedDeviceID: String,
+    expectedRevision: Int,
+    patchJSON: String,
+    at _: Date
+  ) throws -> BoardProfileRecord {
+    guard savedDeviceID == profile.savedDeviceID else {
+      throw ProductStoreError.savedDeviceNotFound
+    }
+    guard expectedRevision == profile.revision else {
+      throw ProductStoreError.profileRevisionConflict(currentRevision: profile.revision)
+    }
+    profile = BoardProfileRecord(
+      savedDeviceID: savedDeviceID,
+      revision: profile.revision + 1,
+      valuesJSON: patchJSON,
+      missingFields: ["parallelCount", "motor"]
+    )
+    return profile
+  }
+}
+
 private enum TestError: Error {
   case storage
 }
 
 private struct IgnoreEvents: EventSink {
   func publish(_: any Sendable) {}
+}
+
+private final class CollectingEvents: EventSink, @unchecked Sendable {
+  var values: [any Sendable] = []
+  func publish(_ event: any Sendable) { values.append(event) }
 }
 
 extension SessionRecord {

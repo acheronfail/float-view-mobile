@@ -360,13 +360,44 @@ export function handleApiV1Request(session: ApiV1Session, input: unknown): ApiV1
 			if (params.expectedRevision !== value.revision) {
 				return error(id, -32000, 'invalid_state', 'Profile revision conflict', true);
 			}
+			const patch = record(params.patch);
+			const merged = { ...value.values, ...patch };
+			const integerInRange = (key: string, min: number, max: number) =>
+				merged[key] === undefined ||
+				merged[key] === null ||
+				(typeof merged[key] === 'number' &&
+					Number.isInteger(merged[key]) &&
+					merged[key] >= min &&
+					merged[key] <= max);
+			const validMotor =
+				merged.motor === undefined ||
+				merged.motor === null ||
+				(typeof merged.motor === 'string' &&
+					merged.motor.length > 0 &&
+					new TextEncoder().encode(merged.motor).length <= 128);
+			if (
+				!integerInRange('seriesCount', 1, 36) ||
+				!integerInRange('parallelCount', 1, 20) ||
+				!validMotor
+			) {
+				return error(id, -32602, 'protocol_error', 'Invalid Board Profile patch');
+			}
 			const updated: BoardProfile = {
 				...value,
 				revision: value.revision + 1,
-				values: { ...value.values, ...record(params.patch) },
-				missingFields: value.missingFields.filter((field) => !(field in record(params.patch)))
+				values: merged,
+				missingFields: value.missingFields.filter((field) => !(field in patch))
 			};
 			state.profiles.set(savedDeviceId, updated);
+			const savedIndex = state.savedDevices.findIndex(
+				(item) => item.savedDeviceId === savedDeviceId
+			);
+			if (savedIndex >= 0) {
+				state.savedDevices[savedIndex] = {
+					...state.savedDevices[savedIndex],
+					profileComplete: updated.missingFields.length === 0
+				};
+			}
 			return ok(id, updated);
 		}
 		case 'settings.get':

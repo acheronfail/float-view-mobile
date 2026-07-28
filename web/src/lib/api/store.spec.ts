@@ -43,6 +43,12 @@ class FakeClient {
 	isOpen = true;
 	active = true;
 	readonly methods: string[] = [];
+	profile = {
+		savedDeviceId: 'saved-board',
+		revision: 0,
+		values: {} as Record<string, unknown>,
+		missingFields: ['seriesCount', 'parallelCount', 'motor']
+	};
 
 	async hello(): Promise<HelloResult> {
 		return {
@@ -58,11 +64,36 @@ class FakeClient {
 		};
 	}
 
-	async request(method: string): Promise<unknown> {
+	async request(method: string, params?: unknown): Promise<unknown> {
 		this.methods.push(method);
 		switch (method) {
 			case 'savedDevices.list':
-				return [];
+				return [
+					{
+						savedDeviceId: 'saved-board',
+						deviceHistoryId: 'history-board',
+						displayName: 'Board',
+						profileComplete: this.profile.missingFields.length === 0
+					}
+				];
+			case 'boardProfiles.get':
+				return this.profile;
+			case 'boardProfiles.update': {
+				const request = params as {
+					expectedRevision: number;
+					patch: Record<string, unknown>;
+				};
+				if (request.expectedRevision !== this.profile.revision) {
+					throw new Error('Profile revision conflict');
+				}
+				this.profile = {
+					...this.profile,
+					revision: this.profile.revision + 1,
+					values: { ...this.profile.values, ...request.patch },
+					missingFields: this.profile.missingFields.filter((field) => !(field in request.patch))
+				};
+				return this.profile;
+			}
 			case 'sessions.list':
 				return { items: [], nextCursor: null };
 			case 'system.getSnapshot':
@@ -97,6 +128,32 @@ describe('ApiStore transport recovery', () => {
 		expect(replacement.methods).toContain('device.disconnect');
 		expect(store.snapshot?.activeConnection).toBeNull();
 		expect(store.error).toBeNull();
+		store.close();
+	});
+
+	it('loads and revision-updates a local Board Profile', async () => {
+		const client = new FakeClient();
+		const store = new ApiStore(
+			async () => ({ apiVersion: { major: 1, minor: 0 }, webSocketUrl: 'ws://test' }),
+			async () => client as unknown as ApiClient
+		);
+
+		await store.connect();
+		await store.openBoardProfile('saved-board');
+		await store.updateBoardProfile({
+			seriesCount: 18,
+			parallelCount: 2,
+			motor: 'hypercore_xr'
+		});
+
+		expect(store.selectedBoardProfile?.revision).toBe(1);
+		expect(store.selectedBoardProfile?.values).toMatchObject({
+			seriesCount: 18,
+			parallelCount: 2,
+			motor: 'hypercore_xr'
+		});
+		expect(store.savedDevices[0]?.profileComplete).toBe(true);
+		expect(client.methods).toContain('boardProfiles.update');
 		store.close();
 	});
 });

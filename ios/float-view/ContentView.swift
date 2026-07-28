@@ -47,6 +47,7 @@ final class AppBackend: ObservableObject {
       bluetooth: bluetooth,
       clock: SystemClock(),
       logStore: logStore,
+      productStore: logStore,
       protocolCodec: VescProtocolService(),
       scheduler: SystemScheduler(),
       events: DebugEventSink()

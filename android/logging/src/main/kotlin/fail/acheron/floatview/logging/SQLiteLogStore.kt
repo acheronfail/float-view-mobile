@@ -4,8 +4,12 @@ import android.content.Context
 import android.database.sqlite.SQLiteDatabase
 import android.database.sqlite.SQLiteOpenHelper
 import fail.acheron.floatview.core.DeviceId
+import fail.acheron.floatview.core.BoardProfileRecord
 import fail.acheron.floatview.core.JobId
 import fail.acheron.floatview.core.LogStorePort
+import fail.acheron.floatview.core.ProductStoreException
+import fail.acheron.floatview.core.ProductStorePort
+import fail.acheron.floatview.core.SavedDeviceRecord
 import fail.acheron.floatview.core.SessionId
 import fail.acheron.floatview.core.SessionRecord
 import fail.acheron.floatview.core.TelemetrySample
@@ -21,12 +25,16 @@ import java.util.UUID
 class SQLiteLogStore(
     context: Context,
     private val availableBytes: () -> Long = { context.filesDir.usableSpace },
-) : LogStorePort {
+) : LogStorePort, ProductStorePort {
     private val appContext = context.applicationContext
     private val root = File(appContext.filesDir, "float-view/logs").apply { mkdirs() }
     private val catalog = CatalogOpenHelper(appContext, File(root, "catalog.sqlite").path)
     private var current: SessionRecord? = null
     private var sessionDb: SQLiteDatabase? = null
+
+    init {
+        migrateLegacySavedDeviceIdentifiers(catalog.writableDatabase)
+    }
 
     @Synchronized
     override fun create(deviceId: DeviceId, at: Instant): SessionRecord {
@@ -56,14 +64,13 @@ class SQLiteLogStore(
         val started = at.toEpochMilli()
         catalogDb.beginTransaction()
         try {
-            catalogDb.execSQL(
-                """
-                INSERT OR IGNORE INTO saved_device(
-                  saved_device_id, device_history_id, opaque_platform_id, display_name, created_at_ms
-                ) VALUES (?, ?, ?, ?, ?)
-                """.trimIndent(),
-                arrayOf("saved-${deviceId.value}", "history-${deviceId.value}", deviceId.value, "Board", started),
-            )
+            val savedDevice = ensureSavedDevice(catalogDb, deviceId, at)
+            val profile = boardProfile(catalogDb, savedDevice.savedDeviceId, at)
+            val deviceSnapshot = JSONObject()
+                .put("savedDeviceId", savedDevice.savedDeviceId)
+                .put("deviceHistoryId", savedDevice.deviceHistoryId)
+                .put("displayName", savedDevice.displayName)
+                .toString()
             catalogDb.execSQL(
                 """
                 INSERT INTO session_catalog(
@@ -71,9 +78,18 @@ class SQLiteLogStore(
                   profile_snapshot_json, profile_revision, file_name, started_at_ms,
                   state, integrity, requested_idle_ms, effective_idle_ms,
                   requested_riding_ms, effective_riding_ms
-                ) VALUES (?, ?, ?, '{}', '{}', 0, ?, ?, 'active', 'complete', 1000, 1000, 100, 100)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'active', 'complete', 1000, 1000, 100, 100)
                 """.trimIndent(),
-                arrayOf(sessionId.value, jobId.value, "history-${deviceId.value}", fileName, started),
+                arrayOf(
+                    sessionId.value,
+                    jobId.value,
+                    savedDevice.deviceHistoryId,
+                    deviceSnapshot,
+                    profile.valuesJson,
+                    profile.revision,
+                    fileName,
+                    started,
+                ),
             )
             catalogDb.setTransactionSuccessful()
         } catch (error: Exception) {
@@ -148,6 +164,107 @@ class SQLiteLogStore(
     @Synchronized
     override fun active(): SessionRecord? = current
 
+    @Synchronized
+    override fun savedDevices(): List<SavedDeviceRecord> {
+        val db = catalog.writableDatabase
+        return db.rawQuery(
+            """
+            SELECT d.saved_device_id, d.device_history_id, d.display_name,
+                   d.advertised_name, d.last_seen_at_ms, d.last_connected_at_ms,
+                   COALESCE(p.json, '{}')
+            FROM saved_device d
+            LEFT JOIN board_profile p ON p.saved_device_id = d.saved_device_id
+            ORDER BY COALESCE(d.last_connected_at_ms, d.created_at_ms) DESC
+            """.trimIndent(),
+            null,
+        ).use { cursor ->
+            buildList {
+                while (cursor.moveToNext()) {
+                    val valuesJson = cursor.getString(6)
+                    add(
+                        SavedDeviceRecord(
+                            savedDeviceId = cursor.getString(0),
+                            deviceHistoryId = cursor.getString(1),
+                            displayName = cursor.getString(2),
+                            advertisedName = cursor.optionalString(3),
+                            lastSeenAt = cursor.optionalInstant(4),
+                            lastConnectedAt = cursor.optionalInstant(5),
+                            profileComplete = missingFields(valuesJson).isEmpty(),
+                        ),
+                    )
+                }
+            }
+        }
+    }
+
+    @Synchronized
+    override fun boardProfile(savedDeviceId: String): BoardProfileRecord =
+        boardProfile(catalog.writableDatabase, savedDeviceId, Instant.now())
+
+    @Synchronized
+    override fun updateBoardProfile(
+        savedDeviceId: String,
+        expectedRevision: Int,
+        patchJson: String,
+        at: Instant,
+    ): BoardProfileRecord {
+        val patch = try {
+            JSONObject(patchJson)
+        } catch (_: Exception) {
+            throw ProductStoreException.InvalidProfilePatch
+        }
+        if (patchJson.toByteArray().size > MAX_PROFILE_BYTES) {
+            throw ProductStoreException.InvalidProfilePatch
+        }
+        val db = catalog.writableDatabase
+        db.beginTransaction()
+        val updated = try {
+            val existing = boardProfile(db, savedDeviceId, at)
+            if (existing.revision != expectedRevision) {
+                throw ProductStoreException.ProfileRevisionConflict(existing.revision)
+            }
+            val values = try {
+                JSONObject(existing.valuesJson)
+            } catch (_: Exception) {
+                throw ProductStoreException.InvalidProfilePatch
+            }
+            patch.keys().forEach { key -> values.put(key, patch.get(key)) }
+            if (!validInitialProfileValues(values)) {
+                throw ProductStoreException.InvalidProfilePatch
+            }
+            val valuesJson = values.toString()
+            if (valuesJson.toByteArray().size > MAX_PROFILE_BYTES) {
+                throw ProductStoreException.InvalidProfilePatch
+            }
+            val revision = existing.revision + 1
+            db.execSQL(
+                """
+                UPDATE board_profile SET revision = ?, json = ?, updated_at_ms = ?
+                WHERE saved_device_id = ? AND revision = ?
+                """.trimIndent(),
+                arrayOf(revision, valuesJson, at.toEpochMilli(), savedDeviceId, expectedRevision),
+            )
+            val changed = android.database.DatabaseUtils.longForQuery(
+                db,
+                "SELECT changes()",
+                null,
+            )
+            if (changed != 1L) {
+                throw ProductStoreException.ProfileRevisionConflict(existing.revision)
+            }
+            BoardProfileRecord(
+                savedDeviceId,
+                revision,
+                valuesJson,
+                missingFields(valuesJson),
+            ).also { db.setTransactionSuccessful() }
+        } finally {
+            db.endTransaction()
+        }
+        recordProfileChange(updated, at)
+        return updated
+    }
+
     fun recoverInterrupted(): Int {
         val db = catalog.writableDatabase
         db.execSQL(
@@ -158,6 +275,219 @@ class SQLiteLogStore(
             "SELECT changes()",
             null,
         ).toInt()
+    }
+
+    private fun ensureSavedDevice(
+        db: SQLiteDatabase,
+        deviceId: DeviceId,
+        at: Instant,
+    ): SavedDeviceRecord {
+        db.rawQuery(
+            """
+            SELECT saved_device_id, device_history_id, display_name, advertised_name,
+                   last_seen_at_ms, last_connected_at_ms
+            FROM saved_device WHERE opaque_platform_id = ? LIMIT 1
+            """.trimIndent(),
+            arrayOf(deviceId.value),
+        ).use { cursor ->
+            if (cursor.moveToFirst()) {
+                val record = SavedDeviceRecord(
+                    savedDeviceId = cursor.getString(0),
+                    deviceHistoryId = cursor.getString(1),
+                    displayName = cursor.getString(2),
+                    advertisedName = cursor.optionalString(3),
+                    lastSeenAt = cursor.optionalInstant(4),
+                    lastConnectedAt = at,
+                    profileComplete = false,
+                )
+                db.execSQL(
+                    "UPDATE saved_device SET last_connected_at_ms = ? WHERE saved_device_id = ?",
+                    arrayOf(at.toEpochMilli(), record.savedDeviceId),
+                )
+                boardProfile(db, record.savedDeviceId, at)
+                return record
+            }
+        }
+        val savedDeviceId = UUID.randomUUID().toString()
+        val deviceHistoryId = UUID.randomUUID().toString()
+        db.execSQL(
+            """
+            INSERT INTO saved_device(
+              saved_device_id, device_history_id, opaque_platform_id, display_name,
+              created_at_ms, last_connected_at_ms
+            ) VALUES (?, ?, ?, 'Board', ?, ?)
+            """.trimIndent(),
+            arrayOf(
+                savedDeviceId,
+                deviceHistoryId,
+                deviceId.value,
+                at.toEpochMilli(),
+                at.toEpochMilli(),
+            ),
+        )
+        boardProfile(db, savedDeviceId, at)
+        return SavedDeviceRecord(
+            savedDeviceId,
+            deviceHistoryId,
+            "Board",
+            lastConnectedAt = at,
+            profileComplete = false,
+        )
+    }
+
+    private fun migrateLegacySavedDeviceIdentifiers(db: SQLiteDatabase) {
+        val legacy = db.rawQuery(
+            """
+            SELECT saved_device_id, device_history_id
+            FROM saved_device
+            WHERE saved_device_id = 'saved-' || opaque_platform_id
+               OR device_history_id = 'history-' || opaque_platform_id
+            """.trimIndent(),
+            null,
+        ).use { cursor ->
+            buildList {
+                while (cursor.moveToNext()) add(cursor.getString(0) to cursor.getString(1))
+            }
+        }
+        if (legacy.isEmpty()) return
+        db.beginTransaction()
+        try {
+            db.execSQL("PRAGMA defer_foreign_keys = ON")
+            legacy.forEach { (oldSavedDeviceId, oldDeviceHistoryId) ->
+                val savedDeviceId = UUID.randomUUID().toString()
+                val deviceHistoryId = UUID.randomUUID().toString()
+                val snapshots = db.rawQuery(
+                    """
+                    SELECT session_id, device_snapshot_json FROM session_catalog
+                    WHERE device_history_id = ?
+                    """.trimIndent(),
+                    arrayOf(oldDeviceHistoryId),
+                ).use { cursor ->
+                    buildList {
+                        while (cursor.moveToNext()) add(cursor.getString(0) to cursor.getString(1))
+                    }
+                }
+                db.execSQL(
+                    """
+                    UPDATE saved_device SET saved_device_id = ?, device_history_id = ?
+                    WHERE saved_device_id = ?
+                    """.trimIndent(),
+                    arrayOf(savedDeviceId, deviceHistoryId, oldSavedDeviceId),
+                )
+                db.execSQL(
+                    "UPDATE board_profile SET saved_device_id = ? WHERE saved_device_id = ?",
+                    arrayOf(savedDeviceId, oldSavedDeviceId),
+                )
+                db.execSQL(
+                    "UPDATE session_catalog SET device_history_id = ? WHERE device_history_id = ?",
+                    arrayOf(deviceHistoryId, oldDeviceHistoryId),
+                )
+                db.execSQL(
+                    "UPDATE session_group SET device_history_id = ? WHERE device_history_id = ?",
+                    arrayOf(deviceHistoryId, oldDeviceHistoryId),
+                )
+                snapshots.forEach { (sessionId, snapshotJson) ->
+                    val snapshot = JSONObject(snapshotJson)
+                        .put("savedDeviceId", savedDeviceId)
+                        .put("deviceHistoryId", deviceHistoryId)
+                    db.execSQL(
+                        """
+                        UPDATE session_catalog SET device_snapshot_json = ?
+                        WHERE session_id = ?
+                        """.trimIndent(),
+                        arrayOf(snapshot.toString(), sessionId),
+                    )
+                }
+            }
+            db.setTransactionSuccessful()
+        } finally {
+            db.endTransaction()
+        }
+    }
+
+    private fun boardProfile(
+        db: SQLiteDatabase,
+        savedDeviceId: String,
+        at: Instant,
+    ): BoardProfileRecord {
+        val exists = android.database.DatabaseUtils.longForQuery(
+            db,
+            "SELECT COUNT(*) FROM saved_device WHERE saved_device_id = ?",
+            arrayOf(savedDeviceId),
+        ) == 1L
+        if (!exists) throw ProductStoreException.SavedDeviceNotFound
+        db.execSQL(
+            """
+            INSERT OR IGNORE INTO board_profile(saved_device_id, revision, json, updated_at_ms)
+            VALUES (?, 0, '{}', ?)
+            """.trimIndent(),
+            arrayOf(savedDeviceId, at.toEpochMilli()),
+        )
+        return db.rawQuery(
+            "SELECT revision, json FROM board_profile WHERE saved_device_id = ?",
+            arrayOf(savedDeviceId),
+        ).use { cursor ->
+            if (!cursor.moveToFirst()) throw ProductStoreException.SavedDeviceNotFound
+            val valuesJson = cursor.getString(1)
+            BoardProfileRecord(
+                savedDeviceId,
+                cursor.getInt(0),
+                valuesJson,
+                missingFields(valuesJson),
+            )
+        }
+    }
+
+    private fun recordProfileChange(profile: BoardProfileRecord, at: Instant) {
+        val record = current ?: return
+        val db = sessionDb ?: return
+        val elapsedMs = maxOf(0, at.toEpochMilli() - record.startedAt.toEpochMilli())
+        val details = JSONObject()
+            .put("savedDeviceId", profile.savedDeviceId)
+            .put("revision", profile.revision)
+            .put("values", JSONObject(profile.valuesJson))
+            .toString()
+        db.execSQL(
+            """
+            INSERT OR REPLACE INTO session_event(
+              sequence, observed_at_ms, monotonic_elapsed_ms, kind, details_json
+            ) VALUES (?, ?, ?, 'board_profile_changed', ?)
+            """.trimIndent(),
+            arrayOf(profile.revision, at.toEpochMilli(), elapsedMs, details),
+        )
+        catalog.writableDatabase.execSQL(
+            """
+            UPDATE session_catalog SET event_count = event_count + 1
+            WHERE job_id = ? AND state = 'active'
+            """.trimIndent(),
+            arrayOf(record.jobId.value),
+        )
+    }
+
+    private fun missingFields(valuesJson: String): List<String> {
+        val values = try {
+            JSONObject(valuesJson)
+        } catch (_: Exception) {
+            return INITIAL_MISSING_FIELDS
+        }
+        return INITIAL_MISSING_FIELDS.filter { key ->
+            !values.has(key) || values.isNull(key)
+        }
+    }
+
+    private fun validInitialProfileValues(values: JSONObject): Boolean {
+        fun integerInRange(key: String, range: IntRange): Boolean {
+            if (!values.has(key) || values.isNull(key)) return true
+            val raw = values.get(key)
+            if (raw !is Number) return false
+            val number = raw.toDouble()
+            return number.isFinite() && number % 1.0 == 0.0 && number.toInt() in range
+        }
+        if (!integerInRange("seriesCount", 1..36)) return false
+        if (!integerInRange("parallelCount", 1..20)) return false
+        if (!values.has("motor") || values.isNull("motor")) return true
+        val motor = values.get("motor") as? String ?: return false
+        return motor.isNotEmpty() && motor.toByteArray().size <= 128
     }
 
     private fun asset(name: String): String =
@@ -215,5 +545,16 @@ class SQLiteLogStore(
         override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
             error("No catalog migration from $oldVersion to $newVersion")
         }
+    }
+
+    private fun android.database.Cursor.optionalString(index: Int): String? =
+        if (isNull(index)) null else getString(index)
+
+    private fun android.database.Cursor.optionalInstant(index: Int): Instant? =
+        if (isNull(index)) null else Instant.ofEpochMilli(getLong(index))
+
+    private companion object {
+        val INITIAL_MISSING_FIELDS = listOf("seriesCount", "parallelCount", "motor")
+        const val MAX_PROFILE_BYTES = 65_536
     }
 }

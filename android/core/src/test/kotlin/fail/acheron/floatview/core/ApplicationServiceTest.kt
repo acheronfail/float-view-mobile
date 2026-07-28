@@ -8,6 +8,32 @@ import org.junit.Test
 
 class ApplicationServiceTest {
     @Test
+    fun `board profile updates remain local and publish the persisted revision`() {
+        val bluetooth = FakeBluetooth()
+        val products = FakeProductStore()
+        val events = mutableListOf<Any>()
+        val service = ApplicationService(
+            bluetooth,
+            FakeClock(),
+            FakeStore(),
+            productStore = products,
+        ) { events += it }
+
+        val initial = service.boardProfile("saved-board")
+        val updated = service.updateBoardProfile(
+            "saved-board",
+            initial.revision,
+            """{"seriesCount":18}""",
+        )
+
+        assertEquals(1, updated.revision)
+        assertEquals(updated, products.profile)
+        assertEquals(updated, events.single())
+        assertTrue(bluetooth.connected.isEmpty())
+        assertTrue(bluetooth.writes.isEmpty())
+    }
+
+    @Test
     fun `ready creates log before service exposes stable state`() {
         val store = FakeStore()
         val service = ApplicationService(FakeBluetooth(), FakeClock(), store) {}
@@ -472,6 +498,47 @@ class ApplicationServiceTest {
             return requireNotNull(current).copy(active = false).also { current = null }
         }
         override fun active() = current
+    }
+
+    private class FakeProductStore : ProductStorePort {
+        var profile = BoardProfileRecord(
+            "saved-board",
+            0,
+            "{}",
+            listOf("seriesCount", "parallelCount", "motor"),
+        )
+
+        override fun savedDevices() = listOf(
+            SavedDeviceRecord(
+                "saved-board",
+                "history-board",
+                "Board",
+                profileComplete = false,
+            ),
+        )
+
+        override fun boardProfile(savedDeviceId: String): BoardProfileRecord {
+            if (savedDeviceId != profile.savedDeviceId) {
+                throw ProductStoreException.SavedDeviceNotFound
+            }
+            return profile
+        }
+
+        override fun updateBoardProfile(
+            savedDeviceId: String,
+            expectedRevision: Int,
+            patchJson: String,
+            at: Instant,
+        ): BoardProfileRecord {
+            if (expectedRevision != profile.revision) {
+                throw ProductStoreException.ProfileRevisionConflict(profile.revision)
+            }
+            return profile.copy(
+                revision = profile.revision + 1,
+                valuesJson = patchJson,
+                missingFields = listOf("parallelCount", "motor"),
+            ).also { profile = it }
+        }
     }
 
     private class FailingStore : LogStorePort {

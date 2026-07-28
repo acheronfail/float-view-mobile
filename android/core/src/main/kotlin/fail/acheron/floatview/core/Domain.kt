@@ -195,6 +195,41 @@ interface LogStorePort {
     fun active(): SessionRecord?
 }
 
+data class SavedDeviceRecord(
+    val savedDeviceId: String,
+    val deviceHistoryId: String,
+    val displayName: String,
+    val advertisedName: String? = null,
+    val lastSeenAt: Instant? = null,
+    val lastConnectedAt: Instant? = null,
+    val profileComplete: Boolean,
+)
+
+data class BoardProfileRecord(
+    val savedDeviceId: String,
+    val revision: Int,
+    val valuesJson: String,
+    val missingFields: List<String>,
+)
+
+sealed class ProductStoreException(message: String) : RuntimeException(message) {
+    data object SavedDeviceNotFound : ProductStoreException("Saved device not found")
+    data class ProfileRevisionConflict(val currentRevision: Int) :
+        ProductStoreException("Profile revision conflict")
+    data object InvalidProfilePatch : ProductStoreException("Invalid profile patch")
+}
+
+interface ProductStorePort {
+    fun savedDevices(): List<SavedDeviceRecord>
+    fun boardProfile(savedDeviceId: String): BoardProfileRecord
+    fun updateBoardProfile(
+        savedDeviceId: String,
+        expectedRevision: Int,
+        patchJson: String,
+        at: Instant,
+    ): BoardProfileRecord
+}
+
 fun interface EventSink {
     fun publish(event: Any)
 }

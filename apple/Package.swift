@@ -35,7 +35,9 @@ let package = Package(
     ),
     .testTarget(
       name: "FloatViewCoreTests",
-      dependencies: ["FloatViewCore", "FloatViewHost", "FloatViewLogging", "FloatViewProtocol"]
+      dependencies: [
+        "CSQLite", "FloatViewCore", "FloatViewHost", "FloatViewLogging", "FloatViewProtocol",
+      ]
     ),
   ]
 )

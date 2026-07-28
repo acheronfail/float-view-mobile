@@ -278,7 +278,75 @@ public final class LoopbackServer: @unchecked Sendable {
         return failure(-32007, "device_not_ready", "Unable to read VESC firmware information")
       }
     }
-    if method == "savedDevices.list" { return response([Any]()) }
+    if method == "savedDevices.list" {
+      guard let applicationService else {
+        return failure(-32601, "unsupported", "Saved devices are unavailable")
+      }
+      do {
+        return response(try applicationService.savedDevices().map(savedDevicePayload))
+      } catch {
+        return failure(-32005, "storage_unavailable", "Unable to read saved devices")
+      }
+    }
+    if method == "boardProfiles.get" {
+      guard let applicationService else {
+        return failure(-32601, "unsupported", "Board Profiles are unavailable")
+      }
+      guard let params = request["params"] as? [String: Any],
+            let savedDeviceID = params["savedDeviceId"] as? String,
+            !savedDeviceID.isEmpty
+      else {
+        return failure(-32602, "protocol_error", "savedDeviceId is required")
+      }
+      do {
+        return response(try boardProfilePayload(
+          applicationService.boardProfile(savedDeviceID: savedDeviceID)
+        ))
+      } catch let error as ProductStoreError {
+        return productStoreFailure(error, failure: failure)
+      } catch {
+        return failure(-32005, "storage_unavailable", "Unable to read Board Profile")
+      }
+    }
+    if method == "boardProfiles.update" {
+      guard let applicationService else {
+        return failure(-32601, "unsupported", "Board Profiles are unavailable")
+      }
+      guard let params = request["params"] as? [String: Any],
+            let savedDeviceID = params["savedDeviceId"] as? String,
+            !savedDeviceID.isEmpty,
+            let expectedRevision = params["expectedRevision"] as? Int,
+            expectedRevision >= 0,
+            let patch = params["patch"] as? [String: Any],
+            JSONSerialization.isValidJSONObject(patch),
+            let patchData = try? JSONSerialization.data(
+              withJSONObject: patch,
+              options: [.sortedKeys]
+            ),
+            let patchJSON = String(
+              data: patchData,
+              encoding: .utf8
+            )
+      else {
+        return failure(
+          -32602, "protocol_error",
+          "savedDeviceId, expectedRevision, and an object patch are required"
+        )
+      }
+      do {
+        return response(try boardProfilePayload(
+          applicationService.updateBoardProfile(
+            savedDeviceID: savedDeviceID,
+            expectedRevision: expectedRevision,
+            patchJSON: patchJSON
+          )
+        ))
+      } catch let error as ProductStoreError {
+        return productStoreFailure(error, failure: failure)
+      } catch {
+        return failure(-32005, "storage_unavailable", "Unable to update Board Profile")
+      }
+    }
     if method == "sessions.list" {
       return response(["items": [Any](), "nextCursor": NSNull()])
     }
@@ -303,6 +371,7 @@ public final class LoopbackServer: @unchecked Sendable {
       ["name": "system.snapshot", "available": true],
       ["name": "bluetooth.discovery", "available": applicationService != nil],
       ["name": "device.connection", "available": applicationService != nil],
+      ["name": "boardProfiles.local", "available": applicationService != nil],
     ]
   }
 
@@ -338,6 +407,48 @@ public final class LoopbackServer: @unchecked Sendable {
     ]
   }
 
+  private func savedDevicePayload(_ device: SavedDeviceRecord) -> [String: Any] {
+    [
+      "savedDeviceId": device.savedDeviceID,
+      "deviceHistoryId": device.deviceHistoryID,
+      "displayName": device.displayName,
+      "advertisedName": device.advertisedName ?? NSNull(),
+      "lastSeenAt": device.lastSeenAt.map { ISO8601DateFormatter().string(from: $0) } ?? NSNull(),
+      "lastConnectedAt": device.lastConnectedAt.map {
+        ISO8601DateFormatter().string(from: $0)
+      } ?? NSNull(),
+      "profileComplete": device.profileComplete,
+    ]
+  }
+
+  private func boardProfilePayload(_ profile: BoardProfileRecord) throws -> [String: Any] {
+    guard let values = try JSONSerialization.jsonObject(with: Data(profile.valuesJSON.utf8))
+      as? [String: Any]
+    else {
+      throw ProductStoreError.invalidProfilePatch
+    }
+    return [
+      "savedDeviceId": profile.savedDeviceID,
+      "revision": profile.revision,
+      "values": values,
+      "missingFields": profile.missingFields,
+    ]
+  }
+
+  private func productStoreFailure(
+    _ error: ProductStoreError,
+    failure: (Int, String, String) -> Data
+  ) -> Data {
+    switch error {
+    case .savedDeviceNotFound:
+      failure(-32004, "device_not_found", "Saved device not found")
+    case .profileRevisionConflict:
+      failure(-32000, "invalid_state", "Profile revision conflict")
+    case .invalidProfilePatch:
+      failure(-32602, "protocol_error", "Invalid Board Profile patch")
+    }
+  }
+
   private func deviceState(_ state: ConnectionState) -> String {
     switch state {
     case .disconnected: "disconnected"
@@ -368,6 +479,8 @@ public final class LoopbackServer: @unchecked Sendable {
       failure(-32002, "not_found", "The discovered board is no longer available")
     case .deviceNotReady:
       failure(-32007, "device_not_ready", "The VESC connection is not ready")
+    case .productStoreUnavailable:
+      failure(-32601, "unsupported", "Product persistence is unavailable")
     }
   }
 

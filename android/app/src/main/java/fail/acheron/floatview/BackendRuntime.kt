@@ -38,6 +38,7 @@ class BackendRuntime(application: FloatViewApplication) {
         bluetooth,
         SystemClock,
         logStore,
+        productStore = logStore,
         protocol = VescProtocolService(),
         scheduler = SystemScheduler(),
     ) { event ->

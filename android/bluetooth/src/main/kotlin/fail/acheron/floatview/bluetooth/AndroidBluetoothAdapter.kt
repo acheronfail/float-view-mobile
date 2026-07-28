@@ -29,6 +29,8 @@ import fail.acheron.floatview.core.BluetoothRadioState
 import fail.acheron.floatview.core.BluetoothState
 import fail.acheron.floatview.core.ConnectionState
 import fail.acheron.floatview.core.DeviceId
+import java.nio.charset.StandardCharsets
+import java.security.MessageDigest
 import java.util.UUID
 
 fun interface BluetoothPermissionRequester {
@@ -46,6 +48,7 @@ class AndroidBluetoothAdapter(
     private val applicationContext = context.applicationContext
     private val manager = applicationContext.getSystemService(BluetoothManager::class.java)
     private val handler = Handler(Looper.getMainLooper())
+    private val deviceIdentity = AndroidDeviceIdentity.from(applicationContext)
     private val opaqueIds = mutableMapOf<String, DeviceId>()
     private val devicesById = mutableMapOf<DeviceId, BluetoothDevice>()
     private var activeDeviceId: DeviceId? = null
@@ -70,7 +73,7 @@ class AndroidBluetoothAdapter(
                 eventHandler(BluetoothEvent.ScanFailed("permission_required"))
                 return
             }
-            val deviceId = opaqueIds.getOrPut(address) { DeviceId(UUID.randomUUID().toString()) }
+            val deviceId = opaqueIds.getOrPut(address) { deviceIdentity.idFor(address) }
             devicesById[deviceId] = result.device
             val name = result.scanRecord?.deviceName ?: try {
                 result.device.name
@@ -494,5 +497,29 @@ class AndroidBluetoothAdapter(
         private const val CONNECTION_ATTEMPT_TIMEOUT_MS = 10_000L
         private val CLIENT_CHARACTERISTIC_CONFIGURATION =
             UUID.fromString("00002902-0000-1000-8000-00805f9b34fb")
+    }
+}
+
+internal class AndroidDeviceIdentity(private val installationSalt: String) {
+    fun idFor(platformAddress: String): DeviceId {
+        val digest = MessageDigest.getInstance("SHA-256").digest(
+            "$installationSalt\u0000${platformAddress.uppercase()}"
+                .toByteArray(StandardCharsets.UTF_8),
+        )
+        return DeviceId("android-" + digest.take(16).joinToString("") { "%02x".format(it) })
+    }
+
+    companion object {
+        private const val PREFERENCES = "float-view-device-identity"
+        private const val INSTALLATION_SALT = "installation-salt"
+
+        fun from(context: Context): AndroidDeviceIdentity {
+            val preferences = context.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE)
+            val salt = preferences.getString(INSTALLATION_SALT, null)
+                ?: UUID.randomUUID().toString().also {
+                    preferences.edit().putString(INSTALLATION_SALT, it).apply()
+                }
+            return AndroidDeviceIdentity(salt)
+        }
     }
 }

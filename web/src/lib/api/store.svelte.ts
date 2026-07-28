@@ -1,5 +1,6 @@
 import type {
 	BluetoothState,
+	BoardProfile,
 	Device,
 	FirmwareInfo,
 	HelloResult,
@@ -37,6 +38,7 @@ export class ApiStore {
 	firmware = $state<FirmwareInfo | null>(null);
 	sessions = $state<Session[]>([]);
 	selectedSession = $state<Session | null>(null);
+	selectedBoardProfile = $state<BoardProfile | null>(null);
 	busy = $state(false);
 	private client: ApiClient | null = null;
 
@@ -187,6 +189,29 @@ export class ApiStore {
 		await this.run(async (client) => {
 			this.selectedSession = await client.request('sessions.getSummary', { sessionId });
 		});
+	}
+
+	async openBoardProfile(savedDeviceId: string): Promise<void> {
+		await this.run(async (client) => {
+			this.selectedBoardProfile = await client.request('boardProfiles.get', { savedDeviceId });
+		});
+	}
+
+	async updateBoardProfile(patch: Record<string, unknown>): Promise<void> {
+		const selected = this.selectedBoardProfile;
+		if (!selected) return;
+		await this.run(async (client) => {
+			this.selectedBoardProfile = await client.request('boardProfiles.update', {
+				savedDeviceId: selected.savedDeviceId,
+				expectedRevision: selected.revision,
+				patch
+			});
+			this.savedDevices = await client.request('savedDevices.list', {});
+		});
+	}
+
+	closeBoardProfile(): void {
+		this.selectedBoardProfile = null;
 	}
 
 	closeSession(): void {

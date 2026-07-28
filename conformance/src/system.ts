@@ -346,3 +346,97 @@ export async function runSystemConformance(
   }
   return results;
 }
+
+export async function runBoardProfileConformance(
+  client: ConformanceClient,
+  savedDeviceId: string,
+): Promise<ConformanceScenarioResult> {
+  const started = performance.now();
+  const initial = asRecord(
+    await client.request("boardProfiles.get", { savedDeviceId }),
+    "initial board profile",
+  );
+  assert(initial.revision === 0, "A newly created profile must start at revision 0");
+  assert(
+    Array.isArray(initial.missingFields) &&
+      initial.missingFields.includes("seriesCount") &&
+      initial.missingFields.includes("parallelCount") &&
+      initial.missingFields.includes("motor"),
+    "A partial profile must advertise its initial missing fields",
+  );
+  await expectApiError(
+    client.request("boardProfiles.update", {
+      savedDeviceId,
+      expectedRevision: 0,
+      patch: { seriesCount: 0 },
+    }),
+    -32602,
+    "protocol_error",
+  );
+
+  const first = asRecord(
+    await client.request("boardProfiles.update", {
+      savedDeviceId,
+      expectedRevision: 0,
+      patch: { seriesCount: 18, motor: "hypercore_xr" },
+    }),
+    "first Board Profile update",
+  );
+  assert(first.revision === 1, "A successful profile update must advance revision");
+  const firstValues = asRecord(first.values, "first profile values");
+  assert(
+    firstValues.seriesCount === 18 && firstValues.motor === "hypercore_xr",
+    "A profile update must preserve typed patch values",
+  );
+  await expectApiError(
+    client.request("boardProfiles.update", {
+      savedDeviceId,
+      expectedRevision: 0,
+      patch: { seriesCount: 20 },
+    }),
+    -32000,
+    "invalid_state",
+  );
+
+  const second = asRecord(
+    await client.request("boardProfiles.update", {
+      savedDeviceId,
+      expectedRevision: 1,
+      patch: { parallelCount: 2 },
+    }),
+    "second Board Profile update",
+  );
+  assert(
+    second.revision === 2 &&
+      Array.isArray(second.missingFields) &&
+      second.missingFields.length === 0,
+    "Completing required profile fields must clear the completeness warning",
+  );
+  const fetched = asRecord(
+    await client.request("boardProfiles.get", { savedDeviceId }),
+    "persisted Board Profile",
+  );
+  assert(
+    fetched.revision === 2 &&
+      asRecord(fetched.values, "persisted profile values").seriesCount === 18,
+    "Board Profile reads must return the merged persisted revision",
+  );
+  const saved = (await client.request("savedDevices.list", {})) as unknown[];
+  const matching = saved
+    .map((value) => asRecord(value, "saved board"))
+    .find((value) => value.savedDeviceId === savedDeviceId);
+  assert(
+    matching?.profileComplete === true,
+    "Saved-device completeness must reflect the persisted Board Profile",
+  );
+  await expectApiError(
+    client.request("boardProfiles.get", { savedDeviceId: "missing-board" }),
+    -32004,
+    "device_not_found",
+  );
+
+  return {
+    name: "persists local Board Profiles with optimistic revision checks",
+    durationMs: performance.now() - started,
+  };
+}

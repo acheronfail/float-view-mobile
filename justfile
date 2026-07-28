@@ -157,6 +157,13 @@ test-alerts:
     --filter AdaptiveLoggingTests
   cd android && ./gradlew :core:test --tests '*AdaptiveLoggingTest*'
 
+test-profiles:
+  cd web && npm run check && npm run lint && npm test
+  cd apple && CLANG_MODULE_CACHE_PATH=/tmp/float-view-clang \
+    swift test --disable-sandbox --scratch-path /tmp/float-view-swift-build \
+    --filter boardProfile
+  cd android && ./gradlew :core:test :logging:compileDebugAndroidTestKotlin
+
 conformance-mock:
   cd web && npm run api:conformance:mock
 
@@ -192,6 +199,7 @@ verify-r5: verify-r4
   just test-core
   just test-storage
   just test-alerts
+  just test-profiles
 
 test-bluetooth:
   cd android && ./gradlew :bluetooth:test :bluetooth:assembleDebug

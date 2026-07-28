@@ -32,6 +32,7 @@ enum FloatViewMac {
         "webSocketUrl": "ws://127.0.0.1:\(server.port)/api/v1/ws",
         "sessionToken": server.token,
         "origin": server.origin,
+        "savedDeviceId": runtime.testSavedDeviceID ?? NSNull(),
       ]
       let data = try JSONSerialization.data(withJSONObject: readiness)
       print(String(decoding: data, as: UTF8.self))
@@ -150,6 +151,7 @@ private final class MacBackendRuntime: @unchecked Sendable {
   private let bluetooth: CoreBluetoothAdapter
   private let applicationService: ApplicationService
   private let webRoot: URL
+  let testSavedDeviceID: String?
 
   init(webRoot: URL) {
     let relay = BluetoothEventRelay()
@@ -160,7 +162,8 @@ private final class MacBackendRuntime: @unchecked Sendable {
       }
     )
     let logRoot: URL
-    if let override = ProcessInfo.processInfo.environment["FLOAT_VIEW_LOG_ROOT"] {
+    let testLogRoot = ProcessInfo.processInfo.environment["FLOAT_VIEW_LOG_ROOT"]
+    if let override = testLogRoot {
       logRoot = URL(fileURLWithPath: override, isDirectory: true)
     } else {
       let applicationSupport = try! FileManager.default.url(
@@ -184,7 +187,8 @@ private final class MacBackendRuntime: @unchecked Sendable {
       root: logRoot,
       schemaDirectory: schemaDirectory,
       availableBytes: {
-        (try? logRoot.resourceValues(
+        if testLogRoot != nil { return Int64.max }
+        return (try? logRoot.resourceValues(
           forKeys: [.volumeAvailableCapacityForImportantUsageKey]
         ).volumeAvailableCapacityForImportantUsage).map { Int64($0) } ?? Int64.max
       }
@@ -195,10 +199,25 @@ private final class MacBackendRuntime: @unchecked Sendable {
     #else
     try! logStore.recoverInterrupted()
     #endif
+    if ProcessInfo.processInfo.environment["FLOAT_VIEW_TEST_SEED_PROFILE"] == "1" {
+      let seed = try! logStore.create(
+        deviceID: DeviceID("conformance-profile-fixture"),
+        at: Date(timeIntervalSince1970: 0)
+      )
+      _ = try! logStore.close(
+        jobID: seed.jobID,
+        at: Date(timeIntervalSince1970: 1),
+        reason: "test_seed"
+      )
+      testSavedDeviceID = try! logStore.savedDevices().first!.savedDeviceID
+    } else {
+      testSavedDeviceID = nil
+    }
     let applicationService = ApplicationService(
       bluetooth: bluetooth,
       clock: SystemClock(),
       logStore: logStore,
+      productStore: logStore,
       protocolCodec: VescProtocolService(),
       scheduler: SystemScheduler(),
       events: DebugEventSink()
