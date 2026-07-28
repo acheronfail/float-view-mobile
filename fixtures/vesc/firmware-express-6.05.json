@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "id": "vesc-express-firmware-6.05-synthetic",
+  "provenance": "synthetic from pinned VESC Tool COMM_FW_VERSION layout and sanitized VESC Express hardware observations",
+  "firmware": "6.05",
+  "frameHex": "0226000605564553432045787072657373205400000000000000000000000000000002000000000077b103",
+  "chunkSizes": [3, 7, 13, 20],
+  "validCrc": true,
+  "expected": {
+    "commandId": 0,
+    "major": 6,
+    "minor": 5,
+    "hardwareName": "VESC Express T",
+    "hardwareType": 2
+  }
+}

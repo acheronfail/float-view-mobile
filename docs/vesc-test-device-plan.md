@@ -366,30 +366,33 @@ Exit gate:
 The implementation evidence and completed platform matrix are recorded in
 [`../tools/vesc-test-device/T1-EVIDENCE.md`](../tools/vesc-test-device/T1-EVIDENCE.md).
 
-### T2: host protocol and scenario engine
+### T2: host protocol and scenario engine — complete (2026-07-28)
 
 Target effort: three to five days.
 
 Deliverables:
 
-- versioned USB transport implementation with acknowledgements and timeouts;
-- schema-validated scenario loader;
-- VESC stream assembly and request matching;
-- fixture-backed response loading and notification chunk planning;
-- Express/CAN/primary-controller routing model;
-- Refloat INFO, field-layout, and deterministic telemetry response support;
-- bounded transcript and verification manifest;
-- unit tests for partial writes, combined frames, CRC errors, unknown commands,
+- [x] versioned USB transport implementation with acknowledgements and timeouts;
+- [x] schema-validated scenario loader;
+- [x] VESC stream assembly and request matching;
+- [x] fixture-backed response loading and notification chunk planning;
+- [x] Express/CAN/primary-controller routing model;
+- [x] Refloat INFO, field-layout, and deterministic telemetry response support;
+- [x] bounded transcript and verification manifest;
+- [x] unit tests for partial writes, combined frames, CRC errors, unknown commands,
   duplicate commands, host timeout, ESP reset, and stale acknowledgements.
 
 Exit gate:
 
-- the engine passes its tests without an ESP;
-- the engine reproduces selected committed fixtures byte-for-byte;
-- the ESP round-trips the firmware, CAN, Refloat identity, field-layout, and
+- [x] the engine passes its tests without an ESP;
+- [x] the engine reproduces selected committed fixtures byte-for-byte;
+- [x] the ESP round-trips the firmware, CAN, Refloat identity, field-layout, and
   telemetry request sequence;
-- unknown or mutating commands are rejected and recorded;
-- scenario failure messages identify the first violated expectation.
+- [x] unknown or mutating commands are rejected and recorded;
+- [x] scenario failure messages identify the first violated expectation.
+
+Host-only and completed physical-gate evidence are recorded in
+[`../tools/vesc-test-device/T2-EVIDENCE.md`](../tools/vesc-test-device/T2-EVIDENCE.md).
 
 ### T3: deterministic Express/Thor/Refloat ride
 

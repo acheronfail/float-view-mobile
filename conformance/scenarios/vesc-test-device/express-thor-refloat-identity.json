@@ -1,0 +1,103 @@
+{
+  "schemaVersion": 1,
+  "id": "express-thor-refloat-identity",
+  "description": "T2 read-only identity and deterministic idle telemetry slice for a VESC Express T forwarding to a Thor300 running Refloat 1.2.3",
+  "advertisement": {
+    "name": "FloatView Test VESC",
+    "manufacturerMarkerHex": "ffff46565431",
+    "profile": "canonicalVescUart"
+  },
+  "topology": {
+    "transport": {
+      "hardwareName": "VESC Express T",
+      "firmware": "6.05"
+    },
+    "canNodes": [
+      {
+        "canId": 42,
+        "role": "primary",
+        "hardwareName": "THOR300",
+        "firmware": "6.06"
+      }
+    ],
+    "primaryCanId": 42,
+    "refloat": {
+      "packageVersion": "1.2.3"
+    }
+  },
+  "rules": [
+    {
+      "id": "transportFirmware",
+      "match": { "kind": "transportFirmware" },
+      "occurrences": { "minimum": 1, "maximum": 1 },
+      "response": {
+        "fixture": "fixtures/vesc/firmware-express-6.05.json",
+        "chunking": { "mode": "fixture" }
+      }
+    },
+    {
+      "id": "canPing",
+      "match": { "kind": "canPing" },
+      "occurrences": { "minimum": 1, "maximum": 1 },
+      "response": {
+        "payloadHex": "3e2a",
+        "provenance": "COMM_PING_CAN response layout from pinned VESC Tool with the scenario's single CAN node",
+        "chunking": { "mode": "single" }
+      }
+    },
+    {
+      "id": "primaryFirmware",
+      "match": { "kind": "primaryFirmware", "canId": 42 },
+      "occurrences": { "minimum": 1, "maximum": 1 },
+      "response": {
+        "fixture": "fixtures/vesc/firmware-6.06.json",
+        "chunking": { "mode": "fixture" }
+      }
+    },
+    {
+      "id": "refloatInfo",
+      "match": { "kind": "refloatInfo", "canId": 42 },
+      "occurrences": { "minimum": 1, "maximum": 1 },
+      "response": {
+        "fixture": "fixtures/refloat/rtdata-1.2.3-android-hardware.json",
+        "case": "versioned-info-v2",
+        "chunking": { "mode": "fixture" }
+      }
+    },
+    {
+      "id": "refloatTelemetryIds",
+      "match": { "kind": "refloatTelemetryIds", "canId": 42 },
+      "occurrences": { "minimum": 1, "maximum": 3 },
+      "response": {
+        "fixture": "fixtures/refloat/rtdata-1.2.3-android-hardware.json",
+        "case": "dynamic-realtime-field-ids",
+        "chunking": { "mode": "fixture" }
+      }
+    },
+    {
+      "id": "refloatTelemetry",
+      "match": { "kind": "refloatTelemetry", "canId": 42 },
+      "occurrences": { "minimum": 1, "maximum": 64 },
+      "response": {
+        "fixture": "fixtures/refloat/rtdata-1.2.3-android-hardware.json",
+        "case": "idle-realtime-data",
+        "chunking": { "mode": "fixture" }
+      }
+    }
+  ],
+  "expectations": {
+    "orderedRuleIds": [
+      "transportFirmware",
+      "canPing",
+      "primaryFirmware",
+      "refloatInfo",
+      "refloatTelemetryIds",
+      "refloatTelemetry"
+    ]
+  },
+  "limits": {
+    "maxTranscriptEntries": 2048,
+    "maxBufferedBytes": 8192,
+    "commandTimeoutMs": 3000
+  }
+}

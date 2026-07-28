@@ -3,7 +3,7 @@
 This directory contains the programmable BLE test peripheral described in
 [`../../docs/vesc-test-device-plan.md`](../../docs/vesc-test-device-plan.md).
 
-T0 and T1 completed on 2026-07-28. The current implementation:
+T0, T1, and T2 completed on 2026-07-28. The current implementation:
 
 - targets ESP32-S3 with ESP-IDF v6.0.2 and NimBLE;
 - advertises the canonical VESC UART service UUID;
@@ -14,10 +14,15 @@ T0 and T1 completed on 2026-07-28. The current implementation:
 - sends host-supplied notification bytes and host-commanded disconnects;
 - enforces one central, bounded input/output, and one pending notification;
 - returns to a disconnected, non-advertising state after host loss.
+- runs a schema-validated, deterministic TypeScript scenario engine;
+- assembles and validates VESC frames independently of product code;
+- models a read-only VESC Express/Thor300 CAN topology with Refloat 1.2.3;
+- rejects and records unknown or mutating commands;
+- produces bounded transcripts and machine-readable verification manifests.
 
-It is a production-shaped T1 transport, not yet a VESC protocol emulator. T0
-results are in [`T0-EVIDENCE.md`](T0-EVIDENCE.md); current T1 results and the
-remaining platform gates are in [`T1-EVIDENCE.md`](T1-EVIDENCE.md).
+T0 results are in [`T0-EVIDENCE.md`](T0-EVIDENCE.md), T1 results are in
+[`T1-EVIDENCE.md`](T1-EVIDENCE.md), and T2 host and physical evidence are in
+[`T2-EVIDENCE.md`](T2-EVIDENCE.md).
 
 ## T0 board
 
@@ -155,3 +160,35 @@ Limits are deliberately small: 768 bytes per host line, 896 bytes per device
 line, 256 bytes per captured write, 244 bytes per notification, one central,
 and one pending notification. The fixture marker is manufacturer data
 `ff ff 46 56 54 31` (`0xffff` plus `FVT1`).
+
+## T2 scenario engine
+
+Install and run the host-only checks:
+
+```sh
+cd tools/vesc-test-device/host
+npm ci
+npm run check
+npm test
+```
+
+The first T2 scenario is
+[`../../conformance/scenarios/vesc-test-device/express-thor-refloat-identity.json`](../../conformance/scenarios/vesc-test-device/express-thor-refloat-identity.json).
+It uses committed response fixtures for Express 6.05, Thor300 6.06, Refloat
+INFO 1.2.3, dynamic telemetry field IDs, and deterministic idle telemetry.
+Scenario files are validated against
+[`schemas/scenario-v1.schema.json`](schemas/scenario-v1.schema.json).
+
+The opt-in macOS physical verifier compiles Float View's production
+CoreBluetooth adapter and VESC protocol codec, arms the ESP, executes the
+identity sequence, and writes ignored evidence under
+`artifacts/verification/vesc-test-device`:
+
+```sh
+cd tools/vesc-test-device/host
+npm run verify:macos -- --port "$FLOAT_VIEW_ESP_PORT"
+```
+
+This command performs real Bluetooth discovery and connection. Run it only
+after the fixture port has been resolved locally and the operator has approved
+starting physical verification.
