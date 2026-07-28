@@ -1,4 +1,6 @@
 /build/
+/.pio/
 /dependencies.lock
 /managed_components/
 /sdkconfig
+/sdkconfig.esp32-s3-super-mini

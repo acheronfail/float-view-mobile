@@ -17,8 +17,8 @@ small hand-written contract in `frontend/src/lib/backend/contract.ts`.
 - `backends/fixtures/` — immutable VESC and Refloat protocol fixtures.
 - `conformance/` — the canonical black-box contract suite and programmable VESC
   simulator/orchestrator.
-- `tools/vesc-test-device/` — pure ESP-IDF firmware that only bridges a serial
-  line protocol to a fixed BLE GATT service.
+- `tools/vesc-test-device/` — pure ESP-IDF firmware, built with PlatformIO, that
+  only bridges a serial line protocol to a fixed BLE GATT service.
 
 Native backends own Bluetooth, protocol decoding, durable sessions, permissions,
 exports, lifecycle, and the authenticated loopback server. They serve only the
@@ -34,9 +34,12 @@ just build
 just run android|ios|macos [target]
 just test frontend|conformance|apple|android|fixture|all
 just conformance mock|android|ios|macos
-just fixture check|build|flash [port]
+just fixture setup|check|ports|build|flash|monitor [port]
 just verify
 ```
+
+The fixture commands require PlatformIO Core (`pio`), but do not require a
+separate ESP-IDF installation or a sourced ESP-IDF environment.
 
 `just verify` is the software gate. Physical BLE conformance is intentionally a
 separate checkpoint because it requires a flashed ESP32 and real target devices.

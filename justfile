@@ -4,6 +4,7 @@ _default:
 setup:
     cd frontend && npm ci
     cd conformance && npm ci
+    pio pkg install -d tools/vesc-test-device
 
 dev:
     cd frontend && npm run dev
@@ -65,12 +66,18 @@ fixture action port="":
     set -euo pipefail
     case "{{ action }}" in
       check) sh tools/vesc-test-device/test/run.sh ;;
-      build) idf.py -C tools/vesc-test-device build ;;
+      setup) pio pkg install -d tools/vesc-test-device ;;
+      ports) pio device list ;;
+      build) pio run -d tools/vesc-test-device ;;
       flash)
         [[ -n "{{ port }}" ]] || { echo 'Pass the fixture serial port.' >&2; exit 2; }
-        idf.py -C tools/vesc-test-device build flash -p "{{ port }}"
+        pio run -d tools/vesc-test-device -t upload --upload-port "{{ port }}"
         ;;
-      *) echo 'Usage: just fixture check|build|flash [port]' >&2; exit 2 ;;
+      monitor)
+        [[ -n "{{ port }}" ]] || { echo 'Pass the fixture serial port.' >&2; exit 2; }
+        pio device monitor --port "{{ port }}" --baud 115200
+        ;;
+      *) echo 'Usage: just fixture setup|check|ports|build|flash|monitor [port]' >&2; exit 2 ;;
     esac
 
 audit:
