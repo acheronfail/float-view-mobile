@@ -31,30 +31,47 @@ const systemClock: UsbClock = {
 export class UsbControlClient extends EventEmitter {
   private hostSequence = 0;
   private lastDeviceSequence = 0;
-  private readonly pending = new Map<number, {
-    kind: string;
-    resolve: (event: ControlEvent) => void;
-    reject: (error: Error) => void;
-    timer: unknown;
-  }>();
+  private readonly pending = new Map<
+    number,
+    {
+      kind: string;
+      resolve: (event: ControlEvent) => void;
+      reject: (error: Error) => void;
+      timer: unknown;
+    }
+  >();
   private readonly unsubscribe: () => void;
 
   constructor(
     private readonly transport: LineTransport,
     private readonly timeoutMs = 3_000,
     private readonly clock: UsbClock = systemClock,
+    initialHostSequence = 0,
   ) {
     super();
+    this.hostSequence = initialHostSequence;
     this.unsubscribe = transport.onLine((line) => this.receiveLine(line));
   }
 
-  async command(kind: string, fields: Record<string, unknown> = {}): Promise<ControlEvent> {
+  async command(
+    kind: string,
+    fields: Record<string, unknown> = {},
+  ): Promise<ControlEvent> {
     const sequence = ++this.hostSequence;
-    const body = JSON.stringify({ protocolVersion: 1, sequence, kind, ...fields });
+    const body = JSON.stringify({
+      protocolVersion: 1,
+      sequence,
+      kind,
+      ...fields,
+    });
     const completion = new Promise<ControlEvent>((resolve, reject) => {
       const timer = this.clock.setTimeout(() => {
         this.pending.delete(sequence);
-        reject(new Error(`USB command ${kind} sequence ${sequence} timed out after ${this.timeoutMs}ms`));
+        reject(
+          new Error(
+            `USB command ${kind} sequence ${sequence} timed out after ${this.timeoutMs}ms`,
+          ),
+        );
       }, this.timeoutMs);
       this.pending.set(sequence, { kind, resolve, reject, timer });
     });
@@ -65,7 +82,9 @@ export class UsbControlClient extends EventEmitter {
       if (pending) {
         this.clock.clearTimeout(pending.timer);
         this.pending.delete(sequence);
-        pending.reject(error instanceof Error ? error : new Error(String(error)));
+        pending.reject(
+          error instanceof Error ? error : new Error(String(error)),
+        );
       }
     }
     return completion;
@@ -75,7 +94,11 @@ export class UsbControlClient extends EventEmitter {
     this.unsubscribe();
     for (const [sequence, pending] of this.pending) {
       this.clock.clearTimeout(pending.timer);
-      pending.reject(new Error(`USB transport closed with command ${pending.kind} sequence ${sequence} pending`));
+      pending.reject(
+        new Error(
+          `USB transport closed with command ${pending.kind} sequence ${sequence} pending`,
+        ),
+      );
     }
     this.pending.clear();
     await this.transport.close();
@@ -85,7 +108,12 @@ export class UsbControlClient extends EventEmitter {
     let event: ControlEvent;
     try {
       const parsed = JSON.parse(line) as Partial<ControlEvent>;
-      if (parsed.protocolVersion !== 1 || typeof parsed.sequence !== "number" || typeof parsed.kind !== "string") return;
+      if (
+        parsed.protocolVersion !== 1 ||
+        typeof parsed.sequence !== "number" ||
+        typeof parsed.kind !== "string"
+      )
+        return;
       event = parsed as ControlEvent;
     } catch {
       this.emit("parseError", line);
@@ -96,7 +124,11 @@ export class UsbControlClient extends EventEmitter {
       if (this.pending.size > 0) {
         for (const [sequence, pending] of this.pending) {
           this.clock.clearTimeout(pending.timer);
-          pending.reject(new Error(`ESP reset while command ${pending.kind} sequence ${sequence} was pending`));
+          pending.reject(
+            new Error(
+              `ESP reset while command ${pending.kind} sequence ${sequence} was pending`,
+            ),
+          );
         }
         this.pending.clear();
       }
@@ -110,8 +142,8 @@ export class UsbControlClient extends EventEmitter {
     this.lastDeviceSequence = event.sequence;
     const commandSequence = event.commandSequence;
     if (
-      commandSequence !== undefined
-      && (event.kind === "commandCompleted" || event.kind === "commandFailed")
+      commandSequence !== undefined &&
+      (event.kind === "commandCompleted" || event.kind === "commandFailed")
     ) {
       const pending = this.pending.get(commandSequence);
       if (!pending) {
@@ -121,9 +153,17 @@ export class UsbControlClient extends EventEmitter {
       this.clock.clearTimeout(pending.timer);
       this.pending.delete(commandSequence);
       if (event.commandKind !== pending.kind) {
-        pending.reject(new Error(`USB acknowledgement kind mismatch: expected ${pending.kind}, received ${event.commandKind}`));
+        pending.reject(
+          new Error(
+            `USB acknowledgement kind mismatch: expected ${pending.kind}, received ${event.commandKind}`,
+          ),
+        );
       } else if (event.kind === "commandFailed") {
-        pending.reject(new Error(`USB command ${pending.kind} failed: ${event.code ?? "unknown"} ${event.message ?? ""}`.trim()));
+        pending.reject(
+          new Error(
+            `USB command ${pending.kind} failed: ${event.code ?? "unknown"} ${event.message ?? ""}`.trim(),
+          ),
+        );
       } else {
         pending.resolve(event);
       }

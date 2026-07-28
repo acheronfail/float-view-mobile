@@ -261,6 +261,8 @@ static int stop_advertising(const char *reason) {
     }
     const int result = ble_gap_adv_stop();
     if (result == 0 || result == BLE_HS_EALREADY) {
+        ESP_ERROR_CHECK_WITHOUT_ABORT(
+            status_led_set(STATUS_LED_READY));
         emit_advertising_changed(false, reason);
         return 0;
     }
@@ -303,6 +305,8 @@ static int start_advertising(void) {
     result = ble_gap_adv_start(
         own_address_type, NULL, BLE_HS_FOREVER, &parameters, gap_event, NULL);
     if (result == 0) {
+        ESP_ERROR_CHECK_WITHOUT_ABORT(
+            status_led_set(STATUS_LED_ADVERTISING));
         emit_advertising_changed(true, "hostCommand");
     }
     return result;
@@ -348,7 +352,7 @@ static int gap_event(struct ble_gap_event *event, void *argument) {
                     xSemaphoreGive(state_mutex);
                 }
                 ESP_ERROR_CHECK_WITHOUT_ABORT(
-                    status_led_set_connected(true));
+                    status_led_set(STATUS_LED_CONNECTED));
                 emit_advertising_changed(false, "connected");
                 snprintf(
                     fields, sizeof(fields),
@@ -374,8 +378,6 @@ static int gap_event(struct ble_gap_event *event, void *argument) {
                 restart = state.armed && state.host_active && state.configured;
                 xSemaphoreGive(state_mutex);
             }
-            ESP_ERROR_CHECK_WITHOUT_ABORT(
-                status_led_set_connected(false));
             snprintf(
                 fields, sizeof(fields),
                 "\"reason\":%d", event->disconnect.reason);
@@ -386,12 +388,17 @@ static int gap_event(struct ble_gap_event *event, void *argument) {
             if (restart) {
                 const int result = start_advertising();
                 if (result != 0 && result != BLE_HS_EALREADY) {
+                    ESP_ERROR_CHECK_WITHOUT_ABORT(
+                        status_led_set(STATUS_LED_READY));
                     snprintf(
                         fields, sizeof(fields),
                         "\"stage\":\"restartAdvertising\",\"status\":%d",
                         result);
                     emit_event("fault", fields);
                 }
+            } else {
+                ESP_ERROR_CHECK_WITHOUT_ABORT(
+                    status_led_set(STATUS_LED_READY));
             }
             return 0;
         }
@@ -449,9 +456,19 @@ static int gap_event(struct ble_gap_event *event, void *argument) {
             return 0;
         }
 
-        case BLE_GAP_EVENT_ADV_COMPLETE:
+        case BLE_GAP_EVENT_ADV_COMPLETE: {
+            bool connected = false;
+            if (xSemaphoreTake(state_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
+                connected =
+                    state.active_connection != BLE_HS_CONN_HANDLE_NONE;
+                xSemaphoreGive(state_mutex);
+            }
+            ESP_ERROR_CHECK_WITHOUT_ABORT(
+                status_led_set(
+                    connected ? STATUS_LED_CONNECTED : STATUS_LED_READY));
             emit_advertising_changed(false, "stackComplete");
             return 0;
+        }
 
         default:
             return 0;
@@ -459,7 +476,7 @@ static int gap_event(struct ble_gap_event *event, void *argument) {
 }
 
 static void stack_reset(int reason) {
-    ESP_ERROR_CHECK_WITHOUT_ABORT(status_led_set_connected(false));
+    ESP_ERROR_CHECK_WITHOUT_ABORT(status_led_set(STATUS_LED_READY));
     char fields[80];
     snprintf(
         fields, sizeof(fields),

@@ -1,5 +1,6 @@
 import { toHex } from "./bytes.js";
 import { ScenarioEngine } from "./engine.js";
+import { establishControlSession } from "./lab.js";
 import type { Scenario } from "./types.js";
 import { UsbControlClient } from "./usb.js";
 
@@ -25,7 +26,7 @@ export class FixtureRunner {
   }
 
   async arm(): Promise<void> {
-    await this.control.command("hello");
+    await establishControlSession(this.control);
     await this.control.command("reset");
     await this.control.command("configureGattProfile", { profile: "canonicalVescUart" });
     await this.control.command("setWritePolicy", { policy: "accept" });

@@ -298,6 +298,48 @@ Every backend test host supports the same test-only scripts:
 
 Fake scenarios advance a fake clock and never use real sleeps.
 
+## Programmable VESC scenarios
+
+The ESP32 fixture runs a complementary subset of these behaviors through the
+production radio adapters. Its scenario engine may reuse the same committed raw
+fixtures and expected normalized domain outcomes, but it does not replace
+fake-clock tests or production-board acceptance.
+
+During development, every new protocol, connection, logging, or lifecycle slice
+is implemented for both native cores and then exercised physically on
+Android 10 first. The fixture must use ordinary discovery, service validation,
+notification subscription, VESC framing, application-service sequencing, and
+durable storage; test control may select its manufacturer marker only in debug
+or instrumentation builds.
+
+The accepted ESP progression is:
+
+1. Express/Thor300/Refloat identity plus deterministic adaptive ride and clean
+   disconnect;
+2. representative corrupt, delayed, silent, unsupported, topology, and
+   unexpected-disconnect/reconnect paths;
+3. 60-second background/WebView reconstruction and durable catch-up;
+4. twenty clean cycles with resource and terminal-cleanup assertions.
+
+At final R8 qualification, replay the same accepted scenario digests on iOS and
+macOS before running the declared real-controller matrix. Android-only ESP
+evidence can advance implementation, but cannot complete a cross-platform
+milestone.
+
+The accepted R7 Android lifecycle digest is
+`express-thor-refloat-background`: it runs longer than 60 seconds, backgrounds
+the Activity during an active durable session, observes the `connectedDevice`
+foreground service, waits beyond the 30-second frontend grace period, recreates
+the frontend, and requires an integrity-valid explicit close with no active
+connection/session. R8 Android soak evidence contains 20 production-GATT
+cycles, with every fifth cycle using that lifecycle digest and all other cycles
+using the ordinary ride digest. Each cycle records bounded resident-memory and
+file-descriptor counters. The complementary
+`express-thor-refloat-same-process-soak` digest performs 20 complete
+connect/log/disconnect cycles in one app process and requires 20 integral SQLite
+sessions, terminally clear native state, cadence compliance, and bounded
+per-cycle resident-memory and file-descriptor counters.
+
 ## Acceptance matrix
 
 | Scenario                        | Mock     | Swift core | Kotlin core | iOS      | macOS    | Android  |

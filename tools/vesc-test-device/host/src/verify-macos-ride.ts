@@ -3,8 +3,9 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { spawn } from "node:child_process";
 import { createInterface } from "node:readline";
-import { writeEvidence } from "./evidence.js";
+import { physicalRunLabel, writeEvidence } from "./evidence.js";
 import { FixtureRunner } from "./runner.js";
+import { physicalHostSequenceSeed, resolveEspPort } from "./lab.js";
 import { loadScenario, repositoryRoot } from "./scenario.js";
 import { SerialLineTransport } from "./serial.js";
 import { UsbControlClient } from "./usb.js";
@@ -30,13 +31,6 @@ interface SessionEvidence {
 
 type VerificationMode = SessionEvidence["mode"];
 
-function argument(name: string): string {
-  const index = process.argv.indexOf(name);
-  const value = index < 0 ? undefined : process.argv[index + 1];
-  if (!value) throw new Error(`missing required ${name}`);
-  return value;
-}
-
 function optionalArgument(name: string): string | undefined {
   const index = process.argv.indexOf(name);
   return index < 0 ? undefined : process.argv[index + 1];
@@ -57,16 +51,20 @@ async function compileClient(output: string): Promise<void> {
     const child = spawn(
       "swiftc",
       [
-        "-module-cache-path", join(temporaryModuleCache(output)),
+        "-module-cache-path",
+        join(temporaryModuleCache(output)),
         ...sources,
         "-lsqlite3",
-        "-o", output,
+        "-o",
+        output,
       ],
       { stdio: ["ignore", "inherit", "inherit"] },
     );
-    child.once("exit", (code) => code === 0
-      ? resolvePromise()
-      : reject(new Error(`swiftc exited ${code}`)));
+    child.once("exit", (code) =>
+      code === 0
+        ? resolvePromise()
+        : reject(new Error(`swiftc exited ${code}`)),
+    );
     child.once("error", reject);
   });
 }
@@ -76,15 +74,16 @@ function temporaryModuleCache(output: string): string {
 }
 
 async function main(): Promise<void> {
-  const port = argument("--port");
+  const port = optionalArgument("--port") ?? (await resolveEspPort());
   const mode = optionalArgument("--mode") ?? "ride";
   if (mode !== "ride" && mode !== "unexpected-disconnect") {
     throw new Error(`unsupported --mode ${mode}`);
   }
   const verificationMode: VerificationMode = mode;
-  const scenarioName = verificationMode === "ride"
-    ? "express-thor-refloat-ride.json"
-    : "express-thor-refloat-unexpected-disconnect.json";
+  const scenarioName =
+    verificationMode === "ride"
+      ? "express-thor-refloat-ride.json"
+      : "express-thor-refloat-unexpected-disconnect.json";
   const scenarioPath = resolve(
     repositoryRoot,
     "conformance/scenarios/vesc-test-device",
@@ -101,6 +100,8 @@ async function main(): Promise<void> {
     const control = new UsbControlClient(
       new SerialLineTransport(port),
       scenario.limits.commandTimeoutMs,
+      undefined,
+      physicalHostSequenceSeed(),
     );
     runner = new FixtureRunner(scenario, control);
     await runner.arm();
@@ -122,11 +123,17 @@ async function main(): Promise<void> {
     let clientFailure: string | undefined;
     const clientDiagnostics: unknown[] = [];
     for await (const line of lines) {
-      const event = JSON.parse(line) as { kind?: string; code?: string; detail?: string };
+      const event = JSON.parse(line) as {
+        kind?: string;
+        code?: string;
+        detail?: string;
+      };
       if (event.kind === "failed") {
-        clientFailure = `macOS session client failed: ${event.code} ${event.detail ?? ""}`.trim();
+        clientFailure =
+          `macOS session client failed: ${event.code} ${event.detail ?? ""}`.trim();
       }
-      if (event.kind === "passed") session = event as unknown as SessionEvidence;
+      if (event.kind === "passed")
+        session = event as unknown as SessionEvidence;
       else if (event.kind !== "failed") clientDiagnostics.push(event);
     }
     const code = await exit;
@@ -139,21 +146,33 @@ async function main(): Promise<void> {
     const manifest = runner.engine.verify();
     if (runnerFailure || clientFailure || code !== 0 || !session) {
       process.stderr.write(
-        `${JSON.stringify({
-          runnerFailure,
-          clientFailure,
-          code,
-          clientDiagnostics,
-          scenario: manifest,
-          transcriptTail: runner.engine.transcriptSnapshot().slice(-40),
-        }, null, 2)}\n`,
+        `${JSON.stringify(
+          {
+            runnerFailure,
+            clientFailure,
+            code,
+            clientDiagnostics,
+            scenario: manifest,
+            transcriptTail: runner.engine.transcriptSnapshot().slice(-40),
+          },
+          null,
+          2,
+        )}\n`,
       );
       throw new Error(
-        runnerFailure ?? clientFailure ?? `macOS session client exited ${code} without passing`,
+        runnerFailure ??
+          clientFailure ??
+          `macOS session client exited ${code} without passing`,
       );
     }
-    if (!manifest.passed) throw new Error(`scenario failed: ${manifest.firstViolation}`);
-    const evidence = { ...manifest, platform: "macos", mode: verificationMode, session };
+    if (!manifest.passed)
+      throw new Error(`scenario failed: ${manifest.firstViolation}`);
+    const evidence = {
+      ...manifest,
+      platform: "macos",
+      mode: verificationMode,
+      session,
+    };
     const evidenceDirectory = resolve(
       repositoryRoot,
       "artifacts/verification/vesc-test-device",
@@ -162,6 +181,7 @@ async function main(): Promise<void> {
       evidenceDirectory,
       evidence,
       runner.engine.transcriptSnapshot(),
+      physicalRunLabel("macos", verificationMode),
     );
     process.stdout.write(`${JSON.stringify(evidence, null, 2)}\n`);
   } finally {

@@ -24,6 +24,7 @@ import java.time.Instant
 import java.util.concurrent.atomic.AtomicInteger
 
 class BackendRuntime(application: FloatViewApplication) {
+    private val applicationContext = application.applicationContext
     private val debuggable =
         application.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0
     val permissionBroker = BluetoothPermissionBroker(application)
@@ -78,6 +79,13 @@ class BackendRuntime(application: FloatViewApplication) {
                     "FloatViewState",
                     "session active=${event.active}",
                 )
+            }
+        }
+        if (event is SessionRecord) {
+            if (event.active) {
+                LoggingForegroundService.start(applicationContext)
+            } else {
+                LoggingForegroundService.stop(applicationContext)
             }
         }
     }

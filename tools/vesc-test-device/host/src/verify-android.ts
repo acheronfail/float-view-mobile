@@ -1,8 +1,13 @@
 import { execFile } from "node:child_process";
 import { resolve } from "node:path";
 import { promisify } from "node:util";
-import { writeEvidence } from "./evidence.js";
+import { physicalRunLabel, writeEvidence } from "./evidence.js";
 import { FixtureRunner } from "./runner.js";
+import {
+  physicalHostSequenceSeed,
+  resolveAndroidSerial,
+  resolveEspPort,
+} from "./lab.js";
 import { loadScenario, repositoryRoot } from "./scenario.js";
 import { SerialLineTransport } from "./serial.js";
 import { UsbControlClient } from "./usb.js";
@@ -20,20 +25,29 @@ interface AndroidSessionEvidence {
   sawFootpadWarning: boolean;
   sawUnexpectedDisconnectReason: boolean;
   closeReason: string;
-  mode: "ride" | "unexpected-disconnect";
+  mode: "ride" | "unexpected-disconnect" | "background" | "same-process-soak";
   sqliteIntegrity: string;
   activeConnection: boolean;
   activeSession: boolean;
+  foregroundServiceObserved: boolean;
+  frontendDestroyed: boolean;
+  frontendRecreated: boolean;
+  processId: number;
+  residentKiB: number;
+  openFileDescriptors: number;
+  cycleCount: number;
+  residentKiBMinimum: number;
+  residentKiBMaximum: number;
+  openFileDescriptorsMinimum: number;
+  openFileDescriptorsMaximum: number;
+}
+
+interface AndroidResourceEvidence {
+  residentKiB: number;
+  openFileDescriptors: number;
 }
 
 type VerificationMode = AndroidSessionEvidence["mode"];
-
-function argument(name: string): string {
-  const index = process.argv.indexOf(name);
-  const value = index < 0 ? undefined : process.argv[index + 1];
-  if (!value) throw new Error(`missing required ${name}`);
-  return value;
-}
 
 function optionalArgument(name: string): string | undefined {
   const index = process.argv.indexOf(name);
@@ -69,28 +83,43 @@ async function prepareDevice(serial: string): Promise<void> {
   );
   await command("adb", ["-s", serial, "shell", "pm", "clear", APPLICATION_ID]);
   await command("adb", [
-    "-s", serial, "shell", "pm", "grant", APPLICATION_ID,
+    "-s",
+    serial,
+    "shell",
+    "pm",
+    "grant",
+    APPLICATION_ID,
     "android.permission.ACCESS_FINE_LOCATION",
   ]);
   process.stderr.write("android T3: device prepared\n");
 }
 
 async function main(): Promise<void> {
-  const port = argument("--port");
-  const serial = argument("--serial");
+  const port = optionalArgument("--port") ?? (await resolveEspPort());
+  const serial = optionalArgument("--serial") ?? (await resolveAndroidSerial());
   const mode = optionalArgument("--mode") ?? "ride";
-  if (mode !== "ride" && mode !== "unexpected-disconnect") {
+  if (
+    mode !== "ride" &&
+    mode !== "unexpected-disconnect" &&
+    mode !== "background" &&
+    mode !== "same-process-soak"
+  ) {
     throw new Error(`unsupported --mode ${mode}`);
   }
   const verificationMode: VerificationMode = mode;
-  const scenarioName = verificationMode === "ride"
-    ? "express-thor-refloat-ride.json"
-    : "express-thor-refloat-unexpected-disconnect.json";
-  const scenario = await loadScenario(resolve(
-    repositoryRoot,
-    "conformance/scenarios/vesc-test-device",
-    scenarioName,
-  ));
+  const scenarioName = {
+    ride: "express-thor-refloat-ride.json",
+    "unexpected-disconnect": "express-thor-refloat-unexpected-disconnect.json",
+    background: "express-thor-refloat-background.json",
+    "same-process-soak": "express-thor-refloat-same-process-soak.json",
+  }[verificationMode];
+  const scenario = await loadScenario(
+    resolve(
+      repositoryRoot,
+      "conformance/scenarios/vesc-test-device",
+      scenarioName,
+    ),
+  );
 
   if (!process.argv.includes("--skip-prepare")) {
     await prepareDevice(serial);
@@ -98,19 +127,33 @@ async function main(): Promise<void> {
   const control = new UsbControlClient(
     new SerialLineTransport(port),
     scenario.limits.commandTimeoutMs,
+    undefined,
+    physicalHostSequenceSeed(),
   );
   const runner = new FixtureRunner(scenario, control);
   let keepalive: NodeJS.Timeout | undefined;
   try {
     await runner.arm();
-    process.stderr.write(`android T3: ESP scenario armed (${verificationMode})\n`);
+    process.stderr.write(
+      `android T3: ESP scenario armed (${verificationMode})\n`,
+    );
     keepalive = setInterval(() => {
       void control.command("getState").catch(() => undefined);
     }, 1_000);
     const instrumentation = await command("adb", [
-      "-s", serial, "shell", "am", "instrument", "-w", "-r",
-      "-e", "class", `${APPLICATION_ID}.T3VescTestDeviceTest`,
-      "-e", "mode", verificationMode,
+      "-s",
+      serial,
+      "shell",
+      "am",
+      "instrument",
+      "-w",
+      "-r",
+      "-e",
+      "class",
+      `${APPLICATION_ID}.T3VescTestDeviceTest`,
+      "-e",
+      "mode",
+      verificationMode,
       `${APPLICATION_ID}.test/androidx.test.runner.AndroidJUnitRunner`,
     ]);
     process.stderr.write("android T3: instrumentation returned\n");
@@ -121,35 +164,56 @@ async function main(): Promise<void> {
       runnerFailure = error instanceof Error ? error.message : String(error);
     }
     const manifest = runner.engine.verify();
-    if (runnerFailure || !manifest.passed || !instrumentation.includes("OK (1 test)")) {
-      process.stderr.write(`${JSON.stringify({
-        runnerFailure,
-        instrumentation,
-        scenario: manifest,
-        transcriptTail: runner.engine.transcriptSnapshot().slice(-40),
-      }, null, 2)}\n`);
+    if (
+      runnerFailure ||
+      !manifest.passed ||
+      !instrumentation.includes("OK (1 test)")
+    ) {
+      process.stderr.write(
+        `${JSON.stringify(
+          {
+            runnerFailure,
+            instrumentation,
+            scenario: manifest,
+            transcriptTail: runner.engine.transcriptSnapshot().slice(-40),
+          },
+          null,
+          2,
+        )}\n`,
+      );
       throw new Error(
-        runnerFailure ?? manifest.firstViolation ??
+        runnerFailure ??
+          manifest.firstViolation ??
           "Android instrumentation did not report one passing test",
       );
     }
     const rawSession = await command("adb", [
-      "-s", serial, "exec-out", "run-as", APPLICATION_ID,
-      "cat", "cache/t3-android-result.json",
+      "-s",
+      serial,
+      "exec-out",
+      "run-as",
+      APPLICATION_ID,
+      "cat",
+      "cache/t3-android-result.json",
     ]);
     const session = JSON.parse(rawSession) as AndroidSessionEvidence;
+    const resources: AndroidResourceEvidence = {
+      residentKiB: session.residentKiB,
+      openFileDescriptors: session.openFileDescriptors,
+    };
     process.stderr.write("android T3: durable evidence collected\n");
     const evidence = {
       ...manifest,
       platform: "android",
       mode: verificationMode,
       session,
+      resources,
     };
     await writeEvidence(
       resolve(repositoryRoot, "artifacts/verification/vesc-test-device"),
       evidence,
       runner.engine.transcriptSnapshot(),
-      `android-${verificationMode}`,
+      physicalRunLabel("android", verificationMode),
     );
     process.stdout.write(`${JSON.stringify(evidence, null, 2)}\n`);
   } finally {

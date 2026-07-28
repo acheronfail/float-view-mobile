@@ -1,6 +1,15 @@
 import { mkdir, writeFile } from "node:fs/promises";
+import { randomBytes } from "node:crypto";
 import { join } from "node:path";
 import type { TranscriptEntry, VerificationManifest } from "./types.js";
+
+export function physicalRunLabel(...parts: string[]): string {
+  const prefix = parts.join("-");
+  if (!/^[a-z0-9][a-z0-9-]+$/.test(prefix)) {
+    throw new Error("physical-run evidence label is unsafe");
+  }
+  return `${prefix}-${Date.now().toString(36)}-${randomBytes(4).toString("hex")}`;
+}
 
 export async function writeEvidence(
   directory: string,

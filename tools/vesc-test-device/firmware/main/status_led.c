@@ -8,6 +8,7 @@
 
 #define STATUS_LED_GPIO 48
 #define STATUS_LED_RESOLUTION_HZ 10000000
+#define STATUS_LED_DIM_BRIGHTNESS 8
 #define STATUS_LED_BRIGHTNESS 32
 
 static rmt_channel_handle_t led_channel;
@@ -83,18 +84,29 @@ esp_err_t status_led_init(void) {
     if (result != ESP_OK) {
         return result;
     }
-    return status_led_set_connected(false);
+    return status_led_set(STATUS_LED_READY);
 }
 
-esp_err_t status_led_set_connected(bool connected) {
+esp_err_t status_led_set(status_led_state_t state) {
     if (led_channel == NULL || led_encoder == NULL) {
         return ESP_ERR_INVALID_STATE;
     }
-    const uint8_t pixel_grb[3] = {
-        connected ? STATUS_LED_BRIGHTNESS : 0,
-        connected ? STATUS_LED_BRIGHTNESS : 0,
-        connected ? STATUS_LED_BRIGHTNESS : 0,
-    };
+    uint8_t pixel_grb[3] = {0};
+    switch (state) {
+        case STATUS_LED_READY:
+            pixel_grb[0] = STATUS_LED_DIM_BRIGHTNESS;
+            break;
+        case STATUS_LED_ADVERTISING:
+            pixel_grb[0] = STATUS_LED_BRIGHTNESS;
+            pixel_grb[1] = STATUS_LED_BRIGHTNESS;
+            pixel_grb[2] = STATUS_LED_BRIGHTNESS;
+            break;
+        case STATUS_LED_CONNECTED:
+            pixel_grb[2] = STATUS_LED_BRIGHTNESS;
+            break;
+        default:
+            return ESP_ERR_INVALID_ARG;
+    }
     const rmt_transmit_config_t transmit_config = {
         .loop_count = 0,
     };

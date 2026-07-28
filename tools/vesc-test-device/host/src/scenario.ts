@@ -9,14 +9,20 @@ const moduleDirectory = dirname(fileURLToPath(import.meta.url));
 export const repositoryRoot = resolve(moduleDirectory, "../../../..");
 
 export async function loadScenario(path: string): Promise<Scenario> {
-  const schemaPath = resolve(repositoryRoot, "tools/vesc-test-device/schemas/scenario-v1.schema.json");
+  const schemaPath = resolve(
+    repositoryRoot,
+    "tools/vesc-test-device/schemas/scenario-v1.schema.json",
+  );
   const [schemaText, scenarioText] = await Promise.all([
     readFile(schemaPath, "utf8"),
     readFile(path, "utf8"),
   ]);
   const schema = JSON.parse(schemaText) as object;
   const value: unknown = JSON.parse(scenarioText);
-  const Ajv2020 = Ajv2020Import as unknown as new (options: { allErrors: boolean; strict: boolean }) => {
+  const Ajv2020 = Ajv2020Import as unknown as new (options: {
+    allErrors: boolean;
+    strict: boolean;
+  }) => {
     compile(schema: object): {
       (value: unknown): boolean;
       errors?: ErrorObject[] | null;
@@ -25,7 +31,11 @@ export async function loadScenario(path: string): Promise<Scenario> {
   const ajv = new Ajv2020({ allErrors: true, strict: true });
   const validate = ajv.compile(schema);
   if (!validate(value)) {
-    const errors = validate.errors?.map((error: ErrorObject) => `${error.instancePath || "/"} ${error.message}`).join("; ");
+    const errors = validate.errors
+      ?.map(
+        (error: ErrorObject) => `${error.instancePath || "/"} ${error.message}`,
+      )
+      .join("; ");
     throw new Error(`invalid scenario: ${errors}`);
   }
   const scenario = value as Scenario;
@@ -36,42 +46,82 @@ export async function loadScenario(path: string): Promise<Scenario> {
 function validateSemantics(scenario: Scenario): void {
   const ruleIds = new Set<string>();
   for (const rule of scenario.rules) {
-    if (ruleIds.has(rule.id)) throw new Error(`invalid scenario: duplicate rule ID ${rule.id}`);
+    if (ruleIds.has(rule.id))
+      throw new Error(`invalid scenario: duplicate rule ID ${rule.id}`);
     ruleIds.add(rule.id);
     if (rule.occurrences.minimum > rule.occurrences.maximum) {
-      throw new Error(`invalid scenario: rule ${rule.id} minimum exceeds maximum`);
+      throw new Error(
+        `invalid scenario: rule ${rule.id} minimum exceeds maximum`,
+      );
+    }
+    const scheduleLength =
+      rule.repeatEveryOccurrences ?? rule.occurrences.maximum;
+    if (
+      rule.repeatEveryOccurrences !== undefined &&
+      rule.occurrences.maximum % rule.repeatEveryOccurrences !== 0
+    ) {
+      throw new Error(
+        `invalid scenario: rule ${rule.id} maximum is not divisible by its repeat length`,
+      );
     }
     if (rule.responses) {
       let next = 1;
       for (const response of rule.responses) {
         if (response.fromOccurrence !== next) {
-          throw new Error(`invalid scenario: rule ${rule.id} response schedule has a gap or overlap at occurrence ${next}`);
+          throw new Error(
+            `invalid scenario: rule ${rule.id} response schedule has a gap or overlap at occurrence ${next}`,
+          );
         }
-        const end = response.toOccurrence ?? rule.occurrences.maximum;
-        if (end < response.fromOccurrence || end > rule.occurrences.maximum) {
-          throw new Error(`invalid scenario: rule ${rule.id} response schedule has an invalid range`);
+        const end = response.toOccurrence ?? scheduleLength;
+        if (end < response.fromOccurrence || end > scheduleLength) {
+          throw new Error(
+            `invalid scenario: rule ${rule.id} response schedule has an invalid range`,
+          );
         }
         next = end + 1;
       }
-      if (next <= rule.occurrences.maximum) {
-        throw new Error(`invalid scenario: rule ${rule.id} response schedule ends before maximum occurrence`);
+      if (next <= scheduleLength) {
+        throw new Error(
+          `invalid scenario: rule ${rule.id} response schedule ends before maximum occurrence`,
+        );
       }
     }
   }
-  if (!scenario.topology.canNodes.some((node) => node.canId === scenario.topology.primaryCanId)) {
+  if (
+    !scenario.topology.canNodes.some(
+      (node) => node.canId === scenario.topology.primaryCanId,
+    )
+  ) {
     throw new Error("invalid scenario: primaryCanId is absent from canNodes");
   }
   for (const id of scenario.expectations.orderedRuleIds) {
-    if (!ruleIds.has(id)) throw new Error(`invalid scenario: ordered rule ${id} does not exist`);
+    if (!ruleIds.has(id))
+      throw new Error(`invalid scenario: ordered rule ${id} does not exist`);
   }
   for (const cadence of scenario.expectations.cadence ?? []) {
-    const rule = scenario.rules.find((candidate) => candidate.id === cadence.ruleId);
-    if (!rule) throw new Error(`invalid scenario: cadence rule ${cadence.ruleId} does not exist`);
+    const rule = scenario.rules.find(
+      (candidate) => candidate.id === cadence.ruleId,
+    );
+    if (!rule)
+      throw new Error(
+        `invalid scenario: cadence rule ${cadence.ruleId} does not exist`,
+      );
+    const repeatCount = cadence.repeatCount ?? 1;
+    const repeatEvery = cadence.repeatEveryOccurrences;
+    if ((repeatCount > 1 && repeatEvery === undefined) || repeatCount < 1) {
+      throw new Error(
+        `invalid scenario: repeated cadence ${cadence.ruleId} requires a repeat length`,
+      );
+    }
+    const finalOccurrence =
+      cadence.toOccurrence + (repeatCount - 1) * (repeatEvery ?? 0);
     if (
-      cadence.fromOccurrence > cadence.toOccurrence
-      || cadence.toOccurrence > rule.occurrences.maximum
+      cadence.fromOccurrence > cadence.toOccurrence ||
+      finalOccurrence > rule.occurrences.maximum
     ) {
-      throw new Error(`invalid scenario: cadence range for ${cadence.ruleId} is invalid`);
+      throw new Error(
+        `invalid scenario: cadence range for ${cadence.ruleId} is invalid`,
+      );
     }
   }
 }

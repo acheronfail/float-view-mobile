@@ -1,6 +1,8 @@
 # Programmable VESC Bluetooth test device
 
-Status: active implementation plan. T0 and T1 are complete; T2 is next.
+Status: complete as of 2026-07-28. The plan closed after T3 with the first
+cross-platform slice delivered. Any future expansion will be planned in the
+active repository roadmap rather than tracked as additional milestones here.
 
 This document defines a programmable Bluetooth Low Energy peripheral for
 testing Float View's real CoreBluetooth and Android GATT paths without requiring
@@ -305,9 +307,8 @@ Required observations:
 Do not add repository commands as no-op placeholders. Each command is introduced
 only when it performs its stated verification.
 
-T0-T3 are the path to the first useful slice and are expected to take roughly
-two to three engineering weeks. T4 makes that slice unattended and
-repository-native; T5-T6 broaden fault and soak coverage incrementally.
+T0-T3 delivered the first useful slice. There are no remaining milestones in
+this plan.
 
 ### T0: board and toolchain spike — complete (2026-07-28)
 
@@ -336,7 +337,7 @@ Exit gate:
 Evidence is recorded in
 [`../tools/vesc-test-device/T0-EVIDENCE.md`](../tools/vesc-test-device/T0-EVIDENCE.md).
 
-### T1: production-shaped VESC GATT transport
+### T1: production-shaped VESC GATT transport — complete (2026-07-28)
 
 Target effort: two to four days after T0.
 
@@ -345,7 +346,8 @@ Deliverables:
 - [x] canonical service/write/notify characteristic table;
 - [x] connectable advertising with explicit test name and manufacturer marker;
 - [x] one-central enforcement;
-- [x] onboard connection LED mirrors the BLE connected/disconnected lifecycle;
+- [x] onboard RGB LED indicates ready, advertising, and connected lifecycle
+  states;
 - [x] notification subscription tracking;
 - [x] raw GATT write events over USB;
 - [x] host-commanded notifications and disconnect;
@@ -422,88 +424,11 @@ Exit gate:
   application timer, or active logging job;
 - [x] the same scenario and response assets are used on all three platforms.
 
-T3 is the first useful delivery. It should land before broad error injection.
-Guided app interaction is acceptable at T3 as long as the scenario transcript
-and session evidence are machine-readable. T4 removes that manual step.
+T3 is the first useful delivery and the completion boundary accepted for this
+plan.
 
 Host and physical macOS, Android, and iOS evidence are recorded in
 [`../tools/vesc-test-device/T3-EVIDENCE.md`](../tools/vesc-test-device/T3-EVIDENCE.md).
-
-### T4: platform automation and repository verification
-
-Target effort: one to two weeks, with physical iOS automation likely the largest
-source of variability.
-
-Deliverables:
-
-- `just vesc-test-device-doctor`;
-- `just vesc-test-device-build`;
-- `just vesc-test-device-flash [port]`;
-- `just vesc-test-device-run <scenario> [port]`;
-- `just vesc-test-device-smoke <platform> <scenario>`;
-- [x] Android physical-device driver using ADB/instrumentation;
-- [x] iOS physical-device driver using XCTest/CoreDevice-compatible tooling;
-- macOS application/test driver;
-- debug/test-only selection of the manufacturer marker through normal
-  application-service operations;
-- JUnit-compatible results and repository verification manifests.
-
-Exit gate:
-
-- one command performs setup validation, scenario arming, app launch, connection,
-  logging, disconnect, database verification, and cleanup;
-- test-control selection is absent from release builds;
-- rerunning after a failed test resets both the ESP and app to known state;
-- failure artifacts contain enough bounded context to distinguish USB, BLE,
-  protocol, application, and storage failures.
-
-### T5: representative negative paths
-
-Target effort: one to two weeks incrementally.
-
-Deliverables:
-
-- malformed CRC, invalid length, noise, truncation, coalescing, silence, delayed
-  response, and unexpected-command scenarios;
-- disconnect during service startup, identity discovery, idle telemetry, riding,
-  and log close;
-- missing CAN primary, ambiguous CAN primary, unsupported firmware, malformed
-  Refloat INFO, missing field layout, and changing field layout;
-- reconnect success, bounded retry, and reconnect-window expiry;
-- write rejection and notification pressure where the ESP/NimBLE APIs permit
-  faithful simulation;
-- a documented matrix identifying cases that remain software-fake-only or
-  real-hardware-only.
-
-Exit gate:
-
-- every scenario names the layer and expected stable application error/state;
-- no scenario depends on matching platform diagnostic text;
-- Swift and Kotlin reach equivalent domain outcomes where platform semantics
-  permit;
-- transcripts and app evidence agree on ordering and terminal cleanup.
-
-### T6: GATT personalities and soak
-
-Target effort: one to three weeks incrementally.
-
-Deliverables:
-
-- boot-time GATT profiles for missing service, missing characteristic, wrong
-  properties, and subscription/CCCD failure where accurately implementable;
-- distinct peripheral identity/cache strategy for changing attribute tables;
-- repeated 20-cycle connect/log/disconnect runs;
-- background, WebView teardown, screen-off/window-closed, and restoration runs;
-- optional multi-board lab support using one ESP per concurrent destination;
-- USB hub recovery and board health reporting for unattended execution.
-
-Exit gate:
-
-- supported GATT-negative scenarios produce the expected adapter/domain state on
-  all relevant platforms;
-- twenty cycles complete without stale connections, duplicate samples, corrupt
-  logs, unbounded queues, or unacceptable process growth;
-- ESP results are clearly separated from real-board release evidence.
 
 ## Test orchestration
 
@@ -609,21 +534,22 @@ tests.
 The host discovers the board by stable USB metadata, waits for a versioned
 `booted` event, and discards acknowledgements from an earlier boot ID.
 
-### Incomplete BLE fault simulation
+### BLE fault-simulation limits
 
 NimBLE may automatically manage CCCDs or prevent faithful reproduction of some
-invalid profiles. T0/T5 record the supported matrix. Unsupported BLE faults stay
-in adapter fakes or real-hardware tests rather than being approximated
-misleadingly.
+invalid profiles. Unsupported BLE faults stay in adapter fakes or real-hardware
+tests rather than being approximated misleadingly.
 
-## Completion relationship to R6-R8
+## Handoff to the active roadmap
 
-T0-T3 provide a repeatable real-radio development fixture and improve R6
-regression coverage. T4-T6 strengthen R6-R8 automation, failure, lifecycle, and
-soak testing.
+The completed T0-T3 tooling provides a repeatable real-radio development fixture
+that can be incorporated into R6-R8 work. Negative-path expansion, lifecycle
+coverage, soak testing, and additional orchestration are intentionally not
+remaining tasks in this plan; they should be scoped and tracked by the active
+repository roadmap when adopted.
 
-These milestones do not independently complete R6, R7, or R8. The roadmap still
-requires the declared physical boards, platform/OS destinations, background
+This plan does not independently complete R6, R7, or R8. Those milestones still
+require their declared physical boards, platform/OS destinations, background
 evidence, and repeated hardware acceptance. Emulator evidence is labelled
 `vesc-test-device`, never `hardware-smoke`, unless a future accepted verification
 decision explicitly changes that terminology.

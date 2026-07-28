@@ -39,9 +39,10 @@ import java.util.UUID
 class SQLiteLogStore(
     context: Context,
     private val availableBytes: () -> Long = { context.filesDir.usableSpace },
+    rootDirectory: File = File(context.filesDir, "float-view/logs"),
 ) : LogStorePort, ProductStorePort, SessionStorePort {
     private val appContext = context.applicationContext
-    private val root = File(appContext.filesDir, "float-view/logs").apply { mkdirs() }
+    private val root = rootDirectory.apply { mkdirs() }
     private val catalog = CatalogOpenHelper(appContext, File(root, "catalog.sqlite").path)
     private var current: SessionRecord? = null
     private var sessionDb: SQLiteDatabase? = null

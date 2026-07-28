@@ -11,6 +11,40 @@ doctor:
   xcodebuild -version
   echo "Android SDK: ${ANDROID_HOME:-${ANDROID_SDK_ROOT:-not configured}}"
 
+# build and automatically flash the ESP32-S3 fixture over native USB
+vesc-test-device-flash port="":
+  #!/usr/bin/env bash
+  set -euo pipefail
+  selected_port="{{port}}"
+  if [[ -z "$selected_port" ]]; then
+    selected_port="${FLOAT_VIEW_ESP_PORT:-}"
+  fi
+  if [[ -z "$selected_port" ]]; then
+    echo "Pass the ESP port or set FLOAT_VIEW_ESP_PORT." >&2
+    exit 2
+  fi
+  if [[ ! -c "$selected_port" ]]; then
+    echo "ESP port is unavailable: $selected_port" >&2
+    exit 2
+  fi
+  command -v idf.py >/dev/null || {
+    echo "ESP-IDF is not exported; source its export.sh first." >&2
+    exit 2
+  }
+  firmware_root="tools/vesc-test-device/firmware"
+  idf.py -C "$firmware_root" build
+  (
+    cd "$firmware_root/build"
+    python -m esptool \
+      --chip esp32s3 \
+      --no-stub \
+      -p "$selected_port" \
+      -b 115200 \
+      --before usb-reset \
+      --after watchdog-reset \
+      write-flash @flash_args
+  )
+
 verify-r0:
   node scripts/verify-r0.mjs
 
@@ -197,6 +231,12 @@ conformance-macos:
       npm run api:conformance:apple
   )
 
+conformance-android:
+  cd web && npm run api:conformance:android
+
+conformance-ios:
+  cd web && npm run api:conformance:ios
+
 verify-r2: verify-r1
   just conformance-macos
 
@@ -213,6 +253,8 @@ verify-r5: verify-r4
   just test-alerts
   just test-profiles
   just test-sessions
+  just conformance-android
+  just conformance-ios
 
 test-bluetooth:
   cd android && ./gradlew :bluetooth:test :bluetooth:assembleDebug
@@ -243,6 +285,101 @@ verify-r6: verify-r5
   just test-bluetooth
   just test-hardware-smoke
   just test-hardware-r6-failure
+  just vesc-test-device-check
+
+# compile and exercise lifecycle/storage semantics without requiring physical BLE
+test-background:
+  cd android && ./gradlew --no-daemon \
+    :core:test :logging:test :app:assembleDebug :app:assembleDebugAndroidTest
+  cd apple && CLANG_MODULE_CACHE_PATH=/tmp/float-view-clang \
+    swift test --disable-sandbox --scratch-path /tmp/float-view-swift-build
+  just build-ios-app
+
+verify-r7: verify-r6
+  just test-background
+
+# cumulative release gate; intentionally fails while the committed R8 evidence
+# lists outstanding physical qualifications
+verify-r8 profile: verify-r7
+  just hardware-smoke android "{{profile}}"
+  just hardware-smoke ios "{{profile}}"
+  just hardware-smoke macos "{{profile}}"
+  node scripts/verify-r8-evidence.mjs "{{profile}}"
+
+# inspect only the committed physical-evidence completeness without rebuilding
+verify-r8-evidence profile:
+  node scripts/verify-r8-evidence.mjs "{{profile}}"
+
+# validate the programmable VESC host and its fixture-backed scenario engine
+vesc-test-device-check:
+  cd tools/vesc-test-device/host && npm run check && npm test
+
+# resolve and probe one local ESP fixture plus one authorized Android destination
+vesc-test-device-doctor:
+  cd tools/vesc-test-device/host && npm run doctor
+
+# run a production Android GATT/application/logging scenario against the ESP
+vesc-test-device-android scenario="ride":
+  #!/usr/bin/env bash
+  set -euo pipefail
+  case "{{scenario}}" in
+    ride)
+      command_name="verify:android:ride"
+      ;;
+    unexpected-disconnect)
+      command_name="verify:android:unexpected-disconnect"
+      ;;
+    background)
+      command_name="verify:android:background"
+      ;;
+    same-process-soak)
+      command_name="verify:android:same-process-soak"
+      ;;
+    *)
+      echo "Unknown ESP scenario: {{scenario}}" >&2
+      echo "Supported: ride, unexpected-disconnect, background, same-process-soak" >&2
+      exit 2
+      ;;
+  esac
+  cd tools/vesc-test-device/host
+  npm run "$command_name"
+
+# repeat the production Android workflow; every fifth cycle destroys/recreates
+# the frontend during a 60-second background interval
+vesc-test-device-android-soak cycles="20":
+  cd tools/vesc-test-device/host && npm run verify:android:soak -- --cycles "{{cycles}}"
+
+# run the signed read-only XCTest stack against the ESP on a physical iOS device
+vesc-test-device-ios device scenario="ride":
+  #!/usr/bin/env bash
+  set -euo pipefail
+  case "{{scenario}}" in
+    ride|unexpected-disconnect)
+      npm_script="verify:ios:{{scenario}}"
+      ;;
+    *)
+      echo "Supported: ride, unexpected-disconnect" >&2
+      exit 2
+      ;;
+  esac
+  cd tools/vesc-test-device/host
+  npm run "$npm_script" -- --device "{{device}}"
+
+# run the shared Swift production stack against the ESP on this Mac
+vesc-test-device-macos scenario="ride":
+  #!/usr/bin/env bash
+  set -euo pipefail
+  case "{{scenario}}" in
+    ride|unexpected-disconnect)
+      npm_script="verify:macos:{{scenario}}"
+      ;;
+    *)
+      echo "Supported: ride, unexpected-disconnect" >&2
+      exit 2
+      ;;
+  esac
+  cd tools/vesc-test-device/host
+  npm run "$npm_script"
 
 # setup the repository for development
 setup:

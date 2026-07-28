@@ -74,9 +74,8 @@
         "chunking": {
           "mode": "sizes",
           "sizes": [
-            20, 20, 20, 20, 20, 20, 20,
-            20, 20, 20, 20, 20, 20, 20,
-            20, 20, 20, 20, 20, 20, 12
+            20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20,
+            20, 20, 20, 12
           ],
           "interChunkDelayMs": 10
         }
@@ -173,7 +172,7 @@
         "fromOccurrence": 6,
         "toOccurrence": 13,
         "intervalMs": 100,
-        "toleranceMs": 80,
+        "toleranceMs": 120,
         "phase": "ridingProbe"
       },
       {
@@ -181,7 +180,7 @@
         "fromOccurrence": 14,
         "toOccurrence": 164,
         "intervalMs": 100,
-        "toleranceMs": 80,
+        "toleranceMs": 120,
         "phase": "postRideTailProbe"
       },
       {

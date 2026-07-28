@@ -18,7 +18,9 @@
 		"api:generate": "node --import tsx scripts/api/generate-typescript.ts && node --import tsx scripts/api/generate-native.ts",
 		"api:check": "node --import tsx scripts/api/validate.ts && node --import tsx scripts/api/generate-typescript.ts --check && node --import tsx scripts/api/generate-native.ts --check",
 		"api:conformance:mock": "node --import tsx scripts/conformance/mock.ts",
-		"api:conformance:apple": "node --import tsx scripts/conformance/apple.ts"
+		"api:conformance:apple": "node --import tsx scripts/conformance/apple.ts",
+		"api:conformance:android": "node --import tsx scripts/conformance/android.ts",
+		"api:conformance:ios": "node --import tsx scripts/conformance/ios.ts"
 	},
 	"devDependencies": {
 		"@eslint/compat": "^1.2.5",

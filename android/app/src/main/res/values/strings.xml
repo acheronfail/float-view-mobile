@@ -1,3 +1,8 @@
 <resources>
     <string name="app_name">Float View</string>
+    <string name="logging_channel_name">Active session logging</string>
+    <string name="logging_channel_description">Keeps Bluetooth logging active while Float View is in the background.</string>
+    <string name="logging_notification_title">Float View is logging</string>
+    <string name="logging_notification_text">Bluetooth telemetry is being saved durably.</string>
+    <string name="logging_notification_stop">Stop and disconnect</string>
 </resources>

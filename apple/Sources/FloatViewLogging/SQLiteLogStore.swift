@@ -162,6 +162,15 @@ public final class SQLiteLogStore: LogStorePort, ProductStorePort, SessionStoreP
     self.schemaDirectory = schemaDirectory
     self.availableBytes = availableBytes
     try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+    #if os(iOS)
+    // Sessions must remain writable after the user has unlocked once so native
+    // background BLE logging does not depend on the WebView or an unlocked UI.
+    // Newly created SQLite, WAL, and SHM files inherit this directory class.
+    try FileManager.default.setAttributes(
+      [.protectionKey: FileProtectionType.completeUntilFirstUserAuthentication],
+      ofItemAtPath: root.path
+    )
+    #endif
     catalog = try Database(url: root.appending(path: "catalog.sqlite"))
     try catalog.execute(String(contentsOf: schemaDirectory.appending(path: "catalog-v1.sql")))
     var catalogVersion = try catalog.scalarInt(

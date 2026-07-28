@@ -30,6 +30,45 @@ Generated local evidence belongs under `artifacts/verification/` and is ignored
 by Git. Stable summaries and links to CI or hardware runs are recorded in
 [`reset-roadmap.md`](reset-roadmap.md).
 
+## Programmable-VESC development loop
+
+The ESP32-S3 fixture defined in
+[`vesc-test-device-plan.md`](vesc-test-device-plan.md) is a distinct
+hardware-in-the-loop class named `vesc-test-device`. It uses real Android GATT or
+CoreBluetooth while its USB host serves fixture-backed VESC/Refloat responses.
+It never counts as `hardware-smoke` compatibility evidence for a production
+controller.
+
+For R5-R8 development, use this loop:
+
+```sh
+just vesc-test-device-check
+just vesc-test-device-doctor
+just vesc-test-device-android ride
+```
+
+The Android command auto-resolves exactly one authorized ADB destination and one
+Espressif USB control port when arguments are omitted. It resets the app, arms
+the scenario, drives production scanning/GATT/protocol/logging, pulls sanitized
+session evidence, verifies SQLite integrity and terminal cleanup, and disarms
+the fixture in `finally`. A second invocation must begin from a known state and
+pass without manual app interaction.
+
+Development sequencing is:
+
+| Increment | Software gate on every change | Android + ESP gate | Deferred final physical sweep |
+| --------- | ----------------------------- | ------------------ | ----------------------------- |
+| R5 close  | mock, macOS, Android and iOS fake-host conformance | deterministic ride regression | none |
+| R6 baseline | Swift/Kotlin protocol, service and adapter tests | ride and unexpected disconnect | replay accepted scenarios on iOS/macOS at R8 |
+| R6 negative paths | matching stable domain outcomes for every adopted negative scenario | adopted protocol, identity, topology and reconnect matrix | replay accepted matrix on iOS/macOS at R8 |
+| R7 lifecycle | lifecycle/storage fakes plus platform integration builds | adopted background/WebView reconstruction scenarios | iOS background/restoration and macOS window/sleep at R8 |
+| R8 soak | cumulative `verify-r8` software prerequisites | adopted repeated-cycle soak | full ESP replay, then declared real boards |
+
+This ordering reduces operator switching, not implementation parity. Swift and
+Kotlin changes land together, and iOS/macOS builds and non-radio tests remain
+continuous. R6-R8 are not complete until their existing Apple and real-board
+exit gates pass.
+
 ## Platform requirements
 
 The first iOS, Android, and macOS slice can be developed and software-tested from
@@ -204,6 +243,13 @@ by the milestone shown; they must not be added as no-op placeholders.
 | `just test-bluetooth-android`                      | Run Android framework/GATT integration tests                                           | R6                      |
 | `just test-bluetooth-apple`                        | Run CoreBluetooth adapter integration tests                                            | R6                      |
 | `just test-background`                             | Run lifecycle, WebView teardown, service/restoration, and gap tests                    | R7                      |
+| `just vesc-test-device-check`                      | Type-check and unit-test the ESP host scenario engine                                  | Available now           |
+| `just vesc-test-device-doctor`                     | Resolve and probe the local ESP control port and Android destination                   | Available now           |
+| `just vesc-test-device-android [scenario]`         | Run the selected production Android + ESP deterministic scenario                       | Available now           |
+| `just vesc-test-device-android-soak 20`            | Run 20 Android cycles, using the background lifecycle scenario every fifth cycle        | R8 physical evidence    |
+| `just vesc-test-device-android same-process-soak`  | Run 20 cycles in one Android process with durable-session and resource assertions       | R8 physical evidence    |
+| `just vesc-test-device-ios <device> <scenario>`    | Run a signed iOS ride or unexpected-disconnect scenario against the ESP                 | R8 final Apple sweep    |
+| `just vesc-test-device-macos <scenario>`           | Run a macOS ride or unexpected-disconnect scenario against the ESP                     | R8 final Apple sweep    |
 | `just hardware-smoke <platform> <profile>`         | Perform one read-only device workflow                                                  | R6/R7                   |
 | `just hardware-r6-guide <platform> <profile>`      | Print the failure-state runbook and optionally create a redacted evidence template      | R6                      |
 | `just hardware-r6-verify <platform> <profile> <e>` | Validate permission/radio/loss/disconnect/profile evidence against shared expectations  | R6                      |

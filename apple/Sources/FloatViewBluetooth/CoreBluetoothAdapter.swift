@@ -105,7 +105,13 @@ public final class CoreBluetoothAdapter: NSObject, BluetoothPort, @unchecked Sen
       writeInFlight = false
       peripheral.delegate = self
       diagnosticHandler("connect_requested")
-      central.connect(peripheral)
+      if peripheral.state == .connected {
+        eventHandler(.connectionChanged(deviceID, .connected))
+        eventHandler(.connectionChanged(deviceID, .discoveringServices))
+        peripheral.discoverServices([Self.serviceUUID])
+      } else {
+        central.connect(peripheral)
+      }
     }
   }
 
@@ -223,8 +229,18 @@ extension CoreBluetoothAdapter: CBCentralManagerDelegate {
     }
     let deviceID = DeviceID(peripheral.identifier.uuidString)
     peripheralsByID[deviceID] = peripheral
+    activeDeviceID = deviceID
+    activePeripheral = peripheral
+    writeCharacteristic = nil
+    notifyCharacteristic = nil
+    pendingWrites.removeAll(keepingCapacity: true)
+    writeInFlight = false
     peripheral.delegate = self
-    diagnosticHandler("peripheral_binding_restored")
+    diagnosticHandler(
+      peripheral.state == .connected
+        ? "peripheral_binding_restored_connected"
+        : "peripheral_binding_restored_pending"
+    )
   }
 
   public func centralManagerDidUpdateState(_: CBCentralManager) {

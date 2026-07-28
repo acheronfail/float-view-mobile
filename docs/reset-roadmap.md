@@ -1,6 +1,6 @@
 # Float View backend reset roadmap
 
-Status: implementation in progress through the R0-R5 foundation.
+Status: R0-R6 complete; R7-R8 physical qualification in progress.
 
 Last updated: 2026-07-28.
 
@@ -58,30 +58,65 @@ immutable session snapshots.
   `reference-implementations.md`; the original implementation is never the
   protocol authority.
 
+### Android-first programmable-VESC iteration
+
+The ESP32-S3 fixture in
+[`vesc-test-device-plan.md`](vesc-test-device-plan.md) is the default real-radio
+development target for the remaining R5-R8 work. It exercises production scan,
+GATT, protocol, application-service, adaptive logging, SQLite, and disconnect
+paths while the host supplies one shared, fixture-backed VESC personality.
+
+Each remaining implementation slice follows this order:
+
+1. add or extend the shared contract, fixture, and deterministic scenario;
+2. implement matching Swift and Kotlin core behavior and run their software
+   tests;
+3. wire the thin Android and Apple hosts without platform-specific product
+   semantics;
+4. run the complete slice on the Galaxy S9/Android 10 through production Android
+   GATT against the ESP32 and record bounded evidence;
+5. continue only after Android cleanup, durable-log integrity, and a rerun from
+   clean state pass.
+
+Physical iOS and macOS ESP runs are intentionally batched into the final R8
+cross-platform qualification sweep to shorten the development loop. Their
+builds, shared Swift tests, fake-host conformance, and lifecycle tests still run
+throughout implementation. Android-plus-ESP evidence is an intermediate
+development gate, not proof of Apple behavior or release compatibility.
+
+The fixture currently supplies VESC Express 6.05 transport identity, a forwarded
+Thor300/6.06 primary controller, Refloat 1.2.3 INFO and dynamic telemetry fields,
+idle/riding/footpad/post-ride phases, adversarial notification fragmentation,
+host-commanded disconnect, and physical Android/iOS/macOS verification. Its
+standalone T0-T3 implementation plan is complete. Any additional negative,
+lifecycle, GATT-personality, or soak scenarios will be scoped directly in the
+relevant R6-R8 milestone when adopted. Generated responses remain grounded in
+committed fixtures; declared Thor300/Thor301/XRV/PintV hardware remains the
+release authority.
+
 ## Status
 
 | Milestone | Outcome                                                          | Status      |
 | --------- | ---------------------------------------------------------------- | ----------- |
 | R0        | Preserve evidence and define the deletion boundary               | Complete    |
 | R1        | Remove legacy product code and establish the new module skeleton | Complete    |
-| R2        | Run iOS, Android, and macOS shells against fake backends         | Blocked     |
-| R3        | Freeze the vertical-slice API and product experience foundation  | In progress |
-| R4        | Pass shared protocol fixtures in Swift and Kotlin                | In progress |
-| R5        | Pass durable logging/service tests and fake conformance          | In progress |
-| R6        | Connect and stream through real native Bluetooth adapters        | In progress |
-| R7        | Prove platform background durability and disconnect cleanup      | Not started |
-| R8        | Pass repeated hardware acceptance on all three platforms         | Not started |
+| R2        | Run iOS, Android, and macOS shells against fake backends         | Complete    |
+| R3        | Freeze the vertical-slice API and product experience foundation  | Complete    |
+| R4        | Pass shared protocol fixtures in Swift and Kotlin                | Complete    |
+| R5        | Pass durable logging/service tests and fake conformance          | Complete    |
+| R6        | Connect and stream through real native Bluetooth adapters        | Complete    |
+| R7        | Prove platform background durability and disconnect cleanup      | In progress |
+| R8        | Pass repeated hardware acceptance on all three platforms         | In progress |
 
 Allowed status values are `Not started`, `In progress`, `Blocked`, and
 `Complete`. When blocked, add the reason and owner immediately below the table.
 
-R2 blocker (remaining fake/conformance verification): the iOS host passes a
-physical iPhone 12/iOS 18.6.1 shell/bootstrap smoke test, the Android host passes
-the equivalent test on a Galaxy S9+/Android 10/API 29, and a usable iOS
-simulator runtime is installed. The complete scripted-fake shell/conformance
-gate has not yet run across all three platforms. macOS passes the system suite.
-Details and evidence are in
-[`implementation-notes.md`](implementation-notes.md).
+R2-R5 closure evidence: `just verify-r5` passed on 2026-07-28. It includes the
+contract/generator drift gate, web checks, Swift/Kotlin core and protocol suites,
+native SQLite tests, mock conformance, and the same seven black-box API
+scenarios against production loopback/application-service/logging paths on
+Android, iOS simulator, and macOS. Details and earlier physical shell evidence
+are in [`implementation-notes.md`](implementation-notes.md).
 
 ## Target repository shape
 
@@ -350,9 +385,16 @@ instrumentation cases. Production Android, iOS, and macOS hosts now route
 prepared exports into their native save/share surfaces without exposing private
 paths to the WebView; headless hosts explicitly report `staged`. A Galaxy
 S9/API 29, iPhone 12/iOS 18.6.1, and the signed macOS app have physically opened
-and delivered both CSV and `.floatview` files through those OS surfaces. R5
-remains in progress until the complete black-box suite runs against Android and
-iOS hosts.
+and delivered both CSV and `.floatview` files through those OS surfaces.
+Production-loopback fake hosts now pass the same seven system, Board Profile,
+bounded session-query, export, and deletion scenarios on Android, iOS simulator,
+and macOS. `just verify-r5` passes cumulatively.
+
+The ESP is not used for fake-clock conformance. As the post-closure real-radio
+regression, two consecutive automated Android ride runs and one injected
+unexpected-disconnect run passed through production GATT. The runs produced
+integrity-valid SQLite sessions, preserved footpad observations, left no active
+connection/session, and proved repeat execution does not overwrite evidence.
 
 Deliverables:
 
@@ -393,15 +435,16 @@ Exit gate:
 Canonical software verification: `just verify-r6`. Completion additionally
 requires a passing `hardware-smoke` run on iOS, Android, and macOS.
 
-Status: in progress. Android 10, an iPhone 12, and macOS have physically passed
-discovery, Nordic UART
+Status: complete. `just verify-r6` passes cumulatively. Android 10, an iPhone
+12, and macOS have physically passed discovery, Nordic UART
 setup/CCCD confirmation, Express-to-primary CAN discovery, VESC 6.06 and Refloat
 1.2.3 identification, modern dynamic telemetry decoding, adaptive durable idle
 persistence, SQLite integrity, and explicit disconnect. Android's sanitized
 frames pass the shared Swift/Kotlin protocol suite. The formal profile-aware
-hardware-smoke validator now passes all three redacted records. Full workflow
-orchestration and the remaining platform radio/permission framework gates are
-still required before R6 is complete. Shared-core unexpected-disconnect,
+hardware-smoke validator passes all three redacted records. The production
+adapters and shared cores cover the required platform radio/permission states,
+GATT setup, ordered writes, bounded queues, and stable failure mapping.
+Shared-core unexpected-disconnect,
 out-of-range-style recovery, bounded exponential backoff/window expiry, and
 explicit-disconnect cancellation are implemented and deterministically tested.
 The remaining physical failure paths now share a checked-in scenario definition,
@@ -425,6 +468,17 @@ physically passed local-only 18S/2P/Hypercore overrides, native persistence,
 process restart, reconnect identity reuse, and historical session-link
 preservation. Legacy platform-derived saved/history identifiers are atomically
 rekeyed without changing the private platform binding or losing profiles.
+
+The programmable-VESC workstream is closed at its accepted T3 boundary. The
+finished fixture, scenario runner, platform drivers, and evidence tooling remain
+available to R6-R8; future additions will be tracked as work in those milestones
+rather than by reopening a separate T-series plan.
+
+Closure evidence also includes two repeatable Android ride runs and one injected
+unexpected-disconnect run against the ESP fixture through production GATT. Every
+run left SQLite integral and no active connection/session. The remaining
+declared-board matrix is explicitly retained by R8 and is not implied by this
+representative R6 closure.
 
 Deliverables:
 
@@ -461,13 +515,43 @@ produced an integrity-valid 218572 ms session. Startup recovers catalog rows lef
 active by process termination as interrupted rather than leaving false active
 sessions.
 
+`just verify-r7` passes cumulatively on 2026-07-28, including contract/web,
+Swift/Kotlin core and protocol, three native fake-host conformance suites,
+Bluetooth builds, storage recovery, lifecycle coordination, Android foreground
+service packaging, and iOS simulator compilation. Remaining R7 items below are
+physical qualification gaps rather than a failing software baseline.
+
 The exported iOS session passed catalog/session integrity with
 `completed`/`explicit_disconnect`, 391 committed observations, 143 persisted
 samples, 197910 ms elapsed, and a maximum persisted-sample gap of 1561 ms. This
 proves idle-rate native logging continued through the tested 60-second
-background interval. Android foreground-service ownership, Apple process
-restoration, macOS sleep/wake and active-session quit, pressure and locked-file
-tests, and paginated sample reconstruction remain R7 blockers.
+background interval. Apple process restoration, macOS sleep/wake and
+active-session quit, pressure and locked-file tests, and paginated sample
+reconstruction remain final R7 qualification items.
+
+Android is the physical iteration destination: extend the ESP scenario beyond
+60 seconds, background or destroy the Activity/WebView, keep the production
+foreground service and native logger alive, foreground a fresh UI, reconcile by
+sequence, then disconnect and inspect the pulled SQLite store. Process-kill,
+disk-full, and exact timing cases remain deterministic fake/platform tests where
+the ESP cannot faithfully inject the condition. Apple implementations and
+software tests land with each slice; their physical background/window/sleep
+qualification is performed in the final cross-platform sweep.
+
+Android implementation/evidence (2026-07-28): an active `connectedDevice`
+foreground service now owns process eligibility and exposes an OS-required
+ongoing notification with an explicit Stop and disconnect action. The Activity
+owns only a disposable WebView, removes it after 30 seconds backgrounded or
+immediately under UI-memory pressure, and constructs a new client on foreground.
+The ESP-backed Galaxy S9/API 29 run stayed active for 64,874 ms, decoded 258
+samples, durably persisted 194, observed the foreground service, proved WebView
+destruction/recreation, preserved the footpad event, closed explicitly with
+SQLite integrity `ok`, and left neither an active connection nor session.
+`completeUntilFirstUserAuthentication` protection is applied to the iOS session
+directory so SQLite/WAL files remain eligible after first unlock; CoreBluetooth
+restoration now retains the restored peripheral binding and resumes service
+discovery when that binding is reselected. Final Apple physical lifecycle
+qualification remains intentionally batched into R8.
 
 Deliverables:
 
@@ -503,6 +587,34 @@ Canonical verification: `just verify-r8 <profile>`.
 
 Run the same read-only acceptance profile on iOS, Android, and macOS against
 declared VESC/Refloat firmware fixtures.
+
+Before declared-board qualification, run the ESP-assisted scenarios adopted by
+R8 in this order:
+
+1. twenty Android connect/log/disconnect cycles, including periodic
+   background/WebView recreation and resource counters;
+2. the complete accepted R8 ESP scenario set on physical iOS;
+3. the same set on macOS;
+4. only then run the declared real-board/firmware acceptance matrix.
+
+The cross-platform ESP sweep reuses identical scenario digests and expected
+domain outcomes. Platform-specific tolerances may differ, but scenarios,
+fixtures, stable errors, persistence requirements, and terminal cleanup do not.
+
+Status evidence (2026-07-28): the Android ESP soak passed 20/20 cycles: 16
+ordinary adaptive rides and four 60-second background/WebView-reconstruction
+cycles. Every cycle completed with SQLite integrity `ok`, explicit disconnect,
+no active connection/session, and preserved footpad evidence. Cold end-state RSS
+spanned 278,336-301,104 KiB and file descriptors 200-206. A separate single-app-
+process ESP soak then passed 20/20 connect/log/disconnect cycles and 3,360
+telemetry responses, with 20 complete SQLite sessions, terminally clear
+connection/session state, cadence compliance, RSS 268,872-302,576 KiB, and
+per-cycle file descriptors 198-199. The final iPhone 12/iOS 18.6.1 and macOS ESP
+replay passed both the 168-sample ride and injected unexpected-disconnect
+digests with integral, terminally clean sessions. R8 remains in progress for the
+full Apple 20-cycle/background sweep, iOS 17/26 lifecycle qualification, and the
+declared real-controller matrix. The identifier-free summary is committed as
+[`../hardware/evidence/esp-r8-development.json`](../hardware/evidence/esp-r8-development.json).
 
 Exit gate:
 

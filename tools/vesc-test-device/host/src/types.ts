@@ -11,7 +11,12 @@ export interface Scenario {
   };
   topology: {
     transport: { hardwareName: string; firmware: string };
-    canNodes: Array<{ canId: number; role: string; hardwareName: string; firmware: string }>;
+    canNodes: Array<{
+      canId: number;
+      role: string;
+      hardwareName: string;
+      firmware: string;
+    }>;
     primaryCanId: number;
     refloat: { packageVersion: string };
   };
@@ -31,6 +36,7 @@ export interface ScenarioRule {
   id: string;
   match: { kind: RequestKind; canId?: number };
   occurrences: { minimum: number; maximum: number };
+  repeatEveryOccurrences?: number;
   response?: ResponseSpec;
   responses?: OccurrenceResponse[];
 }
@@ -53,6 +59,8 @@ export interface CadenceExpectation {
   intervalMs: number;
   toleranceMs: number;
   phase: string;
+  repeatEveryOccurrences?: number;
+  repeatCount?: number;
 }
 
 export type Chunking =

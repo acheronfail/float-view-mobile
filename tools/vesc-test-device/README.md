@@ -3,7 +3,8 @@
 This directory contains the programmable BLE test peripheral described in
 [`../../docs/vesc-test-device-plan.md`](../../docs/vesc-test-device-plan.md).
 
-T0, T1, and T2 completed on 2026-07-28. The current implementation:
+The T0-T3 implementation plan completed on 2026-07-28. The current
+implementation:
 
 - targets ESP32-S3 with ESP-IDF v6.0.2 and NimBLE;
 - advertises the canonical VESC UART service UUID;
@@ -12,8 +13,7 @@ T0, T1, and T2 completed on 2026-07-28. The current implementation:
 - accepts sequenced, versioned JSON-line commands over USB Serial/JTAG;
 - emits sequenced raw GATT-write and connection events;
 - sends host-supplied notification bytes and host-commanded disconnects;
-- lights the onboard status LED while a BLE central is connected and turns it
-  off on disconnect;
+- uses the onboard RGB status LED for ready, advertising, and connected states;
 - enforces one central, bounded input/output, and one pending notification;
 - returns to a disconnected, non-advertising state after host loss.
 - runs a schema-validated, deterministic TypeScript scenario engine;
@@ -22,9 +22,10 @@ T0, T1, and T2 completed on 2026-07-28. The current implementation:
 - rejects and records unknown or mutating commands;
 - produces bounded transcripts and machine-readable verification manifests.
 
-T0 results are in [`T0-EVIDENCE.md`](T0-EVIDENCE.md), T1 results are in
-[`T1-EVIDENCE.md`](T1-EVIDENCE.md), and T2 host and physical evidence are in
-[`T2-EVIDENCE.md`](T2-EVIDENCE.md).
+Evidence is recorded in [`T0-EVIDENCE.md`](T0-EVIDENCE.md),
+[`T1-EVIDENCE.md`](T1-EVIDENCE.md), [`T2-EVIDENCE.md`](T2-EVIDENCE.md), and
+[`T3-EVIDENCE.md`](T3-EVIDENCE.md). Future use or expansion of these tools is
+owned by the active repository roadmap.
 
 ## T0 board
 
@@ -40,10 +41,16 @@ have been reported with a reversed antenna, so T0 BLE range results apply to
 this individual fixture rather than every board sold under the same name.
 
 The board's one-pixel WS2812 status LED is connected to GPIO48. Firmware drives
-it through ESP-IDF's RMT peripheral at low white brightness: off at boot and
-while advertising, on for the lifetime of a BLE connection, and off again on
-disconnect or Bluetooth stack reset. This mirrors the visible connection
-indicator on VESC Express devices.
+it through ESP-IDF's RMT peripheral as a compact fixture-state indicator:
+
+- dim green: firmware is on, disconnected, and not advertising;
+- white: the mock VESC is actively advertising;
+- blue: a BLE central is connected.
+
+White always and only means active advertising. After a disconnect, an armed
+fixture automatically resumes advertising, so the visible transition is blue
+to white. Stopping a scenario or losing the host stops advertising and leaves
+the firmware dim green.
 
 ## Toolchain
 
@@ -76,17 +83,24 @@ instead of rebooting, preventing repeated macOS accessory prompts.
 
 ## Build, flash, and verify
 
-From `tools/vesc-test-device/firmware`:
+Export ESP-IDF, then build and automatically flash from the repository root:
 
 ```sh
-idf.py set-target esp32s3
-idf.py build
-idf.py -p "$FLOAT_VIEW_ESP_PORT" flash
+just vesc-test-device-flash "$FLOAT_VIEW_ESP_PORT"
 ```
 
 Set `FLOAT_VIEW_ESP_PORT` to the board's current `/dev/cu.usbmodem*` path for
 flashing; the path can change after reconnecting. Keep the board's USB serial in
 the local `FLOAT_VIEW_ESP_USB_SERIAL` environment variable; do not commit it.
+
+The flash command automatically asks the ESP32-S3 native USB peripheral to enter
+its ROM loader; BOOT and RESET should not be needed. It deliberately disables
+the high-speed RAM flasher stub and uses 115200 baud because the stub can drop
+this board's native USB connection during a write. This is slower than the
+default `idf.py flash` path but completed and verified a full application update
+from running fixture firmware. It finishes with a watchdog reset because the
+usual USB hard-reset signal can leave this board in its ROM loader. It keeps the
+fixture offline and avoids adding Wi-Fi credentials or an OTA service.
 
 Run the platform-independent control parser tests:
 
@@ -228,8 +242,9 @@ bounded transcript are written under
 
 The short T3 unexpected-disconnect verifier uses the same production path but
 commands the ESP to drop BLE during riding. Reconnection is deliberately
-disabled for this cleanup-specific gate; reconnect success and expiry variants
-remain T5 scenarios:
+disabled for this cleanup-specific gate. Reconnect success and expiry variants
+are outside the completed test-device plan and may be adopted by the active
+repository roadmap later:
 
 ```sh
 cd tools/vesc-test-device/host
@@ -277,3 +292,32 @@ written under `artifacts/verification/vesc-test-device/*-ios-*-passed-*`.
 Physical iOS delivery jitter produced 148 of the scenario's nominal 160 durable
 samples, above the platform gate of 144 (90%), while all 168 telemetry responses
 and every request-cadence phase passed.
+
+## R7/R8 lifecycle and soak use
+
+The completed fixture is extended by roadmap-owned scenarios rather than by
+reopening its T0-T3 plan. `express-thor-refloat-background` runs beyond 60
+seconds and verifies Android foreground-service ownership, the 30-second
+disposable-WebView boundary, frontend reconstruction, durable log integrity,
+and terminal cleanup:
+
+```sh
+just vesc-test-device-doctor
+just vesc-test-device-android background
+```
+
+R8 repeats the production stack 20 times, using the background scenario every
+fifth cycle and recording process memory/file-descriptor bounds:
+
+```sh
+just vesc-test-device-android-soak 20
+just vesc-test-device-ios "$FLOAT_VIEW_IOS_DEVICE_ID" ride
+just vesc-test-device-ios "$FLOAT_VIEW_IOS_DEVICE_ID" unexpected-disconnect
+just vesc-test-device-macos ride
+just vesc-test-device-macos unexpected-disconnect
+```
+
+The commands auto-resolve the ESP control port and, for Android, exactly one
+authorized device. Short-lived host processes allocate non-overlapping
+monotonic USB command-sequence ranges, so repeated runs do not require a fixture
+reboot and stale commands remain rejected.
