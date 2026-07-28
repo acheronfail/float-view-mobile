@@ -129,9 +129,11 @@ describe('ApiClient', () => {
 
 	it('rejects pending requests when the socket closes', async () => {
 		const { socket, client } = setup();
+		expect(client.isOpen).toBe(true);
 		const response = client.request('system.getSnapshot', {});
 		socket.close();
 
 		await expect(response).rejects.toBeInstanceOf(ApiProtocolError);
+		expect(client.isOpen).toBe(false);
 	});
 });

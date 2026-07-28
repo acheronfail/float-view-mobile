@@ -396,6 +396,8 @@ permission becomes denied/restricted instead of retrying indefinitely.
 Android 10 has physically passed four of the five guided scenarios after adding
 radio broadcasts and a bounded GATT-attempt watchdog: permission denial,
 radio-cycle recovery, VESC power-loss recovery, and explicit disconnect. The
+same four native scenarios pass on an iPhone 12/iOS 18.6.1 using identifier-free
+CoreBluetooth/application-service traces and durable SQLite inspection. The
 native Board Profile get/update path is the remaining blocker for local-override
 evidence; mock-only conformance does not satisfy that gate.
 
@@ -422,6 +424,14 @@ Exit gate:
 
 Canonical software verification: `just verify-r7`. Completion additionally
 requires the 60-second hardware logging scenario on all three platforms.
+
+Status: not started. An early iPhone 12 probe confirmed the native connection
+owner can process CoreBluetooth radio/loss recovery while the UI is backgrounded,
+but foreground reconstruction fails because the suspended loopback page cannot
+reload. The WebView/listener/token lifecycle and persisted-sample continuity
+remain unproven and are explicit R7 blockers. Startup now recovers catalog rows
+left active by process termination as interrupted rather than leaving false
+active sessions.
 
 Deliverables:
 

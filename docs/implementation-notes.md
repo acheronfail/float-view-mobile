@@ -254,6 +254,29 @@ failure evidence remains intentionally incomplete because native
 `boardProfiles.get/update` is not implemented; profile-override isolation must
 not be claimed from mock-only behavior.
 
+Physical iPhone 12/iOS 18.6.1 qualification then passed the same four native
+backend scenarios. It found that CoreBluetooth reports an authorization-denied
+manager as an unknown radio plus denied permission; discovery now gives
+permission precedence and returns `permission_required` instead of falsely
+claiming Bluetooth is powered off. Identifier-free debug traces proved that
+radio-off entered reconnecting with zero connection requests, radio-on issued
+one request and returned to ready, and VESC power loss/restoration completed the
+single OS-owned pending CoreBluetooth connection without replacing the durable
+session. Explicit disconnect produced no later request; copied catalog/session
+databases passed integrity and reported `completed`/`explicit_disconnect`.
+
+This qualification also exposed two lifecycle gaps that remain R7 work. A
+background/foreground Settings round-trip can close the WebSocket and invalidate
+the loopback page; the native backend continues, but the current WKWebView shows
+Load Failed and cannot reconstruct state. The API store now reconnects a closed
+socket before sending a new command when the page itself survives, but complete
+foreground recovery requires restarting the loopback listener with a fresh
+token/WebView and snapshot. Both production stores now mark catalog rows left
+active by process termination as `interrupted`/`process_interruption` at backend
+startup, with deterministic Apple persistence coverage. The interrupted
+physical runs did not contain enough committed samples to claim iOS background
+logging continuity.
+
 The cumulative `just verify-r6` software gate passes with these changes,
 including generated-model drift, boundary checks, web type/lint/unit tests,
 Swift and Kotlin protocol/application/storage/alert/Bluetooth tests, all three

@@ -40,11 +40,18 @@ export class ApiStore {
 	busy = $state(false);
 	private client: ApiClient | null = null;
 
+	constructor(
+		private readonly bootstrapLoader = loadBootstrap,
+		private readonly bootstrapConnector = connectBootstrap
+	) {}
+
 	async connect(): Promise<void> {
 		this.status = this.client ? 'reconnecting' : 'starting';
+		this.client?.close();
+		this.client = null;
 		try {
-			const bootstrap = await loadBootstrap();
-			this.client = await connectBootstrap(bootstrap);
+			const bootstrap = await this.bootstrapLoader();
+			this.client = await this.bootstrapConnector(bootstrap);
 			this.hello = await this.client.hello({
 				client: { name: 'float-view-web', version: '0.1.0' },
 				api: { major: 1, minMinor: 0, maxMinor: 0 }
@@ -192,11 +199,13 @@ export class ApiStore {
 	}
 
 	private async run(action: (client: ApiClient) => Promise<void>): Promise<void> {
-		if (!this.client) return;
+		if (!this.client?.isOpen) await this.connect();
+		if (!this.client?.isOpen) return;
+		const client = this.client;
 		this.busy = true;
 		this.error = null;
 		try {
-			await action(this.client);
+			await action(client);
 		} catch (error) {
 			this.error = error instanceof Error ? error.message : String(error);
 		} finally {

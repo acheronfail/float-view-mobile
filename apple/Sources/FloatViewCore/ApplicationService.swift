@@ -71,13 +71,13 @@ public final class ApplicationService: @unchecked Sendable {
   public func startDiscovery() throws -> String {
     lock.lock()
     defer { lock.unlock() }
-    guard bluetoothState.radio == .poweredOn else {
-      throw ApplicationError.bluetoothUnavailable
-    }
     guard bluetoothState.scanPermission == .granted ||
           bluetoothState.scanPermission == .notRequired
     else {
       throw ApplicationError.permissionRequired
+    }
+    guard bluetoothState.radio == .poweredOn else {
+      throw ApplicationError.bluetoothUnavailable
     }
     if let activeScanID { return activeScanID }
     scanSequence += 1

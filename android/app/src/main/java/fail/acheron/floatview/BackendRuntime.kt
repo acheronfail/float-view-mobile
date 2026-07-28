@@ -23,6 +23,10 @@ class BackendRuntime(application: FloatViewApplication) {
         application.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0
     val permissionBroker = BluetoothPermissionBroker(application)
     private val relay = BluetoothEventRelay()
+    private val logStore = SQLiteLogStore(application).also { store ->
+        val recovered = store.recoverInterrupted()
+        if (debuggable) Log.d("FloatViewState", "recovery interruptedSessions=$recovered")
+    }
     val bluetooth = AndroidBluetoothAdapter(
         application,
         permissionBroker,
@@ -33,7 +37,7 @@ class BackendRuntime(application: FloatViewApplication) {
     val applicationService = ApplicationService(
         bluetooth,
         SystemClock,
-        SQLiteLogStore(application),
+        logStore,
         protocol = VescProtocolService(),
         scheduler = SystemScheduler(),
     ) { event ->

@@ -80,6 +80,27 @@ func discoveryRequiresAvailableAuthorizedBluetooth() {
 }
 
 @Test
+func deniedDiscoveryPermissionTakesPrecedenceOverUnknownRadioState() {
+  let bluetooth = FakeBluetooth(
+    state: .init(
+      radio: .unknown,
+      scanPermission: .denied,
+      connectPermission: .denied
+    )
+  )
+  let service = ApplicationService(
+    bluetooth: bluetooth,
+    clock: FixedClock(),
+    logStore: MemoryStore(),
+    events: IgnoreEvents()
+  )
+
+  #expect(throws: ApplicationError.permissionRequired) {
+    try service.startDiscovery()
+  }
+}
+
+@Test
 func loggingFailureFailsAndDisconnectsConnection() throws {
   let bluetooth = FakeBluetooth()
   let service = ApplicationService(

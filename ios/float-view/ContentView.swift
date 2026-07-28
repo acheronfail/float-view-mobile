@@ -8,7 +8,14 @@ final class AppBackend: ObservableObject {
 
   init() {
     let relay = BluetoothEventRelay()
-    let bluetooth = CoreBluetoothAdapter(eventHandler: { @Sendable event in relay.emit(event) })
+    let bluetooth = CoreBluetoothAdapter(
+      eventHandler: { @Sendable event in relay.emit(event) },
+      diagnosticHandler: { diagnostic in
+        #if DEBUG
+        print("[FloatViewState] adapter \(diagnostic)")
+        #endif
+      }
+    )
     let applicationSupport = try! FileManager.default.url(
       for: .applicationSupportDirectory,
       in: .userDomainMask,
@@ -28,13 +35,19 @@ final class AppBackend: ObservableObject {
         ).volumeAvailableCapacityForImportantUsage).map { Int64($0) } ?? Int64.max
       }
     )
+    #if DEBUG
+    let recoveredSessions = try! logStore.recoverInterrupted()
+    print("[FloatViewState] recovery interruptedSessions=\(recoveredSessions)")
+    #else
+    try! logStore.recoverInterrupted()
+    #endif
     let applicationService = ApplicationService(
       bluetooth: bluetooth,
       clock: SystemClock(),
       logStore: logStore,
       protocolCodec: VescProtocolService(),
       scheduler: SystemScheduler(),
-      events: IgnoreEvents()
+      events: DebugEventSink()
     )
     relay.setHandler { [weak applicationService] event in
       try? applicationService?.receive(event)
@@ -87,8 +100,25 @@ private struct SystemClock: ClockPort {
   func now() -> Date { Date() }
 }
 
-private struct IgnoreEvents: EventSink {
-  func publish(_: any Sendable) {}
+private struct DebugEventSink: EventSink {
+  func publish(_ event: any Sendable) {
+    #if DEBUG
+    switch event {
+    case let state as BluetoothState:
+      print(
+        "[FloatViewState] bluetooth radio=\(state.radio.rawValue) " +
+          "scanPermission=\(state.scanPermission.rawValue) " +
+          "connectPermission=\(state.connectPermission.rawValue)"
+      )
+    case let state as ConnectionState:
+      print("[FloatViewState] connection state=\(state.rawValue)")
+    case let session as SessionRecord:
+      print("[FloatViewState] session active=\(session.active)")
+    default:
+      break
+    }
+    #endif
+  }
 }
 
 struct ContentView: View {

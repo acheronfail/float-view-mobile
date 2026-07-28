@@ -58,6 +58,18 @@ private final class Database: @unchecked Sendable {
       throw SQLiteLogStoreError.sqlite(String(cString: sqlite3_errmsg(handle)))
     }
   }
+
+  func scalarInt(_ sql: String) throws -> Int {
+    var statement: OpaquePointer?
+    guard sqlite3_prepare_v2(handle, sql, -1, &statement, nil) == SQLITE_OK else {
+      throw SQLiteLogStoreError.sqlite(String(cString: sqlite3_errmsg(handle)))
+    }
+    defer { sqlite3_finalize(statement) }
+    guard sqlite3_step(statement) == SQLITE_ROW else {
+      throw SQLiteLogStoreError.sqlite(String(cString: sqlite3_errmsg(handle)))
+    }
+    return Int(sqlite3_column_int64(statement, 0))
+  }
 }
 
 private let SQLITE_TRANSIENT = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
@@ -223,12 +235,14 @@ public final class SQLiteLogStore: LogStorePort, @unchecked Sendable {
     lock.withLock { current }
   }
 
-  public func recoverInterrupted() throws {
+  @discardableResult
+  public func recoverInterrupted() throws -> Int {
     try catalog.execute(
       """
       UPDATE session_catalog SET state = 'interrupted', integrity = 'recovered',
       close_reason = 'process_interruption' WHERE state = 'active'
       """
     )
+    return try catalog.scalarInt("SELECT changes()")
   }
 }

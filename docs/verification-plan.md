@@ -489,6 +489,14 @@ connection transitions, and session create/close count. Debug traces must remain
 disabled in release builds and must never contain device/session identifiers or
 telemetry.
 
+Apple debug builds use the same identifier-free evidence vocabulary for
+Bluetooth state, adapter connection requests, connection transitions, active
+session count, and startup recovery count. The iPhone 12/iOS 18.6.1 run passed
+permission denial, radio cycling, peripheral power-loss recovery, and explicit
+disconnect. Its separate background probe is not accepted R7 evidence: the
+native owner remained active, but the foreground loopback page failed to reload
+and persisted sample continuity was not demonstrated.
+
 Run the profile across the declared Thor300, Thor301, XRV, and PintV inventory
 before release qualification. R6 milestone completion may use a documented
 representative subset only if the remaining board runs are explicitly assigned

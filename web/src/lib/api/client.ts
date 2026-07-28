@@ -49,12 +49,16 @@ export class ApiClient {
 		socket.addEventListener('close', this.handleClose);
 	}
 
+	get isOpen(): boolean {
+		return !this.closed && this.socket.readyState === 1;
+	}
+
 	request<M extends ApiMethod>(
 		method: M,
 		params: ApiParams<M>,
 		timeoutMs = this.defaultTimeoutMs
 	): Promise<ApiResult<M>> {
-		if (this.closed || this.socket.readyState !== 1) {
+		if (!this.isOpen) {
 			return Promise.reject(new ApiProtocolError('API WebSocket is not open'));
 		}
 

@@ -6,6 +6,7 @@ import FloatViewCore
 
 public final class CoreBluetoothAdapter: NSObject, BluetoothPort, @unchecked Sendable {
   public typealias EventHandler = @Sendable (BluetoothEvent) -> Void
+  public typealias DiagnosticHandler = @Sendable (String) -> Void
 
   private static var serviceUUID: CBUUID {
     CBUUID(string: "6E400001-B5A3-F393-E0A9-E50E24DCCA9E")
@@ -18,6 +19,7 @@ public final class CoreBluetoothAdapter: NSObject, BluetoothPort, @unchecked Sen
   }
 
   private let eventHandler: EventHandler
+  private let diagnosticHandler: DiagnosticHandler
   private let queue: DispatchQueue
   private lazy var central = CBCentralManager(delegate: self, queue: queue)
   private var peripheralsByID: [DeviceID: CBPeripheral] = [:]
@@ -30,10 +32,12 @@ public final class CoreBluetoothAdapter: NSObject, BluetoothPort, @unchecked Sen
 
   public init(
     queue: DispatchQueue = DispatchQueue(label: "fail.acheron.float-view.bluetooth"),
-    eventHandler: @escaping EventHandler
+    eventHandler: @escaping EventHandler,
+    diagnosticHandler: @escaping DiagnosticHandler = { _ in }
   ) {
     self.queue = queue
     self.eventHandler = eventHandler
+    self.diagnosticHandler = diagnosticHandler
     super.init()
     _ = central
   }
@@ -91,6 +95,7 @@ public final class CoreBluetoothAdapter: NSObject, BluetoothPort, @unchecked Sen
       pendingWrites.removeAll(keepingCapacity: true)
       writeInFlight = false
       peripheral.delegate = self
+      diagnosticHandler("connect_requested")
       central.connect(peripheral)
     }
   }
