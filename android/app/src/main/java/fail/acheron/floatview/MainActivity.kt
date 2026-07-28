@@ -13,6 +13,7 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         val app = application as FloatViewApplication
         app.runtime.permissionBroker.attach(this)
+        app.runtime.exportPresentationBroker.attach(this)
         val backend = app.backend
         webView = WebView(this).also {
             it.settings.javaScriptEnabled = true
@@ -22,7 +23,9 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onDestroy() {
-        (application as FloatViewApplication).runtime.permissionBroker.detach(this)
+        val runtime = (application as FloatViewApplication).runtime
+        runtime.permissionBroker.detach(this)
+        runtime.exportPresentationBroker.detach(this)
         webView?.destroy()
         webView = null
         super.onDestroy()

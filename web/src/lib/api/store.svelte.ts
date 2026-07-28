@@ -238,7 +238,10 @@ export class ApiStore {
 				sessionId: selected.sessionId,
 				format
 			});
-			this.exportStatus = `${value.fileName} is ready in native export storage.`;
+			this.exportStatus =
+				value.delivery === 'presented'
+					? `${value.fileName} is ready to save or share.`
+					: `${value.fileName} is staged by the test backend.`;
 		});
 	}
 

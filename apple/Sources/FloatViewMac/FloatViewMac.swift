@@ -61,7 +61,7 @@ private final class MacAppDelegate: NSObject, NSApplicationDelegate, NSWindowDel
     let runtime = MacBackendRuntime(webRoot: webRoot)
     self.runtime = runtime
     frontendLifecycle = FrontendLifecycleCoordinator {
-      runtime.makeServer()
+      runtime.makeServer(exportPresenter: MacExportPresenter.schedule)
     }
   }
 
@@ -144,6 +144,28 @@ private final class MacAppDelegate: NSObject, NSApplicationDelegate, NSWindowDel
     webView = nil
     window = nil
     frontendLifecycle.deactivate()
+  }
+}
+
+private enum MacExportPresenter {
+  static func schedule(_ value: SessionExportRecord) -> Bool {
+    DispatchQueue.main.async {
+      let panel = NSSavePanel()
+      panel.nameFieldStringValue = value.fileName
+      panel.canCreateDirectories = true
+      panel.begin { response in
+        guard response == .OK, let destination = panel.url else { return }
+        do {
+          if FileManager.default.fileExists(atPath: destination.path) {
+            try FileManager.default.removeItem(at: destination)
+          }
+          try FileManager.default.copyItem(at: value.fileURL, to: destination)
+        } catch {
+          trace("[FloatViewState] export presentation failed")
+        }
+      }
+    }
+    return true
   }
 }
 
@@ -262,11 +284,14 @@ private final class MacBackendRuntime: @unchecked Sendable {
     self.webRoot = webRoot
   }
 
-  func makeServer() -> LoopbackServer {
+  func makeServer(
+    exportPresenter: (@Sendable (SessionExportRecord) -> Bool)? = nil
+  ) -> LoopbackServer {
     LoopbackServer(
       webRoot: webRoot,
       platform: "macos",
-      applicationService: applicationService
+      applicationService: applicationService,
+      exportPresenter: exportPresenter
     )
   }
 

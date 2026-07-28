@@ -450,8 +450,9 @@ export async function runSystemConformance(
             );
             assert(
               typeof exported.exportId === "string" &&
-                typeof exported.fileName === "string",
-              "Export must return an opaque handle and file name",
+                typeof exported.fileName === "string" &&
+                ["presented", "staged"].includes(String(exported.delivery)),
+              "Export must return an opaque handle, file name, and delivery state",
             );
           }
           await client.request("sessions.delete", {
@@ -592,8 +593,9 @@ export async function runSessionMutationConformance(
     );
     assert(
       typeof exported.exportId === "string" &&
-        typeof exported.fileName === "string",
-      "Native export must return an opaque handle and file name",
+        typeof exported.fileName === "string" &&
+        ["presented", "staged"].includes(String(exported.delivery)),
+      "Native export must return an opaque handle, file name, and delivery state",
     );
   }
   await client.request("sessions.delete", { sessionId: session.sessionId });

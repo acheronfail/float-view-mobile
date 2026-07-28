@@ -617,6 +617,7 @@ export interface SessionsExportResponse {
 	result: {
 		exportId: string;
 		fileName: string;
+		delivery: 'presented' | 'staged';
 	};
 }
 
@@ -930,6 +931,7 @@ export interface ApiMethods {
 		result: {
 			exportId: string;
 			fileName: string;
+			delivery: 'presented' | 'staged';
 		};
 	};
 	'sessions.delete': {

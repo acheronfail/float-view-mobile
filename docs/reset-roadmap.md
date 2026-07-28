@@ -346,9 +346,13 @@ containing samples/events plus immutable device/profile/rate/integrity metadata.
 The shared UI can configure supported logging/linking settings, review grouped
 segments, prepare either export, and confirm deletion. The macOS and mock
 black-box suites pass; the Galaxy S9/API 29 passes all six real SQLite
-instrumentation cases. R5 remains in progress until the complete black-box suite
-runs against Android and iOS hosts and prepared exports have a uniform
-user-visible save/share handoff on all three platforms.
+instrumentation cases. Production Android, iOS, and macOS hosts now route
+prepared exports into their native save/share surfaces without exposing private
+paths to the WebView; headless hosts explicitly report `staged`. A Galaxy
+S9/API 29, iPhone 12/iOS 18.6.1, and the signed macOS app have physically opened
+and delivered both CSV and `.floatview` files through those OS surfaces. R5
+remains in progress until the complete black-box suite runs against Android and
+iOS hosts.
 
 Deliverables:
 

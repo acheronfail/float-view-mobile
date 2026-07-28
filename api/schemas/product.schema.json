@@ -887,10 +887,11 @@
         "result": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["exportId", "fileName"],
+          "required": ["exportId", "fileName", "delivery"],
           "properties": {
             "exportId": { "type": "string" },
-            "fileName": { "type": "string" }
+            "fileName": { "type": "string" },
+            "delivery": { "type": "string", "enum": ["presented", "staged"] }
           }
         }
       }

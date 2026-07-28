@@ -172,7 +172,7 @@ class FakeClient {
 			case 'sessions.getDiagnosticWindow':
 				return [{ elapsedMs: 30_000, values: { packVoltageV: 57 } }];
 			case 'sessions.export':
-				return { exportId: 'export-1', fileName: 'session-1.csv' };
+				return { exportId: 'export-1', fileName: 'session-1.csv', delivery: 'presented' };
 			case 'sessions.delete':
 				this.deleted = true;
 				return { accepted: true };

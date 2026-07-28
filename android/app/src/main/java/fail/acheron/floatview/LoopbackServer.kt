@@ -11,6 +11,7 @@ import fail.acheron.floatview.core.DiscoveredDevice
 import fail.acheron.floatview.core.ProductStoreException
 import fail.acheron.floatview.core.SavedDeviceRecord
 import fail.acheron.floatview.core.SessionEventRecord
+import fail.acheron.floatview.core.SessionExportRecord
 import fail.acheron.floatview.core.SessionGroupRecord
 import fail.acheron.floatview.core.SessionListQuery
 import fail.acheron.floatview.core.SessionSeriesPoint
@@ -33,6 +34,7 @@ import org.json.JSONObject
 class LoopbackServer(
     private val assets: AssetManager,
     private val applicationService: ApplicationService? = null,
+    private val exportPresenter: ((SessionExportRecord) -> Boolean)? = null,
 ) {
     private val executor = Executors.newCachedThreadPool()
     private val token = ByteArray(32).also(SecureRandom()::nextBytes)
@@ -589,8 +591,12 @@ class LoopbackServer(
             }
             return try {
                 val value = service.exportSession(sessionId, format)
+                val delivery = if (exportPresenter?.invoke(value) == true) "presented" else "staged"
                 success(
-                    JSONObject().put("exportId", value.exportId).put("fileName", value.fileName),
+                    JSONObject()
+                        .put("exportId", value.exportId)
+                        .put("fileName", value.fileName)
+                        .put("delivery", delivery),
                 )
             } catch (error: SessionStoreException) {
                 sessionStoreFailure(error, ::failure)

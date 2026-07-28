@@ -662,7 +662,8 @@ export function handleApiV1Request(session: ApiV1Session, input: unknown): ApiV1
 			}
 			return ok(id, {
 				exportId: `export-${String(params.sessionId)}`,
-				fileName: `${String(params.sessionId)}.${params.format === 'csv' ? 'csv' : 'floatview'}`
+				fileName: `${String(params.sessionId)}.${params.format === 'csv' ? 'csv' : 'floatview'}`,
+				delivery: 'staged'
 			});
 		case 'sessions.delete': {
 			if (state.sessions.find((item) => item.sessionId === params.sessionId)?.state === 'active') {

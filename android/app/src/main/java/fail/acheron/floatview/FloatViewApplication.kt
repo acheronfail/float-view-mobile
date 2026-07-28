@@ -11,7 +11,11 @@ class FloatViewApplication : Application() {
     override fun onCreate() {
         super.onCreate()
         runtime = BackendRuntime(this)
-        backend = LoopbackServer(assets, runtime.applicationService).also { it.start() }
+        backend = LoopbackServer(
+            assets,
+            runtime.applicationService,
+            runtime.exportPresentationBroker::present,
+        ).also { it.start() }
     }
 
     override fun onTerminate() {

@@ -362,6 +362,10 @@ the UI path coalesces first.
   idempotent Session deletion is included in the first release.
 - The first release exports a lossless native Float View archive and CSV.
   Imports, cloud sync, and cross-device retention are later features.
+- `sessions.export` stages a bounded derived file and returns whether the native
+  host presented its OS save/share surface or only staged the file (as in
+  headless test hosts). Production Android, iOS, and macOS hosts must present the
+  file without exposing its private storage path to the WebView.
 - Exclude session databases from OS/cloud backup initially. “Durable” means
   local crash-consistent app storage; uninstall may remove it.
 - Release diagnostics do not print full telemetry, file contents, BLE addresses,

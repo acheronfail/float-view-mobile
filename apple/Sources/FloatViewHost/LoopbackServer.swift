@@ -13,17 +13,20 @@ public final class LoopbackServer: @unchecked Sendable {
   private let platform: String
   private let webRoot: URL
   private let applicationService: ApplicationService?
+  private let exportPresenter: (@Sendable (SessionExportRecord) -> Bool)?
   private let queue = DispatchQueue(label: "fail.acheron.float-view.loopback")
   private var listener: NWListener?
 
   public init(
     webRoot: URL,
     platform: String,
-    applicationService: ApplicationService? = nil
+    applicationService: ApplicationService? = nil,
+    exportPresenter: (@Sendable (SessionExportRecord) -> Bool)? = nil
   ) {
     self.webRoot = webRoot
     self.platform = platform
     self.applicationService = applicationService
+    self.exportPresenter = exportPresenter
     token = Self.randomToken()
   }
 
@@ -514,7 +517,12 @@ public final class LoopbackServer: @unchecked Sendable {
       else { return failure(-32602, "protocol_error", "sessionId and format are required") }
       do {
         let value = try applicationService.exportSession(sessionID: sessionID, format: format)
-        return response(["exportId": value.exportID, "fileName": value.fileName])
+        let delivery = exportPresenter?(value) == true ? "presented" : "staged"
+        return response([
+          "exportId": value.exportID,
+          "fileName": value.fileName,
+          "delivery": delivery,
+        ])
       } catch let error as SessionStoreError {
         return sessionStoreFailure(error, failure: failure)
       } catch {
