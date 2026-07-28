@@ -1,6 +1,6 @@
 public enum LogSchema {
-  public static let catalogVersion = 1
-  public static let sessionVersion = 1
+  public static let catalogVersion = 2
+  public static let sessionVersion = 2
 }
 
 public enum StorageLevel: String, Sendable {

@@ -243,6 +243,132 @@ public struct SessionRecord: Sendable, Codable, Equatable {
   }
 }
 
+public struct SessionSummaryRecord: Sendable, Codable, Equatable {
+  public let sessionID: String
+  public let deviceHistoryID: String
+  public let displayName: String
+  public let startedAt: Date
+  public let endedAt: Date?
+  public let state: String
+  public let integrity: String
+  public let sampleCount: Int64
+  public let eventCount: Int64
+  public let ridingElapsedMs: Int64
+  public let totalElapsedMs: Int64
+  public let distanceM: Double?
+  public let maxSpeedMps: Double?
+  public let maxDutyCycle: Double?
+
+  public init(
+    sessionID: String, deviceHistoryID: String, displayName: String,
+    startedAt: Date, endedAt: Date?, state: String, integrity: String,
+    sampleCount: Int64, eventCount: Int64, ridingElapsedMs: Int64,
+    totalElapsedMs: Int64, distanceM: Double?, maxSpeedMps: Double?,
+    maxDutyCycle: Double?
+  ) {
+    self.sessionID = sessionID
+    self.deviceHistoryID = deviceHistoryID
+    self.displayName = displayName
+    self.startedAt = startedAt
+    self.endedAt = endedAt
+    self.state = state
+    self.integrity = integrity
+    self.sampleCount = sampleCount
+    self.eventCount = eventCount
+    self.ridingElapsedMs = ridingElapsedMs
+    self.totalElapsedMs = totalElapsedMs
+    self.distanceM = distanceM
+    self.maxSpeedMps = maxSpeedMps
+    self.maxDutyCycle = maxDutyCycle
+  }
+}
+
+public struct SessionPage: Sendable, Equatable {
+  public let items: [SessionSummaryRecord]
+  public let nextCursor: String?
+
+  public init(items: [SessionSummaryRecord], nextCursor: String?) {
+    self.items = items
+    self.nextCursor = nextCursor
+  }
+}
+
+public struct SessionListQuery: Sendable, Equatable {
+  public let cursor: String?
+  public let limit: Int
+  public let deviceHistoryID: String?
+  public let startedAfter: Date?
+  public let startedBefore: Date?
+  public let minimumTotalElapsedMs: Int64?
+  public let maximumTotalElapsedMs: Int64?
+  public let minimumRidingElapsedMs: Int64?
+  public let maximumRidingElapsedMs: Int64?
+  public let minimumDistanceM: Double?
+  public let maximumDistanceM: Double?
+  public let state: String?
+  public let integrity: String?
+  public let sortField: String
+  public let sortDescending: Bool
+
+  public init(
+    cursor: String? = nil,
+    limit: Int = 20,
+    deviceHistoryID: String? = nil,
+    startedAfter: Date? = nil,
+    startedBefore: Date? = nil,
+    minimumTotalElapsedMs: Int64? = nil,
+    maximumTotalElapsedMs: Int64? = nil,
+    minimumRidingElapsedMs: Int64? = nil,
+    maximumRidingElapsedMs: Int64? = nil,
+    minimumDistanceM: Double? = nil,
+    maximumDistanceM: Double? = nil,
+    state: String? = nil,
+    integrity: String? = nil,
+    sortField: String = "startedAt",
+    sortDescending: Bool = true
+  ) {
+    self.cursor = cursor
+    self.limit = limit
+    self.deviceHistoryID = deviceHistoryID
+    self.startedAfter = startedAfter
+    self.startedBefore = startedBefore
+    self.minimumTotalElapsedMs = minimumTotalElapsedMs
+    self.maximumTotalElapsedMs = maximumTotalElapsedMs
+    self.minimumRidingElapsedMs = minimumRidingElapsedMs
+    self.maximumRidingElapsedMs = maximumRidingElapsedMs
+    self.minimumDistanceM = minimumDistanceM
+    self.maximumDistanceM = maximumDistanceM
+    self.state = state
+    self.integrity = integrity
+    self.sortField = sortField
+    self.sortDescending = sortDescending
+  }
+}
+
+public struct SessionSeriesPoint: Sendable, Equatable {
+  public let elapsedMs: Int64
+  public let values: [String: Double?]
+
+  public init(elapsedMs: Int64, values: [String: Double?]) {
+    self.elapsedMs = elapsedMs
+    self.values = values
+  }
+}
+
+public struct SessionEventRecord: Sendable, Equatable {
+  public let eventID: String
+  public let elapsedMs: Int64
+  public let kind: String
+  public let detailsJSON: String
+
+  public init(eventID: String, elapsedMs: Int64, kind: String, detailsJSON: String) {
+    self.eventID = eventID
+    self.elapsedMs = elapsedMs
+    self.kind = kind
+    self.detailsJSON = detailsJSON
+  }
+}
+
 public struct SavedDeviceRecord: Sendable, Codable, Equatable {
   public let savedDeviceID: String
   public let deviceHistoryID: String
@@ -422,6 +548,37 @@ public protocol ProductStorePort: AnyObject, Sendable {
     patchJSON: String,
     at: Date
   ) throws -> BoardProfileRecord
+}
+
+public enum SessionStoreError: Error, Equatable {
+  case sessionNotFound
+  case invalidCursor
+  case invalidRange
+  case unsupportedField(String)
+}
+
+public protocol SessionStorePort: AnyObject, Sendable {
+  func sessions(_ query: SessionListQuery) throws -> SessionPage
+  func session(sessionID: String) throws -> SessionSummaryRecord
+  func querySeries(
+    sessionID: String,
+    startElapsedMs: Int64,
+    endElapsedMs: Int64,
+    fields: [String],
+    maxPoints: Int
+  ) throws -> [SessionSeriesPoint]
+  func sessionEvents(
+    sessionID: String,
+    startElapsedMs: Int64,
+    endElapsedMs: Int64
+  ) throws -> [SessionEventRecord]
+  func diagnosticWindow(
+    sessionID: String,
+    centerElapsedMs: Int64,
+    beforeMs: Int64,
+    afterMs: Int64,
+    fields: [String]
+  ) throws -> [SessionSeriesPoint]
 }
 
 public protocol EventSink: Sendable {

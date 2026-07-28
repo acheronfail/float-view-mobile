@@ -189,7 +189,7 @@ export async function runSystemConformance(
             -32601,
             "unsupported",
           );
-      }),
+        }),
     ],
     [
       "discovers connects logs and disconnects as one durable workflow",
@@ -220,7 +220,10 @@ export async function runSystemConformance(
             }),
             "connected board",
           );
-          assert(connected.state === "ready", "Connected board must become ready");
+          assert(
+            connected.state === "ready",
+            "Connected board must become ready",
+          );
 
           const active = asRecord(
             await client.request("system.getSnapshot", {}),
@@ -272,6 +275,31 @@ export async function runSystemConformance(
             session.state === "completed" && Number(session.sampleCount) > 0,
             "Disconnected session must be completed with committed samples",
           );
+          const overview = (await client.request("sessions.querySeries", {
+            sessionId: session.sessionId,
+            startElapsedMs: 0,
+            endElapsedMs: Number(session.totalElapsedMs),
+            fields: ["packVoltageV", "dutyCycle", "speedKph"],
+            maxPoints: 20,
+          })) as unknown[];
+          assert(
+            overview.length > 0 && overview.length <= 20,
+            "Review query must return a non-empty bounded series",
+          );
+          const diagnostic = (await client.request(
+            "sessions.getDiagnosticWindow",
+            {
+              sessionId: session.sessionId,
+              centerElapsedMs: Math.floor(Number(session.totalElapsedMs) / 2),
+              beforeMs: 5_000,
+              afterMs: 5_000,
+              fields: ["packVoltageV", "dutyCycle", "footpadState"],
+            },
+          )) as unknown[];
+          assert(
+            diagnostic.length > 0,
+            "Diagnostic query must return lossless samples around the requested timestamp",
+          );
         }),
     ],
     [
@@ -286,7 +314,10 @@ export async function runSystemConformance(
           await client.request("device.connect", {
             deviceId: "fixture-thor300",
           });
-          const saved = (await client.request("savedDevices.list", {})) as unknown[];
+          const saved = (await client.request(
+            "savedDevices.list",
+            {},
+          )) as unknown[];
           const savedDevice = asRecord(saved[0], "saved board");
           const profile = asRecord(
             await client.request("boardProfiles.get", {
@@ -337,7 +368,10 @@ export async function runSystemConformance(
     ],
   ];
 
-  const selected = options.includeProductScenarios === false ? scenarios.slice(0, 4) : scenarios;
+  const selected =
+    options.includeProductScenarios === false
+      ? scenarios.slice(0, 4)
+      : scenarios;
   const results: ConformanceScenarioResult[] = [];
   for (const [name, scenario] of selected) {
     const startedAt = performance.now();
@@ -345,6 +379,55 @@ export async function runSystemConformance(
     results.push({ name, durationMs: performance.now() - startedAt });
   }
   return results;
+}
+
+export async function runSessionReadConformance(
+  client: ConformanceClient,
+): Promise<ScenarioResult> {
+  const startedAt = performance.now();
+  await client.request("system.hello", {
+    client: { name: "float-view-conformance", version: "1.0.0" },
+    api: { major: 1, minMinor: 0, maxMinor: 0 },
+  });
+  const page = asRecord(
+    await client.request("sessions.list", { limit: 1 }),
+    "session page",
+  );
+  assert(
+    Array.isArray(page.items) && page.items.length === 1,
+    "Seeded session must be listed",
+  );
+  const session = asRecord(page.items[0], "seeded session");
+  assert(
+    Number(session.sampleCount) > 0,
+    "Seeded session must contain durable samples",
+  );
+  const overview = (await client.request("sessions.querySeries", {
+    sessionId: session.sessionId,
+    startElapsedMs: 0,
+    endElapsedMs: Number(session.totalElapsedMs),
+    fields: ["packVoltageV", "dutyCycle", "speedKph"],
+    maxPoints: 12,
+  })) as unknown[];
+  assert(
+    overview.length > 0 && overview.length <= 12,
+    "Overview must respect maxPoints",
+  );
+  const diagnostic = (await client.request("sessions.getDiagnosticWindow", {
+    sessionId: session.sessionId,
+    centerElapsedMs: Math.floor(Number(session.totalElapsedMs) / 2),
+    beforeMs: 2_000,
+    afterMs: 2_000,
+    fields: ["packVoltageV", "dutyCycle", "footpadState"],
+  })) as unknown[];
+  assert(
+    diagnostic.length > 0,
+    "Diagnostic window must return canonical samples",
+  );
+  return {
+    name: "lists durable sessions and serves bounded review and diagnostic samples",
+    durationMs: performance.now() - startedAt,
+  };
 }
 
 export async function runBoardProfileConformance(
@@ -356,7 +439,10 @@ export async function runBoardProfileConformance(
     await client.request("boardProfiles.get", { savedDeviceId }),
     "initial board profile",
   );
-  assert(initial.revision === 0, "A newly created profile must start at revision 0");
+  assert(
+    initial.revision === 0,
+    "A newly created profile must start at revision 0",
+  );
   assert(
     Array.isArray(initial.missingFields) &&
       initial.missingFields.includes("seriesCount") &&
@@ -382,7 +468,10 @@ export async function runBoardProfileConformance(
     }),
     "first Board Profile update",
   );
-  assert(first.revision === 1, "A successful profile update must advance revision");
+  assert(
+    first.revision === 1,
+    "A successful profile update must advance revision",
+  );
   const firstValues = asRecord(first.values, "first profile values");
   assert(
     firstValues.seriesCount === 18 && firstValues.motor === "hypercore_xr",

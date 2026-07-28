@@ -579,13 +579,24 @@ Add links here as milestones complete:
 - fixture corpus: [`../fixtures/`](../fixtures/)
 - R1 boundaries: `just dependency-check` (7 modules; no legacy runtime references)
 - API conformance: `just conformance-mock` (6 scenarios)
-- Apple loopback conformance: `just conformance-macos` (5 system/profile scenarios)
-- Swift tests: `just test-core` (29 deterministic tests)
+- Apple loopback conformance: `just conformance-macos` (6 system/profile/session scenarios)
+- Swift tests: `just test-core` (31 deterministic tests)
 - Android tests/build: `./gradlew test assembleDebug` (169 tasks; successful)
 - protocol parity: `just test-protocol` (4 Swift and 4 Kotlin fixture tests)
 - storage/alerts: `just test-storage && just test-alerts`
 - Board Profiles: `just test-profiles`; Android 10 also passes
   `./gradlew :logging:connectedDebugAndroidTest`
+- Session review foundation: catalog/session schema v2 migrations maintain
+  indexed summaries; `just test-sessions` covers keyset filtering/sorting,
+  bounded rollups, lossless diagnostic windows, mock conformance, and the real
+  macOS loopback backend. `just test-sessions-android-device` passes all four
+  SQLite instrumentation tests on the Galaxy S9/Android 10. The physical Android
+  UI lists migrated sessions with reconstructed durations, renders a bounded
+  45-point ride chart, and reads a 24-sample lossless diagnostic window without
+  loading the complete session into the WebView. An iPhone 12/iOS 18.6.1 and the
+  installed macOS app render the same shared Review UI and independently return
+  lossless midpoint diagnostic windows (the verified macOS ride returned 21
+  samples spanning 94–123 seconds).
 - physical Board Profiles: Android 10, iPhone 12/iOS 18.6.1, and macOS each
   preserved revision 1 (`18S`, `2P`, `hypercore_xr`) across process restart and
   reconnected to one opaque saved board without rewriting prior session snapshots

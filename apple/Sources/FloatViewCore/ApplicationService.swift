@@ -5,6 +5,7 @@ public final class ApplicationService: @unchecked Sendable {
   private let clock: ClockPort
   private let logStore: LogStorePort
   private let productStore: (any ProductStorePort)?
+  private let sessionStore: (any SessionStorePort)?
   private let protocolCodec: VescProtocolPort?
   private let scheduler: (any SchedulerPort)?
   private let events: EventSink
@@ -25,6 +26,8 @@ public final class ApplicationService: @unchecked Sendable {
   private var telemetryIntervalMs: Int64?
   private var telemetryStartedAtMs: Int64?
   private var telemetrySequence: Int64 = 0
+  private var previousTelemetryRideState: RideState = .unknown
+  private var postRideProbeUntilMs: Int64?
   private var reconnectTimer: (any CancellationPort)?
   private var reconnectStartedAtMs: Int64?
   private var reconnectAttempt = 0
@@ -45,6 +48,7 @@ public final class ApplicationService: @unchecked Sendable {
     clock: ClockPort,
     logStore: LogStorePort,
     productStore: (any ProductStorePort)? = nil,
+    sessionStore: (any SessionStorePort)? = nil,
     protocolCodec: VescProtocolPort? = nil,
     scheduler: (any SchedulerPort)? = nil,
     events: EventSink,
@@ -54,6 +58,7 @@ public final class ApplicationService: @unchecked Sendable {
     self.clock = clock
     self.logStore = logStore
     self.productStore = productStore
+    self.sessionStore = sessionStore
     self.protocolCodec = protocolCodec
     self.scheduler = scheduler
     self.events = events
@@ -95,6 +100,55 @@ public final class ApplicationService: @unchecked Sendable {
     )
     events.publish(profile)
     return profile
+  }
+
+  public func sessions(_ query: SessionListQuery) throws -> SessionPage {
+    guard let sessionStore else { throw ApplicationError.productStoreUnavailable }
+    return try sessionStore.sessions(query)
+  }
+
+  public func session(sessionID: String) throws -> SessionSummaryRecord {
+    guard let sessionStore else { throw ApplicationError.productStoreUnavailable }
+    return try sessionStore.session(sessionID: sessionID)
+  }
+
+  public func querySessionSeries(
+    sessionID: String,
+    startElapsedMs: Int64,
+    endElapsedMs: Int64,
+    fields: [String],
+    maxPoints: Int
+  ) throws -> [SessionSeriesPoint] {
+    guard let sessionStore else { throw ApplicationError.productStoreUnavailable }
+    return try sessionStore.querySeries(
+      sessionID: sessionID, startElapsedMs: startElapsedMs, endElapsedMs: endElapsedMs,
+      fields: fields, maxPoints: maxPoints
+    )
+  }
+
+  public func sessionEvents(
+    sessionID: String,
+    startElapsedMs: Int64,
+    endElapsedMs: Int64
+  ) throws -> [SessionEventRecord] {
+    guard let sessionStore else { throw ApplicationError.productStoreUnavailable }
+    return try sessionStore.sessionEvents(
+      sessionID: sessionID, startElapsedMs: startElapsedMs, endElapsedMs: endElapsedMs
+    )
+  }
+
+  public func diagnosticWindow(
+    sessionID: String,
+    centerElapsedMs: Int64,
+    beforeMs: Int64,
+    afterMs: Int64,
+    fields: [String]
+  ) throws -> [SessionSeriesPoint] {
+    guard let sessionStore else { throw ApplicationError.productStoreUnavailable }
+    return try sessionStore.diagnosticWindow(
+      sessionID: sessionID, centerElapsedMs: centerElapsedMs,
+      beforeMs: beforeMs, afterMs: afterMs, fields: fields
+    )
   }
 
   public func startDiscovery() throws -> String {
@@ -146,6 +200,8 @@ public final class ApplicationService: @unchecked Sendable {
     telemetryIntervalMs = nil
     telemetryStartedAtMs = nil
     telemetrySequence = 0
+    previousTelemetryRideState = .unknown
+    postRideProbeUntilMs = nil
     resetFirmwareDiscovery()
     protocolCodec?.reset()
     transition(.connecting)
@@ -576,7 +632,14 @@ public final class ApplicationService: @unchecked Sendable {
         ]
       )
     )
-    let target = value.rideState == .riding
+    if value.rideState == .riding {
+      postRideProbeUntilMs = nil
+    } else if previousTelemetryRideState == .riding {
+      postRideProbeUntilMs = nowMs + sampling.settings.postRideTailMs
+    }
+    let inPostRideTail = postRideProbeUntilMs.map { nowMs <= $0 } ?? false
+    previousTelemetryRideState = value.rideState
+    let target = value.rideState == .riding || inPostRideTail
       ? Self.ridingProbeIntervalMs : Self.idleProbeIntervalMs
     if target != telemetryIntervalMs {
       restartTelemetryPolling(everyMilliseconds: target)
@@ -587,6 +650,8 @@ public final class ApplicationService: @unchecked Sendable {
     telemetryTimer?.cancel()
     telemetryTimer = nil
     telemetryIntervalMs = nil
+    previousTelemetryRideState = .unknown
+    postRideProbeUntilMs = nil
   }
 
   private func transition(_ state: ConnectionState) {

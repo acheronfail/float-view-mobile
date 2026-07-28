@@ -7,6 +7,26 @@
 	let parallelCount = $state<number | undefined>();
 	let motor = $state('');
 
+	function polyline(field: string, points = apiStore.sessionSeries): string {
+		const values = points
+			.map((point) => ({ elapsedMs: point.elapsedMs, value: point.values[field] }))
+			.filter(
+				(point): point is { elapsedMs: number; value: number } => typeof point.value === 'number'
+			);
+		if (values.length < 2) return '';
+		const first = values[0].elapsedMs;
+		const elapsedRange = Math.max(1, values.at(-1)!.elapsedMs - first);
+		const minimum = Math.min(...values.map((point) => point.value));
+		const maximum = Math.max(...values.map((point) => point.value));
+		const valueRange = Math.max(Number.EPSILON, maximum - minimum);
+		return values
+			.map(
+				(point) =>
+					`${((point.elapsedMs - first) / elapsedRange) * 600},${120 - ((point.value - minimum) / valueRange) * 110}`
+			)
+			.join(' ');
+	}
+
 	async function editBoardProfile(savedDeviceId: string) {
 		await apiStore.openBoardProfile(savedDeviceId);
 		const values = apiStore.selectedBoardProfile?.values;
@@ -28,6 +48,18 @@
 			return;
 		}
 		await apiStore.updateBoardProfile({ seriesCount, parallelCount, motor });
+	}
+
+	async function inspectSessionMidpoint() {
+		const session = apiStore.selectedSession;
+		if (!session) return;
+		await apiStore.loadDiagnosticWindow(session.totalElapsedMs / 2);
+		requestAnimationFrame(() => {
+			document.getElementById('diagnostic-window')?.scrollIntoView({
+				behavior: 'smooth',
+				block: 'nearest'
+			});
+		});
 	}
 
 	onMount(() => {
@@ -206,10 +238,51 @@
 				</div>
 				<div class="mt-5 rounded-lg border border-slate-700 p-4">
 					<h3 class="font-medium">Ride trends</h3>
-					<p class="mt-2 text-sm text-slate-400">
-						Bounded series queries power the Svelte/SVG charts here.
-					</p>
-					<button class="mt-3 rounded-md bg-slate-700 px-3 py-2">Open diagnostic zoom</button>
+					{#if apiStore.sessionSeries.length}
+						<svg
+							class="mt-3 h-40 w-full rounded bg-slate-950"
+							viewBox="0 0 600 130"
+							role="img"
+							aria-label="Voltage and duty cycle over the recorded session"
+						>
+							<polyline
+								points={polyline('packVoltageV')}
+								fill="none"
+								stroke="#818cf8"
+								stroke-width="3"
+							/>
+							<polyline
+								points={polyline('dutyCycle')}
+								fill="none"
+								stroke="#34d399"
+								stroke-width="2"
+							/>
+						</svg>
+						<p class="mt-2 text-xs text-slate-400">
+							<span class="text-indigo-300">Voltage</span> ·
+							<span class="text-emerald-300">Duty cycle</span> · {apiStore.sessionSeries.length}
+							bounded points
+						</p>
+					{:else}
+						<p class="mt-2 text-sm text-slate-400">No samples were recorded for this session.</p>
+					{/if}
+					<button
+						class="mt-3 rounded-md bg-slate-700 px-3 py-2 disabled:opacity-50"
+						disabled={apiStore.busy || apiStore.selectedSession.totalElapsedMs === 0}
+						onclick={inspectSessionMidpoint}
+						>Inspect midpoint ±15 seconds</button
+					>
+					{#if apiStore.diagnosticSeries.length}
+						<div id="diagnostic-window" class="mt-4 rounded bg-slate-950 p-3">
+							<p class="text-sm font-medium">Diagnostic window</p>
+							<p class="mt-1 text-xs text-slate-400">
+								{apiStore.diagnosticSeries.length} lossless samples ·
+								{Math.round(apiStore.diagnosticSeries[0].elapsedMs / 1000)}s–{Math.round(
+									apiStore.diagnosticSeries.at(-1)!.elapsedMs / 1000
+								)}s
+							</p>
+						</div>
+					{/if}
 				</div>
 			{:else}
 				<h2 id="sessions-heading" class="text-xl font-medium">Sessions</h2>

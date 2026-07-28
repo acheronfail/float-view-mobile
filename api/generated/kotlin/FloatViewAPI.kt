@@ -270,6 +270,40 @@ data class SeriesPoint(
 )
 
 @Serializable
+enum class SessionSeriesField {
+  @SerialName("packVoltageV") PACK_VOLTAGE_V,
+  @SerialName("dutyCycle") DUTY_CYCLE,
+  @SerialName("controllerTempC") CONTROLLER_TEMP_C,
+  @SerialName("motorTempC") MOTOR_TEMP_C,
+  @SerialName("footpadState") FOOTPAD_STATE,
+  @SerialName("motorCurrentA") MOTOR_CURRENT_A,
+  @SerialName("batteryCurrentA") BATTERY_CURRENT_A,
+  @SerialName("erpm") ERPM,
+  @SerialName("speedKph") SPEED_KPH
+}
+
+@Serializable
+data class SessionListFilters(
+  val deviceHistoryId: String? = null,
+  val startedAfter: String? = null,
+  val startedBefore: String? = null,
+  val minimumRidingElapsedMs: Int? = null,
+  val maximumRidingElapsedMs: Int? = null,
+  val minimumTotalElapsedMs: Int? = null,
+  val maximumTotalElapsedMs: Int? = null,
+  val minimumDistanceM: Double? = null,
+  val maximumDistanceM: Double? = null,
+  val state: SessionState? = null,
+  val integrity: String? = null
+)
+
+@Serializable
+data class SessionListSort(
+  val field: String,
+  val direction: String
+)
+
+@Serializable
 data class SessionEvent(
   val eventId: String,
   val elapsedMs: Int,

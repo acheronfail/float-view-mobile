@@ -1,0 +1,25 @@
+{
+  "jsonrpc": "2.0",
+  "id": "sessions-page-1",
+  "result": {
+    "items": [
+      {
+        "sessionId": "session-1",
+        "deviceHistoryId": "history-board-1",
+        "displayName": "Trail board",
+        "startedAt": "2026-07-27T04:00:00Z",
+        "endedAt": "2026-07-27T05:00:00Z",
+        "state": "completed",
+        "integrity": "complete",
+        "sampleCount": 36000,
+        "eventCount": 4,
+        "ridingElapsedMs": 3300000,
+        "totalElapsedMs": 3600000,
+        "distanceM": 18250.5,
+        "maxSpeedMps": 9.4,
+        "maxDutyCycle": 0.91
+      }
+    ],
+    "nextCursor": null
+  }
+}

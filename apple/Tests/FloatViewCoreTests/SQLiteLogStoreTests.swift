@@ -35,6 +35,113 @@ private func repositoryRoot() -> URL {
   #expect(store.active() == nil)
 }
 
+@Test func sessionCatalogAndBoundedQueriesReadCanonicalSamples() throws {
+  let root = FileManager.default.temporaryDirectory
+    .appending(path: "float-view-session-query-\(UUID().uuidString)")
+  defer { try? FileManager.default.removeItem(at: root) }
+  let store = try SQLiteLogStore(
+    root: root,
+    schemaDirectory: repositoryRoot().appending(path: "logging/sql"),
+    availableBytes: { 2_000_000_000 }
+  )
+  let startedAt = Date(timeIntervalSince1970: 1_700_000_000)
+  let record = try store.create(deviceID: DeviceID("query-fixture"), at: startedAt)
+  var samples: [TelemetrySample] = []
+  for index in 0..<100 {
+    let sequence = Int64(index + 1)
+    let elapsed = Int64(index * 1_000)
+    let voltage = 60.0 - Double(index) / 10.0
+    let duty = Double(index) / 100.0
+    samples.append(
+      TelemetrySample(
+        sequence: sequence,
+        observedAt: startedAt.addingTimeInterval(Double(index)),
+        elapsedMs: elapsed,
+        rideState: index == 0 ? RideState.idle : RideState.riding,
+        packVoltageV: voltage,
+        dutyCycle: duty,
+        extensionFields: ["speedKph": 18.0]
+      )
+    )
+  }
+  try store.append(
+    jobID: record.jobID,
+    samples: samples
+  )
+  _ = try store.close(
+    jobID: record.jobID,
+    at: startedAt.addingTimeInterval(100),
+    reason: "test"
+  )
+
+  let page = try store.sessions(SessionListQuery(limit: 1))
+  let summary = try #require(page.items.first)
+  #expect(summary.sessionID == record.sessionID.value)
+  #expect(summary.sampleCount == 100)
+  #expect(summary.totalElapsedMs == 99_000)
+  #expect(summary.ridingElapsedMs == 99_000)
+  #expect(summary.distanceM.map { abs($0 - 495) < 0.001 } == true)
+  #expect(summary.maxSpeedMps == 5)
+  #expect(summary.maxDutyCycle == 0.99)
+
+  let overview = try store.querySeries(
+    sessionID: record.sessionID.value,
+    startElapsedMs: 0,
+    endElapsedMs: 99_000,
+    fields: ["packVoltageV", "dutyCycle", "speedKph"],
+    maxPoints: 12
+  )
+  #expect(!overview.isEmpty)
+  #expect(overview.count <= 12)
+  #expect(overview.allSatisfy { $0.values.keys.count == 3 })
+
+  let diagnostic = try store.diagnosticWindow(
+    sessionID: record.sessionID.value,
+    centerElapsedMs: 50_000,
+    beforeMs: 2_000,
+    afterMs: 2_000,
+    fields: ["packVoltageV"]
+  )
+  #expect(diagnostic.map(\.elapsedMs) == [48_000, 49_000, 50_000, 51_000, 52_000])
+  #expect(try store.sessionEvents(
+    sessionID: record.sessionID.value,
+    startElapsedMs: 0,
+    endElapsedMs: 99_000
+  ).isEmpty)
+
+  let short = try store.create(
+    deviceID: DeviceID("query-fixture"),
+    at: startedAt.addingTimeInterval(200)
+  )
+  try store.append(
+    jobID: short.jobID,
+    samples: [
+      TelemetrySample(
+        sequence: 1, observedAt: startedAt.addingTimeInterval(200),
+        elapsedMs: 500, rideState: .idle, packVoltageV: 58
+      ),
+    ]
+  )
+  _ = try store.close(
+    jobID: short.jobID,
+    at: startedAt.addingTimeInterval(201),
+    reason: "test"
+  )
+  let firstPage = try store.sessions(
+    SessionListQuery(limit: 1, sortField: "totalElapsedMs", sortDescending: false)
+  )
+  #expect(firstPage.items.map(\.sessionID) == [short.sessionID.value])
+  let nextCursor = try #require(firstPage.nextCursor)
+  let secondPage = try store.sessions(
+    SessionListQuery(
+      cursor: nextCursor, limit: 1,
+      minimumTotalElapsedMs: 1_000,
+      sortField: "totalElapsedMs", sortDescending: false
+    )
+  )
+  #expect(secondPage.items.map(\.sessionID) == [record.sessionID.value])
+}
+
 @Test func sqliteStoreRecoversAnInterruptedSessionAtStartupBoundary() throws {
   let root = FileManager.default.temporaryDirectory
     .appending(path: "float-view-recovery-\(UUID().uuidString)")
@@ -54,6 +161,56 @@ private func repositoryRoot() -> URL {
   )
   #expect(try restarted.recoverInterrupted() == 1)
   #expect(try restarted.recoverInterrupted() == 0)
+}
+
+@Test func schemaV2BackfillsExistingSessionSummaries() throws {
+  let root = FileManager.default.temporaryDirectory
+    .appending(path: "float-view-summary-migration-\(UUID().uuidString)")
+  defer { try? FileManager.default.removeItem(at: root) }
+  try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+  let schema = repositoryRoot().appending(path: "logging/sql")
+  let catalogURL = root.appending(path: "catalog.sqlite")
+  try sqliteExecute(catalogURL, String(contentsOf: schema.appending(path: "catalog-v1.sql")))
+  try sqliteExecute(
+    catalogURL,
+    """
+    INSERT INTO session_catalog(
+      session_id, job_id, device_history_id, device_snapshot_json,
+      profile_snapshot_json, profile_revision, file_name, started_at_ms,
+      state, integrity, requested_idle_ms, effective_idle_ms,
+      requested_riding_ms, effective_riding_ms
+    ) VALUES (
+      'legacy-session', 'legacy-job', 'legacy-history', '{"displayName":"Legacy board"}',
+      '{}', 0, 'session-legacy.sqlite', 0, 'completed', 'complete',
+      1000, 1000, 100, 100
+    );
+    """
+  )
+  let sessionURL = root.appending(path: "session-legacy.sqlite")
+  try sqliteExecute(sessionURL, String(contentsOf: schema.appending(path: "session-v1.sql")))
+  try sqliteExecute(
+    sessionURL,
+    """
+    INSERT INTO sample(
+      sequence, observed_at_ms, monotonic_elapsed_ms, ride_state,
+      raw_pack_voltage_v, duty_cycle, extension_json
+    ) VALUES
+      (1, 0, 0, 'idle', 60, 0.1, '{"speedKph":0}'),
+      (2, 1000, 1000, 'riding', 59, 0.7, '{"speedKph":18}');
+    """
+  )
+
+  let store = try SQLiteLogStore(
+    root: root,
+    schemaDirectory: schema,
+    availableBytes: { 2_000_000_000 }
+  )
+  let summary = try store.session(sessionID: "legacy-session")
+  #expect(summary.displayName == "Legacy board")
+  #expect(summary.sampleCount == 2)
+  #expect(summary.totalElapsedMs == 1_000)
+  #expect(summary.ridingElapsedMs == 1_000)
+  #expect(summary.maxDutyCycle == 0.7)
 }
 
 @Test func storageThresholdsMatchContract() {

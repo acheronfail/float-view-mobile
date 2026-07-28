@@ -164,6 +164,18 @@ test-profiles:
     --filter boardProfile
   cd android && ./gradlew :core:test :logging:compileDebugAndroidTestKotlin
 
+test-sessions:
+  cd web && npm run check && npx vitest --run src/lib/api/store.spec.ts
+  cd apple && CLANG_MODULE_CACHE_PATH=/tmp/float-view-clang \
+    swift test --disable-sandbox --scratch-path /tmp/float-view-swift-build \
+    --filter session
+  cd android && ./gradlew :app:compileDebugKotlin :logging:compileDebugAndroidTestKotlin
+  just conformance-mock
+  just conformance-macos
+
+test-sessions-android-device:
+  cd android && ./gradlew :logging:connectedDebugAndroidTest
+
 conformance-mock:
   cd web && npm run api:conformance:mock
 
@@ -200,6 +212,7 @@ verify-r5: verify-r4
   just test-storage
   just test-alerts
   just test-profiles
+  just test-sessions
 
 test-bluetooth:
   cd android && ./gradlew :bluetooth:test :bluetooth:assembleDebug

@@ -348,7 +348,124 @@ public final class LoopbackServer: @unchecked Sendable {
       }
     }
     if method == "sessions.list" {
-      return response(["items": [Any](), "nextCursor": NSNull()])
+      guard let applicationService else {
+        return failure(-32601, "unsupported", "Sessions are unavailable")
+      }
+      let params = request["params"] as? [String: Any] ?? [:]
+      let filters = params["filters"] as? [String: Any] ?? [:]
+      let sort = params["sort"] as? [String: Any] ?? [:]
+      let limit = params["limit"] as? Int ?? 20
+      guard (1 ... 100).contains(limit) else {
+        return failure(-32602, "protocol_error", "limit must be between 1 and 100")
+      }
+      let formatter = ISO8601DateFormatter()
+      do {
+        let page = try applicationService.sessions(
+          SessionListQuery(
+            cursor: params["cursor"] as? String,
+            limit: limit,
+            deviceHistoryID: filters["deviceHistoryId"] as? String,
+            startedAfter: (filters["startedAfter"] as? String).flatMap(formatter.date),
+            startedBefore: (filters["startedBefore"] as? String).flatMap(formatter.date),
+            minimumTotalElapsedMs: (filters["minimumTotalElapsedMs"] as? NSNumber)?.int64Value,
+            maximumTotalElapsedMs: (filters["maximumTotalElapsedMs"] as? NSNumber)?.int64Value,
+            minimumRidingElapsedMs: (filters["minimumRidingElapsedMs"] as? NSNumber)?.int64Value,
+            maximumRidingElapsedMs: (filters["maximumRidingElapsedMs"] as? NSNumber)?.int64Value,
+            minimumDistanceM: (filters["minimumDistanceM"] as? NSNumber)?.doubleValue,
+            maximumDistanceM: (filters["maximumDistanceM"] as? NSNumber)?.doubleValue,
+            state: filters["state"] as? String,
+            integrity: filters["integrity"] as? String,
+            sortField: sort["field"] as? String ?? "startedAt",
+            sortDescending: (sort["direction"] as? String ?? "desc") == "desc"
+          )
+        )
+        return response([
+          "items": page.items.map(sessionPayload),
+          "nextCursor": page.nextCursor.map { $0 as Any } ?? NSNull(),
+        ])
+      } catch let error as SessionStoreError {
+        return sessionStoreFailure(error, failure: failure)
+      } catch {
+        return failure(-32005, "storage_unavailable", "Unable to list sessions")
+      }
+    }
+    if method == "sessions.get" || method == "sessions.getSummary" {
+      guard let applicationService else {
+        return failure(-32601, "unsupported", "Sessions are unavailable")
+      }
+      guard let params = request["params"] as? [String: Any],
+            let sessionID = params["sessionId"] as? String, !sessionID.isEmpty
+      else { return failure(-32602, "protocol_error", "sessionId is required") }
+      do {
+        return response(sessionPayload(try applicationService.session(sessionID: sessionID)))
+      } catch let error as SessionStoreError {
+        return sessionStoreFailure(error, failure: failure)
+      } catch {
+        return failure(-32005, "storage_unavailable", "Unable to read session")
+      }
+    }
+    if method == "sessions.querySeries" {
+      guard let applicationService else {
+        return failure(-32601, "unsupported", "Session queries are unavailable")
+      }
+      guard let params = request["params"] as? [String: Any],
+            let sessionID = params["sessionId"] as? String,
+            let start = (params["startElapsedMs"] as? NSNumber)?.int64Value,
+            let end = (params["endElapsedMs"] as? NSNumber)?.int64Value,
+            let fields = params["fields"] as? [String],
+            let maxPoints = (params["maxPoints"] as? NSNumber)?.intValue
+      else { return failure(-32602, "protocol_error", "Invalid series query") }
+      do {
+        return response(try applicationService.querySessionSeries(
+          sessionID: sessionID, startElapsedMs: start, endElapsedMs: end,
+          fields: fields, maxPoints: maxPoints
+        ).map(seriesPayload))
+      } catch let error as SessionStoreError {
+        return sessionStoreFailure(error, failure: failure)
+      } catch {
+        return failure(-32005, "storage_unavailable", "Unable to query session samples")
+      }
+    }
+    if method == "sessions.listEvents" {
+      guard let applicationService else {
+        return failure(-32601, "unsupported", "Session queries are unavailable")
+      }
+      guard let params = request["params"] as? [String: Any],
+            let sessionID = params["sessionId"] as? String,
+            let start = (params["startElapsedMs"] as? NSNumber)?.int64Value,
+            let end = (params["endElapsedMs"] as? NSNumber)?.int64Value
+      else { return failure(-32602, "protocol_error", "Invalid event query") }
+      do {
+        return response(try applicationService.sessionEvents(
+          sessionID: sessionID, startElapsedMs: start, endElapsedMs: end
+        ).map(sessionEventPayload))
+      } catch let error as SessionStoreError {
+        return sessionStoreFailure(error, failure: failure)
+      } catch {
+        return failure(-32005, "storage_unavailable", "Unable to query session events")
+      }
+    }
+    if method == "sessions.getDiagnosticWindow" {
+      guard let applicationService else {
+        return failure(-32601, "unsupported", "Session queries are unavailable")
+      }
+      guard let params = request["params"] as? [String: Any],
+            let sessionID = params["sessionId"] as? String,
+            let center = (params["centerElapsedMs"] as? NSNumber)?.int64Value,
+            let before = (params["beforeMs"] as? NSNumber)?.int64Value,
+            let after = (params["afterMs"] as? NSNumber)?.int64Value,
+            let fields = params["fields"] as? [String]
+      else { return failure(-32602, "protocol_error", "Invalid diagnostic query") }
+      do {
+        return response(try applicationService.diagnosticWindow(
+          sessionID: sessionID, centerElapsedMs: center,
+          beforeMs: before, afterMs: after, fields: fields
+        ).map(seriesPayload))
+      } catch let error as SessionStoreError {
+        return sessionStoreFailure(error, failure: failure)
+      } catch {
+        return failure(-32005, "storage_unavailable", "Unable to query diagnostic samples")
+      }
     }
     return failure(-32601, "unsupported", "Unknown method: \(method)")
   }
@@ -372,6 +489,7 @@ public final class LoopbackServer: @unchecked Sendable {
       ["name": "bluetooth.discovery", "available": applicationService != nil],
       ["name": "device.connection", "available": applicationService != nil],
       ["name": "boardProfiles.local", "available": applicationService != nil],
+      ["name": "sessions.review", "available": applicationService != nil],
     ]
   }
 
@@ -433,6 +551,56 @@ public final class LoopbackServer: @unchecked Sendable {
       "values": values,
       "missingFields": profile.missingFields,
     ]
+  }
+
+  private func sessionPayload(_ value: SessionSummaryRecord) -> [String: Any] {
+    [
+      "sessionId": value.sessionID,
+      "deviceHistoryId": value.deviceHistoryID,
+      "displayName": value.displayName,
+      "startedAt": ISO8601DateFormatter().string(from: value.startedAt),
+      "endedAt": value.endedAt.map { ISO8601DateFormatter().string(from: $0) } ?? NSNull(),
+      "state": value.state,
+      "integrity": value.integrity,
+      "sampleCount": value.sampleCount,
+      "eventCount": value.eventCount,
+      "ridingElapsedMs": value.ridingElapsedMs,
+      "totalElapsedMs": value.totalElapsedMs,
+      "distanceM": value.distanceM ?? NSNull(),
+      "maxSpeedMps": value.maxSpeedMps ?? NSNull(),
+      "maxDutyCycle": value.maxDutyCycle ?? NSNull(),
+    ]
+  }
+
+  private func seriesPayload(_ value: SessionSeriesPoint) -> [String: Any] {
+    var fields: [String: Any] = [:]
+    value.values.forEach { fields[$0.key] = $0.value ?? NSNull() }
+    return ["elapsedMs": value.elapsedMs, "values": fields]
+  }
+
+  private func sessionEventPayload(_ value: SessionEventRecord) -> [String: Any] {
+    let details = (try? JSONSerialization.jsonObject(with: Data(value.detailsJSON.utf8)))
+      as? [String: Any] ?? [:]
+    return [
+      "eventId": value.eventID,
+      "elapsedMs": value.elapsedMs,
+      "kind": value.kind,
+      "details": details,
+    ]
+  }
+
+  private func sessionStoreFailure(
+    _ error: SessionStoreError,
+    failure: (Int, String, String) -> Data
+  ) -> Data {
+    switch error {
+    case .sessionNotFound:
+      failure(-32004, "device_not_found", "Session not found")
+    case .invalidCursor, .invalidRange:
+      failure(-32602, "protocol_error", "Invalid session query")
+    case .unsupportedField(let field):
+      failure(-32602, "protocol_error", "Unsupported session field: \(field)")
+    }
   }
 
   private func productStoreFailure(

@@ -190,6 +190,8 @@ by the milestone shown; they must not be added as no-op placeholders.
 | `just test-contract`                               | Run schema, model, client, and contract tests                                          | R3                      |
 | `just test-product`                                | Run Device/Sessions/Live/Review/Diagnosis browser journeys                             | R3                      |
 | `just test-profiles`                               | Run Board Profile schema, precedence, derived-value, and snapshot tests                | R3/R5                   |
+| `just test-sessions`                               | Run bounded session catalog, review, diagnosis, and Apple loopback conformance tests   | R3/R5                   |
+| `just test-sessions-android-device`                | Run the SQLite session/migration/query suite on an attached Android device              | R5/R8 evidence          |
 | `just test-protocol`                               | Run identical fixture assertions in Swift and Kotlin                                   | R4                      |
 | `just test-core`                                   | Run Swift/Kotlin application-service tests with fakes                                  | R5                      |
 | `just test-storage`                                | Run native log schema, migration, recovery, integrity, and pressure tests              | R5                      |

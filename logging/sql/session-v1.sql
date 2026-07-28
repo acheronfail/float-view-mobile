@@ -5,7 +5,7 @@ CREATE TABLE IF NOT EXISTS schema_metadata (
   key TEXT PRIMARY KEY NOT NULL,
   value TEXT NOT NULL
 );
-INSERT OR REPLACE INTO schema_metadata(key, value) VALUES ('session_version', '1');
+INSERT OR IGNORE INTO schema_metadata(key, value) VALUES ('session_version', '1');
 
 CREATE TABLE IF NOT EXISTS sample (
   sequence INTEGER PRIMARY KEY NOT NULL,

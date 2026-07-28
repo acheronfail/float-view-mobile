@@ -315,6 +315,18 @@ footpad state remain indexed first-class columns. This keeps the initial schema
 generic while retaining every currently decoded value for later review and
 diagnosis.
 
+Catalog and per-session schema version 2 make those canonical samples directly
+queryable without whole-ride WebView loading. Each durable append also advances
+indexed catalog summaries for sample/riding/total duration, distance, maximum
+speed, and maximum duty. Native `sessions.list` uses opaque keyset cursors with
+device/date/duration/distance/state/integrity filters and supported sort fields.
+Review queries aggregate into a caller-bounded number of SQLite buckets;
+diagnostic queries return at most 10,000 lossless rows from a bounded
+ten-minute window. The same operations now run through the Swift and Kotlin
+application-service boundaries, the mock, and the Svelte/SVG review UI. The
+macOS loopback conformance seed and Galaxy S9 instrumentation suite exercise
+these paths against real SQLite databases.
+
 ## Synthetic COMM_GET_VALUES fixture layout
 
 Recorded: 2026-07-28. Status: bounded pending R6 capture.

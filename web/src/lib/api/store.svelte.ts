@@ -6,6 +6,7 @@ import type {
 	HelloResult,
 	SavedDevice,
 	Session,
+	SeriesPoint,
 	Snapshot
 } from '../../../../api/generated/typescript/models.js';
 import { connectBootstrap, loadBootstrap } from './bootstrap';
@@ -38,6 +39,8 @@ export class ApiStore {
 	firmware = $state<FirmwareInfo | null>(null);
 	sessions = $state<Session[]>([]);
 	selectedSession = $state<Session | null>(null);
+	sessionSeries = $state<SeriesPoint[]>([]);
+	diagnosticSeries = $state<SeriesPoint[]>([]);
 	selectedBoardProfile = $state<BoardProfile | null>(null);
 	busy = $state(false);
 	private client: ApiClient | null = null;
@@ -188,6 +191,38 @@ export class ApiStore {
 	async openSession(sessionId: string): Promise<void> {
 		await this.run(async (client) => {
 			this.selectedSession = await client.request('sessions.getSummary', { sessionId });
+			this.diagnosticSeries = [];
+			this.sessionSeries = await client.request('sessions.querySeries', {
+				sessionId,
+				startElapsedMs: 0,
+				endElapsedMs: Math.max(0, this.selectedSession.totalElapsedMs),
+				fields: ['packVoltageV', 'dutyCycle', 'speedKph'],
+				maxPoints: 400
+			});
+		});
+	}
+
+	async loadDiagnosticWindow(centerElapsedMs: number): Promise<void> {
+		const selected = this.selectedSession;
+		if (!selected) return;
+		await this.run(async (client) => {
+			this.diagnosticSeries = await client.request('sessions.getDiagnosticWindow', {
+				sessionId: selected.sessionId,
+				centerElapsedMs: Math.max(0, Math.round(centerElapsedMs)),
+				beforeMs: 15_000,
+				afterMs: 15_000,
+				fields: [
+					'packVoltageV',
+					'dutyCycle',
+					'controllerTempC',
+					'motorTempC',
+					'footpadState',
+					'motorCurrentA',
+					'batteryCurrentA',
+					'erpm',
+					'speedKph'
+				]
+			});
 		});
 	}
 
@@ -216,6 +251,8 @@ export class ApiStore {
 
 	closeSession(): void {
 		this.selectedSession = null;
+		this.sessionSeries = [];
+		this.diagnosticSeries = [];
 	}
 
 	close(): void {

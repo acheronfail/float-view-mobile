@@ -39,6 +39,7 @@ class BackendRuntime(application: FloatViewApplication) {
         SystemClock,
         logStore,
         productStore = logStore,
+        sessionStore = logStore,
         protocol = VescProtocolService(),
         scheduler = SystemScheduler(),
     ) { event ->

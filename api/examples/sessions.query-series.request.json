@@ -1,0 +1,12 @@
+{
+  "jsonrpc": "2.0",
+  "id": "session-overview-1",
+  "method": "sessions.querySeries",
+  "params": {
+    "sessionId": "session-1",
+    "startElapsedMs": 0,
+    "endElapsedMs": 3600000,
+    "fields": ["packVoltageV", "dutyCycle", "speedKph"],
+    "maxPoints": 400
+  }
+}

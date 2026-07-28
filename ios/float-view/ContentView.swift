@@ -48,6 +48,7 @@ final class AppBackend: ObservableObject {
       clock: SystemClock(),
       logStore: logStore,
       productStore: logStore,
+      sessionStore: logStore,
       protocolCodec: VescProtocolService(),
       scheduler: SystemScheduler(),
       events: DebugEventSink()

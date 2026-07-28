@@ -16,12 +16,7 @@
     "SavedDevice": {
       "type": "object",
       "additionalProperties": false,
-      "required": [
-        "savedDeviceId",
-        "deviceHistoryId",
-        "displayName",
-        "profileComplete"
-      ],
+      "required": ["savedDeviceId", "deviceHistoryId", "displayName", "profileComplete"],
       "properties": {
         "savedDeviceId": { "type": "string", "minLength": 1 },
         "deviceHistoryId": { "type": "string", "minLength": 1 },
@@ -85,12 +80,7 @@
     "SessionGroup": {
       "type": "object",
       "additionalProperties": false,
-      "required": [
-        "sessionGroupId",
-        "deviceHistoryId",
-        "sessionIds",
-        "totalElapsedMs"
-      ],
+      "required": ["sessionGroupId", "deviceHistoryId", "sessionIds", "totalElapsedMs"],
       "properties": {
         "sessionGroupId": { "type": "string", "minLength": 1 },
         "deviceHistoryId": { "type": "string", "minLength": 1 },
@@ -199,6 +189,52 @@
           "type": "object",
           "additionalProperties": { "type": ["number", "null"] }
         }
+      }
+    },
+    "SessionSeriesField": {
+      "type": "string",
+      "enum": [
+        "packVoltageV",
+        "dutyCycle",
+        "controllerTempC",
+        "motorTempC",
+        "footpadState",
+        "motorCurrentA",
+        "batteryCurrentA",
+        "erpm",
+        "speedKph"
+      ]
+    },
+    "SessionListFilters": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "deviceHistoryId": { "type": "string", "minLength": 1 },
+        "startedAfter": { "type": "string", "format": "date-time" },
+        "startedBefore": { "type": "string", "format": "date-time" },
+        "minimumRidingElapsedMs": { "type": "integer", "minimum": 0 },
+        "maximumRidingElapsedMs": { "type": "integer", "minimum": 0 },
+        "minimumTotalElapsedMs": { "type": "integer", "minimum": 0 },
+        "maximumTotalElapsedMs": { "type": "integer", "minimum": 0 },
+        "minimumDistanceM": { "type": "number", "minimum": 0 },
+        "maximumDistanceM": { "type": "number", "minimum": 0 },
+        "state": { "$ref": "#/$defs/SessionState" },
+        "integrity": {
+          "type": "string",
+          "enum": ["complete", "gaps", "recovered", "corrupt"]
+        }
+      }
+    },
+    "SessionListSort": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["field", "direction"],
+      "properties": {
+        "field": {
+          "type": "string",
+          "enum": ["startedAt", "ridingElapsedMs", "totalElapsedMs", "distanceM"]
+        },
+        "direction": { "type": "string", "enum": ["asc", "desc"] }
       }
     },
     "SessionEvent": {
@@ -388,10 +424,7 @@
         "jsonrpc": { "const": "2.0" },
         "id": { "$ref": "common.schema.json#/$defs/JsonRpcId" },
         "result": {
-          "oneOf": [
-            { "$ref": "devices.schema.json#/$defs/Device" },
-            { "type": "null" }
-          ]
+          "oneOf": [{ "$ref": "devices.schema.json#/$defs/Device" }, { "type": "null" }]
         }
       }
     },
@@ -620,8 +653,8 @@
           "properties": {
             "cursor": { "type": ["string", "null"] },
             "limit": { "type": "integer", "minimum": 1, "maximum": 100 },
-            "filters": { "type": "object", "additionalProperties": true },
-            "sort": { "type": "object", "additionalProperties": true }
+            "filters": { "$ref": "#/$defs/SessionListFilters" },
+            "sort": { "$ref": "#/$defs/SessionListSort" }
           }
         }
       }
@@ -718,7 +751,7 @@
             "fields": {
               "type": "array",
               "minItems": 1,
-              "items": { "type": "string" }
+              "items": { "$ref": "#/$defs/SessionSeriesField" }
             },
             "maxPoints": { "type": "integer", "minimum": 1, "maximum": 10000 }
           }
@@ -788,7 +821,11 @@
             "centerElapsedMs": { "type": "integer", "minimum": 0 },
             "beforeMs": { "type": "integer", "minimum": 0, "maximum": 300000 },
             "afterMs": { "type": "integer", "minimum": 0, "maximum": 300000 },
-            "fields": { "type": "array", "items": { "type": "string" } }
+            "fields": {
+              "type": "array",
+              "minItems": 1,
+              "items": { "$ref": "#/$defs/SessionSeriesField" }
+            }
           }
         }
       }

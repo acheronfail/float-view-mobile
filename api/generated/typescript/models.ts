@@ -222,6 +222,36 @@ export interface SeriesPoint {
 	values: Record<string, number | null>;
 }
 
+export type SessionSeriesField =
+	| 'packVoltageV'
+	| 'dutyCycle'
+	| 'controllerTempC'
+	| 'motorTempC'
+	| 'footpadState'
+	| 'motorCurrentA'
+	| 'batteryCurrentA'
+	| 'erpm'
+	| 'speedKph';
+
+export interface SessionListFilters {
+	deviceHistoryId?: string;
+	startedAfter?: string;
+	startedBefore?: string;
+	minimumRidingElapsedMs?: number;
+	maximumRidingElapsedMs?: number;
+	minimumTotalElapsedMs?: number;
+	maximumTotalElapsedMs?: number;
+	minimumDistanceM?: number;
+	maximumDistanceM?: number;
+	state?: SessionState;
+	integrity?: 'complete' | 'gaps' | 'recovered' | 'corrupt';
+}
+
+export interface SessionListSort {
+	field: 'startedAt' | 'ridingElapsedMs' | 'totalElapsedMs' | 'distanceM';
+	direction: 'asc' | 'desc';
+}
+
 export interface SessionEvent {
 	eventId: string;
 	elapsedMs: number;
@@ -461,8 +491,8 @@ export interface SessionsListRequest {
 	params: {
 		cursor?: string | null;
 		limit?: number;
-		filters?: Record<string, unknown>;
-		sort?: Record<string, unknown>;
+		filters?: SessionListFilters;
+		sort?: SessionListSort;
 	};
 }
 
@@ -513,7 +543,7 @@ export interface SessionsQuerySeriesRequest {
 		sessionId: string;
 		startElapsedMs: number;
 		endElapsedMs: number;
-		fields: Array<string>;
+		fields: Array<SessionSeriesField>;
 		maxPoints: number;
 	};
 }
@@ -550,7 +580,7 @@ export interface SessionsGetDiagnosticWindowRequest {
 		centerElapsedMs: number;
 		beforeMs: number;
 		afterMs: number;
-		fields: Array<string>;
+		fields: Array<SessionSeriesField>;
 	};
 }
 
@@ -803,8 +833,8 @@ export interface ApiMethods {
 		params: {
 			cursor?: string | null;
 			limit?: number;
-			filters?: Record<string, unknown>;
-			sort?: Record<string, unknown>;
+			filters?: SessionListFilters;
+			sort?: SessionListSort;
 		};
 		result: {
 			items: Array<Session>;
@@ -828,7 +858,7 @@ export interface ApiMethods {
 			sessionId: string;
 			startElapsedMs: number;
 			endElapsedMs: number;
-			fields: Array<string>;
+			fields: Array<SessionSeriesField>;
 			maxPoints: number;
 		};
 		result: Array<SeriesPoint>;
@@ -847,7 +877,7 @@ export interface ApiMethods {
 			centerElapsedMs: number;
 			beforeMs: number;
 			afterMs: number;
-			fields: Array<string>;
+			fields: Array<SessionSeriesField>;
 		};
 		result: Array<SeriesPoint>;
 	};

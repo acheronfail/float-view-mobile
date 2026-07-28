@@ -4,6 +4,7 @@ import { resolve as resolvePath } from 'node:path';
 import WebSocket from 'ws';
 import {
 	runBoardProfileConformance,
+	runSessionReadConformance,
 	runSystemConformance,
 	type ConformanceClient
 } from '../../../conformance/src/system.js';
@@ -77,6 +78,7 @@ const sharedClient = new Promise<ConformanceClient>((resolve, reject) => {
 const results = await runSystemConformance(() => sharedClient, { includeProductScenarios: false });
 const client = await sharedClient;
 results.push(await runBoardProfileConformance(client, readiness.savedDeviceId));
+results.push(await runSessionReadConformance(client));
 
 for (const result of results)
 	console.log(`PASS ${result.name} (${result.durationMs.toFixed(1)}ms)`);

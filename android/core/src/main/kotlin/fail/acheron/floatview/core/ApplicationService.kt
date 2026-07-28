@@ -5,12 +5,14 @@ class ApplicationService(
     private val clock: ClockPort,
     private val logStore: LogStorePort,
     private val productStore: ProductStorePort? = null,
+    private val sessionStore: SessionStorePort? = null,
     private val protocol: VescProtocolPort? = null,
     private val scheduler: SchedulerPort? = null,
     samplingSettings: SamplingSettings = SamplingSettings(),
     private val events: EventSink,
 ) {
     private val sampling = AdaptiveSamplingPolicy(samplingSettings)
+    private val postRideTailMs = samplingSettings.postRideTailMs
     private val reconnectDurationMs = samplingSettings.reconnectDurationMs
     private var explicitDisconnect = false
     private var scanSequence = 0
@@ -26,6 +28,8 @@ class ApplicationService(
     private var telemetryIntervalMs: Long? = null
     private var telemetryStartedAtMs: Long? = null
     private var telemetrySequence = 0L
+    private var previousTelemetryRideState = RideState.UNKNOWN
+    private var postRideProbeUntilMs: Long? = null
     private var reconnectTimer: CancellationPort? = null
     private var reconnectStartedAtMs: Long? = null
     private var reconnectAttempt = 0
@@ -64,6 +68,40 @@ class ApplicationService(
         requireNotNull(productStore) { "Product store is unavailable" }
             .updateBoardProfile(savedDeviceId, expectedRevision, patchJson, clock.now())
             .also(events::publish)
+
+    fun sessions(query: SessionListQuery): SessionPage =
+        requireNotNull(sessionStore) { "Session store is unavailable" }.sessions(query)
+
+    fun session(sessionId: String): SessionSummaryRecord =
+        requireNotNull(sessionStore) { "Session store is unavailable" }.session(sessionId)
+
+    fun querySessionSeries(
+        sessionId: String,
+        startElapsedMs: Long,
+        endElapsedMs: Long,
+        fields: List<String>,
+        maxPoints: Int,
+    ): List<SessionSeriesPoint> =
+        requireNotNull(sessionStore) { "Session store is unavailable" }
+            .querySeries(sessionId, startElapsedMs, endElapsedMs, fields, maxPoints)
+
+    fun sessionEvents(
+        sessionId: String,
+        startElapsedMs: Long,
+        endElapsedMs: Long,
+    ): List<SessionEventRecord> =
+        requireNotNull(sessionStore) { "Session store is unavailable" }
+            .sessionEvents(sessionId, startElapsedMs, endElapsedMs)
+
+    fun diagnosticWindow(
+        sessionId: String,
+        centerElapsedMs: Long,
+        beforeMs: Long,
+        afterMs: Long,
+        fields: List<String>,
+    ): List<SessionSeriesPoint> =
+        requireNotNull(sessionStore) { "Session store is unavailable" }
+            .diagnosticWindow(sessionId, centerElapsedMs, beforeMs, afterMs, fields)
 
     @Synchronized
     fun startDiscovery(): String {
@@ -109,6 +147,8 @@ class ApplicationService(
         telemetryIntervalMs = null
         telemetryStartedAtMs = null
         telemetrySequence = 0
+        previousTelemetryRideState = RideState.UNKNOWN
+        postRideProbeUntilMs = null
         resetFirmwareDiscovery()
         transition(ConnectionState.CONNECTING)
         bluetooth.connect(deviceId)
@@ -492,8 +532,15 @@ class ApplicationService(
             ),
         )
         ingest(sample)
+        if (value.rideState == RideState.RIDING) {
+            postRideProbeUntilMs = null
+        } else if (previousTelemetryRideState == RideState.RIDING) {
+            postRideProbeUntilMs = nowMs + postRideTailMs
+        }
+        val inPostRideTail = postRideProbeUntilMs?.let { nowMs <= it } ?: false
+        previousTelemetryRideState = value.rideState
         val target =
-            if (value.rideState == RideState.RIDING) {
+            if (value.rideState == RideState.RIDING || inPostRideTail) {
                 RIDING_PROBE_INTERVAL_MS
             } else {
                 IDLE_PROBE_INTERVAL_MS
@@ -505,6 +552,8 @@ class ApplicationService(
         telemetryTimer?.cancel()
         telemetryTimer = null
         telemetryIntervalMs = null
+        previousTelemetryRideState = RideState.UNKNOWN
+        postRideProbeUntilMs = null
     }
 
     private fun transition(state: ConnectionState) {

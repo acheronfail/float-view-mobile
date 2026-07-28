@@ -452,12 +452,78 @@ export function handleApiV1Request(session: ApiV1Session, input: unknown): ApiV1
 		}
 		case 'sessions.list': {
 			const limit = Math.max(1, Math.min(100, Number(params.limit ?? 20)));
-			const offset = Number(params.cursor ?? 0);
-			const items = state.sessions.slice(offset, offset + limit);
+			const filters = record(params.filters);
+			const sort = record(params.sort);
+			const field = String(sort.field ?? 'startedAt') as
+				| 'startedAt'
+				| 'totalElapsedMs'
+				| 'ridingElapsedMs'
+				| 'distanceM';
+			const descending = String(sort.direction ?? 'desc') !== 'asc';
+			const value = (session: Session): number =>
+				field === 'startedAt'
+					? Date.parse(session.startedAt)
+					: field === 'distanceM'
+						? (session.distanceM ?? -1)
+						: Number(session[field]);
+			const cursor = params.cursor
+				? (JSON.parse(Buffer.from(String(params.cursor), 'base64url').toString()) as {
+						field: string;
+						value: number;
+						sessionId: string;
+					})
+				: null;
+			let candidates = state.sessions.filter(
+				(session) =>
+					(!filters.deviceHistoryId ||
+						session.deviceHistoryId === String(filters.deviceHistoryId)) &&
+					(!filters.state || session.state === String(filters.state)) &&
+					(!filters.integrity || session.integrity === String(filters.integrity)) &&
+					(filters.minimumTotalElapsedMs === undefined ||
+						session.totalElapsedMs >= Number(filters.minimumTotalElapsedMs)) &&
+					(filters.maximumTotalElapsedMs === undefined ||
+						session.totalElapsedMs <= Number(filters.maximumTotalElapsedMs)) &&
+					(filters.minimumRidingElapsedMs === undefined ||
+						session.ridingElapsedMs >= Number(filters.minimumRidingElapsedMs)) &&
+					(filters.maximumRidingElapsedMs === undefined ||
+						session.ridingElapsedMs <= Number(filters.maximumRidingElapsedMs)) &&
+					(filters.minimumDistanceM === undefined ||
+						(session.distanceM ?? -1) >= Number(filters.minimumDistanceM)) &&
+					(filters.maximumDistanceM === undefined ||
+						(session.distanceM ?? -1) <= Number(filters.maximumDistanceM)) &&
+					(!filters.startedAfter ||
+						Date.parse(session.startedAt) >= Date.parse(String(filters.startedAfter))) &&
+					(!filters.startedBefore ||
+						Date.parse(session.startedAt) <= Date.parse(String(filters.startedBefore)))
+			);
+			candidates.sort((left, right) => {
+				const comparison =
+					value(left) - value(right) || left.sessionId.localeCompare(right.sessionId);
+				return descending ? -comparison : comparison;
+			});
+			if (cursor) {
+				if (cursor.field !== field) {
+					return error(id, -32602, 'protocol_error', 'Cursor does not match sort field');
+				}
+				candidates = candidates.filter((session) => {
+					const comparison =
+						value(session) - cursor.value || session.sessionId.localeCompare(cursor.sessionId);
+					return descending ? comparison < 0 : comparison > 0;
+				});
+			}
+			const items = candidates.slice(0, limit);
 			return ok(id, {
 				items,
 				nextCursor:
-					offset + items.length < state.sessions.length ? String(offset + items.length) : null
+					items.length < candidates.length && items.length
+						? Buffer.from(
+								JSON.stringify({
+									field,
+									value: value(items.at(-1)!),
+									sessionId: items.at(-1)!.sessionId
+								})
+							).toString('base64url')
+						: null
 			});
 		}
 		case 'sessions.get':
@@ -478,7 +544,14 @@ export function handleApiV1Request(session: ApiV1Session, input: unknown): ApiV1
 					? Number(params.endElapsedMs)
 					: Number(params.centerElapsedMs) + Number(params.afterMs);
 			const fields = Array.isArray(params.fields) ? params.fields.map(String) : [];
-			const interval = Math.max(100, Math.ceil((end - start) / 500));
+			const requestedPoints =
+				request.method === 'sessions.querySeries'
+					? Math.max(1, Math.min(10_000, Number(params.maxPoints)))
+					: 10_000;
+			const interval =
+				requestedPoints === 1
+					? Math.max(1, end - start + 1)
+					: Math.max(1, Math.ceil((end - start) / (requestedPoints - 1)));
 			const points = [];
 			for (let elapsedMs = start; elapsedMs <= end; elapsedMs += interval) {
 				points.push({

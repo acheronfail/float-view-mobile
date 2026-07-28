@@ -204,9 +204,32 @@ private final class MacBackendRuntime: @unchecked Sendable {
         deviceID: DeviceID("conformance-profile-fixture"),
         at: Date(timeIntervalSince1970: 0)
       )
+      var seedSamples: [TelemetrySample] = []
+      for index in 0..<60 {
+        seedSamples.append(
+          TelemetrySample(
+            sequence: Int64(index + 1),
+            observedAt: Date(timeIntervalSince1970: Double(index)),
+            elapsedMs: Int64(index * 1_000),
+            rideState: index < 5 ? .idle : .riding,
+            packVoltageV: 60 - Double(index) / 20,
+            dutyCycle: Double(index) / 100,
+            controllerTempC: 30 + Double(index) / 10,
+            motorTempC: 28 + Double(index) / 10,
+            footpadState: index < 5 ? 0 : 3,
+            extensionFields: [
+              "motorCurrentA": Double(index),
+              "batteryCurrentA": Double(index) / 2,
+              "erpm": Double(index * 100),
+              "speedKph": Double(index) / 3,
+            ]
+          )
+        )
+      }
+      try! logStore.append(jobID: seed.jobID, samples: seedSamples)
       _ = try! logStore.close(
         jobID: seed.jobID,
-        at: Date(timeIntervalSince1970: 1),
+        at: Date(timeIntervalSince1970: 60),
         reason: "test_seed"
       )
       testSavedDeviceID = try! logStore.savedDevices().first!.savedDeviceID
@@ -218,6 +241,7 @@ private final class MacBackendRuntime: @unchecked Sendable {
       clock: SystemClock(),
       logStore: logStore,
       productStore: logStore,
+      sessionStore: logStore,
       protocolCodec: VescProtocolService(),
       scheduler: SystemScheduler(),
       events: DebugEventSink()

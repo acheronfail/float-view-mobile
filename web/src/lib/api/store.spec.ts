@@ -96,6 +96,30 @@ class FakeClient {
 			}
 			case 'sessions.list':
 				return { items: [], nextCursor: null };
+			case 'sessions.getSummary':
+				return {
+					sessionId: 'session-1',
+					deviceHistoryId: 'history-board',
+					displayName: 'Board',
+					startedAt: '2026-01-01T00:00:00Z',
+					endedAt: '2026-01-01T00:01:00Z',
+					state: 'completed',
+					integrity: 'complete',
+					sampleCount: 600,
+					eventCount: 0,
+					ridingElapsedMs: 50_000,
+					totalElapsedMs: 60_000,
+					distanceM: 300,
+					maxSpeedMps: 8,
+					maxDutyCycle: 0.8
+				};
+			case 'sessions.querySeries':
+				return [
+					{ elapsedMs: 0, values: { packVoltageV: 60, dutyCycle: 0.1, speedKph: 0 } },
+					{ elapsedMs: 60_000, values: { packVoltageV: 55, dutyCycle: 0.8, speedKph: 20 } }
+				];
+			case 'sessions.getDiagnosticWindow':
+				return [{ elapsedMs: 30_000, values: { packVoltageV: 57 } }];
 			case 'system.getSnapshot':
 				return snapshot(this.active);
 			case 'device.disconnect':
@@ -154,6 +178,24 @@ describe('ApiStore transport recovery', () => {
 		});
 		expect(store.savedDevices[0]?.profileComplete).toBe(true);
 		expect(client.methods).toContain('boardProfiles.update');
+		store.close();
+	});
+
+	it('loads bounded overview and diagnostic data for review', async () => {
+		const client = new FakeClient();
+		const store = new ApiStore(
+			async () => ({ apiVersion: { major: 1, minor: 0 }, webSocketUrl: 'ws://test' }),
+			async () => client as unknown as ApiClient
+		);
+		await store.connect();
+		await store.openSession('session-1');
+		await store.loadDiagnosticWindow(30_000);
+
+		expect(store.selectedSession?.sessionId).toBe('session-1');
+		expect(store.sessionSeries).toHaveLength(2);
+		expect(store.diagnosticSeries).toHaveLength(1);
+		expect(client.methods).toContain('sessions.querySeries');
+		expect(client.methods).toContain('sessions.getDiagnosticWindow');
 		store.close();
 	});
 });

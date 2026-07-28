@@ -119,6 +119,58 @@ data class SessionRecord(
     val active: Boolean
 )
 
+data class SessionSummaryRecord(
+    val sessionId: String,
+    val deviceHistoryId: String,
+    val displayName: String,
+    val startedAt: Instant,
+    val endedAt: Instant?,
+    val state: String,
+    val integrity: String,
+    val sampleCount: Long,
+    val eventCount: Long,
+    val ridingElapsedMs: Long,
+    val totalElapsedMs: Long,
+    val distanceM: Double?,
+    val maxSpeedMps: Double?,
+    val maxDutyCycle: Double?,
+)
+
+data class SessionPage(
+    val items: List<SessionSummaryRecord>,
+    val nextCursor: String?,
+)
+
+data class SessionListQuery(
+    val cursor: String? = null,
+    val limit: Int = 20,
+    val deviceHistoryId: String? = null,
+    val startedAfter: Instant? = null,
+    val startedBefore: Instant? = null,
+    val minimumTotalElapsedMs: Long? = null,
+    val maximumTotalElapsedMs: Long? = null,
+    val minimumRidingElapsedMs: Long? = null,
+    val maximumRidingElapsedMs: Long? = null,
+    val minimumDistanceM: Double? = null,
+    val maximumDistanceM: Double? = null,
+    val state: String? = null,
+    val integrity: String? = null,
+    val sortField: String = "startedAt",
+    val sortDescending: Boolean = true,
+)
+
+data class SessionSeriesPoint(
+    val elapsedMs: Long,
+    val values: Map<String, Double?>,
+)
+
+data class SessionEventRecord(
+    val eventId: String,
+    val elapsedMs: Long,
+    val kind: String,
+    val detailsJson: String,
+)
+
 sealed interface BluetoothEvent {
     data class StateChanged(val state: BluetoothState) : BluetoothEvent
     data class DeviceFound(
@@ -228,6 +280,38 @@ interface ProductStorePort {
         patchJson: String,
         at: Instant,
     ): BoardProfileRecord
+}
+
+sealed class SessionStoreException(message: String) : RuntimeException(message) {
+    data object SessionNotFound : SessionStoreException("Session not found")
+    data object InvalidCursor : SessionStoreException("Invalid session cursor")
+    data object InvalidRange : SessionStoreException("Invalid session range")
+    data class UnsupportedField(val field: String) :
+        SessionStoreException("Unsupported session field: $field")
+}
+
+interface SessionStorePort {
+    fun sessions(query: SessionListQuery): SessionPage
+    fun session(sessionId: String): SessionSummaryRecord
+    fun querySeries(
+        sessionId: String,
+        startElapsedMs: Long,
+        endElapsedMs: Long,
+        fields: List<String>,
+        maxPoints: Int,
+    ): List<SessionSeriesPoint>
+    fun sessionEvents(
+        sessionId: String,
+        startElapsedMs: Long,
+        endElapsedMs: Long,
+    ): List<SessionEventRecord>
+    fun diagnosticWindow(
+        sessionId: String,
+        centerElapsedMs: Long,
+        beforeMs: Long,
+        afterMs: Long,
+        fields: List<String>,
+    ): List<SessionSeriesPoint>
 }
 
 fun interface EventSink {

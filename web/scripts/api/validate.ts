@@ -54,6 +54,26 @@ await validateExample(
 	'https://float-view.local/api/v1/schemas/system.schema.json',
 	'HelloResponse'
 );
+await validateExample(
+	'sessions.list.request.json',
+	'https://float-view.local/api/v1/schemas/product.schema.json',
+	'SessionsListRequest'
+);
+await validateExample(
+	'sessions.list.response.json',
+	'https://float-view.local/api/v1/schemas/product.schema.json',
+	'SessionsListResponse'
+);
+await validateExample(
+	'sessions.query-series.request.json',
+	'https://float-view.local/api/v1/schemas/product.schema.json',
+	'SessionsQuerySeriesRequest'
+);
+await validateExample(
+	'sessions.query-series.response.json',
+	'https://float-view.local/api/v1/schemas/product.schema.json',
+	'SessionsQuerySeriesResponse'
+);
 
 const asyncApi = parseYaml(await fs.readFile(path.join(apiDir, 'asyncapi.yaml'), 'utf8')) as {
 	asyncapi?: string;
@@ -69,5 +89,5 @@ if (
 }
 
 console.log(
-	`Validated ${schemas.length} JSON Schemas, 2 examples, and the AsyncAPI document structure.`
+	`Validated ${schemas.length} JSON Schemas, 6 examples, and the AsyncAPI document structure.`
 );

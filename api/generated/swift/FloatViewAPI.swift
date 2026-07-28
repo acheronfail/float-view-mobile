@@ -547,6 +547,71 @@ public struct SeriesPoint: Codable, Sendable, Equatable {
   }
 }
 
+public enum SessionSeriesField: String, Codable, Sendable, Equatable {
+  case packVoltageV = "packVoltageV"
+  case dutyCycle = "dutyCycle"
+  case controllerTempC = "controllerTempC"
+  case motorTempC = "motorTempC"
+  case footpadState = "footpadState"
+  case motorCurrentA = "motorCurrentA"
+  case batteryCurrentA = "batteryCurrentA"
+  case erpm = "erpm"
+  case speedKph = "speedKph"
+}
+
+public struct SessionListFilters: Codable, Sendable, Equatable {
+  public let deviceHistoryId: String?
+  public let startedAfter: String?
+  public let startedBefore: String?
+  public let minimumRidingElapsedMs: Int?
+  public let maximumRidingElapsedMs: Int?
+  public let minimumTotalElapsedMs: Int?
+  public let maximumTotalElapsedMs: Int?
+  public let minimumDistanceM: Double?
+  public let maximumDistanceM: Double?
+  public let state: SessionState?
+  public let integrity: String?
+
+  public init(
+    deviceHistoryId: String? = nil,
+    startedAfter: String? = nil,
+    startedBefore: String? = nil,
+    minimumRidingElapsedMs: Int? = nil,
+    maximumRidingElapsedMs: Int? = nil,
+    minimumTotalElapsedMs: Int? = nil,
+    maximumTotalElapsedMs: Int? = nil,
+    minimumDistanceM: Double? = nil,
+    maximumDistanceM: Double? = nil,
+    state: SessionState? = nil,
+    integrity: String? = nil
+  ) {
+    self.deviceHistoryId = deviceHistoryId
+    self.startedAfter = startedAfter
+    self.startedBefore = startedBefore
+    self.minimumRidingElapsedMs = minimumRidingElapsedMs
+    self.maximumRidingElapsedMs = maximumRidingElapsedMs
+    self.minimumTotalElapsedMs = minimumTotalElapsedMs
+    self.maximumTotalElapsedMs = maximumTotalElapsedMs
+    self.minimumDistanceM = minimumDistanceM
+    self.maximumDistanceM = maximumDistanceM
+    self.state = state
+    self.integrity = integrity
+  }
+}
+
+public struct SessionListSort: Codable, Sendable, Equatable {
+  public let field: String
+  public let direction: String
+
+  public init(
+    field: String,
+    direction: String
+  ) {
+    self.field = field
+    self.direction = direction
+  }
+}
+
 public struct SessionEvent: Codable, Sendable, Equatable {
   public let eventId: String
   public let elapsedMs: Int

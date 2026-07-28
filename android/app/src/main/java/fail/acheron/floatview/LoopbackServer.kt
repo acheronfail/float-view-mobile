@@ -10,6 +10,11 @@ import fail.acheron.floatview.core.ConnectionState
 import fail.acheron.floatview.core.DiscoveredDevice
 import fail.acheron.floatview.core.ProductStoreException
 import fail.acheron.floatview.core.SavedDeviceRecord
+import fail.acheron.floatview.core.SessionEventRecord
+import fail.acheron.floatview.core.SessionListQuery
+import fail.acheron.floatview.core.SessionSeriesPoint
+import fail.acheron.floatview.core.SessionStoreException
+import fail.acheron.floatview.core.SessionSummaryRecord
 import java.io.BufferedInputStream
 import java.io.BufferedOutputStream
 import java.net.InetAddress
@@ -18,6 +23,7 @@ import java.net.Socket
 import java.nio.ByteBuffer
 import java.security.MessageDigest
 import java.security.SecureRandom
+import java.time.Instant
 import java.util.concurrent.Executors
 import org.json.JSONArray
 import org.json.JSONObject
@@ -215,6 +221,10 @@ class LoopbackServer(
                             .put(
                                 JSONObject().put("name", "boardProfiles.local")
                                     .put("available", applicationService != null),
+                            )
+                            .put(
+                                JSONObject().put("name", "sessions.review")
+                                    .put("available", applicationService != null),
                             ),
                     )
                     .put(
@@ -394,11 +404,131 @@ class LoopbackServer(
             }
         }
         if (method == "sessions.list") {
-            return success(
-                JSONObject()
-                    .put("items", JSONArray())
-                    .put("nextCursor", JSONObject.NULL),
-            )
+            val service = applicationService
+                ?: return failure(-32601, "unsupported", "Sessions are unavailable")
+            val params = request.optJSONObject("params") ?: JSONObject()
+            val filters = params.optJSONObject("filters") ?: JSONObject()
+            val sort = params.optJSONObject("sort") ?: JSONObject()
+            val limit = params.optInt("limit", 20)
+            if (limit !in 1..100) {
+                return failure(-32602, "protocol_error", "limit must be between 1 and 100")
+            }
+            return try {
+                val page = service.sessions(
+                    SessionListQuery(
+                        cursor = params.optionalString("cursor"),
+                        limit = limit,
+                        deviceHistoryId = filters.optionalString("deviceHistoryId"),
+                        startedAfter = filters.optionalInstant("startedAfter"),
+                        startedBefore = filters.optionalInstant("startedBefore"),
+                        minimumTotalElapsedMs = filters.optionalLong("minimumTotalElapsedMs"),
+                        maximumTotalElapsedMs = filters.optionalLong("maximumTotalElapsedMs"),
+                        minimumRidingElapsedMs = filters.optionalLong("minimumRidingElapsedMs"),
+                        maximumRidingElapsedMs = filters.optionalLong("maximumRidingElapsedMs"),
+                        minimumDistanceM = filters.optionalDouble("minimumDistanceM"),
+                        maximumDistanceM = filters.optionalDouble("maximumDistanceM"),
+                        state = filters.optionalString("state"),
+                        integrity = filters.optionalString("integrity"),
+                        sortField = sort.optString("field", "startedAt"),
+                        sortDescending = sort.optString("direction", "desc") == "desc",
+                    ),
+                )
+                success(
+                    JSONObject()
+                        .put("items", JSONArray(page.items.map(::session)))
+                        .put("nextCursor", page.nextCursor ?: JSONObject.NULL),
+                )
+            } catch (error: SessionStoreException) {
+                sessionStoreFailure(error, ::failure)
+            } catch (_: Exception) {
+                failure(-32005, "storage_unavailable", "Unable to list sessions")
+            }
+        }
+        if (method == "sessions.get" || method == "sessions.getSummary") {
+            val service = applicationService
+                ?: return failure(-32601, "unsupported", "Sessions are unavailable")
+            val sessionId = request.optJSONObject("params")?.optString("sessionId").orEmpty()
+            if (sessionId.isEmpty()) {
+                return failure(-32602, "protocol_error", "sessionId is required")
+            }
+            return try {
+                success(session(service.session(sessionId)))
+            } catch (error: SessionStoreException) {
+                sessionStoreFailure(error, ::failure)
+            } catch (_: Exception) {
+                failure(-32005, "storage_unavailable", "Unable to read session")
+            }
+        }
+        if (method == "sessions.querySeries") {
+            val service = applicationService
+                ?: return failure(-32601, "unsupported", "Session queries are unavailable")
+            val params = request.optJSONObject("params")
+                ?: return failure(-32602, "protocol_error", "Invalid series query")
+            val fields = params.optJSONArray("fields")?.strings()
+                ?: return failure(-32602, "protocol_error", "fields are required")
+            return try {
+                success(
+                    JSONArray(
+                        service.querySessionSeries(
+                            params.optString("sessionId"),
+                            params.getLong("startElapsedMs"),
+                            params.getLong("endElapsedMs"),
+                            fields,
+                            params.getInt("maxPoints"),
+                        ).map(::seriesPoint),
+                    ),
+                )
+            } catch (error: SessionStoreException) {
+                sessionStoreFailure(error, ::failure)
+            } catch (_: Exception) {
+                failure(-32602, "protocol_error", "Invalid series query")
+            }
+        }
+        if (method == "sessions.listEvents") {
+            val service = applicationService
+                ?: return failure(-32601, "unsupported", "Session queries are unavailable")
+            val params = request.optJSONObject("params")
+                ?: return failure(-32602, "protocol_error", "Invalid event query")
+            return try {
+                success(
+                    JSONArray(
+                        service.sessionEvents(
+                            params.optString("sessionId"),
+                            params.getLong("startElapsedMs"),
+                            params.getLong("endElapsedMs"),
+                        ).map(::sessionEvent),
+                    ),
+                )
+            } catch (error: SessionStoreException) {
+                sessionStoreFailure(error, ::failure)
+            } catch (_: Exception) {
+                failure(-32602, "protocol_error", "Invalid event query")
+            }
+        }
+        if (method == "sessions.getDiagnosticWindow") {
+            val service = applicationService
+                ?: return failure(-32601, "unsupported", "Session queries are unavailable")
+            val params = request.optJSONObject("params")
+                ?: return failure(-32602, "protocol_error", "Invalid diagnostic query")
+            val fields = params.optJSONArray("fields")?.strings()
+                ?: return failure(-32602, "protocol_error", "fields are required")
+            return try {
+                success(
+                    JSONArray(
+                        service.diagnosticWindow(
+                            params.optString("sessionId"),
+                            params.getLong("centerElapsedMs"),
+                            params.getLong("beforeMs"),
+                            params.getLong("afterMs"),
+                            fields,
+                        ).map(::seriesPoint),
+                    ),
+                )
+            } catch (error: SessionStoreException) {
+                sessionStoreFailure(error, ::failure)
+            } catch (_: Exception) {
+                failure(-32602, "protocol_error", "Invalid diagnostic query")
+            }
         }
         return failure(-32601, "unsupported", "Unknown method: $method")
     }
@@ -466,6 +596,69 @@ class LoopbackServer(
         .put("revision", value.revision)
         .put("values", JSONObject(value.valuesJson))
         .put("missingFields", JSONArray(value.missingFields))
+
+    private fun session(value: SessionSummaryRecord) = JSONObject()
+        .put("sessionId", value.sessionId)
+        .put("deviceHistoryId", value.deviceHistoryId)
+        .put("displayName", value.displayName)
+        .put("startedAt", value.startedAt.toString())
+        .put("endedAt", value.endedAt?.toString() ?: JSONObject.NULL)
+        .put("state", value.state)
+        .put("integrity", value.integrity)
+        .put("sampleCount", value.sampleCount)
+        .put("eventCount", value.eventCount)
+        .put("ridingElapsedMs", value.ridingElapsedMs)
+        .put("totalElapsedMs", value.totalElapsedMs)
+        .put("distanceM", value.distanceM ?: JSONObject.NULL)
+        .put("maxSpeedMps", value.maxSpeedMps ?: JSONObject.NULL)
+        .put("maxDutyCycle", value.maxDutyCycle ?: JSONObject.NULL)
+
+    private fun seriesPoint(value: SessionSeriesPoint): JSONObject {
+        val fields = JSONObject()
+        value.values.forEach { (key, field) -> fields.put(key, field ?: JSONObject.NULL) }
+        return JSONObject().put("elapsedMs", value.elapsedMs).put("values", fields)
+    }
+
+    private fun sessionEvent(value: SessionEventRecord) = JSONObject()
+        .put("eventId", value.eventId)
+        .put("elapsedMs", value.elapsedMs)
+        .put("kind", value.kind)
+        .put("details", JSONObject(value.detailsJson))
+
+    private fun sessionStoreFailure(
+        error: SessionStoreException,
+        failure: (Int, String, String) -> JSONObject,
+    ): JSONObject = when (error) {
+        SessionStoreException.SessionNotFound ->
+            failure(-32004, "device_not_found", "Session not found")
+        SessionStoreException.InvalidCursor,
+        SessionStoreException.InvalidRange,
+        -> failure(-32602, "protocol_error", "Invalid session query")
+        is SessionStoreException.UnsupportedField ->
+            failure(-32602, "protocol_error", "Unsupported session field: ${error.field}")
+    }
+
+    private fun JSONObject.optionalString(key: String): String? =
+        if (!has(key) || isNull(key)) null else optString(key).takeIf(String::isNotEmpty)
+
+    private fun JSONObject.optionalInstant(key: String): Instant? =
+        optionalString(key)?.let {
+            try {
+                Instant.parse(it)
+            } catch (_: Exception) {
+                null
+            }
+        }
+
+    private fun JSONObject.optionalLong(key: String): Long? =
+        if (!has(key) || isNull(key)) null else opt(key).let { it as? Number }?.toLong()
+
+    private fun JSONObject.optionalDouble(key: String): Double? =
+        if (!has(key) || isNull(key)) null else opt(key).let { it as? Number }?.toDouble()
+
+    private fun JSONArray.strings(): List<String> = buildList {
+        for (index in 0 until length()) add(getString(index))
+    }
 
     private fun productStoreFailure(
         error: ProductStoreException,
