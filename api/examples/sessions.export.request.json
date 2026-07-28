@@ -1,0 +1,9 @@
+{
+  "jsonrpc": "2.0",
+  "id": "export-1",
+  "method": "sessions.export",
+  "params": {
+    "sessionId": "session-2026-07-28",
+    "format": "csv"
+  }
+}

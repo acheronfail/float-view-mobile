@@ -12,6 +12,8 @@ import fail.acheron.floatview.core.ProductStorePort
 import fail.acheron.floatview.core.SavedDeviceRecord
 import fail.acheron.floatview.core.SessionId
 import fail.acheron.floatview.core.SessionEventRecord
+import fail.acheron.floatview.core.SessionExportRecord
+import fail.acheron.floatview.core.SessionGroupRecord
 import fail.acheron.floatview.core.SessionListQuery
 import fail.acheron.floatview.core.SessionPage
 import fail.acheron.floatview.core.SessionRecord
@@ -19,10 +21,14 @@ import fail.acheron.floatview.core.SessionSeriesPoint
 import fail.acheron.floatview.core.SessionStoreException
 import fail.acheron.floatview.core.SessionStorePort
 import fail.acheron.floatview.core.SessionSummaryRecord
+import fail.acheron.floatview.core.SettingsRecord
 import fail.acheron.floatview.core.TelemetrySample
 import android.util.Base64
 import org.json.JSONObject
 import java.io.File
+import java.io.BufferedWriter
+import java.io.FileOutputStream
+import java.io.OutputStreamWriter
 import java.time.Instant
 import java.util.UUID
 
@@ -43,6 +49,8 @@ class SQLiteLogStore(
     init {
         backfillV2Summaries(catalog.writableDatabase)
         migrateLegacySavedDeviceIdentifiers(catalog.writableDatabase)
+        resumePendingDeletes(catalog.writableDatabase)
+        cleanupStagedExports()
     }
 
     @Synchronized
@@ -76,6 +84,7 @@ class SQLiteLogStore(
         try {
             val savedDevice = ensureSavedDevice(catalogDb, deviceId, at)
             val profile = boardProfile(catalogDb, savedDevice.savedDeviceId, at)
+            val settings = settings(catalogDb)
             val deviceSnapshot = JSONObject()
                 .put("savedDeviceId", savedDevice.savedDeviceId)
                 .put("deviceHistoryId", savedDevice.deviceHistoryId)
@@ -88,7 +97,7 @@ class SQLiteLogStore(
                   profile_snapshot_json, profile_revision, file_name, started_at_ms,
                   state, integrity, requested_idle_ms, effective_idle_ms,
                   requested_riding_ms, effective_riding_ms
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'active', 'complete', 1000, 1000, 100, 100)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'active', 'complete', ?, ?, ?, ?)
                 """.trimIndent(),
                 arrayOf(
                     sessionId.value,
@@ -99,6 +108,10 @@ class SQLiteLogStore(
                     profile.revision,
                     fileName,
                     started,
+                    settings.idlePersistIntervalMs,
+                    settings.idlePersistIntervalMs,
+                    settings.ridingPersistIntervalMs,
+                    settings.ridingPersistIntervalMs,
                 ),
             )
             catalogDb.setTransactionSuccessful()
@@ -166,14 +179,22 @@ class SQLiteLogStore(
         sessionDb?.let { executePragma(it, "PRAGMA wal_checkpoint(FULL)") }
         sessionDb?.close()
         sessionDb = null
-        catalog.writableDatabase.execSQL(
-            """
-            UPDATE session_catalog
-            SET ended_at_ms = ?, state = 'completed', committed_sequence = ?, close_reason = ?
-            WHERE job_id = ? AND state = 'active'
-            """.trimIndent(),
-            arrayOf(at.toEpochMilli(), record.committedSequence, reason, jobId.value),
-        )
+        val catalogDb = catalog.writableDatabase
+        catalogDb.beginTransaction()
+        try {
+            catalogDb.execSQL(
+                """
+                UPDATE session_catalog
+                SET ended_at_ms = ?, state = 'completed', committed_sequence = ?, close_reason = ?
+                WHERE job_id = ? AND state = 'active'
+                """.trimIndent(),
+                arrayOf(at.toEpochMilli(), record.committedSequence, reason, jobId.value),
+            )
+            linkClosedSession(catalogDb, record.sessionId.value)
+            catalogDb.setTransactionSuccessful()
+        } finally {
+            catalogDb.endTransaction()
+        }
         return record.copy(active = false).also { current = null }
     }
 
@@ -189,7 +210,7 @@ class SQLiteLogStore(
         if (cursor != null && cursor.first != query.sortField) {
             throw SessionStoreException.InvalidCursor
         }
-        val conditions = mutableListOf<String>()
+        val conditions = mutableListOf("pending_delete = 0")
         val values = mutableListOf<String>()
         if (cursor != null) {
             val comparison = if (query.sortDescending) "<" else ">"
@@ -262,7 +283,7 @@ class SQLiteLogStore(
                    ended_at_ms, state, integrity, sample_count, event_count,
                    riding_elapsed_ms, total_elapsed_ms, distance_m, max_speed_mps,
                    max_duty_cycle
-            FROM session_catalog WHERE session_id = ?
+            FROM session_catalog WHERE session_id = ? AND pending_delete = 0
             """.trimIndent(),
             arrayOf(sessionId),
         ).use { cursor ->
@@ -438,6 +459,159 @@ class SQLiteLogStore(
         return updated
     }
 
+    @Synchronized
+    override fun settings(): SettingsRecord = settings(catalog.writableDatabase)
+
+    @Synchronized
+    override fun updateSettings(expectedRevision: Int, patchJson: String): SettingsRecord {
+        val patch = try {
+            JSONObject(patchJson)
+        } catch (_: Exception) {
+            throw ProductStoreException.InvalidSettingsPatch
+        }
+        if (patch.length() == 0 || !patch.keys().asSequence().all(SETTING_KEYS::contains)) {
+            throw ProductStoreException.InvalidSettingsPatch
+        }
+        val db = catalog.writableDatabase
+        db.beginTransaction()
+        return try {
+            val current = settings(db)
+            if (current.revision != expectedRevision) {
+                throw ProductStoreException.SettingsRevisionConflict(current.revision)
+            }
+            val values = settingsJson(current)
+            patch.keys().forEach { values.put(it, patch.get(it)) }
+            val updated = validatedSettings(values, current.revision + 1)
+            db.execSQL(
+                "UPDATE settings SET revision = ?, json = ? WHERE singleton = 1 AND revision = ?",
+                arrayOf(updated.revision, settingsJson(updated).put("revision", updated.revision).toString(), expectedRevision),
+            )
+            val changed = android.database.DatabaseUtils.longForQuery(db, "SELECT changes()", null)
+            if (changed != 1L) {
+                throw ProductStoreException.SettingsRevisionConflict(current.revision)
+            }
+            db.setTransactionSuccessful()
+            updated
+        } finally {
+            db.endTransaction()
+        }
+    }
+
+    @Synchronized
+    override fun deleteSession(sessionId: String) {
+        if (current?.sessionId?.value == sessionId) throw SessionStoreException.SessionActive
+        val db = catalog.writableDatabase
+        val sessionRow = db.rawQuery(
+            "SELECT file_name, state FROM session_catalog WHERE session_id = ?",
+            arrayOf(sessionId),
+        ).use { cursor ->
+            if (cursor.moveToFirst()) cursor.getString(0) to cursor.getString(1) else null
+        } ?: return
+        if (sessionRow.second == "active") throw SessionStoreException.SessionActive
+        val fileName = sessionRow.first
+        db.execSQL(
+            "UPDATE session_catalog SET pending_delete = 1 WHERE session_id = ?",
+            arrayOf(sessionId),
+        )
+        val sessionFile = File(root, fileName)
+        if (sessionFile.exists() && !SQLiteDatabase.deleteDatabase(sessionFile)) {
+            error("Unable to remove durable session files")
+        }
+        db.beginTransaction()
+        try {
+            db.execSQL("DELETE FROM session_catalog WHERE session_id = ?", arrayOf(sessionId))
+            removeUndersizedGroups(db)
+            db.setTransactionSuccessful()
+        } finally {
+            db.endTransaction()
+        }
+    }
+
+    @Synchronized
+    override fun sessionGroups(): List<SessionGroupRecord> {
+        val db = catalog.writableDatabase
+        val ids = db.rawQuery(
+            "SELECT session_group_id FROM session_group ORDER BY created_at_ms DESC LIMIT 1000",
+            null,
+        ).use { cursor ->
+            buildList { while (cursor.moveToNext()) add(cursor.getString(0)) }
+        }
+        return ids.map { sessionGroup(db, it) }
+    }
+
+    @Synchronized
+    override fun sessionGroup(sessionGroupId: String): SessionGroupRecord =
+        sessionGroup(catalog.writableDatabase, sessionGroupId)
+
+    @Synchronized
+    override fun unlinkSessionGroup(sessionGroupId: String) {
+        catalog.writableDatabase.execSQL(
+            "DELETE FROM session_group WHERE session_group_id = ?",
+            arrayOf(sessionGroupId),
+        )
+    }
+
+    @Synchronized
+    override fun exportSession(sessionId: String, format: String): SessionExportRecord {
+        if (format != "float-view-archive" && format != "csv") {
+            throw SessionStoreException.InvalidExportFormat
+        }
+        if (current?.sessionId?.value == sessionId) throw SessionStoreException.SessionActive
+        val db = catalog.writableDatabase
+        val sessionRow = db.rawQuery(
+            """
+            SELECT file_name, state FROM session_catalog
+            WHERE session_id = ? AND pending_delete = 0
+            """.trimIndent(),
+            arrayOf(sessionId),
+        ).use { cursor ->
+            if (cursor.moveToFirst()) cursor.getString(0) to cursor.getString(1) else null
+        } ?: throw SessionStoreException.SessionNotFound
+        if (sessionRow.second == "active") throw SessionStoreException.SessionActive
+        val fileName = sessionRow.first
+        val exports = File(root, "Exports").apply { mkdirs() }
+        val exportId = UUID.randomUUID().toString()
+        val outputName = "float-view-$exportId.${if (format == "csv") "csv" else "floatview"}"
+        val output = File(exports, outputName)
+        try {
+            openSession(sessionId).use { session ->
+                executePragma(session, "PRAGMA wal_checkpoint(FULL)")
+                if (format == "csv") {
+                    writeCsv(session, output)
+                }
+            }
+            if (format == "float-view-archive") {
+                File(root, fileName).inputStream().use { input ->
+                    FileOutputStream(output).use { stream -> input.copyTo(stream, 64 * 1024) }
+                }
+                SQLiteDatabase.openDatabase(
+                    output.path,
+                    null,
+                    SQLiteDatabase.OPEN_READWRITE,
+                ).use { archive ->
+                    archive.execSQL(
+                        """
+                        CREATE TABLE IF NOT EXISTS float_view_archive_metadata(
+                          key TEXT PRIMARY KEY NOT NULL, value TEXT NOT NULL
+                        )
+                        """.trimIndent(),
+                    )
+                    archive.execSQL(
+                        "INSERT OR REPLACE INTO float_view_archive_metadata(key, value) VALUES ('format_version', '1')",
+                    )
+                    archive.execSQL(
+                        "INSERT OR REPLACE INTO float_view_archive_metadata(key, value) VALUES ('session', ?)",
+                        arrayOf(sessionArchiveManifest(db, sessionId).toString()),
+                    )
+                }
+            }
+            return SessionExportRecord(exportId, outputName, output.path)
+        } catch (error: Exception) {
+            output.delete()
+            throw error
+        }
+    }
+
     fun recoverInterrupted(): Int {
         val db = catalog.writableDatabase
         db.execSQL(
@@ -449,6 +623,275 @@ class SQLiteLogStore(
             null,
         ).toInt()
     }
+
+    private fun settings(db: SQLiteDatabase): SettingsRecord {
+        val existing = db.rawQuery(
+            "SELECT json FROM settings WHERE singleton = 1",
+            null,
+        ).use { cursor ->
+            if (cursor.moveToFirst()) {
+                try {
+                    validatedSettings(JSONObject(cursor.getString(0)), JSONObject(cursor.getString(0)).optInt("revision", 0))
+                } catch (_: Exception) {
+                    null
+                }
+            } else {
+                null
+            }
+        }
+        if (existing != null) return existing
+        val value = SettingsRecord()
+        db.execSQL(
+            "INSERT OR REPLACE INTO settings(singleton, revision, json) VALUES (1, 0, ?)",
+            arrayOf(settingsJson(value).put("revision", value.revision).toString()),
+        )
+        return value
+    }
+
+    private fun settingsJson(value: SettingsRecord): JSONObject = JSONObject()
+        .put("revision", value.revision)
+        .put("idleProbeIntervalMs", value.idleProbeIntervalMs)
+        .put("idlePersistIntervalMs", value.idlePersistIntervalMs)
+        .put("ridingPersistIntervalMs", value.ridingPersistIntervalMs)
+        .put("postRideTailMs", value.postRideTailMs)
+        .put("reconnectDurationMs", value.reconnectDurationMs)
+        .put("automaticSessionLinkingEnabled", value.automaticSessionLinkingEnabled)
+        .put("sessionLinkWindowMs", value.sessionLinkWindowMs)
+        .put("rawPacketCaptureEnabled", value.rawPacketCaptureEnabled)
+
+    private fun validatedSettings(values: JSONObject, revision: Int): SettingsRecord {
+        fun integer(name: String, range: LongRange): Long {
+            val raw = values.opt(name)
+            if (raw !is Number || raw.toDouble() % 1.0 != 0.0) {
+                throw ProductStoreException.InvalidSettingsPatch
+            }
+            return raw.toLong().coerceIn(range)
+        }
+        fun boolean(name: String): Boolean =
+            (values.opt(name) as? Boolean) ?: throw ProductStoreException.InvalidSettingsPatch
+        return SettingsRecord(
+            revision = revision,
+            idleProbeIntervalMs = integer("idleProbeIntervalMs", 100L..10_000L),
+            idlePersistIntervalMs = integer("idlePersistIntervalMs", 100L..60_000L),
+            ridingPersistIntervalMs = integer("ridingPersistIntervalMs", 50L..10_000L),
+            postRideTailMs = integer("postRideTailMs", 0L..300_000L),
+            reconnectDurationMs = integer("reconnectDurationMs", 0L..3_600_000L),
+            automaticSessionLinkingEnabled = boolean("automaticSessionLinkingEnabled"),
+            sessionLinkWindowMs = integer("sessionLinkWindowMs", 60_000L..86_400_000L),
+            rawPacketCaptureEnabled = boolean("rawPacketCaptureEnabled"),
+        )
+    }
+
+    private fun sessionGroup(db: SQLiteDatabase, sessionGroupId: String): SessionGroupRecord {
+        data class Header(val deviceHistoryId: String, val elapsedMs: Long, val distanceM: Double?)
+        val header = db.rawQuery(
+            """
+            SELECT g.device_history_id, COALESCE(SUM(s.total_elapsed_ms), 0),
+                   CASE WHEN COUNT(s.distance_m) = COUNT(*) THEN SUM(s.distance_m) ELSE NULL END
+            FROM session_group g
+            JOIN session_group_member m ON m.session_group_id = g.session_group_id
+            JOIN session_catalog s ON s.session_id = m.session_id AND s.pending_delete = 0
+            WHERE g.session_group_id = ?
+            GROUP BY g.session_group_id, g.device_history_id
+            """.trimIndent(),
+            arrayOf(sessionGroupId),
+        ).use { cursor ->
+            if (!cursor.moveToFirst()) null else Header(
+                cursor.getString(0),
+                cursor.getLong(1),
+                cursor.optionalDouble(2),
+            )
+        } ?: throw SessionStoreException.SessionNotFound
+        val sessionIds = db.rawQuery(
+            """
+            SELECT m.session_id FROM session_group_member m
+            JOIN session_catalog s ON s.session_id = m.session_id AND s.pending_delete = 0
+            WHERE m.session_group_id = ? ORDER BY m.ordinal
+            """.trimIndent(),
+            arrayOf(sessionGroupId),
+        ).use { cursor ->
+            buildList { while (cursor.moveToNext()) add(cursor.getString(0)) }
+        }
+        if (sessionIds.size < 2) throw SessionStoreException.SessionNotFound
+        return SessionGroupRecord(
+            sessionGroupId,
+            header.deviceHistoryId,
+            sessionIds,
+            header.elapsedMs,
+            header.distanceM,
+        )
+    }
+
+    private fun linkClosedSession(db: SQLiteDatabase, sessionId: String) {
+        val settings = settings(db)
+        if (!settings.automaticSessionLinkingEnabled) return
+        val currentSession = db.rawQuery(
+            """
+            SELECT device_history_id, started_at_ms FROM session_catalog
+            WHERE session_id = ? AND pending_delete = 0
+            """.trimIndent(),
+            arrayOf(sessionId),
+        ).use { cursor ->
+            if (cursor.moveToFirst()) cursor.getString(0) to cursor.getLong(1) else null
+        } ?: return
+        val previous = db.rawQuery(
+            """
+            SELECT session_id, ended_at_ms FROM session_catalog
+            WHERE device_history_id = ? AND session_id != ? AND pending_delete = 0
+              AND ended_at_ms IS NOT NULL AND ended_at_ms <= ?
+            ORDER BY ended_at_ms DESC, session_id DESC LIMIT 1
+            """.trimIndent(),
+            arrayOf(currentSession.first, sessionId, currentSession.second.toString()),
+        ).use { cursor ->
+            if (cursor.moveToFirst()) cursor.getString(0) to cursor.getLong(1) else null
+        } ?: return
+        if (currentSession.second - previous.second > settings.sessionLinkWindowMs) return
+        val existingGroup = db.rawQuery(
+            "SELECT session_group_id FROM session_group_member WHERE session_id = ?",
+            arrayOf(previous.first),
+        ).use { cursor -> if (cursor.moveToFirst()) cursor.getString(0) else null }
+        val groupId = existingGroup ?: UUID.randomUUID().toString()
+        if (existingGroup == null) {
+            db.execSQL(
+                """
+                INSERT INTO session_group(session_group_id, device_history_id, created_at_ms)
+                VALUES (?, ?, ?)
+                """.trimIndent(),
+                arrayOf(groupId, currentSession.first, currentSession.second),
+            )
+            db.execSQL(
+                """
+                INSERT INTO session_group_member(session_group_id, session_id, ordinal)
+                VALUES (?, ?, 0)
+                """.trimIndent(),
+                arrayOf(groupId, previous.first),
+            )
+        }
+        val ordinal = android.database.DatabaseUtils.longForQuery(
+            db,
+            "SELECT COALESCE(MAX(ordinal), -1) + 1 FROM session_group_member WHERE session_group_id = ?",
+            arrayOf(groupId),
+        )
+        db.execSQL(
+            """
+            INSERT OR IGNORE INTO session_group_member(session_group_id, session_id, ordinal)
+            VALUES (?, ?, ?)
+            """.trimIndent(),
+            arrayOf(groupId, sessionId, ordinal),
+        )
+    }
+
+    private fun resumePendingDeletes(db: SQLiteDatabase) {
+        val pending = db.rawQuery(
+            "SELECT session_id, file_name FROM session_catalog WHERE pending_delete = 1",
+            null,
+        ).use { cursor ->
+            buildList {
+                while (cursor.moveToNext()) add(cursor.getString(0) to cursor.getString(1))
+            }
+        }
+        pending.forEach { (sessionId, fileName) ->
+            val sessionFile = File(root, fileName)
+            if (sessionFile.exists() && !SQLiteDatabase.deleteDatabase(sessionFile)) return@forEach
+            db.execSQL("DELETE FROM session_catalog WHERE session_id = ?", arrayOf(sessionId))
+        }
+        removeUndersizedGroups(db)
+    }
+
+    private fun removeUndersizedGroups(db: SQLiteDatabase) {
+        db.execSQL(
+            """
+            DELETE FROM session_group
+            WHERE session_group_id IN (
+              SELECT g.session_group_id FROM session_group g
+              LEFT JOIN session_group_member m ON m.session_group_id = g.session_group_id
+              GROUP BY g.session_group_id HAVING COUNT(m.session_id) < 2
+            )
+            """.trimIndent(),
+        )
+    }
+
+    private fun cleanupStagedExports() {
+        val cutoff = System.currentTimeMillis() - 86_400_000
+        File(root, "Exports").listFiles()
+            ?.filter { it.extension == "csv" || it.extension == "floatview" }
+            ?.sortedByDescending(File::lastModified)
+            ?.forEachIndexed { index, file ->
+                if (index >= 20 || file.lastModified() < cutoff) file.delete()
+            }
+    }
+
+    private fun writeCsv(db: SQLiteDatabase, output: File) {
+        BufferedWriter(OutputStreamWriter(FileOutputStream(output), Charsets.UTF_8), 64 * 1024).use { writer ->
+            writer.appendLine(
+                "sequence,observed_at_ms,elapsed_ms,ride_state,pack_voltage_v,duty_cycle," +
+                    "controller_temp_c,motor_temp_c,footpad_state,motor_current_a," +
+                    "battery_current_a,erpm,speed_kph,extension_json",
+            )
+            db.rawQuery(
+                """
+                SELECT sequence, observed_at_ms, monotonic_elapsed_ms, ride_state,
+                       raw_pack_voltage_v, duty_cycle, controller_temp_c, motor_temp_c,
+                       footpad_state, motor_current_a, battery_current_a, erpm, speed_kph,
+                       extension_json
+                FROM sample ORDER BY sequence
+                """.trimIndent(),
+                null,
+            ).use { cursor ->
+                while (cursor.moveToNext()) {
+                    writer.appendLine(
+                        (0 until cursor.columnCount).joinToString(",") { index ->
+                            if (cursor.isNull(index)) "" else if (index == 3 || index == 13) {
+                                csv(cursor.getString(index))
+                            } else {
+                                cursor.getString(index)
+                            }
+                        },
+                    )
+                }
+            }
+        }
+    }
+
+    private fun sessionArchiveManifest(db: SQLiteDatabase, sessionId: String): JSONObject =
+        db.rawQuery(
+            """
+            SELECT session_id, device_history_id, device_snapshot_json, profile_snapshot_json,
+                   profile_revision, started_at_ms, ended_at_ms, state, integrity,
+                   committed_sequence, sample_count, event_count, requested_idle_ms,
+                   effective_idle_ms, requested_riding_ms, effective_riding_ms, close_reason,
+                   riding_elapsed_ms, total_elapsed_ms, distance_m, max_speed_mps, max_duty_cycle
+            FROM session_catalog WHERE session_id = ? AND pending_delete = 0
+            """.trimIndent(),
+            arrayOf(sessionId),
+        ).use { cursor ->
+            if (!cursor.moveToFirst()) throw SessionStoreException.SessionNotFound
+            JSONObject()
+                .put("sessionId", cursor.getString(0))
+                .put("deviceHistoryId", cursor.getString(1))
+                .put("deviceSnapshot", JSONObject(cursor.getString(2)))
+                .put("boardProfileSnapshot", JSONObject(cursor.getString(3)))
+                .put("boardProfileRevision", cursor.getLong(4))
+                .put("startedAtMs", cursor.getLong(5))
+                .put("endedAtMs", if (cursor.isNull(6)) JSONObject.NULL else cursor.getLong(6))
+                .put("state", cursor.getString(7))
+                .put("integrity", cursor.getString(8))
+                .put("committedSequence", cursor.getLong(9))
+                .put("sampleCount", cursor.getLong(10))
+                .put("eventCount", cursor.getLong(11))
+                .put("requestedIdleMs", cursor.getLong(12))
+                .put("effectiveIdleMs", cursor.getLong(13))
+                .put("requestedRidingMs", cursor.getLong(14))
+                .put("effectiveRidingMs", cursor.getLong(15))
+                .put("closeReason", cursor.optionalString(16) ?: JSONObject.NULL)
+                .put("ridingElapsedMs", cursor.getLong(17))
+                .put("totalElapsedMs", cursor.getLong(18))
+                .put("distanceM", cursor.optionalDouble(19) ?: JSONObject.NULL)
+                .put("maxSpeedMps", cursor.optionalDouble(20) ?: JSONObject.NULL)
+                .put("maxDutyCycle", cursor.optionalDouble(21) ?: JSONObject.NULL)
+        }
+
+    private fun csv(value: String): String = "\"${value.replace("\"", "\"\"")}\""
 
     private fun updateCatalogSummary(record: SessionRecord, samples: List<TelemetrySample>) {
         data class Prior(
@@ -635,7 +1078,7 @@ class SQLiteLogStore(
 
     private fun openSession(sessionId: String): SQLiteDatabase {
         val fileName = catalog.writableDatabase.rawQuery(
-            "SELECT file_name FROM session_catalog WHERE session_id = ?",
+            "SELECT file_name FROM session_catalog WHERE session_id = ? AND pending_delete = 0",
             arrayOf(sessionId),
         ).use { cursor ->
             if (!cursor.moveToFirst()) throw SessionStoreException.SessionNotFound
@@ -1041,19 +1484,26 @@ class SQLiteLogStore(
                 .map(String::trim)
                 .filter(String::isNotEmpty)
                 .forEach(db::execSQL)
+            applyMigration(db, "catalog-v3.sql")
         }
         override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
             if (oldVersion < 2 && newVersion >= 2) {
-                val script = appContext.assets.open("catalog-v2.sql")
-                    .bufferedReader().use { it.readText() }
-                script.lineSequence()
-                    .filterNot { it.trimStart().startsWith("--") }
-                    .joinToString("\n")
-                    .split(';')
-                    .map(String::trim)
-                    .filter(String::isNotEmpty)
-                    .forEach(db::execSQL)
+                applyMigration(db, "catalog-v2.sql")
             }
+            if (oldVersion < 3 && newVersion >= 3) {
+                applyMigration(db, "catalog-v3.sql")
+            }
+        }
+
+        private fun applyMigration(db: SQLiteDatabase, assetName: String) {
+            val script = appContext.assets.open(assetName).bufferedReader().use { it.readText() }
+            script.lineSequence()
+                .filterNot { it.trimStart().startsWith("--") }
+                .joinToString("\n")
+                .split(';')
+                .map(String::trim)
+                .filter(String::isNotEmpty)
+                .forEach(db::execSQL)
         }
     }
 
@@ -1068,6 +1518,16 @@ class SQLiteLogStore(
 
     private companion object {
         val INITIAL_MISSING_FIELDS = listOf("seriesCount", "parallelCount", "motor")
+        val SETTING_KEYS = setOf(
+            "idleProbeIntervalMs",
+            "idlePersistIntervalMs",
+            "ridingPersistIntervalMs",
+            "postRideTailMs",
+            "reconnectDurationMs",
+            "automaticSessionLinkingEnabled",
+            "sessionLinkWindowMs",
+            "rawPacketCaptureEnabled",
+        )
         const val MAX_PROFILE_BYTES = 65_536
         val SERIES_COLUMNS = mapOf(
             "packVoltageV" to "raw_pack_voltage_v",

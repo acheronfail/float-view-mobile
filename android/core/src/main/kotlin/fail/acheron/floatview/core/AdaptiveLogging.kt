@@ -5,6 +5,7 @@ data class SamplingSettings(
     val ridingPersistIntervalMs: Long = 100,
     val postRideTailMs: Long = 15_000,
     val reconnectDurationMs: Long = 300_000,
+    val idleProbeIntervalMs: Long = 500,
 )
 
 class AdaptiveSamplingPolicy(private val settings: SamplingSettings = SamplingSettings()) {

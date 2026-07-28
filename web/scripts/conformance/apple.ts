@@ -4,6 +4,7 @@ import { resolve as resolvePath } from 'node:path';
 import WebSocket from 'ws';
 import {
 	runBoardProfileConformance,
+	runSessionMutationConformance,
 	runSessionReadConformance,
 	runSystemConformance,
 	type ConformanceClient
@@ -79,6 +80,7 @@ const results = await runSystemConformance(() => sharedClient, { includeProductS
 const client = await sharedClient;
 results.push(await runBoardProfileConformance(client, readiness.savedDeviceId));
 results.push(await runSessionReadConformance(client));
+results.push(await runSessionMutationConformance(client));
 
 for (const result of results)
 	console.log(`PASS ${result.name} (${result.durationMs.toFixed(1)}ms)`);

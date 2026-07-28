@@ -9,7 +9,8 @@ public final class ApplicationService: @unchecked Sendable {
   private let protocolCodec: VescProtocolPort?
   private let scheduler: (any SchedulerPort)?
   private let events: EventSink
-  private let reconnectDurationMs: Int64
+  private var reconnectDurationMs: Int64
+  private var idleProbeIntervalMs: Int64
   private let lock = NSRecursiveLock()
   private var sampling: AdaptiveSamplingPolicy
   private var explicitDisconnect = false
@@ -63,6 +64,7 @@ public final class ApplicationService: @unchecked Sendable {
     self.scheduler = scheduler
     self.events = events
     self.reconnectDurationMs = samplingSettings.reconnectDurationMs
+    self.idleProbeIntervalMs = samplingSettings.idleProbeIntervalMs
     self.sampling = AdaptiveSamplingPolicy(settings: samplingSettings)
     self.bluetoothState = bluetooth.currentState()
   }
@@ -100,6 +102,40 @@ public final class ApplicationService: @unchecked Sendable {
     )
     events.publish(profile)
     return profile
+  }
+
+  public func settings() throws -> SettingsRecord {
+    guard let productStore else { throw ApplicationError.productStoreUnavailable }
+    return try productStore.settings()
+  }
+
+  public func updateSettings(
+    expectedRevision: Int,
+    patchJSON: String
+  ) throws -> SettingsRecord {
+    guard let productStore else { throw ApplicationError.productStoreUnavailable }
+    let value = try productStore.updateSettings(
+      expectedRevision: expectedRevision,
+      patchJSON: patchJSON
+    )
+    lock.withLock {
+      idleProbeIntervalMs = value.idleProbeIntervalMs
+      reconnectDurationMs = value.reconnectDurationMs
+      sampling = AdaptiveSamplingPolicy(settings: SamplingSettings(
+        idleProbeIntervalMs: value.idleProbeIntervalMs,
+        idlePersistIntervalMs: value.idlePersistIntervalMs,
+        ridingPersistIntervalMs: value.ridingPersistIntervalMs,
+        postRideTailMs: value.postRideTailMs,
+        reconnectDurationMs: value.reconnectDurationMs
+      ))
+      if connectionState == .ready {
+        let target = previousTelemetryRideState == .riding
+          ? Self.ridingProbeIntervalMs : idleProbeIntervalMs
+        restartTelemetryPolling(everyMilliseconds: target)
+      }
+    }
+    events.publish(value)
+    return value
   }
 
   public func sessions(_ query: SessionListQuery) throws -> SessionPage {
@@ -149,6 +185,34 @@ public final class ApplicationService: @unchecked Sendable {
       sessionID: sessionID, centerElapsedMs: centerElapsedMs,
       beforeMs: beforeMs, afterMs: afterMs, fields: fields
     )
+  }
+
+  public func deleteSession(sessionID: String) throws {
+    guard let sessionStore else { throw ApplicationError.productStoreUnavailable }
+    try sessionStore.deleteSession(sessionID: sessionID)
+  }
+
+  public func exportSession(
+    sessionID: String,
+    format: String
+  ) throws -> SessionExportRecord {
+    guard let sessionStore else { throw ApplicationError.productStoreUnavailable }
+    return try sessionStore.exportSession(sessionID: sessionID, format: format)
+  }
+
+  public func sessionGroups() throws -> [SessionGroupRecord] {
+    guard let sessionStore else { throw ApplicationError.productStoreUnavailable }
+    return try sessionStore.sessionGroups()
+  }
+
+  public func sessionGroup(sessionGroupID: String) throws -> SessionGroupRecord {
+    guard let sessionStore else { throw ApplicationError.productStoreUnavailable }
+    return try sessionStore.sessionGroup(sessionGroupID: sessionGroupID)
+  }
+
+  public func unlinkSessionGroup(sessionGroupID: String) throws {
+    guard let sessionStore else { throw ApplicationError.productStoreUnavailable }
+    try sessionStore.unlinkSessionGroup(sessionGroupID: sessionGroupID)
   }
 
   public func startDiscovery() throws -> String {
@@ -578,7 +642,7 @@ public final class ApplicationService: @unchecked Sendable {
 
   private func startTelemetryPolling() {
     guard scheduler != nil, firmware?.canID != nil else { return }
-    restartTelemetryPolling(everyMilliseconds: Self.idleProbeIntervalMs)
+    restartTelemetryPolling(everyMilliseconds: idleProbeIntervalMs)
   }
 
   private func restartTelemetryPolling(everyMilliseconds interval: Int64) {
@@ -640,7 +704,7 @@ public final class ApplicationService: @unchecked Sendable {
     let inPostRideTail = postRideProbeUntilMs.map { nowMs <= $0 } ?? false
     previousTelemetryRideState = value.rideState
     let target = value.rideState == .riding || inPostRideTail
-      ? Self.ridingProbeIntervalMs : Self.idleProbeIntervalMs
+      ? Self.ridingProbeIntervalMs : idleProbeIntervalMs
     if target != telemetryIntervalMs {
       restartTelemetryPolling(everyMilliseconds: target)
     }
@@ -671,7 +735,6 @@ public final class ApplicationService: @unchecked Sendable {
   }
 
   private static let vescHardwareType: UInt8 = 0
-  private static let idleProbeIntervalMs: Int64 = 500
   private static let ridingProbeIntervalMs: Int64 = 100
   private static let telemetryLayoutRetryIntervalMs: Int64 = 1_000
   private static let maxTelemetryLayoutAttempts = 5

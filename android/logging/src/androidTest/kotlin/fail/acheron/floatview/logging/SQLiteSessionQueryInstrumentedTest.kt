@@ -7,6 +7,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import fail.acheron.floatview.core.DeviceId
 import fail.acheron.floatview.core.RideState
 import fail.acheron.floatview.core.SessionListQuery
+import fail.acheron.floatview.core.SessionStoreException
 import fail.acheron.floatview.core.TelemetrySample
 import java.io.File
 import java.time.Instant
@@ -165,6 +166,143 @@ class SQLiteSessionQueryInstrumentedTest {
         assertEquals(1_000, summary.totalElapsedMs)
         assertEquals(1_000, summary.ridingElapsedMs)
         assertEquals(0.7, summary.maxDutyCycle)
+    }
+
+    @Test
+    fun settingsLinkingExportsAndIdempotentDeletionUseCanonicalStorage() {
+        val store = SQLiteLogStore(context, availableBytes = { 2_000_000_000 })
+        val settings = store.updateSettings(
+            0,
+            """{"automaticSessionLinkingEnabled":true,"sessionLinkWindowMs":7200000,"idlePersistIntervalMs":2345,"ridingPersistIntervalMs":125}""",
+        )
+        assertEquals(1, settings.revision)
+        assertTrue(settings.automaticSessionLinkingEnabled)
+
+        val base = Instant.ofEpochMilli(1_700_000_000_000)
+        val sessionIds = mutableListOf<String>()
+        listOf(0L, 120L).forEach { offset ->
+            val record = store.create(DeviceId("management-fixture"), base.plusSeconds(offset))
+            sessionIds += record.sessionId.value
+            store.append(
+                record.jobId,
+                listOf(
+                    TelemetrySample(
+                        1,
+                        base.plusSeconds(offset),
+                        0,
+                        RideState.IDLE,
+                        60.0,
+                        0.1,
+                        null,
+                        null,
+                        null,
+                        mapOf("speedKph" to 0.0),
+                    ),
+                    TelemetrySample(
+                        2,
+                        base.plusSeconds(offset + 60),
+                        60_000,
+                        RideState.RIDING,
+                        58.0,
+                        0.5,
+                        null,
+                        null,
+                        null,
+                        mapOf("speedKph" to 18.0),
+                    ),
+                ),
+            )
+            store.close(record.jobId, base.plusSeconds(offset + 60), "test")
+        }
+
+        val group = store.sessionGroups().single()
+        assertEquals(sessionIds, group.sessionIds)
+        assertEquals(120_000, group.totalElapsedMs)
+        assertEquals(group, store.sessionGroup(group.sessionGroupId))
+
+        val csv = store.exportSession(sessionIds[0], "csv")
+        val csvText = File(csv.filePath).readText()
+        assertTrue(csvText.contains("pack_voltage_v"))
+        assertEquals(60.0, csvText.lineSequence().drop(1).first().split(',')[4].toDouble(), 0.0)
+        val archive = store.exportSession(sessionIds[0], "float-view-archive")
+        SQLiteDatabase.openDatabase(
+            archive.filePath,
+            null,
+            SQLiteDatabase.OPEN_READONLY,
+        ).use { db ->
+            assertEquals(
+                2L,
+                android.database.DatabaseUtils.longForQuery(db, "SELECT COUNT(*) FROM sample", null),
+            )
+            assertEquals(
+                "1",
+                db.rawQuery(
+                    "SELECT value FROM float_view_archive_metadata WHERE key = 'format_version'",
+                    null,
+                ).use { cursor ->
+                    assertTrue(cursor.moveToFirst())
+                    cursor.getString(0)
+                },
+            )
+            val manifest = db.rawQuery(
+                "SELECT value FROM float_view_archive_metadata WHERE key = 'session'",
+                null,
+            ).use { cursor ->
+                assertTrue(cursor.moveToFirst())
+                org.json.JSONObject(cursor.getString(0))
+            }
+            assertEquals(2_345, manifest.getLong("requestedIdleMs"))
+            assertEquals(125, manifest.getLong("effectiveRidingMs"))
+            assertTrue(manifest.get("deviceSnapshot") is org.json.JSONObject)
+            assertTrue(manifest.get("boardProfileSnapshot") is org.json.JSONObject)
+        }
+
+        store.deleteSession(sessionIds[0])
+        store.deleteSession(sessionIds[0])
+        assertTrue(store.sessionGroups().isEmpty())
+        try {
+            store.session(sessionIds[0])
+            throw AssertionError("Deleted session remained readable")
+        } catch (_: SessionStoreException.SessionNotFound) {
+            // Expected.
+        }
+
+        val active = store.create(DeviceId("management-fixture"), base.plusSeconds(300))
+        try {
+            store.deleteSession(active.sessionId.value)
+            throw AssertionError("Active session was deleted")
+        } catch (_: SessionStoreException.SessionActive) {
+            // Expected.
+        }
+    }
+
+    @Test
+    fun schemaV3ResumesAnInterruptedSessionDeletion() {
+        val store = SQLiteLogStore(context, availableBytes = { 2_000_000_000 })
+        val record = store.create(DeviceId("delete-recovery"), Instant.EPOCH)
+        store.close(record.jobId, Instant.EPOCH, "test")
+        val logs = File(root, "logs")
+        val catalog = SQLiteDatabase.openDatabase(
+            File(logs, "catalog.sqlite").path,
+            null,
+            SQLiteDatabase.OPEN_READWRITE,
+        )
+        val fileName = catalog.rawQuery(
+            "SELECT file_name FROM session_catalog WHERE session_id = ?",
+            arrayOf(record.sessionId.value),
+        ).use { cursor ->
+            assertTrue(cursor.moveToFirst())
+            cursor.getString(0)
+        }
+        catalog.execSQL(
+            "UPDATE session_catalog SET pending_delete = 1 WHERE session_id = ?",
+            arrayOf(record.sessionId.value),
+        )
+        catalog.close()
+        SQLiteDatabase.deleteDatabase(File(logs, fileName))
+
+        val restarted = SQLiteLogStore(context, availableBytes = { 2_000_000_000 })
+        assertTrue(restarted.sessions(SessionListQuery()).items.isEmpty())
     }
 
     private fun executeAsset(db: SQLiteDatabase, name: String) {

@@ -338,6 +338,18 @@ Exit gate:
 
 Canonical verification: `just verify-r5`.
 
+Status evidence (2026-07-28): the cumulative software gate passes with catalog
+schema v3, crash-resumable idempotent deletion, persisted/clamped sampling and
+reconnection settings loaded at every native startup, reversible same-device
+session groups, canonical CSV generation, and a self-contained SQLite archive
+containing samples/events plus immutable device/profile/rate/integrity metadata.
+The shared UI can configure supported logging/linking settings, review grouped
+segments, prepare either export, and confirm deletion. The macOS and mock
+black-box suites pass; the Galaxy S9/API 29 passes all six real SQLite
+instrumentation cases. R5 remains in progress until the complete black-box suite
+runs against Android and iOS hosts and prepared exports have a uniform
+user-visible save/share handoff on all three platforms.
+
 Deliverables:
 
 - explicit discovery, connection, telemetry, logging, and disconnect state

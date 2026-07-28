@@ -369,6 +369,74 @@ public struct SessionEventRecord: Sendable, Equatable {
   }
 }
 
+public struct SessionGroupRecord: Sendable, Equatable {
+  public let sessionGroupID: String
+  public let deviceHistoryID: String
+  public let sessionIDs: [String]
+  public let totalElapsedMs: Int64
+  public let distanceM: Double?
+
+  public init(
+    sessionGroupID: String,
+    deviceHistoryID: String,
+    sessionIDs: [String],
+    totalElapsedMs: Int64,
+    distanceM: Double?
+  ) {
+    self.sessionGroupID = sessionGroupID
+    self.deviceHistoryID = deviceHistoryID
+    self.sessionIDs = sessionIDs
+    self.totalElapsedMs = totalElapsedMs
+    self.distanceM = distanceM
+  }
+}
+
+public struct SessionExportRecord: Sendable, Equatable {
+  public let exportID: String
+  public let fileName: String
+  public let fileURL: URL
+
+  public init(exportID: String, fileName: String, fileURL: URL) {
+    self.exportID = exportID
+    self.fileName = fileName
+    self.fileURL = fileURL
+  }
+}
+
+public struct SettingsRecord: Sendable, Codable, Equatable {
+  public let revision: Int
+  public let idleProbeIntervalMs: Int64
+  public let idlePersistIntervalMs: Int64
+  public let ridingPersistIntervalMs: Int64
+  public let postRideTailMs: Int64
+  public let reconnectDurationMs: Int64
+  public let automaticSessionLinkingEnabled: Bool
+  public let sessionLinkWindowMs: Int64
+  public let rawPacketCaptureEnabled: Bool
+
+  public init(
+    revision: Int = 0,
+    idleProbeIntervalMs: Int64 = 500,
+    idlePersistIntervalMs: Int64 = 1_000,
+    ridingPersistIntervalMs: Int64 = 100,
+    postRideTailMs: Int64 = 15_000,
+    reconnectDurationMs: Int64 = 300_000,
+    automaticSessionLinkingEnabled: Bool = false,
+    sessionLinkWindowMs: Int64 = 7_200_000,
+    rawPacketCaptureEnabled: Bool = false
+  ) {
+    self.revision = revision
+    self.idleProbeIntervalMs = idleProbeIntervalMs
+    self.idlePersistIntervalMs = idlePersistIntervalMs
+    self.ridingPersistIntervalMs = ridingPersistIntervalMs
+    self.postRideTailMs = postRideTailMs
+    self.reconnectDurationMs = reconnectDurationMs
+    self.automaticSessionLinkingEnabled = automaticSessionLinkingEnabled
+    self.sessionLinkWindowMs = sessionLinkWindowMs
+    self.rawPacketCaptureEnabled = rawPacketCaptureEnabled
+  }
+}
+
 public struct SavedDeviceRecord: Sendable, Codable, Equatable {
   public let savedDeviceID: String
   public let deviceHistoryID: String
@@ -420,6 +488,8 @@ public enum ProductStoreError: Error, Equatable {
   case savedDeviceNotFound
   case profileRevisionConflict(currentRevision: Int)
   case invalidProfilePatch
+  case settingsRevisionConflict(currentRevision: Int)
+  case invalidSettingsPatch
 }
 
 public enum BluetoothEvent: Sendable {
@@ -548,13 +618,30 @@ public protocol ProductStorePort: AnyObject, Sendable {
     patchJSON: String,
     at: Date
   ) throws -> BoardProfileRecord
+  func settings() throws -> SettingsRecord
+  func updateSettings(
+    expectedRevision: Int,
+    patchJSON: String
+  ) throws -> SettingsRecord
+}
+
+public extension ProductStorePort {
+  func settings() throws -> SettingsRecord { SettingsRecord() }
+  func updateSettings(
+    expectedRevision _: Int,
+    patchJSON _: String
+  ) throws -> SettingsRecord {
+    throw ProductStoreError.invalidSettingsPatch
+  }
 }
 
 public enum SessionStoreError: Error, Equatable {
   case sessionNotFound
+  case sessionActive
   case invalidCursor
   case invalidRange
   case unsupportedField(String)
+  case invalidExportFormat
 }
 
 public protocol SessionStorePort: AnyObject, Sendable {
@@ -579,6 +666,23 @@ public protocol SessionStorePort: AnyObject, Sendable {
     afterMs: Int64,
     fields: [String]
   ) throws -> [SessionSeriesPoint]
+  func deleteSession(sessionID: String) throws
+  func exportSession(sessionID: String, format: String) throws -> SessionExportRecord
+  func sessionGroups() throws -> [SessionGroupRecord]
+  func sessionGroup(sessionGroupID: String) throws -> SessionGroupRecord
+  func unlinkSessionGroup(sessionGroupID: String) throws
+}
+
+public extension SessionStorePort {
+  func deleteSession(sessionID _: String) throws { throw SessionStoreError.sessionNotFound }
+  func exportSession(sessionID _: String, format _: String) throws -> SessionExportRecord {
+    throw SessionStoreError.sessionNotFound
+  }
+  func sessionGroups() throws -> [SessionGroupRecord] { [] }
+  func sessionGroup(sessionGroupID _: String) throws -> SessionGroupRecord {
+    throw SessionStoreError.sessionNotFound
+  }
+  func unlinkSessionGroup(sessionGroupID _: String) throws {}
 }
 
 public protocol EventSink: Sendable {

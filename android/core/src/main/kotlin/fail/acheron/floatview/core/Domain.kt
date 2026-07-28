@@ -171,6 +171,32 @@ data class SessionEventRecord(
     val detailsJson: String,
 )
 
+data class SessionGroupRecord(
+    val sessionGroupId: String,
+    val deviceHistoryId: String,
+    val sessionIds: List<String>,
+    val totalElapsedMs: Long,
+    val distanceM: Double?,
+)
+
+data class SessionExportRecord(
+    val exportId: String,
+    val fileName: String,
+    val filePath: String,
+)
+
+data class SettingsRecord(
+    val revision: Int = 0,
+    val idleProbeIntervalMs: Long = 500,
+    val idlePersistIntervalMs: Long = 1_000,
+    val ridingPersistIntervalMs: Long = 100,
+    val postRideTailMs: Long = 15_000,
+    val reconnectDurationMs: Long = 300_000,
+    val automaticSessionLinkingEnabled: Boolean = false,
+    val sessionLinkWindowMs: Long = 7_200_000,
+    val rawPacketCaptureEnabled: Boolean = false,
+)
+
 sealed interface BluetoothEvent {
     data class StateChanged(val state: BluetoothState) : BluetoothEvent
     data class DeviceFound(
@@ -269,6 +295,9 @@ sealed class ProductStoreException(message: String) : RuntimeException(message) 
     data class ProfileRevisionConflict(val currentRevision: Int) :
         ProductStoreException("Profile revision conflict")
     data object InvalidProfilePatch : ProductStoreException("Invalid profile patch")
+    data class SettingsRevisionConflict(val currentRevision: Int) :
+        ProductStoreException("Settings revision conflict")
+    data object InvalidSettingsPatch : ProductStoreException("Invalid settings patch")
 }
 
 interface ProductStorePort {
@@ -280,12 +309,17 @@ interface ProductStorePort {
         patchJson: String,
         at: Instant,
     ): BoardProfileRecord
+    fun settings(): SettingsRecord = SettingsRecord()
+    fun updateSettings(expectedRevision: Int, patchJson: String): SettingsRecord =
+        throw ProductStoreException.InvalidSettingsPatch
 }
 
 sealed class SessionStoreException(message: String) : RuntimeException(message) {
     data object SessionNotFound : SessionStoreException("Session not found")
+    data object SessionActive : SessionStoreException("Active session cannot be changed")
     data object InvalidCursor : SessionStoreException("Invalid session cursor")
     data object InvalidRange : SessionStoreException("Invalid session range")
+    data object InvalidExportFormat : SessionStoreException("Invalid export format")
     data class UnsupportedField(val field: String) :
         SessionStoreException("Unsupported session field: $field")
 }
@@ -312,6 +346,15 @@ interface SessionStorePort {
         afterMs: Long,
         fields: List<String>,
     ): List<SessionSeriesPoint>
+    fun deleteSession(sessionId: String) {
+        throw SessionStoreException.SessionNotFound
+    }
+    fun exportSession(sessionId: String, format: String): SessionExportRecord =
+        throw SessionStoreException.SessionNotFound
+    fun sessionGroups(): List<SessionGroupRecord> = emptyList()
+    fun sessionGroup(sessionGroupId: String): SessionGroupRecord =
+        throw SessionStoreException.SessionNotFound
+    fun unlinkSessionGroup(sessionGroupId: String) = Unit
 }
 
 fun interface EventSink {

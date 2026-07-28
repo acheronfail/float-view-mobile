@@ -236,6 +236,7 @@ private final class MacBackendRuntime: @unchecked Sendable {
     } else {
       testSavedDeviceID = nil
     }
+    let settings = try! logStore.settings()
     let applicationService = ApplicationService(
       bluetooth: bluetooth,
       clock: SystemClock(),
@@ -244,7 +245,14 @@ private final class MacBackendRuntime: @unchecked Sendable {
       sessionStore: logStore,
       protocolCodec: VescProtocolService(),
       scheduler: SystemScheduler(),
-      events: DebugEventSink()
+      events: DebugEventSink(),
+      samplingSettings: SamplingSettings(
+        idleProbeIntervalMs: settings.idleProbeIntervalMs,
+        idlePersistIntervalMs: settings.idlePersistIntervalMs,
+        ridingPersistIntervalMs: settings.ridingPersistIntervalMs,
+        postRideTailMs: settings.postRideTailMs,
+        reconnectDurationMs: settings.reconnectDurationMs
+      )
     )
     relay.setHandler { [weak applicationService] event in
       try? applicationService?.receive(event)

@@ -77,6 +77,13 @@ function stateFor(session: ApiV1Session): MockState {
 	return (session.state ??= createState());
 }
 
+function combinedDistance(
+	first: number | null | undefined,
+	second: number | null | undefined
+): number | null {
+	return typeof first === 'number' && typeof second === 'number' ? first + second : null;
+}
+
 function snapshot(state: MockState): Snapshot {
 	return {
 		revision: state.revision,
@@ -270,11 +277,12 @@ export function handleApiV1Request(session: ApiV1Session, input: unknown): ApiV1
 				});
 			}
 			const sessionId = `session-${state.sessions.length + 1}`;
+			const startedAtMs = state.sessions.length * 120_000;
 			state.sessions.unshift({
 				sessionId,
 				deviceHistoryId: saved.deviceHistoryId,
 				displayName: saved.displayName,
-				startedAt: new Date(0).toISOString(),
+				startedAt: new Date(startedAtMs).toISOString(),
 				endedAt: null,
 				state: 'active',
 				integrity: 'complete',
@@ -303,16 +311,49 @@ export function handleApiV1Request(session: ApiV1Session, input: unknown): ApiV1
 		}
 		case 'device.disconnect': {
 			if (state.sessions[0]?.state === 'active') {
+				const endedAtMs = Date.parse(state.sessions[0].startedAt) + 60_000;
 				state.sessions[0] = {
 					...state.sessions[0],
 					state: 'completed',
-					endedAt: new Date(60_000).toISOString(),
+					endedAt: new Date(endedAtMs).toISOString(),
 					totalElapsedMs: 60_000,
 					ridingElapsedMs: 45_000,
 					sampleCount: 465,
 					eventCount: 4,
 					distanceM: 750
 				};
+				const current = state.sessions[0];
+				const previous = state.sessions
+					.slice(1)
+					.find(
+						(session) =>
+							session.deviceHistoryId === current.deviceHistoryId &&
+							typeof session.endedAt === 'string' &&
+							Date.parse(session.endedAt) <= Date.parse(current.startedAt)
+					);
+				if (
+					state.settings.automaticSessionLinkingEnabled &&
+					previous?.endedAt &&
+					Date.parse(current.startedAt) - Date.parse(previous.endedAt) <=
+						state.settings.sessionLinkWindowMs
+				) {
+					const existing = state.groups.find((group) =>
+						group.sessionIds.includes(previous.sessionId)
+					);
+					if (existing) {
+						existing.sessionIds.push(current.sessionId);
+						existing.totalElapsedMs += current.totalElapsedMs;
+						existing.distanceM = combinedDistance(existing.distanceM, current.distanceM);
+					} else {
+						state.groups.push({
+							sessionGroupId: `group-${state.groups.length + 1}`,
+							deviceHistoryId: current.deviceHistoryId,
+							sessionIds: [previous.sessionId, current.sessionId],
+							totalElapsedMs: previous.totalElapsedMs + current.totalElapsedMs,
+							distanceM: combinedDistance(previous.distanceM, current.distanceM)
+						});
+					}
+				}
 			}
 			state.loggingJobs = [];
 			state.activeConnection = null;
@@ -407,47 +448,79 @@ export function handleApiV1Request(session: ApiV1Session, input: unknown): ApiV1
 				return error(id, -32000, 'invalid_state', 'Settings revision conflict', true);
 			}
 			const patch = record(params.patch);
+			const allowed = new Set<keyof Settings>([
+				'idleProbeIntervalMs',
+				'idlePersistIntervalMs',
+				'ridingPersistIntervalMs',
+				'postRideTailMs',
+				'reconnectDurationMs',
+				'automaticSessionLinkingEnabled',
+				'sessionLinkWindowMs',
+				'rawPacketCaptureEnabled'
+			]);
+			if (
+				Object.keys(patch).length === 0 ||
+				Object.keys(patch).some((name) => !allowed.has(name as keyof Settings)) ||
+				['automaticSessionLinkingEnabled', 'rawPacketCaptureEnabled'].some(
+					(name) => name in patch && typeof patch[name] !== 'boolean'
+				)
+			) {
+				return error(id, -32602, 'protocol_error', 'Invalid Settings patch', false);
+			}
 			const number = (name: keyof Settings, fallback: number, min: number, max: number) => {
 				const value = patch[name];
+				if (value !== undefined && (typeof value !== 'number' || !Number.isInteger(value))) {
+					throw new TypeError('Invalid Settings patch');
+				}
 				return typeof value === 'number'
 					? Math.max(min, Math.min(max, Math.round(value)))
 					: fallback;
 			};
-			state.settings = {
-				...state.settings,
-				...patch,
-				revision: state.settings.revision + 1,
-				idleProbeIntervalMs: number(
-					'idleProbeIntervalMs',
-					state.settings.idleProbeIntervalMs,
-					100,
-					10_000
-				),
-				idlePersistIntervalMs: number(
-					'idlePersistIntervalMs',
-					state.settings.idlePersistIntervalMs,
-					100,
-					60_000
-				),
-				ridingPersistIntervalMs: number(
-					'ridingPersistIntervalMs',
-					state.settings.ridingPersistIntervalMs,
-					50,
-					10_000
-				),
-				reconnectDurationMs: number(
-					'reconnectDurationMs',
-					state.settings.reconnectDurationMs,
-					0,
-					3_600_000
-				),
-				sessionLinkWindowMs: number(
-					'sessionLinkWindowMs',
-					state.settings.sessionLinkWindowMs,
-					60_000,
-					86_400_000
-				)
-			} as Settings;
+			try {
+				state.settings = {
+					...state.settings,
+					...(typeof patch.automaticSessionLinkingEnabled === 'boolean'
+						? { automaticSessionLinkingEnabled: patch.automaticSessionLinkingEnabled }
+						: {}),
+					...(typeof patch.rawPacketCaptureEnabled === 'boolean'
+						? { rawPacketCaptureEnabled: patch.rawPacketCaptureEnabled }
+						: {}),
+					revision: state.settings.revision + 1,
+					idleProbeIntervalMs: number(
+						'idleProbeIntervalMs',
+						state.settings.idleProbeIntervalMs,
+						100,
+						10_000
+					),
+					idlePersistIntervalMs: number(
+						'idlePersistIntervalMs',
+						state.settings.idlePersistIntervalMs,
+						100,
+						60_000
+					),
+					ridingPersistIntervalMs: number(
+						'ridingPersistIntervalMs',
+						state.settings.ridingPersistIntervalMs,
+						50,
+						10_000
+					),
+					postRideTailMs: number('postRideTailMs', state.settings.postRideTailMs, 0, 300_000),
+					reconnectDurationMs: number(
+						'reconnectDurationMs',
+						state.settings.reconnectDurationMs,
+						0,
+						3_600_000
+					),
+					sessionLinkWindowMs: number(
+						'sessionLinkWindowMs',
+						state.settings.sessionLinkWindowMs,
+						60_000,
+						86_400_000
+					)
+				};
+			} catch {
+				return error(id, -32602, 'protocol_error', 'Invalid Settings patch', false);
+			}
 			return ok(id, state.settings);
 		}
 		case 'sessions.list': {
@@ -581,11 +654,20 @@ export function handleApiV1Request(session: ApiV1Session, input: unknown): ApiV1
 				{ eventId: 'event-footpad', elapsedMs: 30_000, kind: 'footpad', details: { state: 1 } }
 			]);
 		case 'sessions.export':
+			if (state.sessions.find((item) => item.sessionId === params.sessionId)?.state === 'active') {
+				return error(id, -32000, 'invalid_state', 'Active sessions cannot be exported');
+			}
+			if (!state.sessions.some((item) => item.sessionId === params.sessionId)) {
+				return error(id, -32004, 'device_not_found', 'Session not found');
+			}
 			return ok(id, {
 				exportId: `export-${String(params.sessionId)}`,
 				fileName: `${String(params.sessionId)}.${params.format === 'csv' ? 'csv' : 'floatview'}`
 			});
 		case 'sessions.delete': {
+			if (state.sessions.find((item) => item.sessionId === params.sessionId)?.state === 'active') {
+				return error(id, -32000, 'invalid_state', 'Active sessions cannot be deleted');
+			}
 			state.sessions = state.sessions.filter((item) => item.sessionId !== params.sessionId);
 			state.groups = state.groups
 				.map((group) => ({
@@ -597,6 +679,15 @@ export function handleApiV1Request(session: ApiV1Session, input: unknown): ApiV1
 		}
 		case 'sessionGroups.list':
 			return ok(id, state.groups);
+		case 'sessionGroups.get': {
+			const group = state.groups.find((item) => item.sessionGroupId === params.sessionGroupId);
+			return group
+				? ok(id, group)
+				: error(id, -32004, 'device_not_found', 'Session group not found');
+		}
+		case 'sessionGroups.unlink':
+			state.groups = state.groups.filter((item) => item.sessionGroupId !== params.sessionGroupId);
+			return ok(id, { accepted: true });
 		case 'alerts.listRules':
 			return ok(id, state.rules);
 		case 'alerts.replaceRules':

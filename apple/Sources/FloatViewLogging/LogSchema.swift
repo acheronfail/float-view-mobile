@@ -1,5 +1,5 @@
 public enum LogSchema {
-  public static let catalogVersion = 2
+  public static let catalogVersion = 3
   public static let sessionVersion = 2
 }
 

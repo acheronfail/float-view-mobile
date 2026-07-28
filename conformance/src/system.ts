@@ -366,6 +366,110 @@ export async function runSystemConformance(
           );
         }),
     ],
+    [
+      "links, exports, unlinks, and idempotently deletes completed sessions",
+      () =>
+        withClient(createClient, async (client) => {
+          await client.request("system.hello", {
+            client: { name: "float-view-conformance", version: "1.0.0" },
+            api: { major: 1, minMinor: 0, maxMinor: 0 },
+          });
+          const settings = asRecord(
+            await client.request("settings.get", {}),
+            "settings",
+          );
+          await expectApiError(
+            client.request("settings.update", {
+              expectedRevision: settings.revision,
+              patch: {},
+            }),
+            -32602,
+            "protocol_error",
+          );
+          await client.request("settings.update", {
+            expectedRevision: settings.revision,
+            patch: {
+              automaticSessionLinkingEnabled: true,
+              sessionLinkWindowMs: 7_200_000,
+            },
+          });
+          await client.request("discovery.start", {});
+          for (let index = 0; index < 2; index += 1) {
+            await client.request("device.connect", {
+              deviceId: "fixture-thor300",
+            });
+            await client.request("device.disconnect", {});
+          }
+          const page = asRecord(
+            await client.request("sessions.list", { limit: 20 }),
+            "session page",
+          );
+          assert(
+            Array.isArray(page.items) && page.items.length === 2,
+            "Two completed connections must produce two Sessions",
+          );
+          const groups = (await client.request(
+            "sessionGroups.list",
+            {},
+          )) as unknown[];
+          assert(
+            groups.length === 1,
+            "Eligible adjacent Sessions must form one group",
+          );
+          const group = asRecord(groups[0], "session group");
+          const fetched = asRecord(
+            await client.request("sessionGroups.get", {
+              sessionGroupId: group.sessionGroupId,
+            }),
+            "fetched session group",
+          );
+          assert(
+            Array.isArray(fetched.sessionIds) &&
+              fetched.sessionIds.length === 2,
+            "Session group must preserve both concrete members",
+          );
+          await client.request("sessionGroups.unlink", {
+            sessionGroupId: group.sessionGroupId,
+          });
+          await client.request("sessionGroups.unlink", {
+            sessionGroupId: group.sessionGroupId,
+          });
+          assert(
+            ((await client.request("sessionGroups.list", {})) as unknown[])
+              .length === 0,
+            "Unlink must be idempotent and preserve member Sessions",
+          );
+          const first = asRecord(page.items[0], "completed session");
+          for (const format of ["csv", "float-view-archive"]) {
+            const exported = asRecord(
+              await client.request("sessions.export", {
+                sessionId: first.sessionId,
+                format,
+              }),
+              `${format} export`,
+            );
+            assert(
+              typeof exported.exportId === "string" &&
+                typeof exported.fileName === "string",
+              "Export must return an opaque handle and file name",
+            );
+          }
+          await client.request("sessions.delete", {
+            sessionId: first.sessionId,
+          });
+          await client.request("sessions.delete", {
+            sessionId: first.sessionId,
+          });
+          const remaining = asRecord(
+            await client.request("sessions.list", { limit: 20 }),
+            "remaining sessions",
+          );
+          assert(
+            Array.isArray(remaining.items) && remaining.items.length === 1,
+            "Idempotent deletion must remove only the selected Session",
+          );
+        }),
+    ],
   ];
 
   const selected =
@@ -426,6 +530,84 @@ export async function runSessionReadConformance(
   );
   return {
     name: "lists durable sessions and serves bounded review and diagnostic samples",
+    durationMs: performance.now() - startedAt,
+  };
+}
+
+export async function runSessionMutationConformance(
+  client: ConformanceClient,
+): Promise<ConformanceScenarioResult> {
+  const startedAt = performance.now();
+  const settings = asRecord(
+    await client.request("settings.get", {}),
+    "settings",
+  );
+  const changed = asRecord(
+    await client.request("settings.update", {
+      expectedRevision: settings.revision,
+      patch: {
+        automaticSessionLinkingEnabled: true,
+        sessionLinkWindowMs: 7_200_000,
+      },
+    }),
+    "updated settings",
+  );
+  assert(
+    changed.revision === Number(settings.revision) + 1 &&
+      changed.automaticSessionLinkingEnabled === true,
+    "Native settings must persist with optimistic revisioning",
+  );
+  await expectApiError(
+    client.request("settings.update", {
+      expectedRevision: changed.revision,
+      patch: {},
+    }),
+    -32602,
+    "protocol_error",
+  );
+  await expectApiError(
+    client.request("settings.update", {
+      expectedRevision: settings.revision,
+      patch: { automaticSessionLinkingEnabled: false },
+    }),
+    -32000,
+    "invalid_state",
+  );
+  const page = asRecord(
+    await client.request("sessions.list", { limit: 1 }),
+    "session page",
+  );
+  assert(
+    Array.isArray(page.items) && page.items.length === 1,
+    "Seeded session must exist before mutation conformance",
+  );
+  const session = asRecord(page.items[0], "seeded session");
+  for (const format of ["csv", "float-view-archive"]) {
+    const exported = asRecord(
+      await client.request("sessions.export", {
+        sessionId: session.sessionId,
+        format,
+      }),
+      `${format} export`,
+    );
+    assert(
+      typeof exported.exportId === "string" &&
+        typeof exported.fileName === "string",
+      "Native export must return an opaque handle and file name",
+    );
+  }
+  await client.request("sessions.delete", { sessionId: session.sessionId });
+  await client.request("sessions.delete", { sessionId: session.sessionId });
+  const remaining = asRecord(
+    await client.request("sessions.list", { limit: 1 }),
+    "remaining sessions",
+  );
+  assert(
+    Array.isArray(remaining.items) && remaining.items.length === 0,
+    "Native deletion must be idempotent",
+  );
+  return {
+    name: "exports and idempotently deletes a durable session",
     durationMs: performance.now() - startedAt,
   };
 }

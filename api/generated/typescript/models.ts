@@ -184,6 +184,17 @@ export interface Settings {
 	rawPacketCaptureEnabled: boolean;
 }
 
+export interface SettingsPatch {
+	idleProbeIntervalMs?: number;
+	idlePersistIntervalMs?: number;
+	ridingPersistIntervalMs?: number;
+	postRideTailMs?: number;
+	reconnectDurationMs?: number;
+	automaticSessionLinkingEnabled?: boolean;
+	sessionLinkWindowMs?: number;
+	rawPacketCaptureEnabled?: boolean;
+}
+
 export interface AlertRule {
 	ruleId: string;
 	kind:
@@ -445,7 +456,7 @@ export interface BoardProfilesUpdateRequest {
 	params: {
 		savedDeviceId: string;
 		expectedRevision: number;
-		patch: Record<string, unknown>;
+		patch: SettingsPatch;
 	};
 }
 
@@ -637,6 +648,36 @@ export interface SessionGroupsListResponse {
 	result: Array<SessionGroup>;
 }
 
+export interface SessionGroupsGetRequest {
+	jsonrpc: '2.0';
+	id: JsonRpcId;
+	method: 'sessionGroups.get';
+	params: {
+		sessionGroupId: string;
+	};
+}
+
+export interface SessionGroupsGetResponse {
+	jsonrpc: '2.0';
+	id: JsonRpcId;
+	result: SessionGroup;
+}
+
+export interface SessionGroupsUnlinkRequest {
+	jsonrpc: '2.0';
+	id: JsonRpcId;
+	method: 'sessionGroups.unlink';
+	params: {
+		sessionGroupId: string;
+	};
+}
+
+export interface SessionGroupsUnlinkResponse {
+	jsonrpc: '2.0';
+	id: JsonRpcId;
+	result: AcceptedResult;
+}
+
 export interface AlertsListRulesRequest {
 	jsonrpc: '2.0';
 	id: JsonRpcId;
@@ -817,7 +858,7 @@ export interface ApiMethods {
 		params: {
 			savedDeviceId: string;
 			expectedRevision: number;
-			patch: Record<string, unknown>;
+			patch: SettingsPatch;
 		};
 		result: BoardProfile;
 	};
@@ -898,6 +939,18 @@ export interface ApiMethods {
 		result: AcceptedResult;
 	};
 	'sessionGroups.list': { params: EmptyParams; result: Array<SessionGroup> };
+	'sessionGroups.get': {
+		params: {
+			sessionGroupId: string;
+		};
+		result: SessionGroup;
+	};
+	'sessionGroups.unlink': {
+		params: {
+			sessionGroupId: string;
+		};
+		result: AcceptedResult;
+	};
 	'alerts.listRules': { params: EmptyParams; result: Array<AlertRule> };
 	'alerts.replaceRules': {
 		params: {

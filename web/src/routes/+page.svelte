@@ -62,6 +62,23 @@
 		});
 	}
 
+	function groupedSession(sessionId: string): boolean {
+		return apiStore.sessionGroups.some((group) => group.sessionIds.includes(sessionId));
+	}
+
+	async function deleteSelectedSession() {
+		const session = apiStore.selectedSession;
+		if (
+			!session ||
+			!window.confirm(
+				`Permanently delete this ${session.sampleCount}-sample session? This cannot be undone.`
+			)
+		) {
+			return;
+		}
+		await apiStore.deleteSelectedSession();
+	}
+
 	onMount(() => {
 		void apiStore.connect();
 		return () => apiStore.close();
@@ -269,8 +286,7 @@
 					<button
 						class="mt-3 rounded-md bg-slate-700 px-3 py-2 disabled:opacity-50"
 						disabled={apiStore.busy || apiStore.selectedSession.totalElapsedMs === 0}
-						onclick={inspectSessionMidpoint}
-						>Inspect midpoint ±15 seconds</button
+						onclick={inspectSessionMidpoint}>Inspect midpoint ±15 seconds</button
 					>
 					{#if apiStore.diagnosticSeries.length}
 						<div id="diagnostic-window" class="mt-4 rounded bg-slate-950 p-3">
@@ -284,6 +300,32 @@
 						</div>
 					{/if}
 				</div>
+				<div class="mt-5 rounded-lg border border-slate-700 p-4">
+					<h3 class="font-medium">Session file</h3>
+					<p class="mt-1 text-sm text-slate-400">
+						Exports are generated losslessly by the native backend from canonical storage.
+					</p>
+					<div class="mt-3 flex flex-wrap gap-2">
+						<button
+							class="rounded-md bg-slate-700 px-3 py-2 disabled:opacity-50"
+							disabled={apiStore.busy || apiStore.selectedSession.state === 'active'}
+							onclick={() => apiStore.exportSession('float-view-archive')}>Prepare archive</button
+						>
+						<button
+							class="rounded-md bg-slate-700 px-3 py-2 disabled:opacity-50"
+							disabled={apiStore.busy || apiStore.selectedSession.state === 'active'}
+							onclick={() => apiStore.exportSession('csv')}>Prepare CSV</button
+						>
+						<button
+							class="rounded-md bg-rose-800 px-3 py-2 disabled:opacity-50"
+							disabled={apiStore.busy || apiStore.selectedSession.state === 'active'}
+							onclick={deleteSelectedSession}>Delete session</button
+						>
+					</div>
+					{#if apiStore.exportStatus}
+						<p class="mt-3 text-sm text-emerald-300">{apiStore.exportStatus}</p>
+					{/if}
+				</div>
 			{:else}
 				<h2 id="sessions-heading" class="text-xl font-medium">Sessions</h2>
 				<div class="mt-3 flex gap-2 text-sm">
@@ -292,27 +334,184 @@
 					<button class="rounded-md bg-slate-800 px-3 py-2">Duration</button>
 					<button class="rounded-md bg-slate-800 px-3 py-2">Distance</button>
 				</div>
+				{#if apiStore.settings}
+					<div class="mt-4 rounded-lg border border-slate-700 p-3">
+						<label class="flex items-center gap-3 text-sm">
+							<input
+								type="checkbox"
+								checked={apiStore.settings.automaticSessionLinkingEnabled}
+								onchange={(event) =>
+									apiStore.updateSessionSettings({
+										automaticSessionLinkingEnabled: event.currentTarget.checked
+									})}
+							/>
+							<span>Link same-board rides across charging breaks</span>
+						</label>
+						<label class="mt-3 block text-sm text-slate-300">
+							Maximum break (hours)
+							<input
+								class="ml-2 w-20 rounded bg-slate-800 px-2 py-1"
+								type="number"
+								min="0.0167"
+								max="24"
+								step="0.5"
+								value={apiStore.settings.sessionLinkWindowMs / 3_600_000}
+								onchange={(event) =>
+									apiStore.updateSessionSettings({
+										sessionLinkWindowMs: Math.round(Number(event.currentTarget.value) * 3_600_000)
+									})}
+							/>
+						</label>
+						<details class="mt-4 border-t border-slate-700 pt-3">
+							<summary class="cursor-pointer text-sm font-medium">Logging and recovery</summary>
+							<p class="mt-2 text-xs text-slate-400">
+								These settings apply natively, including while the frontend is not running.
+							</p>
+							<div class="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+								<label class="text-sm text-slate-300">
+									Idle samples / second
+									<input
+										class="mt-1 block w-full rounded bg-slate-800 px-2 py-1"
+										type="number"
+										min="0.0167"
+										max="10"
+										step="0.1"
+										value={1000 / apiStore.settings.idlePersistIntervalMs}
+										onchange={(event) =>
+											apiStore.updateSessionSettings({
+												idlePersistIntervalMs: Math.round(
+													1000 / Math.max(0.0167, Number(event.currentTarget.value))
+												)
+											})}
+									/>
+								</label>
+								<label class="text-sm text-slate-300">
+									Riding samples / second
+									<input
+										class="mt-1 block w-full rounded bg-slate-800 px-2 py-1"
+										type="number"
+										min="0.1"
+										max="20"
+										step="1"
+										value={1000 / apiStore.settings.ridingPersistIntervalMs}
+										onchange={(event) =>
+											apiStore.updateSessionSettings({
+												ridingPersistIntervalMs: Math.round(
+													1000 / Math.max(0.1, Number(event.currentTarget.value))
+												)
+											})}
+									/>
+								</label>
+								<label class="text-sm text-slate-300">
+									Ride-state probes / second
+									<input
+										class="mt-1 block w-full rounded bg-slate-800 px-2 py-1"
+										type="number"
+										min="0.1"
+										max="10"
+										step="0.5"
+										value={1000 / apiStore.settings.idleProbeIntervalMs}
+										onchange={(event) =>
+											apiStore.updateSessionSettings({
+												idleProbeIntervalMs: Math.round(
+													1000 / Math.max(0.1, Number(event.currentTarget.value))
+												)
+											})}
+									/>
+								</label>
+								<label class="text-sm text-slate-300">
+									Post-ride high-rate tail (seconds)
+									<input
+										class="mt-1 block w-full rounded bg-slate-800 px-2 py-1"
+										type="number"
+										min="0"
+										max="300"
+										step="1"
+										value={apiStore.settings.postRideTailMs / 1000}
+										onchange={(event) =>
+											apiStore.updateSessionSettings({
+												postRideTailMs: Math.round(Number(event.currentTarget.value) * 1000)
+											})}
+									/>
+								</label>
+								<label class="text-sm text-slate-300">
+									Reconnect window (minutes)
+									<input
+										class="mt-1 block w-full rounded bg-slate-800 px-2 py-1"
+										type="number"
+										min="0"
+										max="60"
+										step="1"
+										value={apiStore.settings.reconnectDurationMs / 60000}
+										onchange={(event) =>
+											apiStore.updateSessionSettings({
+												reconnectDurationMs: Math.round(Number(event.currentTarget.value) * 60000)
+											})}
+									/>
+								</label>
+							</div>
+						</details>
+					</div>
+				{/if}
+				{#if apiStore.sessionGroups.length}
+					<h3 class="mt-5 font-medium">Linked rides</h3>
+					<ul class="mt-2 space-y-2">
+						{#each apiStore.sessionGroups as group (group.sessionGroupId)}
+							<li class="rounded-lg bg-slate-800 p-3">
+								<div class="flex items-start justify-between gap-3">
+									<div>
+										<span class="block font-medium">{group.sessionIds.length} ride segments</span>
+										<span class="text-sm text-slate-400">
+											{Math.round(group.totalElapsedMs / 60000)} min ·
+											{((group.distanceM ?? 0) / 1000).toFixed(2)} km
+										</span>
+									</div>
+									<button
+										class="rounded bg-slate-700 px-2 py-1 text-xs"
+										onclick={() => apiStore.unlinkSessionGroup(group.sessionGroupId)}>Unlink</button
+									>
+								</div>
+								<div class="mt-2 flex flex-wrap gap-2">
+									{#each group.sessionIds as sessionId, index (`${group.sessionGroupId}-${sessionId}`)}
+										{@const session = apiStore.sessions.find(
+											(item) => item.sessionId === sessionId
+										)}
+										{#if session}
+											<button
+												class="rounded bg-slate-700 px-2 py-1 text-sm"
+												onclick={() => apiStore.openSession(sessionId)}>Segment {index + 1}</button
+											>
+										{/if}
+									{/each}
+								</div>
+							</li>
+						{/each}
+					</ul>
+				{/if}
 				{#if apiStore.sessions.length}
 					<ul class="mt-4 space-y-2">
 						{#each apiStore.sessions as session (session.sessionId)}
-							<li>
-								<button
-									class="w-full rounded-lg bg-slate-800 p-3 text-left"
-									onclick={() => apiStore.openSession(session.sessionId)}
-								>
-									<span class="block font-medium">{session.displayName}</span>
-									<span class="text-sm text-slate-400">
-										{session.state} · {Math.round(session.totalElapsedMs / 60000)} min ·
-										{((session.distanceM ?? 0) / 1000).toFixed(2)} km
-									</span>
-								</button>
-							</li>
+							{#if !groupedSession(session.sessionId)}
+								<li>
+									<button
+										class="w-full rounded-lg bg-slate-800 p-3 text-left"
+										onclick={() => apiStore.openSession(session.sessionId)}
+									>
+										<span class="block font-medium">{session.displayName}</span>
+										<span class="text-sm text-slate-400">
+											{session.state} · {Math.round(session.totalElapsedMs / 60000)} min ·
+											{((session.distanceM ?? 0) / 1000).toFixed(2)} km
+										</span>
+									</button>
+								</li>
+							{/if}
 						{/each}
 					</ul>
 				{:else}
 					<p class="mt-3 text-slate-300">Recorded sessions will appear here.</p>
 				{/if}
 			{/if}
+			{#if apiStore.error}<p role="alert" class="mt-3 text-amber-300">{apiStore.error}</p>{/if}
 		</section>
 	{/if}
 </div>

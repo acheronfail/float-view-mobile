@@ -109,10 +109,10 @@
       ],
       "properties": {
         "revision": { "type": "integer", "minimum": 0 },
-        "idleProbeIntervalMs": { "type": "integer", "minimum": 100 },
-        "idlePersistIntervalMs": { "type": "integer", "minimum": 100 },
-        "ridingPersistIntervalMs": { "type": "integer", "minimum": 20 },
-        "postRideTailMs": { "type": "integer", "minimum": 0 },
+        "idleProbeIntervalMs": { "type": "integer", "minimum": 100, "maximum": 10000 },
+        "idlePersistIntervalMs": { "type": "integer", "minimum": 100, "maximum": 60000 },
+        "ridingPersistIntervalMs": { "type": "integer", "minimum": 50, "maximum": 10000 },
+        "postRideTailMs": { "type": "integer", "minimum": 0, "maximum": 300000 },
         "reconnectDurationMs": {
           "type": "integer",
           "minimum": 0,
@@ -124,6 +124,21 @@
           "minimum": 60000,
           "maximum": 86400000
         },
+        "rawPacketCaptureEnabled": { "type": "boolean" }
+      }
+    },
+    "SettingsPatch": {
+      "type": "object",
+      "additionalProperties": false,
+      "minProperties": 1,
+      "properties": {
+        "idleProbeIntervalMs": { "type": "integer", "minimum": 100, "maximum": 10000 },
+        "idlePersistIntervalMs": { "type": "integer", "minimum": 100, "maximum": 60000 },
+        "ridingPersistIntervalMs": { "type": "integer", "minimum": 50, "maximum": 10000 },
+        "postRideTailMs": { "type": "integer", "minimum": 0, "maximum": 300000 },
+        "reconnectDurationMs": { "type": "integer", "minimum": 0, "maximum": 3600000 },
+        "automaticSessionLinkingEnabled": { "type": "boolean" },
+        "sessionLinkWindowMs": { "type": "integer", "minimum": 60000, "maximum": 86400000 },
         "rawPacketCaptureEnabled": { "type": "boolean" }
       }
     },
@@ -574,7 +589,7 @@
           "properties": {
             "savedDeviceId": { "type": "string" },
             "expectedRevision": { "type": "integer", "minimum": 0 },
-            "patch": { "type": "object", "additionalProperties": true }
+            "patch": { "$ref": "#/$defs/SettingsPatch" }
           }
         }
       }
@@ -928,6 +943,62 @@
           "type": "array",
           "items": { "$ref": "#/$defs/SessionGroup" }
         }
+      }
+    },
+    "SessionGroupsGetRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["jsonrpc", "id", "method", "params"],
+      "properties": {
+        "jsonrpc": { "const": "2.0" },
+        "id": { "$ref": "common.schema.json#/$defs/JsonRpcId" },
+        "method": { "const": "sessionGroups.get" },
+        "params": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["sessionGroupId"],
+          "properties": {
+            "sessionGroupId": { "type": "string", "minLength": 1 }
+          }
+        }
+      }
+    },
+    "SessionGroupsGetResponse": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["jsonrpc", "id", "result"],
+      "properties": {
+        "jsonrpc": { "const": "2.0" },
+        "id": { "$ref": "common.schema.json#/$defs/JsonRpcId" },
+        "result": { "$ref": "#/$defs/SessionGroup" }
+      }
+    },
+    "SessionGroupsUnlinkRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["jsonrpc", "id", "method", "params"],
+      "properties": {
+        "jsonrpc": { "const": "2.0" },
+        "id": { "$ref": "common.schema.json#/$defs/JsonRpcId" },
+        "method": { "const": "sessionGroups.unlink" },
+        "params": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["sessionGroupId"],
+          "properties": {
+            "sessionGroupId": { "type": "string", "minLength": 1 }
+          }
+        }
+      }
+    },
+    "SessionGroupsUnlinkResponse": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["jsonrpc", "id", "result"],
+      "properties": {
+        "jsonrpc": { "const": "2.0" },
+        "id": { "$ref": "common.schema.json#/$defs/JsonRpcId" },
+        "result": { "$ref": "#/$defs/AcceptedResult" }
       }
     },
     "AlertsListRulesRequest": {

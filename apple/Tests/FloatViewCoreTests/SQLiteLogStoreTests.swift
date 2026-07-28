@@ -142,6 +142,109 @@ private func repositoryRoot() -> URL {
   #expect(secondPage.items.map(\.sessionID) == [record.sessionID.value])
 }
 
+@Test func settingsLinkingExportsAndIdempotentDeletionUseCanonicalStorage() throws {
+  let root = FileManager.default.temporaryDirectory
+    .appending(path: "float-view-session-management-\(UUID().uuidString)")
+  defer { try? FileManager.default.removeItem(at: root) }
+  let store = try SQLiteLogStore(
+    root: root,
+    schemaDirectory: repositoryRoot().appending(path: "logging/sql"),
+    availableBytes: { 2_000_000_000 }
+  )
+  let settings = try store.updateSettings(
+    expectedRevision: 0,
+    patchJSON: #"{"automaticSessionLinkingEnabled":true,"sessionLinkWindowMs":7200000,"idlePersistIntervalMs":2345,"ridingPersistIntervalMs":125}"#
+  )
+  #expect(settings.revision == 1)
+  #expect(settings.automaticSessionLinkingEnabled)
+
+  let base = Date(timeIntervalSince1970: 1_700_000_000)
+  var sessionIDs: [String] = []
+  for offset in [0.0, 120.0] {
+    let record = try store.create(
+      deviceID: DeviceID("management-fixture"),
+      at: base.addingTimeInterval(offset)
+    )
+    sessionIDs.append(record.sessionID.value)
+    try store.append(
+      jobID: record.jobID,
+      samples: [
+        TelemetrySample(
+          sequence: 1,
+          observedAt: base.addingTimeInterval(offset),
+          elapsedMs: 0,
+          rideState: .idle,
+          packVoltageV: 60,
+          dutyCycle: 0.1,
+          extensionFields: ["speedKph": 0]
+        ),
+        TelemetrySample(
+          sequence: 2,
+          observedAt: base.addingTimeInterval(offset + 60),
+          elapsedMs: 60_000,
+          rideState: .riding,
+          packVoltageV: 58,
+          dutyCycle: 0.5,
+          extensionFields: ["speedKph": 18]
+        ),
+      ]
+    )
+    _ = try store.close(
+      jobID: record.jobID,
+      at: base.addingTimeInterval(offset + 60),
+      reason: "test"
+    )
+  }
+
+  let group = try #require(store.sessionGroups().first)
+  #expect(group.sessionIDs == sessionIDs)
+  #expect(group.totalElapsedMs == 120_000)
+  #expect(try store.sessionGroup(sessionGroupID: group.sessionGroupID) == group)
+
+  let csv = try store.exportSession(sessionID: sessionIDs[0], format: "csv")
+  let csvText = try String(contentsOf: csv.fileURL, encoding: .utf8)
+  #expect(csvText.contains("pack_voltage_v"))
+  let firstCSVRow = try #require(csvText.split(separator: "\n").dropFirst().first)
+  #expect(Double(firstCSVRow.split(separator: ",")[4]) == 60)
+  let archive = try store.exportSession(
+    sessionID: sessionIDs[0],
+    format: "float-view-archive"
+  )
+  #expect(
+    try sqliteText(
+      archive.fileURL,
+      "SELECT value FROM float_view_archive_metadata WHERE key = 'format_version'"
+    ) == "1"
+  )
+  let manifestText = try #require(try sqliteText(
+    archive.fileURL,
+    "SELECT value FROM float_view_archive_metadata WHERE key = 'session'"
+  ))
+  let manifest = try #require(
+    try JSONSerialization.jsonObject(with: Data(manifestText.utf8)) as? [String: Any]
+  )
+  #expect((manifest["requestedIdleMs"] as? NSNumber)?.int64Value == 2_345)
+  #expect((manifest["effectiveRidingMs"] as? NSNumber)?.int64Value == 125)
+  #expect(manifest["deviceSnapshot"] is [String: Any])
+  #expect(manifest["boardProfileSnapshot"] is [String: Any])
+  #expect(try sqliteInt(archive.fileURL, "SELECT COUNT(*) FROM sample") == 2)
+
+  try store.deleteSession(sessionID: sessionIDs[0])
+  try store.deleteSession(sessionID: sessionIDs[0])
+  #expect(throws: SessionStoreError.sessionNotFound) {
+    try store.session(sessionID: sessionIDs[0])
+  }
+  #expect(try store.sessionGroups().isEmpty)
+
+  let active = try store.create(
+    deviceID: DeviceID("management-fixture"),
+    at: base.addingTimeInterval(300)
+  )
+  #expect(throws: SessionStoreError.sessionActive) {
+    try store.deleteSession(sessionID: active.sessionID.value)
+  }
+}
+
 @Test func sqliteStoreRecoversAnInterruptedSessionAtStartupBoundary() throws {
   let root = FileManager.default.temporaryDirectory
     .appending(path: "float-view-recovery-\(UUID().uuidString)")
@@ -161,6 +264,39 @@ private func repositoryRoot() -> URL {
   )
   #expect(try restarted.recoverInterrupted() == 1)
   #expect(try restarted.recoverInterrupted() == 0)
+}
+
+@Test func schemaV3ResumesAnInterruptedSessionDeletion() throws {
+  let root = FileManager.default.temporaryDirectory
+    .appending(path: "float-view-delete-recovery-\(UUID().uuidString)")
+  defer { try? FileManager.default.removeItem(at: root) }
+  let schema = repositoryRoot().appending(path: "logging/sql")
+  let store = try SQLiteLogStore(
+    root: root,
+    schemaDirectory: schema,
+    availableBytes: { 2_000_000_000 }
+  )
+  let record = try store.create(deviceID: DeviceID("delete-recovery"), at: .distantPast)
+  _ = try store.close(jobID: record.jobID, at: .distantPast, reason: "test")
+  let catalogURL = root.appending(path: "catalog.sqlite")
+  let storedFileName = try sqliteText(
+    catalogURL,
+    "SELECT file_name FROM session_catalog WHERE session_id = '\(record.sessionID.value)'"
+  )
+  let fileName = try #require(storedFileName)
+  try sqliteExecute(
+    catalogURL,
+    "UPDATE session_catalog SET pending_delete = 1 WHERE session_id = '\(record.sessionID.value)'"
+  )
+  try FileManager.default.removeItem(at: root.appending(path: fileName))
+
+  let restarted = try SQLiteLogStore(
+    root: root,
+    schemaDirectory: schema,
+    availableBytes: { 2_000_000_000 }
+  )
+  #expect(try restarted.sessions(SessionListQuery()).items.isEmpty)
+  #expect(try sqliteInt(catalogURL, "SELECT COUNT(*) FROM session_catalog") == 0)
 }
 
 @Test func schemaV2BackfillsExistingSessionSummaries() throws {

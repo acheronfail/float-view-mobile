@@ -75,6 +75,29 @@ private final class Database: @unchecked Sendable {
     }
   }
 
+  func forEachRow(
+    _ sql: String,
+    values: [SQLiteValue] = [],
+    body: (OpaquePointer) throws -> Void
+  ) throws {
+    var statement: OpaquePointer?
+    guard sqlite3_prepare_v2(handle, sql, -1, &statement, nil) == SQLITE_OK,
+          let statement
+    else {
+      throw SQLiteLogStoreError.sqlite(String(cString: sqlite3_errmsg(handle)))
+    }
+    defer { sqlite3_finalize(statement) }
+    bind(values, to: statement)
+    while true {
+      switch sqlite3_step(statement) {
+      case SQLITE_ROW: try body(statement)
+      case SQLITE_DONE: return
+      default:
+        throw SQLiteLogStoreError.sqlite(String(cString: sqlite3_errmsg(handle)))
+      }
+    }
+  }
+
   func scalarInt(_ sql: String) throws -> Int {
     var statement: OpaquePointer?
     guard sqlite3_prepare_v2(handle, sql, -1, &statement, nil) == SQLITE_OK else {
@@ -141,13 +164,20 @@ public final class SQLiteLogStore: LogStorePort, ProductStorePort, SessionStoreP
     try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
     catalog = try Database(url: root.appending(path: "catalog.sqlite"))
     try catalog.execute(String(contentsOf: schemaDirectory.appending(path: "catalog-v1.sql")))
-    if try catalog.scalarInt(
+    var catalogVersion = try catalog.scalarInt(
       "SELECT CAST(value AS INTEGER) FROM schema_metadata WHERE key = 'catalog_version'"
-    ) < LogSchema.catalogVersion {
+    )
+    if catalogVersion < 2 {
       try catalog.execute(String(contentsOf: schemaDirectory.appending(path: "catalog-v2.sql")))
+      catalogVersion = 2
+    }
+    if catalogVersion < 3 {
+      try catalog.execute(String(contentsOf: schemaDirectory.appending(path: "catalog-v3.sql")))
     }
     try backfillV2Summaries()
     try migrateLegacySavedDeviceIdentifiers()
+    try resumePendingDeletes()
+    try cleanupStagedExports()
   }
 
   public func create(deviceID: DeviceID, at: Date) throws -> SessionRecord {
@@ -166,6 +196,7 @@ public final class SQLiteLogStore: LogStorePort, ProductStorePort, SessionStoreP
     let timestamp = Int64(at.timeIntervalSince1970 * 1_000)
     let savedDevice = try ensureSavedDeviceLocked(deviceID: deviceID, at: at)
     let profile = try boardProfileLocked(savedDeviceID: savedDevice.savedDeviceID, at: at)
+    let settings = try settingsLocked()
     let deviceSnapshot = try Self.jsonString([
       "savedDeviceId": savedDevice.savedDeviceID,
       "deviceHistoryId": savedDevice.deviceHistoryID,
@@ -178,12 +209,14 @@ public final class SQLiteLogStore: LogStorePort, ProductStorePort, SessionStoreP
         profile_snapshot_json, profile_revision, file_name, started_at_ms,
         state, integrity, requested_idle_ms, effective_idle_ms,
         requested_riding_ms, effective_riding_ms
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'active', 'complete', 1000, 1000, 100, 100)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'active', 'complete', ?, ?, ?, ?)
       """,
       values: [
         .text(sessionID.value), .text(jobID.value), .text(savedDevice.deviceHistoryID),
         .text(deviceSnapshot), .text(profile.valuesJSON), .integer(Int64(profile.revision)),
         .text(fileName), .integer(timestamp),
+        .integer(settings.idlePersistIntervalMs), .integer(settings.idlePersistIntervalMs),
+        .integer(settings.ridingPersistIntervalMs), .integer(settings.ridingPersistIntervalMs),
       ]
     )
     self.session = session
@@ -339,16 +372,24 @@ public final class SQLiteLogStore: LogStorePort, ProductStorePort, SessionStoreP
     guard let record = current else { throw SQLiteLogStoreError.noActiveSession }
     guard record.jobID == jobID else { throw SQLiteLogStoreError.wrongJob }
     try session?.execute("PRAGMA wal_checkpoint(FULL)")
-    try catalog.statement(
-      """
-      UPDATE session_catalog SET ended_at_ms = ?, state = 'completed',
-      committed_sequence = ?, close_reason = ? WHERE job_id = ? AND state = 'active'
-      """,
-      values: [
-        .integer(Int64(at.timeIntervalSince1970 * 1_000)), .integer(record.committedSequence),
-        .text(reason), .text(jobID.value),
-      ]
-    )
+    try catalog.execute("BEGIN IMMEDIATE")
+    do {
+      try catalog.statement(
+        """
+        UPDATE session_catalog SET ended_at_ms = ?, state = 'completed',
+        committed_sequence = ?, close_reason = ? WHERE job_id = ? AND state = 'active'
+        """,
+        values: [
+          .integer(Int64(at.timeIntervalSince1970 * 1_000)), .integer(record.committedSequence),
+          .text(reason), .text(jobID.value),
+        ]
+      )
+      try linkClosedSessionLocked(sessionID: record.sessionID.value)
+      try catalog.execute("COMMIT")
+    } catch {
+      try? catalog.execute("ROLLBACK")
+      throw error
+    }
     session = nil
     current = nil
     return SessionRecord(
@@ -370,7 +411,7 @@ public final class SQLiteLogStore: LogStorePort, ProductStorePort, SessionStoreP
     }
     let cursor = try query.cursor.map(Self.decodeCursor)
     if let cursor, cursor.field != query.sortField { throw SessionStoreError.invalidCursor }
-    var conditions: [String] = []
+    var conditions: [String] = ["pending_delete = 0"]
     var values: [SQLiteValue] = []
     if let cursor {
       let comparison = query.sortDescending ? "<" : ">"
@@ -442,7 +483,7 @@ public final class SQLiteLogStore: LogStorePort, ProductStorePort, SessionStoreP
       SELECT session_id, device_history_id, device_snapshot_json, started_at_ms, ended_at_ms,
              state, integrity, sample_count, event_count, riding_elapsed_ms, total_elapsed_ms,
              distance_m, max_speed_mps, max_duty_cycle
-      FROM session_catalog WHERE session_id = ?
+      FROM session_catalog WHERE session_id = ? AND pending_delete = 0
       """,
       values: [.text(sessionID)],
       map: Self.sessionSummary
@@ -603,6 +644,196 @@ public final class SQLiteLogStore: LogStorePort, ProductStorePort, SessionStoreP
     }
   }
 
+  public func settings() throws -> SettingsRecord {
+    lock.lock()
+    defer { lock.unlock() }
+    return try settingsLocked()
+  }
+
+  public func updateSettings(
+    expectedRevision: Int,
+    patchJSON: String
+  ) throws -> SettingsRecord {
+    lock.lock()
+    defer { lock.unlock() }
+    guard let patch = try? JSONSerialization.jsonObject(with: Data(patchJSON.utf8))
+      as? [String: Any],
+      !patch.isEmpty,
+      patch.keys.allSatisfy(Self.settingKeys.contains)
+    else {
+      throw ProductStoreError.invalidSettingsPatch
+    }
+    try catalog.execute("BEGIN IMMEDIATE")
+    do {
+      let current = try settingsLocked()
+      guard current.revision == expectedRevision else {
+        throw ProductStoreError.settingsRevisionConflict(currentRevision: current.revision)
+      }
+      var values = Self.settingsDictionary(current)
+      patch.forEach { values[$0.key] = $0.value }
+      let updated = try Self.validatedSettings(values, revision: current.revision + 1)
+      let json = String(data: try JSONEncoder().encode(updated), encoding: .utf8)!
+      try catalog.statement(
+        "UPDATE settings SET revision = ?, json = ? WHERE singleton = 1 AND revision = ?",
+        values: [
+          .integer(Int64(updated.revision)), .text(json), .integer(Int64(expectedRevision)),
+        ]
+      )
+      guard try catalog.scalarInt("SELECT changes()") == 1 else {
+        throw ProductStoreError.settingsRevisionConflict(currentRevision: current.revision)
+      }
+      try catalog.execute("COMMIT")
+      return updated
+    } catch {
+      try? catalog.execute("ROLLBACK")
+      throw error
+    }
+  }
+
+  public func deleteSession(sessionID: String) throws {
+    lock.lock()
+    defer { lock.unlock() }
+    if current?.sessionID.value == sessionID { throw SessionStoreError.sessionActive }
+    guard let sessionRow = try catalog.query(
+      "SELECT file_name, state FROM session_catalog WHERE session_id = ?",
+      values: [.text(sessionID)],
+      map: { (Self.columnText($0, 0)!, Self.columnText($0, 1)!) }
+    ).first else {
+      return
+    }
+    if sessionRow.1 == "active" { throw SessionStoreError.sessionActive }
+    let fileName = sessionRow.0
+    try catalog.statement(
+      "UPDATE session_catalog SET pending_delete = 1 WHERE session_id = ?",
+      values: [.text(sessionID)]
+    )
+    try removeSessionFiles(fileName: fileName)
+    try catalog.execute("BEGIN IMMEDIATE")
+    do {
+      try catalog.statement(
+        "DELETE FROM session_catalog WHERE session_id = ?",
+        values: [.text(sessionID)]
+      )
+      try removeUndersizedGroupsLocked()
+      try catalog.execute("COMMIT")
+    } catch {
+      try? catalog.execute("ROLLBACK")
+      throw error
+    }
+  }
+
+  public func sessionGroups() throws -> [SessionGroupRecord] {
+    lock.lock()
+    defer { lock.unlock() }
+    let ids = try catalog.query(
+      "SELECT session_group_id FROM session_group ORDER BY created_at_ms DESC LIMIT 1000",
+      map: { Self.columnText($0, 0)! }
+    )
+    return try ids.map(sessionGroupLocked)
+  }
+
+  public func sessionGroup(sessionGroupID: String) throws -> SessionGroupRecord {
+    lock.lock()
+    defer { lock.unlock() }
+    return try sessionGroupLocked(sessionGroupID)
+  }
+
+  public func unlinkSessionGroup(sessionGroupID: String) throws {
+    lock.lock()
+    defer { lock.unlock() }
+    try catalog.statement(
+      "DELETE FROM session_group WHERE session_group_id = ?",
+      values: [.text(sessionGroupID)]
+    )
+  }
+
+  public func exportSession(
+    sessionID: String,
+    format: String
+  ) throws -> SessionExportRecord {
+    lock.lock()
+    defer { lock.unlock() }
+    guard format == "float-view-archive" || format == "csv" else {
+      throw SessionStoreError.invalidExportFormat
+    }
+    if current?.sessionID.value == sessionID { throw SessionStoreError.sessionActive }
+    guard let sessionRow = try catalog.query(
+      """
+      SELECT file_name, state FROM session_catalog
+      WHERE session_id = ? AND pending_delete = 0
+      """,
+      values: [.text(sessionID)],
+      map: { (Self.columnText($0, 0)!, Self.columnText($0, 1)!) }
+    ).first else {
+      throw SessionStoreError.sessionNotFound
+    }
+    if sessionRow.1 == "active" { throw SessionStoreError.sessionActive }
+    let fileName = sessionRow.0
+    let exports = root.appending(path: "Exports", directoryHint: .isDirectory)
+    try FileManager.default.createDirectory(at: exports, withIntermediateDirectories: true)
+    let exportID = UUID().uuidString
+    let outputName = "float-view-\(exportID).\(format == "csv" ? "csv" : "floatview")"
+    let output = exports.appending(path: outputName)
+    do {
+      let source = root.appending(path: fileName)
+      let database = try openSessionLocked(sessionID: sessionID)
+      try database.execute("PRAGMA wal_checkpoint(FULL)")
+      if format == "float-view-archive" {
+        try FileManager.default.copyItem(at: source, to: output)
+        let archive = try Database(url: output)
+        try archive.execute(
+          """
+          CREATE TABLE IF NOT EXISTS float_view_archive_metadata(
+            key TEXT PRIMARY KEY NOT NULL, value TEXT NOT NULL
+          )
+          """
+        )
+        let manifest = try sessionArchiveManifest(sessionID: sessionID)
+        try archive.statement(
+          "INSERT OR REPLACE INTO float_view_archive_metadata(key, value) VALUES ('format_version', '1')",
+          values: []
+        )
+        try archive.statement(
+          "INSERT OR REPLACE INTO float_view_archive_metadata(key, value) VALUES ('session', ?)",
+          values: [.text(try Self.jsonString(manifest))]
+        )
+        try archive.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+      } else {
+        FileManager.default.createFile(atPath: output.path, contents: nil)
+        let handle = try FileHandle(forWritingTo: output)
+        defer { try? handle.close() }
+        try handle.write(contentsOf: Data(
+          "sequence,observed_at_ms,elapsed_ms,ride_state,pack_voltage_v,duty_cycle,controller_temp_c,motor_temp_c,footpad_state,motor_current_a,battery_current_a,erpm,speed_kph,extension_json\n".utf8
+        ))
+        try database.forEachRow(
+          """
+          SELECT sequence, observed_at_ms, monotonic_elapsed_ms, ride_state,
+                 raw_pack_voltage_v, duty_cycle, controller_temp_c, motor_temp_c,
+                 footpad_state, motor_current_a, battery_current_a, erpm, speed_kph,
+                 extension_json
+          FROM sample ORDER BY sequence
+          """
+        ) { statement in
+          var columns: [String] = []
+          for index in 0 ..< 14 {
+            if sqlite3_column_type(statement, Int32(index)) == SQLITE_NULL {
+              columns.append("")
+            } else if index == 3 || index == 13 {
+              columns.append(Self.csv(Self.columnText(statement, Int32(index)) ?? ""))
+            } else {
+              columns.append(String(cString: sqlite3_column_text(statement, Int32(index))))
+            }
+          }
+          try handle.write(contentsOf: Data((columns.joined(separator: ",") + "\n").utf8))
+        }
+      }
+      return SessionExportRecord(exportID: exportID, fileName: outputName, fileURL: output)
+    } catch {
+      try? FileManager.default.removeItem(at: output)
+      throw error
+    }
+  }
+
   @discardableResult
   public func recoverInterrupted() throws -> Int {
     try catalog.execute(
@@ -612,6 +843,254 @@ public final class SQLiteLogStore: LogStorePort, ProductStorePort, SessionStoreP
       """
     )
     return try catalog.scalarInt("SELECT changes()")
+  }
+
+  private func settingsLocked() throws -> SettingsRecord {
+    if let json = try catalog.query(
+      "SELECT json FROM settings WHERE singleton = 1",
+      map: { Self.columnText($0, 0)! }
+    ).first,
+      let value = try? JSONDecoder().decode(SettingsRecord.self, from: Data(json.utf8))
+    {
+      return value
+    }
+    let value = SettingsRecord()
+    let json = String(data: try JSONEncoder().encode(value), encoding: .utf8)!
+    try catalog.statement(
+      "INSERT OR REPLACE INTO settings(singleton, revision, json) VALUES (1, 0, ?)",
+      values: [.text(json)]
+    )
+    return value
+  }
+
+  private func sessionArchiveManifest(sessionID: String) throws -> [String: Any] {
+    guard let value = try catalog.query(
+      """
+      SELECT session_id, device_history_id, device_snapshot_json, profile_snapshot_json,
+             profile_revision, started_at_ms, ended_at_ms, state, integrity,
+             committed_sequence, sample_count, event_count, requested_idle_ms,
+             effective_idle_ms, requested_riding_ms, effective_riding_ms, close_reason,
+             riding_elapsed_ms, total_elapsed_ms, distance_m, max_speed_mps, max_duty_cycle
+      FROM session_catalog WHERE session_id = ? AND pending_delete = 0
+      """,
+      values: [.text(sessionID)],
+      map: { statement -> [String: Any] in
+        func json(_ index: Int32) -> Any {
+          guard let text = Self.columnText(statement, index),
+                let object = try? JSONSerialization.jsonObject(with: Data(text.utf8))
+          else { return [:] }
+          return object
+        }
+        func integer(_ index: Int32) -> Any {
+          sqlite3_column_type(statement, index) == SQLITE_NULL
+            ? NSNull() : sqlite3_column_int64(statement, index)
+        }
+        func number(_ index: Int32) -> Any {
+          sqlite3_column_type(statement, index) == SQLITE_NULL
+            ? NSNull() : sqlite3_column_double(statement, index)
+        }
+        return [
+          "sessionId": Self.columnText(statement, 0)!,
+          "deviceHistoryId": Self.columnText(statement, 1)!,
+          "deviceSnapshot": json(2),
+          "boardProfileSnapshot": json(3),
+          "boardProfileRevision": sqlite3_column_int64(statement, 4),
+          "startedAtMs": sqlite3_column_int64(statement, 5),
+          "endedAtMs": integer(6),
+          "state": Self.columnText(statement, 7)!,
+          "integrity": Self.columnText(statement, 8)!,
+          "committedSequence": sqlite3_column_int64(statement, 9),
+          "sampleCount": sqlite3_column_int64(statement, 10),
+          "eventCount": sqlite3_column_int64(statement, 11),
+          "requestedIdleMs": sqlite3_column_int64(statement, 12),
+          "effectiveIdleMs": sqlite3_column_int64(statement, 13),
+          "requestedRidingMs": sqlite3_column_int64(statement, 14),
+          "effectiveRidingMs": sqlite3_column_int64(statement, 15),
+          "closeReason": Self.columnText(statement, 16) ?? NSNull(),
+          "ridingElapsedMs": sqlite3_column_int64(statement, 17),
+          "totalElapsedMs": sqlite3_column_int64(statement, 18),
+          "distanceM": number(19),
+          "maxSpeedMps": number(20),
+          "maxDutyCycle": number(21),
+        ]
+      }
+    ).first else {
+      throw SessionStoreError.sessionNotFound
+    }
+    return value
+  }
+
+  private func sessionGroupLocked(_ sessionGroupID: String) throws -> SessionGroupRecord {
+    guard let header = try catalog.query(
+      """
+      SELECT g.device_history_id, COALESCE(SUM(s.total_elapsed_ms), 0),
+             CASE WHEN COUNT(s.distance_m) = COUNT(*) THEN SUM(s.distance_m) ELSE NULL END
+      FROM session_group g
+      JOIN session_group_member m ON m.session_group_id = g.session_group_id
+      JOIN session_catalog s ON s.session_id = m.session_id AND s.pending_delete = 0
+      WHERE g.session_group_id = ?
+      GROUP BY g.session_group_id, g.device_history_id
+      """,
+      values: [.text(sessionGroupID)],
+      map: { statement in
+      (
+        Self.columnText(statement, 0)!,
+        sqlite3_column_int64(statement, 1),
+        sqlite3_column_type(statement, 2) == SQLITE_NULL
+          ? nil : sqlite3_column_double(statement, 2)
+      )
+    }).first else {
+      throw SessionStoreError.sessionNotFound
+    }
+    let sessionIDs = try catalog.query(
+      """
+      SELECT m.session_id FROM session_group_member m
+      JOIN session_catalog s ON s.session_id = m.session_id AND s.pending_delete = 0
+      WHERE m.session_group_id = ? ORDER BY m.ordinal
+      """,
+      values: [.text(sessionGroupID)],
+      map: { Self.columnText($0, 0)! }
+    )
+    guard sessionIDs.count >= 2 else { throw SessionStoreError.sessionNotFound }
+    return SessionGroupRecord(
+      sessionGroupID: sessionGroupID,
+      deviceHistoryID: header.0,
+      sessionIDs: sessionIDs,
+      totalElapsedMs: header.1,
+      distanceM: header.2
+    )
+  }
+
+  private func resumePendingDeletes() throws {
+    let pending = try catalog.query(
+      "SELECT session_id, file_name FROM session_catalog WHERE pending_delete = 1"
+    ) { statement in
+      (Self.columnText(statement, 0)!, Self.columnText(statement, 1)!)
+    }
+    for (sessionID, fileName) in pending {
+      try removeSessionFiles(fileName: fileName)
+      try catalog.statement(
+        "DELETE FROM session_catalog WHERE session_id = ?",
+        values: [.text(sessionID)]
+      )
+    }
+    try removeUndersizedGroupsLocked()
+  }
+
+  private func removeSessionFiles(fileName: String) throws {
+    let file = root.appending(path: fileName)
+    for suffix in ["", "-wal", "-shm"] {
+      let candidate = URL(fileURLWithPath: file.path + suffix)
+      if FileManager.default.fileExists(atPath: candidate.path) {
+        try FileManager.default.removeItem(at: candidate)
+      }
+    }
+  }
+
+  private func removeUndersizedGroupsLocked() throws {
+    try catalog.execute(
+      """
+      DELETE FROM session_group
+      WHERE session_group_id IN (
+        SELECT g.session_group_id FROM session_group g
+        LEFT JOIN session_group_member m ON m.session_group_id = g.session_group_id
+        GROUP BY g.session_group_id HAVING COUNT(m.session_id) < 2
+      )
+      """
+    )
+  }
+
+  private func cleanupStagedExports() throws {
+    let directory = root.appending(path: "Exports", directoryHint: .isDirectory)
+    guard FileManager.default.fileExists(atPath: directory.path) else { return }
+    let files = try FileManager.default.contentsOfDirectory(
+      at: directory,
+      includingPropertiesForKeys: [.contentModificationDateKey],
+      options: [.skipsHiddenFiles]
+    ).filter { ["csv", "floatview"].contains($0.pathExtension) }
+      .sorted {
+        let left = try? $0.resourceValues(forKeys: [.contentModificationDateKey])
+          .contentModificationDate
+        let right = try? $1.resourceValues(forKeys: [.contentModificationDateKey])
+          .contentModificationDate
+        return (left ?? .distantPast) > (right ?? .distantPast)
+      }
+    let cutoff = Date().addingTimeInterval(-86_400)
+    for (index, file) in files.enumerated() {
+      let modified = try? file.resourceValues(forKeys: [.contentModificationDateKey])
+        .contentModificationDate
+      if index >= 20 || (modified ?? .distantPast) < cutoff {
+        try? FileManager.default.removeItem(at: file)
+      }
+    }
+  }
+
+  private func linkClosedSessionLocked(sessionID: String) throws {
+    let settings = try settingsLocked()
+    guard settings.automaticSessionLinkingEnabled else { return }
+    guard let current = try catalog.query(
+      """
+      SELECT device_history_id, started_at_ms FROM session_catalog
+      WHERE session_id = ? AND pending_delete = 0
+      """,
+      values: [.text(sessionID)],
+      map: { statement in
+      (Self.columnText(statement, 0)!, sqlite3_column_int64(statement, 1))
+    }).first else {
+      return
+    }
+    guard let previous = try catalog.query(
+      """
+      SELECT session_id, ended_at_ms FROM session_catalog
+      WHERE device_history_id = ? AND session_id != ? AND pending_delete = 0
+        AND ended_at_ms IS NOT NULL AND ended_at_ms <= ?
+      ORDER BY ended_at_ms DESC, session_id DESC LIMIT 1
+      """,
+      values: [.text(current.0), .text(sessionID), .integer(current.1)],
+      map: { statement in
+      (Self.columnText(statement, 0)!, sqlite3_column_int64(statement, 1))
+    }).first,
+      current.1 - previous.1 <= settings.sessionLinkWindowMs
+    else {
+      return
+    }
+    let existingGroup = try catalog.query(
+      "SELECT session_group_id FROM session_group_member WHERE session_id = ?",
+      values: [.text(previous.0)],
+      map: { Self.columnText($0, 0)! }
+    ).first
+    let groupID = existingGroup ?? UUID().uuidString
+    if existingGroup == nil {
+      try catalog.statement(
+        """
+        INSERT INTO session_group(session_group_id, device_history_id, created_at_ms)
+        VALUES (?, ?, ?)
+        """,
+        values: [.text(groupID), .text(current.0), .integer(current.1)]
+      )
+      try catalog.statement(
+        """
+        INSERT INTO session_group_member(session_group_id, session_id, ordinal)
+        VALUES (?, ?, 0)
+        """,
+        values: [.text(groupID), .text(previous.0)]
+      )
+    }
+    let ordinal = try catalog.query(
+      """
+      SELECT COALESCE(MAX(ordinal), -1) + 1 FROM session_group_member
+      WHERE session_group_id = ?
+      """,
+      values: [.text(groupID)],
+      map: { Int(sqlite3_column_int64($0, 0)) }
+    ).first ?? 0
+    try catalog.statement(
+      """
+      INSERT OR IGNORE INTO session_group_member(session_group_id, session_id, ordinal)
+      VALUES (?, ?, ?)
+      """,
+      values: [.text(groupID), .text(sessionID), .integer(Int64(ordinal))]
+    )
   }
 
   private func updateCatalogSummaryLocked(
@@ -689,10 +1168,24 @@ public final class SQLiteLogStore: LogStorePort, ProductStorePort, SessionStoreP
       map: { (sessionID: Self.columnText($0, 0)!, fileName: Self.columnText($0, 1)!) }
     )
     for item in files {
-      let database = try Database(url: root.appending(path: item.fileName))
-      let version = try database.scalarInt(
+      let sessionURL = root.appending(path: item.fileName)
+      guard FileManager.default.fileExists(atPath: sessionURL.path) else {
+        try catalog.statement(
+          "UPDATE session_catalog SET integrity = 'corrupt' WHERE session_id = ?",
+          values: [.text(item.sessionID)]
+        )
+        continue
+      }
+      let database = try Database(url: sessionURL)
+      guard let version = try? database.scalarInt(
         "SELECT CAST(value AS INTEGER) FROM schema_metadata WHERE key = 'session_version'"
-      )
+      ) else {
+        try catalog.statement(
+          "UPDATE session_catalog SET integrity = 'corrupt' WHERE session_id = ?",
+          values: [.text(item.sessionID)]
+        )
+        continue
+      }
       if version < LogSchema.sessionVersion {
         try database.execute(String(contentsOf: schemaDirectory.appending(path: "session-v2.sql")))
       }
@@ -759,7 +1252,7 @@ public final class SQLiteLogStore: LogStorePort, ProductStorePort, SessionStoreP
 
   private func openSessionLocked(sessionID: String) throws -> Database {
     guard let fileName = try catalog.query(
-      "SELECT file_name FROM session_catalog WHERE session_id = ?",
+      "SELECT file_name FROM session_catalog WHERE session_id = ? AND pending_delete = 0",
       values: [.text(sessionID)],
       map: { Self.columnText($0, 0)! }
     ).first else { throw SessionStoreError.sessionNotFound }
@@ -847,6 +1340,64 @@ public final class SQLiteLogStore: LogStorePort, ProductStorePort, SessionStoreP
     "ridingElapsedMs": "riding_elapsed_ms",
     "distanceM": "COALESCE(distance_m, -1)",
   ]
+
+  private static let settingKeys: Set<String> = [
+    "idleProbeIntervalMs",
+    "idlePersistIntervalMs",
+    "ridingPersistIntervalMs",
+    "postRideTailMs",
+    "reconnectDurationMs",
+    "automaticSessionLinkingEnabled",
+    "sessionLinkWindowMs",
+    "rawPacketCaptureEnabled",
+  ]
+
+  private static func settingsDictionary(_ value: SettingsRecord) -> [String: Any] {
+    [
+      "idleProbeIntervalMs": value.idleProbeIntervalMs,
+      "idlePersistIntervalMs": value.idlePersistIntervalMs,
+      "ridingPersistIntervalMs": value.ridingPersistIntervalMs,
+      "postRideTailMs": value.postRideTailMs,
+      "reconnectDurationMs": value.reconnectDurationMs,
+      "automaticSessionLinkingEnabled": value.automaticSessionLinkingEnabled,
+      "sessionLinkWindowMs": value.sessionLinkWindowMs,
+      "rawPacketCaptureEnabled": value.rawPacketCaptureEnabled,
+    ]
+  }
+
+  private static func validatedSettings(
+    _ values: [String: Any],
+    revision: Int
+  ) throws -> SettingsRecord {
+    func integer(_ key: String, _ range: ClosedRange<Int64>) throws -> Int64 {
+      guard let number = values[key] as? NSNumber,
+            CFGetTypeID(number) != CFBooleanGetTypeID(),
+            number.doubleValue.rounded() == number.doubleValue
+      else { throw ProductStoreError.invalidSettingsPatch }
+      return min(range.upperBound, max(range.lowerBound, number.int64Value))
+    }
+    func boolean(_ key: String) throws -> Bool {
+      guard let number = values[key] as? NSNumber,
+            CFGetTypeID(number) == CFBooleanGetTypeID()
+      else { throw ProductStoreError.invalidSettingsPatch }
+      return number.boolValue
+    }
+    return try SettingsRecord(
+      revision: revision,
+      idleProbeIntervalMs: integer("idleProbeIntervalMs", 100 ... 10_000),
+      idlePersistIntervalMs: integer("idlePersistIntervalMs", 100 ... 60_000),
+      ridingPersistIntervalMs: integer("ridingPersistIntervalMs", 50 ... 10_000),
+      postRideTailMs: integer("postRideTailMs", 0 ... 300_000),
+      reconnectDurationMs: integer("reconnectDurationMs", 0 ... 3_600_000),
+      automaticSessionLinkingEnabled: boolean("automaticSessionLinkingEnabled"),
+      sessionLinkWindowMs: integer("sessionLinkWindowMs", 60_000 ... 86_400_000),
+      rawPacketCaptureEnabled: boolean("rawPacketCaptureEnabled")
+    )
+  }
+
+  private static func csv(_ value: String) -> String {
+    "\"\(value.replacingOccurrences(of: "\"", with: "\"\""))\""
+  }
 
   private static func sessionSummary(_ statement: OpaquePointer) throws -> SessionSummaryRecord {
     let snapshot = columnText(statement, 2).flatMap { text in

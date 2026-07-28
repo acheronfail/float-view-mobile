@@ -462,6 +462,37 @@ public struct Settings: Codable, Sendable, Equatable {
   }
 }
 
+public struct SettingsPatch: Codable, Sendable, Equatable {
+  public let idleProbeIntervalMs: Int?
+  public let idlePersistIntervalMs: Int?
+  public let ridingPersistIntervalMs: Int?
+  public let postRideTailMs: Int?
+  public let reconnectDurationMs: Int?
+  public let automaticSessionLinkingEnabled: Bool?
+  public let sessionLinkWindowMs: Int?
+  public let rawPacketCaptureEnabled: Bool?
+
+  public init(
+    idleProbeIntervalMs: Int? = nil,
+    idlePersistIntervalMs: Int? = nil,
+    ridingPersistIntervalMs: Int? = nil,
+    postRideTailMs: Int? = nil,
+    reconnectDurationMs: Int? = nil,
+    automaticSessionLinkingEnabled: Bool? = nil,
+    sessionLinkWindowMs: Int? = nil,
+    rawPacketCaptureEnabled: Bool? = nil
+  ) {
+    self.idleProbeIntervalMs = idleProbeIntervalMs
+    self.idlePersistIntervalMs = idlePersistIntervalMs
+    self.ridingPersistIntervalMs = ridingPersistIntervalMs
+    self.postRideTailMs = postRideTailMs
+    self.reconnectDurationMs = reconnectDurationMs
+    self.automaticSessionLinkingEnabled = automaticSessionLinkingEnabled
+    self.sessionLinkWindowMs = sessionLinkWindowMs
+    self.rawPacketCaptureEnabled = rawPacketCaptureEnabled
+  }
+}
+
 public struct AlertRule: Codable, Sendable, Equatable {
   public let ruleId: String
   public let kind: String
@@ -1477,6 +1508,76 @@ public struct SessionGroupsListResponse: Codable, Sendable, Equatable {
     jsonrpc: String = "2.0",
     id: JsonRpcId,
     result: [SessionGroup]
+  ) {
+    self.jsonrpc = jsonrpc
+    self.id = id
+    self.result = result
+  }
+}
+
+public struct SessionGroupsGetRequest: Codable, Sendable, Equatable {
+  public let jsonrpc: String
+  public let id: JsonRpcId
+  public let method: String
+  public let params: [String: JSONValue]
+
+  public init(
+    jsonrpc: String = "2.0",
+    id: JsonRpcId,
+    method: String = "sessionGroups.get",
+    params: [String: JSONValue]
+  ) {
+    self.jsonrpc = jsonrpc
+    self.id = id
+    self.method = method
+    self.params = params
+  }
+}
+
+public struct SessionGroupsGetResponse: Codable, Sendable, Equatable {
+  public let jsonrpc: String
+  public let id: JsonRpcId
+  public let result: SessionGroup
+
+  public init(
+    jsonrpc: String = "2.0",
+    id: JsonRpcId,
+    result: SessionGroup
+  ) {
+    self.jsonrpc = jsonrpc
+    self.id = id
+    self.result = result
+  }
+}
+
+public struct SessionGroupsUnlinkRequest: Codable, Sendable, Equatable {
+  public let jsonrpc: String
+  public let id: JsonRpcId
+  public let method: String
+  public let params: [String: JSONValue]
+
+  public init(
+    jsonrpc: String = "2.0",
+    id: JsonRpcId,
+    method: String = "sessionGroups.unlink",
+    params: [String: JSONValue]
+  ) {
+    self.jsonrpc = jsonrpc
+    self.id = id
+    self.method = method
+    self.params = params
+  }
+}
+
+public struct SessionGroupsUnlinkResponse: Codable, Sendable, Equatable {
+  public let jsonrpc: String
+  public let id: JsonRpcId
+  public let result: AcceptedResult
+
+  public init(
+    jsonrpc: String = "2.0",
+    id: JsonRpcId,
+    result: AcceptedResult
   ) {
     self.jsonrpc = jsonrpc
     self.id = id

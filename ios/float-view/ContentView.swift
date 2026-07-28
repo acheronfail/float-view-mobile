@@ -43,6 +43,7 @@ final class AppBackend: ObservableObject {
     #else
     try! logStore.recoverInterrupted()
     #endif
+    let settings = try! logStore.settings()
     let applicationService = ApplicationService(
       bluetooth: bluetooth,
       clock: SystemClock(),
@@ -51,7 +52,14 @@ final class AppBackend: ObservableObject {
       sessionStore: logStore,
       protocolCodec: VescProtocolService(),
       scheduler: SystemScheduler(),
-      events: DebugEventSink()
+      events: DebugEventSink(),
+      samplingSettings: SamplingSettings(
+        idleProbeIntervalMs: settings.idleProbeIntervalMs,
+        idlePersistIntervalMs: settings.idlePersistIntervalMs,
+        ridingPersistIntervalMs: settings.ridingPersistIntervalMs,
+        postRideTailMs: settings.postRideTailMs,
+        reconnectDurationMs: settings.reconnectDurationMs
+      )
     )
     relay.setHandler { [weak applicationService] event in
       try? applicationService?.receive(event)

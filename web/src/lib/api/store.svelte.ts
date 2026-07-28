@@ -6,7 +6,9 @@ import type {
 	HelloResult,
 	SavedDevice,
 	Session,
+	SessionGroup,
 	SeriesPoint,
+	Settings,
 	Snapshot
 } from '../../../../api/generated/typescript/models.js';
 import { connectBootstrap, loadBootstrap } from './bootstrap';
@@ -38,10 +40,13 @@ export class ApiStore {
 	discoveredDevices = $state<Device[]>([]);
 	firmware = $state<FirmwareInfo | null>(null);
 	sessions = $state<Session[]>([]);
+	sessionGroups = $state<SessionGroup[]>([]);
+	settings = $state<Settings | null>(null);
 	selectedSession = $state<Session | null>(null);
 	sessionSeries = $state<SeriesPoint[]>([]);
 	diagnosticSeries = $state<SeriesPoint[]>([]);
 	selectedBoardProfile = $state<BoardProfile | null>(null);
+	exportStatus = $state<string | null>(null);
 	busy = $state(false);
 	private client: ApiClient | null = null;
 
@@ -73,13 +78,17 @@ export class ApiStore {
 
 	async refreshCollections(): Promise<void> {
 		if (!this.client) return;
-		const [savedDevices, sessions, snapshot] = await Promise.all([
+		const [savedDevices, sessions, sessionGroups, settings, snapshot] = await Promise.all([
 			this.client.request('savedDevices.list', {}),
 			this.client.request('sessions.list', { limit: 50 }),
+			this.client.request('sessionGroups.list', {}),
+			this.client.request('settings.get', {}),
 			this.client.request('system.getSnapshot', {})
 		]);
 		this.savedDevices = savedDevices;
 		this.sessions = sessions.items;
+		this.sessionGroups = sessionGroups;
+		this.settings = settings;
 		this.snapshot = snapshot;
 		this.discoveredDevices = snapshot.knownDevices;
 	}
@@ -190,6 +199,7 @@ export class ApiStore {
 
 	async openSession(sessionId: string): Promise<void> {
 		await this.run(async (client) => {
+			this.exportStatus = null;
 			this.selectedSession = await client.request('sessions.getSummary', { sessionId });
 			this.diagnosticSeries = [];
 			this.sessionSeries = await client.request('sessions.querySeries', {
@@ -199,6 +209,46 @@ export class ApiStore {
 				fields: ['packVoltageV', 'dutyCycle', 'speedKph'],
 				maxPoints: 400
 			});
+		});
+	}
+
+	async updateSessionSettings(patch: Omit<Partial<Settings>, 'revision'>): Promise<void> {
+		const current = this.settings;
+		if (!current) return;
+		await this.run(async (client) => {
+			this.settings = await client.request('settings.update', {
+				expectedRevision: current.revision,
+				patch
+			});
+		});
+	}
+
+	async unlinkSessionGroup(sessionGroupId: string): Promise<void> {
+		await this.run(async (client) => {
+			await client.request('sessionGroups.unlink', { sessionGroupId });
+			await this.refreshCollections();
+		});
+	}
+
+	async exportSession(format: 'float-view-archive' | 'csv'): Promise<void> {
+		const selected = this.selectedSession;
+		if (!selected) return;
+		await this.run(async (client) => {
+			const value = await client.request('sessions.export', {
+				sessionId: selected.sessionId,
+				format
+			});
+			this.exportStatus = `${value.fileName} is ready in native export storage.`;
+		});
+	}
+
+	async deleteSelectedSession(): Promise<void> {
+		const selected = this.selectedSession;
+		if (!selected) return;
+		await this.run(async (client) => {
+			await client.request('sessions.delete', { sessionId: selected.sessionId });
+			this.closeSession();
+			await this.refreshCollections();
 		});
 	}
 
@@ -253,6 +303,7 @@ export class ApiStore {
 		this.selectedSession = null;
 		this.sessionSeries = [];
 		this.diagnosticSeries = [];
+		this.exportStatus = null;
 	}
 
 	close(): void {

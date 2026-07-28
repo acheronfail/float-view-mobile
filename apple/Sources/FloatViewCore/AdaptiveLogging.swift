@@ -1,17 +1,20 @@
 import Foundation
 
 public struct SamplingSettings: Equatable, Sendable {
+  public var idleProbeIntervalMs: Int64
   public var idlePersistIntervalMs: Int64
   public var ridingPersistIntervalMs: Int64
   public var postRideTailMs: Int64
   public var reconnectDurationMs: Int64
 
   public init(
+    idleProbeIntervalMs: Int64 = 500,
     idlePersistIntervalMs: Int64 = 1_000,
     ridingPersistIntervalMs: Int64 = 100,
     postRideTailMs: Int64 = 15_000,
     reconnectDurationMs: Int64 = 300_000
   ) {
+    self.idleProbeIntervalMs = idleProbeIntervalMs
     self.idlePersistIntervalMs = idlePersistIntervalMs
     self.ridingPersistIntervalMs = ridingPersistIntervalMs
     self.postRideTailMs = postRideTailMs

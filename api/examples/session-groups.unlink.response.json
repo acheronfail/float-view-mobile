@@ -1,0 +1,7 @@
+{
+  "jsonrpc": "2.0",
+  "id": "group-unlink-1",
+  "result": {
+    "accepted": true
+  }
+}

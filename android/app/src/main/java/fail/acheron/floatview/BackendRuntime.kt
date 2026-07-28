@@ -10,6 +10,7 @@ import fail.acheron.floatview.core.BluetoothEvent
 import fail.acheron.floatview.core.BluetoothState
 import fail.acheron.floatview.core.ClockPort
 import fail.acheron.floatview.core.ConnectionState
+import fail.acheron.floatview.core.SamplingSettings
 import fail.acheron.floatview.core.SessionRecord
 import fail.acheron.floatview.core.SystemScheduler
 import fail.acheron.floatview.logging.SQLiteLogStore
@@ -42,6 +43,15 @@ class BackendRuntime(application: FloatViewApplication) {
         sessionStore = logStore,
         protocol = VescProtocolService(),
         scheduler = SystemScheduler(),
+        samplingSettings = logStore.settings().let { settings ->
+            SamplingSettings(
+                idlePersistIntervalMs = settings.idlePersistIntervalMs,
+                ridingPersistIntervalMs = settings.ridingPersistIntervalMs,
+                postRideTailMs = settings.postRideTailMs,
+                reconnectDurationMs = settings.reconnectDurationMs,
+                idleProbeIntervalMs = settings.idleProbeIntervalMs,
+            )
+        },
     ) { event ->
         // Stable diagnostic only; never log device identifiers or telemetry.
         if (event is Throwable) {

@@ -11,9 +11,10 @@ class ApplicationService(
     samplingSettings: SamplingSettings = SamplingSettings(),
     private val events: EventSink,
 ) {
-    private val sampling = AdaptiveSamplingPolicy(samplingSettings)
-    private val postRideTailMs = samplingSettings.postRideTailMs
-    private val reconnectDurationMs = samplingSettings.reconnectDurationMs
+    private var sampling = AdaptiveSamplingPolicy(samplingSettings)
+    private var postRideTailMs = samplingSettings.postRideTailMs
+    private var reconnectDurationMs = samplingSettings.reconnectDurationMs
+    private var idleProbeIntervalMs = samplingSettings.idleProbeIntervalMs
     private var explicitDisconnect = false
     private var scanSequence = 0
     private val knownDevicesById = linkedMapOf<DeviceId, DiscoveredDevice>()
@@ -69,6 +70,38 @@ class ApplicationService(
             .updateBoardProfile(savedDeviceId, expectedRevision, patchJson, clock.now())
             .also(events::publish)
 
+    fun settings(): SettingsRecord =
+        requireNotNull(productStore) { "Product store is unavailable" }.settings()
+
+    @Synchronized
+    fun updateSettings(expectedRevision: Int, patchJson: String): SettingsRecord =
+        requireNotNull(productStore) { "Product store is unavailable" }
+            .updateSettings(expectedRevision, patchJson)
+            .also { value ->
+                idleProbeIntervalMs = value.idleProbeIntervalMs
+                postRideTailMs = value.postRideTailMs
+                reconnectDurationMs = value.reconnectDurationMs
+                sampling = AdaptiveSamplingPolicy(
+                    SamplingSettings(
+                        idleProbeIntervalMs = value.idleProbeIntervalMs,
+                        idlePersistIntervalMs = value.idlePersistIntervalMs,
+                        ridingPersistIntervalMs = value.ridingPersistIntervalMs,
+                        postRideTailMs = value.postRideTailMs,
+                        reconnectDurationMs = value.reconnectDurationMs,
+                    ),
+                )
+                if (connectionState == ConnectionState.READY) {
+                    restartTelemetryPolling(
+                        if (previousTelemetryRideState == RideState.RIDING) {
+                            RIDING_PROBE_INTERVAL_MS
+                        } else {
+                            idleProbeIntervalMs
+                        },
+                    )
+                }
+                events.publish(value)
+            }
+
     fun sessions(query: SessionListQuery): SessionPage =
         requireNotNull(sessionStore) { "Session store is unavailable" }.sessions(query)
 
@@ -102,6 +135,23 @@ class ApplicationService(
     ): List<SessionSeriesPoint> =
         requireNotNull(sessionStore) { "Session store is unavailable" }
             .diagnosticWindow(sessionId, centerElapsedMs, beforeMs, afterMs, fields)
+
+    fun deleteSession(sessionId: String) =
+        requireNotNull(sessionStore) { "Session store is unavailable" }.deleteSession(sessionId)
+
+    fun exportSession(sessionId: String, format: String): SessionExportRecord =
+        requireNotNull(sessionStore) { "Session store is unavailable" }
+            .exportSession(sessionId, format)
+
+    fun sessionGroups(): List<SessionGroupRecord> =
+        requireNotNull(sessionStore) { "Session store is unavailable" }.sessionGroups()
+
+    fun sessionGroup(sessionGroupId: String): SessionGroupRecord =
+        requireNotNull(sessionStore) { "Session store is unavailable" }.sessionGroup(sessionGroupId)
+
+    fun unlinkSessionGroup(sessionGroupId: String) =
+        requireNotNull(sessionStore) { "Session store is unavailable" }
+            .unlinkSessionGroup(sessionGroupId)
 
     @Synchronized
     fun startDiscovery(): String {
@@ -491,7 +541,7 @@ class ApplicationService(
 
     private fun startTelemetryPolling() {
         if (scheduler == null || firmware?.canId == null) return
-        restartTelemetryPolling(IDLE_PROBE_INTERVAL_MS)
+        restartTelemetryPolling(idleProbeIntervalMs)
     }
 
     private fun restartTelemetryPolling(intervalMs: Long) {
@@ -543,7 +593,7 @@ class ApplicationService(
             if (value.rideState == RideState.RIDING || inPostRideTail) {
                 RIDING_PROBE_INTERVAL_MS
             } else {
-                IDLE_PROBE_INTERVAL_MS
+                idleProbeIntervalMs
             }
         if (target != telemetryIntervalMs) restartTelemetryPolling(target)
     }
@@ -582,7 +632,6 @@ class ApplicationService(
 
     private companion object {
         const val VESC_HARDWARE_TYPE = 0
-        const val IDLE_PROBE_INTERVAL_MS = 500L
         const val RIDING_PROBE_INTERVAL_MS = 100L
         const val TELEMETRY_LAYOUT_RETRY_INTERVAL_MS = 1_000L
         const val MAX_TELEMETRY_LAYOUT_ATTEMPTS = 5

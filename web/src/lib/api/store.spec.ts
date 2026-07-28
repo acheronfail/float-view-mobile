@@ -49,6 +49,18 @@ class FakeClient {
 		values: {} as Record<string, unknown>,
 		missingFields: ['seriesCount', 'parallelCount', 'motor']
 	};
+	settings = {
+		revision: 0,
+		idleProbeIntervalMs: 500,
+		idlePersistIntervalMs: 1000,
+		ridingPersistIntervalMs: 100,
+		postRideTailMs: 15_000,
+		reconnectDurationMs: 300_000,
+		automaticSessionLinkingEnabled: false,
+		sessionLinkWindowMs: 7_200_000,
+		rawPacketCaptureEnabled: false
+	};
+	deleted = false;
 
 	async hello(): Promise<HelloResult> {
 		return {
@@ -95,7 +107,46 @@ class FakeClient {
 				return this.profile;
 			}
 			case 'sessions.list':
-				return { items: [], nextCursor: null };
+				return {
+					items: this.deleted
+						? []
+						: [
+								{
+									sessionId: 'session-1',
+									deviceHistoryId: 'history-board',
+									displayName: 'Board',
+									startedAt: '2026-01-01T00:00:00Z',
+									endedAt: '2026-01-01T00:01:00Z',
+									state: 'completed',
+									integrity: 'complete',
+									sampleCount: 600,
+									eventCount: 0,
+									ridingElapsedMs: 50_000,
+									totalElapsedMs: 60_000,
+									distanceM: 300
+								}
+							],
+					nextCursor: null
+				};
+			case 'sessionGroups.list':
+				return [];
+			case 'settings.get':
+				return this.settings;
+			case 'settings.update': {
+				const request = params as {
+					expectedRevision: number;
+					patch: Record<string, unknown>;
+				};
+				if (request.expectedRevision !== this.settings.revision) {
+					throw new Error('Settings revision conflict');
+				}
+				this.settings = {
+					...this.settings,
+					...request.patch,
+					revision: this.settings.revision + 1
+				};
+				return this.settings;
+			}
 			case 'sessions.getSummary':
 				return {
 					sessionId: 'session-1',
@@ -120,6 +171,11 @@ class FakeClient {
 				];
 			case 'sessions.getDiagnosticWindow':
 				return [{ elapsedMs: 30_000, values: { packVoltageV: 57 } }];
+			case 'sessions.export':
+				return { exportId: 'export-1', fileName: 'session-1.csv' };
+			case 'sessions.delete':
+				this.deleted = true;
+				return { accepted: true };
 			case 'system.getSnapshot':
 				return snapshot(this.active);
 			case 'device.disconnect':
@@ -196,6 +252,29 @@ describe('ApiStore transport recovery', () => {
 		expect(store.diagnosticSeries).toHaveLength(1);
 		expect(client.methods).toContain('sessions.querySeries');
 		expect(client.methods).toContain('sessions.getDiagnosticWindow');
+		store.close();
+	});
+
+	it('revision-updates linking settings and manages a selected session', async () => {
+		const client = new FakeClient();
+		const store = new ApiStore(
+			async () => ({ apiVersion: { major: 1, minor: 0 }, webSocketUrl: 'ws://test' }),
+			async () => client as unknown as ApiClient
+		);
+		await store.connect();
+		await store.updateSessionSettings({ automaticSessionLinkingEnabled: true });
+		await store.openSession('session-1');
+		await store.exportSession('csv');
+
+		expect(store.settings?.revision).toBe(1);
+		expect(store.settings?.automaticSessionLinkingEnabled).toBe(true);
+		expect(store.exportStatus).toContain('session-1.csv');
+
+		await store.deleteSelectedSession();
+		expect(store.selectedSession).toBeNull();
+		expect(store.sessions).toHaveLength(0);
+		expect(client.methods).toContain('sessions.export');
+		expect(client.methods).toContain('sessions.delete');
 		store.close();
 	});
 });

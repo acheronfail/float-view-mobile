@@ -74,6 +74,46 @@ await validateExample(
 	'https://float-view.local/api/v1/schemas/product.schema.json',
 	'SessionsQuerySeriesResponse'
 );
+await validateExample(
+	'sessions.export.request.json',
+	'https://float-view.local/api/v1/schemas/product.schema.json',
+	'SessionsExportRequest'
+);
+await validateExample(
+	'sessions.export.response.json',
+	'https://float-view.local/api/v1/schemas/product.schema.json',
+	'SessionsExportResponse'
+);
+await validateExample(
+	'sessions.delete.request.json',
+	'https://float-view.local/api/v1/schemas/product.schema.json',
+	'SessionsDeleteRequest'
+);
+await validateExample(
+	'sessions.delete.response.json',
+	'https://float-view.local/api/v1/schemas/product.schema.json',
+	'SessionsDeleteResponse'
+);
+await validateExample(
+	'session-groups.get.request.json',
+	'https://float-view.local/api/v1/schemas/product.schema.json',
+	'SessionGroupsGetRequest'
+);
+await validateExample(
+	'session-groups.get.response.json',
+	'https://float-view.local/api/v1/schemas/product.schema.json',
+	'SessionGroupsGetResponse'
+);
+await validateExample(
+	'session-groups.unlink.request.json',
+	'https://float-view.local/api/v1/schemas/product.schema.json',
+	'SessionGroupsUnlinkRequest'
+);
+await validateExample(
+	'session-groups.unlink.response.json',
+	'https://float-view.local/api/v1/schemas/product.schema.json',
+	'SessionGroupsUnlinkResponse'
+);
 
 const asyncApi = parseYaml(await fs.readFile(path.join(apiDir, 'asyncapi.yaml'), 'utf8')) as {
 	asyncapi?: string;
@@ -89,5 +129,5 @@ if (
 }
 
 console.log(
-	`Validated ${schemas.length} JSON Schemas, 6 examples, and the AsyncAPI document structure.`
+	`Validated ${schemas.length} JSON Schemas, 14 examples, and the AsyncAPI document structure.`
 );

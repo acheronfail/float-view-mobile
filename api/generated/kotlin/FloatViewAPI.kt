@@ -235,6 +235,18 @@ data class Settings(
 )
 
 @Serializable
+data class SettingsPatch(
+  val idleProbeIntervalMs: Int? = null,
+  val idlePersistIntervalMs: Int? = null,
+  val ridingPersistIntervalMs: Int? = null,
+  val postRideTailMs: Int? = null,
+  val reconnectDurationMs: Int? = null,
+  val automaticSessionLinkingEnabled: Boolean? = null,
+  val sessionLinkWindowMs: Int? = null,
+  val rawPacketCaptureEnabled: Boolean? = null
+)
+
+@Serializable
 data class AlertRule(
   val ruleId: String,
   val kind: String,
@@ -675,6 +687,36 @@ data class SessionGroupsListResponse(
   val jsonrpc: String = "2.0",
   val id: JsonRpcId,
   val result: List<SessionGroup>
+)
+
+@Serializable
+data class SessionGroupsGetRequest(
+  val jsonrpc: String = "2.0",
+  val id: JsonRpcId,
+  val method: String = "sessionGroups.get",
+  val params: Map<String, JsonElement>
+)
+
+@Serializable
+data class SessionGroupsGetResponse(
+  val jsonrpc: String = "2.0",
+  val id: JsonRpcId,
+  val result: SessionGroup
+)
+
+@Serializable
+data class SessionGroupsUnlinkRequest(
+  val jsonrpc: String = "2.0",
+  val id: JsonRpcId,
+  val method: String = "sessionGroups.unlink",
+  val params: Map<String, JsonElement>
+)
+
+@Serializable
+data class SessionGroupsUnlinkResponse(
+  val jsonrpc: String = "2.0",
+  val id: JsonRpcId,
+  val result: AcceptedResult
 )
 
 @Serializable

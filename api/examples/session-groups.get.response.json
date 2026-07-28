@@ -1,0 +1,11 @@
+{
+  "jsonrpc": "2.0",
+  "id": "group-get-1",
+  "result": {
+    "sessionGroupId": "group-2026-07-28",
+    "deviceHistoryId": "board-history-1",
+    "sessionIds": ["session-morning", "session-afternoon"],
+    "totalElapsedMs": 7200000,
+    "distanceM": 32186.8
+  }
+}

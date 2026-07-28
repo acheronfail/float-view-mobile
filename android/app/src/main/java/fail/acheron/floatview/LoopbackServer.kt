@@ -11,10 +11,12 @@ import fail.acheron.floatview.core.DiscoveredDevice
 import fail.acheron.floatview.core.ProductStoreException
 import fail.acheron.floatview.core.SavedDeviceRecord
 import fail.acheron.floatview.core.SessionEventRecord
+import fail.acheron.floatview.core.SessionGroupRecord
 import fail.acheron.floatview.core.SessionListQuery
 import fail.acheron.floatview.core.SessionSeriesPoint
 import fail.acheron.floatview.core.SessionStoreException
 import fail.acheron.floatview.core.SessionSummaryRecord
+import fail.acheron.floatview.core.SettingsRecord
 import java.io.BufferedInputStream
 import java.io.BufferedOutputStream
 import java.net.InetAddress
@@ -225,6 +227,18 @@ class LoopbackServer(
                             .put(
                                 JSONObject().put("name", "sessions.review")
                                     .put("available", applicationService != null),
+                            )
+                            .put(
+                                JSONObject().put("name", "sessions.manage")
+                                    .put("available", applicationService != null),
+                            )
+                            .put(
+                                JSONObject().put("name", "sessions.export")
+                                    .put("available", applicationService != null),
+                            )
+                            .put(
+                                JSONObject().put("name", "settings.local")
+                                    .put("available", applicationService != null),
                             ),
                     )
                     .put(
@@ -403,6 +417,39 @@ class LoopbackServer(
                 failure(-32005, "storage_unavailable", "Unable to update Board Profile")
             }
         }
+        if (method == "settings.get") {
+            val service = applicationService
+                ?: return failure(-32601, "unsupported", "Settings are unavailable")
+            return try {
+                success(settings(service.settings()))
+            } catch (error: ProductStoreException) {
+                productStoreFailure(error, ::failure)
+            } catch (_: Exception) {
+                failure(-32005, "storage_unavailable", "Unable to read settings")
+            }
+        }
+        if (method == "settings.update") {
+            val service = applicationService
+                ?: return failure(-32601, "unsupported", "Settings are unavailable")
+            val params = request.optJSONObject("params")
+                ?: return failure(-32602, "protocol_error", "Settings parameters are required")
+            val expectedRevision = params.opt("expectedRevision")
+            val patch = params.optJSONObject("patch")
+            if (expectedRevision !is Number || expectedRevision.toInt() < 0 || patch == null) {
+                return failure(
+                    -32602,
+                    "protocol_error",
+                    "expectedRevision and an object patch are required",
+                )
+            }
+            return try {
+                success(settings(service.updateSettings(expectedRevision.toInt(), patch.toString())))
+            } catch (error: ProductStoreException) {
+                productStoreFailure(error, ::failure)
+            } catch (_: Exception) {
+                failure(-32005, "storage_unavailable", "Unable to update settings")
+            }
+        }
         if (method == "sessions.list") {
             val service = applicationService
                 ?: return failure(-32601, "unsupported", "Sessions are unavailable")
@@ -530,6 +577,81 @@ class LoopbackServer(
                 failure(-32602, "protocol_error", "Invalid diagnostic query")
             }
         }
+        if (method == "sessions.export") {
+            val service = applicationService
+                ?: return failure(-32601, "unsupported", "Session export is unavailable")
+            val params = request.optJSONObject("params")
+                ?: return failure(-32602, "protocol_error", "sessionId and format are required")
+            val sessionId = params.optString("sessionId")
+            val format = params.optString("format")
+            if (sessionId.isEmpty() || format.isEmpty()) {
+                return failure(-32602, "protocol_error", "sessionId and format are required")
+            }
+            return try {
+                val value = service.exportSession(sessionId, format)
+                success(
+                    JSONObject().put("exportId", value.exportId).put("fileName", value.fileName),
+                )
+            } catch (error: SessionStoreException) {
+                sessionStoreFailure(error, ::failure)
+            } catch (_: Exception) {
+                failure(-32005, "storage_unavailable", "Unable to export session")
+            }
+        }
+        if (method == "sessions.delete") {
+            val service = applicationService
+                ?: return failure(-32601, "unsupported", "Session deletion is unavailable")
+            val sessionId = request.optJSONObject("params")?.optString("sessionId").orEmpty()
+            if (sessionId.isEmpty()) {
+                return failure(-32602, "protocol_error", "sessionId is required")
+            }
+            return try {
+                service.deleteSession(sessionId)
+                success(JSONObject().put("accepted", true))
+            } catch (error: SessionStoreException) {
+                sessionStoreFailure(error, ::failure)
+            } catch (_: Exception) {
+                failure(-32005, "storage_unavailable", "Unable to delete session")
+            }
+        }
+        if (method == "sessionGroups.list") {
+            val service = applicationService
+                ?: return failure(-32601, "unsupported", "Session groups are unavailable")
+            return try {
+                success(JSONArray(service.sessionGroups().map(::sessionGroup)))
+            } catch (_: Exception) {
+                failure(-32005, "storage_unavailable", "Unable to list session groups")
+            }
+        }
+        if (method == "sessionGroups.get") {
+            val service = applicationService
+                ?: return failure(-32601, "unsupported", "Session groups are unavailable")
+            val groupId = request.optJSONObject("params")?.optString("sessionGroupId").orEmpty()
+            if (groupId.isEmpty()) {
+                return failure(-32602, "protocol_error", "sessionGroupId is required")
+            }
+            return try {
+                success(sessionGroup(service.sessionGroup(groupId)))
+            } catch (error: SessionStoreException) {
+                sessionStoreFailure(error, ::failure)
+            } catch (_: Exception) {
+                failure(-32005, "storage_unavailable", "Unable to read session group")
+            }
+        }
+        if (method == "sessionGroups.unlink") {
+            val service = applicationService
+                ?: return failure(-32601, "unsupported", "Session groups are unavailable")
+            val groupId = request.optJSONObject("params")?.optString("sessionGroupId").orEmpty()
+            if (groupId.isEmpty()) {
+                return failure(-32602, "protocol_error", "sessionGroupId is required")
+            }
+            return try {
+                service.unlinkSessionGroup(groupId)
+                success(JSONObject().put("accepted", true))
+            } catch (_: Exception) {
+                failure(-32005, "storage_unavailable", "Unable to unlink session group")
+            }
+        }
         return failure(-32601, "unsupported", "Unknown method: $method")
     }
 
@@ -625,15 +747,37 @@ class LoopbackServer(
         .put("kind", value.kind)
         .put("details", JSONObject(value.detailsJson))
 
+    private fun sessionGroup(value: SessionGroupRecord) = JSONObject()
+        .put("sessionGroupId", value.sessionGroupId)
+        .put("deviceHistoryId", value.deviceHistoryId)
+        .put("sessionIds", JSONArray(value.sessionIds))
+        .put("totalElapsedMs", value.totalElapsedMs)
+        .put("distanceM", value.distanceM ?: JSONObject.NULL)
+
+    private fun settings(value: SettingsRecord) = JSONObject()
+        .put("revision", value.revision)
+        .put("idleProbeIntervalMs", value.idleProbeIntervalMs)
+        .put("idlePersistIntervalMs", value.idlePersistIntervalMs)
+        .put("ridingPersistIntervalMs", value.ridingPersistIntervalMs)
+        .put("postRideTailMs", value.postRideTailMs)
+        .put("reconnectDurationMs", value.reconnectDurationMs)
+        .put("automaticSessionLinkingEnabled", value.automaticSessionLinkingEnabled)
+        .put("sessionLinkWindowMs", value.sessionLinkWindowMs)
+        .put("rawPacketCaptureEnabled", value.rawPacketCaptureEnabled)
+
     private fun sessionStoreFailure(
         error: SessionStoreException,
         failure: (Int, String, String) -> JSONObject,
     ): JSONObject = when (error) {
         SessionStoreException.SessionNotFound ->
             failure(-32004, "device_not_found", "Session not found")
+        SessionStoreException.SessionActive ->
+            failure(-32000, "invalid_state", "Active sessions cannot be exported or deleted")
         SessionStoreException.InvalidCursor,
         SessionStoreException.InvalidRange,
         -> failure(-32602, "protocol_error", "Invalid session query")
+        SessionStoreException.InvalidExportFormat ->
+            failure(-32602, "protocol_error", "Invalid session export format")
         is SessionStoreException.UnsupportedField ->
             failure(-32602, "protocol_error", "Unsupported session field: ${error.field}")
     }
@@ -670,6 +814,10 @@ class LoopbackServer(
             failure(-32000, "invalid_state", "Profile revision conflict")
         ProductStoreException.InvalidProfilePatch ->
             failure(-32602, "protocol_error", "Invalid Board Profile patch")
+        is ProductStoreException.SettingsRevisionConflict ->
+            failure(-32000, "invalid_state", "Settings revision conflict")
+        ProductStoreException.InvalidSettingsPatch ->
+            failure(-32602, "protocol_error", "Invalid Settings patch")
     }
 
     private fun frame(output: BufferedOutputStream, opcode: Int, payload: ByteArray) {

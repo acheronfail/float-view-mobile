@@ -347,6 +347,43 @@ public final class LoopbackServer: @unchecked Sendable {
         return failure(-32005, "storage_unavailable", "Unable to update Board Profile")
       }
     }
+    if method == "settings.get" {
+      guard let applicationService else {
+        return failure(-32601, "unsupported", "Settings are unavailable")
+      }
+      do {
+        return response(settingsPayload(try applicationService.settings()))
+      } catch let error as ProductStoreError {
+        return productStoreFailure(error, failure: failure)
+      } catch {
+        return failure(-32005, "storage_unavailable", "Unable to read settings")
+      }
+    }
+    if method == "settings.update" {
+      guard let applicationService else {
+        return failure(-32601, "unsupported", "Settings are unavailable")
+      }
+      guard let params = request["params"] as? [String: Any],
+            let expectedRevision = params["expectedRevision"] as? Int,
+            expectedRevision >= 0,
+            let patch = params["patch"] as? [String: Any],
+            JSONSerialization.isValidJSONObject(patch),
+            let data = try? JSONSerialization.data(withJSONObject: patch, options: [.sortedKeys]),
+            let patchJSON = String(data: data, encoding: .utf8)
+      else {
+        return failure(-32602, "protocol_error", "expectedRevision and an object patch are required")
+      }
+      do {
+        return response(settingsPayload(try applicationService.updateSettings(
+          expectedRevision: expectedRevision,
+          patchJSON: patchJSON
+        )))
+      } catch let error as ProductStoreError {
+        return productStoreFailure(error, failure: failure)
+      } catch {
+        return failure(-32005, "storage_unavailable", "Unable to update settings")
+      }
+    }
     if method == "sessions.list" {
       guard let applicationService else {
         return failure(-32601, "unsupported", "Sessions are unavailable")
@@ -467,6 +504,80 @@ public final class LoopbackServer: @unchecked Sendable {
         return failure(-32005, "storage_unavailable", "Unable to query diagnostic samples")
       }
     }
+    if method == "sessions.export" {
+      guard let applicationService else {
+        return failure(-32601, "unsupported", "Session export is unavailable")
+      }
+      guard let params = request["params"] as? [String: Any],
+            let sessionID = params["sessionId"] as? String, !sessionID.isEmpty,
+            let format = params["format"] as? String
+      else { return failure(-32602, "protocol_error", "sessionId and format are required") }
+      do {
+        let value = try applicationService.exportSession(sessionID: sessionID, format: format)
+        return response(["exportId": value.exportID, "fileName": value.fileName])
+      } catch let error as SessionStoreError {
+        return sessionStoreFailure(error, failure: failure)
+      } catch {
+        return failure(-32005, "storage_unavailable", "Unable to export session")
+      }
+    }
+    if method == "sessions.delete" {
+      guard let applicationService else {
+        return failure(-32601, "unsupported", "Session deletion is unavailable")
+      }
+      guard let params = request["params"] as? [String: Any],
+            let sessionID = params["sessionId"] as? String, !sessionID.isEmpty
+      else { return failure(-32602, "protocol_error", "sessionId is required") }
+      do {
+        try applicationService.deleteSession(sessionID: sessionID)
+        return response(["accepted": true])
+      } catch let error as SessionStoreError {
+        return sessionStoreFailure(error, failure: failure)
+      } catch {
+        return failure(-32005, "storage_unavailable", "Unable to delete session")
+      }
+    }
+    if method == "sessionGroups.list" {
+      guard let applicationService else {
+        return failure(-32601, "unsupported", "Session groups are unavailable")
+      }
+      do {
+        return response(try applicationService.sessionGroups().map(sessionGroupPayload))
+      } catch {
+        return failure(-32005, "storage_unavailable", "Unable to list session groups")
+      }
+    }
+    if method == "sessionGroups.get" {
+      guard let applicationService else {
+        return failure(-32601, "unsupported", "Session groups are unavailable")
+      }
+      guard let params = request["params"] as? [String: Any],
+            let groupID = params["sessionGroupId"] as? String, !groupID.isEmpty
+      else { return failure(-32602, "protocol_error", "sessionGroupId is required") }
+      do {
+        return response(sessionGroupPayload(
+          try applicationService.sessionGroup(sessionGroupID: groupID)
+        ))
+      } catch let error as SessionStoreError {
+        return sessionStoreFailure(error, failure: failure)
+      } catch {
+        return failure(-32005, "storage_unavailable", "Unable to read session group")
+      }
+    }
+    if method == "sessionGroups.unlink" {
+      guard let applicationService else {
+        return failure(-32601, "unsupported", "Session groups are unavailable")
+      }
+      guard let params = request["params"] as? [String: Any],
+            let groupID = params["sessionGroupId"] as? String, !groupID.isEmpty
+      else { return failure(-32602, "protocol_error", "sessionGroupId is required") }
+      do {
+        try applicationService.unlinkSessionGroup(sessionGroupID: groupID)
+        return response(["accepted": true])
+      } catch {
+        return failure(-32005, "storage_unavailable", "Unable to unlink session group")
+      }
+    }
     return failure(-32601, "unsupported", "Unknown method: \(method)")
   }
 
@@ -490,6 +601,9 @@ public final class LoopbackServer: @unchecked Sendable {
       ["name": "device.connection", "available": applicationService != nil],
       ["name": "boardProfiles.local", "available": applicationService != nil],
       ["name": "sessions.review", "available": applicationService != nil],
+      ["name": "sessions.manage", "available": applicationService != nil],
+      ["name": "sessions.export", "available": applicationService != nil],
+      ["name": "settings.local", "available": applicationService != nil],
     ]
   }
 
@@ -589,6 +703,30 @@ public final class LoopbackServer: @unchecked Sendable {
     ]
   }
 
+  private func sessionGroupPayload(_ value: SessionGroupRecord) -> [String: Any] {
+    [
+      "sessionGroupId": value.sessionGroupID,
+      "deviceHistoryId": value.deviceHistoryID,
+      "sessionIds": value.sessionIDs,
+      "totalElapsedMs": value.totalElapsedMs,
+      "distanceM": value.distanceM ?? NSNull(),
+    ]
+  }
+
+  private func settingsPayload(_ value: SettingsRecord) -> [String: Any] {
+    [
+      "revision": value.revision,
+      "idleProbeIntervalMs": value.idleProbeIntervalMs,
+      "idlePersistIntervalMs": value.idlePersistIntervalMs,
+      "ridingPersistIntervalMs": value.ridingPersistIntervalMs,
+      "postRideTailMs": value.postRideTailMs,
+      "reconnectDurationMs": value.reconnectDurationMs,
+      "automaticSessionLinkingEnabled": value.automaticSessionLinkingEnabled,
+      "sessionLinkWindowMs": value.sessionLinkWindowMs,
+      "rawPacketCaptureEnabled": value.rawPacketCaptureEnabled,
+    ]
+  }
+
   private func sessionStoreFailure(
     _ error: SessionStoreError,
     failure: (Int, String, String) -> Data
@@ -596,10 +734,14 @@ public final class LoopbackServer: @unchecked Sendable {
     switch error {
     case .sessionNotFound:
       failure(-32004, "device_not_found", "Session not found")
+    case .sessionActive:
+      failure(-32000, "invalid_state", "Active sessions cannot be exported or deleted")
     case .invalidCursor, .invalidRange:
       failure(-32602, "protocol_error", "Invalid session query")
     case .unsupportedField(let field):
       failure(-32602, "protocol_error", "Unsupported session field: \(field)")
+    case .invalidExportFormat:
+      failure(-32602, "protocol_error", "Invalid session export format")
     }
   }
 
@@ -614,6 +756,10 @@ public final class LoopbackServer: @unchecked Sendable {
       failure(-32000, "invalid_state", "Profile revision conflict")
     case .invalidProfilePatch:
       failure(-32602, "protocol_error", "Invalid Board Profile patch")
+    case .settingsRevisionConflict:
+      failure(-32000, "invalid_state", "Settings revision conflict")
+    case .invalidSettingsPatch:
+      failure(-32602, "protocol_error", "Invalid Settings patch")
     }
   }
 
