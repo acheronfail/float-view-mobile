@@ -15,21 +15,24 @@ Read these documents in this order when changing architecture or the local API:
 5. [`reference-implementations.md`](reference-implementations.md) — canonical
    VESC Tool precedence, authorized Floaty reuse, licensing boundaries, and
    original implementation retirement.
-6. [`durable-logging.md`](durable-logging.md) — native log ownership, platform
+6. [`vesc-test-device-plan.md`](vesc-test-device-plan.md) — ESP32-S3 programmable
+   VESC BLE peripheral, host scenario engine, first-slice milestones, automation,
+   evidence, and limits relative to physical hardware acceptance.
+7. [`durable-logging.md`](durable-logging.md) — native log ownership, platform
    storage, background execution, WebView teardown, recovery, and query
    foundations for later charting.
-7. [`product-experience.md`](product-experience.md) — Device/Sessions
+8. [`product-experience.md`](product-experience.md) — Device/Sessions
    navigation, automatic adaptive logging, saved devices, ride review,
    diagnostic zoom, and user-facing data model.
-8. [`board-profiles.md`](board-profiles.md) — per-board battery, motor, rails,
+9. [`board-profiles.md`](board-profiles.md) — per-board battery, motor, rails,
    visual identity, CAN/BMS discovery and overrides, calibration, and session
    profile snapshots.
-9. [`api-v1-proposal.md`](api-v1-proposal.md) — API design rationale and broader
+10. [`api-v1-proposal.md`](api-v1-proposal.md) — API design rationale and broader
    proposed operation set.
-10. [`../api/README.md`](../api/README.md) and
+11. [`../api/README.md`](../api/README.md) and
     [`../api/compatibility.md`](../api/compatibility.md) — implemented contract
     source of truth and compatibility policy.
-11. [`implementation-notes.md`](implementation-notes.md) — ambiguities found
+12. [`implementation-notes.md`](implementation-notes.md) — ambiguities found
     during implementation and the bounded resolution used to continue.
 
 When documents conflict:
@@ -40,13 +43,16 @@ When documents conflict:
 3. `vertical-slice-v1.md` owns first-slice lifecycle semantics;
 4. `verification-plan.md` owns the executable proof required for completion;
 5. `reference-implementations.md` owns reference precedence and provenance;
-6. `durable-logging.md` owns native persistence and background lifecycle
+6. `vesc-test-device-plan.md` owns the programmable BLE test-device design and
+   its emulator-specific milestone gates; it cannot weaken physical-hardware
+   acceptance;
+7. `durable-logging.md` owns native persistence and background lifecycle
    semantics;
-7. `product-experience.md` owns navigation and user-facing session semantics;
-8. `board-profiles.md` owns app-local board configuration and discovery/override
+8. `product-experience.md` owns navigation and user-facing session semantics;
+9. `board-profiles.md` owns app-local board configuration and discovery/override
    behavior;
-9. `reset-roadmap.md` owns implementation order and completion status;
-10. `api-v1-proposal.md` supplies rationale and future direction.
+10. `reset-roadmap.md` owns implementation order and completion status;
+11. `api-v1-proposal.md` supplies rationale and future direction.
 
 Update planning status and its evidence in the same change that completes a
 milestone. Add unresolved cross-cutting choices to the roadmap decision log
