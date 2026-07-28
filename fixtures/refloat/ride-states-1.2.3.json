@@ -1,0 +1,77 @@
+{
+  "schemaVersion": 1,
+  "id": "refloat-1.2.3-deterministic-ride-states",
+  "provenance": "synthetic state and footpad variants derived from the sanitized Refloat 1.2.3 Android hardware capture; only bytes 9-10 and frame CRC differ",
+  "firmware": "6.06",
+  "package": "refloat",
+  "packageVersion": "1.2.3",
+  "cases": [
+    {
+      "name": "idle",
+      "commandId": 36,
+      "frameHex": "023624651f0406008c829d020000008c82ad010000000000003b18544b00004fbed3a6c0dcbf78597e20200000000000000000000000000026c703",
+      "chunkSizes": [20, 20, 19],
+      "validCrc": true,
+      "expected": {
+        "appId": 101,
+        "packetId": 31,
+        "rideState": "idle",
+        "footpadState": 0
+      }
+    },
+    {
+      "name": "riding",
+      "commandId": 36,
+      "frameHex": "023624651f0406008c829d03c000008c82ad010000000000003b18544b00004fbed3a6c0dcbf78597e202000000000000000000000000000e9f503",
+      "chunkSizes": [59],
+      "validCrc": true,
+      "expected": {
+        "appId": 101,
+        "packetId": 31,
+        "rideState": "riding",
+        "footpadState": 3
+      }
+    },
+    {
+      "name": "footpad-warning",
+      "commandId": 36,
+      "frameHex": "023624651f0406008c829d034000008c82ad010000000000003b18544b00004fbed3a6c0dcbf78597e2020000000000000000000000000000bf403",
+      "chunkSizes": [1, 2, 3, 5, 8, 13, 27],
+      "validCrc": true,
+      "expected": {
+        "appId": 101,
+        "packetId": 31,
+        "rideState": "riding",
+        "footpadState": 1
+      }
+    },
+    {
+      "name": "post-ride-tail",
+      "commandId": 36,
+      "frameHex": "023624651f0406008c829d020000008c82ad010000000000003b18544b00004fbed3a6c0dcbf78597e20200000000000000000000000000026c703",
+      "chunkSizes": [7, 11, 19, 22],
+      "validCrc": true,
+      "expected": {
+        "appId": 101,
+        "packetId": 31,
+        "rideState": "idle",
+        "footpadState": 0,
+        "samplingPhase": "postRideTail"
+      }
+    },
+    {
+      "name": "return-to-idle",
+      "commandId": 36,
+      "frameHex": "023624651f0406008c829d020000008c82ad010000000000003b18544b00004fbed3a6c0dcbf78597e20200000000000000000000000000026c703",
+      "chunkSizes": [4, 8, 1, 25, 21],
+      "validCrc": true,
+      "expected": {
+        "appId": 101,
+        "packetId": 31,
+        "rideState": "idle",
+        "footpadState": 0,
+        "samplingPhase": "idle"
+      }
+    }
+  ]
+}

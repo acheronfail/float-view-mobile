@@ -24,7 +24,9 @@ class AdaptiveSamplingPolicy(private val settings: SamplingSettings = SamplingSe
             else settings.idlePersistIntervalMs
         val transition = rideState != previousRideState
         previousRideState = rideState
-        val due = lastPersistedMs?.let { elapsedMs - it >= interval } ?: true
+        val jitterToleranceMs = minOf(25, maxOf(0, interval / 5))
+        val dueThresholdMs = maxOf(0, interval - jitterToleranceMs)
+        val due = lastPersistedMs?.let { elapsedMs - it >= dueThresholdMs } ?: true
         return (transition || due).also { if (it) lastPersistedMs = elapsedMs }
     }
 }

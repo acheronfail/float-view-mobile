@@ -192,6 +192,43 @@ class ApplicationServiceTest {
     }
 
     @Test
+    fun `refloat telemetry keeps riding probe rate through post ride tail`() {
+        val bluetooth = FakeBluetooth()
+        val scheduler = FakeScheduler()
+        val clock = FakeClock()
+        val service = ApplicationService(
+            bluetooth,
+            clock,
+            FakeStore(),
+            protocol = TelemetryProtocol(),
+            scheduler = scheduler,
+        ) {}
+        val id = DeviceId("fixture")
+
+        service.onBluetoothEvent(BluetoothEvent.DeviceFound(id, "ExpressT", -40))
+        service.connect(id)
+        service.onBluetoothEvent(BluetoothEvent.ConnectionChanged(id, ConnectionState.READY))
+        service.onBluetoothEvent(BluetoothEvent.Notification(id, byteArrayOf(1)))
+        service.onBluetoothEvent(BluetoothEvent.Notification(id, byteArrayOf(2)))
+        service.onBluetoothEvent(BluetoothEvent.Notification(id, byteArrayOf(3)))
+        assertEquals(listOf(1_000L, 500L), scheduler.intervals)
+
+        clock.monotonicMs = 1_000
+        service.onBluetoothEvent(BluetoothEvent.Notification(id, byteArrayOf(4)))
+        assertEquals(listOf(1_000L, 500L, 100L), scheduler.intervals)
+
+        clock.monotonicMs = 2_000
+        service.onBluetoothEvent(BluetoothEvent.Notification(id, byteArrayOf(5)))
+        clock.monotonicMs = 16_999
+        service.onBluetoothEvent(BluetoothEvent.Notification(id, byteArrayOf(5)))
+        assertEquals(listOf(1_000L, 500L, 100L), scheduler.intervals)
+
+        clock.monotonicMs = 17_001
+        service.onBluetoothEvent(BluetoothEvent.Notification(id, byteArrayOf(5)))
+        assertEquals(listOf(1_000L, 500L, 100L, 500L), scheduler.intervals)
+    }
+
+    @Test
     fun `missing refloat layout retries finitely and fails the logging session`() {
         val bluetooth = FakeBluetooth()
         val scheduler = FakeScheduler()
@@ -453,6 +490,14 @@ class ApplicationServiceTest {
                         RefloatTelemetryRecord(
                             RideState.RIDING, 3, 3, 64.0, 0.5, 30.0, 25.0,
                             8.0, -4.0, 1024, 36.0,
+                        ),
+                    ),
+                )
+                5 -> listOf(
+                    VescProtocolMessage.RefloatTelemetry(
+                        RefloatTelemetryRecord(
+                            RideState.IDLE, 2, 0, 64.0, 0.0, 30.0, 25.0,
+                            0.0, 0.0, 0, 0.0,
                         ),
                     ),
                 )

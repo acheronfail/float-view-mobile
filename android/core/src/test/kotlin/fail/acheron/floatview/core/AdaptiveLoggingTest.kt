@@ -19,6 +19,16 @@ class AdaptiveLoggingTest {
     }
 
     @Test
+    fun `sampling tolerates bounded timer jitter`() {
+        val policy = AdaptiveSamplingPolicy(SamplingSettings(1_000, 100, 500))
+        assertTrue(policy.shouldPersist(RideState.RIDING, 0))
+        assertFalse(policy.shouldPersist(RideState.RIDING, 79))
+        assertTrue(policy.shouldPersist(RideState.RIDING, 80))
+        assertFalse(policy.shouldPersist(RideState.RIDING, 159))
+        assertTrue(policy.shouldPersist(RideState.RIDING, 160))
+    }
+
+    @Test
     fun `alerts require duration and respect cooldown`() {
         val sample = TelemetrySample(
             1, Instant.EPOCH, 0, RideState.RIDING, 58.0, 0.9, 25.0, 20.0, 1,

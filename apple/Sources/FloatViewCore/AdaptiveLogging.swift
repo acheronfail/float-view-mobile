@@ -40,7 +40,9 @@ public struct AdaptiveSamplingPolicy: Sendable {
       ? settings.ridingPersistIntervalMs : settings.idlePersistIntervalMs
     let transition = rideState != previousRideState
     previousRideState = rideState
-    let due = lastPersistedMs.map { elapsedMs - $0 >= interval } ?? true
+    let jitterToleranceMs = min(25, max(0, interval / 5))
+    let dueThresholdMs = max(0, interval - jitterToleranceMs)
+    let due = lastPersistedMs.map { elapsedMs - $0 >= dueThresholdMs } ?? true
     if transition || due {
       lastPersistedMs = elapsedMs
       return true

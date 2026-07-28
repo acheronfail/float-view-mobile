@@ -400,12 +400,14 @@ Target effort: three to five days.
 
 Deliverables:
 
-- the first-slice scenario described above;
-- idle, riding, post-ride, fault/footpad, and return-to-idle values;
-- captured and adversarial notification chunk patterns;
-- request-cadence assertions;
-- application-session extraction and integrity assertions;
-- one guided command that arms the ESP and runs the host-side scenario for a
+- [x] the deterministic ride scenario portion of the first slice described above;
+- [ ] idle, riding, post-ride, fault/footpad, and return-to-idle values
+  (ride/footpad states complete; explicit fault normalization remains);
+- [x] captured and adversarial notification chunk patterns;
+- [x] request-cadence assertions;
+- [x] application-session extraction and integrity assertions
+  (implemented and physically verified on macOS);
+- [x] one guided command that arms the ESP and runs the host-side scenario for a
   selected platform.
 
 Exit gate:
@@ -421,6 +423,10 @@ Exit gate:
 T3 is the first useful delivery. It should land before broad error injection.
 Guided app interaction is acceptable at T3 as long as the scenario transcript
 and session evidence are machine-readable. T4 removes that manual step.
+
+Current host and physical macOS evidence and the remaining physical platform matrix are
+recorded in
+[`../tools/vesc-test-device/T3-EVIDENCE.md`](../tools/vesc-test-device/T3-EVIDENCE.md).
 
 ### T4: platform automation and repository verification
 

@@ -48,11 +48,16 @@ export class FixtureRunner {
   private async handleGattWrite(chunk: Uint8Array): Promise<void> {
     const actions = await this.engine.receiveGattWrite(chunk);
     for (const action of actions) {
-      for (const responseChunk of action.chunks) {
-        await this.control.command("notify", { hex: toHex(responseChunk) });
-        this.engine.recordNotificationSent(action.ruleId, responseChunk);
-        if (action.interChunkDelayMs > 0) {
-          await new Promise((resolve) => setTimeout(resolve, action.interChunkDelayMs));
+      if (action.kind === "disconnect") {
+        await this.control.command("disconnect");
+        this.engine.recordDisconnectSent(action.ruleId, action.phase);
+      } else {
+        for (const responseChunk of action.chunks) {
+          await this.control.command("notify", { hex: toHex(responseChunk) });
+          this.engine.recordNotificationSent(action.ruleId, responseChunk);
+          if (action.interChunkDelayMs > 0) {
+            await new Promise((resolve) => setTimeout(resolve, action.interChunkDelayMs));
+          }
         }
       }
     }

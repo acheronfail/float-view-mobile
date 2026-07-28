@@ -252,6 +252,44 @@ func refloatTelemetryStartsIdleProbeAndSwitchesToRidingRate() throws {
 }
 
 @Test
+func refloatTelemetryKeepsRidingProbeRateThroughPostRideTail() throws {
+  let bluetooth = FakeBluetooth()
+  let scheduler = FakeScheduler()
+  let clock = MutableClock()
+  let service = ApplicationService(
+    bluetooth: bluetooth,
+    clock: clock,
+    logStore: MemoryStore(),
+    protocolCodec: TelemetryProtocol(),
+    scheduler: scheduler,
+    events: IgnoreEvents()
+  )
+  let id = DeviceID("fixture")
+
+  try service.receive(.deviceFound(id, name: "ExpressT", rssi: -40))
+  try service.connect(id)
+  try service.receive(.connectionChanged(id, .ready))
+  try service.receive(.notification(id, Data([1])))
+  try service.receive(.notification(id, Data([2])))
+  try service.receive(.notification(id, Data([3])))
+  #expect(scheduler.intervals == [1_000, 500])
+
+  clock.date = .init(timeIntervalSince1970: 1)
+  try service.receive(.notification(id, Data([4])))
+  #expect(scheduler.intervals == [1_000, 500, 100])
+
+  clock.date = .init(timeIntervalSince1970: 2)
+  try service.receive(.notification(id, Data([5])))
+  clock.date = .init(timeIntervalSince1970: 16.999)
+  try service.receive(.notification(id, Data([5])))
+  #expect(scheduler.intervals == [1_000, 500, 100])
+
+  clock.date = .init(timeIntervalSince1970: 17.001)
+  try service.receive(.notification(id, Data([5])))
+  #expect(scheduler.intervals == [1_000, 500, 100, 500])
+}
+
+@Test
 func missingRefloatLayoutRetriesFinitelyAndFailsLoggingSession() throws {
   let bluetooth = FakeBluetooth()
   let scheduler = FakeScheduler()
@@ -548,6 +586,17 @@ private final class TelemetryProtocol: VescProtocolPort, @unchecked Sendable {
             packVoltageV: 64, dutyCycle: 0.5, controllerTempC: 30,
             motorTempC: 25, motorCurrentA: 8, batteryCurrentA: -4,
             erpm: 1024, speedKph: 36
+          )
+        ),
+      ]
+    case 5:
+      return [
+        .refloatTelemetry(
+          .init(
+            rideState: .idle, boardState: 2, footpadState: 0,
+            packVoltageV: 64, dutyCycle: 0, controllerTempC: 30,
+            motorTempC: 25, motorCurrentA: 0, batteryCurrentA: 0,
+            erpm: 0, speedKph: 0
           )
         ),
       ]

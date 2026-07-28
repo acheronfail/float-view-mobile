@@ -192,3 +192,28 @@ npm run verify:macos -- --port "$FLOAT_VIEW_ESP_PORT"
 This command performs real Bluetooth discovery and connection. Run it only
 after the fixture port has been resolved locally and the operator has approved
 starting physical verification.
+
+## T3 deterministic ride
+
+The T3 ride scenario is
+[`../../conformance/scenarios/vesc-test-device/express-thor-refloat-ride.json`](../../conformance/scenarios/vesc-test-device/express-thor-refloat-ride.json).
+Its telemetry schedule uses observable request occurrences to drive idle,
+riding, footpad-warning, 15-second post-ride-tail, and return-to-idle phases.
+Cadence is verified from request timestamps: 2 Hz idle and 10 Hz riding/tail.
+
+The opt-in macOS session verifier uses the production CoreBluetooth adapter,
+application service, VESC codec, adaptive sampling policy, and SQLite store. It
+explicitly disconnects after the deterministic ride, then checks session
+closure, sample coverage, footpad evidence, SQLite integrity, and cleanup:
+
+```sh
+cd tools/vesc-test-device/host
+npm run verify:macos:ride -- --port "$FLOAT_VIEW_ESP_PORT"
+```
+
+This command performs a real Bluetooth connection and takes roughly 20 seconds.
+Run it only after explicit operator approval.
+
+The physical macOS gate passed on 2026-07-28. Its machine-readable manifest and
+bounded transcript are written under
+`artifacts/verification/vesc-test-device/express-thor-refloat-ride-passed-*`.

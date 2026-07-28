@@ -9,7 +9,23 @@ interface FixtureCase {
   chunkSizes?: number[];
 }
 
+const fixtureCache = new Map<string, Promise<{ frame: Uint8Array; chunkSizes?: number[] }>>();
+
 export async function loadFixture(reference: string, caseName?: string): Promise<{ frame: Uint8Array; chunkSizes?: number[] }> {
+  const key = `${reference}\0${caseName ?? ""}`;
+  const cached = fixtureCache.get(key);
+  if (cached) return cached;
+  const loading = loadFixtureUncached(reference, caseName);
+  fixtureCache.set(key, loading);
+  try {
+    return await loading;
+  } catch (error) {
+    fixtureCache.delete(key);
+    throw error;
+  }
+}
+
+async function loadFixtureUncached(reference: string, caseName?: string): Promise<{ frame: Uint8Array; chunkSizes?: number[] }> {
   const path = resolve(repositoryRoot, reference);
   if (!path.startsWith(`${repositoryRoot}/`)) throw new Error(`fixture escapes repository: ${reference}`);
   const fixture = JSON.parse(await readFile(path, "utf8")) as {

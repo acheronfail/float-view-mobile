@@ -22,6 +22,24 @@ import Testing
   #expect(decisions == [true, false, true, true, true, true, false])
 }
 
+@Test func adaptiveSamplingToleratesBoundedTimerJitter() {
+  var policy = AdaptiveSamplingPolicy(
+    settings: SamplingSettings(
+      idlePersistIntervalMs: 1_000,
+      ridingPersistIntervalMs: 100,
+      postRideTailMs: 500
+    )
+  )
+  let decisions = [
+    policy.shouldPersist(rideState: .riding, elapsedMs: 0),
+    policy.shouldPersist(rideState: .riding, elapsedMs: 79),
+    policy.shouldPersist(rideState: .riding, elapsedMs: 80),
+    policy.shouldPersist(rideState: .riding, elapsedMs: 159),
+    policy.shouldPersist(rideState: .riding, elapsedMs: 160),
+  ]
+  #expect(decisions == [true, false, true, false, true])
+}
+
 @Test func alertDurationAndCooldownAreDeterministic() {
   let sample = TelemetrySample(
     sequence: 1,
