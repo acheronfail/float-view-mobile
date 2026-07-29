@@ -12,6 +12,9 @@ dev platform="mock" target="":
 build:
     cd frontend && npm run build
     cp frontend/build/index.html backends/apple/Sources/FloatViewMac/Resources/index.html
+    mkdir -p backends/apple/Sources/FloatViewMac/Resources/sql
+    cp backends/sql/catalog.sql backends/apple/Sources/FloatViewMac/Resources/sql/catalog.sql
+    cp backends/sql/session.sql backends/apple/Sources/FloatViewMac/Resources/sql/session.sql
 
 run platform target="":
     #!/usr/bin/env bash
@@ -103,6 +106,10 @@ audit:
     [[ "$(find frontend/build -type f | wc -l | tr -d ' ')" == 1 ]]
     [[ -f frontend/build/index.html ]]
     cmp -s frontend/build/index.html backends/apple/Sources/FloatViewMac/Resources/index.html
+    cmp -s backends/sql/catalog.sql \
+      backends/apple/Sources/FloatViewMac/Resources/sql/catalog.sql
+    cmp -s backends/sql/session.sql \
+      backends/apple/Sources/FloatViewMac/Resources/sql/session.sql
     ! rg -n 'system\.hello|system\.getSnapshot|telemetrySubscriptions|loggingJobs' \
       frontend backends conformance
     ! rg -n '\b([3]001|[5]173|[8]765|[8]766)\b' \

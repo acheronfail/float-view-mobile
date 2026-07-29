@@ -3,7 +3,7 @@ package fail.acheron.floatview.storage
 import java.io.File
 
 object LogSchema {
-    const val STORAGE_VERSION = "2"
+    const val STORAGE_VERSION = "4"
 }
 
 internal fun prepareStorageRoot(root: File): File {
