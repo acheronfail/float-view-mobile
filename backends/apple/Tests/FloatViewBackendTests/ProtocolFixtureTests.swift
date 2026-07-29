@@ -52,6 +52,22 @@ private func bytes(_ hex: String) -> [UInt8] {
   #expect(info == FirmwareInfo(major: 6, minor: 6, hardwareName: "THOR300"))
 }
 
+@Test func composedThorFirmwareVariantsDecode() throws {
+  for (version, minor) in [("6.02", 2), ("6.05", 5), ("6.06", 6)] {
+    let value = try fixture("fixtures/vesc/firmware-thor300-\(version).json")
+    let payload = try VescFrameCodec.decode(bytes(value.frameHex))
+    let info = try VescPayloadDecoder.firmware(payload)
+    #expect(
+      info == FirmwareInfo(
+        major: 6,
+        minor: UInt8(minor),
+        hardwareName: "THOR300",
+        hardwareType: 0
+      )
+    )
+  }
+}
+
 @Test func realtimeAndRefloatFixturesDecode() throws {
   let realtime = try VescFrameCodec.decode(bytes(fixture("fixtures/vesc/realtime-values.json").frameHex))
   let values = try VescPayloadDecoder.realtime(realtime)

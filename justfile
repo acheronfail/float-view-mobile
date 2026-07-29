@@ -91,7 +91,11 @@ fixture action port="":
         [[ -n "{{ port }}" ]] || { echo 'Pass the fixture serial port.' >&2; exit 2; }
         pio device monitor --port "{{ port }}" --baud 115200 --echo
         ;;
-      *) echo 'Usage: just fixture setup|check|ports|build|flash|monitor [port]' >&2; exit 2 ;;
+      dev)
+        cd conformance
+        FLOAT_VIEW_FIXTURE_PORT="{{ port }}" npm run fixture:dev
+        ;;
+      *) echo 'Usage: just fixture setup|check|ports|build|flash|monitor|dev [port]' >&2; exit 2 ;;
     esac
 
 audit:
@@ -103,6 +107,14 @@ audit:
     [[ ! -d backends/android/api-models ]]
     [[ ! -d tools/vesc-test-device/host ]]
     ! find tools/vesc-test-device -type f \( -name '*.ts' -o -name '*.js' \) | grep -q .
+    ! rg -n "from ['\"]svelte" conformance/fixture
+    [[ ! -e conformance/fixture-dev/package.json ]]
+    [[ ! -e conformance/fixture-dev/package-lock.json ]]
+    [[ ! -d conformance/fixture-dev/build ]]
+    ! find conformance/fixture-dev/src/lib -type d \
+      \( -name components -o -name services -o -name types -o -name utils \) | grep -q .
+    ! rg -n '@sveltejs/adapter|svelte-kit build|vite build|vite preview' \
+      conformance/fixture-dev conformance/package.json
     [[ "$(find frontend/build -type f | wc -l | tr -d ' ')" == 1 ]]
     [[ -f frontend/build/index.html ]]
     cmp -s frontend/build/index.html backends/apple/Sources/FloatViewMac/Resources/index.html

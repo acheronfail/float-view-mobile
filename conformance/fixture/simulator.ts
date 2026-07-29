@@ -1,5 +1,10 @@
-import type { BoardConfiguration, ControllerConfiguration } from './boards.ts';
+import type {
+	BoardConfiguration,
+	ComposedBoardConfiguration,
+	ControllerConfiguration
+} from './boards.ts';
 import { encodeFrame, FrameAssembler } from './frame.ts';
+import { idleTelemetry } from './telemetry.ts';
 
 export type VescRequestKind =
 	| 'transport-firmware'
@@ -23,23 +28,31 @@ export interface SimulatedResponse {
 }
 
 export class VescSimulator {
-	private readonly board: BoardConfiguration;
+	private readonly board: BoardConfiguration | ComposedBoardConfiguration;
 	private readonly now: () => number;
 	private readonly frames = new FrameAssembler();
 	private telemetryIndex = 0;
 	readonly requests: RecordedRequest[] = [];
 
-	constructor(board: BoardConfiguration, now: () => number = () => performance.now()) {
+	readonly diagnostics: string[] = [];
+
+	constructor(
+		board: BoardConfiguration | ComposedBoardConfiguration,
+		now: () => number = () => performance.now()
+	) {
 		this.board = board;
 		this.now = now;
 	}
 
 	receive(bytes: Uint8Array): SimulatedResponse[] {
-		return this.frames.append(bytes).map((payload) => {
-			const { response, request } = this.response(payload);
-			this.requests.push(request);
-			return { frame: encodeFrame(response), request };
-		});
+		const responses: SimulatedResponse[] = [];
+		for (const payload of this.frames.append(bytes)) {
+			const value = this.response(payload);
+			if (!value) continue;
+			this.requests.push(value.request);
+			responses.push({ frame: encodeFrame(value.response), request: value.request });
+		}
+		return responses;
 	}
 
 	verifyCadence(expectedIntervalMs: number, toleranceMs: number, minimumIntervals = 2) {
@@ -75,7 +88,12 @@ export class VescSimulator {
 		this.telemetryIndex = 0;
 	}
 
-	private response(payload: Uint8Array): { response: Uint8Array; request: RecordedRequest } {
+	private response(
+		payload: Uint8Array
+	): { response: Uint8Array; request: RecordedRequest } | undefined {
+		if ('kind' in this.board) {
+			return this.composedResponse(payload);
+		}
 		const command = payload[0];
 		if (command === undefined) throw new Error('Empty VESC request');
 		const at = this.now();
@@ -102,6 +120,89 @@ export class VescSimulator {
 		const controller = this.board.controllers.find((item) => item.canId === canId);
 		if (!controller) throw new Error(`Unknown CAN target ${canId}`);
 		return this.controllerResponse(controller, payload.slice(2), at);
+	}
+
+	private composedResponse(
+		payload: Uint8Array
+	): { response: Uint8Array; request: RecordedRequest } | undefined {
+		const board = this.board as ComposedBoardConfiguration;
+		const command = payload[0];
+		if (command === undefined) return this.reject('Empty VESC request');
+		const at = this.now();
+		if (board.topology.kind === 'direct') {
+			if (command === 0) {
+				return {
+					response: board.firmware.payload,
+					request: { at, command, kind: 'controller-firmware' }
+				};
+			}
+			return this.composedControllerResponse(board, payload, at);
+		}
+		if (command === 0) {
+			return {
+				response: board.expressTransport.payload,
+				request: { at, command, kind: 'transport-firmware' }
+			};
+		}
+		if (command === 62) {
+			return {
+				response: Uint8Array.of(62, board.topology.canId),
+				request: { at, command, kind: 'can-ping' }
+			};
+		}
+		if (command !== 34 || payload.length < 3) {
+			return this.reject(`Unsafe or unsupported VESC command ${command}`);
+		}
+		if (payload[1] !== board.topology.canId) {
+			return this.reject(`Unknown CAN target ${String(payload[1])}`);
+		}
+		return this.composedControllerResponse(board, payload.slice(2), at, board.topology.canId);
+	}
+
+	private composedControllerResponse(
+		board: ComposedBoardConfiguration,
+		payload: Uint8Array,
+		at: number,
+		canId?: number
+	): { response: Uint8Array; request: RecordedRequest } | undefined {
+		const command = payload[0];
+		if (command === 0) {
+			return {
+				response: board.firmware.payload,
+				request: { at, command, canId, kind: 'controller-firmware' }
+			};
+		}
+		if (command !== 36 || payload[1] !== 101) {
+			return this.reject(`Unsafe or unsupported controller command ${String(command)}`);
+		}
+		const packet = payload[2];
+		const isTelemetry = packet === 1 || packet === 10 || packet === 31;
+		const phase = board.telemetry.phase();
+		const response = board.refloat.respond(payload, isTelemetry ? board.telemetry.next() : idleTelemetry);
+		if (!response) return this.reject(`Unsupported Refloat request ${String(payload[2])}`);
+		const kind =
+			response.kind === 'info'
+				? 'refloat-info'
+				: response.kind === 'layout'
+					? 'refloat-layout'
+					: 'telemetry';
+		return {
+			response: response.payload,
+			request: {
+				at,
+				command,
+				canId,
+				kind,
+				...(kind === 'telemetry' ? { telemetryPhase: phase } : {})
+			}
+		};
+	}
+
+	private reject(message: string): undefined {
+		const board = this.board;
+		if (!('kind' in board) || board.requestPolicy === 'strict') throw new Error(message);
+		if (this.diagnostics.length < 100) this.diagnostics.push(message);
+		return undefined;
 	}
 
 	private controllerResponse(

@@ -35,6 +35,7 @@ just fixture build
 just fixture ports
 just fixture flash /dev/cu.usbmodemXXXX
 just fixture monitor /dev/cu.usbmodemXXXX
+just fixture dev /dev/cu.usbmodemXXXX
 ```
 
 Only PlatformIO Core (`pio`) must already be installed; ESP-IDF does not need to
@@ -42,3 +43,6 @@ be installed or sourced separately.
 
 If the native USB port does not appear, hold BOOT while connecting the board.
 The host-buildable parser test is `just fixture check`.
+The `dev` action starts the host-side SvelteKit controller from `conformance/`;
+it does not add JavaScript, TypeScript, scenarios, or VESC interpretation to
+this firmware.

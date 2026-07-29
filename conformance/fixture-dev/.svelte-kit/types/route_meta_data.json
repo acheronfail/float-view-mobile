@@ -1,0 +1,14 @@
+{
+	"/": [
+		"src/routes/+page.server.ts"
+	],
+	"/api/action": [
+		"src/routes/api/action/+server.ts"
+	],
+	"/api/ports": [
+		"src/routes/api/ports/+server.ts"
+	],
+	"/api/state": [
+		"src/routes/api/state/+server.ts"
+	]
+}

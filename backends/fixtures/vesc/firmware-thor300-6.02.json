@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "id": "vesc-firmware-thor300-6.02-fixture",
+  "provenance": {
+    "layout": "https://github.com/vedderb/bldc",
+    "versionHistory": "https://github.com/vedderb/vesc_fw_archive/tree/main/6.02",
+    "identity": "deliberate stable THOR300 fixture identity"
+  },
+  "firmware": "6.02",
+  "frameHex": "021f00060254484f52333030000000000000000000000000000000000000000000005c03",
+  "chunkSizes": [2, 7, 27],
+  "expected": {
+    "major": 6,
+    "minor": 2,
+    "hardwareName": "THOR300",
+    "hardwareType": 0,
+    "hardwareCrc": null
+  }
+}

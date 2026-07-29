@@ -38,6 +38,19 @@ class VescProtocolTest {
     }
 
     @Test
+    fun composedThorFirmwareVariantsDecode() {
+        listOf("6.02" to 2, "6.05" to 5, "6.06" to 6).forEach { (version, minor) ->
+            val payload = VescFrameCodec.decode(
+                fixture("vesc/firmware-thor300-$version.json").hexBytes(),
+            )
+            assertEquals(
+                FirmwareInfo(6, minor, "THOR300", hardwareType = 0),
+                VescPayloadDecoder.firmware(payload),
+            )
+        }
+    }
+
+    @Test
     fun realtimeAndRefloatFixturesDecode() {
         val values = VescPayloadDecoder.realtime(
             VescFrameCodec.decode(fixture("vesc/realtime-values.json").hexBytes()),

@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 1,
+  "id": "refloat-protocol-1.0.0",
+  "provenance": "https://github.com/lukash/refloat/tree/v1.0.0",
+  "packageVersion": "1.0.0",
+  "cases": [
+    {
+      "name": "legacy-info",
+      "request": [36, 101, 0, 2, 0],
+      "frameHex": "02042465000a2c6e03"
+    },
+    {
+      "name": "legacy-idle-all-data",
+      "request": [36, 101, 10],
+      "frameHex": "023724650a0300000000000000000000000000000000000000027a00000000000000008000000000003c380000000000000000000000000000ee1e03"
+    },
+    {
+      "name": "legacy-riding-all-data",
+      "request": [36, 101, 10],
+      "frameHex": "023724650a03000000000000010200000000000000000000000273131d003a0132008fb900000000003e3a0000000000000000000000000000827403"
+    }
+  ]
+}

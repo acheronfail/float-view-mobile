@@ -1,0 +1,28 @@
+{
+  "schemaVersion": 1,
+  "id": "refloat-protocol-1.2.3",
+  "provenance": "https://github.com/lukash/refloat/tree/v1.2.3",
+  "packageVersion": "1.2.3",
+  "cases": [
+    {
+      "name": "info-v2",
+      "request": [36, 101, 0, 2, 0],
+      "frameHex": "023d24650002005265666c6f617400000000000000000000000000010203000000000000000000000000000000000000000000000000000000000000000000d4e903"
+    },
+    {
+      "name": "dynamic-field-ids",
+      "request": [36, 101, 32],
+      "frameHex": "0284246520080b6d6f746f722e73706565640a6d6f746f722e6572706d0d6d6f746f722e63757272656e74106d6f746f722e647574795f6379636c65126d6f746f722e626174745f766f6c74616765126d6f746f722e626174745f63757272656e74116d6f746f722e6d6f736665745f74656d70106d6f746f722e6d6f746f725f74656d7000491403"
+    },
+    {
+      "name": "dynamic-idle-alert-tail",
+      "request": [36, 101, 31],
+      "frameHex": "022124651f00000000000000000000000000000000000053ed00004f804f0000000000781b03"
+    },
+    {
+      "name": "dynamic-riding-alert-tail",
+      "request": [36, 101, 31],
+      "frameHex": "022124651f00000000000003c0000045c96cc74fa4389153d64b274fc04f4000000000422f03"
+    }
+  ]
+}

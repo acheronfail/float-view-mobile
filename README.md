@@ -37,12 +37,19 @@ just conformance mock|android|ios|macos
 just conformance-physical macos <fixture-port>
 just conformance-physical android <fixture-port> <adb-serial>
 just conformance-physical ios <fixture-port> <device-id>
-just fixture setup|check|ports|build|flash|monitor [port]
+just fixture setup|check|ports|build|flash|monitor|dev [port]
 just verify
 ```
 
 The fixture commands require PlatformIO Core (`pio`), but do not require a
 separate ESP-IDF installation or a sourced ESP-IDF environment.
+
+For manual native-Bluetooth iteration, flash the ESP32 and run
+`just fixture dev [port]` beside `just dev <platform>`. The development-only
+SvelteKit fixture controller is available at `http://127.0.0.1:11004`; it can
+select direct or VESC Express topology, configure one CAN ID, choose the
+THOR300 VESC/Refloat version composition, and switch power and riding state.
+See `conformance/fixture-dev/README.md` for compatibility and ownership details.
 
 `just verify` is the software gate. Physical BLE conformance is intentionally a
 separate checkpoint because it requires a flashed ESP32 and real target devices.

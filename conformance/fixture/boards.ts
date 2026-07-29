@@ -1,6 +1,21 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { FrameAssembler } from './frame.ts';
+import {
+	firmwareVariants,
+	thor300,
+	type ControllerIdentity,
+	type FirmwareVariant,
+	type FirmwareVersion
+} from './firmware.ts';
+import { refloatCodecs, type RefloatCodec, type RefloatVersion } from './refloat.ts';
+import { idleTelemetry, type TelemetrySource } from './telemetry.ts';
+import {
+	directTopology,
+	expressTopology,
+	type FixtureTopology,
+	type TopologyStrategy
+} from './topology.ts';
 
 export interface FirmwareIdentity {
 	major: number;
@@ -30,6 +45,28 @@ export interface BoardConfiguration {
 	advertisedName: string;
 	transport: FirmwareIdentity;
 	controllers: ControllerConfiguration[];
+}
+
+export interface ComposedBoardConfiguration {
+	kind: 'composed';
+	name: string;
+	advertisedName: string;
+	controller: ControllerIdentity;
+	firmware: FirmwareVariant;
+	refloat: RefloatCodec;
+	topology: TopologyStrategy;
+	telemetry: TelemetrySource;
+	requestPolicy: 'strict' | 'interactive';
+	expressTransport: FirmwareIdentity;
+}
+
+export interface BoardSelection {
+	firmware: FirmwareVersion;
+	refloat: RefloatVersion;
+	topology: FixtureTopology;
+	canId?: number;
+	telemetry?: TelemetrySource;
+	requestPolicy?: 'strict' | 'interactive';
 }
 
 const expressFirmware = fixturePayload('../backends/fixtures/vesc/firmware-express-6.05.json');
@@ -73,6 +110,29 @@ export const expressThor: BoardConfiguration = {
 		}
 	]
 };
+
+export const expressTransport: FirmwareIdentity = expressThor.transport;
+
+export function composeBoard(selection: BoardSelection): ComposedBoardConfiguration {
+	return {
+		kind: 'composed',
+		name: `${selection.topology === 'express' ? 'Express / ' : ''}THOR300 / Refloat ${selection.refloat}`,
+		advertisedName: 'FloatView Test VESC',
+		controller: thor300,
+		firmware: firmwareVariants[selection.firmware],
+		refloat: refloatCodecs[selection.refloat],
+		topology:
+			selection.topology === 'express'
+				? expressTopology(selection.canId ?? 1)
+				: directTopology,
+		telemetry: selection.telemetry ?? {
+			phase: () => 'idle',
+			next: () => idleTelemetry
+		},
+		requestPolicy: selection.requestPolicy ?? 'interactive',
+		expressTransport
+	};
+}
 
 function phase(name: TelemetryPhase['name'], repetitions: number): TelemetryPhase {
 	return {
