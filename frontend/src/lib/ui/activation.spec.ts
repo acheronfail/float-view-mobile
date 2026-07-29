@@ -18,18 +18,55 @@ describe('cross-platform control activation', () => {
 		expect(isKeyboardOrAssistiveClick({ detail: 1 })).toBe(false);
 	});
 
-	it('dispatches each supported activation path once', () => {
+	it('dispatches each supported activation path once after pointer release', () => {
 		const action = vi.fn();
 		const preventDefault = vi.fn();
+		const target = new EventTarget();
+		const pointerup = new Event('pointerup');
+		Object.defineProperties(pointerup, {
+			pointerId: { value: 7 },
+			isPrimary: { value: true }
+		});
 
 		activateFromPointer(
-			{ button: 0, isPrimary: true, preventDefault } as unknown as PointerEvent,
+			{
+				button: 0,
+				isPrimary: true,
+				pointerId: 7,
+				currentTarget: target,
+				preventDefault
+			} as unknown as PointerEvent,
 			action
 		);
+		expect(action).not.toHaveBeenCalled();
+		target.dispatchEvent(pointerup);
 		activateFromKeyboardOrAssistiveClick({ detail: 1 } as MouseEvent, action);
 		activateFromKeyboardOrAssistiveClick({ detail: 0 } as MouseEvent, action);
 
 		expect(preventDefault).toHaveBeenCalledOnce();
 		expect(action).toHaveBeenCalledTimes(2);
+	});
+
+	it('does not activate after pointer cancellation', () => {
+		const action = vi.fn();
+		const target = new EventTarget();
+		const event = (type: string) => {
+			const next = new Event(type);
+			Object.defineProperty(next, 'pointerId', { value: 9 });
+			return next;
+		};
+		activateFromPointer(
+			{
+				button: 0,
+				isPrimary: true,
+				pointerId: 9,
+				currentTarget: target,
+				preventDefault() {}
+			} as unknown as PointerEvent,
+			action
+		);
+		target.dispatchEvent(event('pointercancel'));
+		target.dispatchEvent(event('pointerup'));
+		expect(action).not.toHaveBeenCalled();
 	});
 });

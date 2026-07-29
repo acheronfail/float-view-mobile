@@ -66,7 +66,9 @@ describe('deterministic mock backend', () => {
 	});
 
 	it('publishes complete live snapshots at the configured persistence cadence', () => {
-		const events: { data: { activeConnection: { latestSample: { boardState: number } } } }[] = [];
+		const events: {
+			data: { activeConnection: { latestSample: { packageState: string } } };
+		}[] = [];
 		const backend = new MockBackend((event) => events.push(event as (typeof events)[number]));
 		backend.handle({ id: 1, method: 'bluetooth.scan', params: {} });
 		backend.handle({ id: 2, method: 'device.connect', params: { deviceId: 'mock-board' } });
@@ -76,7 +78,8 @@ describe('deterministic mock backend', () => {
 		expect(backend.telemetryCadenceMs).toBe(100);
 		expect(liveSample).toMatchObject({
 			rideState: 'riding',
-			boardState: 1
+			packageState: 'running',
+			footpadState: 'both'
 		});
 		expect(events.at(-1)?.data.activeConnection).toMatchObject({
 			state: 'reconnecting',

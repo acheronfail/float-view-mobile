@@ -57,10 +57,12 @@ private func repositoryRoot() -> URL {
         observedAt: startedAt.addingTimeInterval(Double(index)),
         elapsedMs: elapsed,
         rideState: index == 0 ? RideState.idle : RideState.riding,
-        boardState: index % 4,
+        packageState: [.disabled, .startup, .ready, .running][index % 4],
         packVoltageV: voltage,
         dutyCycle: duty,
-        extensionFields: ["speedKph": 18.0]
+        speedKph: 18.0,
+        pitchDeg: Double(index % 4),
+        extensionFields: ["future.energy": Double(index) + 0.25]
       )
     )
   }
@@ -88,27 +90,30 @@ private func repositoryRoot() -> URL {
     sessionID: record.sessionID.value,
     startElapsedMs: 0,
     endElapsedMs: 99_000,
-    fields: ["packVoltageV", "dutyCycle", "speedKph"],
+    fields: ["packVoltageV", "dutyCycle", "speedKph", "future.energy"],
     maxPoints: 12
   )
   #expect(!overview.isEmpty)
   #expect(overview.count <= 12)
-  #expect(overview.allSatisfy { $0.values.keys.count == 3 })
+  #expect(overview.allSatisfy { $0.values.keys.count == 4 })
+  #expect(try store.sessionExtensionFields(sessionID: record.sessionID.value) == [
+    "future.energy",
+  ])
 
   let diagnostic = try store.diagnosticWindow(
     sessionID: record.sessionID.value,
     centerElapsedMs: 50_000,
     beforeMs: 2_000,
     afterMs: 2_000,
-    fields: ["packVoltageV", "boardState"]
+    fields: ["packVoltageV", "pitchDeg"]
   )
   #expect(diagnostic.map(\.elapsedMs) == [48_000, 49_000, 50_000, 51_000, 52_000])
-  #expect(diagnostic.compactMap { $0.values["boardState"] ?? nil } == [0.0, 1.0, 2.0, 3.0, 0.0])
+  #expect(diagnostic.compactMap { $0.values["pitchDeg"] ?? nil } == [0.0, 1.0, 2.0, 3.0, 0.0])
   #expect(try store.sessionEvents(
     sessionID: record.sessionID.value,
     startElapsedMs: 0,
     endElapsedMs: 99_000
-  ).isEmpty)
+  ).filter { $0.kind == "packageState" }.count == 100)
 
   let short = try store.create(
     deviceID: DeviceID("query-fixture"),
@@ -195,18 +200,26 @@ private func repositoryRoot() -> URL {
           observedAt: base.addingTimeInterval(offset),
           elapsedMs: 0,
           rideState: .idle,
+          packageState: .ready,
+          setpointAdjustment: SetpointAdjustment.none,
           packVoltageV: 60,
           dutyCycle: 0.1,
-          extensionFields: ["speedKph": 0]
+          speedKph: 0,
+          fieldWeakeningCurrentA: 1.25,
+          extensionFields: ["future.energy": 7]
         ),
         TelemetrySample(
           sequence: 2,
           observedAt: base.addingTimeInterval(offset + 60),
           elapsedMs: 60_000,
           rideState: .riding,
+          packageState: .running,
+          setpointAdjustment: .duty,
           packVoltageV: 58,
           dutyCycle: 0.5,
-          extensionFields: ["speedKph": 18]
+          speedKph: 18,
+          fieldWeakeningCurrentA: 2.5,
+          extensionFields: ["future.energy": 6]
         ),
       ]
     )
@@ -225,8 +238,10 @@ private func repositoryRoot() -> URL {
   let csv = try store.exportSession(sessionID: sessionIDs[0], format: "csv")
   let csvText = try String(contentsOf: csv.fileURL, encoding: .utf8)
   #expect(csvText.contains("pack_voltage_v"))
-  let firstCSVRow = try #require(csvText.split(separator: "\n").dropFirst().first)
-  #expect(Double(firstCSVRow.split(separator: ",")[4]) == 60)
+  #expect(csvText.contains("setpoint_adjustment"))
+  #expect(csvText.contains("fieldWeakeningCurrentA"))
+  #expect(csvText.contains("future.energy"))
+  #expect(!csvText.contains("management-fixture"))
   let archive = try store.exportSession(
     sessionID: sessionIDs[0],
     format: "float-view-archive"

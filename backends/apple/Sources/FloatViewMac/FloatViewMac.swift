@@ -312,17 +312,15 @@ private final class MacBackendRuntime: @unchecked Sendable {
             observedAt: Date(timeIntervalSince1970: Double(index)),
             elapsedMs: Int64(index * 1_000),
             rideState: index < 5 ? .idle : .riding,
+            footpadState: index < 5 ? FootpadState.none : .both,
             packVoltageV: 60 - Double(index) / 20,
             dutyCycle: Double(index) / 100,
             controllerTempC: 30 + Double(index) / 10,
             motorTempC: 28 + Double(index) / 10,
-            footpadState: index < 5 ? 0 : 3,
-            extensionFields: [
-              "motorCurrentA": Double(index),
-              "batteryCurrentA": Double(index) / 2,
-              "erpm": Double(index * 100),
-              "speedKph": Double(index) / 3,
-            ]
+            motorCurrentA: Double(index),
+            batteryCurrentA: Double(index) / 2,
+            erpm: Double(index * 100),
+            speedKph: Double(index) / 3
           )
         )
       }

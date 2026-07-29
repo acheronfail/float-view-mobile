@@ -1,7 +1,10 @@
 import Foundation
 
-/// Owns route-aware layout negotiation, polling cadence, and decoded samples.
+/// Owns route-aware layout negotiation, one serialized poll stream, compact
+/// caching, and normalized sample sequencing.
 final class TelemetryPolling: @unchecked Sendable {
+  private enum PendingRequest { case realtime, compact, legacy }
+
   private let clock: any ClockPort
   private let scheduler: (any SchedulerPort)?
   private let protocolCodec: (any VescProtocolPort)?
@@ -24,6 +27,10 @@ final class TelemetryPolling: @unchecked Sendable {
   private var family: RefloatTelemetryFamily = .dynamic
   private var idleIntervalMs: Int64 = 1_000
   private var postRideTailMs: Int64 = 30_000
+  private var pendingRequest: PendingRequest?
+  private var pendingSinceMs: Int64?
+  private var nextCompactDueMs: Int64?
+  private var latestCompact: (value: RefloatTelemetryRecord, observedAt: Date)?
   private var active = false
 
   init(
@@ -91,6 +98,11 @@ final class TelemetryPolling: @unchecked Sendable {
       self.family = family
       self.idleIntervalMs = idleIntervalMs
       self.postRideTailMs = postRideTailMs
+      pendingRequest = nil
+      pendingSinceMs = nil
+      latestCompact = nil
+      nextCompactDueMs = family == .dynamic
+        ? clock.monotonicMilliseconds() + Self.compactIntervalMs : nil
       active = true
       restart(previousRideState == .riding ? Self.ridingIntervalMs : idleIntervalMs)
     }
@@ -108,30 +120,25 @@ final class TelemetryPolling: @unchecked Sendable {
 
   func receive(_ value: RefloatTelemetryRecord) {
     lock.withLock {
-      guard active else { return }
+      guard active, responseMatchesPending(value) else { return }
+      pendingRequest = nil
+      pendingSinceMs = nil
+      let observedAt = clock.now()
+      if family == .dynamic, value.kind == .compact {
+        latestCompact = (value, observedAt)
+        return
+      }
+
       let nowMs = clock.monotonicMilliseconds()
       if startedAtMs == nil { startedAtMs = nowMs }
       sequence += 1
-      onSample(
-        TelemetrySample(
-          sequence: sequence,
-          observedAt: clock.now(),
-          elapsedMs: max(0, nowMs - (startedAtMs ?? nowMs)),
-          rideState: value.rideState,
-          boardState: Int(value.boardState),
-          packVoltageV: value.packVoltageV,
-          dutyCycle: value.dutyCycle,
-          controllerTempC: value.controllerTempC,
-          motorTempC: value.motorTempC,
-          footpadState: Int(value.footpadState),
-          extensionFields: [
-            "motorCurrentA": value.motorCurrentA,
-            "batteryCurrentA": value.batteryCurrentA,
-            "erpm": Double(value.erpm),
-            "speedKph": value.speedKph,
-          ]
-        )
+      let sample = normalizedSample(
+        value,
+        sequence: sequence,
+        observedAt: observedAt,
+        elapsedMs: max(0, nowMs - (startedAtMs ?? nowMs))
       )
+      onSample(sample)
       if value.rideState == .riding {
         postRideProbeUntilMs = nil
       } else if previousRideState == .riding {
@@ -153,6 +160,10 @@ final class TelemetryPolling: @unchecked Sendable {
       pollingIntervalMs = nil
       previousRideState = .unknown
       postRideProbeUntilMs = nil
+      pendingRequest = nil
+      pendingSinceMs = nil
+      nextCompactDueMs = nil
+      latestCompact = nil
     }
   }
 
@@ -202,22 +213,122 @@ final class TelemetryPolling: @unchecked Sendable {
   private func requestSample() {
     lock.withLock {
       guard active, let deviceID, let route, let protocolCodec else { return }
+      let nowMs = clock.monotonicMilliseconds()
+      if pendingRequest != nil {
+        guard let pendingSinceMs, nowMs - pendingSinceMs >= Self.requestTimeoutMs else { return }
+        onDiagnostic("refloat_telemetry_request_timeout")
+        pendingRequest = nil
+        self.pendingSinceMs = nil
+      }
+      let request: PendingRequest
       do {
-        write(
-          try RefloatPolling.telemetryRequest(
+        let bytes: Data
+        if family == .legacyFixed {
+          request = .legacy
+          bytes = try RefloatPolling.telemetryRequest(
             protocolCodec: protocolCodec,
             route: route,
             family: family
-          ),
-          deviceID
-        )
+          )
+        } else if let due = nextCompactDueMs, nowMs >= due {
+          request = .compact
+          nextCompactDueMs = nowMs + Self.compactIntervalMs
+          bytes = try RefloatPolling.compactRequest(protocolCodec: protocolCodec, route: route)
+        } else {
+          request = .realtime
+          bytes = try RefloatPolling.telemetryRequest(
+            protocolCodec: protocolCodec,
+            route: route,
+            family: family
+          )
+        }
+        pendingRequest = request
+        pendingSinceMs = nowMs
+        write(bytes, deviceID)
       } catch {
         onDiagnostic(String(describing: error))
       }
     }
   }
 
+  private func responseMatchesPending(_ value: RefloatTelemetryRecord) -> Bool {
+    switch (pendingRequest, family, value.kind) {
+    case (.legacy?, .legacyFixed, .compact), (.realtime?, .dynamic, .realtime),
+      (.compact?, .dynamic, .compact):
+      return true
+    default:
+      onDiagnostic("refloat_unexpected_telemetry_response")
+      return false
+    }
+  }
+
+  private func normalizedSample(
+    _ realtime: RefloatTelemetryRecord,
+    sequence: Int64,
+    observedAt: Date,
+    elapsedMs: Int64
+  ) -> TelemetrySample {
+    let compact: (value: RefloatTelemetryRecord, observedAt: Date)? =
+      family == .dynamic ? latestCompact : (value: realtime, observedAt: observedAt)
+    return TelemetrySample(
+      sequence: sequence,
+      observedAt: observedAt,
+      slowObservedAt: compact?.observedAt,
+      elapsedMs: elapsedMs,
+      rideState: realtime.rideState,
+      packageState: realtime.packageState,
+      packageMode: realtime.packageMode,
+      footpadState: realtime.footpadState,
+      stopCondition: realtime.stopCondition,
+      setpointAdjustment: realtime.setpointAdjustment,
+      wheelslip: realtime.wheelslip,
+      darkride: realtime.darkride,
+      charging: realtime.charging,
+      alertReason: realtime.alertReason,
+      firmwareFault: realtime.firmwareFault,
+      packVoltageV: realtime.packVoltageV,
+      dutyCycle: realtime.dutyCycle,
+      controllerTempC: realtime.controllerTempC,
+      motorTempC: realtime.motorTempC,
+      motorCurrentA: realtime.motorCurrentA,
+      batteryCurrentA: realtime.batteryCurrentA,
+      erpm: realtime.erpm,
+      speedKph: realtime.speedKph,
+      pitchDeg: realtime.pitchDeg,
+      balancePitchDeg: realtime.balancePitchDeg,
+      rollDeg: realtime.rollDeg,
+      directionalMotorCurrentA: realtime.directionalMotorCurrentA,
+      filteredMotorCurrentA: realtime.filteredMotorCurrentA,
+      requestedBalanceCurrentA: realtime.requestedBalanceCurrentA,
+      boosterCurrentA: realtime.boosterCurrentA,
+      fieldWeakeningCurrentA: compact?.value.fieldWeakeningCurrentA,
+      footpadAdc1V: realtime.footpadAdc1V,
+      footpadAdc2V: realtime.footpadAdc2V,
+      remoteInput: realtime.remoteInput,
+      setpointDeg: realtime.setpointDeg,
+      atrSetpointDeg: realtime.atrSetpointDeg,
+      brakeTiltSetpointDeg: realtime.brakeTiltSetpointDeg,
+      torqueTiltSetpointDeg: realtime.torqueTiltSetpointDeg,
+      turnTiltSetpointDeg: realtime.turnTiltSetpointDeg,
+      remoteSetpointDeg: realtime.remoteSetpointDeg,
+      atrAccelerationDifferenceErpmPerSecond: realtime.atrAccelerationDifferenceErpmPerSecond,
+      atrSpeedBoost: realtime.atrSpeedBoost,
+      distanceM: compact?.value.distanceM,
+      odometerM: compact?.value.odometerM,
+      ampHoursDrawnAh: compact?.value.ampHoursDrawnAh,
+      ampHoursChargedAh: compact?.value.ampHoursChargedAh,
+      wattHoursDrawnWh: compact?.value.wattHoursDrawnWh,
+      wattHoursChargedWh: compact?.value.wattHoursChargedWh,
+      batteryLevel: compact?.value.batteryLevel,
+      chargingCurrentA: compact?.value.chargingCurrentA,
+      chargingVoltageV: compact?.value.chargingVoltageV,
+      extensionFields: realtime.extensions
+    )
+  }
+
   private static let ridingIntervalMs: Int64 = 100
+  private static let compactIntervalMs: Int64 = 1_000
+  private static let requestTimeoutMs: Int64 = 900
   private static let layoutRetryIntervalMs: Int64 = 1_000
   private static let maxLayoutAttempts = 5
 }

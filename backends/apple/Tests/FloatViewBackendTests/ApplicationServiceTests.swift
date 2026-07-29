@@ -687,15 +687,14 @@ func refloatTelemetryStartsIdleProbeAndSwitchesToRidingRate() throws {
   #expect(scheduler.intervals == [10_000, 1_000, 500, 100])
   #expect(store.appended.count == 1)
   #expect(store.appended.first?.rideState == .riding)
-  #expect(store.appended.first?.boardState == 3)
+  #expect(store.appended.first?.packageState == .running)
   #expect(store.appended.first?.packVoltageV == 64)
   #expect(service.activeConnectionSnapshot()?.latestSample == store.appended.first)
-  #expect(store.appended.first?.extensionFields == [
-    "motorCurrentA": 8,
-    "batteryCurrentA": -4,
-    "erpm": 1024,
-    "speedKph": 36,
-  ])
+  #expect(store.appended.first?.motorCurrentA == 8)
+  #expect(store.appended.first?.batteryCurrentA == -4)
+  #expect(store.appended.first?.erpm == 1024)
+  #expect(store.appended.first?.speedKph == 36)
+  #expect(store.appended.first?.extensionFields.isEmpty == true)
 }
 
 @Test
@@ -703,10 +702,11 @@ func refloatTelemetryKeepsRidingProbeRateThroughPostRideTail() throws {
   let bluetooth = FakeBluetooth()
   let scheduler = FakeScheduler()
   let clock = MutableClock()
+  let store = MemoryStore()
   let service = ApplicationService(
     bluetooth: bluetooth,
     clock: clock,
-    logStore: MemoryStore(),
+    logStore: store,
     protocolCodec: TelemetryProtocol(),
     scheduler: scheduler,
     events: IgnoreEvents()
@@ -724,14 +724,25 @@ func refloatTelemetryKeepsRidingProbeRateThroughPostRideTail() throws {
   clock.date = .init(timeIntervalSince1970: 1)
   try service.receive(.notification(id, Data([4])))
   #expect(scheduler.intervals == [10_000, 1_000, 500, 100])
+  try service.receive(.notification(id, Data([6])))
+  scheduler.fire(3)
 
   clock.date = .init(timeIntervalSince1970: 2)
   try service.receive(.notification(id, Data([5])))
+  #expect(store.appended.last?.slowObservedAt == Date(timeIntervalSince1970: 1))
+  #expect(store.appended.last?.fieldWeakeningCurrentA == 1.5)
+  #expect(store.appended.last?.distanceM == 42)
   clock.date = .init(timeIntervalSince1970: 16.999)
+  scheduler.fire(3)
+  try service.receive(.notification(id, Data([6])))
+  scheduler.fire(3)
   try service.receive(.notification(id, Data([5])))
+  #expect(store.appended.last?.distanceM == 7)
+  #expect(store.appended.last?.slowObservedAt == Date(timeIntervalSince1970: 16.999))
   #expect(scheduler.intervals == [10_000, 1_000, 500, 100])
 
   clock.date = .init(timeIntervalSince1970: 17.001)
+  scheduler.fire(3)
   try service.receive(.notification(id, Data([5])))
   #expect(scheduler.intervals == [10_000, 1_000, 500, 100, 500])
 }
@@ -1008,6 +1019,7 @@ private final class CanDiscoveryProtocol: VescProtocolPort, @unchecked Sendable 
 }
 
 private final class TelemetryProtocol: VescProtocolPort, @unchecked Sendable {
+  private var compactCount = 0
   func reset() {}
   func firmwareRequest(route _: ControllerRoute) throws -> Data { Data([1]) }
   func canPingRequest() throws -> Data { Data([62]) }
@@ -1025,6 +1037,16 @@ private final class TelemetryProtocol: VescProtocolPort, @unchecked Sendable {
           )
         ),
       ]
+    case 6:
+      compactCount += 1
+      return [
+        .refloatTelemetry(
+          .init(
+            kind: .compact, rideState: .idle,
+            fieldWeakeningCurrentA: 1.5, distanceM: compactCount == 1 ? 42 : 7
+          )
+        ),
+      ]
     case 2:
       return [.refloatInfo(version: "1.2.3")]
     case 3:
@@ -1033,7 +1055,7 @@ private final class TelemetryProtocol: VescProtocolPort, @unchecked Sendable {
       return [
         .refloatTelemetry(
           .init(
-            rideState: .riding, boardState: 3, footpadState: 3,
+            rideState: .riding, packageState: .running, footpadState: .both,
             packVoltageV: 64, dutyCycle: 0.5, controllerTempC: 30,
             motorTempC: 25, motorCurrentA: 8, batteryCurrentA: -4,
             erpm: 1024, speedKph: 36
@@ -1044,7 +1066,7 @@ private final class TelemetryProtocol: VescProtocolPort, @unchecked Sendable {
       return [
         .refloatTelemetry(
           .init(
-            rideState: .idle, boardState: 2, footpadState: 0,
+            rideState: .idle, packageState: .ready, footpadState: FootpadState.none,
             packVoltageV: 64, dutyCycle: 0, controllerTempC: 30,
             motorTempC: 25, motorCurrentA: 0, batteryCurrentA: 0,
             erpm: 0, speedKph: 0

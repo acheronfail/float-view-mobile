@@ -164,7 +164,12 @@ public final class VescProtocolService: VescProtocolPort, @unchecked Sendable {
   }
 
   public func refloatLegacyTelemetryRequest(route: ControllerRoute) throws -> Data {
-    let command: [UInt8] = [36, 101, 10]
+    let command: [UInt8] = [36, 101, 10, 4]
+    return Data(try VescFrameCodec.encode(VescCommandRouter.route(command, via: route)))
+  }
+
+  public func refloatCompactTelemetryRequest(route: ControllerRoute) throws -> Data {
+    let command: [UInt8] = [36, 101, 10, 4]
     return Data(try VescFrameCodec.encode(VescCommandRouter.route(command, via: route)))
   }
 

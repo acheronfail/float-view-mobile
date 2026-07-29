@@ -49,6 +49,9 @@ export interface ControllerConfiguration {
   refloatInfoPayload: Uint8Array;
   telemetryLayoutPayload: Uint8Array;
   telemetryPhases: TelemetryPhase[];
+  /** Interactive workbench controllers project one shared semantic source. */
+  refloat?: RefloatCodec;
+  telemetry?: TelemetrySource;
 }
 
 export interface BoardConfiguration {
@@ -83,6 +86,22 @@ export interface BoardSelection {
   canId?: number;
   telemetry?: TelemetrySource;
   requestPolicy?: "strict" | "interactive";
+}
+
+export interface InteractiveControllerSelection {
+  alias: string;
+  canId: number;
+  firmware: FirmwareVersion;
+  refloat: RefloatVersion;
+  uuid: Uint8Array;
+}
+
+export interface InteractiveBoardSelection {
+  advertisedName: string;
+  topology: FixtureTopology;
+  controllers: readonly InteractiveControllerSelection[];
+  canPingIds: readonly number[];
+  telemetry: TelemetrySource;
 }
 
 const expressFirmware = fixturePayload(
@@ -252,6 +271,53 @@ export function composeBoard(
     },
     requestPolicy: selection.requestPolicy ?? "interactive",
     expressTransport,
+  };
+}
+
+export function composeInteractiveBoard(
+  selection: InteractiveBoardSelection,
+): BoardConfiguration {
+  if (selection.controllers.length === 0 || selection.controllers.length > 16) {
+    throw new Error("Interactive board requires 1 through 16 controllers");
+  }
+  if (selection.topology === "direct" && selection.controllers.length !== 1) {
+    throw new Error("Direct topology requires exactly one controller");
+  }
+  const controllers = selection.controllers.map((item): ControllerConfiguration => {
+    const firmware = firmwareVariants[item.firmware];
+    const codec = refloatCodecs[item.refloat];
+    return {
+      canId: item.canId,
+      firmware: {
+        major: firmware.major,
+        minor: firmware.minor,
+        hardwareName: thor300.hardwareName,
+        hardwareType: thor300.hardwareType,
+        payload: encodeFirmwarePayload(
+          { ...thor300, uuid: item.uuid },
+          firmware.major,
+          firmware.minor,
+          firmware.hardwareCrc,
+        ),
+      },
+      refloatVersion: codec.version,
+      refloatInfoPayload: codec.infoPayload,
+      telemetryLayoutPayload: codec.layoutPayload ?? new Uint8Array(),
+      telemetryPhases: [],
+      refloat: codec,
+      telemetry: selection.telemetry,
+    };
+  });
+  return {
+    name: `Workbench / ${selection.topology}`,
+    advertisedName: selection.advertisedName,
+    transport:
+      selection.topology === "direct"
+        ? controllers[0]!.firmware
+        : expressTransport,
+    controllers,
+    canPingIds: [...selection.canPingIds],
+    requestPolicy: "interactive",
   };
 }
 

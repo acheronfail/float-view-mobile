@@ -35,3 +35,13 @@ or excessive ping lists, silent targets, and route-specific responses. The
 compatibility matrix covers every direct/Express combination of VESC
 6.02/6.05/6.06 and Refloat 1.0.0/1.1.0/1.2.3; legacy 1.0.0 reports wire version
 `1.0` and uses fixed packet 10.
+
+The manual workbench and automated runner deliberately have different jobs.
+The workbench retains an editable scenario and reports requests without driving
+Float View or judging outcomes. The runner owns deterministic assertions and
+physical checkpoints. Shareable workbench documents contain only bounded public
+simulation inputs; controller UUID bytes stay private to the simulator server.
+
+The telemetry matrix covers Refloat 1.0.0 command 1 plus command 10 detail
+levels 1–4, and Refloat 1.1.0/1.2.3 command 31/32 plus periodic command 10
+detail 4. Command 35 history and commands 41–43 are intentionally deferred.

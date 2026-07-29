@@ -19,6 +19,7 @@ test('coordinator attaches, configures atomically, powers, rides, and re-adverti
 		firmware: '6.05',
 		refloat: '1.2.3'
 	});
+	await coordinator.act({ kind: 'set-fragment-bytes', fragmentBytes: 20 });
 	await coordinator.act({ kind: 'power-on' });
 	await coordinator.act({ kind: 'start-riding' });
 	const revision = coordinator.snapshot().revision;
@@ -31,12 +32,46 @@ test('coordinator attaches, configures atomically, powers, rides, and re-adverti
 	});
 	await eventually(() => coordinator.snapshot().counters.telemetry === 1);
 	assert.equal(coordinator.snapshot().telemetry?.rideState, 'riding');
+	assert.ok((coordinator.snapshot().lastRequest?.fragments ?? 0) > 1);
+	assert.equal(fixture.notifications.every((value) => value.byteLength <= 20), true);
 	fixture.emit({ kind: 'DISCONNECTED' });
 	await eventually(() => fixture.commands.filter((value) => value === 'ADVERTISE').length === 2);
 	await coordinator.act({ kind: 'stop-riding' });
 	assert.equal(coordinator.snapshot().ride, 'idle');
 	await coordinator.act({ kind: 'power-off' });
 	assert.equal(coordinator.snapshot().ble, 'idle');
+	await coordinator.cleanup();
+});
+
+test('semantic scenes, pins, freeze, resume, and reset remain manual and shareable', async () => {
+	const coordinator = coordinatorFor(new FakeFixture());
+	await coordinator.act({ kind: 'set-scene', scene: 'acceleration' });
+	const accelerated = coordinator.snapshot().telemetry!;
+	assert.equal(accelerated.packageState, 'running');
+	assert.ok(accelerated.requestedBalanceCurrentA > accelerated.motorCurrentA);
+	await coordinator.act({ kind: 'pin-field', field: 'controllerTempC', value: 77 });
+	await coordinator.act({ kind: 'freeze' });
+	assert.equal(coordinator.snapshot().frozen, true);
+	assert.equal(coordinator.snapshot().pinnedFields.controllerTempC, 77);
+	assert.equal(coordinator.snapshot().scenario.overrides.controllerTempC, 77);
+	await coordinator.act({ kind: 'resume' });
+	await coordinator.act({ kind: 'reset-overrides' });
+	assert.equal(coordinator.snapshot().frozen, false);
+	assert.deepEqual(coordinator.snapshot().pinnedFields, {});
+});
+
+test('active move and replacement events serialize disconnect, mutation, and re-advertise', async () => {
+	const fixture = new FakeFixture();
+	const coordinator = coordinatorFor(fixture);
+	await coordinator.act({ kind: 'attach', path: '/dev/fixture' });
+	await coordinator.act({ kind: 'power-on' });
+	await coordinator.act({ kind: 'move-controller', alias: 'primary', canId: 42 });
+	assert.equal(coordinator.snapshot().scenario.controllers[0]?.canId, 42);
+	assert.deepEqual(fixture.commands.slice(-2), ['DISCONNECT', 'ADVERTISE']);
+	await coordinator.act({ kind: 'replace-controller', alias: 'primary' });
+	assert.match(coordinator.snapshot().scenario.controllers[0]?.alias ?? '', /^replacement-/);
+	assert.equal(JSON.stringify(coordinator.snapshot()).toLowerCase().includes('uuid'), false);
+	assert.deepEqual(fixture.commands.slice(-2), ['DISCONNECT', 'ADVERTISE']);
 	await coordinator.cleanup();
 });
 

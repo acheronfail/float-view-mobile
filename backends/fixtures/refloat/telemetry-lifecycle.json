@@ -1,0 +1,78 @@
+{
+  "schemaVersion": 1,
+  "id": "refloat-telemetry-lifecycle",
+  "cases": [
+    {
+      "name": "latest-compact-cache-replaces-even-when-counters-decrease",
+      "generation": 7,
+      "compact": [
+        {
+          "observedAt": "2026-01-01T00:00:01.000Z",
+          "odometerM": 12000,
+          "ampHoursDrawnAh": 18.5,
+          "wattHoursDrawnWh": 820
+        },
+        {
+          "observedAt": "2026-01-01T00:00:02.000Z",
+          "odometerM": 14,
+          "ampHoursDrawnAh": 0.1,
+          "wattHoursDrawnWh": 3
+        }
+      ],
+      "expectedSlowObservedAt": "2026-01-01T00:00:02.000Z",
+      "expectedMerged": {
+        "odometerM": 14,
+        "ampHoursDrawnAh": 0.1,
+        "wattHoursDrawnWh": 3
+      }
+    },
+    {
+      "name": "generation-clears-compact-cache",
+      "generation": 8,
+      "expectedSlowObservedAt": null,
+      "expectedMerged": {
+        "odometerM": null,
+        "ampHoursDrawnAh": null,
+        "wattHoursDrawnWh": null
+      }
+    },
+    {
+      "name": "discrete-transition-deduplication",
+      "samples": [
+        {
+          "elapsedMs": 100,
+          "packageState": "running",
+          "footpadState": "both",
+          "wheelslip": false
+        },
+        {
+          "elapsedMs": 200,
+          "packageState": "running",
+          "footpadState": "both",
+          "wheelslip": true
+        },
+        {
+          "elapsedMs": 300,
+          "packageState": "running",
+          "footpadState": "both",
+          "wheelslip": true
+        },
+        {
+          "elapsedMs": 400,
+          "packageState": "ready",
+          "footpadState": "none",
+          "wheelslip": false
+        }
+      ],
+      "expectedEvents": [
+        { "elapsedMs": 100, "kind": "packageState", "value": "running" },
+        { "elapsedMs": 100, "kind": "footpadState", "value": "both" },
+        { "elapsedMs": 100, "kind": "wheelslip", "value": "cleared" },
+        { "elapsedMs": 200, "kind": "wheelslip", "value": "active" },
+        { "elapsedMs": 400, "kind": "packageState", "value": "ready" },
+        { "elapsedMs": 400, "kind": "footpadState", "value": "none" },
+        { "elapsedMs": 400, "kind": "wheelslip", "value": "cleared" }
+      ]
+    }
+  ]
+}

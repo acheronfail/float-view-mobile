@@ -3,6 +3,7 @@ import type {
 	BluetoothState,
 	BoardProfile,
 	SeriesPoint,
+	SessionEvent,
 	SessionSummary,
 	Settings
 } from '$lib/backend/contract';
@@ -32,6 +33,8 @@ export class BackendState {
 	error = $state<string | null>(null);
 	selectedSession = $state<SessionSummary | null>(null);
 	sessionSeries = $state<SeriesPoint[]>([]);
+	sessionEvents = $state<SessionEvent[]>([]);
+	sessionEventsTruncated = $state(false);
 	diagnosticSeries = $state<SeriesPoint[]>([]);
 	selectedBoardProfile = $state<BoardProfile | null>(null);
 	exportStatus = $state<string | null>(null);
@@ -194,9 +197,11 @@ export class BackendState {
 
 	async openSession(sessionId: string): Promise<boolean> {
 		return this.run(async (client) => {
-			const detail = await client.request('session.get', { sessionId, maxPoints: 400 });
+			const detail = await client.request('session.get', { sessionId, maxPoints: 2_000 });
 			this.selectedSession = detail.summary;
 			this.sessionSeries = detail.series;
+			this.sessionEvents = detail.events;
+			this.sessionEventsTruncated = detail.eventsTruncated;
 			this.diagnosticSeries = [];
 			this.exportStatus = null;
 		});
@@ -252,6 +257,8 @@ export class BackendState {
 	closeSession() {
 		this.selectedSession = null;
 		this.sessionSeries = [];
+		this.sessionEvents = [];
+		this.sessionEventsTruncated = false;
 		this.diagnosticSeries = [];
 		this.exportStatus = null;
 	}

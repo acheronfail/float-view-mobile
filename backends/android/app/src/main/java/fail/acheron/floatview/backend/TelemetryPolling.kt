@@ -3,9 +3,11 @@ package fail.acheron.floatview.backend
 import fail.acheron.floatview.protocol.refloat.RefloatPolling
 import fail.acheron.floatview.protocol.refloat.RefloatTelemetryFamily
 import fail.acheron.floatview.protocol.vesc.ControllerRoute
+import java.time.Instant
 
 /**
- * Owns route-aware layout negotiation, polling cadence, and sample decoding.
+ * Owns route-aware layout negotiation, one serialized poll stream, compact
+ * caching, and normalized sample sequencing.
  */
 class TelemetryPolling(
     private val clock: ClockPort,
@@ -16,6 +18,8 @@ class TelemetryPolling(
     private val onFailure: (String) -> Unit,
     private val onDiagnostic: (Any) -> Unit,
 ) {
+    private enum class PendingRequest { REALTIME, COMPACT, LEGACY }
+
     private var layoutTimer: CancellationPort? = null
     private var layoutAttempts = 0
     private var pollingTimer: CancellationPort? = null
@@ -29,6 +33,10 @@ class TelemetryPolling(
     private var family = RefloatTelemetryFamily.DYNAMIC
     private var idleIntervalMs = 1_000L
     private var postRideTailMs = 30_000L
+    private var pendingRequest: PendingRequest? = null
+    private var pendingSinceMs: Long? = null
+    private var nextCompactDueMs: Long? = null
+    private var latestCompact: Pair<RefloatTelemetryRecord, Instant>? = null
     private var active = false
 
     fun resetSession() {
@@ -74,6 +82,12 @@ class TelemetryPolling(
         this.family = family
         this.idleIntervalMs = idleIntervalMs
         this.postRideTailMs = postRideTailMs
+        pendingRequest = null
+        pendingSinceMs = null
+        latestCompact = null
+        nextCompactDueMs =
+            if (family == RefloatTelemetryFamily.DYNAMIC) clock.monotonicMillis() + COMPACT_INTERVAL_MS
+            else null
         active = true
         restart(if (previousRideState == RideState.RIDING) RIDING_INTERVAL_MS else idleIntervalMs)
     }
@@ -92,27 +106,26 @@ class TelemetryPolling(
         }
     }
 
+    @Synchronized
     fun receive(value: RefloatTelemetryRecord) {
-        if (!active) return
+        if (!active || !responseMatchesPending(value)) return
+        pendingRequest = null
+        pendingSinceMs = null
+        val observedAt = clock.now()
+        if (
+            family == RefloatTelemetryFamily.DYNAMIC &&
+            value.kind == RefloatTelemetryKind.COMPACT
+        ) {
+            latestCompact = value to observedAt
+            return
+        }
         val nowMs = clock.monotonicMillis()
         if (startedAtMs == null) startedAtMs = nowMs
-        val sample = TelemetrySample(
-            sequence = ++sequence,
-            observedAt = clock.now(),
-            elapsedMs = maxOf(0, nowMs - requireNotNull(startedAtMs)),
-            rideState = value.rideState,
-            boardState = value.boardState,
-            packVoltageV = value.packVoltageV,
-            dutyCycle = value.dutyCycle,
-            controllerTempC = value.controllerTempC,
-            motorTempC = value.motorTempC,
-            footpadState = value.footpadState,
-            extension = mapOf(
-                "motorCurrentA" to value.motorCurrentA,
-                "batteryCurrentA" to value.batteryCurrentA,
-                "erpm" to value.erpm.toDouble(),
-                "speedKph" to value.speedKph,
-            ),
+        val sample = normalizedSample(
+            value,
+            ++sequence,
+            observedAt,
+            maxOf(0, nowMs - requireNotNull(startedAtMs)),
         )
         onSample(sample)
         if (value.rideState == RideState.RIDING) {
@@ -138,6 +151,10 @@ class TelemetryPolling(
         pollingIntervalMs = null
         previousRideState = RideState.UNKNOWN
         postRideProbeUntilMs = null
+        pendingRequest = null
+        pendingSinceMs = null
+        nextCompactDueMs = null
+        latestCompact = null
     }
 
     fun cancelLayout() {
@@ -183,18 +200,122 @@ class TelemetryPolling(
         val target = deviceId ?: return
         val selectedRoute = route ?: return
         val decoder = protocol ?: return
+        val nowMs = clock.monotonicMillis()
+        if (pendingRequest != null) {
+            val pendingAt = pendingSinceMs ?: nowMs
+            if (nowMs - pendingAt < REQUEST_TIMEOUT_MS) return
+            onDiagnostic("refloat_telemetry_request_timeout")
+            pendingRequest = null
+            pendingSinceMs = null
+        }
         try {
-            write(
-                target,
-                RefloatPolling.telemetryRequest(decoder, selectedRoute, family),
-            )
+            val bytes: ByteArray
+            val request: PendingRequest
+            if (family == RefloatTelemetryFamily.LEGACY_FIXED) {
+                request = PendingRequest.LEGACY
+                bytes = RefloatPolling.telemetryRequest(decoder, selectedRoute, family)
+            } else if (nextCompactDueMs?.let { nowMs >= it } == true) {
+                request = PendingRequest.COMPACT
+                nextCompactDueMs = nowMs + COMPACT_INTERVAL_MS
+                bytes = RefloatPolling.compactRequest(decoder, selectedRoute)
+            } else {
+                request = PendingRequest.REALTIME
+                bytes = RefloatPolling.telemetryRequest(decoder, selectedRoute, family)
+            }
+            pendingRequest = request
+            pendingSinceMs = nowMs
+            write(target, bytes)
         } catch (error: Exception) {
             onDiagnostic(error)
         }
     }
 
+    private fun responseMatchesPending(value: RefloatTelemetryRecord): Boolean {
+        val matches = when {
+            pendingRequest == PendingRequest.LEGACY &&
+                family == RefloatTelemetryFamily.LEGACY_FIXED &&
+                value.kind == RefloatTelemetryKind.COMPACT -> true
+            pendingRequest == PendingRequest.REALTIME &&
+                family == RefloatTelemetryFamily.DYNAMIC &&
+                value.kind == RefloatTelemetryKind.REALTIME -> true
+            pendingRequest == PendingRequest.COMPACT &&
+                family == RefloatTelemetryFamily.DYNAMIC &&
+                value.kind == RefloatTelemetryKind.COMPACT -> true
+            else -> false
+        }
+        if (!matches) onDiagnostic("refloat_unexpected_telemetry_response")
+        return matches
+    }
+
+    private fun normalizedSample(
+        realtime: RefloatTelemetryRecord,
+        sequence: Long,
+        observedAt: Instant,
+        elapsedMs: Long,
+    ): TelemetrySample {
+        val compact =
+            if (family == RefloatTelemetryFamily.DYNAMIC) latestCompact else realtime to observedAt
+        return TelemetrySample(
+            sequence = sequence,
+            observedAt = observedAt,
+            elapsedMs = elapsedMs,
+            rideState = realtime.rideState,
+            slowObservedAt = compact?.second,
+            packageState = realtime.packageState,
+            packageMode = realtime.packageMode,
+            footpadState = realtime.footpadState,
+            stopCondition = realtime.stopCondition,
+            setpointAdjustment = realtime.setpointAdjustment,
+            wheelslip = realtime.wheelslip,
+            darkride = realtime.darkride,
+            charging = realtime.charging,
+            alertReason = realtime.alertReason,
+            firmwareFault = realtime.firmwareFault,
+            packVoltageV = realtime.packVoltageV,
+            dutyCycle = realtime.dutyCycle,
+            controllerTempC = realtime.controllerTempC,
+            motorTempC = realtime.motorTempC,
+            motorCurrentA = realtime.motorCurrentA,
+            batteryCurrentA = realtime.batteryCurrentA,
+            erpm = realtime.erpm,
+            speedKph = realtime.speedKph,
+            pitchDeg = realtime.pitchDeg,
+            balancePitchDeg = realtime.balancePitchDeg,
+            rollDeg = realtime.rollDeg,
+            directionalMotorCurrentA = realtime.directionalMotorCurrentA,
+            filteredMotorCurrentA = realtime.filteredMotorCurrentA,
+            requestedBalanceCurrentA = realtime.requestedBalanceCurrentA,
+            boosterCurrentA = realtime.boosterCurrentA,
+            fieldWeakeningCurrentA = compact?.first?.fieldWeakeningCurrentA,
+            footpadAdc1V = realtime.footpadAdc1V,
+            footpadAdc2V = realtime.footpadAdc2V,
+            remoteInput = realtime.remoteInput,
+            setpointDeg = realtime.setpointDeg,
+            atrSetpointDeg = realtime.atrSetpointDeg,
+            brakeTiltSetpointDeg = realtime.brakeTiltSetpointDeg,
+            torqueTiltSetpointDeg = realtime.torqueTiltSetpointDeg,
+            turnTiltSetpointDeg = realtime.turnTiltSetpointDeg,
+            remoteSetpointDeg = realtime.remoteSetpointDeg,
+            atrAccelerationDifferenceErpmPerSecond =
+                realtime.atrAccelerationDifferenceErpmPerSecond,
+            atrSpeedBoost = realtime.atrSpeedBoost,
+            distanceM = compact?.first?.distanceM,
+            odometerM = compact?.first?.odometerM,
+            ampHoursDrawnAh = compact?.first?.ampHoursDrawnAh,
+            ampHoursChargedAh = compact?.first?.ampHoursChargedAh,
+            wattHoursDrawnWh = compact?.first?.wattHoursDrawnWh,
+            wattHoursChargedWh = compact?.first?.wattHoursChargedWh,
+            batteryLevel = compact?.first?.batteryLevel,
+            chargingCurrentA = compact?.first?.chargingCurrentA,
+            chargingVoltageV = compact?.first?.chargingVoltageV,
+            extension = realtime.extensions,
+        )
+    }
+
     private companion object {
         const val RIDING_INTERVAL_MS = 100L
+        const val COMPACT_INTERVAL_MS = 1_000L
+        const val REQUEST_TIMEOUT_MS = 900L
         const val LAYOUT_RETRY_INTERVAL_MS = 1_000L
         const val MAX_LAYOUT_ATTEMPTS = 5
     }

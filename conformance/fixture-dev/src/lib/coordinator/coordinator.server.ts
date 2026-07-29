@@ -1,4 +1,4 @@
-import { composeBoard } from '../../../../fixture/boards.ts';
+import { composeInteractiveBoard } from '../../../../fixture/boards.ts';
 import { chunks } from '../../../../fixture/runner.ts';
 import {
 	led,
@@ -6,7 +6,12 @@ import {
 	type FixtureEvent
 } from '../../../../fixture/serial.ts';
 import { VescSimulator } from '../../../../fixture/simulator.ts';
-import { InteractiveTelemetrySource } from '../../../../fixture/telemetry.ts';
+import {
+	idleTelemetry,
+	InteractiveTelemetrySource,
+	telemetryScenes,
+	type TelemetrySample
+} from '../../../../fixture/telemetry.ts';
 import {
 	firmwareOptions,
 	refloatOptions,
@@ -16,8 +21,14 @@ import {
 	type FixtureSnapshot,
 	type SerialPortOption
 } from '../contract.ts';
+import {
+	availableTelemetryFields,
+	parseScenarioDocument,
+	privateControllerIdentity,
+	scenarioTemplate
+} from './scenario-document.server.ts';
 
-const MAX_DIAGNOSTICS = 100;
+const MAX_DIAGNOSTICS = 50;
 const MAX_PORTS = 32;
 const READY_TIMEOUT_MS = 5_000;
 
@@ -40,6 +51,7 @@ export class FixtureCoordinator {
 	private fixture?: FixtureControl;
 	private simulator: VescSimulator;
 	private telemetry = new InteractiveTelemetrySource();
+	private replacementSequence = 0;
 	private queue: Promise<unknown> = Promise.resolve();
 	private loopGeneration = 0;
 	private readyWaiter?: { resolve: () => void; reject: (error: Error) => void; timer: NodeJS.Timeout };
@@ -52,6 +64,10 @@ export class FixtureCoordinator {
 			firmware: '6.06',
 			refloat: '1.2.3'
 		},
+		scenario: scenarioTemplate('singleExpress'),
+		frozen: false,
+		pinnedFields: {},
+		availableFields: availableTelemetryFields('1.2.3'),
 		power: 'off',
 		ble: 'unavailable',
 		ride: 'idle',
@@ -100,6 +116,66 @@ export class FixtureCoordinator {
 					break;
 				case 'stop-riding':
 					this.stopRiding();
+					break;
+				case 'apply-template':
+					this.applyScenario(scenarioTemplate(action.template));
+					break;
+				case 'import-scenario':
+					this.applyScenario(parseScenarioDocument(action.document));
+					break;
+				case 'set-scene':
+					this.setScene(action.scene);
+					break;
+				case 'freeze':
+					this.setFrozen(true);
+					break;
+				case 'resume':
+					this.setFrozen(false);
+					break;
+				case 'pin-field':
+					this.pinField(action.field, action.value);
+					break;
+				case 'unpin-field':
+					this.telemetry.unpin(action.field);
+					this.syncTelemetryState();
+					break;
+				case 'reset-overrides':
+					this.telemetry.reset();
+					this.state.scenario.overrides = {};
+					this.syncTelemetryState();
+					break;
+				case 'disconnect-readvertise':
+				await this.disconnectAndReadvertise();
+					break;
+				case 'reconnect-unchanged':
+					await this.disconnectAndReadvertise();
+					break;
+				case 'move-controller':
+					await this.mutateConnectionScenario((draft) => {
+						const controller = this.controller(action.alias, draft);
+						if (draft.controllers.some((item) => item.canId === action.canId)) {
+							this.rejectAction('Controller CAN ID is already in use');
+						}
+						controller.canId = action.canId;
+					});
+					break;
+				case 'replace-controller':
+					await this.mutateConnectionScenario((draft) => {
+						const controller = this.controller(action.alias, draft);
+						controller.alias = `replacement-${++this.replacementSequence}`;
+					});
+					break;
+				case 'set-ping-visible':
+					await this.mutateConnectionScenario((draft) => {
+						this.controller(action.alias, draft).pingVisible = action.visible;
+					});
+					break;
+				case 'set-fragment-bytes':
+					if (!Number.isInteger(action.fragmentBytes) || action.fragmentBytes < 1 || action.fragmentBytes > 244) {
+						this.rejectAction('Notification fragment bound must be from 1 through 244');
+					}
+					this.state.scenario.fragmentBytes = action.fragmentBytes;
+					this.update({ scenario: structuredClone(this.state.scenario) });
 					break;
 			}
 			return this.snapshot();
@@ -196,13 +272,43 @@ export class FixtureCoordinator {
 		} catch (error) {
 			this.rejectAction(message(error));
 		}
+		const next = scenarioTemplate(configuration.topology === 'direct' ? 'direct' : 'singleExpress');
+		next.controllers[0] = {
+			...next.controllers[0]!,
+			canId: configuration.canId,
+			firmware: configuration.firmware,
+			refloat: configuration.refloat
+		};
+		this.applyScenario(next);
+	}
+
+	private applyScenario(scenario: ReturnType<typeof parseScenarioDocument> | ReturnType<typeof scenarioTemplate>) {
+		if (this.state.power !== 'off' || this.state.ble === 'advertising' || this.state.ble === 'connected') {
+			this.rejectAction('Power off and disconnect before replacing the fixture scenario');
+		}
+		const validated = parseScenarioDocument(scenario);
 		this.telemetry = new InteractiveTelemetrySource();
+		this.telemetry.setScene(validated.scene);
+		for (const [field, value] of Object.entries(validated.overrides)) {
+			this.telemetry.pin(field as keyof TelemetrySample, value as never);
+		}
+		const primary = validated.controllers[0]!;
 		this.state = {
 			...this.state,
 			revision: this.state.revision + 1,
-			configuration: { ...configuration },
-			ride: 'idle',
-			telemetry: undefined,
+			configuration: {
+				topology: validated.topology,
+				canId: primary.canId,
+				firmware: primary.firmware,
+				refloat: primary.refloat
+			},
+			scenario: structuredClone(validated),
+			ride: this.telemetry.phase(),
+			telemetry: this.telemetry.lastSample(),
+			frozen: false,
+			pinnedFields: this.telemetry.pinnedFields(),
+			availableFields: this.resolvedAvailableFields(validated),
+			lastRequest: undefined,
 			counters: { writes: 0, responses: 0, telemetry: 0, dropped: 0 },
 			diagnostics: []
 		};
@@ -232,14 +338,83 @@ export class FixtureCoordinator {
 		this.requireFixture();
 		if (this.state.power !== 'on') this.rejectAction('Power on before starting a ride');
 		if (!this.telemetry.start()) return;
-		this.update({ ride: 'riding' });
+		this.state.scenario.scene = this.telemetry.currentScene();
+		this.syncTelemetryState();
 	}
 
 	private stopRiding() {
 		this.requireFixture();
 		if (this.state.power !== 'on') this.rejectAction('Power on before stopping a ride');
 		if (!this.telemetry.stop()) return;
-		this.update({ ride: 'idle', telemetry: idleTelemetrySnapshot() });
+		this.state.scenario.scene = 'idle';
+		this.syncTelemetryState();
+	}
+
+	private setScene(scene: (typeof telemetryScenes)[number]) {
+		if (!telemetryScenes.includes(scene)) this.rejectAction('Unknown telemetry scene');
+		this.telemetry.setScene(scene);
+		this.state.scenario.scene = scene;
+		this.state.scenario.overrides = { ...this.telemetry.pinnedFields() };
+		this.syncTelemetryState();
+	}
+
+	private setFrozen(frozen: boolean) {
+		const changed = frozen ? this.telemetry.freeze() : this.telemetry.resume();
+		if (changed) this.syncTelemetryState();
+	}
+
+	private pinField(field: keyof TelemetrySample, value: TelemetrySample[keyof TelemetrySample]) {
+		this.telemetry.pin(field, value as never);
+		this.state.scenario.overrides = { ...this.telemetry.pinnedFields() };
+		this.syncTelemetryState();
+	}
+
+	private syncTelemetryState() {
+		this.update({
+			scenario: structuredClone(this.state.scenario),
+			ride: this.telemetry.phase(),
+			telemetry: this.telemetry.lastSample(),
+			frozen: this.telemetry.isFrozen(),
+			pinnedFields: this.telemetry.pinnedFields()
+		});
+	}
+
+	private controller(alias: string, scenario = this.state.scenario) {
+		const controller = scenario.controllers.find((item) => item.alias === alias);
+		if (!controller) this.rejectAction('Controller alias was not found');
+		return controller;
+	}
+
+	private async mutateConnectionScenario(
+		mutation: (draft: FixtureSnapshot['scenario']) => void
+	) {
+		const draft = structuredClone(this.state.scenario);
+		mutation(draft);
+		const validated = parseScenarioDocument(draft);
+		const active = this.state.power === 'on';
+		if (active) await this.requireFixture().command('DISCONNECT');
+		this.state.scenario = validated;
+		this.simulator = this.createSimulator();
+		if (active) await this.requireFixture().command('ADVERTISE');
+		this.update({
+			scenario: structuredClone(validated),
+			configuration: {
+				topology: validated.topology,
+				canId: validated.controllers[0]!.canId,
+				firmware: validated.controllers[0]!.firmware,
+				refloat: validated.controllers[0]!.refloat
+			},
+			availableFields: this.resolvedAvailableFields(validated),
+			ble: active ? 'advertising' : this.state.ble
+		});
+	}
+
+	private async disconnectAndReadvertise() {
+		const fixture = this.requireFixture();
+		if (this.state.power !== 'on') this.rejectAction('Power on before reconnecting');
+		await fixture.command('DISCONNECT');
+		await fixture.command('ADVERTISE');
+		this.update({ ble: 'advertising' });
 	}
 
 	private async runLoop(fixture: FixtureControl, generation: number) {
@@ -294,8 +469,21 @@ export class FixtureCoordinator {
 					this.diagnostic(this.simulator.diagnostics.at(-1) ?? 'Request dropped');
 				}
 				for (const response of responses) {
-					for (const fragment of chunks(response.frame, 244)) await fixture.notify(fragment);
+					const fragments = chunks(response.frame, this.state.scenario.fragmentBytes);
+					for (const fragment of fragments) await fixture.notify(fragment);
 					this.increment('responses');
+					this.update({
+						lastRequest: {
+							kind: response.request.kind,
+							command: response.request.command,
+							...(response.request.canId === undefined ? {} : { canId: response.request.canId }),
+							...(response.request.telemetryCommand === undefined
+								? {}
+								: { telemetryCommand: response.request.telemetryCommand }),
+							responseBytes: response.frame.byteLength,
+							fragments: fragments.length
+						}
+					});
 					if (response.request.kind === 'telemetry') {
 						this.increment('telemetry');
 						this.update({ telemetry: this.telemetry.lastSample() });
@@ -367,11 +555,31 @@ export class FixtureCoordinator {
 
 	private createSimulator() {
 		return new VescSimulator(
-			composeBoard({
-				...this.state.configuration,
-				telemetry: this.telemetry,
-				requestPolicy: 'interactive'
+			composeInteractiveBoard({
+				advertisedName: this.state.scenario.advertisedName,
+				topology: this.state.scenario.topology,
+				controllers: this.state.scenario.controllers.map((item) => ({
+					...item,
+					uuid: privateControllerIdentity(this.state.scenario, item.alias)
+				})),
+				canPingIds:
+					this.state.scenario.topology === 'express'
+						? [
+								...this.state.scenario.discoveredCanIds,
+								...this.state.scenario.controllers
+									.filter((item) => item.pingVisible)
+									.map((item) => item.canId)
+							]
+						: [],
+				telemetry: this.telemetry
 			})
+		);
+	}
+
+	private resolvedAvailableFields(scenario = this.state.scenario) {
+		const catalogs = scenario.controllers.map((item) => new Set(availableTelemetryFields(item.refloat)));
+		return availableTelemetryFields(scenario.controllers[0]!.refloat).filter((field) =>
+			catalogs.every((catalog) => catalog.has(field))
 		);
 	}
 
@@ -423,19 +631,7 @@ function validateConfiguration(configuration: FixtureConfiguration) {
 }
 
 function idleTelemetrySnapshot() {
-	return {
-		rideState: 'idle' as const,
-		boardState: 0,
-		footpadState: 0,
-		speedKph: 0,
-		erpm: 0,
-		dutyCycle: 0,
-		motorCurrentA: 0,
-		batteryCurrentA: 0,
-		packVoltageV: 63.4,
-		controllerTempC: 30,
-		motorTempC: 28
-	};
+	return { ...idleTelemetry };
 }
 
 function message(error: unknown) {

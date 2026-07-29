@@ -21,4 +21,11 @@ enum RefloatPolling {
       try protocolCodec.refloatTelemetryRequest(route: route)
     }
   }
+
+  static func compactRequest(
+    protocolCodec: any VescProtocolPort,
+    route: ControllerRoute
+  ) throws -> Data {
+    try protocolCodec.refloatCompactTelemetryRequest(route: route)
+  }
 }

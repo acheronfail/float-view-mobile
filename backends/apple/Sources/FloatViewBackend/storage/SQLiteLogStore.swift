@@ -262,38 +262,82 @@ public final class SQLiteLogStore: LogStorePort, ProductStorePort, SessionStoreP
     guard !samples.isEmpty else { return }
     try session.execute("BEGIN IMMEDIATE")
     do {
+      var previousTransitions = try Self.latestTransitionValues(in: session)
+      var eventSequence = try session.query(
+        "SELECT COALESCE(MAX(sequence), 0) + 1 FROM session_event",
+        map: { sqlite3_column_int64($0, 0) }
+      ).first ?? 1
+      var appendedEvents: Int64 = 0
       for sample in samples {
         let optional: (Double?) -> SQLiteValue = { $0.map(SQLiteValue.real) ?? .null }
-        let extensionData = try JSONSerialization.data(
-          withJSONObject: sample.extensionFields,
-          options: [.sortedKeys]
-        )
-        guard let extensionJSON = String(data: extensionData, encoding: .utf8) else {
-          throw SQLiteLogStoreError.sqlite("Unable to encode sample extension fields")
-        }
+        let detailJSON = try Self.telemetryDetailJSON(sample)
+        let extensionJSON = try Self.telemetryExtensionJSON(sample.extensionFields)
+        let values: [SQLiteValue] = [
+          .integer(sample.sequence),
+          .integer(Int64(sample.observedAt.timeIntervalSince1970 * 1_000)),
+          sample.slowObservedAt.map {
+            .integer(Int64($0.timeIntervalSince1970 * 1_000))
+          } ?? .null,
+          .integer(sample.elapsedMs),
+          .text(sample.rideState.rawValue),
+          sample.packageState.map { .text($0.rawValue) } ?? .null,
+          sample.packageMode.map { .text($0.rawValue) } ?? .null,
+          sample.stopCondition.map { .text($0.rawValue) } ?? .null,
+          sample.setpointAdjustment.map { .text($0.rawValue) } ?? .null,
+          sample.wheelslip.map { .integer($0 ? 1 : 0) } ?? .null,
+          sample.darkride.map { .integer($0 ? 1 : 0) } ?? .null,
+          sample.charging.map { .integer($0 ? 1 : 0) } ?? .null,
+          sample.alertReason.map { .text($0.rawValue) } ?? .null,
+          sample.firmwareFault.map { .text($0.rawValue) } ?? .null,
+          optional(sample.packVoltageV),
+          optional(sample.dutyCycle),
+          optional(sample.controllerTempC),
+          optional(sample.motorTempC),
+          sample.footpadState.map { .text($0.rawValue) } ?? .null,
+          .text(detailJSON),
+          .text(extensionJSON),
+          optional(sample.motorCurrentA),
+          optional(sample.batteryCurrentA),
+          optional(sample.erpm),
+          optional(sample.speedKph),
+        ]
         try session.statement(
           """
           INSERT OR IGNORE INTO sample(
-            sequence, observed_at_ms, monotonic_elapsed_ms, ride_state,
-            board_state, raw_pack_voltage_v, duty_cycle, controller_temp_c, motor_temp_c,
-            footpad_state, extension_json, motor_current_a, battery_current_a, erpm, speed_kph
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            sequence, observed_at_ms, slow_observed_at_ms, monotonic_elapsed_ms, ride_state,
+            package_state, package_mode, stop_condition, setpoint_adjustment,
+            wheelslip, darkride, charging, alert_reason, firmware_fault,
+            raw_pack_voltage_v, duty_cycle, controller_temp_c, motor_temp_c,
+            footpad_state, detail_json, extension_json,
+            motor_current_a, battery_current_a, erpm, speed_kph
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
           """,
-          values: [
-            .integer(sample.sequence),
-            .integer(Int64(sample.observedAt.timeIntervalSince1970 * 1_000)),
-            .integer(sample.elapsedMs), .text(sample.rideState.rawValue),
-            sample.boardState.map { .integer(Int64($0)) } ?? .null,
-            optional(sample.packVoltageV), optional(sample.dutyCycle),
-            optional(sample.controllerTempC), optional(sample.motorTempC),
-            sample.footpadState.map { .integer(Int64($0)) } ?? .null,
-            .text(extensionJSON),
-            optional(sample.extensionFields["motorCurrentA"]),
-            optional(sample.extensionFields["batteryCurrentA"]),
-            optional(sample.extensionFields["erpm"]),
-            optional(sample.extensionFields["speedKph"]),
-          ]
+          values: values
         )
+        let inserted = try session.query(
+          "SELECT changes()",
+          map: { sqlite3_column_int64($0, 0) }
+        ).first == 1
+        guard inserted else { continue }
+        for (kind, value) in Self.transitionValues(sample) {
+          if previousTransitions[kind] == value { continue }
+          let detailsJSON = try Self.jsonString(["value": value])
+          try session.statement(
+            """
+            INSERT INTO session_event(
+              sequence, observed_at_ms, monotonic_elapsed_ms, kind, details_json
+            ) VALUES (?, ?, ?, ?, ?)
+            """,
+            values: [
+              .integer(eventSequence),
+              .integer(Int64(sample.observedAt.timeIntervalSince1970 * 1_000)),
+              .integer(sample.elapsedMs), .text(kind), .text(detailsJSON),
+            ]
+          )
+          previousTransitions[kind] = value
+          eventSequence += 1
+          appendedEvents += 1
+        }
       }
       let last = samples.map(\.sequence).max()!
       try session.statement(
@@ -302,6 +346,15 @@ public final class SQLiteLogStore: LogStorePort, ProductStorePort, SessionStoreP
       )
       try session.execute("COMMIT")
       try updateCatalogSummaryLocked(record: record, samples: samples)
+      if appendedEvents > 0 {
+        try catalog.statement(
+          """
+          UPDATE session_catalog SET event_count = event_count + ?
+          WHERE job_id = ? AND state = 'active'
+          """,
+          values: [.integer(appendedEvents), .text(record.jobID.value)]
+        )
+      }
       record = SessionRecord(
         sessionID: record.sessionID, jobID: record.jobID, deviceID: record.deviceID,
         startedAt: record.startedAt, committedSequence: max(record.committedSequence, last),
@@ -446,7 +499,7 @@ public final class SQLiteLogStore: LogStorePort, ProductStorePort, SessionStoreP
     fields: [String],
     maxPoints: Int
   ) throws -> [SessionSeriesPoint] {
-    guard startElapsedMs <= endElapsedMs, (1 ... 10_000).contains(maxPoints) else {
+    guard startElapsedMs <= endElapsedMs, (1 ... 2_000).contains(maxPoints) else {
       throw SessionStoreError.invalidRange
     }
     return try readSeries(
@@ -467,7 +520,7 @@ public final class SQLiteLogStore: LogStorePort, ProductStorePort, SessionStoreP
     else { throw SessionStoreError.invalidRange }
     return try readSeries(
       sessionID: sessionID, start: max(0, centerElapsedMs - beforeMs),
-      end: centerElapsedMs + afterMs, fields: fields, maxPoints: 10_000, lossless: true
+      end: centerElapsedMs + afterMs, fields: fields, maxPoints: 2_000, lossless: true
     )
   }
 
@@ -482,8 +535,16 @@ public final class SQLiteLogStore: LogStorePort, ProductStorePort, SessionStoreP
     let database = try openSessionLocked(sessionID: sessionID)
     return try database.query(
       """
-      SELECT sequence, monotonic_elapsed_ms, kind, details_json FROM session_event
-      WHERE monotonic_elapsed_ms BETWEEN ? AND ? ORDER BY monotonic_elapsed_ms, sequence LIMIT 10000
+      SELECT sequence, monotonic_elapsed_ms, kind, details_json FROM (
+        SELECT sequence, monotonic_elapsed_ms, kind, details_json FROM session_event
+        WHERE monotonic_elapsed_ms BETWEEN ? AND ?
+          AND kind IN (
+            'packageState', 'packageMode', 'footpadState', 'stopCondition',
+            'setpointAdjustment', 'wheelslip', 'darkride', 'charging',
+            'alertReason', 'firmwareFault'
+          )
+        ORDER BY sequence DESC LIMIT 2001
+      ) ORDER BY monotonic_elapsed_ms, sequence
       """,
       values: [.integer(startElapsedMs), .integer(endElapsedMs)]
     ) { statement in
@@ -494,6 +555,23 @@ public final class SQLiteLogStore: LogStorePort, ProductStorePort, SessionStoreP
         detailsJSON: Self.columnText(statement, 3) ?? "{}"
       )
     }
+  }
+
+  public func sessionExtensionFields(sessionID: String) throws -> [String] {
+    lock.lock()
+    defer { lock.unlock() }
+    let database = try openSessionLocked(sessionID: sessionID)
+    let fields = try database.query(
+      """
+      SELECT DISTINCT json_each.key FROM sample, json_each(sample.extension_json)
+      ORDER BY json_each.key LIMIT 33
+      """,
+      map: { Self.columnText($0, 0)! }
+    )
+    guard fields.count <= 32 else {
+      throw SQLiteLogStoreError.sqlite("Stored telemetry extensions exceed their bound")
+    }
+    return fields
   }
 
   public func savedDevices() throws -> [SavedDeviceRecord] {
@@ -890,23 +968,27 @@ public final class SQLiteLogStore: LogStorePort, ProductStorePort, SessionStoreP
         FileManager.default.createFile(atPath: output.path, contents: nil)
         let handle = try FileHandle(forWritingTo: output)
         defer { try? handle.close() }
-        try handle.write(contentsOf: Data(
-          "sequence,observed_at_ms,elapsed_ms,ride_state,board_state,pack_voltage_v,duty_cycle,controller_temp_c,motor_temp_c,footpad_state,motor_current_a,battery_current_a,erpm,speed_kph,extension_json\n".utf8
-        ))
+        try handle.write(contentsOf: Data((
+          """
+          sequence,observed_at_ms,slow_observed_at_ms,elapsed_ms,ride_state,package_state,package_mode,footpad_state,stop_condition,setpoint_adjustment,wheelslip,darkride,charging,alert_reason,firmware_fault,pack_voltage_v,duty_cycle,controller_temp_c,motor_temp_c,motor_current_a,battery_current_a,erpm,speed_kph,detail_json,extension_json
+          """ + "\n").utf8))
         try database.forEachRow(
           """
-          SELECT sequence, observed_at_ms, monotonic_elapsed_ms, ride_state,
-                 board_state, raw_pack_voltage_v, duty_cycle, controller_temp_c, motor_temp_c,
-                 footpad_state, motor_current_a, battery_current_a, erpm, speed_kph,
-                 extension_json
+          SELECT sequence, observed_at_ms, slow_observed_at_ms, monotonic_elapsed_ms,
+                 ride_state, package_state, package_mode, footpad_state, stop_condition,
+                 setpoint_adjustment, wheelslip, darkride, charging, alert_reason,
+                 firmware_fault, raw_pack_voltage_v, duty_cycle, controller_temp_c,
+                 motor_temp_c, motor_current_a, battery_current_a, erpm, speed_kph,
+                 detail_json, extension_json
           FROM sample ORDER BY sequence
           """
         ) { statement in
           var columns: [String] = []
-          for index in 0 ..< 15 {
+          let textColumns: Set<Int> = [4, 5, 6, 7, 8, 9, 13, 14, 23, 24]
+          for index in 0 ..< 25 {
             if sqlite3_column_type(statement, Int32(index)) == SQLITE_NULL {
               columns.append("")
-            } else if index == 3 || index == 14 {
+            } else if textColumns.contains(index) {
               columns.append(Self.csv(Self.columnText(statement, Int32(index)) ?? ""))
             } else {
               columns.append(String(cString: sqlite3_column_text(statement, Int32(index))))
@@ -1211,7 +1293,7 @@ public final class SQLiteLogStore: LogStorePort, ProductStorePort, SessionStoreP
     var maxSpeed = prior?.maxSpeed
     var maxDuty = prior?.maxDuty
     for sample in samples.sorted(by: { $0.elapsedMs < $1.elapsedMs }) {
-      let speed = sample.extensionFields["speedKph"].map { abs($0) / 3.6 }
+      let speed = sample.speedKph.map { abs($0) / 3.6 }
       if let previousElapsed {
         let delta = max(0, sample.elapsedMs - previousElapsed)
         if sample.rideState == .riding { riding += delta }
@@ -1265,10 +1347,17 @@ public final class SQLiteLogStore: LogStorePort, ProductStorePort, SessionStoreP
     let uniqueFields = Array(NSOrderedSet(array: fields)) as? [String] ?? fields
     guard !uniqueFields.isEmpty else { throw SessionStoreError.invalidRange }
     let columns = try uniqueFields.map { field -> String in
-      guard let column = Self.seriesColumns[field] else {
+      if let column = Self.seriesColumns[field] { return column }
+      guard !field.isEmpty, field.lengthOfBytes(using: .utf8) <= 64 else {
         throw SessionStoreError.unsupportedField(field)
       }
-      return column
+      let encoded = try JSONSerialization.data(
+        withJSONObject: field,
+        options: [.fragmentsAllowed]
+      )
+      let jsonKey = String(decoding: encoded, as: UTF8.self)
+      let path = ("$." + jsonKey).replacingOccurrences(of: "'", with: "''")
+      return "json_extract(extension_json, '\(path)')"
     }
     lock.lock()
     defer { lock.unlock() }
@@ -1311,17 +1400,146 @@ public final class SQLiteLogStore: LogStorePort, ProductStorePort, SessionStoreP
   }
 
   private static let seriesColumns = [
-    "boardState": "board_state",
     "packVoltageV": "raw_pack_voltage_v",
     "dutyCycle": "duty_cycle",
     "controllerTempC": "controller_temp_c",
     "motorTempC": "motor_temp_c",
-    "footpadState": "footpad_state",
     "motorCurrentA": "motor_current_a",
     "batteryCurrentA": "battery_current_a",
     "erpm": "erpm",
     "speedKph": "speed_kph",
+    "pitchDeg": "json_extract(detail_json, '$.pitchDeg')",
+    "balancePitchDeg": "json_extract(detail_json, '$.balancePitchDeg')",
+    "rollDeg": "json_extract(detail_json, '$.rollDeg')",
+    "directionalMotorCurrentA": "json_extract(detail_json, '$.directionalMotorCurrentA')",
+    "filteredMotorCurrentA": "json_extract(detail_json, '$.filteredMotorCurrentA')",
+    "requestedBalanceCurrentA": "json_extract(detail_json, '$.requestedBalanceCurrentA')",
+    "boosterCurrentA": "json_extract(detail_json, '$.boosterCurrentA')",
+    "fieldWeakeningCurrentA": "json_extract(detail_json, '$.fieldWeakeningCurrentA')",
+    "footpadAdc1V": "json_extract(detail_json, '$.footpadAdc1V')",
+    "footpadAdc2V": "json_extract(detail_json, '$.footpadAdc2V')",
+    "remoteInput": "json_extract(detail_json, '$.remoteInput')",
+    "setpointDeg": "json_extract(detail_json, '$.setpointDeg')",
+    "atrSetpointDeg": "json_extract(detail_json, '$.atrSetpointDeg')",
+    "brakeTiltSetpointDeg": "json_extract(detail_json, '$.brakeTiltSetpointDeg')",
+    "torqueTiltSetpointDeg": "json_extract(detail_json, '$.torqueTiltSetpointDeg')",
+    "turnTiltSetpointDeg": "json_extract(detail_json, '$.turnTiltSetpointDeg')",
+    "remoteSetpointDeg": "json_extract(detail_json, '$.remoteSetpointDeg')",
+    "atrAccelerationDifferenceErpmPerSecond":
+      "json_extract(detail_json, '$.atrAccelerationDifferenceErpmPerSecond')",
+    "atrSpeedBoost": "json_extract(detail_json, '$.atrSpeedBoost')",
+    "distanceM": "json_extract(detail_json, '$.distanceM')",
+    "odometerM": "json_extract(detail_json, '$.odometerM')",
+    "ampHoursDrawnAh": "json_extract(detail_json, '$.ampHoursDrawnAh')",
+    "ampHoursChargedAh": "json_extract(detail_json, '$.ampHoursChargedAh')",
+    "wattHoursDrawnWh": "json_extract(detail_json, '$.wattHoursDrawnWh')",
+    "wattHoursChargedWh": "json_extract(detail_json, '$.wattHoursChargedWh')",
+    "batteryLevel": "json_extract(detail_json, '$.batteryLevel')",
+    "chargingCurrentA": "json_extract(detail_json, '$.chargingCurrentA')",
+    "chargingVoltageV": "json_extract(detail_json, '$.chargingVoltageV')",
   ]
+
+  private static func telemetryDetailJSON(_ sample: TelemetrySample) throws -> String {
+    var values: [String: Any] = [:]
+    func add(_ key: String, _ value: Double?) {
+      if let value { values[key] = value }
+    }
+    add("pitchDeg", sample.pitchDeg)
+    add("balancePitchDeg", sample.balancePitchDeg)
+    add("rollDeg", sample.rollDeg)
+    add("directionalMotorCurrentA", sample.directionalMotorCurrentA)
+    add("filteredMotorCurrentA", sample.filteredMotorCurrentA)
+    add("requestedBalanceCurrentA", sample.requestedBalanceCurrentA)
+    add("boosterCurrentA", sample.boosterCurrentA)
+    add("fieldWeakeningCurrentA", sample.fieldWeakeningCurrentA)
+    add("footpadAdc1V", sample.footpadAdc1V)
+    add("footpadAdc2V", sample.footpadAdc2V)
+    add("remoteInput", sample.remoteInput)
+    add("setpointDeg", sample.setpointDeg)
+    add("atrSetpointDeg", sample.atrSetpointDeg)
+    add("brakeTiltSetpointDeg", sample.brakeTiltSetpointDeg)
+    add("torqueTiltSetpointDeg", sample.torqueTiltSetpointDeg)
+    add("turnTiltSetpointDeg", sample.turnTiltSetpointDeg)
+    add("remoteSetpointDeg", sample.remoteSetpointDeg)
+    add(
+      "atrAccelerationDifferenceErpmPerSecond",
+      sample.atrAccelerationDifferenceErpmPerSecond
+    )
+    add("atrSpeedBoost", sample.atrSpeedBoost)
+    add("distanceM", sample.distanceM)
+    add("odometerM", sample.odometerM)
+    add("ampHoursDrawnAh", sample.ampHoursDrawnAh)
+    add("ampHoursChargedAh", sample.ampHoursChargedAh)
+    add("wattHoursDrawnWh", sample.wattHoursDrawnWh)
+    add("wattHoursChargedWh", sample.wattHoursChargedWh)
+    add("batteryLevel", sample.batteryLevel)
+    add("chargingCurrentA", sample.chargingCurrentA)
+    add("chargingVoltageV", sample.chargingVoltageV)
+    let data = try JSONSerialization.data(withJSONObject: values, options: [.sortedKeys])
+    guard data.count <= 16_384, let result = String(data: data, encoding: .utf8) else {
+      throw SQLiteLogStoreError.sqlite("Telemetry detail JSON exceeds its bound")
+    }
+    return result
+  }
+
+  private static func telemetryExtensionJSON(_ values: [String: Double]) throws -> String {
+    guard values.count <= 32,
+          values.allSatisfy({
+            !$0.key.isEmpty && $0.key.lengthOfBytes(using: .utf8) <= 64 && $0.value.isFinite
+          })
+    else {
+      throw SQLiteLogStoreError.sqlite("Telemetry extension fields exceed their bound")
+    }
+    let data = try JSONSerialization.data(withJSONObject: values, options: [.sortedKeys])
+    guard data.count <= 16_384, let result = String(data: data, encoding: .utf8) else {
+      throw SQLiteLogStoreError.sqlite("Telemetry extension JSON exceeds its bound")
+    }
+    return result
+  }
+
+  private static func transitionValues(_ sample: TelemetrySample) -> [(String, String)] {
+    var values: [(String, String)] = []
+    if let value = sample.packageState { values.append(("packageState", value.rawValue)) }
+    if let value = sample.packageMode { values.append(("packageMode", value.rawValue)) }
+    if let value = sample.footpadState { values.append(("footpadState", value.rawValue)) }
+    if let value = sample.stopCondition { values.append(("stopCondition", value.rawValue)) }
+    if let value = sample.setpointAdjustment {
+      values.append(("setpointAdjustment", value.rawValue))
+    }
+    if let value = sample.wheelslip { values.append(("wheelslip", value ? "active" : "cleared")) }
+    if let value = sample.darkride { values.append(("darkride", value ? "active" : "cleared")) }
+    if let value = sample.charging { values.append(("charging", value ? "active" : "cleared")) }
+    values.append(("alertReason", sample.alertReason?.rawValue ?? "none"))
+    values.append(("firmwareFault", sample.firmwareFault?.rawValue ?? "none"))
+    return values
+  }
+
+  private static func latestTransitionValues(in database: Database) throws -> [String: String] {
+    try database.query(
+      """
+      SELECT package_state, package_mode, footpad_state, stop_condition,
+             setpoint_adjustment, wheelslip, darkride, charging, alert_reason, firmware_fault
+      FROM sample ORDER BY sequence DESC LIMIT 1
+      """
+    ) { statement in
+      var values: [String: String] = [:]
+      let textFields = [
+        (0, "packageState"), (1, "packageMode"), (2, "footpadState"),
+        (3, "stopCondition"), (4, "setpointAdjustment"),
+      ]
+      for (index, key) in textFields {
+        if let value = columnText(statement, Int32(index)) { values[key] = value }
+      }
+      for (index, key) in [(5, "wheelslip"), (6, "darkride"), (7, "charging")] {
+        if sqlite3_column_type(statement, Int32(index)) != SQLITE_NULL {
+          values[key] = sqlite3_column_int64(statement, Int32(index)) == 0 ? "cleared" : "active"
+        }
+      }
+      values["alertReason"] = columnText(statement, 8) ?? "none"
+      values["firmwareFault"] = columnText(statement, 9) ?? "none"
+      return values
+    }.first ?? [:]
+  }
 
   private static let sessionSortColumns = [
     "startedAt": "started_at_ms",

@@ -239,6 +239,11 @@ public final class ApplicationService: @unchecked Sendable {
     )
   }
 
+  public func sessionExtensionFields(sessionID: String) throws -> [String] {
+    guard let sessionStore else { throw ApplicationError.productStoreUnavailable }
+    return try sessionStore.sessionExtensionFields(sessionID: sessionID)
+  }
+
   public func diagnosticWindow(
     sessionID: String,
     centerElapsedMs: Int64,

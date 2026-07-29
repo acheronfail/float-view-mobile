@@ -5,31 +5,18 @@
 	import { formatDistanceM } from '$lib/features/measurements/format';
 	import { activateFromKeyboardOrAssistiveClick, activateFromPointer } from '$lib/ui/activation';
 	import ConfirmDialog from '$lib/ui/ConfirmDialog.svelte';
+	import TelemetryChart from './TelemetryChart.svelte';
+	import {
+		extensionHistoricalFields,
+		historicalTelemetryGroups,
+		sessionEventText
+	} from './telemetry';
 
 	let { sessionId }: { sessionId: string } = $props();
 	let deleteConfirmationOpen = $state(false);
 	let deleting = $state(false);
 	const units = $derived(backendState.settings?.unitPreference ?? 'metric');
-
-	function polyline(field: string): string {
-		const values = backendState.sessionSeries
-			.map((point) => ({ elapsedMs: point.elapsedMs, value: point.values[field] }))
-			.filter(
-				(point): point is { elapsedMs: number; value: number } => typeof point.value === 'number'
-			);
-		if (values.length < 2) return '';
-		const first = values[0].elapsedMs;
-		const elapsedRange = Math.max(1, values.at(-1)!.elapsedMs - first);
-		const minimum = Math.min(...values.map((point) => point.value));
-		const maximum = Math.max(...values.map((point) => point.value));
-		const valueRange = Math.max(Number.EPSILON, maximum - minimum);
-		return values
-			.map(
-				(point) =>
-					`${((point.elapsedMs - first) / elapsedRange) * 600},${120 - ((point.value - minimum) / valueRange) * 110}`
-			)
-			.join(' ');
-	}
+	const extensionFields = $derived(extensionHistoricalFields(backendState.sessionSeries));
 
 	onMount(() => {
 		let active = true;
@@ -86,35 +73,35 @@
 		</div>
 
 		<div class="mt-5 rounded-lg border border-outline p-4">
-			<h3 class="font-medium">Ride trends</h3>
+			<h3 class="font-medium">Detailed telemetry</h3>
 			{#if backendState.sessionSeries.length}
-				<svg
-					class="mt-3 h-40 w-full rounded bg-canvas"
-					viewBox="0 0 600 130"
-					role="img"
-					aria-label="Voltage and duty cycle over the recorded session"
-				>
-					<polyline
-						points={polyline('packVoltageV')}
-						fill="none"
-						stroke="var(--app-accent)"
-						stroke-width="3"
-					/>
-					<polyline
-						points={polyline('dutyCycle')}
-						fill="none"
-						stroke="var(--app-success)"
-						stroke-width="2"
-					/>
-				</svg>
 				<p class="mt-2 text-xs text-muted">{backendState.sessionSeries.length} bounded points</p>
+				<div class="mt-3 space-y-4">
+					{#each historicalTelemetryGroups as group (group.title)}
+						<TelemetryChart
+							title={group.title}
+							fields={group.fields}
+							points={backendState.sessionSeries}
+						/>
+					{/each}
+					{#if extensionFields.length}
+						<TelemetryChart
+							title="Negotiated extensions"
+							fields={extensionFields}
+							points={backendState.sessionSeries}
+						/>
+					{/if}
+				</div>
 			{:else}
 				<p class="mt-2 text-sm text-muted">No samples were recorded for this session.</p>
 			{/if}
 			<button
-				class="mt-3 rounded-md bg-elevated px-3 py-2 disabled:opacity-50"
+				type="button"
+				class="mt-3 touch-manipulation rounded-md bg-elevated px-3 py-2 disabled:opacity-50"
 				disabled={backendState.busy || backendState.selectedSession.totalElapsedMs === 0}
-				onclick={inspectMidpoint}>Inspect midpoint ±15 seconds</button
+				onpointerdown={(event) => activateFromPointer(event, inspectMidpoint)}
+				onclick={(event) => activateFromKeyboardOrAssistiveClick(event, inspectMidpoint)}
+				>Inspect midpoint ±15 seconds</button
 			>
 			{#if backendState.diagnosticSeries.length}
 				<div id="diagnostic-window" class="mt-4 rounded bg-canvas p-3">
@@ -127,25 +114,59 @@
 		</div>
 
 		<div class="mt-5 rounded-lg border border-outline p-4">
+			<h3 class="font-medium">State transitions</h3>
+			{#if backendState.sessionEventsTruncated}
+				<p role="status" class="mt-2 text-sm text-warning">
+					Earlier transitions were truncated; the newest 2,000 are shown.
+				</p>
+			{/if}
+			{#if backendState.sessionEvents.length}
+				<ol class="mt-3 space-y-2">
+					{#each backendState.sessionEvents as event, index (`${event.elapsedMs}-${event.kind}-${index}`)}
+						<li class="flex gap-3 rounded bg-elevated px-3 py-2 text-sm">
+							<time class="shrink-0 font-mono text-xs text-muted">
+								{(event.elapsedMs / 1_000).toFixed(1)} s
+							</time>
+							<span>{sessionEventText(event)}</span>
+						</li>
+					{/each}
+				</ol>
+			{:else}
+				<p class="mt-2 text-sm text-muted">No state transitions were recorded.</p>
+			{/if}
+		</div>
+
+		<div class="mt-5 rounded-lg border border-outline p-4">
 			<h3 class="font-medium">Session file</h3>
 			<p class="mt-1 text-sm text-muted">
 				Exports open in the native platform save or share surface.
 			</p>
 			<div class="mt-3 flex flex-wrap gap-2">
 				<button
-					class="rounded-md bg-elevated px-3 py-2 disabled:opacity-50"
+					type="button"
+					class="touch-manipulation rounded-md bg-elevated px-3 py-2 disabled:opacity-50"
 					disabled={backendState.busy || backendState.selectedSession.state === 'active'}
-					onclick={() => backendState.exportSession('float-view-archive')}
+					onpointerdown={(event) =>
+						activateFromPointer(event, () => backendState.exportSession('float-view-archive'))}
+					onclick={(event) =>
+						activateFromKeyboardOrAssistiveClick(event, () =>
+							backendState.exportSession('float-view-archive')
+						)}
 					>Save/share archive</button
 				>
 				<button
-					class="rounded-md bg-elevated px-3 py-2 disabled:opacity-50"
+					type="button"
+					class="touch-manipulation rounded-md bg-elevated px-3 py-2 disabled:opacity-50"
 					disabled={backendState.busy || backendState.selectedSession.state === 'active'}
-					onclick={() => backendState.exportSession('csv')}>Save/share CSV</button
+					onpointerdown={(event) =>
+						activateFromPointer(event, () => backendState.exportSession('csv'))}
+					onclick={(event) =>
+						activateFromKeyboardOrAssistiveClick(event, () => backendState.exportSession('csv'))}
+					>Save/share CSV</button
 				>
 				<button
 					type="button"
-					class="rounded-md bg-danger px-3 py-2 text-on-danger disabled:opacity-50"
+					class="touch-manipulation rounded-md bg-danger px-3 py-2 text-on-danger disabled:opacity-50"
 					disabled={backendState.busy || backendState.selectedSession.state === 'active'}
 					onpointerdown={(event) => activateFromPointer(event, requestDeleteSession)}
 					onclick={(event) => activateFromKeyboardOrAssistiveClick(event, requestDeleteSession)}

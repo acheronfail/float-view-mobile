@@ -17,6 +17,15 @@ private struct MultiCaseFixture: Decodable {
   let cases: [Case]
 }
 
+private struct RefloatSourceFixture: Decodable {
+  struct Case: Decodable {
+    let name: String
+    let payloadHex: String
+  }
+
+  let cases: [Case]
+}
+
 private func fixture(_ relativePath: String) throws -> Fixture {
   var root = URL(fileURLWithPath: #filePath)
   for _ in 0..<4 { root.deleteLastPathComponent() }
@@ -29,6 +38,16 @@ private func multiCaseFixture(_ relativePath: String) throws -> MultiCaseFixture
   for _ in 0..<4 { root.deleteLastPathComponent() }
   let data = try Data(contentsOf: root.appending(path: relativePath))
   return try JSONDecoder().decode(MultiCaseFixture.self, from: data)
+}
+
+private func refloatSourcePayload(_ name: String) throws -> [UInt8] {
+  var root = URL(fileURLWithPath: #filePath)
+  for _ in 0..<4 { root.deleteLastPathComponent() }
+  let data = try Data(
+    contentsOf: root.appending(path: "fixtures/refloat/detailed-source-provenance.json")
+  )
+  let fixture = try JSONDecoder().decode(RefloatSourceFixture.self, from: data)
+  return bytes(try #require(fixture.cases.first { $0.name == name }).payloadHex)
 }
 
 private func bytes(_ hex: String) -> [UInt8] {
@@ -92,6 +111,74 @@ private func bytes(_ hex: String) -> [UInt8] {
   #expect(VescFault(code: 255).kind == .unknown)
   #expect(VescFault(code: 255).code == 255)
 
+}
+
+@Test func detailedSourceFixturesDecodeEveryKnownLegacyAndDynamicField() throws {
+  let legacy = try RefloatLegacyTelemetryDecoder.decode(
+    refloatSourcePayload("1.0.0-command-10-detail-4")
+  )
+  #expect(legacy.kind == .compact)
+  #expect(legacy.packageState == .running)
+  #expect(legacy.packageMode == .normal)
+  #expect(legacy.footpadState == .both)
+  #expect(legacy.packVoltageV != nil)
+  #expect(legacy.dutyCycle != nil)
+  #expect(legacy.motorCurrentA != nil)
+  #expect(legacy.batteryCurrentA != nil)
+  #expect(legacy.erpm != nil)
+  #expect(legacy.speedKph != nil)
+  #expect(legacy.pitchDeg != nil)
+  #expect(legacy.balancePitchDeg != nil)
+  #expect(legacy.rollDeg != nil)
+  #expect(legacy.requestedBalanceCurrentA != nil)
+  #expect(legacy.boosterCurrentA != nil)
+  #expect(legacy.fieldWeakeningCurrentA != nil)
+  #expect(legacy.footpadAdc1V != nil)
+  #expect(legacy.footpadAdc2V != nil)
+  #expect(legacy.setpointDeg != nil)
+  #expect(legacy.atrSetpointDeg != nil)
+  #expect(legacy.brakeTiltSetpointDeg != nil)
+  #expect(legacy.torqueTiltSetpointDeg != nil)
+  #expect(legacy.turnTiltSetpointDeg != nil)
+  #expect(legacy.remoteSetpointDeg != nil)
+  #expect(legacy.distanceM != nil)
+  #expect(legacy.odometerM != nil)
+  #expect(legacy.ampHoursDrawnAh != nil)
+  #expect(legacy.ampHoursChargedAh != nil)
+  #expect(legacy.wattHoursDrawnWh != nil)
+  #expect(legacy.wattHoursChargedWh != nil)
+  #expect(legacy.batteryLevel != nil)
+  #expect(legacy.chargingCurrentA != nil)
+  #expect(legacy.chargingVoltageV != nil)
+
+  let (fields, runtimeFields) = try RefloatDynamicTelemetryDecoder.decodeFields(
+    refloatSourcePayload("1.1.0-and-1.2.3-command-32-layout")
+  )
+  #expect(fields.count == 16)
+  #expect(runtimeFields.count == 10)
+  let dynamic = try RefloatDynamicTelemetryDecoder.decodeData(
+    refloatSourcePayload("1.2.3-command-31-running-alert-tail"),
+    fields: fields,
+    runtimeFields: runtimeFields
+  )
+  #expect(dynamic.kind == .realtime)
+  #expect(dynamic.packageState == .running)
+  #expect(dynamic.packageMode == .normal)
+  #expect(dynamic.footpadState == .both)
+  #expect(dynamic.directionalMotorCurrentA != nil)
+  #expect(dynamic.filteredMotorCurrentA != nil)
+  #expect(dynamic.remoteInput != nil)
+  #expect(dynamic.atrAccelerationDifferenceErpmPerSecond != nil)
+  #expect(dynamic.atrSpeedBoost != nil)
+  #expect(dynamic.extensions.isEmpty)
+
+  let fault = try RefloatDynamicTelemetryDecoder.decodeData(
+    refloatSourcePayload("1.2.3-command-31-active-firmware-fault"),
+    fields: fields,
+    runtimeFields: runtimeFields
+  )
+  #expect(fault.alertReason == .firmwareFault)
+  #expect(fault.firmwareFault == .overVoltage)
 }
 
 @Test func corruptCRCIsRejected() {
@@ -168,7 +255,7 @@ private func bytes(_ hex: String) -> [UInt8] {
   #expect(try service.receive(Data(legacy)) == [.refloatInfo(version: "1.0")])
   #expect(
     try VescFrameCodec.decode(Array(service.refloatLegacyTelemetryRequest(route: .direct)))
-      == [36, 101, 10]
+      == [36, 101, 10, 4]
   )
   #expect(
     try VescFrameCodec.decode(Array(service.refloatTelemetryRequest(route: .direct)))
@@ -189,7 +276,7 @@ private func bytes(_ hex: String) -> [UInt8] {
   let fields = [
     "motor.speed", "motor.erpm", "motor.current", "motor.duty_cycle",
     "motor.batt_voltage", "motor.batt_current", "motor.mosfet_temp",
-    "motor.motor_temp",
+    "motor.motor_temp", "future.energy",
   ]
   var idsPayload: [UInt8] = [36, 101, 32, UInt8(fields.count)]
   for field in fields {
@@ -215,6 +302,7 @@ private func bytes(_ hex: String) -> [UInt8] {
     0xc4, 0x00,
     0x50, 0x00,
     0x4c, 0x00,
+    0x45, 0x00,
   ]
 
   let message = try #require(
@@ -225,7 +313,7 @@ private func bytes(_ hex: String) -> [UInt8] {
     return
   }
   #expect(value.rideState == .riding)
-  #expect(value.footpadState == 1)
+  #expect(value.footpadState == .left)
   #expect(value.packVoltageV == 64)
   #expect(value.dutyCycle == 0.5)
   #expect(value.controllerTempC == 32)
@@ -234,6 +322,7 @@ private func bytes(_ hex: String) -> [UInt8] {
   #expect(value.batteryCurrentA == -4)
   #expect(value.erpm == 1024)
   #expect(value.speedKph == 36)
+  #expect(value.extensions == ["future.energy": 5])
 }
 
 @Test func androidHardwareRefloatCaptureDecodesAcrossNotificationChunks() throws {
@@ -267,8 +356,8 @@ private func bytes(_ hex: String) -> [UInt8] {
     return
   }
   #expect(value.rideState == .idle)
-  #expect(value.footpadState == 0)
+  #expect(value.footpadState == FootpadState.none)
   #expect(value.motorCurrentA == 0)
   #expect(value.batteryCurrentA == 0)
-  #expect(value.erpm == 0)
+  #expect(abs((value.erpm ?? 0) - -0.07818603515625) < 0.000_001)
 }

@@ -20,6 +20,7 @@ export interface RecordedRequest {
 	kind: VescRequestKind;
 	canId?: number;
 	telemetryPhase?: string;
+	telemetryCommand?: 'legacy-realtime' | 'realtime' | 'compact';
 }
 
 export interface SimulatedResponse {
@@ -204,7 +205,13 @@ export class VescSimulator {
 				command,
 				canId,
 				kind,
-				...(kind === 'telemetry' ? { telemetryPhase: phase } : {})
+				...(kind === 'telemetry'
+					? {
+							telemetryPhase: phase,
+							telemetryCommand:
+								packet === 1 ? 'legacy-realtime' : packet === 10 ? 'compact' : 'realtime'
+						}
+					: {})
 			}
 		};
 	}
@@ -212,14 +219,14 @@ export class VescSimulator {
 	private reject(message: string): undefined {
 		const board = this.board;
 		if (!('kind' in board) || board.requestPolicy === 'strict') throw new Error(message);
-		if (this.diagnostics.length < 100) this.diagnostics.push(message);
+		if (this.diagnostics.length < 50) this.diagnostics.push(message);
 		return undefined;
 	}
 
 	private rejectBoard(message: string): undefined {
 		const board = this.board as BoardConfiguration;
 		if (board.requestPolicy !== 'interactive') throw new Error(message);
-		if (this.diagnostics.length < 100) this.diagnostics.push(message);
+		if (this.diagnostics.length < 50) this.diagnostics.push(message);
 		return undefined;
 	}
 
@@ -228,7 +235,7 @@ export class VescSimulator {
 		payload: Uint8Array,
 		at: number,
 		canId?: number
-	): { response: Uint8Array; request: RecordedRequest } {
+	): { response: Uint8Array; request: RecordedRequest } | undefined {
 		const command = payload[0]!;
 		const base = { at, command, ...(canId === undefined ? {} : { canId }) };
 		if (command === 0) {
@@ -239,6 +246,36 @@ export class VescSimulator {
 		}
 		if (command !== 36 || payload[1] !== 101) {
 			throw new Error(`Unsafe or unsupported forwarded command ${command}`);
+		}
+		if (controller.refloat && controller.telemetry) {
+			const packet = payload[2];
+			const isTelemetry = packet === 1 || packet === 10 || packet === 31;
+			const phase = controller.telemetry.phase();
+			const response = controller.refloat.respond(
+				payload,
+				isTelemetry ? controller.telemetry.next() : idleTelemetry
+			);
+			if (!response) return this.rejectBoard(`Unsupported Refloat request ${String(packet)}`);
+			const kind =
+				response.kind === 'info'
+					? 'refloat-info'
+					: response.kind === 'layout'
+						? 'refloat-layout'
+						: 'telemetry';
+			return {
+				response: response.payload,
+				request: {
+					...base,
+					kind,
+					...(kind === 'telemetry'
+						? {
+								telemetryPhase: phase,
+								telemetryCommand:
+									packet === 1 ? 'legacy-realtime' : packet === 10 ? 'compact' : 'realtime'
+							}
+						: {})
+				}
+			};
 		}
 		switch (payload[2]) {
 			case 0:

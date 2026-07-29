@@ -94,6 +94,26 @@ class FakeClient {
 				result = saved;
 				break;
 			}
+			case 'session.get':
+				result = {
+					summary: {
+						sessionId: 'session-1',
+						deviceHistoryId: 'history-board',
+						displayName: 'Board',
+						startedAt: '2026-07-30T00:00:00Z',
+						endedAt: '2026-07-30T00:01:00Z',
+						state: 'completed',
+						integrity: 'complete',
+						sampleCount: 2,
+						eventCount: 1,
+						ridingElapsedMs: 1_000,
+						totalElapsedMs: 1_000
+					},
+					series: [{ elapsedMs: 0, values: { fieldWeakeningCurrentA: 4 } }],
+					events: [{ elapsedMs: 500, kind: 'stopCondition', value: 'quickStop' }],
+					eventsTruncated: true
+				};
+				break;
 			default:
 				throw new Error(`Unexpected method ${method}`);
 		}
@@ -146,6 +166,27 @@ describe('BackendState', () => {
 		expect(store.savedDevices[0]).toMatchObject({ displayName: 'Trail board', revision: 1 });
 		await store.updateSavedDeviceName('saved-board', null);
 		expect(store.savedDevices[0]).toMatchObject({ displayName: 'Advertised', revision: 2 });
+		store.close();
+	});
+
+	it('recovers bounded historical series and typed transitions together', async () => {
+		const client = new FakeClient();
+		const store = new BackendState(
+			async () => ({ webSocketUrl: 'ws://test' }),
+			async () => client as unknown as ApiClient
+		);
+		await store.connect();
+		expect(await store.openSession('session-1')).toBe(true);
+		expect(store.sessionSeries).toEqual([
+			{ elapsedMs: 0, values: { fieldWeakeningCurrentA: 4 } }
+		]);
+		expect(store.sessionEvents).toEqual([
+			{ elapsedMs: 500, kind: 'stopCondition', value: 'quickStop' }
+		]);
+		expect(store.sessionEventsTruncated).toBe(true);
+		store.closeSession();
+		expect(store.sessionEvents).toEqual([]);
+		expect(store.sessionEventsTruncated).toBe(false);
 		store.close();
 	});
 });

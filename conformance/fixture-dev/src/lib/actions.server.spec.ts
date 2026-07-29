@@ -54,7 +54,7 @@ test('action handler rejects origin, token, oversized, and noncanonical CAN valu
 	assert.equal(
 		(
 			await handleActionRequest(
-				request(valid, { contentLength: '4097' }),
+				request(valid, { contentLength: '65537' }),
 				coordinator,
 				token
 			)

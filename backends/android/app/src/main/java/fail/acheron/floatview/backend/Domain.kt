@@ -55,6 +55,65 @@ data class ConnectionIssue(
 
 enum class RideState { IDLE, RIDING, UNKNOWN }
 
+enum class PackageState(val wireValue: String) {
+    DISABLED("disabled"), STARTUP("startup"), READY("ready"), RUNNING("running"), UNKNOWN("unknown")
+}
+
+enum class PackageMode(val wireValue: String) {
+    NORMAL("normal"), HAND_TEST("handTest"), FLYWHEEL("flywheel"), UNKNOWN("unknown")
+}
+
+enum class FootpadState(val wireValue: String) {
+    NONE("none"), LEFT("left"), RIGHT("right"), BOTH("both"), UNKNOWN("unknown")
+}
+
+enum class StopCondition(val wireValue: String) {
+    NONE("none"), PITCH("pitch"), ROLL("roll"), SWITCH_HALF("switchHalf"),
+    SWITCH_FULL("switchFull"), REVERSE_STOP("reverseStop"), QUICK_STOP("quickStop"),
+    UNKNOWN("unknown")
+}
+
+enum class SetpointAdjustment(val wireValue: String) {
+    NONE("none"), CENTERING("centering"), REVERSE_STOP("reverseStop"), SPEED("speed"),
+    DUTY("duty"), ERROR("error"), HIGH_VOLTAGE("highVoltage"), LOW_VOLTAGE("lowVoltage"),
+    TEMPERATURE("temperature"), UNKNOWN("unknown")
+}
+
+enum class AlertReason(val wireValue: String) {
+    NONE("none"), LOW_VOLTAGE("lowVoltage"), HIGH_VOLTAGE("highVoltage"),
+    CONTROLLER_TEMPERATURE("controllerTemperature"), MOTOR_TEMPERATURE("motorTemperature"),
+    CURRENT("current"), DUTY("duty"), SENSORS("sensors"), LOW_BATTERY("lowBattery"),
+    IDLE("idle"), ERROR("error"), SPEED("speed"), CELL_UNDER_TEMPERATURE("cellUnderTemperature"),
+    CELL_OVER_TEMPERATURE("cellOverTemperature"), CELL_LOW_VOLTAGE("cellLowVoltage"),
+    CELL_HIGH_VOLTAGE("cellHighVoltage"), CELL_IMBALANCE("cellImbalance"),
+    BMS_CONNECTION("bmsConnection"), BMS_OVER_TEMPERATURE("bmsOverTemperature"),
+    FIRMWARE_FAULT("firmwareFault"), UNKNOWN("unknown")
+}
+
+enum class FirmwareFault(val wireValue: String) {
+    OVER_VOLTAGE("overVoltage"), UNDER_VOLTAGE("underVoltage"), DRIVER("driver"),
+    ABSOLUTE_OVER_CURRENT("absoluteOverCurrent"),
+    CONTROLLER_OVER_TEMPERATURE("controllerOverTemperature"),
+    MOTOR_OVER_TEMPERATURE("motorOverTemperature"),
+    GATE_DRIVER_OVER_VOLTAGE("gateDriverOverVoltage"),
+    GATE_DRIVER_UNDER_VOLTAGE("gateDriverUnderVoltage"), MCU_UNDER_VOLTAGE("mcuUnderVoltage"),
+    WATCHDOG_RESET("watchdogReset"), ENCODER_SPI("encoderSpi"),
+    ENCODER_SINCOS_BELOW_MINIMUM("encoderSinCosBelowMinimum"),
+    ENCODER_SINCOS_ABOVE_MAXIMUM("encoderSinCosAboveMaximum"),
+    FLASH_CORRUPTION("flashCorruption"), CURRENT_SENSOR_OFFSET_1("currentSensorOffset1"),
+    CURRENT_SENSOR_OFFSET_2("currentSensorOffset2"), CURRENT_SENSOR_OFFSET_3("currentSensorOffset3"),
+    UNBALANCED_CURRENTS("unbalancedCurrents"), BRAKE("brake"),
+    RESOLVER_LOSS_OF_TRACKING("resolverLossOfTracking"),
+    RESOLVER_DEGRADATION_OF_SIGNAL("resolverDegradationOfSignal"),
+    RESOLVER_LOSS_OF_SIGNAL("resolverLossOfSignal"),
+    APP_CONFIG_FLASH_CORRUPTION("appConfigFlashCorruption"),
+    MOTOR_CONFIG_FLASH_CORRUPTION("motorConfigFlashCorruption"),
+    ENCODER_NO_MAGNET("encoderNoMagnet"), ENCODER_MAGNET_TOO_STRONG("encoderMagnetTooStrong"),
+    PHASE_FILTER("phaseFilter"), UNKNOWN("unknown")
+}
+
+enum class RefloatTelemetryKind { REALTIME, COMPACT }
+
 enum class BluetoothRadioState { UNKNOWN, UNSUPPORTED, POWERED_OFF, POWERED_ON, RESETTING }
 
 enum class BluetoothPermissionState {
@@ -121,16 +180,54 @@ sealed interface VescProtocolMessage {
 
 data class RefloatTelemetryRecord(
     val rideState: RideState,
-    val boardState: Int,
-    val footpadState: Int,
-    val packVoltageV: Double,
-    val dutyCycle: Double,
-    val controllerTempC: Double?,
-    val motorTempC: Double?,
-    val motorCurrentA: Double,
-    val batteryCurrentA: Double,
-    val erpm: Int,
-    val speedKph: Double,
+    val kind: RefloatTelemetryKind = RefloatTelemetryKind.REALTIME,
+    val packageState: PackageState? = null,
+    val packageMode: PackageMode? = null,
+    val footpadState: FootpadState? = null,
+    val stopCondition: StopCondition? = null,
+    val setpointAdjustment: SetpointAdjustment? = null,
+    val wheelslip: Boolean? = null,
+    val darkride: Boolean? = null,
+    val charging: Boolean? = null,
+    val alertReason: AlertReason? = null,
+    val firmwareFault: FirmwareFault? = null,
+    val packVoltageV: Double? = null,
+    val dutyCycle: Double? = null,
+    val controllerTempC: Double? = null,
+    val motorTempC: Double? = null,
+    val motorCurrentA: Double? = null,
+    val batteryCurrentA: Double? = null,
+    val erpm: Double? = null,
+    val speedKph: Double? = null,
+    val pitchDeg: Double? = null,
+    val balancePitchDeg: Double? = null,
+    val rollDeg: Double? = null,
+    val directionalMotorCurrentA: Double? = null,
+    val filteredMotorCurrentA: Double? = null,
+    val requestedBalanceCurrentA: Double? = null,
+    val boosterCurrentA: Double? = null,
+    val fieldWeakeningCurrentA: Double? = null,
+    val footpadAdc1V: Double? = null,
+    val footpadAdc2V: Double? = null,
+    val remoteInput: Double? = null,
+    val setpointDeg: Double? = null,
+    val atrSetpointDeg: Double? = null,
+    val brakeTiltSetpointDeg: Double? = null,
+    val torqueTiltSetpointDeg: Double? = null,
+    val turnTiltSetpointDeg: Double? = null,
+    val remoteSetpointDeg: Double? = null,
+    val atrAccelerationDifferenceErpmPerSecond: Double? = null,
+    val atrSpeedBoost: Double? = null,
+    val distanceM: Double? = null,
+    val odometerM: Double? = null,
+    val ampHoursDrawnAh: Double? = null,
+    val ampHoursChargedAh: Double? = null,
+    val wattHoursDrawnWh: Double? = null,
+    val wattHoursChargedWh: Double? = null,
+    val batteryLevel: Double? = null,
+    val chargingCurrentA: Double? = null,
+    val chargingVoltageV: Double? = null,
+    val extensions: Map<String, Double> = emptyMap(),
 )
 
 data class TelemetrySample(
@@ -138,13 +235,54 @@ data class TelemetrySample(
     val observedAt: Instant,
     val elapsedMs: Long,
     val rideState: RideState,
-    val packVoltageV: Double?,
-    val dutyCycle: Double?,
-    val controllerTempC: Double?,
-    val motorTempC: Double?,
-    val footpadState: Int?,
+    val slowObservedAt: Instant? = null,
+    val packageState: PackageState? = null,
+    val packageMode: PackageMode? = null,
+    val footpadState: FootpadState? = null,
+    val stopCondition: StopCondition? = null,
+    val setpointAdjustment: SetpointAdjustment? = null,
+    val wheelslip: Boolean? = null,
+    val darkride: Boolean? = null,
+    val charging: Boolean? = null,
+    val alertReason: AlertReason? = null,
+    val firmwareFault: FirmwareFault? = null,
+    val packVoltageV: Double? = null,
+    val dutyCycle: Double? = null,
+    val controllerTempC: Double? = null,
+    val motorTempC: Double? = null,
+    val motorCurrentA: Double? = null,
+    val batteryCurrentA: Double? = null,
+    val erpm: Double? = null,
+    val speedKph: Double? = null,
+    val pitchDeg: Double? = null,
+    val balancePitchDeg: Double? = null,
+    val rollDeg: Double? = null,
+    val directionalMotorCurrentA: Double? = null,
+    val filteredMotorCurrentA: Double? = null,
+    val requestedBalanceCurrentA: Double? = null,
+    val boosterCurrentA: Double? = null,
+    val fieldWeakeningCurrentA: Double? = null,
+    val footpadAdc1V: Double? = null,
+    val footpadAdc2V: Double? = null,
+    val remoteInput: Double? = null,
+    val setpointDeg: Double? = null,
+    val atrSetpointDeg: Double? = null,
+    val brakeTiltSetpointDeg: Double? = null,
+    val torqueTiltSetpointDeg: Double? = null,
+    val turnTiltSetpointDeg: Double? = null,
+    val remoteSetpointDeg: Double? = null,
+    val atrAccelerationDifferenceErpmPerSecond: Double? = null,
+    val atrSpeedBoost: Double? = null,
+    val distanceM: Double? = null,
+    val odometerM: Double? = null,
+    val ampHoursDrawnAh: Double? = null,
+    val ampHoursChargedAh: Double? = null,
+    val wattHoursDrawnWh: Double? = null,
+    val wattHoursChargedWh: Double? = null,
+    val batteryLevel: Double? = null,
+    val chargingCurrentA: Double? = null,
+    val chargingVoltageV: Double? = null,
     val extension: Map<String, Double> = emptyMap(),
-    val boardState: Int? = null,
 )
 
 data class SessionRecord(
@@ -286,6 +424,8 @@ interface VescProtocolPort {
     fun refloatTelemetryRequest(route: ControllerRoute): ByteArray
     fun refloatLegacyTelemetryRequest(route: ControllerRoute): ByteArray =
         refloatTelemetryRequest(route)
+    fun refloatCompactTelemetryRequest(route: ControllerRoute): ByteArray =
+        refloatLegacyTelemetryRequest(route)
     fun receive(bytes: ByteArray): List<VescProtocolMessage>
 }
 
@@ -445,6 +585,7 @@ interface SessionStorePort {
         startElapsedMs: Long,
         endElapsedMs: Long,
     ): List<SessionEventRecord>
+    fun sessionExtensionFields(sessionId: String): List<String> = emptyList()
     fun diagnosticWindow(
         sessionId: String,
         centerElapsedMs: Long,

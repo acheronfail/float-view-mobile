@@ -23,6 +23,24 @@ route-aware requests, sample sequencing, and adaptive polling cadence.
 `ApplicationService` executes their effects, coordinates persistence and
 sessions, and publishes authoritative contract state.
 
+## Telemetry and sessions
+
+Both hosts normalize the same catalog of motion, raw electrical load,
+temperatures, rider input, control contributions, accumulated values, charging
+values, semantic states, and bounded negotiated numeric extensions. Currents
+remain distinct raw ampere values; neither host derives utilization. Dynamic
+Refloat sources use command 31/32 while legacy 1.0.0 uses exact command 1.
+Accumulated and charging values come from command 10 detail 4 once per second in
+the same serialized polling stream. Command 35 and commands 41–43 are deferred.
+
+The latest compact values are cached with their own observation time, merged
+into realtime samples, and cleared whenever the selected route generation
+changes. Device counters are trusted even when they decrease. Persistence keeps
+first-class summary/query columns plus bounded detail and extension JSON.
+Discrete state changes are appended atomically in stable catalog order and
+session APIs return at most 2,000 numeric points and the newest 2,000 typed
+events. CSV and archives omit Bluetooth and private controller identifiers.
+
 Both discovery implementations are exercised by the same dependency-free
 vectors in `fixtures/connection/controller-discovery.tsv`. Add lifecycle cases
 there when a route-selection rule changes, then retain focused native tests only

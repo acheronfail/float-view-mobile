@@ -1,8 +1,10 @@
 <script lang="ts">
 	import {
 		activateFromKeyboardOrAssistiveClick,
-		activateFromPointer,
-		type Activation
+		beginPointerActivation,
+		completePointerActivation,
+		type Activation,
+		type PointerActivation
 	} from './activation.ts';
 
 	let {
@@ -12,13 +14,24 @@
 		kind = 'secondary'
 	}: { label: string; action: Activation; disabled?: boolean; kind?: 'primary' | 'secondary' | 'danger' } =
 		$props();
+	let pending = $state<PointerActivation>();
 </script>
 
 <button
 	type="button"
 	class={kind}
 	{disabled}
-	onpointerdown={(event) => activateFromPointer(event, action)}
+	onpointerdown={(event) => {
+		pending = beginPointerActivation(event);
+		if (pending) event.currentTarget.setPointerCapture(event.pointerId);
+	}}
+	onpointerup={(event) => {
+		const value = pending;
+		pending = undefined;
+		completePointerActivation(event, value, action);
+	}}
+	onpointercancel={() => (pending = undefined)}
+	onlostpointercapture={() => (pending = undefined)}
 	onclick={(event) => activateFromKeyboardOrAssistiveClick(event, action)}
 >
 	{label}

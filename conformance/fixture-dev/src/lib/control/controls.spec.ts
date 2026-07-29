@@ -3,7 +3,8 @@ import test from 'node:test';
 import type { FixtureSnapshot } from '../contract.ts';
 import {
 	activateFromKeyboardOrAssistiveClick,
-	activateFromPointer
+	beginPointerActivation,
+	completePointerActivation
 } from './activation.ts';
 import {
 	canonicalCanId,
@@ -43,16 +44,31 @@ test('primary pointer and keyboard activation each run exactly once', () => {
 	const action = () => {
 		count += 1;
 	};
-	activateFromPointer(
-		{ isPrimary: true, button: 0, preventDefault() {} } as PointerEvent,
+	const pending = beginPointerActivation(
+		{ isPrimary: true, button: 0, pointerId: 7, preventDefault() {} } as PointerEvent
+	);
+	completePointerActivation(
+		{ isPrimary: true, button: 0, pointerId: 7, preventDefault() {} } as PointerEvent,
+		pending,
 		action
 	);
 	activateFromKeyboardOrAssistiveClick({ detail: 1 } as MouseEvent, action);
 	assert.equal(count, 1);
 	activateFromKeyboardOrAssistiveClick({ detail: 0 } as MouseEvent, action);
 	assert.equal(count, 2);
-	activateFromPointer(
-		{ isPrimary: false, button: 0, preventDefault() {} } as PointerEvent,
+	assert.equal(
+		beginPointerActivation(
+			{ isPrimary: false, button: 0, pointerId: 8, preventDefault() {} } as PointerEvent
+		),
+		undefined
+	);
+	assert.equal(count, 2);
+	const cancelled = beginPointerActivation(
+		{ isPrimary: true, button: 0, pointerId: 9, preventDefault() {} } as PointerEvent
+	);
+	completePointerActivation(
+		{ isPrimary: true, button: 0, pointerId: 10, preventDefault() {} } as PointerEvent,
+		cancelled,
 		action
 	);
 	assert.equal(count, 2);
@@ -93,6 +109,22 @@ function baseSnapshot(): FixtureSnapshot {
 			firmware: '6.06',
 			refloat: '1.2.3'
 		},
+		scenario: {
+			schemaVersion: 1,
+			namespace: 'test',
+			advertisedName: 'Fixture',
+			topology: 'express',
+			fragmentBytes: 244,
+			controllers: [
+				{ alias: 'primary', canId: 1, firmware: '6.06', refloat: '1.2.3', pingVisible: true }
+			],
+			discoveredCanIds: [],
+			scene: 'idle',
+			overrides: {}
+		},
+		frozen: false,
+		pinnedFields: {},
+		availableFields: [],
 		power: 'off',
 		ble: 'unavailable',
 		ride: 'idle',

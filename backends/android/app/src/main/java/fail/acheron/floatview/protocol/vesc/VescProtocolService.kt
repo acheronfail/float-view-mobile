@@ -162,7 +162,13 @@ class VescProtocolService : VescProtocolPort {
 
     override fun refloatLegacyTelemetryRequest(route: ControllerRoute): ByteArray {
         return VescFrameCodec.encode(
-            VescCommandRouter.route(byteArrayOf(36, 101, 10), route),
+            VescCommandRouter.route(byteArrayOf(36, 101, 10, 4), route),
+        )
+    }
+
+    override fun refloatCompactTelemetryRequest(route: ControllerRoute): ByteArray {
+        return VescFrameCodec.encode(
+            VescCommandRouter.route(byteArrayOf(36, 101, 10, 4), route),
         )
     }
 
@@ -210,7 +216,7 @@ class VescProtocolService : VescProtocolPort {
                     ) {
                         VescProtocolMessage.RefloatTelemetry(dynamicTelemetry.decodeData(payload))
                     } else if (
-                        payload.size >= 35 &&
+                        payload.size >= 4 &&
                         payload[1].toInt() and 0xff == 101 &&
                         payload[2].toInt() and 0xff == 10
                     ) {

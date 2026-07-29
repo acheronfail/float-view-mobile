@@ -40,7 +40,7 @@ const session: SessionSummary = {
 	state: 'completed',
 	integrity: 'complete',
 	sampleCount: 600,
-	eventCount: 0,
+	eventCount: 2,
 	ridingElapsedMs: 50_000,
 	totalElapsedMs: 60_000,
 	distanceM: 300,
@@ -56,9 +56,70 @@ const secondSession: SessionSummary = {
 };
 
 const series: SeriesPoint[] = [
-	{ elapsedMs: 0, values: { packVoltageV: 60, dutyCycle: 0.1, speedKph: 0 } },
-	{ elapsedMs: 60_000, values: { packVoltageV: 55, dutyCycle: 0.8, speedKph: 20 } }
+	{
+		elapsedMs: 0,
+		values: detailedSeriesValues({
+			speedKph: 0,
+			erpm: 0,
+			packVoltageV: 60,
+			dutyCycle: 0.1,
+			distanceM: 0
+		})
+	},
+	{
+		elapsedMs: 60_000,
+		values: detailedSeriesValues({
+			speedKph: 20,
+			erpm: 3_240,
+			packVoltageV: 55,
+			dutyCycle: 0.8,
+			distanceM: 300,
+			fieldWeakeningCurrentA: 7
+		})
+	}
 ];
+
+function detailedSeriesValues(overrides: Record<string, number>): Record<string, number | null> {
+	return {
+		speedKph: 18,
+		erpm: 2_900,
+		pitchDeg: 1.4,
+		balancePitchDeg: 1.1,
+		rollDeg: 0.6,
+		packVoltageV: 58.4,
+		dutyCycle: 0.42,
+		motorCurrentA: 18.6,
+		directionalMotorCurrentA: 17.9,
+		filteredMotorCurrentA: 17.4,
+		batteryCurrentA: 8.4,
+		requestedBalanceCurrentA: 20.2,
+		boosterCurrentA: 1.2,
+		fieldWeakeningCurrentA: 0,
+		controllerTempC: 38.2,
+		motorTempC: 41.7,
+		footpadAdc1V: 2.8,
+		footpadAdc2V: 2.75,
+		remoteInput: 0,
+		setpointDeg: 1,
+		atrSetpointDeg: 0.4,
+		brakeTiltSetpointDeg: 0,
+		torqueTiltSetpointDeg: 0.6,
+		turnTiltSetpointDeg: 0,
+		remoteSetpointDeg: 0,
+		atrAccelerationDifferenceErpmPerSecond: 180,
+		atrSpeedBoost: 0.05,
+		distanceM: 0,
+		odometerM: 12_345,
+		ampHoursDrawnAh: 18.4,
+		ampHoursChargedAh: 2.7,
+		wattHoursDrawnWh: 812,
+		wattHoursChargedWh: 119,
+		batteryLevel: 0.68,
+		chargingCurrentA: 0,
+		chargingVoltageV: 0,
+		...overrides
+	};
+}
 
 export class MockBackend {
 	private readonly publish: (event: StateChanged) => void;
@@ -381,7 +442,15 @@ export class MockBackend {
 			case 'session.get': {
 				const found = this.findSession(params);
 				return found
-					? success(id, { summary: found, series })
+					? success(id, {
+							summary: found,
+							series,
+							events: [
+								{ elapsedMs: 0, kind: 'packageState', value: 'running' },
+								{ elapsedMs: 0, kind: 'footpadState', value: 'both' }
+							],
+							eventsTruncated: false
+						})
 					: failure(id, 'not_found', 'Session was not found');
 			}
 			case 'session.getDiagnostics':
@@ -440,10 +509,19 @@ export class MockBackend {
 		const latestSample = {
 			sequence,
 			observedAt: new Date().toISOString(),
+			slowObservedAt: new Date(Date.now() - 250).toISOString(),
 			elapsedMs,
 			rideState: 'riding' as const,
-			boardState: 1,
-			footpadState: 3,
+			packageState: 'running' as const,
+			packageMode: 'normal' as const,
+			footpadState: 'both' as const,
+			stopCondition: 'none' as const,
+			setpointAdjustment: 'none' as const,
+			wheelslip: false,
+			darkride: false,
+			charging: false,
+			alertReason: 'none' as const,
+			firmwareFault: null,
 			packVoltageV: 58.4 - sequence * 0.002,
 			dutyCycle: 0.42,
 			controllerTempC: 38.2,
@@ -451,7 +529,36 @@ export class MockBackend {
 			motorCurrentA: 18.6,
 			batteryCurrentA: 8.4,
 			erpm: 3240,
-			speedKph: 24.3
+			speedKph: 24.3,
+			pitchDeg: 1.4,
+			balancePitchDeg: 1.1,
+			rollDeg: 0.6,
+			directionalMotorCurrentA: 17.9,
+			filteredMotorCurrentA: 17.4,
+			requestedBalanceCurrentA: 20.2,
+			boosterCurrentA: 1.2,
+			fieldWeakeningCurrentA: 0,
+			footpadAdc1V: 2.8,
+			footpadAdc2V: 2.75,
+			remoteInput: 0,
+			setpointDeg: 1,
+			atrSetpointDeg: 0.4,
+			brakeTiltSetpointDeg: 0,
+			torqueTiltSetpointDeg: 0.6,
+			turnTiltSetpointDeg: 0,
+			remoteSetpointDeg: 0,
+			atrAccelerationDifferenceErpmPerSecond: 180,
+			atrSpeedBoost: 0.05,
+			distanceM: sequence * 0.675,
+			odometerM: 12_345 + sequence * 0.675,
+			ampHoursDrawnAh: 18.4,
+			ampHoursChargedAh: 2.7,
+			wattHoursDrawnWh: 812,
+			wattHoursChargedWh: 119,
+			batteryLevel: 0.68,
+			chargingCurrentA: 0,
+			chargingVoltageV: 0,
+			extensions: {}
 		};
 		const activeSession = {
 			...active.activeSession,

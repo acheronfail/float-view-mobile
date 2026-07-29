@@ -217,17 +217,28 @@ public final class LoopbackServer: @unchecked Sendable {
           return failure(id, .invalidRequest, "sessionId is required")
         }
         let summary = try applicationService.session(sessionID: sessionID)
+        let numericFields = Self.numericSeriesFields
+          + (try applicationService.sessionExtensionFields(sessionID: sessionID))
         let maxPoints = min(max(params["maxPoints"] as? Int ?? 400, 1), 2_000)
         let points = try applicationService.querySessionSeries(
           sessionID: sessionID,
           startElapsedMs: 0,
           endElapsedMs: summary.totalElapsedMs,
-          fields: ["packVoltageV", "dutyCycle", "speedKph"],
+          fields: numericFields,
           maxPoints: maxPoints
         )
+        let rawEvents = try applicationService.sessionEvents(
+          sessionID: sessionID,
+          startElapsedMs: 0,
+          endElapsedMs: summary.totalElapsedMs
+        )
+        let eventsTruncated = rawEvents.count > 2_000
+        let events = rawEvents.suffix(2_000)
         return success([
           "summary": sessionPayload(summary),
           "series": points.map(seriesPayload),
+          "events": try events.map(sessionEventPayload),
+          "eventsTruncated": eventsTruncated,
         ])
       case "session.getDiagnostics":
         guard let sessionID = params["sessionId"] as? String,
@@ -235,15 +246,14 @@ public final class LoopbackServer: @unchecked Sendable {
               let before = (params["beforeMs"] as? NSNumber)?.int64Value,
               let after = (params["afterMs"] as? NSNumber)?.int64Value
         else { return failure(id, .invalidRequest, "Valid diagnostic window is required") }
+        let numericFields = Self.numericSeriesFields
+          + (try applicationService.sessionExtensionFields(sessionID: sessionID))
         return success(try applicationService.diagnosticWindow(
           sessionID: sessionID,
           centerElapsedMs: center,
           beforeMs: before,
           afterMs: after,
-          fields: [
-            "boardState", "packVoltageV", "dutyCycle", "controllerTempC", "motorTempC",
-            "footpadState", "motorCurrentA", "batteryCurrentA", "erpm", "speedKph",
-          ]
+          fields: numericFields
         ).map(seriesPayload))
       case "session.export":
         guard let sessionID = params["sessionId"] as? String,
@@ -404,19 +414,66 @@ public final class LoopbackServer: @unchecked Sendable {
     [
       "sequence": value.sequence,
       "observedAt": ISO8601DateFormatter().string(from: value.observedAt),
+      "slowObservedAt": value.slowObservedAt.map(ISO8601DateFormatter().string) ?? NSNull(),
       "elapsedMs": value.elapsedMs,
       "rideState": value.rideState.rawValue,
-      "boardState": value.boardState ?? NSNull(),
-      "footpadState": value.footpadState ?? NSNull(),
+      "packageState": value.packageState?.rawValue ?? NSNull(),
+      "packageMode": value.packageMode?.rawValue ?? NSNull(),
+      "footpadState": value.footpadState?.rawValue ?? NSNull(),
+      "stopCondition": value.stopCondition?.rawValue ?? NSNull(),
+      "setpointAdjustment": value.setpointAdjustment?.rawValue ?? NSNull(),
+      "wheelslip": value.wheelslip ?? NSNull(),
+      "darkride": value.darkride ?? NSNull(),
+      "charging": value.charging ?? NSNull(),
+      "alertReason": value.alertReason?.rawValue ?? NSNull(),
+      "firmwareFault": value.firmwareFault?.rawValue ?? NSNull(),
       "packVoltageV": value.packVoltageV ?? NSNull(),
       "dutyCycle": value.dutyCycle ?? NSNull(),
       "controllerTempC": value.controllerTempC ?? NSNull(),
       "motorTempC": value.motorTempC ?? NSNull(),
-      "motorCurrentA": value.extensionFields["motorCurrentA"] ?? NSNull(),
-      "batteryCurrentA": value.extensionFields["batteryCurrentA"] ?? NSNull(),
-      "erpm": value.extensionFields["erpm"] ?? NSNull(),
-      "speedKph": value.extensionFields["speedKph"] ?? NSNull(),
+      "motorCurrentA": value.motorCurrentA ?? NSNull(),
+      "batteryCurrentA": value.batteryCurrentA ?? NSNull(),
+      "erpm": value.erpm ?? NSNull(),
+      "speedKph": value.speedKph ?? NSNull(),
+      "pitchDeg": value.pitchDeg ?? NSNull(),
+      "balancePitchDeg": value.balancePitchDeg ?? NSNull(),
+      "rollDeg": value.rollDeg ?? NSNull(),
+      "directionalMotorCurrentA": value.directionalMotorCurrentA ?? NSNull(),
+      "filteredMotorCurrentA": value.filteredMotorCurrentA ?? NSNull(),
+      "requestedBalanceCurrentA": value.requestedBalanceCurrentA ?? NSNull(),
+      "boosterCurrentA": value.boosterCurrentA ?? NSNull(),
+      "fieldWeakeningCurrentA": value.fieldWeakeningCurrentA ?? NSNull(),
+      "footpadAdc1V": value.footpadAdc1V ?? NSNull(),
+      "footpadAdc2V": value.footpadAdc2V ?? NSNull(),
+      "remoteInput": value.remoteInput ?? NSNull(),
+      "setpointDeg": value.setpointDeg ?? NSNull(),
+      "atrSetpointDeg": value.atrSetpointDeg ?? NSNull(),
+      "brakeTiltSetpointDeg": value.brakeTiltSetpointDeg ?? NSNull(),
+      "torqueTiltSetpointDeg": value.torqueTiltSetpointDeg ?? NSNull(),
+      "turnTiltSetpointDeg": value.turnTiltSetpointDeg ?? NSNull(),
+      "remoteSetpointDeg": value.remoteSetpointDeg ?? NSNull(),
+      "atrAccelerationDifferenceErpmPerSecond":
+        value.atrAccelerationDifferenceErpmPerSecond ?? NSNull(),
+      "atrSpeedBoost": value.atrSpeedBoost ?? NSNull(),
+      "distanceM": value.distanceM ?? NSNull(),
+      "odometerM": value.odometerM ?? NSNull(),
+      "ampHoursDrawnAh": value.ampHoursDrawnAh ?? NSNull(),
+      "ampHoursChargedAh": value.ampHoursChargedAh ?? NSNull(),
+      "wattHoursDrawnWh": value.wattHoursDrawnWh ?? NSNull(),
+      "wattHoursChargedWh": value.wattHoursChargedWh ?? NSNull(),
+      "batteryLevel": value.batteryLevel ?? NSNull(),
+      "chargingCurrentA": value.chargingCurrentA ?? NSNull(),
+      "chargingVoltageV": value.chargingVoltageV ?? NSNull(),
+      "extensions": value.extensionFields,
     ]
+  }
+
+  private func sessionEventPayload(_ value: SessionEventRecord) throws -> [String: Any] {
+    guard let details = try JSONSerialization.jsonObject(with: Data(value.detailsJSON.utf8))
+      as? [String: Any],
+      let eventValue = details["value"] as? String
+    else { throw SessionStoreError.invalidRange }
+    return ["elapsedMs": value.elapsedMs, "kind": value.kind, "value": eventValue]
   }
 
   private func boardProfilePayload(_ value: BoardProfileRecord) throws -> [String: Any] {
@@ -454,6 +511,20 @@ public final class LoopbackServer: @unchecked Sendable {
     value.values.forEach { fields[$0.key] = $0.value ?? NSNull() }
     return ["elapsedMs": value.elapsedMs, "values": fields]
   }
+
+  private static let numericSeriesFields = [
+    "packVoltageV", "dutyCycle", "controllerTempC", "motorTempC",
+    "motorCurrentA", "batteryCurrentA", "erpm", "speedKph", "pitchDeg",
+    "balancePitchDeg", "rollDeg", "directionalMotorCurrentA",
+    "filteredMotorCurrentA", "requestedBalanceCurrentA", "boosterCurrentA",
+    "fieldWeakeningCurrentA", "footpadAdc1V", "footpadAdc2V", "remoteInput",
+    "setpointDeg", "atrSetpointDeg", "brakeTiltSetpointDeg",
+    "torqueTiltSetpointDeg", "turnTiltSetpointDeg", "remoteSetpointDeg",
+    "atrAccelerationDifferenceErpmPerSecond", "atrSpeedBoost", "distanceM",
+    "odometerM", "ampHoursDrawnAh", "ampHoursChargedAh",
+    "wattHoursDrawnWh", "wattHoursChargedWh", "batteryLevel",
+    "chargingCurrentA", "chargingVoltageV",
+  ]
 
   private func sessionGroupPayload(_ value: SessionGroupRecord) -> [String: Any] {
     [

@@ -9,6 +9,8 @@ import {
 	type FixtureAction,
 	type FixtureConfiguration
 } from './contract.ts';
+import { telemetryFieldNames, telemetryScenes } from '../../../fixture/telemetry.ts';
+import { parseScenarioDocument } from './coordinator/scenario-document.server.ts';
 import { authorizeMutation, HttpActionError } from './auth.server.ts';
 
 export async function handleActionRequest(
@@ -19,7 +21,9 @@ export async function handleActionRequest(
 	try {
 		authorizeMutation(request, token);
 		const text = await request.text();
-		if (text.length > 4_096) throw new HttpActionError(413, 'Fixture action body exceeds bound');
+		if (new TextEncoder().encode(text).length > 65_536) {
+			throw new HttpActionError(413, 'Fixture action body exceeds bound');
+		}
 		const action = parseAction(JSON.parse(text) as unknown);
 		const snapshot = await coordinator.act(action);
 		return json(snapshot);
@@ -46,6 +50,62 @@ export function parseAction(value: unknown): FixtureAction {
 		case 'start-riding':
 		case 'stop-riding':
 			return { kind: value.kind };
+		case 'apply-template':
+			if (
+				value.template !== 'direct' &&
+				value.template !== 'singleExpress' &&
+				value.template !== 'reportedMultiController'
+			) {
+				throw new Error('Invalid scenario template');
+			}
+			return { kind: value.kind, template: value.template };
+		case 'import-scenario':
+			return { kind: value.kind, document: parseScenarioDocument(value.document) };
+		case 'set-scene':
+			if (typeof value.scene !== 'string' || !telemetryScenes.includes(value.scene as never)) {
+				throw new Error('Invalid telemetry scene');
+			}
+			return { kind: value.kind, scene: value.scene as (typeof telemetryScenes)[number] };
+		case 'freeze':
+		case 'resume':
+		case 'reset-overrides':
+		case 'disconnect-readvertise':
+		case 'reconnect-unchanged':
+			return { kind: value.kind };
+		case 'pin-field':
+			if (
+				typeof value.field !== 'string' ||
+				!telemetryFieldNames.includes(value.field as never) ||
+				!('value' in value)
+			) {
+				throw new Error('Invalid field pin');
+			}
+			return {
+				kind: value.kind,
+				field: value.field as never,
+				value: value.value as never
+			};
+		case 'unpin-field':
+			if (typeof value.field !== 'string' || !telemetryFieldNames.includes(value.field as never)) {
+				throw new Error('Invalid field pin');
+			}
+			return { kind: value.kind, field: value.field as never };
+		case 'move-controller':
+			if (typeof value.alias !== 'string' || !Number.isInteger(value.canId)) {
+				throw new Error('Invalid controller move');
+			}
+			return { kind: value.kind, alias: value.alias, canId: Number(value.canId) };
+		case 'replace-controller':
+			if (typeof value.alias !== 'string') throw new Error('Invalid controller replacement');
+			return { kind: value.kind, alias: value.alias };
+		case 'set-ping-visible':
+			if (typeof value.alias !== 'string' || typeof value.visible !== 'boolean') {
+				throw new Error('Invalid ping visibility');
+			}
+			return { kind: value.kind, alias: value.alias, visible: value.visible };
+		case 'set-fragment-bytes':
+			if (!Number.isInteger(value.fragmentBytes)) throw new Error('Invalid fragment bound');
+			return { kind: value.kind, fragmentBytes: Number(value.fragmentBytes) };
 		case 'configure': {
 			const configuration = value.configuration;
 			if (!isRecord(configuration)) throw new Error('Invalid fixture configuration');

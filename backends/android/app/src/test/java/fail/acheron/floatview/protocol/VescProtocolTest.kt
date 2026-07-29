@@ -6,8 +6,11 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertThrows
 import org.junit.Test
 import fail.acheron.floatview.backend.VescProtocolMessage
+import fail.acheron.floatview.backend.FootpadState
 import fail.acheron.floatview.backend.RideState
 import fail.acheron.floatview.protocol.refloat.RefloatCompatibility
+import fail.acheron.floatview.protocol.refloat.RefloatDynamicTelemetryDecoder
+import fail.acheron.floatview.protocol.refloat.RefloatLegacyTelemetryDecoder
 import fail.acheron.floatview.protocol.refloat.RefloatTelemetryFamily
 import fail.acheron.floatview.protocol.vesc.VescCompatibility
 import fail.acheron.floatview.protocol.vesc.ControllerRoute
@@ -27,6 +30,22 @@ private fun fixtureCases(path: String): List<String> {
         .findAll(json)
         .map { it.groupValues[1] }
         .toList()
+}
+
+private fun refloatSourcePayload(name: String): ByteArray {
+    val json = String(
+        Files.readAllBytes(
+            Path.of(
+                System.getProperty("floatViewFixtureRoot"),
+                "refloat/detailed-source-provenance.json",
+            ),
+        ),
+    )
+    val pattern =
+        Regex(
+            "\"name\"\\s*:\\s*\"${Regex.escape(name)}\"[\\s\\S]*?\"payloadHex\"\\s*:\\s*\"([0-9a-f]+)\"",
+        )
+    return requireNotNull(pattern.find(json)).groupValues[1].hexBytes()
 }
 
 class VescProtocolTest {
@@ -57,7 +76,7 @@ class VescProtocolTest {
             service.receive(legacy),
         )
         assertEquals(
-            listOf(36, 101, 10),
+            listOf(36, 101, 10, 4),
             VescFrameCodec.decode(service.refloatLegacyTelemetryRequest(ControllerRoute.Direct))
                 .map { it.toInt() and 0xff },
         )
@@ -123,6 +142,71 @@ class VescProtocolTest {
         assertEquals(VescFault.Kind.UNKNOWN, VescFault.fromCode(255).kind)
         assertEquals(255, VescFault.fromCode(255).code)
 
+    }
+
+    @Test
+    fun detailedSourceFixturesDecodeEveryKnownLegacyAndDynamicField() {
+        val legacy = RefloatLegacyTelemetryDecoder.decode(
+            refloatSourcePayload("1.0.0-command-10-detail-4"),
+        )
+        assertEquals("running", legacy.packageState?.wireValue)
+        assertEquals("normal", legacy.packageMode?.wireValue)
+        assertEquals(FootpadState.BOTH, legacy.footpadState)
+        listOf(
+            legacy.packVoltageV,
+            legacy.dutyCycle,
+            legacy.motorCurrentA,
+            legacy.batteryCurrentA,
+            legacy.erpm,
+            legacy.speedKph,
+            legacy.pitchDeg,
+            legacy.balancePitchDeg,
+            legacy.rollDeg,
+            legacy.requestedBalanceCurrentA,
+            legacy.boosterCurrentA,
+            legacy.fieldWeakeningCurrentA,
+            legacy.footpadAdc1V,
+            legacy.footpadAdc2V,
+            legacy.setpointDeg,
+            legacy.atrSetpointDeg,
+            legacy.brakeTiltSetpointDeg,
+            legacy.torqueTiltSetpointDeg,
+            legacy.turnTiltSetpointDeg,
+            legacy.remoteSetpointDeg,
+            legacy.distanceM,
+            legacy.odometerM,
+            legacy.ampHoursDrawnAh,
+            legacy.ampHoursChargedAh,
+            legacy.wattHoursDrawnWh,
+            legacy.wattHoursChargedWh,
+            legacy.batteryLevel,
+            legacy.chargingCurrentA,
+            legacy.chargingVoltageV,
+        ).forEach { requireNotNull(it) }
+
+        val decoder = RefloatDynamicTelemetryDecoder()
+        val (fields, runtimeFields) = decoder.decodeFields(
+            refloatSourcePayload("1.1.0-and-1.2.3-command-32-layout"),
+        )
+        assertEquals(16, fields.size)
+        assertEquals(10, runtimeFields.size)
+        val dynamic = decoder.decodeData(
+            refloatSourcePayload("1.2.3-command-31-running-alert-tail"),
+        )
+        assertEquals(RideState.RIDING, dynamic.rideState)
+        assertEquals(FootpadState.BOTH, dynamic.footpadState)
+        requireNotNull(dynamic.directionalMotorCurrentA)
+        requireNotNull(dynamic.filteredMotorCurrentA)
+        requireNotNull(dynamic.remoteInput)
+        requireNotNull(dynamic.atrAccelerationDifferenceErpmPerSecond)
+        requireNotNull(dynamic.atrSpeedBoost)
+        assertEquals(emptyMap<String, Double>(), dynamic.extensions)
+
+        val fault = decoder.decodeData(
+            refloatSourcePayload("1.2.3-command-31-active-firmware-fault"),
+        )
+        assertEquals("firmwareFault", fault.alertReason?.wireValue)
+        assertEquals("overVoltage", fault.firmwareFault?.wireValue)
     }
 
     @Test
@@ -205,6 +289,7 @@ class VescProtocolTest {
             "motor.batt_current",
             "motor.mosfet_temp",
             "motor.motor_temp",
+            "future.energy",
         )
         val idsPayload = mutableListOf(36, 101, 32, fields.size)
         fields.forEach { field ->
@@ -232,20 +317,22 @@ class VescProtocolTest {
             0xc4.toByte(), 0x00,
             0x50, 0x00,
             0x4c, 0x00,
+            0x45, 0x00,
         )
 
         val message = service.receive(VescFrameCodec.encode(payload)).single()
             as VescProtocolMessage.RefloatTelemetry
         assertEquals(RideState.RIDING, message.value.rideState)
-        assertEquals(1, message.value.footpadState)
-        assertEquals(64.0, message.value.packVoltageV, 0.0)
-        assertEquals(0.5, message.value.dutyCycle, 0.0)
+        assertEquals(FootpadState.LEFT, message.value.footpadState)
+        assertEquals(64.0, message.value.packVoltageV!!, 0.0)
+        assertEquals(0.5, message.value.dutyCycle!!, 0.0)
         assertEquals(32.0, message.value.controllerTempC!!, 0.0)
         assertEquals(16.0, message.value.motorTempC!!, 0.0)
-        assertEquals(8.0, message.value.motorCurrentA, 0.0)
-        assertEquals(-4.0, message.value.batteryCurrentA, 0.0)
-        assertEquals(1024, message.value.erpm)
-        assertEquals(36.0, message.value.speedKph, 0.0)
+        assertEquals(8.0, message.value.motorCurrentA!!, 0.0)
+        assertEquals(-4.0, message.value.batteryCurrentA!!, 0.0)
+        assertEquals(1024.0, message.value.erpm)
+        assertEquals(36.0, message.value.speedKph!!, 0.0)
+        assertEquals(mapOf("future.energy" to 5.0), message.value.extensions)
     }
 
     @Test
@@ -265,9 +352,9 @@ class VescProtocolTest {
         )
         val telemetry = (messages[2] as VescProtocolMessage.RefloatTelemetry).value
         assertEquals(RideState.IDLE, telemetry.rideState)
-        assertEquals(0, telemetry.footpadState)
-        assertEquals(0.0, telemetry.motorCurrentA, 0.0)
-        assertEquals(0.0, telemetry.batteryCurrentA, 0.0)
-        assertEquals(0, telemetry.erpm)
+        assertEquals(FootpadState.NONE, telemetry.footpadState)
+        assertEquals(0.0, telemetry.motorCurrentA!!, 0.0)
+        assertEquals(0.0, telemetry.batteryCurrentA!!, 0.0)
+        assertEquals(-0.07818603515625, telemetry.erpm)
     }
 }

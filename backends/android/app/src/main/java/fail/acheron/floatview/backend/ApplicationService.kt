@@ -174,6 +174,10 @@ class ApplicationService(
         requireNotNull(sessionStore) { "Session store is unavailable" }
             .sessionEvents(sessionId, startElapsedMs, endElapsedMs)
 
+    fun sessionExtensionFields(sessionId: String): List<String> =
+        requireNotNull(sessionStore) { "Session store is unavailable" }
+            .sessionExtensionFields(sessionId)
+
     fun diagnosticWindow(
         sessionId: String,
         centerElapsedMs: Long,

@@ -128,7 +128,7 @@ test("canonical route assertions distinguish direct and CAN polling and reject u
   for (let canId = 0; canId < 110; canId += 1) {
     bounded.receive(encodeFrame(Uint8Array.of(34, canId % 42, 0)));
   }
-  assert.equal(bounded.diagnostics.length, 100);
+  assert.equal(bounded.diagnostics.length, 50);
 });
 
 test("authoritative snapshots enforce pre-ready identity, route, ordering, bounds, and privacy", () => {

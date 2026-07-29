@@ -89,7 +89,7 @@ class ApplicationServiceTest {
             dutyCycle = 0.0,
             controllerTempC = 20.0,
             motorTempC = 20.0,
-            footpadState = 0,
+            footpadState = FootpadState.NONE,
         )
         service.ingest(sample(1, 0))
         service.ingest(sample(2, 100))
@@ -589,18 +589,14 @@ class ApplicationServiceTest {
         assertEquals(listOf(10_000L, 1_000L, 500L, 100L), scheduler.intervals)
         assertEquals(1, store.appended.size)
         assertEquals(RideState.RIDING, store.appended.single().rideState)
-        assertEquals(3, store.appended.single().boardState)
+        assertEquals(PackageState.RUNNING, store.appended.single().packageState)
         assertEquals(64.0, store.appended.single().packVoltageV)
         assertEquals(store.appended.single(), service.activeConnectionSnapshot()?.latestSample)
-        assertEquals(
-            mapOf(
-                "motorCurrentA" to 8.0,
-                "batteryCurrentA" to -4.0,
-                "erpm" to 1024.0,
-                "speedKph" to 36.0,
-            ),
-            store.appended.single().extension,
-        )
+        assertEquals(8.0, store.appended.single().motorCurrentA)
+        assertEquals(-4.0, store.appended.single().batteryCurrentA)
+        assertEquals(1024.0, store.appended.single().erpm)
+        assertEquals(36.0, store.appended.single().speedKph)
+        assertTrue(store.appended.single().extension.isEmpty())
     }
 
     @Test
@@ -608,10 +604,11 @@ class ApplicationServiceTest {
         val bluetooth = FakeBluetooth()
         val scheduler = FakeScheduler()
         val clock = FakeClock()
+        val store = FakeStore()
         val service = ApplicationService(
             bluetooth,
             clock,
-            FakeStore(),
+            store,
             protocol = TelemetryProtocol(),
             scheduler = scheduler,
         ) {}
@@ -626,16 +623,30 @@ class ApplicationServiceTest {
         assertEquals(listOf(10_000L, 1_000L, 500L), scheduler.intervals)
 
         clock.monotonicMs = 1_000
+        clock.instant = Instant.ofEpochSecond(1)
         service.onBluetoothEvent(BluetoothEvent.Notification(id, byteArrayOf(4)))
         assertEquals(listOf(10_000L, 1_000L, 500L, 100L), scheduler.intervals)
+        service.onBluetoothEvent(BluetoothEvent.Notification(id, byteArrayOf(6)))
+        scheduler.fire(3)
 
         clock.monotonicMs = 2_000
+        clock.instant = Instant.ofEpochSecond(2)
         service.onBluetoothEvent(BluetoothEvent.Notification(id, byteArrayOf(5)))
+        assertEquals(Instant.ofEpochSecond(1), store.appended.last().slowObservedAt)
+        assertEquals(1.5, store.appended.last().fieldWeakeningCurrentA)
+        assertEquals(42.0, store.appended.last().distanceM)
         clock.monotonicMs = 16_999
+        clock.instant = Instant.ofEpochMilli(16_999)
+        scheduler.fire(3)
+        service.onBluetoothEvent(BluetoothEvent.Notification(id, byteArrayOf(6)))
+        scheduler.fire(3)
         service.onBluetoothEvent(BluetoothEvent.Notification(id, byteArrayOf(5)))
+        assertEquals(7.0, store.appended.last().distanceM)
+        assertEquals(Instant.ofEpochMilli(16_999), store.appended.last().slowObservedAt)
         assertEquals(listOf(10_000L, 1_000L, 500L, 100L), scheduler.intervals)
 
         clock.monotonicMs = 17_001
+        scheduler.fire(3)
         service.onBluetoothEvent(BluetoothEvent.Notification(id, byteArrayOf(5)))
         assertEquals(listOf(10_000L, 1_000L, 500L, 100L, 500L), scheduler.intervals)
     }
@@ -886,6 +897,7 @@ class ApplicationServiceTest {
     }
 
     private class TelemetryProtocol : VescProtocolPort {
+        private var compactCount = 0
         override fun reset() = Unit
         override fun firmwareRequest(route: ControllerRoute) = byteArrayOf(1)
         override fun canPingRequest() = byteArrayOf(62)
@@ -912,19 +924,50 @@ class ApplicationServiceTest {
                 4 -> listOf(
                     VescProtocolMessage.RefloatTelemetry(
                         RefloatTelemetryRecord(
-                            RideState.RIDING, 3, 3, 64.0, 0.5, 30.0, 25.0,
-                            8.0, -4.0, 1024, 36.0,
+                            rideState = RideState.RIDING,
+                            packageState = PackageState.RUNNING,
+                            footpadState = FootpadState.BOTH,
+                            packVoltageV = 64.0,
+                            dutyCycle = 0.5,
+                            controllerTempC = 30.0,
+                            motorTempC = 25.0,
+                            motorCurrentA = 8.0,
+                            batteryCurrentA = -4.0,
+                            erpm = 1024.0,
+                            speedKph = 36.0,
                         ),
                     ),
                 )
                 5 -> listOf(
                     VescProtocolMessage.RefloatTelemetry(
                         RefloatTelemetryRecord(
-                            RideState.IDLE, 2, 0, 64.0, 0.0, 30.0, 25.0,
-                            0.0, 0.0, 0, 0.0,
+                            rideState = RideState.IDLE,
+                            packageState = PackageState.READY,
+                            footpadState = FootpadState.NONE,
+                            packVoltageV = 64.0,
+                            dutyCycle = 0.0,
+                            controllerTempC = 30.0,
+                            motorTempC = 25.0,
+                            motorCurrentA = 0.0,
+                            batteryCurrentA = 0.0,
+                            erpm = 0.0,
+                            speedKph = 0.0,
                         ),
                     ),
                 )
+                6 -> {
+                    compactCount += 1
+                    listOf(
+                        VescProtocolMessage.RefloatTelemetry(
+                            RefloatTelemetryRecord(
+                                rideState = RideState.IDLE,
+                                kind = RefloatTelemetryKind.COMPACT,
+                                fieldWeakeningCurrentA = 1.5,
+                                distanceM = if (compactCount == 1) 42.0 else 7.0,
+                            ),
+                        ),
+                    )
+                }
                 else -> emptyList()
             }
     }

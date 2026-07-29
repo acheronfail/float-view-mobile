@@ -22,7 +22,7 @@ export function authorizeMutation(request: Request, expectedToken = launchToken(
 		throw new HttpActionError(403, 'Invalid fixture launch token');
 	}
 	const length = Number(request.headers.get('content-length') ?? 0);
-	if (!Number.isFinite(length) || length < 0 || length > 4_096) {
+	if (!Number.isFinite(length) || length < 0 || length > 65_536) {
 		throw new HttpActionError(413, 'Fixture action body exceeds bound');
 	}
 	if (!request.headers.get('content-type')?.toLowerCase().startsWith('application/json')) {

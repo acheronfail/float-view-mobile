@@ -1,0 +1,100 @@
+{
+  "schemaVersion": 1,
+  "id": "refloat-detailed-source-provenance",
+  "provenance": {
+    "1.0.0": {
+      "tag": "https://github.com/lukash/refloat/tree/v1.0.0",
+      "source": "src/main.c",
+      "commands": [1, 10]
+    },
+    "1.1.0": {
+      "tag": "https://github.com/lukash/refloat/tree/v1.1.0",
+      "source": "src/rt_data.h",
+      "commands": [10, 31, 32]
+    },
+    "1.2.3": {
+      "tag": "https://github.com/lukash/refloat/tree/v1.2.3",
+      "source": "src/rt_data.h",
+      "commands": [10, 31, 32]
+    }
+  },
+  "semanticFixture": {
+    "name": "acceleration",
+    "seed": 7,
+    "packageState": "running",
+    "packageMode": "normal",
+    "footpadState": "both",
+    "firmwareFault": null
+  },
+  "cases": [
+    {
+      "name": "1.0.0-command-1-high-precision",
+      "version": "1.0.0",
+      "request": [36, 101, 1],
+      "payloadHex": "246501425000003f8ccccd3f4ccccd210240333333403000003f8000004019999a000000003fe666660000000000000000404ccccd422c0000449c400040c000004238000000000000"
+    },
+    {
+      "name": "1.0.0-command-10-detail-1",
+      "version": "1.0.0",
+      "request": [36, 101, 10, 1],
+      "payloadHex": "24650a010208000b000821028c89858c80898080002086025f1601004201e000fac000"
+    },
+    {
+      "name": "1.0.0-command-10-detail-2",
+      "version": "1.0.0",
+      "request": [36, 101, 10, 2],
+      "payloadHex": "24650a020208000b000821028c89858c80898080002086025f1601004201e000fac000000000003c3800"
+    },
+    {
+      "name": "1.0.0-command-10-detail-3",
+      "version": "1.0.0",
+      "request": [36, 101, 10, 3],
+      "payloadHex": "24650a030208000b000821028c89858c80898080002086025f1601004201e000fac000000000003c38000000303900b8001b032c0077a4"
+    },
+    {
+      "name": "1.0.0-command-10-detail-4",
+      "version": "1.0.0",
+      "request": [36, 101, 10, 4],
+      "payloadHex": "24650a040208000b000821028c89858c80898080002086025f1601004201e000fac000000000003c38000000303900b8001b032c0077a400000000"
+    },
+    {
+      "name": "1.2.3-command-10-active-firmware-fault",
+      "version": "1.2.3",
+      "request": [36, 101, 10, 4],
+      "payloadHex": "24650a4501"
+    },
+    {
+      "name": "1.1.0-and-1.2.3-command-32-layout",
+      "version": "1.1.0",
+      "request": [36, 101, 32],
+      "alwaysPresentCount": 16,
+      "runtimeCount": 10,
+      "payloadHex": "246520100b6d6f746f722e73706565640a6d6f746f722e6572706d0d6d6f746f722e63757272656e74116d6f746f722e6469725f63757272656e74126d6f746f722e66696c745f63757272656e74106d6f746f722e647574795f6379636c65126d6f746f722e626174745f766f6c74616765126d6f746f722e626174745f63757272656e74116d6f746f722e6d6f736665745f74656d70106d6f746f722e6d6f746f725f74656d7009696d752e706974636811696d752e62616c616e63655f706974636808696d752e726f6c6c0c666f6f747061642e616463310c666f6f747061642e616463320c72656d6f74652e696e7075740a08736574706f696e740c6174722e736574706f696e74136272616b655f74696c742e736574706f696e7414746f727175655f74696c742e736574706f696e74127475726e5f74696c742e736574706f696e740f72656d6f74652e736574706f696e740f62616c616e63655f63757272656e740e6174722e616363656c5f646966660f6174722e73706565645f626f6f73740f626f6f737465722e63757272656e74"
+    },
+    {
+      "name": "1.1.0-command-31-running",
+      "version": "1.1.0",
+      "request": [36, 101, 31],
+      "payloadHex": "24651f01000000000003c0000046a96d80520051c05160391f53984e404f804f0042663c663a66419a418000003c0040cd00003f3300000000528064e231c34600"
+    },
+    {
+      "name": "1.2.3-command-31-running-alert-tail",
+      "version": "1.2.3",
+      "request": [36, 101, 31],
+      "payloadHex": "24651f05000000000003c0000046a96d80520051c05160391f53984e404f804f0042663c663a66419a418000003c0040cd00003f3300000000528064e231c34600000000000000000000"
+    },
+    {
+      "name": "1.2.3-command-31-charging-tail",
+      "version": "1.2.3",
+      "request": [36, 101, 31],
+      "payloadHex": "24651f0600000000000220000024984b80000000000000000053edc3004f804f00000000000000340033ae000043005432000000000000000000"
+    },
+    {
+      "name": "1.2.3-command-31-active-firmware-fault",
+      "version": "1.2.3",
+      "request": [36, 101, 31],
+      "payloadHex": "24651f0400000000000200001324984b800000000000000000545000004f804f00000000000000340033ae0000000000010000000001"
+    }
+  ],
+  "deferredCommands": [35, 41, 42, 43]
+}

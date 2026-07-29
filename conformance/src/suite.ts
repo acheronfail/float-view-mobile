@@ -201,6 +201,27 @@ async function exerciseProductMethods(
   });
   assert.equal(detail.summary.sessionId, session.sessionId);
   assert.ok(detail.series.length <= 100);
+  assert.ok(detail.events.length <= 2_000);
+  assert.equal(typeof detail.eventsTruncated, "boolean");
+  for (const event of detail.events) {
+    assert.ok(stableSessionEventKinds.has(event.kind));
+    assert.ok(Number.isSafeInteger(event.elapsedMs) && event.elapsedMs >= 0);
+    assert.equal(typeof event.value, "string");
+  }
+  for (const point of detail.series) {
+    assert.ok(Number.isSafeInteger(point.elapsedMs) && point.elapsedMs >= 0);
+    assert.ok(
+      Object.entries(point.values).every(
+        ([field, value]) =>
+          !field.toLowerCase().includes("utilization") &&
+          (value === null || (typeof value === "number" && Number.isFinite(value))),
+      ),
+    );
+  }
+  assert.doesNotMatch(
+    JSON.stringify(detail),
+    /controllerUuid|controllerUUID|launchToken|bluetoothIdentifier/,
+  );
   const diagnostics = await client.request("session.getDiagnostics", {
     sessionId: session.sessionId,
     centerElapsedMs: 0,
@@ -275,20 +296,58 @@ async function createCompletedSession(
     assert.deepEqual(
       Object.keys(connected.activeConnection.latestSample).sort(),
       [
+        "alertReason",
+        "ampHoursChargedAh",
+        "ampHoursDrawnAh",
+        "atrAccelerationDifferenceErpmPerSecond",
+        "atrSetpointDeg",
+        "atrSpeedBoost",
+        "balancePitchDeg",
         "batteryCurrentA",
-        "boardState",
+        "batteryLevel",
+        "boosterCurrentA",
+        "brakeTiltSetpointDeg",
+        "charging",
+        "chargingCurrentA",
+        "chargingVoltageV",
         "controllerTempC",
+        "darkride",
+        "directionalMotorCurrentA",
+        "distanceM",
         "dutyCycle",
         "elapsedMs",
         "erpm",
+        "extensions",
+        "fieldWeakeningCurrentA",
+        "filteredMotorCurrentA",
+        "firmwareFault",
+        "footpadAdc1V",
+        "footpadAdc2V",
         "footpadState",
         "motorCurrentA",
         "motorTempC",
         "observedAt",
+        "odometerM",
         "packVoltageV",
+        "packageMode",
+        "packageState",
+        "pitchDeg",
+        "remoteInput",
+        "remoteSetpointDeg",
+        "requestedBalanceCurrentA",
         "rideState",
+        "rollDeg",
         "sequence",
+        "setpointAdjustment",
+        "setpointDeg",
+        "slowObservedAt",
         "speedKph",
+        "stopCondition",
+        "torqueTiltSetpointDeg",
+        "turnTiltSetpointDeg",
+        "wattHoursChargedWh",
+        "wattHoursDrawnWh",
+        "wheelslip",
       ],
     );
   }
@@ -317,6 +376,19 @@ const stableConnectionIssueCodes = new Set<ConnectionIssueCode>([
   "controller_changed",
   "unsupported_controller",
   "unsupported_refloat",
+]);
+
+const stableSessionEventKinds = new Set([
+  "packageState",
+  "packageMode",
+  "footpadState",
+  "stopCondition",
+  "setpointAdjustment",
+  "wheelslip",
+  "darkride",
+  "charging",
+  "alertReason",
+  "firmwareFault",
 ]);
 
 export function assertState(state: AppState) {

@@ -1,8 +1,14 @@
 export const MAX_MESSAGE_BYTES = 65_536;
 export const MAX_RECENT_ITEMS = 50;
 export const MAX_SERIES_POINTS = 2_000;
+export const MAX_SESSION_EVENTS = 2_000;
 export const MAX_CAN_DISCOVERY_IDS = 64;
 export const MAX_CONTROLLER_CANDIDATES = 16;
+export const MAX_TELEMETRY_FIELDS = 64;
+export const MAX_TELEMETRY_FIELD_BYTES = 64;
+export const MAX_TELEMETRY_FIELD_NAME_BYTES = 4_096;
+export const MAX_TELEMETRY_EXTENSIONS = 32;
+export const MAX_TELEMETRY_JSON_BYTES = 16_384;
 
 export type BluetoothRadioState =
 	| 'unknown'
@@ -82,14 +88,97 @@ export interface ConnectionIssue {
 }
 
 export type RideState = 'idle' | 'riding' | 'unknown';
+export type PackageState = 'disabled' | 'startup' | 'ready' | 'running' | 'unknown';
+export type PackageMode = 'normal' | 'handTest' | 'flywheel' | 'unknown';
+export type FootpadState = 'none' | 'left' | 'right' | 'both' | 'unknown';
+export type StopCondition =
+	| 'none'
+	| 'pitch'
+	| 'roll'
+	| 'switchHalf'
+	| 'switchFull'
+	| 'reverseStop'
+	| 'quickStop'
+	| 'unknown';
+export type SetpointAdjustment =
+	| 'none'
+	| 'centering'
+	| 'reverseStop'
+	| 'speed'
+	| 'duty'
+	| 'error'
+	| 'highVoltage'
+	| 'lowVoltage'
+	| 'temperature'
+	| 'unknown';
+export type AlertReason =
+	| 'none'
+	| 'lowVoltage'
+	| 'highVoltage'
+	| 'controllerTemperature'
+	| 'motorTemperature'
+	| 'current'
+	| 'duty'
+	| 'sensors'
+	| 'lowBattery'
+	| 'idle'
+	| 'error'
+	| 'speed'
+	| 'cellUnderTemperature'
+	| 'cellOverTemperature'
+	| 'cellLowVoltage'
+	| 'cellHighVoltage'
+	| 'cellImbalance'
+	| 'bmsConnection'
+	| 'bmsOverTemperature'
+	| 'firmwareFault'
+	| 'unknown';
+export type FirmwareFault =
+	| 'overVoltage'
+	| 'underVoltage'
+	| 'driver'
+	| 'absoluteOverCurrent'
+	| 'controllerOverTemperature'
+	| 'motorOverTemperature'
+	| 'gateDriverOverVoltage'
+	| 'gateDriverUnderVoltage'
+	| 'mcuUnderVoltage'
+	| 'watchdogReset'
+	| 'encoderSpi'
+	| 'encoderSinCosBelowMinimum'
+	| 'encoderSinCosAboveMaximum'
+	| 'flashCorruption'
+	| 'currentSensorOffset1'
+	| 'currentSensorOffset2'
+	| 'currentSensorOffset3'
+	| 'unbalancedCurrents'
+	| 'brake'
+	| 'resolverLossOfTracking'
+	| 'resolverDegradationOfSignal'
+	| 'resolverLossOfSignal'
+	| 'appConfigFlashCorruption'
+	| 'motorConfigFlashCorruption'
+	| 'encoderNoMagnet'
+	| 'encoderMagnetTooStrong'
+	| 'phaseFilter'
+	| 'unknown';
 
 export interface LiveSample {
 	sequence: number;
 	observedAt: string;
+	slowObservedAt: string | null;
 	elapsedMs: number;
 	rideState: RideState;
-	boardState: number | null;
-	footpadState: number | null;
+	packageState: PackageState | null;
+	packageMode: PackageMode | null;
+	footpadState: FootpadState | null;
+	stopCondition: StopCondition | null;
+	setpointAdjustment: SetpointAdjustment | null;
+	wheelslip: boolean | null;
+	darkride: boolean | null;
+	charging: boolean | null;
+	alertReason: AlertReason | null;
+	firmwareFault: FirmwareFault | null;
 	packVoltageV: number | null;
 	dutyCycle: number | null;
 	controllerTempC: number | null;
@@ -98,6 +187,35 @@ export interface LiveSample {
 	batteryCurrentA: number | null;
 	erpm: number | null;
 	speedKph: number | null;
+	pitchDeg: number | null;
+	balancePitchDeg: number | null;
+	rollDeg: number | null;
+	directionalMotorCurrentA: number | null;
+	filteredMotorCurrentA: number | null;
+	requestedBalanceCurrentA: number | null;
+	boosterCurrentA: number | null;
+	fieldWeakeningCurrentA: number | null;
+	footpadAdc1V: number | null;
+	footpadAdc2V: number | null;
+	remoteInput: number | null;
+	setpointDeg: number | null;
+	atrSetpointDeg: number | null;
+	brakeTiltSetpointDeg: number | null;
+	torqueTiltSetpointDeg: number | null;
+	turnTiltSetpointDeg: number | null;
+	remoteSetpointDeg: number | null;
+	atrAccelerationDifferenceErpmPerSecond: number | null;
+	atrSpeedBoost: number | null;
+	distanceM: number | null;
+	odometerM: number | null;
+	ampHoursDrawnAh: number | null;
+	ampHoursChargedAh: number | null;
+	wattHoursDrawnWh: number | null;
+	wattHoursChargedWh: number | null;
+	batteryLevel: number | null;
+	chargingCurrentA: number | null;
+	chargingVoltageV: number | null;
+	extensions: Record<string, number>;
 }
 
 export interface ActiveConnection extends Device {
@@ -186,9 +304,29 @@ export interface SeriesPoint {
 	values: Record<string, number | null>;
 }
 
+export type SessionEventKind =
+	| 'packageState'
+	| 'packageMode'
+	| 'footpadState'
+	| 'stopCondition'
+	| 'setpointAdjustment'
+	| 'wheelslip'
+	| 'darkride'
+	| 'charging'
+	| 'alertReason'
+	| 'firmwareFault';
+
+export interface SessionEvent {
+	elapsedMs: number;
+	kind: SessionEventKind;
+	value: string;
+}
+
 export interface SessionDetail {
 	summary: SessionSummary;
 	series: SeriesPoint[];
+	events: SessionEvent[];
+	eventsTruncated: boolean;
 }
 
 export interface ExportResult {

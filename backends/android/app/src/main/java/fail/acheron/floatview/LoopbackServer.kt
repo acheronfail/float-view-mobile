@@ -13,6 +13,7 @@ import fail.acheron.floatview.backend.DiscoverySnapshot
 import fail.acheron.floatview.backend.EventHub
 import fail.acheron.floatview.backend.ProductStoreException
 import fail.acheron.floatview.backend.SessionExportRecord
+import fail.acheron.floatview.backend.SessionEventRecord
 import fail.acheron.floatview.backend.SessionGroupRecord
 import fail.acheron.floatview.backend.SessionListQuery
 import fail.acheron.floatview.backend.SessionRecord
@@ -269,7 +270,14 @@ class LoopbackServer(
                     val sessionId = requiredString("sessionId")
                         ?: return failure(id.toInt(), "invalid_request", "sessionId is required")
                     val summary = applicationService.session(sessionId)
+                    val numericFields =
+                        DIAGNOSTIC_FIELDS + applicationService.sessionExtensionFields(sessionId)
                     val maxPoints = (params.optInt("maxPoints", 400)).coerceIn(1, MAX_SERIES_POINTS)
+                    val rawEvents = applicationService.sessionEvents(
+                        sessionId,
+                        0,
+                        summary.totalElapsedMs,
+                    )
                     success(
                         JSONObject()
                             .put("summary", session(summary))
@@ -280,11 +288,13 @@ class LoopbackServer(
                                         sessionId,
                                         0,
                                         summary.totalElapsedMs,
-                                        listOf("packVoltageV", "dutyCycle", "speedKph"),
+                                        numericFields,
                                         maxPoints,
                                     ).map(::seriesPoint),
                                 ),
-                            ),
+                            )
+                            .put("events", JSONArray(rawEvents.takeLast(MAX_SESSION_EVENTS).map(::sessionEvent)))
+                            .put("eventsTruncated", rawEvents.size > MAX_SESSION_EVENTS)
                     )
                 }
                 "session.getDiagnostics" -> {
@@ -296,6 +306,8 @@ class LoopbackServer(
                         ?: return failure(id.toInt(), "invalid_request", "beforeMs is required")
                     val after = params.number("afterMs")
                         ?: return failure(id.toInt(), "invalid_request", "afterMs is required")
+                    val numericFields =
+                        DIAGNOSTIC_FIELDS + applicationService.sessionExtensionFields(sessionId)
                     success(
                         JSONArray(
                             applicationService.diagnosticWindow(
@@ -303,7 +315,7 @@ class LoopbackServer(
                                 center,
                                 before,
                                 after,
-                                DIAGNOSTIC_FIELDS,
+                                numericFields,
                             ).map(::seriesPoint),
                         ),
                     )
@@ -541,18 +553,65 @@ class LoopbackServer(
     private fun liveSample(value: TelemetrySample) = JSONObject()
         .put("sequence", value.sequence)
         .put("observedAt", value.observedAt.toString())
+        .put("slowObservedAt", value.slowObservedAt?.toString() ?: JSONObject.NULL)
         .put("elapsedMs", value.elapsedMs)
         .put("rideState", value.rideState.name.lowercase())
-        .put("boardState", value.boardState ?: JSONObject.NULL)
+        .put("packageState", value.packageState?.wireValue ?: JSONObject.NULL)
+        .put("packageMode", value.packageMode?.wireValue ?: JSONObject.NULL)
+        .put("footpadState", value.footpadState?.wireValue ?: JSONObject.NULL)
+        .put("stopCondition", value.stopCondition?.wireValue ?: JSONObject.NULL)
+        .put("setpointAdjustment", value.setpointAdjustment?.wireValue ?: JSONObject.NULL)
+        .put("wheelslip", value.wheelslip ?: JSONObject.NULL)
+        .put("darkride", value.darkride ?: JSONObject.NULL)
+        .put("charging", value.charging ?: JSONObject.NULL)
+        .put("alertReason", value.alertReason?.wireValue ?: JSONObject.NULL)
+        .put("firmwareFault", value.firmwareFault?.wireValue ?: JSONObject.NULL)
         .put("packVoltageV", value.packVoltageV ?: JSONObject.NULL)
         .put("dutyCycle", value.dutyCycle ?: JSONObject.NULL)
         .put("controllerTempC", value.controllerTempC ?: JSONObject.NULL)
         .put("motorTempC", value.motorTempC ?: JSONObject.NULL)
-        .put("footpadState", value.footpadState ?: JSONObject.NULL)
-        .put("motorCurrentA", value.extension["motorCurrentA"] ?: JSONObject.NULL)
-        .put("batteryCurrentA", value.extension["batteryCurrentA"] ?: JSONObject.NULL)
-        .put("erpm", value.extension["erpm"] ?: JSONObject.NULL)
-        .put("speedKph", value.extension["speedKph"] ?: JSONObject.NULL)
+        .put("motorCurrentA", value.motorCurrentA ?: JSONObject.NULL)
+        .put("batteryCurrentA", value.batteryCurrentA ?: JSONObject.NULL)
+        .put("erpm", value.erpm ?: JSONObject.NULL)
+        .put("speedKph", value.speedKph ?: JSONObject.NULL)
+        .put("pitchDeg", value.pitchDeg ?: JSONObject.NULL)
+        .put("balancePitchDeg", value.balancePitchDeg ?: JSONObject.NULL)
+        .put("rollDeg", value.rollDeg ?: JSONObject.NULL)
+        .put("directionalMotorCurrentA", value.directionalMotorCurrentA ?: JSONObject.NULL)
+        .put("filteredMotorCurrentA", value.filteredMotorCurrentA ?: JSONObject.NULL)
+        .put("requestedBalanceCurrentA", value.requestedBalanceCurrentA ?: JSONObject.NULL)
+        .put("boosterCurrentA", value.boosterCurrentA ?: JSONObject.NULL)
+        .put("fieldWeakeningCurrentA", value.fieldWeakeningCurrentA ?: JSONObject.NULL)
+        .put("footpadAdc1V", value.footpadAdc1V ?: JSONObject.NULL)
+        .put("footpadAdc2V", value.footpadAdc2V ?: JSONObject.NULL)
+        .put("remoteInput", value.remoteInput ?: JSONObject.NULL)
+        .put("setpointDeg", value.setpointDeg ?: JSONObject.NULL)
+        .put("atrSetpointDeg", value.atrSetpointDeg ?: JSONObject.NULL)
+        .put("brakeTiltSetpointDeg", value.brakeTiltSetpointDeg ?: JSONObject.NULL)
+        .put("torqueTiltSetpointDeg", value.torqueTiltSetpointDeg ?: JSONObject.NULL)
+        .put("turnTiltSetpointDeg", value.turnTiltSetpointDeg ?: JSONObject.NULL)
+        .put("remoteSetpointDeg", value.remoteSetpointDeg ?: JSONObject.NULL)
+        .put(
+            "atrAccelerationDifferenceErpmPerSecond",
+            value.atrAccelerationDifferenceErpmPerSecond ?: JSONObject.NULL,
+        )
+        .put("atrSpeedBoost", value.atrSpeedBoost ?: JSONObject.NULL)
+        .put("distanceM", value.distanceM ?: JSONObject.NULL)
+        .put("odometerM", value.odometerM ?: JSONObject.NULL)
+        .put("ampHoursDrawnAh", value.ampHoursDrawnAh ?: JSONObject.NULL)
+        .put("ampHoursChargedAh", value.ampHoursChargedAh ?: JSONObject.NULL)
+        .put("wattHoursDrawnWh", value.wattHoursDrawnWh ?: JSONObject.NULL)
+        .put("wattHoursChargedWh", value.wattHoursChargedWh ?: JSONObject.NULL)
+        .put("batteryLevel", value.batteryLevel ?: JSONObject.NULL)
+        .put("chargingCurrentA", value.chargingCurrentA ?: JSONObject.NULL)
+        .put("chargingVoltageV", value.chargingVoltageV ?: JSONObject.NULL)
+        .put("extensions", JSONObject(value.extension))
+
+    private fun sessionEvent(value: SessionEventRecord): JSONObject =
+        JSONObject()
+            .put("elapsedMs", value.elapsedMs)
+            .put("kind", value.kind)
+            .put("value", JSONObject(value.detailsJson).getString("value"))
 
     private fun failure(id: Int, code: String, message: String) =
         JSONObject().put("id", id).put("error", JSONObject().put("code", code).put("message", message))
@@ -577,9 +636,19 @@ class LoopbackServer(
         const val MAX_MESSAGE_BYTES = 65_536
         const val MAX_RECENT_ITEMS = 50
         const val MAX_SERIES_POINTS = 2_000
+        const val MAX_SESSION_EVENTS = 2_000
         val DIAGNOSTIC_FIELDS = listOf(
-            "packVoltageV", "dutyCycle", "controllerTempC", "motorTempC", "boardState",
-            "footpadState", "motorCurrentA", "batteryCurrentA", "erpm", "speedKph",
+            "packVoltageV", "dutyCycle", "controllerTempC", "motorTempC",
+            "motorCurrentA", "batteryCurrentA", "erpm", "speedKph", "pitchDeg",
+            "balancePitchDeg", "rollDeg", "directionalMotorCurrentA",
+            "filteredMotorCurrentA", "requestedBalanceCurrentA", "boosterCurrentA",
+            "fieldWeakeningCurrentA", "footpadAdc1V", "footpadAdc2V", "remoteInput",
+            "setpointDeg", "atrSetpointDeg", "brakeTiltSetpointDeg",
+            "torqueTiltSetpointDeg", "turnTiltSetpointDeg", "remoteSetpointDeg",
+            "atrAccelerationDifferenceErpmPerSecond", "atrSpeedBoost", "distanceM",
+            "odometerM", "ampHoursDrawnAh", "ampHoursChargedAh",
+            "wattHoursDrawnWh", "wattHoursChargedWh", "batteryLevel",
+            "chargingCurrentA", "chargingVoltageV",
         )
     }
 }

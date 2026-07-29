@@ -16,4 +16,7 @@ object RefloatPolling {
             RefloatTelemetryFamily.LEGACY_FIXED -> protocol.refloatLegacyTelemetryRequest(route)
             RefloatTelemetryFamily.DYNAMIC -> protocol.refloatTelemetryRequest(route)
         }
+
+    fun compactRequest(protocol: VescProtocolPort, route: ControllerRoute): ByteArray =
+        protocol.refloatCompactTelemetryRequest(route)
 }

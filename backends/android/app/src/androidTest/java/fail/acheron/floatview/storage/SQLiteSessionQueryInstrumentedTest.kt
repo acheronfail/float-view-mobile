@@ -5,10 +5,12 @@ import android.database.sqlite.SQLiteDatabase
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import fail.acheron.floatview.backend.DeviceId
+import fail.acheron.floatview.backend.PackageState
 import fail.acheron.floatview.backend.RideState
 import fail.acheron.floatview.backend.ProductStoreException
 import fail.acheron.floatview.backend.SessionListQuery
 import fail.acheron.floatview.backend.SessionStoreException
+import fail.acheron.floatview.backend.SetpointAdjustment
 import fail.acheron.floatview.backend.TelemetrySample
 import fail.acheron.floatview.backend.ThemePreference
 import java.io.File
@@ -58,8 +60,10 @@ class SQLiteSessionQueryInstrumentedTest {
                     controllerTempC = null,
                     motorTempC = null,
                     footpadState = null,
-                    extension = mapOf("speedKph" to 18.0),
-                    boardState = index % 4,
+                    packageState = PackageState.entries[index % 4],
+                    speedKph = 18.0,
+                    pitchDeg = (index % 4).toDouble(),
+                    extension = mapOf("future.energy" to index + 0.25),
                 )
             },
         )
@@ -78,43 +82,47 @@ class SQLiteSessionQueryInstrumentedTest {
             record.sessionId.value,
             0,
             99_000,
-            listOf("packVoltageV", "dutyCycle", "speedKph"),
+            listOf("packVoltageV", "dutyCycle", "speedKph", "future.energy"),
             12,
         )
         assertTrue(overview.isNotEmpty())
         assertTrue(overview.size <= 12)
-        assertTrue(overview.all { it.values.size == 3 })
+        assertTrue(overview.all { it.values.size == 4 })
+        assertEquals(
+            listOf("future.energy"),
+            store.sessionExtensionFields(record.sessionId.value),
+        )
 
         val diagnostic = store.diagnosticWindow(
             record.sessionId.value,
             50_000,
             2_000,
             2_000,
-            listOf("packVoltageV", "boardState"),
+            listOf("packVoltageV", "pitchDeg"),
         )
         assertEquals(listOf(48_000L, 49_000L, 50_000L, 51_000L, 52_000L), diagnostic.map { it.elapsedMs })
         assertEquals(
             listOf(0.0, 1.0, 2.0, 3.0, 0.0),
-            diagnostic.map { it.values["boardState"] },
+            diagnostic.map { it.values["pitchDeg"] },
         )
-        assertTrue(store.sessionEvents(record.sessionId.value, 0, 99_000).isEmpty())
+        assertEquals(
+            100,
+            store.sessionEvents(record.sessionId.value, 0, 99_000)
+                .count { it.kind == "packageState" },
+        )
 
         val short = store.create(DeviceId("query-fixture"), startedAt.plusSeconds(200))
         store.append(
             short.jobId,
-            listOf(
-                TelemetrySample(
-                    1,
-                    startedAt.plusSeconds(200),
-                    500,
-                    RideState.IDLE,
-                    58.0,
-                    null,
-                    null,
-                    null,
-                    null,
-                ),
-            ),
+	            listOf(
+	                TelemetrySample(
+	                    sequence = 1,
+	                    observedAt = startedAt.plusSeconds(200),
+	                    elapsedMs = 500,
+	                    rideState = RideState.IDLE,
+	                    packVoltageV = 58.0,
+	                ),
+	            ),
         )
         store.close(short.jobId, startedAt.plusSeconds(201), "test")
         val firstPage = store.sessions(
@@ -179,28 +187,30 @@ class SQLiteSessionQueryInstrumentedTest {
                 record.jobId,
                 listOf(
                     TelemetrySample(
-                        1,
-                        base.plusSeconds(offset),
-                        0,
-                        RideState.IDLE,
-                        60.0,
-                        0.1,
-                        null,
-                        null,
-                        null,
-                        mapOf("speedKph" to 0.0),
+                        sequence = 1,
+                        observedAt = base.plusSeconds(offset),
+                        elapsedMs = 0,
+                        rideState = RideState.IDLE,
+                        packageState = PackageState.READY,
+                        setpointAdjustment = SetpointAdjustment.NONE,
+                        packVoltageV = 60.0,
+                        dutyCycle = 0.1,
+                        speedKph = 0.0,
+                        fieldWeakeningCurrentA = 1.25,
+                        extension = mapOf("future.energy" to 7.0),
                     ),
                     TelemetrySample(
-                        2,
-                        base.plusSeconds(offset + 60),
-                        60_000,
-                        RideState.RIDING,
-                        58.0,
-                        0.5,
-                        null,
-                        null,
-                        null,
-                        mapOf("speedKph" to 18.0),
+                        sequence = 2,
+                        observedAt = base.plusSeconds(offset + 60),
+                        elapsedMs = 60_000,
+                        rideState = RideState.RIDING,
+                        packageState = PackageState.RUNNING,
+                        setpointAdjustment = SetpointAdjustment.DUTY,
+                        packVoltageV = 58.0,
+                        dutyCycle = 0.5,
+                        speedKph = 18.0,
+                        fieldWeakeningCurrentA = 2.5,
+                        extension = mapOf("future.energy" to 6.0),
                     ),
                 ),
             )
@@ -215,7 +225,10 @@ class SQLiteSessionQueryInstrumentedTest {
         val csv = store.exportSession(sessionIds[0], "csv")
         val csvText = File(csv.filePath).readText()
         assertTrue(csvText.contains("pack_voltage_v"))
-        assertEquals(60.0, csvText.lineSequence().drop(1).first().split(',')[4].toDouble(), 0.0)
+        assertTrue(csvText.contains("setpoint_adjustment"))
+        assertTrue(csvText.contains("fieldWeakeningCurrentA"))
+        assertTrue(csvText.contains("future.energy"))
+        assertFalse(csvText.contains("management-fixture"))
         val archive = store.exportSession(sessionIds[0], "float-view-archive")
         SQLiteDatabase.openDatabase(
             archive.filePath,

@@ -79,6 +79,50 @@ public enum RideState: String, Sendable, Codable {
   case unknown
 }
 
+public enum PackageState: String, Sendable, Codable, CaseIterable {
+  case disabled, startup, ready, running, unknown
+}
+
+public enum PackageMode: String, Sendable, Codable, CaseIterable {
+  case normal, handTest, flywheel, unknown
+}
+
+public enum FootpadState: String, Sendable, Codable, CaseIterable {
+  case none, left, right, both, unknown
+}
+
+public enum StopCondition: String, Sendable, Codable, CaseIterable {
+  case none, pitch, roll, switchHalf, switchFull, reverseStop, quickStop, unknown
+}
+
+public enum SetpointAdjustment: String, Sendable, Codable, CaseIterable {
+  case none, centering, reverseStop, speed, duty, error
+  case highVoltage, lowVoltage, temperature, unknown
+}
+
+public enum AlertReason: String, Sendable, Codable, CaseIterable {
+  case none, lowVoltage, highVoltage, controllerTemperature, motorTemperature
+  case current, duty, sensors, lowBattery, idle, error, speed
+  case cellUnderTemperature, cellOverTemperature, cellLowVoltage, cellHighVoltage
+  case cellImbalance, bmsConnection, bmsOverTemperature, firmwareFault, unknown
+}
+
+public enum FirmwareFault: String, Sendable, Codable, CaseIterable {
+  case overVoltage, underVoltage, driver, absoluteOverCurrent
+  case controllerOverTemperature, motorOverTemperature
+  case gateDriverOverVoltage, gateDriverUnderVoltage, mcuUnderVoltage, watchdogReset
+  case encoderSpi, encoderSinCosBelowMinimum, encoderSinCosAboveMaximum
+  case flashCorruption, currentSensorOffset1, currentSensorOffset2, currentSensorOffset3
+  case unbalancedCurrents, brake, resolverLossOfTracking, resolverDegradationOfSignal
+  case resolverLossOfSignal, appConfigFlashCorruption, motorConfigFlashCorruption
+  case encoderNoMagnet, encoderMagnetTooStrong, phaseFilter, unknown
+}
+
+public enum RefloatTelemetryKind: Sendable, Equatable {
+  case realtime
+  case compact
+}
+
 public enum BluetoothRadioState: String, Sendable, Codable {
   case unknown
   case unsupported
@@ -214,34 +258,119 @@ public enum VescProtocolMessage: Sendable, Equatable {
 }
 
 public struct RefloatTelemetryRecord: Sendable, Equatable {
+  public let kind: RefloatTelemetryKind
   public let rideState: RideState
-  public let boardState: UInt8
-  public let footpadState: UInt8
-  public let packVoltageV: Double
-  public let dutyCycle: Double
+  public let packageState: PackageState?
+  public let packageMode: PackageMode?
+  public let footpadState: FootpadState?
+  public let stopCondition: StopCondition?
+  public let setpointAdjustment: SetpointAdjustment?
+  public let wheelslip: Bool?
+  public let darkride: Bool?
+  public let charging: Bool?
+  public let alertReason: AlertReason?
+  public let firmwareFault: FirmwareFault?
+  public let packVoltageV: Double?
+  public let dutyCycle: Double?
   public let controllerTempC: Double?
   public let motorTempC: Double?
-  public let motorCurrentA: Double
-  public let batteryCurrentA: Double
-  public let erpm: Int
-  public let speedKph: Double
+  public let motorCurrentA: Double?
+  public let batteryCurrentA: Double?
+  public let erpm: Double?
+  public let speedKph: Double?
+  public let pitchDeg: Double?
+  public let balancePitchDeg: Double?
+  public let rollDeg: Double?
+  public let directionalMotorCurrentA: Double?
+  public let filteredMotorCurrentA: Double?
+  public let requestedBalanceCurrentA: Double?
+  public let boosterCurrentA: Double?
+  public let fieldWeakeningCurrentA: Double?
+  public let footpadAdc1V: Double?
+  public let footpadAdc2V: Double?
+  public let remoteInput: Double?
+  public let setpointDeg: Double?
+  public let atrSetpointDeg: Double?
+  public let brakeTiltSetpointDeg: Double?
+  public let torqueTiltSetpointDeg: Double?
+  public let turnTiltSetpointDeg: Double?
+  public let remoteSetpointDeg: Double?
+  public let atrAccelerationDifferenceErpmPerSecond: Double?
+  public let atrSpeedBoost: Double?
+  public let distanceM: Double?
+  public let odometerM: Double?
+  public let ampHoursDrawnAh: Double?
+  public let ampHoursChargedAh: Double?
+  public let wattHoursDrawnWh: Double?
+  public let wattHoursChargedWh: Double?
+  public let batteryLevel: Double?
+  public let chargingCurrentA: Double?
+  public let chargingVoltageV: Double?
+  public let extensions: [String: Double]
 
   public init(
+    kind: RefloatTelemetryKind = .realtime,
     rideState: RideState,
-    boardState: UInt8,
-    footpadState: UInt8,
-    packVoltageV: Double,
-    dutyCycle: Double,
-    controllerTempC: Double?,
-    motorTempC: Double?,
-    motorCurrentA: Double,
-    batteryCurrentA: Double,
-    erpm: Int,
-    speedKph: Double
+    packageState: PackageState? = nil,
+    packageMode: PackageMode? = nil,
+    footpadState: FootpadState? = nil,
+    stopCondition: StopCondition? = nil,
+    setpointAdjustment: SetpointAdjustment? = nil,
+    wheelslip: Bool? = nil,
+    darkride: Bool? = nil,
+    charging: Bool? = nil,
+    alertReason: AlertReason? = nil,
+    firmwareFault: FirmwareFault? = nil,
+    packVoltageV: Double? = nil,
+    dutyCycle: Double? = nil,
+    controllerTempC: Double? = nil,
+    motorTempC: Double? = nil,
+    motorCurrentA: Double? = nil,
+    batteryCurrentA: Double? = nil,
+    erpm: Double? = nil,
+    speedKph: Double? = nil,
+    pitchDeg: Double? = nil,
+    balancePitchDeg: Double? = nil,
+    rollDeg: Double? = nil,
+    directionalMotorCurrentA: Double? = nil,
+    filteredMotorCurrentA: Double? = nil,
+    requestedBalanceCurrentA: Double? = nil,
+    boosterCurrentA: Double? = nil,
+    fieldWeakeningCurrentA: Double? = nil,
+    footpadAdc1V: Double? = nil,
+    footpadAdc2V: Double? = nil,
+    remoteInput: Double? = nil,
+    setpointDeg: Double? = nil,
+    atrSetpointDeg: Double? = nil,
+    brakeTiltSetpointDeg: Double? = nil,
+    torqueTiltSetpointDeg: Double? = nil,
+    turnTiltSetpointDeg: Double? = nil,
+    remoteSetpointDeg: Double? = nil,
+    atrAccelerationDifferenceErpmPerSecond: Double? = nil,
+    atrSpeedBoost: Double? = nil,
+    distanceM: Double? = nil,
+    odometerM: Double? = nil,
+    ampHoursDrawnAh: Double? = nil,
+    ampHoursChargedAh: Double? = nil,
+    wattHoursDrawnWh: Double? = nil,
+    wattHoursChargedWh: Double? = nil,
+    batteryLevel: Double? = nil,
+    chargingCurrentA: Double? = nil,
+    chargingVoltageV: Double? = nil,
+    extensions: [String: Double] = [:]
   ) {
+    self.kind = kind
     self.rideState = rideState
-    self.boardState = boardState
+    self.packageState = packageState
+    self.packageMode = packageMode
     self.footpadState = footpadState
+    self.stopCondition = stopCondition
+    self.setpointAdjustment = setpointAdjustment
+    self.wheelslip = wheelslip
+    self.darkride = darkride
+    self.charging = charging
+    self.alertReason = alertReason
+    self.firmwareFault = firmwareFault
     self.packVoltageV = packVoltageV
     self.dutyCycle = dutyCycle
     self.controllerTempC = controllerTempC
@@ -250,45 +379,197 @@ public struct RefloatTelemetryRecord: Sendable, Equatable {
     self.batteryCurrentA = batteryCurrentA
     self.erpm = erpm
     self.speedKph = speedKph
+    self.pitchDeg = pitchDeg
+    self.balancePitchDeg = balancePitchDeg
+    self.rollDeg = rollDeg
+    self.directionalMotorCurrentA = directionalMotorCurrentA
+    self.filteredMotorCurrentA = filteredMotorCurrentA
+    self.requestedBalanceCurrentA = requestedBalanceCurrentA
+    self.boosterCurrentA = boosterCurrentA
+    self.fieldWeakeningCurrentA = fieldWeakeningCurrentA
+    self.footpadAdc1V = footpadAdc1V
+    self.footpadAdc2V = footpadAdc2V
+    self.remoteInput = remoteInput
+    self.setpointDeg = setpointDeg
+    self.atrSetpointDeg = atrSetpointDeg
+    self.brakeTiltSetpointDeg = brakeTiltSetpointDeg
+    self.torqueTiltSetpointDeg = torqueTiltSetpointDeg
+    self.turnTiltSetpointDeg = turnTiltSetpointDeg
+    self.remoteSetpointDeg = remoteSetpointDeg
+    self.atrAccelerationDifferenceErpmPerSecond = atrAccelerationDifferenceErpmPerSecond
+    self.atrSpeedBoost = atrSpeedBoost
+    self.distanceM = distanceM
+    self.odometerM = odometerM
+    self.ampHoursDrawnAh = ampHoursDrawnAh
+    self.ampHoursChargedAh = ampHoursChargedAh
+    self.wattHoursDrawnWh = wattHoursDrawnWh
+    self.wattHoursChargedWh = wattHoursChargedWh
+    self.batteryLevel = batteryLevel
+    self.chargingCurrentA = chargingCurrentA
+    self.chargingVoltageV = chargingVoltageV
+    self.extensions = extensions
   }
 }
 
 public struct TelemetrySample: Sendable, Codable, Equatable {
   public let sequence: Int64
   public let observedAt: Date
+  public let slowObservedAt: Date?
   public let elapsedMs: Int64
   public let rideState: RideState
-  public let boardState: Int?
+  public let packageState: PackageState?
+  public let packageMode: PackageMode?
+  public let footpadState: FootpadState?
+  public let stopCondition: StopCondition?
+  public let setpointAdjustment: SetpointAdjustment?
+  public let wheelslip: Bool?
+  public let darkride: Bool?
+  public let charging: Bool?
+  public let alertReason: AlertReason?
+  public let firmwareFault: FirmwareFault?
   public let packVoltageV: Double?
   public let dutyCycle: Double?
   public let controllerTempC: Double?
   public let motorTempC: Double?
-  public let footpadState: Int?
+  public let motorCurrentA: Double?
+  public let batteryCurrentA: Double?
+  public let erpm: Double?
+  public let speedKph: Double?
+  public let pitchDeg: Double?
+  public let balancePitchDeg: Double?
+  public let rollDeg: Double?
+  public let directionalMotorCurrentA: Double?
+  public let filteredMotorCurrentA: Double?
+  public let requestedBalanceCurrentA: Double?
+  public let boosterCurrentA: Double?
+  public let fieldWeakeningCurrentA: Double?
+  public let footpadAdc1V: Double?
+  public let footpadAdc2V: Double?
+  public let remoteInput: Double?
+  public let setpointDeg: Double?
+  public let atrSetpointDeg: Double?
+  public let brakeTiltSetpointDeg: Double?
+  public let torqueTiltSetpointDeg: Double?
+  public let turnTiltSetpointDeg: Double?
+  public let remoteSetpointDeg: Double?
+  public let atrAccelerationDifferenceErpmPerSecond: Double?
+  public let atrSpeedBoost: Double?
+  public let distanceM: Double?
+  public let odometerM: Double?
+  public let ampHoursDrawnAh: Double?
+  public let ampHoursChargedAh: Double?
+  public let wattHoursDrawnWh: Double?
+  public let wattHoursChargedWh: Double?
+  public let batteryLevel: Double?
+  public let chargingCurrentA: Double?
+  public let chargingVoltageV: Double?
   public let extensionFields: [String: Double]
 
   public init(
     sequence: Int64,
     observedAt: Date,
+    slowObservedAt: Date? = nil,
     elapsedMs: Int64,
     rideState: RideState,
-    boardState: Int? = nil,
+    packageState: PackageState? = nil,
+    packageMode: PackageMode? = nil,
+    footpadState: FootpadState? = nil,
+    stopCondition: StopCondition? = nil,
+    setpointAdjustment: SetpointAdjustment? = nil,
+    wheelslip: Bool? = nil,
+    darkride: Bool? = nil,
+    charging: Bool? = nil,
+    alertReason: AlertReason? = nil,
+    firmwareFault: FirmwareFault? = nil,
     packVoltageV: Double? = nil,
     dutyCycle: Double? = nil,
     controllerTempC: Double? = nil,
     motorTempC: Double? = nil,
-    footpadState: Int? = nil,
+    motorCurrentA: Double? = nil,
+    batteryCurrentA: Double? = nil,
+    erpm: Double? = nil,
+    speedKph: Double? = nil,
+    pitchDeg: Double? = nil,
+    balancePitchDeg: Double? = nil,
+    rollDeg: Double? = nil,
+    directionalMotorCurrentA: Double? = nil,
+    filteredMotorCurrentA: Double? = nil,
+    requestedBalanceCurrentA: Double? = nil,
+    boosterCurrentA: Double? = nil,
+    fieldWeakeningCurrentA: Double? = nil,
+    footpadAdc1V: Double? = nil,
+    footpadAdc2V: Double? = nil,
+    remoteInput: Double? = nil,
+    setpointDeg: Double? = nil,
+    atrSetpointDeg: Double? = nil,
+    brakeTiltSetpointDeg: Double? = nil,
+    torqueTiltSetpointDeg: Double? = nil,
+    turnTiltSetpointDeg: Double? = nil,
+    remoteSetpointDeg: Double? = nil,
+    atrAccelerationDifferenceErpmPerSecond: Double? = nil,
+    atrSpeedBoost: Double? = nil,
+    distanceM: Double? = nil,
+    odometerM: Double? = nil,
+    ampHoursDrawnAh: Double? = nil,
+    ampHoursChargedAh: Double? = nil,
+    wattHoursDrawnWh: Double? = nil,
+    wattHoursChargedWh: Double? = nil,
+    batteryLevel: Double? = nil,
+    chargingCurrentA: Double? = nil,
+    chargingVoltageV: Double? = nil,
     extensionFields: [String: Double] = [:]
   ) {
     self.sequence = sequence
     self.observedAt = observedAt
+    self.slowObservedAt = slowObservedAt
     self.elapsedMs = elapsedMs
     self.rideState = rideState
-    self.boardState = boardState
+    self.packageState = packageState
+    self.packageMode = packageMode
+    self.footpadState = footpadState
+    self.stopCondition = stopCondition
+    self.setpointAdjustment = setpointAdjustment
+    self.wheelslip = wheelslip
+    self.darkride = darkride
+    self.charging = charging
+    self.alertReason = alertReason
+    self.firmwareFault = firmwareFault
     self.packVoltageV = packVoltageV
     self.dutyCycle = dutyCycle
     self.controllerTempC = controllerTempC
     self.motorTempC = motorTempC
-    self.footpadState = footpadState
+    self.motorCurrentA = motorCurrentA
+    self.batteryCurrentA = batteryCurrentA
+    self.erpm = erpm
+    self.speedKph = speedKph
+    self.pitchDeg = pitchDeg
+    self.balancePitchDeg = balancePitchDeg
+    self.rollDeg = rollDeg
+    self.directionalMotorCurrentA = directionalMotorCurrentA
+    self.filteredMotorCurrentA = filteredMotorCurrentA
+    self.requestedBalanceCurrentA = requestedBalanceCurrentA
+    self.boosterCurrentA = boosterCurrentA
+    self.fieldWeakeningCurrentA = fieldWeakeningCurrentA
+    self.footpadAdc1V = footpadAdc1V
+    self.footpadAdc2V = footpadAdc2V
+    self.remoteInput = remoteInput
+    self.setpointDeg = setpointDeg
+    self.atrSetpointDeg = atrSetpointDeg
+    self.brakeTiltSetpointDeg = brakeTiltSetpointDeg
+    self.torqueTiltSetpointDeg = torqueTiltSetpointDeg
+    self.turnTiltSetpointDeg = turnTiltSetpointDeg
+    self.remoteSetpointDeg = remoteSetpointDeg
+    self.atrAccelerationDifferenceErpmPerSecond = atrAccelerationDifferenceErpmPerSecond
+    self.atrSpeedBoost = atrSpeedBoost
+    self.distanceM = distanceM
+    self.odometerM = odometerM
+    self.ampHoursDrawnAh = ampHoursDrawnAh
+    self.ampHoursChargedAh = ampHoursChargedAh
+    self.wattHoursDrawnWh = wattHoursDrawnWh
+    self.wattHoursChargedWh = wattHoursChargedWh
+    self.batteryLevel = batteryLevel
+    self.chargingCurrentA = chargingCurrentA
+    self.chargingVoltageV = chargingVoltageV
     self.extensionFields = extensionFields
   }
 }
@@ -655,12 +936,17 @@ public protocol VescProtocolPort: AnyObject, Sendable {
   func refloatTelemetryIDsRequest(route: ControllerRoute) throws -> Data
   func refloatTelemetryRequest(route: ControllerRoute) throws -> Data
   func refloatLegacyTelemetryRequest(route: ControllerRoute) throws -> Data
+  func refloatCompactTelemetryRequest(route: ControllerRoute) throws -> Data
   func receive(_ bytes: Data) throws -> [VescProtocolMessage]
 }
 
 public extension VescProtocolPort {
   func refloatLegacyTelemetryRequest(route: ControllerRoute) throws -> Data {
     try refloatTelemetryRequest(route: route)
+  }
+
+  func refloatCompactTelemetryRequest(route: ControllerRoute) throws -> Data {
+    try refloatLegacyTelemetryRequest(route: route)
   }
 }
 
@@ -848,6 +1134,7 @@ public protocol SessionStorePort: AnyObject, Sendable {
     startElapsedMs: Int64,
     endElapsedMs: Int64
   ) throws -> [SessionEventRecord]
+  func sessionExtensionFields(sessionID: String) throws -> [String]
   func diagnosticWindow(
     sessionID: String,
     centerElapsedMs: Int64,
@@ -863,6 +1150,7 @@ public protocol SessionStorePort: AnyObject, Sendable {
 }
 
 public extension SessionStorePort {
+  func sessionExtensionFields(sessionID _: String) throws -> [String] { [] }
   func deleteSession(sessionID _: String) throws { throw SessionStoreError.sessionNotFound }
   func exportSession(sessionID _: String, format _: String) throws -> SessionExportRecord {
     throw SessionStoreError.sessionNotFound

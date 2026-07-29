@@ -14,6 +14,13 @@
 	import ControllerSelection from './ControllerSelection.svelte';
 	import TelemetrySection from './TelemetrySection.svelte';
 	import { controllerRouteDescription, readingsAreDimmed, shouldConfirmDisconnect } from './live';
+	import {
+		currentTelemetryFields,
+		extensionTelemetry,
+		slowTelemetryAge,
+		telemetryFlag,
+		telemetryState
+	} from './telemetry';
 
 	let menuOpen = $state(false);
 	let configureOpen = $state(false);
@@ -33,6 +40,16 @@
 	const savedDevice = $derived(
 		backendState.savedDevices.find((device) => device.savedDeviceId === connection?.savedDeviceId)
 	);
+	const safetyStateActive = $derived(
+		Boolean(
+			sample &&
+				(sample.wheelslip ||
+					(sample.stopCondition && sample.stopCondition !== 'none') ||
+					(sample.setpointAdjustment && sample.setpointAdjustment !== 'none') ||
+					(sample.alertReason && sample.alertReason !== 'none') ||
+					sample.firmwareFault)
+		)
+	);
 
 	$effect(() => {
 		if (backendState.status === 'connected' && !connection) {
@@ -42,6 +59,14 @@
 
 	function number(value: number | null | undefined, digits = 1) {
 		return value == null ? '—' : value.toFixed(digits);
+	}
+
+	function measured(value: number | null | undefined, unit: string, digits = 1) {
+		return value == null ? 'Unavailable' : `${number(value, digits)} ${unit}`;
+	}
+
+	function scalar(value: number | null | undefined, digits = 1) {
+		return value == null ? 'Unavailable' : number(value, digits);
 	}
 
 	function speed(value: number | null | undefined) {
@@ -186,47 +211,115 @@
 				This board has no complete Board Profile. Live monitoring remains available.
 			</div>
 		{/if}
+		{#if safetyStateActive}
+			<div role="status" class="rounded-xl border border-warning/50 bg-warning/10 p-3 text-sm">
+				<strong>Reported board safety state is active.</strong>
+				These readings describe onboard controller behavior; Float View does not control the board.
+			</div>
+		{/if}
 
 		<div class:opacity-45={dimmed} class="space-y-5 transition-opacity">
 			<TelemetrySection
-				title="Ride"
+				title="Board state"
 				items={[
-					['Ride state', sample?.rideState ?? '—'],
-					['Board state', sample?.boardState?.toString() ?? '—'],
+					['Ride state', telemetryState(sample?.rideState)],
+					['Package state', telemetryState(sample?.packageState)],
+					['Package mode', telemetryState(sample?.packageMode)],
+					['Footpad', telemetryState(sample?.footpadState)],
+					['Wheelslip', telemetryFlag(sample?.wheelslip)],
+					['Darkride', telemetryFlag(sample?.darkride)],
+					['Charging', telemetryFlag(sample?.charging)],
+					['Stop condition', telemetryState(sample?.stopCondition)],
+					['Setpoint adjustment / pushback', telemetryState(sample?.setpointAdjustment)],
+					['Alert reason', telemetryState(sample?.alertReason)],
+					[
+						'Active firmware fault',
+						sample ? (sample.firmwareFault ? telemetryState(sample.firmwareFault) : 'None') : 'Unavailable'
+					],
 					['Session time', duration(sample?.elapsedMs)]
-				] as [string, string][]}
-			/>
-			<TelemetrySection
-				title="Electrical"
-				items={[
-					[
-						'Pack voltage',
-						sample?.packVoltageV == null ? '—' : `${number(sample.packVoltageV, 2)} V`
-					],
-					['Duty cycle', sample?.dutyCycle == null ? '—' : `${number(sample.dutyCycle * 100)}%`],
-					[
-						'Motor current',
-						sample?.motorCurrentA == null ? '—' : `${number(sample.motorCurrentA)} A`
-					],
-					[
-						'Battery current',
-						sample?.batteryCurrentA == null ? '—' : `${number(sample.batteryCurrentA)} A`
-					]
 				] as [string, string][]}
 			/>
 			<TelemetrySection
 				title="Motion"
 				items={[
 					['Speed', speed(sample?.speedKph)],
-					['ERPM', sample?.erpm == null ? '—' : Math.round(sample.erpm).toLocaleString()]
+					['ERPM', sample?.erpm == null ? 'Unavailable' : Math.round(sample.erpm).toLocaleString()],
+					['Pitch', measured(sample?.pitchDeg, '°')],
+					['Balance pitch', measured(sample?.balancePitchDeg, '°')],
+					['Roll', measured(sample?.rollDeg, '°')]
 				] as [string, string][]}
 			/>
 			<TelemetrySection
-				title="Thermal and controls"
+				title="Raw electrical load"
+				items={[
+					['Pack voltage', measured(sample?.packVoltageV, 'V', 2)],
+					['Duty ratio', scalar(sample?.dutyCycle, 3)],
+					...currentTelemetryFields.map(({ key, label }) => [
+						label,
+						measured(sample?.[key] as number | null | undefined, 'A')
+					])
+				] as [string, string][]}
+			/>
+			<TelemetrySection
+				title="Temperatures"
 				items={[
 					['Controller', temperature(sample?.controllerTempC)],
-					['Motor', temperature(sample?.motorTempC)],
-					['Footpad state', sample?.footpadState?.toString() ?? '—']
+					['Motor', temperature(sample?.motorTempC)]
+				] as [string, string][]}
+			/>
+			<TelemetrySection
+				title="Rider input"
+				items={[
+					['Footpad ADC 1', measured(sample?.footpadAdc1V, 'V', 2)],
+					['Footpad ADC 2', measured(sample?.footpadAdc2V, 'V', 2)],
+					['Remote input', scalar(sample?.remoteInput, 3)]
+				] as [string, string][]}
+			/>
+			<TelemetrySection
+				title="Control contributions"
+				items={[
+					['Final setpoint', measured(sample?.setpointDeg, '°')],
+					['ATR setpoint', measured(sample?.atrSetpointDeg, '°')],
+					['Brake-tilt setpoint', measured(sample?.brakeTiltSetpointDeg, '°')],
+					['Torque-tilt setpoint', measured(sample?.torqueTiltSetpointDeg, '°')],
+					['Turn-tilt setpoint', measured(sample?.turnTiltSetpointDeg, '°')],
+					['Remote setpoint', measured(sample?.remoteSetpointDeg, '°')],
+					[
+						'ATR acceleration difference',
+						measured(sample?.atrAccelerationDifferenceErpmPerSecond, 'ERPM/s', 0)
+					],
+					['ATR speed boost', scalar(sample?.atrSpeedBoost, 3)]
+				] as [string, string][]}
+			/>
+			<TelemetrySection
+				title="Accumulated and charging"
+				items={[
+					['Trip distance', distance(sample?.distanceM)],
+					['Odometer', distance(sample?.odometerM)],
+					['Amp-hours drawn', measured(sample?.ampHoursDrawnAh, 'Ah', 2)],
+					['Amp-hours charged', measured(sample?.ampHoursChargedAh, 'Ah', 2)],
+					['Watt-hours drawn', measured(sample?.wattHoursDrawnWh, 'Wh', 1)],
+					['Watt-hours charged', measured(sample?.wattHoursChargedWh, 'Wh', 1)],
+					[
+						'Battery level',
+						sample?.batteryLevel == null
+							? 'Unavailable'
+							: `${number(sample.batteryLevel * 100, 0)}%`
+					],
+					['Charging current', measured(sample?.chargingCurrentA, 'A')],
+					['Charging voltage', measured(sample?.chargingVoltageV, 'V', 2)]
+				] as [string, string][]}
+			/>
+			<TelemetrySection
+				title="Source availability"
+				items={[
+					['Realtime sample', sample?.observedAt ?? 'Unavailable'],
+					['Compact values', slowTelemetryAge(sample)],
+					[
+						'Negotiated extensions',
+						sample ? Object.keys(sample.extensions).length.toString() : 'Unavailable'
+					],
+					...extensionTelemetry(sample)
 				] as [string, string][]}
 			/>
 			<TelemetrySection

@@ -150,30 +150,83 @@ class SQLiteLogStore(
             "Storage below durable logging stop threshold"
         }
         val db = requireNotNull(sessionDb)
+        var appendedEvents = 0L
         db.beginTransaction()
         try {
+            var previousTransitions = latestTransitionValues(db).toMutableMap()
+            var eventSequence = android.database.DatabaseUtils.longForQuery(
+                db,
+                "SELECT COALESCE(MAX(sequence), 0) + 1 FROM session_event",
+                null,
+            )
             for (sample in samples) {
+                val detailJson = telemetryDetailJson(sample)
+                val extensionJson = telemetryExtensionJson(sample.extension)
                 db.execSQL(
                     """
                     INSERT OR IGNORE INTO sample(
-                      sequence, observed_at_ms, monotonic_elapsed_ms, ride_state,
-                      raw_pack_voltage_v, duty_cycle, controller_temp_c, motor_temp_c,
-                      footpad_state, extension_json, motor_current_a, battery_current_a,
-                      erpm, speed_kph, board_state
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                      sequence, observed_at_ms, slow_observed_at_ms, monotonic_elapsed_ms,
+                      ride_state, package_state, package_mode, stop_condition,
+                      setpoint_adjustment, wheelslip, darkride, charging, alert_reason,
+                      firmware_fault, raw_pack_voltage_v, duty_cycle, controller_temp_c,
+                      motor_temp_c, footpad_state, detail_json, extension_json,
+                      motor_current_a, battery_current_a, erpm, speed_kph
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """.trimIndent(),
                     arrayOf(
-                        sample.sequence, sample.observedAt.toEpochMilli(), sample.elapsedMs,
-                        sample.rideState.name.lowercase(), sample.packVoltageV, sample.dutyCycle,
-                        sample.controllerTempC, sample.motorTempC, sample.footpadState,
-                        JSONObject(sample.extension).toString(),
-                        sample.extension["motorCurrentA"],
-                        sample.extension["batteryCurrentA"],
-                        sample.extension["erpm"],
-                        sample.extension["speedKph"],
-                        sample.boardState,
+                        sample.sequence,
+                        sample.observedAt.toEpochMilli(),
+                        sample.slowObservedAt?.toEpochMilli(),
+                        sample.elapsedMs,
+                        sample.rideState.name.lowercase(),
+                        sample.packageState?.wireValue,
+                        sample.packageMode?.wireValue,
+                        sample.stopCondition?.wireValue,
+                        sample.setpointAdjustment?.wireValue,
+                        sample.wheelslip?.let { if (it) 1 else 0 },
+                        sample.darkride?.let { if (it) 1 else 0 },
+                        sample.charging?.let { if (it) 1 else 0 },
+                        sample.alertReason?.wireValue,
+                        sample.firmwareFault?.wireValue,
+                        sample.packVoltageV,
+                        sample.dutyCycle,
+                        sample.controllerTempC,
+                        sample.motorTempC,
+                        sample.footpadState?.wireValue,
+                        detailJson,
+                        extensionJson,
+                        sample.motorCurrentA,
+                        sample.batteryCurrentA,
+                        sample.erpm,
+                        sample.speedKph,
                     ),
                 )
+                val inserted = android.database.DatabaseUtils.longForQuery(
+                    db,
+                    "SELECT changes()",
+                    null,
+                ) == 1L
+                if (!inserted) continue
+                transitionValues(sample).forEach { (kind, value) ->
+                    if (previousTransitions[kind] == value) return@forEach
+                    db.execSQL(
+                        """
+                        INSERT INTO session_event(
+                          sequence, observed_at_ms, monotonic_elapsed_ms, kind, details_json
+                        ) VALUES (?, ?, ?, ?, ?)
+                        """.trimIndent(),
+                        arrayOf(
+                            eventSequence,
+                            sample.observedAt.toEpochMilli(),
+                            sample.elapsedMs,
+                            kind,
+                            JSONObject().put("value", value).toString(),
+                        ),
+                    )
+                    previousTransitions[kind] = value
+                    eventSequence += 1
+                    appendedEvents += 1
+                }
             }
             val last = samples.maxOf { it.sequence }
             db.execSQL(
@@ -186,6 +239,15 @@ class SQLiteLogStore(
             db.endTransaction()
         }
         updateCatalogSummary(record, samples)
+        if (appendedEvents > 0) {
+            catalog.writableDatabase.execSQL(
+                """
+                UPDATE session_catalog SET event_count = event_count + ?
+                WHERE job_id = ? AND state = 'active'
+                """.trimIndent(),
+                arrayOf(appendedEvents, record.jobId.value),
+            )
+        }
     }
 
     @Synchronized
@@ -315,7 +377,7 @@ class SQLiteLogStore(
         fields: List<String>,
         maxPoints: Int,
     ): List<SessionSeriesPoint> {
-        if (startElapsedMs > endElapsedMs || maxPoints !in 1..10_000) {
+        if (startElapsedMs > endElapsedMs || maxPoints !in 1..2_000) {
             throw SessionStoreException.InvalidRange
         }
         return readSeries(sessionId, startElapsedMs, endElapsedMs, fields, maxPoints, false)
@@ -337,7 +399,7 @@ class SQLiteLogStore(
             maxOf(0, centerElapsedMs - beforeMs),
             centerElapsedMs + afterMs,
             fields,
-            10_000,
+            2_000,
             true,
         )
     }
@@ -352,9 +414,16 @@ class SQLiteLogStore(
         return openSession(sessionId).use { db ->
             db.rawQuery(
                 """
-                SELECT sequence, monotonic_elapsed_ms, kind, details_json
-                FROM session_event WHERE monotonic_elapsed_ms BETWEEN ? AND ?
-                ORDER BY monotonic_elapsed_ms, sequence LIMIT 10000
+                SELECT sequence, monotonic_elapsed_ms, kind, details_json FROM (
+                  SELECT sequence, monotonic_elapsed_ms, kind, details_json
+                  FROM session_event WHERE monotonic_elapsed_ms BETWEEN ? AND ?
+                    AND kind IN (
+                      'packageState', 'packageMode', 'footpadState', 'stopCondition',
+                      'setpointAdjustment', 'wheelslip', 'darkride', 'charging',
+                      'alertReason', 'firmwareFault'
+                    )
+                  ORDER BY sequence DESC LIMIT 2001
+                ) ORDER BY monotonic_elapsed_ms, sequence
                 """.trimIndent(),
                 arrayOf(startElapsedMs.toString(), endElapsedMs.toString()),
             ).use { cursor ->
@@ -373,6 +442,24 @@ class SQLiteLogStore(
             }
         }
     }
+
+    @Synchronized
+    override fun sessionExtensionFields(sessionId: String): List<String> =
+        openSession(sessionId).use { db ->
+            db.rawQuery(
+                """
+                SELECT DISTINCT json_each.key FROM sample, json_each(sample.extension_json)
+                ORDER BY json_each.key LIMIT 33
+                """.trimIndent(),
+                null,
+            ).use { cursor ->
+                buildList {
+                    while (cursor.moveToNext()) add(cursor.getString(0))
+                }.also {
+                    check(it.size <= 32) { "Stored telemetry extensions exceed their bound" }
+                }
+            }
+        }
 
     @Synchronized
     override fun savedDevices(): List<SavedDeviceRecord> {
@@ -977,16 +1064,21 @@ class SQLiteLogStore(
     private fun writeCsv(db: SQLiteDatabase, output: File) {
         BufferedWriter(OutputStreamWriter(FileOutputStream(output), Charsets.UTF_8), 64 * 1024).use { writer ->
             writer.appendLine(
-                "sequence,observed_at_ms,elapsed_ms,ride_state,pack_voltage_v,duty_cycle," +
-                    "controller_temp_c,motor_temp_c,footpad_state,motor_current_a," +
-                    "battery_current_a,erpm,speed_kph,board_state,extension_json",
+                "sequence,observed_at_ms,slow_observed_at_ms,elapsed_ms,ride_state," +
+                    "package_state,package_mode,footpad_state,stop_condition," +
+                    "setpoint_adjustment,wheelslip,darkride,charging,alert_reason," +
+                    "firmware_fault,pack_voltage_v,duty_cycle,controller_temp_c," +
+                    "motor_temp_c,motor_current_a,battery_current_a,erpm,speed_kph," +
+                    "detail_json,extension_json",
             )
             db.rawQuery(
                 """
-                SELECT sequence, observed_at_ms, monotonic_elapsed_ms, ride_state,
-                       raw_pack_voltage_v, duty_cycle, controller_temp_c, motor_temp_c,
-                       footpad_state, motor_current_a, battery_current_a, erpm, speed_kph,
-                       board_state, extension_json
+                SELECT sequence, observed_at_ms, slow_observed_at_ms, monotonic_elapsed_ms,
+                       ride_state, package_state, package_mode, footpad_state,
+                       stop_condition, setpoint_adjustment, wheelslip, darkride, charging,
+                       alert_reason, firmware_fault, raw_pack_voltage_v, duty_cycle,
+                       controller_temp_c, motor_temp_c, motor_current_a, battery_current_a,
+                       erpm, speed_kph, detail_json, extension_json
                 FROM sample ORDER BY sequence
                 """.trimIndent(),
                 null,
@@ -994,7 +1086,9 @@ class SQLiteLogStore(
                 while (cursor.moveToNext()) {
                     writer.appendLine(
                         (0 until cursor.columnCount).joinToString(",") { index ->
-                            if (cursor.isNull(index)) "" else if (index == 3 || index == 14) {
+                            if (cursor.isNull(index)) "" else if (
+                                index in setOf(4, 5, 6, 7, 8, 9, 13, 14, 23, 24)
+                            ) {
                                 csv(cursor.getString(index))
                             } else {
                                 cursor.getString(index)
@@ -1083,7 +1177,7 @@ class SQLiteLogStore(
         var maxSpeed = prior.maxSpeed
         var maxDuty = prior.maxDuty
         for (sample in samples.sortedBy { it.elapsedMs }) {
-            val speed = sample.extension["speedKph"]?.let { kotlin.math.abs(it) / 3.6 }
+            val speed = sample.speedKph?.let { kotlin.math.abs(it) / 3.6 }
             previousElapsed?.let { elapsed ->
                 val delta = maxOf(0, sample.elapsedMs - elapsed)
                 if (sample.rideState == fail.acheron.floatview.backend.RideState.RIDING) riding += delta
@@ -1146,7 +1240,13 @@ class SQLiteLogStore(
         val uniqueFields = fields.distinct()
         if (uniqueFields.isEmpty()) throw SessionStoreException.InvalidRange
         val columns = uniqueFields.map { field ->
-            SERIES_COLUMNS[field] ?: throw SessionStoreException.UnsupportedField(field)
+            SERIES_COLUMNS[field] ?: run {
+                if (field.isEmpty() || field.toByteArray(Charsets.UTF_8).size > 64) {
+                    throw SessionStoreException.UnsupportedField(field)
+                }
+                val path = ("$." + JSONObject.quote(field)).replace("'", "''")
+                "json_extract(extension_json, '$path')"
+            }
         }
         val selected = columns.mapIndexed { index, column ->
             if (lossless) "$column AS value_$index" else "AVG($column) AS value_$index"
@@ -1497,6 +1597,111 @@ class SQLiteLogStore(
             .forEach(db::execSQL)
     }
 
+    private fun telemetryDetailJson(sample: TelemetrySample): String {
+        val value = JSONObject()
+        fun put(key: String, number: Double?) {
+            if (number != null) {
+                require(number.isFinite()) { "Telemetry detail must be finite" }
+                value.put(key, number)
+            }
+        }
+        put("pitchDeg", sample.pitchDeg)
+        put("balancePitchDeg", sample.balancePitchDeg)
+        put("rollDeg", sample.rollDeg)
+        put("directionalMotorCurrentA", sample.directionalMotorCurrentA)
+        put("filteredMotorCurrentA", sample.filteredMotorCurrentA)
+        put("requestedBalanceCurrentA", sample.requestedBalanceCurrentA)
+        put("boosterCurrentA", sample.boosterCurrentA)
+        put("fieldWeakeningCurrentA", sample.fieldWeakeningCurrentA)
+        put("footpadAdc1V", sample.footpadAdc1V)
+        put("footpadAdc2V", sample.footpadAdc2V)
+        put("remoteInput", sample.remoteInput)
+        put("setpointDeg", sample.setpointDeg)
+        put("atrSetpointDeg", sample.atrSetpointDeg)
+        put("brakeTiltSetpointDeg", sample.brakeTiltSetpointDeg)
+        put("torqueTiltSetpointDeg", sample.torqueTiltSetpointDeg)
+        put("turnTiltSetpointDeg", sample.turnTiltSetpointDeg)
+        put("remoteSetpointDeg", sample.remoteSetpointDeg)
+        put(
+            "atrAccelerationDifferenceErpmPerSecond",
+            sample.atrAccelerationDifferenceErpmPerSecond,
+        )
+        put("atrSpeedBoost", sample.atrSpeedBoost)
+        put("distanceM", sample.distanceM)
+        put("odometerM", sample.odometerM)
+        put("ampHoursDrawnAh", sample.ampHoursDrawnAh)
+        put("ampHoursChargedAh", sample.ampHoursChargedAh)
+        put("wattHoursDrawnWh", sample.wattHoursDrawnWh)
+        put("wattHoursChargedWh", sample.wattHoursChargedWh)
+        put("batteryLevel", sample.batteryLevel)
+        put("chargingCurrentA", sample.chargingCurrentA)
+        put("chargingVoltageV", sample.chargingVoltageV)
+        return value.toString().also {
+            require(it.toByteArray(Charsets.UTF_8).size <= 16_384) {
+                "Telemetry detail JSON exceeds its bound"
+            }
+        }
+    }
+
+    private fun telemetryExtensionJson(values: Map<String, Double>): String {
+        require(values.size <= 32) { "Too many telemetry extension fields" }
+        values.forEach { (key, value) ->
+            require(key.isNotEmpty() && key.toByteArray(Charsets.UTF_8).size <= 64) {
+                "Telemetry extension key exceeds its bound"
+            }
+            require(value.isFinite()) { "Telemetry extension value must be finite" }
+        }
+        return JSONObject(values).toString().also {
+            require(it.toByteArray(Charsets.UTF_8).size <= 16_384) {
+                "Telemetry extension JSON exceeds its bound"
+            }
+        }
+    }
+
+    private fun transitionValues(sample: TelemetrySample): List<Pair<String, String>> = buildList {
+        sample.packageState?.let { add("packageState" to it.wireValue) }
+        sample.packageMode?.let { add("packageMode" to it.wireValue) }
+        sample.footpadState?.let { add("footpadState" to it.wireValue) }
+        sample.stopCondition?.let { add("stopCondition" to it.wireValue) }
+        sample.setpointAdjustment?.let { add("setpointAdjustment" to it.wireValue) }
+        sample.wheelslip?.let { add("wheelslip" to if (it) "active" else "cleared") }
+        sample.darkride?.let { add("darkride" to if (it) "active" else "cleared") }
+        sample.charging?.let { add("charging" to if (it) "active" else "cleared") }
+        add("alertReason" to (sample.alertReason?.wireValue ?: "none"))
+        add("firmwareFault" to (sample.firmwareFault?.wireValue ?: "none"))
+    }
+
+    private fun latestTransitionValues(db: SQLiteDatabase): Map<String, String> =
+        db.rawQuery(
+            """
+            SELECT package_state, package_mode, footpad_state, stop_condition,
+                   setpoint_adjustment, wheelslip, darkride, charging, alert_reason,
+                   firmware_fault FROM sample ORDER BY sequence DESC LIMIT 1
+            """.trimIndent(),
+            null,
+        ).use { cursor ->
+            if (!cursor.moveToFirst()) return@use emptyMap()
+            buildMap {
+                listOf(
+                    0 to "packageState",
+                    1 to "packageMode",
+                    2 to "footpadState",
+                    3 to "stopCondition",
+                    4 to "setpointAdjustment",
+                ).forEach { (index, key) ->
+                    if (!cursor.isNull(index)) put(key, cursor.getString(index))
+                }
+                listOf(5 to "wheelslip", 6 to "darkride", 7 to "charging")
+                    .forEach { (index, key) ->
+                        if (!cursor.isNull(index)) {
+                            put(key, if (cursor.getInt(index) == 0) "cleared" else "active")
+                        }
+                    }
+                put("alertReason", if (cursor.isNull(8)) "none" else cursor.getString(8))
+                put("firmwareFault", if (cursor.isNull(9)) "none" else cursor.getString(9))
+            }
+        }
+
     private class CatalogOpenHelper(private val appContext: Context, path: String) :
         SQLiteOpenHelper(appContext, path, null, 1) {
         init {
@@ -1557,12 +1762,45 @@ class SQLiteLogStore(
             "dutyCycle" to "duty_cycle",
             "controllerTempC" to "controller_temp_c",
             "motorTempC" to "motor_temp_c",
-            "footpadState" to "footpad_state",
             "motorCurrentA" to "motor_current_a",
             "batteryCurrentA" to "battery_current_a",
             "erpm" to "erpm",
             "speedKph" to "speed_kph",
-            "boardState" to "board_state",
+            "pitchDeg" to "json_extract(detail_json, '$.pitchDeg')",
+            "balancePitchDeg" to "json_extract(detail_json, '$.balancePitchDeg')",
+            "rollDeg" to "json_extract(detail_json, '$.rollDeg')",
+            "directionalMotorCurrentA" to
+                "json_extract(detail_json, '$.directionalMotorCurrentA')",
+            "filteredMotorCurrentA" to "json_extract(detail_json, '$.filteredMotorCurrentA')",
+            "requestedBalanceCurrentA" to
+                "json_extract(detail_json, '$.requestedBalanceCurrentA')",
+            "boosterCurrentA" to "json_extract(detail_json, '$.boosterCurrentA')",
+            "fieldWeakeningCurrentA" to
+                "json_extract(detail_json, '$.fieldWeakeningCurrentA')",
+            "footpadAdc1V" to "json_extract(detail_json, '$.footpadAdc1V')",
+            "footpadAdc2V" to "json_extract(detail_json, '$.footpadAdc2V')",
+            "remoteInput" to "json_extract(detail_json, '$.remoteInput')",
+            "setpointDeg" to "json_extract(detail_json, '$.setpointDeg')",
+            "atrSetpointDeg" to "json_extract(detail_json, '$.atrSetpointDeg')",
+            "brakeTiltSetpointDeg" to
+                "json_extract(detail_json, '$.brakeTiltSetpointDeg')",
+            "torqueTiltSetpointDeg" to
+                "json_extract(detail_json, '$.torqueTiltSetpointDeg')",
+            "turnTiltSetpointDeg" to "json_extract(detail_json, '$.turnTiltSetpointDeg')",
+            "remoteSetpointDeg" to "json_extract(detail_json, '$.remoteSetpointDeg')",
+            "atrAccelerationDifferenceErpmPerSecond" to
+                "json_extract(detail_json, '$.atrAccelerationDifferenceErpmPerSecond')",
+            "atrSpeedBoost" to "json_extract(detail_json, '$.atrSpeedBoost')",
+            "distanceM" to "json_extract(detail_json, '$.distanceM')",
+            "odometerM" to "json_extract(detail_json, '$.odometerM')",
+            "ampHoursDrawnAh" to "json_extract(detail_json, '$.ampHoursDrawnAh')",
+            "ampHoursChargedAh" to "json_extract(detail_json, '$.ampHoursChargedAh')",
+            "wattHoursDrawnWh" to "json_extract(detail_json, '$.wattHoursDrawnWh')",
+            "wattHoursChargedWh" to
+                "json_extract(detail_json, '$.wattHoursChargedWh')",
+            "batteryLevel" to "json_extract(detail_json, '$.batteryLevel')",
+            "chargingCurrentA" to "json_extract(detail_json, '$.chargingCurrentA')",
+            "chargingVoltageV" to "json_extract(detail_json, '$.chargingVoltageV')",
         )
         val SESSION_SORT_COLUMNS = mapOf(
             "startedAt" to "started_at_ms",

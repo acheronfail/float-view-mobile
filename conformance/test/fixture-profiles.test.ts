@@ -179,9 +179,10 @@ test('seeded telemetry is smooth, reproducible, correlated, and stops immediatel
 
 test('all Refloat encoders retain equivalent normalized core state', () => {
 	const sample: TelemetrySample = {
+		...idleTelemetry,
 		rideState: 'riding',
-		boardState: 3,
-		footpadState: 3,
+		packageState: 'running',
+		footpadState: 'both',
 		speedKph: 21.6,
 		erpm: 5000,
 		dutyCycle: 0.5,
@@ -195,7 +196,10 @@ test('all Refloat encoders retain equivalent normalized core state', () => {
 		const payload = encodeRefloatTelemetry(version, sample);
 		assert.equal(payload[0], 36);
 		assert.equal(payload[1], 101);
-		assert.equal(version === '1.0.0' ? payload[10] : payload[9], version === '1.0.0' ? 1 : 3);
+		assert.equal(
+			version === '1.0.0' ? payload[10]! & 0x0f : payload[9],
+			version === '1.0.0' ? 1 : 3
+		);
 		assert.equal(
 			version === '1.0.0' ? payload[11] : payload[10]! >> 6,
 			version === '1.0.0' ? 2 : 3
