@@ -149,11 +149,12 @@ export function parseEvent(line: string): FixtureEvent {
 	throw new Error(`Invalid fixture event: ${line}`);
 }
 
+const bb = '20';
 export const led = {
-	initializing: '000088',
-	advertising: '008888',
-	running: '880088',
-	passed: '008800',
-	failed: '880000',
-	off: '000000'
+	initializing: `0000${bb}`,
+	advertising: `00${bb}${bb}`,
+	running: `${bb}00${bb}`,
+	passed: `00${bb}00`,
+	failed: `${bb}0000`,
+	off: `000000`
 } as const;
