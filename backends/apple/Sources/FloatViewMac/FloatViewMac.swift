@@ -199,7 +199,7 @@ private final class MacBackendRuntime: @unchecked Sendable {
         .appending(path: "FloatView")
         .appending(path: "Sessions")
     }
-    let bundledSchemaDirectory = Bundle.module.resourceURL!.appending(path: "Resources/sql")
+    let bundledSchemaDirectory = Bundle.module.resourceURL!.appending(path: "sql")
     let schemaDirectory = ProcessInfo.processInfo.environment["FLOAT_VIEW_SQL_ROOT"]
       .map(URL.init(fileURLWithPath:))
       ?? bundledSchemaDirectory
