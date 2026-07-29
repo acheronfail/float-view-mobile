@@ -59,8 +59,20 @@ export function browserThemeEnvironment(): ThemeEnvironment {
 				.querySelector<HTMLMetaElement>('meta[name="theme-color"]')
 				?.setAttribute('content', theme === 'dark' ? '#020617' : '#f8fafc');
 		},
-		readHint: () => localStorage.getItem('float-view-theme'),
-		writeHint: (preference) => localStorage.setItem('float-view-theme', preference),
+		readHint: () => {
+			try {
+				return localStorage?.getItem('float-view-theme');
+			} catch {
+				return null;
+			}
+		},
+		writeHint: (preference) => {
+			try {
+				localStorage?.setItem('float-view-theme', preference);
+			} catch {
+				// Theme persistence is optional.
+			}
+		},
 		subscribe: (listener) => {
 			const handler = (event: MediaQueryListEvent) => listener(event.matches);
 			media.addEventListener('change', handler);

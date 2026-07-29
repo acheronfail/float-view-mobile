@@ -53,6 +53,7 @@ class MainActivity : Activity() {
         val origin = (application as FloatViewApplication).backend.origin
         webView = WebView(this).also {
             it.settings.javaScriptEnabled = true
+            it.settings.domStorageEnabled = true
             it.loadUrl(origin)
             frontendContainer.addView(
                 it,
