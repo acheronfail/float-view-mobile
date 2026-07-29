@@ -9,7 +9,12 @@
 		formatTemperatureC
 	} from '$lib/features/measurements/format';
 	import TelemetrySection from './TelemetrySection.svelte';
-	import { readingsAreDimmed, shouldConfirmDisconnect } from './live';
+	import {
+		isKeyboardOrAssistiveClick,
+		isPrimaryPointerActivation,
+		readingsAreDimmed,
+		shouldConfirmDisconnect
+	} from './live';
 
 	let menuOpen = $state(false);
 	let configureOpen = $state(false);
@@ -91,6 +96,23 @@
 			void closeConfigure();
 		}
 	}
+
+	function toggleMenu() {
+		menuOpen = !menuOpen;
+	}
+
+	type Activation = () => void | Promise<void>;
+
+	function activateFromPointer(event: PointerEvent, action: Activation) {
+		if (!isPrimaryPointerActivation(event)) return;
+		event.preventDefault();
+		void action();
+	}
+
+	function activateFromKeyboardOrAssistiveClick(event: MouseEvent, action: Activation) {
+		if (!isKeyboardOrAssistiveClick(event)) return;
+		void action();
+	}
 </script>
 
 <svelte:window onkeydown={handleKeydown} />
@@ -107,10 +129,12 @@
 			</div>
 			<button
 				bind:this={menuButton}
-				class="grid h-11 w-11 place-items-center rounded-full border border-outline bg-surface text-xl"
+				type="button"
+				class="grid h-11 w-11 touch-manipulation place-items-center rounded-full border border-outline bg-surface text-xl"
 				aria-label="Board actions"
 				aria-expanded={menuOpen}
-				onclick={() => (menuOpen = !menuOpen)}>⋮</button
+				onpointerdown={(event) => activateFromPointer(event, toggleMenu)}
+				onclick={(event) => activateFromKeyboardOrAssistiveClick(event, toggleMenu)}>⋮</button
 			>
 			{#if menuOpen}
 				<div
@@ -118,14 +142,20 @@
 				>
 					{#if connection.savedDeviceId}
 						<button
-							class="block w-full px-4 py-3 text-left hover:bg-surface"
-							onclick={openConfigure}>Configure board</button
+							type="button"
+							class="block w-full touch-manipulation px-4 py-3 text-left hover:bg-surface"
+							onpointerdown={(event) => activateFromPointer(event, openConfigure)}
+							onclick={(event) => activateFromKeyboardOrAssistiveClick(event, openConfigure)}
+							>Configure board</button
 						>
 					{/if}
 					<button
-						class="block w-full px-4 py-3 text-left text-danger hover:bg-surface"
+						type="button"
+						class="block w-full touch-manipulation px-4 py-3 text-left text-danger hover:bg-surface"
 						disabled={backendState.busy}
-						onclick={disconnect}>Disconnect</button
+						onpointerdown={(event) => activateFromPointer(event, disconnect)}
+						onclick={(event) => activateFromKeyboardOrAssistiveClick(event, disconnect)}
+						>Disconnect</button
 					>
 				</div>
 			{/if}
@@ -222,9 +252,11 @@
 {#if configureOpen && connection?.savedDeviceId}
 	<div class="fixed inset-0 z-40 bg-black/55">
 		<button
-			class="absolute inset-0 h-full w-full cursor-default"
+			type="button"
+			class="absolute inset-0 h-full w-full cursor-default touch-manipulation"
 			aria-label="Close board configuration"
-			onclick={closeConfigure}
+			onpointerdown={(event) => activateFromPointer(event, closeConfigure)}
+			onclick={(event) => activateFromKeyboardOrAssistiveClick(event, closeConfigure)}
 		></button>
 		<div
 			role="dialog"
@@ -237,8 +269,11 @@
 				<h2 id="configure-sheet-title" class="text-xl font-semibold">Board configuration</h2>
 				<button
 					bind:this={sheetCloseButton}
-					class="rounded-full border border-outline px-3 py-1.5"
-					onclick={closeConfigure}>Done</button
+					type="button"
+					class="touch-manipulation rounded-full border border-outline px-3 py-1.5"
+					onpointerdown={(event) => activateFromPointer(event, closeConfigure)}
+					onclick={(event) => activateFromKeyboardOrAssistiveClick(event, closeConfigure)}
+					>Done</button
 				>
 			</div>
 			<BoardEditor

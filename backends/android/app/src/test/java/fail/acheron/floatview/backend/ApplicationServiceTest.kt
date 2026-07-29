@@ -116,6 +116,16 @@ class ApplicationServiceTest {
         service.onBluetoothEvent(BluetoothEvent.DeviceFound(updated.id, updated.advertisedName, updated.rssi))
 
         assertEquals(listOf(updated), service.knownDevices)
+        clock.instant = Instant.ofEpochSecond(2)
+        val earlierId = DiscoveredDevice(DeviceId("another-board"), "Another VESC", -45, clock.now())
+        service.onBluetoothEvent(
+            BluetoothEvent.DeviceFound(
+                earlierId.id,
+                earlierId.advertisedName,
+                earlierId.rssi,
+            ),
+        )
+        assertEquals(listOf(earlierId, updated), service.knownDevices)
         service.stopDiscovery(scanId)
         assertEquals(null, service.activeScanId)
         assertEquals(1, bluetooth.stopCount)

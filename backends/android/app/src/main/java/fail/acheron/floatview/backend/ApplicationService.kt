@@ -44,9 +44,7 @@ class ApplicationService(
     var activeScanId: String? = null
         private set
     val knownDevices: List<DiscoveredDevice>
-        get() = knownDevicesById.values.sortedWith(
-            compareByDescending<DiscoveredDevice> { it.lastSeenAt }.thenBy { it.id.value },
-        )
+        get() = knownDevicesById.values.sortedBy { it.id.value }
 
     @Synchronized
     fun requestBluetoothPermission(): BluetoothState {

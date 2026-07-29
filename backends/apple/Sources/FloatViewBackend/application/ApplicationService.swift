@@ -16,6 +16,8 @@ public final class ApplicationService: @unchecked Sendable {
   private var explicitDisconnect = false
   private var scanSequence = 0
   private var knownDevicesByID: [DeviceID: KnownDevice] = [:]
+  private var discoveryPublishTimer: (any CancellationPort)?
+  private var discoveryUpdatePending = false
   private var firmware: FirmwareRecord?
   private var transportFirmware: FirmwareRecord?
   private var refloatPackageVersion: String?
@@ -39,10 +41,7 @@ public final class ApplicationService: @unchecked Sendable {
   public private(set) var bluetoothState: BluetoothState
   public private(set) var activeScanID: String?
   public var knownDevices: [KnownDevice] {
-    knownDevicesByID.values.sorted {
-      if $0.lastSeenAt == $1.lastSeenAt { return $0.deviceID.value < $1.deviceID.value }
-      return $0.lastSeenAt > $1.lastSeenAt
-    }
+    knownDevicesByID.values.sorted { $0.deviceID.value < $1.deviceID.value }
   }
 
   public init(
@@ -262,6 +261,7 @@ public final class ApplicationService: @unchecked Sendable {
     guard scanID == activeScanID else { throw ApplicationError.invalidScan }
     bluetooth.stopDiscovery()
     self.activeScanID = nil
+    cancelPendingDiscoveryPublish()
     events.publish(DiscoverySnapshot(
       bluetoothState: bluetoothState,
       activeScanID: nil,
@@ -281,6 +281,7 @@ public final class ApplicationService: @unchecked Sendable {
     if activeScanID != nil {
       bluetooth.stopDiscovery()
       activeScanID = nil
+      cancelPendingDiscoveryPublish()
     }
     activeDeviceID = deviceID
     explicitDisconnect = false
@@ -310,6 +311,7 @@ public final class ApplicationService: @unchecked Sendable {
       {
         bluetooth.stopDiscovery()
         activeScanID = nil
+        cancelPendingDiscoveryPublish()
       }
       if Self.permissionIsTerminal(state.connectPermission),
          activeDeviceID != nil,
@@ -332,9 +334,10 @@ public final class ApplicationService: @unchecked Sendable {
         lastSeenAt: clock.now()
       )
       knownDevicesByID[deviceID] = device
-      events.publish(device)
+      publishDiscoveryUpdate(device)
     case .scanFailed(let reason):
       activeScanID = nil
+      cancelPendingDiscoveryPublish()
       events.publish(reason)
     case .connectionChanged(let deviceID, let state):
       guard deviceID == activeDeviceID else { return }
@@ -767,6 +770,32 @@ public final class ApplicationService: @unchecked Sendable {
     events.publish(state)
   }
 
+  private func publishDiscoveryUpdate(_ device: KnownDevice) {
+    guard activeScanID != nil, let scheduler else {
+      events.publish(device)
+      return
+    }
+    discoveryUpdatePending = true
+    guard discoveryPublishTimer == nil else { return }
+    discoveryPublishTimer = scheduler.schedule(
+      afterMilliseconds: Self.discoveryPublishIntervalMs
+    ) { [weak self] in
+      self?.lock.withLock {
+        guard let self else { return }
+        self.discoveryPublishTimer = nil
+        guard self.discoveryUpdatePending else { return }
+        self.discoveryUpdatePending = false
+        self.events.publish(self.discoverySnapshot())
+      }
+    }
+  }
+
+  private func cancelPendingDiscoveryPublish() {
+    discoveryPublishTimer?.cancel()
+    discoveryPublishTimer = nil
+    discoveryUpdatePending = false
+  }
+
   private func resetFirmwareDiscovery() {
     cancelTelemetryLayoutRetry()
     stopTelemetryPolling()
@@ -779,6 +808,7 @@ public final class ApplicationService: @unchecked Sendable {
   }
 
   private static let vescHardwareType: UInt8 = 0
+  private static let discoveryPublishIntervalMs: Int64 = 250
   private static let ridingProbeIntervalMs: Int64 = 100
   private static let telemetryLayoutRetryIntervalMs: Int64 = 1_000
   private static let maxTelemetryLayoutAttempts = 5

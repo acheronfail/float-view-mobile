@@ -25,6 +25,18 @@ service; OS Bluetooth adapter; VESC protocol; persistence/background work.
 Bluetooth and protocol code emit typed events and do not know about WebSockets
 or views.
 
+## Frontend interaction
+
+Every interactive control must work through the same frontend on desktop and
+touch clients. Prefer Pointer Events (`onpointerdown`, `onpointerup`, and
+related cancellation handling) over separate mouse and touch handlers. In
+frequently updating WebView UI such as menus, do not rely only on a synthesized
+`click`; handle primary-pointer activation directly and retain a guarded
+keyboard/assistive-technology click path without double activation. Keep native
+button semantics, use `type="button"` outside form submission, apply an
+appropriate `touch-action`, and test primary, non-primary, and keyboard
+activation behavior.
+
 ## Retained paths
 
 - `frontend/`

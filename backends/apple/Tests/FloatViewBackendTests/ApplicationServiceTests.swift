@@ -153,6 +153,43 @@ func discoveryOwnsScanAndDeduplicatesDevices() throws {
 }
 
 @Test
+func discoveryUpdatesAreCoalescedAndDeviceOrderIsStable() throws {
+  let bluetooth = FakeBluetooth()
+  let clock = MutableClock()
+  let scheduler = FakeScheduler()
+  let events = CollectingEvents()
+  let service = ApplicationService(
+    bluetooth: bluetooth,
+    clock: clock,
+    logStore: MemoryStore(),
+    scheduler: scheduler,
+    events: events
+  )
+
+  _ = try service.startDiscovery()
+  events.values.removeAll()
+
+  try service.receive(.deviceFound(DeviceID("board-b"), name: "Second", rssi: -70))
+  clock.date = .init(timeIntervalSince1970: 1)
+  try service.receive(.deviceFound(DeviceID("board-a"), name: "First", rssi: -60))
+  clock.date = .init(timeIntervalSince1970: 2)
+  try service.receive(.deviceFound(DeviceID("board-b"), name: "Second", rssi: -50))
+
+  #expect(scheduler.intervals == [250])
+  #expect(events.values.isEmpty)
+  #expect(service.knownDevices.map(\.deviceID) == [DeviceID("board-a"), DeviceID("board-b")])
+
+  scheduler.fire(0)
+
+  let snapshots = events.values.compactMap { $0 as? DiscoverySnapshot }
+  #expect(snapshots.count == 1)
+  #expect(snapshots[0].knownDevices.map(\.deviceID) == [
+    DeviceID("board-a"), DeviceID("board-b"),
+  ])
+  #expect(snapshots[0].knownDevices[1].rssi == -50)
+}
+
+@Test
 func discoveryRequiresAvailableAuthorizedBluetooth() {
   let bluetooth = FakeBluetooth(
     state: .init(
