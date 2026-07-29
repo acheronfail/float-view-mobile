@@ -1,13 +1,13 @@
-import { runConformance } from './suite.js';
-import { externalTarget } from '../targets/external.js';
-import { mockTarget } from '../targets/mock.js';
-import { macosTarget } from '../targets/macos.js';
-import { iosTarget } from '../targets/ios.js';
-import { androidTarget } from '../targets/android.js';
-import { androidPhysicalTarget } from '../targets/android.js';
-import { iosPhysicalTarget } from '../targets/ios.js';
-import { macosPhysicalTarget } from '../targets/macos.js';
-import { runPhysicalConformance } from './physical.js';
+import { runConformance } from './suite.ts';
+import { externalTarget } from '../targets/external.ts';
+import { mockTarget } from '../targets/mock.ts';
+import { macosTarget } from '../targets/macos.ts';
+import { iosTarget } from '../targets/ios.ts';
+import { androidTarget } from '../targets/android.ts';
+import { androidPhysicalTarget } from '../targets/android.ts';
+import { iosPhysicalTarget } from '../targets/ios.ts';
+import { macosPhysicalTarget } from '../targets/macos.ts';
+import { runPhysicalConformance } from './physical.ts';
 
 const name = process.argv[2] ?? 'mock';
 if (name === 'physical') {

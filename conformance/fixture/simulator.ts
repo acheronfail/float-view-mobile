@@ -1,5 +1,5 @@
-import type { BoardConfiguration, ControllerConfiguration } from './boards.js';
-import { encodeFrame, FrameAssembler } from './frame.js';
+import type { BoardConfiguration, ControllerConfiguration } from './boards.ts';
+import { encodeFrame, FrameAssembler } from './frame.ts';
 
 export type VescRequestKind =
 	| 'transport-firmware'
@@ -23,14 +23,16 @@ export interface SimulatedResponse {
 }
 
 export class VescSimulator {
+	private readonly board: BoardConfiguration;
+	private readonly now: () => number;
 	private readonly frames = new FrameAssembler();
 	private telemetryIndex = 0;
 	readonly requests: RecordedRequest[] = [];
 
-	constructor(
-		private readonly board: BoardConfiguration,
-		private readonly now: () => number = () => performance.now()
-	) {}
+	constructor(board: BoardConfiguration, now: () => number = () => performance.now()) {
+		this.board = board;
+		this.now = now;
+	}
 
 	receive(bytes: Uint8Array): SimulatedResponse[] {
 		return this.frames.append(bytes).map((payload) => {

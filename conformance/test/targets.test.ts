@@ -8,7 +8,7 @@ import {
 	androidPhysicalTarget,
 	androidRuntimePermissions,
 	androidStorageResetArguments
-} from '../targets/android.js';
+} from '../targets/android.ts';
 import {
 	iosPhysicalBuildArguments,
 	iosDeviceIsPreparingFailure,
@@ -16,8 +16,8 @@ import {
 	iosPhysicalProcessIdentifier,
 	iosPhysicalTerminateArguments,
 	iosPhysicalTarget
-} from '../targets/ios.js';
-import { macosLaunchArguments, macosPhysicalTarget } from '../targets/macos.js';
+} from '../targets/ios.ts';
+import { macosLaunchArguments, macosPhysicalTarget } from '../targets/macos.ts';
 
 test('physical targets validate identity before executing host commands', () => {
 	assert.throws(() => androidPhysicalTarget(''), /ADB serial is required/);
@@ -146,7 +146,7 @@ test('Android background lifecycle waits for the Activity to stop', () => {
 test('physical CLI fails before touching hardware when required arguments are absent', () => {
 	const result = spawnSync(
 		process.execPath,
-		['--import', 'tsx', 'src/run.ts', 'physical', 'android', '/dev/null'],
+		['--strip-types', 'src/run.ts', 'physical', 'android', '/dev/null'],
 		{ cwd: new URL('../', import.meta.url), encoding: 'utf8' }
 	);
 	assert.notEqual(result.status, 0);

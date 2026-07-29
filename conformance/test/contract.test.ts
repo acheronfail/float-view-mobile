@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { ConformanceClient } from '../src/client.js';
-import { mandatoryMethods, runConformance } from '../src/suite.js';
-import { mockTarget } from '../targets/mock.js';
+import { ConformanceClient } from '../src/client.ts';
+import { mandatoryMethods, runConformance } from '../src/suite.ts';
+import { mockTarget } from '../targets/mock.ts';
 
 test('mandatory contract has one concise method set', () => {
 	assert.equal(mandatoryMethods.length, 13);

@@ -1,6 +1,6 @@
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import type { PhysicalTarget, Target } from '../src/suite.js';
+import type { PhysicalTarget, Target } from '../src/suite.ts';
 
 const hostPort = 8766;
 const devicePort = 8765;

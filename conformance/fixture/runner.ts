@@ -1,12 +1,16 @@
-import type { FixtureScenario } from './scenarios.js';
-import { led, type FixtureControl, type FixtureEvent } from './serial.js';
-import { VescSimulator, type RecordedRequest } from './simulator.js';
+import type { FixtureScenario } from './scenarios.ts';
+import { led, type FixtureControl, type FixtureEvent } from './serial.ts';
+import { VescSimulator, type RecordedRequest } from './simulator.ts';
 
 const MAX_DIAGNOSTICS = 100;
 export type FixtureProgress = (message: string) => void;
 
 export class FixtureRunner {
+	readonly scenario: FixtureScenario;
 	readonly simulator: VescSimulator;
+	private readonly fixture: FixtureControl;
+	private readonly readyRetryMs: number;
+	private readonly report: FixtureProgress;
 	private running = false;
 	private loop?: Promise<void>;
 	private firstFailure?: Error;
@@ -29,12 +33,16 @@ export class FixtureRunner {
 	}>();
 
 	constructor(
-		readonly scenario: FixtureScenario,
-		private readonly fixture: FixtureControl,
+		scenario: FixtureScenario,
+		fixture: FixtureControl,
 		now?: () => number,
-		private readonly readyRetryMs = 1_000,
-		private readonly report: FixtureProgress = () => undefined
+		readyRetryMs = 1_000,
+		report: FixtureProgress = () => undefined
 	) {
+		this.scenario = scenario;
+		this.fixture = fixture;
+		this.readyRetryMs = readyRetryMs;
+		this.report = report;
 		this.simulator = new VescSimulator(scenario.board, now);
 	}
 

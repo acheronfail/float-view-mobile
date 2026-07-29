@@ -4,7 +4,7 @@ import { createServer } from 'node:http';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { WebSocketServer } from 'ws';
-import { MockBackend } from './api-v1.js';
+import { MockBackend } from './api-v1.ts';
 
 const DEFAULT_PORT = 3001;
 const expectedOrigin = 'http://127.0.0.1:5173';

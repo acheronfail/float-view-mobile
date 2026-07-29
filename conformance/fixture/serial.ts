@@ -14,6 +14,7 @@ export interface FixtureControl {
 }
 
 export class FixtureClient implements FixtureControl {
+	private readonly port: SerialPort;
 	private buffer = '';
 	private discardFirstLine = true;
 	private readonly events: FixtureEvent[] = [];
@@ -24,7 +25,8 @@ export class FixtureClient implements FixtureControl {
 		timer: NodeJS.Timeout;
 	};
 
-	constructor(private readonly port: SerialPort) {
+	constructor(port: SerialPort) {
+		this.port = port;
 		port.setEncoding('utf8');
 		port.on('error', (error) => this.fail(error));
 		port.on('data', (chunk: string) => {

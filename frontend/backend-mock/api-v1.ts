@@ -7,7 +7,7 @@ import type {
 	SeriesPoint,
 	SessionSummary,
 	StateChanged
-} from '../src/lib/backend/contract.js';
+} from '../src/lib/backend/contract.ts';
 
 const discoveredBoard = {
 	deviceId: 'mock-board',
@@ -56,6 +56,7 @@ const series: SeriesPoint[] = [
 ];
 
 export class MockBackend {
+	private readonly publish: (event: StateChanged) => void;
 	readonly profiles = new Map([
 		[
 			savedBoard.savedDeviceId,
@@ -103,7 +104,9 @@ export class MockBackend {
 		}
 	};
 
-	constructor(private readonly publish: (event: StateChanged) => void = () => {}) {}
+	constructor(publish: (event: StateChanged) => void = () => {}) {
+		this.publish = publish;
+	}
 
 	handlePayload(payload: string): Response {
 		if (payload.length > 65_536) return failure(0, 'invalid_request', 'Message is too large');

@@ -1,16 +1,16 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { expressThor } from '../fixture/boards.js';
-import { crc16, encodeFrame, FrameAssembler } from '../fixture/frame.js';
-import { FixtureRunner, chunks } from '../fixture/runner.js';
-import { fixtureScenarios, physicalScenarioMatrix } from '../fixture/scenarios.js';
+import { expressThor } from '../fixture/boards.ts';
+import { crc16, encodeFrame, FrameAssembler } from '../fixture/frame.ts';
+import { FixtureRunner, chunks } from '../fixture/runner.ts';
+import { fixtureScenarios, physicalScenarioMatrix } from '../fixture/scenarios.ts';
 import {
 	led,
 	parseEvent,
 	type FixtureControl,
 	type FixtureEvent
-} from '../fixture/serial.js';
-import { VescSimulator } from '../fixture/simulator.js';
+} from '../fixture/serial.ts';
+import { VescSimulator } from '../fixture/simulator.ts';
 
 test('frame assembler handles fragmentation and validates CRC', () => {
 	const frame = encodeFrame(Uint8Array.of(0));
@@ -166,6 +166,7 @@ async function eventually(predicate: () => boolean) {
 }
 
 class FakeFixture implements FixtureControl {
+	private readonly readyOnReset: number;
 	readonly commands: string[] = [];
 	readonly notifications: Uint8Array[] = [];
 	readonly colors: string[] = [];
@@ -174,7 +175,9 @@ class FakeFixture implements FixtureControl {
 	private waiterReject?: (error: Error) => void;
 	private waiterTimer?: NodeJS.Timeout;
 
-	constructor(private readonly readyOnReset = 1) {}
+	constructor(readyOnReset = 1) {
+		this.readyOnReset = readyOnReset;
+	}
 
 	async command(command: 'RESET' | 'ADVERTISE' | 'DISCONNECT') {
 		this.commands.push(command);

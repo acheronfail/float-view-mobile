@@ -1,13 +1,13 @@
 import assert from 'node:assert/strict';
-import { FixtureRunner } from '../fixture/runner.js';
+import { FixtureRunner } from '../fixture/runner.ts';
 import {
 	fixtureScenarios,
 	physicalScenarioMatrix,
 	type PhysicalScenarioName
-} from '../fixture/scenarios.js';
-import { FixtureClient } from '../fixture/serial.js';
-import { ConformanceClient } from './client.js';
-import type { PhysicalTarget } from './suite.js';
+} from '../fixture/scenarios.ts';
+import { FixtureClient } from '../fixture/serial.ts';
+import { ConformanceClient } from './client.ts';
+import type { PhysicalTarget } from './suite.ts';
 
 type Progress = (message: string) => void;
 

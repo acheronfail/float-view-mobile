@@ -3,7 +3,7 @@ import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { PhysicalTarget, Target } from '../src/suite.js';
+import type { PhysicalTarget, Target } from '../src/suite.ts';
 
 const devicePort = 8765;
 const hostPort = 8766;

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
-import type { AppState, BackendMethod } from '../../frontend/src/lib/backend/contract.js';
-import { ConformanceClient, ConformanceError } from './client.js';
+import type { AppState, BackendMethod } from '../../frontend/src/lib/backend/contract.ts';
+import { ConformanceClient, ConformanceError } from './client.ts';
 
 export interface Target {
 	name: string;

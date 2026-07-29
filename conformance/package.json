@@ -2,23 +2,25 @@
   "name": "float-view-conformance",
   "private": true,
   "type": "module",
+  "engines": {
+    "node": ">=24 <25"
+  },
   "scripts": {
     "check": "tsc --noEmit",
-    "test": "node --import tsx --test test/**/*.test.ts",
-    "mock": "node --import tsx src/run.ts mock",
-    "macos": "node --import tsx src/run.ts macos",
-    "ios": "node --import tsx src/run.ts ios",
-    "android": "node --import tsx src/run.ts android",
-    "physical": "node --import tsx src/run.ts physical"
+    "test": "node --strip-types --test test/**/*.test.ts",
+    "mock": "node --strip-types src/run.ts mock",
+    "macos": "node --strip-types src/run.ts macos",
+    "ios": "node --strip-types src/run.ts ios",
+    "android": "node --strip-types src/run.ts android",
+    "physical": "node --strip-types src/run.ts physical"
   },
   "dependencies": {
     "serialport": "^13.0.0",
     "ws": "^8.18.3"
   },
   "devDependencies": {
-    "@types/node": "^22.10.2",
+    "@types/node": "^24.0.0",
     "@types/ws": "^8.18.1",
-    "tsx": "^4.20.5",
     "typescript": "^5.7.2"
   }
 }

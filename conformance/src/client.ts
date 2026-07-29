@@ -5,16 +5,20 @@ import type {
 	BackendMethod,
 	BackendParams,
 	BackendResult
-} from '../../frontend/src/lib/backend/contract.js';
-import { MAX_MESSAGE_BYTES } from '../../frontend/src/lib/backend/contract.js';
+} from '../../frontend/src/lib/backend/contract.ts';
+import { MAX_MESSAGE_BYTES } from '../../frontend/src/lib/backend/contract.ts';
 
 export class ConformanceError extends Error {
-	constructor(readonly error: BackendError) {
+	readonly error: BackendError;
+
+	constructor(error: BackendError) {
 		super(error.message);
+		this.error = error;
 	}
 }
 
 export class ConformanceClient {
+	private readonly socket: WebSocket;
 	private nextId = 1;
 	private state?: AppState;
 	private readonly stateWaiters = new Set<{
@@ -33,7 +37,8 @@ export class ConformanceClient {
 		}
 	>();
 
-	private constructor(private readonly socket: WebSocket) {
+	private constructor(socket: WebSocket) {
+		this.socket = socket;
 		socket.on('message', (data) => this.receive(data.toString()));
 		socket.on('close', () => this.rejectAll(new Error('Backend closed the socket')));
 	}

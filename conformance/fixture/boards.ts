@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { FrameAssembler } from './frame.js';
+import { FrameAssembler } from './frame.ts';
 
 export interface FirmwareIdentity {
 	major: number;

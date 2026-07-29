@@ -1,5 +1,5 @@
-import { getMockBootstrap, startMockServer, stopMockServer } from '../../frontend/backend-mock/index.js';
-import type { Target } from '../src/suite.js';
+import { getMockBootstrap, startMockServer, stopMockServer } from '../../frontend/backend-mock/index.ts';
+import type { Target } from '../src/suite.ts';
 
 export const mockTarget: Target = {
 	name: 'mock',

@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { execFileSync, spawn, type ChildProcess } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import type { PhysicalTarget, Target } from '../src/suite.js';
+import type { PhysicalTarget, Target } from '../src/suite.ts';
 
 export const macosTarget: Target = makeMacosTarget(false);
 export const macosPhysicalTarget: PhysicalTarget = {

@@ -1,4 +1,4 @@
-import { expressThor, type BoardConfiguration } from './boards.js';
+import { expressThor, type BoardConfiguration } from './boards.ts';
 
 export type PhysicalScenarioName = 'identity' | 'ride' | 'unexpected-disconnect' | 'background';
 

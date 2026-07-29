@@ -1,4 +1,4 @@
-import type { Target } from '../src/suite.js';
+import type { Target } from '../src/suite.ts';
 
 export function externalTarget(name: string, environmentName: string): Target {
 	let endpoint: { url: string; origin: string } | undefined;
