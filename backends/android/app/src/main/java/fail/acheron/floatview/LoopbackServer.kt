@@ -9,6 +9,7 @@ import fail.acheron.floatview.backend.BoardProfileRecord
 import fail.acheron.floatview.backend.ConnectionState
 import fail.acheron.floatview.backend.DeviceId
 import fail.acheron.floatview.backend.DiscoveredDevice
+import fail.acheron.floatview.backend.DiscoverySnapshot
 import fail.acheron.floatview.backend.EventHub
 import fail.acheron.floatview.backend.ProductStoreException
 import fail.acheron.floatview.backend.SessionExportRecord
@@ -39,11 +40,17 @@ import io.ktor.websocket.readText
 import io.ktor.websocket.send
 import java.security.SecureRandom
 import java.util.concurrent.atomic.AtomicInteger
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import org.json.JSONArray
 import org.json.JSONObject
+
+internal const val ANDROID_BACKEND_PORT = 11012
 
 class LoopbackServer(
     private val assets: AssetManager,
@@ -56,6 +63,7 @@ class LoopbackServer(
         .let { Base64.encodeToString(it, Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING) }
     private val revision = AtomicInteger()
     private var server: EmbeddedServer<*, *>? = null
+    private var scanStopJob: Job? = null
     private var boundPort = 0
     val port: Int get() = boundPort
     val origin: String get() = "http://127.0.0.1:$port"
@@ -128,6 +136,8 @@ class LoopbackServer(
     }
 
     fun stop() {
+        scanStopJob?.cancel()
+        scanStopJob = null
         server?.stop(100, 500)
         server = null
         boundPort = 0
@@ -149,7 +159,13 @@ class LoopbackServer(
                 "bluetooth.requestPermission" ->
                     success(bluetooth(applicationService.requestBluetoothPermission()))
                 "bluetooth.scan" -> {
-                    applicationService.startDiscovery()
+                    val scanId = applicationService.startDiscovery()
+                    val timeoutMs = (params.number("timeoutMs") ?: 5_000L).coerceIn(1L, 60_000L)
+                    scanStopJob?.cancel()
+                    scanStopJob = CoroutineScope(Dispatchers.Default).launch {
+                        delay(timeoutMs)
+                        runCatching { applicationService.stopDiscovery(scanId) }
+                    }
                     success(accepted())
                 }
                 "device.connect" -> {
@@ -432,6 +448,7 @@ class LoopbackServer(
 
     private fun Any.invalidatesSnapshot(): Boolean =
         this is BluetoothState ||
+            this is DiscoverySnapshot ||
             this is ConnectionState ||
             this is DiscoveredDevice ||
             this is SessionRecord ||

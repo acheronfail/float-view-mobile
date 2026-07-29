@@ -168,6 +168,7 @@ class ApplicationService(
         val scanId = "scan-${++scanSequence}"
         activeScanId = scanId
         bluetooth.startDiscovery()
+        events.publish(discoverySnapshot())
         return scanId
     }
 
@@ -177,6 +178,7 @@ class ApplicationService(
         require(scanId == active) { "Unknown scan" }
         bluetooth.stopDiscovery()
         activeScanId = null
+        events.publish(discoverySnapshot())
     }
 
     @Synchronized

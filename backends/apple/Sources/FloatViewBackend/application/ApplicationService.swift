@@ -231,6 +231,11 @@ public final class ApplicationService: @unchecked Sendable {
     let scanID = "scan-\(scanSequence)"
     activeScanID = scanID
     bluetooth.startDiscovery()
+    events.publish(DiscoverySnapshot(
+      bluetoothState: bluetoothState,
+      activeScanID: activeScanID,
+      knownDevices: knownDevices
+    ))
     return scanID
   }
 
@@ -241,6 +246,11 @@ public final class ApplicationService: @unchecked Sendable {
     guard scanID == activeScanID else { throw ApplicationError.invalidScan }
     bluetooth.stopDiscovery()
     self.activeScanID = nil
+    events.publish(DiscoverySnapshot(
+      bluetoothState: bluetoothState,
+      activeScanID: nil,
+      knownDevices: knownDevices
+    ))
   }
 
   public func connect(_ deviceID: DeviceID) throws {

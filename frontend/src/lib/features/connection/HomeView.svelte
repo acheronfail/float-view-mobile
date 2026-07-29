@@ -16,8 +16,9 @@
 		</p>
 		<button
 			class="mt-5 rounded-lg bg-accent px-4 py-2 text-white disabled:opacity-50"
-			disabled={backendState.busy}
-			onclick={() => backendState.scan()}>Scan for a board</button
+			disabled={backendState.busy || backendState.scanning}
+			onclick={() => backendState.scan()}
+			>{backendState.scanning ? 'Scanning…' : 'Scan for a board'}</button
 		>
 
 		{#if backendState.discoveredDevices.length}

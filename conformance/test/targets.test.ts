@@ -3,6 +3,7 @@ import { spawnSync } from 'node:child_process';
 import test from 'node:test';
 import {
 	androidActivityIsStopped,
+	ANDROID_BACKEND_PORT,
 	androidBuildArguments,
 	androidLaunchArguments,
 	androidPhysicalTarget,
@@ -11,13 +12,15 @@ import {
 } from '../targets/android.ts';
 import {
 	iosPhysicalBuildArguments,
+	IOS_BACKEND_PORT,
 	iosDeviceIsPreparingFailure,
 	iosPhysicalLaunchArguments,
 	iosPhysicalProcessIdentifier,
 	iosPhysicalTerminateArguments,
 	iosPhysicalTarget
 } from '../targets/ios.ts';
-import { macosLaunchArguments, macosPhysicalTarget } from '../targets/macos.ts';
+import { MACOS_BACKEND_PORT, macosLaunchArguments, macosPhysicalTarget } from '../targets/macos.ts';
+import { MOCK_BACKEND_PORT } from '../targets/mock.ts';
 
 test('physical targets validate identity before executing host commands', () => {
 	assert.throws(() => androidPhysicalTarget(''), /ADB serial is required/);
@@ -25,6 +28,13 @@ test('physical targets validate identity before executing host commands', () => 
 	assert.equal(androidPhysicalTarget('serial').productionBluetooth, true);
 	assert.equal(iosPhysicalTarget('device').productionBluetooth, true);
 	assert.equal(macosPhysicalTarget.productionBluetooth, true);
+});
+
+test('target ports use the stable platform registry', () => {
+	assert.equal(MACOS_BACKEND_PORT, 11010);
+	assert.equal(IOS_BACKEND_PORT, 11011);
+	assert.equal(ANDROID_BACKEND_PORT, 11012);
+	assert.equal(MOCK_BACKEND_PORT, 11003);
 });
 
 test('physical target command construction uses normal Debug app paths', () => {
@@ -55,22 +65,25 @@ test('physical target command construction uses normal Debug app paths', () => {
 		'-rf',
 		'files/float-view'
 	]);
-	assert.deepEqual(iosPhysicalBuildArguments('/repo/app.xcodeproj', 'platform=iOS,id=device', '/tmp/dd'), [
-		'-project',
-		'/repo/app.xcodeproj',
-		'-scheme',
-		'float-view',
-		'-configuration',
-		'Debug',
-		'-destination',
-		'platform=iOS,id=device',
-		'-destination-timeout',
-		'30',
-		'-derivedDataPath',
-		'/tmp/dd',
-		'-allowProvisioningUpdates',
-		'build-for-testing'
-	]);
+	assert.deepEqual(
+		iosPhysicalBuildArguments('/repo/app.xcodeproj', 'platform=iOS,id=device', '/tmp/dd'),
+		[
+			'-project',
+			'/repo/app.xcodeproj',
+			'-scheme',
+			'float-view',
+			'-configuration',
+			'Debug',
+			'-destination',
+			'platform=iOS,id=device',
+			'-destination-timeout',
+			'30',
+			'-derivedDataPath',
+			'/tmp/dd',
+			'-allowProvisioningUpdates',
+			'build-for-testing'
+		]
+	);
 	assert.deepEqual(iosPhysicalLaunchArguments('device', '/tmp/launch.json'), [
 		'devicectl',
 		'device',
@@ -79,7 +92,7 @@ test('physical target command construction uses normal Debug app paths', () => {
 		'--device',
 		'device',
 		'--environment-variables',
-		'{"FLOAT_VIEW_CONFORMANCE_PORT":"8765","FLOAT_VIEW_CONFORMANCE_RESET":"1"}',
+		'{"FLOAT_VIEW_CONFORMANCE_PORT":"11011","FLOAT_VIEW_CONFORMANCE_RESET":"1"}',
 		'--terminate-existing',
 		'--quiet',
 		'--json-output',
@@ -98,7 +111,9 @@ test('physical target command construction uses normal Debug app paths', () => {
 		'--quiet'
 	]);
 	assert.equal(
-		iosPhysicalProcessIdentifier({ result: { process: { processIdentifier: 42 } } }),
+		iosPhysicalProcessIdentifier({
+			result: { process: { processIdentifier: 42 } }
+		}),
 		42
 	);
 	assert.throws(() => iosPhysicalProcessIdentifier({ result: {} }), /no valid application PID/);
@@ -114,12 +129,8 @@ test('physical target command construction uses normal Debug app paths', () => {
 
 test('Android physical permissions follow the device API level', () => {
 	assert.deepEqual(androidRuntimePermissions(22), []);
-	assert.deepEqual(androidRuntimePermissions(23), [
-		'android.permission.ACCESS_FINE_LOCATION'
-	]);
-	assert.deepEqual(androidRuntimePermissions(30), [
-		'android.permission.ACCESS_FINE_LOCATION'
-	]);
+	assert.deepEqual(androidRuntimePermissions(23), ['android.permission.ACCESS_FINE_LOCATION']);
+	assert.deepEqual(androidRuntimePermissions(30), ['android.permission.ACCESS_FINE_LOCATION']);
 	assert.deepEqual(androidRuntimePermissions(31), [
 		'android.permission.BLUETOOTH_SCAN',
 		'android.permission.BLUETOOTH_CONNECT'
@@ -135,9 +146,7 @@ test('Android background lifecycle waits for the Activity to stop', () => {
 		false
 	);
 	assert.equal(
-		androidActivityIsStopped(
-			'packageName=fail.acheron.floatview\nstate=STOPPED stopped=true'
-		),
+		androidActivityIsStopped('packageName=fail.acheron.floatview\nstate=STOPPED stopped=true'),
 		true
 	);
 	assert.equal(androidActivityIsStopped('no Float View activity'), true);

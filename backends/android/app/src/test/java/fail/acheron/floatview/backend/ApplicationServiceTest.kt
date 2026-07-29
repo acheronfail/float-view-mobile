@@ -51,7 +51,8 @@ class ApplicationServiceTest {
     fun `discovery owns scan and deduplicates devices`() {
         val bluetooth = FakeBluetooth()
         val clock = FakeClock()
-        val service = ApplicationService(bluetooth, clock, FakeStore()) {}
+        val events = mutableListOf<Any>()
+        val service = ApplicationService(bluetooth, clock, FakeStore()) { events += it }
 
         val scanId = service.startDiscovery()
         assertEquals("scan-1", scanId)
@@ -69,6 +70,10 @@ class ApplicationServiceTest {
         service.stopDiscovery(scanId)
         assertEquals(null, service.activeScanId)
         assertEquals(1, bluetooth.stopCount)
+        assertEquals(
+            listOf("scan-1", null),
+            events.filterIsInstance<DiscoverySnapshot>().map { it.activeScanId },
+        )
     }
 
     @Test

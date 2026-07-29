@@ -1,7 +1,6 @@
 package fail.acheron.floatview
 
 import android.app.Application
-import android.content.pm.ApplicationInfo
 
 class FloatViewApplication : Application() {
     lateinit var runtime: BackendRuntime
@@ -12,20 +11,24 @@ class FloatViewApplication : Application() {
     override fun onCreate() {
         super.onCreate()
         runtime = BackendRuntime(this)
-        backend = LoopbackServer(
-            assets,
-            runtime.applicationService,
-            runtime.exportPresentationBroker::present,
-            runtime.events,
-            requestedPort = if (isEmulator() || isDebuggable()) 8765 else 0,
-        ).also { it.start() }
+        backend = try {
+            LoopbackServer(
+                assets,
+                runtime.applicationService,
+                runtime.exportPresentationBroker::present,
+                runtime.events,
+                requestedPort = ANDROID_BACKEND_PORT,
+            ).also { it.start() }
+        } catch (error: Exception) {
+            throw backendStartupFailure(ANDROID_BACKEND_PORT, error)
+        }
     }
 
     override fun onTerminate() {
         backend.stop()
         super.onTerminate()
     }
-
-    private fun isDebuggable(): Boolean =
-        applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0
 }
+
+internal fun backendStartupFailure(port: Int, cause: Exception) =
+    IllegalStateException("Failed to bind Float View backend to 127.0.0.1:$port", cause)

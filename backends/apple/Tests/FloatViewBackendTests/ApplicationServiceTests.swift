@@ -53,11 +53,12 @@ func boardProfileUpdatesRemainLocalAndPublishPersistedRevision() throws {
 func discoveryOwnsScanAndDeduplicatesDevices() throws {
   let bluetooth = FakeBluetooth()
   let clock = MutableClock()
+  let events = CollectingEvents()
   let service = ApplicationService(
     bluetooth: bluetooth,
     clock: clock,
     logStore: MemoryStore(),
-    events: IgnoreEvents()
+    events: events
   )
 
   let scanID = try service.startDiscovery()
@@ -84,6 +85,8 @@ func discoveryOwnsScanAndDeduplicatesDevices() throws {
   try service.stopDiscovery(scanID: scanID)
   #expect(service.activeScanID == nil)
   #expect(bluetooth.stopCount == 1)
+  #expect(events.values.compactMap { ($0 as? DiscoverySnapshot)?.activeScanID } == ["scan-1"])
+  #expect((events.values.last as? DiscoverySnapshot)?.activeScanID == nil)
 }
 
 @Test

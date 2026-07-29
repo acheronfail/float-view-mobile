@@ -86,7 +86,7 @@ final class AppBackend: ObservableObject {
     frontendServer = LoopbackServer(
       html: html,
       port: ProcessInfo.processInfo.environment["FLOAT_VIEW_CONFORMANCE_PORT"]
-        .flatMap(UInt16.init) ?? 0,
+        .flatMap(UInt16.init) ?? PlatformLoopbackPort.iOS,
       applicationService: applicationService,
       exportPresenter: { @Sendable value in IOSExportPresenter.schedule(value) },
       events: events
@@ -129,7 +129,11 @@ final class AppBackend: ObservableObject {
     } catch {
       frontend = nil
       #if DEBUG
-      print("[FloatViewState] frontend state=failed")
+      let message = loopbackStartupFailure(
+        port: PlatformLoopbackPort.iOS,
+        error: error
+      )
+      print("[FloatViewState] frontend state=failed \(message)")
       #endif
     }
   }

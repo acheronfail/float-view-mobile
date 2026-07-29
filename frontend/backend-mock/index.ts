@@ -6,8 +6,10 @@ import { pathToFileURL } from 'node:url';
 import { WebSocketServer } from 'ws';
 import { MockBackend } from './api-v1.ts';
 
-const DEFAULT_PORT = 3001;
-const expectedOrigin = 'http://127.0.0.1:5173';
+export const MOCK_BACKEND_PORT = 11003;
+export const DEVELOPMENT_ORIGIN = 'http://127.0.0.1:11002';
+const DEFAULT_PORT = MOCK_BACKEND_PORT;
+const expectedOrigin = DEVELOPMENT_ORIGIN;
 let sessionToken = randomBytes(32).toString('base64url');
 let mockRunning = false;
 

@@ -14,8 +14,22 @@ export async function loadBootstrap(fetcher: typeof fetch = fetch): Promise<Boot
 	return (await response.json()) as BootstrapDocument;
 }
 
-export function connectBootstrap(document: BootstrapDocument): Promise<ApiClient> {
-	const url = new URL(document.webSocketUrl, window.location.href);
+export function bootstrapWebSocketUrl(
+	document: BootstrapDocument,
+	base: string,
+	development: boolean
+): URL {
+	const url = new URL(document.webSocketUrl, base);
+	if (development) {
+		const frontend = new URL(base);
+		url.protocol = frontend.protocol === 'https:' ? 'wss:' : 'ws:';
+		url.host = frontend.host;
+	}
 	if (document.sessionToken) url.searchParams.set('token', document.sessionToken);
+	return url;
+}
+
+export function connectBootstrap(document: BootstrapDocument): Promise<ApiClient> {
+	const url = bootstrapWebSocketUrl(document, window.location.href, import.meta.env.DEV);
 	return connectApiClient(url.toString());
 }

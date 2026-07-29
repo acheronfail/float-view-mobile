@@ -5,8 +5,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { PhysicalTarget, Target } from '../src/suite.ts';
 
-const devicePort = 8765;
-const hostPort = 8766;
+export const IOS_BACKEND_PORT = 11011;
+const devicePort = IOS_BACKEND_PORT;
+const hostPort = IOS_BACKEND_PORT;
 const bundleId = 'fail.acheron.float-view';
 const lifecycleRunnerBundleId = 'fail.acheron.float-view.lifecycle-tests.xctrunner';
 const MAX_COMMAND_OUTPUT = 64 * 1_024;
@@ -34,7 +35,9 @@ export function iosPhysicalTarget(deviceId: string): PhysicalTarget {
 	const derived = '/tmp/float-view-ios-physical-conformance';
 	const destination = `platform=iOS,id=${deviceId}`;
 	const lifecycle = (method: 'testBackground' | 'testForeground') =>
-		runBuffered('xcodebuild', [
+		runBuffered(
+			'xcodebuild',
+			[
 				'-project',
 				project,
 				'-scheme',
@@ -50,7 +53,10 @@ export function iosPhysicalTarget(deviceId: string): PhysicalTarget {
 				'-allowProvisioningUpdates',
 				`-only-testing:float-view-lifecycle-tests/FloatViewLifecycleTests/${method}`,
 				'test-without-building'
-			], `iOS lifecycle ${method}`, LIFECYCLE_TIMEOUT_MS);
+			],
+			`iOS lifecycle ${method}`,
+			LIFECYCLE_TIMEOUT_MS
+		);
 	const prepareSuite = async (report: (message: string) => void = () => undefined) => {
 		if (prepared) return;
 		report('iOS: building application...');
@@ -146,15 +152,7 @@ export function iosPhysicalTarget(deviceId: string): PhysicalTarget {
 			report('iOS: removing lifecycle runner...');
 			await runBuffered(
 				'xcrun',
-				[
-					'devicectl',
-					'device',
-					'uninstall',
-					'app',
-					'--device',
-					deviceId,
-					lifecycleRunnerBundleId
-				],
+				['devicectl', 'device', 'uninstall', 'app', '--device', deviceId, lifecycleRunnerBundleId],
 				'iOS lifecycle runner removal',
 				CLEANUP_TIMEOUT_MS
 			).catch(() => undefined);
@@ -269,7 +267,9 @@ function makeSimulatorTarget(): Target {
 			} catch {
 				// bootstatus distinguishes an already-running simulator from a real failure.
 			}
-			execFileSync('xcrun', ['simctl', 'bootstatus', device, '-b'], { stdio: 'inherit' });
+			execFileSync('xcrun', ['simctl', 'bootstatus', device, '-b'], {
+				stdio: 'inherit'
+			});
 			execFileSync(
 				'xcodebuild',
 				[
@@ -289,7 +289,9 @@ function makeSimulatorTarget(): Target {
 				{ stdio: 'inherit' }
 			);
 			try {
-				execFileSync('xcrun', ['simctl', 'uninstall', device, bundleId], { stdio: 'ignore' });
+				execFileSync('xcrun', ['simctl', 'uninstall', device, bundleId], {
+					stdio: 'ignore'
+				});
 			} catch {
 				// A clean simulator may not have the application installed.
 			}
@@ -299,22 +301,20 @@ function makeSimulatorTarget(): Target {
 				device,
 				`${derived}/Build/Products/Debug-iphonesimulator/float-view.app`
 			]);
-			execFileSync(
-				'xcrun',
-				['simctl', 'launch', '--terminate-running-process', device, bundleId],
-				{
-					env: {
-						...process.env,
-						SIMCTL_CHILD_FLOAT_VIEW_CONFORMANCE_PORT: String(devicePort)
-					}
+			execFileSync('xcrun', ['simctl', 'launch', '--terminate-running-process', device, bundleId], {
+				env: {
+					...process.env,
+					SIMCTL_CHILD_FLOAT_VIEW_CONFORMANCE_PORT: String(devicePort)
 				}
-			);
+			});
 			return bootstrap(devicePort, devicePort, 'iOS Simulator');
 		},
 		endpoint: () => bootstrap(devicePort, devicePort, 'iOS Simulator'),
 		async stop() {
 			if (!device) return;
-			execFileSync('xcrun', ['simctl', 'terminate', device, bundleId], { stdio: 'ignore' });
+			execFileSync('xcrun', ['simctl', 'terminate', device, bundleId], {
+				stdio: 'ignore'
+			});
 			device = '';
 		}
 	};
@@ -377,14 +377,11 @@ async function stopChild(child: ChildProcess | undefined) {
 	});
 }
 
-function runBuffered(
-	command: string,
-	arguments_: string[],
-	label: string,
-	timeoutMs: number
-) {
+function runBuffered(command: string, arguments_: string[], label: string, timeoutMs: number) {
 	return new Promise<void>((resolve, reject) => {
-		const child = spawn(command, arguments_, { stdio: ['ignore', 'pipe', 'pipe'] });
+		const child = spawn(command, arguments_, {
+			stdio: ['ignore', 'pipe', 'pipe']
+		});
 		let output = '';
 		let timedOut = false;
 		let forceTimer: NodeJS.Timeout | undefined;

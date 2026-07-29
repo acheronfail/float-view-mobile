@@ -6,8 +6,8 @@ setup:
     cd conformance && npm ci
     pio pkg install -d tools/vesc-test-device
 
-dev:
-    cd frontend && npm run dev
+dev platform="mock" target="":
+    cd conformance && node --strip-types src/dev.ts "{{ platform }}" "{{ target }}"
 
 build:
     cd frontend && npm run build
@@ -105,6 +105,9 @@ audit:
     cmp -s frontend/build/index.html backends/apple/Sources/FloatViewMac/Resources/index.html
     ! rg -n 'system\.hello|system\.getSnapshot|telemetrySubscriptions|loggingJobs' \
       frontend backends conformance
+    ! rg -n '\b([3]001|[5]173|[8]765|[8]766)\b' \
+      frontend backends conformance justfile \
+      -g '!frontend/build/**' -g '!**/Resources/index.html'
 
 verify:
     just build

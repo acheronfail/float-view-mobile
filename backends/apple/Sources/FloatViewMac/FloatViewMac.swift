@@ -17,19 +17,23 @@ enum FloatViewMac {
       ?? Bundle.module.url(forResource: "index", withExtension: "html", subdirectory: "Resources")
     guard let htmlURL else { throw CocoaError(.fileNoSuchFile) }
     let html = try Data(contentsOf: htmlURL)
+    if CommandLine.arguments.contains("--browser-host") {
+      let application = NSApplication.shared
+      application.setActivationPolicy(.accessory)
+      let runtime = MacBackendRuntime(html: html)
+      let server = runtime.makeServer(exportPresenter: MacExportPresenter.schedule)
+      try server.start()
+      try printReadiness(server: server, runtime: runtime)
+      application.run()
+      server.stop()
+      runtime.shutdown()
+      return
+    }
     if CommandLine.arguments.contains("--test-host") {
       let runtime = MacBackendRuntime(html: html)
       let server = runtime.makeServer()
       try server.start()
-      let readiness: [String: Any] = [
-        "webSocketUrl": "ws://127.0.0.1:\(server.port)/api/ws",
-        "sessionToken": server.token,
-        "origin": server.origin,
-        "savedDeviceId": runtime.testSavedDeviceID ?? NSNull(),
-      ]
-      let data = try JSONSerialization.data(withJSONObject: readiness)
-      print(String(decoding: data, as: UTF8.self))
-      fflush(stdout)
+      try printReadiness(server: server, runtime: runtime)
       RunLoop.current.run()
       return
     }
@@ -39,6 +43,21 @@ enum FloatViewMac {
     application.delegate = delegate
     application.setActivationPolicy(.regular)
     application.run()
+  }
+
+  private static func printReadiness(
+    server: LoopbackServer,
+    runtime: MacBackendRuntime
+  ) throws {
+    let readiness: [String: Any] = [
+      "webSocketUrl": "ws://127.0.0.1:\(server.port)/api/ws",
+      "sessionToken": server.token,
+      "origin": server.origin,
+      "savedDeviceId": runtime.testSavedDeviceID ?? NSNull(),
+    ]
+    let data = try JSONSerialization.data(withJSONObject: readiness)
+    print(String(decoding: data, as: UTF8.self))
+    fflush(stdout)
   }
 }
 
@@ -127,7 +146,11 @@ private final class MacAppDelegate: NSObject, NSApplicationDelegate, NSWindowDel
       self.window = window
       trace("[FloatViewState] frontend state=ready generation=\(generation)")
     } catch {
-      trace("[FloatViewState] frontend state=failed")
+      let message = loopbackStartupFailure(
+        port: PlatformLoopbackPort.macOS,
+        error: error
+      )
+      trace("[FloatViewState] frontend state=failed \(message)")
     }
   }
 
@@ -291,6 +314,7 @@ private final class MacBackendRuntime: @unchecked Sendable {
   ) -> LoopbackServer {
     LoopbackServer(
       html: html,
+      port: PlatformLoopbackPort.macOS,
       applicationService: applicationService,
       exportPresenter: exportPresenter,
       events: events

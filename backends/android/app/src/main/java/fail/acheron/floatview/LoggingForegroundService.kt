@@ -23,6 +23,7 @@ class LoggingForegroundService : Service() {
         ensureChannel()
         startForeground(NOTIFICATION_ID, notification())
         running.set(true)
+        if (!desiredRunning.get()) stopSelf()
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -86,8 +87,10 @@ class LoggingForegroundService : Service() {
         private const val NOTIFICATION_ID = 1001
         private const val ACTION_STOP = "fail.acheron.floatview.STOP_LOGGING"
         internal val running = AtomicBoolean(false)
+        private val desiredRunning = AtomicBoolean(false)
 
         fun start(context: Context) {
+            desiredRunning.set(true)
             ContextCompat.startForegroundService(
                 context,
                 Intent(context, LoggingForegroundService::class.java),
@@ -95,7 +98,10 @@ class LoggingForegroundService : Service() {
         }
 
         fun stop(context: Context) {
-            context.stopService(Intent(context, LoggingForegroundService::class.java))
+            desiredRunning.set(false)
+            if (running.get()) {
+                context.stopService(Intent(context, LoggingForegroundService::class.java))
+            }
         }
     }
 }

@@ -5,6 +5,8 @@ import { execFileSync, spawn, type ChildProcess } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import type { PhysicalTarget, Target } from '../src/suite.ts';
 
+export const MACOS_BACKEND_PORT = 11010;
+
 export const macosTarget: Target = makeMacosTarget(false);
 export const macosPhysicalTarget: PhysicalTarget = {
 	...makeMacosTarget(true),
@@ -21,10 +23,10 @@ function makeMacosTarget(physical: boolean): Target {
 		name: physical ? 'macos-physical' : 'macos',
 		async start() {
 			const root = fileURLToPath(new URL('../../', import.meta.url));
-			const executable =
-				process.env.FLOAT_VIEW_MACOS_EXECUTABLE ??
-				buildMacosExecutable(root);
-			logRoot = mkdtempSync(join(tmpdir(), `float-view-macos-${physical ? 'physical' : 'software'}-`));
+			const executable = process.env.FLOAT_VIEW_MACOS_EXECUTABLE ?? buildMacosExecutable(root);
+			logRoot = mkdtempSync(
+				join(tmpdir(), `float-view-macos-${physical ? 'physical' : 'software'}-`)
+			);
 			const env: NodeJS.ProcessEnv = {
 				...process.env,
 				FLOAT_VIEW_FRONTEND_HTML: `${root}/frontend/build/index.html`,
@@ -76,11 +78,10 @@ export function macosLaunchArguments() {
 function buildMacosExecutable(root: string) {
 	const cwd = `${root}/backends/apple`;
 	const scratch = '/tmp/float-view-swift-build';
-	execFileSync(
-		'swift',
-		['build', '--scratch-path', scratch, '--product', 'FloatViewMac'],
-		{ cwd, stdio: 'inherit' }
-	);
+	execFileSync('swift', ['build', '--scratch-path', scratch, '--product', 'FloatViewMac'], {
+		cwd,
+		stdio: 'inherit'
+	});
 	const binaryRoot = execFileSync(
 		'swift',
 		['build', '--scratch-path', scratch, '--show-bin-path'],
@@ -92,7 +93,10 @@ function buildMacosExecutable(root: string) {
 function firstLine(stream: NodeJS.ReadableStream, timeoutMs = 10_000): Promise<string> {
 	return new Promise((resolve, reject) => {
 		let buffer = '';
-		const timeout = setTimeout(() => reject(new Error('macOS backend did not become ready')), timeoutMs);
+		const timeout = setTimeout(
+			() => reject(new Error('macOS backend did not become ready')),
+			timeoutMs
+		);
 		stream.on('data', (chunk: Buffer) => {
 			buffer += chunk.toString();
 			const newline = buffer.indexOf('\n');

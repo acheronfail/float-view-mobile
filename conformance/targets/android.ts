@@ -2,8 +2,9 @@ import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import type { PhysicalTarget, Target } from '../src/suite.ts';
 
-const hostPort = 8766;
-const devicePort = 8765;
+export const ANDROID_BACKEND_PORT = 11012;
+const hostPort = ANDROID_BACKEND_PORT;
+const devicePort = ANDROID_BACKEND_PORT;
 const applicationId = 'fail.acheron.floatview';
 const activity = `${applicationId}/${applicationId}.MainActivity`;
 
@@ -17,11 +18,9 @@ export function androidPhysicalTarget(deviceSerial: string): PhysicalTarget {
 		if (prepared) return;
 		assertPhysicalDevice(deviceSerial);
 		report('Android: building application...');
-		execFileSync(
-			`${root}/backends/android/gradlew`,
-			androidBuildArguments(root),
-			{ stdio: 'inherit' }
-		);
+		execFileSync(`${root}/backends/android/gradlew`, androidBuildArguments(root), {
+			stdio: 'inherit'
+		});
 		report('Android: application built');
 		report('Android: installing application...');
 		adb(
@@ -81,12 +80,15 @@ function makeAndroidTarget(configuredSerial?: string): Target {
 		async start() {
 			serial = configuredSerial ?? process.env.FLOAT_VIEW_ANDROID_EMULATOR ?? findEmulator();
 			const root = fileURLToPath(new URL('../../', import.meta.url));
-			execFileSync(
-				`${root}/backends/android/gradlew`,
-				androidBuildArguments(root),
-				{ stdio: 'inherit' }
+			execFileSync(`${root}/backends/android/gradlew`, androidBuildArguments(root), {
+				stdio: 'inherit'
+			});
+			adb(
+				serial,
+				'install',
+				'-r',
+				`${root}/backends/android/app/build/outputs/apk/debug/app-debug.apk`
 			);
-			adb(serial, 'install', '-r', `${root}/backends/android/app/build/outputs/apk/debug/app-debug.apk`);
 			adb(serial, 'shell', 'pm', 'clear', applicationId);
 			const apiLevel = androidApiLevel(serial);
 			for (const permission of androidRuntimePermissions(apiLevel)) {
@@ -116,10 +118,7 @@ function makeAndroidTarget(configuredSerial?: string): Target {
 
 export function androidRuntimePermissions(apiLevel: number) {
 	if (apiLevel >= 31) {
-		return [
-			'android.permission.BLUETOOTH_SCAN',
-			'android.permission.BLUETOOTH_CONNECT'
-		];
+		return ['android.permission.BLUETOOTH_SCAN', 'android.permission.BLUETOOTH_CONNECT'];
 	}
 	if (apiLevel >= 23) return ['android.permission.ACCESS_FINE_LOCATION'];
 	return [];
@@ -133,7 +132,9 @@ function adb(serial: string, ...args: string[]) {
 }
 
 function adbOutput(serial: string, ...args: string[]) {
-	return execFileSync('adb', ['-s', serial, ...args], { encoding: 'utf8' }).trim();
+	return execFileSync('adb', ['-s', serial, ...args], {
+		encoding: 'utf8'
+	}).trim();
 }
 
 function adbBestEffort(serial: string, ...args: string[]) {
@@ -156,9 +157,7 @@ export function androidActivityIsStopped(activities: string) {
 	const marker = `packageName=${applicationId}`;
 	let offset = 0;
 	while ((offset = activities.indexOf(marker, offset)) >= 0) {
-		const state = /\n\s*state=([A-Z_]+) stopped=(true|false)/.exec(
-			activities.slice(offset)
-		);
+		const state = /\n\s*state=([A-Z_]+) stopped=(true|false)/.exec(activities.slice(offset));
 		if (state?.[1] !== 'STOPPED' || state[2] !== 'true') return false;
 		offset += marker.length;
 	}
@@ -232,7 +231,10 @@ async function bootstrap() {
 				url.hostname = '127.0.0.1';
 				url.port = String(hostPort);
 				url.searchParams.set('token', value.sessionToken);
-				return { url: url.toString(), origin: `http://127.0.0.1:${devicePort}` };
+				return {
+					url: url.toString(),
+					origin: `http://127.0.0.1:${devicePort}`
+				};
 			}
 		} catch {}
 		await new Promise((resolve) => setTimeout(resolve, 100));

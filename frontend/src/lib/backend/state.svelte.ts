@@ -53,6 +53,10 @@ export class BackendState {
 		return this.snapshot?.discoveredDevices ?? [];
 	}
 
+	get scanning() {
+		return this.snapshot?.bluetooth.scanning ?? false;
+	}
+
 	get firmware() {
 		return this.snapshot?.activeConnection?.firmware ?? null;
 	}

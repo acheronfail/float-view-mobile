@@ -2,6 +2,15 @@ import FlyingFox
 import Foundation
 import Security
 
+public enum PlatformLoopbackPort {
+  public static let macOS: UInt16 = 11_010
+  public static let iOS: UInt16 = 11_011
+}
+
+public func loopbackStartupFailure(port: UInt16, error: any Error) -> String {
+  "failed to bind Float View backend to 127.0.0.1:\(port): \(error)"
+}
+
 public final class LoopbackServer: @unchecked Sendable {
   public let token: String
   public private(set) var port: UInt16 = 0
@@ -132,8 +141,10 @@ public final class LoopbackServer: @unchecked Sendable {
         return success(bluetoothPayload(applicationService.requestBluetoothPermission()))
       case "bluetooth.scan":
         let scanID = try applicationService.startDiscovery()
+        let requestedTimeoutMs = (params["timeoutMs"] as? NSNumber)?.intValue ?? 5_000
+        let timeoutMs = min(max(requestedTimeoutMs, 1), 60_000)
         Task.detached { [weak applicationService] in
-          try? await Task.sleep(for: .seconds(5))
+          try? await Task.sleep(for: .milliseconds(timeoutMs))
           try? applicationService?.stopDiscovery(scanID: scanID)
         }
         return success(["accepted": true])
@@ -501,7 +512,8 @@ private func invalidatesState(_ event: any Sendable) -> Bool {
       return false
     }
   }
-  return event is BluetoothState || event is ConnectionState || event is KnownDevice ||
+  return event is BluetoothState || event is DiscoverySnapshot || event is ConnectionState ||
+    event is KnownDevice ||
     event is SessionRecord || event is BoardProfileRecord || event is SettingsRecord
 }
 
