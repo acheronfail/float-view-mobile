@@ -126,6 +126,36 @@ export class BackendState {
 		await this.run((client) => client.request('device.disconnect', {}).then(() => undefined));
 	}
 
+	async updateSavedDeviceName(
+		savedDeviceId: string,
+		customDisplayName: string | null
+	): Promise<void> {
+		const device = this.savedDevices.find((value) => value.savedDeviceId === savedDeviceId);
+		if (!device) return;
+		await this.run(async (client) => {
+			const updated = await client.request('savedDevice.update', {
+				savedDeviceId,
+				expectedRevision: device.revision,
+				customDisplayName
+			});
+			if (!this.snapshot) return;
+			this.acceptState({
+				...this.snapshot,
+				savedDevices: this.snapshot.savedDevices.map((value) =>
+					value.savedDeviceId === savedDeviceId ? updated : value
+				),
+				activeConnection:
+					this.snapshot.activeConnection?.savedDeviceId === savedDeviceId
+						? {
+								...this.snapshot.activeConnection,
+								name: updated.displayName,
+								displayName: updated.displayName
+							}
+						: this.snapshot.activeConnection
+			});
+		});
+	}
+
 	async updateSessionSettings(patch: Omit<Partial<Settings>, 'revision'>): Promise<void> {
 		const settings = this.settings;
 		if (!settings) return;

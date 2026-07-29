@@ -23,6 +23,7 @@ import fail.acheron.floatview.backend.SessionStorePort
 import fail.acheron.floatview.backend.SessionSummaryRecord
 import fail.acheron.floatview.backend.SettingsRecord
 import fail.acheron.floatview.backend.ThemePreference
+import fail.acheron.floatview.backend.UnitPreference
 import fail.acheron.floatview.backend.TelemetrySample
 import android.util.Base64
 import org.json.JSONObject
@@ -54,7 +55,7 @@ class SQLiteLogStore(
     }
 
     @Synchronized
-    override fun create(deviceId: DeviceId, at: Instant): SessionRecord {
+    override fun create(deviceId: DeviceId, advertisedName: String?, at: Instant): SessionRecord {
         check(StoragePolicy.level(availableBytes()) != StorageLevel.STOP) {
             "Storage below durable logging stop threshold"
         }
@@ -81,7 +82,7 @@ class SQLiteLogStore(
         val started = at.toEpochMilli()
         catalogDb.beginTransaction()
         try {
-            val savedDevice = ensureSavedDevice(catalogDb, deviceId, at)
+            val savedDevice = ensureSavedDevice(catalogDb, deviceId, advertisedName, at)
             val profile = boardProfile(catalogDb, savedDevice.savedDeviceId, at)
             val settings = settings(catalogDb)
             val deviceSnapshot = JSONObject()
@@ -125,6 +126,8 @@ class SQLiteLogStore(
         return SessionRecord(sessionId, jobId, deviceId, at, 0, true).also { current = it }
     }
 
+    fun create(deviceId: DeviceId, at: Instant): SessionRecord = create(deviceId, null, at)
+
     @Synchronized
     override fun append(jobId: JobId, samples: List<TelemetrySample>) {
         val record = requireNotNull(current) { "No active session" }
@@ -143,8 +146,8 @@ class SQLiteLogStore(
                       sequence, observed_at_ms, monotonic_elapsed_ms, ride_state,
                       raw_pack_voltage_v, duty_cycle, controller_temp_c, motor_temp_c,
                       footpad_state, extension_json, motor_current_a, battery_current_a,
-                      erpm, speed_kph
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                      erpm, speed_kph, board_state
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """.trimIndent(),
                     arrayOf(
                         sample.sequence, sample.observedAt.toEpochMilli(), sample.elapsedMs,
@@ -155,6 +158,7 @@ class SQLiteLogStore(
                         sample.extension["batteryCurrentA"],
                         sample.extension["erpm"],
                         sample.extension["speedKph"],
+                        sample.boardState,
                     ),
                 )
             }
@@ -362,9 +366,9 @@ class SQLiteLogStore(
         val db = catalog.writableDatabase
         return db.rawQuery(
             """
-            SELECT d.saved_device_id, d.device_history_id, d.display_name,
-                   d.advertised_name, d.last_seen_at_ms, d.last_connected_at_ms,
-                   COALESCE(p.json, '{}')
+            SELECT d.saved_device_id, d.device_history_id, d.revision,
+                   d.custom_display_name, d.advertised_name, d.opaque_platform_id,
+                   d.last_seen_at_ms, d.last_connected_at_ms, COALESCE(p.json, '{}')
             FROM saved_device d
             LEFT JOIN board_profile p ON p.saved_device_id = d.saved_device_id
             ORDER BY COALESCE(d.last_connected_at_ms, d.created_at_ms) DESC
@@ -373,20 +377,61 @@ class SQLiteLogStore(
         ).use { cursor ->
             buildList {
                 while (cursor.moveToNext()) {
-                    val valuesJson = cursor.getString(6)
+                    val valuesJson = cursor.getString(8)
+                    val customName = cursor.optionalString(3)
+                    val advertisedName = cursor.optionalString(4)
+                    val identifier = cursor.getString(5)
                     add(
                         SavedDeviceRecord(
                             savedDeviceId = cursor.getString(0),
                             deviceHistoryId = cursor.getString(1),
-                            displayName = cursor.getString(2),
-                            advertisedName = cursor.optionalString(3),
-                            lastSeenAt = cursor.optionalInstant(4),
-                            lastConnectedAt = cursor.optionalInstant(5),
+                            revision = cursor.getInt(2),
+                            displayName = resolvedDisplayName(customName, advertisedName, identifier),
+                            customDisplayName = customName,
+                            advertisedName = advertisedName,
+                            bluetoothIdentifier = identifier,
+                            lastSeenAt = cursor.optionalInstant(6),
+                            lastConnectedAt = cursor.optionalInstant(7),
                             profileComplete = missingFields(valuesJson).isEmpty(),
                         ),
                     )
                 }
             }
+        }
+    }
+
+    @Synchronized
+    override fun updateSavedDevice(
+        savedDeviceId: String,
+        expectedRevision: Int,
+        customDisplayName: String?,
+        at: Instant,
+    ): SavedDeviceRecord {
+        val normalized = customDisplayName?.trim()?.takeIf(String::isNotEmpty)
+        if ((normalized?.toByteArray()?.size ?: 0) > 128) {
+            throw ProductStoreException.InvalidSavedDevicePatch
+        }
+        val db = catalog.writableDatabase
+        db.beginTransaction()
+        return try {
+            db.execSQL(
+                """
+                UPDATE saved_device
+                SET revision = revision + 1, custom_display_name = ?
+                WHERE saved_device_id = ? AND revision = ?
+                """.trimIndent(),
+                arrayOf(normalized, savedDeviceId, expectedRevision),
+            )
+            val changed = android.database.DatabaseUtils.longForQuery(db, "SELECT changes()", null)
+            if (changed != 1L) {
+                val current = savedDevices().firstOrNull { it.savedDeviceId == savedDeviceId }
+                    ?: throw ProductStoreException.SavedDeviceNotFound
+                throw ProductStoreException.SavedDeviceRevisionConflict(current.revision)
+            }
+            savedDevices().first { it.savedDeviceId == savedDeviceId }
+                .also { db.setTransactionSuccessful() }
+        } finally {
+            db.endTransaction()
         }
     }
 
@@ -657,6 +702,7 @@ class SQLiteLogStore(
         .put("automaticSessionLinkingEnabled", value.automaticSessionLinkingEnabled)
         .put("sessionLinkWindowMs", value.sessionLinkWindowMs)
         .put("themePreference", value.themePreference.wireValue)
+        .put("unitPreference", value.unitPreference.wireValue)
 
     private fun validatedSettings(values: JSONObject, revision: Int): SettingsRecord {
         fun integer(name: String, range: LongRange): Long {
@@ -672,6 +718,10 @@ class SQLiteLogStore(
             (values.opt(name) as? String)
                 ?.let(ThemePreference::fromWire)
                 ?: throw ProductStoreException.InvalidSettingsPatch
+        fun unitPreference(name: String): UnitPreference =
+            (values.opt(name) as? String)
+                ?.let(UnitPreference::fromWire)
+                ?: throw ProductStoreException.InvalidSettingsPatch
         return SettingsRecord(
             revision = revision,
             idleProbeIntervalMs = integer("idleProbeIntervalMs", 100L..10_000L),
@@ -682,6 +732,7 @@ class SQLiteLogStore(
             automaticSessionLinkingEnabled = boolean("automaticSessionLinkingEnabled"),
             sessionLinkWindowMs = integer("sessionLinkWindowMs", 60_000L..86_400_000L),
             themePreference = themePreference("themePreference"),
+            unitPreference = unitPreference("unitPreference"),
         )
     }
 
@@ -829,14 +880,14 @@ class SQLiteLogStore(
             writer.appendLine(
                 "sequence,observed_at_ms,elapsed_ms,ride_state,pack_voltage_v,duty_cycle," +
                     "controller_temp_c,motor_temp_c,footpad_state,motor_current_a," +
-                    "battery_current_a,erpm,speed_kph,extension_json",
+                    "battery_current_a,erpm,speed_kph,board_state,extension_json",
             )
             db.rawQuery(
                 """
                 SELECT sequence, observed_at_ms, monotonic_elapsed_ms, ride_state,
                        raw_pack_voltage_v, duty_cycle, controller_temp_c, motor_temp_c,
                        footpad_state, motor_current_a, battery_current_a, erpm, speed_kph,
-                       extension_json
+                       board_state, extension_json
                 FROM sample ORDER BY sequence
                 """.trimIndent(),
                 null,
@@ -844,7 +895,7 @@ class SQLiteLogStore(
                 while (cursor.moveToNext()) {
                     writer.appendLine(
                         (0 until cursor.columnCount).joinToString(",") { index ->
-                            if (cursor.isNull(index)) "" else if (index == 3 || index == 13) {
+                            if (cursor.isNull(index)) "" else if (index == 3 || index == 14) {
                                 csv(cursor.getString(index))
                             } else {
                                 cursor.getString(index)
@@ -1104,29 +1155,40 @@ class SQLiteLogStore(
     private fun ensureSavedDevice(
         db: SQLiteDatabase,
         deviceId: DeviceId,
+        advertisedName: String?,
         at: Instant,
     ): SavedDeviceRecord {
         db.rawQuery(
             """
-            SELECT saved_device_id, device_history_id, display_name, advertised_name,
-                   last_seen_at_ms, last_connected_at_ms
+            SELECT saved_device_id, device_history_id, revision, custom_display_name,
+                   advertised_name, opaque_platform_id, last_seen_at_ms, last_connected_at_ms
             FROM saved_device WHERE opaque_platform_id = ? LIMIT 1
             """.trimIndent(),
             arrayOf(deviceId.value),
         ).use { cursor ->
             if (cursor.moveToFirst()) {
+                val customName = cursor.optionalString(3)
+                val storedAdvertisedName = advertisedName ?: cursor.optionalString(4)
+                val identifier = cursor.getString(5)
                 val record = SavedDeviceRecord(
                     savedDeviceId = cursor.getString(0),
                     deviceHistoryId = cursor.getString(1),
-                    displayName = cursor.getString(2),
-                    advertisedName = cursor.optionalString(3),
-                    lastSeenAt = cursor.optionalInstant(4),
+                    revision = cursor.getInt(2),
+                    displayName = resolvedDisplayName(customName, storedAdvertisedName, identifier),
+                    customDisplayName = customName,
+                    advertisedName = storedAdvertisedName,
+                    bluetoothIdentifier = identifier,
+                    lastSeenAt = cursor.optionalInstant(6),
                     lastConnectedAt = at,
                     profileComplete = false,
                 )
                 db.execSQL(
-                    "UPDATE saved_device SET last_connected_at_ms = ? WHERE saved_device_id = ?",
-                    arrayOf(at.toEpochMilli(), record.savedDeviceId),
+                    """
+                    UPDATE saved_device
+                    SET last_connected_at_ms = ?, advertised_name = COALESCE(?, advertised_name)
+                    WHERE saved_device_id = ?
+                    """.trimIndent(),
+                    arrayOf(at.toEpochMilli(), advertisedName, record.savedDeviceId),
                 )
                 boardProfile(db, record.savedDeviceId, at)
                 return record
@@ -1137,14 +1199,15 @@ class SQLiteLogStore(
         db.execSQL(
             """
             INSERT INTO saved_device(
-              saved_device_id, device_history_id, opaque_platform_id, display_name,
+              saved_device_id, device_history_id, opaque_platform_id, advertised_name,
               created_at_ms, last_connected_at_ms
-            ) VALUES (?, ?, ?, 'Board', ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?)
             """.trimIndent(),
             arrayOf(
                 savedDeviceId,
                 deviceHistoryId,
                 deviceId.value,
+                advertisedName,
                 at.toEpochMilli(),
                 at.toEpochMilli(),
             ),
@@ -1153,7 +1216,10 @@ class SQLiteLogStore(
         return SavedDeviceRecord(
             savedDeviceId,
             deviceHistoryId,
-            "Board",
+            0,
+            resolvedDisplayName(null, advertisedName, deviceId.value),
+            advertisedName = advertisedName,
+            bluetoothIdentifier = deviceId.value,
             lastConnectedAt = at,
             profileComplete = false,
         )
@@ -1228,6 +1294,14 @@ class SQLiteLogStore(
             !values.has(key) || values.isNull(key)
         }
     }
+
+    private fun resolvedDisplayName(
+        customDisplayName: String?,
+        advertisedName: String?,
+        bluetoothIdentifier: String,
+    ): String = customDisplayName?.takeIf(String::isNotBlank)
+        ?: advertisedName?.takeIf(String::isNotBlank)
+        ?: bluetoothIdentifier
 
     private fun validInitialProfileValues(values: JSONObject): Boolean {
         fun integerInRange(key: String, range: IntRange): Boolean {
@@ -1325,6 +1399,7 @@ class SQLiteLogStore(
             "automaticSessionLinkingEnabled",
             "sessionLinkWindowMs",
             "themePreference",
+            "unitPreference",
         )
         const val MAX_PROFILE_BYTES = 65_536
         val SERIES_COLUMNS = mapOf(
@@ -1337,6 +1412,7 @@ class SQLiteLogStore(
             "batteryCurrentA" to "battery_current_a",
             "erpm" to "erpm",
             "speedKph" to "speed_kph",
+            "boardState" to "board_state",
         )
         val SESSION_SORT_COLUMNS = mapOf(
             "startedAt" to "started_at_ms",

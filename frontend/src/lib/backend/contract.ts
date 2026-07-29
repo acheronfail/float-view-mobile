@@ -51,15 +51,41 @@ export interface FirmwareInfo {
 	supported: boolean;
 }
 
+export type RideState = 'idle' | 'riding' | 'unknown';
+
+export interface LiveSample {
+	sequence: number;
+	observedAt: string;
+	elapsedMs: number;
+	rideState: RideState;
+	boardState: number | null;
+	footpadState: number | null;
+	packVoltageV: number | null;
+	dutyCycle: number | null;
+	controllerTempC: number | null;
+	motorTempC: number | null;
+	motorCurrentA: number | null;
+	batteryCurrentA: number | null;
+	erpm: number | null;
+	speedKph: number | null;
+}
+
 export interface ActiveConnection extends Device {
 	firmware: FirmwareInfo | null;
+	savedDeviceId: string | null;
+	displayName: string;
+	activeSession: SessionSummary | null;
+	latestSample: LiveSample | null;
 }
 
 export interface SavedDevice {
 	savedDeviceId: string;
 	deviceHistoryId: string;
+	revision: number;
 	displayName: string;
+	customDisplayName?: string | null;
 	advertisedName?: string | null;
+	bluetoothIdentifier: string;
 	lastSeenAt?: string | null;
 	lastConnectedAt?: string | null;
 	profileComplete: boolean;
@@ -100,6 +126,7 @@ export interface SessionGroup {
 }
 
 export type ThemePreference = 'system' | 'light' | 'dark';
+export type UnitPreference = 'metric' | 'imperial';
 
 export interface Settings {
 	revision: number;
@@ -111,6 +138,7 @@ export interface Settings {
 	automaticSessionLinkingEnabled: boolean;
 	sessionLinkWindowMs: number;
 	themePreference: ThemePreference;
+	unitPreference: UnitPreference;
 }
 
 export interface SeriesPoint {
@@ -165,6 +193,14 @@ export interface BackendMethods {
 	'bluetooth.scan': { params: { timeoutMs?: number }; result: Accepted };
 	'device.connect': { params: { deviceId: string }; result: Accepted };
 	'device.disconnect': { params: EmptyParams; result: Accepted };
+	'savedDevice.update': {
+		params: {
+			savedDeviceId: string;
+			expectedRevision: number;
+			customDisplayName: string | null;
+		};
+		result: SavedDevice;
+	};
 	'settings.update': {
 		params: { expectedRevision: number; patch: Omit<Partial<Settings>, 'revision'> };
 		result: Settings;

@@ -34,6 +34,7 @@ class ApplicationService(
     private var reconnectTimer: CancellationPort? = null
     private var reconnectStartedAtMs: Long? = null
     private var reconnectAttempt = 0
+    private var latestPersistedSample: TelemetrySample? = null
     var activeDeviceId: DeviceId? = null
         private set
     var connectionState: ConnectionState = ConnectionState.DISCONNECTED
@@ -56,6 +57,15 @@ class ApplicationService(
 
     fun savedDevices(): List<SavedDeviceRecord> =
         requireNotNull(productStore) { "Product store is unavailable" }.savedDevices()
+
+    fun updateSavedDevice(
+        savedDeviceId: String,
+        expectedRevision: Int,
+        customDisplayName: String?,
+    ): SavedDeviceRecord =
+        requireNotNull(productStore) { "Product store is unavailable" }
+            .updateSavedDevice(savedDeviceId, expectedRevision, customDisplayName, clock.now())
+            .also(events::publish)
 
     fun boardProfile(savedDeviceId: String): BoardProfileRecord =
         requireNotNull(productStore) { "Product store is unavailable" }
@@ -192,6 +202,7 @@ class ApplicationService(
             activeScanId = null
         }
         activeDeviceId = deviceId
+        latestPersistedSample = null
         explicitDisconnect = false
         cancelReconnect()
         telemetryTimer?.cancel()
@@ -255,7 +266,13 @@ class ApplicationService(
                 if (event.deviceId != activeDeviceId) return
                 if (event.state == ConnectionState.READY && logStore.active() == null) {
                     try {
-                        events.publish(logStore.create(event.deviceId, clock.now()))
+                        events.publish(
+                            logStore.create(
+                                event.deviceId,
+                                knownDevicesById[event.deviceId]?.advertisedName,
+                                clock.now(),
+                            ),
+                        )
                         telemetryStartedAtMs = clock.monotonicMillis()
                     } catch (error: Exception) {
                         transition(ConnectionState.FAILED)
@@ -283,6 +300,7 @@ class ApplicationService(
                 if (event.state == ConnectionState.DISCONNECTED) {
                     cancelReconnect()
                     activeDeviceId = null
+                    latestPersistedSample = null
                     resetFirmwareDiscovery()
                 }
                 transition(event.state)
@@ -347,8 +365,9 @@ class ApplicationService(
         if (connectionState != ConnectionState.READY) return
         if (sampling.shouldPersist(sample.rideState, sample.elapsedMs)) {
             logStore.append(active.jobId, listOf(sample))
+            latestPersistedSample = sample
+            events.publish(sample)
         }
-        events.publish(sample)
     }
 
     @Synchronized
@@ -357,10 +376,18 @@ class ApplicationService(
     @Synchronized
     fun activeConnectionSnapshot(): ActiveConnectionSnapshot? {
         val deviceId = activeDeviceId ?: return null
+        val savedDevice = productStore?.savedDevices()
+            ?.firstOrNull { it.bluetoothIdentifier == deviceId.value }
+        val activeSession = logStore.active()?.sessionId?.value?.let { sessionId ->
+            runCatching { sessionStore?.session(sessionId) }.getOrNull()
+        }
         return ActiveConnectionSnapshot(
             deviceId,
             knownDevicesById[deviceId]?.advertisedName,
             connectionState,
+            savedDevice,
+            activeSession,
+            latestPersistedSample,
         )
     }
 
@@ -529,6 +556,7 @@ class ApplicationService(
         explicitDisconnect = true
         if (deviceId != null) bluetooth.disconnect(deviceId)
         activeDeviceId = null
+        latestPersistedSample = null
         resetFirmwareDiscovery()
         transition(ConnectionState.DISCONNECTED)
         events.publish(reason)
@@ -571,6 +599,7 @@ class ApplicationService(
             observedAt = clock.now(),
             elapsedMs = maxOf(0, nowMs - requireNotNull(telemetryStartedAtMs)),
             rideState = value.rideState,
+            boardState = value.boardState,
             packVoltageV = value.packVoltageV,
             dutyCycle = value.dutyCycle,
             controllerTempC = value.controllerTempC,

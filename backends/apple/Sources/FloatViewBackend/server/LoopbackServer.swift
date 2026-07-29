@@ -160,6 +160,17 @@ public final class LoopbackServer: @unchecked Sendable {
       case "device.disconnect":
         try applicationService.disconnect()
         return success(["accepted": true])
+      case "savedDevice.update":
+        guard let savedID = params["savedDeviceId"] as? String,
+              let expected = params["expectedRevision"] as? Int,
+              params.keys.contains("customDisplayName"),
+              params["customDisplayName"] is String || params["customDisplayName"] is NSNull
+        else { return failure(id, .invalidRequest, "Valid saved-device update is required") }
+        return success(savedDevicePayload(try applicationService.updateSavedDevice(
+          savedDeviceID: savedID,
+          expectedRevision: expected,
+          customDisplayName: params["customDisplayName"] as? String
+        )))
       case "settings.update":
         guard let expected = params["expectedRevision"] as? Int,
               let patch = params["patch"] as? [String: Any]
@@ -214,7 +225,7 @@ public final class LoopbackServer: @unchecked Sendable {
           beforeMs: before,
           afterMs: after,
           fields: [
-            "packVoltageV", "dutyCycle", "controllerTempC", "motorTempC",
+            "boardState", "packVoltageV", "dutyCycle", "controllerTempC", "motorTempC",
             "footpadState", "motorCurrentA", "batteryCurrentA", "erpm", "speedKph",
           ]
         ).map(seriesPayload))
@@ -289,6 +300,11 @@ public final class LoopbackServer: @unchecked Sendable {
       } else {
         value["firmware"] = NSNull()
       }
+      value["savedDeviceId"] = active.savedDevice?.savedDeviceID ?? NSNull()
+      value["displayName"] = active.savedDevice?.displayName ?? active.name ??
+        active.deviceID.value
+      value["activeSession"] = active.activeSession.map(sessionPayload) ?? NSNull()
+      value["latestSample"] = active.latestSample.map(liveSamplePayload) ?? NSNull()
       connection = value
     }
     return [
@@ -324,7 +340,7 @@ public final class LoopbackServer: @unchecked Sendable {
   private func connectionPayload(_ value: ActiveConnectionSnapshot) -> [String: Any] {
     [
       "deviceId": value.deviceID.value,
-      "name": value.name ?? "",
+      "name": value.savedDevice?.displayName ?? value.name ?? value.deviceID.value,
       "state": deviceState(value.state),
     ]
   }
@@ -333,11 +349,33 @@ public final class LoopbackServer: @unchecked Sendable {
     [
       "savedDeviceId": value.savedDeviceID,
       "deviceHistoryId": value.deviceHistoryID,
+      "revision": value.revision,
       "displayName": value.displayName,
+      "customDisplayName": value.customDisplayName ?? NSNull(),
       "advertisedName": value.advertisedName ?? NSNull(),
+      "bluetoothIdentifier": value.bluetoothIdentifier,
       "lastSeenAt": value.lastSeenAt.map(ISO8601DateFormatter().string) ?? NSNull(),
       "lastConnectedAt": value.lastConnectedAt.map(ISO8601DateFormatter().string) ?? NSNull(),
       "profileComplete": value.profileComplete,
+    ]
+  }
+
+  private func liveSamplePayload(_ value: TelemetrySample) -> [String: Any] {
+    [
+      "sequence": value.sequence,
+      "observedAt": ISO8601DateFormatter().string(from: value.observedAt),
+      "elapsedMs": value.elapsedMs,
+      "rideState": value.rideState.rawValue,
+      "boardState": value.boardState ?? NSNull(),
+      "footpadState": value.footpadState ?? NSNull(),
+      "packVoltageV": value.packVoltageV ?? NSNull(),
+      "dutyCycle": value.dutyCycle ?? NSNull(),
+      "controllerTempC": value.controllerTempC ?? NSNull(),
+      "motorTempC": value.motorTempC ?? NSNull(),
+      "motorCurrentA": value.extensionFields["motorCurrentA"] ?? NSNull(),
+      "batteryCurrentA": value.extensionFields["batteryCurrentA"] ?? NSNull(),
+      "erpm": value.extensionFields["erpm"] ?? NSNull(),
+      "speedKph": value.extensionFields["speedKph"] ?? NSNull(),
     ]
   }
 
@@ -398,6 +436,7 @@ public final class LoopbackServer: @unchecked Sendable {
       "automaticSessionLinkingEnabled": value.automaticSessionLinkingEnabled,
       "sessionLinkWindowMs": value.sessionLinkWindowMs,
       "themePreference": value.themePreference.rawValue,
+      "unitPreference": value.unitPreference.rawValue,
     ]
   }
 
@@ -442,9 +481,9 @@ public final class LoopbackServer: @unchecked Sendable {
   private func productFailure(_ id: Int, _ error: ProductStoreError) -> Data {
     switch error {
     case .savedDeviceNotFound: failure(id, .notFound, "Saved device was not found")
-    case .profileRevisionConflict, .settingsRevisionConflict:
+    case .savedDeviceRevisionConflict, .profileRevisionConflict, .settingsRevisionConflict:
       failure(id, .conflict, "Resource revision changed")
-    case .invalidProfilePatch, .invalidSettingsPatch:
+    case .invalidSavedDevicePatch, .invalidProfilePatch, .invalidSettingsPatch:
       failure(id, .invalidRequest, "Patch is invalid")
     }
   }
@@ -514,7 +553,8 @@ private func invalidatesState(_ event: any Sendable) -> Bool {
   }
   return event is BluetoothState || event is DiscoverySnapshot || event is ConnectionState ||
     event is KnownDevice ||
-    event is SessionRecord || event is BoardProfileRecord || event is SettingsRecord
+    event is SessionRecord || event is SavedDeviceRecord || event is BoardProfileRecord ||
+    event is SettingsRecord || event is TelemetrySample
 }
 
 private enum LoopbackServerError: Error {

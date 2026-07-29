@@ -19,8 +19,11 @@ const discoveredBoard = {
 const savedBoard = {
 	savedDeviceId: 'saved-board',
 	deviceHistoryId: 'history-board',
+	revision: 0,
 	displayName: 'Float View Test VESC',
+	customDisplayName: null,
 	advertisedName: 'Float View Test VESC',
+	bluetoothIdentifier: 'AA:BB:CC:DD:EE:FF',
 	lastSeenAt: '2026-01-01T00:00:00Z',
 	lastConnectedAt: null,
 	profileComplete: false
@@ -100,7 +103,8 @@ export class MockBackend {
 			reconnectDurationMs: 300_000,
 			automaticSessionLinkingEnabled: false,
 			sessionLinkWindowMs: 7_200_000,
-			themePreference: 'system'
+			themePreference: 'system',
+			unitPreference: 'metric'
 		}
 	};
 
@@ -158,6 +162,19 @@ export class MockBackend {
 					activeConnection: {
 						...discoveredBoard,
 						state: 'ready',
+						savedDeviceId: savedBoard.savedDeviceId,
+						displayName: savedBoard.displayName,
+						activeSession: {
+							...session,
+							sessionId: this.activeSessionId,
+							startedAt: new Date().toISOString(),
+							endedAt: null,
+							state: 'active' as const,
+							sampleCount: 0,
+							ridingElapsedMs: 0,
+							totalElapsedMs: 0
+						},
+						latestSample: null,
 						firmware: {
 							vescVersion: '6.06',
 							packageName: 'refloat',
@@ -181,6 +198,46 @@ export class MockBackend {
 					].slice(0, 50)
 				});
 				return accepted(id);
+			}
+			case 'savedDevice.update': {
+				const savedDeviceId = string(params.savedDeviceId);
+				const expectedRevision = number(params.expectedRevision);
+				const current = this.state.savedDevices.find(
+					(device) => device.savedDeviceId === savedDeviceId
+				);
+				const name = params.customDisplayName;
+				if (!current || expectedRevision === null || (name !== null && typeof name !== 'string')) {
+					return failure(
+						id,
+						'invalid_request',
+						'Valid saved device update parameters are required'
+					);
+				}
+				if (current.revision !== expectedRevision) {
+					return failure(id, 'conflict', 'Saved device revision changed');
+				}
+				const customDisplayName = typeof name === 'string' && name.trim() ? name.trim() : null;
+				const updated = {
+					...current,
+					revision: current.revision + 1,
+					customDisplayName,
+					displayName: customDisplayName ?? current.advertisedName ?? current.bluetoothIdentifier
+				};
+				this.change({
+					...this.state,
+					savedDevices: this.state.savedDevices.map((device) =>
+						device.savedDeviceId === savedDeviceId ? updated : device
+					),
+					activeConnection:
+						this.state.activeConnection?.savedDeviceId === savedDeviceId
+							? {
+									...this.state.activeConnection,
+									name: updated.displayName,
+									displayName: updated.displayName
+								}
+							: this.state.activeConnection
+				});
+				return success(id, updated);
 			}
 			case 'device.disconnect': {
 				const activeSessionId = this.activeSessionId;
@@ -213,13 +270,16 @@ export class MockBackend {
 					'reconnectDurationMs',
 					'automaticSessionLinkingEnabled',
 					'sessionLinkWindowMs',
-					'themePreference'
+					'themePreference',
+					'unitPreference'
 				]);
 				if (
 					!Object.keys(patch).length ||
 					Object.keys(patch).some((key) => !allowed.has(key)) ||
 					('themePreference' in patch &&
-						!['system', 'light', 'dark'].includes(String(patch.themePreference)))
+						!['system', 'light', 'dark'].includes(String(patch.themePreference))) ||
+					('unitPreference' in patch &&
+						!['metric', 'imperial'].includes(String(patch.unitPreference)))
 				) {
 					return failure(id, 'invalid_request', 'Settings patch is invalid');
 				}
@@ -317,6 +377,56 @@ export class MockBackend {
 			default:
 				return failure(id, 'invalid_request', 'Unknown method');
 		}
+	}
+
+	publishTelemetry(): void {
+		const active = this.state.activeConnection;
+		if (!active || active.state !== 'ready' || !active.activeSession) return;
+		const sequence = (active.latestSample?.sequence ?? 0) + 1;
+		const elapsedMs = sequence * this.state.settings.ridingPersistIntervalMs;
+		const latestSample = {
+			sequence,
+			observedAt: new Date().toISOString(),
+			elapsedMs,
+			rideState: 'riding' as const,
+			boardState: 1,
+			footpadState: 3,
+			packVoltageV: 58.4 - sequence * 0.002,
+			dutyCycle: 0.42,
+			controllerTempC: 38.2,
+			motorTempC: 41.7,
+			motorCurrentA: 18.6,
+			batteryCurrentA: 8.4,
+			erpm: 3240,
+			speedKph: 24.3
+		};
+		const activeSession = {
+			...active.activeSession,
+			sampleCount: sequence,
+			ridingElapsedMs: elapsedMs,
+			totalElapsedMs: elapsedMs,
+			maxSpeedMps: latestSample.speedKph / 3.6,
+			maxDutyCycle: latestSample.dutyCycle
+		};
+		this.change({
+			...this.state,
+			activeConnection: { ...active, latestSample, activeSession },
+			recentSessions: this.state.recentSessions.map((item) =>
+				item.sessionId === activeSession.sessionId ? activeSession : item
+			)
+		});
+	}
+
+	get telemetryCadenceMs(): number {
+		return this.state.settings.ridingPersistIntervalMs;
+	}
+
+	simulateConnectionState(state: 'ready' | 'reconnecting'): void {
+		if (!this.state.activeConnection) return;
+		this.change({
+			...this.state,
+			activeConnection: { ...this.state.activeConnection, state }
+		});
 	}
 
 	private findSession(params: Record<string, unknown>) {

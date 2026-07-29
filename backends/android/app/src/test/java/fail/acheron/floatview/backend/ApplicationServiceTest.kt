@@ -34,6 +34,25 @@ class ApplicationServiceTest {
     }
 
     @Test
+    fun `saved device name update publishes resolved revision`() {
+        val products = FakeProductStore()
+        val events = mutableListOf<Any>()
+        val service = ApplicationService(
+            FakeBluetooth(),
+            FakeClock(),
+            FakeStore(),
+            productStore = products,
+        ) { events += it }
+
+        val renamed = service.updateSavedDevice("saved-board", 0, "Trail board")
+        assertEquals("Trail board", renamed.displayName)
+        assertEquals(1, renamed.revision)
+        assertEquals(renamed, events.single())
+        val reset = service.updateSavedDevice("saved-board", 1, null)
+        assertEquals("Advertised", reset.displayName)
+    }
+
+    @Test
     fun `ready creates log before service exposes stable state`() {
         val store = FakeStore()
         val service = ApplicationService(FakeBluetooth(), FakeClock(), store) {}
@@ -45,6 +64,36 @@ class ApplicationServiceTest {
 
         assertEquals(ConnectionState.READY, service.connectionState)
         assertNotNull(store.active())
+    }
+
+    @Test
+    fun `only persisted samples publish live state`() {
+        val store = FakeStore()
+        val events = mutableListOf<Any>()
+        val service = ApplicationService(FakeBluetooth(), FakeClock(), store) { events += it }
+        val id = DeviceId("fixture")
+        service.onBluetoothEvent(BluetoothEvent.DeviceFound(id, "Fixture", -40))
+        service.connect(id)
+        service.onBluetoothEvent(BluetoothEvent.ConnectionChanged(id, ConnectionState.READY))
+        events.clear()
+
+        fun sample(sequence: Long, elapsedMs: Long) = TelemetrySample(
+            sequence,
+            Instant.EPOCH,
+            elapsedMs,
+            RideState.IDLE,
+            packVoltageV = 60.0,
+            dutyCycle = 0.0,
+            controllerTempC = 20.0,
+            motorTempC = 20.0,
+            footpadState = 0,
+        )
+        service.ingest(sample(1, 0))
+        service.ingest(sample(2, 100))
+
+        assertEquals(listOf(1L), store.appended.map(TelemetrySample::sequence))
+        assertEquals(listOf(1L), events.filterIsInstance<TelemetrySample>().map { it.sequence })
+        assertEquals(1L, service.activeConnectionSnapshot()?.latestSample?.sequence)
     }
 
     @Test
@@ -184,7 +233,9 @@ class ApplicationServiceTest {
         assertEquals(listOf(1_000L, 500L, 100L), scheduler.intervals)
         assertEquals(1, store.appended.size)
         assertEquals(RideState.RIDING, store.appended.single().rideState)
+        assertEquals(3, store.appended.single().boardState)
         assertEquals(64.0, store.appended.single().packVoltageV)
+        assertEquals(store.appended.single(), service.activeConnectionSnapshot()?.latestSample)
         assertEquals(
             mapOf(
                 "motorCurrentA" to 8.0,
@@ -537,7 +588,7 @@ class ApplicationServiceTest {
         private var current: SessionRecord? = null
         val appended = mutableListOf<TelemetrySample>()
         val closeReasons = mutableListOf<String>()
-        override fun create(deviceId: DeviceId, at: Instant): SessionRecord =
+        override fun create(deviceId: DeviceId, advertisedName: String?, at: Instant): SessionRecord =
             SessionRecord(SessionId("session"), JobId("job"), deviceId, at, 0, true)
                 .also { current = it }
         override fun append(jobId: JobId, samples: List<TelemetrySample>) {
@@ -551,6 +602,15 @@ class ApplicationServiceTest {
     }
 
     private class FakeProductStore : ProductStorePort {
+        var saved = SavedDeviceRecord(
+            "saved-board",
+            "history-board",
+            0,
+            "Advertised",
+            advertisedName = "Advertised",
+            bluetoothIdentifier = "identifier",
+            profileComplete = false,
+        )
         var profile = BoardProfileRecord(
             "saved-board",
             0,
@@ -558,14 +618,25 @@ class ApplicationServiceTest {
             listOf("seriesCount", "parallelCount", "motor"),
         )
 
-        override fun savedDevices() = listOf(
-            SavedDeviceRecord(
-                "saved-board",
-                "history-board",
-                "Board",
-                profileComplete = false,
-            ),
-        )
+        override fun savedDevices() = listOf(saved)
+
+        override fun updateSavedDevice(
+            savedDeviceId: String,
+            expectedRevision: Int,
+            customDisplayName: String?,
+            at: Instant,
+        ): SavedDeviceRecord {
+            if (savedDeviceId != saved.savedDeviceId) throw ProductStoreException.SavedDeviceNotFound
+            if (expectedRevision != saved.revision) {
+                throw ProductStoreException.SavedDeviceRevisionConflict(saved.revision)
+            }
+            val normalized = customDisplayName?.trim()?.takeIf(String::isNotEmpty)
+            return saved.copy(
+                revision = saved.revision + 1,
+                displayName = normalized ?: saved.advertisedName ?: saved.bluetoothIdentifier,
+                customDisplayName = normalized,
+            ).also { saved = it }
+        }
 
         override fun boardProfile(savedDeviceId: String): BoardProfileRecord {
             if (savedDeviceId != profile.savedDeviceId) {
@@ -592,7 +663,7 @@ class ApplicationServiceTest {
     }
 
     private class FailingStore : LogStorePort {
-        override fun create(deviceId: DeviceId, at: Instant): SessionRecord =
+        override fun create(deviceId: DeviceId, advertisedName: String?, at: Instant): SessionRecord =
             error("storage failed")
         override fun append(jobId: JobId, samples: List<TelemetrySample>) = Unit
         override fun close(jobId: JobId, at: Instant, reason: String): SessionRecord =

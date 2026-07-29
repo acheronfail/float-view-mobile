@@ -1,5 +1,5 @@
 <script lang="ts">
-	import type { ThemePreference } from '$lib/backend/contract';
+	import type { ThemePreference, UnitPreference } from '$lib/backend/contract';
 	import { backendState } from '$lib/backend/state.svelte';
 
 	const inputClass =
@@ -28,6 +28,20 @@
 					<option value="system">System</option>
 					<option value="light">Light</option>
 					<option value="dark">Dark</option>
+				</select>
+			</label>
+			<label class="mt-3 block text-sm text-muted">
+				Units
+				<select
+					class={inputClass}
+					value={backendState.settings.unitPreference}
+					onchange={(event) =>
+						backendState.updateSessionSettings({
+							unitPreference: event.currentTarget.value as UnitPreference
+						})}
+				>
+					<option value="metric">Metric</option>
+					<option value="imperial">Imperial</option>
 				</select>
 			</label>
 		</div>

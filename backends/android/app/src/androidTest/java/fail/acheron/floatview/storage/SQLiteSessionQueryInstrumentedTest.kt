@@ -59,6 +59,7 @@ class SQLiteSessionQueryInstrumentedTest {
                     motorTempC = null,
                     footpadState = null,
                     extension = mapOf("speedKph" to 18.0),
+                    boardState = index % 4,
                 )
             },
         )
@@ -89,9 +90,13 @@ class SQLiteSessionQueryInstrumentedTest {
             50_000,
             2_000,
             2_000,
-            listOf("packVoltageV"),
+            listOf("packVoltageV", "boardState"),
         )
         assertEquals(listOf(48_000L, 49_000L, 50_000L, 51_000L, 52_000L), diagnostic.map { it.elapsedMs })
+        assertEquals(
+            listOf(0.0, 1.0, 2.0, 3.0, 0.0),
+            diagnostic.map { it.values["boardState"] },
+        )
         assertTrue(store.sessionEvents(record.sessionId.value, 0, 99_000).isEmpty())
 
         val short = store.create(DeviceId("query-fixture"), startedAt.plusSeconds(200))

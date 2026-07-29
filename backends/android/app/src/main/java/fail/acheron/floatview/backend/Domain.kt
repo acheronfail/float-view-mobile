@@ -61,6 +61,9 @@ data class ActiveConnectionSnapshot(
     val deviceId: DeviceId,
     val advertisedName: String?,
     val state: ConnectionState,
+    val savedDevice: SavedDeviceRecord? = null,
+    val activeSession: SessionSummaryRecord? = null,
+    val latestSample: TelemetrySample? = null,
 )
 
 data class FirmwareRecord(
@@ -107,7 +110,8 @@ data class TelemetrySample(
     val controllerTempC: Double?,
     val motorTempC: Double?,
     val footpadState: Int?,
-    val extension: Map<String, Double> = emptyMap()
+    val extension: Map<String, Double> = emptyMap(),
+    val boardState: Int? = null,
 )
 
 data class SessionRecord(
@@ -195,6 +199,15 @@ enum class ThemePreference(val wireValue: String) {
     }
 }
 
+enum class UnitPreference(val wireValue: String) {
+    METRIC("metric"),
+    IMPERIAL("imperial");
+
+    companion object {
+        fun fromWire(value: String): UnitPreference? = entries.find { it.wireValue == value }
+    }
+}
+
 data class SettingsRecord(
     val revision: Int = 0,
     val idleProbeIntervalMs: Long = 500,
@@ -205,6 +218,7 @@ data class SettingsRecord(
     val automaticSessionLinkingEnabled: Boolean = false,
     val sessionLinkWindowMs: Long = 7_200_000,
     val themePreference: ThemePreference = ThemePreference.SYSTEM,
+    val unitPreference: UnitPreference = UnitPreference.METRIC,
 )
 
 sealed interface BluetoothEvent {
@@ -277,7 +291,7 @@ interface ClockPort {
 }
 
 interface LogStorePort {
-    fun create(deviceId: DeviceId, at: Instant): SessionRecord
+    fun create(deviceId: DeviceId, advertisedName: String?, at: Instant): SessionRecord
     fun append(jobId: JobId, samples: List<TelemetrySample>)
     fun close(jobId: JobId, at: Instant, reason: String): SessionRecord
     fun active(): SessionRecord?
@@ -286,8 +300,11 @@ interface LogStorePort {
 data class SavedDeviceRecord(
     val savedDeviceId: String,
     val deviceHistoryId: String,
+    val revision: Int,
     val displayName: String,
+    val customDisplayName: String? = null,
     val advertisedName: String? = null,
+    val bluetoothIdentifier: String,
     val lastSeenAt: Instant? = null,
     val lastConnectedAt: Instant? = null,
     val profileComplete: Boolean,
@@ -302,6 +319,9 @@ data class BoardProfileRecord(
 
 sealed class ProductStoreException(message: String) : RuntimeException(message) {
     data object SavedDeviceNotFound : ProductStoreException("Saved device not found")
+    data class SavedDeviceRevisionConflict(val currentRevision: Int) :
+        ProductStoreException("Saved device revision conflict")
+    data object InvalidSavedDevicePatch : ProductStoreException("Invalid saved device patch")
     data class ProfileRevisionConflict(val currentRevision: Int) :
         ProductStoreException("Profile revision conflict")
     data object InvalidProfilePatch : ProductStoreException("Invalid profile patch")
@@ -312,6 +332,12 @@ sealed class ProductStoreException(message: String) : RuntimeException(message) 
 
 interface ProductStorePort {
     fun savedDevices(): List<SavedDeviceRecord>
+    fun updateSavedDevice(
+        savedDeviceId: String,
+        expectedRevision: Int,
+        customDisplayName: String?,
+        at: Instant,
+    ): SavedDeviceRecord = throw ProductStoreException.InvalidSavedDevicePatch
     fun boardProfile(savedDeviceId: String): BoardProfileRecord
     fun updateBoardProfile(
         savedDeviceId: String,

@@ -20,6 +20,7 @@ import fail.acheron.floatview.backend.SessionSeriesPoint
 import fail.acheron.floatview.backend.SessionStoreException
 import fail.acheron.floatview.backend.SessionSummaryRecord
 import fail.acheron.floatview.backend.SettingsRecord
+import fail.acheron.floatview.backend.TelemetrySample
 import fail.acheron.floatview.backend.VescProtocolMessage
 import io.ktor.http.ContentType
 import io.ktor.server.application.install
@@ -47,6 +48,7 @@ import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.selects.select
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -94,12 +96,25 @@ class LoopbackServer(
                         close(CloseReason(CloseReason.Codes.VIOLATED_POLICY, "Forbidden"))
                         return@webSocket
                     }
-                    val outgoingMessages = Channel<String>(capacity = 1)
-                    val sender = launch { for (message in outgoingMessages) send(message) }
+                    val responses = Channel<String>(capacity = 1)
+                    val stateUpdates = Channel<String>(capacity = Channel.CONFLATED)
+                    val sender = launch {
+                        var running = true
+                        while (running) {
+                            select {
+                                responses.onReceiveCatching { result ->
+                                    result.getOrNull()?.let { send(it) } ?: run { running = false }
+                                }
+                                stateUpdates.onReceiveCatching { result ->
+                                    result.getOrNull()?.let { send(it) } ?: run { running = false }
+                                }
+                            }
+                        }
+                    }
                     val subscription = events.subscribe { event ->
                         if (event.invalidatesSnapshot()) {
                             revision.incrementAndGet()
-                            outgoingMessages.trySend(
+                            stateUpdates.trySend(
                                 JSONObject()
                                     .put("event", "state.changed")
                                     .put("data", snapshot())
@@ -120,11 +135,12 @@ class LoopbackServer(
                             } catch (_: Exception) {
                                 failure(0, "invalid_request", "Request must be valid JSON")
                             }
-                            outgoingMessages.send(response.toString())
+                            responses.send(response.toString())
                         }
                     } finally {
                         subscription.close()
-                        outgoingMessages.close()
+                        responses.close()
+                        stateUpdates.close()
                         sender.join()
                     }
                 }
@@ -187,6 +203,22 @@ class LoopbackServer(
                     val patch = params.optJSONObject("patch")
                         ?: return failure(id.toInt(), "invalid_request", "patch is required")
                     success(settings(applicationService.updateSettings(expected.toInt(), patch.toString())))
+                }
+                "savedDevice.update" -> {
+                    val savedId = requiredString("savedDeviceId")
+                        ?: return failure(id.toInt(), "invalid_request", "savedDeviceId is required")
+                    val expected = params.opt("expectedRevision") as? Number
+                        ?: return failure(id.toInt(), "invalid_request", "expectedRevision is required")
+                    if (!params.has("customDisplayName")) {
+                        return failure(id.toInt(), "invalid_request", "customDisplayName is required")
+                    }
+                    val name = if (params.isNull("customDisplayName")) {
+                        null
+                    } else {
+                        params.opt("customDisplayName") as? String
+                            ?: return failure(id.toInt(), "invalid_request", "customDisplayName is invalid")
+                    }
+                    success(savedDevice(applicationService.updateSavedDevice(savedId, expected.toInt(), name)))
                 }
                 "boardProfile.get" -> {
                     val savedId = requiredString("savedDeviceId")
@@ -286,11 +318,13 @@ class LoopbackServer(
         } catch (error: ProductStoreException) {
             when (error) {
                 is ProductStoreException.ProfileRevisionConflict,
+                is ProductStoreException.SavedDeviceRevisionConflict,
                 is ProductStoreException.SettingsRevisionConflict,
                 -> failure(id.toInt(), "conflict", "Revision conflict")
                 ProductStoreException.SavedDeviceNotFound ->
                     failure(id.toInt(), "not_found", "Saved device was not found")
                 ProductStoreException.InvalidProfilePatch,
+                ProductStoreException.InvalidSavedDevicePatch,
                 ProductStoreException.InvalidSettingsPatch,
                 -> failure(id.toInt(), "invalid_request", "Patch is invalid")
             }
@@ -368,7 +402,9 @@ class LoopbackServer(
 
     private fun connection(value: ActiveConnectionSnapshot) = JSONObject()
         .put("deviceId", value.deviceId.value)
-        .put("name", value.advertisedName ?: "")
+        .put("savedDeviceId", value.savedDevice?.savedDeviceId ?: JSONObject.NULL)
+        .put("name", value.savedDevice?.displayName ?: value.advertisedName ?: value.deviceId.value)
+        .put("displayName", value.savedDevice?.displayName ?: value.advertisedName ?: value.deviceId.value)
         .put(
             "state",
             when (value.state) {
@@ -384,12 +420,17 @@ class LoopbackServer(
                 ConnectionState.FAILED -> "failed"
             },
         )
+        .put("activeSession", value.activeSession?.let(::session) ?: JSONObject.NULL)
+        .put("latestSample", value.latestSample?.let(::liveSample) ?: JSONObject.NULL)
 
     private fun savedDevice(value: fail.acheron.floatview.backend.SavedDeviceRecord) = JSONObject()
         .put("savedDeviceId", value.savedDeviceId)
         .put("deviceHistoryId", value.deviceHistoryId)
+        .put("revision", value.revision)
         .put("displayName", value.displayName)
+        .put("customDisplayName", value.customDisplayName ?: JSONObject.NULL)
         .put("advertisedName", value.advertisedName ?: JSONObject.NULL)
+        .put("bluetoothIdentifier", value.bluetoothIdentifier)
         .put("lastSeenAt", value.lastSeenAt?.toString() ?: JSONObject.NULL)
         .put("lastConnectedAt", value.lastConnectedAt?.toString() ?: JSONObject.NULL)
         .put("profileComplete", value.profileComplete)
@@ -439,6 +480,23 @@ class LoopbackServer(
         .put("automaticSessionLinkingEnabled", value.automaticSessionLinkingEnabled)
         .put("sessionLinkWindowMs", value.sessionLinkWindowMs)
         .put("themePreference", value.themePreference.wireValue)
+        .put("unitPreference", value.unitPreference.wireValue)
+
+    private fun liveSample(value: TelemetrySample) = JSONObject()
+        .put("sequence", value.sequence)
+        .put("observedAt", value.observedAt.toString())
+        .put("elapsedMs", value.elapsedMs)
+        .put("rideState", value.rideState.name.lowercase())
+        .put("boardState", value.boardState ?: JSONObject.NULL)
+        .put("packVoltageV", value.packVoltageV ?: JSONObject.NULL)
+        .put("dutyCycle", value.dutyCycle ?: JSONObject.NULL)
+        .put("controllerTempC", value.controllerTempC ?: JSONObject.NULL)
+        .put("motorTempC", value.motorTempC ?: JSONObject.NULL)
+        .put("footpadState", value.footpadState ?: JSONObject.NULL)
+        .put("motorCurrentA", value.extension["motorCurrentA"] ?: JSONObject.NULL)
+        .put("batteryCurrentA", value.extension["batteryCurrentA"] ?: JSONObject.NULL)
+        .put("erpm", value.extension["erpm"] ?: JSONObject.NULL)
+        .put("speedKph", value.extension["speedKph"] ?: JSONObject.NULL)
 
     private fun failure(id: Int, code: String, message: String) =
         JSONObject().put("id", id).put("error", JSONObject().put("code", code).put("message", message))
@@ -453,7 +511,9 @@ class LoopbackServer(
             this is DiscoveredDevice ||
             this is SessionRecord ||
             this is BoardProfileRecord ||
+            this is fail.acheron.floatview.backend.SavedDeviceRecord ||
             this is SettingsRecord ||
+            this is TelemetrySample ||
             this is VescProtocolMessage.Firmware ||
             this is VescProtocolMessage.RefloatInfo
 
@@ -462,7 +522,7 @@ class LoopbackServer(
         const val MAX_RECENT_ITEMS = 50
         const val MAX_SERIES_POINTS = 2_000
         val DIAGNOSTIC_FIELDS = listOf(
-            "packVoltageV", "dutyCycle", "controllerTempC", "motorTempC",
+            "packVoltageV", "dutyCycle", "controllerTempC", "motorTempC", "boardState",
             "footpadState", "motorCurrentA", "batteryCurrentA", "erpm", "speedKph",
         )
     }

@@ -2,8 +2,10 @@
 	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { backendState } from '$lib/backend/state.svelte';
+	import { formatDistanceM } from '$lib/features/measurements/format';
 
 	let { sessionId }: { sessionId: string } = $props();
+	const units = $derived(backendState.settings?.unitPreference ?? 'metric');
 
 	function polyline(field: string): string {
 		const values = backendState.sessionSeries
@@ -70,7 +72,7 @@
 			<div class="rounded-lg bg-elevated p-3">
 				<p class="text-sm text-muted">Distance</p>
 				<p class="text-xl">
-					{((backendState.selectedSession.distanceM ?? 0) / 1000).toFixed(2)} km
+					{formatDistanceM(backendState.selectedSession.distanceM, units)}
 				</p>
 			</div>
 		</div>

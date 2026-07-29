@@ -64,12 +64,39 @@ export function startMockServer(port = DEFAULT_PORT): Promise<number> {
 
 function createWebSocketServer() {
 	const value = new WebSocketServer({ noServer: true, maxPayload: 65_536 });
+	const delivery = new WeakMap<
+		import('ws').WebSocket,
+		{ sendingState: boolean; pendingState?: string }
+	>();
+	function sendNewestState(client: import('ws').WebSocket, payload: string) {
+		const state = delivery.get(client) ?? { sendingState: false };
+		delivery.set(client, state);
+		if (state.sendingState) {
+			state.pendingState = payload;
+			return;
+		}
+		state.sendingState = true;
+		client.send(payload, () => {
+			state.sendingState = false;
+			const pending = state.pendingState;
+			state.pendingState = undefined;
+			if (pending && client.readyState === client.OPEN) sendNewestState(client, pending);
+		});
+	}
 	const backend = new MockBackend((event) => {
 		const payload = JSON.stringify(event);
 		for (const client of value.clients) {
-			if (client.readyState === client.OPEN) client.send(payload);
+			if (client.readyState === client.OPEN) sendNewestState(client, payload);
 		}
 	});
+	let telemetryTimer: NodeJS.Timeout;
+	const publishNextSample = () => {
+		backend.publishTelemetry();
+		telemetryTimer = setTimeout(publishNextSample, backend.telemetryCadenceMs);
+		telemetryTimer.unref();
+	};
+	publishNextSample();
+	value.once('close', () => clearTimeout(telemetryTimer));
 	value.on('connection', (webSocket) => {
 		webSocket.on('message', (data) => {
 			webSocket.send(JSON.stringify(backend.handlePayload(data.toString())));

@@ -100,11 +100,24 @@ public struct ActiveConnectionSnapshot: Sendable, Equatable {
   public let deviceID: DeviceID
   public let name: String?
   public let state: ConnectionState
+  public let savedDevice: SavedDeviceRecord?
+  public let activeSession: SessionSummaryRecord?
+  public let latestSample: TelemetrySample?
 
-  public init(deviceID: DeviceID, name: String?, state: ConnectionState) {
+  public init(
+    deviceID: DeviceID,
+    name: String?,
+    state: ConnectionState,
+    savedDevice: SavedDeviceRecord? = nil,
+    activeSession: SessionSummaryRecord? = nil,
+    latestSample: TelemetrySample? = nil
+  ) {
     self.deviceID = deviceID
     self.name = name
     self.state = state
+    self.savedDevice = savedDevice
+    self.activeSession = activeSession
+    self.latestSample = latestSample
   }
 }
 
@@ -186,6 +199,7 @@ public struct TelemetrySample: Sendable, Codable, Equatable {
   public let observedAt: Date
   public let elapsedMs: Int64
   public let rideState: RideState
+  public let boardState: Int?
   public let packVoltageV: Double?
   public let dutyCycle: Double?
   public let controllerTempC: Double?
@@ -198,6 +212,7 @@ public struct TelemetrySample: Sendable, Codable, Equatable {
     observedAt: Date,
     elapsedMs: Int64,
     rideState: RideState,
+    boardState: Int? = nil,
     packVoltageV: Double? = nil,
     dutyCycle: Double? = nil,
     controllerTempC: Double? = nil,
@@ -209,6 +224,7 @@ public struct TelemetrySample: Sendable, Codable, Equatable {
     self.observedAt = observedAt
     self.elapsedMs = elapsedMs
     self.rideState = rideState
+    self.boardState = boardState
     self.packVoltageV = packVoltageV
     self.dutyCycle = dutyCycle
     self.controllerTempC = controllerTempC
@@ -409,6 +425,11 @@ public enum ThemePreference: String, Sendable, Codable, Equatable, CaseIterable 
   case dark
 }
 
+public enum UnitPreference: String, Sendable, Codable, Equatable, CaseIterable {
+  case metric
+  case imperial
+}
+
 public struct SettingsRecord: Sendable, Codable, Equatable {
   public let revision: Int
   public let idleProbeIntervalMs: Int64
@@ -419,6 +440,7 @@ public struct SettingsRecord: Sendable, Codable, Equatable {
   public let automaticSessionLinkingEnabled: Bool
   public let sessionLinkWindowMs: Int64
   public let themePreference: ThemePreference
+  public let unitPreference: UnitPreference
 
   public init(
     revision: Int = 0,
@@ -429,7 +451,8 @@ public struct SettingsRecord: Sendable, Codable, Equatable {
     reconnectDurationMs: Int64 = 300_000,
     automaticSessionLinkingEnabled: Bool = false,
     sessionLinkWindowMs: Int64 = 7_200_000,
-    themePreference: ThemePreference = .system
+    themePreference: ThemePreference = .system,
+    unitPreference: UnitPreference = .metric
   ) {
     self.revision = revision
     self.idleProbeIntervalMs = idleProbeIntervalMs
@@ -440,14 +463,18 @@ public struct SettingsRecord: Sendable, Codable, Equatable {
     self.automaticSessionLinkingEnabled = automaticSessionLinkingEnabled
     self.sessionLinkWindowMs = sessionLinkWindowMs
     self.themePreference = themePreference
+    self.unitPreference = unitPreference
   }
 }
 
 public struct SavedDeviceRecord: Sendable, Codable, Equatable {
   public let savedDeviceID: String
   public let deviceHistoryID: String
+  public let revision: Int
   public let displayName: String
+  public let customDisplayName: String?
   public let advertisedName: String?
+  public let bluetoothIdentifier: String
   public let lastSeenAt: Date?
   public let lastConnectedAt: Date?
   public let profileComplete: Bool
@@ -455,19 +482,44 @@ public struct SavedDeviceRecord: Sendable, Codable, Equatable {
   public init(
     savedDeviceID: String,
     deviceHistoryID: String,
-    displayName: String,
+    revision: Int = 0,
+    displayName: String? = nil,
+    customDisplayName: String? = nil,
     advertisedName: String? = nil,
+    bluetoothIdentifier: String? = nil,
     lastSeenAt: Date? = nil,
     lastConnectedAt: Date? = nil,
     profileComplete: Bool
   ) {
     self.savedDeviceID = savedDeviceID
     self.deviceHistoryID = deviceHistoryID
-    self.displayName = displayName
+    self.revision = revision
+    self.customDisplayName = customDisplayName
     self.advertisedName = advertisedName
+    self.bluetoothIdentifier = bluetoothIdentifier ?? deviceHistoryID
+    self.displayName = displayName ?? Self.resolveDisplayName(
+      customDisplayName: customDisplayName,
+      advertisedName: advertisedName,
+      bluetoothIdentifier: bluetoothIdentifier ?? deviceHistoryID
+    )
     self.lastSeenAt = lastSeenAt
     self.lastConnectedAt = lastConnectedAt
     self.profileComplete = profileComplete
+  }
+
+  public static func resolveDisplayName(
+    customDisplayName: String?,
+    advertisedName: String?,
+    bluetoothIdentifier: String
+  ) -> String {
+    for candidate in [customDisplayName, advertisedName] {
+      if let value = candidate?.trimmingCharacters(in: .whitespacesAndNewlines),
+         !value.isEmpty
+      {
+        return value
+      }
+    }
+    return bluetoothIdentifier
   }
 }
 
@@ -492,6 +544,8 @@ public struct BoardProfileRecord: Sendable, Codable, Equatable {
 
 public enum ProductStoreError: Error, Equatable {
   case savedDeviceNotFound
+  case savedDeviceRevisionConflict(currentRevision: Int)
+  case invalidSavedDevicePatch
   case profileRevisionConflict(currentRevision: Int)
   case invalidProfilePatch
   case settingsRevisionConflict(currentRevision: Int)
@@ -609,7 +663,7 @@ public protocol ClockPort: Sendable {
 }
 
 public protocol LogStorePort: AnyObject, Sendable {
-  func create(deviceID: DeviceID, at: Date) throws -> SessionRecord
+  func create(deviceID: DeviceID, advertisedName: String?, at: Date) throws -> SessionRecord
   func append(jobID: JobID, samples: [TelemetrySample]) throws
   func close(jobID: JobID, at: Date, reason: String) throws -> SessionRecord
   func active() -> SessionRecord?
@@ -617,6 +671,11 @@ public protocol LogStorePort: AnyObject, Sendable {
 
 public protocol ProductStorePort: AnyObject, Sendable {
   func savedDevices() throws -> [SavedDeviceRecord]
+  func updateSavedDevice(
+    savedDeviceID: String,
+    expectedRevision: Int,
+    customDisplayName: String?
+  ) throws -> SavedDeviceRecord
   func boardProfile(savedDeviceID: String) throws -> BoardProfileRecord
   func updateBoardProfile(
     savedDeviceID: String,
@@ -632,6 +691,13 @@ public protocol ProductStorePort: AnyObject, Sendable {
 }
 
 public extension ProductStorePort {
+  func updateSavedDevice(
+    savedDeviceID _: String,
+    expectedRevision _: Int,
+    customDisplayName _: String?
+  ) throws -> SavedDeviceRecord {
+    throw ProductStoreError.invalidSavedDevicePatch
+  }
   func settings() throws -> SettingsRecord { SettingsRecord() }
   func updateSettings(
     expectedRevision _: Int,

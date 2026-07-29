@@ -27,6 +27,7 @@ public final class ApplicationService: @unchecked Sendable {
   private var telemetryIntervalMs: Int64?
   private var telemetryStartedAtMs: Int64?
   private var telemetrySequence: Int64 = 0
+  private var latestPersistedSample: TelemetrySample?
   private var previousTelemetryRideState: RideState = .unknown
   private var postRideProbeUntilMs: Int64?
   private var reconnectTimer: (any CancellationPort)?
@@ -81,6 +82,21 @@ public final class ApplicationService: @unchecked Sendable {
   public func savedDevices() throws -> [SavedDeviceRecord] {
     guard let productStore else { throw ApplicationError.productStoreUnavailable }
     return try productStore.savedDevices()
+  }
+
+  public func updateSavedDevice(
+    savedDeviceID: String,
+    expectedRevision: Int,
+    customDisplayName: String?
+  ) throws -> SavedDeviceRecord {
+    guard let productStore else { throw ApplicationError.productStoreUnavailable }
+    let value = try productStore.updateSavedDevice(
+      savedDeviceID: savedDeviceID,
+      expectedRevision: expectedRevision,
+      customDisplayName: customDisplayName
+    )
+    events.publish(value)
+    return value
   }
 
   public func boardProfile(savedDeviceID: String) throws -> BoardProfileRecord {
@@ -274,6 +290,7 @@ public final class ApplicationService: @unchecked Sendable {
     telemetryIntervalMs = nil
     telemetryStartedAtMs = nil
     telemetrySequence = 0
+    latestPersistedSample = nil
     previousTelemetryRideState = .unknown
     postRideProbeUntilMs = nil
     resetFirmwareDiscovery()
@@ -323,7 +340,11 @@ public final class ApplicationService: @unchecked Sendable {
       guard deviceID == activeDeviceID else { return }
       if state == .ready, logStore.active() == nil {
         do {
-          events.publish(try logStore.create(deviceID: deviceID, at: clock.now()))
+          events.publish(try logStore.create(
+            deviceID: deviceID,
+            advertisedName: knownDevicesByID[deviceID]?.name,
+            at: clock.now()
+          ))
           telemetryStartedAtMs = clock.monotonicMilliseconds()
         } catch {
           transition(.failed)
@@ -349,6 +370,7 @@ public final class ApplicationService: @unchecked Sendable {
       if state == .disconnected {
         cancelReconnect()
         activeDeviceID = nil
+        latestPersistedSample = nil
         resetFirmwareDiscovery()
       }
       transition(state)
@@ -408,8 +430,9 @@ public final class ApplicationService: @unchecked Sendable {
     guard connectionState == .ready, let active = logStore.active() else { return }
     if sampling.shouldPersist(rideState: sample.rideState, elapsedMs: sample.elapsedMs) {
       try logStore.append(jobID: active.jobID, samples: [sample])
+      latestPersistedSample = sample
+      events.publish(sample)
     }
-    events.publish(sample)
   }
 
   public func discoverySnapshot() -> DiscoverySnapshot {
@@ -426,10 +449,19 @@ public final class ApplicationService: @unchecked Sendable {
     lock.lock()
     defer { lock.unlock() }
     guard let activeDeviceID else { return nil }
+    let savedDevice = try? productStore?.savedDevices().first {
+      $0.bluetoothIdentifier == activeDeviceID.value
+    }
+    let activeSession = logStore.active().flatMap { record in
+      try? sessionStore?.session(sessionID: record.sessionID.value)
+    }
     return ActiveConnectionSnapshot(
       deviceID: activeDeviceID,
       name: knownDevicesByID[activeDeviceID]?.name,
-      state: connectionState
+      state: connectionState,
+      savedDevice: savedDevice ?? nil,
+      activeSession: activeSession ?? nil,
+      latestSample: latestPersistedSample
     )
   }
 
@@ -638,6 +670,7 @@ public final class ApplicationService: @unchecked Sendable {
     explicitDisconnect = true
     if let deviceID { bluetooth.disconnect(deviceID) }
     activeDeviceID = nil
+    latestPersistedSample = nil
     resetFirmwareDiscovery()
     transition(.disconnected)
     events.publish(reason)
@@ -693,6 +726,7 @@ public final class ApplicationService: @unchecked Sendable {
         observedAt: clock.now(),
         elapsedMs: max(0, nowMs - (telemetryStartedAtMs ?? nowMs)),
         rideState: value.rideState,
+        boardState: Int(value.boardState),
         packVoltageV: value.packVoltageV,
         dutyCycle: value.dutyCycle,
         controllerTempC: value.controllerTempC,

@@ -55,5 +55,31 @@ describe('deterministic mock backend', () => {
 		expect(request(7, 'session.export', { sessionId: 'session-1', format: 'csv' })).toHaveProperty(
 			'result'
 		);
+		expect(
+			request(8, 'savedDevice.update', {
+				savedDeviceId: 'saved-board',
+				expectedRevision: 0,
+				customDisplayName: 'My board'
+			})
+		).toMatchObject({ result: { displayName: 'My board', revision: 1 } });
+	});
+
+	it('publishes complete live snapshots at the configured persistence cadence', () => {
+		const events: { data: { activeConnection: { latestSample: { boardState: number } } } }[] = [];
+		const backend = new MockBackend((event) => events.push(event as (typeof events)[number]));
+		backend.handle({ id: 1, method: 'bluetooth.scan', params: {} });
+		backend.handle({ id: 2, method: 'device.connect', params: { deviceId: 'mock-board' } });
+		backend.publishTelemetry();
+		const liveSample = events.at(-1)?.data.activeConnection.latestSample;
+		backend.simulateConnectionState('reconnecting');
+		expect(backend.telemetryCadenceMs).toBe(100);
+		expect(liveSample).toMatchObject({
+			rideState: 'riding',
+			boardState: 1
+		});
+		expect(events.at(-1)?.data.activeConnection).toMatchObject({
+			state: 'reconnecting',
+			latestSample: liveSample
+		});
 	});
 });

@@ -81,6 +81,7 @@ async function exerciseProductMethods(
       automaticSessionLinkingEnabled: true,
       sessionLinkWindowMs: 7_200_000,
       themePreference: "dark",
+      unitPreference: "imperial",
     },
   });
   await expectError(
@@ -92,6 +93,7 @@ async function exerciseProductMethods(
   );
   assert.equal(settings.automaticSessionLinkingEnabled, true);
   assert.equal(settings.themePreference, "dark");
+  assert.equal(settings.unitPreference, "imperial");
   await expectError(
     (
       client as unknown as {
@@ -117,6 +119,32 @@ async function exerciseProductMethods(
   const profile = await client.request("boardProfile.get", {
     savedDeviceId: profileDevice.savedDeviceId,
   });
+  assert.equal(typeof profileDevice.bluetoothIdentifier, "string");
+  assert.ok(profileDevice.bluetoothIdentifier.length > 0);
+  const renamed = await client.request("savedDevice.update", {
+    savedDeviceId: profileDevice.savedDeviceId,
+    expectedRevision: profileDevice.revision,
+    customDisplayName: "Conformance Board",
+  });
+  assert.equal(renamed.displayName, "Conformance Board");
+  assert.equal(renamed.customDisplayName, "Conformance Board");
+  await expectError(
+    client.request("savedDevice.update", {
+      savedDeviceId: profileDevice.savedDeviceId,
+      expectedRevision: profileDevice.revision,
+      customDisplayName: null,
+    }),
+    "conflict",
+  );
+  const resetName = await client.request("savedDevice.update", {
+    savedDeviceId: profileDevice.savedDeviceId,
+    expectedRevision: renamed.revision,
+    customDisplayName: null,
+  });
+  assert.equal(
+    resetName.displayName,
+    resetName.advertisedName ?? resetName.bluetoothIdentifier,
+  );
   const updatedProfile = await client.request("boardProfile.update", {
     savedDeviceId: profile.savedDeviceId,
     expectedRevision: profile.revision,
@@ -199,6 +227,33 @@ async function createCompletedSession(
     { afterRevision: before.revision },
   );
   assert.ok(connected.activeConnection);
+  assert.equal(
+    connected.activeConnection.displayName,
+    connected.activeConnection.name,
+  );
+  assert.ok(connected.activeConnection.savedDeviceId);
+  assert.ok(connected.activeConnection.activeSession);
+  if (connected.activeConnection.latestSample) {
+    assert.deepEqual(
+      Object.keys(connected.activeConnection.latestSample).sort(),
+      [
+        "batteryCurrentA",
+        "boardState",
+        "controllerTempC",
+        "dutyCycle",
+        "elapsedMs",
+        "erpm",
+        "footpadState",
+        "motorCurrentA",
+        "motorTempC",
+        "observedAt",
+        "packVoltageV",
+        "rideState",
+        "sequence",
+        "speedKph",
+      ],
+    );
+  }
   await expectError(
     client.request("device.connect", { deviceId }),
     "invalid_state",
@@ -234,10 +289,12 @@ function assertState(state: AppState) {
     "ridingPersistIntervalMs",
     "sessionLinkWindowMs",
     "themePreference",
+    "unitPreference",
   ]);
   assert.ok(
     ["system", "light", "dark"].includes(state.settings.themePreference),
   );
+  assert.ok(["metric", "imperial"].includes(state.settings.unitPreference));
 }
 
 async function expectError(promise: Promise<unknown>, code: string) {
@@ -257,6 +314,7 @@ export const mandatoryMethods: BackendMethod[] = [
   "bluetooth.scan",
   "device.connect",
   "device.disconnect",
+  "savedDevice.update",
   "settings.update",
   "boardProfile.get",
   "boardProfile.update",

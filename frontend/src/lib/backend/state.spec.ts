@@ -21,7 +21,18 @@ const initial: AppState = {
 	revision: 1,
 	bluetooth: bluetooth('granted'),
 	discoveredDevices: [],
-	savedDevices: [],
+	savedDevices: [
+		{
+			savedDeviceId: 'saved-board',
+			deviceHistoryId: 'history-board',
+			revision: 0,
+			displayName: 'Advertised',
+			customDisplayName: null,
+			advertisedName: 'Advertised',
+			bluetoothIdentifier: 'AA:BB:CC:DD:EE:FF',
+			profileComplete: false
+		}
+	],
 	activeConnection: null,
 	recentSessions: [],
 	sessionGroups: [],
@@ -34,7 +45,8 @@ const initial: AppState = {
 		reconnectDurationMs: 300_000,
 		automaticSessionLinkingEnabled: false,
 		sessionLinkWindowMs: 7_200_000,
-		themePreference: 'system'
+		themePreference: 'system',
+		unitPreference: 'metric'
 	}
 };
 
@@ -68,6 +80,20 @@ class FakeClient {
 			case 'device.disconnect':
 				result = { accepted: true };
 				break;
+			case 'savedDevice.update': {
+				const update = params as BackendParams<'savedDevice.update'>;
+				const current = this.state.savedDevices[0];
+				const customDisplayName = update.customDisplayName?.trim() || null;
+				const saved = {
+					...current,
+					revision: current.revision + 1,
+					customDisplayName,
+					displayName: customDisplayName ?? current.advertisedName ?? current.bluetoothIdentifier
+				};
+				this.state = { ...this.state, savedDevices: [saved] };
+				result = saved;
+				break;
+			}
 			default:
 				throw new Error(`Unexpected method ${method}`);
 		}
@@ -106,6 +132,20 @@ describe('BackendState', () => {
 		await store.updateSessionSettings({ automaticSessionLinkingEnabled: true });
 		expect(store.settings?.automaticSessionLinkingEnabled).toBe(true);
 		expect(store.snapshot?.revision).toBe(2);
+		store.close();
+	});
+
+	it('reconciles custom board names and clears back to advertised identity', async () => {
+		const client = new FakeClient();
+		const store = new BackendState(
+			async () => ({ webSocketUrl: 'ws://test' }),
+			async () => client as unknown as ApiClient
+		);
+		await store.connect();
+		await store.updateSavedDeviceName('saved-board', 'Trail board');
+		expect(store.savedDevices[0]).toMatchObject({ displayName: 'Trail board', revision: 1 });
+		await store.updateSavedDeviceName('saved-board', null);
+		expect(store.savedDevices[0]).toMatchObject({ displayName: 'Advertised', revision: 2 });
 		store.close();
 	});
 });

@@ -57,6 +57,7 @@ private func repositoryRoot() -> URL {
         observedAt: startedAt.addingTimeInterval(Double(index)),
         elapsedMs: elapsed,
         rideState: index == 0 ? RideState.idle : RideState.riding,
+        boardState: index % 4,
         packVoltageV: voltage,
         dutyCycle: duty,
         extensionFields: ["speedKph": 18.0]
@@ -99,9 +100,10 @@ private func repositoryRoot() -> URL {
     centerElapsedMs: 50_000,
     beforeMs: 2_000,
     afterMs: 2_000,
-    fields: ["packVoltageV"]
+    fields: ["packVoltageV", "boardState"]
   )
   #expect(diagnostic.map(\.elapsedMs) == [48_000, 49_000, 50_000, 51_000, 52_000])
+  #expect(diagnostic.compactMap { $0.values["boardState"] ?? nil } == [0.0, 1.0, 2.0, 3.0, 0.0])
   #expect(try store.sessionEvents(
     sessionID: record.sessionID.value,
     startElapsedMs: 0,
@@ -358,11 +360,31 @@ private func repositoryRoot() -> URL {
     schemaDirectory: schema,
     availableBytes: { 2_000_000_000 }
   )
-  let session = try store.create(deviceID: DeviceID("platform-private-id"), at: .distantPast)
+  let session = try store.create(
+    deviceID: DeviceID("platform-private-id"),
+    advertisedName: "Advertised",
+    at: .distantPast
+  )
   let saved = try #require(store.savedDevices().first)
   #expect(saved.savedDeviceID != "saved-platform-private-id")
   #expect(!saved.savedDeviceID.contains("platform-private-id"))
   #expect(!saved.profileComplete)
+  #expect(saved.displayName == "Advertised")
+  #expect(saved.bluetoothIdentifier == "platform-private-id")
+  let renamed = try store.updateSavedDevice(
+    savedDeviceID: saved.savedDeviceID,
+    expectedRevision: 0,
+    customDisplayName: "Trail board"
+  )
+  #expect(renamed.displayName == "Trail board")
+  #expect(renamed.revision == 1)
+  #expect(throws: ProductStoreError.savedDeviceRevisionConflict(currentRevision: 1)) {
+    try store.updateSavedDevice(
+      savedDeviceID: saved.savedDeviceID,
+      expectedRevision: 0,
+      customDisplayName: nil
+    )
+  }
 
   let initial = try store.boardProfile(savedDeviceID: saved.savedDeviceID)
   #expect(initial.revision == 0)

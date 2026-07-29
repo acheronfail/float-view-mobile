@@ -11,6 +11,7 @@
 	let { children }: { children: Snippet } = $props();
 	let themeController: ThemeController | undefined;
 	const activeBottomTab = $derived(bottomTabForRoute(page.route.id));
+	const liveRoute = $derived(page.route.id === '/live');
 
 	onMount(() => {
 		themeController = new ThemeController(browserThemeEnvironment());
@@ -46,14 +47,18 @@
 
 <main class="min-h-screen bg-canvas text-foreground">
 	<div
-		class="app-safe-area mx-auto flex min-h-screen max-w-3xl flex-col"
+		class="app-safe-area mx-auto flex min-h-screen flex-col"
+		class:max-w-3xl={!liveRoute}
+		class:max-w-5xl={liveRoute}
 		class:app-safe-area-with-tabs={activeBottomTab}
 		class:app-safe-area-without-tabs={!activeBottomTab}
 	>
-		<header class="mb-5">
-			<h1 class="text-3xl font-semibold">Float View</h1>
-			<p class="text-sm text-muted">Durable VESC sessions</p>
-		</header>
+		{#if !liveRoute}
+			<header class="mb-5">
+				<h1 class="text-3xl font-semibold">Float View</h1>
+				<p class="text-sm text-muted">Durable VESC sessions</p>
+			</header>
+		{/if}
 
 		<div class="flex-1">
 			{@render children()}

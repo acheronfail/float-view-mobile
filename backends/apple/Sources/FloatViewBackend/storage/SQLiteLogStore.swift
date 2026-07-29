@@ -178,7 +178,11 @@ public final class SQLiteLogStore: LogStorePort, ProductStorePort, SessionStoreP
     try Data(LogSchema.storageVersion.utf8).write(to: marker, options: .atomic)
   }
 
-  public func create(deviceID: DeviceID, at: Date) throws -> SessionRecord {
+  public func create(
+    deviceID: DeviceID,
+    advertisedName: String?,
+    at: Date
+  ) throws -> SessionRecord {
     lock.lock()
     defer { lock.unlock() }
     if let current { return current }
@@ -191,7 +195,11 @@ public final class SQLiteLogStore: LogStorePort, ProductStorePort, SessionStoreP
     let session = try Database(url: root.appending(path: fileName))
     try session.execute(String(contentsOf: schemaDirectory.appending(path: "session.sql")))
     let timestamp = Int64(at.timeIntervalSince1970 * 1_000)
-    let savedDevice = try ensureSavedDeviceLocked(deviceID: deviceID, at: at)
+    let savedDevice = try ensureSavedDeviceLocked(
+      deviceID: deviceID,
+      advertisedName: advertisedName,
+      at: at
+    )
     let profile = try boardProfileLocked(savedDeviceID: savedDevice.savedDeviceID, at: at)
     let settings = try settingsLocked()
     let deviceSnapshot = try Self.jsonString([
@@ -225,6 +233,10 @@ public final class SQLiteLogStore: LogStorePort, ProductStorePort, SessionStoreP
     return record
   }
 
+  public func create(deviceID: DeviceID, at: Date) throws -> SessionRecord {
+    try create(deviceID: deviceID, advertisedName: nil, at: at)
+  }
+
   public func append(jobID: JobID, samples: [TelemetrySample]) throws {
     lock.lock()
     defer { lock.unlock() }
@@ -249,14 +261,15 @@ public final class SQLiteLogStore: LogStorePort, ProductStorePort, SessionStoreP
           """
           INSERT OR IGNORE INTO sample(
             sequence, observed_at_ms, monotonic_elapsed_ms, ride_state,
-            raw_pack_voltage_v, duty_cycle, controller_temp_c, motor_temp_c,
+            board_state, raw_pack_voltage_v, duty_cycle, controller_temp_c, motor_temp_c,
             footpad_state, extension_json, motor_current_a, battery_current_a, erpm, speed_kph
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
           """,
           values: [
             .integer(sample.sequence),
             .integer(Int64(sample.observedAt.timeIntervalSince1970 * 1_000)),
             .integer(sample.elapsedMs), .text(sample.rideState.rawValue),
+            sample.boardState.map { .integer(Int64($0)) } ?? .null,
             optional(sample.packVoltageV), optional(sample.dutyCycle),
             optional(sample.controllerTempC), optional(sample.motorTempC),
             sample.footpadState.map { .integer(Int64($0)) } ?? .null,
@@ -472,27 +485,73 @@ public final class SQLiteLogStore: LogStorePort, ProductStorePort, SessionStoreP
   public func savedDevices() throws -> [SavedDeviceRecord] {
     lock.lock()
     defer { lock.unlock() }
+    return try savedDevicesLocked()
+  }
+
+  private func savedDevicesLocked() throws -> [SavedDeviceRecord] {
     return try catalog.query(
       """
-      SELECT d.saved_device_id, d.device_history_id, d.display_name,
-             d.advertised_name, d.last_seen_at_ms, d.last_connected_at_ms,
+      SELECT d.saved_device_id, d.device_history_id, d.revision,
+             d.custom_display_name, d.advertised_name, d.opaque_platform_id,
+             d.last_seen_at_ms, d.last_connected_at_ms,
              COALESCE(p.json, '{}')
       FROM saved_device d
       LEFT JOIN board_profile p ON p.saved_device_id = d.saved_device_id
       ORDER BY COALESCE(d.last_connected_at_ms, d.created_at_ms) DESC
       """
     ) { statement in
-      let valuesJSON = Self.columnText(statement, 6) ?? "{}"
+      let valuesJSON = Self.columnText(statement, 8) ?? "{}"
       return SavedDeviceRecord(
         savedDeviceID: Self.columnText(statement, 0)!,
         deviceHistoryID: Self.columnText(statement, 1)!,
-        displayName: Self.columnText(statement, 2)!,
-        advertisedName: Self.columnText(statement, 3),
-        lastSeenAt: Self.columnDate(statement, 4),
-        lastConnectedAt: Self.columnDate(statement, 5),
+        revision: Int(sqlite3_column_int64(statement, 2)),
+        customDisplayName: Self.columnText(statement, 3),
+        advertisedName: Self.columnText(statement, 4),
+        bluetoothIdentifier: Self.columnText(statement, 5)!,
+        lastSeenAt: Self.columnDate(statement, 6),
+        lastConnectedAt: Self.columnDate(statement, 7),
         profileComplete: Self.missingFields(valuesJSON: valuesJSON).isEmpty
       )
     }
+  }
+
+  public func updateSavedDevice(
+    savedDeviceID: String,
+    expectedRevision: Int,
+    customDisplayName: String?
+  ) throws -> SavedDeviceRecord {
+    lock.lock()
+    defer { lock.unlock() }
+    let normalized = customDisplayName?.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard normalized?.utf8.count ?? 0 <= 128 else {
+      throw ProductStoreError.invalidSavedDevicePatch
+    }
+    let value = normalized.flatMap { $0.isEmpty ? nil : $0 }
+    try catalog.statement(
+      """
+      UPDATE saved_device SET custom_display_name = ?, revision = revision + 1
+      WHERE saved_device_id = ? AND revision = ?
+      """,
+      values: [
+        value.map(SQLiteValue.text) ?? .null,
+        .text(savedDeviceID),
+        .integer(Int64(expectedRevision)),
+      ]
+    )
+    guard try catalog.scalarInt("SELECT changes()") == 1 else {
+      guard let current = try savedDevicesLocked().first(where: {
+        $0.savedDeviceID == savedDeviceID
+      }) else {
+        throw ProductStoreError.savedDeviceNotFound
+      }
+      throw ProductStoreError.savedDeviceRevisionConflict(currentRevision: current.revision)
+    }
+    guard let updated = try savedDevicesLocked().first(where: {
+      $0.savedDeviceID == savedDeviceID
+    }) else {
+      throw ProductStoreError.savedDeviceNotFound
+    }
+    return updated
   }
 
   public func boardProfile(savedDeviceID: String) throws -> BoardProfileRecord {
@@ -724,22 +783,22 @@ public final class SQLiteLogStore: LogStorePort, ProductStorePort, SessionStoreP
         let handle = try FileHandle(forWritingTo: output)
         defer { try? handle.close() }
         try handle.write(contentsOf: Data(
-          "sequence,observed_at_ms,elapsed_ms,ride_state,pack_voltage_v,duty_cycle,controller_temp_c,motor_temp_c,footpad_state,motor_current_a,battery_current_a,erpm,speed_kph,extension_json\n".utf8
+          "sequence,observed_at_ms,elapsed_ms,ride_state,board_state,pack_voltage_v,duty_cycle,controller_temp_c,motor_temp_c,footpad_state,motor_current_a,battery_current_a,erpm,speed_kph,extension_json\n".utf8
         ))
         try database.forEachRow(
           """
           SELECT sequence, observed_at_ms, monotonic_elapsed_ms, ride_state,
-                 raw_pack_voltage_v, duty_cycle, controller_temp_c, motor_temp_c,
+                 board_state, raw_pack_voltage_v, duty_cycle, controller_temp_c, motor_temp_c,
                  footpad_state, motor_current_a, battery_current_a, erpm, speed_kph,
                  extension_json
           FROM sample ORDER BY sequence
           """
         ) { statement in
           var columns: [String] = []
-          for index in 0 ..< 14 {
+          for index in 0 ..< 15 {
             if sqlite3_column_type(statement, Int32(index)) == SQLITE_NULL {
               columns.append("")
-            } else if index == 3 || index == 13 {
+            } else if index == 3 || index == 14 {
               columns.append(Self.csv(Self.columnText(statement, Int32(index)) ?? ""))
             } else {
               columns.append(String(cString: sqlite3_column_text(statement, Int32(index))))
@@ -1144,6 +1203,7 @@ public final class SQLiteLogStore: LogStorePort, ProductStorePort, SessionStoreP
   }
 
   private static let seriesColumns = [
+    "boardState": "board_state",
     "packVoltageV": "raw_pack_voltage_v",
     "dutyCycle": "duty_cycle",
     "controllerTempC": "controller_temp_c",
@@ -1171,6 +1231,7 @@ public final class SQLiteLogStore: LogStorePort, ProductStorePort, SessionStoreP
     "automaticSessionLinkingEnabled",
     "sessionLinkWindowMs",
     "themePreference",
+    "unitPreference",
   ]
 
   private static func settingsDictionary(_ value: SettingsRecord) -> [String: Any] {
@@ -1183,6 +1244,7 @@ public final class SQLiteLogStore: LogStorePort, ProductStorePort, SessionStoreP
       "automaticSessionLinkingEnabled": value.automaticSessionLinkingEnabled,
       "sessionLinkWindowMs": value.sessionLinkWindowMs,
       "themePreference": value.themePreference.rawValue,
+      "unitPreference": value.unitPreference.rawValue,
     ]
   }
 
@@ -1209,6 +1271,12 @@ public final class SQLiteLogStore: LogStorePort, ProductStorePort, SessionStoreP
       else { throw ProductStoreError.invalidSettingsPatch }
       return value
     }
+    func unitPreference(_ key: String) throws -> UnitPreference {
+      guard let rawValue = values[key] as? String,
+            let value = UnitPreference(rawValue: rawValue)
+      else { throw ProductStoreError.invalidSettingsPatch }
+      return value
+    }
     return try SettingsRecord(
       revision: revision,
       idleProbeIntervalMs: integer("idleProbeIntervalMs", 100 ... 10_000),
@@ -1218,7 +1286,8 @@ public final class SQLiteLogStore: LogStorePort, ProductStorePort, SessionStoreP
       reconnectDurationMs: integer("reconnectDurationMs", 0 ... 3_600_000),
       automaticSessionLinkingEnabled: boolean("automaticSessionLinkingEnabled"),
       sessionLinkWindowMs: integer("sessionLinkWindowMs", 60_000 ... 86_400_000),
-      themePreference: themePreference("themePreference")
+      themePreference: themePreference("themePreference"),
+      unitPreference: unitPreference("unitPreference")
     )
   }
 
@@ -1277,11 +1346,15 @@ public final class SQLiteLogStore: LogStorePort, ProductStorePort, SessionStoreP
     return (field, number, sessionID)
   }
 
-  private func ensureSavedDeviceLocked(deviceID: DeviceID, at: Date) throws -> SavedDeviceRecord {
+  private func ensureSavedDeviceLocked(
+    deviceID: DeviceID,
+    advertisedName: String?,
+    at: Date
+  ) throws -> SavedDeviceRecord {
     let existing = try catalog.query(
       """
-      SELECT saved_device_id, device_history_id, display_name, advertised_name,
-             last_seen_at_ms, last_connected_at_ms
+      SELECT saved_device_id, device_history_id, revision, custom_display_name,
+             advertised_name, opaque_platform_id, last_seen_at_ms, last_connected_at_ms
       FROM saved_device WHERE opaque_platform_id = ? LIMIT 1
       """,
       values: [.text(deviceID.value)]
@@ -1289,26 +1362,38 @@ public final class SQLiteLogStore: LogStorePort, ProductStorePort, SessionStoreP
       SavedDeviceRecord(
         savedDeviceID: Self.columnText(statement, 0)!,
         deviceHistoryID: Self.columnText(statement, 1)!,
-        displayName: Self.columnText(statement, 2)!,
-        advertisedName: Self.columnText(statement, 3),
-        lastSeenAt: Self.columnDate(statement, 4),
-        lastConnectedAt: Self.columnDate(statement, 5),
+        revision: Int(sqlite3_column_int64(statement, 2)),
+        customDisplayName: Self.columnText(statement, 3),
+        advertisedName: Self.columnText(statement, 4),
+        bluetoothIdentifier: Self.columnText(statement, 5)!,
+        lastSeenAt: Self.columnDate(statement, 6),
+        lastConnectedAt: Self.columnDate(statement, 7),
         profileComplete: false
       )
     }.first
     let timestamp = Int64(at.timeIntervalSince1970 * 1_000)
     if let existing {
       try catalog.statement(
-        "UPDATE saved_device SET last_connected_at_ms = ? WHERE saved_device_id = ?",
-        values: [.integer(timestamp), .text(existing.savedDeviceID)]
+        """
+        UPDATE saved_device
+        SET advertised_name = COALESCE(?, advertised_name), last_seen_at_ms = ?,
+            last_connected_at_ms = ?
+        WHERE saved_device_id = ?
+        """,
+        values: [
+          advertisedName.map(SQLiteValue.text) ?? .null,
+          .integer(timestamp), .integer(timestamp), .text(existing.savedDeviceID),
+        ]
       )
       _ = try boardProfileLocked(savedDeviceID: existing.savedDeviceID, at: at)
       return SavedDeviceRecord(
         savedDeviceID: existing.savedDeviceID,
         deviceHistoryID: existing.deviceHistoryID,
-        displayName: existing.displayName,
-        advertisedName: existing.advertisedName,
-        lastSeenAt: existing.lastSeenAt,
+        revision: existing.revision,
+        customDisplayName: existing.customDisplayName,
+        advertisedName: advertisedName ?? existing.advertisedName,
+        bluetoothIdentifier: existing.bluetoothIdentifier,
+        lastSeenAt: at,
         lastConnectedAt: at,
         profileComplete: false
       )
@@ -1318,20 +1403,23 @@ public final class SQLiteLogStore: LogStorePort, ProductStorePort, SessionStoreP
     try catalog.statement(
       """
       INSERT INTO saved_device(
-        saved_device_id, device_history_id, opaque_platform_id, display_name,
-        created_at_ms, last_connected_at_ms
-      ) VALUES (?, ?, ?, 'Board', ?, ?)
+        saved_device_id, device_history_id, opaque_platform_id, advertised_name,
+        custom_display_name, revision, created_at_ms, last_seen_at_ms, last_connected_at_ms
+      ) VALUES (?, ?, ?, ?, NULL, 0, ?, ?, ?)
       """,
       values: [
         .text(savedDeviceID), .text(deviceHistoryID), .text(deviceID.value),
-        .integer(timestamp), .integer(timestamp),
+        advertisedName.map(SQLiteValue.text) ?? .null,
+        .integer(timestamp), .integer(timestamp), .integer(timestamp),
       ]
     )
     _ = try boardProfileLocked(savedDeviceID: savedDeviceID, at: at)
     return SavedDeviceRecord(
       savedDeviceID: savedDeviceID,
       deviceHistoryID: deviceHistoryID,
-      displayName: "Board",
+      advertisedName: advertisedName,
+      bluetoothIdentifier: deviceID.value,
+      lastSeenAt: at,
       lastConnectedAt: at,
       profileComplete: false
     )

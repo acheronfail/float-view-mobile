@@ -37,9 +37,22 @@ class SQLiteBoardProfileInstrumentedTest {
     @Test
     fun profileIdentityMergeRevisionAndRestartAreDurable() {
         val store = SQLiteLogStore(context, availableBytes = { 2_000_000_000 })
-        val session = store.create(DeviceId("platform-private-id"), Instant.EPOCH)
+        val session = store.create(DeviceId("platform-private-id"), "Advertised", Instant.EPOCH)
         val saved = store.savedDevices().single()
         assertFalse(saved.savedDeviceId.contains("platform-private-id"))
+        assertEquals("Advertised", saved.displayName)
+        assertEquals("platform-private-id", saved.bluetoothIdentifier)
+        val renamed = store.updateSavedDevice(
+            saved.savedDeviceId,
+            0,
+            "Trail board",
+            Instant.EPOCH,
+        )
+        assertEquals("Trail board", renamed.displayName)
+        assertEquals(1, renamed.revision)
+        assertThrows(ProductStoreException.SavedDeviceRevisionConflict::class.java) {
+            store.updateSavedDevice(saved.savedDeviceId, 0, null, Instant.EPOCH)
+        }
 
         val initial = store.boardProfile(saved.savedDeviceId)
         assertEquals(0, initial.revision)

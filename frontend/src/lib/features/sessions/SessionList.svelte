@@ -1,5 +1,8 @@
 <script lang="ts">
 	import { backendState } from '$lib/backend/state.svelte';
+	import { formatDistanceM } from '$lib/features/measurements/format';
+
+	const units = $derived(backendState.settings?.unitPreference ?? 'metric');
 
 	function grouped(sessionId: string) {
 		return backendState.sessionGroups.some((group) => group.sessionIds.includes(sessionId));
@@ -23,7 +26,7 @@
 							<span class="block font-medium">{group.sessionIds.length} ride segments</span>
 							<span class="text-sm text-muted">
 								{Math.round(group.totalElapsedMs / 60000)} min ·
-								{((group.distanceM ?? 0) / 1000).toFixed(2)} km
+								{formatDistanceM(group.distanceM, units)}
 							</span>
 						</div>
 						<button
@@ -58,7 +61,7 @@
 							<span class="block font-medium">{session.displayName}</span>
 							<span class="text-sm text-muted">
 								{session.state} · {Math.round(session.totalElapsedMs / 60000)} min ·
-								{((session.distanceM ?? 0) / 1000).toFixed(2)} km
+								{formatDistanceM(session.distanceM, units)}
 							</span>
 						</a>
 					</li>

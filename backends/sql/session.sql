@@ -6,6 +6,7 @@ CREATE TABLE IF NOT EXISTS sample (
   observed_at_ms INTEGER NOT NULL,
   monotonic_elapsed_ms INTEGER NOT NULL,
   ride_state TEXT NOT NULL,
+  board_state INTEGER,
   raw_pack_voltage_v REAL,
   duty_cycle REAL,
   controller_temp_c REAL,

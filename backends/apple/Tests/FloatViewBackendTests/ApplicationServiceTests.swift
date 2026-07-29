@@ -22,6 +22,40 @@ func readyCreatesDurableSession() throws {
 }
 
 @Test
+func onlyPersistedSamplesPublishLiveState() throws {
+  let store = MemoryStore()
+  let events = CollectingEvents()
+  let service = ApplicationService(
+    bluetooth: FakeBluetooth(),
+    clock: FixedClock(),
+    logStore: store,
+    events: events
+  )
+  let id = DeviceID("fixture")
+  try service.receive(.deviceFound(id, name: "Fixture", rssi: -40))
+  try service.connect(id)
+  try service.receive(.connectionChanged(id, .ready))
+  events.values.removeAll()
+
+  try service.ingest(
+    TelemetrySample(
+      sequence: 1, observedAt: .init(timeIntervalSince1970: 0),
+      elapsedMs: 0, rideState: .idle
+    )
+  )
+  try service.ingest(
+    TelemetrySample(
+      sequence: 2, observedAt: .init(timeIntervalSince1970: 0.1),
+      elapsedMs: 100, rideState: .idle
+    )
+  )
+
+  #expect(store.appended.map(\.sequence) == [1])
+  #expect(events.values.compactMap { $0 as? TelemetrySample }.map(\.sequence) == [1])
+  #expect(service.activeConnectionSnapshot()?.latestSample?.sequence == 1)
+}
+
+@Test
 func boardProfileUpdatesRemainLocalAndPublishPersistedRevision() throws {
   let bluetooth = FakeBluetooth()
   let products = MemoryProductStore()
@@ -47,6 +81,35 @@ func boardProfileUpdatesRemainLocalAndPublishPersistedRevision() throws {
   #expect(events.values.first as? BoardProfileRecord == updated)
   #expect(bluetooth.connected.isEmpty)
   #expect(bluetooth.writes.isEmpty)
+}
+
+@Test
+func savedDeviceNameUpdatePublishesResolvedRevision() throws {
+  let products = MemoryProductStore()
+  let events = CollectingEvents()
+  let service = ApplicationService(
+    bluetooth: FakeBluetooth(),
+    clock: FixedClock(),
+    logStore: MemoryStore(),
+    productStore: products,
+    events: events
+  )
+
+  let renamed = try service.updateSavedDevice(
+    savedDeviceID: "saved-board",
+    expectedRevision: 0,
+    customDisplayName: "Trail board"
+  )
+  #expect(renamed.displayName == "Trail board")
+  #expect(renamed.revision == 1)
+  #expect(events.values.first as? SavedDeviceRecord == renamed)
+
+  let reset = try service.updateSavedDevice(
+    savedDeviceID: "saved-board",
+    expectedRevision: 1,
+    customDisplayName: nil
+  )
+  #expect(reset.displayName == "Advertised")
 }
 
 @Test
@@ -245,7 +308,9 @@ func refloatTelemetryStartsIdleProbeAndSwitchesToRidingRate() throws {
   #expect(scheduler.intervals == [1_000, 500, 100])
   #expect(store.appended.count == 1)
   #expect(store.appended.first?.rideState == .riding)
+  #expect(store.appended.first?.boardState == 3)
   #expect(store.appended.first?.packVoltageV == 64)
+  #expect(service.activeConnectionSnapshot()?.latestSample == store.appended.first)
   #expect(store.appended.first?.extensionFields == [
     "motorCurrentA": 8,
     "batteryCurrentA": -4,
@@ -654,7 +719,11 @@ private final class MemoryStore: LogStorePort, @unchecked Sendable {
   private var record: SessionRecord?
   var appended: [TelemetrySample] = []
   var closeReasons: [String] = []
-  func create(deviceID: DeviceID, at: Date) throws -> SessionRecord {
+  func create(
+    deviceID: DeviceID,
+    advertisedName _: String?,
+    at: Date
+  ) throws -> SessionRecord {
     let result = SessionRecord(
       sessionID: SessionID("session"),
       jobID: JobID("job"),
@@ -679,7 +748,11 @@ private final class MemoryStore: LogStorePort, @unchecked Sendable {
 }
 
 private final class FailingStore: LogStorePort, @unchecked Sendable {
-  func create(deviceID _: DeviceID, at _: Date) throws -> SessionRecord {
+  func create(
+    deviceID _: DeviceID,
+    advertisedName _: String?,
+    at _: Date
+  ) throws -> SessionRecord {
     throw TestError.storage
   }
   func append(jobID _: JobID, samples _: [TelemetrySample]) throws {}
@@ -690,6 +763,13 @@ private final class FailingStore: LogStorePort, @unchecked Sendable {
 }
 
 private final class MemoryProductStore: ProductStorePort, @unchecked Sendable {
+  var savedDevice = SavedDeviceRecord(
+    savedDeviceID: "saved-board",
+    deviceHistoryID: "history-board",
+    advertisedName: "Advertised",
+    bluetoothIdentifier: "identifier",
+    profileComplete: false
+  )
   var profile = BoardProfileRecord(
     savedDeviceID: "saved-board",
     revision: 0,
@@ -698,14 +778,30 @@ private final class MemoryProductStore: ProductStorePort, @unchecked Sendable {
   )
 
   func savedDevices() throws -> [SavedDeviceRecord] {
-    [
-      SavedDeviceRecord(
-        savedDeviceID: "saved-board",
-        deviceHistoryID: "history-board",
-        displayName: "Board",
-        profileComplete: false
-      ),
-    ]
+    [savedDevice]
+  }
+
+  func updateSavedDevice(
+    savedDeviceID: String,
+    expectedRevision: Int,
+    customDisplayName: String?
+  ) throws -> SavedDeviceRecord {
+    guard savedDeviceID == savedDevice.savedDeviceID else {
+      throw ProductStoreError.savedDeviceNotFound
+    }
+    guard expectedRevision == savedDevice.revision else {
+      throw ProductStoreError.savedDeviceRevisionConflict(currentRevision: savedDevice.revision)
+    }
+    savedDevice = SavedDeviceRecord(
+      savedDeviceID: savedDevice.savedDeviceID,
+      deviceHistoryID: savedDevice.deviceHistoryID,
+      revision: savedDevice.revision + 1,
+      customDisplayName: customDisplayName,
+      advertisedName: savedDevice.advertisedName,
+      bluetoothIdentifier: savedDevice.bluetoothIdentifier,
+      profileComplete: false
+    )
+    return savedDevice
   }
 
   func boardProfile(savedDeviceID: String) throws -> BoardProfileRecord {

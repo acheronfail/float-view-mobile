@@ -7,7 +7,8 @@ CREATE TABLE IF NOT EXISTS saved_device (
   device_history_id TEXT UNIQUE NOT NULL,
   opaque_platform_id TEXT UNIQUE NOT NULL,
   advertised_name TEXT,
-  display_name TEXT NOT NULL,
+  custom_display_name TEXT,
+  revision INTEGER NOT NULL DEFAULT 0 CHECK (revision >= 0),
   created_at_ms INTEGER NOT NULL,
   last_seen_at_ms INTEGER,
   last_connected_at_ms INTEGER
