@@ -1,11 +1,21 @@
-## ADDED Requirements
+# Programmable VESC Fixture Specification
+
+## Purpose
+
+Define the minimal ESP-IDF BLE byte-bridge firmware used by canonical physical conformance.
+
+## Requirements
 
 ### Requirement: Pure ESP-IDF firmware project
-`/tools/vesc-test-device` SHALL be a conventional ESP-IDF firmware project containing only the files required to build, flash, document, and test the BLE bridge. It MUST NOT contain a TypeScript package, VESC simulator, board definitions, scenarios, platform launchers, evidence system, or conformance assertions.
+`/tools/vesc-test-device` SHALL be a conventional PlatformIO-managed ESP-IDF firmware project containing only the files required to build, flash, document, and test the BLE bridge. It MUST NOT contain a TypeScript package, VESC simulator, board definitions, scenarios, platform launchers, evidence system, or conformance assertions.
 
 #### Scenario: Firmware build
-- **WHEN** a developer runs ESP-IDF against `/tools/vesc-test-device`
+- **WHEN** a developer runs `just fixture build`
 - **THEN** the fixture builds without installing Node.js dependencies
+
+#### Scenario: Firmware workflow
+- **WHEN** a developer uses `just fixture setup`, `ports`, `flash`, or `monitor`
+- **THEN** the command delegates directly to PlatformIO without a duplicate fixture wrapper or host package
 
 ### Requirement: Real BLE byte bridge
 The ESP32 firmware SHALL advertise the canonical VESC UART GATT service and exchange exact bytes through a real BLE stack used by production Android, iOS, and macOS Bluetooth implementations. It MUST NOT interpret VESC or Refloat payloads.

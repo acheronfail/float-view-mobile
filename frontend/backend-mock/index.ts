@@ -9,10 +9,11 @@ import { MockBackend } from './api-v1.js';
 const DEFAULT_PORT = 3001;
 const expectedOrigin = 'http://127.0.0.1:5173';
 let sessionToken = randomBytes(32).toString('base64url');
+let mockRunning = false;
 
 const app = express();
 const server = createServer(app);
-const wss = new WebSocketServer({ noServer: true, maxPayload: 65_536 });
+let wss = createWebSocketServer();
 
 app.get('/api/bootstrap', (_request, response) => {
 	response.set('Cache-Control', 'no-store').json({
@@ -39,15 +40,10 @@ server.on('upgrade', (request, socket, head) => {
 	});
 });
 
-wss.on('connection', (webSocket) => {
-	const backend = new MockBackend((event) => webSocket.send(JSON.stringify(event)));
-	webSocket.on('message', (data) => {
-		webSocket.send(JSON.stringify(backend.handlePayload(data.toString())));
-	});
-});
-
 export function startMockServer(port = DEFAULT_PORT): Promise<number> {
+	if (mockRunning) return Promise.reject(new Error('Mock server is already running'));
 	sessionToken = randomBytes(32).toString('base64url');
+	wss = createWebSocketServer();
 	return new Promise((resolve, reject) => {
 		const handleError = (error: Error) => reject(error);
 		server.once('error', handleError);
@@ -58,9 +54,26 @@ export function startMockServer(port = DEFAULT_PORT): Promise<number> {
 				reject(new Error('Mock server did not bind a TCP port'));
 				return;
 			}
+			mockRunning = true;
 			resolve(address.port);
 		});
 	});
+}
+
+function createWebSocketServer() {
+	const value = new WebSocketServer({ noServer: true, maxPayload: 65_536 });
+	const backend = new MockBackend((event) => {
+		const payload = JSON.stringify(event);
+		for (const client of value.clients) {
+			if (client.readyState === client.OPEN) client.send(payload);
+		}
+	});
+	value.on('connection', (webSocket) => {
+		webSocket.on('message', (data) => {
+			webSocket.send(JSON.stringify(backend.handlePayload(data.toString())));
+		});
+	});
+	return value;
 }
 
 export function getMockBootstrap(port: number) {
@@ -77,7 +90,10 @@ export function stopMockServer(): Promise<void> {
 			server.close((serverError) => {
 				const error = webSocketError ?? serverError;
 				if (error) reject(error);
-				else resolve();
+				else {
+					mockRunning = false;
+					resolve();
+				}
 			});
 		});
 	});

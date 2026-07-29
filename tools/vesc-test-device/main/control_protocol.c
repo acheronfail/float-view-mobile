@@ -9,6 +9,39 @@ static int nibble(char value) {
     return -1;
 }
 
+static char uppercase_ascii(char value) {
+    if (value >= 'a' && value <= 'z') return (char)(value - ('a' - 'A'));
+    return value;
+}
+
+static bool text_equal(const char *left, const char *right) {
+    while (*left != '\0' && *right != '\0') {
+        if (uppercase_ascii(*left++) != uppercase_ascii(*right++)) return false;
+    }
+    return *left == *right;
+}
+
+static bool text_starts_with(const char *text, const char *prefix) {
+    while (*prefix != '\0') {
+        if (*text == '\0' || uppercase_ascii(*text++) != uppercase_ascii(*prefix++)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+bool control_edit_line(char *line, size_t *length, char value) {
+    if (line == NULL || length == NULL || *length > CONTROL_MAX_LINE_BYTES) return false;
+    if (value == '\b' || value == 0x7f) {
+        if (*length > 0) line[--(*length)] = '\0';
+        return true;
+    }
+    if (*length == CONTROL_MAX_LINE_BYTES) return false;
+    line[(*length)++] = value;
+    line[*length] = '\0';
+    return true;
+}
+
 bool control_decode_hex(
     const char *hex, uint8_t *destination, size_t capacity, size_t *length) {
     const size_t count = strlen(hex);
@@ -28,24 +61,24 @@ bool control_parse(const char *line, control_command_t *command) {
         return false;
     }
     memset(command, 0, sizeof(*command));
-    if (strcmp(line, "RESET") == 0) {
+    if (text_equal(line, "RESET")) {
         command->kind = CONTROL_RESET;
         return true;
     }
-    if (strcmp(line, "ADVERTISE") == 0) {
+    if (text_equal(line, "ADVERTISE")) {
         command->kind = CONTROL_ADVERTISE;
         return true;
     }
-    if (strcmp(line, "DISCONNECT") == 0) {
+    if (text_equal(line, "DISCONNECT")) {
         command->kind = CONTROL_DISCONNECT;
         return true;
     }
-    if (strncmp(line, "NOTIFY ", 7) == 0) {
+    if (text_starts_with(line, "NOTIFY ")) {
         command->kind = CONTROL_NOTIFY;
         return control_decode_hex(
             line + 7, command->bytes, sizeof(command->bytes), &command->length);
     }
-    if (strlen(line) == 10 && strncmp(line, "LED ", 4) == 0) {
+    if (strlen(line) == 10 && text_starts_with(line, "LED ")) {
         uint8_t rgb[3];
         size_t length;
         if (!control_decode_hex(line + 4, rgb, sizeof(rgb), &length) || length != 3) {

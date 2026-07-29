@@ -16,6 +16,7 @@
 		BA3A10B02E5C0EED005406DA /* index.html */ = {isa = PBXFileReference; lastKnownFileType = text.html; path = ../../../frontend/build/index.html; sourceTree = "<group>"; };
 		BA4ABF1C2E5BDF4600B47684 /* float-view.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "float-view.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		F10A00042F00000000000004 /* sql */ = {isa = PBXFileReference; lastKnownFileType = folder; path = ../../sql; sourceTree = "<group>"; };
+		F20A00012F00000000000001 /* float-view-lifecycle-tests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "float-view-lifecycle-tests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -30,6 +31,11 @@
 			path = "float-view";
 			sourceTree = "<group>";
 		};
+		F20A00022F00000000000002 /* float-view-lifecycle-tests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = "float-view-lifecycle-tests";
+			sourceTree = "<group>";
+		};
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -38,6 +44,13 @@
 			buildActionMask = 2147483647;
 			files = (
 				F10D00012F00000000000001 /* FlyingFox in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		F20A00032F00000000000003 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -51,6 +64,7 @@
 				F10A00042F00000000000004 /* sql */,
 				F10A00012F00000000000001 /* FloatViewBackend */,
 				BA4ABF1E2E5BDF4600B47684 /* float-view */,
+				F20A00022F00000000000002 /* float-view-lifecycle-tests */,
 				BA4ABF1D2E5BDF4600B47684 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -59,6 +73,7 @@
 			isa = PBXGroup;
 			children = (
 				BA4ABF1C2E5BDF4600B47684 /* float-view.app */,
+				F20A00012F00000000000001 /* float-view-lifecycle-tests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -90,9 +105,39 @@
 			productReference = BA4ABF1C2E5BDF4600B47684 /* float-view.app */;
 			productType = "com.apple.product-type.application";
 		};
+		F20A00042F00000000000004 /* float-view-lifecycle-tests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = F20A000A2F0000000000000A /* Build configuration list for PBXNativeTarget "float-view-lifecycle-tests" */;
+			buildPhases = (
+				F20A00052F00000000000005 /* Sources */,
+				F20A00032F00000000000003 /* Frameworks */,
+				F20A00062F00000000000006 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				F20A00082F00000000000008 /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				F20A00022F00000000000002 /* float-view-lifecycle-tests */,
+			);
+			name = "float-view-lifecycle-tests";
+			packageProductDependencies = (
+			);
+			productName = "float-view-lifecycle-tests";
+			productReference = F20A00012F00000000000001 /* float-view-lifecycle-tests.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXContainerItemProxy section */
+		F20A00072F00000000000007 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = BA4ABF142E5BDF4600B47684 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = BA4ABF1B2E5BDF4600B47684;
+			remoteInfo = "float-view";
+		};
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXProject section */
@@ -105,6 +150,10 @@
 				TargetAttributes = {
 					BA4ABF1B2E5BDF4600B47684 = {
 						CreatedOnToolsVersion = 16.4;
+					};
+					F20A00042F00000000000004 = {
+						CreatedOnToolsVersion = 16.4;
+						TestTargetID = BA4ABF1B2E5BDF4600B47684;
 					};
 				};
 			};
@@ -126,6 +175,7 @@
 			projectRoot = "";
 			targets = (
 				BA4ABF1B2E5BDF4600B47684 /* float-view */,
+				F20A00042F00000000000004 /* float-view-lifecycle-tests */,
 			);
 		};
 /* End PBXProject section */
@@ -140,6 +190,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		F20A00062F00000000000006 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
@@ -150,9 +207,21 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		F20A00052F00000000000005 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
+		F20A00082F00000000000008 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = BA4ABF1B2E5BDF4600B47684 /* float-view */;
+			targetProxy = F20A00072F00000000000007 /* PBXContainerItemProxy */;
+		};
 /* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
@@ -325,6 +394,38 @@
 			};
 			name = Release;
 		};
+		F20A000B2F0000000000000B /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = 8C86BN6TXL;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "fail.acheron.float-view.lifecycle-tests";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = "float-view";
+			};
+			name = Debug;
+		};
+		F20A000C2F0000000000000C /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = 8C86BN6TXL;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "fail.acheron.float-view.lifecycle-tests";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = "float-view";
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -342,6 +443,15 @@
 			buildConfigurations = (
 				BA4ABF282E5BDF4900B47684 /* Debug */,
 				BA4ABF292E5BDF4900B47684 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		F20A000A2F0000000000000A /* Build configuration list for PBXNativeTarget "float-view-lifecycle-tests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				F20A000B2F0000000000000B /* Debug */,
+				F20A000C2F0000000000000C /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

@@ -5,34 +5,63 @@ export type FixtureEvent =
 	| { kind: 'WRITE'; bytes: Uint8Array }
 	| { kind: 'ERROR'; code: string };
 
-export class FixtureClient {
+export interface FixtureControl {
+	command(command: 'RESET' | 'ADVERTISE' | 'DISCONNECT'): Promise<void>;
+	notify(bytes: Uint8Array): Promise<void>;
+	led(rgb: string): Promise<void>;
+	next(timeoutMs?: number): Promise<FixtureEvent>;
+	close(): Promise<void>;
+}
+
+export class FixtureClient implements FixtureControl {
 	private buffer = '';
+	private discardFirstLine = true;
 	private readonly events: FixtureEvent[] = [];
-	private waiter?: { resolve: (event: FixtureEvent) => void; timer: NodeJS.Timeout };
+	private failure?: Error;
+	private waiter?: {
+		resolve: (event: FixtureEvent) => void;
+		reject: (error: Error) => void;
+		timer: NodeJS.Timeout;
+	};
 
 	constructor(private readonly port: SerialPort) {
 		port.setEncoding('utf8');
+		port.on('error', (error) => this.fail(error));
 		port.on('data', (chunk: string) => {
+			if (this.failure) return;
 			this.buffer += chunk;
 			if (this.buffer.length > 4_096) {
 				this.buffer = '';
-				throw new Error('Fixture serial buffer exceeded bound');
+				this.fail(new Error('Fixture serial buffer exceeded bound'));
+				return;
 			}
 			let newline: number;
 			while ((newline = this.buffer.indexOf('\n')) >= 0) {
 				const line = this.buffer.slice(0, newline).trim();
 				this.buffer = this.buffer.slice(newline + 1);
-				this.deliver(parseEvent(line));
+				if (this.discardFirstLine) {
+					// Native USB CDC can open after the device has already emitted
+					// part of a line. RESET is retried, so discarding exactly this
+					// unsynchronized line cannot lose the handshake.
+					this.discardFirstLine = false;
+					continue;
+				}
+				try {
+					this.deliver(parseEvent(line));
+				} catch (error) {
+					this.fail(error instanceof Error ? error : new Error(String(error)));
+				}
 			}
 		});
 	}
 
 	static async open(path: string) {
 		const port = new SerialPort({ path, baudRate: 115_200, autoOpen: false });
+		const client = new FixtureClient(port);
 		await new Promise<void>((resolve, reject) =>
 			port.open((error) => (error ? reject(error) : resolve()))
 		);
-		return new FixtureClient(port);
+		return client;
 	}
 
 	command(command: 'RESET' | 'ADVERTISE' | 'DISCONNECT') {
@@ -50,6 +79,7 @@ export class FixtureClient {
 	}
 
 	next(timeoutMs = 5_000): Promise<FixtureEvent> {
+		if (this.failure) return Promise.reject(this.failure);
 		const queued = this.events.shift();
 		if (queued) return Promise.resolve(queued);
 		if (this.waiter) return Promise.reject(new Error('Only one fixture wait may be pending'));
@@ -58,17 +88,25 @@ export class FixtureClient {
 				this.waiter = undefined;
 				reject(new Error('Timed out waiting for fixture'));
 			}, timeoutMs);
-			this.waiter = { resolve, timer };
+			this.waiter = { resolve, reject, timer };
 		});
 	}
 
 	async close() {
+		if (this.waiter) {
+			clearTimeout(this.waiter.timer);
+			this.waiter.reject(new Error('Fixture serial client closed'));
+			this.waiter = undefined;
+		}
+		if (!this.port.isOpen) return;
 		await new Promise<void>((resolve, reject) =>
 			this.port.close((error) => (error ? reject(error) : resolve()))
 		);
 	}
 
 	private write(line: string) {
+		if (this.failure) return Promise.reject(this.failure);
+		if (line.length > 512) return Promise.reject(new Error('Fixture command exceeds bound'));
 		return new Promise<void>((resolve, reject) => {
 			this.port.write(`${line}\n`, (error) => {
 				if (error) reject(error);
@@ -88,6 +126,14 @@ export class FixtureClient {
 		this.waiter = undefined;
 		resolve(event);
 	}
+
+	private fail(error: Error) {
+		this.failure ??= error;
+		if (!this.waiter) return;
+		clearTimeout(this.waiter.timer);
+		this.waiter.reject(this.failure);
+		this.waiter = undefined;
+	}
 }
 
 export function parseEvent(line: string): FixtureEvent {
@@ -102,10 +148,10 @@ export function parseEvent(line: string): FixtureEvent {
 }
 
 export const led = {
-	initializing: '0000FF',
-	advertising: '00FFFF',
-	running: 'FFFF00',
-	passed: '00FF00',
-	failed: 'FF0000',
+	initializing: '000088',
+	advertising: '008888',
+	running: '880088',
+	passed: '008800',
+	failed: '880000',
 	off: '000000'
 } as const;

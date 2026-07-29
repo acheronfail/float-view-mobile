@@ -17,6 +17,12 @@ export class ConformanceError extends Error {
 export class ConformanceClient {
 	private nextId = 1;
 	private state?: AppState;
+	private readonly stateWaiters = new Set<{
+		predicate: (state: AppState) => boolean;
+		resolve: (state: AppState) => void;
+		reject: (error: Error) => void;
+		timer: NodeJS.Timeout;
+	}>();
 	private readonly pending = new Map<
 		number,
 		{
@@ -70,6 +76,34 @@ export class ConformanceClient {
 		return this.state;
 	}
 
+	waitForState(
+		predicate: (state: AppState) => boolean,
+		options: { afterRevision?: number; timeoutMs?: number } = {}
+	): Promise<AppState> {
+		const afterRevision = options.afterRevision ?? -1;
+		const matches = (state: AppState) => state.revision > afterRevision && predicate(state);
+		if (this.state && matches(this.state)) return Promise.resolve(this.state);
+		if (this.stateWaiters.size >= 32) {
+			return Promise.reject(new Error('Too many pending state waits'));
+		}
+		return new Promise((resolve, reject) => {
+			const waiter = {
+				predicate: matches,
+				resolve,
+				reject,
+				timer: setTimeout(() => {
+					this.stateWaiters.delete(waiter);
+					reject(
+						new Error(
+							`Timed out waiting for authoritative state; latest=${JSON.stringify(this.state)}`
+						)
+					);
+				}, options.timeoutMs ?? 5_000)
+			};
+			this.stateWaiters.add(waiter);
+		});
+	}
+
 	close() {
 		this.socket.close();
 	}
@@ -79,7 +113,10 @@ export class ConformanceClient {
 		const message = JSON.parse(text) as Record<string, unknown>;
 		if (message.event === 'state.changed') {
 			const state = message.data as AppState;
-			if (!this.state || state.revision >= this.state.revision) this.state = state;
+			if (!this.state || state.revision >= this.state.revision) {
+				this.state = state;
+				this.resolveStateWaiters(state);
+			}
 			return;
 		}
 		const id = message.id;
@@ -89,7 +126,16 @@ export class ConformanceClient {
 		this.pending.delete(id as number);
 		clearTimeout(pending.timer);
 		if (message.error) pending.reject(new ConformanceError(message.error as BackendError));
-		else if ('result' in message) pending.resolve(message.result);
+		else if ('result' in message) {
+			if (pending.method === 'state.get') {
+				const state = message.result as AppState;
+				if (!this.state || state.revision >= this.state.revision) {
+					this.state = state;
+					this.resolveStateWaiters(state);
+				}
+			}
+			pending.resolve(message.result);
+		}
 		else pending.reject(new Error('Response has no result or error'));
 	}
 
@@ -99,5 +145,19 @@ export class ConformanceClient {
 			pending.reject(new Error(`${error.message} while waiting for ${pending.method}`));
 		}
 		this.pending.clear();
+		for (const waiter of this.stateWaiters) {
+			clearTimeout(waiter.timer);
+			waiter.reject(error);
+		}
+		this.stateWaiters.clear();
+	}
+
+	private resolveStateWaiters(state: AppState) {
+		for (const waiter of this.stateWaiters) {
+			if (!waiter.predicate(state)) continue;
+			clearTimeout(waiter.timer);
+			this.stateWaiters.delete(waiter);
+			waiter.resolve(state);
+		}
 	}
 }

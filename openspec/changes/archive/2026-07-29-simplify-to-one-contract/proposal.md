@@ -13,7 +13,7 @@ Float View accumulated generated contracts, speculative operations, duplicated t
 - Collapse the Apple implementation into one shared backend used by thin iOS and macOS hosts.
 - Collapse Android into one application module with package and file boundaries instead of Gradle module boundaries.
 - Establish one TypeScript black-box conformance suite as the acceptance authority for the mock, Android, iOS, and macOS backends.
-- Retain `tools/vesc-test-device` as a pure ESP-IDF BLE bridge with no TypeScript package or VESC/scenario knowledge. Canonical conformance owns serial orchestration, typed boards, scenarios, VESC simulation, cadence checks, and failure injection. The firmware input protocol is limited to `RESET`, `ADVERTISE`, `NOTIFY <HEX>`, `DISCONNECT`, and `LED <RRGGBB>`.
+- Retain `tools/vesc-test-device` as pure ESP-IDF BLE-bridge firmware built and flashed through a minimal PlatformIO project, with no TypeScript package or VESC/scenario knowledge. Canonical conformance owns serial orchestration, typed boards, scenarios, VESC simulation, cadence checks, and failure injection. The firmware input protocol is limited to `RESET`, `ADVERTISE`, `NOTIFY <HEX>`, `DISCONNECT`, and `LED <RRGGBB>`.
 - Preserve the current disposable-schema persistence policy and the two shared SQLite schema files while removing unused product and alert machinery.
 - Delete generated sources, API schemas and examples made redundant by conformance, native contract smoke modules, duplicate conformance packages and launchers, unused dependencies, historical evidence, empty scaffolding, and other code outside the current frontend/contract/backend/conformance path.
 

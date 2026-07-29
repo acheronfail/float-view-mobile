@@ -282,8 +282,8 @@ class AndroidBluetoothAdapter(
                         ),
                     )
                     try {
-                        if (!gatt.discoverServices()) {
-                            failConnection(deviceId, "vesc_service_discovery_failed")
+                        if (!gatt.requestMtu(VESC_ATT_MTU)) {
+                            failConnection(deviceId, "vesc_mtu_request_failed")
                         }
                     } catch (_: SecurityException) {
                         failConnection(deviceId, "permission_required")
@@ -307,6 +307,23 @@ class AndroidBluetoothAdapter(
                         )
                     }
                 }
+            }
+        }
+
+        override fun onMtuChanged(gatt: BluetoothGatt, mtu: Int, status: Int) {
+            val deviceId = synchronized(this@AndroidBluetoothAdapter) {
+                if (gatt === activeGatt) activeDeviceId else null
+            } ?: return
+            if (status != BluetoothGatt.GATT_SUCCESS || mtu < MINIMUM_VESC_ATT_MTU) {
+                failConnection(deviceId, "vesc_mtu_negotiation_failed")
+                return
+            }
+            try {
+                if (!gatt.discoverServices()) {
+                    failConnection(deviceId, "vesc_service_discovery_failed")
+                }
+            } catch (_: SecurityException) {
+                failConnection(deviceId, "permission_required")
             }
         }
 
@@ -495,6 +512,8 @@ class AndroidBluetoothAdapter(
         private const val LOG_TAG = "FloatViewBluetooth"
         private const val MAX_PENDING_WRITES = 32
         private const val CONNECTION_ATTEMPT_TIMEOUT_MS = 10_000L
+        private const val VESC_ATT_MTU = 247
+        private const val MINIMUM_VESC_ATT_MTU = 64
         private val CLIENT_CHARACTERISTIC_CONFIGURATION =
             UUID.fromString("00002902-0000-1000-8000-00805f9b34fb")
     }

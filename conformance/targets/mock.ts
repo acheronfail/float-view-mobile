@@ -6,7 +6,14 @@ export const mockTarget: Target = {
 	async start() {
 		const port = await startMockServer(0);
 		const bootstrap = getMockBootstrap(port);
-		return { url: bootstrap.webSocketUrl, origin: bootstrap.origin };
+		currentEndpoint = { url: bootstrap.webSocketUrl, origin: bootstrap.origin };
+		return currentEndpoint;
+	},
+	async endpoint() {
+		if (!currentEndpoint) throw new Error('Mock backend is not running');
+		return currentEndpoint;
 	},
 	stop: stopMockServer
 };
+
+let currentEndpoint: { url: string; origin: string } | undefined;

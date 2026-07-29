@@ -1,6 +1,6 @@
 ## Execution checkpoint
 
-Implement and verify every task in this plan without requiring connected physical devices. Local iOS Simulator and Android Emulator execution, native compilation, ESP-IDF compilation, host-side fixture simulation, and deterministic fakes are part of this checkpoint. Leave only tasks 7.5 and 9.6 unchecked for the follow-up physical-device session; do not retain legacy code as a temporary fallback for that session.
+The repository restructuring and deletion checkpoint is complete, but review of the resulting canonical suite found that several checked conformance tasks were only partially implemented. They are reopened below. Complete the strengthened shared client, unconditional contract scenarios, exact Express/CAN/Refloat simulator, concurrent fixture runner, physical target command construction, Debug-only endpoint seams, and software reruns without requiring connected devices. Connected targets are required only to approve OS permissions and finish the real-Bluetooth execution in tasks 7.5 and 9.6. Do not restore or retain legacy platform verifiers, language-specific assertions, evidence systems, or fixture host packages.
 
 ## 1. Establish the new frontend contract
 
@@ -18,9 +18,10 @@ Implement and verify every task in this plan without requiring connected physica
 - [x] 2.2 Implement shared target/client interfaces and one bounded WebSocket client used by mock, Android, iOS, and macOS target adapters.
 - [x] 2.3 Move serial fixture control, VESC frame reassembly/classification, typed board configurations, telemetry phases, fragmentation, cadence assertions, disconnect injection, read-only enforcement, and bounded diagnostics into `conformance/fixture/`.
 - [x] 2.4 Cover bootstrap authentication, valid and malformed envelopes, exactly-one-response behavior, stable errors, message/queue bounds, initial state, monotonic state events, stale revision handling, and unknown methods.
-- [x] 2.5 Cover every retained Bluetooth, device, settings, Board Profile, session review/diagnostic/export/delete, and session-group operation with success and relevant failure scenarios.
-- [x] 2.6 Cover WebView recreation, reconnect/disconnect ordering, automatic durable session lifecycle, interrupted-session recovery, current-schema recreation, and bounded collection behavior.
-- [x] 2.7 Make the reduced mock pass the complete canonical suite and remove old conformance scenario implementations superseded by it.
+- [x] 2.5 Make every retained Bluetooth, device, settings, Board Profile, session review/diagnostic/export/delete, and session-group success and relevant failure scenario create its prerequisites and fail rather than silently skip when a required resource is absent.
+- [x] 2.6 Cover WebView recreation, reconnect/disconnect ordering, automatic durable session lifecycle, interrupted-session recovery, current-schema recreation, and bounded collection behavior with explicit observable outcomes.
+- [x] 2.7 Make the reduced mock pass the strengthened canonical suite without target-specific assertion branches; keep old superseded scenario implementations deleted.
+- [x] 2.8 Add bounded predicate-based authoritative-state waiting and bootstrap/WebSocket replacement to the shared conformance client, including closure and timeout tests needed for mobile foreground recovery.
 
 ## 3. Simplify the shared Apple backend and hosts
 
@@ -54,22 +55,31 @@ Implement and verify every task in this plan without requiring connected physica
 
 ## 6. Reduce the ESP32 fixture firmware
 
-- [x] 6.1 Flatten `tools/vesc-test-device/firmware/` into a conventional pure ESP-IDF project at `tools/vesc-test-device/` with no Node package, TypeScript, board/scenario data, platform launcher, or evidence code.
+- [x] 6.1 Flatten `tools/vesc-test-device/firmware/` into a conventional PlatformIO-managed pure ESP-IDF project at `tools/vesc-test-device/` with no Node package, TypeScript, board/scenario data, platform launcher, or evidence code.
 - [x] 6.2 Replace the configurable fixture control layer with the fixed canonical VESC UART GATT service and input commands `RESET`, `ADVERTISE`, `NOTIFY <HEX>`, `DISCONNECT`, and `LED <RRGGBB>`.
 - [x] 6.3 Emit only bounded `READY`, `CONNECTED`, `DISCONNECTED`, `WRITE <HEX>`, and `ERROR <CODE>` events, forwarding exact GATT writes without VESC/Refloat interpretation.
 - [x] 6.4 Remove the flat-JSON parser, dynamic GATT profile/write policy, unnecessary LED/state machinery, and firmware code not required to bridge GATT writes, notifications, disconnects, advertising, reset, and RGB output.
 - [x] 6.5 Enforce strict serial command lengths, hex validation, BLE payload bounds, read/write buffer bounds, and deterministic events.
-- [x] 6.6 Add focused ESP-IDF tests for serial parsing, exact GATT/notification forwarding, malformed commands, RGB values including `000000`, and bounded input.
+- [x] 6.6 Add focused firmware tests for serial parsing, exact GATT/notification forwarding, malformed commands, RGB values including `000000`, and bounded input, with build/flash/monitor operations delegated directly to PlatformIO through `just fixture`.
 
 ## 7. Consolidate VESC simulation into conformance
 
-- [x] 7.1 Replace JSON Schema scenarios and the generic occurrence/rule engine with typed board configurations, telemetry phases, fragmentation options, cadence expectations, and disconnect injection under `conformance/fixture/`.
-- [x] 7.2 Implement one small conformance simulator that reassembles VESC frames, recognizes the required read-only requests, returns configured identity/topology/Refloat/telemetry, and rejects unknown or mutating commands.
-- [x] 7.3 Implement the conformance-owned serial fixture client and bounded diagnostics, including orchestrator-controlled blue/cyan/yellow/green/red/off LED conventions and first-failure output.
-- [x] 7.4 Express current ride, unexpected-disconnect, background, and hardware-identity coverage as concise canonical conformance scenarios; replace soak-specific programs with bounded repetition parameters where still valuable.
-- [ ] 7.5 Connect the pure-firmware physical fixture to canonical conformance so Android, iOS, and macOS use the same contract scenarios through production OS Bluetooth stacks.
+- [x] 7.1 Replace the current flat board shape with typed BLE-transport and CAN-controller firmware identities, CAN topology, Refloat version/layout fields, telemetry phases, fragmentation options, cadence expectations, and disconnect injection under `conformance/fixture/`.
+- [x] 7.2 Complete the small conformance simulator so it reassembles VESC frames, follows the real Express transport/CAN controller startup sequence, encodes exact Refloat layout and telemetry responses checked against `backends/fixtures`, records monotonic request timing, and rejects unknown or mutating commands.
+- [x] 7.3 Complete the conformance-owned serial client and bounded first-failure diagnostics, including command/error propagation, bounded event handling, blue/cyan/yellow/green/red/off LED conventions, and a concise default physical transcript showing scenario, classified fixture traffic, telemetry phases, lifecycle transitions, timing, and cleanup.
+- [x] 7.4 Replace the unused scenario declarations with executable shared identity, ride, unexpected-disconnect/reconnect, and mobile-background scenarios with explicit contract and fixture pass conditions.
 - [x] 7.6 Delete the former `tools/vesc-test-device/host` package, AJV schemas, evidence generation, retained transcripts/manifests, `T3-EVIDENCE.md`, standalone Swift verifier, duplicate platform verifiers, preflight wrappers, and unused dependencies.
-- [x] 7.7 Run conformance simulator/serial tests and compile the pure ESP-IDF fixture before physical platform runs.
+- [x] 7.7 Run strengthened conformance simulator, serial, runner, scenario, and target-command tests and compile the PlatformIO ESP-IDF fixture before physical platform runs.
+- [x] 7.8 Implement one concurrent fixture runner that performs `RESET`/`READY`, LED state, advertising, `WRITE` processing, simulator response fragmentation, disconnect/re-advertise injection, cadence checks, and bounded cleanup while contract requests are pending.
+- [x] 7.9 Extend the shared physical target interface only with isolated-state preparation, endpoint refresh, and uniform mobile foreground/background controls; keep all assertions and VESC behavior in shared TypeScript.
+- [x] 7.10 Add Android physical targeting by ADB serial, building and installing one Debug application per suite, preserving its OS Bluetooth authorization, resetting only its app-owned Float View storage between scenarios, retaining one fixed loopback port forwarding rule, and using normal application launch and lifecycle control with the production `AndroidBluetoothAdapter`.
+- [x] 7.11 Add iOS signed Debug build/install/launch through `xcodebuild` and `devicectl`, installing the application once per suite and using a launch-configured Debug-only app-storage reset between scenarios so OS Bluetooth permission persists; use structured non-console launch results and explicit PID termination rather than attaching the app to the invoking TTY, retain fixed loopback-port injection and one monitored `iproxy` tunnel, serialize the minimal lifecycle-only XCUITest Home/foreground driver, and buffer bounded Xcode output so successful build/install/lifecycle plumbing shows concise timed substep progress while failures include diagnostics; bound destination discovery and retry only the transient Xcode device-preparation state, all while using the production `CoreBluetoothAdapter`.
+- [x] 7.12 Add macOS physical targeting through `FloatViewMac --test-host` with isolated storage and without software-Bluetooth or seeded-profile configuration, so readiness uses the production CoreBluetooth backend.
+- [x] 7.13 Add `just conformance-physical <platform> <fixture-port> [target]`, keep `just fixture ...` firmware-only and `just verify` hardware-independent, and dry-test argument validation, command construction, cleanup, and failure reporting without connected devices.
+- [x] 7.5 Connect the common fixture runner and executable shared scenarios to the Android, iOS, and macOS physical targets and prove each path reaches its production OS Bluetooth adapter without restoring platform-specific scenario implementations.
+  - [x] macOS: identity, ride, and unexpected-disconnect/reconnect pass through the production CoreBluetooth adapter and the shared programmable fixture.
+  - [x] Android: identity, ride, unexpected-disconnect/reconnect, and background continuity pass through the production Android Bluetooth adapter and the shared programmable fixture.
+  - [x] iOS: identity, ride, unexpected-disconnect/reconnect, and background continuity pass through the production CoreBluetooth adapter and the shared programmable fixture.
 
 ## 8. Delete obsolete repository structure and document the result
 
@@ -85,7 +95,13 @@ Implement and verify every task in this plan without requiring connected physica
 - [x] 9.1 Run focused frontend build/type/unit checks and assert the single inline HTML artifact.
 - [x] 9.2 Run focused Apple backend, protocol, storage, host, macOS, and iOS Simulator build tests without requiring a connected Apple device.
 - [x] 9.3 Run focused one-module Android backend, protocol, storage, host, application build, and Android Emulator tests without requiring a connected Android device.
-- [x] 9.4 Run fixture firmware checks and TypeScript simulator tests.
-- [x] 9.5 Run canonical software conformance against mock, Android Emulator, iOS Simulator, and macOS with no physical BLE dependency.
-- [ ] 9.6 **PHYSICAL CHECKPOINT:** Run canonical physical BLE conformance against Android, iOS, and macOS with the flashed programmable VESC fixture and connected target devices.
-- [x] 9.7 Run `just verify` as the final software gate and confirm the repository contains no parallel legacy contract or backend path.
+- [x] 9.4 Run the PlatformIO fixture firmware checks plus strengthened TypeScript simulator, serial, runner, scenario, and target-command tests.
+- [x] 9.5 Run strengthened canonical software conformance against mock, Android Emulator, iOS Simulator, and macOS with no physical BLE dependency.
+- [x] 9.6 **PHYSICAL CHECKPOINT:** Flash the programmable fixture; run identity, ride, and unexpected-disconnect/reconnect through production Bluetooth on macOS, Android, and iOS; additionally run background continuity on Android and iOS; verify durable-session/review outcomes and bounded first-failure cleanup; retain no passing evidence artifacts.
+  - [x] macOS: flashed fixture and passed identity, ride, unexpected-disconnect/reconnect, durable-session/review, and bounded cleanup checks without retaining evidence artifacts.
+  - [x] Android: passed identity, ride, unexpected-disconnect/reconnect, background continuity, durable-session/review, and bounded cleanup checks without retaining evidence artifacts.
+  - [x] iOS: passed identity, ride, unexpected-disconnect/reconnect, background continuity, durable-session/review, and bounded first-failure cleanup without retaining repository evidence artifacts.
+  - [x] Fixture cleanup: require and verify a bounded final `RESET` acknowledgement so a passing run cannot leave the diagnostic LED in the running state.
+- [x] 9.7 Run `just verify` after the conformance revisions as the final software gate and confirm the repository contains no parallel legacy contract, backend path, platform-specific conformance assertions, or fixture host package.
+
+All software and physical checkpoints are complete. The full macOS, Android, and iOS physical matrix passes, and successful fixture teardown now requires a bounded final `RESET`/`READY` acknowledgement before serial cleanup.

@@ -43,6 +43,13 @@ const session: SessionSummary = {
 	maxDutyCycle: 0.8
 };
 
+const secondSession: SessionSummary = {
+	...session,
+	sessionId: 'session-2',
+	startedAt: '2026-01-01T00:02:00Z',
+	endedAt: '2026-01-01T00:03:00Z'
+};
+
 const series: SeriesPoint[] = [
 	{ elapsedMs: 0, values: { packVoltageV: 60, dutyCycle: 0.1, speedKph: 0 } },
 	{ elapsedMs: 60_000, values: { packVoltageV: 55, dutyCycle: 0.8, speedKph: 20 } }
@@ -60,6 +67,8 @@ export class MockBackend {
 			}
 		]
 	]);
+	private nextSession = 3;
+	private activeSessionId?: string;
 	private state: AppState = {
 		revision: 0,
 		bluetooth: {
@@ -71,8 +80,16 @@ export class MockBackend {
 		discoveredDevices: [],
 		savedDevices: [savedBoard],
 		activeConnection: null,
-		recentSessions: [session],
-		sessionGroups: [],
+		recentSessions: [secondSession, session],
+		sessionGroups: [
+			{
+				sessionGroupId: 'group-1',
+				deviceHistoryId: 'history-board',
+				sessionIds: [session.sessionId, secondSession.sessionId],
+				totalElapsedMs: session.totalElapsedMs + secondSession.totalElapsedMs,
+				distanceM: (session.distanceM ?? 0) + (secondSession.distanceM ?? 0)
+			}
+		],
 		settings: {
 			revision: 0,
 			idleProbeIntervalMs: 500,
@@ -132,6 +149,7 @@ export class MockBackend {
 				if (this.state.activeConnection) {
 					return failure(id, 'invalid_state', 'A board is already active');
 				}
+				this.activeSessionId = `session-${this.nextSession++}`;
 				this.change({
 					...this.state,
 					activeConnection: {
@@ -144,13 +162,37 @@ export class MockBackend {
 							hardwareName: 'Express',
 							supported: true
 						}
-					}
+					},
+					recentSessions: [
+						{
+							...session,
+							sessionId: this.activeSessionId,
+							startedAt: new Date().toISOString(),
+							endedAt: null,
+							state: 'active' as const,
+							sampleCount: 0,
+							ridingElapsedMs: 0,
+							totalElapsedMs: 0
+						},
+						...this.state.recentSessions
+					].slice(0, 50)
 				});
 				return accepted(id);
 			}
-			case 'device.disconnect':
-				this.change({ ...this.state, activeConnection: null });
+			case 'device.disconnect': {
+				const activeSessionId = this.activeSessionId;
+				this.activeSessionId = undefined;
+				this.change({
+					...this.state,
+					activeConnection: null,
+					recentSessions: this.state.recentSessions.map((item) =>
+						item.sessionId === activeSessionId
+							? { ...item, endedAt: new Date().toISOString(), state: 'completed' }
+							: item
+					)
+				});
 				return accepted(id);
+			}
 			case 'settings.update': {
 				const expectedRevision = number(params.expectedRevision);
 				const patch = asObject(params.patch);
@@ -223,19 +265,25 @@ export class MockBackend {
 					: failure(id, 'not_found', 'Session was not found');
 			case 'session.delete': {
 				const found = this.findSession(params);
-				if (!found) return failure(id, 'not_found', 'Session was not found');
+				if (!found) return accepted(id);
 				this.change({
 					...this.state,
 					recentSessions: this.state.recentSessions.filter(
 						(item) => item.sessionId !== found.sessionId
-					)
+					),
+					sessionGroups: this.state.sessionGroups
+						.map((group) => ({
+							...group,
+							sessionIds: group.sessionIds.filter((id) => id !== found.sessionId)
+						}))
+						.filter((group) => group.sessionIds.length >= 2)
 				});
 				return accepted(id);
 			}
 			case 'sessionGroup.unlink': {
 				const groupId = string(params.sessionGroupId);
 				if (!this.state.sessionGroups.some((group) => group.sessionGroupId === groupId)) {
-					return failure(id, 'not_found', 'Session group was not found');
+					return accepted(id);
 				}
 				this.change({
 					...this.state,

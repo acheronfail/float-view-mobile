@@ -278,12 +278,12 @@ class ApplicationService(
                     beginReconnect()
                     return
                 }
-                transition(event.state)
                 if (event.state == ConnectionState.DISCONNECTED) {
                     cancelReconnect()
                     activeDeviceId = null
                     resetFirmwareDiscovery()
                 }
+                transition(event.state)
             }
             is BluetoothEvent.Notification -> {
                 if (event.deviceId != activeDeviceId) return

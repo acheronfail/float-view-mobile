@@ -1,99 +1,155 @@
-import type { BoardConfiguration } from './boards.js';
+import type { BoardConfiguration, ControllerConfiguration } from './boards.js';
 import { encodeFrame, FrameAssembler } from './frame.js';
+
+export type VescRequestKind =
+	| 'transport-firmware'
+	| 'can-ping'
+	| 'controller-firmware'
+	| 'refloat-info'
+	| 'refloat-layout'
+	| 'telemetry';
+
+export interface RecordedRequest {
+	at: number;
+	command: number;
+	kind: VescRequestKind;
+	canId?: number;
+	telemetryPhase?: string;
+}
+
+export interface SimulatedResponse {
+	frame: Uint8Array;
+	request: RecordedRequest;
+}
 
 export class VescSimulator {
 	private readonly frames = new FrameAssembler();
-	readonly requests: Array<{ at: number; command: number }> = [];
+	private telemetryIndex = 0;
+	readonly requests: RecordedRequest[] = [];
 
 	constructor(
 		private readonly board: BoardConfiguration,
-		private readonly now: () => number = Date.now
+		private readonly now: () => number = () => performance.now()
 	) {}
 
-	receive(bytes: Uint8Array): Uint8Array[] {
+	receive(bytes: Uint8Array): SimulatedResponse[] {
 		return this.frames.append(bytes).map((payload) => {
-			const response = this.response(payload);
-			return encodeFrame(response);
+			const { response, request } = this.response(payload);
+			this.requests.push(request);
+			return { frame: encodeFrame(response), request };
 		});
 	}
 
-	private response(payload: Uint8Array): Uint8Array {
-		const command = payload[0];
-		if (command === undefined) throw new Error('Empty VESC request');
-		this.requests.push({ at: this.now(), command });
-		switch (command) {
-			case 0:
-				return this.firmware(this.board.firmware);
-			case 62:
-				return Uint8Array.of(62, ...this.board.canIds);
-			case 4:
-				return this.realtime();
-			case 36:
-				return this.refloat(payload);
-			case 34: {
-				const canId = payload[1];
-				if (canId === undefined || !this.board.canIds.includes(canId)) {
-					throw new Error(`Unknown CAN target ${String(canId)}`);
-				}
-				const nested = this.response(payload.slice(2));
-				return nested;
+	verifyCadence(expectedIntervalMs: number, toleranceMs: number, minimumIntervals = 2) {
+		const telemetry = this.requests.filter((request) => request.kind === 'telemetry');
+		const intervals: number[] = [];
+		for (let index = 1; index < telemetry.length; index += 1) {
+			const previous = telemetry[index - 1]!;
+			const current = telemetry[index]!;
+			if (
+				previous.telemetryPhase === 'idle' ||
+				current.telemetryPhase === 'idle' ||
+				current.telemetryPhase === 'return-to-idle'
+			) {
+				continue;
 			}
-			default:
-				throw new Error(`Unsafe or unsupported VESC command ${command}`);
+			intervals.push(current.at - previous.at);
 		}
-	}
-
-	private firmware(value: BoardConfiguration['firmware']) {
-		return Uint8Array.of(
-			0,
-			value.major,
-			value.minor,
-			...Buffer.from(value.hardware),
-			0,
-			...new Uint8Array(20)
-		);
-	}
-
-	private refloat(payload: Uint8Array) {
-		if (payload[1] !== 101) throw new Error('Unknown custom application');
-		if (payload[2] === 0) {
-			return Uint8Array.of(36, 101, 0, ...Buffer.from(this.board.refloatVersion), 0);
-		}
-		if (payload[2] === 32) {
-			return Uint8Array.of(36, 101, 32, ...Buffer.from('ride_state,footpad_state'), 0);
-		}
-		if (payload[2] === 31) {
-			return Uint8Array.of(
-				36,
-				101,
-				31,
-				this.board.telemetry.rideState,
-				this.board.telemetry.footpadState
+		if (intervals.length < minimumIntervals) {
+			throw new Error(
+				`Telemetry cadence requires ${minimumIntervals} riding intervals, observed ${intervals.length}`
 			);
 		}
-		throw new Error(`Unsupported Refloat request ${String(payload[2])}`);
+		for (const interval of intervals) {
+			if (Math.abs(interval - expectedIntervalMs) > toleranceMs) {
+				throw new Error(
+					`Telemetry cadence expected ${expectedIntervalMs}±${toleranceMs}ms, observed ${interval}ms`
+				);
+			}
+		}
 	}
 
-	private realtime() {
-		const bytes = new Uint8Array(30);
-		bytes[0] = 4;
-		writeI16(bytes, 1, 250);
-		writeI16(bytes, 3, 240);
-		writeI16(bytes, 17, Math.round(this.board.telemetry.dutyCycle * 1_000));
-		writeI32(bytes, 19, this.board.telemetry.erpm);
-		writeI16(bytes, 23, Math.round(this.board.telemetry.packVoltageV * 10));
-		return bytes;
+	resetTelemetry() {
+		this.telemetryIndex = 0;
+	}
+
+	private response(payload: Uint8Array): { response: Uint8Array; request: RecordedRequest } {
+		const command = payload[0];
+		if (command === undefined) throw new Error('Empty VESC request');
+		const at = this.now();
+		if (command === 0) {
+			return {
+				response: this.board.transport.payload,
+				request: { at, command, kind: 'transport-firmware' }
+			};
+		}
+		if (command === 62) {
+			return {
+				response: Uint8Array.of(62, ...this.board.controllers.map((item) => item.canId)),
+				request: { at, command, kind: 'can-ping' }
+			};
+		}
+		if (command !== 34) {
+			throw new Error(`Unsafe or unsupported VESC command ${command}`);
+		}
+		const canId = payload[1];
+		const nestedCommand = payload[2];
+		if (canId === undefined || nestedCommand === undefined) {
+			throw new Error('Truncated CAN-forward request');
+		}
+		const controller = this.board.controllers.find((item) => item.canId === canId);
+		if (!controller) throw new Error(`Unknown CAN target ${canId}`);
+		return this.controllerResponse(controller, payload.slice(2), at);
+	}
+
+	private controllerResponse(
+		controller: ControllerConfiguration,
+		payload: Uint8Array,
+		at: number
+	): { response: Uint8Array; request: RecordedRequest } {
+		const command = payload[0]!;
+		const base = { at, command, canId: controller.canId };
+		if (command === 0) {
+			return {
+				response: controller.firmware.payload,
+				request: { ...base, kind: 'controller-firmware' }
+			};
+		}
+		if (command !== 36 || payload[1] !== 101) {
+			throw new Error(`Unsafe or unsupported forwarded command ${command}`);
+		}
+		switch (payload[2]) {
+			case 0:
+				return {
+					response: controller.refloatInfoPayload,
+					request: { ...base, kind: 'refloat-info' }
+				};
+			case 32:
+				return {
+					response: controller.telemetryLayoutPayload,
+					request: { ...base, kind: 'refloat-layout' }
+				};
+			case 31: {
+				const phase = telemetryPhase(controller, this.telemetryIndex++);
+				return {
+					response: phase.payload,
+					request: { ...base, kind: 'telemetry', telemetryPhase: phase.name }
+				};
+			}
+			default:
+				throw new Error(`Unsupported Refloat request ${String(payload[2])}`);
+		}
 	}
 }
 
-function writeI16(bytes: Uint8Array, offset: number, value: number) {
-	bytes[offset] = (value >> 8) & 0xff;
-	bytes[offset + 1] = value & 0xff;
-}
-
-function writeI32(bytes: Uint8Array, offset: number, value: number) {
-	bytes[offset] = (value >> 24) & 0xff;
-	bytes[offset + 1] = (value >> 16) & 0xff;
-	bytes[offset + 2] = (value >> 8) & 0xff;
-	bytes[offset + 3] = value & 0xff;
+function telemetryPhase(controller: ControllerConfiguration, index: number) {
+	let remaining = index;
+	for (const phase of controller.telemetryPhases) {
+		if (remaining < phase.repetitions) return phase;
+		remaining -= phase.repetitions;
+	}
+	return controller.telemetryPhases.at(-1) ??
+		(() => {
+			throw new Error('Controller has no telemetry phases');
+		})();
 }

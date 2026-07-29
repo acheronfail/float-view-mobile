@@ -2,9 +2,9 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
+#include <unistd.h>
 
 #include "control_protocol.h"
-#include "driver/usb_serial_jtag.h"
 #include "esp_err.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
@@ -24,6 +24,7 @@
 
 #define DEVICE_NAME "FloatView Test VESC"
 #define MAX_GATT_WRITE_BYTES 256
+#define NOTIFY_PACE_MS 20
 #define USB_TIMEOUT_MS 20
 
 void ble_store_config_init(void);
@@ -40,15 +41,22 @@ static const ble_uuid128_t notify_uuid = BLE_UUID128_INIT(
 
 static SemaphoreHandle_t output_mutex;
 static SemaphoreHandle_t state_mutex;
+static SemaphoreHandle_t notify_complete;
+static int notify_status;
 static uint16_t connection_handle = BLE_HS_CONN_HANDLE_NONE;
 static uint16_t notify_handle;
 static bool subscribed;
+static bool bluetooth_ready;
 static uint8_t address_type;
 
 static void emit(const char *line) {
     if (xSemaphoreTake(output_mutex, pdMS_TO_TICKS(100)) != pdTRUE) return;
-    usb_serial_jtag_write_bytes(line, strlen(line), pdMS_TO_TICKS(USB_TIMEOUT_MS));
-    usb_serial_jtag_write_bytes("\n", 1, pdMS_TO_TICKS(USB_TIMEOUT_MS));
+    char output[6 + MAX_GATT_WRITE_BYTES * 2 + 2];
+    const int length = snprintf(output, sizeof(output), "%s\n", line);
+    if (length > 0 && (size_t)length < sizeof(output)) {
+        write(STDOUT_FILENO, output, (size_t)length);
+        fsync(STDOUT_FILENO);
+    }
     xSemaphoreGive(output_mutex);
 }
 
@@ -56,6 +64,32 @@ static void error(const char *code) {
     char line[64];
     snprintf(line, sizeof(line), "ERROR %s", code);
     emit(line);
+}
+
+static int notify_bytes(
+    uint16_t connection, const uint8_t *bytes, size_t length) {
+    int result = BLE_HS_ENOMEM;
+    for (int attempt = 0; attempt < 20; attempt++) {
+        while (xSemaphoreTake(notify_complete, 0) == pdTRUE) {}
+        struct os_mbuf *buffer = ble_hs_mbuf_from_flat(bytes, length);
+        result = buffer == NULL
+            ? BLE_HS_ENOMEM
+            : ble_gatts_notify_custom(connection, notify_handle, buffer);
+        if (result == 0) {
+            if (xSemaphoreTake(notify_complete, pdMS_TO_TICKS(100)) != pdTRUE) {
+                return BLE_HS_ETIMEOUT;
+            }
+            if (notify_status == 0) vTaskDelay(pdMS_TO_TICKS(NOTIFY_PACE_MS));
+            return notify_status;
+        }
+        if (result != BLE_HS_EAGAIN &&
+            result != BLE_HS_EBUSY &&
+            result != BLE_HS_ENOMEM) {
+            return result;
+        }
+        vTaskDelay(pdMS_TO_TICKS(5));
+    }
+    return result;
 }
 
 static int notify_access(
@@ -148,6 +182,13 @@ static int gap_event(struct ble_gap_event *event, void *argument) {
                 xSemaphoreGive(state_mutex);
             }
             return 0;
+        case BLE_GAP_EVENT_NOTIFY_TX:
+            if (event->notify_tx.attr_handle == notify_handle &&
+                !event->notify_tx.indication) {
+                notify_status = event->notify_tx.status;
+                xSemaphoreGive(notify_complete);
+            }
+            return 0;
         default:
             return 0;
     }
@@ -198,6 +239,10 @@ static void process(const char *line) {
     }
     switch (command.kind) {
         case CONTROL_RESET:
+            xSemaphoreTake(state_mutex, portMAX_DELAY);
+            const bool ready = bluetooth_ready;
+            xSemaphoreGive(state_mutex);
+            if (!ready) return;
             reset_transport();
             emit("READY");
             return;
@@ -227,10 +272,7 @@ static void process(const char *line) {
                 error("NOT_SUBSCRIBED");
                 return;
             }
-            struct os_mbuf *buffer =
-                ble_hs_mbuf_from_flat(command.bytes, command.length);
-            if (buffer == NULL ||
-                ble_gatts_notify_custom(connection, notify_handle, buffer) != 0) {
+            if (notify_bytes(connection, command.bytes, command.length) != 0) {
                 error("NOTIFY_FAILED");
             }
             return;
@@ -245,6 +287,9 @@ static void process(const char *line) {
 
 static void stack_reset(int reason) {
     (void)reason;
+    xSemaphoreTake(state_mutex, portMAX_DELAY);
+    bluetooth_ready = false;
+    xSemaphoreGive(state_mutex);
     error("BLE_RESET");
 }
 
@@ -254,6 +299,9 @@ static void stack_sync(void) {
         error("BLE_ADDRESS");
         return;
     }
+    xSemaphoreTake(state_mutex, portMAX_DELAY);
+    bluetooth_ready = true;
+    xSemaphoreGive(state_mutex);
     emit("READY");
 }
 
@@ -270,19 +318,20 @@ static void control_task(void *argument) {
     bool overflow = false;
     while (true) {
         uint8_t bytes[64];
-        const int count = usb_serial_jtag_read_bytes(
-            bytes, sizeof(bytes), pdMS_TO_TICKS(USB_TIMEOUT_MS));
+        const int count = read(STDIN_FILENO, bytes, sizeof(bytes));
+        if (count <= 0) {
+            vTaskDelay(pdMS_TO_TICKS(USB_TIMEOUT_MS));
+            continue;
+        }
         for (int index = 0; index < count; index++) {
             const char value = bytes[index];
             if (value == '\r') continue;
             if (value != '\n') {
-                if (used < CONTROL_MAX_LINE_BYTES) line[used++] = value;
-                else overflow = true;
+                if (!overflow && !control_edit_line(line, &used, value)) overflow = true;
                 continue;
             }
             if (overflow) error("LINE_TOO_LONG");
             else if (used > 0) {
-                line[used] = '\0';
                 process(line);
             }
             used = 0;
@@ -292,13 +341,9 @@ static void control_task(void *argument) {
 }
 
 void app_main(void) {
-    usb_serial_jtag_driver_config_t usb = {
-        .tx_buffer_size = 1024,
-        .rx_buffer_size = 1024,
-    };
-    ESP_ERROR_CHECK(usb_serial_jtag_driver_install(&usb));
     output_mutex = xSemaphoreCreateMutex();
     state_mutex = xSemaphoreCreateMutex();
+    notify_complete = xSemaphoreCreateBinary();
     ESP_ERROR_CHECK(status_led_init());
 
     esp_err_t result = nvs_flash_init();

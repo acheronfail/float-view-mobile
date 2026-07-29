@@ -1,22 +1,54 @@
 import { expressThor, type BoardConfiguration } from './boards.js';
 
+export type PhysicalScenarioName = 'identity' | 'ride' | 'unexpected-disconnect' | 'background';
+
 export interface FixtureScenario {
-	name: string;
+	name: PhysicalScenarioName;
 	board: BoardConfiguration;
-	repetitions: number;
-	fragmentBytes?: number;
-	disconnectAfterRequests?: number;
-	background?: boolean;
+	fragmentBytes: number;
+	minimumTelemetryResponses: number;
+	expectedTelemetryIntervalMs?: number;
+	cadenceToleranceMs?: number;
+	disconnectAfterTelemetry?: number;
+	requiresMobileLifecycle: boolean;
 }
 
-export const fixtureScenarios: FixtureScenario[] = [
-	{ name: 'identity', board: expressThor, repetitions: 1 },
-	{ name: 'ride', board: expressThor, repetitions: 10, fragmentBytes: 20 },
-	{
+export const fixtureScenarios: Record<PhysicalScenarioName, FixtureScenario> = {
+	identity: {
+		name: 'identity',
+		board: expressThor,
+		fragmentBytes: 244,
+		minimumTelemetryResponses: 0,
+		requiresMobileLifecycle: false
+	},
+	ride: {
+		name: 'ride',
+		board: expressThor,
+		fragmentBytes: 20,
+		minimumTelemetryResponses: 18,
+		expectedTelemetryIntervalMs: 100,
+		cadenceToleranceMs: 80,
+		requiresMobileLifecycle: false
+	},
+	'unexpected-disconnect': {
 		name: 'unexpected-disconnect',
 		board: expressThor,
-		repetitions: 2,
-		disconnectAfterRequests: 8
+		fragmentBytes: 20,
+		minimumTelemetryResponses: 6,
+		disconnectAfterTelemetry: 4,
+		requiresMobileLifecycle: false
 	},
-	{ name: 'background', board: expressThor, repetitions: 2, background: true }
-];
+	background: {
+		name: 'background',
+		board: expressThor,
+		fragmentBytes: 20,
+		minimumTelemetryResponses: 8,
+		requiresMobileLifecycle: true
+	}
+};
+
+export const physicalScenarioMatrix = {
+	macos: ['identity', 'ride', 'unexpected-disconnect'],
+	android: ['identity', 'ride', 'unexpected-disconnect', 'background'],
+	ios: ['identity', 'ride', 'unexpected-disconnect', 'background']
+} as const satisfies Record<string, readonly PhysicalScenarioName[]>;

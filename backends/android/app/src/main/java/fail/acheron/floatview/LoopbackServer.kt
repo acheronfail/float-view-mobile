@@ -19,6 +19,7 @@ import fail.acheron.floatview.backend.SessionSeriesPoint
 import fail.acheron.floatview.backend.SessionStoreException
 import fail.acheron.floatview.backend.SessionSummaryRecord
 import fail.acheron.floatview.backend.SettingsRecord
+import fail.acheron.floatview.backend.VescProtocolMessage
 import io.ktor.http.ContentType
 import io.ktor.server.application.install
 import io.ktor.server.cio.CIO
@@ -435,7 +436,9 @@ class LoopbackServer(
             this is DiscoveredDevice ||
             this is SessionRecord ||
             this is BoardProfileRecord ||
-            this is SettingsRecord
+            this is SettingsRecord ||
+            this is VescProtocolMessage.Firmware ||
+            this is VescProtocolMessage.RefloatInfo
 
     private companion object {
         const val MAX_MESSAGE_BYTES = 65_536

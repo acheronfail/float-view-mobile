@@ -11,6 +11,9 @@ final class AppBackend: ObservableObject {
   private let eventSubscription: EventSubscription
 
   init() {
+    #if DEBUG
+    _ = Self.conformanceStorageReset
+    #endif
     let relay = BluetoothEventRelay()
     #if targetEnvironment(simulator)
     let bluetooth: any BluetoothPort = SoftwareBluetoothAdapter(
@@ -134,6 +137,24 @@ final class AppBackend: ObservableObject {
   deinit {
     frontendServer?.stop()
   }
+
+  #if DEBUG
+  private static let conformanceStorageReset: Void = {
+    guard ProcessInfo.processInfo.environment["FLOAT_VIEW_CONFORMANCE_RESET"] == "1" else {
+      return
+    }
+    let applicationSupport = try! FileManager.default.url(
+      for: .applicationSupportDirectory,
+      in: .userDomainMask,
+      appropriateFor: nil,
+      create: true
+    )
+    let root = applicationSupport.appendingPathComponent("FloatView", isDirectory: true)
+    if FileManager.default.fileExists(atPath: root.path) {
+      try! FileManager.default.removeItem(at: root)
+    }
+  }()
+  #endif
 }
 
 struct FrontendEndpoint {

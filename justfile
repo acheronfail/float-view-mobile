@@ -61,6 +61,13 @@ test suite="all":
 conformance target:
     cd conformance && npm run {{ target }}
 
+conformance-physical platform fixture_port target="":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    just build
+    cd conformance
+    npm run physical -- "{{ platform }}" "{{ fixture_port }}" "{{ target }}"
+
 fixture action port="":
     #!/usr/bin/env bash
     set -euo pipefail
@@ -75,7 +82,7 @@ fixture action port="":
         ;;
       monitor)
         [[ -n "{{ port }}" ]] || { echo 'Pass the fixture serial port.' >&2; exit 2; }
-        pio device monitor --port "{{ port }}" --baud 115200
+        pio device monitor --port "{{ port }}" --baud 115200 --echo
         ;;
       *) echo 'Usage: just fixture setup|check|ports|build|flash|monitor [port]' >&2; exit 2 ;;
     esac

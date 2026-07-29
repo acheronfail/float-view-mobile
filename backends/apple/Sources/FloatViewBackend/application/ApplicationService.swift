@@ -336,12 +336,12 @@ public final class ApplicationService: @unchecked Sendable {
         beginReconnect()
         return
       }
-      transition(state)
       if state == .disconnected {
         cancelReconnect()
         activeDeviceID = nil
         resetFirmwareDiscovery()
       }
+      transition(state)
     case .notification(let deviceID, let bytes):
       guard deviceID == activeDeviceID else { return }
       guard let protocolCodec else {

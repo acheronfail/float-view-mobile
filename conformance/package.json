@@ -8,7 +8,8 @@
     "mock": "node --import tsx src/run.ts mock",
     "macos": "node --import tsx src/run.ts macos",
     "ios": "node --import tsx src/run.ts ios",
-    "android": "node --import tsx src/run.ts android"
+    "android": "node --import tsx src/run.ts android",
+    "physical": "node --import tsx src/run.ts physical"
   },
   "dependencies": {
     "serialport": "^13.0.0",

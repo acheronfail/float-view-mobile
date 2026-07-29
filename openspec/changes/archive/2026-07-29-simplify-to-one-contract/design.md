@@ -143,15 +143,19 @@ This preserves dependency direction inside source code while removing build-syst
 
 ### 8. Conformance is the acceptance authority
 
-One TypeScript suite connects to a backend as a black box and validates every mandatory method, result shape, stable failure, ordering rule, lifecycle transition, persistence behavior, and bound. Target adapters only build, install, launch, expose bootstrap readiness, and stop mock, Android, iOS, or macOS.
+One TypeScript suite connects to a backend as a black box and validates every mandatory method, result shape, stable failure, ordering rule, lifecycle transition, persistence behavior, and bound. A scenario may not silently skip required assertions because a device, Board Profile, session, or group is absent: its setup must create the required state or the scenario must fail with an actionable prerequisite error. In particular, deletion and group-unlink operations are exercised rather than merely listed in the method map.
 
 There is one top-level `conformance/` TypeScript package and no language-specific copy. It imports the hand-written frontend contract and owns any hardware-only serial dependency rather than adding it to the frontend. `just verify` runs fast software conformance; explicit hardware commands run the same relevant scenarios through real Bluetooth.
+
+The shared conformance client provides bounded predicate-based waiting for authoritative `state.changed` revisions. It can close and bootstrap a fresh WebSocket after a mobile frontend is recreated while the native backend and fixture runner remain alive. Physical target adapters additionally expose the small uniform lifecycle surface required by scenarios: prepare isolated state, start, return or refresh the loopback endpoint, move a mobile application between foreground and background, and stop. They contain no contract assertions, board knowledge, or VESC behavior.
+
+Software conformance covers the complete contract and deterministic persistence/recovery behavior on the mock and native software targets. Physical conformance reuses the Bluetooth-, connection-, session-, profile-, and review-related scenario and assertion implementations that require a real board path. “Canonical” means one owning package and one implementation of each assertion; it does not require irrelevant desktop lifecycle operations to masquerade as mobile background behavior.
 
 Native unit tests remain focused on protocol decoding, application-state transitions, storage recovery/integrity, and OS policies that cannot be observed efficiently through the wire.
 
 ### 9. The programmable VESC fixture is pure firmware; conformance owns simulation
 
-`tools/vesc-test-device/` is a conventional ESP-IDF project containing `CMakeLists.txt`, `sdkconfig.defaults`, `main/`, and a concise README. It has no `package.json`, TypeScript, generic scenario engine, VESC framing logic, board definitions, or platform verifier.
+`tools/vesc-test-device/` is a conventional PlatformIO-managed ESP-IDF project containing `platformio.ini`, `sdkconfig.defaults`, `main/`, focused host-side parser tests, and a concise README. Root `just fixture setup|check|ports|build|flash|monitor` commands delegate directly to PlatformIO or the focused parser test. The project has no `package.json`, TypeScript, generic scenario engine, VESC framing logic, board definitions, or platform verifier.
 
 The ESP32 firmware hardcodes the canonical VESC UART GATT service and accepts only:
 
@@ -175,21 +179,50 @@ ERROR <CODE>
 
 The firmware is a byte bridge and LED diagnostic, not a VESC simulator. It forwards accepted GATT writes to conformance, sends exact notification bytes supplied by conformance, disconnects when commanded, and rejects malformed control input.
 
-`conformance/fixture/` owns the serial client, VESC frame assembler and classifier, typed board configurations, telemetry phases, fragmentation, request cadence, disconnect injection, read-only safety checks, and bounded failure diagnostics. When an application writes over real BLE, the firmware emits `WRITE`; conformance selects the deterministic response and sends `NOTIFY`. This lets the same simulator semantics drive software and real-Bluetooth scenarios.
+`conformance/fixture/` owns the serial client, VESC frame assembler and classifier, typed board configurations, telemetry phases, fragmentation, request cadence, disconnect injection, read-only safety checks, and bounded failure diagnostics. A board configuration distinguishes the BLE transport firmware from one or more CAN-connected controller identities and includes exact Refloat version, telemetry-layout fields, and phase values. Response encoders are checked against immutable protocol fixtures under `backends/fixtures/`.
 
-Conformance rejects unknown, motor-control, firmware, and persistent-configuration requests. The orchestrator uses `LED <RRGGBB>` for initialization, advertising, running, pass, failure, and cleanup diagnostics. Platform launch adapters live under `conformance/targets/`. Historical evidence, manifests, retained transcripts, soak-specific programs, the standalone Swift verifier, AJV schemas, and generic occurrence scheduling are removed. Failure diagnostics are produced on demand.
+A single fixture runner opens serial, performs `RESET` and the `READY` handshake, controls diagnostic LEDs, starts advertising, and concurrently services `WRITE` events while a contract request is pending. It passes complete VESC frames to the simulator, sends configured response fragments through `NOTIFY`, injects disconnects, restarts advertising for reconnect scenarios, verifies request order and cadence using monotonic time, and performs bounded first-failure cleanup. This concurrency is required because `device.connect` cannot complete until the fixture has answered identity requests.
 
-### 10. Keep the current shared SQL schema and delete unused product machinery
+Conformance rejects unknown, motor-control, firmware, and persistent-configuration requests. The orchestrator uses `LED <RRGGBB>` for initialization, advertising, running, pass, failure, and cleanup diagnostics. A passing physical run prints a concise live transcript: numbered scenario start/result, meaningful fixture commands and events, classified VESC request/notification milestones, telemetry phase changes and bounded count intervals, mobile lifecycle transitions, timing, and cleanup. It does not dump every raw telemetry packet. Platform launch adapters live under `conformance/targets/`. Historical evidence, manifests, retained transcripts, soak-specific programs, the standalone Swift verifier, AJV schemas, and generic occurrence scheduling are removed. Failure diagnostics are produced on demand.
+
+### 10. Physical conformance uses production Bluetooth with test-only host seams
+
+Physical conformance has four shared scenarios with explicit outcomes:
+
+- **identity:** discover the exact fixture name, reach `ready`, expose the configured controller and Refloat identity, permit only the expected read-only startup sequence, and explicitly disconnect;
+- **ride:** drive idle, riding, and post-ride telemetry phases with selected fragmentation, verify polling cadence and an automatically created durable session, then validate review, diagnostics, export, and deletion;
+- **unexpected disconnect and reconnect:** disconnect from the fixture after telemetry begins, advertise again, require the backend to reconnect and resume identity and telemetry, preserve the same active session, and complete it with an explicit disconnect;
+- **background continuity:** on iOS and Android only, background the application while the fixture continues answering polling, foreground it, bootstrap a replacement WebSocket, and prove the same native connection and session survived and accumulated samples.
+
+macOS runs identity, ride, and reconnect through CoreBluetooth. It does not run a synthetic background scenario because desktop window focus is not equivalent to mobile OS suspension; macOS frontend-recreation coverage remains in deterministic software conformance.
+
+Android physical conformance selects a connected ADB serial, builds and installs one Debug application per suite, grants Bluetooth permissions once, and retains one Debug-only fixed loopback port through `adb forward`. Before each scenario it force-stops the process, uses Debug-only `run-as` access to delete only the app-owned `files/float-view` storage tree, and launches the same installed application normally with its prior UI task cleared. Clearing the UI task prevents a system presentation opened by export from receiving the next scenario launch. This preserves the installed package, OS authorization, and unrelated application preferences while keeping scenario storage isolated. Debug and release builds use the same production `AndroidBluetoothAdapter`; only endpoint discovery and the precise storage reset are conformance seams. Background control uses normal Android activity/home and UI-hidden lifecycle behavior.
+
+iOS physical conformance builds and installs one signed Debug application per suite with `xcodebuild` and `xcrun devicectl`, injects a fixed loopback port at launch, and reaches the device loopback server through one monitored `iproxy` tunnel. Successful Xcode build, install, and lifecycle plumbing is buffered behind concise start/completion substeps; every external action has a hard deadline, and a failure includes bounded captured diagnostics. Xcode destination discovery has its own short timeout, and the harness makes a small bounded number of retries only when Xcode identifies the device as still preparing; signing, compilation, installation, and other failures remain immediate. Cleanup is separately bounded and cannot replace or indefinitely delay the first preparation/scenario failure. Launches use structured `devicectl` output to capture the application PID and explicit PID termination; they never use `--console` or attach the application to the invoking TTY. Before each scenario, a launch-configured Debug-only seam deletes only Float View's app-owned storage before backend initialization; it does not uninstall the application, so the OS Bluetooth authorization remains stable across the suite. The application still uses the production `CoreBluetoothAdapter`. Because `devicectl` has no deterministic Home-button operation, a minimal XCUITest lifecycle driver may press Home and reactivate the application. Background and foreground invocations are serialized and must complete before conformance proceeds. That runner is removed after the suite and contains no contract assertions, persistence inspection, scenarios, or VESC simulation; TypeScript remains the acceptance authority.
+
+macOS physical conformance reuses `FloatViewMac --test-host` only to expose readiness JSON, omits the software-Bluetooth and seeded-profile environment, and uses isolated temporary storage. The process runs the production CoreBluetooth, protocol, application-service, loopback, and SQLite paths.
+
+The explicit command surface is:
+
+```text
+just conformance-physical macos <fixture-port>
+just conformance-physical android <fixture-port> <adb-serial>
+just conformance-physical ios <fixture-port> <device-id>
+```
+
+`just fixture ...` remains firmware-only, and `just verify` remains hardware-independent.
+
+### 11. Keep the current shared SQL schema and delete unused product machinery
 
 The two current SQLite schema files move to `backends/sql/` and remain shared inputs to Swift and Kotlin stores. Protocol fixtures required by both implementations move to `backends/fixtures/`. Schema-version mismatch continues deleting and recreating test-stage storage; no migration history is introduced.
 
 Alert rules/evaluation and contract operations not exercised by the retained frontend are deleted. Protocol fixtures required by Swift and Kotlin decoder tests remain small and platform-neutral.
 
-### 11. Make the root describe and verify the actual repository
+### 12. Make the root describe and verify the actual repository
 
 A concise root README will identify `/frontend`, `/backends/apple`, `/backends/android`, top-level `/conformance`, the pure-firmware fixture under `/tools`, and normal commands. `AGENTS.md`, OpenSpec context, and compatibility text will be updated to remove generated-schema, obsolete module, and historical path guidance.
 
-`just setup`, `just dev`, `just run <platform>`, `just test`, `just verify`, and the small `just vesc` surface remain. Wrapper scripts and preflight commands that do not replace meaningful complexity are removed.
+`just setup`, `just dev`, `just run <platform>`, `just test`, `just verify`, `just fixture <action>`, and `just conformance-physical <platform>` remain. Wrapper scripts and preflight commands that do not replace meaningful complexity are removed.
 
 ## Risks / Trade-offs
 
@@ -201,6 +234,8 @@ A concise root README will identify `/frontend`, `/backends/apple`, `/backends/a
 - **[Risk] Physical BLE tests are slower and hardware-dependent.** → Keep deterministic software conformance in `just verify`; make hardware conformance explicit while reusing the same scenarios and assertions.
 - **[Risk] Moving simulation out of the firmware requires a reliable serial bridge.** → Keep the serial protocol fixed and bounded, make conformance own its serial dependency, and test both directions independently.
 - **[Risk] Simplifying the VESC simulator can remove useful diagnostics.** → Retain bounded request timing, first-failure reporting, read-only enforcement, fragmentation control, and LED status in conformance while deleting historical evidence infrastructure.
+- **[Risk] Physical iOS requires signing, loopback tunneling, and real lifecycle control.** → Use standard `xcodebuild`/`devicectl`, the focused `iproxy` tunnel, and a lifecycle-only XCUITest driver; keep every acceptance assertion in TypeScript.
+- **[Risk] A weak canonical suite can report success by skipping absent resources.** → Require scenario-owned setup, predicate-based state waits, and explicit failure when a required device, profile, session, or group is absent.
 - **[Risk] A large breaking refactor can leave parallel old and new paths.** → Migrate vertically, keep the repository building at each stage where practical, and finish with searches proving old schemas, methods, modules, dependencies, and scripts are gone.
 
 ## Migration Plan
@@ -210,13 +245,16 @@ A concise root README will identify `/frontend`, `/backends/apple`, `/backends/a
 3. Move Android into `backends/android/`, replace its API, collapse its modules, and run the same conformance.
 4. Move SQL and protocol fixtures under `backends/`, reduce `tools/vesc-test-device` to pure ESP-IDF firmware, and move all simulator/orchestrator behavior into canonical conformance.
 5. Delete the old API, generated models, obsolete operations, duplicate harnesses, modules, targets, dependencies, evidence, and documentation.
-6. Run focused frontend/native/fixture checks followed by `just verify` and supported hardware scenarios.
+6. Repair canonical coverage so every retained operation and lifecycle assertion is unconditional, then make the mock and native software targets pass the strengthened suite.
+7. Complete the exact Express/CAN/Refloat simulator, concurrent fixture runner, physical target controls, and dry tests without requiring connected devices.
+8. Run focused frontend/native/fixture checks followed by `just verify`.
+9. Flash the fixture and run identity, ride, and reconnect on macOS plus identity, ride, reconnect, and background continuity on Android and iOS.
 
 ### Implementation checkpoint without physical devices
 
-The repository restructuring, production implementation, deterministic tests, simulator/emulator builds, fixture firmware source, host-side VESC simulation, canonical software conformance, deletion work, and `just verify` gate do not require a connected iOS device, Android device, or ESP32. They are implemented and committed as one software-complete checkpoint.
+The repository restructuring and deletion checkpoint was completed without physical devices. A subsequent audit found that the canonical suite still conditionally skips required product operations and that its typed scenarios, simulator, serial client, and native target adapters are not yet composed into physical execution. Those affected tasks are reopened rather than treating a weak green run as acceptance.
 
-Physical validation is a deliberately small subsequent checkpoint. Only connecting canonical conformance through the flashed fixture and running the final real-Bluetooth platform matrix are deferred. The software checkpoint therefore completes 59 of 61 tasks; tasks 7.5 and 9.6 remain unchecked until the ESP32 and target devices are available. A failed local toolchain or simulator setup is an implementation blocker to resolve, not grounds to defer additional planned work.
+Exact simulation, fixture-runner concurrency, state waiting/reconnection, platform command construction, Debug-only endpoint seams, and strengthened mock/emulator conformance are completed before physical devices are required. Only signing/installing on connected targets, approving OS Bluetooth prompts, exercising real lifecycle transitions, and running the physical matrix require the ESP32 and devices. Task 7.5 is complete only when the common physical runner is connected to all three production Bluetooth adapters; task 9.6 is complete only after the stated platform scenario matrix passes.
 
 Rollback is a source-level revert before release. Stored test data is disposable; if the retained SQL schema changes during simplification, bump the storage version and recreate it rather than adding migrations.
 

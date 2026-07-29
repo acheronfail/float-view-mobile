@@ -34,6 +34,9 @@ just build
 just run android|ios|macos [target]
 just test frontend|conformance|apple|android|fixture|all
 just conformance mock|android|ios|macos
+just conformance-physical macos <fixture-port>
+just conformance-physical android <fixture-port> <adb-serial>
+just conformance-physical ios <fixture-port> <device-id>
 just fixture setup|check|ports|build|flash|monitor [port]
 just verify
 ```
@@ -43,3 +46,5 @@ separate ESP-IDF installation or a sourced ESP-IDF environment.
 
 `just verify` is the software gate. Physical BLE conformance is intentionally a
 separate checkpoint because it requires a flashed ESP32 and real target devices.
+macOS runs identity, ride, and reconnect scenarios; Android and iOS additionally
+run mobile background-continuity coverage.

@@ -27,3 +27,4 @@ typedef struct {
 bool control_parse(const char *line, control_command_t *command);
 bool control_decode_hex(
     const char *hex, uint8_t *destination, size_t capacity, size_t *length);
+bool control_edit_line(char *line, size_t *length, char value);

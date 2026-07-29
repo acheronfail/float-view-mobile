@@ -1,6 +1,7 @@
 package fail.acheron.floatview
 
 import android.app.Application
+import android.content.pm.ApplicationInfo
 
 class FloatViewApplication : Application() {
     lateinit var runtime: BackendRuntime
@@ -16,7 +17,7 @@ class FloatViewApplication : Application() {
             runtime.applicationService,
             runtime.exportPresentationBroker::present,
             runtime.events,
-            requestedPort = if (isEmulator()) 8765 else 0,
+            requestedPort = if (isEmulator() || isDebuggable()) 8765 else 0,
         ).also { it.start() }
     }
 
@@ -24,4 +25,7 @@ class FloatViewApplication : Application() {
         backend.stop()
         super.onTerminate()
     }
+
+    private fun isDebuggable(): Boolean =
+        applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0
 }

@@ -493,7 +493,15 @@ private struct BackendMessageHandler: WSMessageHandler {
 }
 
 private func invalidatesState(_ event: any Sendable) -> Bool {
-  event is BluetoothState || event is ConnectionState || event is KnownDevice ||
+  if let message = event as? VescProtocolMessage {
+    switch message {
+    case .firmware, .refloatInfo:
+      return true
+    case .canDevices, .refloatTelemetryLayout, .refloatTelemetry:
+      return false
+    }
+  }
+  return event is BluetoothState || event is ConnectionState || event is KnownDevice ||
     event is SessionRecord || event is BoardProfileRecord || event is SettingsRecord
 }
 
