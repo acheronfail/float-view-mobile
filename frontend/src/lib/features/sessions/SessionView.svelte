@@ -3,8 +3,12 @@
 	import { goto } from '$app/navigation';
 	import { backendState } from '$lib/backend/state.svelte';
 	import { formatDistanceM } from '$lib/features/measurements/format';
+	import { activateFromKeyboardOrAssistiveClick, activateFromPointer } from '$lib/ui/activation';
+	import ConfirmDialog from '$lib/ui/ConfirmDialog.svelte';
 
 	let { sessionId }: { sessionId: string } = $props();
+	let deleteConfirmationOpen = $state(false);
+	let deleting = $state(false);
 	const units = $derived(backendState.settings?.unitPreference ?? 'metric');
 
 	function polyline(field: string): string {
@@ -45,17 +49,21 @@
 		document.getElementById('diagnostic-window')?.scrollIntoView({ behavior: 'smooth' });
 	}
 
+	function requestDeleteSession() {
+		if (backendState.selectedSession) deleteConfirmationOpen = true;
+	}
+
+	function cancelDeleteSession() {
+		deleteConfirmationOpen = false;
+	}
+
 	async function deleteSession() {
-		const session = backendState.selectedSession;
-		if (
-			!session ||
-			!window.confirm(
-				`Permanently delete this ${session.sampleCount}-sample session? This cannot be undone.`
-			)
-		)
-			return;
-		if (await backendState.deleteSelectedSession())
-			await goto('#/sessions', { replaceState: true });
+		if (deleting) return;
+		deleting = true;
+		const deleted = await backendState.deleteSelectedSession();
+		deleting = false;
+		deleteConfirmationOpen = false;
+		if (deleted) await goto('#/sessions', { replaceState: true });
 	}
 </script>
 
@@ -136,9 +144,12 @@
 					onclick={() => backendState.exportSession('csv')}>Save/share CSV</button
 				>
 				<button
+					type="button"
 					class="rounded-md bg-danger px-3 py-2 text-on-danger disabled:opacity-50"
 					disabled={backendState.busy || backendState.selectedSession.state === 'active'}
-					onclick={deleteSession}>Delete session</button
+					onpointerdown={(event) => activateFromPointer(event, requestDeleteSession)}
+					onclick={(event) => activateFromKeyboardOrAssistiveClick(event, requestDeleteSession)}
+					>Delete session</button
 				>
 			</div>
 			{#if backendState.exportStatus}<p class="mt-3 text-sm text-success">
@@ -150,3 +161,15 @@
 	{/if}
 	{#if backendState.error}<p role="alert" class="mt-3 text-warning">{backendState.error}</p>{/if}
 </section>
+
+<ConfirmDialog
+	open={deleteConfirmationOpen}
+	titleId="delete-session-confirmation-title"
+	title="Delete session?"
+	description={`Permanently delete this ${backendState.selectedSession?.sampleCount ?? 0}-sample session? This cannot be undone.`}
+	confirmLabel="Delete"
+	destructive
+	busy={deleting}
+	onconfirm={deleteSession}
+	oncancel={cancelDeleteSession}
+/>

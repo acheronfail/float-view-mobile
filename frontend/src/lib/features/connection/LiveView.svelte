@@ -8,18 +8,17 @@
 		formatSpeedKph,
 		formatTemperatureC
 	} from '$lib/features/measurements/format';
+	import { activateFromKeyboardOrAssistiveClick, activateFromPointer } from '$lib/ui/activation';
+	import BottomSheet from '$lib/ui/BottomSheet.svelte';
+	import ConfirmDialog from '$lib/ui/ConfirmDialog.svelte';
 	import TelemetrySection from './TelemetrySection.svelte';
-	import {
-		isKeyboardOrAssistiveClick,
-		isPrimaryPointerActivation,
-		readingsAreDimmed,
-		shouldConfirmDisconnect
-	} from './live';
+	import { readingsAreDimmed, shouldConfirmDisconnect } from './live';
 
 	let menuOpen = $state(false);
 	let configureOpen = $state(false);
+	let disconnectConfirmationOpen = $state(false);
+	let disconnecting = $state(false);
 	let menuButton = $state<HTMLButtonElement>();
-	let sheetCloseButton = $state<HTMLButtonElement>();
 	let editor = $state<BoardEditor>();
 	const connection = $derived(backendState.snapshot?.activeConnection);
 	const sample = $derived(connection?.latestSample);
@@ -63,22 +62,33 @@
 			.padStart(2, '0')}:${(seconds % 60).toString().padStart(2, '0')}`;
 	}
 
-	async function disconnect() {
+	function requestDisconnect() {
 		menuOpen = false;
-		if (
-			shouldConfirmDisconnect(sample?.rideState) &&
-			!window.confirm('The board is not idle. Stop the active session and disconnect?')
-		)
+		if (shouldConfirmDisconnect(sample?.rideState)) {
+			disconnectConfirmationOpen = true;
 			return;
+		}
+		void disconnect();
+	}
+
+	async function disconnect() {
+		if (disconnecting) return;
+		disconnecting = true;
 		await backendState.disconnectDevice();
+		disconnecting = false;
+		disconnectConfirmationOpen = false;
 		if (!backendState.snapshot?.activeConnection) await goto('#/', { replaceState: true });
+	}
+
+	async function cancelDisconnect() {
+		disconnectConfirmationOpen = false;
+		await tick();
+		menuButton?.focus();
 	}
 
 	async function openConfigure() {
 		menuOpen = false;
 		configureOpen = true;
-		await tick();
-		sheetCloseButton?.focus();
 	}
 
 	async function closeConfigure() {
@@ -90,32 +100,10 @@
 		menuButton?.focus();
 	}
 
-	function handleKeydown(event: KeyboardEvent) {
-		if (configureOpen && event.key === 'Escape') {
-			event.preventDefault();
-			void closeConfigure();
-		}
-	}
-
 	function toggleMenu() {
 		menuOpen = !menuOpen;
 	}
-
-	type Activation = () => void | Promise<void>;
-
-	function activateFromPointer(event: PointerEvent, action: Activation) {
-		if (!isPrimaryPointerActivation(event)) return;
-		event.preventDefault();
-		void action();
-	}
-
-	function activateFromKeyboardOrAssistiveClick(event: MouseEvent, action: Activation) {
-		if (!isKeyboardOrAssistiveClick(event)) return;
-		void action();
-	}
 </script>
-
-<svelte:window onkeydown={handleKeydown} />
 
 <section aria-labelledby="live-heading" class="space-y-5">
 	{#if connection}
@@ -153,8 +141,8 @@
 						type="button"
 						class="block w-full touch-manipulation px-4 py-3 text-left text-danger hover:bg-surface"
 						disabled={backendState.busy}
-						onpointerdown={(event) => activateFromPointer(event, disconnect)}
-						onclick={(event) => activateFromKeyboardOrAssistiveClick(event, disconnect)}
+						onpointerdown={(event) => activateFromPointer(event, requestDisconnect)}
+						onclick={(event) => activateFromKeyboardOrAssistiveClick(event, requestDisconnect)}
 						>Disconnect</button
 					>
 				</div>
@@ -249,39 +237,25 @@
 	{#if backendState.error}<p role="alert" class="text-warning">{backendState.error}</p>{/if}
 </section>
 
+<ConfirmDialog
+	open={disconnectConfirmationOpen}
+	titleId="disconnect-confirmation-title"
+	title="Disconnect board?"
+	description="The board is not idle. This will stop the active session and disconnect the board."
+	confirmLabel="Disconnect"
+	destructive
+	busy={disconnecting}
+	onconfirm={disconnect}
+	oncancel={cancelDisconnect}
+/>
+
 {#if configureOpen && connection?.savedDeviceId}
-	<div class="fixed inset-0 z-40 bg-black/55">
-		<button
-			type="button"
-			class="absolute inset-0 h-full w-full cursor-default touch-manipulation"
-			aria-label="Close board configuration"
-			onpointerdown={(event) => activateFromPointer(event, closeConfigure)}
-			onclick={(event) => activateFromKeyboardOrAssistiveClick(event, closeConfigure)}
-		></button>
-		<div
-			role="dialog"
-			aria-modal="true"
-			aria-labelledby="configure-sheet-title"
-			class="absolute inset-x-0 bottom-0 max-h-[92dvh] overflow-y-auto rounded-t-3xl border border-outline bg-surface p-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] shadow-2xl"
-		>
-			<div class="mx-auto mb-4 h-1 w-12 rounded-full bg-outline"></div>
-			<div class="mb-5 flex items-center justify-between">
-				<h2 id="configure-sheet-title" class="text-xl font-semibold">Board configuration</h2>
-				<button
-					bind:this={sheetCloseButton}
-					type="button"
-					class="touch-manipulation rounded-full border border-outline px-3 py-1.5"
-					onpointerdown={(event) => activateFromPointer(event, closeConfigure)}
-					onclick={(event) => activateFromKeyboardOrAssistiveClick(event, closeConfigure)}
-					>Done</button
-				>
-			</div>
-			<BoardEditor
-				bind:this={editor}
-				savedDeviceId={connection.savedDeviceId}
-				embedded
-				onclose={closeConfigure}
-			/>
-		</div>
-	</div>
+	<BottomSheet title="Board configuration" titleId="configure-sheet-title" onclose={closeConfigure}>
+		<BoardEditor
+			bind:this={editor}
+			savedDeviceId={connection.savedDeviceId}
+			embedded
+			onclose={closeConfigure}
+		/>
+	</BottomSheet>
 {/if}
