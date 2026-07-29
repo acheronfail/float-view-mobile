@@ -1,7 +1,12 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { composeBoard } from '../fixture/boards.ts';
-import { firmwareVariants, type FirmwareVersion } from '../fixture/firmware.ts';
+import { composeBoard, expressThor } from '../fixture/boards.ts';
+import {
+	encodeFirmwarePayload,
+	firmwareVariants,
+	thor300,
+	type FirmwareVersion
+} from '../fixture/firmware.ts';
 import { encodeFrame, FrameAssembler } from '../fixture/frame.ts';
 import {
 	encodeRefloatTelemetry,
@@ -93,6 +98,64 @@ test('interactive Express forwarding ignores another CAN identity without fallin
 	);
 	assert.deepEqual(simulator.receive(encodeFrame(Uint8Array.of(34, 41, 0))), []);
 	assert.match(simulator.diagnostics.at(-1) ?? '', /Unknown CAN target 41/);
+});
+
+test('multi-node CAN networks retain raw ping anomalies and route-specific identities', () => {
+	const secondIdentity = {
+		...thor300,
+		uuid: Uint8Array.from({ length: 12 }, (_, index) => index + 1)
+	};
+	const second = {
+		...expressThor.controllers[0]!,
+		canId: 42,
+		firmware: {
+			...expressThor.controllers[0]!.firmware,
+			payload: encodeFirmwarePayload(secondIdentity, 6, 5)
+		}
+	};
+	const omitted = {
+		...expressThor.controllers[0]!,
+		canId: 99,
+		firmware: {
+			...expressThor.controllers[0]!.firmware,
+			payload: encodeFirmwarePayload(
+				{ ...thor300, uuid: new Uint8Array(12).fill(0x55) },
+				6,
+				2
+			)
+		}
+	};
+	const simulator = new VescSimulator({
+		...expressThor,
+		controllers: [
+			{
+				...expressThor.controllers[0]!,
+				canId: 7,
+				firmware: expressThor.transport
+			},
+			second,
+			omitted
+		],
+		canPingIds: [42, 7, 42, 254, 255],
+		silentCanIds: [88],
+		requestPolicy: 'interactive'
+	});
+
+	assert.deepEqual([...decode(single(simulator, [62]).frame)], [62, 42, 7, 42, 254, 255]);
+	assert.equal(decode(single(simulator, [34, 42, 0]).frame)[2], 5);
+	assert.equal(decode(single(simulator, [34, 99, 0]).frame)[2], 2);
+	assert.deepEqual(simulator.receive(encodeFrame(Uint8Array.of(34, 88, 0))), []);
+	assert.deepEqual(simulator.receive(encodeFrame(Uint8Array.of(34, 77, 0))), []);
+	assert.match(simulator.diagnostics.join('\n'), /Silent CAN target 88/);
+	assert.match(simulator.diagnostics.join('\n'), /Unknown CAN target 77/);
+});
+
+test('simulator can emit a discovery-overflow ping without allocating controllers', () => {
+	const simulator = new VescSimulator({
+		...expressThor,
+		canPingIds: Array.from({ length: 65 }, (_, index) => index)
+	});
+	assert.equal(decode(single(simulator, [62]).frame).length, 66);
 });
 
 test('seeded telemetry is smooth, reproducible, correlated, and stops immediately', () => {

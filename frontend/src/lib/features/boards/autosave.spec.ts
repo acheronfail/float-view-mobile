@@ -3,6 +3,7 @@ import {
 	normalizedCustomName,
 	SerialSaveQueue,
 	validParallelCount,
+	validPreferredCanId,
 	validSeriesCount
 } from './autosave';
 
@@ -40,6 +41,11 @@ describe('SerialSaveQueue', () => {
 		expect(validSeriesCount(18.5)).toBe(false);
 		expect(validParallelCount(2)).toBe(true);
 		expect(validParallelCount(0)).toBe(false);
+		expect(validPreferredCanId(0)).toBe(true);
+		expect(validPreferredCanId(253)).toBe(true);
+		expect(validPreferredCanId(254)).toBe(false);
+		expect(validPreferredCanId(1.5)).toBe(false);
+		expect(validPreferredCanId(undefined)).toBe(false);
 		expect(normalizedCustomName('  Trail board ')).toBe('Trail board');
 		expect(normalizedCustomName('   ')).toBeNull();
 	});

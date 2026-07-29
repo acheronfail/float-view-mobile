@@ -11,8 +11,9 @@
 	import { activateFromKeyboardOrAssistiveClick, activateFromPointer } from '$lib/ui/activation';
 	import BottomSheet from '$lib/ui/BottomSheet.svelte';
 	import ConfirmDialog from '$lib/ui/ConfirmDialog.svelte';
+	import ControllerSelection from './ControllerSelection.svelte';
 	import TelemetrySection from './TelemetrySection.svelte';
-	import { readingsAreDimmed, shouldConfirmDisconnect } from './live';
+	import { controllerRouteDescription, readingsAreDimmed, shouldConfirmDisconnect } from './live';
 
 	let menuOpen = $state(false);
 	let configureOpen = $state(false);
@@ -26,6 +27,9 @@
 	const units = $derived(backendState.settings?.unitPreference ?? 'metric');
 	const live = $derived(connection?.state === 'ready');
 	const dimmed = $derived(connection ? readingsAreDimmed(connection) : false);
+	const routeDescription = $derived(
+		controllerRouteDescription(connection?.controllerConnection ?? null)
+	);
 	const savedDevice = $derived(
 		backendState.savedDevices.find((device) => device.savedDeviceId === connection?.savedDeviceId)
 	);
@@ -155,6 +159,28 @@
 				Live values may be incomplete.
 			</div>
 		{/if}
+		{#if connection.connectionIssue}
+			<div class="rounded-xl border border-warning/50 bg-warning/10 p-3 text-sm text-warning">
+				<p>{connection.connectionIssue.message}</p>
+				{#if connection.state === 'failed'}
+					<button
+						type="button"
+						class="mt-3 touch-manipulation rounded-md border border-warning/60 px-3 py-2 font-medium"
+						disabled={backendState.busy}
+						onpointerdown={(event) =>
+							activateFromPointer(event, async () => {
+								await backendState.connectDevice(connection.deviceId);
+							})}
+						onclick={(event) =>
+							activateFromKeyboardOrAssistiveClick(event, async () => {
+								await backendState.connectDevice(connection.deviceId);
+							})}
+					>
+						{backendState.busy ? 'Retrying…' : 'Retry connection'}
+					</button>
+				{/if}
+			</div>
+		{/if}
 		{#if savedDevice && !savedDevice.profileComplete}
 			<div class="rounded-xl border border-warning/50 bg-warning/10 p-3 text-sm text-warning">
 				This board has no complete Board Profile. Live monitoring remains available.
@@ -220,6 +246,7 @@
 			<TelemetrySection
 				title="Firmware"
 				items={[
+					['Connection', routeDescription],
 					['Hardware', connection.firmware?.hardwareName ?? '—'],
 					['VESC', connection.firmware?.vescVersion ?? '—'],
 					[
@@ -258,4 +285,8 @@
 			onclose={closeConfigure}
 		/>
 	</BottomSheet>
+{/if}
+
+{#if connection?.state === 'selecting_controller'}
+	<ControllerSelection {connection} ondisconnect={disconnect} />
 {/if}

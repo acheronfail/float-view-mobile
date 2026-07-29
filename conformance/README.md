@@ -27,3 +27,11 @@ contract and VESC assertions remain in shared TypeScript.
 ESP32 byte bridge manually. Reusable protocol and simulation code stays in
 `fixture/`; server/UI ownership and operating details are documented in
 `fixture-dev/README.md`.
+
+The reusable simulator supports direct controllers, VESC Express and generic
+VESC-protocol gateways, explicit or omitted CAN targets, multiple motor
+controllers, unsupported/non-motor nodes, distinct controller UUIDs, malformed
+or excessive ping lists, silent targets, and route-specific responses. The
+compatibility matrix covers every direct/Express combination of VESC
+6.02/6.05/6.06 and Refloat 1.0.0/1.1.0/1.2.3; legacy 1.0.0 reports wire version
+`1.0` and uses fixed packet 10.

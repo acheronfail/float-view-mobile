@@ -14,6 +14,7 @@ import fail.acheron.floatview.backend.DeviceId
  */
 class SoftwareBluetoothAdapter(
     private val emit: (BluetoothEvent) -> Unit,
+    private val response: (ByteArray) -> ByteArray? = { null },
 ) : BluetoothPort {
     private val state = BluetoothState(
         BluetoothRadioState.POWERED_ON,
@@ -39,7 +40,11 @@ class SoftwareBluetoothAdapter(
         emit(BluetoothEvent.ConnectionChanged(deviceId, ConnectionState.READY))
     }
 
-    override fun write(deviceId: DeviceId, bytes: ByteArray) = Unit
+    override fun write(deviceId: DeviceId, bytes: ByteArray) {
+        response(bytes)?.let {
+            emit(BluetoothEvent.Notification(deviceId, it))
+        }
+    }
 
     override fun disconnect(deviceId: DeviceId) {
         emit(BluetoothEvent.ConnectionChanged(deviceId, ConnectionState.DISCONNECTED))

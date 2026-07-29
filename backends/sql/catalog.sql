@@ -21,6 +21,18 @@ CREATE TABLE IF NOT EXISTS board_profile (
   updated_at_ms INTEGER NOT NULL
 );
 
+-- Private connection hint. controller_uuid is a 12-byte firmware UUID encoded
+-- as 24 lowercase hex characters and is never exposed through the API.
+CREATE TABLE IF NOT EXISTS controller_route_hint (
+  saved_device_id TEXT PRIMARY KEY NOT NULL
+    REFERENCES saved_device(saved_device_id) ON DELETE CASCADE,
+  can_id INTEGER NOT NULL CHECK (can_id BETWEEN 0 AND 253),
+  controller_uuid TEXT CHECK (
+    controller_uuid IS NULL OR length(controller_uuid) = 24
+  ),
+  updated_at_ms INTEGER NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS session_catalog (
   session_id TEXT PRIMARY KEY NOT NULL,
   job_id TEXT UNIQUE NOT NULL,

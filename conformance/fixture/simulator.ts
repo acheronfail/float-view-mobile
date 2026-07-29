@@ -105,9 +105,17 @@ export class VescSimulator {
 		}
 		if (command === 62) {
 			return {
-				response: Uint8Array.of(62, ...this.board.controllers.map((item) => item.canId)),
+				response: Uint8Array.of(
+					62,
+					...(this.board.canPingIds ?? this.board.controllers.map((item) => item.canId))
+				),
 				request: { at, command, kind: 'can-ping' }
 			};
+		}
+		if (this.board.transport.hardwareType === 0) {
+			const controller = this.board.controllers[0];
+			if (!controller) throw new Error('Direct board has no controller configuration');
+			return this.controllerResponse(controller, payload, at);
 		}
 		if (command !== 34) {
 			throw new Error(`Unsafe or unsupported VESC command ${command}`);
@@ -117,9 +125,12 @@ export class VescSimulator {
 		if (canId === undefined || nestedCommand === undefined) {
 			throw new Error('Truncated CAN-forward request');
 		}
+		if (this.board.silentCanIds?.includes(canId)) {
+			return this.rejectBoard(`Silent CAN target ${canId}`);
+		}
 		const controller = this.board.controllers.find((item) => item.canId === canId);
-		if (!controller) throw new Error(`Unknown CAN target ${canId}`);
-		return this.controllerResponse(controller, payload.slice(2), at);
+		if (!controller) return this.rejectBoard(`Unknown CAN target ${canId}`);
+		return this.controllerResponse(controller, payload.slice(2), at, canId);
 	}
 
 	private composedResponse(
@@ -205,13 +216,21 @@ export class VescSimulator {
 		return undefined;
 	}
 
+	private rejectBoard(message: string): undefined {
+		const board = this.board as BoardConfiguration;
+		if (board.requestPolicy !== 'interactive') throw new Error(message);
+		if (this.diagnostics.length < 100) this.diagnostics.push(message);
+		return undefined;
+	}
+
 	private controllerResponse(
 		controller: ControllerConfiguration,
 		payload: Uint8Array,
-		at: number
+		at: number,
+		canId?: number
 	): { response: Uint8Array; request: RecordedRequest } {
 		const command = payload[0]!;
-		const base = { at, command, canId: controller.canId };
+		const base = { at, command, ...(canId === undefined ? {} : { canId }) };
 		if (command === 0) {
 			return {
 				response: controller.firmware.payload,

@@ -126,6 +126,12 @@ export class BackendState {
 		await this.run((client) => client.request('device.disconnect', {}).then(() => undefined));
 	}
 
+	async selectController(deviceId: string, canId: number): Promise<boolean> {
+		return this.run((client) =>
+			client.request('device.selectController', { deviceId, canId }).then(() => undefined)
+		);
+	}
+
 	async updateSavedDeviceName(
 		savedDeviceId: string,
 		customDisplayName: string | null

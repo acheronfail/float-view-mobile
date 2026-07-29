@@ -3,6 +3,7 @@ package fail.acheron.floatview.backend
 import java.time.Instant
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
+import fail.acheron.floatview.protocol.vesc.ControllerRoute
 
 @JvmInline
 value class DeviceId(val value: String)
@@ -19,11 +20,38 @@ enum class ConnectionState {
     CONNECTED,
     DISCOVERING_SERVICES,
     ENABLING_NOTIFICATIONS,
+    IDENTIFYING,
+    SELECTING_CONTROLLER,
     READY,
     RECONNECTING,
     DISCONNECTING,
     FAILED
 }
+
+data class ControllerCandidate(
+    val canId: Int,
+    val hardwareName: String?,
+    val firmwareName: String?,
+    val vescVersion: String,
+    val vescSupported: Boolean,
+)
+
+enum class ConnectionIssueCode {
+    TRANSPORT_SETUP_FAILED,
+    IDENTIFICATION_TIMEOUT,
+    NO_CONTROLLER_FOUND,
+    TOO_MANY_CAN_DEVICES,
+    TOO_MANY_CONTROLLERS,
+    PREFERRED_CONTROLLER_UNAVAILABLE,
+    CONTROLLER_CHANGED,
+    UNSUPPORTED_CONTROLLER,
+    UNSUPPORTED_REFLOAT,
+}
+
+data class ConnectionIssue(
+    val code: ConnectionIssueCode,
+    val message: String,
+)
 
 enum class RideState { IDLE, RIDING, UNKNOWN }
 
@@ -64,6 +92,9 @@ data class ActiveConnectionSnapshot(
     val savedDevice: SavedDeviceRecord? = null,
     val activeSession: SessionSummaryRecord? = null,
     val latestSample: TelemetrySample? = null,
+    val controllerRoute: ControllerRoute? = null,
+    val controllerCandidates: List<ControllerCandidate> = emptyList(),
+    val connectionIssue: ConnectionIssue? = null,
 )
 
 data class FirmwareRecord(
@@ -73,6 +104,8 @@ data class FirmwareRecord(
     val firmwareName: String?,
     val hardwareType: Int = 0,
     val canId: Int? = null,
+    /** Private controller identity; never serialize into API/log payloads. */
+    val controllerUuid: ByteArray? = null,
 )
 
 sealed interface VescProtocolMessage {
@@ -241,15 +274,18 @@ interface BluetoothPort {
     fun connect(deviceId: DeviceId)
     fun write(deviceId: DeviceId, bytes: ByteArray)
     fun disconnect(deviceId: DeviceId)
+    fun configureSavedDeviceIds(deviceIds: Set<DeviceId>) = Unit
 }
 
 interface VescProtocolPort {
     fun reset()
-    fun firmwareRequest(canId: Int? = null): ByteArray
+    fun firmwareRequest(route: ControllerRoute): ByteArray
     fun canPingRequest(): ByteArray
-    fun refloatInfoRequest(canId: Int? = null): ByteArray
-    fun refloatTelemetryIdsRequest(canId: Int): ByteArray
-    fun refloatTelemetryRequest(canId: Int): ByteArray
+    fun refloatInfoRequest(route: ControllerRoute): ByteArray
+    fun refloatTelemetryIdsRequest(route: ControllerRoute): ByteArray
+    fun refloatTelemetryRequest(route: ControllerRoute): ByteArray
+    fun refloatLegacyTelemetryRequest(route: ControllerRoute): ByteArray =
+        refloatTelemetryRequest(route)
     fun receive(bytes: ByteArray): List<VescProtocolMessage>
 }
 
@@ -317,6 +353,18 @@ data class BoardProfileRecord(
     val missingFields: List<String>,
 )
 
+data class ControllerRoutingHint(
+    val savedDeviceId: String,
+    val canId: Int,
+    /** Private 12-byte controller identity. */
+    val controllerUuid: ByteArray?,
+) {
+    init {
+        require(canId in 0..253)
+        require(controllerUuid == null || controllerUuid.size == 12)
+    }
+}
+
 sealed class ProductStoreException(message: String) : RuntimeException(message) {
     data object SavedDeviceNotFound : ProductStoreException("Saved device not found")
     data class SavedDeviceRevisionConflict(val currentRevision: Int) :
@@ -331,6 +379,11 @@ sealed class ProductStoreException(message: String) : RuntimeException(message) 
 }
 
 interface ProductStorePort {
+    fun ensureSavedDevice(
+        deviceId: DeviceId,
+        advertisedName: String?,
+        at: Instant,
+    ): SavedDeviceRecord = throw ProductStoreException.SavedDeviceNotFound
     fun savedDevices(): List<SavedDeviceRecord>
     fun updateSavedDevice(
         savedDeviceId: String,
@@ -345,6 +398,23 @@ interface ProductStorePort {
         patchJson: String,
         at: Instant,
     ): BoardProfileRecord
+    fun selectController(
+        savedDeviceId: String,
+        canId: Int,
+        controllerUuid: ByteArray?,
+        at: Instant,
+    ): BoardProfileRecord {
+        val current = boardProfile(savedDeviceId)
+        return updateBoardProfile(
+            savedDeviceId,
+            current.revision,
+            """{"preferredCanId":$canId}""",
+            at,
+        )
+    }
+    fun controllerRoutingHint(savedDeviceId: String): ControllerRoutingHint? = null
+    fun storeControllerRoutingHint(hint: ControllerRoutingHint, at: Instant) = Unit
+    fun clearControllerRoutingHint(savedDeviceId: String) = Unit
     fun settings(): SettingsRecord = SettingsRecord()
     fun updateSettings(expectedRevision: Int, patchJson: String): SettingsRecord =
         throw ProductStoreException.InvalidSettingsPatch

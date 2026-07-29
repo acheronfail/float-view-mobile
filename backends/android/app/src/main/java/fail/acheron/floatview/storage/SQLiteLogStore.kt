@@ -5,6 +5,7 @@ import android.database.sqlite.SQLiteDatabase
 import android.database.sqlite.SQLiteOpenHelper
 import fail.acheron.floatview.backend.DeviceId
 import fail.acheron.floatview.backend.BoardProfileRecord
+import fail.acheron.floatview.backend.ControllerRoutingHint
 import fail.acheron.floatview.backend.JobId
 import fail.acheron.floatview.backend.LogStorePort
 import fail.acheron.floatview.backend.ProductStoreException
@@ -127,6 +128,18 @@ class SQLiteLogStore(
     }
 
     fun create(deviceId: DeviceId, at: Instant): SessionRecord = create(deviceId, null, at)
+
+    @Synchronized
+    override fun ensureSavedDevice(
+        deviceId: DeviceId,
+        advertisedName: String?,
+        at: Instant,
+    ): SavedDeviceRecord = ensureSavedDevice(
+        catalog.writableDatabase,
+        deviceId,
+        advertisedName,
+        at,
+    )
 
     @Synchronized
     override fun append(jobId: JobId, samples: List<TelemetrySample>) {
@@ -466,10 +479,12 @@ class SQLiteLogStore(
             } catch (_: Exception) {
                 throw ProductStoreException.InvalidProfilePatch
             }
+            val oldPreferredCanId = preferredCanId(values)
             patch.keys().forEach { key -> values.put(key, patch.get(key)) }
             if (!validInitialProfileValues(values)) {
                 throw ProductStoreException.InvalidProfilePatch
             }
+            val newPreferredCanId = preferredCanId(values)
             val valuesJson = values.toString()
             if (valuesJson.toByteArray().size > MAX_PROFILE_BYTES) {
                 throw ProductStoreException.InvalidProfilePatch
@@ -490,6 +505,12 @@ class SQLiteLogStore(
             if (changed != 1L) {
                 throw ProductStoreException.ProfileRevisionConflict(existing.revision)
             }
+            if (
+                patch.has("preferredCanId") &&
+                (oldPreferredCanId != newPreferredCanId || newPreferredCanId == null)
+            ) {
+                clearControllerRoutingHint(db, savedDeviceId)
+            }
             BoardProfileRecord(
                 savedDeviceId,
                 revision,
@@ -501,6 +522,84 @@ class SQLiteLogStore(
         }
         recordProfileChange(updated, at)
         return updated
+    }
+
+    @Synchronized
+    override fun selectController(
+        savedDeviceId: String,
+        canId: Int,
+        controllerUuid: ByteArray?,
+        at: Instant,
+    ): BoardProfileRecord {
+        if (canId !in 0..253 || (controllerUuid != null && controllerUuid.size != 12)) {
+            throw ProductStoreException.InvalidProfilePatch
+        }
+        val db = catalog.writableDatabase
+        db.beginTransaction()
+        val updated = try {
+            val current = boardProfile(db, savedDeviceId, at)
+            val values = try {
+                JSONObject(current.valuesJson)
+            } catch (_: Exception) {
+                throw ProductStoreException.InvalidProfilePatch
+            }
+            values.put("preferredCanId", canId)
+            val valuesJson = values.toString()
+            val revision = current.revision + 1
+            db.execSQL(
+                """
+                UPDATE board_profile SET revision = ?, json = ?, updated_at_ms = ?
+                WHERE saved_device_id = ? AND revision = ?
+                """.trimIndent(),
+                arrayOf(revision, valuesJson, at.toEpochMilli(), savedDeviceId, current.revision),
+            )
+            val changed = android.database.DatabaseUtils.longForQuery(db, "SELECT changes()", null)
+            if (changed != 1L) {
+                throw ProductStoreException.ProfileRevisionConflict(current.revision)
+            }
+            storeControllerRoutingHint(
+                db,
+                ControllerRoutingHint(savedDeviceId, canId, controllerUuid),
+                at,
+            )
+            BoardProfileRecord(
+                savedDeviceId,
+                revision,
+                valuesJson,
+                missingFields(valuesJson),
+            ).also { db.setTransactionSuccessful() }
+        } finally {
+            db.endTransaction()
+        }
+        recordProfileChange(updated, at)
+        return updated
+    }
+
+    @Synchronized
+    override fun controllerRoutingHint(savedDeviceId: String): ControllerRoutingHint? =
+        catalog.readableDatabase.rawQuery(
+            """
+            SELECT can_id, controller_uuid
+            FROM controller_route_hint WHERE saved_device_id = ? LIMIT 1
+            """.trimIndent(),
+            arrayOf(savedDeviceId),
+        ).use { cursor ->
+            if (!cursor.moveToFirst()) return@use null
+            ControllerRoutingHint(
+                savedDeviceId,
+                cursor.getInt(0),
+                cursor.optionalString(1)?.hexToBytes(),
+            )
+        }
+
+    @Synchronized
+    override fun storeControllerRoutingHint(hint: ControllerRoutingHint, at: Instant) {
+        storeControllerRoutingHint(catalog.writableDatabase, hint, at)
+    }
+
+    @Synchronized
+    override fun clearControllerRoutingHint(savedDeviceId: String) {
+        clearControllerRoutingHint(catalog.writableDatabase, savedDeviceId)
     }
 
     @Synchronized
@@ -1225,6 +1324,36 @@ class SQLiteLogStore(
         )
     }
 
+    private fun storeControllerRoutingHint(
+        db: SQLiteDatabase,
+        hint: ControllerRoutingHint,
+        at: Instant,
+    ) {
+        db.execSQL(
+            """
+            INSERT INTO controller_route_hint(saved_device_id, can_id, controller_uuid, updated_at_ms)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(saved_device_id) DO UPDATE SET
+              can_id = excluded.can_id,
+              controller_uuid = excluded.controller_uuid,
+              updated_at_ms = excluded.updated_at_ms
+            """.trimIndent(),
+            arrayOf(
+                hint.savedDeviceId,
+                hint.canId,
+                hint.controllerUuid?.toHex(),
+                at.toEpochMilli(),
+            ),
+        )
+    }
+
+    private fun clearControllerRoutingHint(db: SQLiteDatabase, savedDeviceId: String) {
+        db.execSQL(
+            "DELETE FROM controller_route_hint WHERE saved_device_id = ?",
+            arrayOf(savedDeviceId),
+        )
+    }
+
     private fun boardProfile(
         db: SQLiteDatabase,
         savedDeviceId: String,
@@ -1313,9 +1442,30 @@ class SQLiteLogStore(
         }
         if (!integerInRange("seriesCount", 1..36)) return false
         if (!integerInRange("parallelCount", 1..20)) return false
+        if (!integerInRange("preferredCanId", 0..253)) return false
         if (!values.has("motor") || values.isNull("motor")) return true
         val motor = values.get("motor") as? String ?: return false
         return motor.isNotEmpty() && motor.toByteArray().size <= 128
+    }
+
+    private fun preferredCanId(values: JSONObject): Int? =
+        if (!values.has("preferredCanId") || values.isNull("preferredCanId")) {
+            null
+        } else {
+            values.optInt("preferredCanId")
+        }
+
+    private fun ByteArray.toHex(): String = joinToString("") { "%02x".format(it) }
+
+    private fun String.hexToBytes(): ByteArray? {
+        if (length != 24) return null
+        return try {
+            ByteArray(12) { index ->
+                substring(index * 2, index * 2 + 2).toInt(16).toByte()
+            }
+        } catch (_: NumberFormatException) {
+            null
+        }
     }
 
     private fun asset(name: String): String =

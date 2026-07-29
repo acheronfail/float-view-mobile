@@ -102,15 +102,77 @@ async function runPhysicalScenario(
 			(candidate) => candidate.name === scenario.board.advertisedName
 		);
 		assert.ok(device, `Did not discover ${scenario.board.advertisedName}`);
+		let beforeConnect = discovered;
+		if ('preferredCanId' in scenario) {
+			const saved = discovered.savedDevices.find(
+				(candidate) =>
+					candidate.advertisedName === scenario.board.advertisedName ||
+					candidate.bluetoothIdentifier === device.deviceId
+			);
+			if (!saved && scenario.preferredCanId !== null) {
+				throw new Error('Explicit-CAN physical scenario requires the identity scenario first');
+			}
+			if (saved) {
+				const profile = await client.request('boardProfile.get', {
+					savedDeviceId: saved.savedDeviceId
+				});
+				await client.request('boardProfile.update', {
+					savedDeviceId: saved.savedDeviceId,
+					expectedRevision: profile.revision,
+					patch: { preferredCanId: scenario.preferredCanId ?? null }
+				});
+				beforeConnect = await client.request('state.get', {});
+			}
+		}
 		await client.request('device.connect', { deviceId: device.deviceId }, 15_000);
+		let afterConnectRevision = beforeConnect.revision;
+		if (scenario.selectCanId !== undefined) {
+			const selecting = await client.waitForState(
+				(state) =>
+					state.activeConnection?.deviceId === device.deviceId &&
+					state.activeConnection.state === 'selecting_controller',
+				{ afterRevision: afterConnectRevision, timeoutMs: 20_000 }
+			);
+			assert.deepEqual(
+				selecting.activeConnection!.controllerCandidates.map((candidate) => candidate.canId),
+				[7, 42]
+			);
+			assert.deepEqual(
+				selecting.activeConnection!.controllerCandidates.map(
+					(candidate) => candidate.vescSupported
+				),
+				[false, true]
+			);
+			await client.request('device.selectController', {
+				deviceId: device.deviceId,
+				canId: scenario.selectCanId
+			});
+			afterConnectRevision = selecting.revision;
+		}
 		const ready = await client.waitForState(
 			(state) =>
 				state.activeConnection?.deviceId === device.deviceId &&
 				state.activeConnection.state === 'ready' &&
 				state.activeConnection.firmware !== null,
-			{ afterRevision: discovered.revision, timeoutMs: 20_000 }
+			{ afterRevision: afterConnectRevision, timeoutMs: 20_000 }
 		);
-		assertIdentity(ready.activeConnection!.firmware!, scenario.board);
+		assertIdentity(
+			ready.activeConnection!.firmware!,
+			scenario.board,
+			ready.activeConnection!.controllerConnection
+		);
+		const route = ready.activeConnection!.controllerConnection;
+		assert.ok(route, 'Ready connection did not report its controller route');
+		if (scenario.board.transport.hardwareType === 0) {
+			assert.deepEqual(route, { kind: 'direct' });
+		} else {
+			assert.equal(route.kind, 'can');
+			if (route.kind === 'can') {
+				assert.equal(route.canId, scenario.selectCanId ?? scenario.board.controllers[0]?.canId);
+			}
+		}
+		assert.deepEqual(ready.activeConnection!.controllerCandidates, []);
+		assert.equal(ready.activeConnection!.connectionIssue, null);
 		const activeSession = ready.recentSessions.find((session) => session.state === 'active');
 		assert.ok(activeSession, 'Ready connection did not create an active durable session');
 
@@ -128,6 +190,14 @@ async function runPhysicalScenario(
 				report
 			);
 		} else {
+			if (scenario.minimumTelemetryResponses > 0) {
+				await runner.waitForRequests(
+					(requests) =>
+						requests.filter((request) => request.kind === 'telemetry').length >=
+						scenario.minimumTelemetryResponses,
+					15_000
+				);
+			}
 			await completeSession(client, device.deviceId, activeSession.sessionId);
 		}
 
@@ -289,9 +359,14 @@ function assertIdentity(
 		hardwareName?: string | null;
 		supported: boolean;
 	},
-	board: (typeof fixtureScenarios)['identity']['board']
+	board: (typeof fixtureScenarios)['identity']['board'],
+	route: { kind: 'direct' } | { kind: 'can'; canId: number } | null
 ) {
-	const controller = board.controllers[0]!;
+	const controller =
+		route?.kind === 'can'
+			? board.controllers.find((candidate) => candidate.canId === route.canId)
+			: board.controllers[0];
+	assert.ok(controller, 'Reported route has no fixture controller');
 	assert.equal(firmware.vescVersion, `${controller.firmware.major}.${String(controller.firmware.minor).padStart(2, '0')}`);
 	assert.equal(firmware.packageName, 'refloat');
 	assert.equal(firmware.packageVersion, controller.refloatVersion);

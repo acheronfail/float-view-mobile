@@ -3,9 +3,14 @@ import Foundation
 public final class SoftwareBluetoothAdapter: BluetoothPort, @unchecked Sendable {
   public static let deviceID = DeviceID("software-vesc")
   private let event: @Sendable (BluetoothEvent) -> Void
+  private let response: @Sendable (Data) -> Data?
 
-  public init(eventHandler: @escaping @Sendable (BluetoothEvent) -> Void) {
+  public init(
+    eventHandler: @escaping @Sendable (BluetoothEvent) -> Void,
+    responseHandler: @escaping @Sendable (Data) -> Data? = { _ in nil }
+  ) {
     event = eventHandler
+    response = responseHandler
   }
 
   public func currentState() -> BluetoothState {
@@ -31,7 +36,10 @@ public final class SoftwareBluetoothAdapter: BluetoothPort, @unchecked Sendable 
     event(.connectionChanged(deviceID, .ready))
   }
 
-  public func write(_: Data, to _: DeviceID) {}
+  public func write(_ bytes: Data, to deviceID: DeviceID) {
+    guard let bytes = response(bytes) else { return }
+    event(.notification(deviceID, bytes))
+  }
 
   public func disconnect(_ deviceID: DeviceID) {
     event(.connectionChanged(deviceID, .disconnected))

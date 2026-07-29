@@ -1,8 +1,11 @@
 package fail.acheron.floatview.backend
 
+import fail.acheron.floatview.protocol.vesc.ControllerRoute
 import java.time.Instant
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -204,7 +207,348 @@ class ApplicationServiceTest {
         )
         assertEquals(42, service.firmwareSnapshot()?.canId)
         assertEquals("THOR300", service.firmwareSnapshot()?.hardwareName)
-        assertEquals("1.2", service.refloatPackageVersionSnapshot())
+        assertEquals("1.2.3", service.refloatPackageVersionSnapshot())
+    }
+
+    @Test
+    fun `ambiguous controllers stay visible until one supported candidate is selected`() {
+        val bluetooth = FakeBluetooth()
+        val products = FakeProductStore()
+        val store = FakeStore()
+        val service = ApplicationService(
+            bluetooth,
+            FakeClock(),
+            store,
+            productStore = products,
+            protocol = AmbiguousProtocol(),
+            scheduler = FakeScheduler(),
+        ) {}
+        val id = DeviceId("fixture")
+        service.onBluetoothEvent(BluetoothEvent.DeviceFound(id, "ExpressT", -40))
+        service.connect(id)
+        service.onBluetoothEvent(BluetoothEvent.ConnectionChanged(id, ConnectionState.READY))
+        (1..4).forEach {
+            service.onBluetoothEvent(BluetoothEvent.Notification(id, byteArrayOf(it.toByte())))
+        }
+
+        val selecting = requireNotNull(service.activeConnectionSnapshot())
+        assertEquals(ConnectionState.SELECTING_CONTROLLER, selecting.state)
+        assertEquals(null, selecting.activeSession)
+        assertEquals(listOf(7, 42), selecting.controllerCandidates.map { it.canId })
+        assertEquals(listOf(false, true), selecting.controllerCandidates.map { it.vescSupported })
+        assertThrows(IllegalStateException::class.java) {
+            service.selectController(id, 7)
+        }
+        service.selectController(id, 42)
+        assertTrue(products.profile.valuesJson.contains("\"preferredCanId\":42"))
+        assertEquals(1, products.profile.revision)
+        service.onBluetoothEvent(BluetoothEvent.Notification(id, byteArrayOf(5)))
+        service.onBluetoothEvent(BluetoothEvent.Notification(id, byteArrayOf(6)))
+        assertEquals(ConnectionState.READY, service.connectionState)
+        assertEquals(ControllerRoute.Can(42), service.activeConnectionSnapshot()?.controllerRoute)
+        assertNotNull(store.active())
+    }
+
+    @Test
+    fun `configured CAN skips ping and learned UUID follows a moved controller`() {
+        val configuredBluetooth = FakeBluetooth()
+        val configuredProducts = FakeProductStore().apply {
+            profile = profile.copy(valuesJson = """{"preferredCanId":42}""", missingFields = emptyList())
+        }
+        val configured = ApplicationService(
+            configuredBluetooth,
+            FakeClock(),
+            FakeStore(),
+            productStore = configuredProducts,
+            protocol = AmbiguousProtocol(),
+            scheduler = FakeScheduler(),
+        ) {}
+        val id = DeviceId("fixture")
+        configured.onBluetoothEvent(BluetoothEvent.DeviceFound(id, "Gateway", -40))
+        configured.connect(id)
+        configured.onBluetoothEvent(BluetoothEvent.ConnectionChanged(id, ConnectionState.READY))
+        configured.onBluetoothEvent(BluetoothEvent.Notification(id, byteArrayOf(1)))
+        assertEquals(listOf(0, 42), configuredBluetooth.writes.last().map { it.toInt() and 0xff })
+        assertFalse(configuredBluetooth.writes.any { it.contentEquals(byteArrayOf(62)) })
+        (4..6).forEach {
+            configured.onBluetoothEvent(BluetoothEvent.Notification(id, byteArrayOf(it.toByte())))
+        }
+        assertEquals(ConnectionState.READY, configured.connectionState)
+        assertEquals(
+            ControllerRoute.Can(42),
+            configured.activeConnectionSnapshot()?.controllerRoute,
+        )
+
+        val learnedBluetooth = FakeBluetooth()
+        val learnedProducts = FakeProductStore().apply {
+            routingHint = ControllerRoutingHint(
+                "saved-board",
+                7,
+                ByteArray(12) { (it + 1).toByte() },
+            )
+        }
+        val learned = ApplicationService(
+            learnedBluetooth,
+            FakeClock(),
+            FakeStore(),
+            productStore = learnedProducts,
+            protocol = AmbiguousProtocol(),
+            scheduler = FakeScheduler(),
+        ) {}
+        learned.onBluetoothEvent(BluetoothEvent.DeviceFound(id, "Gateway", -40))
+        learned.connect(id)
+        learned.onBluetoothEvent(BluetoothEvent.ConnectionChanged(id, ConnectionState.READY))
+        listOf(1, 3, 2, 3, 4, 5, 6).forEach {
+            learned.onBluetoothEvent(BluetoothEvent.Notification(id, byteArrayOf(it.toByte())))
+        }
+        assertEquals(ConnectionState.READY, learned.connectionState)
+        assertEquals(ControllerRoute.Can(42), learned.activeConnectionSnapshot()?.controllerRoute)
+        assertEquals(42, learnedProducts.routingHint?.canId)
+    }
+
+    @Test
+    fun `silent CAN nodes are skipped within the overall discovery deadline`() {
+        val bluetooth = FakeBluetooth()
+        val scheduler = FakeScheduler()
+        val store = FakeStore()
+        val service = ApplicationService(
+            bluetooth,
+            FakeClock(),
+            store,
+            productStore = FakeProductStore(),
+            protocol = AmbiguousProtocol(),
+            scheduler = scheduler,
+        ) {}
+        val id = DeviceId("fixture")
+
+        service.onBluetoothEvent(BluetoothEvent.DeviceFound(id, "ExpressT", -40))
+        service.connect(id)
+        service.onBluetoothEvent(BluetoothEvent.ConnectionChanged(id, ConnectionState.READY))
+        service.onBluetoothEvent(BluetoothEvent.Notification(id, byteArrayOf(1)))
+        service.onBluetoothEvent(BluetoothEvent.Notification(id, byteArrayOf(2)))
+        assertEquals(listOf(0, 7), bluetooth.writes.last().map { it.toInt() and 0xff })
+
+        scheduler.fire(1)
+        assertEquals(listOf(0, 42), bluetooth.writes.last().map { it.toInt() and 0xff })
+        service.onBluetoothEvent(BluetoothEvent.Notification(id, byteArrayOf(4)))
+        service.onBluetoothEvent(BluetoothEvent.Notification(id, byteArrayOf(5)))
+        service.onBluetoothEvent(BluetoothEvent.Notification(id, byteArrayOf(6)))
+
+        assertEquals(ConnectionState.READY, service.connectionState)
+        assertEquals(ControllerRoute.Can(42), service.activeConnectionSnapshot()?.controllerRoute)
+        assertNotNull(store.active())
+    }
+
+    @Test
+    fun `valid transport is saved before direct session becomes ready`() {
+        val bluetooth = FakeBluetooth()
+        val products = FakeProductStore()
+        val store = FakeStore()
+        val service = ApplicationService(
+            bluetooth,
+            FakeClock(),
+            store,
+            productStore = products,
+            protocol = TelemetryProtocol(),
+            scheduler = FakeScheduler(),
+        ) {}
+        val id = DeviceId("direct")
+
+        service.onBluetoothEvent(BluetoothEvent.DeviceFound(id, "Direct THOR", -40))
+        service.connect(id)
+        service.onBluetoothEvent(BluetoothEvent.ConnectionChanged(id, ConnectionState.READY))
+        assertEquals(ConnectionState.IDENTIFYING, service.connectionState)
+        assertEquals(null, service.activeConnectionSnapshot()?.savedDevice)
+        assertEquals(null, store.active())
+
+        service.onBluetoothEvent(BluetoothEvent.Notification(id, byteArrayOf(1)))
+        val identified = requireNotNull(service.activeConnectionSnapshot())
+        assertEquals(id.value, identified.savedDevice?.bluetoothIdentifier)
+        assertEquals(ControllerRoute.Direct, identified.controllerRoute)
+        assertEquals(null, store.active())
+
+        service.onBluetoothEvent(BluetoothEvent.Notification(id, byteArrayOf(2)))
+        assertEquals(null, store.active())
+        service.onBluetoothEvent(BluetoothEvent.Notification(id, byteArrayOf(3)))
+        assertEquals(ConnectionState.READY, service.connectionState)
+        assertEquals(1, store.createCount)
+        assertNotNull(store.active())
+    }
+
+    @Test
+    fun `private hint fast path skips ping when controller UUID matches`() {
+        val bluetooth = FakeBluetooth()
+        val products = FakeProductStore().apply {
+            routingHint = ControllerRoutingHint(
+                "saved-board",
+                42,
+                ByteArray(12) { (it + 1).toByte() },
+            )
+        }
+        val service = ApplicationService(
+            bluetooth,
+            FakeClock(),
+            FakeStore(),
+            productStore = products,
+            protocol = AmbiguousProtocol(),
+            scheduler = FakeScheduler(),
+        ) {}
+        val id = DeviceId("gateway")
+
+        service.onBluetoothEvent(BluetoothEvent.DeviceFound(id, "Generic gateway", -40))
+        service.connect(id)
+        service.onBluetoothEvent(BluetoothEvent.ConnectionChanged(id, ConnectionState.READY))
+        service.onBluetoothEvent(BluetoothEvent.Notification(id, byteArrayOf(1)))
+        assertEquals(listOf(0, 42), bluetooth.writes.last().map { it.toInt() and 0xff })
+        assertFalse(bluetooth.writes.any { it.contentEquals(byteArrayOf(62)) })
+        (4..6).forEach {
+            service.onBluetoothEvent(BluetoothEvent.Notification(id, byteArrayOf(it.toByte())))
+        }
+        assertEquals(ConnectionState.READY, service.connectionState)
+        assertEquals(ControllerRoute.Can(42), service.activeConnectionSnapshot()?.controllerRoute)
+    }
+
+    @Test
+    fun `wrong preferred controller retry and empty discovery remain recoverable`() {
+        val bluetooth = FakeBluetooth()
+        val products = FakeProductStore().apply {
+            profile = profile.copy(
+                valuesJson = """{"preferredCanId":42}""",
+                missingFields = emptyList(),
+            )
+        }
+        val service = ApplicationService(
+            bluetooth,
+            FakeClock(),
+            FakeStore(),
+            productStore = products,
+            protocol = DiscoveryBoundaryProtocol(),
+            scheduler = FakeScheduler(),
+        ) {}
+        val id = DeviceId("gateway")
+
+        service.onBluetoothEvent(BluetoothEvent.DeviceFound(id, "Generic gateway", -40))
+        service.connect(id)
+        service.onBluetoothEvent(BluetoothEvent.ConnectionChanged(id, ConnectionState.READY))
+        service.onBluetoothEvent(BluetoothEvent.Notification(id, byteArrayOf(1)))
+        assertEquals(listOf(0, 42), bluetooth.writes.last().map { it.toInt() and 0xff })
+        service.onBluetoothEvent(BluetoothEvent.Notification(id, byteArrayOf(3)))
+        assertEquals(ConnectionState.FAILED, service.connectionState)
+        assertEquals(
+            ConnectionIssueCode.PREFERRED_CONTROLLER_UNAVAILABLE,
+            service.activeConnectionSnapshot()?.connectionIssue?.code,
+        )
+
+        products.profile = products.profile.copy(revision = 1, valuesJson = "{}")
+        service.connect(id)
+        assertEquals(ConnectionState.CONNECTING, service.connectionState)
+        assertEquals(null, service.activeConnectionSnapshot()?.connectionIssue)
+        service.onBluetoothEvent(BluetoothEvent.ConnectionChanged(id, ConnectionState.READY))
+        service.onBluetoothEvent(BluetoothEvent.Notification(id, byteArrayOf(1)))
+        assertTrue(bluetooth.writes.last().contentEquals(byteArrayOf(62)))
+        service.onBluetoothEvent(BluetoothEvent.Notification(id, byteArrayOf(2)))
+        assertEquals(ConnectionState.FAILED, service.connectionState)
+        assertEquals(
+            ConnectionIssueCode.NO_CONTROLLER_FOUND,
+            service.activeConnectionSnapshot()?.connectionIssue?.code,
+        )
+
+        service.disconnect()
+        service.onBluetoothEvent(
+            BluetoothEvent.ConnectionChanged(id, ConnectionState.DISCONNECTED),
+        )
+        assertEquals(null, service.activeConnectionSnapshot())
+    }
+
+    @Test
+    fun `discovery bounds fail without publishing truncated candidates`() {
+        val id = DeviceId("gateway")
+        val excessiveIds = ApplicationService(
+            FakeBluetooth(),
+            FakeClock(),
+            FakeStore(),
+            productStore = FakeProductStore(),
+            protocol = DiscoveryBoundaryProtocol((0..64).toList()),
+            scheduler = FakeScheduler(),
+        ) {}
+        excessiveIds.onBluetoothEvent(BluetoothEvent.DeviceFound(id, "Gateway", -40))
+        excessiveIds.connect(id)
+        excessiveIds.onBluetoothEvent(
+            BluetoothEvent.ConnectionChanged(id, ConnectionState.READY),
+        )
+        excessiveIds.onBluetoothEvent(BluetoothEvent.Notification(id, byteArrayOf(1)))
+        excessiveIds.onBluetoothEvent(BluetoothEvent.Notification(id, byteArrayOf(2)))
+        assertEquals(ConnectionState.FAILED, excessiveIds.connectionState)
+        assertEquals(
+            ConnectionIssueCode.TOO_MANY_CAN_DEVICES,
+            excessiveIds.activeConnectionSnapshot()?.connectionIssue?.code,
+        )
+        assertTrue(excessiveIds.activeConnectionSnapshot()?.controllerCandidates?.isEmpty() == true)
+
+        val excessiveControllers = ApplicationService(
+            FakeBluetooth(),
+            FakeClock(),
+            FakeStore(),
+            productStore = FakeProductStore(),
+            protocol = DiscoveryBoundaryProtocol((0..16).toList()),
+            scheduler = FakeScheduler(),
+        ) {}
+        excessiveControllers.onBluetoothEvent(BluetoothEvent.DeviceFound(id, "Gateway", -40))
+        excessiveControllers.connect(id)
+        excessiveControllers.onBluetoothEvent(
+            BluetoothEvent.ConnectionChanged(id, ConnectionState.READY),
+        )
+        excessiveControllers.onBluetoothEvent(BluetoothEvent.Notification(id, byteArrayOf(1)))
+        excessiveControllers.onBluetoothEvent(BluetoothEvent.Notification(id, byteArrayOf(2)))
+        (10..26).forEach {
+            excessiveControllers.onBluetoothEvent(
+                BluetoothEvent.Notification(id, byteArrayOf(it.toByte())),
+            )
+        }
+        assertEquals(ConnectionState.FAILED, excessiveControllers.connectionState)
+        assertEquals(
+            ConnectionIssueCode.TOO_MANY_CONTROLLERS,
+            excessiveControllers.activeConnectionSnapshot()?.connectionIssue?.code,
+        )
+        assertTrue(
+            excessiveControllers.activeConnectionSnapshot()
+                ?.controllerCandidates?.isEmpty() == true,
+        )
+    }
+
+    @Test
+    fun `reconnect revalidates direct identity and resumes one session`() {
+        val bluetooth = FakeBluetooth()
+        val store = FakeStore()
+        val service = ApplicationService(
+            bluetooth,
+            FakeClock(),
+            store,
+            productStore = FakeProductStore(),
+            protocol = TelemetryProtocol(),
+            scheduler = FakeScheduler(),
+        ) {}
+        val id = DeviceId("direct")
+        service.onBluetoothEvent(BluetoothEvent.DeviceFound(id, "Direct THOR", -40))
+        service.connect(id)
+        service.onBluetoothEvent(BluetoothEvent.ConnectionChanged(id, ConnectionState.READY))
+        (1..3).forEach {
+            service.onBluetoothEvent(BluetoothEvent.Notification(id, byteArrayOf(it.toByte())))
+        }
+        assertEquals(1, store.createCount)
+
+        service.onBluetoothEvent(
+            BluetoothEvent.ConnectionChanged(id, ConnectionState.DISCONNECTED),
+        )
+        assertEquals(ConnectionState.RECONNECTING, service.connectionState)
+        service.onBluetoothEvent(BluetoothEvent.ConnectionChanged(id, ConnectionState.READY))
+        (1..3).forEach {
+            service.onBluetoothEvent(BluetoothEvent.Notification(id, byteArrayOf(it.toByte())))
+        }
+        assertEquals(ConnectionState.READY, service.connectionState)
+        assertEquals(ControllerRoute.Direct, service.activeConnectionSnapshot()?.controllerRoute)
+        assertEquals(1, store.createCount)
+        assertNotNull(store.active())
     }
 
     @Test
@@ -226,21 +570,23 @@ class ApplicationServiceTest {
         service.onBluetoothEvent(BluetoothEvent.ConnectionChanged(id, ConnectionState.READY))
         service.onBluetoothEvent(BluetoothEvent.Notification(id, byteArrayOf(1)))
         service.onBluetoothEvent(BluetoothEvent.Notification(id, byteArrayOf(2)))
-        assertEquals(listOf(1_000L), scheduler.intervals)
+        assertEquals(listOf(10_000L, 1_000L), scheduler.intervals)
+        assertEquals(null, store.active())
         val firstLayoutRequestCount =
-            bluetooth.writes.count { it.contentEquals(byteArrayOf(32, 42)) }
-        scheduler.fire(0)
+            bluetooth.writes.count { it.contentEquals(byteArrayOf(32, 255.toByte())) }
+        scheduler.fire(1)
         assertEquals(
             firstLayoutRequestCount + 1,
-            bluetooth.writes.count { it.contentEquals(byteArrayOf(32, 42)) },
+            bluetooth.writes.count { it.contentEquals(byteArrayOf(32, 255.toByte())) },
         )
         service.onBluetoothEvent(BluetoothEvent.Notification(id, byteArrayOf(3)))
-        assertEquals(listOf(1_000L, 500L), scheduler.intervals)
-        assertTrue(bluetooth.writes.any { it.contentEquals(byteArrayOf(31, 42)) })
+        assertEquals(listOf(10_000L, 1_000L, 500L), scheduler.intervals)
+        assertNotNull(store.active())
+        assertTrue(bluetooth.writes.any { it.contentEquals(byteArrayOf(31, 255.toByte())) })
 
         service.onBluetoothEvent(BluetoothEvent.Notification(id, byteArrayOf(4)))
 
-        assertEquals(listOf(1_000L, 500L, 100L), scheduler.intervals)
+        assertEquals(listOf(10_000L, 1_000L, 500L, 100L), scheduler.intervals)
         assertEquals(1, store.appended.size)
         assertEquals(RideState.RIDING, store.appended.single().rideState)
         assertEquals(3, store.appended.single().boardState)
@@ -277,21 +623,21 @@ class ApplicationServiceTest {
         service.onBluetoothEvent(BluetoothEvent.Notification(id, byteArrayOf(1)))
         service.onBluetoothEvent(BluetoothEvent.Notification(id, byteArrayOf(2)))
         service.onBluetoothEvent(BluetoothEvent.Notification(id, byteArrayOf(3)))
-        assertEquals(listOf(1_000L, 500L), scheduler.intervals)
+        assertEquals(listOf(10_000L, 1_000L, 500L), scheduler.intervals)
 
         clock.monotonicMs = 1_000
         service.onBluetoothEvent(BluetoothEvent.Notification(id, byteArrayOf(4)))
-        assertEquals(listOf(1_000L, 500L, 100L), scheduler.intervals)
+        assertEquals(listOf(10_000L, 1_000L, 500L, 100L), scheduler.intervals)
 
         clock.monotonicMs = 2_000
         service.onBluetoothEvent(BluetoothEvent.Notification(id, byteArrayOf(5)))
         clock.monotonicMs = 16_999
         service.onBluetoothEvent(BluetoothEvent.Notification(id, byteArrayOf(5)))
-        assertEquals(listOf(1_000L, 500L, 100L), scheduler.intervals)
+        assertEquals(listOf(10_000L, 1_000L, 500L, 100L), scheduler.intervals)
 
         clock.monotonicMs = 17_001
         service.onBluetoothEvent(BluetoothEvent.Notification(id, byteArrayOf(5)))
-        assertEquals(listOf(1_000L, 500L, 100L, 500L), scheduler.intervals)
+        assertEquals(listOf(10_000L, 1_000L, 500L, 100L, 500L), scheduler.intervals)
     }
 
     @Test
@@ -313,15 +659,24 @@ class ApplicationServiceTest {
         service.onBluetoothEvent(BluetoothEvent.ConnectionChanged(id, ConnectionState.READY))
         service.onBluetoothEvent(BluetoothEvent.Notification(id, byteArrayOf(1)))
         service.onBluetoothEvent(BluetoothEvent.Notification(id, byteArrayOf(2)))
-        repeat(5) { scheduler.fire(0) }
+        assertEquals(null, store.active())
+        repeat(5) { scheduler.fire(1) }
 
         assertEquals(ConnectionState.FAILED, service.connectionState)
-        assertEquals(listOf(id), bluetooth.disconnected)
+        assertEquals(emptyList<DeviceId>(), bluetooth.disconnected)
         assertEquals(null, store.active())
         assertEquals(
-            5,
-            bluetooth.writes.count { it.contentEquals(byteArrayOf(32, 42)) },
+            ConnectionIssueCode.IDENTIFICATION_TIMEOUT,
+            service.activeConnectionSnapshot()?.connectionIssue?.code,
         )
+        assertEquals(
+            5,
+            bluetooth.writes.count { it.contentEquals(byteArrayOf(32, 255.toByte())) },
+        )
+
+        service.connect(id)
+        assertEquals(ConnectionState.CONNECTING, service.connectionState)
+        assertEquals(null, service.activeConnectionSnapshot()?.connectionIssue)
     }
 
     @Test
@@ -486,11 +841,11 @@ class ApplicationServiceTest {
 
     private class FakeProtocol : VescProtocolPort {
         override fun reset() = Unit
-        override fun firmwareRequest(canId: Int?) = byteArrayOf(1)
+        override fun firmwareRequest(route: ControllerRoute) = byteArrayOf(1)
         override fun canPingRequest() = byteArrayOf(62)
-        override fun refloatInfoRequest(canId: Int?) = byteArrayOf(36, 101, 0)
-        override fun refloatTelemetryIdsRequest(canId: Int) = byteArrayOf(36, 101, 32)
-        override fun refloatTelemetryRequest(canId: Int) = byteArrayOf(36, 101, 31)
+        override fun refloatInfoRequest(route: ControllerRoute) = byteArrayOf(36, 101, 0)
+        override fun refloatTelemetryIdsRequest(route: ControllerRoute) = byteArrayOf(36, 101, 32)
+        override fun refloatTelemetryRequest(route: ControllerRoute) = byteArrayOf(36, 101, 31)
         override fun receive(bytes: ByteArray) = listOf(
             VescProtocolMessage.Firmware(FirmwareRecord(6, 6, "THOR300", "refloat")),
         )
@@ -498,15 +853,15 @@ class ApplicationServiceTest {
 
     private class CanDiscoveryProtocol : VescProtocolPort {
         override fun reset() = Unit
-        override fun firmwareRequest(canId: Int?) =
-            if (canId == null) byteArrayOf(1) else byteArrayOf(1, canId.toByte())
+        override fun firmwareRequest(route: ControllerRoute) =
+            route.canIdOrNull?.let { byteArrayOf(1, it.toByte()) } ?: byteArrayOf(1)
         override fun canPingRequest() = byteArrayOf(62)
-        override fun refloatInfoRequest(canId: Int?) =
-            byteArrayOf(36, 101, 0, requireNotNull(canId).toByte())
-        override fun refloatTelemetryIdsRequest(canId: Int) =
-            byteArrayOf(36, 101, 32, canId.toByte())
-        override fun refloatTelemetryRequest(canId: Int) =
-            byteArrayOf(36, 101, 31, canId.toByte())
+        override fun refloatInfoRequest(route: ControllerRoute) =
+            byteArrayOf(36, 101, 0, requireNotNull(route.canIdOrNull).toByte())
+        override fun refloatTelemetryIdsRequest(route: ControllerRoute) =
+            byteArrayOf(36, 101, 32, (route.canIdOrNull ?: 255).toByte())
+        override fun refloatTelemetryRequest(route: ControllerRoute) =
+            byteArrayOf(36, 101, 31, (route.canIdOrNull ?: 255).toByte())
         override fun receive(bytes: ByteArray): List<VescProtocolMessage> =
             when (bytes.single().toInt()) {
                 1 -> listOf(
@@ -525,26 +880,29 @@ class ApplicationServiceTest {
                         FirmwareRecord(6, 6, "THOR300", null, hardwareType = 0, canId = 42),
                     ),
                 )
-                5 -> listOf(VescProtocolMessage.RefloatInfo("1.2"))
+                5 -> listOf(VescProtocolMessage.RefloatInfo("1.2.3"))
                 else -> emptyList()
             }
     }
 
     private class TelemetryProtocol : VescProtocolPort {
         override fun reset() = Unit
-        override fun firmwareRequest(canId: Int?) = byteArrayOf(1)
+        override fun firmwareRequest(route: ControllerRoute) = byteArrayOf(1)
         override fun canPingRequest() = byteArrayOf(62)
-        override fun refloatInfoRequest(canId: Int?) = byteArrayOf(0, requireNotNull(canId).toByte())
-        override fun refloatTelemetryIdsRequest(canId: Int) = byteArrayOf(32, canId.toByte())
-        override fun refloatTelemetryRequest(canId: Int) = byteArrayOf(31, canId.toByte())
+        override fun refloatInfoRequest(route: ControllerRoute) =
+            byteArrayOf(0, (route.canIdOrNull ?: 255).toByte())
+        override fun refloatTelemetryIdsRequest(route: ControllerRoute) =
+            byteArrayOf(32, (route.canIdOrNull ?: 255).toByte())
+        override fun refloatTelemetryRequest(route: ControllerRoute) =
+            byteArrayOf(31, (route.canIdOrNull ?: 255).toByte())
         override fun receive(bytes: ByteArray): List<VescProtocolMessage> =
             when (bytes.single().toInt()) {
                 1 -> listOf(
                     VescProtocolMessage.Firmware(
-                        FirmwareRecord(6, 6, "THOR300", null, 0, 42),
+                        FirmwareRecord(6, 6, "THOR300", null, 0, null),
                     ),
                 )
-                2 -> listOf(VescProtocolMessage.RefloatInfo("1.2.0"))
+                2 -> listOf(VescProtocolMessage.RefloatInfo("1.2.3"))
                 3 -> listOf(
                     VescProtocolMessage.RefloatTelemetryLayout(
                         listOf("motor.batt_voltage"),
@@ -564,6 +922,104 @@ class ApplicationServiceTest {
                         RefloatTelemetryRecord(
                             RideState.IDLE, 2, 0, 64.0, 0.0, 30.0, 25.0,
                             0.0, 0.0, 0, 0.0,
+                        ),
+                    ),
+                )
+                else -> emptyList()
+            }
+    }
+
+    private class AmbiguousProtocol : VescProtocolPort {
+        override fun reset() = Unit
+        override fun firmwareRequest(route: ControllerRoute) =
+            route.canIdOrNull?.let { byteArrayOf(0, it.toByte()) } ?: byteArrayOf(0)
+        override fun canPingRequest() = byteArrayOf(62)
+        override fun refloatInfoRequest(route: ControllerRoute) =
+            byteArrayOf(2, (route.canIdOrNull ?: 255).toByte())
+        override fun refloatTelemetryIdsRequest(route: ControllerRoute) =
+            byteArrayOf(32, (route.canIdOrNull ?: 255).toByte())
+        override fun refloatTelemetryRequest(route: ControllerRoute) =
+            byteArrayOf(31, (route.canIdOrNull ?: 255).toByte())
+        override fun receive(bytes: ByteArray): List<VescProtocolMessage> =
+            when (bytes.single().toInt()) {
+                1 -> listOf(
+                    VescProtocolMessage.Firmware(
+                        FirmwareRecord(6, 5, "Gateway", null, hardwareType = 2),
+                    ),
+                )
+                2 -> listOf(VescProtocolMessage.CanDevices(listOf(42, 7)))
+                3 -> listOf(
+                    VescProtocolMessage.Firmware(
+                        FirmwareRecord(5, 3, "Old VESC", null, 0, 7),
+                    ),
+                )
+                4 -> listOf(
+                    VescProtocolMessage.Firmware(
+                        FirmwareRecord(
+                            6,
+                            6,
+                            "THOR300",
+                            "Refloat",
+                            0,
+                            42,
+                            ByteArray(12) { (it + 1).toByte() },
+                        ),
+                    ),
+                )
+                5 -> listOf(VescProtocolMessage.RefloatInfo("1.2.3"))
+                6 -> listOf(VescProtocolMessage.RefloatTelemetryLayout(listOf("motor.speed"), emptyList()))
+                else -> emptyList()
+            }
+    }
+
+    private class DiscoveryBoundaryProtocol(
+        private val canIds: List<Int> = emptyList(),
+    ) : VescProtocolPort {
+        override fun reset() = Unit
+        override fun firmwareRequest(route: ControllerRoute) =
+            route.canIdOrNull?.let { byteArrayOf(0, it.toByte()) } ?: byteArrayOf(0)
+        override fun canPingRequest() = byteArrayOf(62)
+        override fun refloatInfoRequest(route: ControllerRoute) =
+            byteArrayOf(2, (route.canIdOrNull ?: 255).toByte())
+        override fun refloatTelemetryIdsRequest(route: ControllerRoute) =
+            byteArrayOf(32, (route.canIdOrNull ?: 255).toByte())
+        override fun refloatTelemetryRequest(route: ControllerRoute) =
+            byteArrayOf(31, (route.canIdOrNull ?: 255).toByte())
+        override fun receive(bytes: ByteArray): List<VescProtocolMessage> =
+            when (val marker = bytes.single().toInt() and 0xff) {
+                1 -> listOf(
+                    VescProtocolMessage.Firmware(
+                        FirmwareRecord(
+                            6,
+                            5,
+                            "Generic gateway",
+                            null,
+                            hardwareType = 2,
+                        ),
+                    ),
+                )
+                2 -> listOf(VescProtocolMessage.CanDevices(canIds))
+                3 -> listOf(
+                    VescProtocolMessage.Firmware(
+                        FirmwareRecord(
+                            6,
+                            5,
+                            "BMS",
+                            null,
+                            hardwareType = 2,
+                            canId = 42,
+                        ),
+                    ),
+                )
+                in 10..26 -> listOf(
+                    VescProtocolMessage.Firmware(
+                        FirmwareRecord(
+                            6,
+                            6,
+                            "THOR300",
+                            "Refloat",
+                            hardwareType = 0,
+                            canId = marker - 10,
                         ),
                     ),
                 )
@@ -596,11 +1052,15 @@ class ApplicationServiceTest {
 
     private class FakeStore : LogStorePort {
         private var current: SessionRecord? = null
+        var createCount = 0
         val appended = mutableListOf<TelemetrySample>()
         val closeReasons = mutableListOf<String>()
         override fun create(deviceId: DeviceId, advertisedName: String?, at: Instant): SessionRecord =
             SessionRecord(SessionId("session"), JobId("job"), deviceId, at, 0, true)
-                .also { current = it }
+                .also {
+                    createCount++
+                    current = it
+                }
         override fun append(jobId: JobId, samples: List<TelemetrySample>) {
             appended += samples
         }
@@ -612,6 +1072,7 @@ class ApplicationServiceTest {
     }
 
     private class FakeProductStore : ProductStorePort {
+        var routingHint: ControllerRoutingHint? = null
         var saved = SavedDeviceRecord(
             "saved-board",
             "history-board",
@@ -629,6 +1090,16 @@ class ApplicationServiceTest {
         )
 
         override fun savedDevices() = listOf(saved)
+
+        override fun ensureSavedDevice(
+            deviceId: DeviceId,
+            advertisedName: String?,
+            at: Instant,
+        ): SavedDeviceRecord = saved.copy(
+            advertisedName = advertisedName,
+            bluetoothIdentifier = deviceId.value,
+            displayName = advertisedName ?: deviceId.value,
+        ).also { saved = it }
 
         override fun updateSavedDevice(
             savedDeviceId: String,
@@ -670,6 +1141,36 @@ class ApplicationServiceTest {
                 missingFields = listOf("parallelCount", "motor"),
             ).also { profile = it }
         }
+
+        override fun selectController(
+            savedDeviceId: String,
+            canId: Int,
+            controllerUuid: ByteArray?,
+            at: Instant,
+        ): BoardProfileRecord {
+            return profile.copy(
+                revision = profile.revision + 1,
+                valuesJson = """{"preferredCanId":$canId}""",
+            ).also { profile = it }
+        }
+
+        override fun controllerRoutingHint(savedDeviceId: String): ControllerRoutingHint? {
+            if (savedDeviceId != saved.savedDeviceId) {
+                throw ProductStoreException.SavedDeviceNotFound
+            }
+            return routingHint
+        }
+
+        override fun storeControllerRoutingHint(hint: ControllerRoutingHint, at: Instant) {
+            routingHint = hint
+        }
+
+        override fun clearControllerRoutingHint(savedDeviceId: String) {
+            if (savedDeviceId != saved.savedDeviceId) {
+                throw ProductStoreException.SavedDeviceNotFound
+            }
+            routingHint = null
+        }
     }
 
     private class FailingStore : LogStorePort {
@@ -680,4 +1181,8 @@ class ApplicationServiceTest {
             error("storage failed")
         override fun active(): SessionRecord? = null
     }
+
 }
+
+private val ControllerRoute.canIdOrNull: Int?
+    get() = (this as? ControllerRoute.Can)?.canId

@@ -1,6 +1,8 @@
 export const MAX_MESSAGE_BYTES = 65_536;
 export const MAX_RECENT_ITEMS = 50;
 export const MAX_SERIES_POINTS = 2_000;
+export const MAX_CAN_DISCOVERY_IDS = 64;
+export const MAX_CONTROLLER_CANDIDATES = 16;
 
 export type BluetoothRadioState =
 	| 'unknown'
@@ -29,6 +31,8 @@ export type DeviceState =
 	| 'connecting'
 	| 'connected'
 	| 'discovering_services'
+	| 'identifying'
+	| 'selecting_controller'
 	| 'ready'
 	| 'disconnecting'
 	| 'reconnecting'
@@ -49,6 +53,32 @@ export interface FirmwareInfo {
 	packageVersion: string;
 	hardwareName?: string | null;
 	supported: boolean;
+}
+
+export type ControllerConnection = { kind: 'direct' } | { kind: 'can'; canId: number };
+
+export interface ControllerCandidate {
+	canId: number;
+	hardwareName: string | null;
+	firmwareName: string | null;
+	vescVersion: string;
+	vescSupported: boolean;
+}
+
+export type ConnectionIssueCode =
+	| 'transport_setup_failed'
+	| 'identification_timeout'
+	| 'no_controller_found'
+	| 'too_many_can_devices'
+	| 'too_many_controllers'
+	| 'preferred_controller_unavailable'
+	| 'controller_changed'
+	| 'unsupported_controller'
+	| 'unsupported_refloat';
+
+export interface ConnectionIssue {
+	code: ConnectionIssueCode;
+	message: string;
 }
 
 export type RideState = 'idle' | 'riding' | 'unknown';
@@ -74,6 +104,9 @@ export interface ActiveConnection extends Device {
 	firmware: FirmwareInfo | null;
 	savedDeviceId: string | null;
 	displayName: string;
+	controllerConnection: ControllerConnection | null;
+	controllerCandidates: ControllerCandidate[];
+	connectionIssue: ConnectionIssue | null;
 	activeSession: SessionSummary | null;
 	latestSample: LiveSample | null;
 }
@@ -91,10 +124,17 @@ export interface SavedDevice {
 	profileComplete: boolean;
 }
 
+export interface BoardProfileValues extends Record<string, unknown> {
+	seriesCount?: number;
+	parallelCount?: number;
+	motor?: string;
+	preferredCanId?: number | null;
+}
+
 export interface BoardProfile {
 	savedDeviceId: string;
 	revision: number;
-	values: Record<string, unknown>;
+	values: BoardProfileValues;
 	missingFields: string[];
 }
 
@@ -192,6 +232,10 @@ export interface BackendMethods {
 	'bluetooth.requestPermission': { params: EmptyParams; result: BluetoothState };
 	'bluetooth.scan': { params: { timeoutMs?: number }; result: Accepted };
 	'device.connect': { params: { deviceId: string }; result: Accepted };
+	'device.selectController': {
+		params: { deviceId: string; canId: number };
+		result: Accepted;
+	};
 	'device.disconnect': { params: EmptyParams; result: Accepted };
 	'savedDevice.update': {
 		params: {

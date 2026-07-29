@@ -62,7 +62,8 @@ private func bytes(_ hex: String) -> [UInt8] {
         major: 6,
         minor: UInt8(minor),
         hardwareName: "THOR300",
-        hardwareType: 0
+        hardwareType: 0,
+        controllerUUID: Data(repeating: 0, count: 12)
       )
     )
   }
@@ -91,11 +92,6 @@ private func bytes(_ hex: String) -> [UInt8] {
   #expect(VescFault(code: 255).kind == .unknown)
   #expect(VescFault(code: 255).code == 255)
 
-  let refloat = try VescFrameCodec.decode(bytes(fixture("fixtures/refloat/rtdata-1.2.json").frameHex))
-  #expect(
-    try VescPayloadDecoder.refloatRealtime(refloat)
-      == RefloatRealtime(appId: 101, packetId: 1, rideState: 0, footpadState: 0)
-  )
 }
 
 @Test func corruptCRCIsRejected() {
@@ -131,7 +127,7 @@ private func bytes(_ hex: String) -> [UInt8] {
   )
 
   #expect(
-    try VescFrameCodec.decode(Array(service.firmwareRequest(canID: 42))) == [34, 42, 0]
+    try VescFrameCodec.decode(Array(service.firmwareRequest(route: .can(42)))) == [34, 42, 0]
   )
   let firmwareFrame = bytes(try fixture("fixtures/vesc/firmware-6.06.json").frameHex)
   let messages = try service.receive(Data(firmwareFrame))
@@ -150,7 +146,7 @@ private func bytes(_ hex: String) -> [UInt8] {
       )
   )
   #expect(
-    try VescFrameCodec.decode(Array(service.refloatInfoRequest(canID: 42)))
+    try VescFrameCodec.decode(Array(service.refloatInfoRequest(route: .can(42))))
       == [34, 42, 36, 101, 0, 2, 0]
   )
   #expect(
@@ -159,14 +155,35 @@ private func bytes(_ hex: String) -> [UInt8] {
   )
 }
 
+@Test func exactCompatibilityCatalogsAndLegacyWireIdentityAreStable() throws {
+  #expect(VescCompatibility.supported == [
+    .init(6, 2), .init(6, 5), .init(6, 6),
+  ])
+  #expect(RefloatCompatibility.entries.map(\.sourceVersion) == ["1.0.0", "1.1.0", "1.2.3"])
+  #expect(RefloatCompatibility.entry(wireVersion: "1.0")?.family == .legacyFixed)
+  #expect(RefloatCompatibility.entry(wireVersion: "1.2.0") == nil)
+
+  let service = VescProtocolService()
+  let legacy = try VescFrameCodec.encode([36, 101, 0, 10])
+  #expect(try service.receive(Data(legacy)) == [.refloatInfo(version: "1.0")])
+  #expect(
+    try VescFrameCodec.decode(Array(service.refloatLegacyTelemetryRequest(route: .direct)))
+      == [36, 101, 10]
+  )
+  #expect(
+    try VescFrameCodec.decode(Array(service.refloatTelemetryRequest(route: .direct)))
+      == [36, 101, 31]
+  )
+}
+
 @Test func refloatRealtimeIDsAndDataNormalizeCoreTelemetry() throws {
   let service = VescProtocolService()
   #expect(
-    try VescFrameCodec.decode(Array(service.refloatTelemetryIDsRequest(canID: 42)))
+    try VescFrameCodec.decode(Array(service.refloatTelemetryIDsRequest(route: .can(42))))
       == [34, 42, 36, 101, 32]
   )
   #expect(
-    try VescFrameCodec.decode(Array(service.refloatTelemetryRequest(canID: 42)))
+    try VescFrameCodec.decode(Array(service.refloatTelemetryRequest(route: .can(42))))
       == [34, 42, 36, 101, 31]
   )
   let fields = [

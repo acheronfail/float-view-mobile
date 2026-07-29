@@ -249,15 +249,21 @@ private final class MacBackendRuntime: @unchecked Sendable {
 
   init(html: Data) {
     let relay = BluetoothEventRelay()
-    let bluetooth: any BluetoothPort =
-      ProcessInfo.processInfo.environment["FLOAT_VIEW_SOFTWARE_BACKEND"] == "1"
-      ? SoftwareBluetoothAdapter(eventHandler: { @Sendable event in relay.emit(event) })
-      : CoreBluetoothAdapter(
+    let bluetooth: any BluetoothPort
+    if ProcessInfo.processInfo.environment["FLOAT_VIEW_SOFTWARE_BACKEND"] == "1" {
+      let peripheral = SoftwareVescPeripheral()
+      bluetooth = SoftwareBluetoothAdapter(
+        eventHandler: { @Sendable event in relay.emit(event) },
+        responseHandler: { @Sendable bytes in peripheral.response(to: bytes) }
+      )
+    } else {
+      bluetooth = CoreBluetoothAdapter(
         eventHandler: { @Sendable event in relay.emit(event) },
         diagnosticHandler: { diagnostic in
           trace("[FloatViewState] adapter \(diagnostic)")
         }
       )
+    }
     let logRoot: URL
     let testLogRoot = ProcessInfo.processInfo.environment["FLOAT_VIEW_LOG_ROOT"]
     if let override = testLogRoot {

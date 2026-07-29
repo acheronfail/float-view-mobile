@@ -7,6 +7,11 @@ import org.junit.Assert.assertThrows
 import org.junit.Test
 import fail.acheron.floatview.backend.VescProtocolMessage
 import fail.acheron.floatview.backend.RideState
+import fail.acheron.floatview.protocol.refloat.RefloatCompatibility
+import fail.acheron.floatview.protocol.refloat.RefloatTelemetryFamily
+import fail.acheron.floatview.protocol.vesc.VescCompatibility
+import fail.acheron.floatview.protocol.vesc.ControllerRoute
+import fail.acheron.floatview.protocol.vesc.VescFirmwareVersion
 
 private fun String.hexBytes(): ByteArray =
     chunked(2).map { it.toInt(16).toByte() }.toByteArray()
@@ -26,6 +31,44 @@ private fun fixtureCases(path: String): List<String> {
 
 class VescProtocolTest {
     @Test
+    fun exactCompatibilityCatalogsAndLegacyWireIdentityAreStable() {
+        assertEquals(
+            setOf(
+                VescFirmwareVersion(6, 2),
+                VescFirmwareVersion(6, 5),
+                VescFirmwareVersion(6, 6),
+            ),
+            VescCompatibility.supported,
+        )
+        assertEquals(
+            listOf("1.0.0", "1.1.0", "1.2.3"),
+            RefloatCompatibility.entries.map { it.sourceVersion },
+        )
+        assertEquals(
+            RefloatTelemetryFamily.LEGACY_FIXED,
+            RefloatCompatibility.entry("1.0")?.family,
+        )
+        assertEquals(null, RefloatCompatibility.entry("1.2.0"))
+
+        val service = VescProtocolService()
+        val legacy = VescFrameCodec.encode(byteArrayOf(36, 101, 0, 10))
+        assertEquals(
+            listOf(VescProtocolMessage.RefloatInfo("1.0")),
+            service.receive(legacy),
+        )
+        assertEquals(
+            listOf(36, 101, 10),
+            VescFrameCodec.decode(service.refloatLegacyTelemetryRequest(ControllerRoute.Direct))
+                .map { it.toInt() and 0xff },
+        )
+        assertEquals(
+            listOf(36, 101, 31),
+            VescFrameCodec.decode(service.refloatTelemetryRequest(ControllerRoute.Direct))
+                .map { it.toInt() and 0xff },
+        )
+    }
+
+    @Test
     fun firmwareFixtureDecodesAcrossChunks() {
         val frame = fixture("vesc/firmware-6.06.json").hexBytes()
         val stream = VescFrameStreamDecoder()
@@ -44,7 +87,13 @@ class VescProtocolTest {
                 fixture("vesc/firmware-thor300-$version.json").hexBytes(),
             )
             assertEquals(
-                FirmwareInfo(6, minor, "THOR300", hardwareType = 0),
+                FirmwareInfo(
+                    6,
+                    minor,
+                    "THOR300",
+                    hardwareType = 0,
+                    controllerUuid = ByteArray(12),
+                ),
                 VescPayloadDecoder.firmware(payload),
             )
         }
@@ -74,10 +123,6 @@ class VescProtocolTest {
         assertEquals(VescFault.Kind.UNKNOWN, VescFault.fromCode(255).kind)
         assertEquals(255, VescFault.fromCode(255).code)
 
-        val refloat = VescPayloadDecoder.refloatRealtime(
-            VescFrameCodec.decode(fixture("refloat/rtdata-1.2.json").hexBytes()),
-        )
-        assertEquals(RefloatRealtime(101, 1, 0, 0), refloat)
     }
 
     @Test
@@ -119,7 +164,8 @@ class VescProtocolTest {
 
         assertEquals(
             listOf(34, 42, 0),
-            VescFrameCodec.decode(service.firmwareRequest(42)).map { it.toInt() and 0xff },
+            VescFrameCodec.decode(service.firmwareRequest(ControllerRoute.Can(42)))
+                .map { it.toInt() and 0xff },
         )
         val firmwareFrame = fixture("vesc/firmware-6.06.json").hexBytes()
         val firmware = service.receive(firmwareFrame).single() as VescProtocolMessage.Firmware
@@ -128,7 +174,8 @@ class VescProtocolTest {
 
         assertEquals(
             listOf(34, 42, 36, 101, 0, 2, 0),
-            VescFrameCodec.decode(service.refloatInfoRequest(42)).map { it.toInt() and 0xff },
+            VescFrameCodec.decode(service.refloatInfoRequest(ControllerRoute.Can(42)))
+                .map { it.toInt() and 0xff },
         )
         assertEquals(
             VescProtocolMessage.RefloatInfo("1.2"),
@@ -141,12 +188,13 @@ class VescProtocolTest {
         val service = VescProtocolService()
         assertEquals(
             listOf(34, 42, 36, 101, 32),
-            VescFrameCodec.decode(service.refloatTelemetryIdsRequest(42))
+            VescFrameCodec.decode(service.refloatTelemetryIdsRequest(ControllerRoute.Can(42)))
                 .map { it.toInt() and 0xff },
         )
         assertEquals(
             listOf(34, 42, 36, 101, 31),
-            VescFrameCodec.decode(service.refloatTelemetryRequest(42)).map { it.toInt() and 0xff },
+            VescFrameCodec.decode(service.refloatTelemetryRequest(ControllerRoute.Can(42)))
+                .map { it.toInt() and 0xff },
         )
         val fields = listOf(
             "motor.speed",

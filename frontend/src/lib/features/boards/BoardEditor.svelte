@@ -6,6 +6,7 @@
 		normalizedCustomName,
 		SerialSaveQueue,
 		validParallelCount,
+		validPreferredCanId,
 		validSeriesCount
 	} from './autosave';
 
@@ -18,6 +19,7 @@
 	let seriesCount = $state<number | undefined>();
 	let parallelCount = $state<number | undefined>();
 	let motor = $state('');
+	let preferredCanId = $state<number | undefined>();
 	const saveQueue = new SerialSaveQueue();
 
 	const device = $derived(
@@ -38,6 +40,8 @@
 			seriesCount = typeof values?.seriesCount === 'number' ? values.seriesCount : undefined;
 			parallelCount = typeof values?.parallelCount === 'number' ? values.parallelCount : undefined;
 			motor = typeof values?.motor === 'string' ? values.motor : '';
+			preferredCanId =
+				typeof values?.preferredCanId === 'number' ? values.preferredCanId : undefined;
 		});
 		return () => {
 			active = false;
@@ -87,6 +91,30 @@
 					placeholder={device.advertisedName ?? device.bluetoothIdentifier}
 					onblur={saveName}
 				/>
+			</label>
+			<label class="text-sm sm:col-span-2">
+				<span class="mb-1 block text-muted">Preferred CAN ID (optional)</span>
+				<input
+					class="w-full rounded-md border border-outline bg-elevated px-3 py-2"
+					type="number"
+					min="0"
+					max="253"
+					inputmode="numeric"
+					bind:value={preferredCanId}
+					aria-describedby="preferred-can-help"
+					onblur={() => {
+						if (preferredCanId === undefined) saveProfile({ preferredCanId: null });
+						else if (validPreferredCanId(preferredCanId)) saveProfile({ preferredCanId });
+					}}
+				/>
+				<span id="preferred-can-help" class="mt-1 block text-xs text-muted">
+					Used on the next VESC Express connection. Leave blank for automatic discovery.
+				</span>
+				{#if preferredCanId !== undefined && !validPreferredCanId(preferredCanId)}
+					<span role="alert" class="mt-1 block text-xs text-warning">
+						Enter a whole CAN ID from 0 to 253.
+					</span>
+				{/if}
 			</label>
 			<div class="rounded-md border border-outline bg-elevated px-3 py-2 text-sm sm:col-span-2">
 				<span class="block text-muted">Bluetooth identifier</span>

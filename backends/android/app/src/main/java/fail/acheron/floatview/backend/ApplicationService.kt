@@ -1,5 +1,8 @@
 package fail.acheron.floatview.backend
 
+import fail.acheron.floatview.protocol.refloat.RefloatTelemetryFamily
+import fail.acheron.floatview.protocol.vesc.ControllerRoute
+
 class ApplicationService(
     private val bluetooth: BluetoothPort,
     private val clock: ClockPort,
@@ -11,6 +14,14 @@ class ApplicationService(
     samplingSettings: SamplingSettings = SamplingSettings(),
     private val events: EventSink,
 ) {
+    init {
+        val savedIds = runCatching {
+            productStore?.savedDevices().orEmpty()
+                .map { DeviceId(it.bluetoothIdentifier) }
+                .toSet()
+        }.getOrDefault(emptySet())
+        bluetooth.configureSavedDeviceIds(savedIds)
+    }
     private var sampling = AdaptiveSamplingPolicy(samplingSettings)
     private var postRideTailMs = samplingSettings.postRideTailMs
     private var reconnectDurationMs = samplingSettings.reconnectDurationMs
@@ -18,19 +29,31 @@ class ApplicationService(
     private var explicitDisconnect = false
     private var scanSequence = 0
     private val knownDevicesById = linkedMapOf<DeviceId, DiscoveredDevice>()
-    private var firmware: FirmwareRecord? = null
-    private var transportFirmware: FirmwareRecord? = null
-    private var refloatPackageVersion: String? = null
-    private var pendingCanIds = mutableListOf<Int>()
-    private var firmwareDiscoveryStarted = false
-    private var telemetryLayoutTimer: CancellationPort? = null
-    private var telemetryLayoutAttempts = 0
-    private var telemetryTimer: CancellationPort? = null
-    private var telemetryIntervalMs: Long? = null
-    private var telemetryStartedAtMs: Long? = null
-    private var telemetrySequence = 0L
-    private var previousTelemetryRideState = RideState.UNKNOWN
-    private var postRideProbeUntilMs: Long? = null
+    private val controllerDiscovery = ControllerDiscovery()
+    private var currentSavedDevice: SavedDeviceRecord? = null
+    private var identificationTimer: CancellationPort? = null
+    private var canProbeTimer: CancellationPort? = null
+    private var sessionControllerRoute: ControllerRoute? = null
+    private var sessionControllerUuid: ByteArray? = null
+    private var sessionFirmware: FirmwareRecord? = null
+    private var sessionRefloatPackageVersion: String? = null
+    private val telemetryPolling = TelemetryPolling(
+        clock = clock,
+        scheduler = scheduler,
+        protocol = protocol,
+        write = bluetooth::write,
+        onSample = ::ingest,
+        onFailure = { reason ->
+            synchronized(this) {
+                events.publish(reason)
+                failIdentification(
+                    ConnectionIssueCode.IDENTIFICATION_TIMEOUT,
+                    "Refloat telemetry negotiation timed out.",
+                )
+            }
+        },
+        onDiagnostic = events::publish,
+    )
     private var reconnectTimer: CancellationPort? = null
     private var reconnectStartedAtMs: Long? = null
     private var reconnectAttempt = 0
@@ -78,6 +101,31 @@ class ApplicationService(
             .updateBoardProfile(savedDeviceId, expectedRevision, patchJson, clock.now())
             .also(events::publish)
 
+    @Synchronized
+    fun selectController(deviceId: DeviceId, canId: Int) {
+        val store = productStore
+        val savedDevice = currentSavedDevice
+        check(
+            activeDeviceId == deviceId &&
+                connectionState == ConnectionState.SELECTING_CONTROLLER &&
+                store != null &&
+                savedDevice != null,
+        ) { "Controller selection is not valid for the current state" }
+        val effect = controllerDiscovery.selectController(canId)
+        val selectedFirmware =
+            (effect as ControllerDiscoveryEffect.RequestRefloatInfo).rememberController
+                ?: error("Selected controller identity is unavailable")
+        store.selectController(
+            savedDevice.savedDeviceId,
+            canId,
+            ControllerDiscoveryPolicy.meaningfulUuid(selectedFirmware.controllerUuid),
+            clock.now(),
+        ).also(events::publish)
+        controllerDiscovery.clearIssue()
+        transition(ConnectionState.IDENTIFYING)
+        performDiscoveryEffect(effect.copy(rememberController = null))
+    }
+
     fun settings(): SettingsRecord =
         requireNotNull(productStore) { "Product store is unavailable" }.settings()
 
@@ -98,15 +146,7 @@ class ApplicationService(
                         reconnectDurationMs = value.reconnectDurationMs,
                     ),
                 )
-                if (connectionState == ConnectionState.READY) {
-                    restartTelemetryPolling(
-                        if (previousTelemetryRideState == RideState.RIDING) {
-                            RIDING_PROBE_INTERVAL_MS
-                        } else {
-                            idleProbeIntervalMs
-                        },
-                    )
-                }
+                telemetryPolling.updateSettings(value.idleProbeIntervalMs, value.postRideTailMs)
                 events.publish(value)
             }
 
@@ -200,16 +240,16 @@ class ApplicationService(
             activeScanId = null
         }
         activeDeviceId = deviceId
+        if (logStore.active() == null) {
+            sessionControllerRoute = null
+            sessionControllerUuid = null
+            sessionFirmware = null
+            sessionRefloatPackageVersion = null
+        }
         latestPersistedSample = null
         explicitDisconnect = false
         cancelReconnect()
-        telemetryTimer?.cancel()
-        telemetryTimer = null
-        telemetryIntervalMs = null
-        telemetryStartedAtMs = null
-        telemetrySequence = 0
-        previousTelemetryRideState = RideState.UNKNOWN
-        postRideProbeUntilMs = null
+        telemetryPolling.resetSession()
         resetFirmwareDiscovery()
         transition(ConnectionState.CONNECTING)
         bluetooth.connect(deviceId)
@@ -262,27 +302,12 @@ class ApplicationService(
             }
             is BluetoothEvent.ConnectionChanged -> {
                 if (event.deviceId != activeDeviceId) return
-                if (event.state == ConnectionState.READY && logStore.active() == null) {
-                    try {
-                        events.publish(
-                            logStore.create(
-                                event.deviceId,
-                                knownDevicesById[event.deviceId]?.advertisedName,
-                                clock.now(),
-                            ),
-                        )
-                        telemetryStartedAtMs = clock.monotonicMillis()
-                    } catch (error: Exception) {
-                        transition(ConnectionState.FAILED)
-                        explicitDisconnect = true
-                        bluetooth.disconnect(event.deviceId)
-                        events.publish(error)
+                if (event.state == ConnectionState.READY) {
+                    if (protocol == null) {
+                        completeWithoutProtocol()
                         return
                     }
-                }
-                if (event.state == ConnectionState.READY) {
-                    cancelReconnect()
-                    transition(ConnectionState.READY)
+                    transition(ConnectionState.IDENTIFYING)
                     startFirmwareDiscovery(event.deviceId)
                     return
                 }
@@ -293,6 +318,25 @@ class ApplicationService(
                     logStore.active() != null
                 ) {
                     beginReconnect()
+                    return
+                }
+                if (
+                    event.state == ConnectionState.FAILED &&
+                    logStore.active() == null &&
+                    !explicitDisconnect
+                ) {
+                    controllerDiscovery.markFailure(
+                        ConnectionIssueCode.TRANSPORT_SETUP_FAILED,
+                        "The VESC Bluetooth transport could not be prepared.",
+                    )
+                    transition(ConnectionState.FAILED)
+                    return
+                }
+                if (
+                    event.state == ConnectionState.DISCONNECTED &&
+                    connectionState == ConnectionState.FAILED &&
+                    !explicitDisconnect
+                ) {
                     return
                 }
                 if (event.state == ConnectionState.DISCONNECTED) {
@@ -315,24 +359,20 @@ class ApplicationService(
                         when (message) {
                             is VescProtocolMessage.Firmware -> handleFirmware(message.value)
                             is VescProtocolMessage.CanDevices -> {
-                                pendingCanIds = message.canIds.toMutableList()
-                                requestNextCanFirmware()
+                                handleCanDevices(message.canIds)
                             }
                             is VescProtocolMessage.RefloatInfo -> {
-                                refloatPackageVersion = message.version
-                                if (
-                                    message.version == "1.2" ||
-                                    message.version.startsWith("1.2.")
-                                ) {
-                                    requestRefloatTelemetryLayout()
-                                }
+                                if (connectionState != ConnectionState.IDENTIFYING) return@forEach
+                                performDiscoveryEffect(
+                                    controllerDiscovery.acceptRefloatInfo(message.version),
+                                )
                             }
                             is VescProtocolMessage.RefloatTelemetryLayout -> {
-                                cancelTelemetryLayoutRetry()
-                                startTelemetryPolling()
+                                telemetryPolling.layoutEstablished()
+                                performDiscoveryEffect(controllerDiscovery.acceptTelemetryLayout())
                             }
                             is VescProtocolMessage.RefloatTelemetry ->
-                                handleRefloatTelemetry(message.value)
+                                telemetryPolling.receive(message.value)
                         }
                         events.publish(message)
                     }
@@ -349,8 +389,8 @@ class ApplicationService(
         transition(ConnectionState.DISCONNECTING)
         explicitDisconnect = true
         cancelReconnect()
-        cancelTelemetryLayoutRetry()
-        stopTelemetryPolling()
+        telemetryPolling.cancelLayout()
+        telemetryPolling.stop()
         logStore.active()?.let {
             events.publish(logStore.close(it.jobId, clock.now(), "explicit_disconnect"))
         }
@@ -380,120 +420,316 @@ class ApplicationService(
             runCatching { sessionStore?.session(sessionId) }.getOrNull()
         }
         return ActiveConnectionSnapshot(
-            deviceId,
-            knownDevicesById[deviceId]?.advertisedName,
-            connectionState,
-            savedDevice,
-            activeSession,
-            latestPersistedSample,
+            deviceId = deviceId,
+            advertisedName = knownDevicesById[deviceId]?.advertisedName,
+            state = connectionState,
+            savedDevice = currentSavedDevice ?: savedDevice,
+            activeSession = activeSession,
+            latestSample = latestPersistedSample,
+            controllerRoute = controllerDiscovery.controllerRoute,
+            controllerCandidates = controllerDiscovery.controllerCandidates,
+            connectionIssue = controllerDiscovery.connectionIssue,
         )
     }
 
     @Synchronized
-    fun firmwareSnapshot(): FirmwareRecord? = firmware
+    fun firmwareSnapshot(): FirmwareRecord? = controllerDiscovery.firmware
 
     @Synchronized
-    fun refloatPackageVersionSnapshot(): String? = refloatPackageVersion
-
-    @Synchronized
-    fun requestFirmwareInfo(): FirmwareRecord? {
-        val deviceId = activeDeviceId ?: return null
-        check(connectionState == ConnectionState.READY) { "Device is not ready" }
-        if (!firmwareDiscoveryStarted) startFirmwareDiscovery(deviceId)
-        return firmware
-    }
+    fun refloatPackageVersionSnapshot(): String? = controllerDiscovery.refloatPackageVersion
 
     private fun startFirmwareDiscovery(deviceId: DeviceId) {
-        if (firmwareDiscoveryStarted) return
-        val decoder = protocol ?: return
-        firmwareDiscoveryStarted = true
-        try {
-            bluetooth.write(deviceId, decoder.firmwareRequest())
-        } catch (error: Exception) {
-            firmwareDiscoveryStarted = false
-            events.publish(error)
+        if (protocol == null || activeDeviceId != deviceId) return
+        val (generation, effect) = controllerDiscovery.begin()
+        if (effect == ControllerDiscoveryEffect.None) return
+        identificationTimer?.cancel()
+        identificationTimer = scheduler?.schedule(IDENTIFICATION_TIMEOUT_MS) {
+            identificationTimedOut(generation)
         }
+        performDiscoveryEffect(effect)
     }
 
     private fun handleFirmware(value: FirmwareRecord) {
         if (value.canId == null) {
-            transportFirmware = value
-            if (value.hardwareType == VESC_HARDWARE_TYPE) {
-                firmware = value
-                requestRefloatInfo(null)
-            } else {
+            currentSavedDevice = try {
                 val deviceId = activeDeviceId ?: return
-                protocol?.let { bluetooth.write(deviceId, it.canPingRequest()) }
+                productStore?.ensureSavedDevice(
+                    deviceId,
+                    knownDevicesById[deviceId]?.advertisedName,
+                    clock.now(),
+                )
+            } catch (_: Exception) {
+                failIdentification(
+                    ConnectionIssueCode.TRANSPORT_SETUP_FAILED,
+                    "Unable to save the VESC device.",
+                )
+                return
             }
+            currentSavedDevice?.let { savedDevice ->
+                val savedIds = runCatching {
+                    productStore?.savedDevices().orEmpty()
+                        .map { DeviceId(it.bluetoothIdentifier) }
+                        .toSet()
+                }.getOrDefault(setOf(DeviceId(savedDevice.bluetoothIdentifier)))
+                bluetooth.configureSavedDeviceIds(savedIds)
+            }
+            val profile = currentSavedDevice?.let {
+                runCatching { productStore?.boardProfile(it.savedDeviceId) }.getOrNull()
+            }
+            val hint = currentSavedDevice?.let {
+                runCatching { productStore?.controllerRoutingHint(it.savedDeviceId) }.getOrNull()
+            }
+            performDiscoveryEffect(
+                controllerDiscovery.acceptTransport(
+                    value,
+                    ControllerDiscoveryPolicy.preferredCanId(profile?.valuesJson),
+                    hint,
+                ),
+            )
             return
         }
-        if (value.hardwareType == VESC_HARDWARE_TYPE && firmware == null) {
-            firmware = value
-            pendingCanIds.clear()
-            requestRefloatInfo(value.canId)
-            return
-        }
-        requestNextCanFirmware()
-    }
-
-    private fun requestRefloatInfo(canId: Int?) {
-        val deviceId = activeDeviceId ?: return
-        val decoder = protocol ?: return
-        bluetooth.write(deviceId, decoder.refloatInfoRequest(canId))
-    }
-
-    private fun requestNextCanFirmware() {
-        val deviceId = activeDeviceId ?: return
-        val decoder = protocol ?: return
-        val canId = pendingCanIds.removeFirstOrNull() ?: return
-        bluetooth.write(deviceId, decoder.firmwareRequest(canId))
-    }
-
-    private fun requestRefloatTelemetryLayout() {
-        if (telemetryLayoutTimer != null) return
-        telemetryLayoutAttempts = 0
-        sendRefloatTelemetryLayoutRequest()
-        telemetryLayoutTimer = scheduler?.scheduleRepeating(
-            TELEMETRY_LAYOUT_RETRY_INTERVAL_MS,
-            ::retryRefloatTelemetryLayout,
+        if (controllerDiscovery.activeCanProbeId != value.canId) return
+        cancelCanProbeTimeout()
+        performDiscoveryEffect(
+            controllerDiscovery.acceptCanFirmware(value, controllerContinuity()),
         )
     }
 
+    private fun handleCanDevices(rawCanIds: List<Int>) {
+        performDiscoveryEffect(
+            controllerDiscovery.acceptCanIds(rawCanIds, controllerContinuity()),
+        )
+    }
+
+    private fun controllerContinuity() = ControllerContinuity(
+        hasActiveSession = logStore.active() != null,
+        route = sessionControllerRoute,
+        controllerUuid = sessionControllerUuid,
+    )
+
+    private fun performDiscoveryEffect(effect: ControllerDiscoveryEffect) {
+        when (effect) {
+            is ControllerDiscoveryEffect.ProbeFirmware -> {
+                val deviceId = activeDeviceId ?: return
+                val decoder = protocol ?: return
+                val route = effect.route
+                if (route is ControllerRoute.Can) scheduleCanProbeTimeout(route.canId)
+                try {
+                    bluetooth.write(deviceId, decoder.firmwareRequest(route))
+                } catch (error: Exception) {
+                    if (route == ControllerRoute.Direct) {
+                        failIdentification(
+                            ConnectionIssueCode.TRANSPORT_SETUP_FAILED,
+                            "Unable to request VESC firmware.",
+                        )
+                        events.publish(error)
+                    } else {
+                        failIdentification(
+                            ConnectionIssueCode.TRANSPORT_SETUP_FAILED,
+                            "Unable to probe the CAN controller.",
+                        )
+                    }
+                }
+            }
+            ControllerDiscoveryEffect.PingCan -> {
+                cancelCanProbeTimeout()
+                val deviceId = activeDeviceId ?: return
+                val decoder = protocol ?: return
+                try {
+                    bluetooth.write(deviceId, decoder.canPingRequest())
+                } catch (_: Exception) {
+                    failIdentification(
+                        ConnectionIssueCode.TRANSPORT_SETUP_FAILED,
+                        "Unable to discover CAN controllers.",
+                    )
+                }
+            }
+            is ControllerDiscoveryEffect.ClearHintThen -> {
+                invalidateAutomaticHint()
+                restartIdentificationTimeout()
+                performDiscoveryEffect(effect.next)
+            }
+            is ControllerDiscoveryEffect.RequestRefloatInfo -> {
+                val selected = effect.rememberController
+                val savedDevice = currentSavedDevice
+                val canId = selected?.canId
+                val uuid = ControllerDiscoveryPolicy.meaningfulUuid(selected?.controllerUuid)
+                if (savedDevice != null && canId != null && uuid != null) {
+                    runCatching {
+                        productStore?.storeControllerRoutingHint(
+                            ControllerRoutingHint(savedDevice.savedDeviceId, canId, uuid),
+                            clock.now(),
+                        )
+                    }
+                }
+                val deviceId = activeDeviceId ?: return
+                val decoder = protocol ?: return
+                bluetooth.write(deviceId, decoder.refloatInfoRequest(effect.route))
+            }
+            ControllerDiscoveryEffect.RequestTelemetryLayout -> {
+                val deviceId = activeDeviceId ?: return
+                val route = controllerDiscovery.controllerRoute ?: return
+                telemetryPolling.beginLayout(deviceId, route)
+            }
+            ControllerDiscoveryEffect.Ready -> completeApplicationReady()
+            ControllerDiscoveryEffect.SelectingController -> {
+                cancelIdentificationTimeout()
+                transition(ConnectionState.SELECTING_CONTROLLER)
+            }
+            is ControllerDiscoveryEffect.Failed ->
+                failIdentification(effect.issue.code, effect.issue.message)
+            ControllerDiscoveryEffect.None -> Unit
+        }
+    }
+
+    private fun completeApplicationReady() {
+        val deviceId = activeDeviceId ?: return
+        val route = controllerDiscovery.controllerRoute ?: return
+        val selectedFirmware = controllerDiscovery.firmware ?: return
+        cancelIdentificationTimeout()
+        if (logStore.active() != null) {
+            if (!controllerContinuityIsProven(route, selectedFirmware)) {
+                failIdentification(
+                    ConnectionIssueCode.CONTROLLER_CHANGED,
+                    "The connected controller no longer matches the active session.",
+                )
+                return
+            }
+        } else {
+            try {
+                events.publish(
+                    logStore.create(
+                        deviceId,
+                        knownDevicesById[deviceId]?.advertisedName,
+                        clock.now(),
+                    ),
+                )
+                telemetryPolling.markSessionStarted()
+                sessionControllerRoute = route
+                sessionControllerUuid = ControllerDiscoveryPolicy.meaningfulUuid(
+                    selectedFirmware.controllerUuid,
+                )
+                sessionFirmware = selectedFirmware
+                sessionRefloatPackageVersion = controllerDiscovery.refloatPackageVersion
+            } catch (_: Exception) {
+                failIdentification(
+                    ConnectionIssueCode.TRANSPORT_SETUP_FAILED,
+                    "Unable to start durable telemetry.",
+                )
+                return
+            }
+        }
+        cancelReconnect()
+        controllerDiscovery.clearIssue()
+        transition(ConnectionState.READY)
+        telemetryPolling.start(
+            deviceId,
+            route,
+            controllerDiscovery.refloatFamily ?: RefloatTelemetryFamily.DYNAMIC,
+            idleProbeIntervalMs,
+            postRideTailMs,
+        )
+    }
+
+    /** Production hosts always provide a VESC codec and never take this path. */
+    private fun completeWithoutProtocol() {
+        val deviceId = activeDeviceId ?: return
+        if (logStore.active() == null) {
+            try {
+                events.publish(
+                    logStore.create(
+                        deviceId,
+                        knownDevicesById[deviceId]?.advertisedName,
+                        clock.now(),
+                    ),
+                )
+                telemetryPolling.markSessionStarted()
+            } catch (error: Exception) {
+                transition(ConnectionState.FAILED)
+                explicitDisconnect = true
+                bluetooth.disconnect(deviceId)
+                events.publish(error)
+                return
+            }
+        }
+        cancelReconnect()
+        transition(ConnectionState.READY)
+    }
+
+    private fun controllerContinuityIsProven(
+        route: ControllerRoute,
+        selectedFirmware: FirmwareRecord,
+    ): Boolean {
+        val previousRoute = sessionControllerRoute ?: return true
+        val previousUuid = sessionControllerUuid
+        val currentUuid = ControllerDiscoveryPolicy.meaningfulUuid(selectedFirmware.controllerUuid)
+        if (previousUuid != null) return currentUuid?.contentEquals(previousUuid) == true
+        return previousRoute == route &&
+            sessionFirmware?.let {
+                ControllerDiscoveryPolicy.samePublicIdentity(it, selectedFirmware)
+            } == true &&
+            sessionRefloatPackageVersion == controllerDiscovery.refloatPackageVersion
+    }
+
     @Synchronized
-    private fun retryRefloatTelemetryLayout() {
-        if (telemetryLayoutTimer == null) return
-        if (telemetryLayoutAttempts >= MAX_TELEMETRY_LAYOUT_ATTEMPTS) {
-            cancelTelemetryLayoutRetry()
-            failTelemetrySetup("refloat_telemetry_layout_timeout")
-            return
+    private fun identificationTimedOut(generation: Long) {
+        if (connectionState != ConnectionState.IDENTIFYING) return
+        performDiscoveryEffect(controllerDiscovery.identificationTimedOut(generation))
+    }
+
+    private fun failIdentification(code: ConnectionIssueCode, message: String) {
+        cancelIdentificationTimeout()
+        cancelCanProbeTimeout()
+        telemetryPolling.cancelLayout()
+        telemetryPolling.stop()
+        controllerDiscovery.markFailure(code, message)
+        if (code == ConnectionIssueCode.CONTROLLER_CHANGED) {
+            logStore.active()?.let {
+                runCatching { logStore.close(it.jobId, clock.now(), code.name.lowercase()) }
+            }
         }
-        sendRefloatTelemetryLayoutRequest()
-    }
-
-    private fun sendRefloatTelemetryLayoutRequest() {
-        val deviceId = activeDeviceId ?: return
-        val canId = firmware?.canId ?: return
-        val decoder = protocol ?: return
-        telemetryLayoutAttempts += 1
-        bluetooth.write(deviceId, decoder.refloatTelemetryIdsRequest(canId))
-    }
-
-    private fun cancelTelemetryLayoutRetry() {
-        telemetryLayoutTimer?.cancel()
-        telemetryLayoutTimer = null
-        telemetryLayoutAttempts = 0
-    }
-
-    private fun failTelemetrySetup(reason: String) {
-        val deviceId = activeDeviceId ?: return
         transition(ConnectionState.FAILED)
-        stopTelemetryPolling()
-        logStore.active()?.let {
-            events.publish(logStore.close(it.jobId, clock.now(), reason))
+    }
+
+    private fun cancelIdentificationTimeout() {
+        identificationTimer?.cancel()
+        identificationTimer = null
+    }
+
+    private fun restartIdentificationTimeout() {
+        identificationTimer?.cancel()
+        val generation = controllerDiscovery.identificationGeneration
+        identificationTimer = scheduler?.schedule(IDENTIFICATION_TIMEOUT_MS) {
+            identificationTimedOut(generation)
         }
-        explicitDisconnect = true
-        events.publish(reason)
-        bluetooth.disconnect(deviceId)
+    }
+
+    private fun invalidateAutomaticHint() {
+        currentSavedDevice?.savedDeviceId?.let { savedDeviceId ->
+            runCatching { productStore?.clearControllerRoutingHint(savedDeviceId) }
+        }
+    }
+
+    private fun scheduleCanProbeTimeout(canId: Int) {
+        cancelCanProbeTimeout()
+        val generation = controllerDiscovery.canProbeGeneration
+        canProbeTimer = scheduler?.schedule(CAN_PROBE_TIMEOUT_MS) {
+            canProbeTimedOut(canId, generation)
+        }
+    }
+
+    @Synchronized
+    private fun canProbeTimedOut(canId: Int, generation: Long) {
+        if (connectionState != ConnectionState.IDENTIFYING) return
+        val effect = controllerDiscovery.canProbeTimedOut(canId, generation)
+        if (effect == ControllerDiscoveryEffect.None) return
+        cancelCanProbeTimeout()
+        performDiscoveryEffect(effect)
+    }
+
+    private fun cancelCanProbeTimeout() {
+        canProbeTimer?.cancel()
+        canProbeTimer = null
     }
 
     private fun beginReconnect() {
@@ -567,87 +803,18 @@ class ApplicationService(
         reconnectAttempt = 0
     }
 
-    private fun startTelemetryPolling() {
-        if (scheduler == null || firmware?.canId == null) return
-        restartTelemetryPolling(idleProbeIntervalMs)
-    }
-
-    private fun restartTelemetryPolling(intervalMs: Long) {
-        val timer = scheduler ?: return
-        telemetryTimer?.cancel()
-        telemetryIntervalMs = intervalMs
-        requestTelemetrySample()
-        telemetryTimer = timer.scheduleRepeating(intervalMs, ::requestTelemetrySample)
-    }
-
-    @Synchronized
-    private fun requestTelemetrySample() {
-        val deviceId = activeDeviceId ?: return
-        val canId = firmware?.canId ?: return
-        val decoder = protocol ?: return
-        if (connectionState != ConnectionState.READY) return
-        bluetooth.write(deviceId, decoder.refloatTelemetryRequest(canId))
-    }
-
-    private fun handleRefloatTelemetry(value: RefloatTelemetryRecord) {
-        val nowMs = clock.monotonicMillis()
-        if (telemetryStartedAtMs == null) telemetryStartedAtMs = nowMs
-        val sample = TelemetrySample(
-            sequence = ++telemetrySequence,
-            observedAt = clock.now(),
-            elapsedMs = maxOf(0, nowMs - requireNotNull(telemetryStartedAtMs)),
-            rideState = value.rideState,
-            boardState = value.boardState,
-            packVoltageV = value.packVoltageV,
-            dutyCycle = value.dutyCycle,
-            controllerTempC = value.controllerTempC,
-            motorTempC = value.motorTempC,
-            footpadState = value.footpadState,
-            extension = mapOf(
-                "motorCurrentA" to value.motorCurrentA,
-                "batteryCurrentA" to value.batteryCurrentA,
-                "erpm" to value.erpm.toDouble(),
-                "speedKph" to value.speedKph,
-            ),
-        )
-        ingest(sample)
-        if (value.rideState == RideState.RIDING) {
-            postRideProbeUntilMs = null
-        } else if (previousTelemetryRideState == RideState.RIDING) {
-            postRideProbeUntilMs = nowMs + postRideTailMs
-        }
-        val inPostRideTail = postRideProbeUntilMs?.let { nowMs <= it } ?: false
-        previousTelemetryRideState = value.rideState
-        val target =
-            if (value.rideState == RideState.RIDING || inPostRideTail) {
-                RIDING_PROBE_INTERVAL_MS
-            } else {
-                idleProbeIntervalMs
-            }
-        if (target != telemetryIntervalMs) restartTelemetryPolling(target)
-    }
-
-    private fun stopTelemetryPolling() {
-        telemetryTimer?.cancel()
-        telemetryTimer = null
-        telemetryIntervalMs = null
-        previousTelemetryRideState = RideState.UNKNOWN
-        postRideProbeUntilMs = null
-    }
-
     private fun transition(state: ConnectionState) {
         connectionState = state
         events.publish(state)
     }
 
     private fun resetFirmwareDiscovery() {
-        cancelTelemetryLayoutRetry()
-        stopTelemetryPolling()
-        firmware = null
-        transportFirmware = null
-        refloatPackageVersion = null
-        pendingCanIds.clear()
-        firmwareDiscoveryStarted = false
+        telemetryPolling.cancelLayout()
+        telemetryPolling.stop()
+        controllerDiscovery.reset()
+        currentSavedDevice = null
+        cancelIdentificationTimeout()
+        cancelCanProbeTimeout()
         protocol?.reset()
     }
 
@@ -660,10 +827,8 @@ class ApplicationService(
             state == BluetoothPermissionState.RESTRICTED
 
     private companion object {
-        const val VESC_HARDWARE_TYPE = 0
-        const val RIDING_PROBE_INTERVAL_MS = 100L
-        const val TELEMETRY_LAYOUT_RETRY_INTERVAL_MS = 1_000L
-        const val MAX_TELEMETRY_LAYOUT_ATTEMPTS = 5
         const val MAX_RECONNECT_BACKOFF_MS = 30_000L
+        const val IDENTIFICATION_TIMEOUT_MS = 10_000L
+        const val CAN_PROBE_TIMEOUT_MS = 1_000L
     }
 }

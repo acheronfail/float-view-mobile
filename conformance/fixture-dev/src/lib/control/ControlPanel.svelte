@@ -180,9 +180,6 @@
 				action={() => control.act({ kind: 'stop-riding' })}
 			/>
 		</div>
-		{#if available.directTelemetryUnavailable}
-			<p class="hint">Current native backends discover direct devices but do not yet poll their Refloat telemetry.</p>
-		{/if}
 	</section>
 
 	<section aria-labelledby="telemetry-heading">

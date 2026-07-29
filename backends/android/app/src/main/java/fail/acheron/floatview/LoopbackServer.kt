@@ -22,6 +22,9 @@ import fail.acheron.floatview.backend.SessionSummaryRecord
 import fail.acheron.floatview.backend.SettingsRecord
 import fail.acheron.floatview.backend.TelemetrySample
 import fail.acheron.floatview.backend.VescProtocolMessage
+import fail.acheron.floatview.protocol.refloat.RefloatCompatibility
+import fail.acheron.floatview.protocol.vesc.ControllerRoute
+import fail.acheron.floatview.protocol.vesc.VescCompatibility
 import io.ktor.http.ContentType
 import io.ktor.server.application.install
 import io.ktor.server.cio.CIO
@@ -187,10 +190,30 @@ class LoopbackServer(
                 "device.connect" -> {
                     val deviceId = requiredString("deviceId")
                         ?: return failure(id.toInt(), "invalid_request", "deviceId is required")
-                    if (applicationService.activeConnectionSnapshot() != null) {
-                        return failure(id.toInt(), "invalid_state", "A board is already active")
+                    val active = applicationService.activeConnectionSnapshot()
+                    if (
+                        active != null &&
+                        (active.deviceId.value != deviceId || active.state != ConnectionState.FAILED)
+                    ) {
+                        return failure(id.toInt(), "invalid_state", "A different board is already active")
                     }
                     applicationService.connect(DeviceId(deviceId))
+                    success(accepted())
+                }
+                "device.selectController" -> {
+                    val deviceId = requiredString("deviceId")
+                        ?: return failure(id.toInt(), "invalid_request", "deviceId is required")
+                    val rawCanId = params.opt("canId") as? Number
+                        ?: return failure(id.toInt(), "invalid_request", "canId is required")
+                    val numericCanId = rawCanId.toDouble()
+                    if (
+                        !numericCanId.isFinite() ||
+                        numericCanId % 1.0 != 0.0 ||
+                        numericCanId.toInt() !in 0..253
+                    ) {
+                        return failure(id.toInt(), "invalid_request", "CAN ID must be an integer in 0...253")
+                    }
+                    applicationService.selectController(DeviceId(deviceId), numericCanId.toInt())
                     success(accepted())
                 }
                 "device.disconnect" -> {
@@ -336,6 +359,8 @@ class LoopbackServer(
                     failure(id.toInt(), "invalid_state", "Session is active")
                 else -> failure(id.toInt(), "invalid_request", "Session request is invalid")
             }
+        } catch (_: IllegalStateException) {
+            failure(id.toInt(), "invalid_state", "Backend state does not permit the operation")
         } catch (_: Exception) {
             failure(id.toInt(), "internal", "Backend operation failed")
         }
@@ -361,8 +386,8 @@ class LoopbackServer(
                         .put("hardwareName", firmware.hardwareName ?: JSONObject.NULL)
                         .put(
                             "supported",
-                            (packageVersion == "1.2" || packageVersion.startsWith("1.2.")) &&
-                                (firmware.major > 6 || firmware.major == 6 && firmware.minor >= 2),
+                            RefloatCompatibility.entry(packageVersion) != null &&
+                                VescCompatibility.supports(firmware),
                         )
                 } else {
                     JSONObject.NULL
@@ -414,11 +439,42 @@ class LoopbackServer(
                 ConnectionState.DISCOVERING_SERVICES,
                 ConnectionState.ENABLING_NOTIFICATIONS,
                 -> "discovering_services"
+                ConnectionState.IDENTIFYING -> "identifying"
+                ConnectionState.SELECTING_CONTROLLER -> "selecting_controller"
                 ConnectionState.READY -> "ready"
                 ConnectionState.RECONNECTING -> "reconnecting"
                 ConnectionState.DISCONNECTING -> "disconnecting"
                 ConnectionState.FAILED -> "failed"
             },
+        )
+        .put(
+            "controllerConnection",
+            when (val route = value.controllerRoute) {
+                ControllerRoute.Direct -> JSONObject().put("kind", "direct")
+                is ControllerRoute.Can -> JSONObject()
+                    .put("kind", "can")
+                    .put("canId", route.canId)
+                null -> JSONObject.NULL
+            },
+        )
+        .put(
+            "controllerCandidates",
+            JSONArray(value.controllerCandidates.map { candidate ->
+                JSONObject()
+                    .put("canId", candidate.canId)
+                    .put("hardwareName", candidate.hardwareName ?: JSONObject.NULL)
+                    .put("firmwareName", candidate.firmwareName ?: JSONObject.NULL)
+                    .put("vescVersion", candidate.vescVersion)
+                    .put("vescSupported", candidate.vescSupported)
+            }),
+        )
+        .put(
+            "connectionIssue",
+            value.connectionIssue?.let { issue ->
+                JSONObject()
+                    .put("code", issue.code.name.lowercase())
+                    .put("message", issue.message)
+            } ?: JSONObject.NULL,
         )
         .put("activeSession", value.activeSession?.let(::session) ?: JSONObject.NULL)
         .put("latestSample", value.latestSample?.let(::liveSample) ?: JSONObject.NULL)

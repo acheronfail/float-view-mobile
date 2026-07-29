@@ -42,10 +42,16 @@ Express topology. Express exposes one CAN controller at a canonical decimal ID
 from 0 through 253. Configuration changes require power off. Rides require an
 attached powered-on fixture.
 
-Current native backends poll Refloat telemetry only for supported 1.2.x devices
-behind CAN. Direct mode still exercises identity and Refloat discovery, while
-older packages reproduce the current unsupported or connected-without-telemetry
-behavior. A later backend change will expand that compatibility.
+The common controls retain the single-controller direct/Express workflow. For
+multi-controller, explicit-CAN, omitted-ping, unsupported-node, overflow, and
+timeout scenarios, use the shared types in `../fixture/`; those types are also
+the canonical source for physical and software conformance. Supported controller
+firmware choices are 6.02, 6.05, and 6.06, with Refloat 1.0.0, 1.1.0, and 1.2.3.
+
+The native backends support route-correct telemetry for direct and Express
+topologies across VESC 6.02, 6.05, and 6.06 and the Refloat 1.0.0, 1.1.0, and
+1.2.3 protocol families. Refloat 1.0.0 uses its fixed legacy packets; 1.1.0 and
+1.2.3 negotiate their dynamic layouts.
 
 Browser reload and UI HMR preserve serial ownership. Restart
 `just fixture dev` after changing coordinator or other server-side source.

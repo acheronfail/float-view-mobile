@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import type { ActiveConnection } from '$lib/backend/contract';
-import { readingsAreDimmed, shouldConfirmDisconnect } from './live';
+import {
+	controllerRouteDescription,
+	readingsAreDimmed,
+	shouldConfirmDisconnect,
+	sortedControllerCandidates
+} from './live';
 
 const connection = (state: ActiveConnection['state']): ActiveConnection => ({
 	deviceId: 'board',
@@ -9,6 +14,9 @@ const connection = (state: ActiveConnection['state']): ActiveConnection => ({
 	state,
 	firmware: null,
 	savedDeviceId: null,
+	controllerConnection: null,
+	controllerCandidates: [],
+	connectionIssue: null,
 	activeSession: null,
 	latestSample: null
 });
@@ -25,5 +33,34 @@ describe('live board behavior', () => {
 		expect(shouldConfirmDisconnect('riding')).toBe(true);
 		expect(shouldConfirmDisconnect('unknown')).toBe(true);
 		expect(shouldConfirmDisconnect(undefined)).toBe(true);
+	});
+
+	it('describes direct and CAN routes without exposing private identity', () => {
+		expect(controllerRouteDescription({ kind: 'direct' })).toBe('Direct Bluetooth');
+		expect(controllerRouteDescription({ kind: 'can', canId: 42 })).toBe('CAN 42');
+		expect(controllerRouteDescription(null)).toBe('Detecting…');
+	});
+
+	it('sorts supported and unsupported candidates by CAN ID without hiding either', () => {
+		const candidates = sortedControllerCandidates([
+			{
+				canId: 42,
+				hardwareName: 'THOR300',
+				firmwareName: 'Refloat',
+				vescVersion: '6.06',
+				vescSupported: true
+			},
+			{
+				canId: 7,
+				hardwareName: 'Older controller',
+				firmwareName: null,
+				vescVersion: '5.03',
+				vescSupported: false
+			}
+		]);
+		expect(candidates.map(({ canId, vescSupported }) => [canId, vescSupported])).toEqual([
+			[7, false],
+			[42, true]
+		]);
 	});
 });

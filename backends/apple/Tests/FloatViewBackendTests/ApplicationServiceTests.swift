@@ -306,7 +306,347 @@ func customTransportDiscoversPrimaryThenRefloatPackageInOrder() throws {
   )
   #expect(service.firmwareSnapshot()?.canID == 42)
   #expect(service.firmwareSnapshot()?.hardwareName == "THOR300")
-  #expect(service.refloatPackageVersionSnapshot() == "1.2")
+  #expect(service.refloatPackageVersionSnapshot() == "1.2.3")
+}
+
+@Test
+func ambiguousControllersStayVisibleUntilOneSupportedCandidateIsSelected() throws {
+  let bluetooth = FakeBluetooth()
+  let products = MemoryProductStore()
+  let store = MemoryStore()
+  let service = ApplicationService(
+    bluetooth: bluetooth,
+    clock: FixedClock(),
+    logStore: store,
+    productStore: products,
+    protocolCodec: AmbiguousProtocol(),
+    scheduler: FakeScheduler(),
+    events: IgnoreEvents()
+  )
+  let id = DeviceID("fixture")
+  try service.receive(.deviceFound(id, name: "ExpressT", rssi: -40))
+  try service.connect(id)
+  try service.receive(.connectionChanged(id, .ready))
+  for byte in UInt8(1) ... 4 {
+    try service.receive(.notification(id, Data([byte])))
+  }
+
+  let selecting = try #require(service.activeConnectionSnapshot())
+  #expect(selecting.state == .selectingController)
+  #expect(selecting.activeSession == nil)
+  #expect(selecting.controllerCandidates.map(\.canID) == [7, 42])
+  #expect(selecting.controllerCandidates.map(\.vescSupported) == [false, true])
+  #expect(throws: ApplicationError.invalidControllerSelection) {
+    try service.selectController(deviceID: id, canID: 7)
+  }
+  try service.selectController(deviceID: id, canID: 42)
+  #expect(products.profile.valuesJSON.contains(#""preferredCanId":42"#))
+  #expect(products.profile.revision == 1)
+  try service.receive(.notification(id, Data([5])))
+  try service.receive(.notification(id, Data([6])))
+  #expect(service.connectionState == .ready)
+  #expect(service.activeConnectionSnapshot()?.controllerRoute == .can(42))
+  #expect(store.active() != nil)
+}
+
+@Test
+func configuredCanConnectsWithoutPingAndLearnedUUIDFollowsAMovedController() throws {
+  let configuredBluetooth = FakeBluetooth()
+  let configuredProducts = MemoryProductStore()
+  configuredProducts.profile = BoardProfileRecord(
+    savedDeviceID: "saved-board",
+    revision: 0,
+    valuesJSON: #"{"preferredCanId":42}"#,
+    missingFields: []
+  )
+  let configured = ApplicationService(
+    bluetooth: configuredBluetooth,
+    clock: FixedClock(),
+    logStore: MemoryStore(),
+    productStore: configuredProducts,
+    protocolCodec: AmbiguousProtocol(),
+    scheduler: FakeScheduler(),
+    events: IgnoreEvents()
+  )
+  let id = DeviceID("fixture")
+  try configured.receive(.deviceFound(id, name: "Gateway", rssi: -40))
+  try configured.connect(id)
+  try configured.receive(.connectionChanged(id, .ready))
+  try configured.receive(.notification(id, Data([1])))
+  #expect(configuredBluetooth.writes.last == Data([0, 42]))
+  #expect(!configuredBluetooth.writes.contains(Data([62])))
+  for byte in UInt8(4)...6 {
+    try configured.receive(.notification(id, Data([byte])))
+  }
+  #expect(configured.connectionState == .ready)
+  #expect(configured.activeConnectionSnapshot()?.controllerRoute == .can(42))
+
+  let learnedBluetooth = FakeBluetooth()
+  let learnedProducts = MemoryProductStore()
+  learnedProducts.routingHint = ControllerRoutingHint(
+    savedDeviceID: "saved-board",
+    canID: 7,
+    controllerUUID: Data((1...12).map(UInt8.init))
+  )
+  let learned = ApplicationService(
+    bluetooth: learnedBluetooth,
+    clock: FixedClock(),
+    logStore: MemoryStore(),
+    productStore: learnedProducts,
+    protocolCodec: AmbiguousProtocol(),
+    scheduler: FakeScheduler(),
+    events: IgnoreEvents()
+  )
+  try learned.receive(.deviceFound(id, name: "Gateway", rssi: -40))
+  try learned.connect(id)
+  try learned.receive(.connectionChanged(id, .ready))
+  for byte in [UInt8(1), 3, 2, 3, 4, 5, 6] {
+    try learned.receive(.notification(id, Data([byte])))
+  }
+  #expect(learned.connectionState == .ready)
+  #expect(learned.activeConnectionSnapshot()?.controllerRoute == .can(42))
+  #expect(learnedProducts.routingHint?.canID == 42)
+}
+
+@Test
+func silentCanNodesAreSkippedWithinTheOverallDiscoveryDeadline() throws {
+  let bluetooth = FakeBluetooth()
+  let scheduler = FakeScheduler()
+  let store = MemoryStore()
+  let service = ApplicationService(
+    bluetooth: bluetooth,
+    clock: FixedClock(),
+    logStore: store,
+    productStore: MemoryProductStore(),
+    protocolCodec: AmbiguousProtocol(),
+    scheduler: scheduler,
+    events: IgnoreEvents()
+  )
+  let id = DeviceID("fixture")
+
+  try service.receive(.deviceFound(id, name: "ExpressT", rssi: -40))
+  try service.connect(id)
+  try service.receive(.connectionChanged(id, .ready))
+  try service.receive(.notification(id, Data([1])))
+  try service.receive(.notification(id, Data([2])))
+  #expect(bluetooth.writes.last == Data([0, 7]))
+
+  scheduler.fire(1)
+  #expect(bluetooth.writes.last == Data([0, 42]))
+  try service.receive(.notification(id, Data([4])))
+  try service.receive(.notification(id, Data([5])))
+  try service.receive(.notification(id, Data([6])))
+
+  #expect(service.connectionState == .ready)
+  #expect(service.activeConnectionSnapshot()?.controllerRoute == .can(42))
+  #expect(store.active() != nil)
+}
+
+@Test
+func validTransportIsSavedBeforeDirectSessionBecomesReady() throws {
+  let bluetooth = FakeBluetooth()
+  let products = MemoryProductStore()
+  let store = MemoryStore()
+  let service = ApplicationService(
+    bluetooth: bluetooth,
+    clock: FixedClock(),
+    logStore: store,
+    productStore: products,
+    protocolCodec: TelemetryProtocol(),
+    scheduler: FakeScheduler(),
+    events: IgnoreEvents()
+  )
+  let id = DeviceID("direct")
+
+  try service.receive(.deviceFound(id, name: "Direct THOR", rssi: -40))
+  try service.connect(id)
+  try service.receive(.connectionChanged(id, .ready))
+  #expect(service.connectionState == .identifying)
+  #expect(service.activeConnectionSnapshot()?.savedDevice == nil)
+  #expect(store.active() == nil)
+
+  try service.receive(.notification(id, Data([1])))
+  let identified = try #require(service.activeConnectionSnapshot())
+  #expect(identified.savedDevice?.bluetoothIdentifier == id.value)
+  #expect(identified.controllerRoute == .direct)
+  #expect(store.active() == nil)
+
+  try service.receive(.notification(id, Data([2])))
+  #expect(store.active() == nil)
+  try service.receive(.notification(id, Data([3])))
+  #expect(service.connectionState == .ready)
+  #expect(store.createCount == 1)
+  #expect(store.active() != nil)
+}
+
+@Test
+func privateHintFastPathSkipsPingWhenControllerUUIDMatches() throws {
+  let bluetooth = FakeBluetooth()
+  let products = MemoryProductStore()
+  products.routingHint = ControllerRoutingHint(
+    savedDeviceID: "saved-board",
+    canID: 42,
+    controllerUUID: Data((1 ... 12).map(UInt8.init))
+  )
+  let service = ApplicationService(
+    bluetooth: bluetooth,
+    clock: FixedClock(),
+    logStore: MemoryStore(),
+    productStore: products,
+    protocolCodec: AmbiguousProtocol(),
+    scheduler: FakeScheduler(),
+    events: IgnoreEvents()
+  )
+  let id = DeviceID("gateway")
+
+  try service.receive(.deviceFound(id, name: "Generic gateway", rssi: -40))
+  try service.connect(id)
+  try service.receive(.connectionChanged(id, .ready))
+  try service.receive(.notification(id, Data([1])))
+  #expect(bluetooth.writes.last == Data([0, 42]))
+  #expect(!bluetooth.writes.contains(Data([62])))
+  for byte in UInt8(4) ... 6 {
+    try service.receive(.notification(id, Data([byte])))
+  }
+  #expect(service.connectionState == .ready)
+  #expect(service.activeConnectionSnapshot()?.controllerRoute == .can(42))
+}
+
+@Test
+func wrongPreferredControllerRetryAndEmptyDiscoveryRemainRecoverable() throws {
+  let bluetooth = FakeBluetooth()
+  let products = MemoryProductStore()
+  products.profile = BoardProfileRecord(
+    savedDeviceID: "saved-board",
+    revision: 0,
+    valuesJSON: #"{"preferredCanId":42}"#,
+    missingFields: []
+  )
+  let service = ApplicationService(
+    bluetooth: bluetooth,
+    clock: FixedClock(),
+    logStore: MemoryStore(),
+    productStore: products,
+    protocolCodec: DiscoveryBoundaryProtocol(),
+    scheduler: FakeScheduler(),
+    events: IgnoreEvents()
+  )
+  let id = DeviceID("gateway")
+
+  try service.receive(.deviceFound(id, name: "Generic gateway", rssi: -40))
+  try service.connect(id)
+  try service.receive(.connectionChanged(id, .ready))
+  try service.receive(.notification(id, Data([1])))
+  #expect(bluetooth.writes.last == Data([0, 42]))
+  try service.receive(.notification(id, Data([3])))
+  #expect(service.connectionState == .failed)
+  #expect(
+    service.activeConnectionSnapshot()?.connectionIssue?.code
+      == .preferredControllerUnavailable
+  )
+
+  products.profile = BoardProfileRecord(
+    savedDeviceID: "saved-board",
+    revision: 1,
+    valuesJSON: "{}",
+    missingFields: []
+  )
+  try service.connect(id)
+  #expect(service.connectionState == .connecting)
+  #expect(service.activeConnectionSnapshot()?.connectionIssue == nil)
+  try service.receive(.connectionChanged(id, .ready))
+  try service.receive(.notification(id, Data([1])))
+  #expect(bluetooth.writes.last == Data([62]))
+  try service.receive(.notification(id, Data([2])))
+  #expect(service.connectionState == .failed)
+  #expect(service.activeConnectionSnapshot()?.connectionIssue?.code == .noControllerFound)
+
+  try service.disconnect()
+  try service.receive(.connectionChanged(id, .disconnected))
+  #expect(service.activeConnectionSnapshot() == nil)
+}
+
+@Test
+func discoveryBoundsFailWithoutPublishingTruncatedCandidates() throws {
+  let id = DeviceID("gateway")
+
+  let excessiveIDs = ApplicationService(
+    bluetooth: FakeBluetooth(),
+    clock: FixedClock(),
+    logStore: MemoryStore(),
+    productStore: MemoryProductStore(),
+    protocolCodec: DiscoveryBoundaryProtocol(canIDs: Array(0 ... 64)),
+    scheduler: FakeScheduler(),
+    events: IgnoreEvents()
+  )
+  try excessiveIDs.receive(.deviceFound(id, name: "Gateway", rssi: -40))
+  try excessiveIDs.connect(id)
+  try excessiveIDs.receive(.connectionChanged(id, .ready))
+  try excessiveIDs.receive(.notification(id, Data([1])))
+  try excessiveIDs.receive(.notification(id, Data([2])))
+  #expect(excessiveIDs.connectionState == .failed)
+  #expect(
+    excessiveIDs.activeConnectionSnapshot()?.connectionIssue?.code == .tooManyCanDevices
+  )
+  #expect(excessiveIDs.activeConnectionSnapshot()?.controllerCandidates.isEmpty == true)
+
+  let excessiveControllers = ApplicationService(
+    bluetooth: FakeBluetooth(),
+    clock: FixedClock(),
+    logStore: MemoryStore(),
+    productStore: MemoryProductStore(),
+    protocolCodec: DiscoveryBoundaryProtocol(canIDs: Array(0 ... 16)),
+    scheduler: FakeScheduler(),
+    events: IgnoreEvents()
+  )
+  try excessiveControllers.receive(.deviceFound(id, name: "Gateway", rssi: -40))
+  try excessiveControllers.connect(id)
+  try excessiveControllers.receive(.connectionChanged(id, .ready))
+  try excessiveControllers.receive(.notification(id, Data([1])))
+  try excessiveControllers.receive(.notification(id, Data([2])))
+  for marker in UInt8(10) ... 26 {
+    try excessiveControllers.receive(.notification(id, Data([marker])))
+  }
+  #expect(excessiveControllers.connectionState == .failed)
+  #expect(
+    excessiveControllers.activeConnectionSnapshot()?.connectionIssue?.code
+      == .tooManyControllers
+  )
+  #expect(excessiveControllers.activeConnectionSnapshot()?.controllerCandidates.isEmpty == true)
+}
+
+@Test
+func reconnectRevalidatesDirectIdentityAndResumesOneSession() throws {
+  let bluetooth = FakeBluetooth()
+  let store = MemoryStore()
+  let service = ApplicationService(
+    bluetooth: bluetooth,
+    clock: FixedClock(),
+    logStore: store,
+    productStore: MemoryProductStore(),
+    protocolCodec: TelemetryProtocol(),
+    scheduler: FakeScheduler(),
+    events: IgnoreEvents()
+  )
+  let id = DeviceID("direct")
+  try service.receive(.deviceFound(id, name: "Direct THOR", rssi: -40))
+  try service.connect(id)
+  try service.receive(.connectionChanged(id, .ready))
+  for marker in UInt8(1) ... 3 {
+    try service.receive(.notification(id, Data([marker])))
+  }
+  #expect(store.createCount == 1)
+
+  try service.receive(.connectionChanged(id, .disconnected))
+  #expect(service.connectionState == .reconnecting)
+  try service.receive(.connectionChanged(id, .ready))
+  for marker in UInt8(1) ... 3 {
+    try service.receive(.notification(id, Data([marker])))
+  }
+  #expect(service.connectionState == .ready)
+  #expect(service.activeConnectionSnapshot()?.controllerRoute == .direct)
+  #expect(store.createCount == 1)
+  #expect(store.active() != nil)
 }
 
 @Test
@@ -329,20 +669,22 @@ func refloatTelemetryStartsIdleProbeAndSwitchesToRidingRate() throws {
   try service.receive(.connectionChanged(id, .ready))
   try service.receive(.notification(id, Data([1])))
   try service.receive(.notification(id, Data([2])))
-  #expect(scheduler.intervals == [1_000])
-  let firstLayoutRequestCount = bluetooth.writes.filter { $0 == Data([32, 42]) }.count
-  scheduler.fire(0)
+  #expect(scheduler.intervals == [10_000, 1_000])
+  #expect(store.active() == nil)
+  let firstLayoutRequestCount = bluetooth.writes.filter { $0 == Data([32, 255]) }.count
+  scheduler.fire(1)
   #expect(
-    bluetooth.writes.filter { $0 == Data([32, 42]) }.count
+    bluetooth.writes.filter { $0 == Data([32, 255]) }.count
       == firstLayoutRequestCount + 1
   )
   try service.receive(.notification(id, Data([3])))
-  #expect(scheduler.intervals == [1_000, 500])
-  #expect(bluetooth.writes.contains(Data([31, 42])))
+  #expect(scheduler.intervals == [10_000, 1_000, 500])
+  #expect(store.active() != nil)
+  #expect(bluetooth.writes.contains(Data([31, 255])))
 
   try service.receive(.notification(id, Data([4])))
 
-  #expect(scheduler.intervals == [1_000, 500, 100])
+  #expect(scheduler.intervals == [10_000, 1_000, 500, 100])
   #expect(store.appended.count == 1)
   #expect(store.appended.first?.rideState == .riding)
   #expect(store.appended.first?.boardState == 3)
@@ -377,21 +719,21 @@ func refloatTelemetryKeepsRidingProbeRateThroughPostRideTail() throws {
   try service.receive(.notification(id, Data([1])))
   try service.receive(.notification(id, Data([2])))
   try service.receive(.notification(id, Data([3])))
-  #expect(scheduler.intervals == [1_000, 500])
+  #expect(scheduler.intervals == [10_000, 1_000, 500])
 
   clock.date = .init(timeIntervalSince1970: 1)
   try service.receive(.notification(id, Data([4])))
-  #expect(scheduler.intervals == [1_000, 500, 100])
+  #expect(scheduler.intervals == [10_000, 1_000, 500, 100])
 
   clock.date = .init(timeIntervalSince1970: 2)
   try service.receive(.notification(id, Data([5])))
   clock.date = .init(timeIntervalSince1970: 16.999)
   try service.receive(.notification(id, Data([5])))
-  #expect(scheduler.intervals == [1_000, 500, 100])
+  #expect(scheduler.intervals == [10_000, 1_000, 500, 100])
 
   clock.date = .init(timeIntervalSince1970: 17.001)
   try service.receive(.notification(id, Data([5])))
-  #expect(scheduler.intervals == [1_000, 500, 100, 500])
+  #expect(scheduler.intervals == [10_000, 1_000, 500, 100, 500])
 }
 
 @Test
@@ -414,12 +756,18 @@ func missingRefloatLayoutRetriesFinitelyAndFailsLoggingSession() throws {
   try service.receive(.connectionChanged(id, .ready))
   try service.receive(.notification(id, Data([1])))
   try service.receive(.notification(id, Data([2])))
-  for _ in 0..<5 { scheduler.fire(0) }
+  #expect(store.active() == nil)
+  for _ in 0..<5 { scheduler.fire(1) }
 
   #expect(service.connectionState == .failed)
-  #expect(bluetooth.disconnected == [id])
+  #expect(bluetooth.disconnected.isEmpty)
   #expect(store.active() == nil)
-  #expect(bluetooth.writes.filter { $0 == Data([32, 42]) }.count == 5)
+  #expect(service.activeConnectionSnapshot()?.connectionIssue?.code == .identificationTimeout)
+  #expect(bluetooth.writes.filter { $0 == Data([32, 255]) }.count == 5)
+
+  try service.connect(id)
+  #expect(service.connectionState == .connecting)
+  #expect(service.activeConnectionSnapshot()?.connectionIssue == nil)
 }
 
 @Test
@@ -584,11 +932,11 @@ private final class FakeBluetooth: BluetoothPort, @unchecked Sendable {
 
 private final class FakeProtocol: VescProtocolPort, @unchecked Sendable {
   func reset() {}
-  func firmwareRequest(canID _: UInt8?) throws -> Data { Data([1]) }
+  func firmwareRequest(route _: ControllerRoute) throws -> Data { Data([1]) }
   func canPingRequest() throws -> Data { Data([62]) }
-  func refloatInfoRequest(canID _: UInt8?) throws -> Data { Data([36, 101, 0]) }
-  func refloatTelemetryIDsRequest(canID _: UInt8) throws -> Data { Data([36, 101, 32]) }
-  func refloatTelemetryRequest(canID _: UInt8) throws -> Data { Data([36, 101, 31]) }
+  func refloatInfoRequest(route _: ControllerRoute) throws -> Data { Data([36, 101, 0]) }
+  func refloatTelemetryIDsRequest(route _: ControllerRoute) throws -> Data { Data([36, 101, 32]) }
+  func refloatTelemetryRequest(route _: ControllerRoute) throws -> Data { Data([36, 101, 31]) }
   func receive(_: Data) throws -> [VescProtocolMessage] {
     [.firmware(.init(major: 6, minor: 6, hardwareName: "THOR300", firmwareName: "refloat"))]
   }
@@ -596,18 +944,18 @@ private final class FakeProtocol: VescProtocolPort, @unchecked Sendable {
 
 private final class CanDiscoveryProtocol: VescProtocolPort, @unchecked Sendable {
   func reset() {}
-  func firmwareRequest(canID: UInt8?) throws -> Data {
-    canID.map { Data([1, $0]) } ?? Data([1])
+  func firmwareRequest(route: ControllerRoute) throws -> Data {
+    route.canID.map { Data([1, $0]) } ?? Data([1])
   }
   func canPingRequest() throws -> Data { Data([62]) }
-  func refloatInfoRequest(canID: UInt8?) throws -> Data {
-    Data([36, 101, 0, try #require(canID)])
+  func refloatInfoRequest(route: ControllerRoute) throws -> Data {
+    Data([36, 101, 0, try #require(route.canID)])
   }
-  func refloatTelemetryIDsRequest(canID: UInt8) throws -> Data {
-    Data([36, 101, 32, canID])
+  func refloatTelemetryIDsRequest(route: ControllerRoute) throws -> Data {
+    Data([36, 101, 32, route.canID ?? 255])
   }
-  func refloatTelemetryRequest(canID: UInt8) throws -> Data {
-    Data([36, 101, 31, canID])
+  func refloatTelemetryRequest(route: ControllerRoute) throws -> Data {
+    Data([36, 101, 31, route.canID ?? 255])
   }
   func receive(_ bytes: Data) throws -> [VescProtocolMessage] {
     switch try #require(bytes.first) {
@@ -652,7 +1000,7 @@ private final class CanDiscoveryProtocol: VescProtocolPort, @unchecked Sendable 
         ),
       ]
     case 5:
-      return [.refloatInfo(version: "1.2")]
+      return [.refloatInfo(version: "1.2.3")]
     default:
       return []
     }
@@ -661,13 +1009,11 @@ private final class CanDiscoveryProtocol: VescProtocolPort, @unchecked Sendable 
 
 private final class TelemetryProtocol: VescProtocolPort, @unchecked Sendable {
   func reset() {}
-  func firmwareRequest(canID _: UInt8?) throws -> Data { Data([1]) }
+  func firmwareRequest(route _: ControllerRoute) throws -> Data { Data([1]) }
   func canPingRequest() throws -> Data { Data([62]) }
-  func refloatInfoRequest(canID: UInt8?) throws -> Data {
-    Data([0, try #require(canID)])
-  }
-  func refloatTelemetryIDsRequest(canID: UInt8) throws -> Data { Data([32, canID]) }
-  func refloatTelemetryRequest(canID: UInt8) throws -> Data { Data([31, canID]) }
+  func refloatInfoRequest(route: ControllerRoute) throws -> Data { Data([0, route.canID ?? 255]) }
+  func refloatTelemetryIDsRequest(route: ControllerRoute) throws -> Data { Data([32, route.canID ?? 255]) }
+  func refloatTelemetryRequest(route: ControllerRoute) throws -> Data { Data([31, route.canID ?? 255]) }
   func receive(_ bytes: Data) throws -> [VescProtocolMessage] {
     switch try #require(bytes.first) {
     case 1:
@@ -675,12 +1021,12 @@ private final class TelemetryProtocol: VescProtocolPort, @unchecked Sendable {
         .firmware(
           .init(
             major: 6, minor: 6, hardwareName: "THOR300", firmwareName: nil,
-            hardwareType: 0, canID: 42
+            hardwareType: 0, canID: nil
           )
         ),
       ]
     case 2:
-      return [.refloatInfo(version: "1.2.0")]
+      return [.refloatInfo(version: "1.2.3")]
     case 3:
       return [.refloatTelemetryLayout(fields: ["motor.batt_voltage"], runtimeFields: [])]
     case 4:
@@ -705,6 +1051,85 @@ private final class TelemetryProtocol: VescProtocolPort, @unchecked Sendable {
           )
         ),
       ]
+    default:
+      return []
+    }
+  }
+}
+
+private final class AmbiguousProtocol: VescProtocolPort, @unchecked Sendable {
+  func reset() {}
+  func firmwareRequest(route: ControllerRoute) throws -> Data {
+    route.canID.map { Data([0, $0]) } ?? Data([0])
+  }
+  func canPingRequest() throws -> Data { Data([62]) }
+  func refloatInfoRequest(route: ControllerRoute) throws -> Data { Data([2, route.canID ?? 255]) }
+  func refloatTelemetryIDsRequest(route: ControllerRoute) throws -> Data { Data([32, route.canID ?? 255]) }
+  func refloatTelemetryRequest(route: ControllerRoute) throws -> Data { Data([31, route.canID ?? 255]) }
+  func receive(_ bytes: Data) throws -> [VescProtocolMessage] {
+    switch try #require(bytes.first) {
+    case 1:
+      return [.firmware(.init(
+        major: 6, minor: 5, hardwareName: "Gateway", firmwareName: nil, hardwareType: 2
+      ))]
+    case 2:
+      return [.canDevices([42, 7])]
+    case 3:
+      return [.firmware(.init(
+        major: 5, minor: 3, hardwareName: "Old VESC", firmwareName: nil,
+        hardwareType: 0, canID: 7
+      ))]
+    case 4:
+      return [.firmware(.init(
+        major: 6, minor: 6, hardwareName: "THOR300", firmwareName: "Refloat",
+        hardwareType: 0, canID: 42,
+        controllerUUID: Data((1 ... 12).map(UInt8.init))
+      ))]
+    case 5:
+      return [.refloatInfo(version: "1.2.3")]
+    case 6:
+      return [.refloatTelemetryLayout(fields: ["motor.speed"], runtimeFields: [])]
+    default:
+      return []
+    }
+  }
+}
+
+private final class DiscoveryBoundaryProtocol: VescProtocolPort, @unchecked Sendable {
+  private let canIDs: [UInt8]
+
+  init(canIDs: [UInt8] = []) {
+    self.canIDs = canIDs
+  }
+
+  func reset() {}
+  func firmwareRequest(route: ControllerRoute) throws -> Data {
+    route.canID.map { Data([0, $0]) } ?? Data([0])
+  }
+  func canPingRequest() throws -> Data { Data([62]) }
+  func refloatInfoRequest(route: ControllerRoute) throws -> Data { Data([2, route.canID ?? 255]) }
+  func refloatTelemetryIDsRequest(route: ControllerRoute) throws -> Data { Data([32, route.canID ?? 255]) }
+  func refloatTelemetryRequest(route: ControllerRoute) throws -> Data { Data([31, route.canID ?? 255]) }
+  func receive(_ bytes: Data) throws -> [VescProtocolMessage] {
+    switch try #require(bytes.first) {
+    case 1:
+      return [.firmware(.init(
+        major: 6, minor: 5, hardwareName: "Generic gateway", firmwareName: nil,
+        hardwareType: 2
+      ))]
+    case 2:
+      return [.canDevices(canIDs)]
+    case 3:
+      return [.firmware(.init(
+        major: 6, minor: 5, hardwareName: "BMS", firmwareName: nil,
+        hardwareType: 2, canID: 42
+      ))]
+    case 10 ... 26:
+      let canID = try #require(UInt8(exactly: Int(bytes[0]) - 10))
+      return [.firmware(.init(
+        major: 6, minor: 6, hardwareName: "THOR300", firmwareName: "Refloat",
+        hardwareType: 0, canID: canID
+      ))]
     default:
       return []
     }
@@ -754,6 +1179,7 @@ private final class MutableClock: ClockPort, @unchecked Sendable {
 
 private final class MemoryStore: LogStorePort, @unchecked Sendable {
   private var record: SessionRecord?
+  var createCount = 0
   var appended: [TelemetrySample] = []
   var closeReasons: [String] = []
   func create(
@@ -761,6 +1187,7 @@ private final class MemoryStore: LogStorePort, @unchecked Sendable {
     advertisedName _: String?,
     at: Date
   ) throws -> SessionRecord {
+    createCount += 1
     let result = SessionRecord(
       sessionID: SessionID("session"),
       jobID: JobID("job"),
@@ -800,6 +1227,7 @@ private final class FailingStore: LogStorePort, @unchecked Sendable {
 }
 
 private final class MemoryProductStore: ProductStorePort, @unchecked Sendable {
+  var routingHint: ControllerRoutingHint?
   var savedDevice = SavedDeviceRecord(
     savedDeviceID: "saved-board",
     deviceHistoryID: "history-board",
@@ -816,6 +1244,23 @@ private final class MemoryProductStore: ProductStorePort, @unchecked Sendable {
 
   func savedDevices() throws -> [SavedDeviceRecord] {
     [savedDevice]
+  }
+
+  func ensureSavedDevice(
+    deviceID: DeviceID,
+    advertisedName: String?,
+    at _: Date
+  ) throws -> SavedDeviceRecord {
+    savedDevice = SavedDeviceRecord(
+      savedDeviceID: savedDevice.savedDeviceID,
+      deviceHistoryID: savedDevice.deviceHistoryID,
+      revision: savedDevice.revision,
+      customDisplayName: savedDevice.customDisplayName,
+      advertisedName: advertisedName,
+      bluetoothIdentifier: deviceID.value,
+      profileComplete: false
+    )
+    return savedDevice
   }
 
   func updateSavedDevice(
@@ -867,6 +1312,46 @@ private final class MemoryProductStore: ProductStorePort, @unchecked Sendable {
       missingFields: ["parallelCount", "motor"]
     )
     return profile
+  }
+
+  func selectController(
+    savedDeviceID: String,
+    canID: UInt8,
+    controllerUUID _: Data?,
+    at _: Date
+  ) throws -> BoardProfileRecord {
+    guard savedDeviceID == profile.savedDeviceID else {
+      throw ProductStoreError.savedDeviceNotFound
+    }
+    var values = (try? JSONSerialization.jsonObject(with: Data(profile.valuesJSON.utf8)))
+      as? [String: Any] ?? [:]
+    values["preferredCanId"] = Int(canID)
+    let data = try JSONSerialization.data(withJSONObject: values, options: [.sortedKeys])
+    profile = BoardProfileRecord(
+      savedDeviceID: savedDeviceID,
+      revision: profile.revision + 1,
+      valuesJSON: String(decoding: data, as: UTF8.self),
+      missingFields: profile.missingFields
+    )
+    return profile
+  }
+
+  func controllerRoutingHint(savedDeviceID: String) throws -> ControllerRoutingHint? {
+    guard savedDeviceID == savedDevice.savedDeviceID else {
+      throw ProductStoreError.savedDeviceNotFound
+    }
+    return routingHint
+  }
+
+  func storeControllerRoutingHint(_ hint: ControllerRoutingHint, at _: Date) throws {
+    routingHint = hint
+  }
+
+  func clearControllerRoutingHint(savedDeviceID: String) throws {
+    guard savedDeviceID == savedDevice.savedDeviceID else {
+      throw ProductStoreError.savedDeviceNotFound
+    }
+    routingHint = nil
   }
 }
 

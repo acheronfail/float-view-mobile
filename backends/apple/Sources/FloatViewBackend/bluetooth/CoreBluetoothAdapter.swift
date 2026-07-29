@@ -32,7 +32,11 @@ public final class CoreBluetoothAdapter: NSObject, BluetoothPort, @unchecked Sen
   private var writeCharacteristic: CBCharacteristic?
   private var notifyCharacteristic: CBCharacteristic?
   private var pendingWrites: [Data] = []
+  private var pendingWriteBytes = 0
   private var writeInFlight = false
+  private var savedDeviceIDs: Set<DeviceID> = []
+  private var setupDeadline: DispatchWorkItem?
+  private var connectionGeneration: UInt64 = 0
 
   public init(
     queue: DispatchQueue = DispatchQueue(label: "fail.acheron.float-view.bluetooth"),
@@ -75,7 +79,7 @@ public final class CoreBluetoothAdapter: NSObject, BluetoothPort, @unchecked Sen
         return
       }
       central.scanForPeripherals(
-        withServices: [Self.serviceUUID],
+        withServices: nil,
         options: [CBCentralManagerScanOptionAllowDuplicatesKey: true]
       )
     }
@@ -83,6 +87,10 @@ public final class CoreBluetoothAdapter: NSObject, BluetoothPort, @unchecked Sen
 
   public func stopDiscovery() {
     queue.async { [self] in central.stopScan() }
+  }
+
+  public func configureSavedDeviceIDs(_ deviceIDs: Set<DeviceID>) {
+    queue.async { [self] in savedDeviceIDs = deviceIDs }
   }
 
   public func connect(_ deviceID: DeviceID) {
@@ -99,7 +107,10 @@ public final class CoreBluetoothAdapter: NSObject, BluetoothPort, @unchecked Sen
       writeCharacteristic = nil
       notifyCharacteristic = nil
       pendingWrites.removeAll(keepingCapacity: true)
+      pendingWriteBytes = 0
       writeInFlight = false
+      connectionGeneration &+= 1
+      scheduleSetupDeadline(for: deviceID, generation: connectionGeneration)
       peripheral.delegate = self
       diagnosticHandler("connect_requested")
       if peripheral.state == .connected {
@@ -118,11 +129,32 @@ public final class CoreBluetoothAdapter: NSObject, BluetoothPort, @unchecked Sen
             activePeripheral != nil,
             writeCharacteristic != nil
       else { return }
-      guard pendingWrites.count < Self.maxPendingWrites else {
+      let writeMode = VescBluetoothPolicy.writeMode(
+        supportsWriteWithResponse: writeCharacteristic?.properties.contains(.write) == true,
+        supportsWriteWithoutResponse:
+          writeCharacteristic?.properties.contains(.writeWithoutResponse) == true
+      )
+      guard writeMode != .unsupported else {
+        failConnection("vesc_write_characteristic_unavailable")
+        return
+      }
+      let writeType: CBCharacteristicWriteType =
+        writeMode == .withResponse ? .withResponse : .withoutResponse
+      let negotiated = activePeripheral?.maximumWriteValueLength(for: writeType) ?? 20
+      let chunkSize = max(1, min(negotiated, Self.maximumWriteChunkBytes))
+      let chunks = VescBluetoothPolicy.chunks(bytes, maximumPayloadBytes: chunkSize)
+      guard VescBluetoothPolicy.acceptsQueuedWrite(
+        pendingWrites: pendingWrites.count,
+        pendingBytes: pendingWriteBytes,
+        newWrites: chunks.count,
+        newBytes: bytes.count
+      )
+      else {
         failConnection("vesc_write_queue_full")
         return
       }
-      pendingWrites.append(bytes)
+      pendingWrites.append(contentsOf: chunks)
+      pendingWriteBytes += bytes.count
       drainWriteQueue()
     }
   }
@@ -159,7 +191,10 @@ public final class CoreBluetoothAdapter: NSObject, BluetoothPort, @unchecked Sen
     writeCharacteristic = nil
     notifyCharacteristic = nil
     pendingWrites.removeAll(keepingCapacity: true)
+    pendingWriteBytes = 0
     writeInFlight = false
+    setupDeadline?.cancel()
+    setupDeadline = nil
   }
 
   private func drainWriteQueue() {
@@ -169,8 +204,10 @@ public final class CoreBluetoothAdapter: NSObject, BluetoothPort, @unchecked Sen
     else { return }
     if characteristic.properties.contains(.write) {
       writeInFlight = true
+      let chunk = pendingWrites.removeFirst()
+      pendingWriteBytes -= chunk.count
       peripheral.writeValue(
-        pendingWrites.removeFirst(),
+        chunk,
         for: characteristic,
         type: .withResponse
       )
@@ -179,15 +216,34 @@ public final class CoreBluetoothAdapter: NSObject, BluetoothPort, @unchecked Sen
     guard characteristic.properties.contains(.writeWithoutResponse),
           peripheral.canSendWriteWithoutResponse
     else { return }
+    let chunk = pendingWrites.removeFirst()
+    pendingWriteBytes -= chunk.count
     peripheral.writeValue(
-      pendingWrites.removeFirst(),
+      chunk,
       for: characteristic,
       type: .withoutResponse
     )
     drainWriteQueue()
   }
 
-  private static let maxPendingWrites = 32
+  private func scheduleSetupDeadline(for deviceID: DeviceID, generation: UInt64) {
+    setupDeadline?.cancel()
+    let deadline = DispatchWorkItem { [weak self] in
+      guard let self, self.activeDeviceID == deviceID,
+            VescBluetoothPolicy.acceptsCallback(
+              callbackGeneration: generation,
+              activeGeneration: self.connectionGeneration,
+              isCancelled: false
+            ),
+            self.notifyCharacteristic?.isNotifying != true
+      else { return }
+      self.failConnection("vesc_setup_timeout")
+    }
+    setupDeadline = deadline
+    queue.asyncAfter(deadline: .now() + .seconds(10), execute: deadline)
+  }
+
+  private static let maximumWriteChunkBytes = 512
 
   private static func radioState(_ state: CBManagerState) -> BluetoothRadioState {
     switch state {
@@ -252,6 +308,15 @@ extension CoreBluetoothAdapter: CBCentralManagerDelegate {
   ) {
     let deviceID = DeviceID(peripheral.identifier.uuidString)
     peripheralsByID[deviceID] = peripheral
+    let advertisedServices = advertisementData[CBAdvertisementDataServiceUUIDsKey]
+      as? [CBUUID] ?? []
+    guard VescBluetoothPolicy.shouldPublish(
+      advertisesUART: advertisedServices.contains(Self.serviceUUID),
+      deviceID: deviceID,
+      savedDeviceIDs: savedDeviceIDs
+    ) else {
+      return
+    }
     let advertisedName = advertisementData[CBAdvertisementDataLocalNameKey] as? String
     eventHandler(
       .deviceFound(
@@ -293,10 +358,21 @@ extension CoreBluetoothAdapter: CBCentralManagerDelegate {
 
 extension CoreBluetoothAdapter: CBPeripheralDelegate {
   public func peripheral(_ peripheral: CBPeripheral, didDiscoverServices error: Error?) {
-    guard peripheral == activePeripheral, error == nil,
-          let service = peripheral.services?.first(where: { $0.uuid == Self.serviceUUID })
-    else {
+    guard peripheral == activePeripheral, error == nil else {
       failConnection("vesc_service_unavailable")
+      return
+    }
+    guard let service = peripheral.services?.first(where: { $0.uuid == Self.serviceUUID })
+    else {
+      failConnection(
+        VescBluetoothPolicy.setupFailure(
+          hasService: false,
+          hasWriteCharacteristic: false,
+          writeMode: .unsupported,
+          hasNotifyCharacteristic: false,
+          hasNotifyProperty: false
+        ) ?? "vesc_service_unavailable"
+      )
       return
     }
     peripheral.discoverCharacteristics([Self.writeUUID, Self.notifyUUID], for: service)
@@ -311,12 +387,25 @@ extension CoreBluetoothAdapter: CBPeripheralDelegate {
       failConnection("vesc_characteristic_discovery_failed")
       return
     }
-    writeCharacteristic = service.characteristics?.first { $0.uuid == Self.writeUUID }
-    notifyCharacteristic = service.characteristics?.first { $0.uuid == Self.notifyUUID }
-    guard writeCharacteristic != nil, let notifyCharacteristic else {
-      failConnection("vesc_characteristics_unavailable")
+    let write = service.characteristics?.first { $0.uuid == Self.writeUUID }
+    let notify = service.characteristics?.first { $0.uuid == Self.notifyUUID }
+    let writeMode = VescBluetoothPolicy.writeMode(
+      supportsWriteWithResponse: write?.properties.contains(.write) == true,
+      supportsWriteWithoutResponse: write?.properties.contains(.writeWithoutResponse) == true
+    )
+    if let failure = VescBluetoothPolicy.setupFailure(
+      hasService: true,
+      hasWriteCharacteristic: write != nil,
+      writeMode: writeMode,
+      hasNotifyCharacteristic: notify != nil,
+      hasNotifyProperty: notify?.properties.contains(.notify) == true
+    ) {
+      failConnection(failure)
       return
     }
+    writeCharacteristic = write
+    notifyCharacteristic = notify
+    guard let notifyCharacteristic = notify else { return }
     guard let deviceID = activeDeviceID else { return }
     eventHandler(.connectionChanged(deviceID, .enablingNotifications))
     peripheral.setNotifyValue(true, for: notifyCharacteristic)
@@ -332,6 +421,8 @@ extension CoreBluetoothAdapter: CBPeripheralDelegate {
       failConnection("vesc_notification_enable_failed")
       return
     }
+    setupDeadline?.cancel()
+    setupDeadline = nil
     if let deviceID = activeDeviceID {
       eventHandler(.connectionChanged(deviceID, .ready))
     }
@@ -366,4 +457,5 @@ extension CoreBluetoothAdapter: CBPeripheralDelegate {
     guard peripheral == activePeripheral else { return }
     drainWriteQueue()
   }
+
 }

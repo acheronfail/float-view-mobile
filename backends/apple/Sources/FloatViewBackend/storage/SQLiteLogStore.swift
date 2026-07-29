@@ -233,6 +233,20 @@ public final class SQLiteLogStore: LogStorePort, ProductStorePort, SessionStoreP
     return record
   }
 
+  public func ensureSavedDevice(
+    deviceID: DeviceID,
+    advertisedName: String?,
+    at: Date
+  ) throws -> SavedDeviceRecord {
+    lock.lock()
+    defer { lock.unlock() }
+    return try ensureSavedDeviceLocked(
+      deviceID: deviceID,
+      advertisedName: advertisedName,
+      at: at
+    )
+  }
+
   public func create(deviceID: DeviceID, at: Date) throws -> SessionRecord {
     try create(deviceID: deviceID, advertisedName: nil, at: at)
   }
@@ -587,10 +601,12 @@ public final class SQLiteLogStore: LogStorePort, ProductStorePort, SessionStoreP
       else {
         throw ProductStoreError.invalidProfilePatch
       }
+      let oldPreferredCanID = Self.preferredCanID(values)
       patch.forEach { values[$0.key] = $0.value }
       guard Self.isValidInitialProfileValues(values) else {
         throw ProductStoreError.invalidProfilePatch
       }
+      let newPreferredCanID = Self.preferredCanID(values)
       let valuesJSON = try Self.jsonString(values)
       let revision = currentProfile.revision + 1
       try catalog.statement(
@@ -609,6 +625,11 @@ public final class SQLiteLogStore: LogStorePort, ProductStorePort, SessionStoreP
           currentRevision: currentProfile.revision
         )
       }
+      if patch.keys.contains("preferredCanId"),
+         oldPreferredCanID != newPreferredCanID || newPreferredCanID == nil
+      {
+        try clearControllerRoutingHintLocked(savedDeviceID: savedDeviceID)
+      }
       try catalog.execute("COMMIT")
       let updated = BoardProfileRecord(
         savedDeviceID: savedDeviceID,
@@ -622,6 +643,93 @@ public final class SQLiteLogStore: LogStorePort, ProductStorePort, SessionStoreP
       try? catalog.execute("ROLLBACK")
       throw error
     }
+  }
+
+  public func selectController(
+    savedDeviceID: String,
+    canID: UInt8,
+    controllerUUID: Data?,
+    at: Date
+  ) throws -> BoardProfileRecord {
+    precondition(canID <= 253)
+    guard controllerUUID == nil || controllerUUID?.count == 12 else {
+      throw ProductStoreError.invalidProfilePatch
+    }
+    lock.lock()
+    defer { lock.unlock() }
+    try catalog.execute("BEGIN IMMEDIATE")
+    do {
+      let currentProfile = try boardProfileLocked(savedDeviceID: savedDeviceID, at: at)
+      guard var values = try JSONSerialization.jsonObject(
+        with: Data(currentProfile.valuesJSON.utf8)
+      ) as? [String: Any]
+      else { throw ProductStoreError.invalidProfilePatch }
+      values["preferredCanId"] = Int(canID)
+      let valuesJSON = try Self.jsonString(values)
+      let revision = currentProfile.revision + 1
+      try catalog.statement(
+        """
+        UPDATE board_profile SET revision = ?, json = ?, updated_at_ms = ?
+        WHERE saved_device_id = ? AND revision = ?
+        """,
+        values: [
+          .integer(Int64(revision)), .text(valuesJSON),
+          .integer(Int64(at.timeIntervalSince1970 * 1_000)), .text(savedDeviceID),
+          .integer(Int64(currentProfile.revision)),
+        ]
+      )
+      guard try catalog.scalarInt("SELECT changes()") == 1 else {
+        throw ProductStoreError.profileRevisionConflict(
+          currentRevision: currentProfile.revision
+        )
+      }
+      try storeControllerRoutingHintLocked(
+        ControllerRoutingHint(
+          savedDeviceID: savedDeviceID,
+          canID: canID,
+          controllerUUID: controllerUUID
+        ),
+        at: at
+      )
+      try catalog.execute("COMMIT")
+      let updated = BoardProfileRecord(
+        savedDeviceID: savedDeviceID,
+        revision: revision,
+        valuesJSON: valuesJSON,
+        missingFields: Self.missingFields(valuesJSON: valuesJSON)
+      )
+      try recordProfileChangeLocked(updated, at: at)
+      return updated
+    } catch {
+      try? catalog.execute("ROLLBACK")
+      throw error
+    }
+  }
+
+  public func controllerRoutingHint(
+    savedDeviceID: String
+  ) throws -> ControllerRoutingHint? {
+    lock.lock()
+    defer { lock.unlock() }
+    return try controllerRoutingHintLocked(savedDeviceID: savedDeviceID)
+  }
+
+  public func storeControllerRoutingHint(
+    _ hint: ControllerRoutingHint,
+    at: Date
+  ) throws {
+    guard hint.canID <= 253,
+          hint.controllerUUID == nil || hint.controllerUUID?.count == 12
+    else { throw ProductStoreError.invalidProfilePatch }
+    lock.lock()
+    defer { lock.unlock() }
+    try storeControllerRoutingHintLocked(hint, at: at)
+  }
+
+  public func clearControllerRoutingHint(savedDeviceID: String) throws {
+    lock.lock()
+    defer { lock.unlock() }
+    try clearControllerRoutingHintLocked(savedDeviceID: savedDeviceID)
   }
 
   public func settings() throws -> SettingsRecord {
@@ -1425,6 +1533,53 @@ public final class SQLiteLogStore: LogStorePort, ProductStorePort, SessionStoreP
     )
   }
 
+  private func controllerRoutingHintLocked(
+    savedDeviceID: String
+  ) throws -> ControllerRoutingHint? {
+    try catalog.query(
+      """
+      SELECT can_id, controller_uuid
+      FROM controller_route_hint WHERE saved_device_id = ? LIMIT 1
+      """,
+      values: [.text(savedDeviceID)]
+    ) { statement in
+      let rawUUID = Self.columnText(statement, 1).flatMap(Self.dataFromHex)
+      return ControllerRoutingHint(
+        savedDeviceID: savedDeviceID,
+        canID: UInt8(sqlite3_column_int64(statement, 0)),
+        controllerUUID: rawUUID
+      )
+    }.first
+  }
+
+  private func storeControllerRoutingHintLocked(
+    _ hint: ControllerRoutingHint,
+    at: Date
+  ) throws {
+    try catalog.statement(
+      """
+      INSERT INTO controller_route_hint(saved_device_id, can_id, controller_uuid, updated_at_ms)
+      VALUES (?, ?, ?, ?)
+      ON CONFLICT(saved_device_id) DO UPDATE SET
+        can_id = excluded.can_id,
+        controller_uuid = excluded.controller_uuid,
+        updated_at_ms = excluded.updated_at_ms
+      """,
+      values: [
+        .text(hint.savedDeviceID), .integer(Int64(hint.canID)),
+        hint.controllerUUID.map { .text(Self.hexString($0)) } ?? .null,
+        .integer(Int64(at.timeIntervalSince1970 * 1_000)),
+      ]
+    )
+  }
+
+  private func clearControllerRoutingHintLocked(savedDeviceID: String) throws {
+    try catalog.statement(
+      "DELETE FROM controller_route_hint WHERE saved_device_id = ?",
+      values: [.text(savedDeviceID)]
+    )
+  }
+
   private func boardProfileLocked(savedDeviceID: String, at: Date) throws -> BoardProfileRecord {
     let savedExists = try catalog.query(
       "SELECT 1 FROM saved_device WHERE saved_device_id = ? LIMIT 1",
@@ -1504,10 +1659,36 @@ public final class SQLiteLogStore: LogStorePort, ProductStorePort, SessionStoreP
       return range.contains(number.intValue)
     }
     guard integer("seriesCount", range: 1 ... 36),
-          integer("parallelCount", range: 1 ... 20)
+          integer("parallelCount", range: 1 ... 20),
+          integer("preferredCanId", range: 0 ... 253)
     else { return false }
     guard let motor = values["motor"], !(motor is NSNull) else { return true }
     return (motor as? String).map { !$0.isEmpty && $0.utf8.count <= 128 } ?? false
+  }
+
+  private static func preferredCanID(_ values: [String: Any]) -> Int? {
+    guard let raw = values["preferredCanId"], !(raw is NSNull),
+          let number = raw as? NSNumber
+    else { return nil }
+    return number.intValue
+  }
+
+  private static func hexString(_ data: Data) -> String {
+    data.map { String(format: "%02x", $0) }.joined()
+  }
+
+  private static func dataFromHex(_ value: String) -> Data? {
+    guard value.count == 24 else { return nil }
+    var bytes: [UInt8] = []
+    bytes.reserveCapacity(12)
+    var index = value.startIndex
+    for _ in 0 ..< 12 {
+      let next = value.index(index, offsetBy: 2)
+      guard let byte = UInt8(value[index ..< next], radix: 16) else { return nil }
+      bytes.append(byte)
+      index = next
+    }
+    return Data(bytes)
   }
 
   private static func jsonString(_ object: Any) throws -> String {

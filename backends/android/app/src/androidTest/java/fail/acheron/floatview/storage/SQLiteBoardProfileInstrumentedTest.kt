@@ -5,6 +5,7 @@ import android.database.sqlite.SQLiteDatabase
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import fail.acheron.floatview.backend.DeviceId
+import fail.acheron.floatview.backend.ControllerRoutingHint
 import fail.acheron.floatview.backend.ProductStoreException
 import java.io.File
 import java.time.Instant
@@ -122,6 +123,60 @@ class SQLiteBoardProfileInstrumentedTest {
 
         val reopened = SQLiteLogStore(context, availableBytes = { 2_000_000_000 })
         assertEquals(updated, reopened.boardProfile(saved.savedDeviceId))
+    }
+
+    @Test
+    fun controllerPreferenceAndPrivateHintStayAtomicAndPrivate() {
+        val store = SQLiteLogStore(context, availableBytes = { 2_000_000_000 })
+        val saved = store.ensureSavedDevice(DeviceId("private-platform-id"), "Board", Instant.EPOCH)
+        assertEquals(null, store.active())
+        assertThrows(ProductStoreException.InvalidProfilePatch::class.java) {
+            store.updateBoardProfile(
+                saved.savedDeviceId,
+                0,
+                """{"preferredCanId":254}""",
+                Instant.EPOCH,
+            )
+        }
+        val uuid = ByteArray(12) { (it + 1).toByte() }
+        store.storeControllerRoutingHint(
+            ControllerRoutingHint(saved.savedDeviceId, 1, uuid),
+            Instant.EPOCH,
+        )
+        val configured = store.updateBoardProfile(
+            saved.savedDeviceId,
+            0,
+            """{"preferredCanId":42}""",
+            Instant.EPOCH,
+        )
+        assertEquals(listOf("seriesCount", "parallelCount", "motor"), configured.missingFields)
+        assertEquals(null, store.controllerRoutingHint(saved.savedDeviceId))
+
+        store.storeControllerRoutingHint(
+            ControllerRoutingHint(saved.savedDeviceId, 42, uuid),
+            Instant.EPOCH,
+        )
+        val editor = store.updateBoardProfile(
+            saved.savedDeviceId,
+            configured.revision,
+            """{"seriesCount":20}""",
+            Instant.EPOCH,
+        )
+        val selected = store.selectController(saved.savedDeviceId, 7, uuid, Instant.EPOCH)
+        assertEquals(editor.revision + 1, selected.revision)
+        assertTrue(selected.valuesJson.contains("\"seriesCount\":20"))
+        assertTrue(selected.valuesJson.contains("\"preferredCanId\":7"))
+        val hint = store.controllerRoutingHint(saved.savedDeviceId)
+        assertEquals(7, hint?.canId)
+        assertTrue(requireNotNull(hint?.controllerUuid).contentEquals(uuid))
+
+        store.updateBoardProfile(
+            saved.savedDeviceId,
+            selected.revision,
+            """{"preferredCanId":null}""",
+            Instant.EPOCH,
+        )
+        assertEquals(null, store.controllerRoutingHint(saved.savedDeviceId))
     }
 
 }

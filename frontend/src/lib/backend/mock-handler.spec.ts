@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { MockBackend } from '../../../backend-mock/api-v1';
+import type { AppState } from './contract';
 
 describe('deterministic mock backend', () => {
 	it('implements state and publishes full monotonic state changes', () => {
@@ -80,6 +81,84 @@ describe('deterministic mock backend', () => {
 		expect(events.at(-1)?.data.activeConnection).toMatchObject({
 			state: 'reconnecting',
 			latestSample: liveSample
+		});
+	});
+
+	it('sorts bounded controller choices and persists one supported CAN selection', () => {
+		const backend = new MockBackend();
+		backend.handle({ id: 1, method: 'bluetooth.scan', params: {} });
+		backend.handle({ id: 2, method: 'device.connect', params: { deviceId: 'mock-board' } });
+		backend.simulateControllerSelection([
+			{
+				canId: 42,
+				hardwareName: 'THOR300',
+				firmwareName: 'Refloat',
+				vescVersion: '6.06',
+				vescSupported: true
+			},
+			{
+				canId: 7,
+				hardwareName: 'Other VESC',
+				firmwareName: null,
+				vescVersion: '5.03',
+				vescSupported: false
+			}
+		]);
+		expect(
+			(
+				backend.handle({ id: 3, method: 'state.get', params: {} }) as { result: AppState }
+			).result.activeConnection?.controllerCandidates.map((candidate) => candidate.canId)
+		).toEqual([7, 42]);
+		expect(
+			backend.handle({
+				id: 4,
+				method: 'device.selectController',
+				params: { deviceId: 'mock-board', canId: 7 }
+			})
+		).toMatchObject({ error: { code: 'invalid_state' } });
+		expect(
+			backend.handle({
+				id: 5,
+				method: 'device.selectController',
+				params: { deviceId: 'mock-board', canId: 42 }
+			})
+		).toMatchObject({ result: { accepted: true } });
+		expect(
+			backend.handle({
+				id: 6,
+				method: 'device.selectController',
+				params: { deviceId: 'mock-board', canId: 42 }
+			})
+		).toMatchObject({ error: { code: 'invalid_state' } });
+		expect(
+			backend.handle({
+				id: 7,
+				method: 'device.selectController',
+				params: { deviceId: 'mock-board', canId: 254 }
+			})
+		).toMatchObject({ error: { code: 'invalid_request' } });
+	});
+
+	it('never publishes a partial controller prompt beyond the contract bound', () => {
+		const backend = new MockBackend();
+		backend.handle({ id: 1, method: 'bluetooth.scan', params: {} });
+		backend.handle({ id: 2, method: 'device.connect', params: { deviceId: 'mock-board' } });
+		backend.simulateControllerSelection(
+			Array.from({ length: 17 }, (_, canId) => ({
+				canId,
+				hardwareName: `Controller ${canId}`,
+				firmwareName: 'Refloat',
+				vescVersion: '6.06',
+				vescSupported: true
+			}))
+		);
+
+		expect(
+			(backend.handle({ id: 3, method: 'state.get', params: {} }) as { result: AppState }).result
+				.activeConnection
+		).toMatchObject({
+			state: 'ready',
+			controllerCandidates: []
 		});
 	});
 });

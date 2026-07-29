@@ -22,6 +22,7 @@ import fail.acheron.floatview.backend.SessionRecord
 import fail.acheron.floatview.backend.SystemScheduler
 import fail.acheron.floatview.storage.SQLiteLogStore
 import fail.acheron.floatview.protocol.VescProtocolService
+import fail.acheron.floatview.protocol.vesc.SoftwareVescPeripheral
 import java.lang.ref.WeakReference
 import java.io.File
 import java.time.Instant
@@ -41,7 +42,8 @@ class BackendRuntime(application: FloatViewApplication) {
     }
     val bluetooth: BluetoothPort =
         if (isEmulator()) {
-            SoftwareBluetoothAdapter(relay::emit)
+            val peripheral = SoftwareVescPeripheral()
+            SoftwareBluetoothAdapter(relay::emit, peripheral::response)
         } else {
             AndroidBluetoothAdapter(
                 application,

@@ -18,23 +18,44 @@ public final class ApplicationService: @unchecked Sendable {
   private var knownDevicesByID: [DeviceID: KnownDevice] = [:]
   private var discoveryPublishTimer: (any CancellationPort)?
   private var discoveryUpdatePending = false
-  private var firmware: FirmwareRecord?
-  private var transportFirmware: FirmwareRecord?
-  private var refloatPackageVersion: String?
-  private var pendingCanIDs: [UInt8] = []
-  private var firmwareDiscoveryStarted = false
-  private var telemetryLayoutTimer: (any CancellationPort)?
-  private var telemetryLayoutAttempts = 0
-  private var telemetryTimer: (any CancellationPort)?
-  private var telemetryIntervalMs: Int64?
-  private var telemetryStartedAtMs: Int64?
-  private var telemetrySequence: Int64 = 0
+  private let controllerDiscovery = ControllerDiscovery()
+  private var currentSavedDevice: SavedDeviceRecord?
+  private var identificationTimer: (any CancellationPort)?
+  private var canProbeTimer: (any CancellationPort)?
+  private var sessionControllerRoute: ControllerRoute?
+  private var sessionControllerUUID: Data?
+  private var sessionFirmware: FirmwareRecord?
+  private var sessionRefloatPackageVersion: String?
   private var latestPersistedSample: TelemetrySample?
-  private var previousTelemetryRideState: RideState = .unknown
-  private var postRideProbeUntilMs: Int64?
   private var reconnectTimer: (any CancellationPort)?
   private var reconnectStartedAtMs: Int64?
   private var reconnectAttempt = 0
+  private lazy var telemetryPolling = TelemetryPolling(
+    clock: clock,
+    scheduler: scheduler,
+    protocolCodec: protocolCodec,
+    write: { [weak self] bytes, deviceID in
+      self?.bluetooth.write(bytes, to: deviceID)
+    },
+    onSample: { [weak self] sample in
+      do {
+        try self?.ingest(sample)
+      } catch {
+        self?.events.publish(String(describing: error))
+      }
+    },
+    onFailure: { [weak self] reason in
+      self?.lock.withLock {
+        guard let self else { return }
+        self.events.publish(reason)
+        self.failIdentification(
+          .identificationTimeout,
+          "Refloat telemetry negotiation timed out."
+        )
+      }
+    },
+    onDiagnostic: { [weak self] message in self?.events.publish(message) }
+  )
 
   public private(set) var activeDeviceID: DeviceID?
   public private(set) var connectionState: ConnectionState = .disconnected
@@ -67,6 +88,9 @@ public final class ApplicationService: @unchecked Sendable {
     self.idleProbeIntervalMs = samplingSettings.idleProbeIntervalMs
     self.sampling = AdaptiveSamplingPolicy(settings: samplingSettings)
     self.bluetoothState = bluetooth.currentState()
+    let savedIDs = ((try? productStore?.savedDevices()) ?? [])
+      .map { DeviceID($0.bluetoothIdentifier) }
+    bluetooth.configureSavedDeviceIDs(Set(savedIDs))
   }
 
   @discardableResult
@@ -119,6 +143,34 @@ public final class ApplicationService: @unchecked Sendable {
     return profile
   }
 
+  public func selectController(deviceID: DeviceID, canID: UInt8) throws {
+    lock.lock()
+    defer { lock.unlock() }
+    guard activeDeviceID == deviceID,
+          connectionState == .selectingController,
+          controllerDiscovery.canSelect(canID: canID),
+          let productStore,
+          let savedDevice = currentSavedDevice
+    else {
+      throw ApplicationError.invalidControllerSelection
+    }
+    guard case .requestRefloatInfo(let route, let selectedFirmware?) =
+      controllerDiscovery.selectController(canID: canID)
+    else {
+      throw ApplicationError.invalidControllerSelection
+    }
+    let profile = try productStore.selectController(
+      savedDeviceID: savedDevice.savedDeviceID,
+      canID: canID,
+      controllerUUID: ControllerDiscoveryPolicy.meaningfulUUID(selectedFirmware.controllerUUID),
+      at: clock.now()
+    )
+    events.publish(profile)
+    controllerDiscovery.clearIssue()
+    transition(.identifying)
+    performDiscoveryEffect(.requestRefloatInfo(route: route, rememberController: nil))
+  }
+
   public func settings() throws -> SettingsRecord {
     guard let productStore else { throw ApplicationError.productStoreUnavailable }
     return try productStore.settings()
@@ -143,11 +195,10 @@ public final class ApplicationService: @unchecked Sendable {
         postRideTailMs: value.postRideTailMs,
         reconnectDurationMs: value.reconnectDurationMs
       ))
-      if connectionState == .ready {
-        let target = previousTelemetryRideState == .riding
-          ? Self.ridingProbeIntervalMs : idleProbeIntervalMs
-        restartTelemetryPolling(everyMilliseconds: target)
-      }
+      telemetryPolling.updateSettings(
+        idleIntervalMs: value.idleProbeIntervalMs,
+        postRideTailMs: value.postRideTailMs
+      )
     }
     events.publish(value)
     return value
@@ -284,16 +335,16 @@ public final class ApplicationService: @unchecked Sendable {
       cancelPendingDiscoveryPublish()
     }
     activeDeviceID = deviceID
+    if logStore.active() == nil {
+      sessionControllerRoute = nil
+      sessionControllerUUID = nil
+      sessionFirmware = nil
+      sessionRefloatPackageVersion = nil
+    }
     explicitDisconnect = false
     cancelReconnect()
-    telemetryTimer?.cancel()
-    telemetryTimer = nil
-    telemetryIntervalMs = nil
-    telemetryStartedAtMs = nil
-    telemetrySequence = 0
+    telemetryPolling.resetSession()
     latestPersistedSample = nil
-    previousTelemetryRideState = .unknown
-    postRideProbeUntilMs = nil
     resetFirmwareDiscovery()
     protocolCodec?.reset()
     transition(.connecting)
@@ -341,25 +392,12 @@ public final class ApplicationService: @unchecked Sendable {
       events.publish(reason)
     case .connectionChanged(let deviceID, let state):
       guard deviceID == activeDeviceID else { return }
-      if state == .ready, logStore.active() == nil {
-        do {
-          events.publish(try logStore.create(
-            deviceID: deviceID,
-            advertisedName: knownDevicesByID[deviceID]?.name,
-            at: clock.now()
-          ))
-          telemetryStartedAtMs = clock.monotonicMilliseconds()
-        } catch {
-          transition(.failed)
-          explicitDisconnect = true
-          bluetooth.disconnect(deviceID)
-          events.publish(String(describing: error))
+      if state == .ready {
+        if protocolCodec == nil {
+          completeWithoutProtocol()
           return
         }
-      }
-      if state == .ready {
-        cancelReconnect()
-        transition(.ready)
+        transition(.identifying)
         startFirmwareDiscovery(deviceID)
         return
       }
@@ -368,6 +406,17 @@ public final class ApplicationService: @unchecked Sendable {
          logStore.active() != nil
       {
         beginReconnect()
+        return
+      }
+      if state == .failed, logStore.active() == nil, !explicitDisconnect {
+        controllerDiscovery.markFailure(
+          .transportSetupFailed,
+          "The VESC Bluetooth transport could not be prepared."
+        )
+        transition(.failed)
+        return
+      }
+      if state == .disconnected, connectionState == .failed, !explicitDisconnect {
         return
       }
       if state == .disconnected {
@@ -389,18 +438,15 @@ public final class ApplicationService: @unchecked Sendable {
           case .firmware(let value):
             handleFirmware(value)
           case .canDevices(let canIDs):
-            pendingCanIDs = canIDs
-            requestNextCanFirmware()
+            handleCanDevices(canIDs)
           case .refloatInfo(let version):
-            refloatPackageVersion = version
-            if version == "1.2" || version.hasPrefix("1.2.") {
-              requestRefloatTelemetryLayout()
-            }
+            guard connectionState == .identifying else { continue }
+            performDiscoveryEffect(controllerDiscovery.acceptRefloatInfo(version))
           case .refloatTelemetryLayout:
-            cancelTelemetryLayoutRetry()
-            startTelemetryPolling()
+            telemetryPolling.layoutEstablished()
+            performDiscoveryEffect(controllerDiscovery.acceptTelemetryLayout())
           case .refloatTelemetry(let value):
-            try handleRefloatTelemetry(value)
+            telemetryPolling.receive(value)
           }
           events.publish(message)
         }
@@ -417,8 +463,8 @@ public final class ApplicationService: @unchecked Sendable {
     transition(.disconnecting)
     explicitDisconnect = true
     cancelReconnect()
-    cancelTelemetryLayoutRetry()
-    stopTelemetryPolling()
+    telemetryPolling.cancelLayout()
+    telemetryPolling.stop()
     if let active = logStore.active() {
       events.publish(
         try logStore.close(jobID: active.jobID, at: clock.now(), reason: "explicit_disconnect")
@@ -465,144 +511,308 @@ public final class ApplicationService: @unchecked Sendable {
       savedDevice: savedDevice ?? nil,
       activeSession: activeSession ?? nil,
       latestSample: latestPersistedSample
+      ,
+      controllerRoute: controllerDiscovery.controllerRoute,
+      controllerCandidates: controllerDiscovery.controllerCandidates,
+      connectionIssue: controllerDiscovery.connectionIssue
     )
   }
 
   public func firmwareSnapshot() -> FirmwareRecord? {
     lock.lock()
     defer { lock.unlock() }
-    return firmware
+    return controllerDiscovery.firmware
   }
 
   public func refloatPackageVersionSnapshot() -> String? {
     lock.lock()
     defer { lock.unlock() }
-    return refloatPackageVersion
-  }
-
-  public func requestFirmwareInfo() throws -> FirmwareRecord? {
-    lock.lock()
-    defer { lock.unlock() }
-    guard let activeDeviceID, connectionState == .ready else {
-      throw ApplicationError.deviceNotReady
-    }
-    if !firmwareDiscoveryStarted { startFirmwareDiscovery(activeDeviceID) }
-    return firmware
+    return controllerDiscovery.refloatPackageVersion
   }
 
   private func startFirmwareDiscovery(_ deviceID: DeviceID) {
-    guard !firmwareDiscoveryStarted, let protocolCodec else { return }
-    firmwareDiscoveryStarted = true
-    do {
-      bluetooth.write(try protocolCodec.firmwareRequest(), to: deviceID)
-    } catch {
-      firmwareDiscoveryStarted = false
-      events.publish(String(describing: error))
+    guard protocolCodec != nil, activeDeviceID == deviceID else { return }
+    let (generation, effect) = controllerDiscovery.begin()
+    guard effect != .none else { return }
+    identificationTimer?.cancel()
+    identificationTimer = scheduler?.schedule(
+      afterMilliseconds: Self.identificationTimeoutMs
+    ) { [weak self] in
+      self?.identificationTimedOut(generation: generation)
     }
+    performDiscoveryEffect(effect)
   }
 
   private func handleFirmware(_ value: FirmwareRecord) {
     if value.canID == nil {
-      transportFirmware = value
-      if value.hardwareType == Self.vescHardwareType {
-        firmware = value
-        requestRefloatInfo(canID: nil)
-      } else if let activeDeviceID, let protocolCodec {
-        do {
-          bluetooth.write(try protocolCodec.canPingRequest(), to: activeDeviceID)
-        } catch {
+      do {
+        currentSavedDevice = try productStore?.ensureSavedDevice(
+          deviceID: activeDeviceID ?? DeviceID(""),
+          advertisedName: activeDeviceID.flatMap { knownDevicesByID[$0]?.name },
+          at: clock.now()
+        )
+        if let currentSavedDevice {
+          let saved = (try? productStore?.savedDevices()) ?? [currentSavedDevice]
+          bluetooth.configureSavedDeviceIDs(Set(
+            saved.map { DeviceID($0.bluetoothIdentifier) }
+          ))
+        }
+      } catch {
+        failIdentification(.transportSetupFailed, "Unable to save the VESC device.")
+        return
+      }
+      let profile = try? currentSavedDevice.flatMap {
+        try productStore?.boardProfile(savedDeviceID: $0.savedDeviceID)
+      }
+      let hint = try? currentSavedDevice.flatMap {
+        try productStore?.controllerRoutingHint(savedDeviceID: $0.savedDeviceID)
+      }
+      performDiscoveryEffect(controllerDiscovery.acceptTransport(
+        value,
+        preferredCanID: profile.flatMap {
+          ControllerDiscoveryPolicy.preferredCanID($0.valuesJSON)
+        },
+        routingHint: hint ?? nil
+      ))
+      return
+    }
+    guard controllerDiscovery.activeCanProbeID == value.canID else { return }
+    cancelCanProbeTimeout()
+    performDiscoveryEffect(
+      controllerDiscovery.acceptCANFirmware(value, continuity: controllerContinuity())
+    )
+  }
+
+  private func handleCanDevices(_ rawCanIDs: [UInt8]) {
+    performDiscoveryEffect(
+      controllerDiscovery.acceptCANIDs(rawCanIDs, continuity: controllerContinuity())
+    )
+  }
+
+  private func controllerContinuity() -> ControllerContinuity {
+    ControllerContinuity(
+      hasActiveSession: logStore.active() != nil,
+      route: sessionControllerRoute,
+      controllerUUID: sessionControllerUUID
+    )
+  }
+
+  private func performDiscoveryEffect(_ effect: ControllerDiscoveryEffect) {
+    switch effect {
+    case .probeFirmware(let route):
+      guard let activeDeviceID, let protocolCodec else { return }
+      if case .can(let canID) = route { scheduleCanProbeTimeout(canID: canID) }
+      do {
+        bluetooth.write(try protocolCodec.firmwareRequest(route: route), to: activeDeviceID)
+      } catch {
+        if route == .direct {
+          failIdentification(.transportSetupFailed, "Unable to request VESC firmware.")
           events.publish(String(describing: error))
+        } else {
+          failIdentification(.transportSetupFailed, "Unable to probe the CAN controller.")
         }
       }
-      return
-    }
-    if value.hardwareType == Self.vescHardwareType, firmware == nil {
-      firmware = value
-      pendingCanIDs.removeAll()
-      requestRefloatInfo(canID: value.canID)
-      return
-    }
-    requestNextCanFirmware()
-  }
-
-  private func requestRefloatInfo(canID: UInt8?) {
-    guard let activeDeviceID, let protocolCodec else { return }
-    do {
-      bluetooth.write(try protocolCodec.refloatInfoRequest(canID: canID), to: activeDeviceID)
-    } catch {
-      events.publish(String(describing: error))
-    }
-  }
-
-  private func requestNextCanFirmware() {
-    guard !pendingCanIDs.isEmpty, let activeDeviceID, let protocolCodec else { return }
-    let canID = pendingCanIDs.removeFirst()
-    do {
-      bluetooth.write(try protocolCodec.firmwareRequest(canID: canID), to: activeDeviceID)
-    } catch {
-      events.publish(String(describing: error))
-    }
-  }
-
-  private func requestRefloatTelemetryLayout() {
-    guard telemetryLayoutTimer == nil else { return }
-    telemetryLayoutAttempts = 0
-    sendRefloatTelemetryLayoutRequest()
-    guard let scheduler else { return }
-    telemetryLayoutTimer = scheduler.scheduleRepeating(
-      everyMilliseconds: Self.telemetryLayoutRetryIntervalMs
-    ) { [weak self] in
-      self?.retryRefloatTelemetryLayout()
-    }
-  }
-
-  private func retryRefloatTelemetryLayout() {
-    lock.lock()
-    defer { lock.unlock() }
-    guard telemetryLayoutTimer != nil else { return }
-    guard telemetryLayoutAttempts < Self.maxTelemetryLayoutAttempts else {
-      cancelTelemetryLayoutRetry()
-      failTelemetrySetup("refloat_telemetry_layout_timeout")
-      return
-    }
-    sendRefloatTelemetryLayoutRequest()
-  }
-
-  private func sendRefloatTelemetryLayoutRequest() {
-    guard let activeDeviceID, let canID = firmware?.canID, let protocolCodec else { return }
-    do {
-      telemetryLayoutAttempts += 1
-      bluetooth.write(
-        try protocolCodec.refloatTelemetryIDsRequest(canID: canID),
-        to: activeDeviceID
-      )
-    } catch {
-      events.publish(String(describing: error))
-    }
-  }
-
-  private func cancelTelemetryLayoutRetry() {
-    telemetryLayoutTimer?.cancel()
-    telemetryLayoutTimer = nil
-    telemetryLayoutAttempts = 0
-  }
-
-  private func failTelemetrySetup(_ reason: String) {
-    guard let deviceID = activeDeviceID else { return }
-    transition(.failed)
-    stopTelemetryPolling()
-    if let active = logStore.active() {
+    case .pingCAN:
+      cancelCanProbeTimeout()
+      guard let activeDeviceID, let protocolCodec else { return }
       do {
-        events.publish(
-          try logStore.close(jobID: active.jobID, at: clock.now(), reason: reason)
+        bluetooth.write(try protocolCodec.canPingRequest(), to: activeDeviceID)
+      } catch {
+        failIdentification(.transportSetupFailed, "Unable to discover CAN controllers.")
+      }
+    case .clearHintThen(let next):
+      invalidateAutomaticHint()
+      restartIdentificationTimeout()
+      performDiscoveryEffect(next)
+    case .requestRefloatInfo(let route, let selected):
+      if let selected,
+         let savedDevice = currentSavedDevice,
+         let canID = selected.canID,
+         let uuid = ControllerDiscoveryPolicy.meaningfulUUID(selected.controllerUUID)
+      {
+        try? productStore?.storeControllerRoutingHint(
+          ControllerRoutingHint(
+            savedDeviceID: savedDevice.savedDeviceID,
+            canID: canID,
+            controllerUUID: uuid
+          ),
+          at: clock.now()
+        )
+      }
+      guard let activeDeviceID, let protocolCodec else { return }
+      do {
+        bluetooth.write(
+          try protocolCodec.refloatInfoRequest(route: route),
+          to: activeDeviceID
         )
       } catch {
         events.publish(String(describing: error))
       }
+    case .requestTelemetryLayout:
+      guard let activeDeviceID, let route = controllerDiscovery.controllerRoute else { return }
+      telemetryPolling.beginLayout(deviceID: activeDeviceID, route: route)
+    case .ready:
+      completeApplicationReady()
+    case .selectingController:
+      cancelIdentificationTimeout()
+      transition(.selectingController)
+    case .failed(let issue):
+      failIdentification(issue.code, issue.message)
+    case .none:
+      break
     }
-    explicitDisconnect = true
-    events.publish(reason)
-    bluetooth.disconnect(deviceID)
+  }
+
+  private func completeApplicationReady() {
+    guard let deviceID = activeDeviceID,
+          let route = controllerDiscovery.controllerRoute,
+          let firmware = controllerDiscovery.firmware
+    else { return }
+    cancelIdentificationTimeout()
+    if logStore.active() != nil {
+      guard controllerContinuityIsProven(route: route, firmware: firmware) else {
+        failIdentification(
+          .controllerChanged,
+          "The connected controller no longer matches the active session."
+        )
+        return
+      }
+    } else {
+      do {
+        events.publish(try logStore.create(
+          deviceID: deviceID,
+          advertisedName: knownDevicesByID[deviceID]?.name,
+          at: clock.now()
+        ))
+        telemetryPolling.markSessionStarted()
+        sessionControllerRoute = route
+        sessionControllerUUID = ControllerDiscoveryPolicy.meaningfulUUID(firmware.controllerUUID)
+        sessionFirmware = firmware
+        sessionRefloatPackageVersion = controllerDiscovery.refloatPackageVersion
+      } catch {
+        failIdentification(.transportSetupFailed, "Unable to start durable telemetry.")
+        return
+      }
+    }
+    cancelReconnect()
+    controllerDiscovery.clearIssue()
+    transition(.ready)
+    telemetryPolling.start(
+      deviceID: deviceID,
+      route: route,
+      family: controllerDiscovery.refloatFamily ?? .dynamic,
+      idleIntervalMs: idleProbeIntervalMs,
+      postRideTailMs: sampling.settings.postRideTailMs
+    )
+  }
+
+  /// Production hosts always provide a VESC codec and never take this path.
+  private func completeWithoutProtocol() {
+    guard let deviceID = activeDeviceID else { return }
+    if logStore.active() == nil {
+      do {
+        events.publish(try logStore.create(
+          deviceID: deviceID,
+          advertisedName: knownDevicesByID[deviceID]?.name,
+          at: clock.now()
+        ))
+        telemetryPolling.markSessionStarted()
+      } catch {
+        transition(.failed)
+        explicitDisconnect = true
+        bluetooth.disconnect(deviceID)
+        events.publish(String(describing: error))
+        return
+      }
+    }
+    cancelReconnect()
+    transition(.ready)
+  }
+
+  private func controllerContinuityIsProven(
+    route: ControllerRoute,
+    firmware: FirmwareRecord
+  ) -> Bool {
+    guard let previousRoute = sessionControllerRoute else { return true }
+    let currentUUID = ControllerDiscoveryPolicy.meaningfulUUID(firmware.controllerUUID)
+    if let sessionControllerUUID {
+      return sessionControllerUUID == currentUUID
+    }
+    return previousRoute == route
+      && sessionFirmware.map {
+        ControllerDiscoveryPolicy.samePublicIdentity($0, firmware)
+      } == true
+      && sessionRefloatPackageVersion == controllerDiscovery.refloatPackageVersion
+  }
+
+  private func identificationTimedOut(generation: Int) {
+    lock.withLock {
+      guard connectionState == .identifying else { return }
+      performDiscoveryEffect(
+        controllerDiscovery.identificationTimedOut(generation: generation)
+      )
+    }
+  }
+
+  private func failIdentification(_ code: ConnectionIssueCode, _ message: String) {
+    cancelIdentificationTimeout()
+    cancelCanProbeTimeout()
+    telemetryPolling.cancelLayout()
+    telemetryPolling.stop()
+    controllerDiscovery.markFailure(code, message)
+    if code == .controllerChanged, let active = logStore.active() {
+      _ = try? logStore.close(jobID: active.jobID, at: clock.now(), reason: code.rawValue)
+    }
+    transition(.failed)
+  }
+
+  private func cancelIdentificationTimeout() {
+    identificationTimer?.cancel()
+    identificationTimer = nil
+  }
+
+  private func restartIdentificationTimeout() {
+    identificationTimer?.cancel()
+    let generation = controllerDiscovery.identificationGeneration
+    identificationTimer = scheduler?.schedule(
+      afterMilliseconds: Self.identificationTimeoutMs
+    ) { [weak self] in
+      self?.identificationTimedOut(generation: generation)
+    }
+  }
+
+  private func invalidateAutomaticHint() {
+    if let savedDeviceID = currentSavedDevice?.savedDeviceID {
+      try? productStore?.clearControllerRoutingHint(savedDeviceID: savedDeviceID)
+    }
+  }
+
+  private func scheduleCanProbeTimeout(canID: UInt8) {
+    cancelCanProbeTimeout()
+    let generation = controllerDiscovery.canProbeGeneration
+    canProbeTimer = scheduler?.schedule(
+      afterMilliseconds: Self.canProbeTimeoutMs
+    ) { [weak self] in
+      self?.canProbeTimedOut(canID: canID, generation: generation)
+    }
+  }
+
+  private func canProbeTimedOut(canID: UInt8, generation: Int) {
+    lock.withLock {
+      guard connectionState == .identifying else { return }
+      let effect = controllerDiscovery.canProbeTimedOut(
+        canID: canID,
+        generation: generation
+      )
+      guard effect != .none else { return }
+      cancelCanProbeTimeout()
+      performDiscoveryEffect(effect)
+    }
+  }
+
+  private func cancelCanProbeTimeout() {
+    canProbeTimer?.cancel()
+    canProbeTimer = nil
   }
 
   private func beginReconnect() {
@@ -686,85 +896,6 @@ public final class ApplicationService: @unchecked Sendable {
     reconnectAttempt = 0
   }
 
-  private func startTelemetryPolling() {
-    guard scheduler != nil, firmware?.canID != nil else { return }
-    restartTelemetryPolling(everyMilliseconds: idleProbeIntervalMs)
-  }
-
-  private func restartTelemetryPolling(everyMilliseconds interval: Int64) {
-    guard let scheduler else { return }
-    telemetryTimer?.cancel()
-    telemetryIntervalMs = interval
-    requestTelemetrySample()
-    telemetryTimer = scheduler.scheduleRepeating(everyMilliseconds: interval) { [weak self] in
-      self?.requestTelemetrySample()
-    }
-  }
-
-  private func requestTelemetrySample() {
-    lock.lock()
-    defer { lock.unlock() }
-    guard connectionState == .ready,
-          let activeDeviceID,
-          let canID = firmware?.canID,
-          let protocolCodec
-    else { return }
-    do {
-      bluetooth.write(
-        try protocolCodec.refloatTelemetryRequest(canID: canID),
-        to: activeDeviceID
-      )
-    } catch {
-      events.publish(String(describing: error))
-    }
-  }
-
-  private func handleRefloatTelemetry(_ value: RefloatTelemetryRecord) throws {
-    let nowMs = clock.monotonicMilliseconds()
-    if telemetryStartedAtMs == nil { telemetryStartedAtMs = nowMs }
-    telemetrySequence += 1
-    try ingest(
-      TelemetrySample(
-        sequence: telemetrySequence,
-        observedAt: clock.now(),
-        elapsedMs: max(0, nowMs - (telemetryStartedAtMs ?? nowMs)),
-        rideState: value.rideState,
-        boardState: Int(value.boardState),
-        packVoltageV: value.packVoltageV,
-        dutyCycle: value.dutyCycle,
-        controllerTempC: value.controllerTempC,
-        motorTempC: value.motorTempC,
-        footpadState: Int(value.footpadState),
-        extensionFields: [
-          "motorCurrentA": value.motorCurrentA,
-          "batteryCurrentA": value.batteryCurrentA,
-          "erpm": Double(value.erpm),
-          "speedKph": value.speedKph,
-        ]
-      )
-    )
-    if value.rideState == .riding {
-      postRideProbeUntilMs = nil
-    } else if previousTelemetryRideState == .riding {
-      postRideProbeUntilMs = nowMs + sampling.settings.postRideTailMs
-    }
-    let inPostRideTail = postRideProbeUntilMs.map { nowMs <= $0 } ?? false
-    previousTelemetryRideState = value.rideState
-    let target = value.rideState == .riding || inPostRideTail
-      ? Self.ridingProbeIntervalMs : idleProbeIntervalMs
-    if target != telemetryIntervalMs {
-      restartTelemetryPolling(everyMilliseconds: target)
-    }
-  }
-
-  private func stopTelemetryPolling() {
-    telemetryTimer?.cancel()
-    telemetryTimer = nil
-    telemetryIntervalMs = nil
-    previousTelemetryRideState = .unknown
-    postRideProbeUntilMs = nil
-  }
-
   private func transition(_ state: ConnectionState) {
     connectionState = state
     events.publish(state)
@@ -797,22 +928,19 @@ public final class ApplicationService: @unchecked Sendable {
   }
 
   private func resetFirmwareDiscovery() {
-    cancelTelemetryLayoutRetry()
-    stopTelemetryPolling()
-    firmware = nil
-    transportFirmware = nil
-    refloatPackageVersion = nil
-    pendingCanIDs.removeAll()
-    firmwareDiscoveryStarted = false
+    telemetryPolling.cancelLayout()
+    telemetryPolling.stop()
+    controllerDiscovery.reset()
+    currentSavedDevice = nil
+    cancelIdentificationTimeout()
+    cancelCanProbeTimeout()
     protocolCodec?.reset()
   }
 
-  private static let vescHardwareType: UInt8 = 0
   private static let discoveryPublishIntervalMs: Int64 = 250
-  private static let ridingProbeIntervalMs: Int64 = 100
-  private static let telemetryLayoutRetryIntervalMs: Int64 = 1_000
-  private static let maxTelemetryLayoutAttempts = 5
   private static let maxReconnectBackoffMs: Int64 = 30_000
+  private static let identificationTimeoutMs: Int64 = 10_000
+  private static let canProbeTimeoutMs: Int64 = 1_000
 
   private static func permissionAllowsUse(_ state: BluetoothPermissionState) -> Bool {
     state == .granted || state == .notRequired
@@ -831,4 +959,5 @@ public enum ApplicationError: Error, Equatable {
   case unknownDevice
   case deviceNotReady
   case productStoreUnavailable
+  case invalidControllerSelection
 }

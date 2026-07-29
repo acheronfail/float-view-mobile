@@ -2,6 +2,8 @@ import type {
 	AppState,
 	BackendError,
 	BackendMethod,
+	ConnectionIssueCode,
+	ControllerCandidate,
 	Request,
 	Response,
 	SeriesPoint,
@@ -73,6 +75,7 @@ export class MockBackend {
 	]);
 	private nextSession = 3;
 	private activeSessionId?: string;
+	private pendingCandidates: ControllerCandidate[] = [];
 	private state: AppState = {
 		revision: 0,
 		bluetooth: {
@@ -150,11 +153,12 @@ export class MockBackend {
 			case 'device.connect': {
 				const deviceId = string(params.deviceId);
 				if (!deviceId) return failure(id, 'invalid_request', 'deviceId is required');
-				if (deviceId !== discoveredBoard.deviceId) {
-					return failure(id, 'not_found', 'Device is no longer available');
-				}
-				if (this.state.activeConnection) {
+				const active = this.state.activeConnection;
+				if (active && (active.deviceId !== deviceId || active.state !== 'failed')) {
 					return failure(id, 'invalid_state', 'A board is already active');
+				}
+				if (!active && deviceId !== discoveredBoard.deviceId) {
+					return failure(id, 'not_found', 'Device is no longer available');
 				}
 				this.activeSessionId = `session-${this.nextSession++}`;
 				this.change({
@@ -164,6 +168,9 @@ export class MockBackend {
 						state: 'ready',
 						savedDeviceId: savedBoard.savedDeviceId,
 						displayName: savedBoard.displayName,
+						controllerConnection: { kind: 'direct' },
+						controllerCandidates: [],
+						connectionIssue: null,
 						activeSession: {
 							...session,
 							sessionId: this.activeSessionId,
@@ -196,6 +203,43 @@ export class MockBackend {
 						},
 						...this.state.recentSessions
 					].slice(0, 50)
+				});
+				return accepted(id);
+			}
+			case 'device.selectController': {
+				const deviceId = string(params.deviceId);
+				const canId = integer(params.canId);
+				if (!deviceId || canId === null || canId < 0 || canId > 253) {
+					return failure(id, 'invalid_request', 'Valid deviceId and CAN ID are required');
+				}
+				const active = this.state.activeConnection;
+				const candidate = this.pendingCandidates.find((value) => value.canId === canId);
+				if (
+					!active ||
+					active.deviceId !== deviceId ||
+					active.state !== 'selecting_controller' ||
+					!candidate?.vescSupported
+				) {
+					return failure(id, 'invalid_state', 'Controller selection is no longer available');
+				}
+				const profile = this.profiles.get(active.savedDeviceId ?? '');
+				if (!profile) return failure(id, 'invalid_state', 'Saved board is unavailable');
+				const updated = {
+					...profile,
+					revision: profile.revision + 1,
+					values: { ...profile.values, preferredCanId: canId }
+				};
+				this.profiles.set(profile.savedDeviceId, updated);
+				this.pendingCandidates = [];
+				this.change({
+					...this.state,
+					activeConnection: {
+						...active,
+						state: 'identifying',
+						controllerConnection: { kind: 'can', canId },
+						controllerCandidates: [],
+						connectionIssue: null
+					}
 				});
 				return accepted(id);
 			}
@@ -307,6 +351,15 @@ export class MockBackend {
 				}
 				if (expectedRevision !== current.revision) {
 					return failure(id, 'conflict', 'Board Profile revision changed');
+				}
+				if (
+					'preferredCanId' in patch &&
+					patch.preferredCanId !== null &&
+					(integer(patch.preferredCanId) === null ||
+						(integer(patch.preferredCanId) ?? -1) < 0 ||
+						(integer(patch.preferredCanId) ?? 254) > 253)
+				) {
+					return failure(id, 'invalid_request', 'Preferred CAN ID must be 0 through 253');
 				}
 				const updated = {
 					...current,
@@ -429,6 +482,92 @@ export class MockBackend {
 		});
 	}
 
+	simulateIdentifying(): void {
+		const active = this.state.activeConnection;
+		if (!active) return;
+		const activeSessionId = active.activeSession?.sessionId;
+		this.activeSessionId = undefined;
+		this.change({
+			...this.state,
+			activeConnection: {
+				...active,
+				state: 'identifying',
+				savedDeviceId: savedBoard.savedDeviceId,
+				controllerConnection: null,
+				controllerCandidates: [],
+				connectionIssue: null,
+				activeSession: null,
+				firmware: null
+			},
+			recentSessions: activeSessionId
+				? this.state.recentSessions.filter((item) => item.sessionId !== activeSessionId)
+				: this.state.recentSessions
+		});
+	}
+
+	simulateCanReady(canId: number): void {
+		const active = this.state.activeConnection;
+		if (!active || !Number.isInteger(canId) || canId < 0 || canId > 253) return;
+		this.change({
+			...this.state,
+			activeConnection: {
+				...active,
+				state: 'ready',
+				controllerConnection: { kind: 'can', canId },
+				controllerCandidates: [],
+				connectionIssue: null
+			}
+		});
+	}
+
+	simulateControllerSelection(candidates: ControllerCandidate[]): void {
+		const active = this.state.activeConnection;
+		if (!active || candidates.length < 2 || candidates.length > 16) return;
+		this.pendingCandidates = [...candidates].sort((left, right) => left.canId - right.canId);
+		this.change({
+			...this.state,
+			activeConnection: {
+				...active,
+				state: 'selecting_controller',
+				controllerConnection: null,
+				controllerCandidates: this.pendingCandidates,
+				connectionIssue: null,
+				activeSession: null
+			}
+		});
+	}
+
+	simulateConnectionFailure(code: ConnectionIssueCode, message: string): void {
+		const active = this.state.activeConnection;
+		if (!active) return;
+		const activeSessionId = active.activeSession?.sessionId;
+		this.activeSessionId = undefined;
+		this.change({
+			...this.state,
+			activeConnection: {
+				...active,
+				state: 'failed',
+				connectionIssue: { code, message: message.slice(0, 1_024) },
+				controllerCandidates: [],
+				activeSession: null
+			},
+			recentSessions: activeSessionId
+				? code === 'controller_changed'
+					? this.state.recentSessions.map((item) =>
+							item.sessionId === activeSessionId
+								? {
+										...item,
+										endedAt: new Date().toISOString(),
+										state: 'interrupted' as const,
+										integrity: 'gaps' as const
+									}
+								: item
+						)
+					: this.state.recentSessions.filter((item) => item.sessionId !== activeSessionId)
+				: this.state.recentSessions
+		});
+	}
+
 	private findSession(params: Record<string, unknown>) {
 		const sessionId = string(params.sessionId);
 		return this.state.recentSessions.find((item) => item.sessionId === sessionId);
@@ -464,4 +603,8 @@ function string(value: unknown): string | null {
 
 function number(value: unknown): number | null {
 	return typeof value === 'number' && Number.isFinite(value) ? value : null;
+}
+
+function integer(value: unknown): number | null {
+	return typeof value === 'number' && Number.isInteger(value) ? value : null;
 }

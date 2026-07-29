@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import type {
   AppState,
   BackendMethod,
+  ConnectionIssueCode,
 } from "../../frontend/src/lib/backend/contract.ts";
 import { ConformanceClient, ConformanceError } from "./client.ts";
 
@@ -40,6 +41,7 @@ export async function runConformance(target: Target) {
     assert.equal(typeof permission.radio, "string");
     await client.request("bluetooth.scan", { timeoutMs: 100 });
     const scanned = await client.request("state.get", {});
+    assertState(scanned);
     assert.ok(scanned.revision >= initial.revision);
 
     client.close();
@@ -49,6 +51,7 @@ export async function runConformance(target: Target) {
       replacementEndpoint.origin,
     );
     const restored = await client.request("state.get", {});
+    assertState(restored);
     assert.ok(restored.revision >= scanned.revision);
     assert.deepEqual(
       restored.discoveredDevices.map((device) => device.deviceId),
@@ -151,6 +154,27 @@ async function exerciseProductMethods(
     patch: { seriesCount: 18, parallelCount: 2, motor: "hypercore_xr" },
   });
   assert.equal(updatedProfile.missingFields.length, 0);
+  const preferredProfile = await client.request("boardProfile.update", {
+    savedDeviceId: profile.savedDeviceId,
+    expectedRevision: updatedProfile.revision,
+    patch: { preferredCanId: 42 },
+  });
+  assert.equal(preferredProfile.values.preferredCanId, 42);
+  assert.equal(preferredProfile.missingFields.length, 0);
+  await expectError(
+    client.request("boardProfile.update", {
+      savedDeviceId: profile.savedDeviceId,
+      expectedRevision: preferredProfile.revision,
+      patch: { preferredCanId: 254 },
+    }),
+    "invalid_request",
+  );
+  const clearedPreference = await client.request("boardProfile.update", {
+    savedDeviceId: profile.savedDeviceId,
+    expectedRevision: preferredProfile.revision,
+    patch: { preferredCanId: null },
+  });
+  assert.equal(clearedPreference.values.preferredCanId, null);
   await expectError(
     client.request("boardProfile.update", {
       savedDeviceId: profile.savedDeviceId,
@@ -223,9 +247,12 @@ async function createCompletedSession(
   const before = await client.request("state.get", {});
   await client.request("device.connect", { deviceId });
   const connected = await client.waitForState(
-    (value) => value.activeConnection?.deviceId === deviceId,
+    (value) =>
+      value.activeConnection?.deviceId === deviceId &&
+      value.activeConnection.state === "ready",
     { afterRevision: before.revision },
   );
+  assertState(connected);
   assert.ok(connected.activeConnection);
   assert.equal(
     connected.activeConnection.displayName,
@@ -233,6 +260,17 @@ async function createCompletedSession(
   );
   assert.ok(connected.activeConnection.savedDeviceId);
   assert.ok(connected.activeConnection.activeSession);
+  assert.ok(connected.activeConnection.controllerConnection);
+  assert.ok(
+    connected.activeConnection.controllerConnection.kind === "direct" ||
+      (
+        connected.activeConnection.controllerConnection.kind === "can" &&
+        connected.activeConnection.controllerConnection.canId >= 0 &&
+        connected.activeConnection.controllerConnection.canId <= 253
+      ),
+  );
+  assert.deepEqual(connected.activeConnection.controllerCandidates, []);
+  assert.equal(connected.activeConnection.connectionIssue, null);
   if (connected.activeConnection.latestSample) {
     assert.deepEqual(
       Object.keys(connected.activeConnection.latestSample).sort(),
@@ -269,7 +307,19 @@ async function createCompletedSession(
   );
 }
 
-function assertState(state: AppState) {
+const stableConnectionIssueCodes = new Set<ConnectionIssueCode>([
+  "transport_setup_failed",
+  "identification_timeout",
+  "no_controller_found",
+  "too_many_can_devices",
+  "too_many_controllers",
+  "preferred_controller_unavailable",
+  "controller_changed",
+  "unsupported_controller",
+  "unsupported_refloat",
+]);
+
+export function assertState(state: AppState) {
   assert.ok(Number.isSafeInteger(state.revision));
   assert.ok(Array.isArray(state.discoveredDevices));
   assert.ok(Array.isArray(state.savedDevices));
@@ -295,6 +345,68 @@ function assertState(state: AppState) {
     ["system", "light", "dark"].includes(state.settings.themePreference),
   );
   assert.ok(["metric", "imperial"].includes(state.settings.unitPreference));
+
+  const active = state.activeConnection;
+  if (!active) return;
+  assert.ok(active.controllerCandidates.length <= 16);
+  assert.deepEqual(
+    active.controllerCandidates.map((candidate) => candidate.canId),
+    active.controllerCandidates
+      .map((candidate) => candidate.canId)
+      .sort((left, right) => left - right),
+    "controller candidates are not sorted by CAN ID",
+  );
+  assert.equal(
+    new Set(active.controllerCandidates.map((candidate) => candidate.canId)).size,
+    active.controllerCandidates.length,
+    "controller candidates contain duplicate CAN IDs",
+  );
+  for (const candidate of active.controllerCandidates) {
+    assert.ok(
+      Number.isInteger(candidate.canId) &&
+        candidate.canId >= 0 &&
+        candidate.canId <= 253,
+    );
+    assert.deepEqual(Object.keys(candidate).sort(), [
+      "canId",
+      "firmwareName",
+      "hardwareName",
+      "vescSupported",
+      "vescVersion",
+    ]);
+    assert.ok((candidate.hardwareName?.length ?? 0) <= 80);
+    assert.ok((candidate.firmwareName?.length ?? 0) <= 80);
+  }
+  assert.ok(
+    !JSON.stringify(active.controllerCandidates).toLowerCase().includes("uuid"),
+    "controller candidates exposed a private UUID",
+  );
+
+  if (active.connectionIssue) {
+    assert.ok(stableConnectionIssueCodes.has(active.connectionIssue.code));
+    assert.ok(active.connectionIssue.message.length > 0);
+    assert.ok(active.connectionIssue.message.length <= 1_024);
+  }
+  if (active.state === "ready") {
+    assert.ok(active.controllerConnection, "ready connection has no controller route");
+    assert.ok(active.activeSession, "ready connection has no active durable session");
+    assert.ok(active.firmware?.supported, "ready connection has unsupported or absent firmware");
+    assert.deepEqual(active.controllerCandidates, []);
+    assert.equal(active.connectionIssue, null);
+  } else if (active.state === "selecting_controller") {
+    assert.equal(active.controllerConnection, null);
+    assert.ok(active.savedDeviceId);
+    assert.ok(active.controllerCandidates.length >= 2);
+    assert.equal(active.activeSession, null);
+    assert.equal(active.connectionIssue, null);
+  } else if (active.state === "failed") {
+    assert.ok(active.connectionIssue, "failed connection has no stable issue");
+    assert.deepEqual(active.controllerCandidates, []);
+    assert.equal(active.activeSession, null);
+  } else {
+    assert.equal(active.connectionIssue, null);
+    assert.deepEqual(active.controllerCandidates, []);
+  }
 }
 
 async function expectError(promise: Promise<unknown>, code: string) {
@@ -313,6 +425,7 @@ export const mandatoryMethods: BackendMethod[] = [
   "bluetooth.requestPermission",
   "bluetooth.scan",
   "device.connect",
+  "device.selectController",
   "device.disconnect",
   "savedDevice.update",
   "settings.update",

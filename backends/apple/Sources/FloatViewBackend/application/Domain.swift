@@ -21,10 +21,56 @@ public enum ConnectionState: String, Sendable, Codable {
   case connected
   case discoveringServices
   case enablingNotifications
+  case identifying
+  case selectingController = "selecting_controller"
   case ready
   case reconnecting
   case disconnecting
   case failed
+}
+
+public struct ControllerCandidate: Sendable, Equatable {
+  public let canID: UInt8
+  public let hardwareName: String?
+  public let firmwareName: String?
+  public let vescVersion: String
+  public let vescSupported: Bool
+
+  public init(
+    canID: UInt8,
+    hardwareName: String?,
+    firmwareName: String?,
+    vescVersion: String,
+    vescSupported: Bool
+  ) {
+    self.canID = canID
+    self.hardwareName = hardwareName
+    self.firmwareName = firmwareName
+    self.vescVersion = vescVersion
+    self.vescSupported = vescSupported
+  }
+}
+
+public enum ConnectionIssueCode: String, Sendable, Codable {
+  case transportSetupFailed = "transport_setup_failed"
+  case identificationTimeout = "identification_timeout"
+  case noControllerFound = "no_controller_found"
+  case tooManyCanDevices = "too_many_can_devices"
+  case tooManyControllers = "too_many_controllers"
+  case preferredControllerUnavailable = "preferred_controller_unavailable"
+  case controllerChanged = "controller_changed"
+  case unsupportedController = "unsupported_controller"
+  case unsupportedRefloat = "unsupported_refloat"
+}
+
+public struct ConnectionIssue: Sendable, Equatable {
+  public let code: ConnectionIssueCode
+  public let message: String
+
+  public init(code: ConnectionIssueCode, message: String) {
+    self.code = code
+    self.message = message
+  }
 }
 
 public enum RideState: String, Sendable, Codable {
@@ -103,6 +149,9 @@ public struct ActiveConnectionSnapshot: Sendable, Equatable {
   public let savedDevice: SavedDeviceRecord?
   public let activeSession: SessionSummaryRecord?
   public let latestSample: TelemetrySample?
+  public let controllerRoute: ControllerRoute?
+  public let controllerCandidates: [ControllerCandidate]
+  public let connectionIssue: ConnectionIssue?
 
   public init(
     deviceID: DeviceID,
@@ -110,7 +159,10 @@ public struct ActiveConnectionSnapshot: Sendable, Equatable {
     state: ConnectionState,
     savedDevice: SavedDeviceRecord? = nil,
     activeSession: SessionSummaryRecord? = nil,
-    latestSample: TelemetrySample? = nil
+    latestSample: TelemetrySample? = nil,
+    controllerRoute: ControllerRoute? = nil,
+    controllerCandidates: [ControllerCandidate] = [],
+    connectionIssue: ConnectionIssue? = nil
   ) {
     self.deviceID = deviceID
     self.name = name
@@ -118,6 +170,9 @@ public struct ActiveConnectionSnapshot: Sendable, Equatable {
     self.savedDevice = savedDevice
     self.activeSession = activeSession
     self.latestSample = latestSample
+    self.controllerRoute = controllerRoute
+    self.controllerCandidates = controllerCandidates
+    self.connectionIssue = connectionIssue
   }
 }
 
@@ -128,6 +183,8 @@ public struct FirmwareRecord: Sendable, Codable, Equatable {
   public let firmwareName: String?
   public let hardwareType: UInt8
   public let canID: UInt8?
+  /// Private controller identity. Never serialize this into API or log payloads.
+  public let controllerUUID: Data?
 
   public init(
     major: UInt8,
@@ -135,7 +192,8 @@ public struct FirmwareRecord: Sendable, Codable, Equatable {
     hardwareName: String?,
     firmwareName: String?,
     hardwareType: UInt8 = 0,
-    canID: UInt8? = nil
+    canID: UInt8? = nil,
+    controllerUUID: Data? = nil
   ) {
     self.major = major
     self.minor = minor
@@ -143,6 +201,7 @@ public struct FirmwareRecord: Sendable, Codable, Equatable {
     self.firmwareName = firmwareName
     self.hardwareType = hardwareType
     self.canID = canID
+    self.controllerUUID = controllerUUID
   }
 }
 
@@ -542,6 +601,19 @@ public struct BoardProfileRecord: Sendable, Codable, Equatable {
   }
 }
 
+public struct ControllerRoutingHint: Sendable, Equatable {
+  public let savedDeviceID: String
+  public let canID: UInt8
+  /// Private 12-byte controller identity, if the firmware supplied one.
+  public let controllerUUID: Data?
+
+  public init(savedDeviceID: String, canID: UInt8, controllerUUID: Data?) {
+    self.savedDeviceID = savedDeviceID
+    self.canID = canID
+    self.controllerUUID = controllerUUID
+  }
+}
+
 public enum ProductStoreError: Error, Equatable {
   case savedDeviceNotFound
   case savedDeviceRevisionConflict(currentRevision: Int)
@@ -568,21 +640,28 @@ public protocol BluetoothPort: AnyObject, Sendable {
   func connect(_ deviceID: DeviceID)
   func write(_ bytes: Data, to deviceID: DeviceID)
   func disconnect(_ deviceID: DeviceID)
+  func configureSavedDeviceIDs(_ deviceIDs: Set<DeviceID>)
+}
+
+public extension BluetoothPort {
+  func configureSavedDeviceIDs(_: Set<DeviceID>) {}
 }
 
 public protocol VescProtocolPort: AnyObject, Sendable {
   func reset()
-  func firmwareRequest(canID: UInt8?) throws -> Data
+  func firmwareRequest(route: ControllerRoute) throws -> Data
   func canPingRequest() throws -> Data
-  func refloatInfoRequest(canID: UInt8?) throws -> Data
-  func refloatTelemetryIDsRequest(canID: UInt8) throws -> Data
-  func refloatTelemetryRequest(canID: UInt8) throws -> Data
+  func refloatInfoRequest(route: ControllerRoute) throws -> Data
+  func refloatTelemetryIDsRequest(route: ControllerRoute) throws -> Data
+  func refloatTelemetryRequest(route: ControllerRoute) throws -> Data
+  func refloatLegacyTelemetryRequest(route: ControllerRoute) throws -> Data
   func receive(_ bytes: Data) throws -> [VescProtocolMessage]
 }
 
 public extension VescProtocolPort {
-  func firmwareRequest() throws -> Data { try firmwareRequest(canID: nil) }
-  func refloatInfoRequest() throws -> Data { try refloatInfoRequest(canID: nil) }
+  func refloatLegacyTelemetryRequest(route: ControllerRoute) throws -> Data {
+    try refloatTelemetryRequest(route: route)
+  }
 }
 
 public protocol CancellationPort: AnyObject, Sendable {
@@ -670,6 +749,11 @@ public protocol LogStorePort: AnyObject, Sendable {
 }
 
 public protocol ProductStorePort: AnyObject, Sendable {
+  func ensureSavedDevice(
+    deviceID: DeviceID,
+    advertisedName: String?,
+    at: Date
+  ) throws -> SavedDeviceRecord
   func savedDevices() throws -> [SavedDeviceRecord]
   func updateSavedDevice(
     savedDeviceID: String,
@@ -683,6 +767,15 @@ public protocol ProductStorePort: AnyObject, Sendable {
     patchJSON: String,
     at: Date
   ) throws -> BoardProfileRecord
+  func selectController(
+    savedDeviceID: String,
+    canID: UInt8,
+    controllerUUID: Data?,
+    at: Date
+  ) throws -> BoardProfileRecord
+  func controllerRoutingHint(savedDeviceID: String) throws -> ControllerRoutingHint?
+  func storeControllerRoutingHint(_ hint: ControllerRoutingHint, at: Date) throws
+  func clearControllerRoutingHint(savedDeviceID: String) throws
   func settings() throws -> SettingsRecord
   func updateSettings(
     expectedRevision: Int,
@@ -691,6 +784,13 @@ public protocol ProductStorePort: AnyObject, Sendable {
 }
 
 public extension ProductStorePort {
+  func ensureSavedDevice(
+    deviceID _: DeviceID,
+    advertisedName _: String?,
+    at _: Date
+  ) throws -> SavedDeviceRecord {
+    throw ProductStoreError.savedDeviceNotFound
+  }
   func updateSavedDevice(
     savedDeviceID _: String,
     expectedRevision _: Int,
@@ -699,6 +799,23 @@ public extension ProductStorePort {
     throw ProductStoreError.invalidSavedDevicePatch
   }
   func settings() throws -> SettingsRecord { SettingsRecord() }
+  func selectController(
+    savedDeviceID: String,
+    canID: UInt8,
+    controllerUUID _: Data?,
+    at: Date
+  ) throws -> BoardProfileRecord {
+    let current = try boardProfile(savedDeviceID: savedDeviceID)
+    return try updateBoardProfile(
+      savedDeviceID: savedDeviceID,
+      expectedRevision: current.revision,
+      patchJSON: "{\"preferredCanId\":\(canID)}",
+      at: at
+    )
+  }
+  func controllerRoutingHint(savedDeviceID _: String) throws -> ControllerRoutingHint? { nil }
+  func storeControllerRoutingHint(_: ControllerRoutingHint, at _: Date) throws {}
+  func clearControllerRoutingHint(savedDeviceID _: String) throws {}
   func updateSettings(
     expectedRevision _: Int,
     patchJSON _: String

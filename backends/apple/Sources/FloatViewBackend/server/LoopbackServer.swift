@@ -152,10 +152,26 @@ public final class LoopbackServer: @unchecked Sendable {
         guard let deviceID = params["deviceId"] as? String, !deviceID.isEmpty else {
           return failure(id, .invalidRequest, "deviceId is required")
         }
-        if applicationService.activeConnectionSnapshot() != nil {
-          return failure(id, .invalidState, "A board is already active")
+        if let active = applicationService.activeConnectionSnapshot(),
+           active.deviceID.value != deviceID || active.state != .failed
+        {
+          return failure(id, .invalidState, "A different board is already active")
         }
         try applicationService.connect(DeviceID(deviceID))
+        return success(["accepted": true])
+      case "device.selectController":
+        guard let deviceID = params["deviceId"] as? String, !deviceID.isEmpty,
+              let number = params["canId"] as? NSNumber,
+              CFGetTypeID(number) != CFBooleanGetTypeID(),
+              number.doubleValue.rounded() == number.doubleValue,
+              (0 ... 253).contains(number.intValue)
+        else {
+          return failure(id, .invalidRequest, "deviceId and CAN ID 0...253 are required")
+        }
+        try applicationService.selectController(
+          deviceID: DeviceID(deviceID),
+          canID: UInt8(number.intValue)
+        )
         return success(["accepted": true])
       case "device.disconnect":
         try applicationService.disconnect()
@@ -294,8 +310,8 @@ public final class LoopbackServer: @unchecked Sendable {
           "packageName": "refloat",
           "packageVersion": packageVersion,
           "hardwareName": firmware.hardwareName.map { $0 as Any } ?? NSNull(),
-          "supported": (packageVersion == "1.2" || packageVersion.hasPrefix("1.2.")) &&
-            (firmware.major > 6 || (firmware.major == 6 && firmware.minor >= 2)),
+          "supported": RefloatCompatibility.entry(wireVersion: packageVersion) != nil &&
+            VescCompatibility.supports(firmware),
         ]
       } else {
         value["firmware"] = NSNull()
@@ -342,7 +358,31 @@ public final class LoopbackServer: @unchecked Sendable {
       "deviceId": value.deviceID.value,
       "name": value.savedDevice?.displayName ?? value.name ?? value.deviceID.value,
       "state": deviceState(value.state),
+      "controllerConnection": value.controllerRoute.map(controllerRoutePayload) ?? NSNull(),
+      "controllerCandidates": value.controllerCandidates.map(controllerCandidatePayload),
+      "connectionIssue": value.connectionIssue.map(connectionIssuePayload) ?? NSNull(),
     ]
+  }
+
+  private func controllerRoutePayload(_ value: ControllerRoute) -> [String: Any] {
+    switch value {
+    case .direct: ["kind": "direct"]
+    case .can(let canID): ["kind": "can", "canId": Int(canID)]
+    }
+  }
+
+  private func controllerCandidatePayload(_ value: ControllerCandidate) -> [String: Any] {
+    [
+      "canId": Int(value.canID),
+      "hardwareName": value.hardwareName ?? NSNull(),
+      "firmwareName": value.firmwareName ?? NSNull(),
+      "vescVersion": value.vescVersion,
+      "vescSupported": value.vescSupported,
+    ]
+  }
+
+  private func connectionIssuePayload(_ value: ConnectionIssue) -> [String: Any] {
+    ["code": value.code.rawValue, "message": value.message]
   }
 
   private func savedDevicePayload(_ value: SavedDeviceRecord) -> [String: Any] {
@@ -446,6 +486,8 @@ public final class LoopbackServer: @unchecked Sendable {
     case .connecting: "connecting"
     case .connected: "connected"
     case .discoveringServices, .enablingNotifications: "discovering_services"
+    case .identifying: "identifying"
+    case .selectingController: "selecting_controller"
     case .ready: "ready"
     case .reconnecting: "reconnecting"
     case .disconnecting: "disconnecting"
@@ -471,7 +513,7 @@ public final class LoopbackServer: @unchecked Sendable {
     switch error {
     case .permissionRequired: failure(id, .permissionRequired, "Bluetooth permission is required")
     case .unknownDevice: failure(id, .notFound, "Device was not found")
-    case .activeDeviceConflict, .invalidScan, .deviceNotReady:
+    case .activeDeviceConflict, .invalidScan, .deviceNotReady, .invalidControllerSelection:
       failure(id, .invalidState, "Backend state does not permit the operation")
     case .bluetoothUnavailable, .productStoreUnavailable:
       failure(id, .unavailable, "Backend service is unavailable")

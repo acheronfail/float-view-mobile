@@ -21,7 +21,7 @@ test('CAN input validation accepts only canonical decimal controller identities'
 	}
 });
 
-test('control availability enforces powered-on ride transitions and direct limitation', () => {
+test('control availability enforces powered-on ride transitions for every topology', () => {
 	const snapshot = baseSnapshot();
 	assert.equal(controlAvailability(snapshot).startRide, false);
 	snapshot.serial = { status: 'attached', path: '/dev/fixture' };
@@ -31,12 +31,11 @@ test('control availability enforces powered-on ride transitions and direct limit
 	assert.equal(powered.configure, false);
 	assert.equal(powered.startRide, true);
 	assert.equal(powered.stopRide, false);
-	assert.equal(powered.directTelemetryUnavailable, false);
 	snapshot.ride = 'riding';
 	assert.equal(controlAvailability(snapshot).startRide, false);
 	assert.equal(controlAvailability(snapshot).stopRide, true);
 	snapshot.configuration.topology = 'direct';
-	assert.equal(controlAvailability(snapshot).directTelemetryUnavailable, true);
+	assert.equal(controlAvailability(snapshot).stopRide, true);
 });
 
 test('primary pointer and keyboard activation each run exactly once', () => {

@@ -1,8 +1,8 @@
 export type FirmwareVersion = '6.02' | '6.05' | '6.06';
 
 export interface ControllerIdentity {
-	hardwareName: 'THOR300';
-	hardwareType: 0;
+	hardwareName: string;
+	hardwareType: number;
 	uuid: Uint8Array;
 }
 

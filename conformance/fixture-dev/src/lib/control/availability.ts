@@ -13,8 +13,7 @@ export function controlAvailability(snapshot: FixtureSnapshot) {
 		powerOn: attached && snapshot.power === 'off',
 		powerOff: attached && snapshot.power === 'on',
 		startRide: attached && snapshot.power === 'on' && snapshot.ride === 'idle',
-		stopRide: attached && snapshot.power === 'on' && snapshot.ride === 'riding',
-		directTelemetryUnavailable: snapshot.configuration.topology === 'direct'
+		stopRide: attached && snapshot.power === 'on' && snapshot.ride === 'riding'
 	};
 }
 

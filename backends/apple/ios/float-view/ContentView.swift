@@ -16,8 +16,10 @@ final class AppBackend: ObservableObject {
     #endif
     let relay = BluetoothEventRelay()
     #if targetEnvironment(simulator)
+    let peripheral = SoftwareVescPeripheral()
     let bluetooth: any BluetoothPort = SoftwareBluetoothAdapter(
-      eventHandler: { @Sendable event in relay.emit(event) }
+      eventHandler: { @Sendable event in relay.emit(event) },
+      responseHandler: { @Sendable bytes in peripheral.response(to: bytes) }
     )
     #else
     let bluetooth: any BluetoothPort = CoreBluetoothAdapter(

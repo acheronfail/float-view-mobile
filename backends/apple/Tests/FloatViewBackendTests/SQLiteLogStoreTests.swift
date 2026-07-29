@@ -445,6 +445,77 @@ private func repositoryRoot() -> URL {
   #expect(try reopened.savedDevices().first?.profileComplete == false)
 }
 
+@Test func controllerPreferenceAndPrivateHintStayAtomicAndPrivate() throws {
+  let root = FileManager.default.temporaryDirectory
+    .appending(path: "float-view-routing-\(UUID().uuidString)")
+  defer { try? FileManager.default.removeItem(at: root) }
+  let store = try SQLiteLogStore(
+    root: root,
+    schemaDirectory: repositoryRoot().appending(path: "sql"),
+    availableBytes: { 2_000_000_000 }
+  )
+  let saved = try store.ensureSavedDevice(
+    deviceID: DeviceID("private-platform-id"),
+    advertisedName: "Board",
+    at: .distantPast
+  )
+  #expect(store.active() == nil)
+  #expect(throws: ProductStoreError.invalidProfilePatch) {
+    try store.updateBoardProfile(
+      savedDeviceID: saved.savedDeviceID,
+      expectedRevision: 0,
+      patchJSON: #"{"preferredCanId":254}"#,
+      at: .distantPast
+    )
+  }
+
+  let uuid = Data((1 ... 12).map(UInt8.init))
+  try store.storeControllerRoutingHint(
+    .init(savedDeviceID: saved.savedDeviceID, canID: 1, controllerUUID: uuid),
+    at: .distantPast
+  )
+  let configured = try store.updateBoardProfile(
+    savedDeviceID: saved.savedDeviceID,
+    expectedRevision: 0,
+    patchJSON: #"{"preferredCanId":42}"#,
+    at: .distantPast
+  )
+  #expect(configured.missingFields == ["seriesCount", "parallelCount", "motor"])
+  #expect(try store.controllerRoutingHint(savedDeviceID: saved.savedDeviceID) == nil)
+
+  try store.storeControllerRoutingHint(
+    .init(savedDeviceID: saved.savedDeviceID, canID: 42, controllerUUID: uuid),
+    at: .distantPast
+  )
+  let editor = try store.updateBoardProfile(
+    savedDeviceID: saved.savedDeviceID,
+    expectedRevision: configured.revision,
+    patchJSON: #"{"seriesCount":20}"#,
+    at: .distantPast
+  )
+  let selected = try store.selectController(
+    savedDeviceID: saved.savedDeviceID,
+    canID: 7,
+    controllerUUID: uuid,
+    at: .distantPast
+  )
+  #expect(selected.revision == editor.revision + 1)
+  #expect(selected.valuesJSON.contains(#""seriesCount":20"#))
+  #expect(selected.valuesJSON.contains(#""preferredCanId":7"#))
+  #expect(
+    try store.controllerRoutingHint(savedDeviceID: saved.savedDeviceID)
+      == .init(savedDeviceID: saved.savedDeviceID, canID: 7, controllerUUID: uuid)
+  )
+
+  _ = try store.updateBoardProfile(
+    savedDeviceID: saved.savedDeviceID,
+    expectedRevision: selected.revision,
+    patchJSON: #"{"preferredCanId":null}"#,
+    at: .distantPast
+  )
+  #expect(try store.controllerRoutingHint(savedDeviceID: saved.savedDeviceID) == nil)
+}
+
 private func sqliteExecute(_ url: URL, _ sql: String) throws {
   var database: OpaquePointer?
   guard sqlite3_open_v2(
