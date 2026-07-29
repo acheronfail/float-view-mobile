@@ -1170,7 +1170,7 @@ public final class SQLiteLogStore: LogStorePort, ProductStorePort, SessionStoreP
     "reconnectDurationMs",
     "automaticSessionLinkingEnabled",
     "sessionLinkWindowMs",
-    "rawPacketCaptureEnabled",
+    "themePreference",
   ]
 
   private static func settingsDictionary(_ value: SettingsRecord) -> [String: Any] {
@@ -1182,7 +1182,7 @@ public final class SQLiteLogStore: LogStorePort, ProductStorePort, SessionStoreP
       "reconnectDurationMs": value.reconnectDurationMs,
       "automaticSessionLinkingEnabled": value.automaticSessionLinkingEnabled,
       "sessionLinkWindowMs": value.sessionLinkWindowMs,
-      "rawPacketCaptureEnabled": value.rawPacketCaptureEnabled,
+      "themePreference": value.themePreference.rawValue,
     ]
   }
 
@@ -1203,6 +1203,12 @@ public final class SQLiteLogStore: LogStorePort, ProductStorePort, SessionStoreP
       else { throw ProductStoreError.invalidSettingsPatch }
       return number.boolValue
     }
+    func themePreference(_ key: String) throws -> ThemePreference {
+      guard let rawValue = values[key] as? String,
+            let value = ThemePreference(rawValue: rawValue)
+      else { throw ProductStoreError.invalidSettingsPatch }
+      return value
+    }
     return try SettingsRecord(
       revision: revision,
       idleProbeIntervalMs: integer("idleProbeIntervalMs", 100 ... 10_000),
@@ -1212,7 +1218,7 @@ public final class SQLiteLogStore: LogStorePort, ProductStorePort, SessionStoreP
       reconnectDurationMs: integer("reconnectDurationMs", 0 ... 3_600_000),
       automaticSessionLinkingEnabled: boolean("automaticSessionLinkingEnabled"),
       sessionLinkWindowMs: integer("sessionLinkWindowMs", 60_000 ... 86_400_000),
-      rawPacketCaptureEnabled: boolean("rawPacketCaptureEnabled")
+      themePreference: themePreference("themePreference")
     )
   }
 

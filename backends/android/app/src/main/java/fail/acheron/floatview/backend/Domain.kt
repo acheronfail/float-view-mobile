@@ -185,6 +185,16 @@ data class SessionExportRecord(
     val filePath: String,
 )
 
+enum class ThemePreference(val wireValue: String) {
+    SYSTEM("system"),
+    LIGHT("light"),
+    DARK("dark");
+
+    companion object {
+        fun fromWire(value: String): ThemePreference? = entries.find { it.wireValue == value }
+    }
+}
+
 data class SettingsRecord(
     val revision: Int = 0,
     val idleProbeIntervalMs: Long = 500,
@@ -194,7 +204,7 @@ data class SettingsRecord(
     val reconnectDurationMs: Long = 300_000,
     val automaticSessionLinkingEnabled: Boolean = false,
     val sessionLinkWindowMs: Long = 7_200_000,
-    val rawPacketCaptureEnabled: Boolean = false,
+    val themePreference: ThemePreference = ThemePreference.SYSTEM,
 )
 
 sealed interface BluetoothEvent {

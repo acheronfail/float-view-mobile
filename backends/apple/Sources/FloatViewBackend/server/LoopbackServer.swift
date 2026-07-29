@@ -386,7 +386,7 @@ public final class LoopbackServer: @unchecked Sendable {
       "reconnectDurationMs": value.reconnectDurationMs,
       "automaticSessionLinkingEnabled": value.automaticSessionLinkingEnabled,
       "sessionLinkWindowMs": value.sessionLinkWindowMs,
-      "rawPacketCaptureEnabled": value.rawPacketCaptureEnabled,
+      "themePreference": value.themePreference.rawValue,
     ]
   }
 

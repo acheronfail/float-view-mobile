@@ -150,12 +150,32 @@ private func repositoryRoot() -> URL {
     schemaDirectory: repositoryRoot().appending(path: "sql"),
     availableBytes: { 2_000_000_000 }
   )
+  #expect(try store.settings().themePreference == .system)
   let settings = try store.updateSettings(
     expectedRevision: 0,
-    patchJSON: #"{"automaticSessionLinkingEnabled":true,"sessionLinkWindowMs":7200000,"idlePersistIntervalMs":2345,"ridingPersistIntervalMs":125}"#
+    patchJSON: #"{"automaticSessionLinkingEnabled":true,"sessionLinkWindowMs":7200000,"idlePersistIntervalMs":2345,"ridingPersistIntervalMs":125,"themePreference":"dark"}"#
   )
   #expect(settings.revision == 1)
   #expect(settings.automaticSessionLinkingEnabled)
+  #expect(settings.themePreference == .dark)
+  #expect(throws: ProductStoreError.invalidSettingsPatch) {
+    try store.updateSettings(
+      expectedRevision: 1,
+      patchJSON: #"{"themePreference":"twilight"}"#
+    )
+  }
+  #expect(throws: ProductStoreError.invalidSettingsPatch) {
+    try store.updateSettings(
+      expectedRevision: 1,
+      patchJSON: #"{"rawPacketCaptureEnabled":true}"#
+    )
+  }
+  #expect(throws: ProductStoreError.settingsRevisionConflict(currentRevision: 1)) {
+    try store.updateSettings(
+      expectedRevision: 0,
+      patchJSON: #"{"themePreference":"light"}"#
+    )
+  }
 
   let base = Date(timeIntervalSince1970: 1_700_000_000)
   var sessionIDs: [String] = []

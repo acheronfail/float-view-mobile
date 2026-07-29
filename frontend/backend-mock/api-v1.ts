@@ -100,7 +100,7 @@ export class MockBackend {
 			reconnectDurationMs: 300_000,
 			automaticSessionLinkingEnabled: false,
 			sessionLinkWindowMs: 7_200_000,
-			rawPacketCaptureEnabled: false
+			themePreference: 'system'
 		}
 	};
 
@@ -204,6 +204,24 @@ export class MockBackend {
 				}
 				if (expectedRevision !== this.state.settings.revision) {
 					return failure(id, 'conflict', 'Settings revision changed');
+				}
+				const allowed = new Set([
+					'idleProbeIntervalMs',
+					'idlePersistIntervalMs',
+					'ridingPersistIntervalMs',
+					'postRideTailMs',
+					'reconnectDurationMs',
+					'automaticSessionLinkingEnabled',
+					'sessionLinkWindowMs',
+					'themePreference'
+				]);
+				if (
+					!Object.keys(patch).length ||
+					Object.keys(patch).some((key) => !allowed.has(key)) ||
+					('themePreference' in patch &&
+						!['system', 'light', 'dark'].includes(String(patch.themePreference)))
+				) {
+					return failure(id, 'invalid_request', 'Settings patch is invalid');
 				}
 				const settings = {
 					...this.state.settings,

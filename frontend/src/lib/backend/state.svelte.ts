@@ -9,7 +9,7 @@ import type {
 import { connectBootstrap, loadBootstrap } from './bootstrap';
 import { ApiRequestError, type ApiClient } from './client';
 
-export type ApiConnectionStatus = 'starting' | 'connected' | 'reconnecting' | 'failed';
+export type BackendConnectionStatus = 'starting' | 'connected' | 'reconnecting' | 'failed';
 export type PermissionOutcome = 'ready' | 'pending' | 'denied' | 'restricted';
 
 export function permissionOutcome(state: BluetoothState): PermissionOutcome {
@@ -26,8 +26,8 @@ export function permissionOutcome(state: BluetoothState): PermissionOutcome {
 	}
 }
 
-export class ApiStore {
-	status = $state<ApiConnectionStatus>('starting');
+export class BackendState {
+	status = $state<BackendConnectionStatus>('starting');
 	snapshot = $state<AppState | null>(null);
 	error = $state<string | null>(null);
 	selectedSession = $state<SessionSummary | null>(null);
@@ -37,6 +37,7 @@ export class ApiStore {
 	exportStatus = $state<string | null>(null);
 	busy = $state(false);
 	private client: ApiClient | null = null;
+	private connecting: Promise<void> | null = null;
 	private unsubscribeState: (() => void) | null = null;
 
 	constructor(
@@ -69,6 +70,16 @@ export class ApiStore {
 	}
 
 	async connect(): Promise<void> {
+		if (this.connecting) return this.connecting;
+		this.connecting = this.connectNow();
+		try {
+			await this.connecting;
+		} finally {
+			this.connecting = null;
+		}
+	}
+
+	private async connectNow(): Promise<void> {
 		this.status = this.client ? 'reconnecting' : 'starting';
 		this.unsubscribeState?.();
 		this.client?.close();
@@ -101,8 +112,8 @@ export class ApiStore {
 		});
 	}
 
-	async connectDevice(deviceId: string): Promise<void> {
-		await this.run((client) =>
+	async connectDevice(deviceId: string): Promise<boolean> {
+		return this.run((client) =>
 			client.request('device.connect', { deviceId }).then(() => undefined)
 		);
 	}
@@ -123,8 +134,8 @@ export class ApiStore {
 		});
 	}
 
-	async openBoardProfile(savedDeviceId: string): Promise<void> {
-		await this.run(async (client) => {
+	async openBoardProfile(savedDeviceId: string): Promise<boolean> {
+		return this.run(async (client) => {
 			this.selectedBoardProfile = await client.request('boardProfile.get', { savedDeviceId });
 		});
 	}
@@ -141,8 +152,8 @@ export class ApiStore {
 		});
 	}
 
-	async openSession(sessionId: string): Promise<void> {
-		await this.run(async (client) => {
+	async openSession(sessionId: string): Promise<boolean> {
+		return this.run(async (client) => {
 			const detail = await client.request('session.get', { sessionId, maxPoints: 400 });
 			this.selectedSession = detail.summary;
 			this.sessionSeries = detail.series;
@@ -179,10 +190,10 @@ export class ApiStore {
 		});
 	}
 
-	async deleteSelectedSession(): Promise<void> {
+	async deleteSelectedSession(): Promise<boolean> {
 		const session = this.selectedSession;
-		if (!session) return;
-		await this.run(async (client) => {
+		if (!session) return false;
+		return this.run(async (client) => {
 			await client.request('session.delete', { sessionId: session.sessionId });
 			this.closeSession();
 		});
@@ -217,15 +228,17 @@ export class ApiStore {
 		this.snapshot = state;
 	}
 
-	private async run(action: (client: ApiClient) => Promise<void>) {
+	private async run(action: (client: ApiClient) => Promise<void>): Promise<boolean> {
 		if (!this.client?.isOpen) await this.connect();
-		if (!this.client?.isOpen) return;
+		if (!this.client?.isOpen) return false;
 		this.busy = true;
 		this.error = null;
 		try {
 			await action(this.client);
+			return true;
 		} catch (error) {
 			this.error = message(error);
+			return false;
 		} finally {
 			this.busy = false;
 		}
@@ -236,4 +249,4 @@ function message(error: unknown): string {
 	return error instanceof Error ? error.message : String(error);
 }
 
-export const apiStore = new ApiStore();
+export const backendState = new BackendState();

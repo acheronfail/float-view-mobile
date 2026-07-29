@@ -403,6 +403,12 @@ public struct SessionExportRecord: Sendable, Equatable {
   }
 }
 
+public enum ThemePreference: String, Sendable, Codable, Equatable, CaseIterable {
+  case system
+  case light
+  case dark
+}
+
 public struct SettingsRecord: Sendable, Codable, Equatable {
   public let revision: Int
   public let idleProbeIntervalMs: Int64
@@ -412,7 +418,7 @@ public struct SettingsRecord: Sendable, Codable, Equatable {
   public let reconnectDurationMs: Int64
   public let automaticSessionLinkingEnabled: Bool
   public let sessionLinkWindowMs: Int64
-  public let rawPacketCaptureEnabled: Bool
+  public let themePreference: ThemePreference
 
   public init(
     revision: Int = 0,
@@ -423,7 +429,7 @@ public struct SettingsRecord: Sendable, Codable, Equatable {
     reconnectDurationMs: Int64 = 300_000,
     automaticSessionLinkingEnabled: Bool = false,
     sessionLinkWindowMs: Int64 = 7_200_000,
-    rawPacketCaptureEnabled: Bool = false
+    themePreference: ThemePreference = .system
   ) {
     self.revision = revision
     self.idleProbeIntervalMs = idleProbeIntervalMs
@@ -433,7 +439,7 @@ public struct SettingsRecord: Sendable, Codable, Equatable {
     self.reconnectDurationMs = reconnectDurationMs
     self.automaticSessionLinkingEnabled = automaticSessionLinkingEnabled
     self.sessionLinkWindowMs = sessionLinkWindowMs
-    self.rawPacketCaptureEnabled = rawPacketCaptureEnabled
+    self.themePreference = themePreference
   }
 }
 

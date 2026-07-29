@@ -11,6 +11,7 @@ dev:
 
 build:
     cd frontend && npm run build
+    cp frontend/build/index.html backends/apple/Sources/FloatViewMac/Resources/index.html
 
 run platform target="":
     #!/usr/bin/env bash
@@ -34,7 +35,10 @@ run platform target="":
           CODE_SIGNING_ALLOWED=NO build
         ;;
       macos)
-        (cd backends/apple && swift run --scratch-path /tmp/float-view-swift-build FloatViewMac)
+        frontend_html="$PWD/frontend/build/index.html"
+        (cd backends/apple && \
+          FLOAT_VIEW_FRONTEND_HTML="$frontend_html" \
+          swift run --scratch-path /tmp/float-view-swift-build FloatViewMac)
         ;;
       *) echo 'Usage: just run android|ios|macos [target]' >&2; exit 2 ;;
     esac
@@ -98,6 +102,7 @@ audit:
     ! find tools/vesc-test-device -type f \( -name '*.ts' -o -name '*.js' \) | grep -q .
     [[ "$(find frontend/build -type f | wc -l | tr -d ' ')" == 1 ]]
     [[ -f frontend/build/index.html ]]
+    cmp -s frontend/build/index.html backends/apple/Sources/FloatViewMac/Resources/index.html
     ! rg -n 'system\.hello|system\.getSnapshot|telemetrySubscriptions|loggingJobs' \
       frontend backends conformance
 

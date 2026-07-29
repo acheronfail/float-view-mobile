@@ -7,6 +7,8 @@ there is no generated API layer or platform-specific frontend code.
 ## Contract and ownership
 
 `frontend/src/lib/backend/contract.ts` is the wire-contract source of truth.
+Frontend code follows the ownership-first layout documented in
+`frontend/src/lib/README.md`.
 The UI uses only its authenticated request/result/error envelopes and complete,
 monotonic `state.changed` snapshots. Apple and Android implement that contract
 by hand. Contract changes must update the frontend client/mock, both backends,

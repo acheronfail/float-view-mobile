@@ -99,6 +99,8 @@ export interface SessionGroup {
 	distanceM?: number | null;
 }
 
+export type ThemePreference = 'system' | 'light' | 'dark';
+
 export interface Settings {
 	revision: number;
 	idleProbeIntervalMs: number;
@@ -108,7 +110,7 @@ export interface Settings {
 	reconnectDurationMs: number;
 	automaticSessionLinkingEnabled: boolean;
 	sessionLinkWindowMs: number;
-	rawPacketCaptureEnabled: boolean;
+	themePreference: ThemePreference;
 }
 
 export interface SeriesPoint {

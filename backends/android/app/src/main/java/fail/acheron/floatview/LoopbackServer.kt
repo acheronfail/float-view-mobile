@@ -422,7 +422,7 @@ class LoopbackServer(
         .put("reconnectDurationMs", value.reconnectDurationMs)
         .put("automaticSessionLinkingEnabled", value.automaticSessionLinkingEnabled)
         .put("sessionLinkWindowMs", value.sessionLinkWindowMs)
-        .put("rawPacketCaptureEnabled", value.rawPacketCaptureEnabled)
+        .put("themePreference", value.themePreference.wireValue)
 
     private fun failure(id: Int, code: String, message: String) =
         JSONObject().put("id", id).put("error", JSONObject().put("code", code).put("message", message))

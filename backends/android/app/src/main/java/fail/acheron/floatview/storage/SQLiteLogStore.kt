@@ -22,6 +22,7 @@ import fail.acheron.floatview.backend.SessionStoreException
 import fail.acheron.floatview.backend.SessionStorePort
 import fail.acheron.floatview.backend.SessionSummaryRecord
 import fail.acheron.floatview.backend.SettingsRecord
+import fail.acheron.floatview.backend.ThemePreference
 import fail.acheron.floatview.backend.TelemetrySample
 import android.util.Base64
 import org.json.JSONObject
@@ -655,7 +656,7 @@ class SQLiteLogStore(
         .put("reconnectDurationMs", value.reconnectDurationMs)
         .put("automaticSessionLinkingEnabled", value.automaticSessionLinkingEnabled)
         .put("sessionLinkWindowMs", value.sessionLinkWindowMs)
-        .put("rawPacketCaptureEnabled", value.rawPacketCaptureEnabled)
+        .put("themePreference", value.themePreference.wireValue)
 
     private fun validatedSettings(values: JSONObject, revision: Int): SettingsRecord {
         fun integer(name: String, range: LongRange): Long {
@@ -667,6 +668,10 @@ class SQLiteLogStore(
         }
         fun boolean(name: String): Boolean =
             (values.opt(name) as? Boolean) ?: throw ProductStoreException.InvalidSettingsPatch
+        fun themePreference(name: String): ThemePreference =
+            (values.opt(name) as? String)
+                ?.let(ThemePreference::fromWire)
+                ?: throw ProductStoreException.InvalidSettingsPatch
         return SettingsRecord(
             revision = revision,
             idleProbeIntervalMs = integer("idleProbeIntervalMs", 100L..10_000L),
@@ -676,7 +681,7 @@ class SQLiteLogStore(
             reconnectDurationMs = integer("reconnectDurationMs", 0L..3_600_000L),
             automaticSessionLinkingEnabled = boolean("automaticSessionLinkingEnabled"),
             sessionLinkWindowMs = integer("sessionLinkWindowMs", 60_000L..86_400_000L),
-            rawPacketCaptureEnabled = boolean("rawPacketCaptureEnabled"),
+            themePreference = themePreference("themePreference"),
         )
     }
 
@@ -1319,7 +1324,7 @@ class SQLiteLogStore(
             "reconnectDurationMs",
             "automaticSessionLinkingEnabled",
             "sessionLinkWindowMs",
-            "rawPacketCaptureEnabled",
+            "themePreference",
         )
         const val MAX_PROFILE_BYTES = 65_536
         val SERIES_COLUMNS = mapOf(

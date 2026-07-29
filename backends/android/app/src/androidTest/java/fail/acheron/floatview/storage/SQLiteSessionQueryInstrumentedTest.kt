@@ -6,15 +6,18 @@ import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import fail.acheron.floatview.backend.DeviceId
 import fail.acheron.floatview.backend.RideState
+import fail.acheron.floatview.backend.ProductStoreException
 import fail.acheron.floatview.backend.SessionListQuery
 import fail.acheron.floatview.backend.SessionStoreException
 import fail.acheron.floatview.backend.TelemetrySample
+import fail.acheron.floatview.backend.ThemePreference
 import java.io.File
 import java.time.Instant
 import kotlin.math.abs
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -144,12 +147,23 @@ class SQLiteSessionQueryInstrumentedTest {
     @Test
     fun settingsLinkingExportsAndIdempotentDeletionUseCanonicalStorage() {
         val store = SQLiteLogStore(context, availableBytes = { 2_000_000_000 })
+        assertEquals(ThemePreference.SYSTEM, store.settings().themePreference)
         val settings = store.updateSettings(
             0,
-            """{"automaticSessionLinkingEnabled":true,"sessionLinkWindowMs":7200000,"idlePersistIntervalMs":2345,"ridingPersistIntervalMs":125}""",
+            """{"automaticSessionLinkingEnabled":true,"sessionLinkWindowMs":7200000,"idlePersistIntervalMs":2345,"ridingPersistIntervalMs":125,"themePreference":"dark"}""",
         )
         assertEquals(1, settings.revision)
         assertTrue(settings.automaticSessionLinkingEnabled)
+        assertEquals(ThemePreference.DARK, settings.themePreference)
+        assertThrows(ProductStoreException.InvalidSettingsPatch::class.java) {
+            store.updateSettings(1, """{"themePreference":"twilight"}""")
+        }
+        assertThrows(ProductStoreException.InvalidSettingsPatch::class.java) {
+            store.updateSettings(1, """{"rawPacketCaptureEnabled":true}""")
+        }
+        assertThrows(ProductStoreException.SettingsRevisionConflict::class.java) {
+            store.updateSettings(0, """{"themePreference":"light"}""")
+        }
 
         val base = Instant.ofEpochMilli(1_700_000_000_000)
         val sessionIds = mutableListOf<String>()

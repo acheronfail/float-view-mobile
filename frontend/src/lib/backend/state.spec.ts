@@ -8,7 +8,7 @@ import type {
 	BluetoothState
 } from '$lib/backend/contract';
 import type { ApiClient } from './client';
-import { ApiStore, permissionOutcome } from './store.svelte';
+import { BackendState, permissionOutcome } from './state.svelte';
 
 const bluetooth = (scanPermission: BluetoothPermissionState): BluetoothState => ({
 	radio: 'powered_on',
@@ -34,7 +34,7 @@ const initial: AppState = {
 		reconnectDurationMs: 300_000,
 		automaticSessionLinkingEnabled: false,
 		sessionLinkWindowMs: 7_200_000,
-		rawPacketCaptureEnabled: false
+		themePreference: 'system'
 	}
 };
 
@@ -84,7 +84,7 @@ class FakeClient {
 	}
 }
 
-describe('ApiStore', () => {
+describe('BackendState', () => {
 	it.each([
 		['granted', 'ready'],
 		['not_required', 'ready'],
@@ -97,7 +97,7 @@ describe('ApiStore', () => {
 
 	it('loads one authoritative state and accepts only newer events', async () => {
 		const client = new FakeClient();
-		const store = new ApiStore(
+		const store = new BackendState(
 			async () => ({ webSocketUrl: 'ws://test' }),
 			async () => client as unknown as ApiClient
 		);

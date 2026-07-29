@@ -1,1 +1,67 @@
 @import 'tailwindcss';
+
+@theme inline {
+	--color-canvas: var(--app-canvas);
+	--color-surface: var(--app-surface);
+	--color-elevated: var(--app-elevated);
+	--color-foreground: var(--app-foreground);
+	--color-muted: var(--app-muted);
+	--color-outline: var(--app-outline);
+	--color-accent: var(--app-accent);
+	--color-accent-soft: var(--app-accent-soft);
+	--color-success: var(--app-success);
+	--color-warning: var(--app-warning);
+	--color-danger: var(--app-danger);
+}
+
+:root,
+:root[data-theme='light'] {
+	color-scheme: light;
+	--app-canvas: #f8fafc;
+	--app-surface: #ffffff;
+	--app-elevated: #f1f5f9;
+	--app-foreground: #0f172a;
+	--app-muted: #475569;
+	--app-outline: #cbd5e1;
+	--app-accent: #4f46e5;
+	--app-accent-soft: #e0e7ff;
+	--app-success: #047857;
+	--app-warning: #b45309;
+	--app-danger: #be123c;
+}
+
+:root[data-theme='dark'] {
+	color-scheme: dark;
+	--app-canvas: #020617;
+	--app-surface: #0f172a;
+	--app-elevated: #1e293b;
+	--app-foreground: #f1f5f9;
+	--app-muted: #94a3b8;
+	--app-outline: #334155;
+	--app-accent: #6366f1;
+	--app-accent-soft: #312e81;
+	--app-success: #6ee7b7;
+	--app-warning: #fcd34d;
+	--app-danger: #fda4af;
+}
+
+html {
+	background: var(--app-canvas);
+}
+
+button,
+a,
+input,
+select,
+summary {
+	-webkit-tap-highlight-color: transparent;
+}
+
+button,
+a {
+	cursor: pointer;
+}
+
+button:disabled {
+	cursor: default;
+}
