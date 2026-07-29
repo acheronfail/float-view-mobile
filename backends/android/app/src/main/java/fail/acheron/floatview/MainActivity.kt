@@ -3,14 +3,20 @@ package fail.acheron.floatview
 import android.annotation.SuppressLint
 import android.app.Activity
 import android.content.ComponentCallbacks2
+import android.content.res.Configuration
+import android.graphics.Color
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.webkit.WebView
 import android.widget.FrameLayout
+import androidx.core.view.WindowInsetsControllerCompat
+import fail.acheron.floatview.backend.SettingsRecord
+import fail.acheron.floatview.backend.ThemePreference
 
 class MainActivity : Activity() {
     private var webView: WebView? = null
+    private var themeSubscription: AutoCloseable? = null
     private val frontendContainer by lazy { FrameLayout(this) }
     private val handler = Handler(Looper.getMainLooper())
     private val delayedTeardown = Runnable { destroyFrontend() }
@@ -20,6 +26,12 @@ class MainActivity : Activity() {
         val app = application as FloatViewApplication
         app.runtime.permissionBroker.attach(this)
         app.runtime.exportPresentationBroker.attach(this)
+        applySystemBarTheme(app.runtime.applicationService.settings().themePreference)
+        themeSubscription = app.runtime.events.subscribe { event ->
+            if (event is SettingsRecord) {
+                runOnUiThread { applySystemBarTheme(event.themePreference) }
+            }
+        }
         setContentView(frontendContainer)
         createFrontend()
     }
@@ -77,11 +89,35 @@ class MainActivity : Activity() {
 
     internal fun frontendIsAttached(): Boolean = webView != null
 
+    @Suppress("DEPRECATION")
+    private fun applySystemBarTheme(preference: ThemePreference) {
+        val dark =
+            when (preference) {
+                ThemePreference.DARK -> true
+                ThemePreference.LIGHT -> false
+                ThemePreference.SYSTEM ->
+                    resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK ==
+                        Configuration.UI_MODE_NIGHT_YES
+            }
+        val background = Color.parseColor(if (dark) "#020617" else "#F8FAFC")
+        window.statusBarColor = background
+        window.navigationBarColor = background
+        window.navigationBarDividerColor = background
+        window.isNavigationBarContrastEnforced = false
+        frontendContainer.setBackgroundColor(background)
+        WindowInsetsControllerCompat(window, window.decorView).apply {
+            isAppearanceLightStatusBars = !dark
+            isAppearanceLightNavigationBars = !dark
+        }
+    }
+
     override fun onDestroy() {
         handler.removeCallbacks(delayedTeardown)
         val runtime = (application as FloatViewApplication).runtime
         runtime.permissionBroker.detach(this)
         runtime.exportPresentationBroker.detach(this)
+        themeSubscription?.close()
+        themeSubscription = null
         destroyFrontend()
         super.onDestroy()
     }

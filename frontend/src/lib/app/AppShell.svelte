@@ -46,9 +46,9 @@
 
 <main class="min-h-screen bg-canvas text-foreground">
 	<div
-		class="mx-auto flex min-h-screen max-w-3xl flex-col px-4 pt-6"
-		class:pb-28={activeBottomTab}
-		class:pb-6={!activeBottomTab}
+		class="app-safe-area mx-auto flex min-h-screen max-w-3xl flex-col"
+		class:app-safe-area-with-tabs={activeBottomTab}
+		class:app-safe-area-without-tabs={!activeBottomTab}
 	>
 		<header class="mb-5">
 			<h1 class="text-3xl font-semibold">Float View</h1>

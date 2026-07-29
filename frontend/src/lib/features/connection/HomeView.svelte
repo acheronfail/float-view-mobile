@@ -15,11 +15,26 @@
 			Scan for a nearby VESC board. Bluetooth and durable logging remain owned by the native app.
 		</p>
 		<button
-			class="mt-5 rounded-lg bg-accent px-4 py-2 text-white disabled:opacity-50"
+			class="mt-5 inline-flex items-center gap-2 rounded-lg bg-accent px-4 py-2 text-white disabled:opacity-50"
 			disabled={backendState.busy || backendState.scanning}
 			onclick={() => backendState.scan()}
-			>{backendState.scanning ? 'Scanning…' : 'Scan for a board'}</button
 		>
+			{#if backendState.scanning}
+				<svg aria-hidden="true" class="size-4 animate-spin" viewBox="0 0 24 24" fill="none">
+					<circle class="opacity-25" cx="12" cy="12" r="9" stroke="currentColor" stroke-width="3" />
+					<path
+						class="opacity-90"
+						d="M21 12a9 9 0 0 0-9-9"
+						stroke="currentColor"
+						stroke-linecap="round"
+						stroke-width="3"
+					/>
+				</svg>
+				<span aria-live="polite">Scanning…</span>
+			{:else}
+				Scan for a board
+			{/if}
+		</button>
 
 		{#if backendState.discoveredDevices.length}
 			<h3 class="mt-6 font-medium">Nearby boards</h3>

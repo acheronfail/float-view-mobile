@@ -35,7 +35,7 @@
 			</p>
 		{/if}
 		<button
-			class="mt-5 rounded-lg bg-danger px-4 py-2 text-white disabled:opacity-50"
+			class="mt-5 rounded-lg bg-danger px-4 py-2 text-on-danger disabled:opacity-50"
 			disabled={backendState.busy}
 			onclick={disconnect}>Stop and disconnect</button
 		>

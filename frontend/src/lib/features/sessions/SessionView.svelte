@@ -134,7 +134,7 @@
 					onclick={() => backendState.exportSession('csv')}>Save/share CSV</button
 				>
 				<button
-					class="rounded-md bg-danger px-3 py-2 text-white disabled:opacity-50"
+					class="rounded-md bg-danger px-3 py-2 text-on-danger disabled:opacity-50"
 					disabled={backendState.busy || backendState.selectedSession.state === 'active'}
 					onclick={deleteSession}>Delete session</button
 				>

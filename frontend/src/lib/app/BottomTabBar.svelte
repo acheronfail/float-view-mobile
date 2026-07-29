@@ -9,16 +9,16 @@
 	<nav
 		aria-label="Primary"
 		data-app-navigation="bottom-tabs"
-		class="fixed inset-x-0 bottom-0 z-10 border-t border-outline bg-surface/95 pb-[env(safe-area-inset-bottom)] backdrop-blur"
+		class="fixed inset-x-0 bottom-0 z-10 border-t border-outline bg-surface/95 backdrop-blur"
 	>
-		<div class="mx-auto grid max-w-3xl grid-cols-4 px-2">
+		<div class="bottom-tabs-safe-area mx-auto grid max-w-3xl grid-cols-4">
 			{#each bottomTabs as tab}
 				<a
 					href={tab.href}
 					aria-current={activeTab === tab ? 'page' : undefined}
 					class="flex min-h-16 flex-col items-center justify-center gap-1 rounded-xl px-2 py-2 text-xs font-medium"
 					class:bg-accent-soft={activeTab === tab}
-					class:text-accent={activeTab === tab}
+					class:text-on-accent-soft={activeTab === tab}
 					class:text-muted={activeTab !== tab}
 				>
 					{#if tab.icon === 'connect'}

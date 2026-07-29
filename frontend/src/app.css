@@ -9,9 +9,11 @@
 	--color-outline: var(--app-outline);
 	--color-accent: var(--app-accent);
 	--color-accent-soft: var(--app-accent-soft);
+	--color-on-accent-soft: var(--app-on-accent-soft);
 	--color-success: var(--app-success);
 	--color-warning: var(--app-warning);
 	--color-danger: var(--app-danger);
+	--color-on-danger: var(--app-on-danger);
 }
 
 :root,
@@ -25,9 +27,11 @@
 	--app-outline: #cbd5e1;
 	--app-accent: #4f46e5;
 	--app-accent-soft: #e0e7ff;
+	--app-on-accent-soft: #3730a3;
 	--app-success: #047857;
 	--app-warning: #b45309;
 	--app-danger: #be123c;
+	--app-on-danger: #ffffff;
 }
 
 :root[data-theme='dark'] {
@@ -40,13 +44,35 @@
 	--app-outline: #334155;
 	--app-accent: #6366f1;
 	--app-accent-soft: #312e81;
+	--app-on-accent-soft: #e0e7ff;
 	--app-success: #6ee7b7;
 	--app-warning: #fcd34d;
 	--app-danger: #fda4af;
+	--app-on-danger: #4c0519;
 }
 
 html {
 	background: var(--app-canvas);
+}
+
+.app-safe-area {
+	padding-top: max(1.5rem, env(safe-area-inset-top, 0px));
+	padding-right: max(1rem, env(safe-area-inset-right, 0px));
+	padding-left: max(1rem, env(safe-area-inset-left, 0px));
+}
+
+.app-safe-area-with-tabs {
+	padding-bottom: calc(7rem + env(safe-area-inset-bottom, 0px));
+}
+
+.app-safe-area-without-tabs {
+	padding-bottom: max(1.5rem, env(safe-area-inset-bottom, 0px));
+}
+
+.bottom-tabs-safe-area {
+	padding-right: max(0.5rem, env(safe-area-inset-right, 0px));
+	padding-bottom: env(safe-area-inset-bottom, 0px);
+	padding-left: max(0.5rem, env(safe-area-inset-left, 0px));
 }
 
 button,
