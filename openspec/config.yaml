@@ -12,6 +12,8 @@ context: |
   Prefer deletion, standard libraries, and small maintained dependencies.
   Keep the development loop centered on the root justfile. `just verify` is
   the complete software gate.
+  Run every OpenSpec CLI command with `OPENSPEC_TELEMETRY=0`; OpenSpec work in
+  this repository must not make telemetry requests.
 
 rules:
   proposal:
