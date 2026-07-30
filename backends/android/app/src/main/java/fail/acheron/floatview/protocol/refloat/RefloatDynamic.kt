@@ -115,7 +115,7 @@ class RefloatDynamicTelemetryDecoder {
             motorCurrentA = values["motor.current"],
             batteryCurrentA = values["motor.batt_current"],
             erpm = values["motor.erpm"],
-            speedKph = values["motor.speed"]?.times(3.6),
+            speedKph = values["motor.speed"]?,
             pitchDeg = values["imu.pitch"],
             balancePitchDeg = values["imu.balance_pitch"],
             rollDeg = values["imu.roll"],

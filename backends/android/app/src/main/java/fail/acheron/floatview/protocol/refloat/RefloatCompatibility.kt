@@ -12,6 +12,7 @@ object RefloatCompatibility {
     val entries = listOf(
         RefloatCompatibilityEntry("1.0.0", "1.0", RefloatTelemetryFamily.LEGACY_FIXED),
         RefloatCompatibilityEntry("1.1.0", "1.1.0", RefloatTelemetryFamily.DYNAMIC),
+        RefloatCompatibilityEntry("1.2.1", "1.2.1", RefloatTelemetryFamily.DYNAMIC),
         RefloatCompatibilityEntry("1.2.3", "1.2.3", RefloatTelemetryFamily.DYNAMIC),
     )
 

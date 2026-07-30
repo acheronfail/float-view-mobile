@@ -15,6 +15,7 @@ public enum RefloatCompatibility {
   public static let entries: [RefloatCompatibilityEntry] = [
     .init(sourceVersion: "1.0.0", wireVersion: "1.0", family: .legacyFixed),
     .init(sourceVersion: "1.1.0", wireVersion: "1.1.0", family: .dynamic),
+    .init(sourceVersion: "1.2.1", wireVersion: "1.2.1", family: .dynamic),
     .init(sourceVersion: "1.2.3", wireVersion: "1.2.3", family: .dynamic),
   ]
 

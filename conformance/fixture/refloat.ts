@@ -165,7 +165,7 @@ export function encodeLegacyCompact(sample: TelemetrySample, detailLevel: number
 	payload[22] = byte(sample.boosterCurrentA + 128);
 	i16(payload, 23, sample.packVoltageV * 10);
 	i16(payload, 25, sample.erpm);
-	i16(payload, 27, (sample.speedKph / 3.6) * 10);
+	i16(payload, 27, sample.speedKph * 10);
 	i16(payload, 29, sample.motorCurrentA * 10);
 	i16(payload, 31, sample.batteryCurrentA * 10);
 	payload[33] = byte(sample.dutyCycle * 100 + 128);
@@ -197,7 +197,7 @@ export function encodeDynamicTelemetry(sample: TelemetrySample, alertTail: boole
 	if (sample.charging) mask |= 0x02;
 	if (alertTail) mask |= 0x04;
 	const values = [
-		sample.speedKph / 3.6,
+		sample.speedKph,
 		sample.erpm,
 		sample.motorCurrentA,
 		sample.directionalMotorCurrentA,
