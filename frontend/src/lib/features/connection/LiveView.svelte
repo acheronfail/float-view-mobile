@@ -21,6 +21,7 @@
 		telemetryFlag,
 		telemetryState
 	} from './telemetry';
+	import GaugePrimary from './GaugePrimary.svelte';
 
 	let menuOpen = $state(false);
 	let configureOpen = $state(false);
@@ -207,9 +208,13 @@
 			</div>
 		{/if}
 		{#if savedDevice && !savedDevice.profileComplete}
-			<div class="rounded-xl border border-warning/50 bg-warning/10 p-3 text-sm text-warning">
-				This board has no complete Board Profile. Live monitoring remains available.
-			</div>
+			<button
+				class="rounded-xl text-left border border-warning/50 bg-warning/10 p-3 text-sm text-warning"
+				onpointerdown={(event) => activateFromPointer(event, openConfigure)}
+				onclick={(event) => activateFromKeyboardOrAssistiveClick(event, openConfigure)}
+			>
+				This board has no complete Board Profile, tap to configure.
+			</button>
 		{/if}
 		{#if safetyStateActive}
 			<div role="status" class="rounded-xl border border-warning/50 bg-warning/10 p-3 text-sm">
@@ -217,6 +222,10 @@
 				These readings describe onboard controller behavior; Float View does not control the board.
 			</div>
 		{/if}
+
+		<div class:opacity-45={dimmed} class="space-y-5 transition-opacity">
+			<GaugePrimary {sample} {units} />
+		</div>
 
 		<div class:opacity-45={dimmed} class="space-y-5 transition-opacity">
 			<TelemetrySection
@@ -234,7 +243,11 @@
 					['Alert reason', telemetryState(sample?.alertReason)],
 					[
 						'Active firmware fault',
-						sample ? (sample.firmwareFault ? telemetryState(sample.firmwareFault) : 'None') : 'Unavailable'
+						sample
+							? sample.firmwareFault
+								? telemetryState(sample.firmwareFault)
+								: 'None'
+							: 'Unavailable'
 					],
 					['Session time', duration(sample?.elapsedMs)]
 				] as [string, string][]}
