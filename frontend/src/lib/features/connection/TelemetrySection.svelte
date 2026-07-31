@@ -3,7 +3,7 @@
 </script>
 
 <section aria-label={title}>
-	<h3 class="mb-2 text-xs font-semibold tracking-[0.16em] text-muted uppercase">{title}</h3>
+	<h3 class="mb-1 text-xs font-semibold tracking-[0.16em] text-muted uppercase">{title}</h3>
 	<dl
 		class="grid grid-cols-2 overflow-hidden rounded-xl border border-outline sm:grid-cols-2 lg:grid-cols-3"
 	>

@@ -27,6 +27,8 @@
 		telemetryState
 	} from './telemetry';
 	import GaugePrimary from './GaugePrimary.svelte';
+	import GaugePower from './GaugePower.svelte';
+	import GaugeTemperatures from './GaugeTemperatures.svelte';
 
 	let menuOpen = $state(false);
 	let configureOpen = $state(false);
@@ -141,7 +143,7 @@
 	}
 </script>
 
-<section aria-labelledby="live-heading" class="space-y-5">
+<section aria-labelledby="live-heading" class="space-y-2">
 	{#if connection}
 		<header class="relative flex items-start justify-between gap-4">
 			<div>
@@ -229,11 +231,19 @@
 			</div>
 		{/if}
 
-		<div class:opacity-45={dimmed} class="space-y-5 transition-opacity">
+		<div class:opacity-45={dimmed} class="space-y-2 transition-opacity">
 			<GaugePrimary {sample} {currentLimits} {units} />
 		</div>
 
-		<div class:opacity-45={dimmed} class="space-y-5 transition-opacity">
+		<div class:opacity-45={dimmed} class="space-y-2 transition-opacity">
+			<GaugeTemperatures {sample} />
+		</div>
+
+		<div class:opacity-45={dimmed} class="space-y-2 transition-opacity">
+			<GaugePower {sample} />
+		</div>
+
+		<div class:opacity-45={dimmed} class="space-y-2 transition-opacity">
 			<TelemetrySection
 				title="Board state"
 				items={[
