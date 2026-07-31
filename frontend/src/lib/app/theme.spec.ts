@@ -60,4 +60,14 @@ describe('theme resolution', () => {
 		test.changeSystem(false);
 		expect(test.applied.at(-1)).toBe('light');
 	});
+
+	it('remembers system changes received while an explicit theme is selected', () => {
+		const test = environment('light');
+		const controller = new ThemeController(test.value);
+		controller.start();
+		test.changeSystem(true);
+		expect(test.applied).toEqual(['light']);
+		controller.reconcile('system');
+		expect(test.applied.at(-1)).toBe('dark');
+	});
 });

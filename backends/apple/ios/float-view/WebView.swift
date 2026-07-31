@@ -27,6 +27,7 @@ struct WebView: UIViewRepresentable {
     }
 
     webView.isOpaque = false
+    webView.scrollView.pinchGestureRecognizer?.isEnabled = false
     context.coordinator.load(url, in: webView)
     return webView
   }

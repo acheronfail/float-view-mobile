@@ -42,6 +42,13 @@ class MainActivity : Activity() {
         createFrontend()
     }
 
+    override fun onResume() {
+        super.onResume()
+        val preference =
+            (application as FloatViewApplication).runtime.applicationService.settings().themePreference
+        applySystemBarTheme(preference)
+    }
+
     override fun onStop() {
         handler.removeCallbacks(delayedTeardown)
         handler.postDelayed(delayedTeardown, FRONTEND_BACKGROUND_GRACE_MS)
@@ -66,6 +73,9 @@ class MainActivity : Activity() {
         webView = WebView(this).also {
             it.settings.javaScriptEnabled = true
             it.settings.domStorageEnabled = true
+            it.settings.setSupportZoom(false)
+            it.settings.builtInZoomControls = false
+            it.settings.displayZoomControls = false
             it.loadUrl(origin)
             frontendContainer.addView(
                 it,

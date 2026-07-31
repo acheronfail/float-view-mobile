@@ -15,7 +15,7 @@
 			Scan for a nearby VESC board. Bluetooth and durable logging remain owned by the native app.
 		</p>
 		<button
-			class="mt-5 inline-flex items-center gap-2 rounded-lg bg-accent px-4 py-2 text-white disabled:opacity-50"
+			class="mt-5 inline-flex items-center gap-2 rounded-lg bg-accent px-4 py-2 text-on-accent disabled:opacity-50"
 			disabled={backendState.busy || backendState.scanning}
 			onclick={() => backendState.scan()}
 		>
@@ -46,7 +46,7 @@
 							<span class="text-sm text-muted capitalize">{device.state.replaceAll('_', ' ')}</span>
 						</div>
 						<button
-							class="rounded-md bg-accent px-3 py-1 text-white disabled:opacity-50"
+							class="rounded-md bg-accent px-3 py-1 text-on-accent disabled:opacity-50"
 							disabled={backendState.busy}
 							onclick={() => connect(device.deviceId)}>Connect</button
 						>

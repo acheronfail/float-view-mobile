@@ -6,9 +6,11 @@ final class AppBackend: ObservableObject {
   let bluetooth: any BluetoothPort
   let applicationService: ApplicationService
   @Published private(set) var frontend: FrontendEndpoint?
+  @Published private(set) var themePreference: ThemePreference
   private var frontendServer: LoopbackServer?
   private var frontendGeneration = 0
   private let eventSubscription: EventSubscription
+  private var themeSubscription: EventSubscription?
 
   init() {
     #if DEBUG
@@ -84,7 +86,14 @@ final class AppBackend: ObservableObject {
     let html = try! Data(contentsOf: Bundle.main.url(forResource: "index", withExtension: "html")!)
     self.bluetooth = bluetooth
     self.applicationService = applicationService
+    themePreference = settings.themePreference
     eventSubscription = events.subscribe { debugEvents.publish($0) }
+    themeSubscription = events.subscribe { [weak self] event in
+      guard let settings = event as? SettingsRecord else { return }
+      Task { @MainActor [weak self] in
+        self?.themePreference = settings.themePreference
+      }
+    }
     frontendServer = LoopbackServer(
       html: html,
       port: ProcessInfo.processInfo.environment["FLOAT_VIEW_CONFORMANCE_PORT"]
@@ -252,6 +261,14 @@ struct ContentView: View {
   @StateObject private var backend = AppBackend()
   @Environment(\.scenePhase) private var scenePhase
 
+  private var preferredColorScheme: ColorScheme? {
+    switch backend.themePreference {
+    case .system: return nil
+    case .light: return .light
+    case .dark: return .dark
+    }
+  }
+
   var body: some View {
     Group {
       if let frontend = backend.frontend {
@@ -259,11 +276,12 @@ struct ContentView: View {
           .id(frontend.generation)
           .ignoresSafeArea()
       } else if scenePhase == .background {
-        Color.black.ignoresSafeArea()
+        Color(uiColor: .systemBackground).ignoresSafeArea()
       } else {
         ContentUnavailableView("Backend unavailable", systemImage: "exclamationmark.triangle")
       }
     }
+    .preferredColorScheme(preferredColorScheme)
     .onChange(of: scenePhase, initial: true) { _, phase in
       switch phase {
       case .active:

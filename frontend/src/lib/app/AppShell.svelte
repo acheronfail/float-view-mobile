@@ -16,6 +16,8 @@
 	onMount(() => {
 		themeController = new ThemeController(browserThemeEnvironment());
 		const stopTheme = themeController.start();
+		const preference = backendState.settings?.themePreference;
+		if (preference) themeController.reconcile(preference);
 		void backendState.connect();
 		return () => {
 			stopTheme();
@@ -40,10 +42,6 @@
 		}
 	});
 </script>
-
-<svelte:head>
-	<meta name="theme-color" content="#020617" />
-</svelte:head>
 
 <main class="min-h-screen bg-canvas text-foreground">
 	<div

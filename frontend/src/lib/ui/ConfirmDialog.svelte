@@ -112,7 +112,7 @@
 					class:bg-danger={destructive}
 					class:text-on-danger={destructive}
 					class:bg-accent={!destructive}
-					class:text-white={!destructive}
+					class:text-on-accent={!destructive}
 					disabled={busy}
 					onpointerdown={(event) => activateFromPointer(event, confirm)}
 					onclick={(event) => activateFromKeyboardOrAssistiveClick(event, confirm)}

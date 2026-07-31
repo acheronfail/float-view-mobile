@@ -20,6 +20,7 @@ export interface ThemeEnvironment {
 
 export class ThemeController {
 	private preference: ThemePreference = 'system';
+	private systemDark = false;
 	private unsubscribe: (() => void) | null = null;
 
 	constructor(private readonly environment: ThemeEnvironment) {}
@@ -27,8 +28,10 @@ export class ThemeController {
 	start() {
 		const hint = this.environment.readHint();
 		this.preference = isThemePreference(hint) ? hint : 'system';
+		this.systemDark = this.environment.systemDark();
 		this.apply();
-		this.unsubscribe = this.environment.subscribe(() => {
+		this.unsubscribe = this.environment.subscribe((systemDark) => {
+			this.systemDark = systemDark;
 			if (this.preference === 'system') this.apply();
 		});
 		return () => {
@@ -44,7 +47,7 @@ export class ThemeController {
 	}
 
 	private apply() {
-		this.environment.apply(resolveTheme(this.preference, this.environment.systemDark()));
+		this.environment.apply(resolveTheme(this.preference, this.systemDark));
 	}
 }
 
@@ -74,9 +77,22 @@ export function browserThemeEnvironment(): ThemeEnvironment {
 			}
 		},
 		subscribe: (listener) => {
-			const handler = (event: MediaQueryListEvent) => listener(event.matches);
-			media.addEventListener('change', handler);
-			return () => media.removeEventListener('change', handler);
+			const mediaHandler = (event: MediaQueryListEvent) => listener(event.matches);
+			const reconcile = () => listener(media.matches);
+			const visibilityHandler = () => {
+				if (document.visibilityState === 'visible') reconcile();
+			};
+
+			media.addEventListener('change', mediaHandler);
+			window.addEventListener('focus', reconcile);
+			window.addEventListener('pageshow', reconcile);
+			document.addEventListener('visibilitychange', visibilityHandler);
+			return () => {
+				media.removeEventListener('change', mediaHandler);
+				window.removeEventListener('focus', reconcile);
+				window.removeEventListener('pageshow', reconcile);
+				document.removeEventListener('visibilitychange', visibilityHandler);
+			};
 		}
 	};
 }

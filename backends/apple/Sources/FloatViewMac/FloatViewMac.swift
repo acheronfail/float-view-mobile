@@ -179,6 +179,7 @@ private final class MacAppDelegate: NSObject, NSApplicationDelegate, NSWindowDel
       generation += 1
       let webView = WKWebView(frame: .zero)
       webView.navigationDelegate = self
+      webView.allowsMagnification = false
       webView.load(URLRequest(url: URL(string: server.origin)!))
       let window = NSWindow(
         contentRect: NSRect(x: 0, y: 0, width: 430, height: 820),
