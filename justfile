@@ -31,11 +31,32 @@ run platform target="":
           -n fail.acheron.floatview/fail.acheron.floatview.MainActivity
         ;;
       ios)
-        destination='generic/platform=iOS Simulator'
-        [[ -z "{{ target }}" ]] || destination="id={{ target }}"
-        xcodebuild -project backends/apple/ios/float-view.xcodeproj -scheme float-view \
-          -destination "$destination" -derivedDataPath /tmp/float-view-ios \
-          CODE_SIGNING_ALLOWED=NO build
+        project="$PWD/backends/apple/ios/float-view.xcodeproj"
+        target="{{ target }}"
+        if [[ -z "$target" ]]; then
+          xcodebuild -project "$project" -scheme float-view \
+            -destination 'generic/platform=iOS Simulator' -derivedDataPath /tmp/float-view-ios \
+            CODE_SIGNING_ALLOWED=NO build
+        elif xcrun simctl list devices available | grep -F "$target" >/dev/null; then
+          derived='/tmp/float-view-ios'
+          xcrun simctl boot "$target" >/dev/null 2>&1 || true
+          xcrun simctl bootstatus "$target" -b
+          xcodebuild -project "$project" -scheme float-view -sdk iphonesimulator \
+            -destination "id=$target" -derivedDataPath "$derived" \
+            CODE_SIGNING_ALLOWED=NO build
+          xcrun simctl install "$target" \
+            "$derived/Build/Products/Debug-iphonesimulator/float-view.app"
+          xcrun simctl launch --terminate-running-process "$target" fail.acheron.float-view
+        else
+          derived='/tmp/float-view-ios-physical'
+          xcodebuild -project "$project" -scheme float-view -configuration Debug \
+            -destination "platform=iOS,id=$target" -destination-timeout 30 \
+            -derivedDataPath "$derived" -allowProvisioningUpdates build
+          xcrun devicectl device install app --device "$target" \
+            "$derived/Build/Products/Debug-iphoneos/float-view.app"
+          xcrun devicectl device process launch --device "$target" \
+            --terminate-existing --quiet fail.acheron.float-view
+        fi
         ;;
       macos)
         frontend_html="$PWD/frontend/build/index.html"
