@@ -372,6 +372,16 @@ public final class SQLiteLogStore: LogStorePort, ProductStorePort, SessionStoreP
     defer { lock.unlock() }
     guard let record = current else { throw SQLiteLogStoreError.noActiveSession }
     guard record.jobID == jobID else { throw SQLiteLogStoreError.wrongJob }
+    let enteredRiding = try session?.scalarInt(
+      "SELECT EXISTS(SELECT 1 FROM sample WHERE ride_state = 'riding')"
+    ) == 1
+    let distance = try catalog.query(
+      "SELECT COALESCE(distance_m, 0) FROM session_catalog WHERE job_id = ?",
+      values: [.text(jobID.value)],
+      map: { sqlite3_column_double($0, 0) }
+    ).first ?? 0
+    let minimumSessionDistance = try settingsLocked().minimumSessionDistance
+    let retainSession = enteredRiding && distance >= minimumSessionDistance
     try session?.execute("PRAGMA wal_checkpoint(FULL)")
     try catalog.execute("BEGIN IMMEDIATE")
     do {
@@ -385,7 +395,9 @@ public final class SQLiteLogStore: LogStorePort, ProductStorePort, SessionStoreP
           .text(reason), .text(jobID.value),
         ]
       )
-      try linkClosedSessionLocked(sessionID: record.sessionID.value)
+      if retainSession {
+        try linkClosedSessionLocked(sessionID: record.sessionID.value)
+      }
       try catalog.execute("COMMIT")
     } catch {
       try? catalog.execute("ROLLBACK")
@@ -393,6 +405,9 @@ public final class SQLiteLogStore: LogStorePort, ProductStorePort, SessionStoreP
     }
     session = nil
     current = nil
+    if !retainSession {
+      try deleteSessionLocked(sessionID: record.sessionID.value)
+    }
     return SessionRecord(
       sessionID: record.sessionID, jobID: record.jobID, deviceID: record.deviceID,
       startedAt: record.startedAt, committedSequence: record.committedSequence, active: false
@@ -859,6 +874,10 @@ public final class SQLiteLogStore: LogStorePort, ProductStorePort, SessionStoreP
   public func deleteSession(sessionID: String) throws {
     lock.lock()
     defer { lock.unlock() }
+    try deleteSessionLocked(sessionID: sessionID)
+  }
+
+  private func deleteSessionLocked(sessionID: String) throws {
     if current?.sessionID.value == sessionID { throw SessionStoreError.sessionActive }
     guard let sessionRow = try catalog.query(
       "SELECT file_name, state FROM session_catalog WHERE session_id = ?",
@@ -1006,23 +1025,55 @@ public final class SQLiteLogStore: LogStorePort, ProductStorePort, SessionStoreP
 
   @discardableResult
   public func recoverInterrupted() throws -> Int {
-    try catalog.execute(
-      """
-      UPDATE session_catalog SET state = 'interrupted', integrity = 'recovered',
-      close_reason = 'process_interruption' WHERE state = 'active'
-      """
+    lock.lock()
+    defer { lock.unlock() }
+    let minimumDistance = try settingsLocked().minimumSessionDistance
+    let activeSessions = try catalog.query(
+      "SELECT session_id, file_name, COALESCE(distance_m, 0) FROM session_catalog WHERE state = 'active'",
+      map: {
+        (Self.columnText($0, 0)!, Self.columnText($0, 1)!, sqlite3_column_double($0, 2))
+      }
     )
-    return try catalog.scalarInt("SELECT changes()")
+    var recovered = 0
+    for (sessionID, fileName, distance) in activeSessions {
+      let enteredRiding = (try? sessionEnteredRiding(fileName: fileName)) ?? false
+      try catalog.statement(
+        """
+        UPDATE session_catalog SET state = 'interrupted', integrity = 'recovered',
+        close_reason = 'process_interruption' WHERE session_id = ? AND state = 'active'
+        """,
+        values: [.text(sessionID)]
+      )
+      if enteredRiding && distance >= minimumDistance {
+        recovered += 1
+      } else {
+        try deleteSessionLocked(sessionID: sessionID)
+      }
+    }
+    return recovered
+  }
+
+  private func sessionEnteredRiding(fileName: String) throws -> Bool {
+    let database = try Database(url: root.appending(path: fileName))
+    return try database.scalarInt(
+      "SELECT EXISTS(SELECT 1 FROM sample WHERE ride_state = 'riding')"
+    ) == 1
   }
 
   private func settingsLocked() throws -> SettingsRecord {
-    if let json = try catalog.query(
-      "SELECT json FROM settings WHERE singleton = 1",
-      map: { Self.columnText($0, 0)! }
+    if let stored = try catalog.query(
+      "SELECT revision, json FROM settings WHERE singleton = 1",
+      map: { (Int(sqlite3_column_int64($0, 0)), Self.columnText($0, 1)!) }
     ).first,
-      let value = try? JSONDecoder().decode(SettingsRecord.self, from: Data(json.utf8))
+      var values = (try? JSONSerialization.jsonObject(with: Data(stored.1.utf8)))
+        as? [String: Any]
     {
-      return value
+      if values["minimumSessionDistance"] == nil {
+        values["minimumSessionDistance"] = SettingsRecord().minimumSessionDistance
+      }
+      if let value = try? Self.validatedSettings(values, revision: stored.0) {
+        return value
+      }
     }
     let value = SettingsRecord()
     let json = String(data: try JSONEncoder().encode(value), encoding: .utf8)!
@@ -1554,6 +1605,7 @@ public final class SQLiteLogStore: LogStorePort, ProductStorePort, SessionStoreP
     "ridingPersistIntervalMs",
     "postRideTailMs",
     "reconnectDurationMs",
+    "minimumSessionDistance",
     "automaticSessionLinkingEnabled",
     "sessionLinkWindowMs",
     "themePreference",
@@ -1567,6 +1619,7 @@ public final class SQLiteLogStore: LogStorePort, ProductStorePort, SessionStoreP
       "ridingPersistIntervalMs": value.ridingPersistIntervalMs,
       "postRideTailMs": value.postRideTailMs,
       "reconnectDurationMs": value.reconnectDurationMs,
+      "minimumSessionDistance": value.minimumSessionDistance,
       "automaticSessionLinkingEnabled": value.automaticSessionLinkingEnabled,
       "sessionLinkWindowMs": value.sessionLinkWindowMs,
       "themePreference": value.themePreference.rawValue,
@@ -1591,6 +1644,13 @@ public final class SQLiteLogStore: LogStorePort, ProductStorePort, SessionStoreP
       else { throw ProductStoreError.invalidSettingsPatch }
       return number.boolValue
     }
+    func double(_ key: String, _ range: ClosedRange<Double>) throws -> Double {
+      guard let number = values[key] as? NSNumber,
+            CFGetTypeID(number) != CFBooleanGetTypeID(),
+            number.doubleValue.isFinite
+      else { throw ProductStoreError.invalidSettingsPatch }
+      return min(range.upperBound, max(range.lowerBound, number.doubleValue))
+    }
     func themePreference(_ key: String) throws -> ThemePreference {
       guard let rawValue = values[key] as? String,
             let value = ThemePreference(rawValue: rawValue)
@@ -1610,6 +1670,7 @@ public final class SQLiteLogStore: LogStorePort, ProductStorePort, SessionStoreP
       ridingPersistIntervalMs: integer("ridingPersistIntervalMs", 50 ... 10_000),
       postRideTailMs: integer("postRideTailMs", 0 ... 300_000),
       reconnectDurationMs: integer("reconnectDurationMs", 0 ... 3_600_000),
+      minimumSessionDistance: double("minimumSessionDistance", 0 ... 1_000_000),
       automaticSessionLinkingEnabled: boolean("automaticSessionLinkingEnabled"),
       sessionLinkWindowMs: integer("sessionLinkWindowMs", 60_000 ... 86_400_000),
       themePreference: themePreference("themePreference"),

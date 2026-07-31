@@ -14,7 +14,8 @@ describe('battery power gauge', () => {
 			props: { sample, batterySeriesCells: 18 }
 		});
 
-		expect(body).toContain('75.60 V (4.20 V)');
+		expect(body).toContain('75.6 V');
+		expect(body).toContain('4.20 V');
 		expect(body).toContain('64%');
 	});
 
@@ -28,7 +29,7 @@ describe('battery power gauge', () => {
 			props: { sample, batterySeriesCells: null }
 		});
 
-		expect(body.match(/text-muted/g)).toHaveLength(2);
-		expect(body.match(/>—<\/span>|>—<\/output>/g)).toHaveLength(2);
+		expect(body.match(/text-muted/g)).toHaveLength(4);
+		expect(body.match(/>—<\/span>|>—<\/output>/g)).toHaveLength(1);
 	});
 });

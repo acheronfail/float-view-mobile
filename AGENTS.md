@@ -6,6 +6,10 @@ there is no generated API layer or platform-specific frontend code.
 
 ## Researching definitive upstream source
 
+Prefer using the following offline copies of upstream information relating to
+the VESC spec, refloat package inner implementations, VBMS workings or generally
+other platform related information.
+
 Look in the git-ignored `vendor/` directory, here there should be the upstream
 firmware and package sources, for example:
 
@@ -13,6 +17,7 @@ firmware and package sources, for example:
 - <https://github.com/lukash/refloat>
 - <https://github.com/vedderb/vesc_tool>
 - <https://github.com/vedderb/vesc_bms_fw>
+- <https://github.com/acheronfail/float-view>
 
 ## Contract and ownership
 

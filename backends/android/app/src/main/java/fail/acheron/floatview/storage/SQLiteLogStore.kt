@@ -254,6 +254,21 @@ class SQLiteLogStore(
     override fun close(jobId: JobId, at: Instant, reason: String): SessionRecord {
         val record = requireNotNull(current) { "No active session" }
         require(record.jobId == jobId) { "Wrong logging job" }
+        val enteredRiding = sessionDb?.let {
+            android.database.DatabaseUtils.longForQuery(
+                it,
+                "SELECT EXISTS(SELECT 1 FROM sample WHERE ride_state = 'riding')",
+                null,
+            ) == 1L
+        } ?: false
+        val distance = catalog.writableDatabase.rawQuery(
+            "SELECT COALESCE(distance_m, 0) FROM session_catalog WHERE job_id = ?",
+            arrayOf(jobId.value),
+        ).use { cursor ->
+            if (cursor.moveToFirst()) cursor.getDouble(0) else 0.0
+        }
+        val retainSession = enteredRiding &&
+            distance >= settings(catalog.writableDatabase).minimumSessionDistance
         sessionDb?.let { executePragma(it, "PRAGMA wal_checkpoint(FULL)") }
         sessionDb?.close()
         sessionDb = null
@@ -268,12 +283,14 @@ class SQLiteLogStore(
                 """.trimIndent(),
                 arrayOf(at.toEpochMilli(), record.committedSequence, reason, jobId.value),
             )
-            linkClosedSession(catalogDb, record.sessionId.value)
+            if (retainSession) linkClosedSession(catalogDb, record.sessionId.value)
             catalogDb.setTransactionSuccessful()
         } finally {
             catalogDb.endTransaction()
         }
-        return record.copy(active = false).also { current = null }
+        current = null
+        if (!retainSession) deleteSession(record.sessionId.value)
+        return record.copy(active = false)
     }
 
     @Synchronized
@@ -842,16 +859,47 @@ class SQLiteLogStore(
         }
     }
 
+    @Synchronized
     fun recoverInterrupted(): Int {
         val db = catalog.writableDatabase
-        db.execSQL(
-            "UPDATE session_catalog SET state = 'interrupted', integrity = 'recovered', close_reason = 'process_interruption' WHERE state = 'active'",
-        )
-        return android.database.DatabaseUtils.longForQuery(
-            db,
-            "SELECT changes()",
+        data class ActiveSession(val sessionId: String, val fileName: String, val distance: Double)
+        val activeSessions = db.rawQuery(
+            "SELECT session_id, file_name, COALESCE(distance_m, 0) FROM session_catalog WHERE state = 'active'",
             null,
-        ).toInt()
+        ).use { cursor ->
+            buildList {
+                while (cursor.moveToNext()) {
+                    add(ActiveSession(cursor.getString(0), cursor.getString(1), cursor.getDouble(2)))
+                }
+            }
+        }
+        val minimumDistance = settings(db).minimumSessionDistance
+        var recovered = 0
+        activeSessions.forEach { active ->
+            val enteredRiding = runCatching {
+                SQLiteDatabase.openDatabase(
+                    File(root, active.fileName).path,
+                    null,
+                    SQLiteDatabase.OPEN_READONLY,
+                ).use { session ->
+                    android.database.DatabaseUtils.longForQuery(
+                        session,
+                        "SELECT EXISTS(SELECT 1 FROM sample WHERE ride_state = 'riding')",
+                        null,
+                    ) == 1L
+                }
+            }.getOrDefault(false)
+            db.execSQL(
+                "UPDATE session_catalog SET state = 'interrupted', integrity = 'recovered', close_reason = 'process_interruption' WHERE session_id = ? AND state = 'active'",
+                arrayOf(active.sessionId),
+            )
+            if (enteredRiding && active.distance >= minimumDistance) {
+                recovered += 1
+            } else {
+                deleteSession(active.sessionId)
+            }
+        }
+        return recovered
     }
 
     private fun settings(db: SQLiteDatabase): SettingsRecord {
@@ -861,7 +909,11 @@ class SQLiteLogStore(
         ).use { cursor ->
             if (cursor.moveToFirst()) {
                 try {
-                    validatedSettings(JSONObject(cursor.getString(0)), JSONObject(cursor.getString(0)).optInt("revision", 0))
+                    val values = JSONObject(cursor.getString(0))
+                    if (!values.has("minimumSessionDistance")) {
+                        values.put("minimumSessionDistance", SettingsRecord().minimumSessionDistance)
+                    }
+                    validatedSettings(values, values.optInt("revision", 0))
                 } catch (_: Exception) {
                     null
                 }
@@ -885,6 +937,7 @@ class SQLiteLogStore(
         .put("ridingPersistIntervalMs", value.ridingPersistIntervalMs)
         .put("postRideTailMs", value.postRideTailMs)
         .put("reconnectDurationMs", value.reconnectDurationMs)
+        .put("minimumSessionDistance", value.minimumSessionDistance)
         .put("automaticSessionLinkingEnabled", value.automaticSessionLinkingEnabled)
         .put("sessionLinkWindowMs", value.sessionLinkWindowMs)
         .put("themePreference", value.themePreference.wireValue)
@@ -900,6 +953,13 @@ class SQLiteLogStore(
         }
         fun boolean(name: String): Boolean =
             (values.opt(name) as? Boolean) ?: throw ProductStoreException.InvalidSettingsPatch
+        fun double(name: String, range: ClosedFloatingPointRange<Double>): Double {
+            val raw = values.opt(name) as? Number
+                ?: throw ProductStoreException.InvalidSettingsPatch
+            val value = raw.toDouble()
+            if (!value.isFinite()) throw ProductStoreException.InvalidSettingsPatch
+            return value.coerceIn(range)
+        }
         fun themePreference(name: String): ThemePreference =
             (values.opt(name) as? String)
                 ?.let(ThemePreference::fromWire)
@@ -915,6 +975,7 @@ class SQLiteLogStore(
             ridingPersistIntervalMs = integer("ridingPersistIntervalMs", 50L..10_000L),
             postRideTailMs = integer("postRideTailMs", 0L..300_000L),
             reconnectDurationMs = integer("reconnectDurationMs", 0L..3_600_000L),
+            minimumSessionDistance = double("minimumSessionDistance", 0.0..1_000_000.0),
             automaticSessionLinkingEnabled = boolean("automaticSessionLinkingEnabled"),
             sessionLinkWindowMs = integer("sessionLinkWindowMs", 60_000L..86_400_000L),
             themePreference = themePreference("themePreference"),
@@ -1751,6 +1812,7 @@ class SQLiteLogStore(
             "ridingPersistIntervalMs",
             "postRideTailMs",
             "reconnectDurationMs",
+            "minimumSessionDistance",
             "automaticSessionLinkingEnabled",
             "sessionLinkWindowMs",
             "themePreference",

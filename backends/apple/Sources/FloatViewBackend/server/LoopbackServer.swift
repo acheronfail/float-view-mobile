@@ -556,6 +556,7 @@ public final class LoopbackServer: @unchecked Sendable {
       "ridingPersistIntervalMs": value.ridingPersistIntervalMs,
       "postRideTailMs": value.postRideTailMs,
       "reconnectDurationMs": value.reconnectDurationMs,
+      "minimumSessionDistance": value.minimumSessionDistance,
       "automaticSessionLinkingEnabled": value.automaticSessionLinkingEnabled,
       "sessionLinkWindowMs": value.sessionLinkWindowMs,
       "themePreference": value.themePreference.rawValue,

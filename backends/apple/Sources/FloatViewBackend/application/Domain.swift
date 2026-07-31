@@ -806,6 +806,7 @@ public struct SettingsRecord: Sendable, Codable, Equatable {
   public let ridingPersistIntervalMs: Int64
   public let postRideTailMs: Int64
   public let reconnectDurationMs: Int64
+  public let minimumSessionDistance: Double
   public let automaticSessionLinkingEnabled: Bool
   public let sessionLinkWindowMs: Int64
   public let themePreference: ThemePreference
@@ -818,6 +819,7 @@ public struct SettingsRecord: Sendable, Codable, Equatable {
     ridingPersistIntervalMs: Int64 = 100,
     postRideTailMs: Int64 = 5_000,
     reconnectDurationMs: Int64 = 300_000,
+    minimumSessionDistance: Double = 100,
     automaticSessionLinkingEnabled: Bool = false,
     sessionLinkWindowMs: Int64 = 7_200_000,
     themePreference: ThemePreference = .system,
@@ -829,6 +831,7 @@ public struct SettingsRecord: Sendable, Codable, Equatable {
     self.ridingPersistIntervalMs = ridingPersistIntervalMs
     self.postRideTailMs = postRideTailMs
     self.reconnectDurationMs = reconnectDurationMs
+    self.minimumSessionDistance = minimumSessionDistance
     self.automaticSessionLinkingEnabled = automaticSessionLinkingEnabled
     self.sessionLinkWindowMs = sessionLinkWindowMs
     self.themePreference = themePreference

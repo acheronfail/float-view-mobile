@@ -7,6 +7,8 @@ import androidx.test.platform.app.InstrumentationRegistry
 import fail.acheron.floatview.backend.DeviceId
 import fail.acheron.floatview.backend.ControllerRoutingHint
 import fail.acheron.floatview.backend.ProductStoreException
+import fail.acheron.floatview.backend.RideState
+import fail.acheron.floatview.backend.TelemetrySample
 import java.io.File
 import java.time.Instant
 import org.junit.After
@@ -85,6 +87,25 @@ class SQLiteBoardProfileInstrumentedTest {
                 Instant.ofEpochSecond(2),
             )
         }
+        store.append(
+            session.jobId,
+            listOf(
+                TelemetrySample(
+                    sequence = 1,
+                    observedAt = Instant.EPOCH,
+                    elapsedMs = 0,
+                    rideState = RideState.RIDING,
+                    speedKph = 18.0,
+                ),
+                TelemetrySample(
+                    sequence = 2,
+                    observedAt = Instant.ofEpochSecond(20),
+                    elapsedMs = 20_000,
+                    rideState = RideState.RIDING,
+                    speedKph = 18.0,
+                ),
+            ),
+        )
         store.close(session.jobId, Instant.ofEpochSecond(3), "test")
 
         val catalog = SQLiteDatabase.openDatabase(
@@ -102,7 +123,7 @@ class SQLiteBoardProfileInstrumentedTest {
             cursor.moveToFirst()
             assertEquals("{}", cursor.getString(0))
             assertEquals(0, cursor.getInt(1))
-            assertEquals(1, cursor.getInt(2))
+            assertEquals(3, cursor.getInt(2))
             cursor.getString(3)
         }
         catalog.close()

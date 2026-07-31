@@ -304,6 +304,7 @@ export interface Settings {
 	ridingPersistIntervalMs: number;
 	postRideTailMs: number;
 	reconnectDurationMs: number;
+	minimumSessionDistance: number;
 	automaticSessionLinkingEnabled: boolean;
 	sessionLinkWindowMs: number;
 	themePreference: ThemePreference;

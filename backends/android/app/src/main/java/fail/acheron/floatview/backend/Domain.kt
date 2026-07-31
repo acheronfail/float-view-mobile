@@ -397,6 +397,7 @@ data class SettingsRecord(
     val ridingPersistIntervalMs: Long = 100,
     val postRideTailMs: Long = 5_000,
     val reconnectDurationMs: Long = 300_000,
+    val minimumSessionDistance: Double = 100.0,
     val automaticSessionLinkingEnabled: Boolean = false,
     val sessionLinkWindowMs: Long = 7_200_000,
     val themePreference: ThemePreference = ThemePreference.SYSTEM,

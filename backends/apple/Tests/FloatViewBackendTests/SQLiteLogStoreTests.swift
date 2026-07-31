@@ -9,7 +9,7 @@ private func repositoryRoot() -> URL {
   return root
 }
 
-@Test func sqliteStoreCommitsAndClosesDurably() throws {
+@Test func sqliteStoreDiscardsSessionsBelowMinimumDistance() throws {
   let root = FileManager.default.temporaryDirectory
     .appending(path: "float-view-store-\(UUID().uuidString)")
   defer { try? FileManager.default.removeItem(at: root) }
@@ -32,6 +32,7 @@ private func repositoryRoot() -> URL {
   #expect(closed.committedSequence == 1)
   #expect(!closed.active)
   #expect(store.active() == nil)
+  #expect(try store.sessions(SessionListQuery()).items.isEmpty)
 }
 
 @Test func sessionCatalogAndBoundedQueriesReadCanonicalSamples() throws {
@@ -124,7 +125,11 @@ private func repositoryRoot() -> URL {
     samples: [
       TelemetrySample(
         sequence: 1, observedAt: startedAt.addingTimeInterval(200),
-        elapsedMs: 500, rideState: .idle, packVoltageV: 58
+        elapsedMs: 0, rideState: .idle, packVoltageV: 58, speedKph: 36
+      ),
+      TelemetrySample(
+        sequence: 2, observedAt: startedAt.addingTimeInterval(220),
+        elapsedMs: 20_000, rideState: .idle, packVoltageV: 58, speedKph: 36
       ),
     ]
   )
@@ -136,16 +141,8 @@ private func repositoryRoot() -> URL {
   let firstPage = try store.sessions(
     SessionListQuery(limit: 1, sortField: "totalElapsedMs", sortDescending: false)
   )
-  #expect(firstPage.items.map(\.sessionID) == [short.sessionID.value])
-  let nextCursor = try #require(firstPage.nextCursor)
-  let secondPage = try store.sessions(
-    SessionListQuery(
-      cursor: nextCursor, limit: 1,
-      minimumTotalElapsedMs: 1_000,
-      sortField: "totalElapsedMs", sortDescending: false
-    )
-  )
-  #expect(secondPage.items.map(\.sessionID) == [record.sessionID.value])
+  #expect(firstPage.items.map(\.sessionID) == [record.sessionID.value])
+  #expect(firstPage.nextCursor == nil)
 }
 
 @Test func settingsLinkingExportsAndIdempotentDeletionUseCanonicalStorage() throws {
@@ -158,12 +155,14 @@ private func repositoryRoot() -> URL {
     availableBytes: { 2_000_000_000 }
   )
   #expect(try store.settings().themePreference == .system)
+  #expect(try store.settings().minimumSessionDistance == 100)
   let settings = try store.updateSettings(
     expectedRevision: 0,
-    patchJSON: #"{"automaticSessionLinkingEnabled":true,"sessionLinkWindowMs":7200000,"idlePersistIntervalMs":2345,"ridingPersistIntervalMs":125,"themePreference":"dark"}"#
+    patchJSON: #"{"automaticSessionLinkingEnabled":true,"sessionLinkWindowMs":7200000,"minimumSessionDistance":80,"idlePersistIntervalMs":2345,"ridingPersistIntervalMs":125,"themePreference":"dark"}"#
   )
   #expect(settings.revision == 1)
   #expect(settings.automaticSessionLinkingEnabled)
+  #expect(settings.minimumSessionDistance == 80)
   #expect(settings.themePreference == .dark)
   #expect(throws: ProductStoreError.invalidSettingsPatch) {
     try store.updateSettings(
@@ -291,7 +290,17 @@ private func repositoryRoot() -> URL {
     schemaDirectory: schema,
     availableBytes: { 2_000_000_000 }
   )
-  _ = try interrupted.create(deviceID: DeviceID("fixture"), at: .distantPast)
+  let active = try interrupted.create(deviceID: DeviceID("fixture"), at: .distantPast)
+  try interrupted.append(jobID: active.jobID, samples: [
+    TelemetrySample(
+      sequence: 1, observedAt: .distantPast, elapsedMs: 0,
+      rideState: .riding, speedKph: 18
+    ),
+    TelemetrySample(
+      sequence: 2, observedAt: .distantPast, elapsedMs: 20_000,
+      rideState: .riding, speedKph: 18
+    ),
+  ])
 
   let restarted = try SQLiteLogStore(
     root: root,
@@ -300,6 +309,27 @@ private func repositoryRoot() -> URL {
   )
   #expect(try restarted.recoverInterrupted() == 1)
   #expect(try restarted.recoverInterrupted() == 0)
+}
+
+@Test func sqliteStoreDiscardsInterruptedSessionWithoutRiding() throws {
+  let root = FileManager.default.temporaryDirectory
+    .appending(path: "float-view-idle-recovery-\(UUID().uuidString)")
+  defer { try? FileManager.default.removeItem(at: root) }
+  let schema = repositoryRoot().appending(path: "sql")
+  let interrupted = try SQLiteLogStore(
+    root: root,
+    schemaDirectory: schema,
+    availableBytes: { 2_000_000_000 }
+  )
+  _ = try interrupted.create(deviceID: DeviceID("fixture"), at: .distantPast)
+
+  let restarted = try SQLiteLogStore(
+    root: root,
+    schemaDirectory: schema,
+    availableBytes: { 2_000_000_000 }
+  )
+  #expect(try restarted.recoverInterrupted() == 0)
+  #expect(try restarted.sessions(SessionListQuery()).items.isEmpty)
 }
 
 @Test func startupResumesAnInterruptedSessionDeletion() throws {
@@ -313,6 +343,16 @@ private func repositoryRoot() -> URL {
     availableBytes: { 2_000_000_000 }
   )
   let record = try store.create(deviceID: DeviceID("delete-recovery"), at: .distantPast)
+  try store.append(jobID: record.jobID, samples: [
+    TelemetrySample(
+      sequence: 1, observedAt: .distantPast, elapsedMs: 0,
+      rideState: .riding, speedKph: 18
+    ),
+    TelemetrySample(
+      sequence: 2, observedAt: .distantPast, elapsedMs: 20_000,
+      rideState: .riding, speedKph: 18
+    ),
+  ])
   _ = try store.close(jobID: record.jobID, at: .distantPast, reason: "test")
   let catalogURL = root.appending(path: "catalog.sqlite")
   let storedFileName = try sqliteText(
@@ -430,12 +470,22 @@ private func repositoryRoot() -> URL {
       at: .distantPast.addingTimeInterval(2)
     )
   }
+  try store.append(jobID: session.jobID, samples: [
+    TelemetrySample(
+      sequence: 1, observedAt: .distantPast, elapsedMs: 0,
+      rideState: .riding, speedKph: 18
+    ),
+    TelemetrySample(
+      sequence: 2, observedAt: .distantPast, elapsedMs: 20_000,
+      rideState: .riding, speedKph: 18
+    ),
+  ])
   _ = try store.close(jobID: session.jobID, at: .distantPast.addingTimeInterval(3), reason: "test")
 
   let catalogURL = root.appending(path: "catalog.sqlite")
   #expect(try sqliteText(catalogURL, "SELECT profile_snapshot_json FROM session_catalog") == "{}")
   #expect(try sqliteInt(catalogURL, "SELECT profile_revision FROM session_catalog") == 0)
-  #expect(try sqliteInt(catalogURL, "SELECT event_count FROM session_catalog") == 1)
+  #expect(try sqliteInt(catalogURL, "SELECT event_count FROM session_catalog") == 3)
   let storedSessionFile = try sqliteText(
     catalogURL,
     "SELECT file_name FROM session_catalog"

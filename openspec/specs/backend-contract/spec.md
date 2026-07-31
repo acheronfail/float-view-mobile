@@ -112,11 +112,21 @@ The backend SHALL own permission resolution, bounded scanning, connection, recon
 - **THEN** the native connection and backend jobs continue where the OS permits and the new frontend recovers them through `state.get`
 
 ### Requirement: Backend-owned durable sessions
-A ready connection SHALL automatically create one durable session, and all live display, review, diagnostics, and persistence SHALL derive from one sequenced native sample pipeline. The latest live sample SHALL become frontend-visible only after the same sample is selected and successfully appended to that active session.
+A ready connection SHALL automatically create one provisional durable session, and all live display, review, diagnostics, and persistence SHALL derive from one sequenced native sample pipeline. The latest live sample SHALL become frontend-visible only after the same sample is selected and successfully appended to that active session. When the session closes or is recovered after interruption, the backend SHALL retain it only if at least one persisted sample entered the `riding` state and its accumulated distance is greater than or equal to `minimumSessionDistance`; otherwise it SHALL delete the catalog entry and session files.
 
 #### Scenario: Ready board
 - **WHEN** a supported board becomes ready
-- **THEN** the backend starts a durable session without a frontend logging command
+- **THEN** the backend starts a provisional durable session without a frontend logging command
+
+#### Scenario: Idle-only connection
+
+- **WHEN** a provisional session closes without any persisted sample entering `riding`
+- **THEN** the backend deletes the session even if idle telemetry accumulated distance
+
+#### Scenario: Ride below the configured minimum
+
+- **WHEN** a provisional session entered `riding` but closes below `minimumSessionDistance`
+- **THEN** the backend deletes the session instead of exposing it in session history
 
 #### Scenario: Live sample ordering
 
@@ -165,12 +175,12 @@ The native backends SHALL execute the shared current SQLite schemas, retain WAL 
 
 ### Requirement: Complete persisted settings shape
 
-The mandatory `Settings` value SHALL contain `revision`, `idleProbeIntervalMs`, `idlePersistIntervalMs`, `ridingPersistIntervalMs`, `postRideTailMs`, `reconnectDurationMs`, `automaticSessionLinkingEnabled`, `sessionLinkWindowMs`, `themePreference`, and `unitPreference`. `themePreference` SHALL accept exactly `system`, `light`, or `dark`; `unitPreference` SHALL accept exactly `metric` or `imperial` and default to `metric`; `rawPacketCaptureEnabled` MUST NOT remain in the contract or persisted settings payload.
+The mandatory `Settings` value SHALL contain `revision`, `idleProbeIntervalMs`, `idlePersistIntervalMs`, `ridingPersistIntervalMs`, `postRideTailMs`, `reconnectDurationMs`, `minimumSessionDistance`, `automaticSessionLinkingEnabled`, `sessionLinkWindowMs`, `themePreference`, and `unitPreference`. `minimumSessionDistance` SHALL be expressed in meters and default to `100`; `themePreference` SHALL accept exactly `system`, `light`, or `dark`; `unitPreference` SHALL accept exactly `metric` or `imperial` and default to `metric`; `rawPacketCaptureEnabled` MUST NOT remain in the contract or persisted settings payload.
 
 #### Scenario: Default settings
 
 - **WHEN** a backend creates current default settings
-- **THEN** it returns the existing timing and linking defaults with `themePreference` equal to `system`, `unitPreference` equal to `metric`, and no raw-packet field
+- **THEN** it returns the existing timing and linking defaults with `minimumSessionDistance` equal to `100`, `themePreference` equal to `system`, `unitPreference` equal to `metric`, and no raw-packet field
 
 #### Scenario: Settings round trip
 

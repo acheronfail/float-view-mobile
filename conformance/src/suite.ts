@@ -82,6 +82,7 @@ async function exerciseProductMethods(
     expectedRevision: state.settings.revision,
     patch: {
       automaticSessionLinkingEnabled: true,
+      minimumSessionDistance: 100,
       sessionLinkWindowMs: 7_200_000,
       themePreference: "dark",
       unitPreference: "imperial",
@@ -95,6 +96,7 @@ async function exerciseProductMethods(
     "conflict",
   );
   assert.equal(settings.automaticSessionLinkingEnabled, true);
+  assert.equal(settings.minimumSessionDistance, 100);
   assert.equal(settings.themePreference, "dark");
   assert.equal(settings.unitPreference, "imperial");
   await expectError(
@@ -108,6 +110,13 @@ async function exerciseProductMethods(
     }),
     "invalid_request",
   );
+
+  // Software-host sessions are intentionally brief; retain them so the rest of
+  // the canonical session surface can be exercised deterministically.
+  await client.request("settings.update", {
+    expectedRevision: settings.revision,
+    patch: { minimumSessionDistance: 0 },
+  });
 
   await createCompletedSession(client, device.deviceId);
   await createCompletedSession(client, device.deviceId);
@@ -214,7 +223,8 @@ async function exerciseProductMethods(
       Object.entries(point.values).every(
         ([field, value]) =>
           !field.toLowerCase().includes("utilization") &&
-          (value === null || (typeof value === "number" && Number.isFinite(value))),
+          (value === null ||
+            (typeof value === "number" && Number.isFinite(value))),
       ),
     );
   }
@@ -284,11 +294,9 @@ async function createCompletedSession(
   assert.ok(connected.activeConnection.controllerConnection);
   assert.ok(
     connected.activeConnection.controllerConnection.kind === "direct" ||
-      (
-        connected.activeConnection.controllerConnection.kind === "can" &&
+      (connected.activeConnection.controllerConnection.kind === "can" &&
         connected.activeConnection.controllerConnection.canId >= 0 &&
-        connected.activeConnection.controllerConnection.canId <= 253
-      ),
+        connected.activeConnection.controllerConnection.canId <= 253),
   );
   assert.deepEqual(connected.activeConnection.controllerCandidates, []);
   assert.equal(connected.activeConnection.connectionIssue, null);
@@ -301,7 +309,9 @@ async function createCompletedSession(
       "motorCurrentMaxA",
       "motorCurrentMinA",
     ]);
-    for (const value of Object.values(limits).filter((value) => value != null)) {
+    for (const value of Object.values(limits).filter(
+      (value) => value != null,
+    )) {
       assert.ok(Number.isFinite(value));
       assert.ok(Math.abs(value) > 0);
     }
@@ -365,13 +375,22 @@ async function createCompletedSession(
       ],
     );
   }
+  const riding =
+    connected.activeConnection.latestSample?.rideState === "riding"
+      ? connected
+      : await client.waitForState(
+          (value) =>
+            value.activeConnection?.deviceId === deviceId &&
+            value.activeConnection.latestSample?.rideState === "riding",
+          { afterRevision: connected.revision },
+        );
   await expectError(
     client.request("device.connect", { deviceId }),
     "invalid_state",
   );
   await client.request("device.disconnect", {});
   await client.waitForState((value) => value.activeConnection === null, {
-    afterRevision: connected.revision,
+    afterRevision: riding.revision,
   });
   const completed = await client.request("state.get", {});
   assert.ok(
@@ -419,6 +438,7 @@ export function assertState(state: AppState) {
     "automaticSessionLinkingEnabled",
     "idlePersistIntervalMs",
     "idleProbeIntervalMs",
+    "minimumSessionDistance",
     "postRideTailMs",
     "reconnectDurationMs",
     "revision",
@@ -443,7 +463,8 @@ export function assertState(state: AppState) {
     "controller candidates are not sorted by CAN ID",
   );
   assert.equal(
-    new Set(active.controllerCandidates.map((candidate) => candidate.canId)).size,
+    new Set(active.controllerCandidates.map((candidate) => candidate.canId))
+      .size,
     active.controllerCandidates.length,
     "controller candidates contain duplicate CAN IDs",
   );
@@ -474,9 +495,18 @@ export function assertState(state: AppState) {
     assert.ok(active.connectionIssue.message.length <= 1_024);
   }
   if (active.state === "ready") {
-    assert.ok(active.controllerConnection, "ready connection has no controller route");
-    assert.ok(active.activeSession, "ready connection has no active durable session");
-    assert.ok(active.firmware?.supported, "ready connection has unsupported or absent firmware");
+    assert.ok(
+      active.controllerConnection,
+      "ready connection has no controller route",
+    );
+    assert.ok(
+      active.activeSession,
+      "ready connection has no active durable session",
+    );
+    assert.ok(
+      active.firmware?.supported,
+      "ready connection has unsupported or absent firmware",
+    );
     assert.deepEqual(active.controllerCandidates, []);
     assert.equal(active.connectionIssue, null);
   } else if (active.state === "selecting_controller") {

@@ -564,6 +564,7 @@ class LoopbackServer(
         .put("ridingPersistIntervalMs", value.ridingPersistIntervalMs)
         .put("postRideTailMs", value.postRideTailMs)
         .put("reconnectDurationMs", value.reconnectDurationMs)
+        .put("minimumSessionDistance", value.minimumSessionDistance)
         .put("automaticSessionLinkingEnabled", value.automaticSessionLinkingEnabled)
         .put("sessionLinkWindowMs", value.sessionLinkWindowMs)
         .put("themePreference", value.themePreference.wireValue)

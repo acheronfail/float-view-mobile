@@ -5,6 +5,12 @@ setup:
     cd frontend && npm ci
     cd conformance && npm ci
     pio pkg install -d tools/vesc-test-device
+    mkdir -p vendor
+    [ -e "vendor/bldc" ] || git clone https://github.com/vedderb/bldc "vendor/bldc"
+    [ -e "vendor/refloat" ] || git clone https://github.com/lukash/refloat "vendor/refloat"
+    [ -e "vendor/vesc_tool" ] || git clone https://github.com/vedderb/vesc_tool "vendor/vesc_tool"
+    [ -e "vendor/vesc_bms_fw" ] || git clone https://github.com/vedderb/vesc_bms_fw "vendor/vesc_bms_fw"
+    [ -e "vendor/float-view" ] || git clone https://github.com/acheronfail/float-view "vendor/float-view"
 
 dev platform="mock" target="":
     cd conformance && node --strip-types src/dev.ts "{{ platform }}" "{{ target }}"

@@ -43,6 +43,7 @@ const initial: AppState = {
 		ridingPersistIntervalMs: 100,
 		postRideTailMs: 5_000,
 		reconnectDurationMs: 300_000,
+		minimumSessionDistance: 100,
 		automaticSessionLinkingEnabled: false,
 		sessionLinkWindowMs: 7_200_000,
 		themePreference: 'system',
@@ -149,8 +150,12 @@ describe('BackendState', () => {
 		);
 		await store.connect();
 		expect(store.snapshot?.revision).toBe(1);
-		await store.updateSessionSettings({ automaticSessionLinkingEnabled: true });
+		await store.updateSessionSettings({
+			automaticSessionLinkingEnabled: true,
+			minimumSessionDistance: 250
+		});
 		expect(store.settings?.automaticSessionLinkingEnabled).toBe(true);
+		expect(store.settings?.minimumSessionDistance).toBe(250);
 		expect(store.snapshot?.revision).toBe(2);
 		store.close();
 	});
@@ -177,9 +182,7 @@ describe('BackendState', () => {
 		);
 		await store.connect();
 		expect(await store.openSession('session-1')).toBe(true);
-		expect(store.sessionSeries).toEqual([
-			{ elapsedMs: 0, values: { fieldWeakeningCurrentA: 4 } }
-		]);
+		expect(store.sessionSeries).toEqual([{ elapsedMs: 0, values: { fieldWeakeningCurrentA: 4 } }]);
 		expect(store.sessionEvents).toEqual([
 			{ elapsedMs: 500, kind: 'stopCondition', value: 'quickStop' }
 		]);

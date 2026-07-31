@@ -48,6 +48,21 @@
 
 		<div class="rounded-2xl border border-outline bg-surface p-5">
 			<h3 class="font-medium">Sessions</h3>
+			<label class="mt-3 block text-sm text-muted">
+				Minimum ride distance (meters)
+				<input
+					class={inputClass}
+					type="number"
+					min="0"
+					max="1000000"
+					step="10"
+					value={backendState.settings.minimumSessionDistance}
+					onchange={(event) =>
+						backendState.updateSessionSettings({
+							minimumSessionDistance: Number(event.currentTarget.value)
+						})}
+				/>
+			</label>
 			<label class="mt-3 flex items-center gap-3 text-sm">
 				<input
 					type="checkbox"

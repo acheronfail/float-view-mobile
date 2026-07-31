@@ -113,7 +113,7 @@ Boards SHALL list the bounded saved boards supplied by authoritative application
 
 ### Requirement: Global settings destination
 
-Settings SHALL contain only application-wide appearance, session-linking, logging cadence, post-ride, and reconnect options. Board-specific values MUST NOT be edited from Settings, and application-wide settings MUST NOT remain embedded in session browsing.
+Settings SHALL contain only application-wide appearance, session-retention, session-linking, logging cadence, post-ride, and reconnect options. Board-specific values MUST NOT be edited from Settings, and application-wide settings MUST NOT remain embedded in session browsing.
 
 #### Scenario: Open global settings
 

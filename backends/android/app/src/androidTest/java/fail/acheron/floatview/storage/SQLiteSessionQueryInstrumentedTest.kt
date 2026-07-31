@@ -114,31 +114,31 @@ class SQLiteSessionQueryInstrumentedTest {
         val short = store.create(DeviceId("query-fixture"), startedAt.plusSeconds(200))
         store.append(
             short.jobId,
-	            listOf(
-	                TelemetrySample(
-	                    sequence = 1,
-	                    observedAt = startedAt.plusSeconds(200),
-	                    elapsedMs = 500,
-	                    rideState = RideState.IDLE,
-	                    packVoltageV = 58.0,
-	                ),
-	            ),
+            listOf(
+                TelemetrySample(
+                    sequence = 1,
+                    observedAt = startedAt.plusSeconds(200),
+                    elapsedMs = 0,
+                    rideState = RideState.IDLE,
+                    packVoltageV = 58.0,
+                    speedKph = 36.0,
+                ),
+                TelemetrySample(
+                    sequence = 2,
+                    observedAt = startedAt.plusSeconds(220),
+                    elapsedMs = 20_000,
+                    rideState = RideState.IDLE,
+                    packVoltageV = 58.0,
+                    speedKph = 36.0,
+                ),
+            ),
         )
-        store.close(short.jobId, startedAt.plusSeconds(201), "test")
+        store.close(short.jobId, startedAt.plusSeconds(220), "test")
         val firstPage = store.sessions(
             SessionListQuery(limit = 1, sortField = "totalElapsedMs", sortDescending = false),
         )
-        assertEquals(listOf(short.sessionId.value), firstPage.items.map { it.sessionId })
-        val secondPage = store.sessions(
-            SessionListQuery(
-                cursor = requireNotNull(firstPage.nextCursor),
-                limit = 1,
-                minimumTotalElapsedMs = 1_000,
-                sortField = "totalElapsedMs",
-                sortDescending = false,
-            ),
-        )
-        assertEquals(listOf(record.sessionId.value), secondPage.items.map { it.sessionId })
+        assertEquals(listOf(record.sessionId.value), firstPage.items.map { it.sessionId })
+        assertEquals(null, firstPage.nextCursor)
     }
 
     @Test
@@ -161,12 +161,14 @@ class SQLiteSessionQueryInstrumentedTest {
     fun settingsLinkingExportsAndIdempotentDeletionUseCanonicalStorage() {
         val store = SQLiteLogStore(context, availableBytes = { 2_000_000_000 })
         assertEquals(ThemePreference.SYSTEM, store.settings().themePreference)
+        assertEquals(100.0, store.settings().minimumSessionDistance, 0.0)
         val settings = store.updateSettings(
             0,
-            """{"automaticSessionLinkingEnabled":true,"sessionLinkWindowMs":7200000,"idlePersistIntervalMs":2345,"ridingPersistIntervalMs":125,"themePreference":"dark"}""",
+            """{"automaticSessionLinkingEnabled":true,"sessionLinkWindowMs":7200000,"minimumSessionDistance":80,"idlePersistIntervalMs":2345,"ridingPersistIntervalMs":125,"themePreference":"dark"}""",
         )
         assertEquals(1, settings.revision)
         assertTrue(settings.automaticSessionLinkingEnabled)
+        assertEquals(80.0, settings.minimumSessionDistance, 0.0)
         assertEquals(ThemePreference.DARK, settings.themePreference)
         assertThrows(ProductStoreException.InvalidSettingsPatch::class.java) {
             store.updateSettings(1, """{"themePreference":"twilight"}""")
@@ -285,6 +287,25 @@ class SQLiteSessionQueryInstrumentedTest {
     fun startupResumesAnInterruptedSessionDeletion() {
         val store = SQLiteLogStore(context, availableBytes = { 2_000_000_000 })
         val record = store.create(DeviceId("delete-recovery"), Instant.EPOCH)
+        store.append(
+            record.jobId,
+            listOf(
+                TelemetrySample(
+                    sequence = 1,
+                    observedAt = Instant.EPOCH,
+                    elapsedMs = 0,
+                    rideState = RideState.RIDING,
+                    speedKph = 18.0,
+                ),
+                TelemetrySample(
+                    sequence = 2,
+                    observedAt = Instant.EPOCH.plusSeconds(20),
+                    elapsedMs = 20_000,
+                    rideState = RideState.RIDING,
+                    speedKph = 18.0,
+                ),
+            ),
+        )
         store.close(record.jobId, Instant.EPOCH, "test")
         val logs = File(root, "logs")
         val catalog = SQLiteDatabase.openDatabase(
