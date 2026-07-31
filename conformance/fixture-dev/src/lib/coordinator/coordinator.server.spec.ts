@@ -7,7 +7,8 @@ import { fixtureCoordinator } from './resolver.server.ts';
 
 test('coordinator attaches, configures atomically, powers, rides, and re-advertises', async () => {
 	const fixture = new FakeFixture();
-	const coordinator = coordinatorFor(fixture);
+	const logs: string[] = [];
+	const coordinator = coordinatorFor(fixture, (_level, message) => logs.push(message));
 	await coordinator.act({ kind: 'attach', path: '/dev/fixture' });
 	const configured = await coordinator.act({
 		kind: 'configure',
@@ -32,6 +33,13 @@ test('coordinator attaches, configures atomically, powers, rides, and re-adverti
 	fixture.emit({ kind: 'WRITE', bytes: encodeFrame(Uint8Array.of(34, 42, 14)) });
 	await eventually(() => coordinator.snapshot().counters.responses === 2);
 	assert.equal(coordinator.snapshot().lastRequest?.kind, 'motor-configuration');
+	assert.deepEqual(coordinator.snapshot().lastAttempt, {
+		command: 14,
+		canId: 42,
+		stage: 'notify',
+		outcome: 'responded'
+	});
+	assert.ok(logs.includes('request command=14 route=CAN:42'));
 	fixture.emit({
 		kind: 'WRITE',
 		bytes: encodeFrame(Uint8Array.of(34, 42, 36, 101, 31))
@@ -113,7 +121,8 @@ test('ride requires attached powered-on state and duplicate stop is inert', asyn
 
 test('serial loss detaches safely and preserves saved configuration', async () => {
 	const fixture = new FakeFixture();
-	const coordinator = coordinatorFor(fixture);
+	const logs: string[] = [];
+	const coordinator = coordinatorFor(fixture, (level, message) => logs.push(`${level}:${message}`));
 	await coordinator.act({ kind: 'attach', path: '/dev/fixture' });
 	await coordinator.act({
 		kind: 'configure',
@@ -125,12 +134,43 @@ test('serial loss detaches safely and preserves saved configuration', async () =
 	const state = coordinator.snapshot();
 	assert.equal(state.power, 'off');
 	assert.equal(state.ble, 'unavailable');
+	assert.match(state.serial.error ?? '', /USB removed/);
+	assert.ok(state.diagnostics.some((value) => value.includes('Serial detached: USB removed')));
+	assert.ok(logs.includes('error:serial detached: USB removed'));
 	assert.deepEqual(state.configuration, {
 		topology: 'direct',
 		canId: 9,
 		firmware: '6.02',
 		refloat: '1.1.0'
 	});
+});
+
+test('unsupported protocol requests are visible and do not detach serial', async () => {
+	const fixture = new FakeFixture();
+	const logs: string[] = [];
+	const coordinator = coordinatorFor(fixture, (level, message) => logs.push(`${level}:${message}`));
+	await coordinator.act({ kind: 'attach', path: '/dev/fixture' });
+	await coordinator.act({ kind: 'power-on' });
+	fixture.emit({ kind: 'CONNECTED' });
+	fixture.emit({ kind: 'WRITE', bytes: encodeFrame(Uint8Array.of(34, 1, 99)) });
+	await eventually(() => coordinator.snapshot().counters.dropped === 1);
+	const dropped = coordinator.snapshot();
+	assert.equal(dropped.serial.status, 'attached');
+	assert.equal(dropped.power, 'on');
+	assert.deepEqual(dropped.lastAttempt, {
+		command: 99,
+		canId: 1,
+		stage: 'simulate',
+		outcome: 'dropped',
+		error: 'Unsafe or unsupported forwarded command 99'
+	});
+	assert.ok(dropped.diagnostics.some((value) => value.includes('command=99 route=CAN:1')));
+	assert.ok(logs.some((value) => value.includes('warn:Protocol request dropped during simulate')));
+
+	fixture.emit({ kind: 'WRITE', bytes: encodeFrame(Uint8Array.of(0)) });
+	await eventually(() => coordinator.snapshot().counters.responses === 1);
+	assert.equal(coordinator.snapshot().serial.status, 'attached');
+	await coordinator.cleanup();
 });
 
 test('ports are bounded and initial attachment failure becomes detached state', async () => {
@@ -142,7 +182,8 @@ test('ports are bounded and initial attachment failure becomes detached state', 
 			Array.from({ length: 40 }, (_, index) => ({
 				path: `/dev/${index}`,
 				label: `Fixture ${index}`
-			}))
+			})),
+		log: () => undefined
 	});
 	assert.equal((await coordinator.ports()).length, 32);
 	await coordinator.initialise('/dev/missing');
@@ -154,10 +195,14 @@ test('process resolver returns one coordinator across repeated route resolution'
 	assert.equal(fixtureCoordinator(), fixtureCoordinator());
 });
 
-function coordinatorFor(fixture: FakeFixture) {
+function coordinatorFor(
+	fixture: FakeFixture,
+	log: (level: 'info' | 'warn' | 'error', message: string) => void = () => undefined
+) {
 	return new FixtureCoordinator({
 		open: async () => fixture,
-		listPorts: async () => [{ path: '/dev/fixture', label: 'Fixture' }]
+		listPorts: async () => [{ path: '/dev/fixture', label: 'Fixture' }],
+		log
 	});
 }
 

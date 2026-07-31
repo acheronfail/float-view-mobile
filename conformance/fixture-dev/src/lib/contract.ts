@@ -47,6 +47,15 @@ export interface LastFixtureRequest {
 	fragments: number;
 }
 
+export interface LastFixtureAttempt {
+	command: number;
+	canId?: number;
+	telemetryCommand?: string;
+	stage: 'simulate' | 'fragment' | 'notify';
+	outcome: 'pending' | 'responded' | 'dropped' | 'failed';
+	error?: string;
+}
+
 export interface SerialPortOption {
 	path: string;
 	label: string;
@@ -75,6 +84,7 @@ export interface FixtureSnapshot {
 	frozen: boolean;
 	pinnedFields: Partial<TelemetrySample>;
 	availableFields: readonly (keyof TelemetrySample)[];
+	lastAttempt?: LastFixtureAttempt;
 	lastRequest?: LastFixtureRequest;
 	counters: FixtureCounters;
 	diagnostics: readonly string[];

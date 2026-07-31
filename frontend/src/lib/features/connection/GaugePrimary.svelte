@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { prefersReducedMotion, Tween } from 'svelte/motion';
 	import type {
 		ControllerCurrentLimits,
 		LiveSample,
@@ -31,6 +32,20 @@
 			: Math.abs(sample.speedKph) * (units === 'metric' ? 1 : 0.621371)
 	);
 	const load = $derived(driveLoad(sample, currentLimits));
+	const animatedSpeed = new Tween(0);
+	const animatedLoad = new Tween(0);
+
+	$effect(() => {
+		void animatedSpeed.set(speed ?? 0, {
+			duration: prefersReducedMotion.current ? 0 : 150
+		});
+	});
+
+	$effect(() => {
+		void animatedLoad.set(load?.percentage ?? 0, {
+			duration: prefersReducedMotion.current ? 0 : 150
+		});
+	});
 	const loadLabel = $derived(
 		load?.source === 'duty'
 			? 'Duty'
@@ -123,7 +138,7 @@
 			d={arc(outerRadius)}
 			pathLength="100"
 			class="fill-none stroke-accent [stroke-width:15] [stroke-linecap:round]"
-			stroke-dasharray={`${progress(speed, speedMaximum)} 100`}
+			stroke-dasharray={`${progress(speed == null ? null : animatedSpeed.current, speedMaximum)} 100`}
 		/>
 		<path
 			d={arc(innerRadius)}
@@ -134,7 +149,7 @@
 			d={arc(innerRadius)}
 			pathLength="100"
 			class={`fill-none ${loadStrokeClass} [stroke-width:9] [stroke-linecap:round] transition-colors`}
-			stroke-dasharray={`${progress(load?.percentage ?? null, 100)} 100`}
+			stroke-dasharray={`${progress(load == null ? null : animatedLoad.current, 100)} 100`}
 		/>
 
 		<g class="text-muted/40" aria-hidden="true">
@@ -190,7 +205,7 @@
 			class="fill-current font-mono text-[25px] font-bold text-foreground tabular-nums"
 			text-anchor="middle"
 		>
-			{speed == null ? '—' : speed.toFixed(1)}
+			{speed == null ? '—' : animatedSpeed.current.toFixed(1)}
 		</text>
 		<text
 			x="160"
@@ -206,7 +221,7 @@
 			class={`fill-current font-mono text-[25px] font-bold tabular-nums ${loadTextClass} transition-colors`}
 			text-anchor="middle"
 		>
-			{load == null ? '—' : `${load.percentage.toFixed(0)}%`}
+			{load == null ? '—' : `${animatedLoad.current.toFixed(0)}%`}
 		</text>
 
 		<rect

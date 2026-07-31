@@ -1,5 +1,6 @@
 <script lang="ts">
 	import type { LiveSample } from '../../backend/contract';
+	import GaugeScale from './GaugeScale.svelte';
 
 	let {
 		sample
@@ -10,6 +11,8 @@
 	const green = [22, 163, 74];
 	const yellow = [234, 179, 8];
 	const red = [220, 38, 38];
+	const tickValues = Array.from({ length: 11 }, (_, index) => index * 10);
+	const labelValues = Array.from({ length: 6 }, (_, index) => index * 20);
 
 	const batteryPercent = $derived(
 		sample?.batteryLevel == null ? null : Math.min(Math.max(sample.batteryLevel * 100, 0), 100)
@@ -45,13 +48,20 @@
 	<div class="mb-3 flex items-baseline justify-between gap-3">
 		<h2 id="power-title" class="text-xs font-semibold tracking-[0.16em] text-muted uppercase">
 			Battery
+			{#if charging}
+		<span
+			class="mt-2 text-right text-[0.625rem] font-semibold tracking-[0.14em] text-warning uppercase"
+		>
+			Charging
+		</span>
+	{/if}
 		</h2>
 		<span class="font-mono text-sm font-semibold text-foreground tabular-nums">
 			{batteryPercent == null ? '—' : `${batteryPercent.toFixed(0)}%`}
 		</span>
 	</div>
 
-	<div class="flex items-center gap-3">
+	<div class="grid grid-cols-[minmax(0,1fr)_4.5rem] items-center gap-x-3">
 		<div
 			class="relative h-5 min-w-0 flex-1 overflow-hidden rounded-full bg-elevated"
 			role="progressbar"
@@ -63,65 +73,39 @@
 				? 'Unavailable'
 				: `${batteryPercent.toFixed(0)} percent`}
 		>
+			<GaugeScale values={tickValues} maximum={100} />
 			<div
-				class="pointer-events-none absolute inset-0 z-10 flex justify-between"
-				aria-hidden="true"
-			>
-				{#each Array.from({ length: 11 }) as _, index}
-					<span class="h-full w-px bg-foreground/20"></span>
-				{/each}
-			</div>
-			<div
-				class:charging-fill={charging}
-				class="battery-fill relative h-full rounded-full transition-[width,background-color] duration-500"
+				class={`relative h-full rounded-full transition-[width,background-color] duration-500 ${
+					charging
+						? 'motion-reduce:animate-none animate-[battery-charging-pulse_1s_ease-in-out_infinite_alternate] bg-linear-to-r from-orange-600 via-amber-500 to-orange-600 bg-[length:200%_100%]'
+						: 'bg-[var(--battery-color)]'
+				}`}
 				style={`width: ${batteryWidth}%; --battery-color: ${batteryColor}`}
 			></div>
 		</div>
-		<output class="w-[5.5rem] shrink-0 text-right font-mono text-sm font-semibold tabular-nums">
+		<output class="w-[4.5rem] shrink-0 text-right font-mono text-sm font-semibold tabular-nums">
 			{voltage(sample?.packVoltageV)}
 		</output>
+
+		<div class="mt-1 min-w-0">
+			<GaugeScale
+				values={labelValues}
+				maximum={100}
+				labels
+				format={(value) => `${value}%`}
+			/>
+		</div>
 	</div>
 
-	<div
-		class="mt-1 flex justify-between pr-[6.5rem] pl-0.5 text-[0.625rem] text-muted/70"
-		aria-hidden="true"
-	>
-		{#each [0, 20, 40, 60, 80, 100] as tick}
-			<span>{tick}%</span>
-		{/each}
-	</div>
-	{#if charging}
-		<p
-			class="mt-2 text-right text-[0.625rem] font-semibold tracking-[0.14em] text-warning uppercase"
-		>
-			Charging
-		</p>
-	{/if}
 </section>
 
 <style>
-	.battery-fill {
-		background: linear-gradient(90deg, #16a34a 0%, var(--battery-color) 100%);
-	}
-
-	.charging-fill {
-		background: linear-gradient(90deg, #ea580c, #f59e0b, #ea580c);
-		background-size: 200% 100%;
-		animation: charging-pulse 1.8s linear infinite;
-	}
-
-	@keyframes charging-pulse {
+	@keyframes -global-battery-charging-pulse {
 		from {
 			background-position: 100% 0;
 		}
 		to {
 			background-position: 0 0;
-		}
-	}
-
-	@media (prefers-reduced-motion: reduce) {
-		.charging-fill {
-			animation: none;
 		}
 	}
 </style>

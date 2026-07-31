@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import type { FixtureSnapshot } from '../contract.ts';
 import {
@@ -97,6 +98,13 @@ test('snapshot replacement is monotonic and polling cleanup cancels its timer', 
 	assert.equal(polled, 1);
 	stop();
 	assert.equal(cancelled, 17);
+});
+
+test('workbench renders persistent serial failures and request-attempt context', () => {
+	const source = readFileSync(new URL('./ControlPanel.svelte', import.meta.url), 'utf8');
+	assert.match(source, /snapshot\.serial\.error/);
+	assert.match(source, /snapshot\.lastAttempt/);
+	assert.match(source, /role="alert">Serial bridge:/);
 });
 
 function baseSnapshot(): FixtureSnapshot {

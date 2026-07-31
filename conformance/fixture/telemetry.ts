@@ -132,6 +132,7 @@ export type TelemetryScene =
 	| 'idle'
 	| 'engaged'
 	| 'cruise'
+	| 'speedSweep'
 	| 'acceleration'
 	| 'braking'
 	| 'atr'
@@ -220,6 +221,7 @@ const sceneBaselines: Readonly<Record<TelemetryScene, TelemetrySample>> = {
 	},
 	engaged: riding({ speedKph: 1.5, erpm: 350, motorCurrentA: 8, dutyCycle: 0.08 }),
 	cruise: riding({}),
+	speedSweep: riding({ speedKph: 22, erpm: 5_170 }),
 	acceleration: riding({
 		speedKph: 24,
 		erpm: 5_640,
@@ -440,15 +442,17 @@ export class InteractiveTelemetrySource implements TelemetrySource {
 		}
 		const index = this.index++;
 		const slow = Math.sin(index / 8);
+		const speedKph =
+			this.scene === 'speedSweep'
+				? baseline.speedKph + Math.sin(index / 5) * 16
+				: baseline.speedKph + slow * 0.35 + jitter(this.seed, index) * 0.08;
 		const state: TelemetrySample = {
 			...baseline,
-			speedKph: baseline.speedKph + slow * 0.35 + jitter(this.seed, index) * 0.08,
-			erpm: Math.round(
-				(baseline.speedKph + slow * 0.35 + jitter(this.seed, index) * 0.08) * 235
-			),
+			speedKph,
+			erpm: Math.round(speedKph * 235),
 			pitchDeg: baseline.pitchDeg + slow * 0.12,
 			dutyCycle: clamp(baseline.dutyCycle + slow * 0.01, -1, 1),
-			distanceM: baseline.distanceM + index * Math.max(0, baseline.speedKph) / 36,
+			distanceM: baseline.distanceM + index * Math.max(0, speedKph) / 36,
 			packVoltageV: baseline.packVoltageV - Math.max(0, baseline.batteryCurrentA) * 0.002,
 			controllerTempC: baseline.controllerTempC + Math.min(index, 300) * 0.005,
 			motorTempC: baseline.motorTempC + Math.min(index, 300) * 0.004

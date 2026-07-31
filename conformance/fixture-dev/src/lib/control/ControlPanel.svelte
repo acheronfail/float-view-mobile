@@ -132,6 +132,7 @@
 			<ActionButton label="Detach" disabled={!available.detach || control.loading} action={() => control.act({ kind: 'detach' })} />
 		</div>
 		{#if snapshot.serial.path}<p class="detail">{snapshot.serial.path}</p>{/if}
+		{#if snapshot.serial.error}<p class="error" role="alert">Serial bridge: {snapshot.serial.error}</p>{/if}
 	</section>
 
 	<section aria-labelledby="topology-heading">
@@ -261,6 +262,11 @@
 			<span>revision {snapshot.revision}</span>
 		</div>
 		<p class="detail">{snapshot.counters.writes} writes · {snapshot.counters.responses} responses · {snapshot.counters.telemetry} telemetry · {snapshot.counters.dropped} dropped</p>
+		{#if snapshot.lastAttempt}
+			<p class:attempt-error={snapshot.lastAttempt.outcome === 'dropped' || snapshot.lastAttempt.outcome === 'failed'} class="attempt">
+				Last attempt · command {snapshot.lastAttempt.command}{snapshot.lastAttempt.canId === undefined ? ' · direct' : ` · CAN ${snapshot.lastAttempt.canId}`} · {snapshot.lastAttempt.stage} · {snapshot.lastAttempt.outcome}{snapshot.lastAttempt.error ? ` · ${snapshot.lastAttempt.error}` : ''}
+			</p>
+		{/if}
 		{#if snapshot.lastRequest}
 			<p class="request">{snapshot.lastRequest.kind} · command {snapshot.lastRequest.command}{snapshot.lastRequest.canId === undefined ? '' : ` · CAN ${snapshot.lastRequest.canId}`} · {snapshot.lastRequest.responseBytes} bytes / {snapshot.lastRequest.fragments} fragment(s)</p>
 		{/if}
@@ -298,6 +304,8 @@
 	.metrics strong { font-size: 1.45rem; }
 	.metrics span { color: #94a3b8; font-size: .75rem; }
 	.error { border: 1px solid #fb7185; border-radius: .7rem; background: #4c0519; color: #fecdd3; padding: .8rem; }
+	.attempt { border-left: 3px solid #38bdf8; padding-left: .75rem; color: #cbd5e1; }
+	.attempt-error { border-left-color: #fb7185; color: #fecdd3; }
 	.request { border-left: 3px solid #2dd4bf; padding-left: .75rem; color: #cbd5e1; }
 	ul { max-height: 12rem; overflow: auto; margin: 0; padding-left: 1.2rem; }
 	@media (max-width: 40rem) {

@@ -217,7 +217,7 @@
 		{/if}
 		{#if savedDevice && !savedDevice.profileComplete}
 			<button
-				class="rounded-xl text-left border border-warning/50 bg-warning/10 p-3 text-sm text-warning"
+				class="rounded-xl w-full text-left border border-warning/50 bg-warning/10 p-3 text-sm text-warning"
 				onpointerdown={(event) => activateFromPointer(event, openConfigure)}
 				onclick={(event) => activateFromKeyboardOrAssistiveClick(event, openConfigure)}
 			>

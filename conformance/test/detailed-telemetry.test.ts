@@ -133,6 +133,7 @@ test('layout, extension, JSON, message, diagnostic, point, and event bounds are 
 test('semantic scenes, pinning, freeze, resume, reset, and finite validation are deterministic', () => {
 	assert.ok(telemetryScenes.includes('fieldWeakening'));
 	assert.ok(telemetryScenes.includes('firmwareFault'));
+	assert.ok(telemetryScenes.includes('speedSweep'));
 	const left = new InteractiveTelemetrySource(42);
 	const right = new InteractiveTelemetrySource(42);
 	left.setScene('acceleration');
@@ -149,6 +150,18 @@ test('semantic scenes, pinning, freeze, resume, reset, and finite validation are
 	assert.deepEqual(left.pinnedFields(), {});
 	assert.throws(() => left.pin('motorCurrentA', Number.POSITIVE_INFINITY), /finite/);
 	assert.throws(() => left.pin('remoteInput', 2), /\[-1, 1\]/);
+});
+
+test('speed sweep scene makes large coherent changes for gauge animation checks', () => {
+	const source = new InteractiveTelemetrySource();
+	source.setScene('speedSweep');
+	const samples = Array.from({ length: 48 }, () => source.next());
+	const speeds = samples.map((sample) => sample.speedKph);
+	assert.ok(Math.max(...speeds) - Math.min(...speeds) > 30);
+	assert.equal(
+		samples.every((sample) => sample.erpm === Math.round(sample.speedKph * 235)),
+		true
+	);
 });
 
 test('simulator routes realtime and compact requests and bounds unsupported diagnostics', () => {

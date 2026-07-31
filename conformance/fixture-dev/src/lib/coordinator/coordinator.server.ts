@@ -5,7 +5,11 @@ import {
 	type FixtureControl,
 	type FixtureEvent
 } from '../../../../fixture/serial.ts';
-import { VescSimulator } from '../../../../fixture/simulator.ts';
+import {
+	VescSimulator,
+	type FixtureRequestAttempt,
+	type RecordedRequest
+} from '../../../../fixture/simulator.ts';
 import {
 	idleTelemetry,
 	InteractiveTelemetrySource,
@@ -18,6 +22,7 @@ import {
 	topologyOptions,
 	type FixtureAction,
 	type FixtureConfiguration,
+	type LastFixtureAttempt,
 	type FixtureSnapshot,
 	type SerialPortOption
 } from '../contract.ts';
@@ -35,7 +40,10 @@ const READY_TIMEOUT_MS = 5_000;
 export interface CoordinatorDependencies {
 	open(path: string): Promise<FixtureControl>;
 	listPorts(): Promise<SerialPortOption[]>;
+	log?: (level: FixtureLogLevel, message: string) => void;
 }
+
+export type FixtureLogLevel = 'info' | 'warn' | 'error';
 
 export class FixtureActionError extends Error {
 	readonly snapshot: FixtureSnapshot;
@@ -48,6 +56,7 @@ export class FixtureActionError extends Error {
 
 export class FixtureCoordinator {
 	private readonly dependencies: CoordinatorDependencies;
+	private readonly logger: NonNullable<CoordinatorDependencies['log']>;
 	private fixture?: FixtureControl;
 	private simulator: VescSimulator;
 	private telemetry = new InteractiveTelemetrySource();
@@ -77,6 +86,7 @@ export class FixtureCoordinator {
 
 	constructor(dependencies: CoordinatorDependencies) {
 		this.dependencies = dependencies;
+		this.logger = dependencies.log ?? terminalLogger;
 		this.simulator = this.createSimulator();
 	}
 
@@ -218,6 +228,7 @@ export class FixtureCoordinator {
 		if (this.fixture) this.rejectAction('Detach the current fixture before attaching another port');
 		if (!path || path.length > 512) this.rejectAction('Select a valid bounded serial path');
 		this.update({ serial: { status: 'attaching', path }, ble: 'unavailable' });
+		this.log('info', 'serial attaching');
 		let fixture: FixtureControl | undefined;
 		try {
 			fixture = await this.dependencies.open(path);
@@ -231,6 +242,7 @@ export class FixtureCoordinator {
 				ble: 'idle',
 				ride: 'idle'
 			});
+			this.log('info', 'serial attached');
 			void this.runLoop(fixture, this.loopGeneration);
 		} catch (error) {
 			await fixture?.close().catch(() => undefined);
@@ -241,6 +253,8 @@ export class FixtureCoordinator {
 				ble: 'unavailable',
 				ride: 'idle'
 			});
+			this.diagnostic(`Serial attachment failed: ${observableMessage(error)}`);
+			this.log('error', `serial attachment failed: ${observableMessage(error)}`);
 			throw new FixtureActionError(message(error), this.snapshot());
 		}
 	}
@@ -261,6 +275,7 @@ export class FixtureCoordinator {
 			ble: 'unavailable',
 			ride: 'idle'
 		});
+		this.log('info', 'serial detached by user');
 	}
 
 	private configure(configuration: FixtureConfiguration) {
@@ -308,6 +323,7 @@ export class FixtureCoordinator {
 			frozen: false,
 			pinnedFields: this.telemetry.pinnedFields(),
 			availableFields: this.resolvedAvailableFields(validated),
+			lastAttempt: undefined,
 			lastRequest: undefined,
 			counters: { writes: 0, responses: 0, telemetry: 0, dropped: 0 },
 			diagnostics: []
@@ -321,6 +337,7 @@ export class FixtureCoordinator {
 		await fixture.led(led.advertising);
 		await fixture.command('ADVERTISE');
 		this.update({ power: 'on', ble: 'advertising' });
+		this.log('info', 'power on; BLE advertising');
 	}
 
 	private async powerOff() {
@@ -332,6 +349,7 @@ export class FixtureCoordinator {
 		this.telemetry.stop();
 		await fixture.led(led.off).catch(() => undefined);
 		this.update({ power: 'off', ble: 'idle', ride: 'idle', telemetry: idleTelemetrySnapshot() });
+		this.log('info', 'power off');
 	}
 
 	private startRiding() {
@@ -340,6 +358,7 @@ export class FixtureCoordinator {
 		if (!this.telemetry.start()) return;
 		this.state.scenario.scene = this.telemetry.currentScene();
 		this.syncTelemetryState();
+		this.log('info', 'ride started');
 	}
 
 	private stopRiding() {
@@ -348,6 +367,7 @@ export class FixtureCoordinator {
 		if (!this.telemetry.stop()) return;
 		this.state.scenario.scene = 'idle';
 		this.syncTelemetryState();
+		this.log('info', 'ride stopped');
 	}
 
 	private setScene(scene: (typeof telemetryScenes)[number]) {
@@ -441,11 +461,13 @@ export class FixtureCoordinator {
 			case 'READY':
 				this.resolveReady();
 				break;
-			case 'CONNECTED':
+		case 'CONNECTED':
 				await fixture.led(led.running).catch(() => undefined);
 				this.update({ ble: 'connected' });
+				this.log('info', 'BLE connected');
 				break;
 			case 'DISCONNECTED':
+				this.log('info', 'BLE disconnected');
 				if (this.state.power === 'on') {
 					await fixture.led(led.advertising).catch(() => undefined);
 					await fixture.command('ADVERTISE');
@@ -463,16 +485,43 @@ export class FixtureCoordinator {
 			case 'WRITE': {
 				this.increment('writes');
 				const droppedBefore = this.simulator.diagnostics.length;
-				const responses = this.simulator.receive(event.bytes);
+				let responses;
+				try {
+					responses = this.simulator.receive(event.bytes, (attempt) => this.beginAttempt(attempt));
+				} catch (error) {
+					this.failRequest('simulate', error);
+					break;
+				}
 				if (this.simulator.diagnostics.length > droppedBefore) {
-					this.increment('dropped');
-					this.diagnostic(this.simulator.diagnostics.at(-1) ?? 'Request dropped');
+					this.failRequest(
+						'simulate',
+						this.simulator.diagnostics.at(-1) ?? 'Request dropped'
+					);
 				}
 				for (const response of responses) {
-					const fragments = chunks(response.frame, this.state.scenario.fragmentBytes);
-					for (const fragment of fragments) await fixture.notify(fragment);
+					this.ensureAttempt(response.request);
+					this.updateAttempt({ stage: 'fragment', outcome: 'pending', error: undefined });
+					let fragments: Uint8Array[];
+					try {
+						fragments = chunks(response.frame, this.state.scenario.fragmentBytes);
+					} catch (error) {
+						this.failRequest('fragment', error);
+						continue;
+					}
+					this.updateAttempt({ stage: 'notify', outcome: 'pending', error: undefined });
+					try {
+						for (const fragment of fragments) await fixture.notify(fragment);
+					} catch (error) {
+						this.updateAttempt({ stage: 'notify', outcome: 'failed', error: bounded(message(error)) });
+						throw error;
+					}
 					this.increment('responses');
 					this.update({
+						lastAttempt: {
+							...this.attemptFromRequest(response.request),
+							stage: 'notify',
+							outcome: 'responded'
+						},
 						lastRequest: {
 							kind: response.request.kind,
 							command: response.request.command,
@@ -501,12 +550,15 @@ export class FixtureCoordinator {
 		this.rejectReady(new Error(message(error)));
 		await fixture.close().catch(() => undefined);
 		this.telemetry.stop();
+		const reason = observableMessage(error);
 		this.update({
-			serial: { status: 'detached', error: message(error) },
+			serial: { status: 'detached', error: reason },
 			power: 'off',
 			ble: 'unavailable',
 			ride: 'idle'
 		});
+		this.diagnostic(`Serial detached: ${reason}`);
+		this.log('error', `serial detached: ${reason}`);
 	}
 
 	private async resetBeforeLoop(fixture: FixtureControl) {
@@ -615,10 +667,95 @@ export class FixtureCoordinator {
 		});
 	}
 
+	private beginAttempt(attempt: FixtureRequestAttempt) {
+		this.update({
+			lastAttempt: {
+				...attempt,
+				stage: 'simulate',
+				outcome: 'pending'
+			}
+		});
+		if (!attempt.telemetryCommand) this.log('info', `request ${requestLabel(attempt)}`);
+	}
+
+	private ensureAttempt(request: RecordedRequest) {
+		const attempt = this.attemptFromRequest(request);
+		const current = this.state.lastAttempt;
+		if (current?.command === attempt.command && current.canId === attempt.canId) return;
+		this.beginAttempt(attempt);
+	}
+
+	private attemptFromRequest(request: RecordedRequest): FixtureRequestAttempt {
+		return {
+			command: request.command,
+			...(request.canId === undefined ? {} : { canId: request.canId }),
+			...(request.telemetryCommand === undefined
+				? {}
+				: { telemetryCommand: request.telemetryCommand })
+		};
+	}
+
+	private updateAttempt(patch: Pick<LastFixtureAttempt, 'stage' | 'outcome'> & { error?: string }) {
+		const current = this.state.lastAttempt;
+		if (!current) return;
+		this.update({ lastAttempt: { ...current, ...patch } });
+	}
+
+	private failRequest(stage: LastFixtureAttempt['stage'], error: unknown) {
+		const reason = observableMessage(error);
+		const current = this.state.lastAttempt?.outcome === 'pending'
+			? this.state.lastAttempt
+			: undefined;
+		const attempt: LastFixtureAttempt = {
+			...(current ?? { command: 255, stage, outcome: 'pending' as const }),
+			stage,
+			outcome: 'dropped',
+			error: reason
+		};
+		this.increment('dropped');
+		this.update({ lastAttempt: attempt });
+		const diagnostic = `Protocol request dropped during ${stage}: ${requestLabel(attempt)}: ${reason}`;
+		this.diagnostic(diagnostic);
+		this.log('warn', diagnostic);
+	}
+
+	private log(level: FixtureLogLevel, value: string) {
+		this.logger(level, bounded(redact(value)));
+	}
+
 	private diagnostic(value: string) {
 		const diagnostics = [...this.state.diagnostics, value.slice(0, 240)].slice(-MAX_DIAGNOSTICS);
 		this.update({ diagnostics });
 	}
+}
+
+function requestLabel(attempt: Pick<FixtureRequestAttempt, 'command' | 'canId'>) {
+	return `command=${attempt.command} route=${attempt.canId === undefined ? 'direct' : `CAN:${attempt.canId}`}`;
+}
+
+function terminalLogger(level: FixtureLogLevel, message: string) {
+	const line = `[fixture] ${message}`;
+	if (level === 'error') console.error(line);
+	else if (level === 'warn') console.warn(line);
+	else console.info(line);
+}
+
+function bounded(value: string) {
+	return value.slice(0, 240);
+}
+
+function observableMessage(error: unknown) {
+	return bounded(redact(message(error)));
+}
+
+function redact(value: string) {
+	return value
+		.replace(/Invalid fixture event:.*/i, 'Invalid fixture event')
+		.replace(/([?&]token=)[^&\s]+/gi, '$1[redacted]')
+		.replace(/\b(?:[0-9a-f]{2}:){5}[0-9a-f]{2}\b/gi, '[address]')
+		.replace(/\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/gi, '[identifier]')
+		.replace(/\/dev\/[^\s]+/g, '[serial-port]')
+		.replace(/\b[0-9a-f]{48,}\b/gi, '[frame omitted]');
 }
 
 function validateConfiguration(configuration: FixtureConfiguration) {

@@ -26,6 +26,12 @@ export interface RecordedRequest {
 	telemetryCommand?: 'legacy-realtime' | 'realtime' | 'compact';
 }
 
+export interface FixtureRequestAttempt {
+	command: number;
+	canId?: number;
+	telemetryCommand?: 'legacy-realtime' | 'realtime' | 'compact';
+}
+
 export interface SimulatedResponse {
 	frame: Uint8Array;
 	request: RecordedRequest;
@@ -48,9 +54,13 @@ export class VescSimulator {
 		this.now = now;
 	}
 
-	receive(bytes: Uint8Array): SimulatedResponse[] {
+	receive(
+		bytes: Uint8Array,
+		onAttempt?: (attempt: FixtureRequestAttempt) => void
+	): SimulatedResponse[] {
 		const responses: SimulatedResponse[] = [];
 		for (const payload of this.frames.append(bytes)) {
+			onAttempt?.(requestAttempt(payload));
 			const value = this.response(payload);
 			if (!value) continue;
 			this.requests.push(value.request);
@@ -329,6 +339,28 @@ export class VescSimulator {
 				throw new Error(`Unsupported Refloat request ${String(payload[2])}`);
 		}
 	}
+}
+
+function requestAttempt(payload: Uint8Array): FixtureRequestAttempt {
+	const forwarded = payload[0] === 34 && payload.length >= 3;
+	const command = forwarded ? payload[2]! : (payload[0] ?? 255);
+	const canId = forwarded ? payload[1] : undefined;
+	const packetOffset = forwarded ? 4 : 2;
+	const packet = command === 36 && payload[forwarded ? 3 : 1] === 101
+		? payload[packetOffset]
+		: undefined;
+	const telemetryCommand = packet === 1
+		? 'legacy-realtime'
+		: packet === 10
+			? 'compact'
+			: packet === 31
+				? 'realtime'
+				: undefined;
+	return {
+		command,
+		...(canId === undefined ? {} : { canId }),
+		...(telemetryCommand === undefined ? {} : { telemetryCommand })
+	};
 }
 
 function telemetryPhase(controller: ControllerConfiguration, index: number) {
