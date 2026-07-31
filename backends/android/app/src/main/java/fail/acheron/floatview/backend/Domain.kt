@@ -162,6 +162,7 @@ data class ControllerCurrentLimits(
     val motorCurrentMinA: Double,
     val batteryCurrentMaxA: Double,
     val batteryCurrentMinA: Double,
+    val batterySeriesCells: Int? = null,
 )
 
 data class FirmwareRecord(

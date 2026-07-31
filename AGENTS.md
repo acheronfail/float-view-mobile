@@ -4,6 +4,16 @@ Float View contains one SvelteKit frontend and native backends for Apple
 (iOS/macOS) and Android. Keep the repository small and delete superseded paths;
 there is no generated API layer or platform-specific frontend code.
 
+## Researching definitive upstream source
+
+Look in the git-ignored `vendor/` directory, here there should be the upstream
+firmware and package sources, for example:
+
+- <https://github.com/vedderb/bldc>
+- <https://github.com/lukash/refloat>
+- <https://github.com/vedderb/vesc_tool>
+- <https://github.com/vedderb/vesc_bms_fw>
+
 ## Contract and ownership
 
 `frontend/src/lib/backend/contract.ts` is the wire-contract source of truth.

@@ -139,16 +139,19 @@ private func bytes(_ hex: String) -> [UInt8] {
 }
 
 @Test func motorConfigurationCurrentLimitsDecodeAndRoute() throws {
-  let payload = bytes(
-    "0e0000000000000000" +
-      "42c80000c2c8000042480000c1a00000"
+  var payload = Array(repeating: UInt8(0), count: 489)
+  payload.replaceSubrange(
+    0..<25,
+    with: bytes("0e57ad8f530000000042c80000c2c8000042480000c1a00000")
   )
+  payload[463] = 18
   let limits = try VescPayloadDecoder.currentLimits(payload)
   #expect(limits == ControllerCurrentLimits(
     motorCurrentMaxA: 100,
     motorCurrentMinA: -100,
     batteryCurrentMaxA: 50,
-    batteryCurrentMinA: -20
+    batteryCurrentMinA: -20,
+    batterySeriesCells: 18
   ))
 
   let service = VescProtocolService()

@@ -99,6 +99,14 @@ private struct ByteReader {
 }
 
 public enum VescPayloadDecoder {
+  private static let batterySeriesCellOffsets: [UInt32: Int] = [
+    0x2e43a161: 462, // 6.02
+    0x3f829cf7: 452, // 6.05
+    0x2efd0142: 458, // 6.06
+    0x57ad8f53: 463, // 7.00
+    0x9307410d: 463, // 7.01
+  ]
+
   public static func firmware(_ payload: [UInt8]) throws -> FirmwareInfo {
     try VescFirmwareIdentityDecoder.decode(payload)
   }
@@ -137,12 +145,18 @@ public enum VescPayloadDecoder {
     guard command == VescCommand.getMotorConfiguration.rawValue else {
       throw VescProtocolError.unsupportedCommand(command)
     }
-    try reader.skip(8) // MCCONF signature and four enum fields.
+    var signature: UInt32 = 0
+    for _ in 0..<4 { signature = signature << 8 | UInt32(try reader.u8()) }
+    try reader.skip(4) // Four enum fields.
     let value = ControllerCurrentLimits(
       motorCurrentMaxA: try reader.float32Auto(),
       motorCurrentMinA: try reader.float32Auto(),
       batteryCurrentMaxA: try reader.float32Auto(),
-      batteryCurrentMinA: try reader.float32Auto()
+      batteryCurrentMinA: try reader.float32Auto(),
+      batterySeriesCells: batterySeriesCellOffsets[signature].flatMap { offset in
+        guard payload.indices.contains(offset), payload[offset] > 0 else { return nil }
+        return payload[offset]
+      }
     )
     let limits = [
       value.motorCurrentMaxA, value.motorCurrentMinA,

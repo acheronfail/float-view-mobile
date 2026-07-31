@@ -58,7 +58,7 @@
 	<div class="space-y-3">
 		{#each readings as reading (reading.key)}
 			<div class="grid grid-cols-[2.5rem_minmax(0,1fr)_4.5rem] items-center gap-x-3">
-				<span class="w-[2.5rem] shrink-0 text-sm text-muted">{reading.name}</span>
+				<span class="w-[2.5rem] shrink-0 font-semibold text-xs text-muted uppercase">{reading.name}</span>
 				<div
 					class="relative h-4 min-w-0 flex-1 overflow-hidden rounded-full bg-elevated"
 					role="progressbar"

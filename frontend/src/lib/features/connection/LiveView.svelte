@@ -240,7 +240,7 @@
 		</div>
 
 		<div class:opacity-45={dimmed} class="space-y-2 transition-opacity">
-			<GaugePower {sample} />
+			<GaugePower {sample} batterySeriesCells={currentLimits?.batterySeriesCells} />
 		</div>
 
 		<div class:opacity-45={dimmed} class="space-y-2 transition-opacity">

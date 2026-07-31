@@ -3,9 +3,11 @@
 	import GaugeScale from './GaugeScale.svelte';
 
 	let {
-		sample
+		sample,
+		batterySeriesCells
 	}: {
 		sample: LiveSample | null | undefined;
+		batterySeriesCells: number | null | undefined;
 	} = $props();
 
 	const green = [22, 163, 74];
@@ -35,10 +37,6 @@
 		if (percent < 35) return rgb(interpolate(yellow, red, (35 - percent) / 15));
 		return rgb(interpolate(green, yellow, (50 - percent) / 15));
 	}
-
-	function voltage(value: number | null | undefined) {
-		return value == null ? '—' : `${value.toFixed(2)} V`;
-	}
 </script>
 
 <section
@@ -49,19 +47,32 @@
 		<h2 id="power-title" class="text-xs font-semibold tracking-[0.16em] text-muted uppercase">
 			Battery
 			{#if charging}
-		<span
-			class="mt-2 text-right text-[0.625rem] font-semibold tracking-[0.14em] text-warning uppercase"
-		>
-			Charging
-		</span>
-	{/if}
+				<span
+					class="mt-2 text-right text-[0.625rem] font-semibold tracking-[0.14em] text-warning uppercase"
+				>
+					Charging
+				</span>
+			{/if}
 		</h2>
-		<span class="font-mono text-sm font-semibold text-foreground tabular-nums">
-			{batteryPercent == null ? '—' : `${batteryPercent.toFixed(0)}%`}
+		<span
+			class:text-muted={sample?.packVoltageV == null}
+			class:text-foreground={sample?.packVoltageV != null}
+			class="font-mono text-sm font-semibold tabular-nums"
+		>
+			{#if !sample?.packVoltageV}
+				—
+			{:else}
+				<span class="text-xs text-muted uppercase">Pack</span>
+				<span>{sample.packVoltageV.toFixed(1)} V</span>
+				{#if batterySeriesCells}
+					<span class="text-xs text-muted uppercase">Cell</span>
+					<span>{(sample.packVoltageV / batterySeriesCells).toFixed(2)} V</span>
+				{/if}
+			{/if}
 		</span>
 	</div>
 
-	<div class="grid grid-cols-[minmax(0,1fr)_4.5rem] items-center gap-x-3">
+	<div class="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3">
 		<div
 			class="relative h-5 min-w-0 flex-1 overflow-hidden rounded-full bg-elevated"
 			role="progressbar"
@@ -77,26 +88,24 @@
 			<div
 				class={`relative h-full rounded-full transition-[width,background-color] duration-500 ${
 					charging
-						? 'motion-reduce:animate-none animate-[battery-charging-pulse_1s_ease-in-out_infinite_alternate] bg-linear-to-r from-orange-600 via-amber-500 to-orange-600 bg-[length:200%_100%]'
+						? 'animate-[battery-charging-pulse_1s_ease-in-out_infinite_alternate] bg-linear-to-r from-orange-600 via-amber-500 to-orange-600 bg-[length:200%_100%] motion-reduce:animate-none'
 						: 'bg-[var(--battery-color)]'
 				}`}
 				style={`width: ${batteryWidth}%; --battery-color: ${batteryColor}`}
 			></div>
 		</div>
-		<output class="w-[4.5rem] shrink-0 text-right font-mono text-sm font-semibold tabular-nums">
-			{voltage(sample?.packVoltageV)}
+
+		<output
+			class:text-muted={batteryPercent == null}
+			class="min-w-[2.5rem] justify-self-end text-right font-mono text-sm font-semibold tabular-nums"
+		>
+			{batteryPercent == null ? '—' : `${batteryPercent.toFixed(0)}%`}
 		</output>
 
 		<div class="mt-1 min-w-0">
-			<GaugeScale
-				values={labelValues}
-				maximum={100}
-				labels
-				format={(value) => `${value}%`}
-			/>
+			<GaugeScale values={labelValues} maximum={100} labels format={(value) => `${value}%`} />
 		</div>
 	</div>
-
 </section>
 
 <style>

@@ -6,7 +6,8 @@ const limits: ControllerCurrentLimits = {
 	motorCurrentMaxA: 100,
 	motorCurrentMinA: -50,
 	batteryCurrentMaxA: 50,
-	batteryCurrentMinA: -20
+	batteryCurrentMinA: -20,
+	batterySeriesCells: 18
 };
 
 describe('drive load gauge', () => {

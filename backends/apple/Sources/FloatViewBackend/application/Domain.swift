@@ -228,17 +228,20 @@ public struct ControllerCurrentLimits: Sendable, Equatable {
   public let motorCurrentMinA: Double
   public let batteryCurrentMaxA: Double
   public let batteryCurrentMinA: Double
+  public let batterySeriesCells: UInt8?
 
   public init(
     motorCurrentMaxA: Double,
     motorCurrentMinA: Double,
     batteryCurrentMaxA: Double,
-    batteryCurrentMinA: Double
+    batteryCurrentMinA: Double,
+    batterySeriesCells: UInt8? = nil
   ) {
     self.motorCurrentMaxA = motorCurrentMaxA
     self.motorCurrentMinA = motorCurrentMinA
     self.batteryCurrentMaxA = batteryCurrentMaxA
     self.batteryCurrentMinA = batteryCurrentMinA
+    self.batterySeriesCells = batterySeriesCells
   }
 }
 

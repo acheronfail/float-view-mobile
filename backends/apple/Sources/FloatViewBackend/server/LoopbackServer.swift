@@ -382,6 +382,7 @@ public final class LoopbackServer: @unchecked Sendable {
       "motorCurrentMinA": value.motorCurrentMinA,
       "batteryCurrentMaxA": value.batteryCurrentMaxA,
       "batteryCurrentMinA": value.batteryCurrentMinA,
+      "batterySeriesCells": value.batterySeriesCells ?? NSNull(),
     ]
   }
 

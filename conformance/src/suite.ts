@@ -297,10 +297,11 @@ async function createCompletedSession(
     assert.deepEqual(Object.keys(limits).sort(), [
       "batteryCurrentMaxA",
       "batteryCurrentMinA",
+      "batterySeriesCells",
       "motorCurrentMaxA",
       "motorCurrentMinA",
     ]);
-    for (const value of Object.values(limits)) {
+    for (const value of Object.values(limits).filter((value) => value != null)) {
       assert.ok(Number.isFinite(value));
       assert.ok(Math.abs(value) > 0);
     }

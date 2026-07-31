@@ -506,6 +506,7 @@ class LoopbackServer(
                     .put("motorCurrentMinA", limits.motorCurrentMinA)
                     .put("batteryCurrentMaxA", limits.batteryCurrentMaxA)
                     .put("batteryCurrentMinA", limits.batteryCurrentMinA)
+                    .put("batterySeriesCells", limits.batterySeriesCells ?: JSONObject.NULL)
             } ?: JSONObject.NULL,
         )
 

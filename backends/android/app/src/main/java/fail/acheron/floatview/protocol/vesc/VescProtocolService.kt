@@ -114,6 +114,14 @@ private class ByteReader(private val bytes: ByteArray) {
 }
 
 object VescPayloadDecoder {
+    private val batterySeriesCellOffsets = mapOf(
+        0x2e43a161L to 462, // 6.02
+        0x3f829cf7L to 452, // 6.05
+        0x2efd0142L to 458, // 6.06
+        0x57ad8f53L to 463, // 7.00
+        0x9307410dL to 463, // 7.01
+    )
+
     fun firmware(payload: ByteArray): FirmwareInfo {
         return VescFirmwareIdentityDecoder.decode(payload)
     }
@@ -144,12 +152,18 @@ object VescPayloadDecoder {
         if (command != VescCommand.GET_MOTOR_CONFIGURATION.id) {
             throw VescProtocolException.UnsupportedCommand(command)
         }
-        reader.skip(8) // MCCONF signature and four enum fields.
+        var signature = 0L
+        repeat(4) { signature = (signature shl 8) or reader.u8().toLong() }
+        reader.skip(4) // Four enum fields.
+        val batterySeriesCells = batterySeriesCellOffsets[signature]?.let { offset ->
+            payload.getOrNull(offset)?.toInt()?.and(0xff)?.takeIf { it > 0 }
+        }
         val value = ControllerCurrentLimits(
             reader.float32Auto(),
             reader.float32Auto(),
             reader.float32Auto(),
             reader.float32Auto(),
+            batterySeriesCells,
         )
         val limits = listOf(
             value.motorCurrentMaxA,

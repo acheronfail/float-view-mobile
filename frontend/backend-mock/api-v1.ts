@@ -247,7 +247,8 @@ export class MockBackend {
 							motorCurrentMaxA: 100,
 							motorCurrentMinA: -100,
 							batteryCurrentMaxA: 50,
-							batteryCurrentMinA: -20
+							batteryCurrentMinA: -20,
+							batterySeriesCells: 18
 						},
 						firmware: {
 							vescVersion: '6.06',

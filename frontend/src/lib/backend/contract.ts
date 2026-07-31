@@ -237,6 +237,7 @@ export interface ControllerCurrentLimits {
 	motorCurrentMinA: number;
 	batteryCurrentMaxA: number;
 	batteryCurrentMinA: number;
+	batterySeriesCells: number | null;
 }
 
 export interface SavedDevice {

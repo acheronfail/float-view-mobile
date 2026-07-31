@@ -213,13 +213,15 @@ class VescProtocolTest {
 
     @Test
     fun motorConfigurationCurrentLimitsDecodeAndRoute() {
-        val payload = (
-            "0e0000000000000000" +
-                "42c80000c2c8000042480000c1a00000"
-            ).hexBytes()
+        val payload = ByteArray(489).also {
+            "0e57ad8f530000000042c80000c2c8000042480000c1a00000"
+                .hexBytes()
+                .copyInto(it)
+            it[463] = 18
+        }
         val limits = VescPayloadDecoder.currentLimits(payload)
         assertEquals(
-            ControllerCurrentLimits(100.0, -100.0, 50.0, -20.0),
+            ControllerCurrentLimits(100.0, -100.0, 50.0, -20.0, 18),
             limits,
         )
 
