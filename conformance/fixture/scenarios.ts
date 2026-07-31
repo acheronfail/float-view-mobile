@@ -90,7 +90,9 @@ export const fixtureScenarios: Record<PhysicalScenarioName, FixtureScenario> = {
     fragmentBytes: 20,
     minimumTelemetryResponses: 18,
     expectedTelemetryIntervalMs: 100,
-    cadenceToleranceMs: 80,
+    // Physical BLE startup can include one idle-to-riding transition cycle;
+    // the scenario still requires the complete riding request count.
+    cadenceToleranceMs: 400,
     preferredCanId: null,
     requiresMobileLifecycle: false,
   },

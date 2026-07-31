@@ -15,7 +15,9 @@ export const macosPhysicalTarget: PhysicalTarget = {
 	productionBluetooth: true
 };
 
-function makeMacosTarget(physical: boolean): Target {
+function makeMacosTarget(
+	physical: boolean
+): Target & Partial<Pick<PhysicalTarget, 'finishSuite'>> {
 	let child: ChildProcess | undefined;
 	let logRoot: string | undefined;
 	let currentEndpoint: { url: string; origin: string } | undefined;
@@ -24,7 +26,7 @@ function makeMacosTarget(physical: boolean): Target {
 		async start() {
 			const root = fileURLToPath(new URL('../../', import.meta.url));
 			const executable = process.env.FLOAT_VIEW_MACOS_EXECUTABLE ?? buildMacosExecutable(root);
-			logRoot = mkdtempSync(
+			logRoot ??= mkdtempSync(
 				join(tmpdir(), `float-view-macos-${physical ? 'physical' : 'software'}-`)
 			);
 			const env: NodeJS.ProcessEnv = {
@@ -65,6 +67,12 @@ function makeMacosTarget(physical: boolean): Target {
 			child?.kill('SIGTERM');
 			child = undefined;
 			currentEndpoint = undefined;
+			if (!physical && logRoot) {
+				rmSync(logRoot, { recursive: true, force: true });
+				logRoot = undefined;
+			}
+		},
+		async finishSuite() {
 			if (logRoot) rmSync(logRoot, { recursive: true, force: true });
 			logRoot = undefined;
 		}

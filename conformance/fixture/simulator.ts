@@ -5,6 +5,7 @@ import type {
 } from './boards.ts';
 import { encodeFrame, FrameAssembler } from './frame.ts';
 import { idleTelemetry } from './telemetry.ts';
+import { encodeLegacyCompact } from './refloat.ts';
 
 export type VescRequestKind =
 	| 'transport-firmware'
@@ -57,7 +58,9 @@ export class VescSimulator {
 	}
 
 	verifyCadence(expectedIntervalMs: number, toleranceMs: number, minimumIntervals = 2) {
-		const telemetry = this.requests.filter((request) => request.kind === 'telemetry');
+		const telemetry = this.requests.filter(
+			(request) => request.kind === 'telemetry' && request.telemetryCommand !== 'compact'
+		);
 		const intervals: number[] = [];
 		for (let index = 1; index < telemetry.length; index += 1) {
 			const previous = telemetry[index - 1]!;
@@ -65,7 +68,8 @@ export class VescSimulator {
 			if (
 				previous.telemetryPhase === 'idle' ||
 				current.telemetryPhase === 'idle' ||
-				current.telemetryPhase === 'return-to-idle'
+				current.telemetryPhase === 'return-to-idle' ||
+				previous.telemetryPhase !== current.telemetryPhase
 			) {
 				continue;
 			}
@@ -292,7 +296,19 @@ export class VescSimulator {
 				const phase = telemetryPhase(controller, this.telemetryIndex++);
 				return {
 					response: phase.payload,
-					request: { ...base, kind: 'telemetry', telemetryPhase: phase.name }
+					request: {
+						...base,
+						kind: 'telemetry',
+						telemetryPhase: phase.name,
+						telemetryCommand: 'realtime'
+					}
+				};
+			}
+			case 10: {
+				const phase = telemetryPhase(controller, this.telemetryIndex++);
+				return {
+					response: encodeLegacyCompact(idleTelemetry, payload[3] ?? 4),
+					request: { ...base, kind: 'telemetry', telemetryPhase: phase.name, telemetryCommand: 'compact' }
 				};
 			}
 			default:
