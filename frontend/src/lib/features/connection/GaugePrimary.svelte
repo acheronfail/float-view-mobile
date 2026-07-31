@@ -5,7 +5,7 @@
 		UnitPreference
 	} from '../../backend/contract';
 	import { formatDistanceM, formatSpeedKph } from '../measurements/format';
-	import { driveLoadPercent } from './gauge';
+	import { driveLoad } from './gauge';
 
 	let {
 		sample,
@@ -30,7 +30,34 @@
 			? null
 			: Math.abs(sample.speedKph) * (units === 'metric' ? 1 : 0.621371)
 	);
-	const load = $derived(driveLoadPercent(sample, currentLimits));
+	const load = $derived(driveLoad(sample, currentLimits));
+	const loadLabel = $derived(
+		load?.source === 'duty'
+			? 'Duty'
+			: load?.source === 'motor'
+				? 'Motor'
+				: load?.source === 'battery'
+					? 'Battery'
+					: 'Drive Load'
+	);
+	const loadStrokeClass = $derived(
+		load?.source === 'duty'
+			? 'stroke-duty'
+			: load?.source === 'motor'
+				? 'stroke-motor'
+				: load?.source === 'battery'
+					? 'stroke-battery-current'
+					: 'stroke-muted'
+	);
+	const loadTextClass = $derived(
+		load?.source === 'duty'
+			? 'text-duty'
+			: load?.source === 'motor'
+				? 'text-motor'
+				: load?.source === 'battery'
+					? 'text-battery-current'
+					: 'text-muted'
+	);
 
 	function point(radius: number, angle: number) {
 		const radians = (angle * Math.PI) / 180;
@@ -81,9 +108,10 @@
 	>
 		<title id="gauge-title">Live speed and drive load gauge</title>
 		<desc id="gauge-description">
-			Speed is {formatSpeedKph(sample?.speedKph, units)} and drive load is {load == null
+			Speed is {formatSpeedKph(sample?.speedKph, units)} and {loadLabel.toLowerCase()} is {load ==
+			null
 				? 'unavailable'
-				: `${load.toFixed(0)} percent`}.
+				: `${load.percentage.toFixed(0)} percent`}.
 		</desc>
 
 		<path
@@ -105,8 +133,8 @@
 		<path
 			d={arc(innerRadius)}
 			pathLength="100"
-			class="fill-none stroke-success [stroke-width:9] [stroke-linecap:round]"
-			stroke-dasharray={`${progress(load, 100)} 100`}
+			class={`fill-none ${loadStrokeClass} [stroke-width:9] [stroke-linecap:round] transition-colors`}
+			stroke-dasharray={`${progress(load?.percentage ?? null, 100)} 100`}
 		/>
 
 		<g class="text-muted/40" aria-hidden="true">
@@ -167,18 +195,18 @@
 		<text
 			x="160"
 			y="163"
-			class="fill-current text-[9px] font-semibold tracking-[0.12em] text-muted"
+			class={`fill-current text-[9px] font-semibold tracking-[0.12em] ${loadTextClass} transition-colors`}
 			text-anchor="middle"
 		>
-			Drive Load
+			{loadLabel}
 		</text>
 		<text
 			x="160"
 			y="188"
-			class="fill-current font-mono text-[25px] font-bold text-foreground tabular-nums"
+			class={`fill-current font-mono text-[25px] font-bold tabular-nums ${loadTextClass} transition-colors`}
 			text-anchor="middle"
 		>
-			{load == null ? '—' : `${load.toFixed(0)}%`}
+			{load == null ? '—' : `${load.percentage.toFixed(0)}%`}
 		</text>
 
 		<rect

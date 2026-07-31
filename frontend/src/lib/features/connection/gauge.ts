@@ -12,10 +12,17 @@ type GaugeSample = Pick<
 const percentage = (value: number, limit: number) =>
 	Math.min(Math.abs(value) / Math.abs(limit), 1) * 100;
 
-export function driveLoadPercent(
+export type DriveLoadSource = 'duty' | 'motor' | 'battery';
+
+export interface DriveLoad {
+	source: DriveLoadSource;
+	percentage: number;
+}
+
+export function driveLoad(
 	sample: GaugeSample | null | undefined,
 	limits: ControllerCurrentLimits | null | undefined
-): number | null {
+): DriveLoad | null {
 	if (!sample) return null;
 
 	const duty =
@@ -42,6 +49,23 @@ export function driveLoadPercent(
 		sample.batteryCurrentA == null || batteryLimit == null || batteryLimit === 0
 			? null
 			: percentage(sample.batteryCurrentA, batteryLimit);
-	const values = [duty, motor, battery].filter((value): value is number => value != null);
-	return values.length === 0 ? null : Math.max(...values);
+	const candidates: DriveLoad[] = [
+		duty == null ? null : { source: 'duty', percentage: duty },
+		motor == null ? null : { source: 'motor', percentage: motor },
+		battery == null ? null : { source: 'battery', percentage: battery }
+	].filter((value): value is DriveLoad => value != null);
+	return (
+		candidates.reduce<DriveLoad | null>(
+			(winner, candidate) =>
+				winner == null || candidate.percentage > winner.percentage ? candidate : winner,
+			null
+		) ?? null
+	);
+}
+
+export function driveLoadPercent(
+	sample: GaugeSample | null | undefined,
+	limits: ControllerCurrentLimits | null | undefined
+): number | null {
+	return driveLoad(sample, limits)?.percentage ?? null;
 }

@@ -14,6 +14,9 @@
 	--color-warning: var(--app-warning);
 	--color-danger: var(--app-danger);
 	--color-on-danger: var(--app-on-danger);
+	--color-duty: var(--app-warning);
+	--color-motor: var(--app-danger);
+	--color-battery-current: var(--app-success);
 }
 
 :root,
