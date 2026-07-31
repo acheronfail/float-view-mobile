@@ -252,7 +252,21 @@ class ControllerDiscovery {
         }
     }
 
-    fun acceptTelemetryLayout(): ControllerDiscoveryEffect = ControllerDiscoveryEffect.Ready
+    fun acceptTelemetryLayout(
+        fields: List<String>,
+        runtimeFields: List<String>,
+    ): ControllerDiscoveryEffect {
+        if (
+            refloatFamily != RefloatTelemetryFamily.DYNAMIC ||
+            !RefloatCompatibility.supportsDynamicLayout(fields, runtimeFields)
+        ) {
+            return fail(
+                ConnectionIssueCode.UNSUPPORTED_REFLOAT,
+                "This controller's Refloat telemetry layout is not supported.",
+            )
+        }
+        return ControllerDiscoveryEffect.Ready
+    }
 
     fun selectController(canId: Int): ControllerDiscoveryEffect {
         val candidate = controllerCandidates.firstOrNull { it.canId == canId }

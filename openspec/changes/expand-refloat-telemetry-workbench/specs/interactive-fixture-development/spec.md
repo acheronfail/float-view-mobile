@@ -34,11 +34,11 @@ The workbench SHALL own one version-independent semantic board-state model and p
 - **THEN** subsequent generated samples retain that temperature while other unpinned values continue according to the scene
 
 #### Scenario: Version projection
-- **WHEN** the same semantic scene is selected for Refloat 1.0.0 and 1.2.3
+- **WHEN** the same semantic scene is selected for representative audited Refloat 1.0.x, 1.1.x, and 1.2.x releases
 - **THEN** each response uses its source-faithful layout and reports unavailable values as absent rather than inventing equivalent bytes
 
 #### Scenario: Legacy realtime compatibility
-- **WHEN** a client sends Refloat 1.0.0 command 1
+- **WHEN** a client sends Refloat 1.0.x command 1
 - **THEN** the fixture returns the fixed-layout high-precision realtime response rather than encoding the compact command 10 layout under command 1
 
 ### Requirement: Manual connection and identity events

@@ -2,6 +2,33 @@ import Foundation
 import Testing
 @testable import FloatViewBackend
 
+@Test func dynamicRefloatDiscoveryRequiresAuditedCompleteLayout() {
+  let supported = ControllerDiscovery()
+  #expect(supported.acceptRefloatInfo("1.2.1") == .requestTelemetryLayout)
+  #expect(supported.acceptTelemetryLayout(
+    fields: RefloatCompatibility.requiredFields + ["future.energy"],
+    runtimeFields: RefloatCompatibility.requiredRuntimeFields
+  ) == .ready)
+
+  let incomplete = ControllerDiscovery()
+  #expect(incomplete.acceptRefloatInfo("1.1.2") == .requestTelemetryLayout)
+  guard case .failed(let issue) = incomplete.acceptTelemetryLayout(
+    fields: Array(RefloatCompatibility.requiredFields.dropFirst()),
+    runtimeFields: RefloatCompatibility.requiredRuntimeFields
+  ) else {
+    Issue.record("Expected an incomplete Refloat layout to fail")
+    return
+  }
+  #expect(issue.code == .unsupportedRefloat)
+
+  let unknown = ControllerDiscovery()
+  guard case .failed(let issue) = unknown.acceptRefloatInfo("1.3.0") else {
+    Issue.record("Expected an unknown Refloat release to fail")
+    return
+  }
+  #expect(issue.code == .unsupportedRefloat)
+}
+
 @Test func sharedLifecycleVectorsMatchAppleDiscovery() throws {
   for vector in try discoveryVectors() {
     let discovery = ControllerDiscovery()

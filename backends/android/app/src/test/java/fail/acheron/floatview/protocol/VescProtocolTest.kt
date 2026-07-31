@@ -3,7 +3,9 @@ package fail.acheron.floatview.protocol
 import java.nio.file.Files
 import java.nio.file.Path
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertThrows
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import fail.acheron.floatview.backend.VescProtocolMessage
 import fail.acheron.floatview.backend.FootpadState
@@ -12,6 +14,7 @@ import fail.acheron.floatview.protocol.refloat.RefloatCompatibility
 import fail.acheron.floatview.protocol.refloat.RefloatDynamicTelemetryDecoder
 import fail.acheron.floatview.protocol.refloat.RefloatLegacyTelemetryDecoder
 import fail.acheron.floatview.protocol.refloat.RefloatTelemetryFamily
+import fail.acheron.floatview.protocol.refloat.RefloatWireProfile
 import fail.acheron.floatview.protocol.vesc.VescCompatibility
 import fail.acheron.floatview.protocol.vesc.ControllerRoute
 import fail.acheron.floatview.protocol.vesc.VescFirmwareVersion
@@ -60,14 +63,34 @@ class VescProtocolTest {
             VescCompatibility.supported,
         )
         assertEquals(
-            listOf("1.0.0", "1.1.0", "1.2.3"),
+            listOf(
+                "1.0.0", "1.0.1",
+                "1.1.0", "1.1.1", "1.1.2",
+                "1.2.0", "1.2.1", "1.2.2", "1.2.3",
+            ),
             RefloatCompatibility.entries.map { it.sourceVersion },
         )
         assertEquals(
             RefloatTelemetryFamily.LEGACY_FIXED,
             RefloatCompatibility.entry("1.0")?.family,
         )
-        assertEquals(null, RefloatCompatibility.entry("1.2.0"))
+        assertEquals(
+            RefloatWireProfile.DYNAMIC_ALERTS,
+            RefloatCompatibility.entry("1.2.0")?.profile,
+        )
+        assertEquals(null, RefloatCompatibility.entry("1.3.0"))
+        assertTrue(
+            RefloatCompatibility.supportsDynamicLayout(
+                RefloatCompatibility.requiredFields + "future.energy",
+                RefloatCompatibility.requiredRuntimeFields,
+            ),
+        )
+        assertFalse(
+            RefloatCompatibility.supportsDynamicLayout(
+                RefloatCompatibility.requiredFields.drop(1),
+                RefloatCompatibility.requiredRuntimeFields,
+            ),
+        )
 
         val service = VescProtocolService()
         val legacy = VescFrameCodec.encode(byteArrayOf(36, 101, 0, 10))
@@ -201,6 +224,7 @@ class VescProtocolTest {
         requireNotNull(dynamic.atrAccelerationDifferenceErpmPerSecond)
         requireNotNull(dynamic.atrSpeedBoost)
         assertEquals(emptyMap<String, Double>(), dynamic.extensions)
+        assertEquals(legacy.speedKph!!, dynamic.speedKph!!, 0.3)
 
         val fault = decoder.decodeData(
             refloatSourcePayload("1.2.3-command-31-active-firmware-fault"),
@@ -309,7 +333,7 @@ class VescProtocolTest {
             36, 101, 31,
             0, 0, 0, 0, 0, 1,
             3, 0x40, 0, 0,
-            0x49, 0x00,
+            0x50, 0x80.toByte(),
             0x64, 0x00,
             0x48, 0x00,
             0x38, 0x00,

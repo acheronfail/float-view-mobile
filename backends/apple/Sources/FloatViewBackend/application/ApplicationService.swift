@@ -447,9 +447,14 @@ public final class ApplicationService: @unchecked Sendable {
           case .refloatInfo(let version):
             guard connectionState == .identifying else { continue }
             performDiscoveryEffect(controllerDiscovery.acceptRefloatInfo(version))
-          case .refloatTelemetryLayout:
+          case .refloatTelemetryLayout(let fields, let runtimeFields):
             telemetryPolling.layoutEstablished()
-            performDiscoveryEffect(controllerDiscovery.acceptTelemetryLayout())
+            performDiscoveryEffect(
+              controllerDiscovery.acceptTelemetryLayout(
+                fields: fields,
+                runtimeFields: runtimeFields
+              )
+            )
           case .refloatTelemetry(let value):
             telemetryPolling.receive(value)
           }

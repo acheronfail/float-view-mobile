@@ -9,7 +9,17 @@ import type {
 	TelemetrySample
 } from './telemetry.ts';
 
-export type RefloatVersion = '1.0.0' | '1.1.0' | '1.2.3';
+export type RefloatVersion =
+	| '1.0.0'
+	| '1.0.1'
+	| '1.1.0'
+	| '1.1.1'
+	| '1.1.2'
+	| '1.2.0'
+	| '1.2.1'
+	| '1.2.2'
+	| '1.2.3';
+type DynamicRefloatVersion = Exclude<RefloatVersion, '1.0.0' | '1.0.1'>;
 export type RefloatRequestKind = 'info' | 'layout' | 'telemetry' | 'compact';
 
 export const MAX_REFLOAT_FIELDS = 64;
@@ -63,11 +73,17 @@ export const runtimeRealtimeFields = [
 ] as const;
 
 const provenance =
-	'Immutable read-only wire layouts derived from https://github.com/lukash/refloat tags v1.0.0, v1.1.0, and v1.2.3';
+	'Immutable read-only wire profiles audited from stable https://github.com/lukash/refloat tags v1.0.0 through v1.2.3';
 
 export const refloatCodecs: Readonly<Record<RefloatVersion, RefloatCodec>> = {
-	'1.0.0': legacyCodec(),
+	'1.0.0': legacyCodec('1.0.0'),
+	'1.0.1': legacyCodec('1.0.1'),
 	'1.1.0': dynamicCodec('1.1.0', false),
+	'1.1.1': dynamicCodec('1.1.1', false),
+	'1.1.2': dynamicCodec('1.1.2', false),
+	'1.2.0': dynamicCodec('1.2.0', true),
+	'1.2.1': dynamicCodec('1.2.1', true),
+	'1.2.2': dynamicCodec('1.2.2', true),
 	'1.2.3': dynamicCodec('1.2.3', true)
 };
 
@@ -75,9 +91,9 @@ export function encodeRefloatTelemetry(
 	version: RefloatVersion,
 	sample: TelemetrySample
 ): Uint8Array {
-	return version === '1.0.0'
+	return version.startsWith('1.0.')
 		? encodeLegacyCompact(sample, 4)
-		: encodeDynamicTelemetry(sample, version === '1.2.3');
+		: encodeDynamicTelemetry(sample, version.startsWith('1.2.'));
 }
 
 export function encodeRefloatLayout(
@@ -165,7 +181,7 @@ export function encodeLegacyCompact(sample: TelemetrySample, detailLevel: number
 	payload[22] = byte(sample.boosterCurrentA + 128);
 	i16(payload, 23, sample.packVoltageV * 10);
 	i16(payload, 25, sample.erpm);
-	i16(payload, 27, sample.speedKph * 10);
+	i16(payload, 27, (sample.speedKph / 3.6) * 10);
 	i16(payload, 29, sample.motorCurrentA * 10);
 	i16(payload, 31, sample.batteryCurrentA * 10);
 	payload[33] = byte(sample.dutyCycle * 100 + 128);
@@ -257,10 +273,10 @@ export function encodeDynamicTelemetry(sample: TelemetrySample, alertTail: boole
 	return payload;
 }
 
-function legacyCodec(): RefloatCodec {
+function legacyCodec(version: '1.0.0' | '1.0.1'): RefloatCodec {
 	const infoPayload = Uint8Array.of(36, 101, 0, 10);
 	return {
-		version: '1.0.0',
+		version,
 		provenance,
 		infoPayload,
 		respond(payload, sample) {
@@ -275,7 +291,7 @@ function legacyCodec(): RefloatCodec {
 	};
 }
 
-function dynamicCodec(version: '1.1.0' | '1.2.3', alertTail: boolean): RefloatCodec {
+function dynamicCodec(version: DynamicRefloatVersion, alertTail: boolean): RefloatCodec {
 	const infoPayload = encodeInfoV2(version);
 	const layoutPayload = encodeRefloatLayout();
 	return {
@@ -303,7 +319,7 @@ function packagePacket(payload: Uint8Array): number | undefined {
 	return payload[2];
 }
 
-function encodeInfoV2(version: '1.1.0' | '1.2.3'): Uint8Array {
+function encodeInfoV2(version: DynamicRefloatVersion): Uint8Array {
 	const payload = new Uint8Array(61);
 	payload.set([36, 101, 0, 2]);
 	payload.set(new TextEncoder().encode('Refloat').slice(0, 20), 5);

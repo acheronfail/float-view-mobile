@@ -171,6 +171,7 @@ private func bytes(_ hex: String) -> [UInt8] {
   #expect(dynamic.atrAccelerationDifferenceErpmPerSecond != nil)
   #expect(dynamic.atrSpeedBoost != nil)
   #expect(dynamic.extensions.isEmpty)
+  #expect(abs(try #require(dynamic.speedKph) - (try #require(legacy.speedKph))) < 0.3)
 
   let fault = try RefloatDynamicTelemetryDecoder.decodeData(
     refloatSourcePayload("1.2.3-command-31-active-firmware-fault"),
@@ -246,9 +247,22 @@ private func bytes(_ hex: String) -> [UInt8] {
   #expect(VescCompatibility.supported == [
     .init(6, 2), .init(6, 5), .init(6, 6),
   ])
-  #expect(RefloatCompatibility.entries.map(\.sourceVersion) == ["1.0.0", "1.1.0", "1.2.3"])
+  #expect(RefloatCompatibility.entries.map(\.sourceVersion) == [
+    "1.0.0", "1.0.1",
+    "1.1.0", "1.1.1", "1.1.2",
+    "1.2.0", "1.2.1", "1.2.2", "1.2.3",
+  ])
   #expect(RefloatCompatibility.entry(wireVersion: "1.0")?.family == .legacyFixed)
-  #expect(RefloatCompatibility.entry(wireVersion: "1.2.0") == nil)
+  #expect(RefloatCompatibility.entry(wireVersion: "1.2.0")?.profile == .dynamicAlerts)
+  #expect(RefloatCompatibility.entry(wireVersion: "1.3.0") == nil)
+  #expect(RefloatCompatibility.supportsDynamicLayout(
+    fields: RefloatCompatibility.requiredFields + ["future.energy"],
+    runtimeFields: RefloatCompatibility.requiredRuntimeFields
+  ))
+  #expect(!RefloatCompatibility.supportsDynamicLayout(
+    fields: Array(RefloatCompatibility.requiredFields.dropFirst()),
+    runtimeFields: RefloatCompatibility.requiredRuntimeFields
+  ))
 
   let service = VescProtocolService()
   let legacy = try VescFrameCodec.encode([36, 101, 0, 10])
@@ -294,7 +308,7 @@ private func bytes(_ hex: String) -> [UInt8] {
     36, 101, 31,
     0, 0, 0, 0, 0, 1,
     3, 0x40, 0, 0,
-    0x49, 0x00,
+    0x50, 0x80,
     0x64, 0x00,
     0x48, 0x00,
     0x38, 0x00,

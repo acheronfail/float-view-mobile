@@ -1,19 +1,31 @@
 ## ADDED Requirements
 
 ### Requirement: Supported detailed Refloat read protocol
-The backends and conformance simulator SHALL implement source-faithful read-only telemetry for Refloat source packages 1.0.0, 1.1.0, and 1.2.3. The simulator SHALL encode the fixed-layout Refloat 1.0.0 command 1 realtime response for retained legacy compatibility; native polling SHALL use command 10 for 1.0.0. Compact command 10 SHALL expose every supported detail level through level 4, including controller state, footpad values, control setpoints, field-weakening current when available, distance, temperatures, odometer, energy totals, battery level, charging values, and active firmware faults. Dynamic commands 31/32 SHALL negotiate and decode the complete always-present and running-only field lists plus package state, mode, flags, stop condition, setpoint adjustment, alert reason, charging tail, and the 1.2.3 active-alert tail. Command 35 history and data-recorder commands 41–43 SHALL NOT be requested or simulated by this change.
+The backends and conformance simulator SHALL implement source-faithful read-only telemetry for audited stable Refloat source packages 1.0.0–1.0.1, 1.1.0–1.1.2, and 1.2.0–1.2.3. The simulator SHALL encode the fixed-layout Refloat 1.0.x command 1 realtime response for retained legacy compatibility; native polling SHALL use command 10 for 1.0.x. Compact command 10 SHALL expose every supported detail level through level 4, including controller state, footpad values, control setpoints, field-weakening current when available, distance, temperatures, odometer, energy totals, battery level, charging values, and active firmware faults. Dynamic commands 31/32 SHALL negotiate and decode the complete always-present and running-only field lists plus package state, mode, flags, stop condition, setpoint adjustment, alert reason, charging tail, and the 1.2.x active-alert tail. Command 35 history and data-recorder commands 41–43 SHALL NOT be requested or simulated by this change.
 
 #### Scenario: Complete legacy compact response
-- **WHEN** a supported 1.0.0 controller returns compact telemetry at detail level 4
+- **WHEN** a supported 1.0.x controller returns compact telemetry at detail level 4
 - **THEN** the backend decodes every present legacy field without substituting a reduced core-only record
 
 #### Scenario: Legacy command 1
-- **WHEN** the simulator receives command 1 for Refloat 1.0.0
+- **WHEN** the simulator receives command 1 for Refloat 1.0.x
 - **THEN** it returns the source-faithful high-precision legacy realtime layout while the native backends continue polling command 10
 
 #### Scenario: Complete dynamic response
-- **WHEN** a supported 1.1.0 or 1.2.3 controller advertises known always-present and running-only realtime IDs
+- **WHEN** a supported dynamic controller advertises the complete known always-present and running-only realtime IDs
 - **THEN** the backend decodes all known values, state flags, and version-applicable tails in their negotiated order
+
+#### Scenario: Audited dynamic release
+- **WHEN** INFO reports one of 1.1.0–1.1.2 or 1.2.0–1.2.3 and command 32 supplies the complete required profile baseline plus bounded additional IDs
+- **THEN** discovery accepts the controller under its audited wire profile and retains additional numeric values as bounded extensions
+
+#### Scenario: Incomplete or renamed dynamic profile
+- **WHEN** a known or unknown package responds to command 32 without one or more required semantic IDs
+- **THEN** discovery reports unsupported Refloat and does not mark the controller ready
+
+#### Scenario: Unknown or prerelease package
+- **WHEN** INFO reports a release outside the audited stable catalog or includes a prerelease suffix
+- **THEN** discovery reports unsupported Refloat even if its command numbers are recognizable
 
 #### Scenario: Unsupported write command
 - **WHEN** the fixture receives a Refloat tuning, configuration, lighting, flywheel, motor-control, or other unsupported write command
@@ -24,7 +36,7 @@ The backends and conformance simulator SHALL implement source-faithful read-only
 - **THEN** the fixture returns no simulated history or recording data and records one bounded unsupported-command diagnostic
 
 ### Requirement: Stable normalized detailed telemetry
-Both backends SHALL normalize supported wire families into the exact stable catalog, names, enums, and units required by the `backend-contract` capability. The shape SHALL retain core motor values; motion and IMU values; rider input; requested, filtered, directional, booster, ATR, and tilt-control values; package state and mode; wheelslip, darkride, and charging flags; stop and setpoint-adjustment states; alert reason; field-weakening current; accumulated distance and energy values; battery level; and active firmware-fault information when those values are present. It SHALL NOT contain a derived utilization value. A missing source value SHALL remain null or absent and MUST NOT be fabricated as zero.
+Both backends SHALL normalize supported wire families into the exact stable catalog, names, enums, and units required by the `backend-contract` capability. Dynamic `motor.speed` SHALL be interpreted as kilometres/hour because Refloat performs the metres/second conversion before command 31 encoding. Compact command 10 speed SHALL be interpreted as metres/second and converted exactly once to kilometres/hour by the backend. The shape SHALL retain core motor values; motion and IMU values; rider input; requested, filtered, directional, booster, ATR, and tilt-control values; package state and mode; wheelslip, darkride, and charging flags; stop and setpoint-adjustment states; alert reason; field-weakening current; accumulated distance and energy values; battery level; and active firmware-fault information when those values are present. It SHALL NOT contain a derived utilization value. A missing source value SHALL remain null or absent and MUST NOT be fabricated as zero.
 
 #### Scenario: Equivalent source-family values
 - **WHEN** legacy and dynamic responses represent the same semantic board state
@@ -84,7 +96,7 @@ For a dynamic package, each accepted compact response SHALL replace the latest c
 - **THEN** the export contains stable typed names, bounded extension values, nulls for unavailable fields, and no private Bluetooth or controller identifier
 
 ### Requirement: Raw load and active fault semantics
-The product SHALL expose raw actual, requested, directional, filtered, booster, and field-weakening current independently in amperes and SHALL NOT derive torque or current utilization. Refloat 1.2.3 active firmware-fault state SHALL remain distinct from transient pushback and alert-reason state. Session history SHALL contain only transitions observed by Float View and SHALL NOT claim to be command 35 device history.
+The product SHALL expose raw actual, requested, directional, filtered, booster, and field-weakening current independently in amperes and SHALL NOT derive torque or current utilization. Refloat 1.2.x active firmware-fault state SHALL remain distinct from transient pushback and alert-reason state. Session history SHALL contain only transitions observed by Float View and SHALL NOT claim to be command 35 device history.
 
 #### Scenario: High current
 - **WHEN** actual, requested, filtered, and field-weakening currents are present

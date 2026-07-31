@@ -68,15 +68,16 @@ for (const firmware of firmwareVersions) {
 				}
 
 				const info = decode(single(simulator, [...prefix, 36, 101, 0, 2, 0]).frame);
-				assert.equal(info[3], refloat === '1.0.0' ? 10 : 2);
-				if (refloat !== '1.0.0') {
+				const legacy = refloat.startsWith('1.0.');
+				assert.equal(info[3], legacy ? 10 : 2);
+				if (!legacy) {
 					assert.deepEqual([...info.slice(25, 28)], refloat.split('.').map(Number));
 					assert.equal(
 						single(simulator, [...prefix, 36, 101, 32]).request.kind,
 						'refloat-layout'
 					);
 				}
-				const packet = refloat === '1.0.0' ? 10 : 31;
+				const packet = legacy ? 10 : 31;
 				assert.equal(
 					single(simulator, [...prefix, 36, 101, packet]).request.telemetryPhase,
 					'riding'
@@ -194,15 +195,16 @@ test('all Refloat encoders retain equivalent normalized core state', () => {
 	};
 	for (const version of refloatVersions) {
 		const payload = encodeRefloatTelemetry(version, sample);
+		const legacy = version.startsWith('1.0.');
 		assert.equal(payload[0], 36);
 		assert.equal(payload[1], 101);
 		assert.equal(
-			version === '1.0.0' ? payload[10]! & 0x0f : payload[9],
-			version === '1.0.0' ? 1 : 3
+			legacy ? payload[10]! & 0x0f : payload[9],
+			legacy ? 1 : 3
 		);
 		assert.equal(
-			version === '1.0.0' ? payload[11] : payload[10]! >> 6,
-			version === '1.0.0' ? 2 : 3
+			legacy ? payload[11] : payload[10]! >> 6,
+			legacy ? 2 : 3
 		);
 	}
 });

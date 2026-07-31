@@ -104,7 +104,17 @@ export type FixtureAction =
 	| { kind: 'set-fragment-bytes'; fragmentBytes: number };
 
 export const firmwareOptions: readonly FirmwareVersion[] = ['6.02', '6.05', '6.06'];
-export const refloatOptions: readonly RefloatVersion[] = ['1.0.0', '1.1.0', '1.2.3'];
+export const refloatOptions: readonly RefloatVersion[] = [
+	'1.0.0',
+	'1.0.1',
+	'1.1.0',
+	'1.1.1',
+	'1.1.2',
+	'1.2.0',
+	'1.2.1',
+	'1.2.2',
+	'1.2.3'
+];
 export const topologyOptions: readonly FixtureTopology[] = ['direct', 'express'];
 export const scenarioTemplateOptions: readonly ScenarioTemplate[] = [
 	'direct',

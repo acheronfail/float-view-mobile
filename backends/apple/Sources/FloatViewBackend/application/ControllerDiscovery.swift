@@ -211,7 +211,23 @@ final class ControllerDiscovery {
     return entry.family == .dynamic ? .requestTelemetryLayout : .ready
   }
 
-  func acceptTelemetryLayout() -> ControllerDiscoveryEffect { .ready }
+  func acceptTelemetryLayout(
+    fields: [String],
+    runtimeFields: [String]
+  ) -> ControllerDiscoveryEffect {
+    guard refloatFamily == .dynamic,
+      RefloatCompatibility.supportsDynamicLayout(
+        fields: fields,
+        runtimeFields: runtimeFields
+      )
+    else {
+      return fail(
+        .unsupportedRefloat,
+        "This controller's Refloat telemetry layout is not supported."
+      )
+    }
+    return .ready
+  }
 
   func canSelect(canID: UInt8) -> Bool {
     controllerCandidates.contains {

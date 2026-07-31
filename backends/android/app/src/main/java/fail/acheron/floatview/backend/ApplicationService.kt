@@ -373,7 +373,12 @@ class ApplicationService(
                             }
                             is VescProtocolMessage.RefloatTelemetryLayout -> {
                                 telemetryPolling.layoutEstablished()
-                                performDiscoveryEffect(controllerDiscovery.acceptTelemetryLayout())
+                                performDiscoveryEffect(
+                                    controllerDiscovery.acceptTelemetryLayout(
+                                        message.fields,
+                                        message.runtimeFields,
+                                    ),
+                                )
                             }
                             is VescProtocolMessage.RefloatTelemetry ->
                                 telemetryPolling.receive(message.value)

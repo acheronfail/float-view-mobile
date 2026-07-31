@@ -1,5 +1,6 @@
 package fail.acheron.floatview.backend
 
+import fail.acheron.floatview.protocol.refloat.RefloatCompatibility
 import fail.acheron.floatview.protocol.vesc.ControllerRoute
 import java.time.Instant
 import org.junit.Assert.assertEquals
@@ -917,8 +918,8 @@ class ApplicationServiceTest {
                 2 -> listOf(VescProtocolMessage.RefloatInfo("1.2.3"))
                 3 -> listOf(
                     VescProtocolMessage.RefloatTelemetryLayout(
-                        listOf("motor.batt_voltage"),
-                        emptyList(),
+                        RefloatCompatibility.requiredFields,
+                        RefloatCompatibility.requiredRuntimeFields,
                     ),
                 )
                 4 -> listOf(
@@ -1010,7 +1011,12 @@ class ApplicationServiceTest {
                     ),
                 )
                 5 -> listOf(VescProtocolMessage.RefloatInfo("1.2.3"))
-                6 -> listOf(VescProtocolMessage.RefloatTelemetryLayout(listOf("motor.speed"), emptyList()))
+                6 -> listOf(
+                    VescProtocolMessage.RefloatTelemetryLayout(
+                        RefloatCompatibility.requiredFields,
+                        RefloatCompatibility.requiredRuntimeFields,
+                    ),
+                )
                 else -> emptyList()
             }
     }

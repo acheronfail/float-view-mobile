@@ -1,12 +1,52 @@
 package fail.acheron.floatview.backend
 
+import fail.acheron.floatview.protocol.refloat.RefloatCompatibility
 import fail.acheron.floatview.protocol.vesc.ControllerRoute
 import java.nio.file.Files
 import java.nio.file.Path
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ControllerDiscoveryVectorTest {
+    @Test
+    fun dynamicRefloatDiscoveryRequiresAuditedCompleteLayout() {
+        val supported = ControllerDiscovery()
+        assertEquals(
+            ControllerDiscoveryEffect.RequestTelemetryLayout,
+            supported.acceptRefloatInfo("1.2.1"),
+        )
+        assertEquals(
+            ControllerDiscoveryEffect.Ready,
+            supported.acceptTelemetryLayout(
+                RefloatCompatibility.requiredFields + "future.energy",
+                RefloatCompatibility.requiredRuntimeFields,
+            ),
+        )
+
+        val incomplete = ControllerDiscovery()
+        assertEquals(
+            ControllerDiscoveryEffect.RequestTelemetryLayout,
+            incomplete.acceptRefloatInfo("1.1.2"),
+        )
+        val failed = incomplete.acceptTelemetryLayout(
+            RefloatCompatibility.requiredFields.drop(1),
+            RefloatCompatibility.requiredRuntimeFields,
+        )
+        assertTrue(failed is ControllerDiscoveryEffect.Failed)
+        assertEquals(
+            ConnectionIssueCode.UNSUPPORTED_REFLOAT,
+            (failed as ControllerDiscoveryEffect.Failed).issue.code,
+        )
+
+        val unknown = ControllerDiscovery().acceptRefloatInfo("1.3.0")
+        assertTrue(unknown is ControllerDiscoveryEffect.Failed)
+        assertEquals(
+            ConnectionIssueCode.UNSUPPORTED_REFLOAT,
+            (unknown as ControllerDiscoveryEffect.Failed).issue.code,
+        )
+    }
+
     @Test
     fun sharedLifecycleVectorsMatchAndroidDiscovery() {
         vectors().forEach { vector ->

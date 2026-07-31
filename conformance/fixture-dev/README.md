@@ -37,7 +37,8 @@ Omit the serial path to select an enumerated port in the UI. The server binds
 strictly to `127.0.0.1:11004`; if that port is occupied, startup fails.
 
 The workbench composes up to 16 THOR300 controller candidates and 64 discovered
-CAN IDs with VESC firmware 6.02, 6.05, or 6.06; Refloat 1.0.0, 1.1.0, or 1.2.3;
+CAN IDs with VESC firmware 6.02, 6.05, or 6.06; stable Refloat 1.0.0–1.0.1,
+1.1.0–1.1.2, or 1.2.0–1.2.3;
 and direct or VESC Express topology. The common templates remain editable
 starting points for direct, single-Express, and reported multi-controller
 setups. Float View still chooses and polls only one active controller route; the

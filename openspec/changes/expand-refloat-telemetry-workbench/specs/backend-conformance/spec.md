@@ -1,11 +1,15 @@
 ## ADDED Requirements
 
 ### Requirement: Detailed telemetry compatibility matrix
-Software conformance SHALL exercise complete detailed telemetry for Refloat 1.0.0, 1.1.0, and 1.2.3 through direct and CAN routes. It SHALL verify exact command 1 fixture compatibility, command 10 detail levels, command 31/32 bytes, route wrapping, field negotiation, version-applicable active state and tails, normalization, nullability, unknown bounded extensions, and absence of command 35, data-recorder, or unsupported write requests from either backend.
+Software conformance SHALL exercise complete detailed telemetry for every audited stable Refloat release in 1.0.0–1.0.1, 1.1.0–1.1.2, and 1.2.0–1.2.3 through direct and CAN routes. It SHALL verify exact command 1 fixture compatibility, command 10 detail levels and metres/second conversion, command 31/32 bytes and native kilometres/hour values, route wrapping, required-field negotiation, version-applicable active state and tails, normalization, nullability, unknown bounded extensions, and absence of command 35, data-recorder, or unsupported write requests from either backend.
 
-#### Scenario: Six route and package combinations
+#### Scenario: Audited route and package combinations
 - **WHEN** the detailed telemetry matrix runs
-- **THEN** each supported package through direct and CAN routing produces its exact protocol family and equivalent normalized semantic values where the source carries them
+- **THEN** each audited stable package through direct and CAN routing produces its exact protocol profile and equivalent normalized semantic values where the source carries them
+
+#### Scenario: Compatibility rejection
+- **WHEN** conformance supplies an unknown version, prerelease version, or dynamic layout missing a required semantic ID
+- **THEN** Apple and Android reject it before ready with the same unsupported-Refloat outcome
 
 #### Scenario: Slow compact polling
 - **WHEN** a dynamic package is configured to expose slow compact values

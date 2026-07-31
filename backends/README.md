@@ -67,9 +67,12 @@ the latest profile.
 Exact compatibility catalogs live beside their protocol:
 
 - VESC controller firmware: 6.02, 6.05, and 6.06.
-- Refloat source packages: 1.0.0 (legacy wire identity `1.0`), 1.1.0, and 1.2.3.
+- Refloat source packages: stable 1.0.0–1.0.1 (shared legacy wire identity
+  `1.0`), 1.1.0–1.1.2 (dynamic), and 1.2.0–1.2.3 (dynamic with alert tail).
 
-Add a catalog entry when a new release uses an already-covered wire family.
-Add a new codec in the relevant protocol directory only when its framing,
-identity, layout, or telemetry shape actually differs. Every addition needs the
-same immutable fixture and focused tests on Swift and Kotlin.
+Add an exact audited catalog entry when a new stable release uses an
+already-covered wire profile. Dynamic discovery also requires the complete
+known command-32 field baseline; additional bounded numeric fields remain
+extensions. Add a new codec only when framing, identity, fixed-header semantics,
+units, required IDs, or telemetry tails differ. Every addition needs the same
+immutable fixture and focused tests on Swift and Kotlin.

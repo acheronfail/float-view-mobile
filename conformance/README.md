@@ -33,7 +33,8 @@ VESC-protocol gateways, explicit or omitted CAN targets, multiple motor
 controllers, unsupported/non-motor nodes, distinct controller UUIDs, malformed
 or excessive ping lists, silent targets, and route-specific responses. The
 compatibility matrix covers every direct/Express combination of VESC
-6.02/6.05/6.06 and Refloat 1.0.0/1.1.0/1.2.3; legacy 1.0.0 reports wire version
+6.02/6.05/6.06 and stable Refloat 1.0.0–1.0.1, 1.1.0–1.1.2, and
+1.2.0–1.2.3; legacy 1.0.x reports wire version
 `1.0` and uses fixed packet 10.
 
 The manual workbench and automated runner deliberately have different jobs.

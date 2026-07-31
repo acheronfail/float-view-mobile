@@ -1050,7 +1050,10 @@ private final class TelemetryProtocol: VescProtocolPort, @unchecked Sendable {
     case 2:
       return [.refloatInfo(version: "1.2.3")]
     case 3:
-      return [.refloatTelemetryLayout(fields: ["motor.batt_voltage"], runtimeFields: [])]
+      return [.refloatTelemetryLayout(
+        fields: RefloatCompatibility.requiredFields,
+        runtimeFields: RefloatCompatibility.requiredRuntimeFields
+      )]
     case 4:
       return [
         .refloatTelemetry(
@@ -1110,7 +1113,10 @@ private final class AmbiguousProtocol: VescProtocolPort, @unchecked Sendable {
     case 5:
       return [.refloatInfo(version: "1.2.3")]
     case 6:
-      return [.refloatTelemetryLayout(fields: ["motor.speed"], runtimeFields: [])]
+      return [.refloatTelemetryLayout(
+        fields: RefloatCompatibility.requiredFields,
+        runtimeFields: RefloatCompatibility.requiredRuntimeFields
+      )]
     default:
       return []
     }
