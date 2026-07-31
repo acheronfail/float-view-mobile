@@ -22,6 +22,16 @@ export const thor300: ControllerIdentity = {
 	uuid: new Uint8Array(12)
 };
 
+/** Bounded COMM_GET_MCCONF prefix consumed by Float View's current-limit decoder. */
+export const motorConfigurationPayload = Uint8Array.of(
+	14,
+	0, 0, 0, 0, 0, 0, 0, 0,
+	0x42, 0xc8, 0, 0,
+	0xc2, 0xc8, 0, 0,
+	0x42, 0x48, 0, 0,
+	0xc1, 0xa0, 0, 0
+);
+
 const provenance =
 	'VESC COMM_FW_VERSION field ordering derived from vedderb/bldc and vedderb/vesc_fw_archive version changelogs; THOR300 identity is deliberate fixture data';
 

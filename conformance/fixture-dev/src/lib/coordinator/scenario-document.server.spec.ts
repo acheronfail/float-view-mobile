@@ -6,6 +6,12 @@ import {
 	scenarioTemplate
 } from './scenario-document.server.ts';
 
+test('scenario templates default to ATT-safe notification fragments', () => {
+	for (const template of ['direct', 'singleExpress', 'reportedMultiController'] as const) {
+		assert.equal(scenarioTemplate(template).fragmentBytes, 20);
+	}
+});
+
 test('scenario documents round trip with deterministic private identities and no UUID field', () => {
 	const document = scenarioTemplate('reportedMultiController');
 	const parsed = parseScenarioDocument(JSON.parse(JSON.stringify(document)));

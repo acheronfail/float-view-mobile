@@ -19,13 +19,19 @@ test('coordinator attaches, configures atomically, powers, rides, and re-adverti
 		firmware: '6.05',
 		refloat: '1.2.3'
 	});
-	await coordinator.act({ kind: 'set-fragment-bytes', fragmentBytes: 20 });
 	await coordinator.act({ kind: 'power-on' });
 	await coordinator.act({ kind: 'start-riding' });
 	const revision = coordinator.snapshot().revision;
 	await coordinator.act({ kind: 'start-riding' });
 	assert.equal(coordinator.snapshot().revision, revision);
 	fixture.emit({ kind: 'CONNECTED' });
+	fixture.emit({ kind: 'WRITE', bytes: encodeFrame(Uint8Array.of(0)) });
+	await eventually(() => coordinator.snapshot().counters.responses === 1);
+	assert.equal(coordinator.snapshot().lastRequest?.kind, 'transport-firmware');
+	assert.ok((coordinator.snapshot().lastRequest?.fragments ?? 0) > 1);
+	fixture.emit({ kind: 'WRITE', bytes: encodeFrame(Uint8Array.of(34, 42, 14)) });
+	await eventually(() => coordinator.snapshot().counters.responses === 2);
+	assert.equal(coordinator.snapshot().lastRequest?.kind, 'motor-configuration');
 	fixture.emit({
 		kind: 'WRITE',
 		bytes: encodeFrame(Uint8Array.of(34, 42, 36, 101, 31))

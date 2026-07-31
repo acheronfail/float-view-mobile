@@ -4,6 +4,7 @@ import type {
 	ControllerConfiguration
 } from './boards.ts';
 import { encodeFrame, FrameAssembler } from './frame.ts';
+import { motorConfigurationPayload } from './firmware.ts';
 import { idleTelemetry } from './telemetry.ts';
 import { encodeLegacyCompact } from './refloat.ts';
 
@@ -11,6 +12,7 @@ export type VescRequestKind =
 	| 'transport-firmware'
 	| 'can-ping'
 	| 'controller-firmware'
+	| 'motor-configuration'
 	| 'refloat-info'
 	| 'refloat-layout'
 	| 'telemetry';
@@ -188,6 +190,12 @@ export class VescSimulator {
 				request: { at, command, canId, kind: 'controller-firmware' }
 			};
 		}
+		if (command === 14) {
+			return {
+				response: motorConfigurationPayload,
+				request: { at, command, canId, kind: 'motor-configuration' }
+			};
+		}
 		if (command !== 36 || payload[1] !== 101) {
 			return this.reject(`Unsafe or unsupported controller command ${String(command)}`);
 		}
@@ -248,8 +256,14 @@ export class VescSimulator {
 				request: { ...base, kind: 'controller-firmware' }
 			};
 		}
+		if (command === 14) {
+			return {
+				response: motorConfigurationPayload,
+				request: { ...base, kind: 'motor-configuration' }
+			};
+		}
 		if (command !== 36 || payload[1] !== 101) {
-			throw new Error(`Unsafe or unsupported forwarded command ${command}`);
+			return this.rejectBoard(`Unsafe or unsupported forwarded command ${command}`);
 		}
 		if (controller.refloat && controller.telemetry) {
 			const packet = payload[2];

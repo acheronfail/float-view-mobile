@@ -131,6 +131,27 @@ class VescProtocolTest {
     }
 
     @Test
+    fun expressFirmwareFixtureDecodesAcrossChunks() {
+        val frame = fixture("vesc/firmware-express-6.05.json").hexBytes()
+        val stream = VescFrameStreamDecoder()
+        val sizes = listOf(3, 7, 13, 21)
+        var offset = 0
+        val payloads = sizes.flatMap { size ->
+            stream.append(frame.copyOfRange(offset, offset + size)).also { offset += size }
+        }
+        assertEquals(
+            FirmwareInfo(
+                6,
+                5,
+                "VESC Express T",
+                hardwareType = 2,
+                controllerUuid = ByteArray(12),
+            ),
+            VescPayloadDecoder.firmware(payloads.single()),
+        )
+    }
+
+    @Test
     fun composedThorFirmwareVariantsDecode() {
         listOf("6.02" to (6 to 2), "6.05" to (6 to 5), "6.06" to (6 to 6), "7.00" to (7 to 0)).forEach { (version, majorMinor) ->
             val payload = VescFrameCodec.decode(

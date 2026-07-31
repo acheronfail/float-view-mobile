@@ -28,12 +28,16 @@ test("simulator follows exact Express, CAN, Refloat, and telemetry sequence", ()
   const simulator = new VescSimulator(expressThor, () => now);
   assert.equal(
     hex(response(simulator, [0])),
-    "0226000605564553432045787072657373205400000000000000000000000000000002000000000077b103",
+    "0227000605564553432045787072657373205400000000000000000000000000000002000000000000bf7003",
   );
   assert.equal(response(simulator, [62]).request.kind, "can-ping");
   const controller = response(simulator, [34, 1, 0]);
   assert.equal(controller.request.kind, "controller-firmware");
   assert.equal(hex(controller), "022400060654484f5233303000000000000000000000000000000000000000000000000000006adf03");
+  assert.equal(
+    response(simulator, [34, 1, 14]).request.kind,
+    "motor-configuration",
+  );
   assert.equal(
     response(simulator, [34, 1, 36, 101, 0, 2, 0]).request.kind,
     "refloat-info",

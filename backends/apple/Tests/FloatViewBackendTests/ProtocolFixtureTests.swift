@@ -76,6 +76,26 @@ private func bytes(_ hex: String) -> [UInt8] {
   ))
 }
 
+@Test func expressFirmwareFixtureDecodesAcrossChunks() throws {
+  let value = try fixture("fixtures/vesc/firmware-express-6.05.json")
+  let frame = bytes(value.frameHex)
+  var stream = VescFrameStreamDecoder()
+  var offset = 0
+  var payloads: [[UInt8]] = []
+  for count in value.chunkSizes {
+    payloads += try stream.append(frame[offset..<(offset + count)])
+    offset += count
+  }
+  let info = try VescPayloadDecoder.firmware(#require(payloads.first))
+  #expect(info == FirmwareInfo(
+    major: 6,
+    minor: 5,
+    hardwareName: "VESC Express T",
+    hardwareType: 2,
+    controllerUUID: Data(repeating: 0, count: 12)
+  ))
+}
+
 @Test func composedThorFirmwareVariantsDecode() throws {
   for (version, major, minor) in [("6.02", 6, 2), ("6.05", 6, 5), ("6.06", 6, 6), ("7.00", 7, 0)] {
     let value = try fixture("fixtures/vesc/firmware-thor300-\(version).json")

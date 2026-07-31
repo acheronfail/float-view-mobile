@@ -34,7 +34,7 @@ export function scenarioTemplate(template: ScenarioTemplate): FixtureScenarioDoc
 		schemaVersion: 1 as const,
 		namespace: 'float-view-workbench',
 		advertisedName: 'FloatView Test VESC',
-		fragmentBytes: 244,
+		fragmentBytes: 20,
 		scene: 'idle' as const,
 		overrides: {}
 	};
@@ -62,7 +62,6 @@ export function scenarioTemplate(template: ScenarioTemplate): FixtureScenarioDoc
 				...common,
 				namespace: 'reported-multi-controller',
 				topology: 'express',
-				fragmentBytes: 20,
 				controllers: [
 					{ alias: 'front', canId: 7, firmware: '6.05', refloat: '1.1.0', pingVisible: true },
 					{ alias: 'rear', canId: 42, firmware: '6.06', refloat: '1.2.3', pingVisible: false }
