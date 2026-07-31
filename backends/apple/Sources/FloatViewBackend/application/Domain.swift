@@ -2,17 +2,23 @@ import Foundation
 
 public struct DeviceID: Hashable, Sendable, Codable {
   public let value: String
-  public init(_ value: String) { self.value = value }
+  public init(_ value: String) {
+    self.value = value
+  }
 }
 
 public struct SessionID: Hashable, Sendable, Codable {
   public let value: String
-  public init(_ value: String) { self.value = value }
+  public init(_ value: String) {
+    self.value = value
+  }
 }
 
 public struct JobID: Hashable, Sendable, Codable {
   public let value: String
-  public init(_ value: String) { self.value = value }
+  public init(_ value: String) {
+    self.value = value
+  }
 }
 
 public enum ConnectionState: String, Sendable, Codable {
@@ -1114,6 +1120,7 @@ public extension ProductStorePort {
   ) throws -> SavedDeviceRecord {
     throw ProductStoreError.savedDeviceNotFound
   }
+
   func updateSavedDevice(
     savedDeviceID _: String,
     expectedRevision _: Int,
@@ -1121,7 +1128,11 @@ public extension ProductStorePort {
   ) throws -> SavedDeviceRecord {
     throw ProductStoreError.invalidSavedDevicePatch
   }
-  func settings() throws -> SettingsRecord { SettingsRecord() }
+
+  func settings() throws -> SettingsRecord {
+    SettingsRecord()
+  }
+
   func selectController(
     savedDeviceID: String,
     canID: UInt8,
@@ -1136,7 +1147,11 @@ public extension ProductStorePort {
       at: at
     )
   }
-  func controllerRoutingHint(savedDeviceID _: String) throws -> ControllerRoutingHint? { nil }
+
+  func controllerRoutingHint(savedDeviceID _: String) throws -> ControllerRoutingHint? {
+    nil
+  }
+
   func storeControllerRoutingHint(_: ControllerRoutingHint, at _: Date) throws {}
   func clearControllerRoutingHint(savedDeviceID _: String) throws {}
   func updateSettings(
@@ -1187,15 +1202,26 @@ public protocol SessionStorePort: AnyObject, Sendable {
 }
 
 public extension SessionStorePort {
-  func sessionExtensionFields(sessionID _: String) throws -> [String] { [] }
-  func deleteSession(sessionID _: String) throws { throw SessionStoreError.sessionNotFound }
+  func sessionExtensionFields(sessionID _: String) throws -> [String] {
+    []
+  }
+
+  func deleteSession(sessionID _: String) throws {
+    throw SessionStoreError.sessionNotFound
+  }
+
   func exportSession(sessionID _: String, format _: String) throws -> SessionExportRecord {
     throw SessionStoreError.sessionNotFound
   }
-  func sessionGroups() throws -> [SessionGroupRecord] { [] }
+
+  func sessionGroups() throws -> [SessionGroupRecord] {
+    []
+  }
+
   func sessionGroup(sessionGroupID _: String) throws -> SessionGroupRecord {
     throw SessionStoreError.sessionNotFound
   }
+
   func unlinkSessionGroup(sessionGroupID _: String) throws {}
 }
 

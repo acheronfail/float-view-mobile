@@ -7,20 +7,20 @@ import {
   expressThor,
   genericGatewayThor,
   type BoardConfiguration,
-} from "./boards.ts";
-import { encodeFirmwarePayload, thor300 } from "./firmware.ts";
-import type { ConnectionIssueCode } from "../../frontend/src/lib/backend/contract.ts";
+} from './boards.ts';
+import { encodeFirmwarePayload, thor300 } from './firmware.ts';
+import type { ConnectionIssueCode } from '../../frontend/src/lib/backend/contract.ts';
 
 export type PhysicalScenarioName =
-  | "identity"
-  | "direct"
-  | "direct-legacy"
-  | "explicit-can"
-  | "generic-gateway"
-  | "ambiguous"
-  | "ride"
-  | "unexpected-disconnect"
-  | "background";
+  | 'identity'
+  | 'direct'
+  | 'direct-legacy'
+  | 'explicit-can'
+  | 'generic-gateway'
+  | 'ambiguous'
+  | 'ride'
+  | 'unexpected-disconnect'
+  | 'background';
 
 export interface FixtureScenario {
   name: PhysicalScenarioName;
@@ -37,38 +37,38 @@ export interface FixtureScenario {
 
 export const fixtureScenarios: Record<PhysicalScenarioName, FixtureScenario> = {
   identity: {
-    name: "identity",
+    name: 'identity',
     board: expressThor,
     fragmentBytes: 244,
     minimumTelemetryResponses: 0,
     requiresMobileLifecycle: false,
   },
   direct: {
-    name: "direct",
+    name: 'direct',
     board: directThor,
     fragmentBytes: 20,
     minimumTelemetryResponses: 2,
     preferredCanId: null,
     requiresMobileLifecycle: false,
   },
-  "direct-legacy": {
-    name: "direct-legacy",
+  'direct-legacy': {
+    name: 'direct-legacy',
     board: directLegacyThor,
     fragmentBytes: 20,
     minimumTelemetryResponses: 2,
     preferredCanId: null,
     requiresMobileLifecycle: false,
   },
-  "explicit-can": {
-    name: "explicit-can",
+  'explicit-can': {
+    name: 'explicit-can',
     board: expressExplicitThor,
     fragmentBytes: 20,
     minimumTelemetryResponses: 2,
     preferredCanId: 42,
     requiresMobileLifecycle: false,
   },
-  "generic-gateway": {
-    name: "generic-gateway",
+  'generic-gateway': {
+    name: 'generic-gateway',
     board: genericGatewayThor,
     fragmentBytes: 20,
     minimumTelemetryResponses: 2,
@@ -76,7 +76,7 @@ export const fixtureScenarios: Record<PhysicalScenarioName, FixtureScenario> = {
     requiresMobileLifecycle: false,
   },
   ambiguous: {
-    name: "ambiguous",
+    name: 'ambiguous',
     board: ambiguousThor,
     fragmentBytes: 20,
     minimumTelemetryResponses: 2,
@@ -85,7 +85,7 @@ export const fixtureScenarios: Record<PhysicalScenarioName, FixtureScenario> = {
     requiresMobileLifecycle: false,
   },
   ride: {
-    name: "ride",
+    name: 'ride',
     board: expressThor,
     fragmentBytes: 20,
     minimumTelemetryResponses: 18,
@@ -96,8 +96,8 @@ export const fixtureScenarios: Record<PhysicalScenarioName, FixtureScenario> = {
     preferredCanId: null,
     requiresMobileLifecycle: false,
   },
-  "unexpected-disconnect": {
-    name: "unexpected-disconnect",
+  'unexpected-disconnect': {
+    name: 'unexpected-disconnect',
     board: expressThor,
     fragmentBytes: 20,
     minimumTelemetryResponses: 6,
@@ -106,7 +106,7 @@ export const fixtureScenarios: Record<PhysicalScenarioName, FixtureScenario> = {
     requiresMobileLifecycle: false,
   },
   background: {
-    name: "background",
+    name: 'background',
     board: expressThor,
     fragmentBytes: 20,
     minimumTelemetryResponses: 8,
@@ -117,46 +117,46 @@ export const fixtureScenarios: Record<PhysicalScenarioName, FixtureScenario> = {
 
 export const physicalScenarioMatrix = {
   macos: [
-    "identity",
-    "direct",
-    "direct-legacy",
-    "explicit-can",
-    "generic-gateway",
-    "ambiguous",
-    "ride",
-    "unexpected-disconnect",
+    'identity',
+    'direct',
+    'direct-legacy',
+    'explicit-can',
+    'generic-gateway',
+    'ambiguous',
+    'ride',
+    'unexpected-disconnect',
   ],
   android: [
-    "identity",
-    "direct",
-    "direct-legacy",
-    "explicit-can",
-    "generic-gateway",
-    "ambiguous",
-    "ride",
-    "unexpected-disconnect",
-    "background",
+    'identity',
+    'direct',
+    'direct-legacy',
+    'explicit-can',
+    'generic-gateway',
+    'ambiguous',
+    'ride',
+    'unexpected-disconnect',
+    'background',
   ],
-  ios: ["identity", "direct", "ride", "unexpected-disconnect", "background"],
+  ios: ['identity', 'direct', 'ride', 'unexpected-disconnect', 'background'],
 } as const satisfies Record<string, readonly PhysicalScenarioName[]>;
 
 export type SoftwareConnectionScenarioName =
-  | "automatic-can-discovery"
-  | "private-hint-match"
-  | "private-hint-fallback"
-  | "configured-can-without-ping"
-  | "wrong-configured-can"
-  | "generic-gateway-forwarding"
-  | "mixed-can-nodes"
-  | "zero-candidates"
-  | "can-id-overflow"
-  | "candidate-overflow"
-  | "supported-unsupported-ambiguity"
-  | "selection-validation"
-  | "selection-atomic-persistence"
-  | "failed-retry"
-  | "reconnect-continuity"
-  | "frontend-recovery";
+  | 'automatic-can-discovery'
+  | 'private-hint-match'
+  | 'private-hint-fallback'
+  | 'configured-can-without-ping'
+  | 'wrong-configured-can'
+  | 'generic-gateway-forwarding'
+  | 'mixed-can-nodes'
+  | 'zero-candidates'
+  | 'can-id-overflow'
+  | 'candidate-overflow'
+  | 'supported-unsupported-ambiguity'
+  | 'selection-validation'
+  | 'selection-atomic-persistence'
+  | 'failed-retry'
+  | 'reconnect-continuity'
+  | 'frontend-recovery';
 
 export interface SoftwareConnectionScenario {
   name: SoftwareConnectionScenarioName;
@@ -164,15 +164,10 @@ export interface SoftwareConnectionScenario {
   preferredCanId?: number | null;
   privateHintCanId?: number;
   selectedCanId?: number;
-  expectedRoute?: "direct" | { canId: number };
+  expectedRoute?: 'direct' | { canId: number };
   expectedIssue?: ConnectionIssueCode;
   expectsPing: boolean;
-  lifecycle:
-    | "connect"
-    | "selection"
-    | "retry"
-    | "reconnect"
-    | "frontend-recovery";
+  lifecycle: 'connect' | 'selection' | 'retry' | 'reconnect' | 'frontend-recovery';
 }
 
 const nonMotorNode = {
@@ -190,174 +185,171 @@ const supportedController = (canId: number) => ({
       { ...thor300, uuid: new Uint8Array(12).fill(canId + 1) },
       6,
       6,
-      Uint8Array.of(0, 0, 0, 0),
+      Uint8Array.of(0, 0, 0, 0)
     ),
   },
 });
 
 const mixedCanBoard: BoardConfiguration = {
   ...expressThor,
-  name: "Express / mixed CAN nodes",
+  name: 'Express / mixed CAN nodes',
   controllers: [nonMotorNode, supportedController(42)],
   canPingIds: [42, 7, 42, 254, 255],
-  requestPolicy: "interactive",
+  requestPolicy: 'interactive',
 };
 
 const zeroCandidateBoard: BoardConfiguration = {
   ...expressThor,
-  name: "Express / no motor controllers",
+  name: 'Express / no motor controllers',
   controllers: [nonMotorNode],
   canPingIds: [7],
-  requestPolicy: "interactive",
+  requestPolicy: 'interactive',
 };
 
 const excessiveCanBoard: BoardConfiguration = {
   ...expressThor,
-  name: "Express / excessive CAN IDs",
+  name: 'Express / excessive CAN IDs',
   controllers: [],
   canPingIds: Array.from({ length: 65 }, (_, index) => index),
-  requestPolicy: "interactive",
+  requestPolicy: 'interactive',
 };
 
 const excessiveControllerBoard: BoardConfiguration = {
   ...expressThor,
-  name: "Express / excessive motor controllers",
+  name: 'Express / excessive motor controllers',
   controllers: Array.from({ length: 17 }, (_, canId) => supportedController(canId)),
-  requestPolicy: "interactive",
+  requestPolicy: 'interactive',
 };
 
 const staleHintBoard: BoardConfiguration = {
   ...expressThor,
-  name: "Express / stale hint fallback",
+  name: 'Express / stale hint fallback',
   controllers: [nonMotorNode, supportedController(42)],
   canPingIds: [7, 42],
-  requestPolicy: "interactive",
+  requestPolicy: 'interactive',
 };
 
-export const softwareConnectionScenarios: Record<
-  SoftwareConnectionScenarioName,
-  SoftwareConnectionScenario
-> = {
-  "automatic-can-discovery": {
-    name: "automatic-can-discovery",
+export const softwareConnectionScenarios: Record<SoftwareConnectionScenarioName, SoftwareConnectionScenario> = {
+  'automatic-can-discovery': {
+    name: 'automatic-can-discovery',
     board: expressThor,
     preferredCanId: null,
     expectedRoute: { canId: 1 },
     expectsPing: true,
-    lifecycle: "connect",
+    lifecycle: 'connect',
   },
-  "private-hint-match": {
-    name: "private-hint-match",
+  'private-hint-match': {
+    name: 'private-hint-match',
     board: expressExplicitThor,
     privateHintCanId: 42,
     expectedRoute: { canId: 42 },
     expectsPing: false,
-    lifecycle: "connect",
+    lifecycle: 'connect',
   },
-  "private-hint-fallback": {
-    name: "private-hint-fallback",
+  'private-hint-fallback': {
+    name: 'private-hint-fallback',
     board: staleHintBoard,
     privateHintCanId: 7,
     expectedRoute: { canId: 42 },
     expectsPing: true,
-    lifecycle: "connect",
+    lifecycle: 'connect',
   },
-  "configured-can-without-ping": {
-    name: "configured-can-without-ping",
+  'configured-can-without-ping': {
+    name: 'configured-can-without-ping',
     board: expressExplicitThor,
     preferredCanId: 42,
     expectedRoute: { canId: 42 },
     expectsPing: false,
-    lifecycle: "connect",
+    lifecycle: 'connect',
   },
-  "wrong-configured-can": {
-    name: "wrong-configured-can",
-    board: { ...expressExplicitThor, requestPolicy: "interactive" },
+  'wrong-configured-can': {
+    name: 'wrong-configured-can',
+    board: { ...expressExplicitThor, requestPolicy: 'interactive' },
     preferredCanId: 7,
-    expectedIssue: "preferred_controller_unavailable",
+    expectedIssue: 'preferred_controller_unavailable',
     expectsPing: false,
-    lifecycle: "connect",
+    lifecycle: 'connect',
   },
-  "generic-gateway-forwarding": {
-    name: "generic-gateway-forwarding",
+  'generic-gateway-forwarding': {
+    name: 'generic-gateway-forwarding',
     board: genericGatewayThor,
     expectedRoute: { canId: 1 },
     expectsPing: true,
-    lifecycle: "connect",
+    lifecycle: 'connect',
   },
-  "mixed-can-nodes": {
-    name: "mixed-can-nodes",
+  'mixed-can-nodes': {
+    name: 'mixed-can-nodes',
     board: mixedCanBoard,
     expectedRoute: { canId: 42 },
     expectsPing: true,
-    lifecycle: "connect",
+    lifecycle: 'connect',
   },
-  "zero-candidates": {
-    name: "zero-candidates",
+  'zero-candidates': {
+    name: 'zero-candidates',
     board: zeroCandidateBoard,
-    expectedIssue: "no_controller_found",
+    expectedIssue: 'no_controller_found',
     expectsPing: true,
-    lifecycle: "connect",
+    lifecycle: 'connect',
   },
-  "can-id-overflow": {
-    name: "can-id-overflow",
+  'can-id-overflow': {
+    name: 'can-id-overflow',
     board: excessiveCanBoard,
-    expectedIssue: "too_many_can_devices",
+    expectedIssue: 'too_many_can_devices',
     expectsPing: true,
-    lifecycle: "connect",
+    lifecycle: 'connect',
   },
-  "candidate-overflow": {
-    name: "candidate-overflow",
+  'candidate-overflow': {
+    name: 'candidate-overflow',
     board: excessiveControllerBoard,
-    expectedIssue: "too_many_controllers",
+    expectedIssue: 'too_many_controllers',
     expectsPing: true,
-    lifecycle: "connect",
+    lifecycle: 'connect',
   },
-  "supported-unsupported-ambiguity": {
-    name: "supported-unsupported-ambiguity",
+  'supported-unsupported-ambiguity': {
+    name: 'supported-unsupported-ambiguity',
     board: ambiguousThor,
     selectedCanId: 42,
     expectedRoute: { canId: 42 },
     expectsPing: true,
-    lifecycle: "selection",
+    lifecycle: 'selection',
   },
-  "selection-validation": {
-    name: "selection-validation",
+  'selection-validation': {
+    name: 'selection-validation',
     board: ambiguousThor,
     selectedCanId: 42,
     expectedRoute: { canId: 42 },
     expectsPing: true,
-    lifecycle: "selection",
+    lifecycle: 'selection',
   },
-  "selection-atomic-persistence": {
-    name: "selection-atomic-persistence",
+  'selection-atomic-persistence': {
+    name: 'selection-atomic-persistence',
     board: ambiguousThor,
     selectedCanId: 42,
     expectedRoute: { canId: 42 },
     expectsPing: true,
-    lifecycle: "selection",
+    lifecycle: 'selection',
   },
-  "failed-retry": {
-    name: "failed-retry",
-    board: { ...expressExplicitThor, requestPolicy: "interactive" },
+  'failed-retry': {
+    name: 'failed-retry',
+    board: { ...expressExplicitThor, requestPolicy: 'interactive' },
     preferredCanId: 7,
-    expectedIssue: "preferred_controller_unavailable",
+    expectedIssue: 'preferred_controller_unavailable',
     expectsPing: false,
-    lifecycle: "retry",
+    lifecycle: 'retry',
   },
-  "reconnect-continuity": {
-    name: "reconnect-continuity",
+  'reconnect-continuity': {
+    name: 'reconnect-continuity',
     board: expressThor,
     expectedRoute: { canId: 1 },
     expectsPing: true,
-    lifecycle: "reconnect",
+    lifecycle: 'reconnect',
   },
-  "frontend-recovery": {
-    name: "frontend-recovery",
+  'frontend-recovery': {
+    name: 'frontend-recovery',
     board: ambiguousThor,
     selectedCanId: 42,
     expectedRoute: { canId: 42 },
     expectsPing: true,
-    lifecycle: "frontend-recovery",
+    lifecycle: 'frontend-recovery',
   },
 };

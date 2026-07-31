@@ -1,6 +1,6 @@
+@testable import FloatViewBackend
 import Foundation
 import Testing
-@testable import FloatViewBackend
 
 @Test func adaptiveSamplingPersistsTransitionsAndTail() {
   var policy = AdaptiveSamplingPolicy(

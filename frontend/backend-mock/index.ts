@@ -18,118 +18,114 @@ const server = createServer(app);
 let wss = createWebSocketServer();
 
 app.get('/api/bootstrap', (_request, response) => {
-	response.set('Cache-Control', 'no-store').json({
-		webSocketUrl: '/api/ws',
-		sessionToken
-	});
+  response.set('Cache-Control', 'no-store').json({
+    webSocketUrl: '/api/ws',
+    sessionToken,
+  });
 });
 
 server.on('upgrade', (request, socket, head) => {
-	const url = new URL(request.url ?? '/', 'http://127.0.0.1');
-	const origin = request.headers.origin;
-	if (
-		url.pathname !== '/api/ws' ||
-		url.searchParams.get('token') !== sessionToken ||
-		(origin !== expectedOrigin && origin !== undefined)
-	) {
-		socket.write('HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n');
-		socket.destroy();
-		return;
-	}
+  const url = new URL(request.url ?? '/', 'http://127.0.0.1');
+  const origin = request.headers.origin;
+  if (
+    url.pathname !== '/api/ws' ||
+    url.searchParams.get('token') !== sessionToken ||
+    (origin !== expectedOrigin && origin !== undefined)
+  ) {
+    socket.write('HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n');
+    socket.destroy();
+    return;
+  }
 
-	wss.handleUpgrade(request, socket, head, (webSocket) => {
-		wss.emit('connection', webSocket, request);
-	});
+  wss.handleUpgrade(request, socket, head, (webSocket) => {
+    wss.emit('connection', webSocket, request);
+  });
 });
 
 export function startMockServer(port = DEFAULT_PORT): Promise<number> {
-	if (mockRunning) return Promise.reject(new Error('Mock server is already running'));
-	sessionToken = randomBytes(32).toString('base64url');
-	wss = createWebSocketServer();
-	return new Promise((resolve, reject) => {
-		const handleError = (error: Error) => reject(error);
-		server.once('error', handleError);
-		server.listen(port, '127.0.0.1', () => {
-			server.removeListener('error', handleError);
-			const address = server.address();
-			if (!address || typeof address === 'string') {
-				reject(new Error('Mock server did not bind a TCP port'));
-				return;
-			}
-			mockRunning = true;
-			resolve(address.port);
-		});
-	});
+  if (mockRunning) return Promise.reject(new Error('Mock server is already running'));
+  sessionToken = randomBytes(32).toString('base64url');
+  wss = createWebSocketServer();
+  return new Promise((resolve, reject) => {
+    const handleError = (error: Error) => reject(error);
+    server.once('error', handleError);
+    server.listen(port, '127.0.0.1', () => {
+      server.removeListener('error', handleError);
+      const address = server.address();
+      if (!address || typeof address === 'string') {
+        reject(new Error('Mock server did not bind a TCP port'));
+        return;
+      }
+      mockRunning = true;
+      resolve(address.port);
+    });
+  });
 }
 
 function createWebSocketServer() {
-	const value = new WebSocketServer({ noServer: true, maxPayload: 65_536 });
-	const delivery = new WeakMap<
-		import('ws').WebSocket,
-		{ sendingState: boolean; pendingState?: string }
-	>();
-	function sendNewestState(client: import('ws').WebSocket, payload: string) {
-		const state = delivery.get(client) ?? { sendingState: false };
-		delivery.set(client, state);
-		if (state.sendingState) {
-			state.pendingState = payload;
-			return;
-		}
-		state.sendingState = true;
-		client.send(payload, () => {
-			state.sendingState = false;
-			const pending = state.pendingState;
-			state.pendingState = undefined;
-			if (pending && client.readyState === client.OPEN) sendNewestState(client, pending);
-		});
-	}
-	const backend = new MockBackend((event) => {
-		const payload = JSON.stringify(event);
-		for (const client of value.clients) {
-			if (client.readyState === client.OPEN) sendNewestState(client, payload);
-		}
-	});
-	let telemetryTimer: NodeJS.Timeout;
-	const publishNextSample = () => {
-		backend.publishTelemetry();
-		telemetryTimer = setTimeout(publishNextSample, backend.telemetryCadenceMs);
-		telemetryTimer.unref();
-	};
-	publishNextSample();
-	value.once('close', () => clearTimeout(telemetryTimer));
-	value.on('connection', (webSocket) => {
-		webSocket.on('message', (data) => {
-			webSocket.send(JSON.stringify(backend.handlePayload(data.toString())));
-		});
-	});
-	return value;
+  const value = new WebSocketServer({ noServer: true, maxPayload: 65_536 });
+  const delivery = new WeakMap<import('ws').WebSocket, { sendingState: boolean; pendingState?: string }>();
+  function sendNewestState(client: import('ws').WebSocket, payload: string) {
+    const state = delivery.get(client) ?? { sendingState: false };
+    delivery.set(client, state);
+    if (state.sendingState) {
+      state.pendingState = payload;
+      return;
+    }
+    state.sendingState = true;
+    client.send(payload, () => {
+      state.sendingState = false;
+      const pending = state.pendingState;
+      state.pendingState = undefined;
+      if (pending && client.readyState === client.OPEN) sendNewestState(client, pending);
+    });
+  }
+  const backend = new MockBackend((event) => {
+    const payload = JSON.stringify(event);
+    for (const client of value.clients) {
+      if (client.readyState === client.OPEN) sendNewestState(client, payload);
+    }
+  });
+  let telemetryTimer: NodeJS.Timeout;
+  const publishNextSample = () => {
+    backend.publishTelemetry();
+    telemetryTimer = setTimeout(publishNextSample, backend.telemetryCadenceMs);
+    telemetryTimer.unref();
+  };
+  publishNextSample();
+  value.once('close', () => clearTimeout(telemetryTimer));
+  value.on('connection', (webSocket) => {
+    webSocket.on('message', (data) => {
+      webSocket.send(JSON.stringify(backend.handlePayload(data.toString())));
+    });
+  });
+  return value;
 }
 
 export function getMockBootstrap(port: number) {
-	return {
-		webSocketUrl: `ws://127.0.0.1:${port}/api/ws?token=${encodeURIComponent(sessionToken)}`,
-		origin: expectedOrigin
-	};
+  return {
+    webSocketUrl: `ws://127.0.0.1:${port}/api/ws?token=${encodeURIComponent(sessionToken)}`,
+    origin: expectedOrigin,
+  };
 }
 
 export function stopMockServer(): Promise<void> {
-	for (const client of wss.clients) client.terminate();
-	return new Promise((resolve, reject) => {
-		wss.close((webSocketError) => {
-			server.close((serverError) => {
-				const error = webSocketError ?? serverError;
-				if (error) reject(error);
-				else {
-					mockRunning = false;
-					resolve();
-				}
-			});
-		});
-	});
+  for (const client of wss.clients) client.terminate();
+  return new Promise((resolve, reject) => {
+    wss.close((webSocketError) => {
+      server.close((serverError) => {
+        const error = webSocketError ?? serverError;
+        if (error) reject(error);
+        else {
+          mockRunning = false;
+          resolve();
+        }
+      });
+    });
+  });
 }
 
-const isMain =
-	!!process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href;
+const isMain = !!process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href;
 if (isMain) {
-	startMockServer().then((port) => console.log(`Mock server started on ${port}`));
+  startMockServer().then((port) => console.log(`Mock server started on ${port}`));
 }

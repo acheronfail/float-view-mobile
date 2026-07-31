@@ -52,7 +52,7 @@ public struct VescFault: Equatable, Sendable {
 
   public init(code: UInt8) {
     self.code = code
-    self.kind = switch code {
+    kind = switch code {
     case 0: .none
     case 1: .overVoltage
     default: .unknown
@@ -71,21 +71,25 @@ private struct ByteReader {
   }
 
   mutating func i16(scale: Double) throws -> Double {
-    let raw = Int16(bitPattern: UInt16(try u8()) << 8 | UInt16(try u8()))
+    let raw = try Int16(bitPattern: UInt16(u8()) << 8 | UInt16(u8()))
     return Double(raw) / scale
   }
 
   mutating func i32(scale: Double = 1) throws -> Double {
     var value: UInt32 = 0
-    for _ in 0..<4 { value = value << 8 | UInt32(try u8()) }
+    for _ in 0 ..< 4 {
+      value = try value << 8 | UInt32(u8())
+    }
     return Double(Int32(bitPattern: value)) / scale
   }
 
   mutating func float32Auto() throws -> Double {
     var raw: UInt32 = 0
-    for _ in 0..<4 { raw = raw << 8 | UInt32(try u8()) }
-    let exponentBits = Int((raw >> 23) & 0xff)
-    let significandBits = raw & 0x7fffff
+    for _ in 0 ..< 4 {
+      raw = try raw << 8 | UInt32(u8())
+    }
+    let exponentBits = Int((raw >> 23) & 0xFF)
+    let significandBits = raw & 0x7FFFFF
     guard exponentBits != 0 || significandBits != 0 else { return 0 }
     let significand = Double(significandBits) / 16_777_216.0 + 0.5
     let value = significand * pow(2, Double(exponentBits - 126))
@@ -100,11 +104,11 @@ private struct ByteReader {
 
 public enum VescPayloadDecoder {
   private static let batterySeriesCellOffsets: [UInt32: Int] = [
-    0x2e43a161: 462, // 6.02
-    0x3f829cf7: 452, // 6.05
-    0x2efd0142: 458, // 6.06
-    0x57ad8f53: 463, // 7.00
-    0x9307410d: 463, // 7.01
+    0x2E43A161: 462, // 6.02
+    0x3F829CF7: 452, // 6.05
+    0x2EFD0142: 458, // 6.06
+    0x57AD8F53: 463, // 7.00
+    0x9307410D: 463, // 7.01
   ]
 
   public static func firmware(_ payload: [UInt8]) throws -> FirmwareInfo {
@@ -123,7 +127,7 @@ public enum VescPayloadDecoder {
     let batteryCurrent = try reader.i32(scale: 100)
     try reader.skip(8)
     let duty = try reader.i16(scale: 1000)
-    let erpm = Int32(try reader.i32())
+    let erpm = try Int32(reader.i32())
     let packVoltage = try reader.i16(scale: 10)
     let fault = try reader.u8()
     return RealtimeValues(
@@ -146,13 +150,15 @@ public enum VescPayloadDecoder {
       throw VescProtocolError.unsupportedCommand(command)
     }
     var signature: UInt32 = 0
-    for _ in 0..<4 { signature = signature << 8 | UInt32(try reader.u8()) }
+    for _ in 0 ..< 4 {
+      signature = try signature << 8 | UInt32(reader.u8())
+    }
     try reader.skip(4) // Four enum fields.
-    let value = ControllerCurrentLimits(
-      motorCurrentMaxA: try reader.float32Auto(),
-      motorCurrentMinA: try reader.float32Auto(),
-      batteryCurrentMaxA: try reader.float32Auto(),
-      batteryCurrentMinA: try reader.float32Auto(),
+    let value = try ControllerCurrentLimits(
+      motorCurrentMaxA: reader.float32Auto(),
+      motorCurrentMinA: reader.float32Auto(),
+      batteryCurrentMaxA: reader.float32Auto(),
+      batteryCurrentMinA: reader.float32Auto(),
       batterySeriesCells: batterySeriesCellOffsets[signature].flatMap { offset in
         guard payload.indices.contains(offset), payload[offset] > 0 else { return nil }
         return payload[offset]
@@ -167,7 +173,6 @@ public enum VescPayloadDecoder {
     }
     return value
   }
-
 }
 
 public final class VescProtocolService: VescProtocolPort, @unchecked Sendable {
@@ -193,17 +198,17 @@ public final class VescProtocolService: VescProtocolPort, @unchecked Sendable {
     pendingFirmwareCanID = route.canID
     lock.unlock()
     let payload = VescCommandRouter.route([VescCommand.getFirmwareVersion.rawValue], via: route)
-    return Data(try VescFrameCodec.encode(payload))
+    return try Data(VescFrameCodec.encode(payload))
   }
 
   public func motorConfigurationRequest(route: ControllerRoute) throws -> Data {
-    Data(try VescFrameCodec.encode(
+    try Data(VescFrameCodec.encode(
       VescCommandRouter.route([VescCommand.getMotorConfiguration.rawValue], via: route)
     ))
   }
 
   public func canPingRequest() throws -> Data {
-    Data(try VescFrameCodec.encode([VescCommand.pingCAN.rawValue]))
+    try Data(VescFrameCodec.encode([VescCommand.pingCAN.rawValue]))
   }
 
   public func refloatInfoRequest(route: ControllerRoute) throws -> Data {
@@ -212,17 +217,17 @@ public final class VescProtocolService: VescProtocolPort, @unchecked Sendable {
       parameters: [RefloatWire.infoProtocolVersion, RefloatWire.infoFlags]
     )
     let payload = VescCommandRouter.route(command, via: route)
-    return Data(try VescFrameCodec.encode(payload))
+    return try Data(VescFrameCodec.encode(payload))
   }
 
   public func refloatTelemetryIDsRequest(route: ControllerRoute) throws -> Data {
     let command = RefloatWire.request(.realtimeDataInternalIDs)
-    return Data(try VescFrameCodec.encode(VescCommandRouter.route(command, via: route)))
+    return try Data(VescFrameCodec.encode(VescCommandRouter.route(command, via: route)))
   }
 
   public func refloatTelemetryRequest(route: ControllerRoute) throws -> Data {
     let command = RefloatWire.request(.realtimeDataInternal)
-    return Data(try VescFrameCodec.encode(VescCommandRouter.route(command, via: route)))
+    return try Data(VescFrameCodec.encode(VescCommandRouter.route(command, via: route)))
   }
 
   public func refloatLegacyTelemetryRequest(route: ControllerRoute) throws -> Data {
@@ -230,7 +235,7 @@ public final class VescProtocolService: VescProtocolPort, @unchecked Sendable {
       .getAllData,
       parameters: [RefloatWire.legacyTelemetryDetailLevel]
     )
-    return Data(try VescFrameCodec.encode(VescCommandRouter.route(command, via: route)))
+    return try Data(VescFrameCodec.encode(VescCommandRouter.route(command, via: route)))
   }
 
   public func refloatCompactTelemetryRequest(route: ControllerRoute) throws -> Data {
@@ -238,7 +243,7 @@ public final class VescProtocolService: VescProtocolPort, @unchecked Sendable {
       .getAllData,
       parameters: [RefloatWire.legacyTelemetryDetailLevel]
     )
-    return Data(try VescFrameCodec.encode(VescCommandRouter.route(command, via: route)))
+    return try Data(VescFrameCodec.encode(VescCommandRouter.route(command, via: route)))
   }
 
   public func receive(_ bytes: Data) throws -> [VescProtocolMessage] {
@@ -261,7 +266,7 @@ public final class VescProtocolService: VescProtocolPort, @unchecked Sendable {
           )
         )
       case VescCommand.getMotorConfiguration.rawValue:
-        return .currentLimits(try VescPayloadDecoder.currentLimits(payload))
+        return try .currentLimits(VescPayloadDecoder.currentLimits(payload))
       case VescCommand.pingCAN.rawValue:
         return .canDevices(Array(Set(payload.dropFirst())).sorted())
       case VescCommand.customAppData.rawValue:
@@ -269,7 +274,7 @@ public final class VescProtocolService: VescProtocolPort, @unchecked Sendable {
           return nil
         }
         if command == .info {
-          return .refloatInfo(version: try RefloatInfoDecoder.decodeVersion(payload))
+          return try .refloatInfo(version: RefloatInfoDecoder.decodeVersion(payload))
         }
         if command == .realtimeDataInternalIDs {
           let (fields, runtimeFields) = try RefloatDynamicTelemetryDecoder.decodeFields(payload)
@@ -278,8 +283,8 @@ public final class VescProtocolService: VescProtocolPort, @unchecked Sendable {
           return .refloatTelemetryLayout(fields: fields, runtimeFields: runtimeFields)
         }
         if command == .realtimeDataInternal {
-          return .refloatTelemetry(
-            try RefloatDynamicTelemetryDecoder.decodeData(
+          return try .refloatTelemetry(
+            RefloatDynamicTelemetryDecoder.decodeData(
               payload,
               fields: realtimeFields,
               runtimeFields: realtimeRuntimeFields
@@ -287,7 +292,7 @@ public final class VescProtocolService: VescProtocolPort, @unchecked Sendable {
           )
         }
         if command == .getAllData {
-          return .refloatTelemetry(try RefloatLegacyTelemetryDecoder.decode(payload))
+          return try .refloatTelemetry(RefloatLegacyTelemetryDecoder.decode(payload))
         }
         return nil
       default:
@@ -295,5 +300,4 @@ public final class VescProtocolService: VescProtocolPort, @unchecked Sendable {
       }
     }
   }
-
 }

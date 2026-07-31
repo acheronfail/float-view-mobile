@@ -21,7 +21,7 @@ enum VescBluetoothPolicy {
   static func chunks(_ bytes: Data, maximumPayloadBytes: Int) -> [Data] {
     let chunkSize = max(1, maximumPayloadBytes)
     return stride(from: 0, to: bytes.count, by: chunkSize).map {
-      bytes.subdata(in: $0..<min($0 + chunkSize, bytes.count))
+      bytes.subdata(in: $0 ..< min($0 + chunkSize, bytes.count))
     }
   }
 

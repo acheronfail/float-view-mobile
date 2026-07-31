@@ -20,7 +20,9 @@ public struct RefloatCompatibilityEntry: Sendable, Equatable {
   public let wireVersion: String
   public let profile: RefloatWireProfile
 
-  public var family: RefloatTelemetryFamily { profile.family }
+  public var family: RefloatTelemetryFamily {
+    profile.family
+  }
 }
 
 public enum RefloatCompatibility {

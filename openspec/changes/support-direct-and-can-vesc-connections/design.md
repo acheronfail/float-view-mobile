@@ -143,15 +143,15 @@ A separate retry method was rejected because the existing connect intent already
 
 Compatibility data is declarative and maps exact audited stable versions to the smallest set of consumed wire implementations:
 
-| Identity | Compatibility family | Notes |
-|---|---|---|
-| VESC 6.02 | `vescCoreReadOnly` | Complete stable identity baseline; no hardware-CRC suffix in the audited source |
-| VESC 6.05 | `vescCoreReadOnly` | Same consumed commands; source-defined hardware-CRC suffix |
-| VESC 6.06 | `vescCoreReadOnly` | Same consumed commands and identity shape |
-| VESC 7.00 | `vescCoreReadOnly` | Same consumed commands and identity shape as 6.06 |
-| Refloat source package 1.0.0 | `refloatLegacyV1` | Wire identity and reported version `1.0`; fixed legacy realtime/all-data packets |
-| Refloat 1.1.0 | `refloatDynamicV1` | Dynamic IDs and float16 data |
-| Refloat 1.2.3 | `refloatDynamicV1WithAlerts` | Dynamic data with bounded alert/fault tail |
+| Identity                     | Compatibility family         | Notes                                                                            |
+| ---------------------------- | ---------------------------- | -------------------------------------------------------------------------------- |
+| VESC 6.02                    | `vescCoreReadOnly`           | Complete stable identity baseline; no hardware-CRC suffix in the audited source  |
+| VESC 6.05                    | `vescCoreReadOnly`           | Same consumed commands; source-defined hardware-CRC suffix                       |
+| VESC 6.06                    | `vescCoreReadOnly`           | Same consumed commands and identity shape                                        |
+| VESC 7.00                    | `vescCoreReadOnly`           | Same consumed commands and identity shape as 6.06                                |
+| Refloat source package 1.0.0 | `refloatLegacyV1`            | Wire identity and reported version `1.0`; fixed legacy realtime/all-data packets |
+| Refloat 1.1.0                | `refloatDynamicV1`           | Dynamic IDs and float16 data                                                     |
+| Refloat 1.2.3                | `refloatDynamicV1WithAlerts` | Dynamic data with bounded alert/fault tail                                       |
 
 For VESC, a major/minor pair identifies only a candidate catalog entry. A controller is supported only when its identity baseline is structurally valid, its hardware type is `HW_TYPE_VESC`, and the selected direct or forwarded route successfully returns compatible Refloat INFO and any required layout. `COMM_FW_VERSION`, `COMM_FORWARD_CAN`, `COMM_CUSTOM_APP_DATA`, and `COMM_PING_CAN` retain the consumed command identities across the audited releases. Hardware name, firmware name, UUID, and hardware CRC do not broaden version support. A nonzero test-version marker on an audited version selects read-only access: reads remain allowed, while writes are rejected by a centralized capability gate. An unknown major/minor pair, malformed baseline, or unsupported Refloat response fails closed.
 

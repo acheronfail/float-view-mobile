@@ -7,46 +7,58 @@ Define the single SvelteKit frontend source and self-contained HTML artifact emb
 ## Requirements
 
 ### Requirement: One frontend source
+
 The repository SHALL contain the one SvelteKit and TypeScript application under lowercase `/frontend`. Android, iOS, macOS, and browser development SHALL use that frontend, and frontend code MUST NOT branch on the native platform.
 
 #### Scenario: Same application behavior on every host
+
 - **WHEN** the frontend is loaded by Android, iOS, macOS, or the development mock
 - **THEN** it uses the same components, state store, backend client, and backend contract
 
 ### Requirement: One inline production artifact
+
 `npm run build` from `/frontend` SHALL produce `frontend/build/index.html` as the one canonical HTML runtime artifact with application JavaScript and CSS inline, and the artifact MUST NOT require external build assets.
 
 #### Scenario: Production build is self-contained
+
 - **WHEN** the production frontend build completes
 - **THEN** exactly one runtime HTML resource is required to load the application
 
 #### Scenario: Native builds embed identical content
+
 - **WHEN** Android, iOS, and macOS applications are built from the same source revision
 - **THEN** each application embeds byte-identical frontend HTML
 
 ### Requirement: Conventional frontend development loop
+
 The frontend SHALL retain SvelteKit, TypeScript, Tailwind, and static adapter tooling behind the commands `npm run dev`, `npm run build`, and `npm test`. `npm run dev` and `just dev mock` SHALL provide deterministic mock-backed hot module replacement, while `just dev macos|ios|android [target]` SHALL use the same development frontend against the selected native backend.
 
 #### Scenario: Mock hot-reload development
+
 - **WHEN** a developer runs `npm run dev` or `just dev mock`
 - **THEN** the frontend and deterministic backend mock start with SvelteKit hot module replacement
 
 #### Scenario: Native hot-reload development
+
 - **WHEN** a developer runs `just dev macos`, `just dev ios <target>`, or `just dev android <target>`
 - **THEN** the same frontend components, state store, backend client, and contract run with SvelteKit hot module replacement against the selected native backend
 
 #### Scenario: Production frontend build
+
 - **WHEN** a developer runs `npm run build`
 - **THEN** development proxy behavior is absent from the canonical inline production artifact
 
 ### Requirement: Minimal frontend serving
+
 Each native backend SHALL serve the embedded HTML only at `/` and SHALL NOT implement a general static-file server.
 
 #### Scenario: Root document
+
 - **WHEN** an authenticated application WebView requests `/`
 - **THEN** the backend returns the embedded HTML with a `text/html` content type
 
 #### Scenario: Unknown content path
+
 - **WHEN** a client requests an unrecognized non-API path
 - **THEN** the backend returns `404` without resolving a filesystem path
 

@@ -1,6 +1,6 @@
+@testable import FloatViewBackend
 import Foundation
 import Testing
-@testable import FloatViewBackend
 
 private struct Fixture: Decodable {
   let frameHex: String
@@ -28,32 +28,38 @@ private struct RefloatSourceFixture: Decodable {
 
 private func fixture(_ relativePath: String) throws -> Fixture {
   var root = URL(fileURLWithPath: #filePath)
-  for _ in 0..<4 { root.deleteLastPathComponent() }
+  for _ in 0 ..< 4 {
+    root.deleteLastPathComponent()
+  }
   let data = try Data(contentsOf: root.appending(path: relativePath))
   return try JSONDecoder().decode(Fixture.self, from: data)
 }
 
 private func multiCaseFixture(_ relativePath: String) throws -> MultiCaseFixture {
   var root = URL(fileURLWithPath: #filePath)
-  for _ in 0..<4 { root.deleteLastPathComponent() }
+  for _ in 0 ..< 4 {
+    root.deleteLastPathComponent()
+  }
   let data = try Data(contentsOf: root.appending(path: relativePath))
   return try JSONDecoder().decode(MultiCaseFixture.self, from: data)
 }
 
 private func refloatSourcePayload(_ name: String) throws -> [UInt8] {
   var root = URL(fileURLWithPath: #filePath)
-  for _ in 0..<4 { root.deleteLastPathComponent() }
+  for _ in 0 ..< 4 {
+    root.deleteLastPathComponent()
+  }
   let data = try Data(
     contentsOf: root.appending(path: "fixtures/refloat/detailed-source-provenance.json")
   )
   let fixture = try JSONDecoder().decode(RefloatSourceFixture.self, from: data)
-  return bytes(try #require(fixture.cases.first { $0.name == name }).payloadHex)
+  return try bytes(#require(fixture.cases.first { $0.name == name }).payloadHex)
 }
 
 private func bytes(_ hex: String) -> [UInt8] {
   stride(from: 0, to: hex.count, by: 2).map {
     let start = hex.index(hex.startIndex, offsetBy: $0)
-    return UInt8(hex[start..<hex.index(start, offsetBy: 2)], radix: 16)!
+    return UInt8(hex[start ..< hex.index(start, offsetBy: 2)], radix: 16)!
   }
 }
 
@@ -64,7 +70,7 @@ private func bytes(_ hex: String) -> [UInt8] {
   var offset = 0
   var payloads: [[UInt8]] = []
   for count in value.chunkSizes {
-    payloads += try stream.append(frame[offset..<(offset + count)])
+    payloads += try stream.append(frame[offset ..< (offset + count)])
     offset += count
   }
   let info = try VescPayloadDecoder.firmware(#require(payloads.first))
@@ -83,7 +89,7 @@ private func bytes(_ hex: String) -> [UInt8] {
   var offset = 0
   var payloads: [[UInt8]] = []
   for count in value.chunkSizes {
-    payloads += try stream.append(frame[offset..<(offset + count)])
+    payloads += try stream.append(frame[offset ..< (offset + count)])
     offset += count
   }
   let info = try VescPayloadDecoder.firmware(#require(payloads.first))
@@ -135,13 +141,12 @@ private func bytes(_ hex: String) -> [UInt8] {
   #expect(faultValues.fault.kind.rawValue == "over_voltage")
   #expect(VescFault(code: 255).kind == .unknown)
   #expect(VescFault(code: 255).code == 255)
-
 }
 
 @Test func motorConfigurationCurrentLimitsDecodeAndRoute() throws {
   var payload = Array(repeating: UInt8(0), count: 489)
   payload.replaceSubrange(
-    0..<25,
+    0 ..< 25,
     with: bytes("0e57ad8f530000000042c80000c2c8000042480000c1a00000")
   )
   payload[463] = 18
@@ -225,7 +230,7 @@ private func bytes(_ hex: String) -> [UInt8] {
   #expect(dynamic.atrAccelerationDifferenceErpmPerSecond != nil)
   #expect(dynamic.atrSpeedBoost != nil)
   #expect(dynamic.extensions.isEmpty)
-  #expect(abs(try #require(dynamic.speedKph) - (try #require(legacy.speedKph))) < 0.3)
+  #expect(try abs(#require(dynamic.speedKph) - (try #require(legacy.speedKph))) < 0.3)
 
   let fault = try RefloatDynamicTelemetryDecoder.decodeData(
     refloatSourcePayload("1.2.3-command-31-active-firmware-fault"),
@@ -251,7 +256,7 @@ private func bytes(_ hex: String) -> [UInt8] {
 
   let shortFrame = try VescFrameCodec.encode([0, 6, 6, 0])
   var stream = VescFrameStreamDecoder()
-  let combined = [0xff, 0x01] + shortFrame + shortFrame
+  let combined = [0xFF, 0x01] + shortFrame + shortFrame
   let packets = try stream.append(combined)
   #expect(packets == [[0, 6, 6, 0], [0, 6, 6, 0]])
 
@@ -271,7 +276,7 @@ private func bytes(_ hex: String) -> [UInt8] {
   #expect(
     try VescFrameCodec.decode(Array(service.firmwareRequest(route: .can(42)))) == [34, 42, 0]
   )
-  let firmwareFrame = bytes(try fixture("fixtures/vesc/firmware-6.06.json").frameHex)
+  let firmwareFrame = try bytes(fixture("fixtures/vesc/firmware-6.06.json").frameHex)
   let messages = try service.receive(Data(firmwareFrame))
   let firmware = try #require(messages.first)
   #expect(
@@ -393,16 +398,16 @@ private func bytes(_ hex: String) -> [UInt8] {
     0x48, 0x00,
     0x38, 0x00,
     0x54, 0x00,
-    0xc4, 0x00,
+    0xC4, 0x00,
     0x50, 0x00,
-    0x4c, 0x00,
+    0x4C, 0x00,
     0x45, 0x00,
   ]
 
   let message = try #require(
     service.receive(Data(VescFrameCodec.encode(payload))).first
   )
-  guard case .refloatTelemetry(let value) = message else {
+  guard case let .refloatTelemetry(value) = message else {
     Issue.record("Expected Refloat telemetry")
     return
   }
@@ -430,14 +435,14 @@ private func bytes(_ hex: String) -> [UInt8] {
     let frame = bytes(item.frameHex)
     var offset = 0
     for count in item.chunkSizes {
-      messages += try service.receive(Data(frame[offset..<(offset + count)]))
+      messages += try service.receive(Data(frame[offset ..< (offset + count)]))
       offset += count
     }
   }
 
   #expect(messages.count == 3)
   #expect(messages[0] == .refloatInfo(version: "1.2.3"))
-  guard case .refloatTelemetryLayout(let fields, let runtimeFields) = messages[1] else {
+  guard case let .refloatTelemetryLayout(fields, runtimeFields) = messages[1] else {
     Issue.record("Expected captured Refloat field layout")
     return
   }
@@ -445,7 +450,7 @@ private func bytes(_ hex: String) -> [UInt8] {
   #expect(runtimeFields.count == 10)
   #expect(fields.prefix(3) == ["motor.speed", "motor.erpm", "motor.current"])
 
-  guard case .refloatTelemetry(let value) = messages[2] else {
+  guard case let .refloatTelemetry(value) = messages[2] else {
     Issue.record("Expected captured Refloat telemetry")
     return
   }

@@ -14,7 +14,9 @@ public func loopbackStartupFailure(port: UInt16, error: any Error) -> String {
 public final class LoopbackServer: @unchecked Sendable {
   public let token: String
   public private(set) var port: UInt16 = 0
-  public var origin: String { "http://127.0.0.1:\(port)" }
+  public var origin: String {
+    "http://127.0.0.1:\(port)"
+  }
 
   private let html: Data
   private let requestedPort: UInt16
@@ -43,7 +45,7 @@ public final class LoopbackServer: @unchecked Sendable {
 
   public func start() throws {
     guard server == nil else { return }
-    let server = HTTPServer(address: try sockaddr_in.inet(ip4: "127.0.0.1", port: requestedPort))
+    let server = try HTTPServer(address: sockaddr_in.inet(ip4: "127.0.0.1", port: requestedPort))
     let result = StartResult()
     let ready = DispatchSemaphore(value: 0)
     serverTask = Task.detached { [weak self] in
@@ -87,7 +89,7 @@ public final class LoopbackServer: @unchecked Sendable {
           throw LoopbackServerError.failedToBind
         }
         switch address {
-        case .ip4(_, let value), .ip6(_, let value): self.port = value
+        case let .ip4(_, value), let .ip6(_, value): self.port = value
         case .unix: throw LoopbackServerError.failedToBind
         }
         result.set(.success(self.port))
@@ -182,7 +184,7 @@ public final class LoopbackServer: @unchecked Sendable {
               params.keys.contains("customDisplayName"),
               params["customDisplayName"] is String || params["customDisplayName"] is NSNull
         else { return failure(id, .invalidRequest, "Valid saved-device update is required") }
-        return success(savedDevicePayload(try applicationService.updateSavedDevice(
+        return try success(savedDevicePayload(applicationService.updateSavedDevice(
           savedDeviceID: savedID,
           expectedRevision: expected,
           customDisplayName: params["customDisplayName"] as? String
@@ -191,15 +193,15 @@ public final class LoopbackServer: @unchecked Sendable {
         guard let expected = params["expectedRevision"] as? Int,
               let patch = params["patch"] as? [String: Any]
         else { return failure(id, .invalidRequest, "Revision and patch are required") }
-        return success(settingsPayload(try applicationService.updateSettings(
+        return try success(settingsPayload(applicationService.updateSettings(
           expectedRevision: expected,
-          patchJSON: try Self.jsonString(patch)
+          patchJSON: Self.jsonString(patch)
         )))
       case "boardProfile.get":
         guard let savedID = params["savedDeviceId"] as? String else {
           return failure(id, .invalidRequest, "savedDeviceId is required")
         }
-        return success(try boardProfilePayload(
+        return try success(boardProfilePayload(
           applicationService.boardProfile(savedDeviceID: savedID)
         ))
       case "boardProfile.update":
@@ -207,18 +209,18 @@ public final class LoopbackServer: @unchecked Sendable {
               let expected = params["expectedRevision"] as? Int,
               let patch = params["patch"] as? [String: Any]
         else { return failure(id, .invalidRequest, "Valid profile update is required") }
-        return success(try boardProfilePayload(applicationService.updateBoardProfile(
+        return try success(boardProfilePayload(applicationService.updateBoardProfile(
           savedDeviceID: savedID,
           expectedRevision: expected,
-          patchJSON: try Self.jsonString(patch)
+          patchJSON: Self.jsonString(patch)
         )))
       case "session.get":
         guard let sessionID = params["sessionId"] as? String else {
           return failure(id, .invalidRequest, "sessionId is required")
         }
         let summary = try applicationService.session(sessionID: sessionID)
-        let numericFields = Self.numericSeriesFields
-          + (try applicationService.sessionExtensionFields(sessionID: sessionID))
+        let numericFields = try Self.numericSeriesFields
+          + (applicationService.sessionExtensionFields(sessionID: sessionID))
         let maxPoints = min(max(params["maxPoints"] as? Int ?? 400, 1), 2_000)
         let points = try applicationService.querySessionSeries(
           sessionID: sessionID,
@@ -234,10 +236,10 @@ public final class LoopbackServer: @unchecked Sendable {
         )
         let eventsTruncated = rawEvents.count > 2_000
         let events = rawEvents.suffix(2_000)
-        return success([
+        return try success([
           "summary": sessionPayload(summary),
           "series": points.map(seriesPayload),
-          "events": try events.map(sessionEventPayload),
+          "events": events.map(sessionEventPayload),
           "eventsTruncated": eventsTruncated,
         ])
       case "session.getDiagnostics":
@@ -246,9 +248,9 @@ public final class LoopbackServer: @unchecked Sendable {
               let before = (params["beforeMs"] as? NSNumber)?.int64Value,
               let after = (params["afterMs"] as? NSNumber)?.int64Value
         else { return failure(id, .invalidRequest, "Valid diagnostic window is required") }
-        let numericFields = Self.numericSeriesFields
-          + (try applicationService.sessionExtensionFields(sessionID: sessionID))
-        return success(try applicationService.diagnosticWindow(
+        let numericFields = try Self.numericSeriesFields
+          + (applicationService.sessionExtensionFields(sessionID: sessionID))
+        return try success(applicationService.diagnosticWindow(
           sessionID: sessionID,
           centerElapsedMs: center,
           beforeMs: before,
@@ -389,7 +391,7 @@ public final class LoopbackServer: @unchecked Sendable {
   private func controllerRoutePayload(_ value: ControllerRoute) -> [String: Any] {
     switch value {
     case .direct: ["kind": "direct"]
-    case .can(let canID): ["kind": "can", "canId": Int(canID)]
+    case let .can(canID): ["kind": "can", "canId": Int(canID)]
     }
   }
 
@@ -628,7 +630,7 @@ public final class LoopbackServer: @unchecked Sendable {
   }
 
   private static func jsonString(_ value: Any) throws -> String {
-    String(decoding: try JSONSerialization.data(withJSONObject: value, options: [.sortedKeys]), as: UTF8.self)
+    try String(decoding: JSONSerialization.data(withJSONObject: value, options: [.sortedKeys]), as: UTF8.self)
   }
 
   private static func randomToken() -> String {
@@ -652,7 +654,7 @@ private struct BackendMessageHandler: WSMessageHandler {
       Task {
         defer { _ = subscription }
         for await message in client {
-          guard case .text(let text) = message,
+          guard case let .text(text) = message,
                 let data = text.data(using: .utf8),
                 data.count <= 65_536,
                 let request = try? JSONSerialization.jsonObject(with: data) as? [String: Any]

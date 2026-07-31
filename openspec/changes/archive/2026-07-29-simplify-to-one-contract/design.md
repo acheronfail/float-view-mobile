@@ -94,7 +94,7 @@ The wire envelopes are:
 type Request = { id: number; method: BackendMethod; params: unknown };
 type Success = { id: number; result: unknown };
 type Failure = { id: number; error: BackendError };
-type StateChanged = { event: 'state.changed'; data: AppState };
+type StateChanged = { event: "state.changed"; data: AppState };
 ```
 
 Stable error codes are limited to:

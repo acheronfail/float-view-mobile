@@ -46,11 +46,11 @@ Hash routing keeps the HTTP pathname at `/`, includes the client route manifest 
 
 The four primary destinations use a route-aware bottom tab bar:
 
-| Tab label | Route |
-| --- | --- |
-| `connect` | `#/` |
+| Tab label  | Route        |
+| ---------- | ------------ |
+| `connect`  | `#/`         |
 | `sessions` | `#/sessions` |
-| `boards` | `#/boards` |
+| `boards`   | `#/boards`   |
 | `settings` | `#/settings` |
 
 Each tab renders a recognizable local or inline icon above its exact lowercase text label. The text supplies the accessible destination name, and the active top-level destination has a visible selected state. No icon dependency is added.

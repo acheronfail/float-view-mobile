@@ -1,5 +1,5 @@
 <script lang="ts">
-	import BoardList from '$lib/features/boards/BoardList.svelte';
+  import BoardList from '$lib/features/boards/BoardList.svelte';
 </script>
 
 <BoardList />

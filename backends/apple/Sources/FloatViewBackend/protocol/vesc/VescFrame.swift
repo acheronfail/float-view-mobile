@@ -13,7 +13,7 @@ public enum VescCRC {
     var crc: UInt16 = 0
     for byte in bytes {
       crc ^= UInt16(byte) << 8
-      for _ in 0..<8 {
+      for _ in 0 ..< 8 {
         crc = (crc & 0x8000) != 0 ? (crc << 1) ^ 0x1021 : crc << 1
       }
     }
@@ -30,12 +30,12 @@ public enum VescFrameCodec {
     if payload.count <= 255 {
       frame = [2, UInt8(payload.count)]
     } else {
-      frame = [3, UInt8(payload.count >> 8), UInt8(payload.count & 0xff)]
+      frame = [3, UInt8(payload.count >> 8), UInt8(payload.count & 0xFF)]
     }
     frame.append(contentsOf: payload)
     let crc = VescCRC.checksum(payload)
     frame.append(UInt8(crc >> 8))
-    frame.append(UInt8(crc & 0xff))
+    frame.append(UInt8(crc & 0xFF))
     frame.append(3)
     return frame
   }
@@ -61,7 +61,7 @@ public enum VescFrameCodec {
     guard frame.count == expectedCount, frame.last == 3 else {
       throw VescProtocolError.invalidFrame
     }
-    let payload = Array(frame[headerCount..<(headerCount + payloadCount)])
+    let payload = Array(frame[headerCount ..< (headerCount + payloadCount)])
     let received = UInt16(frame[headerCount + payloadCount]) << 8
       | UInt16(frame[headerCount + payloadCount + 1])
     guard VescCRC.checksum(payload) == received else { throw VescProtocolError.invalidCRC }
@@ -81,7 +81,9 @@ public struct VescFrameStreamDecoder: Sendable {
     }
     var payloads: [[UInt8]] = []
     while true {
-      while let first = buffer.first, first != 2 && first != 3 { buffer.removeFirst() }
+      while let first = buffer.first, first != 2 && first != 3 {
+        buffer.removeFirst()
+      }
       guard let first = buffer.first else { return payloads }
       let headerCount = first == 2 ? 2 : 3
       guard buffer.count >= headerCount else { return payloads }
@@ -94,7 +96,7 @@ public struct VescFrameStreamDecoder: Sendable {
       guard buffer.count >= frameCount else { return payloads }
       let frame = Array(buffer.prefix(frameCount))
       buffer.removeFirst(frameCount)
-      payloads.append(try VescFrameCodec.decode(frame))
+      try payloads.append(VescFrameCodec.decode(frame))
     }
   }
 }

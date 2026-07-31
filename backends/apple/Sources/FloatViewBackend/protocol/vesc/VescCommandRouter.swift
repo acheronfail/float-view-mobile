@@ -7,7 +7,7 @@ public enum ControllerRoute: Sendable, Equatable {
   public var canID: UInt8? {
     switch self {
     case .direct: nil
-    case .can(let canID): canID
+    case let .can(canID): canID
     }
   }
 }
@@ -18,7 +18,7 @@ public enum VescCommandRouter {
     switch route {
     case .direct:
       return command
-    case .can(let canID):
+    case let .can(canID):
       precondition(canID <= 253)
       return [VescCommand.forwardCAN.rawValue, canID] + command
     }

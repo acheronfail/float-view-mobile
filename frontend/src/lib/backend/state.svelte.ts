@@ -1,11 +1,11 @@
 import type {
-	AppState,
-	BluetoothState,
-	BoardProfile,
-	SeriesPoint,
-	SessionEvent,
-	SessionSummary,
-	Settings
+  AppState,
+  BluetoothState,
+  BoardProfile,
+  SeriesPoint,
+  SessionEvent,
+  SessionSummary,
+  Settings,
 } from '$lib/backend/contract';
 import { connectBootstrap, loadBootstrap } from './bootstrap';
 import { ApiRequestError, type ApiClient } from './client';
@@ -14,286 +14,276 @@ export type BackendConnectionStatus = 'starting' | 'connected' | 'reconnecting' 
 export type PermissionOutcome = 'ready' | 'pending' | 'denied' | 'restricted';
 
 export function permissionOutcome(state: BluetoothState): PermissionOutcome {
-	switch (state.scanPermission) {
-		case 'granted':
-		case 'not_required':
-			return 'ready';
-		case 'denied':
-			return 'denied';
-		case 'restricted':
-			return 'restricted';
-		default:
-			return 'pending';
-	}
+  switch (state.scanPermission) {
+    case 'granted':
+    case 'not_required':
+      return 'ready';
+    case 'denied':
+      return 'denied';
+    case 'restricted':
+      return 'restricted';
+    default:
+      return 'pending';
+  }
 }
 
 export class BackendState {
-	status = $state<BackendConnectionStatus>('starting');
-	snapshot = $state<AppState | null>(null);
-	error = $state<string | null>(null);
-	selectedSession = $state<SessionSummary | null>(null);
-	sessionSeries = $state<SeriesPoint[]>([]);
-	sessionEvents = $state<SessionEvent[]>([]);
-	sessionEventsTruncated = $state(false);
-	diagnosticSeries = $state<SeriesPoint[]>([]);
-	selectedBoardProfile = $state<BoardProfile | null>(null);
-	exportStatus = $state<string | null>(null);
-	busy = $state(false);
-	private client: ApiClient | null = null;
-	private connecting: Promise<void> | null = null;
-	private unsubscribeState: (() => void) | null = null;
+  status = $state<BackendConnectionStatus>('starting');
+  snapshot = $state<AppState | null>(null);
+  error = $state<string | null>(null);
+  selectedSession = $state<SessionSummary | null>(null);
+  sessionSeries = $state<SeriesPoint[]>([]);
+  sessionEvents = $state<SessionEvent[]>([]);
+  sessionEventsTruncated = $state(false);
+  diagnosticSeries = $state<SeriesPoint[]>([]);
+  selectedBoardProfile = $state<BoardProfile | null>(null);
+  exportStatus = $state<string | null>(null);
+  busy = $state(false);
+  private client: ApiClient | null = null;
+  private connecting: Promise<void> | null = null;
+  private unsubscribeState: (() => void) | null = null;
 
-	constructor(
-		private readonly bootstrapLoader = loadBootstrap,
-		private readonly bootstrapConnector = connectBootstrap
-	) {}
+  constructor(
+    private readonly bootstrapLoader = loadBootstrap,
+    private readonly bootstrapConnector = connectBootstrap
+  ) {}
 
-	get savedDevices() {
-		return this.snapshot?.savedDevices ?? [];
-	}
+  get savedDevices() {
+    return this.snapshot?.savedDevices ?? [];
+  }
 
-	get discoveredDevices() {
-		return this.snapshot?.discoveredDevices ?? [];
-	}
+  get discoveredDevices() {
+    return this.snapshot?.discoveredDevices ?? [];
+  }
 
-	get scanning() {
-		return this.snapshot?.bluetooth.scanning ?? false;
-	}
+  get scanning() {
+    return this.snapshot?.bluetooth.scanning ?? false;
+  }
 
-	get firmware() {
-		return this.snapshot?.activeConnection?.firmware ?? null;
-	}
+  get firmware() {
+    return this.snapshot?.activeConnection?.firmware ?? null;
+  }
 
-	get sessions() {
-		return this.snapshot?.recentSessions ?? [];
-	}
+  get sessions() {
+    return this.snapshot?.recentSessions ?? [];
+  }
 
-	get sessionGroups() {
-		return this.snapshot?.sessionGroups ?? [];
-	}
+  get sessionGroups() {
+    return this.snapshot?.sessionGroups ?? [];
+  }
 
-	get settings() {
-		return this.snapshot?.settings ?? null;
-	}
+  get settings() {
+    return this.snapshot?.settings ?? null;
+  }
 
-	async connect(): Promise<void> {
-		if (this.connecting) return this.connecting;
-		this.connecting = this.connectNow();
-		try {
-			await this.connecting;
-		} finally {
-			this.connecting = null;
-		}
-	}
+  async connect(): Promise<void> {
+    if (this.connecting) return this.connecting;
+    this.connecting = this.connectNow();
+    try {
+      await this.connecting;
+    } finally {
+      this.connecting = null;
+    }
+  }
 
-	private async connectNow(): Promise<void> {
-		this.status = this.client ? 'reconnecting' : 'starting';
-		this.unsubscribeState?.();
-		this.client?.close();
-		this.client = null;
-		try {
-			this.client = await this.bootstrapConnector(await this.bootstrapLoader());
-			this.unsubscribeState = this.client.onStateChanged((state) => this.acceptState(state));
-			this.acceptState(await this.client.request('state.get', {}));
-			this.status = 'connected';
-			this.error = null;
-		} catch (error) {
-			this.status = 'failed';
-			this.error = message(error);
-		}
-	}
+  private async connectNow(): Promise<void> {
+    this.status = this.client ? 'reconnecting' : 'starting';
+    this.unsubscribeState?.();
+    this.client?.close();
+    this.client = null;
+    try {
+      this.client = await this.bootstrapConnector(await this.bootstrapLoader());
+      this.unsubscribeState = this.client.onStateChanged((state) => this.acceptState(state));
+      this.acceptState(await this.client.request('state.get', {}));
+      this.status = 'connected';
+      this.error = null;
+    } catch (error) {
+      this.status = 'failed';
+      this.error = message(error);
+    }
+  }
 
-	async scan(): Promise<void> {
-		await this.run(async (client) => {
-			try {
-				await client.request('bluetooth.scan', { timeoutMs: 5_000 });
-			} catch (error) {
-				if (!(error instanceof ApiRequestError) || error.code !== 'permission_required')
-					throw error;
-				const bluetooth = await client.request('bluetooth.requestPermission', {});
-				if (permissionOutcome(bluetooth) !== 'ready') {
-					throw new Error('Bluetooth permission is required before scanning.');
-				}
-				await client.request('bluetooth.scan', { timeoutMs: 5_000 });
-			}
-		});
-	}
+  async scan(): Promise<void> {
+    await this.run(async (client) => {
+      try {
+        await client.request('bluetooth.scan', { timeoutMs: 5_000 });
+      } catch (error) {
+        if (!(error instanceof ApiRequestError) || error.code !== 'permission_required') throw error;
+        const bluetooth = await client.request('bluetooth.requestPermission', {});
+        if (permissionOutcome(bluetooth) !== 'ready') {
+          throw new Error('Bluetooth permission is required before scanning.');
+        }
+        await client.request('bluetooth.scan', { timeoutMs: 5_000 });
+      }
+    });
+  }
 
-	async connectDevice(deviceId: string): Promise<boolean> {
-		return this.run((client) =>
-			client.request('device.connect', { deviceId }).then(() => undefined)
-		);
-	}
+  async connectDevice(deviceId: string): Promise<boolean> {
+    return this.run((client) => client.request('device.connect', { deviceId }).then(() => undefined));
+  }
 
-	async disconnectDevice(): Promise<void> {
-		await this.run((client) => client.request('device.disconnect', {}).then(() => undefined));
-	}
+  async disconnectDevice(): Promise<void> {
+    await this.run((client) => client.request('device.disconnect', {}).then(() => undefined));
+  }
 
-	async selectController(deviceId: string, canId: number): Promise<boolean> {
-		return this.run((client) =>
-			client.request('device.selectController', { deviceId, canId }).then(() => undefined)
-		);
-	}
+  async selectController(deviceId: string, canId: number): Promise<boolean> {
+    return this.run((client) => client.request('device.selectController', { deviceId, canId }).then(() => undefined));
+  }
 
-	async updateSavedDeviceName(
-		savedDeviceId: string,
-		customDisplayName: string | null
-	): Promise<void> {
-		const device = this.savedDevices.find((value) => value.savedDeviceId === savedDeviceId);
-		if (!device) return;
-		await this.run(async (client) => {
-			const updated = await client.request('savedDevice.update', {
-				savedDeviceId,
-				expectedRevision: device.revision,
-				customDisplayName
-			});
-			if (!this.snapshot) return;
-			this.acceptState({
-				...this.snapshot,
-				savedDevices: this.snapshot.savedDevices.map((value) =>
-					value.savedDeviceId === savedDeviceId ? updated : value
-				),
-				activeConnection:
-					this.snapshot.activeConnection?.savedDeviceId === savedDeviceId
-						? {
-								...this.snapshot.activeConnection,
-								name: updated.displayName,
-								displayName: updated.displayName
-							}
-						: this.snapshot.activeConnection
-			});
-		});
-	}
+  async updateSavedDeviceName(savedDeviceId: string, customDisplayName: string | null): Promise<void> {
+    const device = this.savedDevices.find((value) => value.savedDeviceId === savedDeviceId);
+    if (!device) return;
+    await this.run(async (client) => {
+      const updated = await client.request('savedDevice.update', {
+        savedDeviceId,
+        expectedRevision: device.revision,
+        customDisplayName,
+      });
+      if (!this.snapshot) return;
+      this.acceptState({
+        ...this.snapshot,
+        savedDevices: this.snapshot.savedDevices.map((value) =>
+          value.savedDeviceId === savedDeviceId ? updated : value
+        ),
+        activeConnection:
+          this.snapshot.activeConnection?.savedDeviceId === savedDeviceId
+            ? {
+                ...this.snapshot.activeConnection,
+                name: updated.displayName,
+                displayName: updated.displayName,
+              }
+            : this.snapshot.activeConnection,
+      });
+    });
+  }
 
-	async updateSessionSettings(patch: Omit<Partial<Settings>, 'revision'>): Promise<void> {
-		const settings = this.settings;
-		if (!settings) return;
-		await this.run(async (client) => {
-			const updated = await client.request('settings.update', {
-				expectedRevision: settings.revision,
-				patch
-			});
-			if (this.snapshot) this.acceptState({ ...this.snapshot, settings: updated });
-		});
-	}
+  async updateSessionSettings(patch: Omit<Partial<Settings>, 'revision'>): Promise<void> {
+    const settings = this.settings;
+    if (!settings) return;
+    await this.run(async (client) => {
+      const updated = await client.request('settings.update', {
+        expectedRevision: settings.revision,
+        patch,
+      });
+      if (this.snapshot) this.acceptState({ ...this.snapshot, settings: updated });
+    });
+  }
 
-	async openBoardProfile(savedDeviceId: string): Promise<boolean> {
-		return this.run(async (client) => {
-			this.selectedBoardProfile = await client.request('boardProfile.get', { savedDeviceId });
-		});
-	}
+  async openBoardProfile(savedDeviceId: string): Promise<boolean> {
+    return this.run(async (client) => {
+      this.selectedBoardProfile = await client.request('boardProfile.get', { savedDeviceId });
+    });
+  }
 
-	async updateBoardProfile(patch: Record<string, unknown>): Promise<void> {
-		const profile = this.selectedBoardProfile;
-		if (!profile) return;
-		await this.run(async (client) => {
-			this.selectedBoardProfile = await client.request('boardProfile.update', {
-				savedDeviceId: profile.savedDeviceId,
-				expectedRevision: profile.revision,
-				patch
-			});
-		});
-	}
+  async updateBoardProfile(patch: Record<string, unknown>): Promise<void> {
+    const profile = this.selectedBoardProfile;
+    if (!profile) return;
+    await this.run(async (client) => {
+      this.selectedBoardProfile = await client.request('boardProfile.update', {
+        savedDeviceId: profile.savedDeviceId,
+        expectedRevision: profile.revision,
+        patch,
+      });
+    });
+  }
 
-	async openSession(sessionId: string): Promise<boolean> {
-		return this.run(async (client) => {
-			const detail = await client.request('session.get', { sessionId, maxPoints: 2_000 });
-			this.selectedSession = detail.summary;
-			this.sessionSeries = detail.series;
-			this.sessionEvents = detail.events;
-			this.sessionEventsTruncated = detail.eventsTruncated;
-			this.diagnosticSeries = [];
-			this.exportStatus = null;
-		});
-	}
+  async openSession(sessionId: string): Promise<boolean> {
+    return this.run(async (client) => {
+      const detail = await client.request('session.get', { sessionId, maxPoints: 2_000 });
+      this.selectedSession = detail.summary;
+      this.sessionSeries = detail.series;
+      this.sessionEvents = detail.events;
+      this.sessionEventsTruncated = detail.eventsTruncated;
+      this.diagnosticSeries = [];
+      this.exportStatus = null;
+    });
+  }
 
-	async loadDiagnosticWindow(centerElapsedMs: number): Promise<void> {
-		const session = this.selectedSession;
-		if (!session) return;
-		await this.run(async (client) => {
-			this.diagnosticSeries = await client.request('session.getDiagnostics', {
-				sessionId: session.sessionId,
-				centerElapsedMs: Math.max(0, Math.round(centerElapsedMs)),
-				beforeMs: 15_000,
-				afterMs: 15_000
-			});
-		});
-	}
+  async loadDiagnosticWindow(centerElapsedMs: number): Promise<void> {
+    const session = this.selectedSession;
+    if (!session) return;
+    await this.run(async (client) => {
+      this.diagnosticSeries = await client.request('session.getDiagnostics', {
+        sessionId: session.sessionId,
+        centerElapsedMs: Math.max(0, Math.round(centerElapsedMs)),
+        beforeMs: 15_000,
+        afterMs: 15_000,
+      });
+    });
+  }
 
-	async exportSession(format: 'float-view-archive' | 'csv'): Promise<void> {
-		const session = this.selectedSession;
-		if (!session) return;
-		await this.run(async (client) => {
-			const result = await client.request('session.export', {
-				sessionId: session.sessionId,
-				format
-			});
-			this.exportStatus =
-				result.delivery === 'presented'
-					? `${result.fileName} is ready to save or share.`
-					: `${result.fileName} is staged by the test backend.`;
-		});
-	}
+  async exportSession(format: 'float-view-archive' | 'csv'): Promise<void> {
+    const session = this.selectedSession;
+    if (!session) return;
+    await this.run(async (client) => {
+      const result = await client.request('session.export', {
+        sessionId: session.sessionId,
+        format,
+      });
+      this.exportStatus =
+        result.delivery === 'presented'
+          ? `${result.fileName} is ready to save or share.`
+          : `${result.fileName} is staged by the test backend.`;
+    });
+  }
 
-	async deleteSelectedSession(): Promise<boolean> {
-		const session = this.selectedSession;
-		if (!session) return false;
-		return this.run(async (client) => {
-			await client.request('session.delete', { sessionId: session.sessionId });
-			this.closeSession();
-		});
-	}
+  async deleteSelectedSession(): Promise<boolean> {
+    const session = this.selectedSession;
+    if (!session) return false;
+    return this.run(async (client) => {
+      await client.request('session.delete', { sessionId: session.sessionId });
+      this.closeSession();
+    });
+  }
 
-	async unlinkSessionGroup(sessionGroupId: string): Promise<void> {
-		await this.run((client) =>
-			client.request('sessionGroup.unlink', { sessionGroupId }).then(() => undefined)
-		);
-	}
+  async unlinkSessionGroup(sessionGroupId: string): Promise<void> {
+    await this.run((client) => client.request('sessionGroup.unlink', { sessionGroupId }).then(() => undefined));
+  }
 
-	closeBoardProfile() {
-		this.selectedBoardProfile = null;
-	}
+  closeBoardProfile() {
+    this.selectedBoardProfile = null;
+  }
 
-	closeSession() {
-		this.selectedSession = null;
-		this.sessionSeries = [];
-		this.sessionEvents = [];
-		this.sessionEventsTruncated = false;
-		this.diagnosticSeries = [];
-		this.exportStatus = null;
-	}
+  closeSession() {
+    this.selectedSession = null;
+    this.sessionSeries = [];
+    this.sessionEvents = [];
+    this.sessionEventsTruncated = false;
+    this.diagnosticSeries = [];
+    this.exportStatus = null;
+  }
 
-	close() {
-		this.unsubscribeState?.();
-		this.unsubscribeState = null;
-		this.client?.close();
-		this.client = null;
-	}
+  close() {
+    this.unsubscribeState?.();
+    this.unsubscribeState = null;
+    this.client?.close();
+    this.client = null;
+  }
 
-	private acceptState(state: AppState) {
-		if (this.snapshot && state.revision < this.snapshot.revision) return;
-		this.snapshot = state;
-	}
+  private acceptState(state: AppState) {
+    if (this.snapshot && state.revision < this.snapshot.revision) return;
+    this.snapshot = state;
+  }
 
-	private async run(action: (client: ApiClient) => Promise<void>): Promise<boolean> {
-		if (!this.client?.isOpen) await this.connect();
-		if (!this.client?.isOpen) return false;
-		this.busy = true;
-		this.error = null;
-		try {
-			await action(this.client);
-			return true;
-		} catch (error) {
-			this.error = message(error);
-			return false;
-		} finally {
-			this.busy = false;
-		}
-	}
+  private async run(action: (client: ApiClient) => Promise<void>): Promise<boolean> {
+    if (!this.client?.isOpen) await this.connect();
+    if (!this.client?.isOpen) return false;
+    this.busy = true;
+    this.error = null;
+    try {
+      await action(this.client);
+      return true;
+    } catch (error) {
+      this.error = message(error);
+      return false;
+    } finally {
+      this.busy = false;
+    }
+  }
 }
 
 function message(error: unknown): string {
-	return error instanceof Error ? error.message : String(error);
+  return error instanceof Error ? error.message : String(error);
 }
 
 export const backendState = new BackendState();

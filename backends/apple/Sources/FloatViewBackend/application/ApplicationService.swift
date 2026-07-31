@@ -88,10 +88,10 @@ public final class ApplicationService: @unchecked Sendable {
     self.protocolCodec = protocolCodec
     self.scheduler = scheduler
     self.events = events
-    self.reconnectDurationMs = samplingSettings.reconnectDurationMs
-    self.idleProbeIntervalMs = samplingSettings.idleProbeIntervalMs
-    self.sampling = AdaptiveSamplingPolicy(settings: samplingSettings)
-    self.bluetoothState = bluetooth.currentState()
+    reconnectDurationMs = samplingSettings.reconnectDurationMs
+    idleProbeIntervalMs = samplingSettings.idleProbeIntervalMs
+    sampling = AdaptiveSamplingPolicy(settings: samplingSettings)
+    bluetoothState = bluetooth.currentState()
     let savedIDs = ((try? productStore?.savedDevices()) ?? [])
       .map { DeviceID($0.bluetoothIdentifier) }
     bluetooth.configureSavedDeviceIDs(Set(savedIDs))
@@ -158,7 +158,7 @@ public final class ApplicationService: @unchecked Sendable {
     else {
       throw ApplicationError.invalidControllerSelection
     }
-    guard case .requestRefloatInfo(let route, let selectedFirmware?) =
+    guard case let .requestRefloatInfo(route, selectedFirmware?) =
       controllerDiscovery.selectController(canID: canID)
     else {
       throw ApplicationError.invalidControllerSelection
@@ -294,7 +294,7 @@ public final class ApplicationService: @unchecked Sendable {
     lock.lock()
     defer { lock.unlock() }
     guard bluetoothState.scanPermission == .granted ||
-          bluetoothState.scanPermission == .notRequired
+      bluetoothState.scanPermission == .notRequired
     else {
       throw ApplicationError.permissionRequired
     }
@@ -365,9 +365,9 @@ public final class ApplicationService: @unchecked Sendable {
     lock.lock()
     defer { lock.unlock() }
     switch event {
-    case .stateChanged(let state):
+    case let .stateChanged(state):
       bluetoothState = state
-      if (state.radio != .poweredOn || !Self.permissionAllowsUse(state.scanPermission)),
+      if state.radio != .poweredOn || !Self.permissionAllowsUse(state.scanPermission),
          activeScanID != nil
       {
         bluetooth.stopDiscovery()
@@ -380,14 +380,14 @@ public final class ApplicationService: @unchecked Sendable {
       {
         finishReconnect(reason: "bluetooth_permission_denied")
       } else if state.radio != .poweredOn,
-         activeDeviceID != nil,
-         logStore.active() != nil,
-         !explicitDisconnect
+                activeDeviceID != nil,
+                logStore.active() != nil,
+                !explicitDisconnect
       {
         beginReconnect()
       }
       events.publish(state)
-    case .deviceFound(let deviceID, let name, let rssi):
+    case let .deviceFound(deviceID, name, rssi):
       let device = KnownDevice(
         deviceID: deviceID,
         name: name,
@@ -397,11 +397,11 @@ public final class ApplicationService: @unchecked Sendable {
       knownDevicesByID[deviceID] = device
       scheduleDiscoveryExpiry()
       publishDiscoveryUpdate(device)
-    case .scanFailed(let reason):
+    case let .scanFailed(reason):
       activeScanID = nil
       cancelPendingDiscoveryPublish()
       events.publish(reason)
-    case .connectionChanged(let deviceID, let state):
+    case let .connectionChanged(deviceID, state):
       guard deviceID == activeDeviceID else { return }
       if state == .ready {
         if protocolCodec == nil {
@@ -412,7 +412,7 @@ public final class ApplicationService: @unchecked Sendable {
         startFirmwareDiscovery(deviceID)
         return
       }
-      if (state == .failed || state == .disconnected),
+      if state == .failed || state == .disconnected,
          !explicitDisconnect,
          logStore.active() != nil
       {
@@ -438,7 +438,7 @@ public final class ApplicationService: @unchecked Sendable {
         resetFirmwareDiscovery()
       }
       transition(state)
-    case .notification(let deviceID, let bytes):
+    case let .notification(deviceID, bytes):
       guard deviceID == activeDeviceID else { return }
       guard let protocolCodec else {
         events.publish(event)
@@ -447,16 +447,16 @@ public final class ApplicationService: @unchecked Sendable {
       do {
         for message in try protocolCodec.receive(bytes) {
           switch message {
-          case .firmware(let value):
+          case let .firmware(value):
             handleFirmware(value)
-          case .currentLimits(let value):
+          case let .currentLimits(value):
             if connectionState == .ready { currentLimits = value }
-          case .canDevices(let canIDs):
+          case let .canDevices(canIDs):
             handleCanDevices(canIDs)
-          case .refloatInfo(let version):
+          case let .refloatInfo(version):
             guard connectionState == .identifying else { continue }
             performDiscoveryEffect(controllerDiscovery.acceptRefloatInfo(version))
-          case .refloatTelemetryLayout(let fields, let runtimeFields):
+          case let .refloatTelemetryLayout(fields, runtimeFields):
             telemetryPolling.layoutEstablished()
             performDiscoveryEffect(
               controllerDiscovery.acceptTelemetryLayout(
@@ -464,7 +464,7 @@ public final class ApplicationService: @unchecked Sendable {
                 runtimeFields: runtimeFields
               )
             )
-          case .refloatTelemetry(let value):
+          case let .refloatTelemetry(value):
             telemetryPolling.receive(value)
           }
           events.publish(message)
@@ -485,8 +485,8 @@ public final class ApplicationService: @unchecked Sendable {
     telemetryPolling.cancelLayout()
     telemetryPolling.stop()
     if let active = logStore.active() {
-      events.publish(
-        try logStore.close(jobID: active.jobID, at: clock.now(), reason: "explicit_disconnect")
+      try events.publish(
+        logStore.close(jobID: active.jobID, at: clock.now(), reason: "explicit_disconnect")
       )
     }
     bluetooth.disconnect(deviceID)
@@ -529,8 +529,8 @@ public final class ApplicationService: @unchecked Sendable {
       state: connectionState,
       savedDevice: savedDevice ?? nil,
       activeSession: activeSession ?? nil,
-      latestSample: latestPersistedSample
-      ,
+      latestSample: latestPersistedSample,
+
       currentLimits: currentLimits,
       controllerRoute: controllerDiscovery.controllerRoute,
       controllerCandidates: controllerDiscovery.controllerCandidates,
@@ -619,11 +619,11 @@ public final class ApplicationService: @unchecked Sendable {
 
   private func performDiscoveryEffect(_ effect: ControllerDiscoveryEffect) {
     switch effect {
-    case .probeFirmware(let route):
+    case let .probeFirmware(route):
       guard let activeDeviceID, let protocolCodec else { return }
-      if case .can(let canID) = route { scheduleCanProbeTimeout(canID: canID) }
+      if case let .can(canID) = route { scheduleCanProbeTimeout(canID: canID) }
       do {
-        bluetooth.write(try protocolCodec.firmwareRequest(route: route), to: activeDeviceID)
+        try bluetooth.write(protocolCodec.firmwareRequest(route: route), to: activeDeviceID)
       } catch {
         if route == .direct {
           failIdentification(.transportSetupFailed, "Unable to request VESC firmware.")
@@ -636,15 +636,15 @@ public final class ApplicationService: @unchecked Sendable {
       cancelCanProbeTimeout()
       guard let activeDeviceID, let protocolCodec else { return }
       do {
-        bluetooth.write(try protocolCodec.canPingRequest(), to: activeDeviceID)
+        try bluetooth.write(protocolCodec.canPingRequest(), to: activeDeviceID)
       } catch {
         failIdentification(.transportSetupFailed, "Unable to discover CAN controllers.")
       }
-    case .clearHintThen(let next):
+    case let .clearHintThen(next):
       invalidateAutomaticHint()
       restartIdentificationTimeout()
       performDiscoveryEffect(next)
-    case .requestRefloatInfo(let route, let selected):
+    case let .requestRefloatInfo(route, selected):
       if let selected,
          let savedDevice = currentSavedDevice,
          let canID = selected.canID,
@@ -661,8 +661,8 @@ public final class ApplicationService: @unchecked Sendable {
       }
       guard let activeDeviceID, let protocolCodec else { return }
       do {
-        bluetooth.write(
-          try protocolCodec.refloatInfoRequest(route: route),
+        try bluetooth.write(
+          protocolCodec.refloatInfoRequest(route: route),
           to: activeDeviceID
         )
       } catch {
@@ -676,7 +676,7 @@ public final class ApplicationService: @unchecked Sendable {
     case .selectingController:
       cancelIdentificationTimeout()
       transition(.selectingController)
-    case .failed(let issue):
+    case let .failed(issue):
       failIdentification(issue.code, issue.message)
     case .none:
       break
@@ -699,7 +699,7 @@ public final class ApplicationService: @unchecked Sendable {
       }
     } else {
       do {
-        events.publish(try logStore.create(
+        try events.publish(logStore.create(
           deviceID: deviceID,
           advertisedName: activeDeviceName,
           at: clock.now()
@@ -720,8 +720,8 @@ public final class ApplicationService: @unchecked Sendable {
     transition(.ready)
     if let protocolCodec {
       do {
-        bluetooth.write(
-          try protocolCodec.motorConfigurationRequest(route: route),
+        try bluetooth.write(
+          protocolCodec.motorConfigurationRequest(route: route),
           to: deviceID
         )
       } catch {
@@ -742,7 +742,7 @@ public final class ApplicationService: @unchecked Sendable {
     guard let deviceID = activeDeviceID else { return }
     if logStore.active() == nil {
       do {
-        events.publish(try logStore.create(
+        try events.publish(logStore.create(
           deviceID: deviceID,
           advertisedName: activeDeviceName,
           at: clock.now()
@@ -905,8 +905,8 @@ public final class ApplicationService: @unchecked Sendable {
     cancelReconnect()
     if let active = logStore.active() {
       do {
-        events.publish(
-          try logStore.close(jobID: active.jobID, at: clock.now(), reason: reason)
+        try events.publish(
+          logStore.close(jobID: active.jobID, at: clock.now(), reason: reason)
         )
       } catch {
         events.publish(String(describing: error))

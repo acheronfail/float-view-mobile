@@ -5,7 +5,7 @@ import WebKit
 
 private func trace(_ message: String) {
   #if DEBUG
-  FileHandle.standardError.write(Data("\(message)\n".utf8))
+    FileHandle.standardError.write(Data("\(message)\n".utf8))
   #endif
 }
 
@@ -126,12 +126,12 @@ private final class MacAppDelegate: NSObject, NSApplicationDelegate, NSWindowDel
     self.runtime = runtime
   }
 
-  func applicationDidFinishLaunching(_ notification: Notification) {
+  func applicationDidFinishLaunching(_: Notification) {
     showFrontend()
   }
 
   func applicationShouldHandleReopen(
-    _ sender: NSApplication,
+    _: NSApplication,
     hasVisibleWindows flag: Bool
   ) -> Bool {
     if !flag {
@@ -140,16 +140,16 @@ private final class MacAppDelegate: NSObject, NSApplicationDelegate, NSWindowDel
     return true
   }
 
-  func applicationWillTerminate(_ notification: Notification) {
+  func applicationWillTerminate(_: Notification) {
     server?.stop()
     runtime.shutdown()
   }
 
-  func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
+  func applicationShouldTerminateAfterLastWindowClosed(_: NSApplication) -> Bool {
     false
   }
 
-  func windowWillClose(_ notification: Notification) {
+  func windowWillClose(_: Notification) {
     webView?.navigationDelegate = nil
     webView?.stopLoading()
     server?.stop()
@@ -161,7 +161,7 @@ private final class MacAppDelegate: NSObject, NSApplicationDelegate, NSWindowDel
     }
   }
 
-  func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
+  func webViewWebContentProcessDidTerminate(_: WKWebView) {
     guard window != nil else { return }
     closeFrontendWindow()
     showFrontend()
@@ -295,10 +295,10 @@ private final class MacBackendRuntime: @unchecked Sendable {
       }
     )
     #if DEBUG
-    let recoveredSessions = try! logStore.recoverInterrupted()
-    trace("[FloatViewState] recovery interruptedSessions=\(recoveredSessions)")
+      let recoveredSessions = try! logStore.recoverInterrupted()
+      trace("[FloatViewState] recovery interruptedSessions=\(recoveredSessions)")
     #else
-    try! logStore.recoverInterrupted()
+      try! logStore.recoverInterrupted()
     #endif
     if ProcessInfo.processInfo.environment["FLOAT_VIEW_TEST_SEED_PROFILE"] == "1" {
       let seed = try! logStore.create(
@@ -306,7 +306,7 @@ private final class MacBackendRuntime: @unchecked Sendable {
         at: Date(timeIntervalSince1970: 0)
       )
       var seedSamples: [TelemetrySample] = []
-      for index in 0..<60 {
+      for index in 0 ..< 60 {
         seedSamples.append(
           TelemetrySample(
             sequence: Int64(index + 1),
@@ -405,26 +405,28 @@ private struct SystemClock: ClockPort {
     Int64(ProcessInfo.processInfo.systemUptime * 1_000)
   }
 
-  func now() -> Date { Date() }
+  func now() -> Date {
+    Date()
+  }
 }
 
 private struct DebugEventSink: EventSink {
   func publish(_ event: any Sendable) {
     #if DEBUG
-    switch event {
-    case let state as BluetoothState:
-      trace(
-        "[FloatViewState] bluetooth radio=\(state.radio.rawValue) " +
-          "scanPermission=\(state.scanPermission.rawValue) " +
-          "connectPermission=\(state.connectPermission.rawValue)"
-      )
-    case let state as ConnectionState:
-      trace("[FloatViewState] connection state=\(state.rawValue)")
-    case let session as SessionRecord:
-      trace("[FloatViewState] session active=\(session.active)")
-    default:
-      break
-    }
+      switch event {
+      case let state as BluetoothState:
+        trace(
+          "[FloatViewState] bluetooth radio=\(state.radio.rawValue) " +
+            "scanPermission=\(state.scanPermission.rawValue) " +
+            "connectPermission=\(state.connectPermission.rawValue)"
+        )
+      case let state as ConnectionState:
+        trace("[FloatViewState] connection state=\(state.rawValue)")
+      case let session as SessionRecord:
+        trace("[FloatViewState] session active=\(session.active)")
+      default:
+        break
+      }
     #endif
   }
 }

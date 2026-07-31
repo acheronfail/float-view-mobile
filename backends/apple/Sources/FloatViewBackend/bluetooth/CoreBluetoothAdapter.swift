@@ -8,9 +8,11 @@ public final class CoreBluetoothAdapter: NSObject, BluetoothPort, @unchecked Sen
   private static var serviceUUID: CBUUID {
     CBUUID(string: "6E400001-B5A3-F393-E0A9-E50E24DCCA9E")
   }
+
   private static var writeUUID: CBUUID {
     CBUUID(string: "6E400002-B5A3-F393-E0A9-E50E24DCCA9E")
   }
+
   private static var notifyUUID: CBUUID {
     CBUUID(string: "6E400003-B5A3-F393-E0A9-E50E24DCCA9E")
   }
@@ -132,7 +134,7 @@ public final class CoreBluetoothAdapter: NSObject, BluetoothPort, @unchecked Sen
       let writeMode = VescBluetoothPolicy.writeMode(
         supportsWriteWithResponse: writeCharacteristic?.properties.contains(.write) == true,
         supportsWriteWithoutResponse:
-          writeCharacteristic?.properties.contains(.writeWithoutResponse) == true
+        writeCharacteristic?.properties.contains(.writeWithoutResponse) == true
       )
       guard writeMode != .unsupported else {
         failConnection("vesc_write_characteristic_unavailable")
@@ -457,5 +459,4 @@ extension CoreBluetoothAdapter: CBPeripheralDelegate {
     guard peripheral == activePeripheral else { return }
     drainWriteQueue()
   }
-
 }

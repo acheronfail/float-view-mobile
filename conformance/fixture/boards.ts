@@ -1,6 +1,6 @@
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
-import { FrameAssembler } from "./frame.ts";
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { FrameAssembler } from './frame.ts';
 import {
   encodeFirmwarePayload,
   firmwareVariants,
@@ -8,20 +8,10 @@ import {
   type ControllerIdentity,
   type FirmwareVariant,
   type FirmwareVersion,
-} from "./firmware.ts";
-import {
-  encodeRefloatTelemetry,
-  refloatCodecs,
-  type RefloatCodec,
-  type RefloatVersion,
-} from "./refloat.ts";
-import { idleTelemetry, type TelemetrySource } from "./telemetry.ts";
-import {
-  directTopology,
-  expressTopology,
-  type FixtureTopology,
-  type TopologyStrategy,
-} from "./topology.ts";
+} from './firmware.ts';
+import { encodeRefloatTelemetry, refloatCodecs, type RefloatCodec, type RefloatVersion } from './refloat.ts';
+import { idleTelemetry, type TelemetrySource } from './telemetry.ts';
+import { directTopology, expressTopology, type FixtureTopology, type TopologyStrategy } from './topology.ts';
 
 export interface FirmwareIdentity {
   major: number;
@@ -32,12 +22,7 @@ export interface FirmwareIdentity {
 }
 
 export interface TelemetryPhase {
-  name:
-    | "idle"
-    | "riding"
-    | "footpad-warning"
-    | "post-ride-tail"
-    | "return-to-idle";
+  name: 'idle' | 'riding' | 'footpad-warning' | 'post-ride-tail' | 'return-to-idle';
   repetitions: number;
   payload: Uint8Array;
 }
@@ -63,11 +48,11 @@ export interface BoardConfiguration {
   canPingIds?: number[];
   /** Targets that deliberately omit a response to exercise bounded timeouts. */
   silentCanIds?: number[];
-  requestPolicy?: "strict" | "interactive";
+  requestPolicy?: 'strict' | 'interactive';
 }
 
 export interface ComposedBoardConfiguration {
-  kind: "composed";
+  kind: 'composed';
   name: string;
   advertisedName: string;
   controller: ControllerIdentity;
@@ -75,7 +60,7 @@ export interface ComposedBoardConfiguration {
   refloat: RefloatCodec;
   topology: TopologyStrategy;
   telemetry: TelemetrySource;
-  requestPolicy: "strict" | "interactive";
+  requestPolicy: 'strict' | 'interactive';
   expressTransport: FirmwareIdentity;
 }
 
@@ -85,7 +70,7 @@ export interface BoardSelection {
   topology: FixtureTopology;
   canId?: number;
   telemetry?: TelemetrySource;
-  requestPolicy?: "strict" | "interactive";
+  requestPolicy?: 'strict' | 'interactive';
 }
 
 export interface InteractiveControllerSelection {
@@ -104,26 +89,18 @@ export interface InteractiveBoardSelection {
   telemetry: TelemetrySource;
 }
 
-const expressFirmware = fixturePayload(
-  "../backends/fixtures/vesc/firmware-express-6.05.json",
-);
-const controllerFirmware = fixturePayload(
-  "../backends/fixtures/vesc/firmware-6.06.json",
-);
-const refloat = fixtureCases(
-  "../backends/fixtures/refloat/rtdata-1.2.3-android-hardware.json",
-);
-const rideStates = fixtureCases(
-  "../backends/fixtures/refloat/ride-states-1.2.3.json",
-);
+const expressFirmware = fixturePayload('../backends/fixtures/vesc/firmware-express-6.05.json');
+const controllerFirmware = fixturePayload('../backends/fixtures/vesc/firmware-6.06.json');
+const refloat = fixtureCases('../backends/fixtures/refloat/rtdata-1.2.3-android-hardware.json');
+const rideStates = fixtureCases('../backends/fixtures/refloat/ride-states-1.2.3.json');
 
 export const expressThor: BoardConfiguration = {
-  name: "Express / Thor300 / Refloat",
-  advertisedName: "FloatView Test VESC",
+  name: 'Express / Thor300 / Refloat',
+  advertisedName: 'FloatView Test VESC',
   transport: {
     major: 6,
     minor: 5,
-    hardwareName: "VESC Express T",
+    hardwareName: 'VESC Express T',
     hardwareType: 2,
     payload: expressFirmware,
   },
@@ -133,25 +110,19 @@ export const expressThor: BoardConfiguration = {
       firmware: {
         major: 6,
         minor: 6,
-        hardwareName: "THOR300",
+        hardwareName: 'THOR300',
         hardwareType: 0,
         payload: controllerFirmware,
       },
-      refloatVersion: "1.2.3",
-      refloatInfoPayload: required(
-        refloat.get("versioned-info-v2"),
-        "Refloat info fixture",
-      ),
-      telemetryLayoutPayload: required(
-        refloat.get("dynamic-realtime-field-ids"),
-        "Refloat telemetry layout fixture",
-      ),
+      refloatVersion: '1.2.3',
+      refloatInfoPayload: required(refloat.get('versioned-info-v2'), 'Refloat info fixture'),
+      telemetryLayoutPayload: required(refloat.get('dynamic-realtime-field-ids'), 'Refloat telemetry layout fixture'),
       telemetryPhases: [
-        phase("idle", 4),
-        phase("riding", 12),
-        phase("footpad-warning", 2),
-        phase("post-ride-tail", 4),
-        phase("return-to-idle", 2),
+        phase('idle', 4),
+        phase('riding', 12),
+        phase('footpad-warning', 2),
+        phase('post-ride-tail', 4),
+        phase('return-to-idle', 2),
       ],
     },
   ],
@@ -161,24 +132,24 @@ export const expressTransport: FirmwareIdentity = expressThor.transport;
 
 export const directThor: BoardConfiguration = {
   ...expressThor,
-  name: "Direct / Thor300 / Refloat",
+  name: 'Direct / Thor300 / Refloat',
   transport: expressThor.controllers[0]!.firmware,
 };
 
 export const directLegacyThor: BoardConfiguration = {
   ...directThor,
-  name: "Direct / Thor300 / Refloat legacy 1.0.0",
+  name: 'Direct / Thor300 / Refloat legacy 1.0.0',
   controllers: [
     {
       ...directThor.controllers[0]!,
-      refloatVersion: "1.0",
-      refloatInfoPayload: refloatCodecs["1.0.0"].infoPayload,
+      refloatVersion: '1.0',
+      refloatInfoPayload: refloatCodecs['1.0.0'].infoPayload,
       telemetryLayoutPayload: new Uint8Array(),
       telemetryPhases: [
         {
-          name: "idle",
+          name: 'idle',
           repetitions: 4,
-          payload: encodeRefloatTelemetry("1.0.0", idleTelemetry),
+          payload: encodeRefloatTelemetry('1.0.0', idleTelemetry),
         },
       ],
     },
@@ -187,34 +158,34 @@ export const directLegacyThor: BoardConfiguration = {
 
 export const expressExplicitThor: BoardConfiguration = {
   ...expressThor,
-  name: "Express explicit CAN / Thor300 / Refloat",
+  name: 'Express explicit CAN / Thor300 / Refloat',
   controllers: [{ ...expressThor.controllers[0]!, canId: 42 }],
   canPingIds: [],
 };
 
 export const genericGatewayThor: BoardConfiguration = {
   ...expressThor,
-  name: "Generic gateway / Thor300 / Refloat",
+  name: 'Generic gateway / Thor300 / Refloat',
   transport: {
     major: 6,
     minor: 5,
-    hardwareName: "Generic VESC UART Gateway",
+    hardwareName: 'Generic VESC UART Gateway',
     hardwareType: 3,
     payload: encodeFirmwarePayload(
       {
-        hardwareName: "Generic VESC UART Gateway",
+        hardwareName: 'Generic VESC UART Gateway',
         hardwareType: 3,
         uuid: new Uint8Array(12),
       },
       6,
-      5,
+      5
     ),
   },
 };
 
 export const ambiguousThor: BoardConfiguration = {
   ...expressThor,
-  name: "Express / ambiguous controllers",
+  name: 'Express / ambiguous controllers',
   controllers: [
     {
       ...expressThor.controllers[0]!,
@@ -222,16 +193,16 @@ export const ambiguousThor: BoardConfiguration = {
       firmware: {
         major: 5,
         minor: 3,
-        hardwareName: "Unsupported VESC",
+        hardwareName: 'Unsupported VESC',
         hardwareType: 0,
         payload: encodeFirmwarePayload(
           {
-            hardwareName: "Unsupported VESC",
+            hardwareName: 'Unsupported VESC',
             hardwareType: 0,
             uuid: new Uint8Array(12).fill(7),
           },
           5,
-          3,
+          3
         ),
       },
     },
@@ -244,44 +215,37 @@ export const ambiguousThor: BoardConfiguration = {
           { ...thor300, uuid: new Uint8Array(12).fill(42) },
           6,
           6,
-          Uint8Array.of(0, 0, 0, 0),
+          Uint8Array.of(0, 0, 0, 0)
         ),
       },
     },
   ],
 };
 
-export function composeBoard(
-  selection: BoardSelection,
-): ComposedBoardConfiguration {
+export function composeBoard(selection: BoardSelection): ComposedBoardConfiguration {
   return {
-    kind: "composed",
-    name: `${selection.topology === "express" ? "Express / " : ""}THOR300 / Refloat ${selection.refloat}`,
-    advertisedName: "FloatView Test VESC",
+    kind: 'composed',
+    name: `${selection.topology === 'express' ? 'Express / ' : ''}THOR300 / Refloat ${selection.refloat}`,
+    advertisedName: 'FloatView Test VESC',
     controller: thor300,
     firmware: firmwareVariants[selection.firmware],
     refloat: refloatCodecs[selection.refloat],
-    topology:
-      selection.topology === "express"
-        ? expressTopology(selection.canId ?? 1)
-        : directTopology,
+    topology: selection.topology === 'express' ? expressTopology(selection.canId ?? 1) : directTopology,
     telemetry: selection.telemetry ?? {
-      phase: () => "idle",
+      phase: () => 'idle',
       next: () => idleTelemetry,
     },
-    requestPolicy: selection.requestPolicy ?? "interactive",
+    requestPolicy: selection.requestPolicy ?? 'interactive',
     expressTransport,
   };
 }
 
-export function composeInteractiveBoard(
-  selection: InteractiveBoardSelection,
-): BoardConfiguration {
+export function composeInteractiveBoard(selection: InteractiveBoardSelection): BoardConfiguration {
   if (selection.controllers.length === 0 || selection.controllers.length > 16) {
-    throw new Error("Interactive board requires 1 through 16 controllers");
+    throw new Error('Interactive board requires 1 through 16 controllers');
   }
-  if (selection.topology === "direct" && selection.controllers.length !== 1) {
-    throw new Error("Direct topology requires exactly one controller");
+  if (selection.topology === 'direct' && selection.controllers.length !== 1) {
+    throw new Error('Direct topology requires exactly one controller');
   }
   const controllers = selection.controllers.map((item): ControllerConfiguration => {
     const firmware = firmwareVariants[item.firmware];
@@ -297,7 +261,7 @@ export function composeInteractiveBoard(
           { ...thor300, uuid: item.uuid },
           firmware.major,
           firmware.minor,
-          firmware.hardwareCrc,
+          firmware.hardwareCrc
         ),
       },
       refloatVersion: codec.version,
@@ -311,20 +275,14 @@ export function composeInteractiveBoard(
   return {
     name: `Workbench / ${selection.topology}`,
     advertisedName: selection.advertisedName,
-    transport:
-      selection.topology === "direct"
-        ? controllers[0]!.firmware
-        : expressTransport,
+    transport: selection.topology === 'direct' ? controllers[0]!.firmware : expressTransport,
     controllers,
     canPingIds: [...selection.canPingIds],
-    requestPolicy: "interactive",
+    requestPolicy: 'interactive',
   };
 }
 
-function phase(
-  name: TelemetryPhase["name"],
-  repetitions: number,
-): TelemetryPhase {
+function phase(name: TelemetryPhase['name'], repetitions: number): TelemetryPhase {
   return {
     name,
     repetitions,
@@ -334,8 +292,7 @@ function phase(
 
 function fixturePayload(relativePath: string): Uint8Array {
   const value = fixtureJson(relativePath) as { frameHex?: string };
-  if (!value.frameHex)
-    throw new Error(`Fixture ${relativePath} has no frameHex`);
+  if (!value.frameHex) throw new Error(`Fixture ${relativePath} has no frameHex`);
   return decodeFrame(value.frameHex);
 }
 
@@ -345,26 +302,20 @@ function fixtureCases(relativePath: string): Map<string, Uint8Array> {
   };
   return new Map(
     (value.cases ?? []).map((item) => {
-      if (!item.name || !item.frameHex)
-        throw new Error(`Invalid fixture case in ${relativePath}`);
+      if (!item.name || !item.frameHex) throw new Error(`Invalid fixture case in ${relativePath}`);
       return [item.name, decodeFrame(item.frameHex)];
-    }),
+    })
   );
 }
 
 function fixtureJson(relativePath: string): unknown {
-  const path = fileURLToPath(
-    new URL(relativePath, new URL("../", import.meta.url)),
-  );
-  return JSON.parse(readFileSync(path, "utf8"));
+  const path = fileURLToPath(new URL(relativePath, new URL('../', import.meta.url)));
+  return JSON.parse(readFileSync(path, 'utf8'));
 }
 
 function decodeFrame(hex: string): Uint8Array {
-  const frames = new FrameAssembler().append(
-    Uint8Array.from(Buffer.from(hex, "hex")),
-  );
-  if (frames.length !== 1 || !frames[0])
-    throw new Error("Fixture must contain exactly one VESC frame");
+  const frames = new FrameAssembler().append(Uint8Array.from(Buffer.from(hex, 'hex')));
+  if (frames.length !== 1 || !frames[0]) throw new Error('Fixture must contain exactly one VESC frame');
   return frames[0];
 }
 

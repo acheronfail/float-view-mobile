@@ -12,7 +12,7 @@ enum ControllerDiscoveryPolicy {
   static func meaningfulUUID(_ value: Data?) -> Data? {
     guard let value, value.count == 12,
           value.contains(where: { $0 != 0 }),
-          value.contains(where: { $0 != 0xff })
+          value.contains(where: { $0 != 0xFF })
     else { return nil }
     return value
   }
@@ -141,7 +141,7 @@ final class ControllerDiscovery {
     guard let canID = value.canID, activeCanProbeID == canID else { return .none }
     activeCanProbeID = nil
     switch probeIntent {
-    case .preferred(let expectedID):
+    case let .preferred(expectedID):
       guard expectedID == canID else { return .none }
       guard value.hardwareType == Self.vescHardwareType else {
         return fail(
@@ -158,7 +158,7 @@ final class ControllerDiscovery {
         )
       }
       return choose(value)
-    case .hint(let expectedID, let expectedUUID):
+    case let .hint(expectedID, expectedUUID):
       guard expectedID == canID else { return .none }
       if value.hardwareType == Self.vescHardwareType,
          ControllerDiscoveryPolicy.meaningfulUUID(value.controllerUUID) == expectedUUID
@@ -216,10 +216,10 @@ final class ControllerDiscovery {
     runtimeFields: [String]
   ) -> ControllerDiscoveryEffect {
     guard refloatFamily == .dynamic,
-      RefloatCompatibility.supportsDynamicLayout(
-        fields: fields,
-        runtimeFields: runtimeFields
-      )
+          RefloatCompatibility.supportsDynamicLayout(
+            fields: fields,
+            runtimeFields: runtimeFields
+          )
     else {
       return fail(
         .unsupportedRefloat,
@@ -356,7 +356,7 @@ final class ControllerDiscovery {
           "The controller from the active session was not found."
         )
       }
-      if case .can(let previousCanID) = continuity.route,
+      if case let .can(previousCanID) = continuity.route,
          let recovered = records.first(where: {
            $0.canID == previousCanID && VescCompatibility.supports($0)
          })

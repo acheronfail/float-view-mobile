@@ -16,7 +16,7 @@ public enum VescFirmwareIdentityDecoder {
             let end = payload[start...].firstIndex(of: 0),
             end - start <= maximum
       else { throw VescProtocolError.truncatedPayload }
-      return payload[start..<end]
+      return payload[start ..< end]
     }
 
     let nameBytes = try terminatedBytes(from: 3, maximum: 64)
@@ -26,7 +26,7 @@ public enum VescFirmwareIdentityDecoder {
     guard firmwareNameStart < payload.count else {
       throw VescProtocolError.truncatedPayload
     }
-    let controllerUUID = Data(payload[uuidStart..<flagsStart])
+    let controllerUUID = Data(payload[uuidStart ..< flagsStart])
     let firmwareNameBytes = try terminatedBytes(from: firmwareNameStart, maximum: 64)
     let tailLength = payload.count - (firmwareNameBytes.endIndex + 1)
     guard tailLength == 0 || tailLength == 4 else {
@@ -46,5 +46,7 @@ public enum VescFirmwareIdentityDecoder {
 }
 
 private extension String {
-  var nilIfEmpty: String? { isEmpty ? nil : self }
+  var nilIfEmpty: String? {
+    isEmpty ? nil : self
+  }
 }

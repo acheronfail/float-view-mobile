@@ -14,25 +14,25 @@ final class AppBackend: ObservableObject {
 
   init() {
     #if DEBUG
-    _ = Self.conformanceStorageReset
+      _ = Self.conformanceStorageReset
     #endif
     let relay = BluetoothEventRelay()
     #if targetEnvironment(simulator)
-    let peripheral = SoftwareVescPeripheral()
-    let bluetooth: any BluetoothPort = SoftwareBluetoothAdapter(
-      eventHandler: { @Sendable event in relay.emit(event) },
-      responseHandler: { @Sendable bytes in peripheral.response(to: bytes) }
-    )
+      let peripheral = SoftwareVescPeripheral()
+      let bluetooth: any BluetoothPort = SoftwareBluetoothAdapter(
+        eventHandler: { @Sendable event in relay.emit(event) },
+        responseHandler: { @Sendable bytes in peripheral.response(to: bytes) }
+      )
     #else
-    let bluetooth: any BluetoothPort = CoreBluetoothAdapter(
-      eventHandler: { @Sendable event in relay.emit(event) },
-      diagnosticHandler: { diagnostic in
-        #if DEBUG
-        print("[FloatViewState] adapter \(diagnostic)")
-        #endif
-      },
-      restorationIdentifier: "fail.acheron.float-view.bluetooth-central"
-    )
+      let bluetooth: any BluetoothPort = CoreBluetoothAdapter(
+        eventHandler: { @Sendable event in relay.emit(event) },
+        diagnosticHandler: { diagnostic in
+          #if DEBUG
+            print("[FloatViewState] adapter \(diagnostic)")
+          #endif
+        },
+        restorationIdentifier: "fail.acheron.float-view.bluetooth-central"
+      )
     #endif
     let applicationSupport = try! FileManager.default.url(
       for: .applicationSupportDirectory,
@@ -54,10 +54,10 @@ final class AppBackend: ObservableObject {
       }
     )
     #if DEBUG
-    let recoveredSessions = try! logStore.recoverInterrupted()
-    print("[FloatViewState] recovery interruptedSessions=\(recoveredSessions)")
+      let recoveredSessions = try! logStore.recoverInterrupted()
+      print("[FloatViewState] recovery interruptedSessions=\(recoveredSessions)")
     #else
-    try! logStore.recoverInterrupted()
+      try! logStore.recoverInterrupted()
     #endif
     let settings = try! logStore.settings()
     let events = EventHub()
@@ -108,7 +108,7 @@ final class AppBackend: ObservableObject {
   func enterBackground() {
     guard frontend != nil else { return }
     #if DEBUG
-    print("[FloatViewState] frontend state=stopped reason=background")
+      print("[FloatViewState] frontend state=stopped reason=background")
     #endif
     frontend = nil
     frontendServer?.stop()
@@ -135,16 +135,16 @@ final class AppBackend: ObservableObject {
         generation: frontendGeneration
       )
       #if DEBUG
-      print("[FloatViewState] frontend state=ready generation=\(frontend!.generation)")
+        print("[FloatViewState] frontend state=ready generation=\(frontend!.generation)")
       #endif
     } catch {
       frontend = nil
       #if DEBUG
-      let message = loopbackStartupFailure(
-        port: PlatformLoopbackPort.iOS,
-        error: error
-      )
-      print("[FloatViewState] frontend state=failed \(message)")
+        let message = loopbackStartupFailure(
+          port: PlatformLoopbackPort.iOS,
+          error: error
+        )
+        print("[FloatViewState] frontend state=failed \(message)")
       #endif
     }
   }
@@ -154,21 +154,21 @@ final class AppBackend: ObservableObject {
   }
 
   #if DEBUG
-  private static let conformanceStorageReset: Void = {
-    guard ProcessInfo.processInfo.environment["FLOAT_VIEW_CONFORMANCE_RESET"] == "1" else {
-      return
-    }
-    let applicationSupport = try! FileManager.default.url(
-      for: .applicationSupportDirectory,
-      in: .userDomainMask,
-      appropriateFor: nil,
-      create: true
-    )
-    let root = applicationSupport.appendingPathComponent("FloatView", isDirectory: true)
-    if FileManager.default.fileExists(atPath: root.path) {
-      try! FileManager.default.removeItem(at: root)
-    }
-  }()
+    private static let conformanceStorageReset: Void = {
+      guard ProcessInfo.processInfo.environment["FLOAT_VIEW_CONFORMANCE_RESET"] == "1" else {
+        return
+      }
+      let applicationSupport = try! FileManager.default.url(
+        for: .applicationSupportDirectory,
+        in: .userDomainMask,
+        appropriateFor: nil,
+        create: true
+      )
+      let root = applicationSupport.appendingPathComponent("FloatView", isDirectory: true)
+      if FileManager.default.fileExists(atPath: root.path) {
+        try! FileManager.default.removeItem(at: root)
+      }
+    }()
   #endif
 }
 
@@ -233,26 +233,28 @@ private struct SystemClock: ClockPort {
     Int64(ProcessInfo.processInfo.systemUptime * 1_000)
   }
 
-  func now() -> Date { Date() }
+  func now() -> Date {
+    Date()
+  }
 }
 
 private struct DebugEventSink: EventSink {
   func publish(_ event: any Sendable) {
     #if DEBUG
-    switch event {
-    case let state as BluetoothState:
-      print(
-        "[FloatViewState] bluetooth radio=\(state.radio.rawValue) " +
-          "scanPermission=\(state.scanPermission.rawValue) " +
-          "connectPermission=\(state.connectPermission.rawValue)"
-      )
-    case let state as ConnectionState:
-      print("[FloatViewState] connection state=\(state.rawValue)")
-    case let session as SessionRecord:
-      print("[FloatViewState] session active=\(session.active)")
-    default:
-      break
-    }
+      switch event {
+      case let state as BluetoothState:
+        print(
+          "[FloatViewState] bluetooth radio=\(state.radio.rawValue) " +
+            "scanPermission=\(state.scanPermission.rawValue) " +
+            "connectPermission=\(state.connectPermission.rawValue)"
+        )
+      case let state as ConnectionState:
+        print("[FloatViewState] connection state=\(state.rawValue)")
+      case let session as SessionRecord:
+        print("[FloatViewState] session active=\(session.active)")
+      default:
+        break
+      }
     #endif
   }
 }

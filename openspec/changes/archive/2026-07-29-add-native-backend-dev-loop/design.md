@@ -33,14 +33,14 @@ The repository has one active frontend routing change. This change must preserve
 
 The repository will assign:
 
-| Endpoint | Port |
-|---|---:|
-| Vite and HMR | `11002` |
+| Endpoint                   |    Port |
+| -------------------------- | ------: |
+| Vite and HMR               | `11002` |
 | Deterministic mock backend | `11003` |
-| macOS backend | `11010` |
-| iOS backend | `11011` |
-| Android backend | `11012` |
-| Next supported backend | `11013` |
+| macOS backend              | `11010` |
+| iOS backend                | `11011` |
+| Android backend            | `11012` |
+| Next supported backend     | `11013` |
 
 Each native server will request its platform port by default in normal, development, and conformance launches. A bind failure is terminal and names the unavailable endpoint; there is no ephemeral fallback. Keeping distinct host ports allows installed mobile backends and macOS to coexist without remapping or changing expected origins.
 

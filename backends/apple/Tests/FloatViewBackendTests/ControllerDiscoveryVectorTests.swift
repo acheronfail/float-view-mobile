@@ -1,6 +1,6 @@
+@testable import FloatViewBackend
 import Foundation
 import Testing
-@testable import FloatViewBackend
 
 @Test func dynamicRefloatDiscoveryRequiresAuditedCompleteLayout() {
   let supported = ControllerDiscovery()
@@ -12,7 +12,7 @@ import Testing
 
   let incomplete = ControllerDiscovery()
   #expect(incomplete.acceptRefloatInfo("1.1.2") == .requestTelemetryLayout)
-  guard case .failed(let issue) = incomplete.acceptTelemetryLayout(
+  guard case let .failed(issue) = incomplete.acceptTelemetryLayout(
     fields: Array(RefloatCompatibility.requiredFields.dropFirst()),
     runtimeFields: RefloatCompatibility.requiredRuntimeFields
   ) else {
@@ -22,7 +22,7 @@ import Testing
   #expect(issue.code == .unsupportedRefloat)
 
   let unknown = ControllerDiscovery()
-  guard case .failed(let issue) = unknown.acceptRefloatInfo("1.3.0") else {
+  guard case let .failed(issue) = unknown.acceptRefloatInfo("1.3.0") else {
     Issue.record("Expected an unknown Refloat release to fail")
     return
   }
@@ -51,9 +51,9 @@ import Testing
       route: vector.activeRouteCanID.map(ControllerRoute.can),
       controllerUUID: uuid(vector.activeUUIDByte)
     )
-    for _ in 0..<128 {
+    for _ in 0 ..< 128 {
       switch effect {
-      case .probeFirmware(.can(let canID)):
+      case let .probeFirmware(.can(canID)):
         if let target = vector.controllers.first(where: { $0.canID == canID }) {
           effect = discovery.acceptCANFirmware(target.firmware, continuity: continuity)
         } else {
@@ -64,7 +64,7 @@ import Testing
         }
       case .pingCAN:
         effect = discovery.acceptCANIDs(vector.canIDs, continuity: continuity)
-      case .clearHintThen(let next):
+      case let .clearHintThen(next):
         effect = next
       default:
         break
@@ -108,7 +108,9 @@ private struct VectorController {
 
 private func discoveryVectors() throws -> [DiscoveryVector] {
   var root = URL(fileURLWithPath: #filePath)
-  for _ in 0..<4 { root.deleteLastPathComponent() }
+  for _ in 0 ..< 4 {
+    root.deleteLastPathComponent()
+  }
   let content = try String(
     contentsOf: root.appending(path: "fixtures/connection/controller-discovery.tsv"),
     encoding: .utf8
@@ -205,7 +207,7 @@ private extension Optional where Wrapped == ControllerRoute {
   var stableName: String {
     switch self {
     case .some(.direct): "direct"
-    case .some(.can(let canID)): "can:\(canID)"
+    case let .some(.can(canID)): "can:\(canID)"
     case .none: ""
     }
   }

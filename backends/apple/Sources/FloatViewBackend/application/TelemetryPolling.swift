@@ -191,8 +191,8 @@ final class TelemetryPolling: @unchecked Sendable {
     guard let deviceID, let route, let protocolCodec else { return }
     do {
       layoutAttempts += 1
-      write(
-        try RefloatPolling.layoutRequest(protocolCodec: protocolCodec, route: route),
+      try write(
+        RefloatPolling.layoutRequest(protocolCodec: protocolCodec, route: route),
         deviceID
       )
     } catch {
@@ -254,7 +254,7 @@ final class TelemetryPolling: @unchecked Sendable {
   private func responseMatchesPending(_ value: RefloatTelemetryRecord) -> Bool {
     switch (pendingRequest, family, value.kind) {
     case (.legacy?, .legacyFixed, .compact), (.realtime?, .dynamic, .realtime),
-      (.compact?, .dynamic, .compact):
+         (.compact?, .dynamic, .compact):
       return true
     default:
       onDiagnostic("refloat_unexpected_telemetry_response")

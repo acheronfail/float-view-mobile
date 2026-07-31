@@ -1,7 +1,7 @@
 #if SWIFT_PACKAGE
-import CSQLite
+  import CSQLite
 #else
-import SQLite3
+  import SQLite3
 #endif
 import CoreFoundation
 import Foundation
@@ -66,7 +66,7 @@ private final class Database: @unchecked Sendable {
     var result: [T] = []
     while true {
       switch sqlite3_step(statement) {
-      case SQLITE_ROW: result.append(try map(statement))
+      case SQLITE_ROW: try result.append(map(statement))
       case SQLITE_DONE: return result
       default:
         throw SQLiteLogStoreError.sqlite(String(cString: sqlite3_errmsg(handle)))
@@ -113,9 +113,9 @@ private final class Database: @unchecked Sendable {
     for (index, value) in values.enumerated() {
       let position = Int32(index + 1)
       switch value {
-      case .integer(let value): sqlite3_bind_int64(statement, position, value)
-      case .real(let value): sqlite3_bind_double(statement, position, value)
-      case .text(let value):
+      case let .integer(value): sqlite3_bind_int64(statement, position, value)
+      case let .real(value): sqlite3_bind_double(statement, position, value)
+      case let .text(value):
         sqlite3_bind_text(statement, position, value, -1, SQLITE_TRANSIENT)
       case .null: sqlite3_bind_null(statement, position)
       }
@@ -152,13 +152,13 @@ public final class SQLiteLogStore: LogStorePort, ProductStorePort, SessionStoreP
     self.availableBytes = availableBytes
     try Self.prepareStorageRoot(root)
     #if os(iOS)
-    // Sessions must remain writable after the user has unlocked once so native
-    // background BLE logging does not depend on the WebView or an unlocked UI.
-    // Newly created SQLite, WAL, and SHM files inherit this directory class.
-    try FileManager.default.setAttributes(
-      [.protectionKey: FileProtectionType.completeUntilFirstUserAuthentication],
-      ofItemAtPath: root.path
-    )
+      // Sessions must remain writable after the user has unlocked once so native
+      // background BLE logging does not depend on the WebView or an unlocked UI.
+      // Newly created SQLite, WAL, and SHM files inherit this directory class.
+      try FileManager.default.setAttributes(
+        [.protectionKey: FileProtectionType.completeUntilFirstUserAuthentication],
+        ofItemAtPath: root.path
+      )
     #endif
     catalog = try Database(url: root.appending(path: "catalog.sqlite"))
     try catalog.execute(String(contentsOf: schemaDirectory.appending(path: "catalog.sql")))
@@ -427,7 +427,7 @@ public final class SQLiteLogStore: LogStorePort, ProductStorePort, SessionStoreP
     }
     let cursor = try query.cursor.map(Self.decodeCursor)
     if let cursor, cursor.field != query.sortField { throw SessionStoreError.invalidCursor }
-    var conditions: [String] = ["pending_delete = 0"]
+    var conditions = ["pending_delete = 0"]
     var values: [SQLiteValue] = []
     if let cursor {
       let comparison = query.sortDescending ? "<" : ">"
@@ -853,7 +853,7 @@ public final class SQLiteLogStore: LogStorePort, ProductStorePort, SessionStoreP
       var values = Self.settingsDictionary(current)
       patch.forEach { values[$0.key] = $0.value }
       let updated = try Self.validatedSettings(values, revision: current.revision + 1)
-      let json = String(data: try JSONEncoder().encode(updated), encoding: .utf8)!
+      let json = try String(data: JSONEncoder().encode(updated), encoding: .utf8)!
       try catalog.statement(
         "UPDATE settings SET revision = ?, json = ? WHERE singleton = 1 AND revision = ?",
         values: [
@@ -980,7 +980,7 @@ public final class SQLiteLogStore: LogStorePort, ProductStorePort, SessionStoreP
         )
         try archive.statement(
           "INSERT OR REPLACE INTO float_view_archive_metadata(key, value) VALUES ('session', ?)",
-          values: [.text(try Self.jsonString(manifest))]
+          values: [.text(Self.jsonString(manifest))]
         )
         try archive.execute("PRAGMA wal_checkpoint(TRUNCATE)")
       } else {
@@ -990,7 +990,8 @@ public final class SQLiteLogStore: LogStorePort, ProductStorePort, SessionStoreP
         try handle.write(contentsOf: Data((
           """
           sequence,observed_at_ms,slow_observed_at_ms,elapsed_ms,ride_state,package_state,package_mode,footpad_state,stop_condition,setpoint_adjustment,wheelslip,darkride,charging,alert_reason,firmware_fault,pack_voltage_v,duty_cycle,controller_temp_c,motor_temp_c,motor_current_a,battery_current_a,erpm,speed_kph,detail_json,extension_json
-          """ + "\n").utf8))
+          """ + "\n"
+        ).utf8))
         try database.forEachRow(
           """
           SELECT sequence, observed_at_ms, slow_observed_at_ms, monotonic_elapsed_ms,
@@ -1003,7 +1004,7 @@ public final class SQLiteLogStore: LogStorePort, ProductStorePort, SessionStoreP
           """
         ) { statement in
           var columns: [String] = []
-          let textColumns: Set<Int> = [4, 5, 6, 7, 8, 9, 13, 14, 23, 24]
+          let textColumns: Set = [4, 5, 6, 7, 8, 9, 13, 14, 23, 24]
           for index in 0 ..< 25 {
             if sqlite3_column_type(statement, Int32(index)) == SQLITE_NULL {
               columns.append("")
@@ -1066,7 +1067,7 @@ public final class SQLiteLogStore: LogStorePort, ProductStorePort, SessionStoreP
       map: { (Int(sqlite3_column_int64($0, 0)), Self.columnText($0, 1)!) }
     ).first,
       var values = (try? JSONSerialization.jsonObject(with: Data(stored.1.utf8)))
-        as? [String: Any]
+      as? [String: Any]
     {
       if values["minimumSessionDistance"] == nil {
         values["minimumSessionDistance"] = SettingsRecord().minimumSessionDistance
@@ -1076,7 +1077,7 @@ public final class SQLiteLogStore: LogStorePort, ProductStorePort, SessionStoreP
       }
     }
     let value = SettingsRecord()
-    let json = String(data: try JSONEncoder().encode(value), encoding: .utf8)!
+    let json = try String(data: JSONEncoder().encode(value), encoding: .utf8)!
     try catalog.statement(
       "INSERT OR REPLACE INTO settings(singleton, revision, json) VALUES (1, 0, ?)",
       values: [.text(json)]
@@ -1154,13 +1155,14 @@ public final class SQLiteLogStore: LogStorePort, ProductStorePort, SessionStoreP
       """,
       values: [.text(sessionGroupID)],
       map: { statement in
-      (
-        Self.columnText(statement, 0)!,
-        sqlite3_column_int64(statement, 1),
-        sqlite3_column_type(statement, 2) == SQLITE_NULL
-          ? nil : sqlite3_column_double(statement, 2)
-      )
-    }).first else {
+        (
+          Self.columnText(statement, 0)!,
+          sqlite3_column_int64(statement, 1),
+          sqlite3_column_type(statement, 2) == SQLITE_NULL
+            ? nil : sqlite3_column_double(statement, 2)
+        )
+      }
+    ).first else {
       throw SessionStoreError.sessionNotFound
     }
     let sessionIDs = try catalog.query(
@@ -1256,8 +1258,9 @@ public final class SQLiteLogStore: LogStorePort, ProductStorePort, SessionStoreP
       """,
       values: [.text(sessionID)],
       map: { statement in
-      (Self.columnText(statement, 0)!, sqlite3_column_int64(statement, 1))
-    }).first else {
+        (Self.columnText(statement, 0)!, sqlite3_column_int64(statement, 1))
+      }
+    ).first else {
       return
     }
     guard let previous = try catalog.query(
@@ -1269,8 +1272,9 @@ public final class SQLiteLogStore: LogStorePort, ProductStorePort, SessionStoreP
       """,
       values: [.text(current.0), .text(sessionID), .integer(current.1)],
       map: { statement in
-      (Self.columnText(statement, 0)!, sqlite3_column_int64(statement, 1))
-    }).first,
+        (Self.columnText(statement, 0)!, sqlite3_column_int64(statement, 1))
+      }
+    ).first,
       current.1 - previous.1 <= settings.sessionLinkWindowMs
     else {
       return
@@ -1723,7 +1727,7 @@ public final class SQLiteLogStore: LogStorePort, ProductStorePort, SessionStoreP
           let raw = String(data: data, encoding: .utf8),
           let first = raw.firstIndex(of: ":"),
           let second = raw[raw.index(after: first)...].firstIndex(of: ":"),
-          let number = Double(raw[raw.index(after: first)..<second])
+          let number = Double(raw[raw.index(after: first) ..< second])
     else { throw SessionStoreError.invalidCursor }
     let field = String(raw[..<first])
     let sessionID = String(raw[raw.index(after: second)...])
@@ -1897,7 +1901,7 @@ public final class SQLiteLogStore: LogStorePort, ProductStorePort, SessionStoreP
     let details = try Self.jsonString([
       "savedDeviceId": profile.savedDeviceID,
       "revision": profile.revision,
-      "values": try JSONSerialization.jsonObject(with: Data(profile.valuesJSON.utf8)),
+      "values": JSONSerialization.jsonObject(with: Data(profile.valuesJSON.utf8)),
     ])
     try session.statement(
       """

@@ -1,27 +1,27 @@
 export class SerialSaveQueue {
-	private pending = Promise.resolve();
+  private pending = Promise.resolve();
 
-	enqueue(action: () => Promise<void>): void {
-		this.pending = this.pending.then(action, action);
-	}
+  enqueue(action: () => Promise<void>): void {
+    this.pending = this.pending.then(action, action);
+  }
 
-	async flush(): Promise<void> {
-		await this.pending;
-	}
+  async flush(): Promise<void> {
+    await this.pending;
+  }
 }
 
 export function validSeriesCount(value: number | undefined): value is number {
-	return Number.isInteger(value) && Number(value) >= 1 && Number(value) <= 36;
+  return Number.isInteger(value) && Number(value) >= 1 && Number(value) <= 36;
 }
 
 export function validParallelCount(value: number | undefined): value is number {
-	return Number.isInteger(value) && Number(value) >= 1 && Number(value) <= 20;
+  return Number.isInteger(value) && Number(value) >= 1 && Number(value) <= 20;
 }
 
 export function validPreferredCanId(value: number | undefined): value is number {
-	return Number.isInteger(value) && Number(value) >= 0 && Number(value) <= 253;
+  return Number.isInteger(value) && Number(value) >= 0 && Number(value) <= 253;
 }
 
 export function normalizedCustomName(value: string): string | null {
-	return value.trim() || null;
+  return value.trim() || null;
 }

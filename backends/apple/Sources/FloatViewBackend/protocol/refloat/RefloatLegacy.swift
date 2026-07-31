@@ -13,7 +13,7 @@ enum RefloatLegacyTelemetryDecoder {
       )
     }
     let detailLevel = payload[3]
-    guard (1...4).contains(detailLevel) else { throw VescProtocolError.invalidFrame }
+    guard (1 ... 4).contains(detailLevel) else { throw VescProtocolError.invalidFrame }
     let required = detailLevel >= 4 ? 59 : (detailLevel >= 3 ? 55 : (detailLevel >= 2 ? 42 : 35))
     guard payload.count == required else { throw VescProtocolError.truncatedPayload }
     let signed16: (Int) -> Int = { index in
@@ -23,7 +23,7 @@ enum RefloatLegacyTelemetryDecoder {
       UInt32(payload[index]) << 24 | UInt32(payload[index + 1]) << 16
         | UInt32(payload[index + 2]) << 8 | UInt32(payload[index + 3])
     }
-    let legacyState = payload[10] & 0x0f
+    let legacyState = payload[10] & 0x0F
     let switchBits = payload[11] & 0x07
     let adc1 = Double(payload[12]) / 50
     let adc2 = Double(payload[13]) / 50
@@ -82,7 +82,7 @@ enum RefloatLegacyTelemetryDecoder {
   private static func decodeFloat32(_ payload: [UInt8], _ index: Int) -> Double {
     let bits =
       UInt32(payload[index]) << 24 | UInt32(payload[index + 1]) << 16
-      | UInt32(payload[index + 2]) << 8 | UInt32(payload[index + 3])
+        | UInt32(payload[index + 2]) << 8 | UInt32(payload[index + 3])
     return Double(Float(bitPattern: bits))
   }
 
@@ -104,7 +104,7 @@ enum RefloatLegacyTelemetryDecoder {
   ) -> (packageState: PackageState, stopCondition: StopCondition) {
     switch value {
     case 0: (.startup, .none)
-    case 1...5: (.running, .none)
+    case 1 ... 5: (.running, .none)
     case 6: (.ready, .pitch)
     case 7: (.ready, .roll)
     case 8: (.ready, .switchHalf)

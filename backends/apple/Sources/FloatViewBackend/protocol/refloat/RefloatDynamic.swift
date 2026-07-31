@@ -16,14 +16,14 @@ enum RefloatDynamicTelemetryDecoder {
       guard index < payload.count else { throw VescProtocolError.truncatedPayload }
       let count = Int(payload[index])
       index += 1
-      return try (0..<count).map { _ in
+      return try (0 ..< count).map { _ in
         guard index < payload.count else { throw VescProtocolError.truncatedPayload }
         let length = Int(payload[index])
         index += 1
         guard length > 0, length <= maxFieldBytes, index + length <= payload.count else {
           throw VescProtocolError.invalidFrame
         }
-        guard let value = String(bytes: payload[index..<(index + length)], encoding: .utf8) else {
+        guard let value = String(bytes: payload[index ..< (index + length)], encoding: .utf8) else {
           throw VescProtocolError.invalidFrame
         }
         index += length
@@ -73,7 +73,7 @@ enum RefloatDynamicTelemetryDecoder {
     if mask & 0x4 != 0 {
       let activeAlerts =
         UInt32(payload[index]) << 24 | UInt32(payload[index + 1]) << 16
-        | UInt32(payload[index + 2]) << 8 | UInt32(payload[index + 3])
+          | UInt32(payload[index + 2]) << 8 | UInt32(payload[index + 3])
       firmwareFault = activeAlerts & 0x1 != 0
         ? RefloatTelemetryMappings.firmwareFault(payload[index + 8]) : nil
     }
@@ -99,7 +99,7 @@ enum RefloatDynamicTelemetryDecoder {
       packageState: packageState,
       packageMode: RefloatTelemetryMappings.packageMode(payload[9] >> 4 & 0x03),
       footpadState: RefloatTelemetryMappings.footpad(flags >> 6 & 0x03),
-      stopCondition: RefloatTelemetryMappings.stopCondition(payload[11] & 0x0f),
+      stopCondition: RefloatTelemetryMappings.stopCondition(payload[11] & 0x0F),
       setpointAdjustment: RefloatTelemetryMappings.setpointAdjustment(payload[11] >> 4),
       wheelslip: flags & 0x01 != 0,
       darkride: flags & 0x02 != 0,
@@ -141,9 +141,9 @@ enum RefloatDynamicTelemetryDecoder {
   private static func decodeFloat16(_ high: UInt8, _ low: UInt8) throws -> Double {
     let bits = UInt16(high) << 8 | UInt16(low)
     let sign = bits & 0x8000 == 0 ? 1.0 : -1.0
-    let exponent = Int(bits >> 10 & 0x1f)
-    let fraction = Int(bits & 0x03ff)
-    guard exponent != 0x1f else { throw VescProtocolError.invalidFrame }
+    let exponent = Int(bits >> 10 & 0x1F)
+    let fraction = Int(bits & 0x03FF)
+    guard exponent != 0x1F else { throw VescProtocolError.invalidFrame }
     let value = exponent == 0
       ? sign * Double(fraction) * pow(2, -24)
       : sign * (1 + Double(fraction) / 1024) * pow(2, Double(exponent - 15))

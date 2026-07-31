@@ -1,15 +1,15 @@
 <script lang="ts">
-	import { page } from '$app/state';
-	import SessionView from '$lib/features/sessions/SessionView.svelte';
+  import { page } from '$app/state';
+  import SessionView from '$lib/features/sessions/SessionView.svelte';
 
-	const sessionId = $derived(page.params.sessionId ?? '');
+  const sessionId = $derived(page.params.sessionId ?? '');
 </script>
 
 {#if sessionId.length > 0 && sessionId.length <= 512}
-	<SessionView {sessionId} />
+  <SessionView {sessionId} />
 {:else}
-	<section class="rounded-2xl border border-outline bg-surface p-5">
-		<a class="text-accent" href="#/sessions">← Sessions</a>
-		<p role="alert" class="mt-3 text-warning">This session identifier is invalid.</p>
-	</section>
+  <section class="rounded-2xl border border-outline bg-surface p-5">
+    <a class="text-accent" href="#/sessions">← Sessions</a>
+    <p role="alert" class="mt-3 text-warning">This session identifier is invalid.</p>
+  </section>
 {/if}

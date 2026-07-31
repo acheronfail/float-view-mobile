@@ -37,13 +37,13 @@ public struct SoftwareVescPeripheral: Sendable {
 
   private static let telemetry: [UInt8] = {
     var payload = [UInt8](repeating: 0, count: 55)
-    payload[0...3] = [
+    payload[0 ... 3] = [
       VescCommand.customAppData.rawValue,
       RefloatWire.packageID,
       RefloatCommand.getAllData.rawValue,
       3,
     ]
-    payload[23...24] = [2, 4]
+    payload[23 ... 24] = [2, 4]
     payload[33] = 128
     payload[39] = 60
     payload[40] = 56

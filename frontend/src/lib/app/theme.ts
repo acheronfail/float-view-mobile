@@ -3,96 +3,96 @@ import type { ThemePreference } from '$lib/backend/contract';
 export type EffectiveTheme = 'light' | 'dark';
 
 export function isThemePreference(value: unknown): value is ThemePreference {
-	return value === 'system' || value === 'light' || value === 'dark';
+  return value === 'system' || value === 'light' || value === 'dark';
 }
 
 export function resolveTheme(preference: ThemePreference, systemDark: boolean): EffectiveTheme {
-	return preference === 'system' ? (systemDark ? 'dark' : 'light') : preference;
+  return preference === 'system' ? (systemDark ? 'dark' : 'light') : preference;
 }
 
 export interface ThemeEnvironment {
-	systemDark(): boolean;
-	apply(theme: EffectiveTheme): void;
-	readHint(): unknown;
-	writeHint(preference: ThemePreference): void;
-	subscribe(listener: (systemDark: boolean) => void): () => void;
+  systemDark(): boolean;
+  apply(theme: EffectiveTheme): void;
+  readHint(): unknown;
+  writeHint(preference: ThemePreference): void;
+  subscribe(listener: (systemDark: boolean) => void): () => void;
 }
 
 export class ThemeController {
-	private preference: ThemePreference = 'system';
-	private systemDark = false;
-	private unsubscribe: (() => void) | null = null;
+  private preference: ThemePreference = 'system';
+  private systemDark = false;
+  private unsubscribe: (() => void) | null = null;
 
-	constructor(private readonly environment: ThemeEnvironment) {}
+  constructor(private readonly environment: ThemeEnvironment) {}
 
-	start() {
-		const hint = this.environment.readHint();
-		this.preference = isThemePreference(hint) ? hint : 'system';
-		this.systemDark = this.environment.systemDark();
-		this.apply();
-		this.unsubscribe = this.environment.subscribe((systemDark) => {
-			this.systemDark = systemDark;
-			if (this.preference === 'system') this.apply();
-		});
-		return () => {
-			this.unsubscribe?.();
-			this.unsubscribe = null;
-		};
-	}
+  start() {
+    const hint = this.environment.readHint();
+    this.preference = isThemePreference(hint) ? hint : 'system';
+    this.systemDark = this.environment.systemDark();
+    this.apply();
+    this.unsubscribe = this.environment.subscribe((systemDark) => {
+      this.systemDark = systemDark;
+      if (this.preference === 'system') this.apply();
+    });
+    return () => {
+      this.unsubscribe?.();
+      this.unsubscribe = null;
+    };
+  }
 
-	reconcile(preference: ThemePreference) {
-		this.preference = preference;
-		this.environment.writeHint(preference);
-		this.apply();
-	}
+  reconcile(preference: ThemePreference) {
+    this.preference = preference;
+    this.environment.writeHint(preference);
+    this.apply();
+  }
 
-	private apply() {
-		this.environment.apply(resolveTheme(this.preference, this.systemDark));
-	}
+  private apply() {
+    this.environment.apply(resolveTheme(this.preference, this.systemDark));
+  }
 }
 
 export function browserThemeEnvironment(): ThemeEnvironment {
-	const media = window.matchMedia('(prefers-color-scheme: dark)');
-	return {
-		systemDark: () => media.matches,
-		apply: (theme) => {
-			document.documentElement.dataset.theme = theme;
-			document.documentElement.style.colorScheme = theme;
-			document
-				.querySelector<HTMLMetaElement>('meta[name="theme-color"]')
-				?.setAttribute('content', theme === 'dark' ? '#020617' : '#f8fafc');
-		},
-		readHint: () => {
-			try {
-				return localStorage?.getItem('float-view-theme');
-			} catch {
-				return null;
-			}
-		},
-		writeHint: (preference) => {
-			try {
-				localStorage?.setItem('float-view-theme', preference);
-			} catch {
-				// Theme persistence is optional.
-			}
-		},
-		subscribe: (listener) => {
-			const mediaHandler = (event: MediaQueryListEvent) => listener(event.matches);
-			const reconcile = () => listener(media.matches);
-			const visibilityHandler = () => {
-				if (document.visibilityState === 'visible') reconcile();
-			};
+  const media = window.matchMedia('(prefers-color-scheme: dark)');
+  return {
+    systemDark: () => media.matches,
+    apply: (theme) => {
+      document.documentElement.dataset.theme = theme;
+      document.documentElement.style.colorScheme = theme;
+      document
+        .querySelector<HTMLMetaElement>('meta[name="theme-color"]')
+        ?.setAttribute('content', theme === 'dark' ? '#020617' : '#f8fafc');
+    },
+    readHint: () => {
+      try {
+        return localStorage?.getItem('float-view-theme');
+      } catch {
+        return null;
+      }
+    },
+    writeHint: (preference) => {
+      try {
+        localStorage?.setItem('float-view-theme', preference);
+      } catch {
+        // Theme persistence is optional.
+      }
+    },
+    subscribe: (listener) => {
+      const mediaHandler = (event: MediaQueryListEvent) => listener(event.matches);
+      const reconcile = () => listener(media.matches);
+      const visibilityHandler = () => {
+        if (document.visibilityState === 'visible') reconcile();
+      };
 
-			media.addEventListener('change', mediaHandler);
-			window.addEventListener('focus', reconcile);
-			window.addEventListener('pageshow', reconcile);
-			document.addEventListener('visibilitychange', visibilityHandler);
-			return () => {
-				media.removeEventListener('change', mediaHandler);
-				window.removeEventListener('focus', reconcile);
-				window.removeEventListener('pageshow', reconcile);
-				document.removeEventListener('visibilitychange', visibilityHandler);
-			};
-		}
-	};
+      media.addEventListener('change', mediaHandler);
+      window.addEventListener('focus', reconcile);
+      window.addEventListener('pageshow', reconcile);
+      document.addEventListener('visibilitychange', visibilityHandler);
+      return () => {
+        media.removeEventListener('change', mediaHandler);
+        window.removeEventListener('focus', reconcile);
+        window.removeEventListener('pageshow', reconcile);
+        document.removeEventListener('visibilitychange', visibilityHandler);
+      };
+    },
+  };
 }

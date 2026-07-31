@@ -1,6 +1,6 @@
+@testable import FloatViewBackend
 import Foundation
 import Testing
-@testable import FloatViewBackend
 
 @Test
 func readyCreatesDurableSession() throws {
@@ -331,7 +331,7 @@ func customTransportDiscoversPrimaryThenRefloatPackageInOrder() throws {
   try service.receive(.deviceFound(id, name: "ExpressT", rssi: -40))
   try service.connect(id)
   try service.receive(.connectionChanged(id, .ready))
-  for byte in UInt8(1)...5 {
+  for byte in UInt8(1) ... 5 {
     try service.receive(.notification(id, Data([byte])))
   }
 
@@ -416,7 +416,7 @@ func configuredCanConnectsWithoutPingAndLearnedUUIDFollowsAMovedController() thr
   try configured.receive(.notification(id, Data([1])))
   #expect(configuredBluetooth.writes.last == Data([0, 42]))
   #expect(!configuredBluetooth.writes.contains(Data([62])))
-  for byte in UInt8(4)...6 {
+  for byte in UInt8(4) ... 6 {
     try configured.receive(.notification(id, Data([byte])))
   }
   #expect(configured.connectionState == .ready)
@@ -427,7 +427,7 @@ func configuredCanConnectsWithoutPingAndLearnedUUIDFollowsAMovedController() thr
   learnedProducts.routingHint = ControllerRoutingHint(
     savedDeviceID: "saved-board",
     canID: 7,
-    controllerUUID: Data((1...12).map(UInt8.init))
+    controllerUUID: Data((1 ... 12).map(UInt8.init))
   )
   let learned = ApplicationService(
     bluetooth: learnedBluetooth,
@@ -809,7 +809,9 @@ func missingRefloatLayoutRetriesFinitelyAndFailsLoggingSession() throws {
   try service.receive(.notification(id, Data([1])))
   try service.receive(.notification(id, Data([2])))
   #expect(store.active() == nil)
-  for _ in 0..<5 { scheduler.fire(1) }
+  for _ in 0 ..< 5 {
+    scheduler.fire(1)
+  }
 
   #expect(service.connectionState == .failed)
   #expect(bluetooth.disconnected.isEmpty)
@@ -973,22 +975,54 @@ private final class FakeBluetooth: BluetoothPort, @unchecked Sendable {
     self.state = state
   }
 
-  func currentState() -> BluetoothState { state }
+  func currentState() -> BluetoothState {
+    state
+  }
+
   func requestPermission() {}
-  func startDiscovery() { startCount += 1 }
-  func stopDiscovery() { stopCount += 1 }
-  func connect(_ deviceID: DeviceID) { connected.append(deviceID) }
-  func write(_ bytes: Data, to _: DeviceID) { writes.append(bytes) }
-  func disconnect(_ deviceID: DeviceID) { disconnected.append(deviceID) }
+  func startDiscovery() {
+    startCount += 1
+  }
+
+  func stopDiscovery() {
+    stopCount += 1
+  }
+
+  func connect(_ deviceID: DeviceID) {
+    connected.append(deviceID)
+  }
+
+  func write(_ bytes: Data, to _: DeviceID) {
+    writes.append(bytes)
+  }
+
+  func disconnect(_ deviceID: DeviceID) {
+    disconnected.append(deviceID)
+  }
 }
 
 private final class FakeProtocol: VescProtocolPort, @unchecked Sendable {
   func reset() {}
-  func firmwareRequest(route _: ControllerRoute) throws -> Data { Data([1]) }
-  func canPingRequest() throws -> Data { Data([62]) }
-  func refloatInfoRequest(route _: ControllerRoute) throws -> Data { Data([36, 101, 0]) }
-  func refloatTelemetryIDsRequest(route _: ControllerRoute) throws -> Data { Data([36, 101, 32]) }
-  func refloatTelemetryRequest(route _: ControllerRoute) throws -> Data { Data([36, 101, 31]) }
+  func firmwareRequest(route _: ControllerRoute) throws -> Data {
+    Data([1])
+  }
+
+  func canPingRequest() throws -> Data {
+    Data([62])
+  }
+
+  func refloatInfoRequest(route _: ControllerRoute) throws -> Data {
+    Data([36, 101, 0])
+  }
+
+  func refloatTelemetryIDsRequest(route _: ControllerRoute) throws -> Data {
+    Data([36, 101, 32])
+  }
+
+  func refloatTelemetryRequest(route _: ControllerRoute) throws -> Data {
+    Data([36, 101, 31])
+  }
+
   func receive(_: Data) throws -> [VescProtocolMessage] {
     [.firmware(.init(major: 6, minor: 6, hardwareName: "THOR300", firmwareName: "refloat"))]
   }
@@ -999,16 +1033,23 @@ private final class CanDiscoveryProtocol: VescProtocolPort, @unchecked Sendable 
   func firmwareRequest(route: ControllerRoute) throws -> Data {
     route.canID.map { Data([1, $0]) } ?? Data([1])
   }
-  func canPingRequest() throws -> Data { Data([62]) }
-  func refloatInfoRequest(route: ControllerRoute) throws -> Data {
-    Data([36, 101, 0, try #require(route.canID)])
+
+  func canPingRequest() throws -> Data {
+    Data([62])
   }
+
+  func refloatInfoRequest(route: ControllerRoute) throws -> Data {
+    try Data([36, 101, 0, #require(route.canID)])
+  }
+
   func refloatTelemetryIDsRequest(route: ControllerRoute) throws -> Data {
     Data([36, 101, 32, route.canID ?? 255])
   }
+
   func refloatTelemetryRequest(route: ControllerRoute) throws -> Data {
     Data([36, 101, 31, route.canID ?? 255])
   }
+
   func receive(_ bytes: Data) throws -> [VescProtocolMessage] {
     switch try #require(bytes.first) {
     case 1:
@@ -1062,11 +1103,26 @@ private final class CanDiscoveryProtocol: VescProtocolPort, @unchecked Sendable 
 private final class TelemetryProtocol: VescProtocolPort, @unchecked Sendable {
   private var compactCount = 0
   func reset() {}
-  func firmwareRequest(route _: ControllerRoute) throws -> Data { Data([1]) }
-  func canPingRequest() throws -> Data { Data([62]) }
-  func refloatInfoRequest(route: ControllerRoute) throws -> Data { Data([0, route.canID ?? 255]) }
-  func refloatTelemetryIDsRequest(route: ControllerRoute) throws -> Data { Data([32, route.canID ?? 255]) }
-  func refloatTelemetryRequest(route: ControllerRoute) throws -> Data { Data([31, route.canID ?? 255]) }
+  func firmwareRequest(route _: ControllerRoute) throws -> Data {
+    Data([1])
+  }
+
+  func canPingRequest() throws -> Data {
+    Data([62])
+  }
+
+  func refloatInfoRequest(route: ControllerRoute) throws -> Data {
+    Data([0, route.canID ?? 255])
+  }
+
+  func refloatTelemetryIDsRequest(route: ControllerRoute) throws -> Data {
+    Data([32, route.canID ?? 255])
+  }
+
+  func refloatTelemetryRequest(route: ControllerRoute) throws -> Data {
+    Data([31, route.canID ?? 255])
+  }
+
   func receive(_ bytes: Data) throws -> [VescProtocolMessage] {
     switch try #require(bytes.first) {
     case 1:
@@ -1128,10 +1184,23 @@ private final class AmbiguousProtocol: VescProtocolPort, @unchecked Sendable {
   func firmwareRequest(route: ControllerRoute) throws -> Data {
     route.canID.map { Data([0, $0]) } ?? Data([0])
   }
-  func canPingRequest() throws -> Data { Data([62]) }
-  func refloatInfoRequest(route: ControllerRoute) throws -> Data { Data([2, route.canID ?? 255]) }
-  func refloatTelemetryIDsRequest(route: ControllerRoute) throws -> Data { Data([32, route.canID ?? 255]) }
-  func refloatTelemetryRequest(route: ControllerRoute) throws -> Data { Data([31, route.canID ?? 255]) }
+
+  func canPingRequest() throws -> Data {
+    Data([62])
+  }
+
+  func refloatInfoRequest(route: ControllerRoute) throws -> Data {
+    Data([2, route.canID ?? 255])
+  }
+
+  func refloatTelemetryIDsRequest(route: ControllerRoute) throws -> Data {
+    Data([32, route.canID ?? 255])
+  }
+
+  func refloatTelemetryRequest(route: ControllerRoute) throws -> Data {
+    Data([31, route.canID ?? 255])
+  }
+
   func receive(_ bytes: Data) throws -> [VescProtocolMessage] {
     switch try #require(bytes.first) {
     case 1:
@@ -1175,10 +1244,23 @@ private final class DiscoveryBoundaryProtocol: VescProtocolPort, @unchecked Send
   func firmwareRequest(route: ControllerRoute) throws -> Data {
     route.canID.map { Data([0, $0]) } ?? Data([0])
   }
-  func canPingRequest() throws -> Data { Data([62]) }
-  func refloatInfoRequest(route: ControllerRoute) throws -> Data { Data([2, route.canID ?? 255]) }
-  func refloatTelemetryIDsRequest(route: ControllerRoute) throws -> Data { Data([32, route.canID ?? 255]) }
-  func refloatTelemetryRequest(route: ControllerRoute) throws -> Data { Data([31, route.canID ?? 255]) }
+
+  func canPingRequest() throws -> Data {
+    Data([62])
+  }
+
+  func refloatInfoRequest(route: ControllerRoute) throws -> Data {
+    Data([2, route.canID ?? 255])
+  }
+
+  func refloatTelemetryIDsRequest(route: ControllerRoute) throws -> Data {
+    Data([32, route.canID ?? 255])
+  }
+
+  func refloatTelemetryRequest(route: ControllerRoute) throws -> Data {
+    Data([31, route.canID ?? 255])
+  }
+
   func receive(_ bytes: Data) throws -> [VescProtocolMessage] {
     switch try #require(bytes.first) {
     case 1:
@@ -1236,14 +1318,24 @@ private final class FakeCancellation: CancellationPort, @unchecked Sendable {
 }
 
 private struct FixedClock: ClockPort {
-  func monotonicMilliseconds() -> Int64 { 0 }
-  func now() -> Date { .init(timeIntervalSince1970: 0) }
+  func monotonicMilliseconds() -> Int64 {
+    0
+  }
+
+  func now() -> Date {
+    .init(timeIntervalSince1970: 0)
+  }
 }
 
 private final class MutableClock: ClockPort, @unchecked Sendable {
   var date = Date(timeIntervalSince1970: 0)
-  func monotonicMilliseconds() -> Int64 { Int64(date.timeIntervalSince1970 * 1_000) }
-  func now() -> Date { date }
+  func monotonicMilliseconds() -> Int64 {
+    Int64(date.timeIntervalSince1970 * 1_000)
+  }
+
+  func now() -> Date {
+    date
+  }
 }
 
 private final class MemoryStore: LogStorePort, @unchecked Sendable {
@@ -1268,16 +1360,21 @@ private final class MemoryStore: LogStorePort, @unchecked Sendable {
     record = result
     return result
   }
+
   func append(jobID _: JobID, samples: [TelemetrySample]) throws {
     appended += samples
   }
+
   func close(jobID _: JobID, at _: Date, reason: String) throws -> SessionRecord {
     closeReasons.append(reason)
     let result = try #require(record).withActive(false)
     record = nil
     return result
   }
-  func active() -> SessionRecord? { record }
+
+  func active() -> SessionRecord? {
+    record
+  }
 }
 
 private final class FailingStore: LogStorePort, @unchecked Sendable {
@@ -1288,11 +1385,15 @@ private final class FailingStore: LogStorePort, @unchecked Sendable {
   ) throws -> SessionRecord {
     throw TestError.storage
   }
+
   func append(jobID _: JobID, samples _: [TelemetrySample]) throws {}
   func close(jobID _: JobID, at _: Date, reason _: String) throws -> SessionRecord {
     throw TestError.storage
   }
-  func active() -> SessionRecord? { nil }
+
+  func active() -> SessionRecord? {
+    nil
+  }
 }
 
 private final class MemoryProductStore: ProductStorePort, @unchecked Sendable {
@@ -1434,11 +1535,13 @@ private struct IgnoreEvents: EventSink {
 
 private final class CollectingEvents: EventSink, @unchecked Sendable {
   var values: [any Sendable] = []
-  func publish(_ event: any Sendable) { values.append(event) }
+  func publish(_ event: any Sendable) {
+    values.append(event)
+  }
 }
 
-extension SessionRecord {
-  fileprivate func withActive(_ active: Bool) -> SessionRecord {
+private extension SessionRecord {
+  func withActive(_ active: Bool) -> SessionRecord {
     SessionRecord(
       sessionID: sessionID,
       jobID: jobID,

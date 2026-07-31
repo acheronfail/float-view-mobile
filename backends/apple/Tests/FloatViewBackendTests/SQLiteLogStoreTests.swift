@@ -1,11 +1,13 @@
 import CSQLite
+@testable import FloatViewBackend
 import Foundation
 import Testing
-@testable import FloatViewBackend
 
 private func repositoryRoot() -> URL {
   var root = URL(fileURLWithPath: #filePath)
-  for _ in 0..<4 { root.deleteLastPathComponent() }
+  for _ in 0 ..< 4 {
+    root.deleteLastPathComponent()
+  }
   return root
 }
 
@@ -47,7 +49,7 @@ private func repositoryRoot() -> URL {
   let startedAt = Date(timeIntervalSince1970: 1_700_000_000)
   let record = try store.create(deviceID: DeviceID("query-fixture"), at: startedAt)
   var samples: [TelemetrySample] = []
-  for index in 0..<100 {
+  for index in 0 ..< 100 {
     let sequence = Int64(index + 1)
     let elapsed = Int64(index * 1_000)
     let voltage = 60.0 - Double(index) / 10.0
