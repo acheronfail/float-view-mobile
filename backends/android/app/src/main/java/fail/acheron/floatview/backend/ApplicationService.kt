@@ -29,6 +29,8 @@ class ApplicationService(
     private var explicitDisconnect = false
     private var scanSequence = 0
     private val knownDevicesById = linkedMapOf<DeviceId, DiscoveredDevice>()
+    private var discoveryExpiryTimer: CancellationPort? = null
+    private var discoveryExpiryGeneration = 0L
     private val controllerDiscovery = ControllerDiscovery()
     private var currentSavedDevice: SavedDeviceRecord? = null
     private var identificationTimer: CancellationPort? = null
@@ -61,6 +63,7 @@ class ApplicationService(
     private var currentLimits: ControllerCurrentLimits? = null
     var activeDeviceId: DeviceId? = null
         private set
+    private var activeDeviceName: String? = null
     var connectionState: ConnectionState = ConnectionState.DISCONNECTED
         private set
     var bluetoothState: BluetoothState = bluetooth.currentState()
@@ -245,6 +248,7 @@ class ApplicationService(
             activeScanId = null
         }
         activeDeviceId = deviceId
+        activeDeviceName = knownDevicesById[deviceId]?.advertisedName
         if (logStore.active() == null) {
             sessionControllerRoute = null
             sessionControllerUuid = null
@@ -299,6 +303,7 @@ class ApplicationService(
                     clock.now(),
                 )
                 knownDevicesById[event.deviceId] = device
+                scheduleDiscoveryExpiry()
                 events.publish(device)
             }
             is BluetoothEvent.ScanFailed -> {
@@ -347,6 +352,7 @@ class ApplicationService(
                 if (event.state == ConnectionState.DISCONNECTED) {
                     cancelReconnect()
                     activeDeviceId = null
+                    activeDeviceName = null
                     latestPersistedSample = null
                     resetFirmwareDiscovery()
                 }
@@ -436,7 +442,7 @@ class ApplicationService(
         }
         return ActiveConnectionSnapshot(
             deviceId = deviceId,
-            advertisedName = knownDevicesById[deviceId]?.advertisedName,
+            advertisedName = activeDeviceName,
             state = connectionState,
             savedDevice = currentSavedDevice ?: savedDevice,
             activeSession = activeSession,
@@ -471,7 +477,7 @@ class ApplicationService(
                 val deviceId = activeDeviceId ?: return
                 productStore?.ensureSavedDevice(
                     deviceId,
-                    knownDevicesById[deviceId]?.advertisedName,
+                    activeDeviceName,
                     clock.now(),
                 )
             } catch (_: Exception) {
@@ -616,7 +622,7 @@ class ApplicationService(
                 events.publish(
                     logStore.create(
                         deviceId,
-                        knownDevicesById[deviceId]?.advertisedName,
+                        activeDeviceName,
                         clock.now(),
                     ),
                 )
@@ -637,6 +643,7 @@ class ApplicationService(
         }
         cancelReconnect()
         controllerDiscovery.clearIssue()
+        clearDiscoveredDevices(publish = false)
         transition(ConnectionState.READY)
         protocol?.let { decoder ->
             runCatching {
@@ -660,7 +667,7 @@ class ApplicationService(
                 events.publish(
                     logStore.create(
                         deviceId,
-                        knownDevicesById[deviceId]?.advertisedName,
+                        activeDeviceName,
                         clock.now(),
                     ),
                 )
@@ -674,6 +681,7 @@ class ApplicationService(
             }
         }
         cancelReconnect()
+        clearDiscoveredDevices(publish = false)
         transition(ConnectionState.READY)
     }
 
@@ -753,6 +761,29 @@ class ApplicationService(
         canProbeTimer = null
     }
 
+    private fun scheduleDiscoveryExpiry() {
+        if (activeScanId == null) return
+        val timer = scheduler ?: return
+        discoveryExpiryTimer?.cancel()
+        val generation = ++discoveryExpiryGeneration
+        discoveryExpiryTimer = timer.schedule(DISCOVERY_EXPIRY_MS) {
+            synchronized(this) {
+                if (discoveryExpiryGeneration != generation) return@synchronized
+                discoveryExpiryTimer = null
+                clearDiscoveredDevices(publish = true)
+            }
+        }
+    }
+
+    private fun clearDiscoveredDevices(publish: Boolean) {
+        discoveryExpiryGeneration++
+        discoveryExpiryTimer?.cancel()
+        discoveryExpiryTimer = null
+        if (knownDevicesById.isEmpty()) return
+        knownDevicesById.clear()
+        if (publish) events.publish(discoverySnapshot())
+    }
+
     private fun beginReconnect() {
         if (reconnectDurationMs <= 0) {
             finishReconnect("unexpected_disconnect")
@@ -811,6 +842,7 @@ class ApplicationService(
         explicitDisconnect = true
         if (deviceId != null) bluetooth.disconnect(deviceId)
         activeDeviceId = null
+        activeDeviceName = null
         latestPersistedSample = null
         resetFirmwareDiscovery()
         transition(ConnectionState.DISCONNECTED)
@@ -850,6 +882,7 @@ class ApplicationService(
 
     private companion object {
         const val MAX_RECONNECT_BACKOFF_MS = 30_000L
+        const val DISCOVERY_EXPIRY_MS = 120_000L
         const val IDENTIFICATION_TIMEOUT_MS = 10_000L
         const val CAN_PROBE_TIMEOUT_MS = 1_000L
     }

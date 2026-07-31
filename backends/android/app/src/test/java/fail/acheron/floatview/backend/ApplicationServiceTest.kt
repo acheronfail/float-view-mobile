@@ -140,6 +140,43 @@ class ApplicationServiceTest {
     }
 
     @Test
+    fun `discovered devices expire after two minutes of inactivity`() {
+        val scheduler = FakeScheduler()
+        val events = mutableListOf<Any>()
+        val service = ApplicationService(
+            FakeBluetooth(),
+            FakeClock(),
+            FakeStore(),
+            scheduler = scheduler,
+        ) { events += it }
+
+        service.startDiscovery()
+        service.onBluetoothEvent(
+            BluetoothEvent.DeviceFound(DeviceId("board"), "Fixture", -40),
+        )
+        assertEquals(120_000L, scheduler.intervals.first())
+
+        scheduler.fire(0)
+
+        assertTrue(service.knownDevices.isEmpty())
+        assertTrue(events.filterIsInstance<DiscoverySnapshot>().last().knownDevices.isEmpty())
+    }
+
+    @Test
+    fun `ready connection clears discoveries but keeps active name`() {
+        val service = ApplicationService(FakeBluetooth(), FakeClock(), FakeStore()) {}
+        val id = DeviceId("board")
+
+        service.startDiscovery()
+        service.onBluetoothEvent(BluetoothEvent.DeviceFound(id, "Fixture", -40))
+        service.connect(id)
+        service.onBluetoothEvent(BluetoothEvent.ConnectionChanged(id, ConnectionState.READY))
+
+        assertTrue(service.knownDevices.isEmpty())
+        assertEquals("Fixture", service.activeConnectionSnapshot()?.advertisedName)
+    }
+
+    @Test
     fun `logging failure fails and disconnects connection`() {
         val bluetooth = FakeBluetooth()
         val service = ApplicationService(bluetooth, FakeClock(), FailingStore()) {}

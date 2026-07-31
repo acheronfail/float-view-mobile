@@ -175,11 +175,11 @@ func discoveryUpdatesAreCoalescedAndDeviceOrderIsStable() throws {
   clock.date = .init(timeIntervalSince1970: 2)
   try service.receive(.deviceFound(DeviceID("board-b"), name: "Second", rssi: -50))
 
-  #expect(scheduler.intervals == [250])
+  #expect(scheduler.intervals == [120_000, 250, 120_000, 120_000])
   #expect(events.values.isEmpty)
   #expect(service.knownDevices.map(\.deviceID) == [DeviceID("board-a"), DeviceID("board-b")])
 
-  scheduler.fire(0)
+  scheduler.fire(1)
 
   let snapshots = events.values.compactMap { $0 as? DiscoverySnapshot }
   #expect(snapshots.count == 1)
@@ -187,6 +187,47 @@ func discoveryUpdatesAreCoalescedAndDeviceOrderIsStable() throws {
     DeviceID("board-a"), DeviceID("board-b"),
   ])
   #expect(snapshots[0].knownDevices[1].rssi == -50)
+}
+
+@Test
+func discoveredDevicesExpireAfterTwoMinutesOfInactivity() throws {
+  let scheduler = FakeScheduler()
+  let events = CollectingEvents()
+  let service = ApplicationService(
+    bluetooth: FakeBluetooth(),
+    clock: FixedClock(),
+    logStore: MemoryStore(),
+    scheduler: scheduler,
+    events: events
+  )
+
+  _ = try service.startDiscovery()
+  try service.receive(.deviceFound(DeviceID("board"), name: "Fixture", rssi: -40))
+  #expect(scheduler.intervals.first == 120_000)
+
+  scheduler.fire(0)
+
+  #expect(service.knownDevices.isEmpty)
+  #expect((events.values.last as? DiscoverySnapshot)?.knownDevices.isEmpty == true)
+}
+
+@Test
+func readyConnectionClearsDiscoveriesButKeepsActiveName() throws {
+  let service = ApplicationService(
+    bluetooth: FakeBluetooth(),
+    clock: FixedClock(),
+    logStore: MemoryStore(),
+    events: IgnoreEvents()
+  )
+  let id = DeviceID("board")
+
+  _ = try service.startDiscovery()
+  try service.receive(.deviceFound(id, name: "Fixture", rssi: -40))
+  try service.connect(id)
+  try service.receive(.connectionChanged(id, .ready))
+
+  #expect(service.knownDevices.isEmpty)
+  #expect(service.activeConnectionSnapshot()?.name == "Fixture")
 }
 
 @Test

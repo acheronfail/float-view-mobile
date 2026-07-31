@@ -18,6 +18,8 @@ public final class ApplicationService: @unchecked Sendable {
   private var knownDevicesByID: [DeviceID: KnownDevice] = [:]
   private var discoveryPublishTimer: (any CancellationPort)?
   private var discoveryUpdatePending = false
+  private var discoveryExpiryTimer: (any CancellationPort)?
+  private var discoveryExpiryGeneration = 0
   private let controllerDiscovery = ControllerDiscovery()
   private var currentSavedDevice: SavedDeviceRecord?
   private var identificationTimer: (any CancellationPort)?
@@ -59,6 +61,7 @@ public final class ApplicationService: @unchecked Sendable {
   )
 
   public private(set) var activeDeviceID: DeviceID?
+  private var activeDeviceName: String?
   public private(set) var connectionState: ConnectionState = .disconnected
   public private(set) var bluetoothState: BluetoothState
   public private(set) var activeScanID: String?
@@ -341,6 +344,7 @@ public final class ApplicationService: @unchecked Sendable {
       cancelPendingDiscoveryPublish()
     }
     activeDeviceID = deviceID
+    activeDeviceName = knownDevicesByID[deviceID]?.name
     if logStore.active() == nil {
       sessionControllerRoute = nil
       sessionControllerUUID = nil
@@ -391,6 +395,7 @@ public final class ApplicationService: @unchecked Sendable {
         lastSeenAt: clock.now()
       )
       knownDevicesByID[deviceID] = device
+      scheduleDiscoveryExpiry()
       publishDiscoveryUpdate(device)
     case .scanFailed(let reason):
       activeScanID = nil
@@ -428,6 +433,7 @@ public final class ApplicationService: @unchecked Sendable {
       if state == .disconnected {
         cancelReconnect()
         activeDeviceID = nil
+        activeDeviceName = nil
         latestPersistedSample = nil
         resetFirmwareDiscovery()
       }
@@ -519,7 +525,7 @@ public final class ApplicationService: @unchecked Sendable {
     }
     return ActiveConnectionSnapshot(
       deviceID: activeDeviceID,
-      name: knownDevicesByID[activeDeviceID]?.name,
+      name: activeDeviceName,
       state: connectionState,
       savedDevice: savedDevice ?? nil,
       activeSession: activeSession ?? nil,
@@ -562,7 +568,7 @@ public final class ApplicationService: @unchecked Sendable {
       do {
         currentSavedDevice = try productStore?.ensureSavedDevice(
           deviceID: activeDeviceID ?? DeviceID(""),
-          advertisedName: activeDeviceID.flatMap { knownDevicesByID[$0]?.name },
+          advertisedName: activeDeviceName,
           at: clock.now()
         )
         if let currentSavedDevice {
@@ -695,7 +701,7 @@ public final class ApplicationService: @unchecked Sendable {
       do {
         events.publish(try logStore.create(
           deviceID: deviceID,
-          advertisedName: knownDevicesByID[deviceID]?.name,
+          advertisedName: activeDeviceName,
           at: clock.now()
         ))
         telemetryPolling.markSessionStarted()
@@ -710,6 +716,7 @@ public final class ApplicationService: @unchecked Sendable {
     }
     cancelReconnect()
     controllerDiscovery.clearIssue()
+    clearDiscoveredDevices(publish: false)
     transition(.ready)
     if let protocolCodec {
       do {
@@ -737,7 +744,7 @@ public final class ApplicationService: @unchecked Sendable {
       do {
         events.publish(try logStore.create(
           deviceID: deviceID,
-          advertisedName: knownDevicesByID[deviceID]?.name,
+          advertisedName: activeDeviceName,
           at: clock.now()
         ))
         telemetryPolling.markSessionStarted()
@@ -750,6 +757,7 @@ public final class ApplicationService: @unchecked Sendable {
       }
     }
     cancelReconnect()
+    clearDiscoveredDevices(publish: false)
     transition(.ready)
   }
 
@@ -907,6 +915,7 @@ public final class ApplicationService: @unchecked Sendable {
     explicitDisconnect = true
     if let deviceID { bluetooth.disconnect(deviceID) }
     activeDeviceID = nil
+    activeDeviceName = nil
     latestPersistedSample = nil
     resetFirmwareDiscovery()
     transition(.disconnected)
@@ -951,6 +960,32 @@ public final class ApplicationService: @unchecked Sendable {
     discoveryUpdatePending = false
   }
 
+  private func scheduleDiscoveryExpiry() {
+    guard activeScanID != nil, let scheduler else { return }
+    discoveryExpiryTimer?.cancel()
+    discoveryExpiryGeneration += 1
+    let generation = discoveryExpiryGeneration
+    discoveryExpiryTimer = scheduler.schedule(
+      afterMilliseconds: Self.discoveryExpiryMs
+    ) { [weak self] in
+      self?.lock.withLock {
+        guard let self, self.discoveryExpiryGeneration == generation else { return }
+        self.discoveryExpiryTimer = nil
+        self.clearDiscoveredDevices(publish: true)
+      }
+    }
+  }
+
+  private func clearDiscoveredDevices(publish: Bool) {
+    discoveryExpiryGeneration += 1
+    discoveryExpiryTimer?.cancel()
+    discoveryExpiryTimer = nil
+    cancelPendingDiscoveryPublish()
+    guard !knownDevicesByID.isEmpty else { return }
+    knownDevicesByID.removeAll()
+    if publish { events.publish(discoverySnapshot()) }
+  }
+
   private func resetFirmwareDiscovery() {
     telemetryPolling.cancelLayout()
     telemetryPolling.stop()
@@ -963,6 +998,7 @@ public final class ApplicationService: @unchecked Sendable {
   }
 
   private static let discoveryPublishIntervalMs: Int64 = 250
+  private static let discoveryExpiryMs: Int64 = 120_000
   private static let maxReconnectBackoffMs: Int64 = 30_000
   private static let identificationTimeoutMs: Int64 = 10_000
   private static let canProbeTimeoutMs: Int64 = 1_000

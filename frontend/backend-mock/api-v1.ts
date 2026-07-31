@@ -137,6 +137,7 @@ export class MockBackend {
 	private nextSession = 3;
 	private activeSessionId?: string;
 	private pendingCandidates: ControllerCandidate[] = [];
+	private discoveryExpiryTimer?: ReturnType<typeof setTimeout>;
 	private state: AppState = {
 		revision: 0,
 		bluetooth: {
@@ -211,6 +212,7 @@ export class MockBackend {
 					bluetooth: { ...this.state.bluetooth, scanning: false },
 					discoveredDevices: [discoveredBoard]
 				});
+				this.scheduleDiscoveryExpiry();
 				return accepted(id);
 			case 'device.connect': {
 				const deviceId = string(params.deviceId);
@@ -223,8 +225,11 @@ export class MockBackend {
 					return failure(id, 'not_found', 'Device is no longer available');
 				}
 				this.activeSessionId = `session-${this.nextSession++}`;
+				if (this.discoveryExpiryTimer) clearTimeout(this.discoveryExpiryTimer);
+				this.discoveryExpiryTimer = undefined;
 				this.change({
 					...this.state,
+					discoveredDevices: [],
 					activeConnection: {
 						...discoveredBoard,
 						state: 'ready',
@@ -688,6 +693,16 @@ export class MockBackend {
 	private findSession(params: Record<string, unknown>) {
 		const sessionId = string(params.sessionId);
 		return this.state.recentSessions.find((item) => item.sessionId === sessionId);
+	}
+
+	private scheduleDiscoveryExpiry() {
+		if (this.discoveryExpiryTimer) clearTimeout(this.discoveryExpiryTimer);
+		this.discoveryExpiryTimer = setTimeout(() => {
+			this.discoveryExpiryTimer = undefined;
+			if (!this.state.discoveredDevices.length) return;
+			this.change({ ...this.state, discoveredDevices: [] });
+		}, 120_000);
+		this.discoveryExpiryTimer.unref();
 	}
 
 	private change(next: AppState) {
