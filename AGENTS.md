@@ -10,8 +10,8 @@ Prefer using the following offline copies of upstream information relating to
 the VESC spec, refloat package inner implementations, VBMS workings or generally
 other platform related information.
 
-Look in the git-ignored `vendor/` directory, here there should be the upstream
-firmware and package sources, for example:
+Look in the `vendor/` directory, here there should be the upstream firmware and
+package sources, for example:
 
 - <https://github.com/vedderb/bldc>
 - <https://github.com/lukash/refloat>
