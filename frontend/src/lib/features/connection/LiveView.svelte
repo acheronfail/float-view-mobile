@@ -13,7 +13,12 @@
 	import ConfirmDialog from '$lib/ui/ConfirmDialog.svelte';
 	import ControllerSelection from './ControllerSelection.svelte';
 	import TelemetrySection from './TelemetrySection.svelte';
-	import { controllerRouteDescription, readingsAreDimmed, shouldConfirmDisconnect } from './live';
+	import {
+		controllerRouteDescription,
+		firmwareAccessDescription,
+		readingsAreDimmed,
+		shouldConfirmDisconnect
+	} from './live';
 	import {
 		currentTelemetryFields,
 		extensionTelemetry,
@@ -360,6 +365,10 @@
 						connection.firmware
 							? `${connection.firmware.packageName} ${connection.firmware.packageVersion}`
 							: '—'
+					],
+					[
+						'Access',
+						firmwareAccessDescription(connection.firmware)
 					]
 				] as [string, string][]}
 			/>

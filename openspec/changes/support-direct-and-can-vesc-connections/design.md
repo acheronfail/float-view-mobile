@@ -153,7 +153,7 @@ Compatibility data is declarative and maps exact audited stable versions to the 
 | Refloat 1.1.0 | `refloatDynamicV1` | Dynamic IDs and float16 data |
 | Refloat 1.2.3 | `refloatDynamicV1WithAlerts` | Dynamic data with bounded alert/fault tail |
 
-For VESC, a major/minor pair identifies only a candidate catalog entry. A controller is supported only when its identity baseline is structurally valid, its test-version marker is zero, its hardware type is `HW_TYPE_VESC`, and the selected direct or forwarded route successfully returns compatible Refloat INFO and any required layout. `COMM_FW_VERSION`, `COMM_FORWARD_CAN`, `COMM_CUSTOM_APP_DATA`, and `COMM_PING_CAN` retain the consumed command identities across the audited releases. Hardware name, firmware name, UUID, and hardware CRC do not broaden version support. A nonzero test-version marker, unknown major/minor pair, malformed baseline, or unsupported Refloat response fails closed.
+For VESC, a major/minor pair identifies only a candidate catalog entry. A controller is supported only when its identity baseline is structurally valid, its hardware type is `HW_TYPE_VESC`, and the selected direct or forwarded route successfully returns compatible Refloat INFO and any required layout. `COMM_FW_VERSION`, `COMM_FORWARD_CAN`, `COMM_CUSTOM_APP_DATA`, and `COMM_PING_CAN` retain the consumed command identities across the audited releases. Hardware name, firmware name, UUID, and hardware CRC do not broaden version support. A nonzero test-version marker on an audited version selects read-only access: reads remain allowed, while writes are rejected by a centralized capability gate. An unknown major/minor pair, malformed baseline, or unsupported Refloat response fails closed.
 
 VESC 7.01 remains unsupported while upstream identifies it as a test build. Future stable releases enter the catalog only after their identity response and every command Float View consumes are audited and immutable fixtures are added. A changed consumed command or required response shape creates a new profile; an added bounded optional identity suffix does not.
 
@@ -213,7 +213,7 @@ This follows VESC Tool's robust behavior while preserving Float View's stricter 
 The composed simulator remains the source of protocol behavior. Software tests cover the Cartesian direct/Express matrix for all four audited VESC and three representative Refloat versions, plus:
 
 - complete 6.02 identity without CRC and 6.05/6.06/7.00 identity with bounded CRC suffix;
-- malformed/truncated identity, unknown release, and nonzero test-version rejection;
+- malformed/truncated identity, unknown release, audited test-version read-only access, and write rejection;
 - Express automatic discovery;
 - configured CAN ID with absent/incomplete ping;
 - wrong configured ID;

@@ -248,6 +248,7 @@ export class MockBackend {
 							packageName: 'refloat',
 							packageVersion: '1.2.3',
 							hardwareName: 'Express',
+							accessMode: 'readWrite',
 							supported: true
 						}
 					},

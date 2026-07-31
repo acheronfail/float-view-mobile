@@ -33,7 +33,7 @@ test("simulator follows exact Express, CAN, Refloat, and telemetry sequence", ()
   assert.equal(response(simulator, [62]).request.kind, "can-ping");
   const controller = response(simulator, [34, 1, 0]);
   assert.equal(controller.request.kind, "controller-firmware");
-  assert.equal(hex(controller), "020b00060654484f52333030002ad803");
+  assert.equal(hex(controller), "022400060654484f5233303000000000000000000000000000000000000000000000000000006adf03");
   assert.equal(
     response(simulator, [34, 1, 36, 101, 0, 2, 0]).request.kind,
     "refloat-info",

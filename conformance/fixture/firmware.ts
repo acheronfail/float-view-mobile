@@ -1,4 +1,4 @@
-export type FirmwareVersion = '6.02' | '6.05' | '6.06';
+export type FirmwareVersion = '6.02' | '6.05' | '6.06' | '7.00';
 
 export interface ControllerIdentity {
 	hardwareName: string;
@@ -11,6 +11,7 @@ export interface FirmwareVariant {
 	major: number;
 	minor: number;
 	hardwareCrc?: Uint8Array;
+	testVersion: number;
 	payload: Uint8Array;
 	provenance: string;
 }
@@ -26,18 +27,25 @@ const provenance =
 
 export const firmwareVariants: Readonly<Record<FirmwareVersion, FirmwareVariant>> = {
 	'6.02': variant(6, 2),
-	'6.05': variant(6, 5),
-	'6.06': variant(6, 6, Uint8Array.of(0, 0, 0, 0))
+	'6.05': variant(6, 5, Uint8Array.of(0, 0, 0, 0)),
+	'6.06': variant(6, 6, Uint8Array.of(0, 0, 0, 0)),
+	'7.00': variant(7, 0, Uint8Array.of(0, 0, 0, 0))
 };
 
-function variant(major: number, minor: number, hardwareCrc?: Uint8Array): FirmwareVariant {
+function variant(
+	major: number,
+	minor: number,
+	hardwareCrc?: Uint8Array,
+	testVersion = 0
+): FirmwareVariant {
 	const version = `${major}.${minor.toString().padStart(2, '0')}` as FirmwareVersion;
 	return {
 		version,
 		major,
 		minor,
 		hardwareCrc,
-		payload: encodeFirmwarePayload(thor300, major, minor, hardwareCrc),
+		testVersion,
+		payload: encodeFirmwarePayload(thor300, major, minor, hardwareCrc, testVersion),
 		provenance
 	};
 }
@@ -46,10 +54,11 @@ export function encodeFirmwarePayload(
 	identity: ControllerIdentity,
 	major: number,
 	minor: number,
-	hardwareCrc?: Uint8Array
+	hardwareCrc?: Uint8Array,
+	testVersion = 0
 ): Uint8Array {
 	const name = new TextEncoder().encode(identity.hardwareName);
-	const flags = Uint8Array.of(0, 0, identity.hardwareType, 0, 0, 0, 0, 0);
+	const flags = Uint8Array.of(0, testVersion, identity.hardwareType, 0, 0, 0, 0, 0);
 	return Uint8Array.from([
 		0,
 		major,
@@ -58,6 +67,7 @@ export function encodeFirmwarePayload(
 		0,
 		...identity.uuid,
 		...flags,
+		0,
 		...(hardwareCrc ?? [])
 	]);
 }

@@ -21,8 +21,16 @@ public struct SoftwareVescPeripheral: Sendable {
     return try? Data(VescFrameCodec.encode(payload))
   }
 
-  private static let firmware: [UInt8] =
-    [0, 6, 6] + Array("THOR300".utf8) + [0] + [UInt8](repeating: 0, count: 20)
+  private static let firmware: [UInt8] = {
+    var bytes: [UInt8] = [0, 6, 6]
+    bytes += Array("THOR300".utf8)
+    bytes.append(0)
+    bytes += [UInt8](repeating: 0, count: 12)
+    bytes += [0, 0, 0, 0, 0, 0, 0, 0]
+    bytes += Array("VESC".utf8)
+    bytes.append(0)
+    return bytes
+  }()
 
   private static let telemetry: [UInt8] = {
     var payload = [UInt8](repeating: 0, count: 55)

@@ -22,7 +22,9 @@ class SoftwareVescPeripheral {
             byteArrayOf(0, 6, 6) +
                 "THOR300".encodeToByteArray() +
                 byteArrayOf(0) +
-                ByteArray(20)
+                ByteArray(12) +
+                byteArrayOf(0, 0, 0, 0, 0, 0, 0, 0) +
+                "VESC".encodeToByteArray() + byteArrayOf(0)
         val telemetry =
             ByteArray(55).apply {
                 this[0] = 36

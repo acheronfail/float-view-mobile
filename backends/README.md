@@ -66,7 +66,9 @@ the latest profile.
 
 Exact compatibility catalogs live beside their protocol:
 
-- VESC controller firmware: 6.02, 6.05, and 6.06.
+- VESC controller firmware: 6.02, 6.05, 6.06, and 7.00. Identity matching is
+  strict (including the zero test-build marker); an optional four-byte hardware
+  CRC is retained as provenance, and unknown/test firmware is rejected.
 - Refloat source packages: stable 1.0.0–1.0.1 (shared legacy wire identity
   `1.0`), 1.1.0–1.1.2 (dynamic), and 1.2.0–1.2.3 (dynamic with alert tail).
 

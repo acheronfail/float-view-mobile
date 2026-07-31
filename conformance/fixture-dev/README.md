@@ -37,7 +37,7 @@ Omit the serial path to select an enumerated port in the UI. The server binds
 strictly to `127.0.0.1:11004`; if that port is occupied, startup fails.
 
 The workbench composes up to 16 THOR300 controller candidates and 64 discovered
-CAN IDs with VESC firmware 6.02, 6.05, or 6.06; stable Refloat 1.0.0–1.0.1,
+CAN IDs with VESC firmware 6.02, 6.05, 6.06, or 7.00; stable Refloat 1.0.0–1.0.1,
 1.1.0–1.1.2, or 1.2.0–1.2.3;
 and direct or VESC Express topology. The common templates remain editable
 starting points for direct, single-Express, and reported multi-controller
@@ -68,7 +68,7 @@ pass/fail, and physical checkpoints. Shared protocol and semantic fixture types
 in `../fixture/` are used by both paths.
 
 The native backends support route-correct telemetry for direct and Express
-topologies across VESC 6.02, 6.05, and 6.06 and the Refloat 1.0.0, 1.1.0, and
+topologies across VESC 6.02, 6.05, 6.06, and 7.00 and the Refloat 1.0.0, 1.1.0, and
 1.2.3 protocol families. Refloat 1.0.0 uses fixed legacy packets; 1.1.0 and
 1.2.3 negotiate dynamic layouts. All families use simple periodic command 10
 detail-4 compact polling for accumulated and charging values.

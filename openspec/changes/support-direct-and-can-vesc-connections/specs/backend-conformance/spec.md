@@ -61,7 +61,7 @@ Physical conformance SHALL run identity, ride, and unexpected-disconnect/reconne
 ## ADDED Requirements
 
 ### Requirement: Exhaustive connection compatibility coverage
-Software conformance SHALL cover the Cartesian product of direct and Express topology, audited stable VESC 6.02/6.05/6.06/7.00, and representative Refloat 1.0.0/1.1.0/1.2.3. It SHALL additionally cover the complete VESC identity baseline, source-applicable CRC suffix, nonzero firmware test-version marker, malformed and unknown identities, and configured, absent, invalid, duplicate, zero, one, and multiple CAN candidates without requiring a separate simulator implementation per combination.
+Software conformance SHALL cover the Cartesian product of direct and Express topology, audited VESC 6.02/6.05/6.06/7.00, and representative Refloat 1.0.0/1.1.0/1.2.3. It SHALL additionally cover the complete VESC identity baseline, source-applicable CRC suffix, audited nonzero firmware test-version read-only mode, rejected writes, malformed and unknown identities, and configured, absent, invalid, duplicate, zero, one, and multiple CAN candidates without requiring a separate simulator implementation per combination.
 
 #### Scenario: Supported version matrix
 - **WHEN** the software compatibility matrix runs
@@ -71,8 +71,12 @@ Software conformance SHALL cover the Cartesian product of direct and Express top
 - **WHEN** conformance supplies complete VESC 6.02 identity without a CRC and complete 6.05, 6.06, and 7.00 identities with their bounded source-defined CRC suffix
 - **THEN** both native backends derive the same stable version, hardware type, names, and private UUID and select the same `vescCoreReadOnly` profile
 
+#### Scenario: Audited test-version access
+- **WHEN** conformance supplies a known 6.02/6.05/6.06/7.00 identity with a nonzero test-version marker
+- **THEN** both backends reach ready after route and Refloat validation, permit read requests, and reject writes consistently
+
 #### Scenario: Unsupported VESC release evidence
-- **WHEN** conformance supplies a nonzero test-version marker, VESC 7.01 test identity, unknown major/minor pair, truncated baseline, unterminated name, or unexpected remainder
+- **WHEN** conformance supplies VESC 7.01 test identity, an unknown major/minor pair, truncated baseline, unterminated name, or unexpected remainder
 - **THEN** both backends fail closed consistently, do not request Refloat telemetry, and do not create a durable session
 
 #### Scenario: Wrong configured ID

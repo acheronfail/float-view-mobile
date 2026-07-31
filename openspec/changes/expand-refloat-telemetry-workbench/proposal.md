@@ -9,7 +9,7 @@ Float View and its interactive fixture currently reduce Refloat telemetry to a s
 - Add one version-independent semantic board-state model with coherent scenes and individual controls for motion, motor and battery load, IMU, footpads, ATR and tilt contributions, field weakening, charging, pushback, wheelslip, modes, stop conditions, warnings, and faults.
 - Expand the source-faithful simulator and both native protocol implementations across the audited stable Refloat 1.0.x, 1.1.x, and 1.2.x wire profiles: 1.0.0–1.0.1, 1.1.0–1.1.2, and 1.2.0–1.2.3. Support complete legacy realtime and compact telemetry, complete negotiated dynamic telemetry, latest-reported accumulated values, charging data, and active firmware-fault state.
 - Separate package-version recognition from wire compatibility: exact audited releases select a profile, dynamic command 32 must advertise the complete required semantic baseline before the controller becomes ready, and additional bounded numeric fields remain forward-compatible extensions.
-- Expand the composed controller catalog from VESC 6.02/6.05/6.06 to audited stable 6.02/6.05/6.06/7.00. Model their shared read-only command family once, require the complete stable `COMM_FW_VERSION` identity baseline and zero test-version marker, correct the source-applicable 6.05 hardware-CRC fixture, and reject malformed, test, prerelease, or unknown controller identities.
+- Expand the composed controller catalog from VESC 6.02/6.05/6.06 to audited 6.02/6.05/6.06/7.00. Model their shared read-only command family once, require the complete `COMM_FW_VERSION` identity baseline, make audited nonzero test-version identities read-only, correct the source-applicable 6.05 hardware-CRC fixture, and reject malformed, out-of-catalog, prerelease, or unknown controller identities.
 - **BREAKING** Extend authenticated live samples and session detail with typed detailed telemetry, bounded discrete transition events, stable state fields, and a bounded extension field map; update the frontend client, mock, Apple and Android loopback serialization, persistence, exports, and conformance together.
 - Persist the additional normalized telemetry on both native backends and expose it in complete `state.changed` snapshots, session series, diagnostics, and export without exposing private controller identifiers.
 - Keep telemetry, durable logging, and session ownership strictly bound to one selected direct-or-CAN controller at a time. Discovery may expose multiple candidates, but changing the selected controller ends the current session before another begins.
@@ -27,7 +27,7 @@ Non-goals:
 - Refloat command 35 alert/fault history and data-recorder commands 41–43.
 - Simultaneous polling, display, or durable logging of more than one controller.
 - Supporting prerelease, unknown, or stable Refloat package versions outside the audited 1.0.0–1.0.1, 1.1.0–1.1.2, and 1.2.0–1.2.3 releases.
-- Supporting VESC test builds, VESC 7.01 while it reports a nonzero test-version marker, unknown VESC releases, or firmware older than the audited 6.02 baseline.
+- Supporting VESC test builds outside the audited catalog, VESC 7.01 while it reports a nonzero test-version marker, unknown VESC releases, or firmware older than the audited 6.02 baseline; audited test builds remain read-only and are labeled in the UI.
 
 ## Capabilities
 

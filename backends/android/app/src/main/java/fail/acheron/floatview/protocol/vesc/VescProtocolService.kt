@@ -17,11 +17,13 @@ data class FirmwareInfo(
     val firmwareName: String? = null,
     val hardwareType: Int = 0,
     val controllerUuid: ByteArray? = null,
+    val testVersion: Int = 0,
 ) {
     override fun equals(other: Any?): Boolean =
         other is FirmwareInfo &&
             major == other.major &&
             minor == other.minor &&
+            testVersion == other.testVersion &&
             hardwareName == other.hardwareName &&
             firmwareName == other.firmwareName &&
             hardwareType == other.hardwareType &&
@@ -35,6 +37,7 @@ data class FirmwareInfo(
     override fun hashCode(): Int {
         var result = major
         result = 31 * result + minor
+        result = 31 * result + testVersion
         result = 31 * result + hardwareName.hashCode()
         result = 31 * result + (firmwareName?.hashCode() ?: 0)
         result = 31 * result + hardwareType
@@ -187,6 +190,7 @@ class VescProtocolService : VescProtocolPort {
                             info.hardwareType,
                             pendingFirmwareCanId,
                             info.controllerUuid,
+                            info.testVersion,
                         ),
                     )
                 }

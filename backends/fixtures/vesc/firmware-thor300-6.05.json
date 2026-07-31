@@ -7,13 +7,13 @@
     "identity": "deliberate stable THOR300 fixture identity"
   },
   "firmware": "6.05",
-  "frameHex": "021f00060554484f52333030000000000000000000000000000000000000000000f2ac03",
-  "chunkSizes": [3, 11, 22],
+  "frameHex": "022400060554484f523330300000000000000000000000000000000000000000000000000000de9103",
+  "chunkSizes": [3, 11, 27],
   "expected": {
     "major": 6,
     "minor": 5,
     "hardwareName": "THOR300",
     "hardwareType": 0,
-    "hardwareCrc": null
+    "hardwareCrc": "00000000"
   }
 }

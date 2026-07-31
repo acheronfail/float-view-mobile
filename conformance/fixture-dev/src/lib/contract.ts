@@ -103,7 +103,7 @@ export type FixtureAction =
 	| { kind: 'set-ping-visible'; alias: string; visible: boolean }
 	| { kind: 'set-fragment-bytes'; fragmentBytes: number };
 
-export const firmwareOptions: readonly FirmwareVersion[] = ['6.02', '6.05', '6.06'];
+export const firmwareOptions: readonly FirmwareVersion[] = ['6.02', '6.05', '6.06', '7.00'];
 export const refloatOptions: readonly RefloatVersion[] = [
 	'1.0.0',
 	'1.0.1',

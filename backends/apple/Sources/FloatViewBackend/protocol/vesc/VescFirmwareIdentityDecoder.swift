@@ -1,37 +1,45 @@
 import Foundation
 
-/// Length-checked owner for COMM_FW_VERSION identity and optional tail fields.
+/// Strict owner for the source-defined COMM_FW_VERSION identity and optional CRC tail.
 public enum VescFirmwareIdentityDecoder {
   public static func decode(_ payload: [UInt8]) throws -> FirmwareInfo {
-    guard payload.first == 0, payload.count >= 4 else {
+    guard let command = payload.first else {
+      throw VescProtocolError.truncatedPayload
+    }
+    guard command == 0 else {
       throw VescProtocolError.unsupportedCommand(payload.first ?? 255)
     }
-    let nameBytes = payload.dropFirst(3).prefix { $0 != 0 }
-    var offset = min(3 + nameBytes.count + 1, payload.count)
-    let controllerUUID: Data?
-    if payload.count - offset >= 12 {
-      controllerUUID = Data(payload[offset ..< offset + 12])
-      offset += 12
-    } else {
-      controllerUUID = nil
+    guard payload.count >= 3 else { throw VescProtocolError.truncatedPayload }
+
+    func terminatedBytes(from start: Int, maximum: Int) throws -> ArraySlice<UInt8> {
+      guard start < payload.count,
+            let end = payload[start...].firstIndex(of: 0),
+            end - start <= maximum
+      else { throw VescProtocolError.truncatedPayload }
+      return payload[start..<end]
     }
-    let hardwareType = payload.count - offset >= 3 ? payload[offset + 2] : 0
-    for _ in 0 ..< 8 where offset < payload.count {
-      offset += 1
+
+    let nameBytes = try terminatedBytes(from: 3, maximum: 64)
+    let uuidStart = nameBytes.endIndex + 1
+    let flagsStart = uuidStart + 12
+    let firmwareNameStart = flagsStart + 8
+    guard firmwareNameStart < payload.count else {
+      throw VescProtocolError.truncatedPayload
     }
-    let firmwareName: String?
-    if offset < payload.count {
-      let bytes = payload[offset...].prefix { $0 != 0 }
-      firmwareName = String(decoding: bytes, as: UTF8.self).nilIfEmpty
-    } else {
-      firmwareName = nil
+    let controllerUUID = Data(payload[uuidStart..<flagsStart])
+    let firmwareNameBytes = try terminatedBytes(from: firmwareNameStart, maximum: 64)
+    let tailLength = payload.count - (firmwareNameBytes.endIndex + 1)
+    guard tailLength == 0 || tailLength == 4 else {
+      throw VescProtocolError.truncatedPayload
     }
+
     return FirmwareInfo(
       major: payload[1],
       minor: payload[2],
+      testVersion: payload[uuidStart + 13],
       hardwareName: String(decoding: nameBytes, as: UTF8.self),
-      firmwareName: firmwareName,
-      hardwareType: hardwareType,
+      firmwareName: String(decoding: firmwareNameBytes, as: UTF8.self).nilIfEmpty,
+      hardwareType: payload[uuidStart + 14],
       controllerUUID: controllerUUID
     )
   }

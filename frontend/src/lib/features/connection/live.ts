@@ -2,6 +2,7 @@ import type {
 	ActiveConnection,
 	ControllerCandidate,
 	ControllerConnection,
+	FirmwareInfo,
 	RideState
 } from '$lib/backend/contract';
 
@@ -17,6 +18,11 @@ export function controllerRouteDescription(route: ControllerConnection | null): 
 	if (route?.kind === 'can') return `CAN ${route.canId}`;
 	if (route?.kind === 'direct') return 'Direct Bluetooth';
 	return 'Detecting…';
+}
+
+export function firmwareAccessDescription(firmware: FirmwareInfo | null): string {
+	if (!firmware) return '—';
+	return firmware.accessMode === 'readOnly' ? 'Read-only (test firmware)' : 'Read/write';
 }
 
 export function sortedControllerCandidates(

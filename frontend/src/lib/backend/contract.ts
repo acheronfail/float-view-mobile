@@ -58,6 +58,8 @@ export interface FirmwareInfo {
 	packageName: string;
 	packageVersion: string;
 	hardwareName?: string | null;
+	/** Test-version firmware is connected in read-only mode. */
+	accessMode: 'readOnly' | 'readWrite';
 	supported: boolean;
 }
 

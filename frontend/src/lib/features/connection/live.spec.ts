@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { ActiveConnection } from '$lib/backend/contract';
 import {
 	controllerRouteDescription,
+	firmwareAccessDescription,
 	readingsAreDimmed,
 	shouldConfirmDisconnect,
 	sortedControllerCandidates
@@ -39,6 +40,19 @@ describe('live board behavior', () => {
 		expect(controllerRouteDescription({ kind: 'direct' })).toBe('Direct Bluetooth');
 		expect(controllerRouteDescription({ kind: 'can', canId: 42 })).toBe('CAN 42');
 		expect(controllerRouteDescription(null)).toBe('Detecting…');
+	});
+
+	it('labels audited test firmware as read-only', () => {
+		expect(
+			firmwareAccessDescription({
+				vescVersion: '7.00',
+				packageName: 'refloat',
+				packageVersion: '1.2.3',
+				hardwareName: 'THOR300',
+				accessMode: 'readOnly',
+				supported: true
+			})
+		).toBe('Read-only (test firmware)');
 	});
 
 	it('sorts supported and unsupported candidates by CAN ID without hiding either', () => {

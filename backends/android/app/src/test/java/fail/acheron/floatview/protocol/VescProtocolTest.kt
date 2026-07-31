@@ -8,6 +8,7 @@ import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import fail.acheron.floatview.backend.VescProtocolMessage
+import fail.acheron.floatview.backend.FirmwareRecord
 import fail.acheron.floatview.backend.FootpadState
 import fail.acheron.floatview.backend.RideState
 import fail.acheron.floatview.protocol.refloat.RefloatCompatibility
@@ -17,7 +18,9 @@ import fail.acheron.floatview.protocol.refloat.RefloatTelemetryFamily
 import fail.acheron.floatview.protocol.refloat.RefloatWireProfile
 import fail.acheron.floatview.protocol.vesc.VescCompatibility
 import fail.acheron.floatview.protocol.vesc.ControllerRoute
+import fail.acheron.floatview.protocol.vesc.VescAccessMode
 import fail.acheron.floatview.protocol.vesc.VescFirmwareVersion
+import fail.acheron.floatview.protocol.vesc.VescOperation
 
 private fun String.hexBytes(): ByteArray =
     chunked(2).map { it.toInt(16).toByte() }.toByteArray()
@@ -59,6 +62,7 @@ class VescProtocolTest {
                 VescFirmwareVersion(6, 2),
                 VescFirmwareVersion(6, 5),
                 VescFirmwareVersion(6, 6),
+                VescFirmwareVersion(7, 0),
             ),
             VescCompatibility.supported,
         )
@@ -114,24 +118,27 @@ class VescProtocolTest {
     fun firmwareFixtureDecodesAcrossChunks() {
         val frame = fixture("vesc/firmware-6.06.json").hexBytes()
         val stream = VescFrameStreamDecoder()
-        val sizes = listOf(2, 1, 4, 9)
+        val sizes = listOf(2, 1, 4, 34)
         var offset = 0
         val payloads = sizes.flatMap { size ->
             stream.append(frame.copyOfRange(offset, offset + size)).also { offset += size }
         }
-        assertEquals(FirmwareInfo(6, 6, "THOR300"), VescPayloadDecoder.firmware(payloads.single()))
+        assertEquals(
+            FirmwareInfo(6, 6, "THOR300", controllerUuid = ByteArray(12)),
+            VescPayloadDecoder.firmware(payloads.single()),
+        )
     }
 
     @Test
     fun composedThorFirmwareVariantsDecode() {
-        listOf("6.02" to 2, "6.05" to 5, "6.06" to 6).forEach { (version, minor) ->
+        listOf("6.02" to (6 to 2), "6.05" to (6 to 5), "6.06" to (6 to 6), "7.00" to (7 to 0)).forEach { (version, majorMinor) ->
             val payload = VescFrameCodec.decode(
                 fixture("vesc/firmware-thor300-$version.json").hexBytes(),
             )
             assertEquals(
                 FirmwareInfo(
-                    6,
-                    minor,
+                    majorMinor.first,
+                    majorMinor.second,
                     "THOR300",
                     hardwareType = 0,
                     controllerUuid = ByteArray(12),
@@ -139,6 +146,21 @@ class VescProtocolTest {
                 VescPayloadDecoder.firmware(payload),
             )
         }
+    }
+
+    @Test
+    fun strictFirmwareIdentityAllowsReadOnlyTestBuilds() {
+        val payload = VescFrameCodec.decode(fixture("vesc/firmware-thor300-7.00.json").hexBytes())
+        assertEquals(0, VescPayloadDecoder.firmware(payload).testVersion)
+        assertThrows(VescProtocolException.TruncatedPayload::class.java) {
+            VescPayloadDecoder.firmware(payload.copyOf(payload.size - 1))
+        }
+        val testFirmware = FirmwareRecord(7, 0, "THOR300", null, testVersion = 1)
+        assertTrue(VescCompatibility.supports(testFirmware))
+        assertEquals(VescAccessMode.READ_ONLY, VescCompatibility.accessMode(testFirmware))
+        assertTrue(VescCompatibility.permits(VescOperation.READ, testFirmware))
+        assertFalse(VescCompatibility.permits(VescOperation.WRITE, testFirmware))
+        assertFalse(VescCompatibility.supports(FirmwareRecord(7, 1, "THOR300", null)))
     }
 
     @Test

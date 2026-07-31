@@ -165,6 +165,7 @@ data class FirmwareRecord(
     val canId: Int? = null,
     /** Private controller identity; never serialize into API/log payloads. */
     val controllerUuid: ByteArray? = null,
+    val testVersion: Int = 0,
 )
 
 sealed interface VescProtocolMessage {

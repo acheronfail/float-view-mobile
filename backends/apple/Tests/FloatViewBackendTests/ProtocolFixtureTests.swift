@@ -68,17 +68,22 @@ private func bytes(_ hex: String) -> [UInt8] {
     offset += count
   }
   let info = try VescPayloadDecoder.firmware(#require(payloads.first))
-  #expect(info == FirmwareInfo(major: 6, minor: 6, hardwareName: "THOR300"))
+  #expect(info == FirmwareInfo(
+    major: 6,
+    minor: 6,
+    hardwareName: "THOR300",
+    controllerUUID: Data(repeating: 0, count: 12)
+  ))
 }
 
 @Test func composedThorFirmwareVariantsDecode() throws {
-  for (version, minor) in [("6.02", 2), ("6.05", 5), ("6.06", 6)] {
+  for (version, major, minor) in [("6.02", 6, 2), ("6.05", 6, 5), ("6.06", 6, 6), ("7.00", 7, 0)] {
     let value = try fixture("fixtures/vesc/firmware-thor300-\(version).json")
     let payload = try VescFrameCodec.decode(bytes(value.frameHex))
     let info = try VescPayloadDecoder.firmware(payload)
     #expect(
       info == FirmwareInfo(
-        major: 6,
+        major: UInt8(major),
         minor: UInt8(minor),
         hardwareName: "THOR300",
         hardwareType: 0,
@@ -229,7 +234,8 @@ private func bytes(_ hex: String) -> [UInt8] {
           hardwareName: "THOR300",
           firmwareName: nil,
           hardwareType: 0,
-          canID: 42
+          canID: 42,
+          controllerUUID: Data(repeating: 0, count: 12)
         )
       )
   )
@@ -245,7 +251,7 @@ private func bytes(_ hex: String) -> [UInt8] {
 
 @Test func exactCompatibilityCatalogsAndLegacyWireIdentityAreStable() throws {
   #expect(VescCompatibility.supported == [
-    .init(6, 2), .init(6, 5), .init(6, 6),
+    .init(6, 2), .init(6, 5), .init(6, 6), .init(7, 0),
   ])
   #expect(RefloatCompatibility.entries.map(\.sourceVersion) == [
     "1.0.0", "1.0.1",
@@ -275,6 +281,31 @@ private func bytes(_ hex: String) -> [UInt8] {
     try VescFrameCodec.decode(Array(service.refloatTelemetryRequest(route: .direct)))
       == [36, 101, 31]
   )
+}
+
+@Test func strictFirmwareIdentityAllowsReadOnlyTestBuilds() throws {
+  let payload = try VescFrameCodec.decode(bytes(fixture("fixtures/vesc/firmware-thor300-7.00.json").frameHex))
+  #expect(try VescPayloadDecoder.firmware(payload).testVersion == 0)
+  #expect(throws: VescProtocolError.truncatedPayload) {
+    try VescPayloadDecoder.firmware(Array(payload.dropLast()))
+  }
+  let testFirmware = FirmwareRecord(
+    major: 7,
+    minor: 0,
+    testVersion: 1,
+    hardwareName: "THOR300",
+    firmwareName: nil
+  )
+  #expect(VescCompatibility.supports(testFirmware))
+  #expect(VescCompatibility.accessMode(testFirmware) == .readOnly)
+  #expect(VescCompatibility.permits(.read, for: testFirmware))
+  #expect(!VescCompatibility.permits(.write, for: testFirmware))
+  #expect(!VescCompatibility.supports(FirmwareRecord(
+    major: 7,
+    minor: 1,
+    hardwareName: "THOR300",
+    firmwareName: nil
+  )))
 }
 
 @Test func refloatRealtimeIDsAndDataNormalizeCoreTelemetry() throws {

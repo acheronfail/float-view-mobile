@@ -3,6 +3,7 @@ import Foundation
 public struct FirmwareInfo: Equatable, Sendable {
   public let major: UInt8
   public let minor: UInt8
+  public let testVersion: UInt8
   public let hardwareName: String
   public let firmwareName: String?
   public let hardwareType: UInt8
@@ -11,6 +12,7 @@ public struct FirmwareInfo: Equatable, Sendable {
   public init(
     major: UInt8,
     minor: UInt8,
+    testVersion: UInt8 = 0,
     hardwareName: String,
     firmwareName: String? = nil,
     hardwareType: UInt8 = 0,
@@ -18,6 +20,7 @@ public struct FirmwareInfo: Equatable, Sendable {
   ) {
     self.major = major
     self.minor = minor
+    self.testVersion = testVersion
     self.hardwareName = hardwareName
     self.firmwareName = firmwareName
     self.hardwareType = hardwareType
@@ -184,6 +187,7 @@ public final class VescProtocolService: VescProtocolPort, @unchecked Sendable {
           FirmwareRecord(
             major: info.major,
             minor: info.minor,
+            testVersion: info.testVersion,
             hardwareName: info.hardwareName,
             firmwareName: info.firmwareName,
             hardwareType: info.hardwareType,

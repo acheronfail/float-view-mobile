@@ -26,12 +26,15 @@ const refloatVersions = Object.keys(refloatCodecs) as RefloatVersion[];
 const topologies: FixtureTopology[] = ['direct', 'express'];
 
 test('firmware variants retain THOR300 identity and version-specific tail shape', () => {
-	assert.equal(firmwareVariants['6.02'].payload.length, firmwareVariants['6.05'].payload.length);
-	assert.equal(firmwareVariants['6.06'].payload.length, firmwareVariants['6.05'].payload.length + 4);
+	assert.equal(firmwareVariants['6.05'].payload.length, firmwareVariants['6.02'].payload.length + 4);
+	assert.equal(firmwareVariants['6.06'].payload.length, firmwareVariants['6.05'].payload.length);
+	assert.equal(firmwareVariants['7.00'].payload.length, firmwareVariants['6.06'].payload.length);
 	for (const version of firmwareVersions) {
 		const payload = firmwareVariants[version].payload;
-		assert.deepEqual([...payload.slice(0, 3)], [0, 6, Number(version.slice(-2))]);
+		const [major, minor] = version.split('.').map(Number);
+		assert.deepEqual([...payload.slice(0, 3)], [0, major, minor]);
 		assert.equal(new TextDecoder().decode(payload.slice(3, 10)), 'THOR300');
+		assert.equal(payload[31], 0, 'firmware name must be explicitly terminated');
 	}
 });
 
@@ -57,10 +60,11 @@ for (const firmware of firmwareVersions) {
 						? single(simulator, [34, 42, 0])
 						: single(simulator, [0]);
 				const firmwarePayload = decode(firmwareResponse.frame);
+				const [major, minor] = firmware.split('.').map(Number);
 				assert.deepEqual([...firmwarePayload.slice(0, 3)], [
 					0,
-					6,
-					Number(firmware.slice(-2))
+					major,
+					minor
 				]);
 				if (topology === 'express') {
 					assert.equal(decode(single(simulator, [0]).frame)[2], 5);

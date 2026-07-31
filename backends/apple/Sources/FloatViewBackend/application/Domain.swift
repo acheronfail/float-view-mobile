@@ -223,6 +223,7 @@ public struct ActiveConnectionSnapshot: Sendable, Equatable {
 public struct FirmwareRecord: Sendable, Codable, Equatable {
   public let major: UInt8
   public let minor: UInt8
+  public let testVersion: UInt8
   public let hardwareName: String?
   public let firmwareName: String?
   public let hardwareType: UInt8
@@ -233,6 +234,7 @@ public struct FirmwareRecord: Sendable, Codable, Equatable {
   public init(
     major: UInt8,
     minor: UInt8,
+    testVersion: UInt8 = 0,
     hardwareName: String?,
     firmwareName: String?,
     hardwareType: UInt8 = 0,
@@ -241,6 +243,7 @@ public struct FirmwareRecord: Sendable, Codable, Equatable {
   ) {
     self.major = major
     self.minor = minor
+    self.testVersion = testVersion
     self.hardwareName = hardwareName
     self.firmwareName = firmwareName
     self.hardwareType = hardwareType

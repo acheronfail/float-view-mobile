@@ -397,6 +397,14 @@ class LoopbackServer(
                         .put("packageVersion", packageVersion)
                         .put("hardwareName", firmware.hardwareName ?: JSONObject.NULL)
                         .put(
+                            "accessMode",
+                            when (VescCompatibility.accessMode(firmware)) {
+                                fail.acheron.floatview.protocol.vesc.VescAccessMode.READ_ONLY -> "readOnly"
+                                fail.acheron.floatview.protocol.vesc.VescAccessMode.READ_WRITE -> "readWrite"
+                                null -> "readOnly"
+                            },
+                        )
+                        .put(
                             "supported",
                             RefloatCompatibility.entry(packageVersion) != null &&
                                 VescCompatibility.supports(firmware),

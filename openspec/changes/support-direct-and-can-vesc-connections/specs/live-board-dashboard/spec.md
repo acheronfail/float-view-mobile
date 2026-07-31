@@ -1,7 +1,7 @@
 ## MODIFIED Requirements
 
 ### Requirement: Live connection-state presentation
-The dashboard SHALL display the active connection's resolved board name, actual connection state, and detected controller route when known. It SHALL label a direct route as direct and a CAN route with its CAN ID. Values SHALL render normally only while the connection is `ready`; every other active connection state SHALL retain and dim the latest sample. The view SHALL NOT display per-sample age or private controller identifiers.
+The dashboard SHALL display the active connection's resolved board name, actual connection state, detected controller route, VESC version, Refloat package version, and VESC access mode when known. It SHALL label a direct route as direct and a CAN route with its CAN ID. A test-version controller SHALL be labeled read-only beside the VESC and Refloat versions. Values SHALL render normally only while the connection is `ready`; every other active connection state SHALL retain and dim the latest sample. The view SHALL NOT display per-sample age or private controller identifiers.
 
 #### Scenario: Direct connection
 - **WHEN** authoritative state reports a ready direct controller
@@ -10,6 +10,10 @@ The dashboard SHALL display the active connection's resolved board name, actual 
 #### Scenario: CAN connection
 - **WHEN** authoritative state reports a ready controller on CAN ID `42`
 - **THEN** the live firmware information identifies the connection as CAN ID `42`
+
+#### Scenario: Test firmware access label
+- **WHEN** authoritative firmware information reports an audited nonzero test-version marker
+- **THEN** the live firmware information shows `Read-only (test firmware)` beside the VESC and Refloat versions
 
 #### Scenario: Transient reconnect
 - **WHEN** a ready connection enters `reconnecting`
