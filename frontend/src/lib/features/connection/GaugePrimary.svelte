@@ -1,9 +1,21 @@
 <script lang="ts">
-	import type { LiveSample, UnitPreference } from '../../backend/contract';
+	import type {
+		ControllerCurrentLimits,
+		LiveSample,
+		UnitPreference
+	} from '../../backend/contract';
 	import { formatDistanceM, formatSpeedKph } from '../measurements/format';
+	import { driveLoadPercent } from './gauge';
 
-	let { sample, units }: { sample: LiveSample | null | undefined; units: UnitPreference } =
-		$props();
+	let {
+		sample,
+		currentLimits,
+		units
+	}: {
+		sample: LiveSample | null | undefined;
+		currentLimits: ControllerCurrentLimits | null | undefined;
+		units: UnitPreference;
+	} = $props();
 
 	const center = 160;
 	const outerRadius = 124;
@@ -14,9 +26,11 @@
 	const speedMaximum = $derived(units === 'metric' ? 60 : 40);
 	const speedUnit = $derived(units === 'metric' ? 'km/h' : 'mph');
 	const speed = $derived(
-		sample?.speedKph == null ? null : sample.speedKph * (units === 'metric' ? 1 : 0.621371)
+		sample?.speedKph == null
+			? null
+			: Math.abs(sample.speedKph) * (units === 'metric' ? 1 : 0.621371)
 	);
-	const duty = $derived(sample?.dutyCycle == null ? null : Math.abs(sample.dutyCycle) * 100);
+	const load = $derived(driveLoadPercent(sample, currentLimits));
 
 	function point(radius: number, angle: number) {
 		const radians = (angle * Math.PI) / 180;
@@ -65,11 +79,11 @@
 		role="img"
 		aria-labelledby="gauge-title gauge-description"
 	>
-		<title id="gauge-title">Live speed and duty gauge</title>
+		<title id="gauge-title">Live speed and drive load gauge</title>
 		<desc id="gauge-description">
-			Speed is {formatSpeedKph(sample?.speedKph, units)} and duty cycle is {duty == null
+			Speed is {formatSpeedKph(sample?.speedKph, units)} and drive load is {load == null
 				? 'unavailable'
-				: `${duty.toFixed(0)} percent`}.
+				: `${load.toFixed(0)} percent`}.
 		</desc>
 
 		<path
@@ -92,7 +106,7 @@
 			d={arc(innerRadius)}
 			pathLength="100"
 			class="fill-none stroke-success [stroke-width:9] [stroke-linecap:round]"
-			stroke-dasharray={`${progress(duty, 100)} 100`}
+			stroke-dasharray={`${progress(load, 100)} 100`}
 		/>
 
 		<g class="text-muted/40" aria-hidden="true">
@@ -156,7 +170,7 @@
 			class="fill-current text-[9px] font-semibold tracking-[0.12em] text-muted"
 			text-anchor="middle"
 		>
-			Duty Cycle
+			Drive Load
 		</text>
 		<text
 			x="160"
@@ -164,7 +178,7 @@
 			class="fill-current font-mono text-[25px] font-bold text-foreground tabular-nums"
 			text-anchor="middle"
 		>
-			{duty == null ? '—' : `${duty.toFixed(0)}%`}
+			{load == null ? '—' : `${load.toFixed(0)}%`}
 		</text>
 
 		<rect

@@ -81,6 +81,17 @@ private struct ByteReader {
     return Double(Int32(bitPattern: value)) / scale
   }
 
+  mutating func float32Auto() throws -> Double {
+    var raw: UInt32 = 0
+    for _ in 0..<4 { raw = raw << 8 | UInt32(try u8()) }
+    let exponentBits = Int((raw >> 23) & 0xff)
+    let significandBits = raw & 0x7fffff
+    guard exponentBits != 0 || significandBits != 0 else { return 0 }
+    let significand = Double(significandBits) / 16_777_216.0 + 0.5
+    let value = significand * pow(2, Double(exponentBits - 126))
+    return raw & 0x80000000 == 0 ? value : -value
+  }
+
   mutating func skip(_ count: Int) throws {
     guard offset + count <= bytes.count else { throw VescProtocolError.truncatedPayload }
     offset += count
@@ -95,7 +106,9 @@ public enum VescPayloadDecoder {
   public static func realtime(_ payload: [UInt8]) throws -> RealtimeValues {
     var reader = ByteReader(bytes: payload)
     let command = try reader.u8()
-    guard command == 4 else { throw VescProtocolError.unsupportedCommand(command) }
+    guard command == VescCommand.getRealtimeValues.rawValue else {
+      throw VescProtocolError.unsupportedCommand(command)
+    }
     let controllerTemp = try reader.i16(scale: 10)
     let motorTemp = try reader.i16(scale: 10)
     let motorCurrent = try reader.i32(scale: 100)
@@ -116,6 +129,29 @@ public enum VescPayloadDecoder {
       faultCode: fault,
       fault: VescFault(code: fault)
     )
+  }
+
+  public static func currentLimits(_ payload: [UInt8]) throws -> ControllerCurrentLimits {
+    var reader = ByteReader(bytes: payload)
+    let command = try reader.u8()
+    guard command == VescCommand.getMotorConfiguration.rawValue else {
+      throw VescProtocolError.unsupportedCommand(command)
+    }
+    try reader.skip(8) // MCCONF signature and four enum fields.
+    let value = ControllerCurrentLimits(
+      motorCurrentMaxA: try reader.float32Auto(),
+      motorCurrentMinA: try reader.float32Auto(),
+      batteryCurrentMaxA: try reader.float32Auto(),
+      batteryCurrentMinA: try reader.float32Auto()
+    )
+    let limits = [
+      value.motorCurrentMaxA, value.motorCurrentMinA,
+      value.batteryCurrentMaxA, value.batteryCurrentMinA,
+    ]
+    guard limits.allSatisfy({ $0.isFinite && abs($0) > 0 }) else {
+      throw VescProtocolError.truncatedPayload
+    }
+    return value
   }
 
 }
@@ -142,37 +178,52 @@ public final class VescProtocolService: VescProtocolPort, @unchecked Sendable {
     lock.lock()
     pendingFirmwareCanID = route.canID
     lock.unlock()
-    let payload = VescCommandRouter.route([0], via: route)
+    let payload = VescCommandRouter.route([VescCommand.getFirmwareVersion.rawValue], via: route)
     return Data(try VescFrameCodec.encode(payload))
   }
 
+  public func motorConfigurationRequest(route: ControllerRoute) throws -> Data {
+    Data(try VescFrameCodec.encode(
+      VescCommandRouter.route([VescCommand.getMotorConfiguration.rawValue], via: route)
+    ))
+  }
+
   public func canPingRequest() throws -> Data {
-    Data(try VescFrameCodec.encode([62]))
+    Data(try VescFrameCodec.encode([VescCommand.pingCAN.rawValue]))
   }
 
   public func refloatInfoRequest(route: ControllerRoute) throws -> Data {
-    let command: [UInt8] = [36, 101, 0, 2, 0]
+    let command = RefloatWire.request(
+      .info,
+      parameters: [RefloatWire.infoProtocolVersion, RefloatWire.infoFlags]
+    )
     let payload = VescCommandRouter.route(command, via: route)
     return Data(try VescFrameCodec.encode(payload))
   }
 
   public func refloatTelemetryIDsRequest(route: ControllerRoute) throws -> Data {
-    let command: [UInt8] = [36, 101, 32]
+    let command = RefloatWire.request(.realtimeDataInternalIDs)
     return Data(try VescFrameCodec.encode(VescCommandRouter.route(command, via: route)))
   }
 
   public func refloatTelemetryRequest(route: ControllerRoute) throws -> Data {
-    let command: [UInt8] = [36, 101, 31]
+    let command = RefloatWire.request(.realtimeDataInternal)
     return Data(try VescFrameCodec.encode(VescCommandRouter.route(command, via: route)))
   }
 
   public func refloatLegacyTelemetryRequest(route: ControllerRoute) throws -> Data {
-    let command: [UInt8] = [36, 101, 10, 4]
+    let command = RefloatWire.request(
+      .getAllData,
+      parameters: [RefloatWire.legacyTelemetryDetailLevel]
+    )
     return Data(try VescFrameCodec.encode(VescCommandRouter.route(command, via: route)))
   }
 
   public func refloatCompactTelemetryRequest(route: ControllerRoute) throws -> Data {
-    let command: [UInt8] = [36, 101, 10, 4]
+    let command = RefloatWire.request(
+      .getAllData,
+      parameters: [RefloatWire.legacyTelemetryDetailLevel]
+    )
     return Data(try VescFrameCodec.encode(VescCommandRouter.route(command, via: route)))
   }
 
@@ -181,7 +232,7 @@ public final class VescProtocolService: VescProtocolPort, @unchecked Sendable {
     defer { lock.unlock() }
     return try stream.append(bytes).compactMap { payload in
       switch payload.first {
-      case 0:
+      case VescCommand.getFirmwareVersion.rawValue:
         let info = try VescPayloadDecoder.firmware(payload)
         return .firmware(
           FirmwareRecord(
@@ -195,20 +246,24 @@ public final class VescProtocolService: VescProtocolPort, @unchecked Sendable {
             controllerUUID: info.controllerUUID
           )
         )
-      case 62:
+      case VescCommand.getMotorConfiguration.rawValue:
+        return .currentLimits(try VescPayloadDecoder.currentLimits(payload))
+      case VescCommand.pingCAN.rawValue:
         return .canDevices(Array(Set(payload.dropFirst())).sorted())
-      case 36:
-        guard payload.count >= 4, payload[1] == 101 else { return nil }
-        if payload[2] == 0 {
+      case VescCommand.customAppData.rawValue:
+        guard payload.count >= 4, let command = RefloatWire.command(in: payload) else {
+          return nil
+        }
+        if command == .info {
           return .refloatInfo(version: try RefloatInfoDecoder.decodeVersion(payload))
         }
-        if payload[2] == 32 {
+        if command == .realtimeDataInternalIDs {
           let (fields, runtimeFields) = try RefloatDynamicTelemetryDecoder.decodeFields(payload)
           realtimeFields = fields
           realtimeRuntimeFields = runtimeFields
           return .refloatTelemetryLayout(fields: fields, runtimeFields: runtimeFields)
         }
-        if payload[2] == 31 {
+        if command == .realtimeDataInternal {
           return .refloatTelemetry(
             try RefloatDynamicTelemetryDecoder.decodeData(
               payload,
@@ -217,7 +272,7 @@ public final class VescProtocolService: VescProtocolPort, @unchecked Sendable {
             )
           )
         }
-        if payload[2] == 10 {
+        if command == .getAllData {
           return .refloatTelemetry(try RefloatLegacyTelemetryDecoder.decode(payload))
         }
         return nil

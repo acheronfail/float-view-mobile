@@ -636,17 +636,17 @@ class ApplicationServiceTest {
         assertEquals(Instant.ofEpochSecond(1), store.appended.last().slowObservedAt)
         assertEquals(1.5, store.appended.last().fieldWeakeningCurrentA)
         assertEquals(42.0, store.appended.last().distanceM)
-        clock.monotonicMs = 16_999
-        clock.instant = Instant.ofEpochMilli(16_999)
+        clock.monotonicMs = 6_999
+        clock.instant = Instant.ofEpochMilli(6_999)
         scheduler.fire(3)
         service.onBluetoothEvent(BluetoothEvent.Notification(id, byteArrayOf(6)))
         scheduler.fire(3)
         service.onBluetoothEvent(BluetoothEvent.Notification(id, byteArrayOf(5)))
         assertEquals(7.0, store.appended.last().distanceM)
-        assertEquals(Instant.ofEpochMilli(16_999), store.appended.last().slowObservedAt)
+        assertEquals(Instant.ofEpochMilli(6_999), store.appended.last().slowObservedAt)
         assertEquals(listOf(10_000L, 1_000L, 500L, 100L), scheduler.intervals)
 
-        clock.monotonicMs = 17_001
+        clock.monotonicMs = 7_001
         scheduler.fire(3)
         service.onBluetoothEvent(BluetoothEvent.Notification(id, byteArrayOf(5)))
         assertEquals(listOf(10_000L, 1_000L, 500L, 100L, 500L), scheduler.intervals)

@@ -11,7 +11,7 @@ public struct SamplingSettings: Equatable, Sendable {
     idleProbeIntervalMs: Int64 = 500,
     idlePersistIntervalMs: Int64 = 1_000,
     ridingPersistIntervalMs: Int64 = 100,
-    postRideTailMs: Int64 = 15_000,
+    postRideTailMs: Int64 = 5_000,
     reconnectDurationMs: Int64 = 300_000
   ) {
     self.idleProbeIntervalMs = idleProbeIntervalMs

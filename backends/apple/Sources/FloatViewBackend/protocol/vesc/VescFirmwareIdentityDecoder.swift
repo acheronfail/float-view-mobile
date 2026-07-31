@@ -6,7 +6,7 @@ public enum VescFirmwareIdentityDecoder {
     guard let command = payload.first else {
       throw VescProtocolError.truncatedPayload
     }
-    guard command == 0 else {
+    guard command == VescCommand.getFirmwareVersion.rawValue else {
       throw VescProtocolError.unsupportedCommand(payload.first ?? 255)
     }
     guard payload.count >= 3 else { throw VescProtocolError.truncatedPayload }

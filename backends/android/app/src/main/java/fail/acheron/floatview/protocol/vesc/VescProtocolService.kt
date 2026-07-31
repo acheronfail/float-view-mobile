@@ -1,12 +1,16 @@
 package fail.acheron.floatview.protocol
 
 import fail.acheron.floatview.backend.FirmwareRecord
+import fail.acheron.floatview.backend.ControllerCurrentLimits
 import fail.acheron.floatview.backend.VescProtocolMessage
 import fail.acheron.floatview.backend.VescProtocolPort
 import fail.acheron.floatview.protocol.refloat.RefloatDynamicTelemetryDecoder
 import fail.acheron.floatview.protocol.refloat.RefloatInfoDecoder
 import fail.acheron.floatview.protocol.refloat.RefloatLegacyTelemetryDecoder
+import fail.acheron.floatview.protocol.refloat.RefloatCommand
+import fail.acheron.floatview.protocol.refloat.RefloatWire
 import fail.acheron.floatview.protocol.vesc.ControllerRoute
+import fail.acheron.floatview.protocol.vesc.VescCommand
 import fail.acheron.floatview.protocol.vesc.VescCommandRouter
 import fail.acheron.floatview.protocol.vesc.VescFirmwareIdentityDecoder
 
@@ -93,6 +97,16 @@ private class ByteReader(private val bytes: ByteArray) {
         repeat(4) { value = (value shl 8) or u8() }
         return value / scale
     }
+    fun float32Auto(): Double {
+        var raw = 0L
+        repeat(4) { raw = (raw shl 8) or u8().toLong() }
+        val exponentBits = ((raw shr 23) and 0xff).toInt()
+        val significandBits = raw and 0x7fffff
+        if (exponentBits == 0 && significandBits == 0L) return 0.0
+        val significand = significandBits.toDouble() / 16_777_216.0 + 0.5
+        val value = Math.scalb(significand, exponentBits - 126)
+        return if (raw and 0x80000000L == 0L) value else -value
+    }
     fun skip(count: Int) {
         if (offset + count > bytes.size) throw VescProtocolException.TruncatedPayload
         offset += count
@@ -107,7 +121,9 @@ object VescPayloadDecoder {
     fun realtime(payload: ByteArray): RealtimeValues {
         val reader = ByteReader(payload)
         val command = reader.u8()
-        if (command != 4) throw VescProtocolException.UnsupportedCommand(command)
+        if (command != VescCommand.GET_REALTIME_VALUES.id) {
+            throw VescProtocolException.UnsupportedCommand(command)
+        }
         val controllerTemp = reader.i16(10.0)
         val motorTemp = reader.i16(10.0)
         val motorCurrent = reader.i32(100.0)
@@ -120,6 +136,31 @@ object VescPayloadDecoder {
         return RealtimeValues(
             controllerTemp, motorTemp, motorCurrent, batteryCurrent, duty, erpm, voltage, fault,
         )
+    }
+
+    fun currentLimits(payload: ByteArray): ControllerCurrentLimits {
+        val reader = ByteReader(payload)
+        val command = reader.u8()
+        if (command != VescCommand.GET_MOTOR_CONFIGURATION.id) {
+            throw VescProtocolException.UnsupportedCommand(command)
+        }
+        reader.skip(8) // MCCONF signature and four enum fields.
+        val value = ControllerCurrentLimits(
+            reader.float32Auto(),
+            reader.float32Auto(),
+            reader.float32Auto(),
+            reader.float32Auto(),
+        )
+        val limits = listOf(
+            value.motorCurrentMaxA,
+            value.motorCurrentMinA,
+            value.batteryCurrentMaxA,
+            value.batteryCurrentMinA,
+        )
+        if (limits.any { !it.isFinite() || kotlin.math.abs(it) <= 0.0 }) {
+            throw VescProtocolException.TruncatedPayload
+        }
+        return value
     }
 
 }
@@ -139,39 +180,70 @@ class VescProtocolService : VescProtocolPort {
     @Synchronized
     override fun firmwareRequest(route: ControllerRoute): ByteArray {
         pendingFirmwareCanId = (route as? ControllerRoute.Can)?.canId
-        val payload = VescCommandRouter.route(byteArrayOf(0), route)
+        val payload = VescCommandRouter.route(
+            byteArrayOf(VescCommand.GET_FIRMWARE_VERSION.byte),
+            route,
+        )
         return VescFrameCodec.encode(payload)
     }
 
-    override fun canPingRequest(): ByteArray = VescFrameCodec.encode(byteArrayOf(62))
+    override fun canPingRequest(): ByteArray =
+        VescFrameCodec.encode(byteArrayOf(VescCommand.PING_CAN.byte))
+
+    override fun motorConfigurationRequest(route: ControllerRoute): ByteArray =
+        VescFrameCodec.encode(
+            VescCommandRouter.route(byteArrayOf(VescCommand.GET_MOTOR_CONFIGURATION.byte), route),
+        )
 
     override fun refloatInfoRequest(route: ControllerRoute): ByteArray {
-        val command = byteArrayOf(36, 101, 0, 2, 0)
+        val command = RefloatWire.request(
+            RefloatCommand.INFO,
+            RefloatWire.INFO_PROTOCOL_VERSION,
+            RefloatWire.INFO_FLAGS,
+        )
         val payload = VescCommandRouter.route(command, route)
         return VescFrameCodec.encode(payload)
     }
 
     override fun refloatTelemetryIdsRequest(route: ControllerRoute): ByteArray {
         return VescFrameCodec.encode(
-            VescCommandRouter.route(byteArrayOf(36, 101, 32), route),
+            VescCommandRouter.route(
+                RefloatWire.request(RefloatCommand.REALTIME_DATA_INTERNAL_IDS),
+                route,
+            ),
         )
     }
 
     override fun refloatTelemetryRequest(route: ControllerRoute): ByteArray {
         return VescFrameCodec.encode(
-            VescCommandRouter.route(byteArrayOf(36, 101, 31), route),
+            VescCommandRouter.route(
+                RefloatWire.request(RefloatCommand.REALTIME_DATA_INTERNAL),
+                route,
+            ),
         )
     }
 
     override fun refloatLegacyTelemetryRequest(route: ControllerRoute): ByteArray {
         return VescFrameCodec.encode(
-            VescCommandRouter.route(byteArrayOf(36, 101, 10, 4), route),
+            VescCommandRouter.route(
+                RefloatWire.request(
+                    RefloatCommand.GET_ALL_DATA,
+                    RefloatWire.LEGACY_TELEMETRY_DETAIL_LEVEL,
+                ),
+                route,
+            ),
         )
     }
 
     override fun refloatCompactTelemetryRequest(route: ControllerRoute): ByteArray {
         return VescFrameCodec.encode(
-            VescCommandRouter.route(byteArrayOf(36, 101, 10, 4), route),
+            VescCommandRouter.route(
+                RefloatWire.request(
+                    RefloatCommand.GET_ALL_DATA,
+                    RefloatWire.LEGACY_TELEMETRY_DETAIL_LEVEL,
+                ),
+                route,
+            ),
         )
     }
 
@@ -179,7 +251,7 @@ class VescProtocolService : VescProtocolPort {
     override fun receive(bytes: ByteArray): List<VescProtocolMessage> =
         stream.append(bytes).mapNotNull { payload ->
             when (payload.firstOrNull()?.toInt()?.and(0xff)) {
-                0 -> {
+                VescCommand.GET_FIRMWARE_VERSION.id -> {
                     val info = VescPayloadDecoder.firmware(payload)
                     VescProtocolMessage.Firmware(
                         FirmwareRecord(
@@ -194,35 +266,34 @@ class VescProtocolService : VescProtocolPort {
                         ),
                     )
                 }
-                62 -> VescProtocolMessage.CanDevices(
+                VescCommand.GET_MOTOR_CONFIGURATION.id ->
+                    VescProtocolMessage.CurrentLimits(VescPayloadDecoder.currentLimits(payload))
+                VescCommand.PING_CAN.id -> VescProtocolMessage.CanDevices(
                     payload.drop(1).map { it.toInt() and 0xff }.distinct().sorted(),
                 )
-                36 -> {
+                VescCommand.CUSTOM_APP_DATA.id -> {
+                    val command = RefloatWire.command(payload) ?: return@mapNotNull null
                     if (
                         payload.size >= 4 &&
-                        payload[1].toInt() and 0xff == 101 &&
-                        payload[2].toInt() and 0xff == 0
+                        command == RefloatCommand.INFO
                     ) {
                         VescProtocolMessage.RefloatInfo(
                             RefloatInfoDecoder.decodeVersion(payload),
                         )
                     } else if (
                         payload.size >= 5 &&
-                        payload[1].toInt() and 0xff == 101 &&
-                        payload[2].toInt() and 0xff == 32
+                        command == RefloatCommand.REALTIME_DATA_INTERNAL_IDS
                     ) {
                         val (fields, runtimeFields) = dynamicTelemetry.decodeFields(payload)
                         VescProtocolMessage.RefloatTelemetryLayout(fields, runtimeFields)
                     } else if (
                         payload.size >= 13 &&
-                        payload[1].toInt() and 0xff == 101 &&
-                        payload[2].toInt() and 0xff == 31
+                        command == RefloatCommand.REALTIME_DATA_INTERNAL
                     ) {
                         VescProtocolMessage.RefloatTelemetry(dynamicTelemetry.decodeData(payload))
                     } else if (
                         payload.size >= 4 &&
-                        payload[1].toInt() and 0xff == 101 &&
-                        payload[2].toInt() and 0xff == 10
+                        command == RefloatCommand.GET_ALL_DATA
                     ) {
                         VescProtocolMessage.RefloatTelemetry(
                             RefloatLegacyTelemetryDecoder.decode(payload),

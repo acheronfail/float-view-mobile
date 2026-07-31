@@ -58,6 +58,7 @@ class ApplicationService(
     private var reconnectStartedAtMs: Long? = null
     private var reconnectAttempt = 0
     private var latestPersistedSample: TelemetrySample? = null
+    private var currentLimits: ControllerCurrentLimits? = null
     var activeDeviceId: DeviceId? = null
         private set
     var connectionState: ConnectionState = ConnectionState.DISCONNECTED
@@ -362,6 +363,11 @@ class ApplicationService(
                     decoder.receive(event.bytes).forEach { message ->
                         when (message) {
                             is VescProtocolMessage.Firmware -> handleFirmware(message.value)
+                            is VescProtocolMessage.CurrentLimits -> {
+                                if (connectionState == ConnectionState.READY) {
+                                    currentLimits = message.value
+                                }
+                            }
                             is VescProtocolMessage.CanDevices -> {
                                 handleCanDevices(message.canIds)
                             }
@@ -435,6 +441,7 @@ class ApplicationService(
             savedDevice = currentSavedDevice ?: savedDevice,
             activeSession = activeSession,
             latestSample = latestPersistedSample,
+            currentLimits = currentLimits,
             controllerRoute = controllerDiscovery.controllerRoute,
             controllerCandidates = controllerDiscovery.controllerCandidates,
             connectionIssue = controllerDiscovery.connectionIssue,
@@ -631,6 +638,11 @@ class ApplicationService(
         cancelReconnect()
         controllerDiscovery.clearIssue()
         transition(ConnectionState.READY)
+        protocol?.let { decoder ->
+            runCatching {
+                bluetooth.write(deviceId, decoder.motorConfigurationRequest(route))
+            }.onFailure(events::publish)
+        }
         telemetryPolling.start(
             deviceId,
             route,
@@ -821,6 +833,7 @@ class ApplicationService(
         telemetryPolling.cancelLayout()
         telemetryPolling.stop()
         controllerDiscovery.reset()
+        currentLimits = null
         currentSavedDevice = null
         cancelIdentificationTimeout()
         cancelCanProbeTimeout()

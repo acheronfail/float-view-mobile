@@ -8,6 +8,7 @@ import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import fail.acheron.floatview.backend.VescProtocolMessage
+import fail.acheron.floatview.backend.ControllerCurrentLimits
 import fail.acheron.floatview.backend.FirmwareRecord
 import fail.acheron.floatview.backend.FootpadState
 import fail.acheron.floatview.backend.RideState
@@ -187,6 +188,35 @@ class VescProtocolTest {
         assertEquals(VescFault.Kind.UNKNOWN, VescFault.fromCode(255).kind)
         assertEquals(255, VescFault.fromCode(255).code)
 
+    }
+
+    @Test
+    fun motorConfigurationCurrentLimitsDecodeAndRoute() {
+        val payload = (
+            "0e0000000000000000" +
+                "42c80000c2c8000042480000c1a00000"
+            ).hexBytes()
+        val limits = VescPayloadDecoder.currentLimits(payload)
+        assertEquals(
+            ControllerCurrentLimits(100.0, -100.0, 50.0, -20.0),
+            limits,
+        )
+
+        val service = VescProtocolService()
+        assertEquals(
+            listOf(14),
+            VescFrameCodec.decode(service.motorConfigurationRequest(ControllerRoute.Direct))
+                .map { it.toInt() and 0xff },
+        )
+        assertEquals(
+            listOf(34, 42, 14),
+            VescFrameCodec.decode(service.motorConfigurationRequest(ControllerRoute.Can(42)))
+                .map { it.toInt() and 0xff },
+        )
+        assertEquals(
+            listOf(VescProtocolMessage.CurrentLimits(limits)),
+            service.receive(VescFrameCodec.encode(payload)),
+        )
     }
 
     @Test

@@ -118,6 +118,32 @@ private func bytes(_ hex: String) -> [UInt8] {
 
 }
 
+@Test func motorConfigurationCurrentLimitsDecodeAndRoute() throws {
+  let payload = bytes(
+    "0e0000000000000000" +
+      "42c80000c2c8000042480000c1a00000"
+  )
+  let limits = try VescPayloadDecoder.currentLimits(payload)
+  #expect(limits == ControllerCurrentLimits(
+    motorCurrentMaxA: 100,
+    motorCurrentMinA: -100,
+    batteryCurrentMaxA: 50,
+    batteryCurrentMinA: -20
+  ))
+
+  let service = VescProtocolService()
+  #expect(
+    try VescFrameCodec.decode(Array(service.motorConfigurationRequest(route: .direct))) == [14]
+  )
+  #expect(
+    try VescFrameCodec.decode(Array(service.motorConfigurationRequest(route: .can(42))))
+      == [34, 42, 14]
+  )
+  #expect(
+    try service.receive(Data(VescFrameCodec.encode(payload))) == [.currentLimits(limits)]
+  )
+}
+
 @Test func detailedSourceFixturesDecodeEveryKnownLegacyAndDynamicField() throws {
   let legacy = try RefloatLegacyTelemetryDecoder.decode(
     refloatSourcePayload("1.0.0-command-10-detail-4")

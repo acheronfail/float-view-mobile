@@ -292,6 +292,19 @@ async function createCompletedSession(
   );
   assert.deepEqual(connected.activeConnection.controllerCandidates, []);
   assert.equal(connected.activeConnection.connectionIssue, null);
+  if (connected.activeConnection.currentLimits) {
+    const limits = connected.activeConnection.currentLimits;
+    assert.deepEqual(Object.keys(limits).sort(), [
+      "batteryCurrentMaxA",
+      "batteryCurrentMinA",
+      "motorCurrentMaxA",
+      "motorCurrentMinA",
+    ]);
+    for (const value of Object.values(limits)) {
+      assert.ok(Number.isFinite(value));
+      assert.ok(Math.abs(value) > 0);
+    }
+  }
   if (connected.activeConnection.latestSample) {
     assert.deepEqual(
       Object.keys(connected.activeConnection.latestSample).sort(),

@@ -1,6 +1,8 @@
 package fail.acheron.floatview.protocol.vesc
 
 import fail.acheron.floatview.protocol.VescFrameCodec
+import fail.acheron.floatview.protocol.refloat.RefloatCommand
+import fail.acheron.floatview.protocol.refloat.RefloatWire
 
 /** Minimal deterministic direct VESC used only by software-host conformance. */
 class SoftwareVescPeripheral {
@@ -8,10 +10,15 @@ class SoftwareVescPeripheral {
         val request = runCatching { VescFrameCodec.decode(frame) }.getOrNull() ?: return null
         val payload =
             when {
-                request.contentEquals(byteArrayOf(0)) -> firmware
-                request.contentEquals(byteArrayOf(36, 101, 0, 2, 0)) ->
-                    byteArrayOf(36, 101, 0, 10)
-                request.contentEquals(byteArrayOf(36, 101, 10)) -> telemetry
+                request.contentEquals(byteArrayOf(VescCommand.GET_FIRMWARE_VERSION.byte)) -> firmware
+                request.contentEquals(
+                    RefloatWire.request(
+                        RefloatCommand.INFO,
+                        RefloatWire.INFO_PROTOCOL_VERSION,
+                        RefloatWire.INFO_FLAGS,
+                    ),
+                ) -> RefloatWire.request(RefloatCommand.INFO, 10)
+                request.contentEquals(RefloatWire.request(RefloatCommand.GET_ALL_DATA)) -> telemetry
                 else -> null
             } ?: return null
         return VescFrameCodec.encode(payload)
@@ -19,7 +26,7 @@ class SoftwareVescPeripheral {
 
     private companion object {
         val firmware =
-            byteArrayOf(0, 6, 6) +
+            byteArrayOf(VescCommand.GET_FIRMWARE_VERSION.byte, 6, 6) +
                 "THOR300".encodeToByteArray() +
                 byteArrayOf(0) +
                 ByteArray(12) +
@@ -27,9 +34,9 @@ class SoftwareVescPeripheral {
                 "VESC".encodeToByteArray() + byteArrayOf(0)
         val telemetry =
             ByteArray(55).apply {
-                this[0] = 36
-                this[1] = 101
-                this[2] = 10
+                this[0] = VescCommand.CUSTOM_APP_DATA.byte
+                this[1] = RefloatWire.PACKAGE_ID.toByte()
+                this[2] = RefloatCommand.GET_ALL_DATA.byte
                 this[3] = 3
                 this[23] = 2
                 this[24] = 4

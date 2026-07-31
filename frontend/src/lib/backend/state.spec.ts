@@ -41,7 +41,7 @@ const initial: AppState = {
 		idleProbeIntervalMs: 500,
 		idlePersistIntervalMs: 1_000,
 		ridingPersistIntervalMs: 100,
-		postRideTailMs: 15_000,
+		postRideTailMs: 5_000,
 		reconnectDurationMs: 300_000,
 		automaticSessionLinkingEnabled: false,
 		sessionLinkWindowMs: 7_200_000,

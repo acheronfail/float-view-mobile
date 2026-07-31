@@ -26,7 +26,7 @@ final class TelemetryPolling: @unchecked Sendable {
   private var route: ControllerRoute?
   private var family: RefloatTelemetryFamily = .dynamic
   private var idleIntervalMs: Int64 = 1_000
-  private var postRideTailMs: Int64 = 30_000
+  private var postRideTailMs: Int64 = 5_000
   private var pendingRequest: PendingRequest?
   private var pendingSinceMs: Int64?
   private var nextCompactDueMs: Int64?

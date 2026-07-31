@@ -193,6 +193,7 @@ public struct ActiveConnectionSnapshot: Sendable, Equatable {
   public let savedDevice: SavedDeviceRecord?
   public let activeSession: SessionSummaryRecord?
   public let latestSample: TelemetrySample?
+  public let currentLimits: ControllerCurrentLimits?
   public let controllerRoute: ControllerRoute?
   public let controllerCandidates: [ControllerCandidate]
   public let connectionIssue: ConnectionIssue?
@@ -204,6 +205,7 @@ public struct ActiveConnectionSnapshot: Sendable, Equatable {
     savedDevice: SavedDeviceRecord? = nil,
     activeSession: SessionSummaryRecord? = nil,
     latestSample: TelemetrySample? = nil,
+    currentLimits: ControllerCurrentLimits? = nil,
     controllerRoute: ControllerRoute? = nil,
     controllerCandidates: [ControllerCandidate] = [],
     connectionIssue: ConnectionIssue? = nil
@@ -214,9 +216,29 @@ public struct ActiveConnectionSnapshot: Sendable, Equatable {
     self.savedDevice = savedDevice
     self.activeSession = activeSession
     self.latestSample = latestSample
+    self.currentLimits = currentLimits
     self.controllerRoute = controllerRoute
     self.controllerCandidates = controllerCandidates
     self.connectionIssue = connectionIssue
+  }
+}
+
+public struct ControllerCurrentLimits: Sendable, Equatable {
+  public let motorCurrentMaxA: Double
+  public let motorCurrentMinA: Double
+  public let batteryCurrentMaxA: Double
+  public let batteryCurrentMinA: Double
+
+  public init(
+    motorCurrentMaxA: Double,
+    motorCurrentMinA: Double,
+    batteryCurrentMaxA: Double,
+    batteryCurrentMinA: Double
+  ) {
+    self.motorCurrentMaxA = motorCurrentMaxA
+    self.motorCurrentMinA = motorCurrentMinA
+    self.batteryCurrentMaxA = batteryCurrentMaxA
+    self.batteryCurrentMinA = batteryCurrentMinA
   }
 }
 
@@ -254,6 +276,7 @@ public struct FirmwareRecord: Sendable, Codable, Equatable {
 
 public enum VescProtocolMessage: Sendable, Equatable {
   case firmware(FirmwareRecord)
+  case currentLimits(ControllerCurrentLimits)
   case canDevices([UInt8])
   case refloatInfo(version: String)
   case refloatTelemetryLayout(fields: [String], runtimeFields: [String])
@@ -790,7 +813,7 @@ public struct SettingsRecord: Sendable, Codable, Equatable {
     idleProbeIntervalMs: Int64 = 500,
     idlePersistIntervalMs: Int64 = 1_000,
     ridingPersistIntervalMs: Int64 = 100,
-    postRideTailMs: Int64 = 15_000,
+    postRideTailMs: Int64 = 5_000,
     reconnectDurationMs: Int64 = 300_000,
     automaticSessionLinkingEnabled: Bool = false,
     sessionLinkWindowMs: Int64 = 7_200_000,
@@ -934,6 +957,7 @@ public extension BluetoothPort {
 public protocol VescProtocolPort: AnyObject, Sendable {
   func reset()
   func firmwareRequest(route: ControllerRoute) throws -> Data
+  func motorConfigurationRequest(route: ControllerRoute) throws -> Data
   func canPingRequest() throws -> Data
   func refloatInfoRequest(route: ControllerRoute) throws -> Data
   func refloatTelemetryIDsRequest(route: ControllerRoute) throws -> Data
@@ -944,6 +968,10 @@ public protocol VescProtocolPort: AnyObject, Sendable {
 }
 
 public extension VescProtocolPort {
+  func motorConfigurationRequest(route _: ControllerRoute) throws -> Data {
+    throw VescProtocolError.unsupportedCommand(VescCommand.getMotorConfiguration.rawValue)
+  }
+
   func refloatLegacyTelemetryRequest(route: ControllerRoute) throws -> Data {
     try refloatTelemetryRequest(route: route)
   }

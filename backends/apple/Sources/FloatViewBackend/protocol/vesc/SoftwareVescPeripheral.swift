@@ -8,11 +8,14 @@ public struct SoftwareVescPeripheral: Sendable {
     guard let request = try? VescFrameCodec.decode(Array(frame)) else { return nil }
     let payload: [UInt8]?
     switch request {
-    case [0]:
+    case [VescCommand.getFirmwareVersion.rawValue]:
       payload = Self.firmware
-    case [36, 101, 0, 2, 0]:
-      payload = [36, 101, 0, 10]
-    case [36, 101, 10]:
+    case RefloatWire.request(
+      .info,
+      parameters: [RefloatWire.infoProtocolVersion, RefloatWire.infoFlags]
+    ):
+      payload = RefloatWire.request(.info, parameters: [10])
+    case RefloatWire.request(.getAllData):
       payload = Self.telemetry
     default:
       payload = nil
@@ -22,7 +25,7 @@ public struct SoftwareVescPeripheral: Sendable {
   }
 
   private static let firmware: [UInt8] = {
-    var bytes: [UInt8] = [0, 6, 6]
+    var bytes: [UInt8] = [VescCommand.getFirmwareVersion.rawValue, 6, 6]
     bytes += Array("THOR300".utf8)
     bytes.append(0)
     bytes += [UInt8](repeating: 0, count: 12)
@@ -34,7 +37,12 @@ public struct SoftwareVescPeripheral: Sendable {
 
   private static let telemetry: [UInt8] = {
     var payload = [UInt8](repeating: 0, count: 55)
-    payload[0...3] = [36, 101, 10, 3]
+    payload[0...3] = [
+      VescCommand.customAppData.rawValue,
+      RefloatWire.packageID,
+      RefloatCommand.getAllData.rawValue,
+      3,
+    ]
     payload[23...24] = [2, 4]
     payload[33] = 128
     payload[39] = 60

@@ -36,6 +36,7 @@
 	let editor = $state<BoardEditor>();
 	const connection = $derived(backendState.snapshot?.activeConnection);
 	const sample = $derived(connection?.latestSample);
+	const currentLimits = $derived(connection?.currentLimits);
 	const session = $derived(connection?.activeSession);
 	const units = $derived(backendState.settings?.unitPreference ?? 'metric');
 	const live = $derived(connection?.state === 'ready');
@@ -229,7 +230,7 @@
 		{/if}
 
 		<div class:opacity-45={dimmed} class="space-y-5 transition-opacity">
-			<GaugePrimary {sample} {units} />
+			<GaugePrimary {sample} {currentLimits} {units} />
 		</div>
 
 		<div class:opacity-45={dimmed} class="space-y-5 transition-opacity">

@@ -14,6 +14,7 @@ object VescCommandRouter {
     fun route(command: ByteArray, via: ControllerRoute): ByteArray =
         when (via) {
             ControllerRoute.Direct -> command
-            is ControllerRoute.Can -> byteArrayOf(34, via.canId.toByte()) + command
+            is ControllerRoute.Can ->
+                byteArrayOf(VescCommand.FORWARD_CAN.byte, via.canId.toByte()) + command
         }
 }

@@ -151,9 +151,17 @@ data class ActiveConnectionSnapshot(
     val savedDevice: SavedDeviceRecord? = null,
     val activeSession: SessionSummaryRecord? = null,
     val latestSample: TelemetrySample? = null,
+    val currentLimits: ControllerCurrentLimits? = null,
     val controllerRoute: ControllerRoute? = null,
     val controllerCandidates: List<ControllerCandidate> = emptyList(),
     val connectionIssue: ConnectionIssue? = null,
+)
+
+data class ControllerCurrentLimits(
+    val motorCurrentMaxA: Double,
+    val motorCurrentMinA: Double,
+    val batteryCurrentMaxA: Double,
+    val batteryCurrentMinA: Double,
 )
 
 data class FirmwareRecord(
@@ -170,6 +178,7 @@ data class FirmwareRecord(
 
 sealed interface VescProtocolMessage {
     data class Firmware(val value: FirmwareRecord) : VescProtocolMessage
+    data class CurrentLimits(val value: ControllerCurrentLimits) : VescProtocolMessage
     data class CanDevices(val canIds: List<Int>) : VescProtocolMessage
     data class RefloatInfo(val version: String) : VescProtocolMessage
     data class RefloatTelemetryLayout(
@@ -385,7 +394,7 @@ data class SettingsRecord(
     val idleProbeIntervalMs: Long = 500,
     val idlePersistIntervalMs: Long = 1_000,
     val ridingPersistIntervalMs: Long = 100,
-    val postRideTailMs: Long = 15_000,
+    val postRideTailMs: Long = 5_000,
     val reconnectDurationMs: Long = 300_000,
     val automaticSessionLinkingEnabled: Boolean = false,
     val sessionLinkWindowMs: Long = 7_200_000,
@@ -419,6 +428,8 @@ interface BluetoothPort {
 interface VescProtocolPort {
     fun reset()
     fun firmwareRequest(route: ControllerRoute): ByteArray
+    fun motorConfigurationRequest(route: ControllerRoute): ByteArray =
+        throw UnsupportedOperationException("Motor configuration reads are unavailable")
     fun canPingRequest(): ByteArray
     fun refloatInfoRequest(route: ControllerRoute): ByteArray
     fun refloatTelemetryIdsRequest(route: ControllerRoute): ByteArray

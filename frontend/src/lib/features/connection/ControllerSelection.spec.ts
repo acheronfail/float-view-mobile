@@ -29,7 +29,8 @@ const connection: ActiveConnection = {
 	connectionIssue: null,
 	firmware: null,
 	latestSample: null,
-	activeSession: null
+	activeSession: null,
+	currentLimits: null
 };
 
 describe('controller selection prompt', () => {

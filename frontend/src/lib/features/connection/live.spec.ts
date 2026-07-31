@@ -19,7 +19,8 @@ const connection = (state: ActiveConnection['state']): ActiveConnection => ({
 	controllerCandidates: [],
 	connectionIssue: null,
 	activeSession: null,
-	latestSample: null
+	latestSample: null,
+	currentLimits: null
 });
 
 describe('live board behavior', () => {

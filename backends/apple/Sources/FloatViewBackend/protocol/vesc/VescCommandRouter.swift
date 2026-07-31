@@ -20,7 +20,7 @@ public enum VescCommandRouter {
       return command
     case .can(let canID):
       precondition(canID <= 253)
-      return [34, canID] + command
+      return [VescCommand.forwardCAN.rawValue, canID] + command
     }
   }
 }

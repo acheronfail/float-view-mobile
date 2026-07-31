@@ -8,7 +8,9 @@ object VescFirmwareIdentityDecoder {
     fun decode(payload: ByteArray): FirmwareInfo {
         val command = payload.firstOrNull()?.toInt()?.and(0xff)
             ?: throw VescProtocolException.TruncatedPayload
-        if (command != 0) throw VescProtocolException.UnsupportedCommand(command)
+        if (command != VescCommand.GET_FIRMWARE_VERSION.id) {
+            throw VescProtocolException.UnsupportedCommand(command)
+        }
         if (payload.size < 3) throw VescProtocolException.TruncatedPayload
 
         fun terminatedBytes(start: Int, maximum: Int): ByteArray {

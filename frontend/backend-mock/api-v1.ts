@@ -163,7 +163,7 @@ export class MockBackend {
 			idleProbeIntervalMs: 500,
 			idlePersistIntervalMs: 1_000,
 			ridingPersistIntervalMs: 100,
-			postRideTailMs: 15_000,
+			postRideTailMs: 5_000,
 			reconnectDurationMs: 300_000,
 			automaticSessionLinkingEnabled: false,
 			sessionLinkWindowMs: 7_200_000,
@@ -243,6 +243,12 @@ export class MockBackend {
 							totalElapsedMs: 0
 						},
 						latestSample: null,
+						currentLimits: {
+							motorCurrentMaxA: 100,
+							motorCurrentMinA: -100,
+							batteryCurrentMaxA: 50,
+							batteryCurrentMinA: -20
+						},
 						firmware: {
 							vescVersion: '6.06',
 							packageName: 'refloat',

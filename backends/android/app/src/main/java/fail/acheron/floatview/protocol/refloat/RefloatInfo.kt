@@ -5,7 +5,7 @@ object RefloatInfoDecoder {
         val responseVersion = payload[3].toInt() and 0xff
         if (responseVersion == 10) return "1.0"
         if (responseVersion > 10) return "${responseVersion / 10}.${responseVersion % 10}"
-        require(responseVersion == 2 && payload.size >= 61) {
+        require(responseVersion == RefloatWire.INFO_PROTOCOL_VERSION && payload.size >= 61) {
             "Truncated Refloat INFO v2 response"
         }
         return "${payload[25].toInt() and 0xff}.${payload[26].toInt() and 0xff}." +

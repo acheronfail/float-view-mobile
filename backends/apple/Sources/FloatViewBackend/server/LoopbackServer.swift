@@ -332,6 +332,7 @@ public final class LoopbackServer: @unchecked Sendable {
         active.deviceID.value
       value["activeSession"] = active.activeSession.map(sessionPayload) ?? NSNull()
       value["latestSample"] = active.latestSample.map(liveSamplePayload) ?? NSNull()
+      value["currentLimits"] = active.currentLimits.map(currentLimitsPayload) ?? NSNull()
       connection = value
     }
     return [
@@ -372,6 +373,15 @@ public final class LoopbackServer: @unchecked Sendable {
       "controllerConnection": value.controllerRoute.map(controllerRoutePayload) ?? NSNull(),
       "controllerCandidates": value.controllerCandidates.map(controllerCandidatePayload),
       "connectionIssue": value.connectionIssue.map(connectionIssuePayload) ?? NSNull(),
+    ]
+  }
+
+  private func currentLimitsPayload(_ value: ControllerCurrentLimits) -> [String: Any] {
+    [
+      "motorCurrentMaxA": value.motorCurrentMaxA,
+      "motorCurrentMinA": value.motorCurrentMinA,
+      "batteryCurrentMaxA": value.batteryCurrentMaxA,
+      "batteryCurrentMinA": value.batteryCurrentMinA,
     ]
   }
 
@@ -659,7 +669,7 @@ private struct BackendMessageHandler: WSMessageHandler {
 private func invalidatesState(_ event: any Sendable) -> Bool {
   if let message = event as? VescProtocolMessage {
     switch message {
-    case .firmware, .refloatInfo:
+    case .firmware, .currentLimits, .refloatInfo:
       return true
     case .canDevices, .refloatTelemetryLayout, .refloatTelemetry:
       return false

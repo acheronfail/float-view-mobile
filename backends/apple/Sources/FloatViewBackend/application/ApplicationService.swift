@@ -27,6 +27,7 @@ public final class ApplicationService: @unchecked Sendable {
   private var sessionFirmware: FirmwareRecord?
   private var sessionRefloatPackageVersion: String?
   private var latestPersistedSample: TelemetrySample?
+  private var currentLimits: ControllerCurrentLimits?
   private var reconnectTimer: (any CancellationPort)?
   private var reconnectStartedAtMs: Int64?
   private var reconnectAttempt = 0
@@ -442,6 +443,8 @@ public final class ApplicationService: @unchecked Sendable {
           switch message {
           case .firmware(let value):
             handleFirmware(value)
+          case .currentLimits(let value):
+            if connectionState == .ready { currentLimits = value }
           case .canDevices(let canIDs):
             handleCanDevices(canIDs)
           case .refloatInfo(let version):
@@ -522,6 +525,7 @@ public final class ApplicationService: @unchecked Sendable {
       activeSession: activeSession ?? nil,
       latestSample: latestPersistedSample
       ,
+      currentLimits: currentLimits,
       controllerRoute: controllerDiscovery.controllerRoute,
       controllerCandidates: controllerDiscovery.controllerCandidates,
       connectionIssue: controllerDiscovery.connectionIssue
@@ -707,6 +711,16 @@ public final class ApplicationService: @unchecked Sendable {
     cancelReconnect()
     controllerDiscovery.clearIssue()
     transition(.ready)
+    if let protocolCodec {
+      do {
+        bluetooth.write(
+          try protocolCodec.motorConfigurationRequest(route: route),
+          to: deviceID
+        )
+      } catch {
+        events.publish(String(describing: error))
+      }
+    }
     telemetryPolling.start(
       deviceID: deviceID,
       route: route,
@@ -941,6 +955,7 @@ public final class ApplicationService: @unchecked Sendable {
     telemetryPolling.cancelLayout()
     telemetryPolling.stop()
     controllerDiscovery.reset()
+    currentLimits = nil
     currentSavedDevice = nil
     cancelIdentificationTimeout()
     cancelCanProbeTimeout()

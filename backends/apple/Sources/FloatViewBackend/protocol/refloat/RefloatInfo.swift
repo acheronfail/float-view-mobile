@@ -7,7 +7,7 @@ enum RefloatInfoDecoder {
     if responseVersion > 10 {
       return "\(responseVersion / 10).\(responseVersion % 10)"
     }
-    guard responseVersion == 2, payload.count >= 61 else {
+    guard responseVersion == RefloatWire.infoProtocolVersion, payload.count >= 61 else {
       throw VescProtocolError.truncatedPayload
     }
     return "\(payload[25]).\(payload[26]).\(payload[27])"

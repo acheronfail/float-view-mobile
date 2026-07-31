@@ -3,7 +3,7 @@ package fail.acheron.floatview.backend
 data class SamplingSettings(
     val idlePersistIntervalMs: Long = 1_000,
     val ridingPersistIntervalMs: Long = 100,
-    val postRideTailMs: Long = 15_000,
+    val postRideTailMs: Long = 5_000,
     val reconnectDurationMs: Long = 300_000,
     val idleProbeIntervalMs: Long = 500,
 )

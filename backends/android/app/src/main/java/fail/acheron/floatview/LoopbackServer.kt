@@ -498,6 +498,16 @@ class LoopbackServer(
         )
         .put("activeSession", value.activeSession?.let(::session) ?: JSONObject.NULL)
         .put("latestSample", value.latestSample?.let(::liveSample) ?: JSONObject.NULL)
+        .put(
+            "currentLimits",
+            value.currentLimits?.let { limits ->
+                JSONObject()
+                    .put("motorCurrentMaxA", limits.motorCurrentMaxA)
+                    .put("motorCurrentMinA", limits.motorCurrentMinA)
+                    .put("batteryCurrentMaxA", limits.batteryCurrentMaxA)
+                    .put("batteryCurrentMinA", limits.batteryCurrentMinA)
+            } ?: JSONObject.NULL,
+        )
 
     private fun savedDevice(value: fail.acheron.floatview.backend.SavedDeviceRecord) = JSONObject()
         .put("savedDeviceId", value.savedDeviceId)
@@ -638,6 +648,7 @@ class LoopbackServer(
             this is SettingsRecord ||
             this is TelemetrySample ||
             this is VescProtocolMessage.Firmware ||
+            this is VescProtocolMessage.CurrentLimits ||
             this is VescProtocolMessage.RefloatInfo
 
     private companion object {

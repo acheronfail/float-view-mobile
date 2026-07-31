@@ -229,6 +229,14 @@ export interface ActiveConnection extends Device {
 	connectionIssue: ConnectionIssue | null;
 	activeSession: SessionSummary | null;
 	latestSample: LiveSample | null;
+	currentLimits: ControllerCurrentLimits | null;
+}
+
+export interface ControllerCurrentLimits {
+	motorCurrentMaxA: number;
+	motorCurrentMinA: number;
+	batteryCurrentMaxA: number;
+	batteryCurrentMinA: number;
 }
 
 export interface SavedDevice {

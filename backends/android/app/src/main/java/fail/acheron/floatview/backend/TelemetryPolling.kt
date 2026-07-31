@@ -32,7 +32,7 @@ class TelemetryPolling(
     private var route: ControllerRoute? = null
     private var family = RefloatTelemetryFamily.DYNAMIC
     private var idleIntervalMs = 1_000L
-    private var postRideTailMs = 30_000L
+    private var postRideTailMs = 5_000L
     private var pendingRequest: PendingRequest? = null
     private var pendingSinceMs: Long? = null
     private var nextCompactDueMs: Long? = null
