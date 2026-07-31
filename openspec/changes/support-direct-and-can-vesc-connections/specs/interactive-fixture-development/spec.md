@@ -1,7 +1,7 @@
 ## MODIFIED Requirements
 
 ### Requirement: Selectable direct and VESC Express topology
-The controller SHALL expose each composed controller/package combination either as a directly connected BLE VESC or behind a VESC Express 6.05 BLE transport with a bounded configuration of one or more CAN-connected motor controllers. Each Express controller SHALL have one unique canonical decimal CAN ID in the inclusive range `0` through `253`, with the common single-controller configuration defaulting to `1`. Interactive fixture development MAY present the common single-controller editor while conformance composes multiple controllers through the same simulator types.
+The controller SHALL expose each composed controller/package combination either as a directly connected BLE VESC or behind a VESC Express 6.05 BLE transport with a bounded configuration of one or more CAN-connected motor controllers. Controller firmware SHALL be selected from audited stable 6.02, 6.05, 6.06, and 7.00 variants that share one source-faithful `vescCoreReadOnly` identity implementation with version-applicable optional tails. Each Express controller SHALL have one unique canonical decimal CAN ID in the inclusive range `0` through `253`, with the common single-controller configuration defaulting to `1`. Interactive fixture development MAY present the common single-controller editor while conformance composes multiple controllers through the same simulator types.
 
 #### Scenario: Direct controller discovery
 - **WHEN** direct topology is selected and the native backend requests firmware
@@ -37,7 +37,11 @@ The controller SHALL expose each composed controller/package combination either 
 
 #### Scenario: Complete topology matrix
 - **WHEN** software verification exercises every runtime-composed controller/package pair through direct and single-controller Express topology
-- **THEN** table-driven Cartesian tests cover all eighteen base configurations, with additional multi-controller cases composed from the same controller types rather than separate simulator implementations
+- **THEN** table-driven Cartesian tests cover all twenty-four base configurations, with additional multi-controller and invalid/test-identity cases composed from the same controller types rather than separate simulator implementations
+
+#### Scenario: Version-applicable identity suffix
+- **WHEN** the fixture encodes audited VESC 6.02, 6.05, 6.06, or 7.00 identity
+- **THEN** it emits the complete common identity baseline and the source-applicable bounded hardware-CRC suffix without using the CRC to choose protocol behavior
 
 ### Requirement: Version-specific Refloat protocol
 Each Refloat codec SHALL implement the source-derived INFO and read-only telemetry protocol of exact package identity 1.0.0, 1.1.0, or 1.2.3. The native compatibility catalog SHALL treat all three exact packages as supported through their matching legacy or dynamic wire family.

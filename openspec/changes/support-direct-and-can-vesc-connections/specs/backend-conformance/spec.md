@@ -61,11 +61,19 @@ Physical conformance SHALL run identity, ride, and unexpected-disconnect/reconne
 ## ADDED Requirements
 
 ### Requirement: Exhaustive connection compatibility coverage
-Software conformance SHALL cover the Cartesian product of direct and Express topology, VESC 6.02/6.05/6.06, and Refloat 1.0.0/1.1.0/1.2.3. It SHALL additionally cover configured, absent, invalid, duplicate, zero, one, and multiple CAN candidates without requiring a separate simulator implementation per combination.
+Software conformance SHALL cover the Cartesian product of direct and Express topology, audited stable VESC 6.02/6.05/6.06/7.00, and representative Refloat 1.0.0/1.1.0/1.2.3. It SHALL additionally cover the complete VESC identity baseline, source-applicable CRC suffix, nonzero firmware test-version marker, malformed and unknown identities, and configured, absent, invalid, duplicate, zero, one, and multiple CAN candidates without requiring a separate simulator implementation per combination.
 
 #### Scenario: Supported version matrix
 - **WHEN** the software compatibility matrix runs
-- **THEN** all eighteen topology/controller/package combinations establish the expected route and protocol family, report legacy source package 1.0.0 as wire version `1.0`, and produce route-correct telemetry
+- **THEN** all twenty-four topology/controller/package combinations establish the expected route and protocol family, report legacy source package 1.0.0 as wire version `1.0`, and produce route-correct telemetry
+
+#### Scenario: VESC identity profile fixtures
+- **WHEN** conformance supplies complete VESC 6.02 identity without a CRC and complete 6.05, 6.06, and 7.00 identities with their bounded source-defined CRC suffix
+- **THEN** both native backends derive the same stable version, hardware type, names, and private UUID and select the same `vescCoreReadOnly` profile
+
+#### Scenario: Unsupported VESC release evidence
+- **WHEN** conformance supplies a nonzero test-version marker, VESC 7.01 test identity, unknown major/minor pair, truncated baseline, unterminated name, or unexpected remainder
+- **THEN** both backends fail closed consistently, do not request Refloat telemetry, and do not create a durable session
 
 #### Scenario: Wrong configured ID
 - **WHEN** a configured CAN ID is absent, times out, or reports non-VESC hardware

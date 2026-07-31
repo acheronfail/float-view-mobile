@@ -21,7 +21,7 @@ Float View must implement the same robustness without exposing stable device ide
 - Make direct and CAN-routed VESC connections equally capable of reaching `ready`, polling telemetry, reconnecting, and recording sessions.
 - Deterministically select zero, one, configured, or multiple CAN-connected motor controllers.
 - Give the user enough display-safe information to choose among multiple controllers and persist that choice.
-- Support VESC 6.02/6.05/6.06 and Refloat 1.0.0/1.1.0/1.2.3 through explicit, maintainable compatibility families.
+- Support audited stable VESC 6.02/6.05/6.06/7.00 and Refloat 1.0.0/1.1.0/1.2.3 through explicit, maintainable compatibility families and capability evidence.
 - Harden BLE setup, stream fragmentation, timeouts, and saved-device discovery on Apple and Android.
 - Give Swift and Kotlin matching ownership boundaries that make later compatibility additions easy to locate and review.
 - Cover topology, version, lifecycle, and failure behavior in canonical conformance.
@@ -109,7 +109,9 @@ This favors predictable installations over opportunistic fallback. Silent fallba
 
 ### 5. Retain a private learned controller identity
 
-The VESC firmware parser will preserve the 12-byte controller UUID and tolerate the source-specific optional tail used by supported firmware. Native persistence associates a meaningful non-zero UUID and CAN ID with the saved BLE transport. When public `preferredCanId` is null and exactly one supported controller was automatically discovered, that pair is a private automatic routing hint. A controller selected by the user instead writes the authoritative public preference; it is not treated as a fallback hint.
+The VESC firmware parser will require the complete source-defined identity baseline: command and major/minor bytes, a terminated bounded hardware name, 12-byte controller UUID, pairing marker, firmware test-version marker, hardware type, custom-configuration count, phase-filter/QML/NRF flags, and a terminated bounded firmware name. It preserves the UUID, exposes only display-safe names, and tolerates a bounded optional four-byte hardware-CRC suffix. The CRC is build and hardware provenance rather than a compatibility key. A truncated baseline, unterminated name, or unexpected remainder is malformed rather than a supported identity.
+
+Native persistence associates a meaningful non-zero UUID and CAN ID with the saved BLE transport. When public `preferredCanId` is null and exactly one supported controller was automatically discovered, that pair is a private automatic routing hint. A controller selected by the user instead writes the authoritative public preference; it is not treated as a fallback hint.
 
 On a connection without an active session, a private-hint timeout or UUID mismatch invalidates the hint and returns to discovery. If discovery finds the same meaningful UUID at a new CAN ID, the backend updates the private hint and uses it. During active-session reconnect, the same search is allowed only to recover that exact UUID; finding it at a new ID updates the hint and safely resumes the session. Firmware versions that omit a meaningful UUID continue to work using the selected CAN ID and normal firmware validation.
 
@@ -139,16 +141,21 @@ A separate retry method was rejected because the existing connect intent already
 
 ### 7. Separate firmware versions from wire-protocol families
 
-Compatibility data is declarative and maps exact supported versions to a small set of implementations:
+Compatibility data is declarative and maps exact audited stable versions to the smallest set of consumed wire implementations:
 
 | Identity | Compatibility family | Notes |
 |---|---|---|
-| VESC 6.02 | `vesc6Firmware` | Base v6 firmware response |
-| VESC 6.05 | `vesc6Firmware` | Base v6 firmware response |
-| VESC 6.06 | `vesc6Firmware` | Same tolerant parser, optional hardware-CRC tail |
+| VESC 6.02 | `vescCoreReadOnly` | Complete stable identity baseline; no hardware-CRC suffix in the audited source |
+| VESC 6.05 | `vescCoreReadOnly` | Same consumed commands; source-defined hardware-CRC suffix |
+| VESC 6.06 | `vescCoreReadOnly` | Same consumed commands and identity shape |
+| VESC 7.00 | `vescCoreReadOnly` | Same consumed commands and identity shape as 6.06 |
 | Refloat source package 1.0.0 | `refloatLegacyV1` | Wire identity and reported version `1.0`; fixed legacy realtime/all-data packets |
 | Refloat 1.1.0 | `refloatDynamicV1` | Dynamic IDs and float16 data |
 | Refloat 1.2.3 | `refloatDynamicV1WithAlerts` | Dynamic data with bounded alert/fault tail |
+
+For VESC, a major/minor pair identifies only a candidate catalog entry. A controller is supported only when its identity baseline is structurally valid, its test-version marker is zero, its hardware type is `HW_TYPE_VESC`, and the selected direct or forwarded route successfully returns compatible Refloat INFO and any required layout. `COMM_FW_VERSION`, `COMM_FORWARD_CAN`, `COMM_CUSTOM_APP_DATA`, and `COMM_PING_CAN` retain the consumed command identities across the audited releases. Hardware name, firmware name, UUID, and hardware CRC do not broaden version support. A nonzero test-version marker, unknown major/minor pair, malformed baseline, or unsupported Refloat response fails closed.
+
+VESC 7.01 remains unsupported while upstream identifies it as a test build. Future stable releases enter the catalog only after their identity response and every command Float View consumes are audited and immutable fixtures are added. A changed consumed command or required response shape creates a new profile; an added bounded optional identity suffix does not.
 
 The legacy INFO response contains only protocol byte `10`; it cannot prove a patch version or carry a package name. Float View recognizes that source-derived namespace as Refloat, reports package version `1.0`, and treats fixture/source release 1.0.0 as the tested representative of that wire family. It does not claim that a physical device reported patch `.0`.
 
@@ -203,8 +210,10 @@ This follows VESC Tool's robust behavior while preserving Float View's stricter 
 
 ### 10. Conformance uses exhaustive software coverage and representative physical coverage
 
-The composed simulator remains the source of protocol behavior. Software tests cover the Cartesian direct/Express matrix for all three VESC and three Refloat versions, plus:
+The composed simulator remains the source of protocol behavior. Software tests cover the Cartesian direct/Express matrix for all four audited VESC and three representative Refloat versions, plus:
 
+- complete 6.02 identity without CRC and 6.05/6.06/7.00 identity with bounded CRC suffix;
+- malformed/truncated identity, unknown release, and nonzero test-version rejection;
 - Express automatic discovery;
 - configured CAN ID with absent/incomplete ping;
 - wrong configured ID;
@@ -222,7 +231,7 @@ Physical conformance keeps identity, ride, and reconnect on Android, iOS, and ma
 - [A stored preference can become stale after rewiring] → Fail explicitly with guidance to clear/change the CAN ID; never record a different controller silently.
 - [A reconnect reaches a different controller] → Interrupt the old session and require a new explicit connection rather than merging controller histories.
 - [Controller selection races a Board Profile editor] → Merge only the selected CAN ID into the latest profile transaction and let stale editors use existing revision-conflict recovery.
-- [Older firmware response tails vary] → Use length-checked tolerant parsing backed by immutable exact fixtures and reject malformed required fields.
+- [Firmware response tails vary and the existing 6.05 fixture omitted its source-defined CRC] → Require the complete identity baseline, model the bounded CRC suffix explicitly in corrected immutable fixtures, and never use its value as a compatibility key.
 - [Adding contract states can expose frontend race bugs] → Drive the prompt entirely from complete monotonic snapshots and validate selections against the native discovery generation.
 - [Source extraction can create temporary duplicate paths] → Move one verified vertical slice at a time and delete superseded branches in the same implementation phase.
 - [Physical matrix size can make the gate slow] → Keep exhaustive compatibility in software and reserve hardware for representative BLE/lifecycle paths.

@@ -1,7 +1,7 @@
 ## ADDED Requirements
 
 ### Requirement: Editable scenario workbench
-`just fixture dev` SHALL provide a manual scenario workbench that composes an editable BLE endpoint, at most 16 controller candidates, at most 64 discovered CAN IDs, source-package identities, discovery behavior, notification fragmentation, and semantic telemetry state while a separately launched `just dev <platform>` application is operated by the developer. The workbench MUST NOT automatically drive the product, choose the product's active controller, assert product outcomes, or report pass/fail. Float View SHALL request telemetry from only its one selected route even when the scenario advertises multiple candidates.
+`just fixture dev` SHALL provide a manual scenario workbench that composes an editable BLE endpoint, at most 16 controller candidates, at most 64 discovered CAN IDs, audited stable VESC 6.02/6.05/6.06/7.00 identities, source-package identities, discovery behavior, notification fragmentation, and semantic telemetry state while a separately launched `just dev <platform>` application is operated by the developer. Supported VESC variants SHALL share one source-faithful identity encoder with the complete common baseline, zero test-version marker, and version-applicable bounded hardware-CRC suffix. The workbench MUST NOT automatically drive the product, choose the product's active controller, assert product outcomes, or report pass/fail. Float View SHALL request telemetry from only its one selected route even when the scenario advertises multiple candidates.
 
 #### Scenario: Reproduce a reported setup
 - **WHEN** a developer configures an Express endpoint, a non-motor CAN node, two motor controllers, and a controller omitted from ping
@@ -10,6 +10,10 @@
 #### Scenario: Manual investigation
 - **WHEN** the connected product reaches a state the developer wants to inspect
 - **THEN** the workbench waits for manual actions and does not advance through a scripted test or select a controller on the product's behalf
+
+#### Scenario: Audited controller version selection
+- **WHEN** a developer selects VESC 6.02, 6.05, 6.06, or 7.00 while the scenario is powered off
+- **THEN** the next identity response changes source-faithfully, reuses the same consumed command family, and composes with any audited Refloat release without duplicating a declared board profile
 
 ### Requirement: Bounded shareable scenario documents
 The workbench SHALL import and export a versioned human-readable scenario document of at most 65,536 UTF-8 bytes containing topology, public simulated identities, discovery behavior, fragmentation, semantic telemetry baseline, coherent scene selection, and explicit overrides. Documents SHALL be strictly validated. Raw controller UUID bytes, serial paths, launch tokens, power state, and real Bluetooth identifiers MUST NOT be imported, exported, or displayed. A scenario-local controller alias of at most 64 UTF-8 bytes SHALL deterministically resolve to a private simulated UUID on the server.

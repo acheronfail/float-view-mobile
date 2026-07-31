@@ -14,6 +14,7 @@
 - [x] 2.3 Extract Refloat legacy and dynamic codec families on both backends and implement source-faithful INFO, layout, and telemetry decoding for source packages 1.0.0, 1.1.0, and 1.2.3, reporting legacy wire identity as `1.0`.
 - [x] 2.4 Add exact VESC 6.02/6.05/6.06 and Refloat legacy-1.0/1.1.0/1.2.3 compatibility catalogs with immutable protocol fixtures and cross-platform focused tests.
 - [x] 2.5 Delete broad version predicates and superseded protocol branches after every caller uses the compatibility catalogs and focused codecs.
+- [ ] 2.6 Expand the exact VESC catalog through stable 7.00, strictly decode the complete identity baseline and zero test-version marker, correct 6.05 hardware-CRC provenance, keep bounded CRC/name/UUID data out of compatibility keys, and add mirrored Swift/Kotlin acceptance and rejection tests.
 
 ## 3. BLE stream hardening
 
@@ -51,6 +52,7 @@
 - [x] 6.4 Add canonical scenarios for automatic CAN discovery, private hint match/fallback, configured CAN without ping, wrong configured CAN, generic gateway forwarding, mixed nodes, zero candidates, ID/candidate overflow, supported/unsupported ambiguity, selection validation/atomic persistence, failed retry, reconnect continuity, and frontend recovery.
 - [x] 6.5 Add conformance assertions for pre-ready saved identity without a session, detected route presentation, stable issue codes, exact request errors, candidate ordering/bounds/privacy, ready-session ordering, replacement-controller interruption, direct/CAN polling routes, bounded failure diagnostics, and no unsafe commands.
 - [ ] 6.6 Run the full five-topology physical set on Android and macOS; run direct dynamic, Express discovery, and background continuity on iOS; retain identity, ride, and reconnect on all three platforms.
+- [ ] 6.7 Expand the composed fixture and software matrix to VESC 6.02/6.05/6.06/7.00, including source-applicable CRC suffixes and fail-closed unknown, malformed, 7.01-test, and nonzero-test-version cases.
 
 ## 7. Source cleanup and documentation
 
@@ -66,3 +68,4 @@
 - [ ] 8.3 Run the software conformance compatibility/topology matrix and complete the distributed physical BLE checkpoint: full topology set on Android/macOS and direct, Express discovery, and background continuity on iOS.
 - [x] 8.4 Run OpenSpec validation and review that every proposal capability, normative scenario, and implementation task remains coherent.
 - [x] 8.5 Run `just verify` as the complete software gate.
+- [ ] 8.6 Run focused firmware-identity and compatibility regressions, strict validation of both coordinated OpenSpec changes, and `just verify` after the VESC-profile revision.

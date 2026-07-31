@@ -1,6 +1,6 @@
 ## Context
 
-The current fixture-development application composes one direct or Express-connected THOR300 with three supported VESC versions and representative Refloat source packages. Its interactive telemetry source generates only the core values currently consumed by Float View, and its dynamic codec advertises eight fields even though audited Refloat 1.1.x and 1.2.x releases define sixteen always-present and ten running-only realtime fields. The legacy compact encoder and both native decoders likewise normalize only a core subset.
+The current fixture-development application composes one direct or Express-connected THOR300 with VESC 6.02, 6.05, or 6.06 and representative Refloat source packages. Its VESC catalog does not yet include stable 7.00, does not preserve the stable/test-build distinction carried by `COMM_FW_VERSION`, and models the source-defined hardware-CRC suffix only for 6.06 even though the audited 6.05 release also carries it. Its interactive telemetry source generates only the core values currently consumed by Float View, and its dynamic codec advertises eight fields even though audited Refloat 1.1.x and 1.2.x releases define sixteen always-present and ten running-only realtime fields. The legacy compact encoder and both native decoders likewise normalize only a core subset.
 
 The native pipeline already has the important foundations: explicit direct/CAN routing, one serialized VESC stream, exact Refloat compatibility families, native durable sessions, bounded authenticated state, a generic session-series representation, and a native `session_event` store. Apple also has a native extension-field storage concept. This change extends those foundations; it does not create another transport, simulator, frontend, or generated API layer.
 
@@ -18,6 +18,7 @@ This change is sequenced after `support-direct-and-can-vesc-connections`. It ass
 - Give the shared frontend stable typed data for detailed live and historical experiences.
 - Poll, publish, and log exactly one selected direct-or-CAN controller at a time.
 - Retain exact route semantics, native lifecycle ownership, bounded resources, privacy, and source-faithful version differences.
+- Compose every audited Refloat release with stable VESC 6.02/6.05/6.06/7.00 through one strict source-faithful controller identity family.
 - Make future source fields diagnosable through a bounded extension path without making upstream strings the primary product contract.
 
 **Non-Goals:**
@@ -26,6 +27,7 @@ This change is sequenced after `support-direct-and-can-vesc-connections`. It ass
 - BLE service, characteristic, CCCD, MTU, multiple-advertiser, or OS-suspension simulation in the serial byte bridge.
 - Refloat tuning, configuration, lights, flywheel, motor movement, or other write workflows.
 - Supporting prerelease, unknown, or stable package versions outside 1.0.0–1.0.1, 1.1.0–1.1.2, and 1.2.0–1.2.3.
+- Supporting VESC test builds, unknown controller releases, 7.01 while its test-version marker is nonzero, or VESC firmware older than 6.02.
 - Deriving torque or current utilization or obtaining controller current-limit configuration.
 - Refloat command 35 device history, data-recorder commands 41–43, or multi-controller telemetry sessions.
 - Adding a database migration framework or runtime dependency.
@@ -65,7 +67,11 @@ Stable state enums cover the source-defined meanings and `unknown`: package stat
 
 Encoding packet-shaped state directly in Svelte or the coordinator was rejected because it would duplicate protocol logic and make a shared reported scenario behave differently across versions.
 
-### 2. Select audited wire profiles and validate negotiated capabilities
+### 2. Select audited controller and package wire profiles and validate capabilities
+
+VESC major/minor identifies a candidate catalog entry rather than proving compatibility by itself. Stable 6.02, 6.05, 6.06, and 7.00 map to one `vescCoreReadOnly` profile because every command Float View consumes retains its identity and required response semantics across those releases. The firmware decoder requires the complete bounded `COMM_FW_VERSION` baseline, including terminated hardware and firmware names, the 12-byte UUID, the full flag block, `HW_TYPE_VESC`, and a zero firmware test-version marker. The source-defined four-byte hardware-CRC suffix is absent for the audited 6.02 fixture and present for audited 6.05/6.06/7.00 fixtures; it is optional bounded provenance, never a compatibility key. Direct or forwarded Refloat INFO and required layout negotiation provide the final behavioral evidence before `ready`.
+
+Unknown controller versions, malformed identity baselines, and nonzero test-version markers remain unsupported. VESC 7.01 is therefore excluded while upstream reports it as a test build. A future stable version joins `vescCoreReadOnly` only after immutable fixtures prove every consumed command and response; a changed consumed command or required response shape creates a new profile.
 
 Package semver identifies a candidate profile; it is not itself a protocol signature. The compatibility catalog admits only audited stable releases and maps them to `legacyFixed`, `dynamic`, or `dynamicAlerts`. The legacy INFO response cannot distinguish 1.0.0 from 1.0.1, so wire identity `1.0` intentionally represents the audited legacy 1.0.x profile.
 

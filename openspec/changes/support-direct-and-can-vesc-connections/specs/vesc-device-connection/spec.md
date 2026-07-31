@@ -115,7 +115,21 @@ When discovery finds more than one VESC motor controller, the backend SHALL paus
 - **THEN** `state.get` restores the same bounded candidates and selection state while native discovery remains authoritative
 
 ### Requirement: Exact supported compatibility families
-The backends SHALL support VESC firmware 6.02, 6.05, and 6.06 and the wire families represented by Refloat source packages 1.0.0, 1.1.0, and 1.2.3 through explicit tested compatibility mappings. The 1.0.0 source package SHALL use its fixed legacy telemetry protocol and SHALL be detected and reported as wire version `1.0` because its INFO response does not contain a patch version. Refloat 1.1.0 SHALL use its dynamic ID and data protocol, and Refloat 1.2.3 SHALL use its dynamic protocol with bounded alert and fault data.
+The backends SHALL support audited stable VESC firmware 6.02, 6.05, 6.06, and 7.00 through an exact compatibility catalog mapped to one `vescCoreReadOnly` profile for the commands Float View consumes. A VESC controller SHALL be supported only when `COMM_FW_VERSION` contains the complete bounded identity baseline, reports a zero firmware test-version marker and `HW_TYPE_VESC`, matches an exact catalog entry, and the selected route subsequently proves compatible Refloat INFO and layout behavior. A bounded four-byte hardware-CRC suffix MAY be absent or present according to the audited release fixture, but its value, the hardware or firmware display name, and the controller UUID MUST NOT broaden compatibility.
+
+The backends SHALL support the wire families represented by Refloat source packages 1.0.0, 1.1.0, and 1.2.3 through explicit tested compatibility mappings. The 1.0.0 source package SHALL use its fixed legacy telemetry protocol and SHALL be detected and reported as wire version `1.0` because its INFO response does not contain a patch version. Refloat 1.1.0 SHALL use its dynamic ID and data protocol, and Refloat 1.2.3 SHALL use its dynamic protocol with bounded alert and fault data.
+
+#### Scenario: Audited VESC core profile
+- **WHEN** a direct or CAN-routed controller reports stable VESC 6.02, 6.05, 6.06, or 7.00 with the complete source-defined identity baseline
+- **THEN** the backend selects `vescCoreReadOnly`, validates the route and Refloat capability, and can reach `ready` without assuming support for unconsumed VESC commands
+
+#### Scenario: Stable identity variants
+- **WHEN** VESC 6.02 omits the hardware-CRC suffix or VESC 6.05, 6.06, or 7.00 supplies the bounded suffix
+- **THEN** both shapes decode through the same profile and any CRC remains non-public and is not used as a compatibility key
+
+#### Scenario: Test or malformed VESC identity
+- **WHEN** a controller reports a nonzero firmware test-version marker, an unterminated name, a truncated UUID or flag baseline, or an unexpected unbounded remainder
+- **THEN** discovery fails closed without requesting Refloat telemetry or creating a session
 
 #### Scenario: Legacy Refloat session
 - **WHEN** a direct or CAN-routed controller returns legacy Refloat INFO wire byte `10` from the source-package-1.0.0 protocol family
@@ -126,7 +140,7 @@ The backends SHALL support VESC firmware 6.02, 6.05, and 6.06 and the wire famil
 - **THEN** the backend negotiates the corresponding dynamic layout and decodes its source-faithful response shape
 
 #### Scenario: Unsupported identity
-- **WHEN** controller or package identity does not match an explicit compatibility entry
+- **WHEN** controller or package identity does not match an explicit compatibility entry, including VESC 7.01 while it is a test build
 - **THEN** the backend reports that identity as unsupported without treating a broad version range as compatible
 
 ### Requirement: Route-correct telemetry lifecycle

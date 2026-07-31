@@ -1,11 +1,19 @@
 ## ADDED Requirements
 
 ### Requirement: Detailed telemetry compatibility matrix
-Software conformance SHALL exercise complete detailed telemetry for every audited stable Refloat release in 1.0.0–1.0.1, 1.1.0–1.1.2, and 1.2.0–1.2.3 through direct and CAN routes. It SHALL verify exact command 1 fixture compatibility, command 10 detail levels and metres/second conversion, command 31/32 bytes and native kilometres/hour values, route wrapping, required-field negotiation, version-applicable active state and tails, normalization, nullability, unknown bounded extensions, and absence of command 35, data-recorder, or unsupported write requests from either backend.
+Software conformance SHALL exercise complete detailed telemetry for every audited stable Refloat release in 1.0.0–1.0.1, 1.1.0–1.1.2, and 1.2.0–1.2.3 through direct and CAN routes and across audited stable VESC 6.02, 6.05, 6.06, and 7.00. It SHALL verify the complete stable VESC identity baseline, zero test-version marker, source-applicable bounded hardware-CRC suffix, exact command 1 fixture compatibility, command 10 detail levels and metres/second conversion, command 31/32 bytes and native kilometres/hour values, route wrapping, required-field negotiation, version-applicable active state and tails, normalization, nullability, unknown bounded extensions, and absence of command 35, data-recorder, or unsupported write requests from either backend.
 
 #### Scenario: Audited route and package combinations
 - **WHEN** the detailed telemetry matrix runs
-- **THEN** each audited stable package through direct and CAN routing produces its exact protocol profile and equivalent normalized semantic values where the source carries them
+- **THEN** each audited stable VESC/controller-package pair through direct and CAN routing produces its exact protocol profiles and equivalent normalized semantic values where the source carries them
+
+#### Scenario: Stable VESC identity families
+- **WHEN** the matrix supplies 6.02 without a CRC suffix and 6.05, 6.06, or 7.00 with the source-defined bounded suffix
+- **THEN** Apple and Android select the same `vescCoreReadOnly` profile, ignore CRC value for compatibility, and proceed to route and Refloat capability validation
+
+#### Scenario: Controller compatibility rejection
+- **WHEN** conformance supplies VESC 7.01 with a nonzero test-version marker, another unknown release, or a malformed identity baseline
+- **THEN** Apple and Android reject test or unknown releases with `unsupported_controller`, reject malformed identity within the bounded identification deadline, and never begin Refloat negotiation or durable session creation
 
 #### Scenario: Compatibility rejection
 - **WHEN** conformance supplies an unknown version, prerelease version, or dynamic layout missing a required semantic ID
