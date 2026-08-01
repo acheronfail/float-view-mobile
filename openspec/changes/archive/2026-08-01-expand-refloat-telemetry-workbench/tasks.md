@@ -1,6 +1,6 @@
 ## 0. Prerequisite
 
-- [ ] 0.1 Complete, sync, and archive `support-direct-and-can-vesc-connections`; confirm its verified-route, discovery, continuity, controller-selection, and fixture-topology contracts are the repository baseline before implementation begins.
+- [x] 0.1 Complete, sync, and archive `support-direct-and-can-vesc-connections`; confirm its verified-route, discovery, continuity, controller-selection, and fixture-topology contracts are the repository baseline before implementation begins.
 
 ## 1. Protocol catalog and canonical fixtures
 
@@ -74,7 +74,7 @@
 - [x] 7.2 Run focused Apple protocol, polling, application-service, SQL, session, loopback, export, and lifecycle tests.
 - [x] 7.3 Run focused Android protocol, polling, application-service, SQL, session, loopback, export, and lifecycle tests.
 - [x] 7.4 Run focused frontend contract, mock, state, live telemetry, warning, historical detail, and interaction checks.
-- [ ] 7.5 Run one consolidated representative physical checkpoint on macOS, Android, and iOS covering direct/CAN, legacy/dynamic, fragmentation, reconnect, warning, field-weakening, controller selection, and background cases assigned by the spec.
+- [x] 7.5 Run one consolidated representative physical checkpoint on macOS, Android, and iOS covering direct/CAN, legacy/dynamic, fragmentation, reconnect, warning, field-weakening, controller selection, and background cases assigned by the spec.
 - [x] 7.6 Run strict OpenSpec validation, review every normative scenario against implementation coverage, and run `just verify` as the complete software gate.
 - [x] 7.7 Run focused compatibility and speed regressions, strict OpenSpec validation, and `just verify` after the audited-profile revision.
 - [x] 7.8 Run focused VESC identity, fixture-workbench, discovery, and compatibility regressions, strict validation of both coordinated changes, and `just verify` after the VESC-profile revision.
