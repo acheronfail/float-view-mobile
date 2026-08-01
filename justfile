@@ -12,6 +12,16 @@ setup:
     [ -e "vendor/vesc_bms_fw" ] || git clone https://github.com/vedderb/vesc_bms_fw "vendor/vesc_bms_fw"
     [ -e "vendor/float-view" ] || git clone https://github.com/acheronfail/float-view "vendor/float-view"
 
+lint:
+  cd frontend && npm run format:check
+  cd conformance && npm run format:check
+  swiftformat --config .swiftformat --lint backends/apple
+
+fmt:
+  cd frontend && npm run format:write
+  cd conformance && npm run format:write
+  swiftformat --config .swiftformat backends/apple
+
 dev platform="mock" target="":
     cd conformance && node --strip-types src/dev.ts "{{ platform }}" "{{ target }}"
 

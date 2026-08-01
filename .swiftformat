@@ -1,0 +1,7 @@
+--indent 2
+--max-width 120
+--trailing-commas always
+--decimal-grouping ignore
+--binary-grouping ignore
+--octal-grouping ignore
+--hex-grouping ignore

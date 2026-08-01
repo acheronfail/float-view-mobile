@@ -1,6 +1,6 @@
 import { execFileSync, spawn, type ChildProcess } from 'node:child_process';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { tmpdir, platform } from 'node:os';
 import { join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
@@ -14,10 +14,10 @@ const ANDROID_ACTIVITY = `${ANDROID_APPLICATION}/${ANDROID_APPLICATION}.MainActi
 const IOS_BUNDLE = 'fail.acheron.float-view';
 const READY_TIMEOUT_MS = 30_000;
 
-type Platform = 'mock' | 'macos' | 'ios' | 'android';
+type TargetPlatform = 'mock' | 'macos' | 'ios' | 'android';
 
-export function backendOrigin(platform: Platform) {
-	switch (platform) {
+export function backendOrigin(targetPlatform: TargetPlatform) {
+	switch (targetPlatform) {
 		case 'mock':
 			return `http://127.0.0.1:${MOCK_PORT}`;
 		case 'macos':
@@ -108,16 +108,16 @@ export function childExitFailure(
 }
 
 export function viteEnvironment(
-	platform: Platform,
+	targetPlatform: TargetPlatform,
 	environment: NodeJS.ProcessEnv = process.env
 ): NodeJS.ProcessEnv {
 	return {
 		...environment,
-		FLOAT_VIEW_DEV_BACKEND_ORIGIN: backendOrigin(platform)
+		FLOAT_VIEW_DEV_BACKEND_ORIGIN: backendOrigin(targetPlatform)
 	};
 }
 
-export async function runDevelopment(platform: Platform, target = '', environment = process.env) {
+export async function runDevelopment(targetPlatform: TargetPlatform, target = '', environment = process.env) {
 	const root = fileURLToPath(new URL('../../', import.meta.url));
 	const children: ChildProcess[] = [];
 	const cleanup: Array<() => void | Promise<void>> = [];
@@ -135,7 +135,7 @@ export async function runDevelopment(platform: Platform, target = '', environmen
 	};
 
 	try {
-		if (platform === 'macos') {
+		if (targetPlatform === 'macos') {
 			const executable = buildMacos(root);
 			track(
 				spawn(executable, ['--browser-host'], {
@@ -149,8 +149,8 @@ export async function runDevelopment(platform: Platform, target = '', environmen
 				}),
 				`macOS backend on 127.0.0.1:${MACOS_PORT}`
 			);
-			await waitForBootstrap(backendOrigin(platform), () => firstFailure);
-		} else if (platform === 'android') {
+			await waitForBootstrap(backendOrigin(targetPlatform), () => firstFailure);
+		} else if (targetPlatform === 'android') {
 			const serial = target || selectAndroidDevice();
 			execFileSync(
 				`${root}/backends/android/gradlew`,
@@ -165,26 +165,31 @@ export async function runDevelopment(platform: Platform, target = '', environmen
 			cleanup.push(() => adbBestEffort(serial, ...androidForwardRemovalArguments()));
 			cleanup.push(() => adbBestEffort(serial, 'shell', 'am', 'force-stop', ANDROID_APPLICATION));
 			adb(serial, ...androidLaunchArguments());
-			await waitForBootstrap(backendOrigin(platform), () => firstFailure);
-		} else if (platform === 'ios') {
+			await waitForBootstrap(backendOrigin(targetPlatform), () => firstFailure);
+		} else if (targetPlatform === 'ios') {
 			await startIOS(root, target, track, cleanup, environment);
-			await waitForBootstrap(backendOrigin(platform), () => firstFailure);
+			await waitForBootstrap(backendOrigin(targetPlatform), () => firstFailure);
 		}
 
 		const vite = track(
 			spawn('npm', ['run', 'dev'], {
 				cwd: `${root}/frontend`,
-				env: viteEnvironment(platform, environment),
+				env: viteEnvironment(targetPlatform, environment),
 				stdio: 'inherit'
 			}),
 			'Vite'
 		);
 		await waitForURL(`http://127.0.0.1:${VITE_PORT}/`, () => firstFailure);
-		console.log(`Float View ${platform} development ready: http://127.0.0.1:${VITE_PORT}`);
+		console.log(`Float View ${targetPlatform} development ready: http://127.0.0.1:${VITE_PORT}`);
 		if (environment.FLOAT_VIEW_DEV_NO_OPEN !== '1') {
-			execFileSync('open', [`http://127.0.0.1:${VITE_PORT}`], {
-				stdio: 'ignore'
-			});
+			const hostPlatform = platform();
+			if (hostPlatform === 'darwin') {
+				execFileSync('open', [`http://127.0.0.1:${VITE_PORT}`], { stdio: 'ignore' });
+			} else if (hostPlatform === 'linux') {
+				execFileSync('xdg-open', [`http://127.0.0.1:${VITE_PORT}`], { stdio: 'ignore' });
+			} else {
+				console.warn(`Currently unsupported host platform: ${hostPlatform}!`);
+			}
 		}
 		await waitForStop([vite, ...children.filter((child) => child !== vite)]);
 		if (firstFailure) throw firstFailure;
@@ -422,9 +427,9 @@ async function stopChild(child: ChildProcess) {
 const isMain =
 	!!process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href;
 if (isMain) {
-	const platform = process.argv[2] as Platform | undefined;
-	if (!platform || !['mock', 'macos', 'ios', 'android'].includes(platform)) {
+	const targetPlatform = process.argv[2] as TargetPlatform | undefined;
+	if (!targetPlatform || !['mock', 'macos', 'ios', 'android'].includes(targetPlatform)) {
 		throw new Error('Usage: just dev mock|macos|ios|android [target]');
 	}
-	await runDevelopment(platform, process.argv[3] ?? '');
+	await runDevelopment(targetPlatform, process.argv[3] ?? '');
 }
