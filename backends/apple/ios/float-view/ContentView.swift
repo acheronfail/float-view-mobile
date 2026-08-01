@@ -280,7 +280,7 @@ struct ContentView: View {
       } else if scenePhase == .background {
         Color(uiColor: .systemBackground).ignoresSafeArea()
       } else {
-        ContentUnavailableView("Backend unavailable", systemImage: "exclamationmark.triangle")
+        ContentUnavailableView("Just a sec mate...", systemImage: "gauge.with.dots.needle.33percent")
       }
     }
     .preferredColorScheme(preferredColorScheme)
