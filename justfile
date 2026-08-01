@@ -15,6 +15,22 @@ setup:
 dev platform="mock" target="":
     cd conformance && node --strip-types src/dev.ts "{{ platform }}" "{{ target }}"
 
+list platform:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    case "{{ platform }}" in
+      ios)
+        xcrun xctrace list devices |
+          awk '
+            /^== Devices ==$/ { physical=1; next }
+            /^== Simulators ==$/ { physical=0 }
+            physical && /iPhone|iPad|iPod/ { print }
+          '
+        ;;
+      android) adb devices -l;;
+      *) echo 'Usage: just list android|ios' >&2; exit 2 ;;
+    esac
+
 build:
     cd frontend && npm run build
     cp frontend/build/index.html backends/apple/Sources/FloatViewMac/Resources/index.html
@@ -22,10 +38,9 @@ build:
     cp backends/sql/catalog.sql backends/apple/Sources/FloatViewMac/Resources/sql/catalog.sql
     cp backends/sql/session.sql backends/apple/Sources/FloatViewMac/Resources/sql/session.sql
 
-run platform target="":
+run platform target="": build
     #!/usr/bin/env bash
     set -euo pipefail
-    just build
     case "{{ platform }}" in
       android)
         (cd backends/android && ./gradlew assembleDebug)
@@ -95,10 +110,9 @@ test suite="all":
 conformance target:
     cd conformance && npm run {{ target }}
 
-conformance-physical platform fixture_port target="":
+conformance-physical platform fixture_port target="": build
     #!/usr/bin/env bash
     set -euo pipefail
-    just build
     cd conformance
     npm run physical -- "{{ platform }}" "{{ fixture_port }}" "{{ target }}"
 
@@ -155,8 +169,7 @@ audit:
       frontend backends conformance justfile \
       -g '!frontend/build/**' -g '!**/Resources/index.html'
 
-verify:
-    just build
+verify: build
     just test all
     cd backends/android && ./gradlew assembleDebug
     cd backends/apple && swift build --scratch-path /tmp/float-view-swift-build --product FloatViewMac
