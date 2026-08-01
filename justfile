@@ -49,7 +49,9 @@ emulate platform: build
         emulator -avd Float_View_Conformance -no-window -no-audio
         ;;
       ios)
-        echo TODO: implement iOS simulator launch
+        simulator="${FLOAT_VIEW_IOS_SIMULATOR:-iPhone 17 Pro}"
+        xcrun simctl boot "$simulator" >/dev/null 2>&1 || true
+        xcrun simctl bootstatus "$simulator" -b
         ;;
       *) echo 'Usage: just emulate android|ios' >&2; exit 2 ;;
     esac
