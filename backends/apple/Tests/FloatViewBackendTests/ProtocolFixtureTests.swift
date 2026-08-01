@@ -424,6 +424,19 @@ private func bytes(_ hex: String) -> [UInt8] {
   #expect(value.extensions == ["future.energy": 5])
 }
 
+@Test func softwareVescPeripheralProducesARidingLegacySample() throws {
+  let peripheral = SoftwareVescPeripheral()
+  let service = VescProtocolService()
+  let request = try service.refloatLegacyTelemetryRequest(route: .direct)
+  let response = try #require(peripheral.response(to: request))
+
+  guard case let .refloatTelemetry(value) = try #require(service.receive(response).first) else {
+    Issue.record("Expected software peripheral Refloat telemetry")
+    return
+  }
+  #expect(value.rideState == .riding)
+}
+
 @Test func androidHardwareRefloatCaptureDecodesAcrossNotificationChunks() throws {
   let capture = try multiCaseFixture(
     "fixtures/refloat/rtdata-1.2.3-android-hardware.json"

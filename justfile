@@ -41,6 +41,19 @@ list platform:
       *) echo 'Usage: just list android|ios' >&2; exit 2 ;;
     esac
 
+emulate platform: build
+    #!/usr/bin/env bash
+    set -euo pipefail
+    case "{{ platform }}" in
+      android)
+        emulator -avd Float_View_Conformance -no-window -no-audio
+        ;;
+      ios)
+        echo TODO: implement iOS simulator launch
+        ;;
+      *) echo 'Usage: just emulate android|ios' >&2; exit 2 ;;
+    esac
+
 build:
     cd frontend && npm run build
     cp frontend/build/index.html backends/apple/Sources/FloatViewMac/Resources/index.html

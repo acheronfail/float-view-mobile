@@ -233,7 +233,12 @@ async function exerciseProductMethods(client: ConformanceClient, state: AppState
 }
 
 async function createCompletedSession(client: ConformanceClient, deviceId: string) {
+  await client.request('bluetooth.scan', { timeoutMs: 100 });
   const before = await client.request('state.get', {});
+  assert.ok(
+    before.discoveredDevices.some((device) => device.deviceId === deviceId),
+    'scan did not rediscover the session device'
+  );
   await client.request('device.connect', { deviceId });
   const connected = await client.waitForState(
     (value) => value.activeConnection?.deviceId === deviceId && value.activeConnection.state === 'ready',
@@ -323,19 +328,19 @@ async function createCompletedSession(client: ConformanceClient, deviceId: strin
       'wheelslip',
     ]);
   }
-  const riding =
-    connected.activeConnection.latestSample?.rideState === 'riding'
-      ? connected
-      : await client.waitForState(
-          (value) =>
-            value.activeConnection?.deviceId === deviceId &&
-            value.activeConnection.latestSample?.rideState === 'riding',
-          { afterRevision: connected.revision }
-        );
+  let ridingState: AppState;
+  if (connected.activeConnection.latestSample?.rideState === 'riding') {
+    ridingState = connected;
+  } else {
+    ridingState = await client.waitForState(
+      (value) => value.activeConnection?.deviceId === deviceId && value.activeConnection.latestSample?.rideState === 'riding',
+      { afterRevision: connected.revision }
+    );
+  }
   await expectError(client.request('device.connect', { deviceId }), 'invalid_state');
   await client.request('device.disconnect', {});
   await client.waitForState((value) => value.activeConnection === null, {
-    afterRevision: riding.revision,
+    afterRevision: ridingState.revision,
   });
   const completed = await client.request('state.get', {});
   assert.ok(

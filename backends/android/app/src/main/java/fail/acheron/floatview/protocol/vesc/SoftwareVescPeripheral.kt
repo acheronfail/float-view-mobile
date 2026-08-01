@@ -18,7 +18,12 @@ class SoftwareVescPeripheral {
                         RefloatWire.INFO_FLAGS,
                     ),
                 ) -> RefloatWire.request(RefloatCommand.INFO, 10)
-                request.contentEquals(RefloatWire.request(RefloatCommand.GET_ALL_DATA)) -> telemetry
+                request.contentEquals(
+                    RefloatWire.request(
+                        RefloatCommand.GET_ALL_DATA,
+                        RefloatWire.LEGACY_TELEMETRY_DETAIL_LEVEL,
+                    ),
+                ) -> telemetry
                 else -> null
             } ?: return null
         return VescFrameCodec.encode(payload)
@@ -40,6 +45,8 @@ class SoftwareVescPeripheral {
                 this[3] = 3
                 this[23] = 2
                 this[24] = 4
+                // Legacy Refloat 1.0 reads the ride state from this low nibble.
+                this[10] = 1
                 this[33] = 128.toByte()
                 this[39] = 60
                 this[40] = 56

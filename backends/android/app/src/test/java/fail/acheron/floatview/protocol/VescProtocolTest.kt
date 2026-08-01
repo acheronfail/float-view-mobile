@@ -19,6 +19,7 @@ import fail.acheron.floatview.protocol.refloat.RefloatTelemetryFamily
 import fail.acheron.floatview.protocol.refloat.RefloatWireProfile
 import fail.acheron.floatview.protocol.vesc.VescCompatibility
 import fail.acheron.floatview.protocol.vesc.ControllerRoute
+import fail.acheron.floatview.protocol.vesc.SoftwareVescPeripheral
 import fail.acheron.floatview.protocol.vesc.VescAccessMode
 import fail.acheron.floatview.protocol.vesc.VescFirmwareVersion
 import fail.acheron.floatview.protocol.vesc.VescOperation
@@ -56,6 +57,19 @@ private fun refloatSourcePayload(name: String): ByteArray {
 }
 
 class VescProtocolTest {
+    @Test
+    fun softwareVescPeripheralProducesARidingLegacySample() {
+        val service = VescProtocolService()
+        val response = requireNotNull(
+            SoftwareVescPeripheral().response(
+                service.refloatLegacyTelemetryRequest(ControllerRoute.Direct),
+            ),
+        )
+        val message = service.receive(response).single() as VescProtocolMessage.RefloatTelemetry
+
+        assertEquals(RideState.RIDING, message.value.rideState)
+    }
+
     @Test
     fun exactCompatibilityCatalogsAndLegacyWireIdentityAreStable() {
         assertEquals(

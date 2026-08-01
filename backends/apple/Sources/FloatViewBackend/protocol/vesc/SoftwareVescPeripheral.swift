@@ -15,7 +15,10 @@ public struct SoftwareVescPeripheral: Sendable {
       parameters: [RefloatWire.infoProtocolVersion, RefloatWire.infoFlags]
     ):
       payload = RefloatWire.request(.info, parameters: [10])
-    case RefloatWire.request(.getAllData):
+    case RefloatWire.request(
+      .getAllData,
+      parameters: [RefloatWire.legacyTelemetryDetailLevel]
+    ):
       payload = Self.telemetry
     default:
       payload = nil
@@ -44,6 +47,9 @@ public struct SoftwareVescPeripheral: Sendable {
       3,
     ]
     payload[23 ... 24] = [2, 4]
+    // The software host advertises legacy Refloat 1.0, whose decoder reads
+    // the ride state from the low nibble at offset 10.
+    payload[10] = 1
     payload[33] = 128
     payload[39] = 60
     payload[40] = 56
