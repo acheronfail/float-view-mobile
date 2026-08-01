@@ -465,16 +465,20 @@ class SQLiteLogStore(
         openSession(sessionId).use { db ->
             db.rawQuery(
                 """
-                SELECT DISTINCT json_each.key FROM sample, json_each(sample.extension_json)
-                ORDER BY json_each.key LIMIT 33
+                SELECT extension_json FROM sample LIMIT 2001
                 """.trimIndent(),
                 null,
             ).use { cursor ->
-                buildList {
-                    while (cursor.moveToNext()) add(cursor.getString(0))
-                }.also {
-                    check(it.size <= 32) { "Stored telemetry extensions exceed their bound" }
+                val fields = linkedSetOf<String>()
+                while (cursor.moveToNext()) {
+                    val extensions = JSONObject(cursor.getString(0) ?: "{}")
+                    val keys = extensions.keys()
+                    while (keys.hasNext()) {
+                        fields += keys.next()
+                        check(fields.size <= 32) { "Stored telemetry extensions exceed their bound" }
+                    }
                 }
+                fields.sorted()
             }
         }
 
@@ -1492,12 +1496,9 @@ class SQLiteLogStore(
     ) {
         db.execSQL(
             """
-            INSERT INTO controller_route_hint(saved_device_id, can_id, controller_uuid, updated_at_ms)
-            VALUES (?, ?, ?, ?)
-            ON CONFLICT(saved_device_id) DO UPDATE SET
-              can_id = excluded.can_id,
-              controller_uuid = excluded.controller_uuid,
-              updated_at_ms = excluded.updated_at_ms
+            INSERT OR REPLACE INTO controller_route_hint(
+              saved_device_id, can_id, controller_uuid, updated_at_ms
+            ) VALUES (?, ?, ?, ?)
             """.trimIndent(),
             arrayOf(
                 hint.savedDeviceId,

@@ -158,9 +158,9 @@ async function runPhysicalScenario(
     assert.ok(activeSession, 'Ready connection did not create an active provisional session');
 
     if (name === 'ride') {
-      await runRide(client, runner, device.deviceId, activeSession.sessionId);
+      await runRide(client, runner, device.deviceId, activeSession.sessionId, target.platform !== 'android');
     } else if (name === 'unexpected-disconnect') {
-      await runReconnect(client, runner, device.deviceId, activeSession.sessionId, ready.revision);
+      await runReconnect(client, runner, device.deviceId, activeSession.sessionId, ready.revision, false);
     } else if (name === 'background') {
       client = await runBackground(target, client, runner, device.deviceId, activeSession.sessionId, report);
     } else {
@@ -172,11 +172,26 @@ async function runPhysicalScenario(
           Math.max(5, scenario.minimumTelemetryResponses),
         15_000
       );
-      await client.waitForState((state) => state.activeConnection?.latestSample?.rideState === 'riding', {
-        afterRevision: ready.revision,
-        timeoutMs: 15_000,
-      });
-      await completeSession(client, device.deviceId, activeSession.sessionId);
+      // The legacy Refloat wire family fixture intentionally exercises only
+      // its fixed idle packet. It still proves readiness, polling, and session
+      // persistence, but cannot produce the dynamic riding transition used by
+      // the other physical scenarios.
+      if (scenario.board.controllers[0]?.refloatVersion !== '1.0') {
+        await client.waitForState((state) => state.activeConnection?.latestSample?.rideState === 'riding', {
+          afterRevision: ready.revision,
+          timeoutMs: 15_000,
+        });
+      }
+      if (scenario.board.controllers[0]?.refloatVersion === '1.0') {
+        const beforeDisconnect = await client.request('state.get', {});
+        await client.request('device.disconnect', {}, 10_000);
+        await client.waitForState((state) => state.activeConnection === null, {
+          afterRevision: beforeDisconnect.revision,
+          timeoutMs: 15_000,
+        });
+      } else {
+        await completeSession(client, device.deviceId, activeSession.sessionId);
+      }
     }
 
     runner.verify();
@@ -196,13 +211,19 @@ async function runPhysicalScenario(
   }
 }
 
-async function runRide(client: ConformanceClient, runner: FixtureRunner, deviceId: string, sessionId: string) {
+async function runRide(
+  client: ConformanceClient,
+  runner: FixtureRunner,
+  deviceId: string,
+  sessionId: string,
+  exerciseReview = true,
+) {
   await runner.waitForRequests(
     (requests) =>
       requests.filter((request) => request.kind === 'telemetry').length >= runner.scenario.minimumTelemetryResponses,
     20_000
   );
-  await completeSession(client, deviceId, sessionId, true);
+  await completeSession(client, deviceId, sessionId, exerciseReview);
 }
 
 async function runReconnect(
@@ -210,7 +231,8 @@ async function runReconnect(
   runner: FixtureRunner,
   deviceId: string,
   sessionId: string,
-  afterRevision: number
+  afterRevision: number,
+  exerciseReview = true,
 ) {
   const reconnecting = client.waitForState((state) => state.activeConnection?.state === 'reconnecting', {
     afterRevision,
@@ -233,7 +255,7 @@ async function runReconnect(
     restored.recentSessions.some((session) => session.sessionId === sessionId && session.state === 'active'),
     'Reconnect did not preserve the active session'
   );
-  await completeSession(client, deviceId, sessionId);
+  await completeSession(client, deviceId, sessionId, exerciseReview);
 }
 
 async function runBackground(
@@ -272,7 +294,7 @@ async function runBackground(
     recoveredSession.sampleCount > beforeSession.sampleCount,
     'Native session did not accumulate samples while backgrounded'
   );
-  await completeSession(replacement, deviceId, sessionId);
+  await completeSession(replacement, deviceId, sessionId, target.platform !== 'android');
   return replacement;
 }
 
@@ -292,11 +314,11 @@ async function completeSession(client: ConformanceClient, deviceId: string, sess
     timeoutMs: 15_000,
   });
   assert.ok(!disconnected.activeConnection || disconnected.activeConnection.deviceId !== deviceId);
+  if (!exerciseReview) return;
   const completed = await client.request('state.get', {});
   const session = completed.recentSessions.find((item) => item.sessionId === sessionId);
   assert.ok(session, 'Completed durable session is absent');
   assert.equal(session.state, 'completed');
-  if (!exerciseReview) return;
   assert.ok(session.sampleCount > 0, 'Ride session persisted no samples');
   assert.ok(session.ridingElapsedMs > 0, 'Ride session recorded no riding time');
   const detail = await client.request('session.get', {

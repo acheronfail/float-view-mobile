@@ -92,6 +92,21 @@ test('physical target command construction uses normal Debug app paths', () => {
     '/tmp/launch.json',
     'fail.acheron.float-view',
   ]);
+  assert.deepEqual(iosPhysicalLaunchArguments('device', '/tmp/launch.json', false), [
+    'devicectl',
+    'device',
+    'process',
+    'launch',
+    '--device',
+    'device',
+    '--environment-variables',
+    '{"FLOAT_VIEW_CONFORMANCE_PORT":"11011"}',
+    '--terminate-existing',
+    '--quiet',
+    '--json-output',
+    '/tmp/launch.json',
+    'fail.acheron.float-view',
+  ]);
   assert.deepEqual(iosPhysicalTerminateArguments('device', 42), [
     'devicectl',
     'device',

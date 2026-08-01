@@ -41,7 +41,6 @@ export function androidPhysicalTarget(deviceSerial: string): PhysicalTarget {
     async start() {
       await prepareSuite();
       adb(deviceSerial, 'shell', 'am', 'force-stop', applicationId);
-      adb(deviceSerial, ...androidStorageResetArguments());
       adb(deviceSerial, 'shell', 'am', 'force-stop', 'com.android.intentresolver');
       launch(deviceSerial);
       return bootstrap();

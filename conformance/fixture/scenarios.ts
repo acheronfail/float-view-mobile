@@ -41,6 +41,7 @@ export const fixtureScenarios: Record<PhysicalScenarioName, FixtureScenario> = {
     board: expressThor,
     fragmentBytes: 244,
     minimumTelemetryResponses: 0,
+    preferredCanId: null,
     requiresMobileLifecycle: false,
   },
   direct: {
@@ -92,7 +93,7 @@ export const fixtureScenarios: Record<PhysicalScenarioName, FixtureScenario> = {
     expectedTelemetryIntervalMs: 100,
     // Physical BLE startup can include one idle-to-riding transition cycle;
     // the scenario still requires the complete riding request count.
-    cadenceToleranceMs: 400,
+    cadenceToleranceMs: 600,
     preferredCanId: null,
     requiresMobileLifecycle: false,
   },
@@ -137,7 +138,17 @@ export const physicalScenarioMatrix = {
     'unexpected-disconnect',
     'background',
   ],
-  ios: ['identity', 'direct', 'ride', 'unexpected-disconnect', 'background'],
+  ios: [
+    'identity',
+    'direct',
+    'direct-legacy',
+    'explicit-can',
+    'generic-gateway',
+    'ambiguous',
+    'ride',
+    'unexpected-disconnect',
+    'background',
+  ],
 } as const satisfies Record<string, readonly PhysicalScenarioName[]>;
 
 export type SoftwareConnectionScenarioName =

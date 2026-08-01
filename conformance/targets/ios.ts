@@ -164,7 +164,7 @@ export function iosPhysicalTarget(deviceId: string): PhysicalTarget {
       const launchResult = join(scratch, `launch-${++launchSequence}.json`);
       await runBuffered(
         'xcrun',
-        iosPhysicalLaunchArguments(deviceId, launchResult),
+        iosPhysicalLaunchArguments(deviceId, launchResult, launchSequence === 1),
         'iOS application launch',
         DEVICE_TIMEOUT_MS
       );
@@ -199,7 +199,7 @@ export function iosPhysicalBuildArguments(project: string, destination: string, 
   ];
 }
 
-export function iosPhysicalLaunchArguments(deviceId: string, jsonOutput: string) {
+export function iosPhysicalLaunchArguments(deviceId: string, jsonOutput: string, reset = true) {
   return [
     'devicectl',
     'device',
@@ -207,11 +207,11 @@ export function iosPhysicalLaunchArguments(deviceId: string, jsonOutput: string)
     'launch',
     '--device',
     deviceId,
-    '--environment-variables',
-    JSON.stringify({
-      FLOAT_VIEW_CONFORMANCE_PORT: String(devicePort),
-      FLOAT_VIEW_CONFORMANCE_RESET: '1',
-    }),
+      '--environment-variables',
+      JSON.stringify({
+        FLOAT_VIEW_CONFORMANCE_PORT: String(devicePort),
+        ...(reset ? { FLOAT_VIEW_CONFORMANCE_RESET: '1' } : {}),
+      }),
     '--terminate-existing',
     '--quiet',
     '--json-output',

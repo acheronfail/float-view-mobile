@@ -134,7 +134,7 @@ test('fixture runner retries reset when serial-open reboot loses initial command
 });
 
 test('physical scenario matrix excludes desktop backgrounding', () => {
-  assert.deepEqual(physicalScenarioMatrix.macos, [
+  const connectionScenarios = [
     'identity',
     'direct',
     'direct-legacy',
@@ -143,7 +143,10 @@ test('physical scenario matrix excludes desktop backgrounding', () => {
     'ambiguous',
     'ride',
     'unexpected-disconnect',
-  ]);
+  ];
+  assert.deepEqual(physicalScenarioMatrix.macos, connectionScenarios);
+  assert.deepEqual(physicalScenarioMatrix.ios, [...connectionScenarios, 'background']);
+  assert.deepEqual(physicalScenarioMatrix.android, [...connectionScenarios, 'background']);
   assert.ok(physicalScenarioMatrix.android.includes('background'));
   assert.ok(physicalScenarioMatrix.ios.includes('background'));
 });
