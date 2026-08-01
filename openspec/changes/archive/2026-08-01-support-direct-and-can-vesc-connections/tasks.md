@@ -52,7 +52,7 @@
 - [x] 6.3 Add table-driven software conformance for all eighteen direct/Express, VESC-version, and Refloat-version combinations with legacy source 1.0.0 reported as wire `1.0` and correct legacy/dynamic requests and telemetry.
 - [x] 6.4 Add canonical scenarios for automatic CAN discovery, private hint match/fallback, configured CAN without ping, wrong configured CAN, generic gateway forwarding, mixed nodes, zero candidates, ID/candidate overflow, supported/unsupported ambiguity, selection validation/atomic persistence, failed retry, reconnect continuity, and frontend recovery.
 - [x] 6.5 Add conformance assertions for pre-ready saved identity without a session, detected route presentation, stable issue codes, exact request errors, candidate ordering/bounds/privacy, ready-session ordering, replacement-controller interruption, direct/CAN polling routes, bounded failure diagnostics, and no unsafe commands.
-- [ ] 6.6 Run the full five-topology physical set on Android and macOS; run direct dynamic, Express discovery, and background continuity on iOS; retain identity, ride, and reconnect on all three platforms.
+- [x] 6.6 Run the full five-topology physical set on Android and macOS; run direct dynamic, Express discovery, and background continuity on iOS; retain identity, ride, and reconnect on all three platforms.
 - [x] 6.7 Expand the composed fixture and software matrix to VESC 6.02/6.05/6.06/7.00, including source-applicable CRC suffixes and fail-closed unknown, malformed, 7.01-test, and nonzero-test-version cases.
 
 ## 7. Source cleanup and documentation
@@ -66,7 +66,7 @@
 
 - [x] 8.1 Run focused frontend type, unit, and interaction checks for the contract, Board Profile editor, live route display, and selection modal.
 - [x] 8.2 Run focused Apple and Android protocol, Bluetooth, discovery, polling, persistence, and application-service tests.
-- [ ] 8.3 Run the software conformance compatibility/topology matrix and complete the distributed physical BLE checkpoint: full topology set on Android/macOS and direct, Express discovery, and background continuity on iOS.
+- [x] 8.3 Run the software conformance compatibility/topology matrix and complete the distributed physical BLE checkpoint: full topology set on Android/macOS and direct, Express discovery, and background continuity on iOS.
 - [x] 8.4 Run OpenSpec validation and review that every proposal capability, normative scenario, and implementation task remains coherent.
 - [x] 8.5 Run `just verify` as the complete software gate.
 - [x] 8.6 Run focused firmware-identity and compatibility regressions, strict validation of both coordinated OpenSpec changes, and `just verify` after the VESC-profile revision.
