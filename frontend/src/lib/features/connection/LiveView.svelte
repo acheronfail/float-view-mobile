@@ -7,6 +7,8 @@
   import { activateFromKeyboardOrAssistiveClick, activateFromPointer } from '$lib/ui/activation';
   import BottomSheet from '$lib/ui/BottomSheet.svelte';
   import ConfirmDialog from '$lib/ui/ConfirmDialog.svelte';
+  import Menu from '$lib/ui/Menu.svelte';
+  import MenuItem from '$lib/ui/MenuItem.svelte';
   import ControllerSelection from './ControllerSelection.svelte';
   import TelemetrySection from './TelemetrySection.svelte';
   import {
@@ -26,7 +28,6 @@
   import GaugePower from './GaugePower.svelte';
   import GaugeTemperatures from './GaugeTemperatures.svelte';
 
-  let menuOpen = $state(false);
   let configureOpen = $state(false);
   let disconnectConfirmationOpen = $state(false);
   let disconnecting = $state(false);
@@ -94,8 +95,8 @@
       .padStart(2, '0')}:${(seconds % 60).toString().padStart(2, '0')}`;
   }
 
-  function requestDisconnect() {
-    menuOpen = false;
+  function requestDisconnect(closeMenu: () => void) {
+    closeMenu();
     if (shouldConfirmDisconnect(sample?.rideState)) {
       disconnectConfirmationOpen = true;
       return;
@@ -118,8 +119,8 @@
     menuButton?.focus();
   }
 
-  async function openConfigure() {
-    menuOpen = false;
+  async function openConfigure(closeMenu?: () => void) {
+    closeMenu?.();
     configureOpen = true;
   }
 
@@ -130,10 +131,6 @@
     configureOpen = false;
     await tick();
     menuButton?.focus();
-  }
-
-  function toggleMenu() {
-    menuOpen = !menuOpen;
   }
 </script>
 
@@ -147,36 +144,19 @@
           {live ? 'Connected' : connection.state.replaceAll('_', ' ')}
         </p>
       </div>
-      <button
-        bind:this={menuButton}
-        type="button"
-        class="grid h-11 w-11 touch-manipulation place-items-center rounded-full border border-outline bg-surface text-xl"
-        aria-label="Board actions"
-        aria-expanded={menuOpen}
-        onpointerdown={(event) => activateFromPointer(event, toggleMenu)}
-        onclick={(event) => activateFromKeyboardOrAssistiveClick(event, toggleMenu)}>⋮</button
-      >
-      {#if menuOpen}
-        <div
-          class="absolute top-12 right-0 z-20 min-w-52 overflow-hidden rounded-xl border border-outline bg-elevated shadow-xl"
-        >
+      <Menu label="Board actions" bind:button={menuButton}>
+        {#snippet children(closeMenu)}
           {#if connection.savedDeviceId}
-            <button
-              type="button"
-              class="block w-full touch-manipulation px-4 py-3 text-left hover:bg-surface"
-              onpointerdown={(event) => activateFromPointer(event, openConfigure)}
-              onclick={(event) => activateFromKeyboardOrAssistiveClick(event, openConfigure)}>Configure board</button
-            >
+            <MenuItem label="Configure board" onactivate={() => openConfigure(closeMenu)} />
           {/if}
-          <button
-            type="button"
-            class="block w-full touch-manipulation px-4 py-3 text-left text-danger hover:bg-surface"
+          <MenuItem
+            label="Disconnect"
+            destructive
             disabled={backendState.busy}
-            onpointerdown={(event) => activateFromPointer(event, requestDisconnect)}
-            onclick={(event) => activateFromKeyboardOrAssistiveClick(event, requestDisconnect)}>Disconnect</button
-          >
-        </div>
-      {/if}
+            onactivate={() => requestDisconnect(closeMenu)}
+          />
+        {/snippet}
+      </Menu>
     </header>
 
     {#if connection.firmware && !connection.firmware.supported}

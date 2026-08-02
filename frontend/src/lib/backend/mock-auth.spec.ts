@@ -81,6 +81,31 @@ describe.sequential('mock transport authentication', () => {
     expect(accepted.headers.get('cache-control')).toBe('no-store');
   });
 
+  it('authenticates browser session-export downloads', async () => {
+    const port = await startMockServer(0);
+    running = true;
+    const bootstrap = getMockBootstrap(port);
+    const token = new URL(bootstrap.webSocketUrl).searchParams.get('token') ?? '';
+    const denied = await fetch(`http://127.0.0.1:${port}/api/session-export`, {
+      method: 'POST',
+      headers: { Origin: DEVELOPMENT_ORIGIN, 'X-Float-View-Token': 'invalid' },
+      body: JSON.stringify({ sessionId: 'session-1', format: 'csv' }),
+    });
+    expect(denied.status).toBe(403);
+    const accepted = await fetch(`http://127.0.0.1:${port}/api/session-export`, {
+      method: 'POST',
+      headers: {
+        Origin: DEVELOPMENT_ORIGIN,
+        'X-Float-View-Token': token,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ sessionId: 'session-1', format: 'csv' }),
+    });
+    expect(accepted.status).toBe(200);
+    expect(accepted.headers.get('content-disposition')).toContain('.csv');
+    expect(await accepted.text()).toContain('sequence,elapsed_ms');
+  });
+
   it('serves gzip event pages with no-store disclosure', async () => {
     const port = await startMockServer(0);
     running = true;

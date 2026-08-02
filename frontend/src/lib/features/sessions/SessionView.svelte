@@ -1,16 +1,20 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { onMount, tick } from 'svelte';
   import { goto } from '$app/navigation';
   import { backendState } from '$lib/backend/state.svelte';
   import { formatDistanceM } from '$lib/features/measurements/format';
-  import { activateFromKeyboardOrAssistiveClick, activateFromPointer } from '$lib/ui/activation';
   import ConfirmDialog from '$lib/ui/ConfirmDialog.svelte';
+  import Menu from '$lib/ui/Menu.svelte';
+  import MenuItem from '$lib/ui/MenuItem.svelte';
+  import { sessionExportLabel } from './session-export';
   import SessionHistory from './SessionHistory.svelte';
   import SessionEvents from './SessionEvents.svelte';
 
   let { sessionId }: { sessionId: string } = $props();
+  let menuButton = $state<HTMLButtonElement>();
   let deleteConfirmationOpen = $state(false);
   let deleting = $state(false);
+  let sessionHeaderHeight = $state(0);
   const units = $derived(backendState.settings?.unitPreference ?? 'metric');
 
   onMount(() => {
@@ -24,12 +28,20 @@
     };
   });
 
-  function requestDeleteSession() {
+  function requestDeleteSession(closeMenu: () => void) {
+    closeMenu();
     if (backendState.selectedSession) deleteConfirmationOpen = true;
   }
 
-  function cancelDeleteSession() {
+  async function cancelDeleteSession() {
     deleteConfirmationOpen = false;
+    await tick();
+    menuButton?.focus();
+  }
+
+  async function exportSession(closeMenu: () => void, format: 'float-view-archive' | 'csv') {
+    closeMenu();
+    await backendState.exportSession(format);
   }
 
   async function deleteSession() {
@@ -40,12 +52,62 @@
     deleteConfirmationOpen = false;
     if (deleted) await goto('#/sessions', { replaceState: true });
   }
+
+  function observeSessionHeader(node: HTMLElement) {
+    const updateHeight = () => {
+      sessionHeaderHeight = node.getBoundingClientRect().height;
+    };
+    updateHeight();
+    if (typeof ResizeObserver === 'undefined') return;
+
+    const observer = new ResizeObserver(updateHeight);
+    observer.observe(node);
+    return { destroy: () => observer.disconnect() };
+  }
 </script>
 
-<section aria-labelledby="session-heading">
-  <a class="text-accent" href="#/sessions">← Sessions</a>
+<section
+  aria-labelledby="session-heading"
+  class="space-y-2"
+  style={`--session-chart-header-top: calc(max(1.5rem, env(safe-area-inset-top, 0px)) + ${sessionHeaderHeight}px)`}
+>
   {#if backendState.selectedSession}
-    <p class="mt-2 text-lg">{backendState.selectedSession.displayName}</p>
+    <header
+      use:observeSessionHeader
+      class="sticky z-20 flex items-start justify-between gap-4 border-b border-b-accent-soft bg-canvas"
+      style="top: max(1.5rem, env(safe-area-inset-top, 0px))"
+    >
+      <span
+        aria-hidden="true"
+        class="pointer-events-none absolute right-0 bottom-full left-0 bg-canvas"
+        style="height: max(1.5rem, env(safe-area-inset-top, 0px))"
+      ></span>
+      <div class="min-w-0">
+        <a class="text-accent" href="#/sessions">← Sessions</a>
+        <h2 id="session-heading" class="mt-2 text-lg">{backendState.selectedSession.displayName}</h2>
+      </div>
+      <Menu label="Session actions" bind:button={menuButton}>
+        {#snippet children(closeMenu)}
+          <MenuItem
+            label={sessionExportLabel(backendState.platform, 'float-view-archive')}
+            disabled={backendState.busy || backendState.selectedSession?.state === 'active'}
+            onactivate={() => exportSession(closeMenu, 'float-view-archive')}
+          />
+          <MenuItem
+            label={sessionExportLabel(backendState.platform, 'csv')}
+            disabled={backendState.busy || backendState.selectedSession?.state === 'active'}
+            onactivate={() => exportSession(closeMenu, 'csv')}
+          />
+          <MenuItem
+            label="Delete session"
+            destructive
+            disabled={backendState.busy || backendState.selectedSession?.state === 'active'}
+            onactivate={() => requestDeleteSession(closeMenu)}
+          />
+        {/snippet}
+      </Menu>
+    </header>
+
     <div class="mt-4 grid grid-cols-2 gap-3">
       <div class="rounded-lg border border-outline bg-elevated p-3">
         <p class="text-sm text-muted">Samples</p>
@@ -64,40 +126,6 @@
     {/if}
 
     {#if backendState.sessionMetadata}<SessionEvents metadata={backendState.sessionMetadata} />{/if}
-
-    <div class="mt-5 rounded-lg border border-outline p-4">
-      <h3 class="font-medium">Session file</h3>
-      <p class="mt-1 text-sm text-muted">Exports open in the native platform save or share surface.</p>
-      <div class="mt-3 flex flex-wrap gap-2">
-        <button
-          type="button"
-          class="touch-manipulation rounded-md bg-elevated px-3 py-2 disabled:opacity-50"
-          disabled={backendState.busy || backendState.selectedSession.state === 'active'}
-          onpointerdown={(event) => activateFromPointer(event, () => backendState.exportSession('float-view-archive'))}
-          onclick={(event) =>
-            activateFromKeyboardOrAssistiveClick(event, () => backendState.exportSession('float-view-archive'))}
-          >Save/share archive</button
-        >
-        <button
-          type="button"
-          class="touch-manipulation rounded-md bg-elevated px-3 py-2 disabled:opacity-50"
-          disabled={backendState.busy || backendState.selectedSession.state === 'active'}
-          onpointerdown={(event) => activateFromPointer(event, () => backendState.exportSession('csv'))}
-          onclick={(event) => activateFromKeyboardOrAssistiveClick(event, () => backendState.exportSession('csv'))}
-          >Save/share CSV</button
-        >
-        <button
-          type="button"
-          class="touch-manipulation rounded-md bg-danger px-3 py-2 text-on-danger disabled:opacity-50"
-          disabled={backendState.busy || backendState.selectedSession.state === 'active'}
-          onpointerdown={(event) => activateFromPointer(event, requestDeleteSession)}
-          onclick={(event) => activateFromKeyboardOrAssistiveClick(event, requestDeleteSession)}>Delete session</button
-        >
-      </div>
-      {#if backendState.exportStatus}<p class="mt-3 text-sm text-success">
-          {backendState.exportStatus}
-        </p>{/if}
-    </div>
   {:else}
     <p class="mt-3 text-muted">Loading session…</p>
   {/if}

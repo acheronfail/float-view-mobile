@@ -100,7 +100,8 @@ final class AppBackend: ObservableObject {
         .flatMap(UInt16.init) ?? PlatformLoopbackPort.iOS,
       applicationService: applicationService,
       exportPresenter: { @Sendable value in IOSExportPresenter.schedule(value) },
-      events: events
+      events: events,
+      platform: "ios"
     )
     activateFrontend()
   }

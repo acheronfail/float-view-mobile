@@ -16,6 +16,12 @@
   } from './history-geometry';
   import { sessionFieldDisplayName, sessionFieldUnit } from './session-fields';
   import { clampViewport, panViewport, pinchViewport, type Viewport } from './viewport';
+    import SectionTitle from '../../ui/SectionTitle.svelte';
+
+  // TODO: only show `reset` button on non-touch devices, and only when zoomed
+  // TODO: some charts axes should always show 0
+  // TODO: combine some fields in to a single chart, and also have clickable legends to show/hide
+  // TODO: sticky `<- Sessions` and menu in header
 
   let { metadata }: { metadata: SessionMetadata } = $props();
   let plot = $state<HTMLElement | null>(null);
@@ -38,7 +44,6 @@
   let reviewController: SessionReviewController | null = null;
   let activeField = $state('');
   let inspectionMs = $state(0);
-  let exactValue = $state<number | null>(null);
   let exactStatus = $state<'idle' | 'pending' | 'exact' | 'unavailable' | 'error'>('idle');
   let inspectionFrame: number | null = null;
   let inspectionDebounce: number | null = null;
@@ -56,6 +61,8 @@
   const MIN_SELECTION_PIXELS = 8;
   const INTERACTION_MODES = ['zoom', 'pan', 'info'] as const;
 
+  // TODO: persist this state so it's remembered when navigating around
+  // TODO: different color per mode
   type InteractionMode = (typeof INTERACTION_MODES)[number];
   let interactionMode = $state<InteractionMode>('zoom');
 
@@ -179,7 +186,6 @@
     if (changed) inspectionRequestVersion += 1;
     if (!changed && exactStatus === 'exact') return;
     exactStatus = 'pending';
-    exactValue = null;
     queuedInspection = target;
     if (inspectionFrame !== null || typeof window === 'undefined') return;
     inspectionFrame = window.requestAnimationFrame(() => {
@@ -217,13 +223,11 @@
       });
       if (requestVersion === inspectionRequestVersion && inspectionMs === target && activeField === field) {
         const value = response.values[field]?.[0] ?? null;
-        exactValue = value;
         exactStatus = value === null ? 'unavailable' : 'exact';
       }
     } catch (reason) {
       if (!(reason instanceof DOMException && reason.name === 'AbortError')) {
         if (requestVersion === inspectionRequestVersion && inspectionMs === target && activeField === field) {
-          exactValue = null;
           exactStatus = 'error';
         }
       }
@@ -231,14 +235,6 @@
       inspectionInFlight = false;
       scheduleInspectionRequest();
     }
-  }
-
-  function inspectionFieldChanged() {
-    inspectionRequestVersion += 1;
-    exactStatus = 'pending';
-    exactValue = null;
-    queuedInspection = inspectionMs;
-    scheduleInspectionRequest();
   }
 
   function elapsedAtClientX(clientX: number, bounds: DOMRect): number {
@@ -249,13 +245,6 @@
   function reset() {
     previewViewport = null;
     viewport = clampViewport({ startElapsedMs: 0, endElapsedMs: duration }, duration);
-  }
-
-  function zoom(factor: number) {
-    const center = (visibleViewport.startElapsedMs + visibleViewport.endElapsedMs) / 2;
-    const nextSpan = Math.max(1, Math.min(duration, span * factor));
-    viewport = clampViewport({ startElapsedMs: center - nextSpan / 2, endElapsedMs: center + nextSpan / 2 }, duration);
-    previewViewport = null;
   }
 
   function isTouchPointer(event: PointerEvent): boolean {
@@ -471,7 +460,6 @@
       inspectionDebounce = null;
     }
     exactStatus = 'idle';
-    exactValue = null;
   }
 
   onMount(() => {
@@ -530,85 +518,10 @@
 </script>
 
 <div bind:this={plot} class="mt-3">
-  <div class="flex flex-wrap items-center justify-between gap-2">
-    <div class="flex gap-2">
-      <button
-        type="button"
-        class="touch-manipulation rounded bg-elevated px-2 py-1 text-xs"
-        onpointerdown={(event) => activateFromPointer(event, () => zoom(0.5))}
-        onclick={(event) => activateFromKeyboardOrAssistiveClick(event, () => zoom(0.5))}>Zoom in</button
-      >
-      <button
-        type="button"
-        class="touch-manipulation rounded bg-elevated px-2 py-1 text-xs"
-        onpointerdown={(event) => activateFromPointer(event, () => zoom(2))}
-        onclick={(event) => activateFromKeyboardOrAssistiveClick(event, () => zoom(2))}>Zoom out</button
-      >
-      <button
-        type="button"
-        class="touch-manipulation rounded bg-elevated px-2 py-1 text-xs"
-        onpointerdown={(event) => activateFromPointer(event, reset)}
-        onclick={(event) => activateFromKeyboardOrAssistiveClick(event, reset)}>Reset</button
-      >
-      <button
-        type="button"
-        class="touch-manipulation rounded bg-elevated px-2 py-1 text-xs"
-        onpointerdown={(event) =>
-          activateFromPointer(event, () => {
-            viewport = panViewport(viewport, -span * 0.25, duration);
-          })}
-        onclick={(event) =>
-          activateFromKeyboardOrAssistiveClick(event, () => {
-            viewport = panViewport(viewport, -span * 0.25, duration);
-          })}>Earlier</button
-      >
-      <button
-        type="button"
-        class="touch-manipulation rounded bg-elevated px-2 py-1 text-xs"
-        onpointerdown={(event) =>
-          activateFromPointer(event, () => {
-            viewport = panViewport(viewport, span * 0.25, duration);
-          })}
-        onclick={(event) =>
-          activateFromKeyboardOrAssistiveClick(event, () => {
-            viewport = panViewport(viewport, span * 0.25, duration);
-          })}>Later</button
-      >
-    </div>
-  </div>
-  <div class="mt-3 flex flex-wrap items-center gap-2 text-xs">
-    <label for="history-inspection-field">Inspect</label>
-    <select
-      id="history-inspection-field"
-      bind:value={activeField}
-      onchange={inspectionFieldChanged}
-      class="rounded bg-elevated px-2 py-1"
-    >
-      {#each fields as field (field.name)}<option value={field.name}>{sessionFieldDisplayName(field.name)}</option
-        >{/each}
-    </select>
-    <input
-      id="history-inspection-range"
-      class="min-w-44 flex-1"
-      type="range"
-      min="0"
-      max={duration}
-      step="1"
-      bind:value={inspectionMs}
-      aria-label="Inspect elapsed time"
-      aria-valuetext={`${inspectionMs} milliseconds elapsed`}
-      oninput={(event) => queueInspection(Number((event.currentTarget as HTMLInputElement).value))}
-    />
-    <span aria-live="polite">
-      {#if exactStatus === 'pending'}Loading exact value…
-      {:else if exactStatus === 'exact'}{activeField}: {exactValue}
-      {:else if exactStatus === 'unavailable'}{activeField}: unavailable
-      {:else if exactStatus === 'error'}Exact value unavailable
-      {:else}No exact value selected{/if}
-    </span>
-  </div>
   {#if loading}<p class="mt-2 text-xs text-muted" role="status">Loading chart data…</p>{/if}
+
   {#if error}<p class="mt-2 text-sm text-warning" role="alert">{error}</p>{/if}
+
   {#if result}
     <div class="mt-3 space-y-3">
       {#each fieldGroups as group, groupIndex (groupIndex)}
@@ -616,14 +529,17 @@
           {#if groupLoading.get(groupIndex) && !groupResults.has(groupIndex)}
             <p class="text-xs text-muted" role="status">Loading group {groupIndex + 1}…</p>
           {/if}
+
           {#if groupErrors.get(groupIndex)}
             <p class="text-xs text-warning" role="alert">{groupErrors.get(groupIndex)}</p>
           {/if}
+
           {#each group as field (field.name)}
             {@const column = result?.columns[field.name]}
             {@const paths = column ? path(column) : []}
             {@const domain = column ? finiteDomain(column.values) : null}
             {@const yTicks = axisTicks(domain, Y_TICK_COUNT)}
+            {@const yTickLabels = [...yTicks].reverse()}
             {@const zero = zeroReference(domain)}
             {@const point =
               column && domain
@@ -634,23 +550,19 @@
                   })
                 : null}
             <div>
-              <div class="flex items-baseline justify-between gap-2 text-xs">
-                <span class="font-mono text-sm font-semibold tracking-[0.10em] text-accent"
-                  >{sessionFieldDisplayName(field.name)}</span
-                >
-                <span class="text-muted">{sessionFieldUnit(field.name) ?? 'value'}</span>
-              </div>
+              <SectionTitle title={sessionFieldDisplayName(field.name)} detail={sessionFieldUnit(field.name) ?? 'value'} />
+
               {#if paths.length}
-                <div class="mt-1 flex items-stretch gap-1">
+                <div class="mt-2 flex items-stretch gap-1">
                   <div
-                    class="flex h-24 w-12 shrink-0 flex-col justify-between text-right text-[8px] leading-none text-muted"
+                    class="flex h-36 shrink-0 text-right flex-col justify-between text-[8px] leading-none text-muted"
                     aria-hidden="true"
                   >
-                    {#each yTicks as tick (tick)}<span>{formatAxisTick(tick)}</span>{/each}
+                    {#each yTickLabels as tick (tick)}<span>{formatAxisTick(tick)}</span>{/each}
                   </div>
                   <div class="relative min-w-0 flex-1">
                     <svg
-                      class="block h-24 w-full touch-pan-y rounded bg-canvas"
+                      class="block h-36 w-full touch-pan-y rounded bg-canvas"
                       viewBox={`0 0 ${CHART_WIDTH} ${CHART_HEIGHT}`}
                       preserveAspectRatio="none"
                       role="img"
@@ -792,6 +704,19 @@
       {/each}
     </div>
   {:else if !loading}<p class="mt-2 text-sm text-muted">No retained numeric history is available.</p>{/if}
+
+  {#if !touchDevice && isZoomed}
+    <div class="mt-2 flex flex-wrap items-center justify-between gap-2">
+      <div class="flex gap-2">
+        <button
+          type="button"
+          class="rounded-lg bg-accent px-4 py-2 text-on-accent"
+          onpointerdown={(event) => activateFromPointer(event, reset)}
+          onclick={(event) => activateFromKeyboardOrAssistiveClick(event, reset)}>Reset Zoom</button
+        >
+      </div>
+    </div>
+  {/if}
 </div>
 
 {#if touchDevice}

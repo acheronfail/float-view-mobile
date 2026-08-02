@@ -1,7 +1,10 @@
 import { randomBytes } from 'node:crypto';
+import { DatabaseSync } from 'node:sqlite';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import express from 'express';
 import { createServer } from 'node:http';
-import path from 'node:path';
+import { tmpdir } from 'node:os';
+import path, { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { WebSocketServer } from 'ws';
 import { MAX_MESSAGE_BYTES, MAX_SESSION_DATA_REQUEST_BYTES } from '../src/lib/backend/contract.ts';
@@ -27,6 +30,7 @@ const expectedOrigin = DEVELOPMENT_ORIGIN;
 const gzipAsync = promisify(gzip);
 let sessionToken = randomBytes(32).toString('base64url');
 let mockRunning = false;
+let activeMockBackend: MockBackend | undefined;
 
 const app = express();
 const server = createServer(app);
@@ -36,7 +40,54 @@ app.get('/api/bootstrap', (_request, response) => {
   response.set('Cache-Control', 'no-store').json({
     webSocketUrl: '/api/ws',
     sessionDataUrl: '/api/session-data',
+    sessionExportUrl: '/api/session-export',
     sessionToken,
+    platform: 'web',
+  });
+});
+
+app.post('/api/session-export', (request, response) => {
+  response.set('Cache-Control', 'no-store');
+  if (request.headers.origin !== expectedOrigin || request.headers['x-float-view-token'] !== sessionToken) {
+    response.status(403).end();
+    return;
+  }
+  if (Number(request.headers['content-length'] ?? 0) > 16_384) {
+    response.status(413).end();
+    return;
+  }
+  const chunks: Buffer[] = [];
+  let bytes = 0;
+  request.on('data', (chunk: Buffer) => {
+    bytes += chunk.byteLength;
+    if (bytes <= 16_384) chunks.push(chunk);
+  });
+  request.on('end', () => {
+    if (bytes > 16_384) {
+      response.status(413).end();
+      return;
+    }
+    try {
+      const payload = JSON.parse(Buffer.concat(chunks).toString('utf8')) as { sessionId?: unknown; format?: unknown };
+      const sessionId = typeof payload.sessionId === 'string' ? payload.sessionId : '';
+      const format = payload.format === 'csv' || payload.format === 'float-view-archive' ? payload.format : undefined;
+      if (!sessionId || !format) {
+        response.status(400).end();
+        return;
+      }
+      if (!activeMockBackend?.hasSession(sessionId)) {
+        response.status(404).end();
+        return;
+      }
+      const exported = createMockExport(sessionId, format);
+      response.set({
+        'Content-Type': exported.contentType,
+        'Content-Disposition': `attachment; filename="${exported.fileName}"`,
+      });
+      response.status(200).end(exported.body);
+    } catch {
+      response.status(400).end();
+    }
   });
 });
 
@@ -136,6 +187,7 @@ function createWebSocketServer() {
       if (client.readyState === client.OPEN) sendNewestState(client, payload);
     }
   });
+  activeMockBackend = backend;
   let telemetryTimer: NodeJS.Timeout;
   const publishNextSample = () => {
     backend.publishTelemetry();
@@ -143,7 +195,10 @@ function createWebSocketServer() {
     telemetryTimer.unref();
   };
   publishNextSample();
-  value.once('close', () => clearTimeout(telemetryTimer));
+  value.once('close', () => {
+    clearTimeout(telemetryTimer);
+    if (activeMockBackend === backend) activeMockBackend = undefined;
+  });
   value.on('connection', (webSocket) => {
     webSocket.on('message', (data) => {
       webSocket.send(JSON.stringify(backend.handlePayload(data.toString())));
@@ -258,8 +313,43 @@ function mockSessionDataResult(request: SessionDataRequest): Record<string, unkn
 export function getMockBootstrap(port: number) {
   return {
     webSocketUrl: `ws://127.0.0.1:${port}/api/ws?token=${encodeURIComponent(sessionToken)}`,
+    sessionExportUrl: '/api/session-export',
     origin: expectedOrigin,
+    platform: 'web' as const,
   };
+}
+
+function createMockExport(
+  sessionId: string,
+  format: 'float-view-archive' | 'csv'
+): { fileName: string; contentType: string; body: Buffer } {
+  const fileName = `float-view-${sessionId}.${format === 'csv' ? 'csv' : 'floatview'}`;
+  if (format === 'csv') {
+    return {
+      fileName,
+      contentType: 'text/csv',
+      body: Buffer.from('sequence,elapsed_ms,speed_kph,distance_m\n0,0,0,0\n1,60000,20,300\n', 'utf8'),
+    };
+  }
+
+  const directory = mkdtempSync(join(tmpdir(), 'float-view-export-'));
+  const pathName = join(directory, fileName);
+  let database: DatabaseSync | undefined;
+  try {
+    database = new DatabaseSync(pathName);
+    const escapedSessionId = sessionId.replaceAll("'", "''");
+    database.exec(
+      `CREATE TABLE float_view_archive_metadata(key TEXT PRIMARY KEY NOT NULL, value TEXT NOT NULL);\n` +
+        `INSERT INTO float_view_archive_metadata(key, value) VALUES ('format_version', '1');\n` +
+        `INSERT INTO float_view_archive_metadata(key, value) VALUES ('session', '${escapedSessionId}');`
+    );
+    database.close();
+    database = undefined;
+    return { fileName, contentType: 'application/octet-stream', body: readFileSync(pathName) };
+  } finally {
+    database?.close();
+    rmSync(directory, { recursive: true, force: true });
+  }
 }
 
 export function stopMockServer(): Promise<void> {

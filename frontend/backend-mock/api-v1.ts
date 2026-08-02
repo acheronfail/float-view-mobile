@@ -705,6 +705,10 @@ export class MockBackend {
     return this.sessionCatalog.find((item) => item.sessionId === sessionId);
   }
 
+  hasSession(sessionId: string): boolean {
+    return Boolean(this.findSession({ sessionId }));
+  }
+
   private sessionList(
     cursor: unknown,
     limit: number

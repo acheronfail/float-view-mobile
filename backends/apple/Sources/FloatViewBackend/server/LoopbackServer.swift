@@ -24,6 +24,7 @@ public final class LoopbackServer: @unchecked Sendable {
   }
 
   private let html: Data
+  private let platform: String
   private let requestedPort: UInt16
   private let applicationService: ApplicationService
   private let exportPresenter: (@Sendable (SessionExportRecord) -> Bool)?
@@ -39,9 +40,11 @@ public final class LoopbackServer: @unchecked Sendable {
     port: UInt16 = 0,
     applicationService: ApplicationService,
     exportPresenter: (@Sendable (SessionExportRecord) -> Bool)? = nil,
-    events: EventHub
+    events: EventHub,
+    platform: String = "macos"
   ) {
     self.html = html
+    self.platform = platform
     requestedPort = port
     self.applicationService = applicationService
     self.exportPresenter = exportPresenter
@@ -69,7 +72,9 @@ public final class LoopbackServer: @unchecked Sendable {
         let body = try JSONSerialization.data(withJSONObject: [
           "webSocketUrl": "\(self.origin.replacingOccurrences(of: "http", with: "ws"))/api/ws",
           "sessionDataUrl": "\(self.origin)/api/session-data",
+          "sessionExportUrl": "\(self.origin)/api/session-export",
           "sessionToken": self.token,
+          "platform": self.platform,
         ])
         return HTTPResponse(
           statusCode: .ok,
@@ -138,6 +143,38 @@ public final class LoopbackServer: @unchecked Sendable {
             statusCode: .ok,
             headers: [.contentType: "application/json", .cacheControl: "no-store"],
             body: responseData
+          )
+        } catch {
+          return HTTPResponse(statusCode: .badRequest, headers: [.cacheControl: "no-store"])
+        }
+      }
+      await server.appendRoute("POST /api/session-export") { [weak self] request in
+        guard let self,
+              request.headers[HTTPHeader("Origin")] == self.origin,
+              request.headers[HTTPHeader("X-Float-View-Token")] == self.token
+        else { return HTTPResponse(statusCode: .forbidden, headers: [.cacheControl: "no-store"]) }
+        if let contentLength = request.headers[HTTPHeader("Content-Length")].flatMap(Int.init), contentLength > 16_384 {
+          return HTTPResponse(statusCode: .payloadTooLarge, headers: [.cacheControl: "no-store"])
+        }
+        do {
+          let body = try await request.bodyData
+          guard body.count <= 16_384,
+                let payload = try JSONSerialization.jsonObject(with: body) as? [String: Any],
+                let sessionID = payload["sessionId"] as? String,
+                !sessionID.isEmpty,
+                let format = payload["format"] as? String,
+                format == "csv" || format == "float-view-archive"
+          else { return HTTPResponse(statusCode: .badRequest, headers: [.cacheControl: "no-store"]) }
+          let value = try self.applicationService.exportSession(sessionID: sessionID, format: format)
+          let file = try HTTPBodySequence(file: value.fileURL)
+          return HTTPResponse(
+            statusCode: .ok,
+            headers: [
+              .contentType: format == "csv" ? "text/csv" : "application/octet-stream",
+              .cacheControl: "no-store",
+              HTTPHeader("Content-Disposition"): "attachment; filename=\"\(value.fileName)\"",
+            ],
+            body: file
           )
         } catch {
           return HTTPResponse(statusCode: .badRequest, headers: [.cacheControl: "no-store"])

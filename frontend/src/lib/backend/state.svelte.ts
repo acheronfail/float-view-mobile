@@ -7,10 +7,11 @@ import type {
   SessionSummary,
   Settings,
 } from '$lib/backend/contract';
-import { connectBootstrap, loadBootstrap } from './bootstrap';
+import { connectBootstrap, loadBootstrap, type FrontendPlatform } from './bootstrap';
 import { ApiRequestError, type ApiClient } from './client';
 import { SessionDataClient } from './session-data-client';
 import { SessionReviewController } from './session-controller';
+import { SessionExportClient, triggerBrowserDownload, type SessionExportFormat } from './session-export-client';
 import type { SessionDataRequest, SessionDataResult } from './session-data';
 
 export type BackendConnectionStatus = 'starting' | 'connected' | 'reconnecting' | 'failed';
@@ -39,8 +40,10 @@ export class BackendState {
   selectedBoardProfile = $state<BoardProfile | null>(null);
   exportStatus = $state<string | null>(null);
   busy = $state(false);
+  platform = $state<FrontendPlatform>('web');
   private client: ApiClient | null = null;
   private sessionDataClient: SessionDataClient | null = null;
+  private sessionExportClient: SessionExportClient | null = null;
   private connecting: Promise<void> | null = null;
   private unsubscribeState: (() => void) | null = null;
 
@@ -92,6 +95,8 @@ export class BackendState {
       const bootstrap = await this.bootstrapLoader();
       this.client = await this.bootstrapConnector(bootstrap);
       this.sessionDataClient = new SessionDataClient(bootstrap);
+      this.sessionExportClient = new SessionExportClient(bootstrap);
+      this.platform = bootstrap.platform ?? 'web';
       this.unsubscribeState = this.client.onStateChanged((state) => this.acceptState(state));
       this.acceptState(await this.client.request('state.get', {}));
       this.status = 'connected';
@@ -211,10 +216,17 @@ export class BackendState {
     return new SessionReviewController(metadata, this.sessionDataClient);
   }
 
-  async exportSession(format: 'float-view-archive' | 'csv'): Promise<void> {
+  async exportSession(format: SessionExportFormat): Promise<void> {
     const session = this.selectedSession;
     if (!session) return;
     await this.run(async (client) => {
+      if (this.platform === 'web') {
+        if (!this.sessionExportClient) throw new Error('Session export download is not connected');
+        const download = await this.sessionExportClient.download(session.sessionId, format);
+        triggerBrowserDownload(download);
+        this.exportStatus = `${download.fileName} downloaded.`;
+        return;
+      }
       const result = await client.request('session.export', {
         sessionId: session.sessionId,
         format,
@@ -251,6 +263,8 @@ export class BackendState {
     this.client?.close();
     this.client = null;
     this.sessionDataClient = null;
+    this.sessionExportClient = null;
+    this.platform = 'web';
   }
 
   private acceptState(state: AppState) {

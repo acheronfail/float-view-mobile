@@ -33,6 +33,7 @@ import fail.acheron.floatview.protocol.refloat.RefloatCompatibility
 import fail.acheron.floatview.protocol.vesc.ControllerRoute
 import fail.acheron.floatview.protocol.vesc.VescCompatibility
 import io.ktor.http.ContentType
+import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.application.install
 import io.ktor.server.cio.CIO
@@ -54,6 +55,7 @@ import io.ktor.websocket.readText
 import io.ktor.websocket.send
 import java.security.SecureRandom
 import java.io.ByteArrayOutputStream
+import java.io.File
 import java.util.zip.GZIPOutputStream
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.UUID
@@ -78,6 +80,7 @@ class LoopbackServer(
     private val exportPresenter: ((SessionExportRecord) -> Boolean)?,
     private val events: EventHub,
     private val requestedPort: Int = 0,
+    private val platform: String = "android",
 ) {
     private val token = ByteArray(32).also(SecureRandom()::nextBytes)
         .let { Base64.encodeToString(it, Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING) }
@@ -103,7 +106,9 @@ class LoopbackServer(
                         JSONObject()
                             .put("webSocketUrl", "ws://127.0.0.1:$port/api/ws")
                             .put("sessionDataUrl", "http://127.0.0.1:$port/api/session-data")
+                            .put("sessionExportUrl", "http://127.0.0.1:$port/api/session-export")
                             .put("sessionToken", token)
+                            .put("platform", platform)
                             .toString(),
                         ContentType.Application.Json,
                     )
@@ -154,6 +159,47 @@ class LoopbackServer(
                         } else {
                             call.respondBytes(payload, ContentType.Application.Json)
                         }
+                    } catch (_: Exception) {
+                        call.respondText("", status = HttpStatusCode.BadRequest)
+                    }
+                }
+                post("/api/session-export") {
+                    call.response.headers.append(HttpHeaders.CacheControl, "no-store")
+                    if (call.request.header("Origin") != origin || call.request.header("X-Float-View-Token") != token) {
+                        call.respondText("", status = HttpStatusCode.Forbidden)
+                        return@post
+                    }
+                    if (call.request.header("Content-Length")?.toLongOrNull()?.let { it > 16_384 } == true) {
+                        call.respondText("", status = HttpStatusCode.PayloadTooLarge)
+                        return@post
+                    }
+                    try {
+                        val body = call.receiveText()
+                        if (body.toByteArray(Charsets.UTF_8).size > 16_384) {
+                            call.respondText("", status = HttpStatusCode.PayloadTooLarge)
+                            return@post
+                        }
+                        val payload = JSONObject(body)
+                        val sessionId = payload.optString("sessionId")
+                        val format = payload.optString("format")
+                        if (sessionId.isEmpty() || format !in setOf("csv", "float-view-archive")) {
+                            call.respondText("", status = HttpStatusCode.BadRequest)
+                            return@post
+                        }
+                        val value = applicationService.exportSession(sessionId, format)
+                        val file = File(value.filePath)
+                        if (!file.isFile) {
+                            call.respondText("", status = HttpStatusCode.NotFound)
+                            return@post
+                        }
+                        call.response.headers.append(
+                            HttpHeaders.ContentDisposition,
+                            "attachment; filename=\"${value.fileName}\"",
+                        )
+                        call.respondBytes(
+                            file.readBytes(),
+                            if (format == "csv") ContentType.Text.CSV else ContentType.Application.OctetStream,
+                        )
                     } catch (_: Exception) {
                         call.respondText("", status = HttpStatusCode.BadRequest)
                     }

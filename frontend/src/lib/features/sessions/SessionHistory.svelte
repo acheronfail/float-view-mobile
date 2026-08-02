@@ -5,7 +5,6 @@
   let { metadata }: { metadata: SessionMetadata } = $props();
 </script>
 
-<section class="relative mt-5 rounded-lg border border-outline p-4" aria-labelledby="history-heading">
-  <h3 id="history-heading" class="font-medium">Charts</h3>
+<section aria-labelledby="history-heading">
   <SessionHistoryChart {metadata} />
 </section>
