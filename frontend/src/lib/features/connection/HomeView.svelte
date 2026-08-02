@@ -1,10 +1,16 @@
 <script lang="ts">
   import { goto } from '$app/navigation';
   import { backendState } from '$lib/backend/state.svelte';
-    import Spinner from '../../ui/Spinner.svelte';
+  import ListItem from '$lib/ui/ListItem.svelte';
+    import SectionTitle from '../../ui/SectionTitle.svelte';
+  import Spinner from '../../ui/Spinner.svelte';
 
   async function connect(deviceId: string) {
     if (await backendState.connectDevice(deviceId)) await goto('#/live');
+  }
+
+  function formatDeviceState(state: string) {
+    return state.replaceAll('_', ' ').replace(/\b\w/g, (character) => character.toUpperCase());
   }
 
   // TODO: show connection strength with progress bar and dB
@@ -28,25 +34,24 @@
 
     {#if backendState.discoveredDevices.length}
       <div class="flex flex-col gap-2">
-        <h3 class="font-medium">Nearby boards</h3>
-        <ul class="space-y-2">
+        <SectionTitle title="Discovered boards" />
+        <ul class="flex flex-col gap-2">
           {#each backendState.discoveredDevices as device (device.deviceId)}
-            <li class="flex items-center justify-between gap-3 rounded-lg bg-elevated p-3">
-              <div>
-                <span class="block">{device.name}</span>
-                <span class="text-sm text-muted capitalize">{device.state.replaceAll('_', ' ')}</span>
-              </div>
-              <button
-                class="rounded-md bg-accent px-3 py-1 text-on-accent disabled:opacity-50"
-                disabled={backendState.busy}
-                onclick={() => connect(device.deviceId)}>Connect</button
-              >
+            <li>
+              <ListItem title={device.name} subtitle={formatDeviceState(device.state)}>
+                {#snippet trailing()}
+                  <button
+                    class="rounded-md bg-accent px-3 py-1 text-on-accent disabled:opacity-50"
+                    disabled={backendState.busy}
+                    onclick={() => connect(device.deviceId)}>Connect</button
+                  >
+                {/snippet}
+              </ListItem>
             </li>
           {/each}
         </ul>
       </div>
     {/if}
-
   {:else if backendState.status === 'failed'}
     <p role="alert" class="text-warning">{backendState.error}</p>
     <button class="rounded-lg bg-elevated px-4 py-2" onclick={() => backendState.connect()}>Retry</button>

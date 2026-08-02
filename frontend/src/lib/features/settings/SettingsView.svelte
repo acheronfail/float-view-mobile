@@ -1,14 +1,15 @@
 <script lang="ts">
   import type { ThemePreference, UnitPreference } from '$lib/backend/contract';
   import { backendState } from '$lib/backend/state.svelte';
+    import SectionTitle from '../../ui/SectionTitle.svelte';
 
   const inputClass = 'mt-1 block w-full rounded border border-outline bg-elevated px-3 py-2 text-foreground';
 </script>
 
 <section aria-label="Settings" class="space-y-4">
   {#if backendState.settings}
-    <div class="rounded-2xl border border-outline bg-surface p-5">
-      <h3 class="font-medium">Appearance</h3>
+    <div>
+      <SectionTitle title="Appearance" />
       <label class="mt-3 block text-sm text-muted">
         Theme
         <select
@@ -40,8 +41,8 @@
       </label>
     </div>
 
-    <div class="rounded-2xl border border-outline bg-surface p-5">
-      <h3 class="font-medium">Sessions</h3>
+    <div>
+      <SectionTitle title="Session settings" />
       <label class="mt-3 block text-sm text-muted">
         Minimum ride distance (meters)
         <input
@@ -109,8 +110,27 @@
       </label>
     </div>
 
-    <div class="rounded-2xl border border-outline bg-surface p-5">
-      <h3 class="font-medium">Logging and recovery</h3>
+    <div>
+      <SectionTitle title="Connection" />
+      <label class="text-sm text-muted"
+          >Reconnect window (minutes)
+          <input
+            class={inputClass}
+            type="number"
+            min="0"
+            max="60"
+            step="1"
+            value={backendState.settings.reconnectDurationMs / 60_000}
+            onchange={(event) =>
+              backendState.updateSessionSettings({
+                reconnectDurationMs: Math.round(Number(event.currentTarget.value) * 60_000),
+              })}
+          />
+        </label>
+    </div>
+
+    <div>
+      <SectionTitle title="Logging" />
       <p class="mt-1 text-xs text-muted">These apply natively, including while the frontend is not running.</p>
       <div class="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
         <label class="text-sm text-muted"
@@ -170,21 +190,6 @@
             onchange={(event) =>
               backendState.updateSessionSettings({
                 postRideTailMs: Math.round(Number(event.currentTarget.value) * 1000),
-              })}
-          />
-        </label>
-        <label class="text-sm text-muted"
-          >Reconnect window (minutes)
-          <input
-            class={inputClass}
-            type="number"
-            min="0"
-            max="60"
-            step="1"
-            value={backendState.settings.reconnectDurationMs / 60_000}
-            onchange={(event) =>
-              backendState.updateSessionSettings({
-                reconnectDurationMs: Math.round(Number(event.currentTarget.value) * 60_000),
               })}
           />
         </label>

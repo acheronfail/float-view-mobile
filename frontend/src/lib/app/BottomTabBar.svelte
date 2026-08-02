@@ -16,7 +16,7 @@
         <a
           href={tab.href}
           aria-current={activeTab === tab ? 'page' : undefined}
-          class="flex min-h-16 flex-col items-center justify-center gap-1 rounded-xl px-2 py-2 text-xs font-medium"
+          class="flex min-h-14 flex-col items-center justify-center gap-1 rounded-xl px-2 my-2 text-xs font-medium"
           class:bg-accent-soft={activeTab === tab}
           class:text-on-accent-soft={activeTab === tab}
           class:text-muted={activeTab !== tab}

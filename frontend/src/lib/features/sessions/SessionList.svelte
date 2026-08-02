@@ -1,6 +1,7 @@
 <script lang="ts">
   import { backendState } from '$lib/backend/state.svelte';
   import { formatDistanceM } from '$lib/features/measurements/format';
+  import ListItem from '$lib/ui/ListItem.svelte';
 
   const units = $derived(backendState.settings?.unitPreference ?? 'metric');
 
@@ -9,60 +10,59 @@
   }
 </script>
 
-<section aria-label="Sessions" class="">
+<section aria-label="Sessions" class="flex flex-col gap-4">
   {#if backendState.sessionGroups.length}
-    <h3 class="mt-5 font-medium">Linked rides</h3>
-    <ul class="mt-2 space-y-2">
-      {#each backendState.sessionGroups as group (group.sessionGroupId)}
-        <li class="rounded-lg bg-elevated p-3">
-          <div class="flex items-start justify-between gap-3">
-            <div>
-              <span class="block font-medium">{group.sessionIds.length} ride segments</span>
-              <span class="text-sm text-muted">
-                {Math.round(group.totalElapsedMs / 60000)} min ·
-                {formatDistanceM(group.distanceM, units)}
-              </span>
-            </div>
-            <button
-              class="rounded bg-surface px-2 py-1 text-xs"
-              onclick={() => backendState.unlinkSessionGroup(group.sessionGroupId)}>Unlink</button
-            >
-          </div>
-          <div class="mt-2 flex flex-wrap gap-2">
-            {#each group.sessionIds as sessionId, index (`${group.sessionGroupId}-${sessionId}`)}
-              {#if backendState.sessions.some((item) => item.sessionId === sessionId)}
-                <a class="rounded bg-surface px-2 py-1 text-sm" href={`#/sessions/${encodeURIComponent(sessionId)}`}
-                  >Segment {index + 1}</a
+    <div class="flex flex-col gap-2">
+      <h3 class="font-medium">Linked rides</h3>
+      <ul class="flex flex-col gap-2">
+        {#each backendState.sessionGroups as group (group.sessionGroupId)}
+          <li class="rounded-lg bg-elevated p-3">
+            <div class="flex flex-col gap-2">
+              <div class="flex items-start justify-between gap-3">
+                <div>
+                  <span class="block font-medium">{group.sessionIds.length} ride segments</span>
+                  <span class="text-sm text-muted">
+                    {Math.round(group.totalElapsedMs / 60000)} min ·
+                    {formatDistanceM(group.distanceM, units)}
+                  </span>
+                </div>
+                <button
+                  class="rounded bg-surface px-2 py-1 text-xs"
+                  onclick={() => backendState.unlinkSessionGroup(group.sessionGroupId)}>Unlink</button
                 >
-              {/if}
-            {/each}
-          </div>
-        </li>
-      {/each}
-    </ul>
+              </div>
+              <div class="flex flex-wrap gap-2">
+                {#each group.sessionIds as sessionId, index (`${group.sessionGroupId}-${sessionId}`)}
+                  {#if backendState.sessions.some((item) => item.sessionId === sessionId)}
+                    <a class="rounded bg-surface px-2 py-1 text-sm" href={`#/sessions/${encodeURIComponent(sessionId)}`}
+                      >Segment {index + 1}</a
+                    >
+                  {/if}
+                {/each}
+              </div>
+            </div>
+          </li>
+        {/each}
+      </ul>
+    </div>
   {/if}
 
   {#if backendState.sessions.length}
-    <ul class="mt-4 space-y-2">
+    <ul class="flex flex-col gap-2">
       {#each backendState.sessions as session (session.sessionId)}
         {#if !grouped(session.sessionId)}
           <li>
-            <a
-              class="block w-full rounded-lg bg-elevated p-3 text-left"
+            <ListItem
               href={`#/sessions/${encodeURIComponent(session.sessionId)}`}
-            >
-              <span class="block font-medium">{session.displayName}</span>
-              <span class="text-sm text-muted">
-                {session.state} · {Math.round(session.totalElapsedMs / 60000)} min ·
-                {formatDistanceM(session.distanceM, units)}
-              </span>
-            </a>
+              title={session.displayName}
+              subtitle={`${session.state} · ${Math.round(session.totalElapsedMs / 60000)} min · ${formatDistanceM(session.distanceM, units)}`}
+            />
           </li>
         {/if}
       {/each}
     </ul>
   {:else}
-    <p class="mt-3 text-muted">Recorded sessions will appear here.</p>
+    <p class="text-muted">Recorded sessions will appear here.</p>
   {/if}
-  {#if backendState.error}<p role="alert" class="mt-3 text-warning">{backendState.error}</p>{/if}
+  {#if backendState.error}<p role="alert" class="text-warning">{backendState.error}</p>{/if}
 </section>
