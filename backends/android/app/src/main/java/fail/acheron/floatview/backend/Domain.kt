@@ -406,14 +406,6 @@ data class SessionEventRecord(
     val sourceSampleSequence: Long? = null,
 )
 
-data class SessionGroupRecord(
-    val sessionGroupId: String,
-    val deviceHistoryId: String,
-    val sessionIds: List<String>,
-    val totalElapsedMs: Long,
-    val distanceM: Double?,
-)
-
 data class SessionExportRecord(
     val exportId: String,
     val fileName: String,
@@ -447,8 +439,6 @@ data class SettingsRecord(
     val postRideTailMs: Long = 5_000,
     val reconnectDurationMs: Long = 300_000,
     val minimumSessionDistance: Double = 100.0,
-    val automaticSessionLinkingEnabled: Boolean = false,
-    val sessionLinkWindowMs: Long = 7_200_000,
     val themePreference: ThemePreference = ThemePreference.SYSTEM,
     val unitPreference: UnitPreference = UnitPreference.METRIC,
     val historyGapThresholdSeconds: Double? = null,
@@ -730,10 +720,6 @@ interface SessionStorePort {
     fun cancelPendingDelete(operationId: String): Boolean = false
     fun exportSession(sessionId: String, format: String): SessionExportRecord =
         throw SessionStoreException.SessionNotFound
-    fun sessionGroups(): List<SessionGroupRecord> = emptyList()
-    fun sessionGroup(sessionGroupId: String): SessionGroupRecord =
-        throw SessionStoreException.SessionNotFound
-    fun unlinkSessionGroup(sessionGroupId: String) = Unit
 }
 
 fun interface EventSink {

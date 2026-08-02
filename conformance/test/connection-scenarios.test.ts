@@ -232,7 +232,10 @@ test('failed retry, replacement interruption, and frontend recovery remain autho
     assert.equal(failed.activeConnection?.connectionIssue?.code, code);
     assert.equal(failed.activeConnection?.connectionIssue?.message.length, 1_024);
     if (code === 'controller_changed') {
-      assert.ok(failed.recentSessions.some((item) => item.state === 'interrupted'));
+      const sessions = result(handle(backend, 3_000, 'session.list', { limit: 100 })) as {
+        items: Array<{ state: string }>;
+      };
+      assert.ok(sessions.items.some((item) => item.state === 'interrupted'));
       assert.equal(failed.activeConnection?.activeSession, null);
     }
   }

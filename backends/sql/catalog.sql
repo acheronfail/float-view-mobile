@@ -79,18 +79,6 @@ CREATE INDEX IF NOT EXISTS session_catalog_distance
 CREATE INDEX IF NOT EXISTS session_catalog_pending_delete
   ON session_catalog(pending_delete, started_at_ms DESC);
 
-CREATE TABLE IF NOT EXISTS session_group (
-  session_group_id TEXT PRIMARY KEY NOT NULL,
-  device_history_id TEXT NOT NULL,
-  created_at_ms INTEGER NOT NULL
-);
-CREATE TABLE IF NOT EXISTS session_group_member (
-  session_group_id TEXT NOT NULL REFERENCES session_group(session_group_id) ON DELETE CASCADE,
-  session_id TEXT UNIQUE NOT NULL REFERENCES session_catalog(session_id) ON DELETE CASCADE,
-  ordinal INTEGER NOT NULL,
-  PRIMARY KEY(session_group_id, session_id)
-);
-
 CREATE TABLE IF NOT EXISTS settings (
   singleton INTEGER PRIMARY KEY NOT NULL CHECK (singleton = 1),
   revision INTEGER NOT NULL,

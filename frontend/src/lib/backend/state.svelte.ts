@@ -3,6 +3,7 @@ import type {
   BluetoothState,
   BoardProfile,
   SessionMetadata,
+  SessionListPage,
   SessionSummary,
   Settings,
 } from '$lib/backend/contract';
@@ -64,12 +65,8 @@ export class BackendState {
     return this.snapshot?.activeConnection?.firmware ?? null;
   }
 
-  get sessions() {
-    return this.snapshot?.recentSessions ?? [];
-  }
-
-  get sessionGroups() {
-    return this.snapshot?.sessionGroups ?? [];
+  get sessionCatalogRevision() {
+    return this.snapshot?.sessionCatalogRevision ?? 0;
   }
 
   get settings() {
@@ -198,6 +195,12 @@ export class BackendState {
     });
   }
 
+  async listSessions(limit: number, cursor: string | null = null): Promise<SessionListPage> {
+    if (!this.client?.isOpen) await this.connect();
+    if (!this.client?.isOpen) throw new Error('Backend is not connected');
+    return this.client.request('session.list', { limit, cursor });
+  }
+
   requestSessionData(request: SessionDataRequest, signal?: AbortSignal): Promise<SessionDataResult> {
     if (!this.sessionDataClient) return Promise.reject(new Error('Session-data endpoint is not connected'));
     return this.sessionDataClient.request(request, signal);
@@ -230,10 +233,6 @@ export class BackendState {
       await client.request('session.delete', { sessionId: session.sessionId });
       this.closeSession();
     });
-  }
-
-  async unlinkSessionGroup(sessionGroupId: string): Promise<void> {
-    await this.run((client) => client.request('sessionGroup.unlink', { sessionGroupId }).then(() => undefined));
   }
 
   closeBoardProfile() {

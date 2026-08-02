@@ -73,6 +73,65 @@ describe('deterministic mock backend', () => {
         customDisplayName: 'My board',
       })
     ).toMatchObject({ result: { displayName: 'My board', revision: 1 } });
+    expect(request(11, 'session.list', { limit: 1 })).toMatchObject({
+      result: { items: expect.any(Array), catalogRevision: expect.any(Number) },
+    });
+    expect(request(12, 'sessionGroup.unlink', { sessionGroupId: 'group-1' })).toMatchObject({
+      error: { code: 'invalid_request' },
+    });
+  });
+
+  it('pages the standalone catalog beyond fifty sessions without offset state', () => {
+    const backend = new MockBackend();
+    for (let index = 0; index < 51; index += 1) {
+      backend.handle({ id: index * 3 + 1, method: 'bluetooth.scan', params: {} });
+      backend.handle({ id: index * 3 + 2, method: 'device.connect', params: { deviceId: 'mock-board' } });
+      backend.handle({ id: index * 3 + 3, method: 'device.disconnect', params: {} });
+    }
+    const items: string[] = [];
+    const revisions = new Set<number>();
+    let cursor: string | null = null;
+    do {
+      const response = backend.handle({
+        id: items.length + 100,
+        method: 'session.list',
+        params: { limit: 25, cursor },
+      }) as {
+        result: { items: Array<{ sessionId: string }>; catalogRevision: number; nextCursor: string | null };
+      };
+      expect(response.result.items.length).toBeLessThanOrEqual(25);
+      items.push(...response.result.items.map((item) => item.sessionId));
+      revisions.add(response.result.catalogRevision);
+      cursor = response.result.nextCursor;
+    } while (cursor);
+    expect(items.length).toBeGreaterThan(50);
+    expect(new Set(items).size).toBe(items.length);
+    expect(revisions.size).toBe(1);
+  });
+
+  it('keeps telemetry-only state changes out of catalog revision invalidation', () => {
+    const backend = new MockBackend();
+    backend.handle({ id: 1, method: 'bluetooth.scan', params: {} });
+    backend.handle({ id: 2, method: 'device.connect', params: { deviceId: 'mock-board' } });
+    const before = (backend.handle({ id: 3, method: 'state.get', params: {} }) as { result: AppState }).result;
+    backend.publishTelemetry();
+    const after = (backend.handle({ id: 4, method: 'state.get', params: {} }) as { result: AppState }).result;
+    expect(after.revision).toBeGreaterThan(before.revision);
+    expect(after.sessionCatalogRevision).toBe(before.sessionCatalogRevision);
+    expect(after).not.toHaveProperty('recentSessions');
+    expect(after).not.toHaveProperty('sessionGroups');
+  });
+
+  it('rejects a catalog cursor after a visible mutation', () => {
+    const backend = new MockBackend();
+    const first = backend.handle({ id: 1, method: 'session.list', params: { limit: 1 } }) as {
+      result: { nextCursor: string | null };
+    };
+    expect(first.result.nextCursor).not.toBeNull();
+    backend.handle({ id: 2, method: 'session.delete', params: { sessionId: 'session-1' } });
+    expect(
+      backend.handle({ id: 3, method: 'session.list', params: { limit: 1, cursor: first.result.nextCursor } })
+    ).toMatchObject({ error: { code: 'conflict' } });
   });
 
   it('publishes complete live snapshots at the configured persistence cadence', () => {

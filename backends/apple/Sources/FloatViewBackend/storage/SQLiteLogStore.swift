@@ -556,7 +556,6 @@ public final class SQLiteLogStore: LogStorePort, ProductStorePort, SessionStoreP
         ]
       )
       if retainSession {
-        try linkClosedSessionLocked(sessionID: record.sessionID.value)
       }
       try catalog.execute("COMMIT")
     } catch {
@@ -1489,7 +1488,6 @@ public final class SQLiteLogStore: LogStorePort, ProductStorePort, SessionStoreP
         "DELETE FROM session_catalog WHERE session_id = ?",
         values: [.text(sessionID)]
       )
-      try removeUndersizedGroupsLocked()
       try catalog.execute("COMMIT")
     } catch {
       try? catalog.execute("ROLLBACK")
@@ -1516,31 +1514,6 @@ public final class SQLiteLogStore: LogStorePort, ProductStorePort, SessionStoreP
       values: [.text(operationID)]
     )
     return try catalog.scalarInt("SELECT changes()") == 1
-  }
-
-  public func sessionGroups() throws -> [SessionGroupRecord] {
-    lock.lock()
-    defer { lock.unlock() }
-    let ids = try catalog.query(
-      "SELECT session_group_id FROM session_group ORDER BY created_at_ms DESC LIMIT 1000",
-      map: { Self.columnText($0, 0)! }
-    )
-    return try ids.map(sessionGroupLocked)
-  }
-
-  public func sessionGroup(sessionGroupID: String) throws -> SessionGroupRecord {
-    lock.lock()
-    defer { lock.unlock() }
-    return try sessionGroupLocked(sessionGroupID)
-  }
-
-  public func unlinkSessionGroup(sessionGroupID: String) throws {
-    lock.lock()
-    defer { lock.unlock() }
-    try catalog.statement(
-      "DELETE FROM session_group WHERE session_group_id = ?",
-      values: [.text(sessionGroupID)]
-    )
   }
 
   public func exportSession(
@@ -1764,48 +1737,6 @@ public final class SQLiteLogStore: LogStorePort, ProductStorePort, SessionStoreP
     return value
   }
 
-  private func sessionGroupLocked(_ sessionGroupID: String) throws -> SessionGroupRecord {
-    guard let header = try catalog.query(
-      """
-      SELECT g.device_history_id, COALESCE(SUM(s.total_elapsed_ms), 0),
-             CASE WHEN COUNT(s.distance_m) = COUNT(*) THEN SUM(s.distance_m) ELSE NULL END
-      FROM session_group g
-      JOIN session_group_member m ON m.session_group_id = g.session_group_id
-      JOIN session_catalog s ON s.session_id = m.session_id AND s.pending_delete = 0
-      WHERE g.session_group_id = ?
-      GROUP BY g.session_group_id, g.device_history_id
-      """,
-      values: [.text(sessionGroupID)],
-      map: { statement in
-        (
-          Self.columnText(statement, 0)!,
-          sqlite3_column_int64(statement, 1),
-          sqlite3_column_type(statement, 2) == SQLITE_NULL
-            ? nil : sqlite3_column_double(statement, 2)
-        )
-      }
-    ).first else {
-      throw SessionStoreError.sessionNotFound
-    }
-    let sessionIDs = try catalog.query(
-      """
-      SELECT m.session_id FROM session_group_member m
-      JOIN session_catalog s ON s.session_id = m.session_id AND s.pending_delete = 0
-      WHERE m.session_group_id = ? ORDER BY m.ordinal
-      """,
-      values: [.text(sessionGroupID)],
-      map: { Self.columnText($0, 0)! }
-    )
-    guard sessionIDs.count >= 2 else { throw SessionStoreError.sessionNotFound }
-    return SessionGroupRecord(
-      sessionGroupID: sessionGroupID,
-      deviceHistoryID: header.0,
-      sessionIDs: sessionIDs,
-      totalElapsedMs: header.1,
-      distanceM: header.2
-    )
-  }
-
   private func resumePendingDeletes() throws {
     let pending = try catalog.query(
       "SELECT session_id, file_name FROM session_catalog WHERE pending_delete = 1"
@@ -1819,7 +1750,6 @@ public final class SQLiteLogStore: LogStorePort, ProductStorePort, SessionStoreP
         values: [.text(sessionID)]
       )
     }
-    try removeUndersizedGroupsLocked()
   }
 
   private func removeSessionFiles(fileName: String) throws {
@@ -1830,19 +1760,6 @@ public final class SQLiteLogStore: LogStorePort, ProductStorePort, SessionStoreP
         try FileManager.default.removeItem(at: candidate)
       }
     }
-  }
-
-  private func removeUndersizedGroupsLocked() throws {
-    try catalog.execute(
-      """
-      DELETE FROM session_group
-      WHERE session_group_id IN (
-        SELECT g.session_group_id FROM session_group g
-        LEFT JOIN session_group_member m ON m.session_group_id = g.session_group_id
-        GROUP BY g.session_group_id HAVING COUNT(m.session_id) < 2
-      )
-      """
-    )
   }
 
   private func cleanupStagedExports() throws {
@@ -1868,76 +1785,6 @@ public final class SQLiteLogStore: LogStorePort, ProductStorePort, SessionStoreP
         try? FileManager.default.removeItem(at: file)
       }
     }
-  }
-
-  private func linkClosedSessionLocked(sessionID: String) throws {
-    let settings = try settingsLocked()
-    guard settings.automaticSessionLinkingEnabled else { return }
-    guard let current = try catalog.query(
-      """
-      SELECT device_history_id, started_at_ms FROM session_catalog
-      WHERE session_id = ? AND pending_delete = 0
-      """,
-      values: [.text(sessionID)],
-      map: { statement in
-        (Self.columnText(statement, 0)!, sqlite3_column_int64(statement, 1))
-      }
-    ).first else {
-      return
-    }
-    guard let previous = try catalog.query(
-      """
-      SELECT session_id, ended_at_ms FROM session_catalog
-      WHERE device_history_id = ? AND session_id != ? AND pending_delete = 0
-        AND ended_at_ms IS NOT NULL AND ended_at_ms <= ?
-      ORDER BY ended_at_ms DESC, session_id DESC LIMIT 1
-      """,
-      values: [.text(current.0), .text(sessionID), .integer(current.1)],
-      map: { statement in
-        (Self.columnText(statement, 0)!, sqlite3_column_int64(statement, 1))
-      }
-    ).first,
-      current.1 - previous.1 <= settings.sessionLinkWindowMs
-    else {
-      return
-    }
-    let existingGroup = try catalog.query(
-      "SELECT session_group_id FROM session_group_member WHERE session_id = ?",
-      values: [.text(previous.0)],
-      map: { Self.columnText($0, 0)! }
-    ).first
-    let groupID = existingGroup ?? UUID().uuidString
-    if existingGroup == nil {
-      try catalog.statement(
-        """
-        INSERT INTO session_group(session_group_id, device_history_id, created_at_ms)
-        VALUES (?, ?, ?)
-        """,
-        values: [.text(groupID), .text(current.0), .integer(current.1)]
-      )
-      try catalog.statement(
-        """
-        INSERT INTO session_group_member(session_group_id, session_id, ordinal)
-        VALUES (?, ?, 0)
-        """,
-        values: [.text(groupID), .text(previous.0)]
-      )
-    }
-    let ordinal = try catalog.query(
-      """
-      SELECT COALESCE(MAX(ordinal), -1) + 1 FROM session_group_member
-      WHERE session_group_id = ?
-      """,
-      values: [.text(groupID)],
-      map: { Int(sqlite3_column_int64($0, 0)) }
-    ).first ?? 0
-    try catalog.statement(
-      """
-      INSERT OR IGNORE INTO session_group_member(session_group_id, session_id, ordinal)
-      VALUES (?, ?, ?)
-      """,
-      values: [.text(groupID), .text(sessionID), .integer(Int64(ordinal))]
-    )
   }
 
   private func updateCatalogSummaryLocked(
@@ -2476,8 +2323,6 @@ public final class SQLiteLogStore: LogStorePort, ProductStorePort, SessionStoreP
     "postRideTailMs",
     "reconnectDurationMs",
     "minimumSessionDistance",
-    "automaticSessionLinkingEnabled",
-    "sessionLinkWindowMs",
     "themePreference",
     "unitPreference",
     "historyGapThresholdSeconds",
@@ -2491,8 +2336,6 @@ public final class SQLiteLogStore: LogStorePort, ProductStorePort, SessionStoreP
       "postRideTailMs": value.postRideTailMs,
       "reconnectDurationMs": value.reconnectDurationMs,
       "minimumSessionDistance": value.minimumSessionDistance,
-      "automaticSessionLinkingEnabled": value.automaticSessionLinkingEnabled,
-      "sessionLinkWindowMs": value.sessionLinkWindowMs,
       "themePreference": value.themePreference.rawValue,
       "unitPreference": value.unitPreference.rawValue,
       "historyGapThresholdSeconds": value.historyGapThresholdSeconds ?? NSNull(),
@@ -2509,12 +2352,6 @@ public final class SQLiteLogStore: LogStorePort, ProductStorePort, SessionStoreP
             number.doubleValue.rounded() == number.doubleValue
       else { throw ProductStoreError.invalidSettingsPatch }
       return min(range.upperBound, max(range.lowerBound, number.int64Value))
-    }
-    func boolean(_ key: String) throws -> Bool {
-      guard let number = values[key] as? NSNumber,
-            CFGetTypeID(number) == CFBooleanGetTypeID()
-      else { throw ProductStoreError.invalidSettingsPatch }
-      return number.boolValue
     }
     func double(_ key: String, _ range: ClosedRange<Double>) throws -> Double {
       guard let number = values[key] as? NSNumber,
@@ -2552,8 +2389,6 @@ public final class SQLiteLogStore: LogStorePort, ProductStorePort, SessionStoreP
       postRideTailMs: integer("postRideTailMs", 0 ... 300_000),
       reconnectDurationMs: integer("reconnectDurationMs", 0 ... 3_600_000),
       minimumSessionDistance: double("minimumSessionDistance", 0 ... 1_000_000),
-      automaticSessionLinkingEnabled: boolean("automaticSessionLinkingEnabled"),
-      sessionLinkWindowMs: integer("sessionLinkWindowMs", 60_000 ... 86_400_000),
       themePreference: themePreference("themePreference"),
       unitPreference: unitPreference("unitPreference"),
       historyGapThresholdSeconds: historyGapThresholdSeconds("historyGapThresholdSeconds")

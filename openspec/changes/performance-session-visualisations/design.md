@@ -8,6 +8,8 @@ The current per-session `commit_marker` records only the committed sample sequen
 
 The repository requires one disposable shared Svelte frontend, hand-written platform-neutral contracts, native storage ownership, loopback-only authenticated servers, bounded resources, mirrored Swift and Kotlin implementations, and canonical black-box conformance. Stored data is still disposable test data: this change defines the canonical first production schema, bumps the storage marker, recreates incompatible local databases, and introduces no migration or compatibility layer.
 
+The current overview carries recent session summaries and linked session groups in every complete application snapshot. Both native loopback snapshots query bounded collections even when a telemetry sample is the only invalidation, while the frontend filters grouped sessions and renders a separate linked-rides section. Native storage already supports keyset-paginated `SessionListQuery`, but the frontend has no contract method that reaches it. This change removes grouping entirely and makes standalone session summaries an explicitly paged catalog outside `state.changed`.
+
 ## Goals / Non-Goals
 
 **Goals:**
@@ -19,6 +21,7 @@ The repository requires one disposable shared Svelte frontend, hand-written plat
 - Make the per-session database authoritative for published sample/event boundaries, counts, elapsed coverage, available fields, and the bounded summary projection needed to recover catalog denormalization.
 - Allow a user to irreversibly reduce stored resolution for one completed ride or all completed rides while retaining real source samples, semantic evidence, original summaries, deterministic revision behavior, and cancellable progress.
 - Keep WebSocket control messages at 65,536 bytes and move bounded immutable or snapshot-constrained history to authenticated gzip HTTP responses.
+- Keep complete `state.changed` snapshots bounded by removing session collections, expose a bounded keyset-paginated standalone session catalog, and invalidate it with a separate catalog revision rather than every live telemetry update.
 - Keep logging, historical reads, cancellation, recovery, deletion, and WebView recreation safe without a shared cross-language runtime.
 
 **Non-Goals:**
@@ -30,6 +33,8 @@ The repository requires one disposable shared Svelte frontend, hand-written plat
 - Adding GPS, maps, cross-session comparison, derived analytics, BMS history, or recorder commands.
 - Adding a persisted aggregation pyramid unless the early native storage checkpoint proves that the indexed column scan cannot meet the target.
 - Adding frontend prune controls or choosing their eventual placement and copy; only backend operations and bounded state are defined now.
+- Adding virtualized session-list rendering; infinite loading may retain loaded rows in the DOM until a later change addresses virtualization.
+- Reintroducing session grouping, linked rides, automatic linking, group persistence, group operations, or group pagination.
 - Changing Bluetooth polling, persistence cadence, or controller protocol behavior.
 
 ## Decisions
@@ -143,6 +148,16 @@ Canonical black-box conformance then exercises bootstrap, HTTP authentication, e
 
 The physical checkpoint uses an iPhone 12 and Samsung Galaxy S9 and records their exact OS/WebView versions, response sizes, SVG path/observation counts, cache state, cancellation-release timing, and stage timings. Across at least three runs with an empty feature cache, metadata-to-first-visible-useful-SVG targets one second and an uncached settled viewport targets 250 milliseconds. Target misses are retained as diagnostic findings with their stage breakdown; they do not impose a correctness timeout or make otherwise bounded, cancellable results invalid. Superseded responses must never win, active persistence cadence must remain within its existing bound, and operations must remain cancellable under load. Gesture tests additionally verify animation-frame preview and report frontend long tasks rather than treating a fast final fetch as sufficient interaction quality.
 
+### 12. Page standalone sessions outside complete state snapshots and remove grouping
+
+`AppState` remains a complete monotonic snapshot, but it no longer contains recent session summaries or session groups. It carries only a bounded `sessionCatalogRevision` marker for the session list. The backend increments that marker when session catalog membership or a listed summary changes; persisted telemetry samples may still publish ordinary state snapshots without forcing the session list to reload. The loopback snapshot builder must not query or serialize the session catalog during every telemetry-driven state publication.
+
+The WebSocket control plane adds one bounded `session.list` method for the standalone session catalog. The initial version exposes the fixed product query—`startedAt` descending with `sessionId` descending as its deterministic tie-break—and accepts a bounded page size plus an opaque cursor. The native keyset query uses the existing `(started_at_ms, session_id)` index. A page returns no more than the requested number of summaries, a cursor for the next page when available, and the catalog revision observed for that page. Cursors encode a version, query shape, catalog revision, and last sort key; a stale or rebound cursor returns a bounded conflict rather than mixing catalog revisions.
+
+The sessions route loads the first page, places one guarded infinite-loading sentinel after the loaded list, and appends pages serially. The frontend parses each timestamp once and groups loaded summaries in a `Map` keyed by local calendar date, merging a date group that crosses a page boundary without a full-list search or re-sort. A catalog-revision change aborts the pending page, clears the cursor/group state, and reloads from the first page. Loaded pages remain rendered; virtualized row rendering is explicitly deferred.
+
+Session grouping is removed instead of being carried through this boundary. The contract, settings, canonical SQL, native stores/application services, loopback handlers, mock, conformance fixtures, and frontend delete `SessionGroup`, `sessionGroup.unlink`, `automaticSessionLinkingEnabled`, `sessionLinkWindowMs`, `session_group`, and `session_group_member`. This leaves each retained session as one standalone date-grouped item and reserves grouping for a future design with its own bounded collection and mutation semantics. Reusing the old complete-state group collection was rejected because it coupled page filtering to a bounded, repeatedly serialized collection and made cursor correctness depend on hidden membership.
+
 ## Risks / Trade-offs
 
 - [Wide stable rows require synchronized schema mappings] → Make the shared current SQL canonical, delete `detail_json`, map every stable contract field explicitly in both writers/readers/exports, and verify complete-catalog round trips.
@@ -156,23 +171,26 @@ The physical checkpoint uses an iPhone 12 and Samsung Galaxy S9 and records thei
 - [Pruning invalidates outstanding reads] → Carry history revision through metadata, snapshots, cursors, cache keys, exports, and maintenance leases, then force a metadata refresh on conflict.
 - [Custom gestures can conflict with scrolling or browser zoom] → Limit custom handling to the chart surface with `pan-y`, use explicit gesture arbitration and cancellation, retain page zoom outside the surface, and verify physical touch behavior on both mobile hosts.
 - [Two native reducers or cursor encoders may drift] → Use immutable expected vectors and decoded black-box equivalence rather than a shared runtime.
+- [A catalog revision can invalidate a user's in-progress infinite scroll] → Change the revision only for catalog-visible mutations, reject stale cursors explicitly, and restart from the first page; do not use the high-frequency global state revision.
+- [Loaded infinite pages can still create a large DOM] → Keep page size and request state bounded, document the limitation, and defer virtualization to a later focused change rather than hiding it behind the catalog protocol.
+- [Removing grouping changes the current test-stage schema and UI] → Delete the group tables and options as part of the disposable schema recreation, remove linked-rides fixtures and controls in the same breaking slice, and add no compatibility fallback.
 - [Overlapping canonical telemetry requirements remain contradictory] → Modify every superseded mandatory-method, historical-shape, persistence, UI, and conformance requirement in this delta before sync.
 
 ## Migration Plan
 
 1. Commit the revised proposal, design, delta specs, and tasks before implementation.
-2. Replace the disposable current session schema with the optimized canonical schema, authoritative recovery-summary marker, source evidence, history/prune metadata, pruning job state, and incremental auto-vacuum; bump the storage marker and verify recreation with no migration or legacy fallback.
-3. Restore the 65,536-byte WebSocket limit and add marker/publication, dirty-catalog reconciliation, field-presence, recovery, read/maintenance-lease, query-plan, configurable-gap reducer, deterministic prune-selector, and long-session storage tests.
-4. Add the hand-written session-data shapes, bounded streamed frontend decoder, immutable vectors, and authenticated mock endpoint.
-5. Implement and verify Apple and Android read-only adapters, cancellation, gzip, sample/event pages, and HTTP routing without retaining writer or loopback executors.
+2. Replace the disposable current session schema with the optimized canonical schema, authoritative recovery-summary marker, source evidence, history/prune metadata, pruning job state, incremental auto-vacuum, and no grouping tables or automatic-linking settings; bump the storage marker and verify recreation with no migration or legacy fallback.
+3. Restore the 65,536-byte WebSocket limit and add marker/publication, catalog revision, standalone session-list keyset paging, dirty-catalog reconciliation, field-presence, recovery, read/maintenance-lease, query-plan, configurable-gap reducer, deterministic prune-selector, and long-session storage tests.
+4. Add the hand-written session-list contract and vectors, bounded application-state shape, bounded streamed historical decoder, immutable reducers, and authenticated mock endpoint; remove group methods/options/fixtures.
+5. Implement and verify Apple and Android standalone session-list adapters, grouping removal, read-only historical adapters, cancellation, gzip, sample/event pages, and HTTP routing without retaining writer or loopback executors.
 6. Replace `session.get` history with metadata, delete `session.getDiagnostics`, and migrate all consumers in one breaking vertical slice before deleting old JSON/average/truncation paths.
-7. Add the progressive SVG controller, axes, gestures, exact cross-input tooltips, event paging, gap setting, cache/resource tests, and performance instrumentation.
+7. Add the standalone infinite-loading sessions controller with efficient date grouping, then add the progressive SVG controller, axes, gestures, exact cross-input tooltips, event paging, gap setting, cache/resource tests, and performance instrumentation; do not virtualize the session list.
 8. Add preview/start/cancel pruning ports on both hosts, revisioned snapshots/exports, atomic per-ride selection, resumable batch state, and incremental storage reclamation without frontend prune controls.
 9. Run focused checks, strict validation for overlapping changes, `just verify`, and recorded checkpoints on the iPhone 12 and Galaxy S9.
-10. Sync after the telemetry change in an order that leaves only the optimized schema and HTTP historical contract canonical, then archive without a compatibility fallback.
+10. Sync after the telemetry and grouping removal changes in an order that leaves only the optimized schema, standalone session catalog, and HTTP historical contract canonical, then archive without a compatibility fallback.
 
 Rollback before release reverts the coordinated schema/contract/frontend slice and recreates disposable test data. There is no production database rollback or migration obligation because no schema has shipped.
 
 ## Open Questions
 
-None. The first-production-schema reset, dedicated stable columns, published marker, composed bounds, configurable gap policy, progressive SVG groups, one-active-field exact cross-input tooltip semantics, diagnostic latency targets, deterministic irreversible pruning, and lack of shared runtime are confirmed.
+None. The first-production-schema reset, dedicated stable columns, published marker, standalone cursor-paginated session catalog, removal of session grouping and automatic-linking options, no virtualization, composed bounds, configurable gap policy, progressive SVG groups, one-active-field exact cross-input tooltip semantics, diagnostic latency targets, deterministic irreversible pruning, and lack of shared runtime are confirmed.

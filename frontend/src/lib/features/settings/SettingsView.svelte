@@ -58,17 +58,6 @@
             })}
         />
       </label>
-      <label class="mt-3 flex items-center gap-3 text-sm">
-        <input
-          type="checkbox"
-          checked={backendState.settings.automaticSessionLinkingEnabled}
-          onchange={(event) =>
-            backendState.updateSessionSettings({
-              automaticSessionLinkingEnabled: event.currentTarget.checked,
-            })}
-        />
-        <span>Link same-board rides across charging breaks</span>
-      </label>
       <label class="mt-3 block text-sm text-muted">
         History gap threshold (seconds)
         <input
@@ -92,21 +81,6 @@
         <span id="history-gap-help" class="mt-1 block text-xs"
           >Automatic uses the captured persistence and retained-resolution policy for each session.</span
         >
-      </label>
-      <label class="mt-3 block text-sm text-muted">
-        Maximum break (hours)
-        <input
-          class={inputClass}
-          type="number"
-          min="0.0167"
-          max="24"
-          step="0.5"
-          value={backendState.settings.sessionLinkWindowMs / 3_600_000}
-          onchange={(event) =>
-            backendState.updateSessionSettings({
-              sessionLinkWindowMs: Math.round(Number(event.currentTarget.value) * 3_600_000),
-            })}
-        />
       </label>
     </div>
 

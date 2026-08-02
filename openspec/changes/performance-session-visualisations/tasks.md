@@ -9,6 +9,7 @@
 - [x] 1.7 Add immutable pruning vectors for aligned buckets, protected endpoints/first-field/phase-pair/event/earliest-tied-summary sources, per-field extrema roles, deterministic greedy coverage/ties, eight-row cap, nulls/extensions, repeated coarser pruning, counts, and revision changes.
 - [x] 1.8 Implement the TypeScript reference reducer, prune selector, keyset cursor/reference queries, and mock authenticated data/control routes with columnar JSON, gzip, no-store, publication/revision boundaries, sequential bounded prune preview/job/cancel behavior, composed validation, cancellation, and bounded cleanup.
 - [x] 1.9 Add contract, settings, bootstrap development-resolution, mock authentication/privacy, streamed decoded-byte counting, shape validation, fixture-vector, cursor, bound, gzip, cancellation, metadata, revision, prune-preview/job, and export-disclosure unit tests.
+- [x] 1.10 Add the standalone `session.list` contract, bounded `sessionCatalogRevision` state marker, keyset cursor vectors, and remove session-group methods, payloads, automatic-linking settings, and related mock fixtures.
 
 ## 2. Native storage publication and performance checkpoint
 
@@ -19,6 +20,7 @@
 - [x] 2.5 Add representative `EXPLAIN QUERY PLAN` assertions for ordered series scans, keyset sample/event pages, indexed exact/predecessor/successor seeks, and prune retained-set scans; add only a non-duplicative index demonstrated necessary by those plans.
 - [x] 2.6 Add deterministic 150,000-sample complete-catalog and larger pathological session builders that exercise real shared SQL, stable columns, extensions, transitions, phases, outages, pruning candidates/protected evidence, and active commits.
 - [ ] 2.7 Measure and retain the dedicated-column scan/reducer stage profile on an iPhone 12 and Samsung Galaxy S9 before HTTP/UI implementation; investigate repeated material misses against the one-second target without imposing a correctness timeout.
+- [x] 2.8 Remove `session_group`/`session_group_member`, automatic-linking settings, native group ports, and group logic from the canonical storage/application services; add the indexed standalone session-list query, catalog revision publication, and telemetry-snapshot query avoidance checks.
 
 ## 3. Apple historical reader and data endpoint
 
@@ -30,6 +32,7 @@
 - [x] 3.6 Add the authenticated Apple session-data POST route with pre-body token/Origin validation, 16 KiB bounded input, at most two concurrent reads, stable HTTP/error mapping, explicit columnar serialization, fast standard gzip, no-store, decoded-size enforcement, and disconnect cleanup.
 - [x] 3.7 Implement Apple prune preview/start/cancel with an exclusive maintenance lease, one-bucket selector memory, indexed file-backed SQLite keep-set, deterministic retained-set transaction, persisted single/batch keyset progress, marker/catalog revision publication, protected export disclosure, cancellable WAL checkpoint, and bounded resumable `incremental_vacuum` steps.
 - [x] 3.8 Add Apple tests for schema recreation, complete field round trips/exports, dirty/crash reconciliation, active/stale revision snapshots, gap policy, field discovery, query plans, writer non-obstruction, reducer/nearest/page/prune equivalence, cancellation target reporting, HTTP privacy/bounds, deletion/export/prune races, batch restart, compaction interruption, WAL/resource release, and post-failure recovery.
+- [x] 3.9 Implement Apple standalone `session.list` control handling and remove group/unlink routes, group payloads, automatic-linking settings, storage fixtures, and related conformance seams.
 
 ## 4. Android historical reader and data endpoint
 
@@ -41,6 +44,7 @@
 - [x] 4.6 Add the authenticated Android session-data POST route with pre-body token/Origin validation, 16 KiB bounded input, at most two concurrent reads, stable HTTP/error mapping, explicit columnar serialization, fast standard gzip, no-store, decoded-size enforcement, and disconnect cleanup.
 - [x] 4.7 Implement Android prune preview/start/cancel with an exclusive maintenance lease, one-bucket selector memory, indexed file-backed SQLite keep-set, deterministic retained-set transaction, persisted single/batch keyset progress, marker/catalog revision publication, protected export disclosure, cancellable WAL checkpoint, and bounded resumable `incremental_vacuum` steps.
 - [x] 4.8 Add Android tests for schema recreation, complete field round trips/exports, dirty/crash reconciliation, active/stale revision snapshots, gap policy, field discovery, query plans, writer non-obstruction, reducer/nearest/page/prune equivalence, cancellation target reporting, HTTP privacy/bounds, deletion/export/prune races, batch restart, compaction interruption, WAL/resource release, and post-failure recovery.
+- [x] 4.9 Implement Android standalone `session.list` control handling and remove group/unlink routes, group payloads, automatic-linking settings, storage fixtures, and related conformance seams.
 
 ## 5. Shared progressive SVG session review
 
@@ -55,6 +59,8 @@
 - [x] 5.9 Add chronological current-range event pages with explicit continuation, duplicate-free append, independent errors, and cursor/page reset whenever history revision, snapshot, or viewport changes.
 - [x] 5.10 Add the nullable 0.1-through-3,600-second history-gap setting with automatic-mode explanation, validated persistence, captured request/cache policy, and geometry invalidation without adding ride-prune controls.
 - [x] 5.11 Add frontend unit/component tests for controller/cache bounds, revision/gap invalidation, progressive ordering, resize convergence, axes/constant domains, null/time gaps and extrema, preview/settled viewport math, stale responses, pruned metadata/export disclosure, route recreation, one-field tooltip hover/touch/pen/keyboard equivalence, request coalescing, edge placement, pointer variants/cancellation, vertical scrolling, guarded controls, and event continuation.
+- [x] 5.12 Add the standalone sessions controller and UI with bounded-page loading, one guarded infinite-loading sentinel, catalog-revision reset, direct session links, and date grouping via a Map that merges page-boundary dates without full-list searches or re-sorts.
+- [x] 5.13 Remove linked-rides rendering and grouping filters from the sessions feature, update session-list loading/empty/error states, and add frontend tests for page continuation, duplicate prevention, cursor conflicts, telemetry-only state changes, date grouping, and the explicit no-virtualization scope.
 
 ## 6. Canonical conformance and performance
 
@@ -66,6 +72,7 @@
 - [x] 6.6 Add shared prune preview/execute vectors and scenarios for deterministic capped retention, protection, single/batch upper-bound scope, rides completing mid-batch, ineligible skips, re-prune validation, recorded/stored counts, revisions, bounded selector/temp resources, cancellation before/after commit/checkpoint/vacuum, restart, stale consumers, export disclosure, estimated versus actual reclamation, and interrupted compaction.
 - [ ] 6.7 Add software measurements for the 150,000-sample and pathological fixtures covering query plans, native scan/reduction/gzip, prune preview/transaction/compaction, response sizes, decoded frontend cache, parse/path/render time, SVG observation/path counts, cancellation release, and persistence non-obstruction.
 - [ ] 6.8 Record checkpoints on an iPhone 12 and Samsung Galaxy S9 with exact OS/WebView identity and at least three empty-feature-cache runs reporting the one-second initial and 250-millisecond settled targets, immediate gesture preview, no stale replacement, cancellability under load, and bounded active logging without using elapsed targets as correctness timeouts.
+- [x] 6.9 Add canonical standalone session-catalog scenarios for page continuation beyond 50, deterministic ordering, cursor/revision conflicts, bounded state snapshots, telemetry-only state changes, and absence of grouping settings, methods, payloads, tables, and fixtures across mock and native targets.
 
 ## 7. Superseded paths, documentation, and verification
 
@@ -75,3 +82,4 @@
 - [x] 7.4 Run focused frontend, mock, SQL, Apple, Android, conformance, security, aggregation/gap, pruning/compaction, cursor/revision, recovery, read/maintenance-lease, interaction/accessibility, and long-session checks.
 - [x] 7.5 Run strict OpenSpec validation for this and every overlapping active change with telemetry disabled, then run `just verify` as the complete software gate.
 - [ ] 7.6 Run both recorded physical mobile checkpoints and review target misses, stage timings, response/cache sizes, SVG counts, long tasks, cancellation release, WAL/resource cleanup, tooltip behavior, and active persistence before sync and archive.
+- [x] 7.7 Reconcile documentation and strict OpenSpec validation for standalone session pagination, grouping removal, and deferred virtualization, then run the focused session-catalog checks before `/opsx:apply` and the complete `just verify` gate.

@@ -68,9 +68,7 @@ async function exerciseProductMethods(client: ConformanceClient, state: AppState
   const settings = await client.request('settings.update', {
     expectedRevision: state.settings.revision,
     patch: {
-      automaticSessionLinkingEnabled: true,
       minimumSessionDistance: 100,
-      sessionLinkWindowMs: 7_200_000,
       themePreference: 'dark',
       unitPreference: 'imperial',
     },
@@ -78,11 +76,10 @@ async function exerciseProductMethods(client: ConformanceClient, state: AppState
   await expectError(
     client.request('settings.update', {
       expectedRevision: state.settings.revision,
-      patch: { automaticSessionLinkingEnabled: false },
+      patch: { minimumSessionDistance: 101 },
     }),
     'conflict'
   );
-  assert.equal(settings.automaticSessionLinkingEnabled, true);
   assert.equal(settings.minimumSessionDistance, 100);
   assert.equal(settings.themePreference, 'dark');
   assert.equal(settings.unitPreference, 'imperial');
@@ -93,7 +90,7 @@ async function exerciseProductMethods(client: ConformanceClient, state: AppState
       }
     ).request('settings.update', {
       expectedRevision: settings.revision,
-      patch: { rawPacketCaptureEnabled: true },
+      patch: { automaticSessionLinkingEnabled: true },
     }),
     'invalid_request'
   );
@@ -182,7 +179,14 @@ async function exerciseProductMethods(client: ConformanceClient, state: AppState
   );
 
   const current = await client.request('state.get', {});
-  const session = required(current.recentSessions[0], 'connections did not create a session');
+  const firstPage = await client.request('session.list', { limit: 1 });
+  const session = required(firstPage.items[0], 'connections did not create a session');
+  assert.ok(firstPage.items.length <= 1);
+  if (firstPage.nextCursor) {
+    const secondPage = await client.request('session.list', { limit: 1, cursor: firstPage.nextCursor });
+    assert.ok(secondPage.items.length <= 1);
+    assert.notEqual(secondPage.items[0]?.sessionId, firstPage.items[0]?.sessionId);
+  }
   const detail = await client.request('session.get', {
     sessionId: session.sessionId,
   });
@@ -335,16 +339,9 @@ async function exerciseProductMethods(client: ConformanceClient, state: AppState
   });
   await expectError(client.request('session.get', { sessionId: 'missing-session' }), 'not_found');
 
-  const group = required(current.sessionGroups[0], 'linked sessions did not create a session group');
-  await client.request('sessionGroup.unlink', {
-    sessionGroupId: group.sessionGroupId,
-  });
-  const unlinked = await client.request('state.get', {});
-  assert.ok(!unlinked.sessionGroups.some((item) => item.sessionGroupId === group.sessionGroupId));
-
   await client.request('session.delete', { sessionId: session.sessionId });
-  const deleted = await client.request('state.get', {});
-  assert.ok(!deleted.recentSessions.some((item) => item.sessionId === session.sessionId));
+  const deleted = await client.request('session.list', { limit: 100 });
+  assert.ok(!deleted.items.some((item) => item.sessionId === session.sessionId));
 }
 
 async function expectSessionDataFailure(
@@ -467,9 +464,10 @@ async function createCompletedSession(client: ConformanceClient, deviceId: strin
     afterRevision: ridingState.revision,
   });
   const completed = await client.request('state.get', {});
+  const page = await client.request('session.list', { limit: 100 });
   assert.ok(
-    completed.recentSessions.length > before.recentSessions.length,
-    'disconnect did not retain the automatic session'
+    page.items.some((item) => item.state === 'completed'),
+    'disconnect did not retain the session'
   );
 }
 
@@ -489,14 +487,10 @@ export function assertState(state: AppState) {
   assert.ok(Number.isSafeInteger(state.revision));
   assert.ok(Array.isArray(state.discoveredDevices));
   assert.ok(Array.isArray(state.savedDevices));
-  assert.ok(Array.isArray(state.recentSessions));
-  assert.ok(Array.isArray(state.sessionGroups));
+  assert.ok(Number.isSafeInteger(state.sessionCatalogRevision));
   assert.ok(state.discoveredDevices.length <= 50);
   assert.ok(state.savedDevices.length <= 50);
-  assert.ok(state.recentSessions.length <= 50);
-  assert.ok(state.sessionGroups.length <= 50);
   assert.deepEqual(Object.keys(state.settings).sort(), [
-    'automaticSessionLinkingEnabled',
     'historyGapThresholdSeconds',
     'idlePersistIntervalMs',
     'idleProbeIntervalMs',
@@ -505,7 +499,6 @@ export function assertState(state: AppState) {
     'reconnectDurationMs',
     'revision',
     'ridingPersistIntervalMs',
-    'sessionLinkWindowMs',
     'themePreference',
     'unitPreference',
   ]);
@@ -591,6 +584,7 @@ export const mandatoryMethods: BackendMethod[] = [
   'settings.update',
   'boardProfile.get',
   'boardProfile.update',
+  'session.list',
   'session.get',
   'session.export',
   'session.delete',
@@ -598,5 +592,4 @@ export const mandatoryMethods: BackendMethod[] = [
   'session.prune.preview',
   'session.prune.start',
   'session.prune.cancel',
-  'sessionGroup.unlink',
 ];

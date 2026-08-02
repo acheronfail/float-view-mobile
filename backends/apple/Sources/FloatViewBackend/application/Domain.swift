@@ -905,28 +905,6 @@ public struct SessionEventRecord: Sendable, Equatable {
   }
 }
 
-public struct SessionGroupRecord: Sendable, Equatable {
-  public let sessionGroupID: String
-  public let deviceHistoryID: String
-  public let sessionIDs: [String]
-  public let totalElapsedMs: Int64
-  public let distanceM: Double?
-
-  public init(
-    sessionGroupID: String,
-    deviceHistoryID: String,
-    sessionIDs: [String],
-    totalElapsedMs: Int64,
-    distanceM: Double?
-  ) {
-    self.sessionGroupID = sessionGroupID
-    self.deviceHistoryID = deviceHistoryID
-    self.sessionIDs = sessionIDs
-    self.totalElapsedMs = totalElapsedMs
-    self.distanceM = distanceM
-  }
-}
-
 public struct SessionExportRecord: Sendable, Equatable {
   public let exportID: String
   public let fileName: String
@@ -958,8 +936,6 @@ public struct SettingsRecord: Sendable, Codable, Equatable {
   public let postRideTailMs: Int64
   public let reconnectDurationMs: Int64
   public let minimumSessionDistance: Double
-  public let automaticSessionLinkingEnabled: Bool
-  public let sessionLinkWindowMs: Int64
   public let themePreference: ThemePreference
   public let unitPreference: UnitPreference
   public let historyGapThresholdSeconds: Double?
@@ -972,8 +948,6 @@ public struct SettingsRecord: Sendable, Codable, Equatable {
     postRideTailMs: Int64 = 5_000,
     reconnectDurationMs: Int64 = 300_000,
     minimumSessionDistance: Double = 100,
-    automaticSessionLinkingEnabled: Bool = false,
-    sessionLinkWindowMs: Int64 = 7_200_000,
     themePreference: ThemePreference = .system,
     unitPreference: UnitPreference = .metric,
     historyGapThresholdSeconds: Double? = nil
@@ -985,8 +959,6 @@ public struct SettingsRecord: Sendable, Codable, Equatable {
     self.postRideTailMs = postRideTailMs
     self.reconnectDurationMs = reconnectDurationMs
     self.minimumSessionDistance = minimumSessionDistance
-    self.automaticSessionLinkingEnabled = automaticSessionLinkingEnabled
-    self.sessionLinkWindowMs = sessionLinkWindowMs
     self.themePreference = themePreference
     self.unitPreference = unitPreference
     self.historyGapThresholdSeconds = historyGapThresholdSeconds
@@ -1393,9 +1365,6 @@ public protocol SessionStorePort: AnyObject, Sendable {
   func deleteSession(sessionID: String) throws
   func cancelPendingDelete(operationID: String) throws -> Bool
   func exportSession(sessionID: String, format: String) throws -> SessionExportRecord
-  func sessionGroups() throws -> [SessionGroupRecord]
-  func sessionGroup(sessionGroupID: String) throws -> SessionGroupRecord
-  func unlinkSessionGroup(sessionGroupID: String) throws
 }
 
 public extension SessionStorePort {
@@ -1517,15 +1486,6 @@ public extension SessionStorePort {
     throw SessionStoreError.sessionNotFound
   }
 
-  func sessionGroups() throws -> [SessionGroupRecord] {
-    []
-  }
-
-  func sessionGroup(sessionGroupID _: String) throws -> SessionGroupRecord {
-    throw SessionStoreError.sessionNotFound
-  }
-
-  func unlinkSessionGroup(sessionGroupID _: String) throws {}
 }
 
 public protocol EventSink: Sendable {

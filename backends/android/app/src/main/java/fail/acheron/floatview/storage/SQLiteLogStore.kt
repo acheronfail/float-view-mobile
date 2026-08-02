@@ -16,7 +16,6 @@ import fail.acheron.floatview.backend.SavedDeviceRecord
 import fail.acheron.floatview.backend.SessionId
 import fail.acheron.floatview.backend.SessionEventRecord
 import fail.acheron.floatview.backend.SessionExportRecord
-import fail.acheron.floatview.backend.SessionGroupRecord
 import fail.acheron.floatview.backend.SessionListQuery
 import fail.acheron.floatview.backend.SessionPage
 import fail.acheron.floatview.backend.SessionRecord
@@ -453,7 +452,6 @@ class SQLiteLogStore(
                 """.trimIndent(),
                 arrayOf(at.toEpochMilli(), record.committedSequence, reason, jobId.value),
             )
-            if (retainSession) linkClosedSession(catalogDb, record.sessionId.value)
             catalogDb.setTransactionSuccessful()
         } finally {
             catalogDb.endTransaction()
@@ -1348,7 +1346,6 @@ class SQLiteLogStore(
             db.beginTransaction()
             try {
                 db.execSQL("DELETE FROM session_catalog WHERE session_id = ?", arrayOf(sessionId))
-                removeUndersizedGroups(db)
                 db.setTransactionSuccessful()
             } finally {
                 db.endTransaction()
@@ -1356,30 +1353,6 @@ class SQLiteLogStore(
         } finally {
             deletingSessions.remove(sessionId)
         }
-    }
-
-    @Synchronized
-    override fun sessionGroups(): List<SessionGroupRecord> {
-        val db = catalog.writableDatabase
-        val ids = db.rawQuery(
-            "SELECT session_group_id FROM session_group ORDER BY created_at_ms DESC LIMIT 1000",
-            null,
-        ).use { cursor ->
-            buildList { while (cursor.moveToNext()) add(cursor.getString(0)) }
-        }
-        return ids.map { sessionGroup(db, it) }
-    }
-
-    @Synchronized
-    override fun sessionGroup(sessionGroupId: String): SessionGroupRecord =
-        sessionGroup(catalog.writableDatabase, sessionGroupId)
-
-    @Synchronized
-    override fun unlinkSessionGroup(sessionGroupId: String) {
-        catalog.writableDatabase.execSQL(
-            "DELETE FROM session_group WHERE session_group_id = ?",
-            arrayOf(sessionGroupId),
-        )
     }
 
     @Synchronized
@@ -1525,8 +1498,6 @@ class SQLiteLogStore(
         .put("postRideTailMs", value.postRideTailMs)
         .put("reconnectDurationMs", value.reconnectDurationMs)
         .put("minimumSessionDistance", value.minimumSessionDistance)
-        .put("automaticSessionLinkingEnabled", value.automaticSessionLinkingEnabled)
-        .put("sessionLinkWindowMs", value.sessionLinkWindowMs)
         .put("themePreference", value.themePreference.wireValue)
         .put("unitPreference", value.unitPreference.wireValue)
         .put("historyGapThresholdSeconds", value.historyGapThresholdSeconds ?: JSONObject.NULL)
@@ -1539,8 +1510,6 @@ class SQLiteLogStore(
             }
             return raw.toLong().coerceIn(range)
         }
-        fun boolean(name: String): Boolean =
-            (values.opt(name) as? Boolean) ?: throw ProductStoreException.InvalidSettingsPatch
         fun double(name: String, range: ClosedFloatingPointRange<Double>): Double {
             val raw = values.opt(name) as? Number
                 ?: throw ProductStoreException.InvalidSettingsPatch
@@ -1572,110 +1541,9 @@ class SQLiteLogStore(
             postRideTailMs = integer("postRideTailMs", 0L..300_000L),
             reconnectDurationMs = integer("reconnectDurationMs", 0L..3_600_000L),
             minimumSessionDistance = double("minimumSessionDistance", 0.0..1_000_000.0),
-            automaticSessionLinkingEnabled = boolean("automaticSessionLinkingEnabled"),
-            sessionLinkWindowMs = integer("sessionLinkWindowMs", 60_000L..86_400_000L),
             themePreference = themePreference("themePreference"),
             unitPreference = unitPreference("unitPreference"),
             historyGapThresholdSeconds = historyGapThresholdSeconds("historyGapThresholdSeconds"),
-        )
-    }
-
-    private fun sessionGroup(db: SQLiteDatabase, sessionGroupId: String): SessionGroupRecord {
-        data class Header(val deviceHistoryId: String, val elapsedMs: Long, val distanceM: Double?)
-        val header = db.rawQuery(
-            """
-            SELECT g.device_history_id, COALESCE(SUM(s.total_elapsed_ms), 0),
-                   CASE WHEN COUNT(s.distance_m) = COUNT(*) THEN SUM(s.distance_m) ELSE NULL END
-            FROM session_group g
-            JOIN session_group_member m ON m.session_group_id = g.session_group_id
-            JOIN session_catalog s ON s.session_id = m.session_id AND s.pending_delete = 0
-            WHERE g.session_group_id = ?
-            GROUP BY g.session_group_id, g.device_history_id
-            """.trimIndent(),
-            arrayOf(sessionGroupId),
-        ).use { cursor ->
-            if (!cursor.moveToFirst()) null else Header(
-                cursor.getString(0),
-                cursor.getLong(1),
-                cursor.optionalDouble(2),
-            )
-        } ?: throw SessionStoreException.SessionNotFound
-        val sessionIds = db.rawQuery(
-            """
-            SELECT m.session_id FROM session_group_member m
-            JOIN session_catalog s ON s.session_id = m.session_id AND s.pending_delete = 0
-            WHERE m.session_group_id = ? ORDER BY m.ordinal
-            """.trimIndent(),
-            arrayOf(sessionGroupId),
-        ).use { cursor ->
-            buildList { while (cursor.moveToNext()) add(cursor.getString(0)) }
-        }
-        if (sessionIds.size < 2) throw SessionStoreException.SessionNotFound
-        return SessionGroupRecord(
-            sessionGroupId,
-            header.deviceHistoryId,
-            sessionIds,
-            header.elapsedMs,
-            header.distanceM,
-        )
-    }
-
-    private fun linkClosedSession(db: SQLiteDatabase, sessionId: String) {
-        val settings = settings(db)
-        if (!settings.automaticSessionLinkingEnabled) return
-        val currentSession = db.rawQuery(
-            """
-            SELECT device_history_id, started_at_ms FROM session_catalog
-            WHERE session_id = ? AND pending_delete = 0
-            """.trimIndent(),
-            arrayOf(sessionId),
-        ).use { cursor ->
-            if (cursor.moveToFirst()) cursor.getString(0) to cursor.getLong(1) else null
-        } ?: return
-        val previous = db.rawQuery(
-            """
-            SELECT session_id, ended_at_ms FROM session_catalog
-            WHERE device_history_id = ? AND session_id != ? AND pending_delete = 0
-              AND ended_at_ms IS NOT NULL AND ended_at_ms <= ?
-            ORDER BY ended_at_ms DESC, session_id DESC LIMIT 1
-            """.trimIndent(),
-            arrayOf(currentSession.first, sessionId, currentSession.second.toString()),
-        ).use { cursor ->
-            if (cursor.moveToFirst()) cursor.getString(0) to cursor.getLong(1) else null
-        } ?: return
-        if (currentSession.second - previous.second > settings.sessionLinkWindowMs) return
-        val existingGroup = db.rawQuery(
-            "SELECT session_group_id FROM session_group_member WHERE session_id = ?",
-            arrayOf(previous.first),
-        ).use { cursor -> if (cursor.moveToFirst()) cursor.getString(0) else null }
-        val groupId = existingGroup ?: UUID.randomUUID().toString()
-        if (existingGroup == null) {
-            db.execSQL(
-                """
-                INSERT INTO session_group(session_group_id, device_history_id, created_at_ms)
-                VALUES (?, ?, ?)
-                """.trimIndent(),
-                arrayOf(groupId, currentSession.first, currentSession.second),
-            )
-            db.execSQL(
-                """
-                INSERT INTO session_group_member(session_group_id, session_id, ordinal)
-                VALUES (?, ?, 0)
-                """.trimIndent(),
-                arrayOf(groupId, previous.first),
-            )
-        }
-        val ordinal = android.database.DatabaseUtils.longForQuery(
-            db,
-            "SELECT COALESCE(MAX(ordinal), -1) + 1 FROM session_group_member WHERE session_group_id = ?",
-            arrayOf(groupId),
-        )
-        db.execSQL(
-            """
-            INSERT OR IGNORE INTO session_group_member(session_group_id, session_id, ordinal)
-            VALUES (?, ?, ?)
-            """.trimIndent(),
-            arrayOf(groupId, sessionId, ordinal),
         )
     }
 
@@ -1693,20 +1561,6 @@ class SQLiteLogStore(
             if (sessionFile.exists() && !SQLiteDatabase.deleteDatabase(sessionFile)) return@forEach
             db.execSQL("DELETE FROM session_catalog WHERE session_id = ?", arrayOf(sessionId))
         }
-        removeUndersizedGroups(db)
-    }
-
-    private fun removeUndersizedGroups(db: SQLiteDatabase) {
-        db.execSQL(
-            """
-            DELETE FROM session_group
-            WHERE session_group_id IN (
-              SELECT g.session_group_id FROM session_group g
-              LEFT JOIN session_group_member m ON m.session_group_id = g.session_group_id
-              GROUP BY g.session_group_id HAVING COUNT(m.session_id) < 2
-            )
-            """.trimIndent(),
-        )
     }
 
     private fun cleanupStagedExports() {
@@ -2667,8 +2521,6 @@ class SQLiteLogStore(
             "postRideTailMs",
             "reconnectDurationMs",
             "minimumSessionDistance",
-            "automaticSessionLinkingEnabled",
-            "sessionLinkWindowMs",
             "themePreference",
             "unitPreference",
         )

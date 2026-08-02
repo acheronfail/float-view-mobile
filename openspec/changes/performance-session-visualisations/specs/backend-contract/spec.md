@@ -2,7 +2,7 @@
 
 ### Requirement: Complete mandatory contract
 
-Every supported backend SHALL implement the WebSocket control methods `state.get`, `bluetooth.requestPermission`, `bluetooth.scan`, `device.connect`, `device.selectController`, `device.disconnect`, `savedDevice.update`, `settings.update`, `boardProfile.get`, `boardProfile.update`, `session.get`, `session.export`, `session.delete`, `session.delete.cancel`, `session.prune.preview`, `session.prune.start`, `session.prune.cancel`, and `sessionGroup.unlink`, plus the authenticated session-data request kinds `series`, `samples`, and `events`. `session.getDiagnostics` SHALL NOT remain; exact retained historical reads use `samples`. The frontend MUST NOT negotiate or branch on optional methods or platform capabilities.
+Every supported backend SHALL implement the WebSocket control methods `state.get`, `bluetooth.requestPermission`, `bluetooth.scan`, `device.connect`, `device.selectController`, `device.disconnect`, `savedDevice.update`, `settings.update`, `boardProfile.get`, `boardProfile.update`, `session.list`, `session.get`, `session.export`, `session.delete`, `session.delete.cancel`, `session.prune.preview`, `session.prune.start`, and `session.prune.cancel`, plus the authenticated session-data request kinds `series`, `samples`, and `events`. Session-group methods SHALL NOT remain; `session.getDiagnostics` SHALL NOT remain; exact retained historical reads use `samples`. The frontend MUST NOT negotiate or branch on optional methods or platform capabilities.
 
 #### Scenario: Supported backend
 
@@ -54,7 +54,7 @@ WebSocket control requests SHALL use `{ id, method, params }`; successes SHALL u
 
 ### Requirement: Current frontend product operations
 
-The contract SHALL support revision-checked saved-device custom-name updates, persisted settings including nullable `historyGapThresholdSeconds`, local versioned Board Profiles, small session metadata retrieval, authenticated bounded historical-data queries, native export presentation, irreversible ride pruning, deletion, and session-group unlinking with platform-neutral semantics. A configured history-gap threshold SHALL be finite and from 0.1 through 3,600 seconds; null or absence SHALL select the derived default. `session.get` SHALL return the requested summary, ordered available numeric-field descriptors, event count, recorded/stored sample counts, prune metadata, and one published snapshot containing history revision, committed sample sequence, committed event sequence, and committed elapsed boundary, but SHALL NOT contain historical numeric points or transition collections. Historical overview series, exact or retained sample pages, and event pages SHALL use the session-data endpoint and a snapshot returned by `session.get`.
+The contract SHALL support revision-checked saved-device custom-name updates, persisted settings including nullable `historyGapThresholdSeconds`, local versioned Board Profiles, bounded cursor-paginated standalone session summaries, small session metadata retrieval, authenticated bounded historical-data queries, native export presentation, irreversible ride pruning, and deletion with platform-neutral semantics. Session grouping, automatic linking, linked-ride state, and group mutation operations SHALL NOT be part of the contract. A configured history-gap threshold SHALL be finite and from 0.1 through 3,600 seconds; null or absence SHALL select the derived default. `session.get` SHALL return the requested summary, ordered available numeric-field descriptors, event count, recorded/stored sample counts, prune metadata, and one published snapshot containing history revision, committed sample sequence, committed event sequence, and committed elapsed boundary, but SHALL NOT contain historical numeric points or transition collections. Historical overview series, exact or retained sample pages, and event pages SHALL use the session-data endpoint and a snapshot returned by `session.get`.
 
 #### Scenario: Saved board rename
 
@@ -65,6 +65,16 @@ The contract SHALL support revision-checked saved-device custom-name updates, pe
 
 - **WHEN** the frontend requests `session.get`
 - **THEN** the backend returns bounded metadata and one published snapshot in a message no larger than 65,536 UTF-8 bytes without embedding historical series or events
+
+#### Scenario: Session catalog page
+
+- **WHEN** the frontend requests a valid standalone session-list page with a bounded limit and optional cursor
+- **THEN** the backend returns summaries ordered by `startedAt` descending with `sessionId` descending tie-breaking, plus an opaque continuation cursor when more rows remain
+
+#### Scenario: Grouping is absent
+
+- **WHEN** the frontend requests state, settings, or supported control methods
+- **THEN** no session-group collection, automatic-linking option, linked-ride operation, or group persistence result is exposed
 
 #### Scenario: Historical data review
 
@@ -141,7 +151,7 @@ Every typed detailed numeric field accepted into a durable session SHALL be retr
 
 ### Requirement: Bounded telemetry serialization
 
-Detailed live samples, extension keys and counts, metadata, session-data requests/results, retained sample pages, event pages, prune previews/jobs, and exports SHALL retain explicit bounds. Authenticated WebSocket messages SHALL remain at most 65,536 bytes. A negotiated field name SHALL be at most 64 UTF-8 bytes, an extension map SHALL contain at most 32 finite values, and serialized extension JSON SHALL be at most 16,384 UTF-8 bytes. A session-data request body SHALL be at most 16,384 UTF-8 bytes; a decoded success body SHALL be at most 4,194,304 bytes; series and sample requests SHALL contain 1 through 16 unique fields; series SHALL contain 1 through 1,024 buckets and at most 65,536 total observations; sample pages SHALL contain at most 2,000 rows; and event pages SHALL contain at most 500 rows. Sequences, revisions, counts, and elapsed values SHALL be non-negative JavaScript-safe integers. Prune target resolution SHALL be a whole 1 through 300 seconds, and complete application state SHALL expose at most one bounded prune operation without embedding a ride-identifier collection. Private controller UUIDs, launch tokens, and full unrequested telemetry MUST NOT appear in state, history, extensions, errors, or default logs.
+Detailed live samples, extension keys and counts, metadata, session-list pages/cursors, session-data requests/results, retained sample pages, event pages, prune previews/jobs, and exports SHALL retain explicit bounds. Authenticated WebSocket messages SHALL remain at most 65,536 bytes. A negotiated field name SHALL be at most 64 UTF-8 bytes, an extension map SHALL contain at most 32 finite values, and serialized extension JSON SHALL be at most 16,384 UTF-8 bytes. A session-list page SHALL contain 1 through 100 summaries and an opaque cursor SHALL be at most 1,024 UTF-8 bytes. A session-data request body SHALL be at most 16,384 UTF-8 bytes; a decoded success body SHALL be at most 4,194,304 bytes; series and sample requests SHALL contain 1 through 16 unique fields; series SHALL contain 1 through 1,024 buckets and at most 65,536 total observations; sample pages SHALL contain at most 2,000 rows; and event pages SHALL contain at most 500 rows. Sequences, revisions, counts, and elapsed values SHALL be non-negative JavaScript-safe integers. Prune target resolution SHALL be a whole 1 through 300 seconds, and complete application state SHALL expose at most one bounded prune operation without embedding a ride-identifier collection. Private controller UUIDs, launch tokens, and full unrequested telemetry MUST NOT appear in state, history, extensions, errors, or default logs.
 
 #### Scenario: Oversized extension data
 
@@ -158,7 +168,79 @@ Detailed live samples, extension keys and counts, metadata, session-data request
 - **WHEN** live state, metadata, session-data responses, exports, errors, and logs are inspected
 - **THEN** no private learned or simulated controller UUID or launch token is present
 
+### Requirement: Authoritative application state
+
+`state.get` SHALL return a bounded `AppState` containing a monotonic revision, a separate monotonic `sessionCatalogRevision`, Bluetooth state, discovered and saved devices with resolved identity, active connection with saved-device identity, connection state, detected direct-or-CAN controller route, bounded controller candidates when selection is required, bounded connection issue when failed, firmware, active-session summary, latest successfully persisted sample when known, and settings. Recent session summaries and session groups SHALL NOT be included; standalone session summaries SHALL be retrieved through `session.list`. Historical series, private controller UUIDs, and diagnostic windows MUST NOT be included.
+
+#### Scenario: Initial state
+
+- **WHEN** the frontend requests `state.get` after connecting
+- **THEN** it receives all bounded state needed to render the main application and a catalog revision with no session-summary or session-group collection
+
+#### Scenario: Catalog revision is independent
+
+- **WHEN** a persisted telemetry sample publishes a newer complete state snapshot without changing session catalog membership or summary visibility
+- **THEN** the global state revision advances while `sessionCatalogRevision` remains unchanged
+
+#### Scenario: Recreated frontend during reconnect
+
+- **WHEN** a disposable frontend reconnects while the board is reconnecting
+- **THEN** initial authoritative state contains the current connection state, detected route when known, pending candidates or connection issue when applicable, latest sample when one exists, and the current session catalog revision
+
+### Requirement: Complete persisted settings shape
+
+The mandatory `Settings` value SHALL contain `revision`, `idleProbeIntervalMs`, `idlePersistIntervalMs`, `ridingPersistIntervalMs`, `postRideTailMs`, `reconnectDurationMs`, `minimumSessionDistance`, `themePreference`, and `unitPreference`. `minimumSessionDistance` SHALL be expressed in meters and default to `100`; `themePreference` SHALL accept exactly `system`, `light`, or `dark`; `unitPreference` SHALL accept exactly `metric` or `imperial` and default to `metric`; `automaticSessionLinkingEnabled`, `sessionLinkWindowMs`, and `rawPacketCaptureEnabled` MUST NOT remain in the contract or persisted settings payload.
+
+#### Scenario: Default settings
+
+- **WHEN** a backend creates current default settings
+- **THEN** it returns the existing timing defaults with `minimumSessionDistance` equal to `100`, `themePreference` equal to `system`, `unitPreference` equal to `metric`, and no linking or raw-packet fields
+
+#### Scenario: Settings round trip
+
+- **WHEN** the frontend updates a valid appearance, units, timing, or distance field at the current revision
+- **THEN** every supported backend persists and returns the same complete settings shape at a newer revision
+
+#### Scenario: Removed linking option
+
+- **WHEN** a settings patch contains `automaticSessionLinkingEnabled` or `sessionLinkWindowMs`
+- **THEN** every supported backend rejects the patch and leaves persisted settings unchanged
+
+#### Scenario: Unknown settings field
+
+- **WHEN** a settings patch contains `rawPacketCaptureEnabled` or another field outside the complete shape
+- **THEN** every supported backend rejects the patch and leaves persisted settings unchanged
+
 ## ADDED Requirements
+
+### Requirement: Bounded pageable standalone session catalog
+
+The WebSocket control contract SHALL expose `session.list` for standalone session summaries outside complete `state.changed` snapshots. The request SHALL accept a page size from 1 through 100 and an optional opaque cursor; the initial product query SHALL order by `startedAt` descending and `sessionId` descending as a deterministic tie-break. The result SHALL contain at most the requested number of summaries, the catalog revision observed by the query, and either a bounded continuation cursor or null. Cursors SHALL be versioned and bound to the query shape, catalog revision, and last `(startedAt, sessionId)` key; a cursor for another query, revision, or malformed context SHALL fail with bounded conflict or invalid-request semantics. The list SHALL contain no grouping metadata or linked-session state.
+
+#### Scenario: First standalone page
+
+- **WHEN** the frontend requests the first page with a valid limit
+- **THEN** the backend returns the newest standalone session summaries in deterministic order and no more than the requested count
+
+#### Scenario: Continue beyond the page bound
+
+- **WHEN** more sessions exist after the first page
+- **THEN** the result supplies a cursor and later pages reach every remaining summary without offset scanning, duplication, or a total-history limit of 50
+
+#### Scenario: Cursor revision conflict
+
+- **WHEN** a session is created, completed, deleted, or otherwise changes catalog visibility after a cursor is issued
+- **THEN** the next request fails with a bounded conflict and the frontend must restart from the first page
+
+#### Scenario: Telemetry does not reload the catalog
+
+- **WHEN** a persisted telemetry sample publishes a newer `state.changed` snapshot without changing catalog-visible session metadata
+- **THEN** the snapshot remains bounded and the frontend does not need to refetch or re-group the loaded session pages
+
+#### Scenario: Grouping removal
+
+- **WHEN** any supported backend exposes state, settings, or control methods
+- **THEN** no `SessionGroup`, `sessionGroup.unlink`, automatic-linking field, linked-ride collection, or group member result is present
 
 ### Requirement: Bounded compressed session-data protocol
 

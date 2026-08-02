@@ -407,7 +407,7 @@ private func executeSQLite(database: URL, sql: String) throws {
   #expect(try store.maintenanceJob()?.operationID == "prune-test")
 }
 
-@Test func settingsLinkingExportsAndIdempotentDeletionUseCanonicalStorage() throws {
+@Test func settingsExportsAndIdempotentDeletionUseCanonicalStorage() throws {
   let root = FileManager.default.temporaryDirectory
     .appending(path: "float-view-session-management-\(UUID().uuidString)")
   defer { try? FileManager.default.removeItem(at: root) }
@@ -420,10 +420,9 @@ private func executeSQLite(database: URL, sql: String) throws {
   #expect(try store.settings().minimumSessionDistance == 100)
   let settings = try store.updateSettings(
     expectedRevision: 0,
-    patchJSON: #"{"automaticSessionLinkingEnabled":true,"sessionLinkWindowMs":7200000,"minimumSessionDistance":80,"idlePersistIntervalMs":2345,"ridingPersistIntervalMs":125,"themePreference":"dark"}"#
+    patchJSON: #"{"minimumSessionDistance":80,"idlePersistIntervalMs":2345,"ridingPersistIntervalMs":125,"themePreference":"dark"}"#
   )
   #expect(settings.revision == 1)
-  #expect(settings.automaticSessionLinkingEnabled)
   #expect(settings.minimumSessionDistance == 80)
   #expect(settings.themePreference == .dark)
   #expect(throws: ProductStoreError.invalidSettingsPatch) {
@@ -491,11 +490,6 @@ private func executeSQLite(database: URL, sql: String) throws {
     )
   }
 
-  let group = try #require(store.sessionGroups().first)
-  #expect(group.sessionIDs == sessionIDs)
-  #expect(group.totalElapsedMs == 120_000)
-  #expect(try store.sessionGroup(sessionGroupID: group.sessionGroupID) == group)
-
   let csv = try store.exportSession(sessionID: sessionIDs[0], format: "csv")
   let csvText = try String(contentsOf: csv.fileURL, encoding: .utf8)
   #expect(csvText.contains("pack_voltage_v"))
@@ -531,8 +525,6 @@ private func executeSQLite(database: URL, sql: String) throws {
   #expect(throws: SessionStoreError.sessionNotFound) {
     try store.session(sessionID: sessionIDs[0])
   }
-  #expect(try store.sessionGroups().isEmpty)
-
   let active = try store.create(
     deviceID: DeviceID("management-fixture"),
     at: base.addingTimeInterval(300)

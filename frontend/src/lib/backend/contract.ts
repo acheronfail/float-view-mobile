@@ -7,7 +7,8 @@ export const MAX_SESSION_SERIES_OBSERVATIONS = 65_536;
 export const MAX_SESSION_SAMPLE_ROWS = 2_000;
 export const MAX_SESSION_EVENT_ROWS = 500;
 export const MAX_SESSION_CURSOR_BYTES = 512;
-export const MAX_RECENT_ITEMS = 50;
+export const MAX_SESSION_LIST_PAGE = 100;
+export const MAX_SESSION_LIST_CURSOR_BYTES = 1_024;
 export const MAX_CAN_DISCOVERY_IDS = 64;
 export const MAX_CONTROLLER_CANDIDATES = 16;
 export const MAX_TELEMETRY_FIELDS = 64;
@@ -318,6 +319,12 @@ export interface SessionMetadata {
   snapshot: SessionPublishedSnapshot;
 }
 
+export interface SessionListPage {
+  items: SessionSummary[];
+  catalogRevision: number;
+  nextCursor: string | null;
+}
+
 export type SessionOperationKind = 'delete' | 'prunePreview' | 'prune';
 export type SessionOperationStatus = 'queued' | 'running' | 'cancelling' | 'completed' | 'cancelled' | 'failed';
 
@@ -342,14 +349,6 @@ export interface SessionPrunePreview {
   skipReason: string | null;
 }
 
-export interface SessionGroup {
-  sessionGroupId: string;
-  deviceHistoryId: string;
-  sessionIds: string[];
-  totalElapsedMs: number;
-  distanceM?: number | null;
-}
-
 export type ThemePreference = 'system' | 'light' | 'dark';
 export type UnitPreference = 'metric' | 'imperial';
 
@@ -361,8 +360,6 @@ export interface Settings {
   postRideTailMs: number;
   reconnectDurationMs: number;
   minimumSessionDistance: number;
-  automaticSessionLinkingEnabled: boolean;
-  sessionLinkWindowMs: number;
   themePreference: ThemePreference;
   unitPreference: UnitPreference;
   historyGapThresholdSeconds: number | null;
@@ -379,8 +376,7 @@ export interface AppState {
   discoveredDevices: Device[];
   savedDevices: SavedDevice[];
   activeConnection: ActiveConnection | null;
-  recentSessions: SessionSummary[];
-  sessionGroups: SessionGroup[];
+  sessionCatalogRevision: number;
   settings: Settings;
   sessionOperation?: SessionOperationState | null;
 }
@@ -432,6 +428,10 @@ export interface BackendMethods {
     params: { savedDeviceId: string; expectedRevision: number; patch: Record<string, unknown> };
     result: BoardProfile;
   };
+  'session.list': {
+    params: { limit: number; cursor?: string | null };
+    result: SessionListPage;
+  };
   'session.get': { params: { sessionId: string }; result: SessionMetadata };
   'session.export': {
     params: { sessionId: string; format: 'float-view-archive' | 'csv' };
@@ -448,7 +448,6 @@ export interface BackendMethods {
     result: SessionOperationState;
   };
   'session.prune.cancel': { params: { operationId: string }; result: SessionOperationState };
-  'sessionGroup.unlink': { params: { sessionGroupId: string }; result: Accepted };
 }
 
 export type BackendMethod = keyof BackendMethods;

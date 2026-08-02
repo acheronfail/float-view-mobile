@@ -30,6 +30,7 @@ public final class LoopbackServer: @unchecked Sendable {
   fileprivate let events: EventHub
   private let revisionLock = NSLock()
   private var revision = 0
+  private var sessionCatalogRevision = 0
   private var server: HTTPServer?
   private var serverTask: Task<Void, Never>?
 
@@ -274,6 +275,45 @@ public final class LoopbackServer: @unchecked Sendable {
           expectedRevision: expected,
           patchJSON: Self.jsonString(patch)
         )))
+      case "session.list":
+        guard let limit = (params["limit"] as? NSNumber)?.intValue, (1 ... 100).contains(limit) else {
+          return failure(id, .invalidRequest, "Session page size must be 1 through 100")
+        }
+        let cursor = params["cursor"] as? String
+        let context: [String: Any]?
+        if let cursor {
+          guard cursor.utf8.count <= 1_024, let decoded = Self.decodeSessionCatalogCursor(cursor) else {
+            return failure(id, .invalidRequest, "Session cursor is invalid")
+          }
+          guard let revision = decoded["catalogRevision"] as? Int,
+                revision == revisionLock.withLock({ sessionCatalogRevision })
+          else {
+            return failure(id, .conflict, "Session cursor is stale")
+          }
+          context = decoded
+        } else {
+          context = nil
+        }
+        let innerCursor = context?["innerCursor"] as? String
+        let page = try applicationService.sessions(SessionListQuery(
+          cursor: innerCursor, limit: limit,
+          sortField: "startedAt", sortDescending: true
+        ))
+        let nextCursor = page.nextCursor.map { inner in
+          Self.encodeSessionCatalogCursor([
+            "version": 1,
+            "query": "startedAt.desc.sessionId.desc",
+            "catalogRevision": revisionLock.withLock { sessionCatalogRevision },
+            "innerCursor": inner,
+            "lastStartedAt": page.items.last.map { ISO8601DateFormatter().string(from: $0.startedAt) } ?? NSNull(),
+            "lastSessionId": page.items.last?.sessionID ?? NSNull(),
+          ])
+        }
+        return success([
+          "items": page.items.map(sessionPayload),
+          "catalogRevision": revisionLock.withLock { sessionCatalogRevision },
+          "nextCursor": nextCursor.map { $0 as Any } ?? NSNull(),
+        ])
       case "session.get":
         guard let sessionID = params["sessionId"] as? String else {
           return failure(id, .invalidRequest, "sessionId is required")
@@ -302,6 +342,7 @@ public final class LoopbackServer: @unchecked Sendable {
           return failure(id, .invalidRequest, "sessionId is required")
         }
         try applicationService.deleteSession(sessionID: sessionID)
+        events.publish(SessionCatalogChanged())
         return success(["accepted": true])
       case "session.delete.cancel":
         let operationID = params["operationId"] as? String ?? ""
@@ -479,12 +520,6 @@ public final class LoopbackServer: @unchecked Sendable {
           target: nil,
           operationID: operationID
         ))
-      case "sessionGroup.unlink":
-        guard let groupID = params["sessionGroupId"] as? String else {
-          return failure(id, .invalidRequest, "sessionGroupId is required")
-        }
-        try applicationService.unlinkSessionGroup(sessionGroupID: groupID)
-        return success(["accepted": true])
       default:
         return failure(id, .invalidRequest, "Unknown method")
       }
@@ -499,8 +534,11 @@ public final class LoopbackServer: @unchecked Sendable {
     }
   }
 
-  fileprivate func stateChanged() -> String {
-    revisionLock.withLock { revision += 1 }
+  fileprivate func stateChanged(catalogChanged: Bool = false) -> String {
+    revisionLock.withLock {
+      revision += 1
+      if catalogChanged { sessionCatalogRevision += 1 }
+    }
     return String(decoding: Self.json([
       "event": "state.changed",
       "data": snapshot(),
@@ -512,14 +550,6 @@ public final class LoopbackServer: @unchecked Sendable {
     let active = applicationService.activeConnectionSnapshot()
     let firmware = applicationService.firmwareSnapshot()
     let packageVersion = applicationService.refloatPackageVersionSnapshot()
-    let sessions = try? applicationService.sessions(SessionListQuery(
-      cursor: nil, limit: 50, deviceHistoryID: nil,
-      startedAfter: nil, startedBefore: nil,
-      minimumTotalElapsedMs: nil, maximumTotalElapsedMs: nil,
-      minimumRidingElapsedMs: nil, maximumRidingElapsedMs: nil,
-      minimumDistanceM: nil, maximumDistanceM: nil,
-      state: nil, integrity: nil, sortField: "startedAt", sortDescending: true
-    ))
     var connection: Any = NSNull()
     if let active {
       var value = connectionPayload(active)
@@ -550,8 +580,7 @@ public final class LoopbackServer: @unchecked Sendable {
       "discoveredDevices": Array(discovery.knownDevices.prefix(50)).map(devicePayload),
       "savedDevices": Array((try? applicationService.savedDevices())?.prefix(50) ?? []).map(savedDevicePayload),
       "activeConnection": connection,
-      "recentSessions": sessions?.items.map(sessionPayload) ?? [],
-      "sessionGroups": Array((try? applicationService.sessionGroups())?.prefix(50) ?? []).map(sessionGroupPayload),
+      "sessionCatalogRevision": revisionLock.withLock { sessionCatalogRevision },
       "settings": (try? applicationService.settings()).map(settingsPayload) ?? [:],
       "sessionOperation": (try? applicationService.maintenanceJob())
         .flatMap { $0.map(maintenanceJobPayload) } ?? NSNull(),
@@ -1033,16 +1062,6 @@ public final class LoopbackServer: @unchecked Sendable {
     "chargingCurrentA", "chargingVoltageV",
   ]
 
-  private func sessionGroupPayload(_ value: SessionGroupRecord) -> [String: Any] {
-    [
-      "sessionGroupId": value.sessionGroupID,
-      "deviceHistoryId": value.deviceHistoryID,
-      "sessionIds": value.sessionIDs,
-      "totalElapsedMs": value.totalElapsedMs,
-      "distanceM": value.distanceM ?? NSNull(),
-    ]
-  }
-
   private func settingsPayload(_ value: SettingsRecord) -> [String: Any] {
     [
       "revision": value.revision,
@@ -1052,8 +1071,6 @@ public final class LoopbackServer: @unchecked Sendable {
       "postRideTailMs": value.postRideTailMs,
       "reconnectDurationMs": value.reconnectDurationMs,
       "minimumSessionDistance": value.minimumSessionDistance,
-      "automaticSessionLinkingEnabled": value.automaticSessionLinkingEnabled,
-      "sessionLinkWindowMs": value.sessionLinkWindowMs,
       "themePreference": value.themePreference.rawValue,
       "unitPreference": value.unitPreference.rawValue,
       "historyGapThresholdSeconds": value.historyGapThresholdSeconds ?? NSNull(),
@@ -1134,6 +1151,20 @@ public final class LoopbackServer: @unchecked Sendable {
     return Data(bytes).base64EncodedString().replacingOccurrences(of: "/", with: "_")
       .replacingOccurrences(of: "+", with: "-").replacingOccurrences(of: "=", with: "")
   }
+
+  private static func encodeSessionCatalogCursor(_ value: [String: Any]) -> String {
+    Self.json(value).base64EncodedString()
+  }
+
+  private static func decodeSessionCatalogCursor(_ value: String) -> [String: Any]? {
+    guard let data = Data(base64Encoded: value),
+          let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+          object["version"] as? Int == 1,
+          object["query"] as? String == "startedAt.desc.sessionId.desc",
+          object["innerCursor"] as? String != nil
+    else { return nil }
+    return object
+  }
 }
 
 private struct BackendMessageHandler: WSMessageHandler {
@@ -1143,7 +1174,7 @@ private struct BackendMessageHandler: WSMessageHandler {
     AsyncStream(bufferingPolicy: .bufferingNewest(1)) { continuation in
       let subscription = server.events.subscribe { event in
         if invalidatesState(event) {
-          continuation.yield(.text(server.stateChanged()))
+          continuation.yield(.text(server.stateChanged(catalogChanged: event is SessionRecord || event is SessionCatalogChanged)))
         }
       }
       Task {
@@ -1177,8 +1208,10 @@ private func invalidatesState(_ event: any Sendable) -> Bool {
   return event is BluetoothState || event is DiscoverySnapshot || event is ConnectionState ||
     event is KnownDevice ||
     event is SessionRecord || event is SavedDeviceRecord || event is BoardProfileRecord ||
-    event is SettingsRecord || event is TelemetrySample
+    event is SettingsRecord || event is TelemetrySample || event is SessionCatalogChanged
 }
+
+private struct SessionCatalogChanged: Sendable {}
 
 private enum LoopbackServerError: Error {
   case failedToBind

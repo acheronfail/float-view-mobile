@@ -1,5 +1,7 @@
 import {
   MAX_MESSAGE_BYTES,
+  MAX_SESSION_LIST_CURSOR_BYTES,
+  MAX_SESSION_LIST_PAGE,
   type AppState,
   type BackendError,
   type BackendMethod,
@@ -8,6 +10,7 @@ import {
   type Request,
   type Response,
   type SessionMetadata,
+  type SessionListPage,
   type SessionOperationState,
   type SessionPrunePreview,
   type SessionSummary,
@@ -141,6 +144,7 @@ export class MockBackend {
     ],
   ]);
   private nextSession = 3;
+  private sessionCatalog: SessionSummary[] = [secondSession, session];
   private activeSessionId?: string;
   private pendingCandidates: ControllerCandidate[] = [];
   private discoveryExpiryTimer?: ReturnType<typeof setTimeout>;
@@ -155,16 +159,7 @@ export class MockBackend {
     discoveredDevices: [],
     savedDevices: [savedBoard],
     activeConnection: null,
-    recentSessions: [secondSession, session],
-    sessionGroups: [
-      {
-        sessionGroupId: 'group-1',
-        deviceHistoryId: 'history-board',
-        sessionIds: [session.sessionId, secondSession.sessionId],
-        totalElapsedMs: session.totalElapsedMs + secondSession.totalElapsedMs,
-        distanceM: (session.distanceM ?? 0) + (secondSession.distanceM ?? 0),
-      },
-    ],
+    sessionCatalogRevision: 0,
     settings: {
       revision: 0,
       idleProbeIntervalMs: 500,
@@ -173,8 +168,6 @@ export class MockBackend {
       postRideTailMs: 5_000,
       reconnectDurationMs: 300_000,
       minimumSessionDistance: 100,
-      automaticSessionLinkingEnabled: false,
-      sessionLinkWindowMs: 7_200_000,
       themePreference: 'system',
       unitPreference: 'metric',
       historyGapThresholdSeconds: null,
@@ -240,58 +233,50 @@ export class MockBackend {
         this.activeSessionId = `session-${this.nextSession++}`;
         if (this.discoveryExpiryTimer) clearTimeout(this.discoveryExpiryTimer);
         this.discoveryExpiryTimer = undefined;
-        this.change({
-          ...this.state,
-          discoveredDevices: [],
-          activeConnection: {
-            ...discoveredBoard,
-            state: 'ready',
-            savedDeviceId: savedBoard.savedDeviceId,
-            displayName: savedBoard.displayName,
-            controllerConnection: { kind: 'direct' },
-            controllerCandidates: [],
-            connectionIssue: null,
-            activeSession: {
-              ...session,
-              sessionId: this.activeSessionId,
-              startedAt: new Date().toISOString(),
-              endedAt: null,
-              state: 'active' as const,
-              sampleCount: 0,
-              ridingElapsedMs: 0,
-              totalElapsedMs: 0,
-            },
-            latestSample: null,
-            currentLimits: {
-              motorCurrentMaxA: 100,
-              motorCurrentMinA: -100,
-              batteryCurrentMaxA: 50,
-              batteryCurrentMinA: -20,
-              batterySeriesCells: 18,
-            },
-            firmware: {
-              vescVersion: '6.06',
-              packageName: 'refloat',
-              packageVersion: '1.2.3',
-              hardwareName: 'Express',
-              accessMode: 'readWrite',
-              supported: true,
+        const activeSession: SessionSummary = {
+          ...session,
+          sessionId: this.activeSessionId,
+          startedAt: new Date().toISOString(),
+          endedAt: null,
+          state: 'active' as const,
+          sampleCount: 0,
+          ridingElapsedMs: 0,
+          totalElapsedMs: 0,
+        };
+        this.sessionCatalog = [activeSession, ...this.sessionCatalog];
+        this.change(
+          {
+            ...this.state,
+            discoveredDevices: [],
+            activeConnection: {
+              ...discoveredBoard,
+              state: 'ready',
+              savedDeviceId: savedBoard.savedDeviceId,
+              displayName: savedBoard.displayName,
+              controllerConnection: { kind: 'direct' },
+              controllerCandidates: [],
+              connectionIssue: null,
+              activeSession,
+              latestSample: null,
+              currentLimits: {
+                motorCurrentMaxA: 100,
+                motorCurrentMinA: -100,
+                batteryCurrentMaxA: 50,
+                batteryCurrentMinA: -20,
+                batterySeriesCells: 18,
+              },
+              firmware: {
+                vescVersion: '6.06',
+                packageName: 'refloat',
+                packageVersion: '1.2.3',
+                hardwareName: 'Express',
+                accessMode: 'readWrite',
+                supported: true,
+              },
             },
           },
-          recentSessions: [
-            {
-              ...session,
-              sessionId: this.activeSessionId,
-              startedAt: new Date().toISOString(),
-              endedAt: null,
-              state: 'active' as const,
-              sampleCount: 0,
-              ridingElapsedMs: 0,
-              totalElapsedMs: 0,
-            },
-            ...this.state.recentSessions,
-          ].slice(0, 50),
-        });
+          true
+        );
         return accepted(id);
       }
       case 'device.selectController': {
@@ -368,15 +353,20 @@ export class MockBackend {
       case 'device.disconnect': {
         const activeSessionId = this.activeSessionId;
         this.activeSessionId = undefined;
-        this.change({
-          ...this.state,
-          activeConnection: null,
-          recentSessions: this.state.recentSessions.map((item) =>
+        if (activeSessionId) {
+          this.sessionCatalog = this.sessionCatalog.map((item) =>
             item.sessionId === activeSessionId
               ? { ...item, endedAt: new Date().toISOString(), state: 'completed' }
               : item
-          ),
-        });
+          );
+        }
+        this.change(
+          {
+            ...this.state,
+            activeConnection: null,
+          },
+          Boolean(activeSessionId)
+        );
         return accepted(id);
       }
       case 'settings.update': {
@@ -395,8 +385,6 @@ export class MockBackend {
           'postRideTailMs',
           'reconnectDurationMs',
           'minimumSessionDistance',
-          'automaticSessionLinkingEnabled',
-          'sessionLinkWindowMs',
           'themePreference',
           'unitPreference',
           'historyGapThresholdSeconds',
@@ -466,6 +454,14 @@ export class MockBackend {
         const found = this.findSession(params);
         return found ? success(id, sessionMetadata(found)) : failure(id, 'not_found', 'Session was not found');
       }
+      case 'session.list': {
+        const limit = integer(params.limit);
+        if (limit === null || limit < 1 || limit > MAX_SESSION_LIST_PAGE) {
+          return failure(id, 'invalid_request', 'Session page size must be 1 through 100');
+        }
+        const page = this.sessionList(params.cursor, limit);
+        return page.error ? failure(id, page.error.code, page.error.message) : success(id, page.value);
+      }
       case 'session.export':
         return this.findSession(params)
           ? success(id, {
@@ -476,16 +472,13 @@ export class MockBackend {
       case 'session.delete': {
         const found = this.findSession(params);
         if (!found) return accepted(id);
-        this.change({
-          ...this.state,
-          recentSessions: this.state.recentSessions.filter((item) => item.sessionId !== found.sessionId),
-          sessionGroups: this.state.sessionGroups
-            .map((group) => ({
-              ...group,
-              sessionIds: group.sessionIds.filter((id) => id !== found.sessionId),
-            }))
-            .filter((group) => group.sessionIds.length >= 2),
-        });
+        this.sessionCatalog = this.sessionCatalog.filter((item) => item.sessionId !== found.sessionId);
+        this.change(
+          {
+            ...this.state,
+          },
+          true
+        );
         return accepted(id);
       }
       case 'session.delete.cancel':
@@ -507,7 +500,7 @@ export class MockBackend {
         const preview: SessionPrunePreview = {
           operation,
           recordedSampleCount:
-            found?.sampleCount ?? this.state.recentSessions.reduce((sum, item) => sum + item.sampleCount, 0),
+            found?.sampleCount ?? this.sessionCatalog.reduce((sum, item) => sum + item.sampleCount, 0),
           estimatedStoredSampleCount: found
             ? Math.min(found.sampleCount, Math.ceil(found.totalElapsedMs / (target * 1000)) * 8 + 2)
             : 0,
@@ -532,17 +525,6 @@ export class MockBackend {
         return this.operation?.operationId === string(params.operationId)
           ? success(id, this.cancelOperation())
           : failure(id, 'not_found', 'Prune operation was not found');
-      case 'sessionGroup.unlink': {
-        const groupId = string(params.sessionGroupId);
-        if (!this.state.sessionGroups.some((group) => group.sessionGroupId === groupId)) {
-          return accepted(id);
-        }
-        this.change({
-          ...this.state,
-          sessionGroups: this.state.sessionGroups.filter((group) => group.sessionGroupId !== groupId),
-        });
-        return accepted(id);
-      }
       default:
         return failure(id, 'invalid_request', 'Unknown method');
     }
@@ -618,9 +600,6 @@ export class MockBackend {
     this.change({
       ...this.state,
       activeConnection: { ...active, latestSample, activeSession },
-      recentSessions: this.state.recentSessions.map((item) =>
-        item.sessionId === activeSession.sessionId ? activeSession : item
-      ),
     });
   }
 
@@ -641,22 +620,23 @@ export class MockBackend {
     if (!active) return;
     const activeSessionId = active.activeSession?.sessionId;
     this.activeSessionId = undefined;
-    this.change({
-      ...this.state,
-      activeConnection: {
-        ...active,
-        state: 'identifying',
-        savedDeviceId: savedBoard.savedDeviceId,
-        controllerConnection: null,
-        controllerCandidates: [],
-        connectionIssue: null,
-        activeSession: null,
-        firmware: null,
+    if (activeSessionId) this.sessionCatalog = this.sessionCatalog.filter((item) => item.sessionId !== activeSessionId);
+    this.change(
+      {
+        ...this.state,
+        activeConnection: {
+          ...active,
+          state: 'identifying',
+          savedDeviceId: savedBoard.savedDeviceId,
+          controllerConnection: null,
+          controllerCandidates: [],
+          connectionIssue: null,
+          activeSession: null,
+          firmware: null,
+        },
       },
-      recentSessions: activeSessionId
-        ? this.state.recentSessions.filter((item) => item.sessionId !== activeSessionId)
-        : this.state.recentSessions,
-    });
+      Boolean(activeSessionId)
+    );
   }
 
   simulateCanReady(canId: number): void {
@@ -696,35 +676,87 @@ export class MockBackend {
     if (!active) return;
     const activeSessionId = active.activeSession?.sessionId;
     this.activeSessionId = undefined;
-    this.change({
-      ...this.state,
-      activeConnection: {
-        ...active,
-        state: 'failed',
-        connectionIssue: { code, message: message.slice(0, 1_024) },
-        controllerCandidates: [],
-        activeSession: null,
+    if (activeSessionId) {
+      this.sessionCatalog = this.sessionCatalog
+        .map((item) =>
+          item.sessionId === activeSessionId
+            ? { ...item, endedAt: new Date().toISOString(), state: 'interrupted' as const, integrity: 'gaps' as const }
+            : item
+        )
+        .filter((item) => code === 'controller_changed' || item.sessionId !== activeSessionId);
+    }
+    this.change(
+      {
+        ...this.state,
+        activeConnection: {
+          ...active,
+          state: 'failed',
+          connectionIssue: { code, message: message.slice(0, 1_024) },
+          controllerCandidates: [],
+          activeSession: null,
+        },
       },
-      recentSessions: activeSessionId
-        ? code === 'controller_changed'
-          ? this.state.recentSessions.map((item) =>
-              item.sessionId === activeSessionId
-                ? {
-                    ...item,
-                    endedAt: new Date().toISOString(),
-                    state: 'interrupted' as const,
-                    integrity: 'gaps' as const,
-                  }
-                : item
-            )
-          : this.state.recentSessions.filter((item) => item.sessionId !== activeSessionId)
-        : this.state.recentSessions,
-    });
+      Boolean(activeSessionId)
+    );
   }
 
   private findSession(params: Record<string, unknown>) {
     const sessionId = string(params.sessionId);
-    return this.state.recentSessions.find((item) => item.sessionId === sessionId);
+    return this.sessionCatalog.find((item) => item.sessionId === sessionId);
+  }
+
+  private sessionList(
+    cursor: unknown,
+    limit: number
+  ):
+    | { value: SessionListPage; error?: undefined }
+    | { value?: undefined; error: { code: BackendError['code']; message: string } } {
+    const ordered = [...this.sessionCatalog].sort(compareSessions);
+    let start = 0;
+    if (cursor !== undefined && cursor !== null) {
+      if (typeof cursor !== 'string' || Buffer.byteLength(cursor, 'utf8') > MAX_SESSION_LIST_CURSOR_BYTES) {
+        return { error: { code: 'invalid_request', message: 'Session cursor is invalid' } };
+      }
+      let decoded: unknown;
+      try {
+        decoded = JSON.parse(Buffer.from(cursor, 'base64').toString('utf8'));
+      } catch {
+        return { error: { code: 'invalid_request', message: 'Session cursor is invalid' } };
+      }
+      const context = asObject(decoded);
+      const lastStartedAt = context ? string(context.lastStartedAt) : null;
+      const lastSessionId = context ? string(context.lastSessionId) : null;
+      if (
+        !context ||
+        context.version !== 1 ||
+        context.query !== 'startedAt.desc.sessionId.desc' ||
+        !lastStartedAt ||
+        !lastSessionId
+      ) {
+        return { error: { code: 'invalid_request', message: 'Session cursor is invalid' } };
+      }
+      if (context.catalogRevision !== this.state.sessionCatalogRevision) {
+        return { error: { code: 'conflict', message: 'Session cursor is stale' } };
+      }
+      start = ordered.findIndex((item) => item.startedAt === lastStartedAt && item.sessionId === lastSessionId) + 1;
+      if (start === 0) return { error: { code: 'conflict', message: 'Session cursor no longer matches the catalog' } };
+    }
+    const items = ordered.slice(start, start + limit);
+    const last = items.at(-1);
+    const nextCursor =
+      start + items.length < ordered.length && last
+        ? Buffer.from(
+            JSON.stringify({
+              version: 1,
+              query: 'startedAt.desc.sessionId.desc',
+              catalogRevision: this.state.sessionCatalogRevision,
+              lastStartedAt: last.startedAt,
+              lastSessionId: last.sessionId,
+            }),
+            'utf8'
+          ).toString('base64')
+        : null;
+    return { value: { items, catalogRevision: this.state.sessionCatalogRevision, nextCursor } };
   }
 
   private startOperation(
@@ -740,8 +772,8 @@ export class MockBackend {
       sessionId,
       scope,
       targetResolutionSeconds,
-      completedSessions: kind === 'prunePreview' ? (scope === 'one' ? 1 : this.state.recentSessions.length) : 0,
-      eligibleSessions: scope === 'one' ? 1 : this.state.recentSessions.length,
+      completedSessions: kind === 'prunePreview' ? (scope === 'one' ? 1 : this.sessionCatalog.length) : 0,
+      eligibleSessions: scope === 'one' ? 1 : this.sessionCatalog.length,
       error: null,
     };
     this.operation = operation;
@@ -783,8 +815,14 @@ export class MockBackend {
     this.discoveryExpiryTimer.unref();
   }
 
-  private change(next: AppState) {
-    this.state = { ...next, revision: this.state.revision + 1 };
+  private change(next: AppState, catalogChanged = false) {
+    this.state = {
+      ...next,
+      revision: this.state.revision + 1,
+      sessionCatalogRevision: catalogChanged
+        ? this.state.sessionCatalogRevision + 1
+        : this.state.sessionCatalogRevision,
+    };
     this.publish({ event: 'state.changed', data: this.state });
   }
 }
@@ -817,4 +855,9 @@ function number(value: unknown): number | null {
 
 function integer(value: unknown): number | null {
   return typeof value === 'number' && Number.isInteger(value) ? value : null;
+}
+
+function compareSessions(left: SessionSummary, right: SessionSummary): number {
+  const startedAt = right.startedAt.localeCompare(left.startedAt);
+  return startedAt || right.sessionId.localeCompare(left.sessionId);
 }

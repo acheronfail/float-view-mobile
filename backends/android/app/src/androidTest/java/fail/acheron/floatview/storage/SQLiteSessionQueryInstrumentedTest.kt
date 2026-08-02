@@ -279,16 +279,15 @@ class SQLiteSessionQueryInstrumentedTest {
     }
 
     @Test
-    fun settingsLinkingExportsAndIdempotentDeletionUseCanonicalStorage() {
+    fun settingsExportsAndIdempotentDeletionUseCanonicalStorage() {
         val store = SQLiteLogStore(context, availableBytes = { 2_000_000_000 })
         assertEquals(ThemePreference.SYSTEM, store.settings().themePreference)
         assertEquals(100.0, store.settings().minimumSessionDistance, 0.0)
         val settings = store.updateSettings(
             0,
-            """{"automaticSessionLinkingEnabled":true,"sessionLinkWindowMs":7200000,"minimumSessionDistance":80,"idlePersistIntervalMs":2345,"ridingPersistIntervalMs":125,"themePreference":"dark"}""",
+            """{"minimumSessionDistance":80,"idlePersistIntervalMs":2345,"ridingPersistIntervalMs":125,"themePreference":"dark"}""",
         )
         assertEquals(1, settings.revision)
-        assertTrue(settings.automaticSessionLinkingEnabled)
         assertEquals(80.0, settings.minimumSessionDistance, 0.0)
         assertEquals(ThemePreference.DARK, settings.themePreference)
         assertThrows(ProductStoreException.InvalidSettingsPatch::class.java) {
@@ -340,11 +339,6 @@ class SQLiteSessionQueryInstrumentedTest {
             store.close(record.jobId, base.plusSeconds(offset + 60), "test")
         }
 
-        val group = store.sessionGroups().single()
-        assertEquals(sessionIds, group.sessionIds)
-        assertEquals(120_000, group.totalElapsedMs)
-        assertEquals(group, store.sessionGroup(group.sessionGroupId))
-
         val csv = store.exportSession(sessionIds[0], "csv")
         val csvText = File(csv.filePath).readText()
         assertTrue(csvText.contains("pack_voltage_v"))
@@ -387,7 +381,6 @@ class SQLiteSessionQueryInstrumentedTest {
 
         store.deleteSession(sessionIds[0])
         store.deleteSession(sessionIds[0])
-        assertTrue(store.sessionGroups().isEmpty())
         try {
             store.session(sessionIds[0])
             throw AssertionError("Deleted session remained readable")

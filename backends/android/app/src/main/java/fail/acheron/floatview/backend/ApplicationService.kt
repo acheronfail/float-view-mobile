@@ -257,16 +257,6 @@ class ApplicationService(
         requireNotNull(sessionStore) { "Session store is unavailable" }
             .exportSession(sessionId, format)
 
-    fun sessionGroups(): List<SessionGroupRecord> =
-        requireNotNull(sessionStore) { "Session store is unavailable" }.sessionGroups()
-
-    fun sessionGroup(sessionGroupId: String): SessionGroupRecord =
-        requireNotNull(sessionStore) { "Session store is unavailable" }.sessionGroup(sessionGroupId)
-
-    fun unlinkSessionGroup(sessionGroupId: String) =
-        requireNotNull(sessionStore) { "Session store is unavailable" }
-            .unlinkSessionGroup(sessionGroupId)
-
     @Synchronized
     fun startDiscovery(): String {
         check(bluetoothState.radio == BluetoothRadioState.POWERED_ON) {

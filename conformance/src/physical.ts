@@ -164,7 +164,7 @@ async function runPhysicalScenario(
     }
     assert.deepEqual(ready.activeConnection!.controllerCandidates, []);
     assert.equal(ready.activeConnection!.connectionIssue, null);
-    const activeSession = ready.recentSessions.find((session) => session.state === 'active');
+    const activeSession = ready.activeConnection?.activeSession;
     assert.ok(activeSession, 'Ready connection did not create an active provisional session');
 
     if (name === 'ride') {
@@ -262,7 +262,8 @@ async function runReconnect(
     { afterRevision: reconnectingState.revision, timeoutMs: 20_000 }
   );
   assert.ok(
-    restored.recentSessions.some((session) => session.sessionId === sessionId && session.state === 'active'),
+    restored.activeConnection?.activeSession?.sessionId === sessionId &&
+      restored.activeConnection.activeSession.state === 'active',
     'Reconnect did not preserve the active session'
   );
   await completeSession(client, deviceId, sessionId, exerciseReview);
@@ -282,7 +283,7 @@ async function runBackground(
     15_000
   );
   const before = await client.request('state.get', {});
-  const beforeSession = before.recentSessions.find((session) => session.sessionId === sessionId);
+  const beforeSession = before.activeConnection?.activeSession;
   assert.ok(beforeSession, 'Active session disappeared before backgrounding');
   report('  App > background');
   await target.background();
@@ -298,7 +299,7 @@ async function runBackground(
   const replacement = await ConformanceClient.open(endpoint.url, endpoint.origin, 15_000);
   const recovered = await replacement.request('state.get', {});
   assert.equal(recovered.activeConnection?.deviceId, deviceId);
-  const recoveredSession = recovered.recentSessions.find((session) => session.sessionId === sessionId);
+  const recoveredSession = recovered.activeConnection?.activeSession;
   assert.ok(recoveredSession, 'Foregrounded frontend did not recover the active session');
   assert.ok(
     recoveredSession.sampleCount > beforeSession.sampleCount,
@@ -326,7 +327,8 @@ async function completeSession(client: ConformanceClient, deviceId: string, sess
   assert.ok(!disconnected.activeConnection || disconnected.activeConnection.deviceId !== deviceId);
   if (!exerciseReview) return;
   const completed = await client.request('state.get', {});
-  const session = completed.recentSessions.find((item) => item.sessionId === sessionId);
+  const page = await client.request('session.list', { limit: 100 });
+  const session = page.items.find((item) => item.sessionId === sessionId);
   assert.ok(session, 'Completed durable session is absent');
   assert.equal(session.state, 'completed');
   assert.ok(session.sampleCount > 0, 'Ride session persisted no samples');
@@ -350,8 +352,8 @@ async function completeSession(client: ConformanceClient, deviceId: string, sess
   assert.equal(data.kind, 'series');
   await client.request('session.export', { sessionId, format: 'csv' });
   await client.request('session.delete', { sessionId });
-  const deleted = await client.request('state.get', {});
-  assert.ok(!deleted.recentSessions.some((item) => item.sessionId === sessionId));
+  const deleted = await client.request('session.list', { limit: 100 });
+  assert.ok(!deleted.items.some((item) => item.sessionId === sessionId));
 }
 
 function assertIdentity(

@@ -358,21 +358,6 @@ public final class ApplicationService: @unchecked Sendable {
     return try sessionStore.exportSession(sessionID: sessionID, format: format)
   }
 
-  public func sessionGroups() throws -> [SessionGroupRecord] {
-    guard let sessionStore else { throw ApplicationError.productStoreUnavailable }
-    return try sessionStore.sessionGroups()
-  }
-
-  public func sessionGroup(sessionGroupID: String) throws -> SessionGroupRecord {
-    guard let sessionStore else { throw ApplicationError.productStoreUnavailable }
-    return try sessionStore.sessionGroup(sessionGroupID: sessionGroupID)
-  }
-
-  public func unlinkSessionGroup(sessionGroupID: String) throws {
-    guard let sessionStore else { throw ApplicationError.productStoreUnavailable }
-    try sessionStore.unlinkSessionGroup(sessionGroupID: sessionGroupID)
-  }
-
   public func startDiscovery() throws -> String {
     lock.lock()
     defer { lock.unlock() }

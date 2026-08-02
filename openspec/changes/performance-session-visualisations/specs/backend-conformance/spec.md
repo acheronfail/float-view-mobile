@@ -2,7 +2,7 @@
 
 ### Requirement: Complete contract coverage
 
-The canonical suite SHALL cover every mandatory WebSocket control method including pending-delete cancel and prune preview/start/cancel, session-data HTTP request kind, result shape, state event, stable error, authentication rule, ordering invariant, lifecycle behavior, persistence behavior, and resource bound visible to the frontend. A required scenario MUST create its prerequisite device, Board Profile, session, history revision, snapshot, cursor, prune job, or session group and MUST fail rather than silently skip its assertions when that state is absent. Historical assertions SHALL use `session.get` metadata plus `series`, `samples`, and `events`; `session.getDiagnostics` and embedded `SessionDetail` assertions SHALL NOT remain.
+The canonical suite SHALL cover every mandatory WebSocket control method including standalone `session.list`, pending-delete cancel, and prune preview/start/cancel, session-data HTTP request kind, result shape, state event, stable error, authentication rule, ordering invariant, lifecycle behavior, persistence behavior, and resource bound visible to the frontend. A required scenario MUST create its prerequisite device, Board Profile, session, history revision, snapshot, cursor, prune job, or session-list page and MUST fail rather than silently skip its assertions when that state is absent. Historical assertions SHALL use `session.get` metadata plus `series`, `samples`, and `events`; `session.getDiagnostics`, embedded `SessionDetail`, and session-group assertions SHALL NOT remain.
 
 #### Scenario: Contract operation added
 
@@ -16,13 +16,13 @@ The canonical suite SHALL cover every mandatory WebSocket control method includi
 
 #### Scenario: Missing scenario resource
 
-- **WHEN** a success scenario requires a device, Board Profile, session, snapshot, cursor, or session group that setup did not create
+- **WHEN** a success scenario requires a device, Board Profile, session, snapshot, cursor, or session-list page that setup did not create
 - **THEN** canonical conformance fails with an actionable setup error instead of omitting the operation
 
-#### Scenario: Destructive product operations
+#### Scenario: Standalone destructive product operations
 
-- **WHEN** canonical conformance creates disposable sessions and a linked session group
-- **THEN** it exercises single/batch pruning, query/deletion coordination, and group unlinking and verifies their authoritative revision and state results
+- **WHEN** canonical conformance creates disposable standalone sessions
+- **THEN** it exercises single/batch pruning and query/deletion coordination without creating or unlinking a session group
 
 ### Requirement: Detailed persistence and contract coverage
 
@@ -54,6 +54,30 @@ Canonical conformance SHALL verify that both backends commit, recover, publish, 
 - **THEN** no newer state is published, another append or metadata read first attempts reconciliation, and an unreconciled session reports a stable storage failure
 
 ## ADDED Requirements
+
+### Requirement: Standalone session catalog conformance
+
+The canonical suite SHALL exercise `session.list` against the mock, Apple, Android, iOS, and macOS targets. It SHALL verify bounded first pages, deterministic `(startedAt, sessionId)` ordering, duplicate-free keyset continuation beyond 50 sessions, catalog-revision cursor conflicts, bounded complete state snapshots without recent-session or group collections, and unchanged catalog revision across telemetry-only state events. It SHALL also verify that automatic-linking settings and session-group methods, payloads, tables, and fixtures are absent.
+
+#### Scenario: Page continuation beyond fifty sessions
+
+- **WHEN** a disposable catalog contains more than one bounded session-list page
+- **THEN** every target returns identical standalone summaries in deterministic order and reaches all rows through continuation without offset pagination or a total-history cap of 50
+
+#### Scenario: Stale catalog cursor
+
+- **WHEN** a catalog-visible session mutation occurs after a cursor is issued
+- **THEN** every target rejects continuation with the same bounded conflict and the next first-page request succeeds
+
+#### Scenario: Telemetry-only state change
+
+- **WHEN** a persisted telemetry sample publishes a newer complete state snapshot without changing catalog-visible metadata
+- **THEN** the snapshot remains bounded, contains no session collection or group payload, and leaves `sessionCatalogRevision` unchanged
+
+#### Scenario: Grouping surfaces are removed
+
+- **WHEN** conformance inspects settings, control methods, state, storage recreation, and mock fixtures
+- **THEN** no automatic-linking field, session-group method, linked-ride payload, group table, or group fixture is exposed
 
 ### Requirement: Canonical session-data conformance
 

@@ -34,8 +34,7 @@ const initial: AppState = {
     },
   ],
   activeConnection: null,
-  recentSessions: [],
-  sessionGroups: [],
+  sessionCatalogRevision: 0,
   settings: {
     revision: 0,
     idleProbeIntervalMs: 500,
@@ -44,8 +43,6 @@ const initial: AppState = {
     postRideTailMs: 5_000,
     reconnectDurationMs: 300_000,
     minimumSessionDistance: 100,
-    automaticSessionLinkingEnabled: false,
-    sessionLinkWindowMs: 7_200_000,
     themePreference: 'system',
     unitPreference: 'metric',
     historyGapThresholdSeconds: null,
@@ -162,10 +159,8 @@ describe('BackendState', () => {
     await store.connect();
     expect(store.snapshot?.revision).toBe(1);
     await store.updateSessionSettings({
-      automaticSessionLinkingEnabled: true,
       minimumSessionDistance: 250,
     });
-    expect(store.settings?.automaticSessionLinkingEnabled).toBe(true);
     expect(store.settings?.minimumSessionDistance).toBe(250);
     expect(store.snapshot?.revision).toBe(2);
     store.close();

@@ -14,7 +14,6 @@ import fail.acheron.floatview.backend.EventHub
 import fail.acheron.floatview.backend.ProductStoreException
 import fail.acheron.floatview.backend.SessionExportRecord
 import fail.acheron.floatview.backend.SessionEventRecord
-import fail.acheron.floatview.backend.SessionGroupRecord
 import fail.acheron.floatview.backend.SessionElapsedRange
 import fail.acheron.floatview.backend.SessionGapPolicyRecord
 import fail.acheron.floatview.backend.SessionHistoryCursor
@@ -83,6 +82,7 @@ class LoopbackServer(
     private val token = ByteArray(32).also(SecureRandom()::nextBytes)
         .let { Base64.encodeToString(it, Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING) }
     private val revision = AtomicInteger()
+    private val sessionCatalogRevision = AtomicInteger()
     private var server: EmbeddedServer<*, *>? = null
     private var scanStopJob: Job? = null
     private var boundPort = 0
@@ -184,6 +184,7 @@ class LoopbackServer(
                     val subscription = events.subscribe { event ->
                         if (event.invalidatesSnapshot()) {
                             revision.incrementAndGet()
+                            if (event is SessionRecord || event === SessionCatalogChanged) sessionCatalogRevision.incrementAndGet()
                             stateUpdates.trySend(
                                 JSONObject()
                                     .put("event", "state.changed")
@@ -332,6 +333,44 @@ class LoopbackServer(
                         ),
                     )
                 }
+                "session.list" -> {
+                    val limit = params.number("limit")?.toInt()
+                        ?: return failure(id.toInt(), "invalid_request", "Session page size is required")
+                    if (limit !in 1..100) return failure(id.toInt(), "invalid_request", "Session page size must be 1 through 100")
+                    val rawCursor = params.optString("cursor").takeIf { params.has("cursor") && !params.isNull("cursor") }
+                    val context = rawCursor?.let(::decodeSessionCatalogCursor)
+                    if (rawCursor != null && context == null) {
+                        return failure(id.toInt(), "invalid_request", "Session cursor is invalid")
+                    }
+                    if (context != null && context.getLong("catalogRevision") != sessionCatalogRevision.get().toLong()) {
+                        return failure(id.toInt(), "conflict", "Session cursor is stale")
+                    }
+                    val page = applicationService.sessions(
+                        SessionListQuery(
+                            cursor = context?.getString("innerCursor"),
+                            limit = limit,
+                            sortField = "startedAt",
+                            sortDescending = true,
+                        ),
+                    )
+                    val nextCursor = page.nextCursor?.let { inner ->
+                        encodeSessionCatalogCursor(
+                            JSONObject()
+                                .put("version", 1)
+                                .put("query", "startedAt.desc.sessionId.desc")
+                                .put("catalogRevision", sessionCatalogRevision.get())
+                                .put("innerCursor", inner)
+                                .put("lastStartedAt", page.items.lastOrNull()?.startedAt?.toString() ?: JSONObject.NULL)
+                                .put("lastSessionId", page.items.lastOrNull()?.sessionId ?: JSONObject.NULL),
+                        )
+                    }
+                    success(
+                        JSONObject()
+                            .put("items", JSONArray(page.items.map(::session)))
+                            .put("catalogRevision", sessionCatalogRevision.get())
+                            .put("nextCursor", nextCursor ?: JSONObject.NULL),
+                    )
+                }
                 "session.get" -> {
                     val sessionId = requiredString("sessionId")
                         ?: return failure(id.toInt(), "invalid_request", "sessionId is required")
@@ -361,6 +400,7 @@ class LoopbackServer(
                     val sessionId = requiredString("sessionId")
                         ?: return failure(id.toInt(), "invalid_request", "sessionId is required")
                     applicationService.deleteSession(sessionId)
+                    events.publish(SessionCatalogChanged)
                     success(accepted())
                 }
                 "session.delete.cancel" -> {
@@ -499,12 +539,6 @@ class LoopbackServer(
                     val job = applicationService.cancelMaintenanceJob(params.optString("operationId"))
                     success(job?.let(::maintenanceJobJson) ?: operation(params.optString("operationId"), "prune", "cancelled", null, null))
                 }
-                "sessionGroup.unlink" -> {
-                    val groupId = requiredString("sessionGroupId")
-                        ?: return failure(id.toInt(), "invalid_request", "sessionGroupId is required")
-                    applicationService.unlinkSessionGroup(groupId)
-                    success(accepted())
-                }
                 else -> failure(id.toInt(), "invalid_request", "Unknown method")
             }
         } catch (_: IllegalArgumentException) {
@@ -543,9 +577,6 @@ class LoopbackServer(
 
     private fun snapshot(): JSONObject {
         val discovery = applicationService.discoverySnapshot()
-        val sessions = runCatching {
-            applicationService.sessions(SessionListQuery(limit = MAX_RECENT_ITEMS))
-        }.getOrNull()
         val active = applicationService.activeConnectionSnapshot()
         val firmware = applicationService.firmwareSnapshot()
         val packageVersion = applicationService.refloatPackageVersionSnapshot()
@@ -587,12 +618,7 @@ class LoopbackServer(
                     .take(MAX_RECENT_ITEMS).map(::savedDevice)),
             )
             .put("activeConnection", activePayload ?: JSONObject.NULL)
-            .put("recentSessions", JSONArray(sessions?.items?.map(::session) ?: emptyList<JSONObject>()))
-            .put(
-                "sessionGroups",
-                JSONArray(runCatching { applicationService.sessionGroups() }.getOrDefault(emptyList())
-                    .take(MAX_RECENT_ITEMS).map(::sessionGroup)),
-            )
+            .put("sessionCatalogRevision", sessionCatalogRevision.get())
             .put("settings", runCatching { settings(applicationService.settings()) }.getOrDefault(JSONObject()))
             .put("sessionOperation", runCatching { applicationService.maintenanceJob() }
                 .getOrNull()?.let(::maintenanceJobJson) ?: JSONObject.NULL)
@@ -953,13 +979,6 @@ class LoopbackServer(
         return JSONObject().put("elapsedMs", value.elapsedMs).put("values", fields)
     }
 
-    private fun sessionGroup(value: SessionGroupRecord) = JSONObject()
-        .put("sessionGroupId", value.sessionGroupId)
-        .put("deviceHistoryId", value.deviceHistoryId)
-        .put("sessionIds", JSONArray(value.sessionIds))
-        .put("totalElapsedMs", value.totalElapsedMs)
-        .put("distanceM", value.distanceM ?: JSONObject.NULL)
-
     private fun settings(value: SettingsRecord) = JSONObject()
         .put("revision", value.revision)
         .put("idleProbeIntervalMs", value.idleProbeIntervalMs)
@@ -968,8 +987,6 @@ class LoopbackServer(
         .put("postRideTailMs", value.postRideTailMs)
         .put("reconnectDurationMs", value.reconnectDurationMs)
         .put("minimumSessionDistance", value.minimumSessionDistance)
-        .put("automaticSessionLinkingEnabled", value.automaticSessionLinkingEnabled)
-        .put("sessionLinkWindowMs", value.sessionLinkWindowMs)
         .put("themePreference", value.themePreference.wireValue)
         .put("unitPreference", value.unitPreference.wireValue)
         .put("historyGapThresholdSeconds", value.historyGapThresholdSeconds ?: JSONObject.NULL)
@@ -1053,9 +1070,26 @@ class LoopbackServer(
             this is fail.acheron.floatview.backend.SavedDeviceRecord ||
             this is SettingsRecord ||
             this is TelemetrySample ||
+            this === SessionCatalogChanged ||
             this is VescProtocolMessage.Firmware ||
             this is VescProtocolMessage.CurrentLimits ||
             this is VescProtocolMessage.RefloatInfo
+
+    private object SessionCatalogChanged
+
+    private fun encodeSessionCatalogCursor(value: JSONObject): String =
+        Base64.encodeToString(value.toString().toByteArray(Charsets.UTF_8), Base64.NO_WRAP)
+
+    private fun decodeSessionCatalogCursor(value: String): JSONObject? {
+        if (value.toByteArray(Charsets.UTF_8).size > 1_024) return null
+        return runCatching {
+            JSONObject(String(Base64.decode(value, Base64.DEFAULT), Charsets.UTF_8)).takeIf {
+                it.optInt("version", 0) == 1 &&
+                    it.optString("query") == "startedAt.desc.sessionId.desc" &&
+                    it.optString("innerCursor").isNotEmpty()
+            }
+        }.getOrNull()
+    }
 
     private companion object {
         const val MAX_RECENT_ITEMS = 50
