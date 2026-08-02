@@ -291,7 +291,6 @@ export type SessionFieldSource = 'stable' | 'extension';
 
 export interface SessionFieldDescriptor {
   name: string;
-  unit: string | null;
   source: SessionFieldSource;
 }
 

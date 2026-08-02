@@ -45,7 +45,6 @@
 <section aria-labelledby="session-heading">
   <a class="text-accent" href="#/sessions">← Sessions</a>
   {#if backendState.selectedSession}
-    <h2 id="session-heading" class="mt-3 text-xl font-medium">Review</h2>
     <p class="mt-2 text-lg">{backendState.selectedSession.displayName}</p>
     <div class="mt-4 grid grid-cols-2 gap-3">
       <div class="rounded-lg border border-outline bg-elevated p-3">

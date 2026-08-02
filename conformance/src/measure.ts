@@ -6,16 +6,17 @@ import { reduceSeries, type ReferenceSample } from '../../frontend/src/lib/backe
 
 const SAMPLE_COUNT = 150_000;
 const RUNS = 3;
-const output = process.argv[2] ?? 'openspec/changes/performance-session-visualisations/evidence/software-measurements.json';
+const output =
+  process.argv[2] ?? 'openspec/changes/performance-session-visualisations/evidence/software-measurements.json';
 
 const source: ReferenceSample[] = Array.from({ length: SAMPLE_COUNT }, (_, index) => ({
   sequence: index + 1,
   elapsedMs: index * 1_000,
   rideState: index % 20_000 < 18_000 ? 'riding' : 'idle',
   values: {
-    speedKph: (index * 17) % 420 / 10,
+    speedKph: ((index * 17) % 420) / 10,
     packVoltageV: 58 - (index % 2_000) / 200,
-    motorCurrentA: ((index * 7) % 1_800 - 900) / 10,
+    motorCurrentA: (((index * 7) % 1_800) - 900) / 10,
     controllerTempC: 25 + (index % 600) / 10,
   },
 }));
@@ -29,9 +30,16 @@ let pathCount = 0;
 
 for (let run = 0; run < RUNS; run += 1) {
   const started = performance.now();
-  const reduced = reduceSeries(source, fields, range, 1_024, { thresholdSeconds: null }, {
-    expectedPersistenceMs: 1_000,
-  });
+  const reduced = reduceSeries(
+    source,
+    fields,
+    range,
+    1_024,
+    { thresholdSeconds: null },
+    {
+      expectedPersistenceMs: 1_000,
+    }
+  );
   const reducedMs = performance.now() - started;
   const payload = JSON.stringify(reduced);
   const encoded = new TextEncoder().encode(payload);

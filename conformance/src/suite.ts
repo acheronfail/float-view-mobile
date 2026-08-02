@@ -230,8 +230,8 @@ async function exerciseProductMethods(client: ConformanceClient, state: AppState
     const sampleSequence = samples.sequence.at(-1) ?? -1;
     assert.ok(
       continuation.elapsedMs.every(
-        (elapsed, index) => elapsed > sampleElapsed ||
-          (elapsed === sampleElapsed && continuation.sequence[index]! > sampleSequence)
+        (elapsed, index) =>
+          elapsed > sampleElapsed || (elapsed === sampleElapsed && continuation.sequence[index]! > sampleSequence)
       )
     );
   }
@@ -270,7 +270,8 @@ async function exerciseProductMethods(client: ConformanceClient, state: AppState
     const eventSequence = events.page.sequence.at(-1) ?? -1;
     assert.ok(
       eventContinuation.page.elapsedMs.every(
-        (elapsed, index) => elapsed > eventElapsed ||
+        (elapsed, index) =>
+          elapsed > eventElapsed ||
           (elapsed === eventElapsed && eventContinuation.page.sequence[index]! > eventSequence)
       )
     );
@@ -305,18 +306,22 @@ async function exerciseProductMethods(client: ConformanceClient, state: AppState
   assert.ok(['queued', 'running', 'completed'].includes(prune.status));
   if (prune.status !== 'completed') {
     const observed = await client.request('state.get', {});
-    if (!observed.sessionOperation ||
-        observed.sessionOperation.operationId !== prune.operationId ||
-        !['completed', 'cancelled', 'failed'].includes(observed.sessionOperation.status)) {
-    const terminal = await client.waitForState(
-      (value) => {
-        const operation = value.sessionOperation;
-        return operation?.operationId === prune.operationId &&
-          ['completed', 'cancelled', 'failed'].includes(operation.status);
-      },
-      { afterRevision: observed.revision }
-    );
-    assert.ok(terminal.sessionOperation);
+    if (
+      !observed.sessionOperation ||
+      observed.sessionOperation.operationId !== prune.operationId ||
+      !['completed', 'cancelled', 'failed'].includes(observed.sessionOperation.status)
+    ) {
+      const terminal = await client.waitForState(
+        (value) => {
+          const operation = value.sessionOperation;
+          return (
+            operation?.operationId === prune.operationId &&
+            ['completed', 'cancelled', 'failed'].includes(operation.status)
+          );
+        },
+        { afterRevision: observed.revision }
+      );
+      assert.ok(terminal.sessionOperation);
     }
   }
   assert.ok(Number.isSafeInteger(prune.completedSessions));

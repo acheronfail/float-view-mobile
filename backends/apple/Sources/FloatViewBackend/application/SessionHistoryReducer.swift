@@ -129,7 +129,9 @@ public enum SessionHistoryReducer {
         )
         : thresholdMs
       if let previousElapsed, row.elapsedMs - previousElapsed > edgeThreshold {
-        for field in fields { generations[field, default: 0] += 1 }
+        for field in fields {
+          generations[field, default: 0] += 1
+        }
       }
       previousElapsed = row.elapsedMs
       previousRideState = row.rideState
@@ -226,7 +228,9 @@ public enum SessionHistoryReducer {
     }
     var buckets: [Int64: [SessionSeriesPoint]] = [:]
     let width = targetResolutionSeconds * 1_000
-    for row in ordered { buckets[row.elapsedMs / width, default: []].append(row) }
+    for row in ordered {
+      buckets[row.elapsedMs / width, default: []].append(row)
+    }
     for bucketRows in buckets.values {
       guard let first = bucketRows.first, let last = bucketRows.last else { continue }
       keep.insert(first.sequence)
@@ -248,7 +252,7 @@ public enum SessionHistoryReducer {
       var candidates = Array(Set(roles.map(\.1.sequence))).compactMap { sequence in
         bucketRows.first(where: { $0.sequence == sequence })
       }.filter { !keep.contains($0.sequence) }
-      while !uncovered.isEmpty && candidates.count > 0 {
+      while !uncovered.isEmpty, candidates.count > 0 {
         candidates.sort { left, right in
           let leftCoverage = roles.filter { role in
             role.1.sequence == left.sequence && uncovered.contains(role.0)

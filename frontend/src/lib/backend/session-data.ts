@@ -183,7 +183,10 @@ export function validateSessionDataResult(value: unknown, request: SessionDataRe
     throw new SessionDataProtocolError('Session-data snapshot changed during the request');
   }
   validateRange(result.range);
-  if (result.range.startElapsedMs !== request.range.startElapsedMs || result.range.endElapsedMs !== request.range.endElapsedMs) {
+  if (
+    result.range.startElapsedMs !== request.range.startElapsedMs ||
+    result.range.endElapsedMs !== request.range.endElapsedMs
+  ) {
     throw new SessionDataProtocolError('Session-data range does not match the request');
   }
   if (result.kind === 'series')
@@ -390,8 +393,6 @@ function validateFieldDescriptors(
       !descriptor ||
       typeof descriptor !== 'object' ||
       (descriptor as SessionFieldDescriptor).name !== requested[index] ||
-      ((descriptor as SessionFieldDescriptor).unit !== null &&
-        typeof (descriptor as SessionFieldDescriptor).unit !== 'string') ||
       ((descriptor as SessionFieldDescriptor).source !== 'stable' &&
         (descriptor as SessionFieldDescriptor).source !== 'extension')
     ) {

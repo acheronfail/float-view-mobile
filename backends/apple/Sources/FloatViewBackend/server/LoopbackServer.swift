@@ -97,7 +97,10 @@ public final class LoopbackServer: @unchecked Sendable {
           return HTTPResponse(statusCode: .payloadTooLarge, headers: [.cacheControl: "no-store"])
         }
         let body = try await request.bodyData
-        guard body.count <= 16_384 else { return HTTPResponse(statusCode: .payloadTooLarge, headers: [.cacheControl: "no-store"]) }
+        guard body.count <= 16_384 else { return HTTPResponse(
+          statusCode: .payloadTooLarge,
+          headers: [.cacheControl: "no-store"]
+        ) }
         do {
           guard let payload = try JSONSerialization.jsonObject(with: body) as? [String: Any] else {
             return HTTPResponse(statusCode: .badRequest, headers: [.cacheControl: "no-store"])
@@ -279,7 +282,12 @@ public final class LoopbackServer: @unchecked Sendable {
         let extensionFields = try applicationService.sessionExtensionFields(sessionID: sessionID)
         let published = try applicationService.sessionSnapshot(sessionID: sessionID)
         let prune = try applicationService.sessionPruneMetadata(sessionID: sessionID)
-        return success(sessionMetadataPayload(summary, extensionFields: extensionFields, snapshot: published, prune: prune))
+        return success(sessionMetadataPayload(
+          summary,
+          extensionFields: extensionFields,
+          snapshot: published,
+          prune: prune
+        ))
       case "session.export":
         guard let sessionID = params["sessionId"] as? String,
               let format = params["format"] as? String
@@ -306,7 +314,9 @@ public final class LoopbackServer: @unchecked Sendable {
           operationID: operationID
         ))
       case "session.prune.preview":
-        guard let target = (params["targetResolutionSeconds"] as? NSNumber)?.intValue, (1 ... 300).contains(target) else {
+        guard let target = (params["targetResolutionSeconds"] as? NSNumber)?.intValue,
+              (1 ... 300).contains(target)
+        else {
           return failure(id, .invalidRequest, "Prune resolution must be 1 through 300 seconds")
         }
         let scope = params["scope"] as? String ?? (params["sessionId"] == nil ? "all" : "one")
@@ -323,7 +333,8 @@ public final class LoopbackServer: @unchecked Sendable {
             value.targetResolutionSeconds == Int64(target) && value.state == "pending" ? value : nil
         }
         let workIDs: [String] = if let last = previous?.lastSessionID,
-                                   let index = sessionIDs.firstIndex(of: last) {
+                                   let index = sessionIDs.firstIndex(of: last)
+        {
           Array(sessionIDs.dropFirst(index + 1))
         } else {
           sessionIDs
@@ -372,7 +383,7 @@ public final class LoopbackServer: @unchecked Sendable {
           skipped = skipped && value.skipped
           if value.skipReason != nil { skipReason = value.skipReason }
         }
-        let terminal = (try applicationService.maintenanceJob()?.state == "cancel_requested") ? "cancelled" : "completed"
+        let terminal = try (applicationService.maintenanceJob()?.state == "cancel_requested") ? "cancelled" : "completed"
         job = SessionMaintenanceJobRecord(
           operationID: job.operationID, kind: job.kind, scope: job.scope, state: terminal,
           sessionID: job.sessionID, targetResolutionSeconds: job.targetResolutionSeconds,
@@ -387,7 +398,9 @@ public final class LoopbackServer: @unchecked Sendable {
                         "estimatedReclaimableBytes": reclaimable,
                         "skipped": skipped, "skipReason": skipReason.map { $0 as Any } ?? NSNull()])
       case "session.prune.start":
-        guard let target = (params["targetResolutionSeconds"] as? NSNumber)?.intValue, (1 ... 300).contains(target) else {
+        guard let target = (params["targetResolutionSeconds"] as? NSNumber)?.intValue,
+              (1 ... 300).contains(target)
+        else {
           return failure(id, .invalidRequest, "Prune resolution must be 1 through 300 seconds")
         }
         let scope = params["scope"] as? String ?? (params["sessionId"] == nil ? "all" : "one")
@@ -404,7 +417,8 @@ public final class LoopbackServer: @unchecked Sendable {
             value.targetResolutionSeconds == Int64(target) && value.state == "pending" ? value : nil
         }
         let workIDs: [String] = if let last = previous?.lastSessionID,
-                                   let index = sessionIDs.firstIndex(of: last) {
+                                   let index = sessionIDs.firstIndex(of: last)
+        {
           Array(sessionIDs.dropFirst(index + 1))
         } else {
           sessionIDs
@@ -443,7 +457,7 @@ public final class LoopbackServer: @unchecked Sendable {
           )
           try applicationService.saveMaintenanceJob(job)
         }
-        let terminal = (try applicationService.maintenanceJob()?.state == "cancel_requested") ? "cancelled" : "completed"
+        let terminal = try (applicationService.maintenanceJob()?.state == "cancel_requested") ? "cancelled" : "completed"
         job = SessionMaintenanceJobRecord(
           operationID: job.operationID, kind: job.kind, scope: job.scope, state: terminal,
           sessionID: job.sessionID, targetResolutionSeconds: job.targetResolutionSeconds,
@@ -458,7 +472,13 @@ public final class LoopbackServer: @unchecked Sendable {
         if let job = try applicationService.cancelMaintenanceJob(operationID: operationID) {
           return success(maintenanceJobPayload(job))
         }
-        return success(operationPayload(kind: "prune", status: "cancelled", sessionID: nil, target: nil, operationID: operationID))
+        return success(operationPayload(
+          kind: "prune",
+          status: "cancelled",
+          sessionID: nil,
+          target: nil,
+          operationID: operationID
+        ))
       case "sessionGroup.unlink":
         guard let groupID = params["sessionGroupId"] as? String else {
           return failure(id, .invalidRequest, "sessionGroupId is required")
@@ -533,7 +553,8 @@ public final class LoopbackServer: @unchecked Sendable {
       "recentSessions": sessions?.items.map(sessionPayload) ?? [],
       "sessionGroups": Array((try? applicationService.sessionGroups())?.prefix(50) ?? []).map(sessionGroupPayload),
       "settings": (try? applicationService.settings()).map(settingsPayload) ?? [:],
-      "sessionOperation": (try? applicationService.maintenanceJob()).flatMap { $0.map(maintenanceJobPayload) } ?? NSNull(),
+      "sessionOperation": (try? applicationService.maintenanceJob())
+        .flatMap { $0.map(maintenanceJobPayload) } ?? NSNull(),
     ]
   }
 
@@ -695,8 +716,8 @@ public final class LoopbackServer: @unchecked Sendable {
     snapshot: SessionPublishedSnapshotRecord,
     prune: SessionPruneMetadataRecord
   ) -> [String: Any] {
-    let fields: [[String: Any]] = Self.numericSeriesFields.map { ["name": $0, "unit": Self.unit(for: $0) as Any, "source": "stable"] }
-      + extensionFields.map { ["name": $0, "unit": NSNull(), "source": "extension"] }
+    let fields: [[String: Any]] = Self.numericSeriesFields.map { ["name": $0, "source": "stable"] }
+      + extensionFields.map { ["name": $0, "source": "extension"] }
     return [
       "summary": sessionPayload(value),
       "fields": fields,
@@ -728,7 +749,7 @@ public final class LoopbackServer: @unchecked Sendable {
     else { return nil }
     let fields = (params["fields"] as? [String] ?? []).filter { !$0.isEmpty }
     guard start >= 0, end >= start, fields.count <= 16,
-          (kind == "events" || (!fields.isEmpty && Set(fields).count == fields.count)) else { return nil }
+          kind == "events" || (!fields.isEmpty && Set(fields).count == fields.count) else { return nil }
     let published = try applicationService.sessionSnapshot(sessionID: sessionID)
     guard let snapshotRevision = snapshot["historyRevision"] as? NSNumber,
           let sampleSequence = snapshot["committedSampleSequence"] as? NSNumber,
@@ -746,11 +767,10 @@ public final class LoopbackServer: @unchecked Sendable {
       "committedEventSequence": eventSequence.int64Value,
       "committedElapsedMs": committedElapsed.int64Value,
     ]
-    let extensionFields = Set(try applicationService.sessionExtensionFields(sessionID: sessionID))
+    let extensionFields = try Set(applicationService.sessionExtensionFields(sessionID: sessionID))
     let descriptors = fields.map { field in
       [
         "name": field,
-        "unit": Self.unit(for: field) as Any,
         "source": extensionFields.contains(field) ? "extension" : "stable",
       ]
     }
@@ -869,7 +889,12 @@ public final class LoopbackServer: @unchecked Sendable {
         (event.elapsedMs == decodedCursor.elapsedMs && sequence > decodedCursor.sequence)
     }
     let events = Array(pageEvents.prefix(requestedLimit))
-    let values = events.map { (try? JSONSerialization.jsonObject(with: Data($0.detailsJSON.utf8)) as? [String: Any])?["value"] as? String ?? "" }
+    let values = events
+      .map {
+        (try? JSONSerialization.jsonObject(with: Data(
+          $0.detailsJSON.utf8
+        )) as? [String: Any])?["value"] as? String ?? ""
+      }
     let next: String?
     if let last = events.last, events.count < pageEvents.count {
       let cursor = SessionHistoryCursor(
@@ -882,8 +907,8 @@ public final class LoopbackServer: @unchecked Sendable {
     }
     return ["kind": kind, "sessionId": sessionID, "snapshot": echoedSnapshot, "range": range,
             "page": ["elapsedMs": events.map(\.elapsedMs), "sequence": events.map { Int64($0.eventID) ?? 0 },
-                      "sourceSampleSequence": events.map { $0.sourceSampleSequence ?? 0 },
-                      "kinds": events.map(\.kind), "values": values],
+                     "sourceSampleSequence": events.map { $0.sourceSampleSequence ?? 0 },
+                     "kinds": events.map(\.kind), "values": values],
             "nextCursor": next as Any? ?? NSNull()]
   }
 
@@ -967,15 +992,6 @@ public final class LoopbackServer: @unchecked Sendable {
     guard result == Z_STREAM_END else { return nil }
     output.count = Int(stream.total_out)
     return output
-  }
-
-  private static func unit(for field: String) -> String? {
-    if field.hasSuffix("V") { return "V" }
-    if field.hasSuffix("A") { return "A" }
-    if field.hasSuffix("Ah") { return "Ah" }
-    if field.hasSuffix("Wh") { return "Wh" }
-    if field.hasSuffix("M") || field.hasSuffix("m") { return "m" }
-    return nil
   }
 
   private func sessionPayload(_ value: SessionSummaryRecord) -> [String: Any] {
@@ -1096,10 +1112,10 @@ public final class LoopbackServer: @unchecked Sendable {
 
   private func sessionFailure(_ id: Int, _ error: SessionStoreError) -> Data {
     switch error {
-      case .sessionNotFound: failure(id, .notFound, "Session was not found")
-      case .sessionActive: failure(id, .invalidState, "Session is still active")
-      case .maintenanceInProgress: failure(id, .unavailable, "Session maintenance is in progress")
-      case .invalidCursor, .invalidRange, .unsupportedField, .invalidExportFormat:
+    case .sessionNotFound: failure(id, .notFound, "Session was not found")
+    case .sessionActive: failure(id, .invalidState, "Session is still active")
+    case .maintenanceInProgress: failure(id, .unavailable, "Session maintenance is in progress")
+    case .invalidCursor, .invalidRange, .unsupportedField, .invalidExportFormat:
       failure(id, .invalidRequest, "Session request is invalid")
     }
   }

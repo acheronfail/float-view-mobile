@@ -1,5 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { axisTicks, buildPathSegments, elapsedTicks, finiteDomain, formatAxisTick, zeroReference } from './history-geometry';
+import {
+  axisTicks,
+  buildPathSegments,
+  elapsedTicks,
+  finiteDomain,
+  formatAxisTick,
+  pointAtElapsed,
+  zeroReference,
+} from './history-geometry';
 
 describe('historical session geometry', () => {
   it('pads constant finite domains deterministically and exposes zero when applicable', () => {
@@ -21,6 +29,47 @@ describe('historical session geometry', () => {
     expect(segments).toHaveLength(2);
     expect(segments[0]).toContain('M');
     expect(segments[1]).toMatch(/^M 100\.00 /);
+  });
+
+  it('finds the interpolated point where the inspection bar crosses a line', () => {
+    expect(
+      pointAtElapsed(
+        {
+          elapsedMs: [0, 10],
+          sequence: [0, 1],
+          values: [0, 10],
+          generations: [0, 0],
+        },
+        5,
+        { min: -1, max: 11 },
+        { width: 100, height: 50, viewport: { startElapsedMs: 0, endElapsedMs: 10 } }
+      )
+    ).toEqual({ elapsedMs: 5, value: 5, x: 50, y: 25 });
+  });
+
+  it('does not cross null or generation gaps', () => {
+    const column = {
+      elapsedMs: [0, 10, 20],
+      sequence: [0, 1, 2],
+      values: [0, null, 10],
+      generations: [0, 1, 1],
+    };
+    expect(
+      pointAtElapsed(
+        column,
+        5,
+        { min: -1, max: 11 },
+        { width: 100, height: 50, viewport: { startElapsedMs: 0, endElapsedMs: 20 } }
+      )
+    ).toBeNull();
+    expect(
+      pointAtElapsed(
+        column,
+        15,
+        { min: -1, max: 11 },
+        { width: 100, height: 50, viewport: { startElapsedMs: 0, endElapsedMs: 20 } }
+      )
+    ).toBeNull();
   });
 
   it('keeps shared elapsed ticks inside the visible range', () => {

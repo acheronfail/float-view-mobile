@@ -60,7 +60,6 @@ const secondSession: SessionSummary = {
 
 const sessionFields = Object.keys(detailedSeriesValues({})).map((name) => ({
   name,
-  unit: name.endsWith('V') ? 'V' : name.endsWith('A') ? 'A' : null,
   source: 'stable' as const,
 }));
 

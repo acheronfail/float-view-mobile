@@ -20,7 +20,7 @@ const metadata: SessionMetadata = {
     maxSpeedMps: 1,
     maxDutyCycle: 0.2,
   },
-  fields: [{ name: 'speedKph', unit: 'km/h', source: 'stable' }],
+  fields: [{ name: 'speedKph', source: 'stable' }],
   eventCount: 0,
   recordedSampleCount: 2,
   storedSampleCount: 2,

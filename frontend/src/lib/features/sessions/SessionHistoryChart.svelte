@@ -6,7 +6,15 @@
   import type { SessionSeriesResult } from '$lib/backend/session-data';
   import { backendState } from '$lib/backend/state.svelte';
   import { activateFromKeyboardOrAssistiveClick, activateFromPointer } from '$lib/ui/activation';
-  import { axisTicks, buildPathSegments, finiteDomain, formatAxisTick, zeroReference } from './history-geometry';
+  import {
+    axisTicks,
+    buildPathSegments,
+    finiteDomain,
+    formatAxisTick,
+    pointAtElapsed,
+    zeroReference,
+  } from './history-geometry';
+  import { sessionFieldDisplayName, sessionFieldUnit } from './session-fields';
   import { clampViewport, panViewport, pinchViewport, type Viewport } from './viewport';
 
   let { metadata }: { metadata: SessionMetadata } = $props();
@@ -22,6 +30,7 @@
   let groupErrors = new SvelteMap<number, string>();
   // Keep the in-flight guard outside Svelte's reactive graph. The initial
   // loading effect must not rerun just because it updates the loading map.
+  // eslint-disable-next-line svelte/prefer-svelte-reactivity
   const inFlightGroups = new Set<number>();
   let groupNodes = new SvelteMap<number, HTMLElement>();
   let groupObserver: IntersectionObserver | null = null;
@@ -36,12 +45,19 @@
   let inspectionInFlight = false;
   let inspectionRequestVersion = 0;
   let queuedInspection: number | null = null;
+  let tooltipWidths = new SvelteMap<string, number>();
+  let touchDevice = $state(false);
+  let mouseDevice = $state(false);
 
   const INSPECTION_DEBOUNCE_MS = 60;
   const CHART_WIDTH = 320;
   const CHART_HEIGHT = 96;
   const Y_TICK_COUNT = 5;
   const MIN_SELECTION_PIXELS = 8;
+  const INTERACTION_MODES = ['zoom', 'pan', 'info'] as const;
+
+  type InteractionMode = (typeof INTERACTION_MODES)[number];
+  let interactionMode = $state<InteractionMode>('zoom');
 
   const fields = $derived(metadata.fields.slice(0, 16));
   const fieldGroups = $derived.by(() => {
@@ -61,10 +77,19 @@
   const visibleViewport = $derived(previewViewport ?? viewport);
   const span = $derived(Math.max(1, visibleViewport.endElapsedMs - visibleViewport.startElapsedMs));
   const duration = $derived(Math.max(1, metadata.summary.totalElapsedMs));
+  const isZoomed = $derived(viewport.endElapsedMs - viewport.startElapsedMs < duration);
   let pointers = new SvelteMap<number, { x: number; y: number }>();
-  let gestureStart: { viewport: Viewport; distance: number; ratio: number; pixelWidth: number } | null = null;
+  let gestureStart: {
+    viewport: Viewport;
+    distance: number;
+    ratio: number;
+    pixelWidth: number;
+    startElapsedMs: number;
+  } | null = null;
+  let gestureMode = $state<InteractionMode | null>(null);
   let selectionStartElapsedMs = $state<number | null>(null);
   let selectionEndElapsedMs = $state<number | null>(null);
+  let panEdge = $state<'start' | 'end' | null>(null);
   const selectionRange = $derived.by(() => {
     if (selectionStartElapsedMs === null || selectionEndElapsedMs === null) return null;
     const startX = ((selectionStartElapsedMs - visibleViewport.startElapsedMs) / span) * CHART_WIDTH;
@@ -76,8 +101,7 @@
       rightX: Math.max(startX, endX),
     };
   });
-  let inspectionPinned = $state(false);
-  let inspectionVisible = $derived(exactStatus !== 'idle' || inspectionPinned);
+  let inspectionVisible = $derived(exactStatus !== 'idle');
 
   $effect(() => {
     if (!activeField && fields.length) activeField = fields[0]!.name;
@@ -234,25 +258,94 @@
     previewViewport = null;
   }
 
+  function isTouchPointer(event: PointerEvent): boolean {
+    return event.pointerType === 'touch';
+  }
+
+  function resetGesture() {
+    pointers.clear();
+    selectionStartElapsedMs = null;
+    selectionEndElapsedMs = null;
+    previewViewport = null;
+    gestureStart = null;
+    gestureMode = null;
+    panEdge = null;
+  }
+
+  function nextInteractionMode(): InteractionMode {
+    const index = INTERACTION_MODES.indexOf(interactionMode);
+    return INTERACTION_MODES[(index + 1) % INTERACTION_MODES.length]!;
+  }
+
+  function cycleInteractionMode() {
+    interactionMode = nextInteractionMode();
+    resetGesture();
+    dismissInspection();
+  }
+
+  function preventChartContextMenu(event: MouseEvent) {
+    if (mouseDevice) event.preventDefault();
+  }
+
   function beginGesture(event: PointerEvent) {
-    if (event.button !== 0 && event.pointerType === 'mouse') return;
+    const rightMousePan = mouseDevice && event.pointerType === 'mouse' && event.button === 2;
+    if (event.pointerType === 'mouse' && event.button !== 0 && !rightMousePan) return;
     if (!pointers.size && !event.isPrimary) return;
+    if (rightMousePan) event.preventDefault();
     (event.currentTarget as SVGElement).setPointerCapture?.(event.pointerId);
     pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
     const values = [...pointers.values()];
+    const touchPointer = isTouchPointer(event);
+    const mode = rightMousePan ? 'pan' : interactionMode;
+    gestureMode = mode;
+    panEdge = null;
+    if (rightMousePan) dismissInspection();
+    if (touchPointer && mode === 'info') {
+      if (values.length === 1) {
+        const bounds = (event.currentTarget as SVGElement).getBoundingClientRect();
+        queueInspection(elapsedAtClientX(event.clientX, bounds));
+      } else {
+        pointers.delete(event.pointerId);
+      }
+      gestureStart = null;
+      selectionStartElapsedMs = null;
+      selectionEndElapsedMs = null;
+      return;
+    }
+    if (touchPointer && mode === 'pan' && values.length > 1) {
+      pointers.delete(event.pointerId);
+      return;
+    }
     if (values.length === 1) {
       const bounds = (event.currentTarget as SVGElement).getBoundingClientRect();
       const start = elapsedAtClientX(event.clientX, bounds);
-      gestureStart = { viewport: visibleViewport, distance: 0, ratio: 0.5, pixelWidth: bounds.width };
-      selectionStartElapsedMs = start;
-      selectionEndElapsedMs = start;
+      gestureStart = {
+        viewport: visibleViewport,
+        distance: 0,
+        ratio: 0.5,
+        pixelWidth: bounds.width,
+        startElapsedMs: start,
+      };
+      if (mode === 'zoom') {
+        selectionStartElapsedMs = start;
+        selectionEndElapsedMs = start;
+      } else {
+        selectionStartElapsedMs = null;
+        selectionEndElapsedMs = null;
+      }
     } else if (values.length === 2) {
       const [first, second] = values;
       const distance = Math.hypot(second!.x - first!.x, second!.y - first!.y);
       const midpoint = (first!.x + second!.x) / 2;
       const bounds = (event.currentTarget as SVGElement).getBoundingClientRect();
       const ratio = Math.max(0, Math.min(1, (midpoint - bounds.left) / Math.max(1, bounds.width)));
-      gestureStart = { viewport: visibleViewport, distance, ratio, pixelWidth: bounds.width };
+      gestureStart = {
+        viewport: visibleViewport,
+        distance,
+        ratio,
+        pixelWidth: bounds.width,
+        startElapsedMs: visibleViewport.startElapsedMs + ratio * span,
+      };
       selectionStartElapsedMs = null;
       selectionEndElapsedMs = null;
     }
@@ -270,10 +363,17 @@
       );
       return;
     }
-    if (!pointers.has(event.pointerId) || !gestureStart) return;
+    if (!pointers.has(event.pointerId)) return;
+    const mode = gestureMode ?? interactionMode;
+    if (isTouchPointer(event) && mode === 'info') {
+      const bounds = (event.currentTarget as SVGElement).getBoundingClientRect();
+      queueInspection(elapsedAtClientX(event.clientX, bounds));
+      return;
+    }
+    if (!gestureStart) return;
     pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
     const values = [...pointers.values()];
-    if (values.length >= 2) {
+    if (values.length >= 2 && (!isTouchPointer(event) || mode === 'zoom')) {
       const [first, second] = values;
       previewViewport = pinchViewport(
         gestureStart.viewport,
@@ -287,44 +387,80 @@
       return;
     }
     const bounds = (event.currentTarget as SVGElement).getBoundingClientRect();
-    selectionEndElapsedMs = elapsedAtClientX(values[0]!.x, bounds);
+    if (mode === 'pan') {
+      const currentElapsedMs = elapsedAtClientX(values[0]!.x, bounds);
+      const requestedDelta = gestureStart.startElapsedMs - currentElapsedMs;
+      previewViewport = panViewport(gestureStart.viewport, requestedDelta, duration);
+      panEdge =
+        requestedDelta < 0 && previewViewport.startElapsedMs === 0
+          ? 'start'
+          : requestedDelta > 0 && previewViewport.endElapsedMs === duration
+            ? 'end'
+            : null;
+      return;
+    }
+    if (mode === 'zoom') selectionEndElapsedMs = elapsedAtClientX(values[0]!.x, bounds);
   }
 
   function endGesture(event: PointerEvent) {
-    if (event.pointerType === 'touch' || event.pointerType === 'pen') inspectionPinned = true;
+    const mode = gestureMode ?? interactionMode;
+    const touchInfoGesture = isTouchPointer(event) && mode === 'info';
     pointers.delete(event.pointerId);
     if (!pointers.size) {
       if (previewViewport) {
         viewport = clampViewport(previewViewport, duration);
-      } else if (selectionStartElapsedMs !== null && selectionEndElapsedMs !== null) {
+      } else if (mode === 'zoom' && selectionStartElapsedMs !== null && selectionEndElapsedMs !== null) {
         const start = Math.min(selectionStartElapsedMs, selectionEndElapsedMs);
         const end = Math.max(selectionStartElapsedMs, selectionEndElapsedMs);
         const minimumSpan = (span / Math.max(1, gestureStart?.pixelWidth ?? width)) * MIN_SELECTION_PIXELS;
         if (end - start >= minimumSpan) {
           viewport = clampViewport({ startElapsedMs: start, endElapsedMs: end }, duration);
-        } else {
+        } else if (!isTouchPointer(event)) {
           queueInspection(selectionEndElapsedMs);
         }
       }
-      selectionStartElapsedMs = null;
-      selectionEndElapsedMs = null;
-      previewViewport = null;
-      gestureStart = null;
+      resetGesture();
+      if (touchInfoGesture) dismissInspection();
     }
   }
 
   function cancelGesture(event: PointerEvent) {
+    const mode = gestureMode ?? interactionMode;
     pointers.delete(event.pointerId);
     if (!pointers.size) {
-      selectionStartElapsedMs = null;
-      selectionEndElapsedMs = null;
-      previewViewport = null;
-      gestureStart = null;
+      resetGesture();
+      if (isTouchPointer(event) && mode === 'info') dismissInspection();
     }
   }
 
   function path(column: SessionSeriesResult['columns'][string]): string[] {
     return buildPathSegments(column, { width: CHART_WIDTH, height: CHART_HEIGHT, viewport: visibleViewport });
+  }
+
+  function measureTooltip(node: HTMLElement, fieldName: string) {
+    const updateWidth = () => tooltipWidths.set(fieldName, node.offsetWidth);
+    updateWidth();
+    if (typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(updateWidth);
+    observer.observe(node);
+    return {
+      destroy() {
+        observer.disconnect();
+        tooltipWidths.delete(fieldName);
+      },
+    };
+  }
+
+  function tooltipStyle(fieldName: string, pointX: number): string {
+    const width = tooltipWidths.get(fieldName);
+    const gap = 4;
+    const alignLeft = width === undefined ? pointX > CHART_WIDTH / 2 : pointX + width + gap > CHART_WIDTH;
+    const left = `${(Math.max(0, Math.min(CHART_WIDTH, pointX)) / CHART_WIDTH) * 100}%`;
+    return `left: ${left}; transform: ${alignLeft ? 'translateX(calc(-100% - 0.25rem))' : 'translateX(0.25rem)'}`;
+  }
+
+  function formatTooltipValue(value: number): string {
+    return Number(value.toPrecision(6)).toString();
   }
 
   function dismissInspection() {
@@ -334,17 +470,24 @@
       window.clearTimeout(inspectionDebounce);
       inspectionDebounce = null;
     }
-    inspectionPinned = false;
     exactStatus = 'idle';
     exactValue = null;
   }
 
   onMount(() => {
     if (!plot) return;
-    const dismissOnEscape = (event: KeyboardEvent) => {
-      if (event.key === 'Escape' && inspectionPinned) dismissInspection();
+    const touchMedia = window.matchMedia('(hover: none) and (pointer: coarse)');
+    const updateTouchDevice = () => {
+      touchDevice = touchMedia.matches;
     };
-    window.addEventListener('keydown', dismissOnEscape);
+    const mouseMedia = window.matchMedia('(hover: hover) and (pointer: fine)');
+    const updateMouseDevice = () => {
+      mouseDevice = mouseMedia.matches;
+    };
+    updateTouchDevice();
+    updateMouseDevice();
+    touchMedia.addEventListener('change', updateTouchDevice);
+    mouseMedia.addEventListener('change', updateMouseDevice);
     const observer = new ResizeObserver((entries) => {
       const next = Math.max(0, Math.floor(entries[0]?.contentRect.width ?? 0));
       if (next <= 0 || next === width) return;
@@ -369,7 +512,8 @@
     );
     groupNodes.forEach((node) => groupObserver?.observe(node));
     return () => {
-      window.removeEventListener('keydown', dismissOnEscape);
+      touchMedia.removeEventListener('change', updateTouchDevice);
+      mouseMedia.removeEventListener('change', updateMouseDevice);
       observer.disconnect();
       groupObserver?.disconnect();
       groupObserver = null;
@@ -440,7 +584,8 @@
       onchange={inspectionFieldChanged}
       class="rounded bg-elevated px-2 py-1"
     >
-      {#each fields as field (field.name)}<option value={field.name}>{field.name}</option>{/each}
+      {#each fields as field (field.name)}<option value={field.name}>{sessionFieldDisplayName(field.name)}</option
+        >{/each}
     </select>
     <input
       id="history-inspection-range"
@@ -462,27 +607,6 @@
       {:else}No exact value selected{/if}
     </span>
   </div>
-  {#if inspectionVisible}
-    <div
-      class="pointer-events-none absolute top-20 right-4 z-10 rounded bg-surface px-2 py-1 text-xs shadow"
-      style={`max-width: min(16rem, calc(100% - 2rem)); left: ${Math.max(4, Math.min(76, ((inspectionMs - visibleViewport.startElapsedMs) / span) * 100))}%`}
-      role="status"
-    >
-      <span>{inspectionMs} ms</span>
-      {#if exactStatus === 'pending'}
-        · Loading exact value…
-      {:else if exactStatus === 'exact'}
-        · {activeField}: {exactValue}{#if fields.find((field) => field.name === activeField)?.unit}
-          {fields.find((field) => field.name === activeField)?.unit}{/if}
-      {:else if exactStatus === 'unavailable'}
-        · {activeField}: unavailable
-      {:else if exactStatus === 'error'}
-        · Exact value unavailable{/if}
-      {#if inspectionPinned}<button type="button" class="pointer-events-auto ml-1 underline" onclick={dismissInspection}
-          >Close</button
-        >{/if}
-    </div>
-  {/if}
   {#if loading}<p class="mt-2 text-xs text-muted" role="status">Loading chart data…</p>{/if}
   {#if error}<p class="mt-2 text-sm text-warning" role="alert">{error}</p>{/if}
   {#if result}
@@ -501,9 +625,20 @@
             {@const domain = column ? finiteDomain(column.values) : null}
             {@const yTicks = axisTicks(domain, Y_TICK_COUNT)}
             {@const zero = zeroReference(domain)}
+            {@const point =
+              column && domain
+                ? pointAtElapsed(column, inspectionMs, domain, {
+                    width: CHART_WIDTH,
+                    height: CHART_HEIGHT,
+                    viewport: visibleViewport,
+                  })
+                : null}
             <div>
               <div class="flex items-baseline justify-between gap-2 text-xs">
-                <span>{field.name}</span><span class="text-muted">{field.unit ?? 'value'}</span>
+                <span class="font-mono text-sm font-semibold tracking-[0.10em] text-accent"
+                  >{sessionFieldDisplayName(field.name)}</span
+                >
+                <span class="text-muted">{sessionFieldUnit(field.name) ?? 'value'}</span>
               </div>
               {#if paths.length}
                 <div class="mt-1 flex items-stretch gap-1">
@@ -511,106 +646,140 @@
                     class="flex h-24 w-12 shrink-0 flex-col justify-between text-right text-[8px] leading-none text-muted"
                     aria-hidden="true"
                   >
-                    {#each yTicks as tick}<span>{formatAxisTick(tick)}</span>{/each}
+                    {#each yTicks as tick (tick)}<span>{formatAxisTick(tick)}</span>{/each}
                   </div>
-                  <svg
-                    class="h-24 min-w-0 flex-1 touch-pan-y rounded bg-canvas"
-                    viewBox={`0 0 ${CHART_WIDTH} ${CHART_HEIGHT}`}
-                    preserveAspectRatio="none"
-                    role="img"
-                    aria-label={`${field.name} over elapsed time`}
-                    onpointerdown={(event) => {
-                      beginGesture(event);
-                      if (event.pointerType === 'touch' || event.pointerType === 'pen') {
-                        const bounds = (event.currentTarget as SVGElement).getBoundingClientRect();
-                        queueInspection(elapsedAtClientX(event.clientX, bounds));
-                      }
-                    }}
-                    onpointermove={moveGesture}
-                    onpointerup={endGesture}
-                    onpointercancel={cancelGesture}
-                    onpointerleave={() => {
-                      if (!inspectionPinned) dismissInspection();
-                    }}
-                  >
-                    {#each yTicks as tick}
-                      {@const y =
-                        CHART_HEIGHT -
-                        ((tick - (domain?.min ?? 0)) /
-                          Math.max(Number.EPSILON, (domain?.max ?? 1) - (domain?.min ?? 0))) *
-                          (CHART_HEIGHT - 4) -
-                        2}
-                      <line
-                        x1="0"
-                        x2={CHART_WIDTH}
-                        y1={y}
-                        y2={y}
-                        stroke="var(--app-muted)"
-                        stroke-opacity="0.35"
-                        stroke-dasharray="2 2"
-                      />
-                    {/each}
-                    {#if zero !== null}<line
-                        x1="0"
-                        x2={CHART_WIDTH}
-                        y1={CHART_HEIGHT - zero * (CHART_HEIGHT - 4) - 2}
-                        y2={CHART_HEIGHT - zero * (CHART_HEIGHT - 4) - 2}
-                        stroke="var(--app-muted)"
-                        stroke-dasharray="2 2"
-                      />{/if}
-                    {#each paths as segment (segment)}<path
-                        d={segment}
-                        fill="none"
-                        stroke="var(--app-accent)"
-                        stroke-width="1.5"
-                        vector-effect="non-scaling-stroke"
-                      />{/each}
-                    {#if inspectionVisible}
-                      <line
-                        x1={((inspectionMs - visibleViewport.startElapsedMs) / span) * CHART_WIDTH}
-                        x2={((inspectionMs - visibleViewport.startElapsedMs) / span) * CHART_WIDTH}
-                        y1="0"
-                        y2={CHART_HEIGHT}
-                        stroke="var(--app-accent)"
-                        stroke-dasharray="3 2"
-                        vector-effect="non-scaling-stroke"
-                      />
+                  <div class="relative min-w-0 flex-1">
+                    <svg
+                      class="block h-24 w-full touch-pan-y rounded bg-canvas"
+                      viewBox={`0 0 ${CHART_WIDTH} ${CHART_HEIGHT}`}
+                      preserveAspectRatio="none"
+                      role="img"
+                      aria-label={`${sessionFieldDisplayName(field.name)} over elapsed time`}
+                      onpointerdown={(event) => {
+                        beginGesture(event);
+                      }}
+                      onpointermove={moveGesture}
+                      onpointerup={endGesture}
+                      onpointercancel={cancelGesture}
+                      oncontextmenu={preventChartContextMenu}
+                      onpointerleave={() => {
+                        dismissInspection();
+                      }}
+                    >
+                      {#each yTicks as tick (tick)}
+                        {@const y =
+                          CHART_HEIGHT -
+                          ((tick - (domain?.min ?? 0)) /
+                            Math.max(Number.EPSILON, (domain?.max ?? 1) - (domain?.min ?? 0))) *
+                            (CHART_HEIGHT - 4) -
+                          2}
+                        <line
+                          x1="0"
+                          x2={CHART_WIDTH}
+                          y1={y}
+                          y2={y}
+                          stroke="var(--app-muted)"
+                          stroke-opacity="0.35"
+                          stroke-dasharray="2 2"
+                        />
+                      {/each}
+                      {#if zero !== null}<line
+                          x1="0"
+                          x2={CHART_WIDTH}
+                          y1={CHART_HEIGHT - zero * (CHART_HEIGHT - 4) - 2}
+                          y2={CHART_HEIGHT - zero * (CHART_HEIGHT - 4) - 2}
+                          stroke="var(--app-muted)"
+                          stroke-dasharray="2 2"
+                        />{/if}
+                      {#each paths as segment (segment)}<path
+                          d={segment}
+                          fill="none"
+                          stroke="var(--app-accent)"
+                          stroke-width="1.5"
+                          vector-effect="non-scaling-stroke"
+                        />{/each}
+                      {#if inspectionVisible}
+                        <line
+                          x1={((inspectionMs - visibleViewport.startElapsedMs) / span) * CHART_WIDTH}
+                          x2={((inspectionMs - visibleViewport.startElapsedMs) / span) * CHART_WIDTH}
+                          y1="0"
+                          y2={CHART_HEIGHT}
+                          stroke="var(--app-accent)"
+                          stroke-dasharray="3 2"
+                          vector-effect="non-scaling-stroke"
+                        />
+                      {/if}
+                      {#if selectionRange}
+                        <rect
+                          x="0"
+                          y="0"
+                          width={selectionRange.leftX}
+                          height={CHART_HEIGHT}
+                          fill="var(--app-surface)"
+                          fill-opacity="0.82"
+                        />
+                        <rect
+                          x={selectionRange.rightX}
+                          y="0"
+                          width={CHART_WIDTH - selectionRange.rightX}
+                          height={CHART_HEIGHT}
+                          fill="var(--app-surface)"
+                          fill-opacity="0.82"
+                        />
+                        <line
+                          x1={selectionRange.startX}
+                          x2={selectionRange.startX}
+                          y1="0"
+                          y2={CHART_HEIGHT}
+                          stroke="var(--app-accent)"
+                          stroke-width="1.5"
+                        />
+                        <line
+                          x1={selectionRange.endX}
+                          x2={selectionRange.endX}
+                          y1="0"
+                          y2={CHART_HEIGHT}
+                          stroke="var(--app-accent)"
+                          stroke-width="1.5"
+                        />
+                      {/if}
+                      {#if inspectionVisible && point}
+                        <circle
+                          cx={point.x}
+                          cy={point.y}
+                          r="2.75"
+                          fill="var(--app-accent)"
+                          stroke="var(--app-canvas)"
+                          stroke-width="1"
+                          vector-effect="non-scaling-stroke"
+                        />
+                      {/if}
+                    </svg>
+                    {#if panEdge === 'start'}
+                      <div
+                        class="pointer-events-none absolute inset-y-0 left-0 z-20 w-1.5 rounded-l bg-warning shadow-[0_0_0.5rem_var(--app-warning)]"
+                        aria-hidden="true"
+                      ></div>
+                    {:else if panEdge === 'end'}
+                      <div
+                        class="pointer-events-none absolute inset-y-0 right-0 z-20 w-1.5 rounded-r bg-warning shadow-[0_0_0.5rem_var(--app-warning)]"
+                        aria-hidden="true"
+                      ></div>
                     {/if}
-                    {#if selectionRange}
-                      <rect
-                        x="0"
-                        y="0"
-                        width={selectionRange.leftX}
-                        height={CHART_HEIGHT}
-                        fill="var(--app-surface)"
-                        fill-opacity="0.82"
-                      />
-                      <rect
-                        x={selectionRange.rightX}
-                        y="0"
-                        width={CHART_WIDTH - selectionRange.rightX}
-                        height={CHART_HEIGHT}
-                        fill="var(--app-surface)"
-                        fill-opacity="0.82"
-                      />
-                      <line
-                        x1={selectionRange.startX}
-                        x2={selectionRange.startX}
-                        y1="0"
-                        y2={CHART_HEIGHT}
-                        stroke="var(--app-accent)"
-                        stroke-width="1.5"
-                      />
-                      <line
-                        x1={selectionRange.endX}
-                        x2={selectionRange.endX}
-                        y1="0"
-                        y2={CHART_HEIGHT}
-                        stroke="var(--app-accent)"
-                        stroke-width="1.5"
-                      />
+                    {#if inspectionVisible && point}
+                      <div
+                        use:measureTooltip={field.name}
+                        class="pointer-events-none absolute top-1 z-10 max-w-[calc(100%-0.5rem)] truncate rounded border border-outline bg-surface px-2 py-1 text-[10px] leading-tight shadow"
+                        style={tooltipStyle(field.name, point.x)}
+                        role="status"
+                      >
+                        {sessionFieldDisplayName(field.name)}: {formatTooltipValue(
+                          point.value
+                        )}{#if sessionFieldUnit(field.name)}
+                          {sessionFieldUnit(field.name)}{/if}
+                      </div>
                     {/if}
-                  </svg>
+                  </div>
                 </div>
                 {#if column.values.some((value) => value === null)}<p class="text-[10px] text-muted">
                     Null or time gaps are shown as breaks.
@@ -624,3 +793,31 @@
     </div>
   {:else if !loading}<p class="mt-2 text-sm text-muted">No retained numeric history is available.</p>{/if}
 </div>
+
+{#if touchDevice}
+  <div class="fixed right-4 bottom-4 z-20 flex flex-col items-center gap-2">
+    {#if isZoomed}
+      <button
+        type="button"
+        class="flex size-14 touch-manipulation flex-col items-center justify-center rounded-full border border-outline bg-accent text-[8px] font-semibold tracking-[0.12em] text-on-accent uppercase shadow-xl"
+        aria-label={`Chart mode: ${interactionMode}. Switch to ${nextInteractionMode()} mode`}
+        title={`Switch to ${nextInteractionMode()} mode`}
+        onpointerdown={(event) => activateFromPointer(event, reset)}
+        onclick={(event) => activateFromKeyboardOrAssistiveClick(event, reset)}
+      >
+        <span aria-hidden="true">Reset</span>
+      </button>
+    {/if}
+
+    <button
+      type="button"
+      class="flex size-14 touch-manipulation flex-col items-center justify-center rounded-full border border-outline bg-accent text-[8px] font-semibold tracking-[0.12em] text-on-accent uppercase shadow-xl"
+      aria-label={`Chart mode: ${interactionMode}. Switch to ${nextInteractionMode()} mode`}
+      title={`Switch to ${nextInteractionMode()} mode`}
+      onpointerdown={(event) => activateFromPointer(event, cycleInteractionMode)}
+      onclick={(event) => activateFromKeyboardOrAssistiveClick(event, cycleInteractionMode)}
+    >
+      <span aria-hidden="true">{interactionMode}</span>
+    </button>
+  </div>
+{/if}

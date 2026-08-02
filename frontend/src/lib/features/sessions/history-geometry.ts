@@ -12,6 +12,13 @@ export interface PlotPathOptions {
   viewport: Viewport;
 }
 
+export interface PlotPoint {
+  elapsedMs: number;
+  value: number;
+  x: number;
+  y: number;
+}
+
 export function finiteDomain(values: readonly (number | null)[]): NumericDomain | null {
   const finite = values.filter((value): value is number => value !== null && Number.isFinite(value));
   if (!finite.length) return null;
@@ -44,6 +51,52 @@ export function buildPathSegments(column: SessionSeriesColumn, options: PlotPath
   });
   if (current) segments.push(current);
   return segments;
+}
+
+export function pointAtElapsed(
+  column: SessionSeriesColumn,
+  elapsedMs: number,
+  domain: NumericDomain,
+  options: PlotPathOptions
+): PlotPoint | null {
+  const span = Math.max(1, options.viewport.endElapsedMs - options.viewport.startElapsedMs);
+  const height = Math.max(2, options.height);
+  const width = Math.max(1, options.width);
+  const toPoint = (pointElapsedMs: number, value: number): PlotPoint => ({
+    elapsedMs: pointElapsedMs,
+    value,
+    x: ((pointElapsedMs - options.viewport.startElapsedMs) / span) * width,
+    y: height - ((value - domain.min) / Math.max(Number.EPSILON, domain.max - domain.min)) * (height - 4) - 2,
+  });
+
+  for (let index = 0; index < column.values.length; index += 1) {
+    const value = column.values[index];
+    if (column.elapsedMs[index] === elapsedMs && value !== null && Number.isFinite(value)) {
+      return toPoint(elapsedMs, value);
+    }
+  }
+
+  for (let index = 1; index < column.values.length; index += 1) {
+    const leftValue = column.values[index - 1];
+    const rightValue = column.values[index];
+    const leftElapsedMs = column.elapsedMs[index - 1];
+    const rightElapsedMs = column.elapsedMs[index];
+    if (
+      leftValue === null ||
+      rightValue === null ||
+      !Number.isFinite(leftValue) ||
+      !Number.isFinite(rightValue) ||
+      column.generations[index] !== column.generations[index - 1] ||
+      rightElapsedMs <= leftElapsedMs ||
+      elapsedMs < leftElapsedMs ||
+      elapsedMs > rightElapsedMs
+    ) {
+      continue;
+    }
+    const ratio = (elapsedMs - leftElapsedMs) / (rightElapsedMs - leftElapsedMs);
+    return toPoint(elapsedMs, leftValue + (rightValue - leftValue) * ratio);
+  }
+  return null;
 }
 
 export function elapsedTicks(viewport: Viewport, count = 4): number[] {

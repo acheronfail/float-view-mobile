@@ -1427,7 +1427,7 @@ public extension SessionStorePort {
       let rightDistance = abs(right.elapsedMs - targetElapsedMs)
       return leftDistance < rightDistance ||
         (leftDistance == rightDistance && (left.elapsedMs < right.elapsedMs ||
-          (left.elapsedMs == right.elapsedMs && left.sequence < right.sequence)))
+            (left.elapsedMs == right.elapsedMs && left.sequence < right.sequence)))
     }
   }
 
@@ -1474,22 +1474,33 @@ public extension SessionStorePort {
   func sessionSnapshot(sessionID _: String) throws -> SessionPublishedSnapshotRecord {
     throw SessionStoreError.sessionNotFound
   }
+
   func cancelHistoricalReads(sessionID _: String) {}
   func sessionHistoryConfiguration(sessionID _: String) throws -> SessionHistoryConfiguration {
     SessionHistoryConfiguration(expectedRidingPersistenceMs: 1_000, expectedIdlePersistenceMs: 1_000)
   }
+
   func sessionPruneMetadata(sessionID _: String) throws -> SessionPruneMetadataRecord {
     SessionPruneMetadataRecord(targetResolutionSeconds: nil, recordedSampleCount: 0, storedSampleCount: 0, policy: nil)
   }
+
   func prunePreview(sessionID _: String, targetResolutionSeconds _: Int64) throws -> SessionPrunePreviewRecord {
     throw SessionStoreError.sessionNotFound
   }
+
   func pruneSession(sessionID _: String, targetResolutionSeconds _: Int64) throws -> SessionPrunePreviewRecord {
     throw SessionStoreError.sessionNotFound
   }
-  func maintenanceJob() throws -> SessionMaintenanceJobRecord? { nil }
+
+  func maintenanceJob() throws -> SessionMaintenanceJobRecord? {
+    nil
+  }
+
   func saveMaintenanceJob(_: SessionMaintenanceJobRecord) throws {}
-  func cancelMaintenanceJob(operationID _: String) throws -> SessionMaintenanceJobRecord? { nil }
+  func cancelMaintenanceJob(operationID _: String) throws -> SessionMaintenanceJobRecord? {
+    nil
+  }
+
   func sessionExtensionFields(sessionID _: String) throws -> [String] {
     []
   }

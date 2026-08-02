@@ -717,9 +717,9 @@ class LoopbackServer(
     ) = JSONObject()
         .put("summary", session(value))
         .put("fields", JSONArray((NUMERIC_FIELDS.map { field ->
-            JSONObject().put("name", field).put("unit", unit(field) ?: JSONObject.NULL).put("source", "stable")
+            JSONObject().put("name", field).put("source", "stable")
         } + extensions.map { field ->
-            JSONObject().put("name", field).put("unit", JSONObject.NULL).put("source", "extension")
+            JSONObject().put("name", field).put("source", "extension")
         })))
         .put("eventCount", value.eventCount)
         .put("recordedSampleCount", snapshot.recordedSampleCount)
@@ -757,7 +757,7 @@ class LoopbackServer(
         val fieldNames = (0 until fields.length()).map { fields.getString(it) }
         val extensionFields = applicationService.sessionExtensionFields(sessionId).toSet()
         if (kind == "series" || kind == "samples") {
-            val descriptors = JSONArray(fieldNames.map { JSONObject().put("name", it).put("unit", unit(it) ?: JSONObject.NULL).put("source", if (it in extensionFields) "extension" else "stable") })
+            val descriptors = JSONArray(fieldNames.map { JSONObject().put("name", it).put("source", if (it in extensionFields) "extension" else "stable") })
             val base = JSONObject()
                 .put("kind", kind)
                 .put("sessionId", sessionId)
@@ -945,15 +945,6 @@ class LoopbackServer(
             cursor = page.nextCursor
         } while (cursor != null)
         return ids
-    }
-
-    private fun unit(field: String): String? = when {
-        field.endsWith("V") -> "V"
-        field.endsWith("A") -> "A"
-        field.endsWith("Ah") -> "Ah"
-        field.endsWith("Wh") -> "Wh"
-        field.endsWith("M") || field.endsWith("m") -> "m"
-        else -> null
     }
 
     private fun seriesPoint(value: SessionSeriesPoint): JSONObject {

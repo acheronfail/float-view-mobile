@@ -40,50 +40,80 @@ test('session-data conformance preserves cursor identity and rejects bounded/aut
   const range = { startElapsedMs: 0, endElapsedMs: 60_000 };
   try {
     const first = await client.sessionData({
-      kind: 'samples', sessionId: 'session-1', snapshot, range,
-      fields: ['speedKph'], mode: 'window', limit: 1,
+      kind: 'samples',
+      sessionId: 'session-1',
+      snapshot,
+      range,
+      fields: ['speedKph'],
+      mode: 'window',
+      limit: 1,
     });
     assert.equal(first.kind, 'samples');
     assert.ok(first.nextCursor);
     const second = await client.sessionData({
-      kind: 'samples', sessionId: 'session-1', snapshot, range,
-      fields: ['speedKph'], mode: 'window', limit: 1, cursor: first.nextCursor,
+      kind: 'samples',
+      sessionId: 'session-1',
+      snapshot,
+      range,
+      fields: ['speedKph'],
+      mode: 'window',
+      limit: 1,
+      cursor: first.nextCursor,
     });
     assert.equal(second.kind, 'samples');
     if (second.kind !== 'samples') throw new Error('Expected sample page');
     assert.deepEqual(second.sequence, [1]);
 
     const eventPage = await client.sessionData({
-      kind: 'events', sessionId: 'session-1', snapshot, range, limit: 1,
+      kind: 'events',
+      sessionId: 'session-1',
+      snapshot,
+      range,
+      limit: 1,
     });
     assert.equal(eventPage.kind, 'events');
     assert.ok(eventPage.nextCursor);
     const replay = await client.sessionData({
-      kind: 'events', sessionId: 'session-1', snapshot, range,
-      limit: 1, cursor: eventPage.nextCursor,
+      kind: 'events',
+      sessionId: 'session-1',
+      snapshot,
+      range,
+      limit: 1,
+      cursor: eventPage.nextCursor,
     });
     if (replay.kind !== 'events') throw new Error('Expected event page');
     assert.deepEqual(replay.page.sequence, [2]);
 
     await assert.rejects(
       client.sessionData({
-        kind: 'samples', sessionId: 'session-1',
-        snapshot: { ...snapshot, historyRevision: 1 }, range,
-        fields: ['speedKph'], mode: 'window', limit: 1, cursor: first.nextCursor,
+        kind: 'samples',
+        sessionId: 'session-1',
+        snapshot: { ...snapshot, historyRevision: 1 },
+        range,
+        fields: ['speedKph'],
+        mode: 'window',
+        limit: 1,
+        cursor: first.nextCursor,
       }),
       /HTTP 400/
     );
 
     const webSocketUrl = new URL(bootstrap.webSocketUrl);
-    const endpoint = new URL('/api/session-data', `${webSocketUrl.protocol === 'wss:' ? 'https:' : 'http:'}//${webSocketUrl.host}`);
+    const endpoint = new URL(
+      '/api/session-data',
+      `${webSocketUrl.protocol === 'wss:' ? 'https:' : 'http:'}//${webSocketUrl.host}`
+    );
     const token = webSocketUrl.searchParams.get('token');
     const forbidden = await fetch(endpoint, {
-      method: 'POST', body: '{}', headers: { Origin: bootstrap.origin, 'X-Float-View-Token': `${token}-wrong` },
+      method: 'POST',
+      body: '{}',
+      headers: { Origin: bootstrap.origin, 'X-Float-View-Token': `${token}-wrong` },
     });
     assert.equal(forbidden.status, 403);
     await assert.rejects(
       fetch(endpoint, {
-        method: 'POST', body: JSON.stringify({ padding: 'x'.repeat(17_000) }),
+        method: 'POST',
+        body: JSON.stringify({ padding: 'x'.repeat(17_000) }),
         headers: { Origin: bootstrap.origin, 'X-Float-View-Token': token ?? '' },
       }),
       /fetch failed|other side closed/

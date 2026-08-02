@@ -1,7 +1,7 @@
 <script lang="ts">
   import type { ThemePreference, UnitPreference } from '$lib/backend/contract';
   import { backendState } from '$lib/backend/state.svelte';
-    import SectionTitle from '../../ui/SectionTitle.svelte';
+  import SectionTitle from '../../ui/SectionTitle.svelte';
 
   const inputClass = 'mt-1 block w-full rounded border border-outline bg-elevated px-3 py-2 text-foreground';
 </script>
@@ -113,20 +113,20 @@
     <div>
       <SectionTitle title="Connection" />
       <label class="text-sm text-muted"
-          >Reconnect window (minutes)
-          <input
-            class={inputClass}
-            type="number"
-            min="0"
-            max="60"
-            step="1"
-            value={backendState.settings.reconnectDurationMs / 60_000}
-            onchange={(event) =>
-              backendState.updateSessionSettings({
-                reconnectDurationMs: Math.round(Number(event.currentTarget.value) * 60_000),
-              })}
-          />
-        </label>
+        >Reconnect window (minutes)
+        <input
+          class={inputClass}
+          type="number"
+          min="0"
+          max="60"
+          step="1"
+          value={backendState.settings.reconnectDurationMs / 60_000}
+          onchange={(event) =>
+            backendState.updateSessionSettings({
+              reconnectDurationMs: Math.round(Number(event.currentTarget.value) * 60_000),
+            })}
+        />
+      </label>
     </div>
 
     <div>

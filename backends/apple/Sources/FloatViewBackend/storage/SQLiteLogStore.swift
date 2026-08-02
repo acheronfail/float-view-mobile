@@ -206,7 +206,10 @@ public final class SQLiteLogStore: LogStorePort, ProductStorePort, SessionStoreP
     try reconcileCatalogLocked()
     // Process death releases native leases. Preserve the bounded cursor and
     // counters, but expose an interrupted job as resumable on the next request.
-    try catalog.execute("UPDATE session_maintenance_job SET state = 'pending' WHERE singleton = 1 AND state IN ('running', 'cancel_requested')")
+    try catalog
+      .execute(
+        "UPDATE session_maintenance_job SET state = 'pending' WHERE singleton = 1 AND state IN ('running', 'cancel_requested')"
+      )
     try resumePendingDeletes()
     try cleanupStagedExports()
   }
@@ -692,7 +695,7 @@ public final class SQLiteLogStore: LogStorePort, ProductStorePort, SessionStoreP
   }
 
   public func sessionHistoryConfiguration(sessionID: String) throws -> SessionHistoryConfiguration {
-    try withReadLease(sessionID: sessionID) { database, cancellation in
+    try withReadLease(sessionID: sessionID) { database, _ in
       guard let value = try database.query(
         """
         SELECT expected_riding_persistence_ms, expected_idle_persistence_ms,
@@ -712,7 +715,7 @@ public final class SQLiteLogStore: LogStorePort, ProductStorePort, SessionStoreP
   }
 
   public func sessionPruneMetadata(sessionID: String) throws -> SessionPruneMetadataRecord {
-    try withReadLease(sessionID: sessionID) { database, cancellation in
+    try withReadLease(sessionID: sessionID) { database, _ in
       guard let value = try database.query(
         """
         SELECT retained_resolution_seconds, prune_policy
@@ -859,7 +862,7 @@ public final class SQLiteLogStore: LogStorePort, ProductStorePort, SessionStoreP
         job.lastSessionID.map(SQLiteValue.text) ?? .null, .integer(job.completedSessions),
         .integer(job.skippedSessions), .integer(job.retainedSamples), .integer(job.reclaimableBytes),
         job.error.map(SQLiteValue.text) ?? .null,
-        .integer(Int64(Date().timeIntervalSince1970 * 1_000))
+        .integer(Int64(Date().timeIntervalSince1970 * 1_000)),
       ]
     )
   }
@@ -888,16 +891,17 @@ public final class SQLiteLogStore: LogStorePort, ProductStorePort, SessionStoreP
   private func pruneSelection(sessionID: String, targetResolutionSeconds: Int64) throws -> PruneSelection {
     guard (1 ... 300).contains(targetResolutionSeconds) else { throw SessionStoreError.invalidRange }
     if current?.sessionID.value == sessionID { throw SessionStoreError.sessionActive }
-    let existingResolution = try withReadLease(sessionID: sessionID) { database, cancellation in
+    let existingResolution = try withReadLease(sessionID: sessionID) { database, _ in
       try database.query("SELECT retained_resolution_seconds FROM session_metadata WHERE singleton = 1") { statement in
         sqlite3_column_type(statement, 0) == SQLITE_NULL ? nil : sqlite3_column_int64(statement, 0)
       }.first ?? nil
     }
     if let existingResolution, existingResolution > 0,
-       targetResolutionSeconds <= existingResolution || targetResolutionSeconds % existingResolution != 0 {
+       targetResolutionSeconds <= existingResolution || targetResolutionSeconds % existingResolution != 0
+    {
       throw SessionStoreError.invalidRange
     }
-    let rows = try withReadLease(sessionID: sessionID) { database, cancellation in
+    let rows = try withReadLease(sessionID: sessionID) { database, _ in
       try database.query(
         "SELECT sequence, monotonic_elapsed_ms, ride_state, speed_kph, raw_pack_voltage_v FROM sample ORDER BY monotonic_elapsed_ms, sequence"
       ) { statement in
@@ -912,10 +916,20 @@ public final class SQLiteLogStore: LogStorePort, ProductStorePort, SessionStoreP
         )
       }
     }
-    let protected = try withReadLease(sessionID: sessionID) { database, cancellation in
+    let protected = try withReadLease(sessionID: sessionID) { database, _ in
       var sequences = Set<Int64>()
-      try database.forEachRow("SELECT first_sequence FROM session_numeric_field") { sequences.insert(sqlite3_column_int64($0, 0)) }
-      try database.forEachRow("SELECT source_sample_sequence FROM session_event WHERE source_sample_sequence IS NOT NULL") { sequences.insert(sqlite3_column_int64($0, 0)) }
+      try database
+        .forEachRow("SELECT first_sequence FROM session_numeric_field") { sequences.insert(sqlite3_column_int64(
+          $0,
+          0
+        )) }
+      try database
+        .forEachRow("SELECT source_sample_sequence FROM session_event WHERE source_sample_sequence IS NOT NULL") {
+          sequences.insert(sqlite3_column_int64(
+            $0,
+            0
+          ))
+        }
       return sequences
     }
     let keep = try SessionHistoryReducer.selectPruneRows(
@@ -1007,7 +1021,7 @@ public final class SQLiteLogStore: LogStorePort, ProductStorePort, SessionStoreP
     let selected = columns.enumerated().map { index, column in
       "\(column) AS value_\(index)"
     }.joined(separator: ", ")
-    return try withReadLease(sessionID: sessionID) { database, cancellation in
+    return try withReadLease(sessionID: sessionID) { database, _ in
       let sequencePredicate = publishedSampleSequence == nil ? "" : " AND sequence <= ?"
       func seek(order: String, comparator: String) throws -> SessionSeriesPoint? {
         var values: [SQLiteValue] = [.integer(targetElapsedMs)]
@@ -1032,16 +1046,16 @@ public final class SQLiteLogStore: LogStorePort, ProductStorePort, SessionStoreP
           )
         }.first
       }
-      let candidates = [
-        try seek(order: "DESC", comparator: "<="),
-        try seek(order: "ASC", comparator: ">="),
+      let candidates = try [
+        seek(order: "DESC", comparator: "<="),
+        seek(order: "ASC", comparator: ">="),
       ].compactMap { $0 }
       return candidates.min { left, right in
         let leftDistance = abs(left.elapsedMs - targetElapsedMs)
         let rightDistance = abs(right.elapsedMs - targetElapsedMs)
         return leftDistance < rightDistance ||
           (leftDistance == rightDistance && (left.elapsedMs < right.elapsedMs ||
-            (left.elapsedMs == right.elapsedMs && left.sequence < right.sequence)))
+              (left.elapsedMs == right.elapsedMs && left.sequence < right.sequence)))
       }
     }
   }
@@ -1095,7 +1109,7 @@ public final class SQLiteLogStore: LogStorePort, ProductStorePort, SessionStoreP
     publishedEventSequence: Int64?
   ) throws -> [SessionEventRecord] {
     guard startElapsedMs <= endElapsedMs else { throw SessionStoreError.invalidRange }
-    return try withReadLease(sessionID: sessionID) { database, cancellation in
+    return try withReadLease(sessionID: sessionID) { database, _ in
       var values: [SQLiteValue] = [.integer(startElapsedMs), .integer(endElapsedMs)]
       let sequencePredicate: String
       if let publishedEventSequence {
@@ -1125,14 +1139,17 @@ public final class SQLiteLogStore: LogStorePort, ProductStorePort, SessionStoreP
           elapsedMs: sqlite3_column_int64(statement, 2),
           kind: Self.columnText(statement, 3)!,
           detailsJSON: Self.columnText(statement, 4) ?? "{}",
-          sourceSampleSequence: sqlite3_column_type(statement, 1) == SQLITE_NULL ? nil : sqlite3_column_int64(statement, 1)
+          sourceSampleSequence: sqlite3_column_type(statement, 1) == SQLITE_NULL ? nil : sqlite3_column_int64(
+            statement,
+            1
+          )
         )
       }
     }
   }
 
   public func sessionExtensionFields(sessionID: String) throws -> [String] {
-    return try withReadLease(sessionID: sessionID) { database, cancellation in
+    return try withReadLease(sessionID: sessionID) { database, _ in
       let fields = try database.query(
         """
         SELECT field_name FROM session_numeric_field
@@ -1950,8 +1967,14 @@ public final class SQLiteLogStore: LogStorePort, ProductStorePort, SessionStoreP
           distance: Self.columnDouble(statement, 7),
           maxSpeed: Self.columnDouble(statement, 8),
           maxDuty: Self.columnDouble(statement, 9),
-          maxSpeedSequence: sqlite3_column_type(statement, 10) == SQLITE_NULL ? nil : sqlite3_column_int64(statement, 10),
-          maxDutySequence: sqlite3_column_type(statement, 11) == SQLITE_NULL ? nil : sqlite3_column_int64(statement, 11),
+          maxSpeedSequence: sqlite3_column_type(statement, 10) == SQLITE_NULL ? nil : sqlite3_column_int64(
+            statement,
+            10
+          ),
+          maxDutySequence: sqlite3_column_type(statement, 11) == SQLITE_NULL ? nil : sqlite3_column_int64(
+            statement,
+            11
+          ),
           lastSpeed: Self.columnDouble(statement, 12)
         )
       }
@@ -2070,8 +2093,8 @@ public final class SQLiteLogStore: LogStorePort, ProductStorePort, SessionStoreP
       previousSpeed = row.speed
     }
     let storedCount = Int64(rows.count)
-    let actualEventCount = Int64(try database.scalarInt("SELECT COUNT(*) FROM session_event"))
-    let actualEventSequence = Int64(try database.scalarInt("SELECT COALESCE(MAX(sequence), 0) FROM session_event"))
+    let actualEventCount = try Int64(database.scalarInt("SELECT COUNT(*) FROM session_event"))
+    let actualEventSequence = try Int64(database.scalarInt("SELECT COALESCE(MAX(sequence), 0) FROM session_event"))
     let actualElapsed = rows.last?.elapsed ?? 0
     let lastSpeed = rows.last?.speed
     let lastElapsed = rows.last?.elapsed
@@ -2272,7 +2295,7 @@ public final class SQLiteLogStore: LogStorePort, ProductStorePort, SessionStoreP
       let path = ("$." + jsonKey).replacingOccurrences(of: "'", with: "''")
       return "json_extract(extension_json, '\(path)')"
     }
-    return try withReadLease(sessionID: sessionID) { database, cancellation in
+    return try withReadLease(sessionID: sessionID) { database, _ in
       let selected = columns.enumerated().map { index, column in
         "\(column) AS value_\(index)"
       }.joined(separator: ", ")

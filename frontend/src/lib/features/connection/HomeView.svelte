@@ -2,7 +2,7 @@
   import { goto } from '$app/navigation';
   import { backendState } from '$lib/backend/state.svelte';
   import ListItem from '$lib/ui/ListItem.svelte';
-    import SectionTitle from '../../ui/SectionTitle.svelte';
+  import SectionTitle from '../../ui/SectionTitle.svelte';
   import Spinner from '../../ui/Spinner.svelte';
 
   async function connect(deviceId: string) {

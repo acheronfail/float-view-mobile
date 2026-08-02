@@ -108,7 +108,7 @@ class FakeClient {
             ridingElapsedMs: 1_000,
             totalElapsedMs: 1_000,
           },
-          fields: [{ name: 'fieldWeakeningCurrentA', unit: 'A', source: 'stable' }],
+          fields: [{ name: 'fieldWeakeningCurrentA', source: 'stable' }],
           eventCount: 1,
           recordedSampleCount: 2,
           storedSampleCount: 2,
@@ -193,7 +193,7 @@ describe('BackendState', () => {
     );
     await store.connect();
     expect(await store.openSession('session-1')).toBe(true);
-    expect(store.sessionMetadata?.fields).toEqual([{ name: 'fieldWeakeningCurrentA', unit: 'A', source: 'stable' }]);
+    expect(store.sessionMetadata?.fields).toEqual([{ name: 'fieldWeakeningCurrentA', source: 'stable' }]);
     expect(store.sessionMetadata?.recordedSampleCount).toBe(2);
     store.closeSession();
     expect(store.sessionMetadata).toBeNull();

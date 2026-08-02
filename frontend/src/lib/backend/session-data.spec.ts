@@ -59,7 +59,7 @@ describe('session-data protocol', () => {
           snapshot,
           range,
           mode: 'window',
-          fields: [{ name: 'packVoltageV', unit: 'V', source: 'stable' }],
+          fields: [{ name: 'packVoltageV', source: 'stable' }],
           elapsedMs: [0, 1],
           sequence: [1],
           values: { packVoltageV: [60, 59] },
@@ -87,7 +87,7 @@ describe('session-data protocol', () => {
         snapshot,
         range,
         gapPolicy: { thresholdSeconds: 1 },
-        fields: [{ name: 'packVoltageV', unit: 'V', source: 'stable' }],
+        fields: [{ name: 'packVoltageV', source: 'stable' }],
         columns: { packVoltageV: { elapsedMs: [0], sequence: [1], values: [60], generations: [0] } },
       },
       request

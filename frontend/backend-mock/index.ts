@@ -167,7 +167,7 @@ function mockSessionDataResult(request: SessionDataRequest): Record<string, unkn
       snapshot: request.snapshot,
       range: request.range,
       gapPolicy: request.gapPolicy,
-      fields: request.fields.map((name) => ({ name, unit: null, source: 'stable' })),
+      fields: request.fields.map((name) => ({ name, source: 'stable' })),
       columns: reduceSeries(source, request.fields, request.range, request.buckets, request.gapPolicy),
     };
   }
@@ -206,7 +206,7 @@ function mockSessionDataResult(request: SessionDataRequest): Record<string, unkn
       snapshot: request.snapshot,
       range: request.range,
       mode: request.mode,
-      fields: request.fields.map((name) => ({ name, unit: null, source: 'stable' })),
+      fields: request.fields.map((name) => ({ name, source: 'stable' })),
       elapsedMs: rows.map((row) => row.elapsedMs),
       sequence: rows.map((row) => row.sequence),
       values: Object.fromEntries(

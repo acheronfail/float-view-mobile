@@ -12,7 +12,7 @@
   let themeController: ThemeController | undefined;
   const activeBottomTab = $derived(bottomTabForRoute(page.route.id));
   const liveRoute = $derived(page.route.id === '/live');
-  const pageHeader = $derived(activeBottomTab ?? { title: 'Float View', subtitle: 'Durable VESC sessions' });
+  const pageHeader = $derived(activeBottomTab);
 
   onMount(() => {
     themeController = new ThemeController(browserThemeEnvironment());
@@ -48,7 +48,7 @@
     class:app-safe-area-with-tabs={activeBottomTab}
     class:app-safe-area-without-tabs={!activeBottomTab}
   >
-    {#if !liveRoute}
+    {#if !liveRoute && pageHeader}
       <header class="mb-5">
         <h1 id="app-title" class="text-3xl font-semibold">{pageHeader.title}</h1>
         <p class="text-sm text-muted">{pageHeader.subtitle}</p>

@@ -1,5 +1,5 @@
-import XCTest
 @testable import FloatViewBackend
+import XCTest
 
 final class SessionHistoryReducerTests: XCTestCase {
   private let snapshot = SessionPublishedSnapshotRecord(
@@ -15,13 +15,41 @@ final class SessionHistoryReducerTests: XCTestCase {
     let rows = [
       SessionSeriesPoint(elapsedMs: 0, values: ["speedKph": 0, "packVoltageV": 60, "extensionLate": nil], sequence: 10),
       SessionSeriesPoint(elapsedMs: 0, values: ["speedKph": 1, "packVoltageV": 59, "extensionLate": nil], sequence: 11),
-      SessionSeriesPoint(elapsedMs: 999, values: ["speedKph": 10, "packVoltageV": 58, "extensionLate": 0.5], sequence: 12),
-      SessionSeriesPoint(elapsedMs: 1_000, values: ["speedKph": 20, "packVoltageV": 57, "extensionLate": 0.6], sequence: 13),
-      SessionSeriesPoint(elapsedMs: 1_001, values: ["speedKph": 5, "packVoltageV": 56, "extensionLate": 0.7], sequence: 14),
-      SessionSeriesPoint(elapsedMs: 3_500, values: ["speedKph": nil, "packVoltageV": 55, "extensionLate": 0.8], sequence: 15),
-      SessionSeriesPoint(elapsedMs: 3_501, values: ["speedKph": 7, "packVoltageV": nil, "extensionLate": 0.9], sequence: 16),
-      SessionSeriesPoint(elapsedMs: 10_000, values: ["speedKph": 2, "packVoltageV": 54, "extensionLate": 1], sequence: 17),
-      SessionSeriesPoint(elapsedMs: 10_000, values: ["speedKph": 3, "packVoltageV": 53, "extensionLate": 1.1], sequence: 18),
+      SessionSeriesPoint(
+        elapsedMs: 999,
+        values: ["speedKph": 10, "packVoltageV": 58, "extensionLate": 0.5],
+        sequence: 12
+      ),
+      SessionSeriesPoint(
+        elapsedMs: 1_000,
+        values: ["speedKph": 20, "packVoltageV": 57, "extensionLate": 0.6],
+        sequence: 13
+      ),
+      SessionSeriesPoint(
+        elapsedMs: 1_001,
+        values: ["speedKph": 5, "packVoltageV": 56, "extensionLate": 0.7],
+        sequence: 14
+      ),
+      SessionSeriesPoint(
+        elapsedMs: 3_500,
+        values: ["speedKph": nil, "packVoltageV": 55, "extensionLate": 0.8],
+        sequence: 15
+      ),
+      SessionSeriesPoint(
+        elapsedMs: 3_501,
+        values: ["speedKph": 7, "packVoltageV": nil, "extensionLate": 0.9],
+        sequence: 16
+      ),
+      SessionSeriesPoint(
+        elapsedMs: 10_000,
+        values: ["speedKph": 2, "packVoltageV": 54, "extensionLate": 1],
+        sequence: 17
+      ),
+      SessionSeriesPoint(
+        elapsedMs: 10_000,
+        values: ["speedKph": 3, "packVoltageV": 53, "extensionLate": 1.1],
+        sequence: 18
+      ),
     ]
     let result = try SessionHistoryReducer.reduceSeries(
       rows: rows, fields: ["speedKph", "packVoltageV", "extensionLate"],
@@ -53,7 +81,7 @@ final class SessionHistoryReducerTests: XCTestCase {
       SessionSeriesPoint(elapsedMs: 1_000, values: [:], sequence: 3),
     ], limit: 2, cursorContext: seed)
     XCTAssertEqual(first.rows.map(\.sequence), [1, 2])
-    let encoded = try SessionHistoryReducer.encodeCursor(try XCTUnwrap(first.next))
+    let encoded = try SessionHistoryReducer.encodeCursor(XCTUnwrap(first.next))
     let decoded = try SessionHistoryReducer.decodeCursor(encoded)
     XCTAssertEqual(decoded.sequence, 2)
     let second = try SessionHistoryReducer.page(rows: [
