@@ -5,12 +5,7 @@
   const inputClass = 'mt-1 block w-full rounded border border-outline bg-elevated px-3 py-2 text-foreground';
 </script>
 
-<section aria-labelledby="settings-heading" class="space-y-4">
-  <div class="rounded-2xl border border-outline bg-surface p-5">
-    <h2 id="settings-heading" class="text-xl font-medium">Settings</h2>
-    <p class="mt-1 text-sm text-muted">Options that apply across all boards and sessions.</p>
-  </div>
-
+<section aria-label="Settings" class="space-y-4">
   {#if backendState.settings}
     <div class="rounded-2xl border border-outline bg-surface p-5">
       <h3 class="font-medium">Appearance</h3>

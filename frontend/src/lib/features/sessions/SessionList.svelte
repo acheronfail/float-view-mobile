@@ -9,10 +9,7 @@
   }
 </script>
 
-<section aria-labelledby="sessions-heading" class="rounded-2xl border border-outline bg-surface p-5">
-  <h2 id="sessions-heading" class="text-xl font-medium">Sessions</h2>
-  <p class="mt-1 text-sm text-muted">Durable rides recorded by the native backend.</p>
-
+<section aria-label="Sessions" class="">
   {#if backendState.sessionGroups.length}
     <h3 class="mt-5 font-medium">Linked rides</h3>
     <ul class="mt-2 space-y-2">

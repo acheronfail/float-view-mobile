@@ -2,9 +2,7 @@
   import { backendState } from '$lib/backend/state.svelte';
 </script>
 
-<section aria-labelledby="boards-heading" class="rounded-2xl border border-outline bg-surface p-5">
-  <h2 id="boards-heading" class="text-xl font-medium">Boards</h2>
-  <p class="mt-1 text-sm text-muted">Known boards and their local configuration profiles.</p>
+<section aria-label="Boards">
   {#if backendState.savedDevices.length}
     <ul class="mt-4 space-y-2">
       {#each backendState.savedDevices as device (device.savedDeviceId)}

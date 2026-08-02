@@ -42,34 +42,22 @@
   }
 </script>
 
-<section aria-labelledby="session-heading" class="rounded-2xl border border-outline bg-surface p-5">
+<section aria-labelledby="session-heading">
   <a class="text-accent" href="#/sessions">← Sessions</a>
   {#if backendState.selectedSession}
     <h2 id="session-heading" class="mt-3 text-xl font-medium">Review</h2>
     <p class="mt-2 text-lg">{backendState.selectedSession.displayName}</p>
     <div class="mt-4 grid grid-cols-2 gap-3">
-      <div class="rounded-lg bg-elevated p-3">
+      <div class="rounded-lg border border-outline bg-elevated p-3">
         <p class="text-sm text-muted">Samples</p>
         <p class="text-xl">{backendState.selectedSession.sampleCount}</p>
       </div>
-      <div class="rounded-lg bg-elevated p-3">
+      <div class="rounded-lg border border-outline bg-elevated p-3">
         <p class="text-sm text-muted">Distance</p>
         <p class="text-xl">
           {formatDistanceM(backendState.selectedSession.distanceM, units)}
         </p>
       </div>
-    </div>
-
-    <div class="mt-5 rounded-lg border border-outline p-4">
-      <h3 class="font-medium">Historical telemetry</h3>
-      <p class="mt-2 text-sm text-muted">
-        Metadata loaded for {backendState.sessionMetadata?.fields.length ?? 0} numeric fields.
-      </p>
-      <p class="mt-1 text-xs text-muted">
-        {backendState.sessionMetadata?.recordedSampleCount ?? 0} recorded ·
-        {backendState.sessionMetadata?.storedSampleCount ?? 0} retained ·
-        {backendState.sessionMetadata?.eventCount ?? 0} transitions
-      </p>
     </div>
 
     {#if backendState.sessionMetadata}
