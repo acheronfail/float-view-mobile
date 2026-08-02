@@ -3,10 +3,12 @@
 ## Purpose
 
 Define the complete platform-neutral contract implemented by every supported native backend and consumed by the shared frontend.
+
 ## Requirements
+
 ### Requirement: Complete mandatory contract
 
-Every supported backend SHALL implement `state.get`, `bluetooth.requestPermission`, `bluetooth.scan`, `device.connect`, `device.selectController`, `device.disconnect`, `savedDevice.update`, `settings.update`, `boardProfile.get`, `boardProfile.update`, `session.get`, `session.getDiagnostics`, `session.export`, `session.delete`, and `sessionGroup.unlink`. The frontend MUST NOT negotiate or branch on optional methods or platform capabilities.
+Every supported backend SHALL implement `state.get`, `bluetooth.requestPermission`, `bluetooth.scan`, `device.connect`, `device.selectController`, `device.disconnect`, `savedDevice.update`, `settings.update`, `boardProfile.get`, `boardProfile.update`, `session.get`, `session.export`, `session.delete`, `session.delete.cancel`, `session.prune.preview`, `session.prune.start`, `session.prune.cancel`, and `sessionGroup.unlink`, plus authenticated `series`, `samples`, and `events` session-data requests. The frontend MUST NOT negotiate or branch on optional methods or platform capabilities.
 
 #### Scenario: Supported backend
 
@@ -20,7 +22,7 @@ Every supported backend SHALL implement `state.get`, `bluetooth.requestPermissio
 
 ### Requirement: Authenticated loopback transport
 
-The backend SHALL bind only to loopback and expose `/`, `/api/bootstrap`, and `/api/ws`. Bootstrap SHALL provide the WebSocket URL and a random per-launch token; the WebSocket SHALL validate both token and expected Origin.
+The backend SHALL bind only to loopback and expose `/`, `/api/bootstrap`, `/api/ws`, and the authenticated session-data URL returned by bootstrap. Bootstrap SHALL provide the WebSocket URL, session-data URL, and a random per-launch token; both transports SHALL validate the token and expected Origin.
 
 #### Scenario: Valid frontend connection
 
@@ -139,7 +141,7 @@ The backend SHALL own permission resolution, bounded scanning, BLE stream setup,
 
 ### Requirement: Backend-owned durable sessions
 
-A ready connection SHALL automatically create one provisional durable session, and all live display, review, diagnostics, and persistence SHALL derive from one sequenced native sample pipeline. The latest live sample SHALL become frontend-visible only after the same sample is selected and successfully appended to that active session. When the session closes or is recovered after interruption, the backend SHALL retain it only if at least one persisted sample entered the `riding` state and its accumulated distance is greater than or equal to `minimumSessionDistance`; otherwise it SHALL delete the catalog entry and session files.
+A ready connection SHALL automatically create one provisional durable session, and all live display, review data reads, and persistence SHALL derive from one sequenced native sample pipeline. The latest live sample SHALL become frontend-visible only after the same sample is selected and successfully appended to that active session. When the session closes or is recovered after interruption, the backend SHALL retain it only if at least one persisted sample entered the `riding` state and its accumulated distance is greater than or equal to `minimumSessionDistance`; otherwise it SHALL delete the catalog entry and session files.
 
 #### Scenario: Ready board
 
@@ -173,7 +175,7 @@ A ready connection SHALL automatically create one provisional durable session, a
 
 ### Requirement: Current frontend product operations
 
-The contract SHALL support revision-checked saved-device custom-name updates, persisted settings, local versioned Board Profiles, bounded session review series, bounded lossless diagnostic windows, native export presentation, deletion, and session-group unlinking with platform-neutral semantics.
+The contract SHALL support revision-checked saved-device custom-name updates, persisted settings, local versioned Board Profiles, metadata-first session review through the authenticated session-data plane, native export presentation, deletion/prune operations, and session-group unlinking with platform-neutral semantics.
 
 #### Scenario: Saved board rename
 
@@ -183,12 +185,12 @@ The contract SHALL support revision-checked saved-device custom-name updates, pe
 #### Scenario: Session review
 
 - **WHEN** the frontend requests `session.get`
-- **THEN** the backend returns the session summary and bounded display series required by the review screen
+- **THEN** the backend returns bounded summary, field, count, prune, and one published revisioned snapshot metadata without embedding history
 
-#### Scenario: Diagnostic review
+#### Scenario: Historical data review
 
-- **WHEN** the frontend requests diagnostics around a valid elapsed time
-- **THEN** the backend returns a bounded lossless window without creating a separate logging path
+- **WHEN** the frontend sends an authenticated `series`, `samples`, or `events` request with a matching snapshot
+- **THEN** the backend returns explicit bounded columnar data or a chronological continuation page without creating a separate logging path
 
 #### Scenario: Native export
 
@@ -401,7 +403,7 @@ Public detailed state values SHALL use bounded stable string enums with an `unkn
 
 ### Requirement: Live and historical telemetry symmetry
 
-Every typed detailed field accepted into a durable session SHALL be retrievable through session detail and diagnostics under the same stable name and unit used by the live sample. Session exports SHALL include the same semantic fields and bounded extensions. `SessionDetail` SHALL contain numeric `series`, bounded typed `events`, and `eventsTruncated`. Each event SHALL contain `elapsedMs`, a `kind` from the detailed semantic categories, and a stable string `value`; boolean transitions SHALL use `active` and `cleared`, and nullable reason or fault clearing SHALL use `none`. Events SHALL be appended only when an observed discrete value changes. When more than 2,000 events exist, session detail SHALL return the most recent 2,000 in ascending order and set `eventsTruncated` true. Downsampling MUST NOT fabricate device history from before Float View observed the controller.
+Every typed detailed field accepted into a durable session SHALL be retrievable through authenticated session-data series and samples under the same stable name and unit used by the live sample. Session exports SHALL include the same semantic fields and bounded extensions. `session.get` SHALL contain only metadata and one published revisioned snapshot; chronological transitions SHALL be returned through bounded event pages. Events SHALL be appended only when an observed discrete value changes. Downsampling MUST NOT fabricate device history from before Float View observed the controller.
 
 #### Scenario: Review a simulated warning
 
@@ -416,12 +418,12 @@ Every typed detailed field accepted into a durable session SHALL be retrievable 
 #### Scenario: Review a discrete transition
 
 - **WHEN** wheelslip becomes active and later clears during a session
-- **THEN** session detail contains one `wheelslip=active` event and one `wheelslip=cleared` event alongside the bounded numeric series
+- **THEN** the event pages contain one `wheelslip=active` event and one `wheelslip=cleared` event alongside the bounded numeric series
 
-#### Scenario: Event response is truncated
+#### Scenario: Event pages continue
 
-- **WHEN** a session contains more than 2,000 observed transitions
-- **THEN** session detail returns the newest 2,000 in chronological order and reports `eventsTruncated=true`
+- **WHEN** a session contains more than one bounded event page
+- **THEN** keyset continuation reaches every committed transition without duplicating or truncating history
 
 ### Requirement: One controller per telemetry session
 
@@ -430,11 +432,11 @@ Live telemetry, transition events, durable samples, summaries, diagnostics, and 
 #### Scenario: Selected controller changes
 
 - **WHEN** the active selection changes from a direct controller to a CAN-routed controller
-- **THEN** the prior session ends before the first new-controller sample and no session detail or export combines values from both controllers
+- **THEN** the prior session ends before the first new-controller sample and no session metadata/data or export combines values from both controllers
 
 ### Requirement: Bounded telemetry serialization
 
-Detailed live samples, extension keys and counts, session-detail responses, and diagnostics windows SHALL retain explicit bounds. Authenticated messages SHALL remain at most 65,536 bytes. A negotiated field name SHALL be at most 64 UTF-8 bytes, an extension map SHALL contain at most 32 values, serialized typed detail and extension objects SHALL each be at most 16,384 UTF-8 bytes, diagnostics SHALL contain at most 50 items, and one session-detail response SHALL contain at most 2,000 series points and 2,000 transition events. Private controller UUIDs, Bluetooth identifiers beyond the existing device contract, launch tokens, and full unrequested telemetry MUST NOT appear in samples, extensions, errors, or default logs.
+Detailed live samples, extension keys and counts, metadata, and session-data responses SHALL retain explicit bounds. Authenticated WebSocket messages SHALL remain at most 65,536 UTF-8 bytes; session-data requests SHALL remain at most 16 KiB and decoded responses at most 4 MiB. A negotiated field name SHALL be at most 64 UTF-8 bytes, an extension map SHALL contain at most 32 values, serialized extension JSON at most 16,384 UTF-8 bytes, each data request at most 16 fields and 1,024 buckets, each series at most 65,536 observations, sample pages at most 2,000 rows, and event pages at most 500 rows. Private controller UUIDs, Bluetooth identifiers beyond the existing device contract, launch tokens, and full unrequested telemetry MUST NOT appear in samples, extensions, errors, or default logs.
 
 #### Scenario: Oversized extension data
 
@@ -443,5 +445,5 @@ Detailed live samples, extension keys and counts, session-detail responses, and 
 
 #### Scenario: Privacy inspection
 
-- **WHEN** live state, session detail, diagnostics, and exports are inspected
+- **WHEN** live state, session metadata/data, and exports are inspected
 - **THEN** no private learned or simulated controller UUID is present

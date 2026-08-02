@@ -74,6 +74,30 @@
         <span>Link same-board rides across charging breaks</span>
       </label>
       <label class="mt-3 block text-sm text-muted">
+        History gap threshold (seconds)
+        <input
+          class={inputClass}
+          type="number"
+          min="0.1"
+          max="3600"
+          step="0.1"
+          placeholder="Automatic"
+          value={backendState.settings.historyGapThresholdSeconds ?? ''}
+          aria-describedby="history-gap-help"
+          onchange={(event) => {
+            const value = event.currentTarget.value.trim();
+            const seconds = Number(value);
+            backendState.updateSessionSettings({
+              historyGapThresholdSeconds:
+                value === '' || !Number.isFinite(seconds) ? null : Math.max(0.1, Math.min(3600, seconds)),
+            });
+          }}
+        />
+        <span id="history-gap-help" class="mt-1 block text-xs"
+          >Automatic uses the captured persistence and retained-resolution policy for each session.</span
+        >
+      </label>
+      <label class="mt-3 block text-sm text-muted">
         Maximum break (hours)
         <input
           class={inputClass}

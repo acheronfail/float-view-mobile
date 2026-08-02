@@ -1,10 +1,15 @@
 import FlyingFox
 import Foundation
 import Security
+import zlib
 
 public enum PlatformLoopbackPort {
   public static let macOS: UInt16 = 11_010
   public static let iOS: UInt16 = 11_011
+}
+
+public enum LoopbackProtocolLimits {
+  public static let maximumWebSocketMessageBytes = 65_536
 }
 
 public func loopbackStartupFailure(port: UInt16, error: any Error) -> String {
@@ -62,6 +67,7 @@ public final class LoopbackServer: @unchecked Sendable {
         guard let self else { return HTTPResponse(statusCode: .internalServerError) }
         let body = try JSONSerialization.data(withJSONObject: [
           "webSocketUrl": "\(self.origin.replacingOccurrences(of: "http", with: "ws"))/api/ws",
+          "sessionDataUrl": "\(self.origin)/api/session-data",
           "sessionToken": self.token,
         ])
         return HTTPResponse(
@@ -78,9 +84,60 @@ public final class LoopbackServer: @unchecked Sendable {
         return try await WebSocketHTTPHandler(
           handler: MessageFrameWSHandler(
             handler: BackendMessageHandler(server: self),
-            frameSize: 65_536
+            frameSize: LoopbackProtocolLimits.maximumWebSocketMessageBytes
           )
         ).handleRequest(request)
+      }
+      await server.appendRoute("POST /api/session-data") { [weak self] request in
+        guard let self,
+              request.headers[HTTPHeader("Origin")] == self.origin,
+              request.headers[HTTPHeader("X-Float-View-Token")] == self.token
+        else { return HTTPResponse(statusCode: .forbidden, headers: [.cacheControl: "no-store"]) }
+        if let contentLength = request.headers[HTTPHeader("Content-Length")].flatMap(Int.init), contentLength > 16_384 {
+          return HTTPResponse(statusCode: .payloadTooLarge, headers: [.cacheControl: "no-store"])
+        }
+        let body = try await request.bodyData
+        guard body.count <= 16_384 else { return HTTPResponse(statusCode: .payloadTooLarge, headers: [.cacheControl: "no-store"]) }
+        do {
+          guard let payload = try JSONSerialization.jsonObject(with: body) as? [String: Any] else {
+            return HTTPResponse(statusCode: .badRequest, headers: [.cacheControl: "no-store"])
+          }
+          guard let sessionID = payload["sessionId"] as? String, !sessionID.isEmpty else {
+            return HTTPResponse(statusCode: .badRequest, headers: [.cacheControl: "no-store"])
+          }
+          let result = try await withTaskCancellationHandler(operation: {
+            try self.sessionDataPayload(payload)
+          }, onCancel: {
+            self.applicationService.cancelHistoricalReads(sessionID: sessionID)
+          })
+          guard let result else {
+            return HTTPResponse(statusCode: .badRequest, headers: [.cacheControl: "no-store"])
+          }
+          let responseData = try JSONSerialization.data(withJSONObject: result)
+          guard responseData.count <= 4 * 1024 * 1024 else {
+            return HTTPResponse(statusCode: .payloadTooLarge, headers: [.cacheControl: "no-store"])
+          }
+          if request.headers[HTTPHeader("Accept-Encoding")]?.localizedCaseInsensitiveContains("gzip") == true,
+             let compressed = Self.gzip(responseData)
+          {
+            return HTTPResponse(
+              statusCode: .ok,
+              headers: [
+                .contentType: "application/json",
+                .cacheControl: "no-store",
+                HTTPHeader("Content-Encoding"): "gzip",
+              ],
+              body: compressed
+            )
+          }
+          return HTTPResponse(
+            statusCode: .ok,
+            headers: [.contentType: "application/json", .cacheControl: "no-store"],
+            body: responseData
+          )
+        } catch {
+          return HTTPResponse(statusCode: .badRequest, headers: [.cacheControl: "no-store"])
+        }
       }
       let running = Task { try await server.run() }
       do {
@@ -219,44 +276,10 @@ public final class LoopbackServer: @unchecked Sendable {
           return failure(id, .invalidRequest, "sessionId is required")
         }
         let summary = try applicationService.session(sessionID: sessionID)
-        let numericFields = try Self.numericSeriesFields
-          + (applicationService.sessionExtensionFields(sessionID: sessionID))
-        let maxPoints = min(max(params["maxPoints"] as? Int ?? 400, 1), 2_000)
-        let points = try applicationService.querySessionSeries(
-          sessionID: sessionID,
-          startElapsedMs: 0,
-          endElapsedMs: summary.totalElapsedMs,
-          fields: numericFields,
-          maxPoints: maxPoints
-        )
-        let rawEvents = try applicationService.sessionEvents(
-          sessionID: sessionID,
-          startElapsedMs: 0,
-          endElapsedMs: summary.totalElapsedMs
-        )
-        let eventsTruncated = rawEvents.count > 2_000
-        let events = rawEvents.suffix(2_000)
-        return try success([
-          "summary": sessionPayload(summary),
-          "series": points.map(seriesPayload),
-          "events": events.map(sessionEventPayload),
-          "eventsTruncated": eventsTruncated,
-        ])
-      case "session.getDiagnostics":
-        guard let sessionID = params["sessionId"] as? String,
-              let center = (params["centerElapsedMs"] as? NSNumber)?.int64Value,
-              let before = (params["beforeMs"] as? NSNumber)?.int64Value,
-              let after = (params["afterMs"] as? NSNumber)?.int64Value
-        else { return failure(id, .invalidRequest, "Valid diagnostic window is required") }
-        let numericFields = try Self.numericSeriesFields
-          + (applicationService.sessionExtensionFields(sessionID: sessionID))
-        return try success(applicationService.diagnosticWindow(
-          sessionID: sessionID,
-          centerElapsedMs: center,
-          beforeMs: before,
-          afterMs: after,
-          fields: numericFields
-        ).map(seriesPayload))
+        let extensionFields = try applicationService.sessionExtensionFields(sessionID: sessionID)
+        let published = try applicationService.sessionSnapshot(sessionID: sessionID)
+        let prune = try applicationService.sessionPruneMetadata(sessionID: sessionID)
+        return success(sessionMetadataPayload(summary, extensionFields: extensionFields, snapshot: published, prune: prune))
       case "session.export":
         guard let sessionID = params["sessionId"] as? String,
               let format = params["format"] as? String
@@ -272,6 +295,170 @@ public final class LoopbackServer: @unchecked Sendable {
         }
         try applicationService.deleteSession(sessionID: sessionID)
         return success(["accepted": true])
+      case "session.delete.cancel":
+        let operationID = params["operationId"] as? String ?? ""
+        let cancelled = try applicationService.cancelPendingDelete(operationID: operationID)
+        return success(operationPayload(
+          kind: "delete",
+          status: cancelled ? "cancelled" : "completed",
+          sessionID: cancelled ? operationID : nil,
+          target: nil,
+          operationID: operationID
+        ))
+      case "session.prune.preview":
+        guard let target = (params["targetResolutionSeconds"] as? NSNumber)?.intValue, (1 ... 300).contains(target) else {
+          return failure(id, .invalidRequest, "Prune resolution must be 1 through 300 seconds")
+        }
+        let scope = params["scope"] as? String ?? (params["sessionId"] == nil ? "all" : "one")
+        guard scope == "one" || scope == "all" else {
+          return failure(id, .invalidRequest, "scope must be one or all")
+        }
+        let requestedSessionID = params["sessionId"] as? String
+        guard scope == "all" || (requestedSessionID?.isEmpty == false) else {
+          return failure(id, .invalidRequest, "sessionId is required for one-session prune preview")
+        }
+        let sessionIDs = try pruneSessionIDs(scope: scope, sessionID: requestedSessionID)
+        let previous = try applicationService.maintenanceJob().flatMap { value in
+          value.kind == "prune_preview" && value.scope == scope && value.sessionID == requestedSessionID &&
+            value.targetResolutionSeconds == Int64(target) && value.state == "pending" ? value : nil
+        }
+        let workIDs: [String] = if let last = previous?.lastSessionID,
+                                   let index = sessionIDs.firstIndex(of: last) {
+          Array(sessionIDs.dropFirst(index + 1))
+        } else {
+          sessionIDs
+        }
+        let operationID = "prunePreview-\(UUID().uuidString)"
+        var job: SessionMaintenanceJobRecord
+        if let previous {
+          job = SessionMaintenanceJobRecord(
+            operationID: previous.operationID, kind: previous.kind, scope: previous.scope, state: "running",
+            sessionID: previous.sessionID, targetResolutionSeconds: previous.targetResolutionSeconds,
+            upperSessionID: sessionIDs.last, lastSessionID: previous.lastSessionID,
+            completedSessions: previous.completedSessions, skippedSessions: previous.skippedSessions,
+            retainedSamples: previous.retainedSamples, reclaimableBytes: previous.reclaimableBytes,
+            error: previous.error
+          )
+        } else {
+          job = SessionMaintenanceJobRecord(
+            operationID: operationID, kind: "prune_preview", scope: scope, state: "running",
+            sessionID: requestedSessionID, targetResolutionSeconds: Int64(target),
+            upperSessionID: sessionIDs.last, lastSessionID: nil, completedSessions: 0,
+            skippedSessions: 0, retainedSamples: 0, reclaimableBytes: 0, error: nil
+          )
+        }
+        try applicationService.saveMaintenanceJob(job)
+        var recorded: Int64 = 0
+        var stored: Int64 = 0
+        var reclaimable: Int64 = 0
+        var skipped = true
+        var skipReason: String?
+        for sessionID in workIDs {
+          if try applicationService.maintenanceJob()?.state == "cancel_requested" { break }
+          let value = try applicationService.prunePreview(sessionID: sessionID, targetResolutionSeconds: Int64(target))
+          job = SessionMaintenanceJobRecord(
+            operationID: job.operationID, kind: job.kind, scope: job.scope, state: job.state,
+            sessionID: sessionID, targetResolutionSeconds: job.targetResolutionSeconds,
+            upperSessionID: job.upperSessionID, lastSessionID: sessionID,
+            completedSessions: job.completedSessions + 1,
+            skippedSessions: job.skippedSessions + (value.skipped ? 1 : 0),
+            retainedSamples: job.retainedSamples + value.estimatedStoredSampleCount,
+            reclaimableBytes: job.reclaimableBytes + (value.estimatedReclaimableBytes ?? 0), error: nil
+          )
+          try applicationService.saveMaintenanceJob(job)
+          recorded += value.recordedSampleCount
+          stored += value.estimatedStoredSampleCount
+          reclaimable += value.estimatedReclaimableBytes ?? 0
+          skipped = skipped && value.skipped
+          if value.skipReason != nil { skipReason = value.skipReason }
+        }
+        let terminal = (try applicationService.maintenanceJob()?.state == "cancel_requested") ? "cancelled" : "completed"
+        job = SessionMaintenanceJobRecord(
+          operationID: job.operationID, kind: job.kind, scope: job.scope, state: terminal,
+          sessionID: job.sessionID, targetResolutionSeconds: job.targetResolutionSeconds,
+          upperSessionID: job.upperSessionID, lastSessionID: job.lastSessionID,
+          completedSessions: job.completedSessions, skippedSessions: job.skippedSessions,
+          retainedSamples: job.retainedSamples, reclaimableBytes: job.reclaimableBytes, error: nil
+        )
+        try applicationService.saveMaintenanceJob(job)
+        let operation = maintenanceJobPayload(job)
+        return success(["operation": operation, "recordedSampleCount": recorded,
+                        "estimatedStoredSampleCount": stored,
+                        "estimatedReclaimableBytes": reclaimable,
+                        "skipped": skipped, "skipReason": skipReason.map { $0 as Any } ?? NSNull()])
+      case "session.prune.start":
+        guard let target = (params["targetResolutionSeconds"] as? NSNumber)?.intValue, (1 ... 300).contains(target) else {
+          return failure(id, .invalidRequest, "Prune resolution must be 1 through 300 seconds")
+        }
+        let scope = params["scope"] as? String ?? (params["sessionId"] == nil ? "all" : "one")
+        guard scope == "one" || scope == "all" else {
+          return failure(id, .invalidRequest, "scope must be one or all")
+        }
+        let requestedSessionID = params["sessionId"] as? String
+        guard scope == "all" || (requestedSessionID?.isEmpty == false) else {
+          return failure(id, .invalidRequest, "sessionId is required for one-session prune")
+        }
+        let sessionIDs = try pruneSessionIDs(scope: scope, sessionID: requestedSessionID)
+        let previous = try applicationService.maintenanceJob().flatMap { value in
+          value.kind == "prune" && value.scope == scope && value.sessionID == requestedSessionID &&
+            value.targetResolutionSeconds == Int64(target) && value.state == "pending" ? value : nil
+        }
+        let workIDs: [String] = if let last = previous?.lastSessionID,
+                                   let index = sessionIDs.firstIndex(of: last) {
+          Array(sessionIDs.dropFirst(index + 1))
+        } else {
+          sessionIDs
+        }
+        let operationID = "prune-\(UUID().uuidString)"
+        var job: SessionMaintenanceJobRecord
+        if let previous {
+          job = SessionMaintenanceJobRecord(
+            operationID: previous.operationID, kind: previous.kind, scope: previous.scope, state: "running",
+            sessionID: previous.sessionID, targetResolutionSeconds: previous.targetResolutionSeconds,
+            upperSessionID: sessionIDs.last, lastSessionID: previous.lastSessionID,
+            completedSessions: previous.completedSessions, skippedSessions: previous.skippedSessions,
+            retainedSamples: previous.retainedSamples, reclaimableBytes: previous.reclaimableBytes,
+            error: previous.error
+          )
+        } else {
+          job = SessionMaintenanceJobRecord(
+            operationID: operationID, kind: "prune", scope: scope, state: "running",
+            sessionID: requestedSessionID, targetResolutionSeconds: Int64(target),
+            upperSessionID: sessionIDs.last, lastSessionID: nil, completedSessions: 0,
+            skippedSessions: 0, retainedSamples: 0, reclaimableBytes: 0, error: nil
+          )
+        }
+        try applicationService.saveMaintenanceJob(job)
+        for sessionID in workIDs {
+          if try applicationService.maintenanceJob()?.state == "cancel_requested" { break }
+          let value = try applicationService.pruneSession(sessionID: sessionID, targetResolutionSeconds: Int64(target))
+          job = SessionMaintenanceJobRecord(
+            operationID: job.operationID, kind: job.kind, scope: job.scope, state: job.state,
+            sessionID: sessionID, targetResolutionSeconds: job.targetResolutionSeconds,
+            upperSessionID: job.upperSessionID, lastSessionID: sessionID,
+            completedSessions: job.completedSessions + 1,
+            skippedSessions: job.skippedSessions + (value.skipped ? 1 : 0),
+            retainedSamples: job.retainedSamples + value.estimatedStoredSampleCount,
+            reclaimableBytes: job.reclaimableBytes + (value.estimatedReclaimableBytes ?? 0), error: nil
+          )
+          try applicationService.saveMaintenanceJob(job)
+        }
+        let terminal = (try applicationService.maintenanceJob()?.state == "cancel_requested") ? "cancelled" : "completed"
+        job = SessionMaintenanceJobRecord(
+          operationID: job.operationID, kind: job.kind, scope: job.scope, state: terminal,
+          sessionID: job.sessionID, targetResolutionSeconds: job.targetResolutionSeconds,
+          upperSessionID: job.upperSessionID, lastSessionID: job.lastSessionID,
+          completedSessions: job.completedSessions, skippedSessions: job.skippedSessions,
+          retainedSamples: job.retainedSamples, reclaimableBytes: job.reclaimableBytes, error: nil
+        )
+        try applicationService.saveMaintenanceJob(job)
+        return success(maintenanceJobPayload(job))
+      case "session.prune.cancel":
+        let operationID = params["operationId"] as? String ?? ""
+        if let job = try applicationService.cancelMaintenanceJob(operationID: operationID) {
+          return success(maintenanceJobPayload(job))
+        }
+        return success(operationPayload(kind: "prune", status: "cancelled", sessionID: nil, target: nil, operationID: operationID))
       case "sessionGroup.unlink":
         guard let groupID = params["sessionGroupId"] as? String else {
           return failure(id, .invalidRequest, "sessionGroupId is required")
@@ -346,6 +533,7 @@ public final class LoopbackServer: @unchecked Sendable {
       "recentSessions": sessions?.items.map(sessionPayload) ?? [],
       "sessionGroups": Array((try? applicationService.sessionGroups())?.prefix(50) ?? []).map(sessionGroupPayload),
       "settings": (try? applicationService.settings()).map(settingsPayload) ?? [:],
+      "sessionOperation": (try? applicationService.maintenanceJob()).flatMap { $0.map(maintenanceJobPayload) } ?? NSNull(),
     ]
   }
 
@@ -501,6 +689,295 @@ public final class LoopbackServer: @unchecked Sendable {
     ]
   }
 
+  private func sessionMetadataPayload(
+    _ value: SessionSummaryRecord,
+    extensionFields: [String],
+    snapshot: SessionPublishedSnapshotRecord,
+    prune: SessionPruneMetadataRecord
+  ) -> [String: Any] {
+    let fields: [[String: Any]] = Self.numericSeriesFields.map { ["name": $0, "unit": Self.unit(for: $0) as Any, "source": "stable"] }
+      + extensionFields.map { ["name": $0, "unit": NSNull(), "source": "extension"] }
+    return [
+      "summary": sessionPayload(value),
+      "fields": fields,
+      "eventCount": value.eventCount,
+      "recordedSampleCount": snapshot.recordedSampleCount,
+      "storedSampleCount": snapshot.storedSampleCount,
+      "prune": [
+        "targetResolutionSeconds": prune.targetResolutionSeconds.map { $0 as Any } ?? NSNull(),
+        "recordedSampleCount": prune.recordedSampleCount,
+        "storedSampleCount": prune.storedSampleCount,
+        "policy": prune.policy.map { $0 as Any } ?? NSNull(),
+      ],
+      "snapshot": [
+        "historyRevision": snapshot.historyRevision,
+        "committedSampleSequence": snapshot.committedSampleSequence,
+        "committedEventSequence": snapshot.committedEventSequence,
+        "committedElapsedMs": snapshot.committedElapsedMs,
+      ],
+    ]
+  }
+
+  private func sessionDataPayload(_ params: [String: Any]) throws -> [String: Any]? {
+    guard let kind = params["kind"] as? String,
+          let sessionID = params["sessionId"] as? String,
+          let range = params["range"] as? [String: Any],
+          let start = (range["startElapsedMs"] as? NSNumber)?.int64Value,
+          let end = (range["endElapsedMs"] as? NSNumber)?.int64Value,
+          let snapshot = params["snapshot"] as? [String: Any]
+    else { return nil }
+    let fields = (params["fields"] as? [String] ?? []).filter { !$0.isEmpty }
+    guard start >= 0, end >= start, fields.count <= 16,
+          (kind == "events" || (!fields.isEmpty && Set(fields).count == fields.count)) else { return nil }
+    let published = try applicationService.sessionSnapshot(sessionID: sessionID)
+    guard let snapshotRevision = snapshot["historyRevision"] as? NSNumber,
+          let sampleSequence = snapshot["committedSampleSequence"] as? NSNumber,
+          let eventSequence = snapshot["committedEventSequence"] as? NSNumber,
+          let committedElapsed = snapshot["committedElapsedMs"] as? NSNumber
+    else { return nil }
+    guard snapshotRevision.int64Value == published.historyRevision,
+          sampleSequence.int64Value == published.committedSampleSequence,
+          eventSequence.int64Value == published.committedEventSequence,
+          committedElapsed.int64Value == published.committedElapsedMs
+    else { throw SessionStoreError.invalidRange }
+    let echoedSnapshot: [String: Any] = [
+      "historyRevision": snapshotRevision.int64Value,
+      "committedSampleSequence": sampleSequence.int64Value,
+      "committedEventSequence": eventSequence.int64Value,
+      "committedElapsedMs": committedElapsed.int64Value,
+    ]
+    let extensionFields = Set(try applicationService.sessionExtensionFields(sessionID: sessionID))
+    let descriptors = fields.map { field in
+      [
+        "name": field,
+        "unit": Self.unit(for: field) as Any,
+        "source": extensionFields.contains(field) ? "extension" : "stable",
+      ]
+    }
+    if kind == "series" {
+      let buckets = min(max((params["buckets"] as? NSNumber)?.intValue ?? 1, 1), 1_024)
+      let gap = params["gapPolicy"] as? [String: Any]
+      let threshold = (gap?["thresholdSeconds"] as? NSNumber)?.doubleValue
+      if let threshold, !threshold.isFinite || threshold < 0.1 || threshold > 3_600 {
+        throw SessionStoreError.invalidRange
+      }
+      guard gap != nil, gap?["thresholdSeconds"] != nil else { throw SessionStoreError.invalidRange }
+      let source = try applicationService.querySessionSeriesSource(
+        sessionID: sessionID, startElapsedMs: start, endElapsedMs: end, fields: fields,
+        maxRows: 200_000, publishedSampleSequence: sampleSequence.int64Value
+      )
+      let historyConfiguration = try applicationService.sessionHistoryConfiguration(sessionID: sessionID)
+      let reduced = try SessionHistoryReducer.reduceSeries(
+        rows: source, fields: fields,
+        range: SessionElapsedRange(startElapsedMs: start, endElapsedMs: end),
+        buckets: buckets,
+        gapPolicy: SessionGapPolicyRecord(thresholdSeconds: threshold),
+        expectedRidingPersistenceMs: historyConfiguration.expectedRidingPersistenceMs,
+        expectedIdlePersistenceMs: historyConfiguration.expectedIdlePersistenceMs,
+        retainedResolutionSeconds: historyConfiguration.retainedResolutionSeconds
+      )
+      let columns = Dictionary(uniqueKeysWithValues: fields.map { field in
+        let column = reduced[field]!
+        let values: [Any] = column.values.map { $0 as Any? ?? NSNull() }
+        return (field, [
+          "elapsedMs": column.elapsedMs,
+          "sequence": column.sequence,
+          "values": values,
+          "generations": column.generations,
+        ])
+      })
+      let echoedGap: [String: Any] = ["thresholdSeconds": threshold as Any? ?? NSNull()]
+      return ["kind": kind, "sessionId": sessionID, "snapshot": echoedSnapshot, "range": range,
+              "gapPolicy": echoedGap, "fields": descriptors, "columns": columns]
+    }
+    if kind == "samples" {
+      let requestedLimit = (params["mode"] as? String) == "nearest"
+        ? 1
+        : min(max((params["limit"] as? NSNumber)?.intValue ?? 2_000, 1), 2_000)
+      let seed = SessionHistoryCursor(
+        sessionID: sessionID, snapshot: published,
+        range: SessionElapsedRange(startElapsedMs: start, endElapsedMs: end), elapsedMs: start, sequence: 0
+      )
+      let decodedCursor: SessionHistoryCursor?
+      if let raw = params["cursor"] as? String {
+        let cursor = try SessionHistoryReducer.decodeCursor(raw)
+        guard cursor.sessionID == sessionID, cursor.snapshot == published,
+              cursor.range.startElapsedMs == start, cursor.range.endElapsedMs == end
+        else { throw SessionStoreError.invalidCursor }
+        decodedCursor = cursor
+      } else {
+        decodedCursor = nil
+      }
+      let mode = params["mode"] as? String ?? "window"
+      let points: [SessionSeriesPoint]
+      let nextCursor: String?
+      if mode == "nearest" {
+        guard let target = (params["targetElapsedMs"] as? NSNumber)?.int64Value,
+              target >= start, target <= end else { throw SessionStoreError.invalidRange }
+        points = try applicationService.queryNearestSessionSample(
+          sessionID: sessionID, targetElapsedMs: target, fields: fields,
+          publishedSampleSequence: sampleSequence.int64Value
+        ).map { [$0] } ?? []
+        nextCursor = nil
+      } else {
+        let source = try applicationService.querySessionSeriesSource(
+          sessionID: sessionID, startElapsedMs: start, endElapsedMs: end, fields: fields,
+          maxRows: 200_000, publishedSampleSequence: sampleSequence.int64Value
+        )
+        let page = try SessionHistoryReducer.page(
+          rows: source, limit: requestedLimit, cursor: decodedCursor, cursorContext: seed
+        )
+        points = page.rows
+        nextCursor = try page.next.map(SessionHistoryReducer.encodeCursor)
+      }
+      let values = Dictionary(uniqueKeysWithValues: fields.map { field in
+        (field, points.map { point -> Any in point.values[field].flatMap { $0 } as Any? ?? NSNull() })
+      })
+      return ["kind": kind, "sessionId": sessionID, "snapshot": echoedSnapshot, "range": range,
+              "mode": mode, "fields": descriptors, "elapsedMs": points.map(\.elapsedMs),
+              "sequence": points.map(\.sequence), "values": values, "nextCursor": nextCursor as Any? ?? NSNull()]
+    }
+    guard kind == "events" else { return nil }
+    let requestedLimit = min(max((params["limit"] as? NSNumber)?.intValue ?? 500, 1), 500)
+    let seed = SessionHistoryCursor(
+      sessionID: sessionID, snapshot: published,
+      range: SessionElapsedRange(startElapsedMs: start, endElapsedMs: end), elapsedMs: start, sequence: 0
+    )
+    let decodedCursor: SessionHistoryCursor?
+    if let raw = params["cursor"] as? String {
+      let cursor = try SessionHistoryReducer.decodeCursor(raw)
+      guard cursor.sessionID == sessionID, cursor.snapshot == published,
+            cursor.range.startElapsedMs == start, cursor.range.endElapsedMs == end
+      else { throw SessionStoreError.invalidCursor }
+      decodedCursor = cursor
+    } else {
+      decodedCursor = nil
+    }
+    let allEvents = try applicationService.sessionEvents(
+      sessionID: sessionID, startElapsedMs: start, endElapsedMs: end,
+      publishedEventSequence: eventSequence.int64Value
+    ).sorted { left, right in
+      let leftSequence = Int64(left.eventID) ?? 0
+      let rightSequence = Int64(right.eventID) ?? 0
+      return left.elapsedMs < right.elapsedMs ||
+        (left.elapsedMs == right.elapsedMs && leftSequence < rightSequence)
+    }
+    let pageEvents = allEvents.filter { event in
+      guard let decodedCursor else { return true }
+      let sequence = Int64(event.eventID) ?? 0
+      return event.elapsedMs > decodedCursor.elapsedMs ||
+        (event.elapsedMs == decodedCursor.elapsedMs && sequence > decodedCursor.sequence)
+    }
+    let events = Array(pageEvents.prefix(requestedLimit))
+    let values = events.map { (try? JSONSerialization.jsonObject(with: Data($0.detailsJSON.utf8)) as? [String: Any])?["value"] as? String ?? "" }
+    let next: String?
+    if let last = events.last, events.count < pageEvents.count {
+      let cursor = SessionHistoryCursor(
+        sessionID: seed.sessionID, snapshot: seed.snapshot, range: seed.range,
+        elapsedMs: last.elapsedMs, sequence: Int64(last.eventID) ?? 0
+      )
+      next = try SessionHistoryReducer.encodeCursor(cursor)
+    } else {
+      next = nil
+    }
+    return ["kind": kind, "sessionId": sessionID, "snapshot": echoedSnapshot, "range": range,
+            "page": ["elapsedMs": events.map(\.elapsedMs), "sequence": events.map { Int64($0.eventID) ?? 0 },
+                      "sourceSampleSequence": events.map { $0.sourceSampleSequence ?? 0 },
+                      "kinds": events.map(\.kind), "values": values],
+            "nextCursor": next as Any? ?? NSNull()]
+  }
+
+  private func operationPayload(
+    kind: String,
+    status: String,
+    sessionID: String?,
+    target: Int?,
+    operationID: String? = nil,
+    completedSessions: Int? = nil,
+    eligibleSessions: Int? = nil
+  ) -> [String: Any] {
+    [
+      "operationId": operationID ?? "\(kind)-\(revision)",
+      "kind": kind,
+      "status": status,
+      "sessionId": sessionID ?? NSNull(),
+      "scope": sessionID == nil ? "all" : "one",
+      "targetResolutionSeconds": target ?? NSNull(),
+      "completedSessions": completedSessions ?? (status == "completed" ? 1 : 0),
+      "eligibleSessions": eligibleSessions ?? 1,
+      "error": NSNull(),
+    ]
+  }
+
+  private func maintenanceJobPayload(_ job: SessionMaintenanceJobRecord) -> [String: Any] {
+    [
+      "operationId": job.operationID,
+      "kind": job.kind == "prune_preview" ? "prunePreview" : "prune",
+      "status": job.state == "cancel_requested" ? "cancelling" : job.state,
+      "sessionId": job.sessionID ?? NSNull(),
+      "scope": job.scope,
+      "targetResolutionSeconds": job.targetResolutionSeconds,
+      "completedSessions": job.completedSessions,
+      "eligibleSessions": job.upperSessionID == nil ? NSNull() : job.completedSessions,
+      "error": job.error ?? NSNull(),
+    ]
+  }
+
+  private func pruneSessionIDs(scope: String, sessionID: String?) throws -> [String] {
+    if scope == "one" {
+      guard let sessionID, !sessionID.isEmpty else { throw SessionStoreError.sessionNotFound }
+      return [sessionID]
+    }
+    var cursor: String?
+    var ids: [String] = []
+    repeat {
+      let page = try applicationService.sessions(SessionListQuery(
+        cursor: cursor, limit: 100, state: "completed", integrity: "complete",
+        sortField: "startedAt", sortDescending: true
+      ))
+      ids.append(contentsOf: page.items.map(\.sessionID))
+      cursor = page.nextCursor
+    } while cursor != nil
+    return ids
+  }
+
+  private static func gzip(_ data: Data) -> Data? {
+    var stream = z_stream()
+    guard deflateInit2_(
+      &stream,
+      Z_DEFAULT_COMPRESSION,
+      Z_DEFLATED,
+      15 + 16,
+      8,
+      Z_DEFAULT_STRATEGY,
+      ZLIB_VERSION,
+      Int32(MemoryLayout<z_stream>.size)
+    ) == Z_OK else { return nil }
+    defer { deflateEnd(&stream) }
+    var output = Data(count: max(256, data.count + data.count / 100 + 256))
+    let result = data.withUnsafeBytes { inputBuffer in
+      output.withUnsafeMutableBytes { outputBuffer in
+        stream.next_in = UnsafeMutablePointer(mutating: inputBuffer.bindMemory(to: Bytef.self).baseAddress)
+        stream.avail_in = uInt(inputBuffer.count)
+        stream.next_out = outputBuffer.bindMemory(to: Bytef.self).baseAddress
+        stream.avail_out = uInt(outputBuffer.count)
+        return deflate(&stream, Z_FINISH)
+      }
+    }
+    guard result == Z_STREAM_END else { return nil }
+    output.count = Int(stream.total_out)
+    return output
+  }
+
+  private static func unit(for field: String) -> String? {
+    if field.hasSuffix("V") { return "V" }
+    if field.hasSuffix("A") { return "A" }
+    if field.hasSuffix("Ah") { return "Ah" }
+    if field.hasSuffix("Wh") { return "Wh" }
+    if field.hasSuffix("M") || field.hasSuffix("m") { return "m" }
+    return nil
+  }
+
   private func sessionPayload(_ value: SessionSummaryRecord) -> [String: Any] {
     [
       "sessionId": value.sessionID,
@@ -563,6 +1040,7 @@ public final class LoopbackServer: @unchecked Sendable {
       "sessionLinkWindowMs": value.sessionLinkWindowMs,
       "themePreference": value.themePreference.rawValue,
       "unitPreference": value.unitPreference.rawValue,
+      "historyGapThresholdSeconds": value.historyGapThresholdSeconds ?? NSNull(),
     ]
   }
 
@@ -618,9 +1096,10 @@ public final class LoopbackServer: @unchecked Sendable {
 
   private func sessionFailure(_ id: Int, _ error: SessionStoreError) -> Data {
     switch error {
-    case .sessionNotFound: failure(id, .notFound, "Session was not found")
-    case .sessionActive: failure(id, .invalidState, "Session is still active")
-    case .invalidCursor, .invalidRange, .unsupportedField, .invalidExportFormat:
+      case .sessionNotFound: failure(id, .notFound, "Session was not found")
+      case .sessionActive: failure(id, .invalidState, "Session is still active")
+      case .maintenanceInProgress: failure(id, .unavailable, "Session maintenance is in progress")
+      case .invalidCursor, .invalidRange, .unsupportedField, .invalidExportFormat:
       failure(id, .invalidRequest, "Session request is invalid")
     }
   }

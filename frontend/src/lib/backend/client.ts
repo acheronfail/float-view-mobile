@@ -58,6 +58,10 @@ export class ApiClient {
   ): Promise<BackendResult<M>> {
     if (!this.isOpen) return Promise.reject(new ApiProtocolError('Backend socket is not open'));
     const id = this.nextId++;
+    const payload = JSON.stringify({ id, method, params });
+    if (new TextEncoder().encode(payload).byteLength > MAX_MESSAGE_BYTES) {
+      return Promise.reject(new ApiProtocolError('Backend request exceeds the message limit'));
+    }
     return new Promise<BackendResult<M>>((resolve, reject) => {
       const timeout = setTimeout(() => {
         this.pending.delete(id);
@@ -65,7 +69,7 @@ export class ApiClient {
       }, timeoutMs);
       this.pending.set(id, { resolve: resolve as (value: unknown) => void, reject, timeout });
       try {
-        this.socket.send(JSON.stringify({ id, method, params }));
+        this.socket.send(payload);
       } catch (error) {
         clearTimeout(timeout);
         this.pending.delete(id);
@@ -88,7 +92,7 @@ export class ApiClient {
   }
 
   private readonly handleMessage = (event: MessageEvent<unknown>): void => {
-    if (typeof event.data !== 'string' || event.data.length > MAX_MESSAGE_BYTES) {
+    if (typeof event.data !== 'string' || new TextEncoder().encode(event.data).byteLength > MAX_MESSAGE_BYTES) {
       this.failProtocol('Backend sent an invalid or oversized message');
       return;
     }

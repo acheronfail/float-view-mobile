@@ -46,8 +46,12 @@ CREATE TABLE IF NOT EXISTS session_catalog (
   state TEXT NOT NULL,
   integrity TEXT NOT NULL,
   committed_sequence INTEGER NOT NULL DEFAULT 0,
+  committed_event_sequence INTEGER NOT NULL DEFAULT 0,
   sample_count INTEGER NOT NULL DEFAULT 0,
+  stored_sample_count INTEGER NOT NULL DEFAULT 0,
   event_count INTEGER NOT NULL DEFAULT 0,
+  committed_elapsed_ms INTEGER NOT NULL DEFAULT 0,
+  history_revision INTEGER NOT NULL DEFAULT 0,
   requested_idle_ms INTEGER NOT NULL,
   effective_idle_ms INTEGER NOT NULL,
   requested_riding_ms INTEGER NOT NULL,
@@ -58,6 +62,8 @@ CREATE TABLE IF NOT EXISTS session_catalog (
   distance_m REAL,
   max_speed_mps REAL,
   max_duty_cycle REAL,
+  max_speed_source_sequence INTEGER,
+  max_duty_source_sequence INTEGER,
   last_sample_elapsed_ms INTEGER,
   last_speed_mps REAL,
   pending_delete INTEGER NOT NULL DEFAULT 0 CHECK (pending_delete IN (0, 1))
@@ -89,4 +95,22 @@ CREATE TABLE IF NOT EXISTS settings (
   singleton INTEGER PRIMARY KEY NOT NULL CHECK (singleton = 1),
   revision INTEGER NOT NULL,
   json TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS session_maintenance_job (
+  singleton INTEGER PRIMARY KEY NOT NULL CHECK (singleton = 1),
+  operation_id TEXT NOT NULL,
+  kind TEXT NOT NULL CHECK (kind IN ('prune_preview', 'prune')),
+  scope TEXT NOT NULL CHECK (scope IN ('one', 'all')),
+  session_id TEXT,
+  state TEXT NOT NULL CHECK (state IN ('pending', 'running', 'cancel_requested', 'completed', 'failed', 'cancelled')),
+  target_resolution_seconds INTEGER NOT NULL CHECK (target_resolution_seconds BETWEEN 1 AND 300),
+  upper_session_id TEXT,
+  last_session_id TEXT,
+  completed_sessions INTEGER NOT NULL DEFAULT 0,
+  skipped_sessions INTEGER NOT NULL DEFAULT 0,
+  retained_samples INTEGER NOT NULL DEFAULT 0,
+  reclaimable_bytes INTEGER NOT NULL DEFAULT 0,
+  error TEXT,
+  updated_at_ms INTEGER NOT NULL
 );

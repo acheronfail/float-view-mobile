@@ -160,40 +160,98 @@ class ApplicationService(
     fun session(sessionId: String): SessionSummaryRecord =
         requireNotNull(sessionStore) { "Session store is unavailable" }.session(sessionId)
 
+    fun sessionSnapshot(sessionId: String): SessionPublishedSnapshotRecord =
+        requireNotNull(sessionStore) { "Session store is unavailable" }.sessionSnapshot(sessionId)
+
     fun querySessionSeries(
         sessionId: String,
         startElapsedMs: Long,
         endElapsedMs: Long,
         fields: List<String>,
         maxPoints: Int,
+        publishedSampleSequence: Long? = null,
     ): List<SessionSeriesPoint> =
         requireNotNull(sessionStore) { "Session store is unavailable" }
-            .querySeries(sessionId, startElapsedMs, endElapsedMs, fields, maxPoints)
+            .querySeries(sessionId, startElapsedMs, endElapsedMs, fields, maxPoints, publishedSampleSequence)
+
+    fun querySessionSeriesSource(
+        sessionId: String,
+        startElapsedMs: Long,
+        endElapsedMs: Long,
+        fields: List<String>,
+        maxRows: Int,
+        publishedSampleSequence: Long? = null,
+    ): List<SessionSeriesPoint> =
+        requireNotNull(sessionStore) { "Session store is unavailable" }
+            .querySeriesSource(sessionId, startElapsedMs, endElapsedMs, fields, maxRows, publishedSampleSequence)
+
+    fun queryNearestSessionSample(
+        sessionId: String,
+        targetElapsedMs: Long,
+        fields: List<String>,
+        publishedSampleSequence: Long? = null,
+    ): SessionSeriesPoint? =
+        requireNotNull(sessionStore) { "Session store is unavailable" }
+            .queryNearestSample(sessionId, targetElapsedMs, fields, publishedSampleSequence)
 
     fun sessionEvents(
         sessionId: String,
         startElapsedMs: Long,
         endElapsedMs: Long,
+        publishedEventSequence: Long? = null,
     ): List<SessionEventRecord> =
         requireNotNull(sessionStore) { "Session store is unavailable" }
-            .sessionEvents(sessionId, startElapsedMs, endElapsedMs)
+            .sessionEvents(sessionId, startElapsedMs, endElapsedMs, publishedEventSequence)
 
     fun sessionExtensionFields(sessionId: String): List<String> =
         requireNotNull(sessionStore) { "Session store is unavailable" }
             .sessionExtensionFields(sessionId)
 
-    fun diagnosticWindow(
+    fun sessionHistoryConfiguration(sessionId: String): SessionHistoryConfiguration =
+        requireNotNull(sessionStore) { "Session store is unavailable" }
+            .sessionHistoryConfiguration(sessionId)
+
+    fun sessionPruneMetadata(sessionId: String): SessionPruneMetadataRecord =
+        requireNotNull(sessionStore) { "Session store is unavailable" }
+            .sessionPruneMetadata(sessionId)
+
+    fun cancelHistoricalReads(sessionId: String) {
+        sessionStore?.cancelHistoricalReads(sessionId)
+    }
+
+    fun prunePreview(sessionId: String, targetResolutionSeconds: Long): SessionPrunePreviewRecord =
+        requireNotNull(sessionStore) { "Session store is unavailable" }
+            .prunePreview(sessionId, targetResolutionSeconds)
+
+    fun pruneSession(sessionId: String, targetResolutionSeconds: Long): SessionPrunePreviewRecord =
+        requireNotNull(sessionStore) { "Session store is unavailable" }
+            .pruneSession(sessionId, targetResolutionSeconds)
+
+    fun maintenanceJob(): SessionMaintenanceJobRecord? = sessionStore?.maintenanceJob()
+
+    fun saveMaintenanceJob(job: SessionMaintenanceJobRecord) {
+        requireNotNull(sessionStore) { "Session store is unavailable" }.saveMaintenanceJob(job)
+    }
+
+    fun cancelMaintenanceJob(operationId: String): SessionMaintenanceJobRecord? =
+        requireNotNull(sessionStore) { "Session store is unavailable" }.cancelMaintenanceJob(operationId)
+
+    fun querySampleWindow(
         sessionId: String,
         centerElapsedMs: Long,
         beforeMs: Long,
         afterMs: Long,
         fields: List<String>,
+        publishedSampleSequence: Long? = null,
     ): List<SessionSeriesPoint> =
         requireNotNull(sessionStore) { "Session store is unavailable" }
-            .diagnosticWindow(sessionId, centerElapsedMs, beforeMs, afterMs, fields)
+            .querySampleWindow(sessionId, centerElapsedMs, beforeMs, afterMs, fields, publishedSampleSequence)
 
     fun deleteSession(sessionId: String) =
         requireNotNull(sessionStore) { "Session store is unavailable" }.deleteSession(sessionId)
+
+    fun cancelPendingDelete(operationId: String): Boolean =
+        requireNotNull(sessionStore) { "Session store is unavailable" }.cancelPendingDelete(operationId)
 
     fun exportSession(sessionId: String, format: String): SessionExportRecord =
         requireNotNull(sessionStore) { "Session store is unavailable" }

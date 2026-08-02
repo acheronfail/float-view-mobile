@@ -6,6 +6,11 @@ import { MOCK_BACKEND_PORT, startMockServer, stopMockServer } from './backend-mo
 export const DEVELOPMENT_PORT = 11002;
 export const MOCK_BACKEND_ORIGIN = `http://127.0.0.1:${MOCK_BACKEND_PORT}`;
 
+export function backendProxyOrigin(target: string, incomingOrigin: string | undefined): string | undefined {
+  if (!incomingOrigin) return undefined;
+  return target === MOCK_BACKEND_ORIGIN ? incomingOrigin : target;
+}
+
 export function selectedBackendOrigin(environment: NodeJS.ProcessEnv = process.env): string {
   const value = environment.FLOAT_VIEW_DEV_BACKEND_ORIGIN ?? MOCK_BACKEND_ORIGIN;
   const url = new URL(value);
@@ -24,6 +29,17 @@ export function backendProxy(target: string): ProxyOptions {
     timeout: 5_000,
     proxyTimeout: 5_000,
     configure(proxy) {
+      // Native loopback hosts validate the application origin, not the Vite
+      // development origin. HTTP proxying does not apply http-proxy's
+      // WebSocket origin rewrite, so forward the target origin explicitly for
+      // native backends. The mock backend intentionally authenticates the
+      // browser development origin and must retain its incoming value.
+      if (target !== MOCK_BACKEND_ORIGIN) {
+        proxy.on('proxyReq', (request, incoming) => {
+          const origin = backendProxyOrigin(target, incoming.headers.origin);
+          if (origin) request.setHeader('Origin', origin);
+        });
+      }
       // http-proxy does not relay a non-101 response received by its WebSocket
       // client. Forward it explicitly so authentication failures stay bounded.
       proxy.on('proxyReqWs', (request, _incoming, socket) => {

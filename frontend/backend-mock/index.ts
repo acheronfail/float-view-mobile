@@ -4,12 +4,27 @@ import { createServer } from 'node:http';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { WebSocketServer } from 'ws';
+import { MAX_MESSAGE_BYTES, MAX_SESSION_DATA_REQUEST_BYTES } from '../src/lib/backend/contract.ts';
 import { MockBackend } from './api-v1.ts';
+import { validateSessionDataRequest, type SessionDataRequest } from '../src/lib/backend/session-data.ts';
+import {
+  decodeCursor,
+  encodeCursor,
+  nearestSample,
+  paginateEvents,
+  paginateSamples,
+  reduceSeries,
+  type ReferenceEvent,
+  type ReferenceSample,
+} from '../src/lib/backend/session-reference.ts';
+import { gzip } from 'node:zlib';
+import { promisify } from 'node:util';
 
 export const MOCK_BACKEND_PORT = 11003;
 export const DEVELOPMENT_ORIGIN = 'http://127.0.0.1:11002';
 const DEFAULT_PORT = MOCK_BACKEND_PORT;
 const expectedOrigin = DEVELOPMENT_ORIGIN;
+const gzipAsync = promisify(gzip);
 let sessionToken = randomBytes(32).toString('base64url');
 let mockRunning = false;
 
@@ -20,7 +35,42 @@ let wss = createWebSocketServer();
 app.get('/api/bootstrap', (_request, response) => {
   response.set('Cache-Control', 'no-store').json({
     webSocketUrl: '/api/ws',
+    sessionDataUrl: '/api/session-data',
     sessionToken,
+  });
+});
+
+app.post('/api/session-data', (request, response) => {
+  response.set('Cache-Control', 'no-store');
+  if (request.headers.origin !== expectedOrigin || request.headers['x-float-view-token'] !== sessionToken) {
+    response.status(403).end();
+    return;
+  }
+  let bytes = 0;
+  const chunks: Buffer[] = [];
+  request.on('data', (chunk: Buffer) => {
+    bytes += chunk.byteLength;
+    if (bytes > MAX_SESSION_DATA_REQUEST_BYTES) {
+      request.destroy();
+      response.status(413).end();
+      return;
+    }
+    chunks.push(chunk);
+  });
+  request.on('end', async () => {
+    try {
+      const requestValue = validateSessionDataRequest(JSON.parse(Buffer.concat(chunks).toString('utf8')));
+      const body = JSON.stringify(mockSessionDataResult(requestValue));
+      if (request.headers['accept-encoding']?.includes('gzip')) {
+        response.set('Content-Encoding', 'gzip');
+        response.set('Content-Type', 'application/json');
+        response.end(await gzipAsync(Buffer.from(body, 'utf8')));
+      } else {
+        response.type('application/json').send(body);
+      }
+    } catch {
+      response.status(400).json({ error: { code: 'invalid_request', message: 'Invalid session-data request' } });
+    }
   });
 });
 
@@ -63,7 +113,7 @@ export function startMockServer(port = DEFAULT_PORT): Promise<number> {
 }
 
 function createWebSocketServer() {
-  const value = new WebSocketServer({ noServer: true, maxPayload: 65_536 });
+  const value = new WebSocketServer({ noServer: true, maxPayload: MAX_MESSAGE_BYTES });
   const delivery = new WeakMap<import('ws').WebSocket, { sendingState: boolean; pendingState?: string }>();
   function sendNewestState(client: import('ws').WebSocket, payload: string) {
     const state = delivery.get(client) ?? { sendingState: false };
@@ -100,6 +150,109 @@ function createWebSocketServer() {
     });
   });
   return value;
+}
+
+function mockSessionDataResult(request: SessionDataRequest): Record<string, unknown> {
+  if (request.snapshot.historyRevision !== 0) {
+    throw new Error('Published session history revision is stale');
+  }
+  const source: ReferenceSample[] = [
+    { elapsedMs: 0, sequence: 0, values: { packVoltageV: 60, speedKph: 0 } },
+    { elapsedMs: 60_000, sequence: 1, values: { packVoltageV: 55, speedKph: 20 } },
+  ].filter((row) => row.elapsedMs >= request.range.startElapsedMs && row.elapsedMs <= request.range.endElapsedMs);
+  if (request.kind === 'series') {
+    return {
+      kind: 'series',
+      sessionId: request.sessionId,
+      snapshot: request.snapshot,
+      range: request.range,
+      gapPolicy: request.gapPolicy,
+      fields: request.fields.map((name) => ({ name, unit: null, source: 'stable' })),
+      columns: reduceSeries(source, request.fields, request.range, request.buckets, request.gapPolicy),
+    };
+  }
+  if (request.kind === 'samples') {
+    let rows: ReferenceSample[];
+    let nextCursor: string | null = null;
+    if (request.mode === 'nearest' && request.targetElapsedMs !== undefined) {
+      const nearest = nearestSample(source, request.targetElapsedMs);
+      rows = nearest ? [nearest] : [];
+    } else {
+      const cursor = request.cursor ? decodeCursor(request.cursor) : null;
+      if (
+        cursor &&
+        (cursor.sessionId !== request.sessionId ||
+          JSON.stringify(cursor.snapshot) !== JSON.stringify(request.snapshot) ||
+          JSON.stringify(cursor.range) !== JSON.stringify(request.range))
+      ) {
+        throw new Error('Cursor does not match the requested snapshot');
+      }
+      const page = paginateSamples(source, request.limit, cursor);
+      rows = page.rows;
+      if (rows.length && rows.length < source.length) {
+        const last = rows.at(-1)!;
+        nextCursor = encodeCursor({
+          sessionId: request.sessionId,
+          snapshot: request.snapshot,
+          range: request.range,
+          elapsedMs: last.elapsedMs,
+          sequence: last.sequence,
+        });
+      }
+    }
+    return {
+      kind: 'samples',
+      sessionId: request.sessionId,
+      snapshot: request.snapshot,
+      range: request.range,
+      mode: request.mode,
+      fields: request.fields.map((name) => ({ name, unit: null, source: 'stable' })),
+      elapsedMs: rows.map((row) => row.elapsedMs),
+      sequence: rows.map((row) => row.sequence),
+      values: Object.fromEntries(
+        request.fields.map((field) => [field, rows.map((row) => row.values[field as keyof typeof row.values] ?? null)])
+      ),
+      nextCursor,
+    };
+  }
+  const events: ReferenceEvent[] = [
+    { sequence: 1, sourceSampleSequence: 0, elapsedMs: 0, kind: 'packageState', value: 'running' },
+    { sequence: 2, sourceSampleSequence: 1, elapsedMs: 60_000, kind: 'packageState', value: 'stopped' },
+  ].filter((event) => event.elapsedMs >= request.range.startElapsedMs && event.elapsedMs <= request.range.endElapsedMs);
+  const cursor = request.cursor ? decodeCursor(request.cursor) : null;
+  if (
+    cursor &&
+    (cursor.sessionId !== request.sessionId ||
+      JSON.stringify(cursor.snapshot) !== JSON.stringify(request.snapshot) ||
+      JSON.stringify(cursor.range) !== JSON.stringify(request.range))
+  ) {
+    throw new Error('Cursor does not match the requested snapshot');
+  }
+  const page = paginateEvents(events, request.limit, cursor);
+  const last = page.rows.at(-1);
+  return {
+    kind: 'events',
+    sessionId: request.sessionId,
+    snapshot: request.snapshot,
+    range: request.range,
+    page: {
+      elapsedMs: page.rows.map((event) => event.elapsedMs),
+      sequence: page.rows.map((event) => event.sequence),
+      sourceSampleSequence: page.rows.map((event) => event.sourceSampleSequence),
+      kinds: page.rows.map((event) => event.kind),
+      values: page.rows.map((event) => event.value),
+    },
+    nextCursor:
+      last && page.rows.length < events.length
+        ? encodeCursor({
+            sessionId: request.sessionId,
+            snapshot: request.snapshot,
+            range: request.range,
+            elapsedMs: last.elapsedMs,
+            sequence: last.sequence,
+          })
+        : null,
+  };
 }
 
 export function getMockBootstrap(port: number) {

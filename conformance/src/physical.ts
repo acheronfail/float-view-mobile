@@ -1,4 +1,6 @@
 import assert from 'node:assert/strict';
+import { mkdirSync, writeFileSync } from 'node:fs';
+import { dirname } from 'node:path';
 import { FixtureRunner } from '../fixture/runner.ts';
 import { fixtureScenarios, physicalScenarioMatrix, type PhysicalScenarioName } from '../fixture/scenarios.ts';
 import { FixtureClient } from '../fixture/serial.ts';
@@ -13,7 +15,7 @@ export async function runPhysicalConformance(
   report: Progress = (message) => process.stdout.write(`${message}\n`)
 ) {
   const names = physicalScenarioMatrix[target.platform];
-  const results: Array<{ scenario: PhysicalScenarioName; revision: number }> = [];
+  const results: Array<{ scenario: PhysicalScenarioName; revision: number; durationMs: number }> = [];
   let primaryFailure: unknown;
   report(`Physical conformance: ${target.name}`);
   report(`Preparing ${target.name}...`);
@@ -25,14 +27,22 @@ export async function runPhysicalConformance(
       report(`[${index + 1}/${names.length}] ${name}`);
       const started = performance.now();
       try {
-        results.push(await runPhysicalScenario(target, fixturePath, name, report));
-        report(`✓ ${name} (${formatDuration(performance.now() - started)})`);
+        const result = await runPhysicalScenario(target, fixturePath, name, report);
+        const durationMs = performance.now() - started;
+        results.push({ ...result, durationMs });
+        report(`✓ ${name} (${formatDuration(durationMs)})`);
       } catch (error) {
         report(`✗ ${name} (${formatDuration(performance.now() - started)})`);
         throw error;
       }
     }
-    return { target: target.name, scenarios: results };
+    const result = { target: target.name, fixturePath, generatedAt: new Date().toISOString(), scenarios: results };
+    const reportPath = process.env.FLOAT_VIEW_PHYSICAL_REPORT;
+    if (reportPath) {
+      mkdirSync(dirname(reportPath), { recursive: true });
+      writeFileSync(reportPath, `${JSON.stringify(result, null, 2)}\n`);
+    }
+    return result;
   } catch (error) {
     primaryFailure = error;
     throw error;
@@ -216,7 +226,7 @@ async function runRide(
   runner: FixtureRunner,
   deviceId: string,
   sessionId: string,
-  exerciseReview = true,
+  exerciseReview = true
 ) {
   await runner.waitForRequests(
     (requests) =>
@@ -232,7 +242,7 @@ async function runReconnect(
   deviceId: string,
   sessionId: string,
   afterRevision: number,
-  exerciseReview = true,
+  exerciseReview = true
 ) {
   const reconnecting = client.waitForState((state) => state.activeConnection?.state === 'reconnecting', {
     afterRevision,
@@ -323,16 +333,21 @@ async function completeSession(client: ConformanceClient, deviceId: string, sess
   assert.ok(session.ridingElapsedMs > 0, 'Ride session recorded no riding time');
   const detail = await client.request('session.get', {
     sessionId,
-    maxPoints: 100,
   });
-  assert.ok(detail.series.length > 0 && detail.series.length <= 100);
-  const diagnostics = await client.request('session.getDiagnostics', {
+  assert.ok(detail.fields.length > 0);
+  assert.ok(detail.snapshot.committedElapsedMs >= 0);
+  const field = detail.fields[0]?.name;
+  assert.ok(field);
+  const data = await client.sessionData({
+    kind: 'series',
     sessionId,
-    centerElapsedMs: Math.floor(session.totalElapsedMs / 2),
-    beforeMs: session.totalElapsedMs,
-    afterMs: session.totalElapsedMs,
+    snapshot: detail.snapshot,
+    range: { startElapsedMs: 0, endElapsedMs: detail.snapshot.committedElapsedMs },
+    fields: [field],
+    buckets: 8,
+    gapPolicy: { thresholdSeconds: null },
   });
-  assert.ok(diagnostics.length > 0 && diagnostics.length <= 2_000);
+  assert.equal(data.kind, 'series');
   await client.request('session.export', { sessionId, format: 'csv' });
   await client.request('session.delete', { sessionId });
   const deleted = await client.request('state.get', {});

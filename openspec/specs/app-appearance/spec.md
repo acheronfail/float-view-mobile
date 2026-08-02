@@ -89,7 +89,7 @@ Global settings SHALL contain `unitPreference` with exactly `metric` or `imperia
 
 ### Requirement: Consistent measurement presentation
 
-The frontend SHALL apply the global unit preference consistently to live and session measurements without changing canonical backend, persistence, series, diagnostic, or export values. Metric presentation SHALL use kilometres per hour, kilometres or metres as appropriate, and Celsius. Imperial presentation SHALL convert those values to miles per hour, miles or feet as appropriate, and Fahrenheit. Voltage, current, duty percentage, sample counts, time, and eRPM SHALL remain unit-system independent.
+The frontend SHALL apply the global unit preference consistently to live and session measurements without changing canonical backend, persistence, series, exact-sample, event-page, or export values. Metric presentation SHALL use kilometres per hour, kilometres or metres as appropriate, and Celsius. Imperial presentation SHALL convert those values to miles per hour, miles or feet as appropriate, and Fahrenheit. Voltage, current, duty percentage, sample counts, time, and eRPM SHALL remain unit-system independent.
 
 #### Scenario: Metric live and session views
 

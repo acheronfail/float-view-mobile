@@ -84,4 +84,11 @@ describe('ApiClient', () => {
     malformed.socket.receiveRaw('{');
     await expect(malformedResult).rejects.toThrow('invalid JSON');
   });
+
+  it('measures incoming control messages as UTF-8 bytes', async () => {
+    const { socket, client } = setup();
+    const result = client.request('state.get', {});
+    socket.receiveRaw('😀'.repeat(16_385));
+    await expect(result).rejects.toThrow('oversized message');
+  });
 });

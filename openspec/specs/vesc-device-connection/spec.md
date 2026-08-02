@@ -1,8 +1,11 @@
 # vesc-device-connection Specification
 
 ## Purpose
+
 TBD - created by archiving change support-direct-and-can-vesc-connections. Update Purpose after archive.
+
 ## Requirements
+
 ### Requirement: Bounded VESC BLE discovery and stream setup
 
 Each native backend SHALL mirror VESC Tool's saved-device discovery rule: it MAY observe BLE advertisements without a service filter but SHALL publish a device only when the advertisement contains the Nordic UART service UUID or its exact Apple peripheral UUID or Android Bluetooth address already belongs to a saved board. Saved status SHALL bypass only the advertisement check. Every connection SHALL still boundedly discover the required UART service and characteristics, enable notifications, and segment outbound frames to the available BLE write payload. Operation at the default ATT MTU SHALL remain supported; an increased MTU MUST be an optimization rather than a connection prerequisite.
@@ -264,4 +267,3 @@ An asynchronous identification failure SHALL retain a failed active connection w
 
 - **WHEN** the user disconnects while identification, controller selection, or failed state is active
 - **THEN** the backend cancels that generation and removes the active connection through normal disconnect state changes
-

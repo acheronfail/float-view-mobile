@@ -1,0 +1,52 @@
+{
+  "target": "ios-physical",
+  "fixturePath": "/dev/cu.usbmodem2101",
+  "generatedAt": "2026-08-01T23:57:52.399Z",
+  "scenarios": [
+    {
+      "scenario": "identity",
+      "revision": 39,
+      "durationMs": 6929.190584000002
+    },
+    {
+      "scenario": "direct",
+      "revision": 39,
+      "durationMs": 6759.571416999999
+    },
+    {
+      "scenario": "direct-legacy",
+      "revision": 37,
+      "durationMs": 4859.975624999999
+    },
+    {
+      "scenario": "explicit-can",
+      "revision": 41,
+      "durationMs": 6760.369208
+    },
+    {
+      "scenario": "generic-gateway",
+      "revision": 41,
+      "durationMs": 6759.841916999998
+    },
+    {
+      "scenario": "ambiguous",
+      "revision": 49,
+      "durationMs": 6899.947333000004
+    },
+    {
+      "scenario": "ride",
+      "revision": 61,
+      "durationMs": 7640.341291999997
+    },
+    {
+      "scenario": "unexpected-disconnect",
+      "revision": 61,
+      "durationMs": 10298.010166
+    },
+    {
+      "scenario": "background",
+      "revision": 123,
+      "durationMs": 22182.037125000003
+    }
+  ]
+}

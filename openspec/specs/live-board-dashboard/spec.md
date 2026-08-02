@@ -3,7 +3,9 @@
 ## Purpose
 
 Define the focused live-board experience, including responsive telemetry, connection and session state, board configuration, and safe disconnect controls.
+
 ## Requirements
+
 ### Requirement: Focused responsive live dashboard
 
 The live-board view SHALL remain a focused subordinate screen without primary tabs and SHALL present every field in the current live telemetry contract at an intentional stable position in a responsive grid. The grid SHALL render three, two, or one usable columns as available width decreases, SHALL preserve stable cell placement while values update, and SHALL render unavailable values as placeholders.
@@ -192,7 +194,7 @@ The live experience SHALL surface package state and mode, footpad state, wheelsl
 
 ### Requirement: Detailed historical telemetry review
 
-Session detail SHALL expose the same supported detailed fields through bounded numeric charts and values, plus observed semantic transitions through bounded typed event annotations. It SHALL preserve nullability and units, allow inspection of fixture-generated scenes after disconnect, keep each response within 2,000 series points and 2,000 events, and disclose when earlier events were truncated.
+Session review SHALL expose metadata first, then the same supported detailed fields through bounded authenticated columnar series/exact-sample requests, plus observed semantic transitions through chronological event pages. It SHALL preserve nullability and units, allow inspection of fixture-generated scenes after disconnect, cap each data request to 16 fields/1,024 buckets/65,536 observations, cap sample pages at 2,000 rows and event pages at 500 rows, and disclose retained/pruned history metadata.
 
 #### Scenario: Review field weakening
 
@@ -202,7 +204,7 @@ Session detail SHALL expose the same supported detailed fields through bounded n
 #### Scenario: Review stop event
 
 - **WHEN** a session transitions through a stop condition
-- **THEN** session detail makes the state transition inspectable alongside surrounding telemetry
+- **THEN** the event page makes the state transition inspectable alongside surrounding telemetry
 
 ### Requirement: Detailed telemetry interactions
 

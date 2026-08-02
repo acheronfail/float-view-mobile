@@ -1,0 +1,401 @@
+import {
+  MAX_SESSION_CURSOR_BYTES,
+  MAX_SESSION_DATA_FIELDS,
+  MAX_SESSION_DATA_REQUEST_BYTES,
+  MAX_SESSION_DATA_RESPONSE_BYTES,
+  MAX_SESSION_EVENT_ROWS,
+  MAX_SESSION_SAMPLE_ROWS,
+  MAX_SESSION_SERIES_BUCKETS,
+  MAX_SESSION_SERIES_OBSERVATIONS,
+  type SessionFieldDescriptor,
+  type SessionPublishedSnapshot,
+} from './contract.ts';
+
+export type SessionDataKind = 'series' | 'samples' | 'events';
+export type SessionDataRange = { startElapsedMs: number; endElapsedMs: number };
+export type SessionGapPolicy = { thresholdSeconds: number | null };
+
+export interface SessionDataRequestBase {
+  kind: SessionDataKind;
+  sessionId: string;
+  snapshot: SessionPublishedSnapshot;
+  range: SessionDataRange;
+}
+
+export interface SessionSeriesRequest extends SessionDataRequestBase {
+  kind: 'series';
+  fields: string[];
+  buckets: number;
+  gapPolicy: SessionGapPolicy;
+}
+
+export interface SessionSamplesRequest extends SessionDataRequestBase {
+  kind: 'samples';
+  fields: string[];
+  mode: 'window' | 'nearest';
+  limit: number;
+  cursor?: string | null;
+  targetElapsedMs?: number;
+}
+
+export interface SessionEventsRequest extends SessionDataRequestBase {
+  kind: 'events';
+  limit: number;
+  cursor?: string | null;
+}
+
+export type SessionDataRequest = SessionSeriesRequest | SessionSamplesRequest | SessionEventsRequest;
+
+export interface SessionSeriesColumn {
+  elapsedMs: number[];
+  sequence: number[];
+  values: (number | null)[];
+  generations: number[];
+}
+
+export interface SessionSeriesResult {
+  kind: 'series';
+  sessionId: string;
+  snapshot: SessionPublishedSnapshot;
+  range: SessionDataRange;
+  gapPolicy: SessionGapPolicy;
+  fields: SessionFieldDescriptor[];
+  columns: Record<string, SessionSeriesColumn>;
+}
+
+export interface SessionSamplesResult {
+  kind: 'samples';
+  sessionId: string;
+  snapshot: SessionPublishedSnapshot;
+  range: SessionDataRange;
+  mode: 'window' | 'nearest';
+  fields: SessionFieldDescriptor[];
+  elapsedMs: number[];
+  sequence: number[];
+  values: Record<string, (number | null)[]>;
+  nextCursor: string | null;
+}
+
+export interface SessionEventPage {
+  elapsedMs: number[];
+  sequence: number[];
+  sourceSampleSequence: number[];
+  kinds: string[];
+  values: string[];
+}
+
+export interface SessionEventsResult {
+  kind: 'events';
+  sessionId: string;
+  snapshot: SessionPublishedSnapshot;
+  range: SessionDataRange;
+  page: SessionEventPage;
+  nextCursor: string | null;
+}
+
+export type SessionDataResult = SessionSeriesResult | SessionSamplesResult | SessionEventsResult;
+
+export class SessionDataProtocolError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'SessionDataProtocolError';
+  }
+}
+
+const finiteInteger = (value: unknown): value is number => Number.isSafeInteger(value) && (value as number) >= 0;
+const finiteNumber = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value);
+
+export function validateSessionDataRequest(value: unknown): SessionDataRequest {
+  const encoded = JSON.stringify(value);
+  if (!encoded || new TextEncoder().encode(encoded).byteLength > MAX_SESSION_DATA_REQUEST_BYTES) {
+    throw new SessionDataProtocolError('Session-data request exceeds the body limit');
+  }
+  if (!value || typeof value !== 'object') throw new SessionDataProtocolError('Session-data request must be an object');
+  const request = value as {
+    kind?: unknown;
+    sessionId?: unknown;
+    snapshot?: unknown;
+    range?: unknown;
+    fields?: unknown;
+    buckets?: unknown;
+    gapPolicy?: SessionGapPolicy;
+    mode?: unknown;
+    limit?: unknown;
+    cursor?: unknown;
+    targetElapsedMs?: unknown;
+  };
+  if (request.kind !== 'series' && request.kind !== 'samples' && request.kind !== 'events') {
+    throw new SessionDataProtocolError('Unsupported session-data request kind');
+  }
+  if (typeof request.sessionId !== 'string' || request.sessionId.length === 0) {
+    throw new SessionDataProtocolError('Session ID is required');
+  }
+  validateSnapshot(request.snapshot);
+  validateRange(request.range);
+  if (request.kind === 'series') {
+    const fields = validateFields(request.fields);
+    const buckets = request.buckets;
+    if (!finiteInteger(buckets) || buckets < 1 || buckets > MAX_SESSION_SERIES_BUCKETS) {
+      throw new SessionDataProtocolError('Series bucket count is out of bounds');
+    }
+    const gapPolicy = request.gapPolicy;
+    if (
+      !gapPolicy ||
+      (gapPolicy.thresholdSeconds !== null &&
+        (!finiteNumber(gapPolicy.thresholdSeconds) ||
+          gapPolicy.thresholdSeconds < 0.1 ||
+          gapPolicy.thresholdSeconds > 3_600))
+    ) {
+      throw new SessionDataProtocolError('Invalid history-gap policy');
+    }
+    return { ...request, fields, buckets } as SessionSeriesRequest;
+  }
+  if (request.kind === 'samples') {
+    const fields = validateFields(request.fields);
+    if (request.mode !== 'window' && request.mode !== 'nearest')
+      throw new SessionDataProtocolError('Invalid sample mode');
+    const limit = request.limit;
+    if (!finiteInteger(limit) || limit < 1 || limit > MAX_SESSION_SAMPLE_ROWS) {
+      throw new SessionDataProtocolError('Sample page size is out of bounds');
+    }
+    if (request.cursor !== undefined && request.cursor !== null) validateCursor(request.cursor);
+    if (request.mode === 'nearest' && !finiteInteger(request.targetElapsedMs)) {
+      throw new SessionDataProtocolError('Nearest target is required');
+    }
+    return { ...request, fields, limit } as SessionSamplesRequest;
+  }
+  const limit = request.limit;
+  if (!finiteInteger(limit) || limit < 1 || limit > MAX_SESSION_EVENT_ROWS) {
+    throw new SessionDataProtocolError('Event page size is out of bounds');
+  }
+  if (request.cursor !== undefined && request.cursor !== null) validateCursor(request.cursor);
+  return { ...request, limit } as SessionEventsRequest;
+}
+
+export function validateSessionDataResult(value: unknown, request: SessionDataRequest): SessionDataResult {
+  if (!value || typeof value !== 'object') throw new SessionDataProtocolError('Session-data result must be an object');
+  const result = value as Partial<SessionDataResult>;
+  if (result.kind !== request.kind || result.sessionId !== request.sessionId) {
+    throw new SessionDataProtocolError('Session-data result identity does not match the request');
+  }
+  validateSnapshot(result.snapshot);
+  if (!sameSnapshot(result.snapshot, request.snapshot)) {
+    throw new SessionDataProtocolError('Session-data snapshot changed during the request');
+  }
+  validateRange(result.range);
+  if (result.range.startElapsedMs !== request.range.startElapsedMs || result.range.endElapsedMs !== request.range.endElapsedMs) {
+    throw new SessionDataProtocolError('Session-data range does not match the request');
+  }
+  if (result.kind === 'series')
+    return validateSeriesResult(result as Partial<SessionSeriesResult>, request as SessionSeriesRequest);
+  if (result.kind === 'samples')
+    return validateSamplesResult(result as Partial<SessionSamplesResult>, request as SessionSamplesRequest);
+  return validateEventsResult(result as Partial<SessionEventsResult>);
+}
+
+function sameSnapshot(left: SessionPublishedSnapshot, right: SessionPublishedSnapshot): boolean {
+  return (
+    left.historyRevision === right.historyRevision &&
+    left.committedSampleSequence === right.committedSampleSequence &&
+    left.committedEventSequence === right.committedEventSequence &&
+    left.committedElapsedMs === right.committedElapsedMs
+  );
+}
+
+export async function readBoundedJson(response: Response): Promise<unknown> {
+  if (!response.body) {
+    const text = await response.text();
+    if (new TextEncoder().encode(text).byteLength > MAX_SESSION_DATA_RESPONSE_BYTES) {
+      throw new SessionDataProtocolError('Session-data response exceeds the decoded byte limit');
+    }
+    return JSON.parse(text);
+  }
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  try {
+    while (true) {
+      const next = await reader.read();
+      if (next.done) break;
+      total += next.value.byteLength;
+      if (total > MAX_SESSION_DATA_RESPONSE_BYTES)
+        throw new SessionDataProtocolError('Session-data response exceeds the decoded byte limit');
+      chunks.push(next.value);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+  const merged = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    merged.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return JSON.parse(new TextDecoder().decode(merged));
+}
+
+function validateSnapshot(value: unknown): asserts value is SessionPublishedSnapshot {
+  if (!value || typeof value !== 'object') throw new SessionDataProtocolError('Invalid published snapshot');
+  const snapshot = value as SessionPublishedSnapshot;
+  if (
+    !finiteInteger(snapshot.historyRevision) ||
+    !finiteInteger(snapshot.committedSampleSequence) ||
+    !finiteInteger(snapshot.committedEventSequence) ||
+    !finiteInteger(snapshot.committedElapsedMs)
+  ) {
+    throw new SessionDataProtocolError('Published snapshot contains an unsafe integer');
+  }
+}
+
+function validateRange(value: unknown): asserts value is SessionDataRange {
+  if (!value || typeof value !== 'object') throw new SessionDataProtocolError('Invalid session-data range');
+  const range = value as SessionDataRange;
+  if (
+    !finiteInteger(range.startElapsedMs) ||
+    !finiteInteger(range.endElapsedMs) ||
+    range.endElapsedMs < range.startElapsedMs
+  ) {
+    throw new SessionDataProtocolError('Invalid session-data range');
+  }
+}
+
+function validateFields(value: unknown): string[] {
+  if (
+    !Array.isArray(value) ||
+    value.length < 1 ||
+    value.length > MAX_SESSION_DATA_FIELDS ||
+    value.some(
+      (field) => typeof field !== 'string' || field.length === 0 || new TextEncoder().encode(field).byteLength > 64
+    )
+  ) {
+    throw new SessionDataProtocolError('Session-data fields are out of bounds');
+  }
+  const fields = [...value];
+  if (new Set(fields).size !== fields.length) throw new SessionDataProtocolError('Session-data fields must be unique');
+  return fields;
+}
+
+function validateCursor(value: unknown): asserts value is string {
+  if (
+    typeof value !== 'string' ||
+    value.length === 0 ||
+    new TextEncoder().encode(value).byteLength > MAX_SESSION_CURSOR_BYTES
+  ) {
+    throw new SessionDataProtocolError('Invalid session-data cursor');
+  }
+}
+
+function validateSeriesResult(value: Partial<SessionSeriesResult>, request: SessionSeriesRequest): SessionSeriesResult {
+  validateFieldDescriptors(value.fields, request.fields);
+  if (!value.columns) throw new SessionDataProtocolError('Invalid series columns');
+  if (value.gapPolicy?.thresholdSeconds !== request.gapPolicy.thresholdSeconds)
+    throw new SessionDataProtocolError('Series gap policy changed');
+  let observations = 0;
+  const columns: Record<string, SessionSeriesColumn> = {};
+  for (const field of request.fields) {
+    const column = value.columns[field];
+    if (
+      !column ||
+      !Array.isArray(column.elapsedMs) ||
+      !Array.isArray(column.sequence) ||
+      !Array.isArray(column.values) ||
+      !Array.isArray(column.generations)
+    ) {
+      throw new SessionDataProtocolError('Missing requested series column');
+    }
+    const length = column.elapsedMs.length;
+    if (column.sequence.length !== length || column.values.length !== length || column.generations.length !== length)
+      throw new SessionDataProtocolError('Mismatched series arrays');
+    observations += length;
+    if (observations > MAX_SESSION_SERIES_OBSERVATIONS)
+      throw new SessionDataProtocolError('Series observation bound exceeded');
+    for (let i = 0; i < length; i += 1) {
+      if (
+        !finiteInteger(column.elapsedMs[i]) ||
+        !finiteInteger(column.sequence[i]) ||
+        !finiteInteger(column.generations[i]) ||
+        (column.values[i] !== null && !finiteNumber(column.values[i]))
+      )
+        throw new SessionDataProtocolError('Invalid series value');
+    }
+    columns[field] = column;
+  }
+  return { ...(value as SessionSeriesResult), fields: value.fields, columns };
+}
+
+function validateSamplesResult(
+  value: Partial<SessionSamplesResult>,
+  request: SessionSamplesRequest
+): SessionSamplesResult {
+  if (
+    !Array.isArray(value.elapsedMs) ||
+    !Array.isArray(value.sequence) ||
+    !value.values ||
+    value.elapsedMs.length !== value.sequence.length ||
+    value.elapsedMs.length > MAX_SESSION_SAMPLE_ROWS
+  )
+    throw new SessionDataProtocolError('Invalid sample columns');
+  validateFieldDescriptors(value.fields, request.fields);
+  for (const field of request.fields) {
+    const column = value.values[field];
+    if (
+      !column ||
+      column.length !== value.elapsedMs.length ||
+      column.some((item) => item !== null && !finiteNumber(item))
+    )
+      throw new SessionDataProtocolError('Missing requested sample column');
+  }
+  value.elapsedMs.forEach((elapsed, index) => {
+    if (!finiteInteger(elapsed) || !finiteInteger(value.sequence![index]))
+      throw new SessionDataProtocolError('Invalid sample key');
+  });
+  if (value.nextCursor !== null && value.nextCursor !== undefined) validateCursor(value.nextCursor);
+  return value as SessionSamplesResult;
+}
+
+function validateEventsResult(value: Partial<SessionEventsResult>): SessionEventsResult {
+  const page = value.page;
+  if (
+    !page ||
+    !Array.isArray(page.elapsedMs) ||
+    page.elapsedMs.length > MAX_SESSION_EVENT_ROWS ||
+    page.sequence.length !== page.elapsedMs.length ||
+    page.sourceSampleSequence.length !== page.elapsedMs.length ||
+    page.kinds.length !== page.elapsedMs.length ||
+    page.values.length !== page.elapsedMs.length
+  )
+    throw new SessionDataProtocolError('Invalid event page');
+  page.elapsedMs.forEach((elapsed, index) => {
+    if (
+      !finiteInteger(elapsed) ||
+      !finiteInteger(page.sequence[index]) ||
+      !finiteInteger(page.sourceSampleSequence[index]) ||
+      typeof page.kinds[index] !== 'string' ||
+      typeof page.values[index] !== 'string'
+    )
+      throw new SessionDataProtocolError('Invalid event value');
+  });
+  if (value.nextCursor !== null && value.nextCursor !== undefined) validateCursor(value.nextCursor);
+  return value as SessionEventsResult;
+}
+
+function validateFieldDescriptors(
+  value: unknown,
+  requested: readonly string[]
+): asserts value is SessionFieldDescriptor[] {
+  if (!Array.isArray(value) || value.length !== requested.length)
+    throw new SessionDataProtocolError('Invalid field descriptors');
+  value.forEach((descriptor, index) => {
+    if (
+      !descriptor ||
+      typeof descriptor !== 'object' ||
+      (descriptor as SessionFieldDescriptor).name !== requested[index] ||
+      ((descriptor as SessionFieldDescriptor).unit !== null &&
+        typeof (descriptor as SessionFieldDescriptor).unit !== 'string') ||
+      ((descriptor as SessionFieldDescriptor).source !== 'stable' &&
+        (descriptor as SessionFieldDescriptor).source !== 'extension')
+    ) {
+      throw new SessionDataProtocolError('Field descriptor does not match the request');
+    }
+  });
+}

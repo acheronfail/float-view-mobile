@@ -3,7 +3,9 @@
 ## Purpose
 
 Define the single canonical software and physical acceptance suite required of every supported backend.
+
 ## Requirements
+
 ### Requirement: One canonical suite
 
 The repository SHALL contain one top-level `/conformance` TypeScript black-box suite that imports the hand-written frontend contract and is not copied into Swift or Kotlin implementations.
@@ -166,7 +168,7 @@ Physical conformance SHALL run identity, ride, and unexpected-disconnect/reconne
 #### Scenario: Ride
 
 - **WHEN** any physical target receives idle, riding, and post-ride telemetry phases with configured fragmentation
-- **THEN** conformance verifies route-correct request cadence, automatic durable-session state, review, diagnostics, export, and deletion through the shared contract
+- **THEN** conformance verifies route-correct request cadence, automatic durable-session state, metadata/data review, export, and deletion through the shared contract
 
 #### Scenario: Unexpected disconnect and reconnect
 
@@ -370,12 +372,12 @@ Software conformance SHALL exercise complete detailed telemetry for every audite
 
 ### Requirement: Detailed persistence and contract coverage
 
-Canonical conformance SHALL verify that both backends commit, recover, serialize, retrieve, diagnose, and export every typed detailed field, observed discrete transition, and representative bounded extension with stable names, units, nullability, and privacy. It SHALL cover storage failure, frontend recreation, reconnect, selected-controller change, session interruption, decreasing device counters, and unknown future enum values.
+Canonical conformance SHALL verify that both backends commit, recover, serialize, query through metadata plus authenticated series/sample/event pages, and export every typed detailed field, observed discrete transition, and representative bounded extension with stable names, units, nullability, and privacy. It SHALL cover storage failure, frontend recreation, reconnect, selected-controller change, session interruption, decreasing device counters, and unknown future enum values.
 
 #### Scenario: End-to-end detailed sample
 
 - **WHEN** the simulator supplies a sample containing representative fields from every semantic group
-- **THEN** live state, durable session detail, transition events, diagnostics, and export agree on the committed sequence and values on Apple and Android
+- **THEN** live state, session metadata/data, transition pages, and export agree on the committed sequence and values on Apple and Android
 
 #### Scenario: One controller per session
 
@@ -385,7 +387,7 @@ Canonical conformance SHALL verify that both backends commit, recover, serialize
 #### Scenario: Privacy and bounds
 
 - **WHEN** detailed telemetry, scenario aliases, learned identities, oversized fields, and extension limits are exercised
-- **THEN** conformance observes the specified 65,536-byte message/document, 64-field layout, 64-byte key, 4,096-byte aggregate-name, 32-extension, 16,384-byte JSON, 50-diagnostic, and 2,000-point/event response bounds and no private controller UUID in contract state, logs, errors, diagnostics, or exports
+- **THEN** conformance observes the specified 65,536-byte WebSocket, 16 KiB request, 4 MiB decoded response, 64-field layout, 64-byte key, 4,096-byte aggregate-name, 32-extension, 16,384-byte extension JSON, 16-field/1,024-bucket/65,536-observation series, 2,000-sample-page, and 500-event-page bounds and no private controller UUID in contract state, logs, errors, or exports
 
 ### Requirement: Workbench software verification
 

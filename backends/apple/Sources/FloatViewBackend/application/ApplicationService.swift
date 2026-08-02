@@ -218,28 +218,74 @@ public final class ApplicationService: @unchecked Sendable {
     return try sessionStore.session(sessionID: sessionID)
   }
 
+  public func sessionSnapshot(sessionID: String) throws -> SessionPublishedSnapshotRecord {
+    guard let sessionStore else { throw ApplicationError.productStoreUnavailable }
+    return try sessionStore.sessionSnapshot(sessionID: sessionID)
+  }
+
+  public func sessionHistoryConfiguration(sessionID: String) throws -> SessionHistoryConfiguration {
+    guard let sessionStore else { throw ApplicationError.productStoreUnavailable }
+    return try sessionStore.sessionHistoryConfiguration(sessionID: sessionID)
+  }
+
   public func querySessionSeries(
     sessionID: String,
     startElapsedMs: Int64,
     endElapsedMs: Int64,
     fields: [String],
-    maxPoints: Int
+    maxPoints: Int,
+    publishedSampleSequence: Int64? = nil
   ) throws -> [SessionSeriesPoint] {
     guard let sessionStore else { throw ApplicationError.productStoreUnavailable }
     return try sessionStore.querySeries(
       sessionID: sessionID, startElapsedMs: startElapsedMs, endElapsedMs: endElapsedMs,
-      fields: fields, maxPoints: maxPoints
+      fields: fields, maxPoints: maxPoints,
+      publishedSampleSequence: publishedSampleSequence
     )
+  }
+
+  public func querySessionSeriesSource(
+    sessionID: String,
+    startElapsedMs: Int64,
+    endElapsedMs: Int64,
+    fields: [String],
+    maxRows: Int,
+    publishedSampleSequence: Int64? = nil
+  ) throws -> [SessionSeriesPoint] {
+    guard let sessionStore else { throw ApplicationError.productStoreUnavailable }
+    return try sessionStore.querySeriesSource(
+      sessionID: sessionID, startElapsedMs: startElapsedMs, endElapsedMs: endElapsedMs,
+      fields: fields, maxRows: maxRows, publishedSampleSequence: publishedSampleSequence
+    )
+  }
+
+  public func queryNearestSessionSample(
+    sessionID: String,
+    targetElapsedMs: Int64,
+    fields: [String],
+    publishedSampleSequence: Int64? = nil
+  ) throws -> SessionSeriesPoint? {
+    guard let sessionStore else { throw ApplicationError.productStoreUnavailable }
+    return try sessionStore.queryNearestSample(
+      sessionID: sessionID, targetElapsedMs: targetElapsedMs,
+      fields: fields, publishedSampleSequence: publishedSampleSequence
+    )
+  }
+
+  public func cancelHistoricalReads(sessionID: String) {
+    sessionStore?.cancelHistoricalReads(sessionID: sessionID)
   }
 
   public func sessionEvents(
     sessionID: String,
     startElapsedMs: Int64,
-    endElapsedMs: Int64
+    endElapsedMs: Int64,
+    publishedEventSequence: Int64? = nil
   ) throws -> [SessionEventRecord] {
     guard let sessionStore else { throw ApplicationError.productStoreUnavailable }
     return try sessionStore.sessionEvents(
-      sessionID: sessionID, startElapsedMs: startElapsedMs, endElapsedMs: endElapsedMs
+      sessionID: sessionID, startElapsedMs: startElapsedMs, endElapsedMs: endElapsedMs,
+      publishedEventSequence: publishedEventSequence
     )
   }
 
@@ -248,23 +294,60 @@ public final class ApplicationService: @unchecked Sendable {
     return try sessionStore.sessionExtensionFields(sessionID: sessionID)
   }
 
-  public func diagnosticWindow(
+  public func sessionPruneMetadata(sessionID: String) throws -> SessionPruneMetadataRecord {
+    guard let sessionStore else { throw ApplicationError.productStoreUnavailable }
+    return try sessionStore.sessionPruneMetadata(sessionID: sessionID)
+  }
+
+  public func prunePreview(sessionID: String, targetResolutionSeconds: Int64) throws -> SessionPrunePreviewRecord {
+    guard let sessionStore else { throw ApplicationError.productStoreUnavailable }
+    return try sessionStore.prunePreview(sessionID: sessionID, targetResolutionSeconds: targetResolutionSeconds)
+  }
+
+  public func pruneSession(sessionID: String, targetResolutionSeconds: Int64) throws -> SessionPrunePreviewRecord {
+    guard let sessionStore else { throw ApplicationError.productStoreUnavailable }
+    return try sessionStore.pruneSession(sessionID: sessionID, targetResolutionSeconds: targetResolutionSeconds)
+  }
+
+  public func maintenanceJob() throws -> SessionMaintenanceJobRecord? {
+    guard let sessionStore else { throw ApplicationError.productStoreUnavailable }
+    return try sessionStore.maintenanceJob()
+  }
+
+  public func saveMaintenanceJob(_ job: SessionMaintenanceJobRecord) throws {
+    guard let sessionStore else { throw ApplicationError.productStoreUnavailable }
+    try sessionStore.saveMaintenanceJob(job)
+  }
+
+  public func cancelMaintenanceJob(operationID: String) throws -> SessionMaintenanceJobRecord? {
+    guard let sessionStore else { throw ApplicationError.productStoreUnavailable }
+    return try sessionStore.cancelMaintenanceJob(operationID: operationID)
+  }
+
+  public func querySampleWindow(
     sessionID: String,
     centerElapsedMs: Int64,
     beforeMs: Int64,
     afterMs: Int64,
-    fields: [String]
+    fields: [String],
+    publishedSampleSequence: Int64? = nil
   ) throws -> [SessionSeriesPoint] {
     guard let sessionStore else { throw ApplicationError.productStoreUnavailable }
-    return try sessionStore.diagnosticWindow(
+    return try sessionStore.querySampleWindow(
       sessionID: sessionID, centerElapsedMs: centerElapsedMs,
-      beforeMs: beforeMs, afterMs: afterMs, fields: fields
+      beforeMs: beforeMs, afterMs: afterMs, fields: fields,
+      publishedSampleSequence: publishedSampleSequence
     )
   }
 
   public func deleteSession(sessionID: String) throws {
     guard let sessionStore else { throw ApplicationError.productStoreUnavailable }
     try sessionStore.deleteSession(sessionID: sessionID)
+  }
+
+  public func cancelPendingDelete(operationID: String) throws -> Bool {
+    guard let sessionStore else { throw ApplicationError.productStoreUnavailable }
+    return try sessionStore.cancelPendingDelete(operationID: operationID)
   }
 
   public func exportSession(

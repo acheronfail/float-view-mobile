@@ -3,6 +3,8 @@ package fail.acheron.floatview.storage
 import android.content.Context
 import android.database.sqlite.SQLiteDatabase
 import android.database.sqlite.SQLiteOpenHelper
+import android.database.DatabaseUtils
+import android.os.CancellationSignal
 import fail.acheron.floatview.backend.DeviceId
 import fail.acheron.floatview.backend.BoardProfileRecord
 import fail.acheron.floatview.backend.ControllerRoutingHint
@@ -19,6 +21,12 @@ import fail.acheron.floatview.backend.SessionListQuery
 import fail.acheron.floatview.backend.SessionPage
 import fail.acheron.floatview.backend.SessionRecord
 import fail.acheron.floatview.backend.SessionSeriesPoint
+import fail.acheron.floatview.backend.SessionPublishedSnapshotRecord
+import fail.acheron.floatview.backend.SessionHistoryConfiguration
+import fail.acheron.floatview.backend.SessionHistoryReducer
+import fail.acheron.floatview.backend.SessionPruneMetadataRecord
+import fail.acheron.floatview.backend.SessionPrunePreviewRecord
+import fail.acheron.floatview.backend.SessionMaintenanceJobRecord
 import fail.acheron.floatview.backend.SessionStoreException
 import fail.acheron.floatview.backend.SessionStorePort
 import fail.acheron.floatview.backend.SessionSummaryRecord
@@ -33,6 +41,7 @@ import java.io.BufferedWriter
 import java.io.FileOutputStream
 import java.io.OutputStreamWriter
 import java.time.Instant
+import java.util.concurrent.Semaphore
 import java.util.UUID
 
 /**
@@ -49,8 +58,22 @@ class SQLiteLogStore(
     private val catalog = CatalogOpenHelper(appContext, File(root, "catalog.sqlite").path)
     private var current: SessionRecord? = null
     private var sessionDb: SQLiteDatabase? = null
+    private val historicalReadSlots = Semaphore(2)
+    private val leaseLock = Any()
+    private val activeReadLeases = mutableMapOf<String, Int>()
+    private val maintenanceSessions = mutableSetOf<String>()
+    private val historicalDatabases = mutableMapOf<String, MutableSet<SQLiteDatabase>>()
+    private val historicalCancellationSignals = mutableMapOf<String, MutableSet<CancellationSignal>>()
+    private val deletingSessions = mutableSetOf<String>()
 
     init {
+        reconcileCatalog(catalog.writableDatabase)
+        // A process death cannot leave an in-flight maintenance lease alive.
+        // Keep its bounded cursor and counters, but make it resumable on the
+        // next explicit maintenance request.
+        catalog.writableDatabase.execSQL(
+            "UPDATE session_maintenance_job SET state = 'pending' WHERE singleton = 1 AND state IN ('running', 'cancel_requested')",
+        )
         resumePendingDeletes(catalog.writableDatabase)
         cleanupStagedExports()
     }
@@ -86,6 +109,18 @@ class SQLiteLogStore(
             val savedDevice = ensureSavedDevice(catalogDb, deviceId, advertisedName, at)
             val profile = boardProfile(catalogDb, savedDevice.savedDeviceId, at)
             val settings = settings(catalogDb)
+            db.execSQL(
+                """
+                INSERT INTO session_metadata(
+                  singleton, expected_riding_persistence_ms, expected_idle_persistence_ms
+                ) VALUES (1, ?, ?)
+                """.trimIndent(),
+                arrayOf(settings.ridingPersistIntervalMs, settings.idlePersistIntervalMs),
+            )
+            db.execSQL(
+                "INSERT INTO commit_marker(singleton, committed_at_ms) VALUES (1, ?)",
+                arrayOf(started),
+            )
             val deviceSnapshot = JSONObject()
                 .put("savedDeviceId", savedDevice.savedDeviceId)
                 .put("deviceHistoryId", savedDevice.deviceHistoryId)
@@ -149,8 +184,8 @@ class SQLiteLogStore(
         check(StoragePolicy.level(availableBytes()) != StorageLevel.STOP) {
             "Storage below durable logging stop threshold"
         }
+        reconcileDirtyCatalog(record.jobId.value)
         val db = requireNotNull(sessionDb)
-        var appendedEvents = 0L
         db.beginTransaction()
         try {
             var previousTransitions = latestTransitionValues(db).toMutableMap()
@@ -160,7 +195,6 @@ class SQLiteLogStore(
                 null,
             )
             for (sample in samples) {
-                val detailJson = telemetryDetailJson(sample)
                 val extensionJson = telemetryExtensionJson(sample.extension)
                 db.execSQL(
                     """
@@ -169,9 +203,22 @@ class SQLiteLogStore(
                       ride_state, package_state, package_mode, stop_condition,
                       setpoint_adjustment, wheelslip, darkride, charging, alert_reason,
                       firmware_fault, raw_pack_voltage_v, duty_cycle, controller_temp_c,
-                      motor_temp_c, footpad_state, detail_json, extension_json,
-                      motor_current_a, battery_current_a, erpm, speed_kph
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                      motor_temp_c, footpad_state, extension_json,
+                      motor_current_a, battery_current_a, erpm, speed_kph,
+                      pitch_deg, balance_pitch_deg, roll_deg, directional_motor_current_a,
+                      filtered_motor_current_a, requested_balance_current_a, booster_current_a,
+                      field_weakening_current_a, footpad_adc_1_v, footpad_adc_2_v, remote_input,
+                      setpoint_deg, atr_setpoint_deg, brake_tilt_setpoint_deg, torque_tilt_setpoint_deg,
+                      turn_tilt_setpoint_deg, remote_setpoint_deg,
+                      atr_acceleration_difference_erpm_per_second, atr_speed_boost, distance_m,
+                      odometer_m, amp_hours_drawn_ah, amp_hours_charged_ah, watt_hours_drawn_wh,
+                      watt_hours_charged_wh, battery_level, charging_current_a, charging_voltage_v
+                    ) VALUES (
+                      ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                      ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                      ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                      ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+                    )
                     """.trimIndent(),
                     arrayOf(
                         sample.sequence,
@@ -193,12 +240,39 @@ class SQLiteLogStore(
                         sample.controllerTempC,
                         sample.motorTempC,
                         sample.footpadState?.wireValue,
-                        detailJson,
                         extensionJson,
                         sample.motorCurrentA,
                         sample.batteryCurrentA,
                         sample.erpm,
                         sample.speedKph,
+                        sample.pitchDeg,
+                        sample.balancePitchDeg,
+                        sample.rollDeg,
+                        sample.directionalMotorCurrentA,
+                        sample.filteredMotorCurrentA,
+                        sample.requestedBalanceCurrentA,
+                        sample.boosterCurrentA,
+                        sample.fieldWeakeningCurrentA,
+                        sample.footpadAdc1V,
+                        sample.footpadAdc2V,
+                        sample.remoteInput,
+                        sample.setpointDeg,
+                        sample.atrSetpointDeg,
+                        sample.brakeTiltSetpointDeg,
+                        sample.torqueTiltSetpointDeg,
+                        sample.turnTiltSetpointDeg,
+                        sample.remoteSetpointDeg,
+                        sample.atrAccelerationDifferenceErpmPerSecond,
+                        sample.atrSpeedBoost,
+                        sample.distanceM,
+                        sample.odometerM,
+                        sample.ampHoursDrawnAh,
+                        sample.ampHoursChargedAh,
+                        sample.wattHoursDrawnWh,
+                        sample.wattHoursChargedWh,
+                        sample.batteryLevel,
+                        sample.chargingCurrentA,
+                        sample.chargingVoltageV,
                     ),
                 )
                 val inserted = android.database.DatabaseUtils.longForQuery(
@@ -207,16 +281,31 @@ class SQLiteLogStore(
                     null,
                 ) == 1L
                 if (!inserted) continue
+                stableNumericValues(sample).forEach { (field, value) ->
+                    if (value != null) {
+                        db.execSQL(
+                            "INSERT OR IGNORE INTO session_numeric_field(field_name, source, first_sequence) VALUES (?, 'stable', ?)",
+                            arrayOf(field, sample.sequence),
+                        )
+                    }
+                }
+                sample.extension.keys.forEach { field ->
+                    db.execSQL(
+                        "INSERT OR IGNORE INTO session_numeric_field(field_name, source, first_sequence) VALUES (?, 'extension', ?)",
+                        arrayOf(field, sample.sequence),
+                    )
+                }
                 transitionValues(sample).forEach { (kind, value) ->
                     if (previousTransitions[kind] == value) return@forEach
                     db.execSQL(
                         """
                         INSERT INTO session_event(
-                          sequence, observed_at_ms, monotonic_elapsed_ms, kind, details_json
-                        ) VALUES (?, ?, ?, ?, ?)
+                          sequence, source_sample_sequence, observed_at_ms, monotonic_elapsed_ms, kind, details_json
+                        ) VALUES (?, ?, ?, ?, ?, ?)
                         """.trimIndent(),
                         arrayOf(
                             eventSequence,
+                            sample.sequence,
                             sample.observedAt.toEpochMilli(),
                             sample.elapsedMs,
                             kind,
@@ -225,28 +314,108 @@ class SQLiteLogStore(
                     )
                     previousTransitions[kind] = value
                     eventSequence += 1
-                    appendedEvents += 1
+                }
+            }
+            // Android API 29 ships an SQLite build without the window-function
+            // support used by the desktop marker query. Compute the same
+            // ordered aggregates in Kotlin and keep the SQL update primitive.
+            data class Aggregate(
+                var previousElapsed: Long? = null,
+                var previousSpeedKph: Double? = null,
+                var ridingElapsed: Long = 0,
+                var distanceM: Double = 0.0,
+                var maximumSpeedKph: Double? = null,
+                var maximumSpeedSequence: Long? = null,
+                var maximumDutyCycle: Double? = null,
+                var maximumDutySequence: Long? = null,
+                var committedElapsed: Long = 0,
+                var lastSpeedKph: Double? = null,
+                var lastRideState: String? = null,
+            )
+            val aggregate = Aggregate()
+            db.rawQuery(
+                """
+                SELECT sequence, monotonic_elapsed_ms, ride_state, speed_kph, duty_cycle
+                FROM sample ORDER BY monotonic_elapsed_ms ASC, sequence ASC
+                """.trimIndent(),
+                null,
+            ).use { cursor ->
+                while (cursor.moveToNext()) {
+                    val sequence = cursor.getLong(0)
+                    val elapsed = cursor.getLong(1)
+                    val rideState = cursor.getString(2)
+                    val speedKph = if (cursor.isNull(3)) null else cursor.getDouble(3)
+                    val dutyCycle = if (cursor.isNull(4)) null else cursor.getDouble(4)
+                    aggregate.previousElapsed?.let { previousElapsed ->
+                        val deltaMs = maxOf(0L, elapsed - previousElapsed)
+                        if (rideState == "riding") aggregate.ridingElapsed += deltaMs
+                        if (speedKph != null) {
+                            aggregate.distanceM +=
+                                ((kotlin.math.abs(aggregate.previousSpeedKph ?: speedKph) + kotlin.math.abs(speedKph)) / 2.0) *
+                                    deltaMs / 3_600.0
+                        }
+                    }
+                    val absoluteSpeed = speedKph?.let { kotlin.math.abs(it) }
+                    if (absoluteSpeed != null &&
+                        (aggregate.maximumSpeedKph == null || absoluteSpeed > aggregate.maximumSpeedKph!!)
+                    ) {
+                        aggregate.maximumSpeedKph = absoluteSpeed
+                        aggregate.maximumSpeedSequence = sequence
+                    }
+                    val absoluteDuty = dutyCycle?.let { kotlin.math.abs(it) }
+                    if (absoluteDuty != null &&
+                        (aggregate.maximumDutyCycle == null || absoluteDuty > aggregate.maximumDutyCycle!!)
+                    ) {
+                        aggregate.maximumDutyCycle = absoluteDuty
+                        aggregate.maximumDutySequence = sequence
+                    }
+                    aggregate.previousElapsed = elapsed
+                    aggregate.previousSpeedKph = speedKph
+                    aggregate.committedElapsed = elapsed
+                    aggregate.lastSpeedKph = speedKph
+                    aggregate.lastRideState = rideState
                 }
             }
             val last = samples.maxOf { it.sequence }
+            val finalEventSequence = DatabaseUtils.longForQuery(
+                db,
+                "SELECT COALESCE(MAX(sequence), 0) FROM session_event",
+                null,
+            )
+            val storedSampleCount = DatabaseUtils.longForQuery(db, "SELECT COUNT(*) FROM sample", null)
+            val eventCount = DatabaseUtils.longForQuery(db, "SELECT COUNT(*) FROM session_event", null)
             db.execSQL(
-                "INSERT OR REPLACE INTO commit_marker(singleton, committed_sequence, committed_at_ms) VALUES (1, ?, ?)",
-                arrayOf(last, samples.last().observedAt.toEpochMilli()),
+                """
+                UPDATE commit_marker SET
+                  committed_sample_sequence = ?, committed_event_sequence = ?,
+                  recorded_sample_count = recorded_sample_count + ?, stored_sample_count = ?,
+                  committed_event_count = ?, committed_elapsed_ms = ?, committed_at_ms = ?,
+                  riding_elapsed_ms = ?, distance_m = ?, maximum_speed_kph = ?,
+                  maximum_speed_source_sequence = ?, maximum_duty_cycle = ?,
+                  maximum_duty_source_sequence = ?, last_speed_kph = ?, last_ride_state = ?
+                WHERE singleton = 1
+                """.trimIndent(),
+                arrayOf(
+                    maxOf(record.committedSequence, last), finalEventSequence, samples.size, storedSampleCount,
+                    eventCount, aggregate.committedElapsed, samples.last().observedAt.toEpochMilli(),
+                    aggregate.ridingElapsed, aggregate.distanceM, aggregate.maximumSpeedKph,
+                    aggregate.maximumSpeedSequence, aggregate.maximumDutyCycle,
+                    aggregate.maximumDutySequence, aggregate.lastSpeedKph, aggregate.lastRideState,
+                ),
             )
             db.setTransactionSuccessful()
             current = record.copy(committedSequence = maxOf(record.committedSequence, last))
         } finally {
             db.endTransaction()
         }
-        updateCatalogSummary(record, samples)
-        if (appendedEvents > 0) {
-            catalog.writableDatabase.execSQL(
-                """
-                UPDATE session_catalog SET event_count = event_count + ?
-                WHERE job_id = ? AND state = 'active'
-                """.trimIndent(),
-                arrayOf(appendedEvents, record.jobId.value),
-            )
+        try {
+            // The session commit is durable even when catalog convergence
+            // fails. Mark the row dirty and let the marker-driven reconciler
+            // repair it before the next append/read/publication.
+            updateCatalogSummary(record, samples)
+        } catch (error: Exception) {
+            markCatalogDirty(record.jobId.value)
+            throw error
         }
     }
 
@@ -254,6 +423,7 @@ class SQLiteLogStore(
     override fun close(jobId: JobId, at: Instant, reason: String): SessionRecord {
         val record = requireNotNull(current) { "No active session" }
         require(record.jobId == jobId) { "Wrong logging job" }
+        reconcileDirtyCatalog(record.jobId.value)
         val enteredRiding = sessionDb?.let {
             android.database.DatabaseUtils.longForQuery(
                 it,
@@ -298,6 +468,7 @@ class SQLiteLogStore(
 
     @Synchronized
     override fun sessions(query: SessionListQuery): SessionPage {
+        reconcileDirtyCatalog()
         if (query.limit !in 1..100) throw SessionStoreException.InvalidRange
         val sortColumn = SESSION_SORT_COLUMNS[query.sortField]
             ?: throw SessionStoreException.InvalidRange
@@ -371,8 +542,9 @@ class SQLiteLogStore(
     }
 
     @Synchronized
-    override fun session(sessionId: String): SessionSummaryRecord =
-        catalog.writableDatabase.rawQuery(
+    override fun session(sessionId: String): SessionSummaryRecord {
+        reconcileDirtyCatalog()
+        return catalog.writableDatabase.rawQuery(
             """
             SELECT session_id, device_history_id, device_snapshot_json, started_at_ms,
                    ended_at_ms, state, integrity, sample_count, event_count,
@@ -385,8 +557,286 @@ class SQLiteLogStore(
             if (!cursor.moveToFirst()) throw SessionStoreException.SessionNotFound
             cursor.sessionSummary()
         }
+    }
 
     @Synchronized
+    override fun sessionSnapshot(sessionId: String): SessionPublishedSnapshotRecord {
+        reconcileDirtyCatalog()
+        return catalog.writableDatabase.rawQuery(
+            """
+            SELECT history_revision, committed_sequence, committed_event_sequence,
+                   committed_elapsed_ms, sample_count, stored_sample_count
+            FROM session_catalog WHERE session_id = ? AND pending_delete = 0
+            """.trimIndent(),
+            arrayOf(sessionId),
+        ).use { cursor ->
+            if (!cursor.moveToFirst()) throw SessionStoreException.SessionNotFound
+            SessionPublishedSnapshotRecord(
+                historyRevision = cursor.getLong(0),
+                committedSampleSequence = cursor.getLong(1),
+                committedEventSequence = cursor.getLong(2),
+                committedElapsedMs = cursor.getLong(3),
+                recordedSampleCount = cursor.getLong(4),
+                storedSampleCount = cursor.getLong(5),
+            )
+        }
+    }
+
+    override fun sessionHistoryConfiguration(sessionId: String): SessionHistoryConfiguration =
+        withReadLease(sessionId) { db, cancellationSignal ->
+            db.rawQuery(
+                """
+                SELECT expected_riding_persistence_ms, expected_idle_persistence_ms,
+                       COALESCE(retained_resolution_seconds, 0)
+                FROM session_metadata WHERE singleton = 1
+                """.trimIndent(),
+                null,
+                cancellationSignal,
+            ).use { cursor ->
+                if (!cursor.moveToFirst()) throw SessionStoreException.SessionNotFound
+                SessionHistoryConfiguration(cursor.getLong(0), cursor.getLong(1), cursor.getLong(2))
+            }
+        }
+
+    override fun sessionPruneMetadata(sessionId: String): SessionPruneMetadataRecord =
+        withReadLease(sessionId) { db, cancellationSignal ->
+            db.rawQuery(
+                """
+                SELECT retained_resolution_seconds, prune_policy
+                FROM session_metadata WHERE singleton = 1
+                """.trimIndent(),
+                null,
+                cancellationSignal,
+            ).use { cursor ->
+                if (!cursor.moveToFirst()) throw SessionStoreException.SessionNotFound
+                val snapshot = sessionSnapshot(sessionId)
+                SessionPruneMetadataRecord(
+                    if (cursor.isNull(0)) null else cursor.getLong(0),
+                    snapshot.recordedSampleCount,
+                    snapshot.storedSampleCount,
+                    if (cursor.isNull(1)) null else cursor.getString(1),
+                )
+            }
+        }
+
+    @Synchronized
+    override fun prunePreview(sessionId: String, targetResolutionSeconds: Long): SessionPrunePreviewRecord {
+        val selection = pruneSelection(sessionId, targetResolutionSeconds)
+        return SessionPrunePreviewRecord(
+            recordedSampleCount = selection.recordedCount,
+            estimatedStoredSampleCount = selection.keep.size.toLong(),
+            estimatedReclaimableBytes = ((selection.rows.size - selection.keep.size).coerceAtLeast(0) * 256L),
+            skipped = selection.keep.size == selection.rows.size,
+            skipReason = if (selection.keep.size == selection.rows.size) "already_at_or_below_target" else null,
+        )
+    }
+
+    override fun cancelHistoricalReads(sessionId: String) {
+        val (signals, databases) = synchronized(leaseLock) {
+            (historicalCancellationSignals[sessionId]?.toList() ?: emptyList()) to
+                (historicalDatabases[sessionId]?.toList() ?: emptyList())
+        }
+        signals.forEach { signal -> runCatching { signal.cancel() } }
+        databases.forEach { database -> runCatching { database.close() } }
+    }
+
+    @Synchronized
+    override fun pruneSession(sessionId: String, targetResolutionSeconds: Long): SessionPrunePreviewRecord {
+        val selection = pruneSelection(sessionId, targetResolutionSeconds)
+        if (selection.keep.size == selection.rows.size) return SessionPrunePreviewRecord(
+            selection.recordedCount, selection.keep.size.toLong(), 0, true, "already_at_or_below_target",
+        )
+        synchronized(leaseLock) {
+            if ((activeReadLeases[sessionId] ?: 0) != 0 || !maintenanceSessions.add(sessionId)) {
+                throw SessionStoreException.MaintenanceInProgress
+            }
+        }
+        try {
+        val fileName = catalog.writableDatabase.rawQuery(
+            "SELECT file_name FROM session_catalog WHERE session_id = ? AND pending_delete = 0",
+            arrayOf(sessionId),
+        ).use { cursor ->
+            if (!cursor.moveToFirst()) throw SessionStoreException.SessionNotFound
+            cursor.getString(0)
+        }
+        val db = openSession(sessionId)
+        try {
+            db.beginTransaction()
+            try {
+                db.execSQL("PRAGMA temp_store = FILE")
+                db.execSQL("CREATE TEMP TABLE prune_keep(sequence INTEGER PRIMARY KEY)")
+                selection.keep.forEach { sequence ->
+                    db.execSQL("INSERT INTO prune_keep(sequence) VALUES (?)", arrayOf(sequence))
+                }
+                db.execSQL("DELETE FROM sample WHERE sequence NOT IN (SELECT sequence FROM prune_keep)")
+                db.execSQL(
+                    """
+                    UPDATE session_metadata SET pruned_at_ms = ?, retained_resolution_seconds = ?,
+                      prune_policy = 'm4-source-v1'
+                    WHERE singleton = 1
+                    """.trimIndent(),
+                    arrayOf(System.currentTimeMillis(), targetResolutionSeconds),
+                )
+                db.execSQL(
+                    """
+                    UPDATE commit_marker SET stored_sample_count = (SELECT COUNT(*) FROM sample),
+                      history_revision = history_revision + 1, committed_at_ms = ?
+                    WHERE singleton = 1
+                    """.trimIndent(),
+                    arrayOf(System.currentTimeMillis()),
+                )
+                db.setTransactionSuccessful()
+            } finally {
+                db.endTransaction()
+                runCatching { db.execSQL("DROP TABLE IF EXISTS prune_keep") }
+            }
+            // Logical pruning is durable before these bounded reclamation
+            // steps. A cancelled/interrupted checkpoint can be resumed later.
+            executePragma(db, "PRAGMA wal_checkpoint(PASSIVE)")
+            executePragma(db, "PRAGMA incremental_vacuum(256)")
+        } finally {
+            db.close()
+        }
+        val jobId = catalog.writableDatabase.rawQuery(
+            "SELECT job_id FROM session_catalog WHERE session_id = ?",
+            arrayOf(sessionId),
+        ).use { cursor -> if (cursor.moveToFirst()) cursor.getString(0) else throw SessionStoreException.SessionNotFound }
+        reconcileSessionCatalog(sessionId, jobId, fileName)
+        return SessionPrunePreviewRecord(
+            selection.recordedCount, selection.keep.size.toLong(),
+            ((selection.rows.size - selection.keep.size).coerceAtLeast(0) * 256L), false, null,
+        )
+        } finally {
+            synchronized(leaseLock) { maintenanceSessions.remove(sessionId) }
+        }
+    }
+
+    @Synchronized
+    override fun maintenanceJob(): SessionMaintenanceJobRecord? =
+        catalog.writableDatabase.rawQuery(
+            """
+            SELECT operation_id, kind, scope, state, session_id, target_resolution_seconds,
+                   upper_session_id, last_session_id, completed_sessions, skipped_sessions,
+                   retained_samples, reclaimable_bytes, error
+            FROM session_maintenance_job WHERE singleton = 1
+            """.trimIndent(),
+            null,
+        ).use { cursor ->
+            if (!cursor.moveToFirst()) return@use null
+            maintenanceJobFromCursor(cursor)
+        }
+
+    @Synchronized
+    override fun saveMaintenanceJob(job: SessionMaintenanceJobRecord) {
+        catalog.writableDatabase.execSQL(
+            """
+            INSERT OR REPLACE INTO session_maintenance_job(
+              singleton, operation_id, kind, scope, session_id, state,
+              target_resolution_seconds, upper_session_id, last_session_id,
+              completed_sessions, skipped_sessions, retained_samples,
+              reclaimable_bytes, error, updated_at_ms
+            ) VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """.trimIndent(),
+            arrayOf(
+                job.operationId, job.kind, job.scope, job.sessionId, job.state,
+                job.targetResolutionSeconds, job.upperSessionId, job.lastSessionId,
+                job.completedSessions, job.skippedSessions, job.retainedSamples,
+                job.reclaimableBytes, job.error, System.currentTimeMillis(),
+            ),
+        )
+    }
+
+    @Synchronized
+    override fun cancelMaintenanceJob(operationId: String): SessionMaintenanceJobRecord? {
+        val job = maintenanceJob() ?: return null
+        if (job.operationId != operationId || job.state in setOf("completed", "cancelled", "failed")) return job
+        val updated = job.copy(state = "cancel_requested")
+        saveMaintenanceJob(updated)
+        cancelHistoricalReads(job.sessionId ?: "")
+        return updated
+    }
+
+    private fun maintenanceJobFromCursor(cursor: android.database.Cursor): SessionMaintenanceJobRecord =
+        SessionMaintenanceJobRecord(
+            operationId = cursor.getString(0),
+            kind = cursor.getString(1),
+            scope = cursor.getString(2),
+            state = cursor.getString(3),
+            sessionId = cursor.optionalString(4),
+            targetResolutionSeconds = cursor.getLong(5),
+            upperSessionId = cursor.optionalString(6),
+            lastSessionId = cursor.optionalString(7),
+            completedSessions = cursor.getLong(8),
+            skippedSessions = cursor.getLong(9),
+            retainedSamples = cursor.getLong(10),
+            reclaimableBytes = cursor.getLong(11),
+            error = cursor.optionalString(12),
+        )
+
+    private data class PruneSelection(
+        val rows: List<SessionSeriesPoint>,
+        val keep: List<Long>,
+        val recordedCount: Long,
+    )
+
+    private fun pruneSelection(sessionId: String, targetResolutionSeconds: Long): PruneSelection {
+        if (targetResolutionSeconds !in 1..300) throw SessionStoreException.InvalidRange
+        if (current?.sessionId?.value == sessionId) throw SessionStoreException.SessionActive
+        val existingResolution = withReadLease(sessionId) { db, cancellationSignal ->
+            db.rawQuery(
+                "SELECT retained_resolution_seconds FROM session_metadata WHERE singleton = 1",
+                null,
+                cancellationSignal,
+            ).use { cursor ->
+                if (!cursor.moveToFirst() || cursor.isNull(0)) null else cursor.getLong(0)
+            }
+        }
+        if (existingResolution != null && existingResolution > 0 &&
+            (targetResolutionSeconds <= existingResolution || targetResolutionSeconds % existingResolution != 0L)
+        ) {
+            throw SessionStoreException.InvalidRange
+        }
+        val rows = withReadLease(sessionId) { db, cancellationSignal ->
+            db.rawQuery(
+                "SELECT sequence, monotonic_elapsed_ms, ride_state, speed_kph, raw_pack_voltage_v FROM sample ORDER BY monotonic_elapsed_ms, sequence",
+                null,
+                cancellationSignal,
+            ).use { cursor ->
+                buildList {
+                    while (cursor.moveToNext()) add(
+                        SessionSeriesPoint(
+                            elapsedMs = cursor.getLong(1),
+                            values = mapOf(
+                                "speedKph" to cursor.optionalDouble(3),
+                                "packVoltageV" to cursor.optionalDouble(4),
+                            ),
+                            sequence = cursor.getLong(0),
+                            rideState = cursor.getString(2),
+                        ),
+                    )
+                }
+            }
+        }
+        val protected = withReadLease(sessionId) { db, cancellationSignal ->
+            buildSet {
+                db.rawQuery("SELECT first_sequence FROM session_numeric_field", null, cancellationSignal).use { cursor ->
+                    while (cursor.moveToNext()) add(cursor.getLong(0))
+                }
+                db.rawQuery("SELECT source_sample_sequence FROM session_event WHERE source_sample_sequence IS NOT NULL", null, cancellationSignal).use { cursor ->
+                    while (cursor.moveToNext()) add(cursor.getLong(0))
+                }
+            }
+        }
+        val keep = SessionHistoryReducer.selectPruneRows(
+            rows,
+            listOf("speedKph", "packVoltageV"),
+            targetResolutionSeconds,
+            protectedSequences = protected,
+            eventSourceSequences = emptySet(),
+        )
+        return PruneSelection(rows, keep, rows.size.toLong())
+    }
+
     override fun querySeries(
         sessionId: String,
         startElapsedMs: Long,
@@ -394,19 +844,100 @@ class SQLiteLogStore(
         fields: List<String>,
         maxPoints: Int,
     ): List<SessionSeriesPoint> {
+        return querySeries(sessionId, startElapsedMs, endElapsedMs, fields, maxPoints, null)
+    }
+
+    override fun querySeries(
+        sessionId: String,
+        startElapsedMs: Long,
+        endElapsedMs: Long,
+        fields: List<String>,
+        maxPoints: Int,
+        publishedSampleSequence: Long?,
+    ): List<SessionSeriesPoint> {
         if (startElapsedMs > endElapsedMs || maxPoints !in 1..2_000) {
             throw SessionStoreException.InvalidRange
         }
-        return readSeries(sessionId, startElapsedMs, endElapsedMs, fields, maxPoints, false)
+        return readSeries(
+            sessionId, startElapsedMs, endElapsedMs, fields, maxPoints, false,
+            publishedSampleSequence,
+        )
     }
 
-    @Synchronized
-    override fun diagnosticWindow(
+    override fun querySeriesSource(
+        sessionId: String,
+        startElapsedMs: Long,
+        endElapsedMs: Long,
+        fields: List<String>,
+        maxRows: Int,
+        publishedSampleSequence: Long?,
+    ): List<SessionSeriesPoint> {
+        if (startElapsedMs > endElapsedMs || maxRows !in 1..200_000) {
+            throw SessionStoreException.InvalidRange
+        }
+        return readSeries(
+            sessionId, startElapsedMs, endElapsedMs, fields, maxRows, true,
+            publishedSampleSequence,
+        )
+    }
+
+    override fun queryNearestSample(
+        sessionId: String,
+        targetElapsedMs: Long,
+        fields: List<String>,
+        publishedSampleSequence: Long?,
+    ): SessionSeriesPoint? {
+        if (targetElapsedMs < 0) throw SessionStoreException.InvalidRange
+        val projection = seriesProjection(fields)
+        return withReadLease(sessionId) { db, cancellationSignal ->
+            fun seek(comparator: String, order: String): SessionSeriesPoint? {
+                val sequencePredicate = if (publishedSampleSequence == null) "" else " AND sequence <= ?"
+                val arguments = buildList {
+                    add(targetElapsedMs.toString())
+                    publishedSampleSequence?.let { add(it.toString()) }
+                }.toTypedArray()
+                val sql = """
+                    SELECT sequence, monotonic_elapsed_ms, ride_state, ${projection.selected} FROM sample
+                    WHERE monotonic_elapsed_ms $comparator ?$sequencePredicate
+                    ORDER BY monotonic_elapsed_ms $order, sequence $order LIMIT 1
+                """.trimIndent()
+                return db.rawQuery(sql, arguments, cancellationSignal).use { cursor ->
+                    if (!cursor.moveToFirst()) return@use null
+                    SessionSeriesPoint(
+                        cursor.getLong(1),
+                        projection.fields.mapIndexed { index, field ->
+                            field to cursor.seriesDouble(index + 3, field, projection.extensionColumn)
+                        }.toMap(),
+                        cursor.getLong(0),
+                        cursor.getString(2),
+                    )
+                }
+            }
+            listOf(seek("<=", "DESC"), seek(">=", "ASC")).filterNotNull().minWithOrNull(
+                compareBy<SessionSeriesPoint> { kotlin.math.abs(it.elapsedMs - targetElapsedMs) }
+                    .thenBy { it.elapsedMs }
+                    .thenBy { it.sequence },
+            )
+        }
+    }
+
+    override fun querySampleWindow(
         sessionId: String,
         centerElapsedMs: Long,
         beforeMs: Long,
         afterMs: Long,
         fields: List<String>,
+    ): List<SessionSeriesPoint> {
+        return querySampleWindow(sessionId, centerElapsedMs, beforeMs, afterMs, fields, null)
+    }
+
+    override fun querySampleWindow(
+        sessionId: String,
+        centerElapsedMs: Long,
+        beforeMs: Long,
+        afterMs: Long,
+        fields: List<String>,
+        publishedSampleSequence: Long?,
     ): List<SessionSeriesPoint> {
         if (centerElapsedMs < 0 || beforeMs !in 0..300_000 || afterMs !in 0..300_000) {
             throw SessionStoreException.InvalidRange
@@ -418,40 +949,58 @@ class SQLiteLogStore(
             fields,
             2_000,
             true,
+            publishedSampleSequence,
         )
     }
 
-    @Synchronized
     override fun sessionEvents(
         sessionId: String,
         startElapsedMs: Long,
         endElapsedMs: Long,
     ): List<SessionEventRecord> {
+        return sessionEvents(sessionId, startElapsedMs, endElapsedMs, null)
+    }
+
+    override fun sessionEvents(
+        sessionId: String,
+        startElapsedMs: Long,
+        endElapsedMs: Long,
+        publishedEventSequence: Long?,
+    ): List<SessionEventRecord> {
         if (startElapsedMs > endElapsedMs) throw SessionStoreException.InvalidRange
-        return openSession(sessionId).use { db ->
+        return withReadLease(sessionId) { db, cancellationSignal ->
+            val sequencePredicate = if (publishedEventSequence == null) "" else " AND sequence <= ?"
+            val arguments = buildList {
+                add(startElapsedMs.toString())
+                add(endElapsedMs.toString())
+                publishedEventSequence?.let { add(it.toString()) }
+            }.toTypedArray()
             db.rawQuery(
                 """
-                SELECT sequence, monotonic_elapsed_ms, kind, details_json FROM (
-                  SELECT sequence, monotonic_elapsed_ms, kind, details_json
+                SELECT sequence, source_sample_sequence, monotonic_elapsed_ms, kind, details_json FROM (
+                  SELECT sequence, source_sample_sequence, monotonic_elapsed_ms, kind, details_json
                   FROM session_event WHERE monotonic_elapsed_ms BETWEEN ? AND ?
+                    $sequencePredicate
                     AND kind IN (
                       'packageState', 'packageMode', 'footpadState', 'stopCondition',
                       'setpointAdjustment', 'wheelslip', 'darkride', 'charging',
                       'alertReason', 'firmwareFault'
                     )
-                  ORDER BY sequence DESC LIMIT 2001
+                  ORDER BY sequence DESC LIMIT 501
                 ) ORDER BY monotonic_elapsed_ms, sequence
                 """.trimIndent(),
-                arrayOf(startElapsedMs.toString(), endElapsedMs.toString()),
+                arguments,
+                cancellationSignal,
             ).use { cursor ->
                 buildList {
                     while (cursor.moveToNext()) {
                         add(
                             SessionEventRecord(
                                 cursor.getLong(0).toString(),
-                                cursor.getLong(1),
-                                cursor.getString(2),
+                                cursor.getLong(2),
                                 cursor.getString(3),
+                                cursor.getString(4),
+                                if (cursor.isNull(1)) null else cursor.getLong(1),
                             ),
                         )
                     }
@@ -460,24 +1009,23 @@ class SQLiteLogStore(
         }
     }
 
-    @Synchronized
     override fun sessionExtensionFields(sessionId: String): List<String> =
-        openSession(sessionId).use { db ->
+        withReadLease(sessionId) { db, cancellationSignal ->
             db.rawQuery(
                 """
-                SELECT extension_json FROM sample LIMIT 2001
+                SELECT field_name FROM session_numeric_field
+                WHERE source = 'extension'
+                ORDER BY field_name
+                LIMIT 33
                 """.trimIndent(),
                 null,
+                cancellationSignal,
             ).use { cursor ->
                 val fields = linkedSetOf<String>()
                 while (cursor.moveToNext()) {
-                    val extensions = JSONObject(cursor.getString(0) ?: "{}")
-                    val keys = extensions.keys()
-                    while (keys.hasNext()) {
-                        fields += keys.next()
-                        check(fields.size <= 32) { "Stored telemetry extensions exceed their bound" }
-                    }
+                    fields += cursor.getString(0)
                 }
+                check(fields.size <= 32) { "Stored telemetry extensions exceed their bound" }
                 fields.sorted()
             }
         }
@@ -753,28 +1301,60 @@ class SQLiteLogStore(
         if (current?.sessionId?.value == sessionId) throw SessionStoreException.SessionActive
         val db = catalog.writableDatabase
         val sessionRow = db.rawQuery(
-            "SELECT file_name, state FROM session_catalog WHERE session_id = ?",
+            "SELECT file_name, state, pending_delete FROM session_catalog WHERE session_id = ?",
             arrayOf(sessionId),
         ).use { cursor ->
-            if (cursor.moveToFirst()) cursor.getString(0) to cursor.getString(1) else null
+            if (cursor.moveToFirst()) Triple(cursor.getString(0), cursor.getString(1), cursor.getInt(2) != 0) else null
         } ?: return
         if (sessionRow.second == "active") throw SessionStoreException.SessionActive
+        if (sessionRow.third) return
         val fileName = sessionRow.first
         db.execSQL(
             "UPDATE session_catalog SET pending_delete = 1 WHERE session_id = ?",
             arrayOf(sessionId),
         )
-        val sessionFile = File(root, fileName)
-        if (sessionFile.exists() && !SQLiteDatabase.deleteDatabase(sessionFile)) {
-            error("Unable to remove durable session files")
-        }
-        db.beginTransaction()
+        val hasReaders = synchronized(leaseLock) { (activeReadLeases[sessionId] ?: 0) > 0 }
+        if (hasReaders) return
+        finalizePendingDelete(sessionId, fileName)
+    }
+
+    @Synchronized
+    override fun cancelPendingDelete(operationId: String): Boolean {
+        if (deletingSessions.contains(operationId)) return false
+        val db = catalog.writableDatabase
+        val row = db.rawQuery(
+            "SELECT file_name, pending_delete FROM session_catalog WHERE session_id = ?",
+            arrayOf(operationId),
+        ).use { cursor ->
+            if (cursor.moveToFirst()) cursor.getString(0) to (cursor.getInt(1) != 0) else null
+        } ?: return false
+        if (!row.second || !File(root, row.first).exists()) return false
+        db.execSQL(
+            "UPDATE session_catalog SET pending_delete = 0 WHERE session_id = ? AND pending_delete = 1",
+            arrayOf(operationId),
+        )
+        return DatabaseUtils.longForQuery(db, "SELECT changes()", null) == 1L
+    }
+
+    private fun finalizePendingDelete(sessionId: String, fileName: String) {
+        if (synchronized(leaseLock) { (activeReadLeases[sessionId] ?: 0) > 0 }) return
+        if (!deletingSessions.add(sessionId)) return
         try {
-            db.execSQL("DELETE FROM session_catalog WHERE session_id = ?", arrayOf(sessionId))
-            removeUndersizedGroups(db)
-            db.setTransactionSuccessful()
+            val sessionFile = File(root, fileName)
+            if (sessionFile.exists() && !SQLiteDatabase.deleteDatabase(sessionFile)) {
+                error("Unable to remove durable session files")
+            }
+            val db = catalog.writableDatabase
+            db.beginTransaction()
+            try {
+                db.execSQL("DELETE FROM session_catalog WHERE session_id = ?", arrayOf(sessionId))
+                removeUndersizedGroups(db)
+                db.setTransactionSuccessful()
+            } finally {
+                db.endTransaction()
+            }
         } finally {
-            db.endTransaction()
+            deletingSessions.remove(sessionId)
         }
     }
 
@@ -917,6 +1497,9 @@ class SQLiteLogStore(
                     if (!values.has("minimumSessionDistance")) {
                         values.put("minimumSessionDistance", SettingsRecord().minimumSessionDistance)
                     }
+                    if (!values.has("historyGapThresholdSeconds")) {
+                        values.put("historyGapThresholdSeconds", JSONObject.NULL)
+                    }
                     validatedSettings(values, values.optInt("revision", 0))
                 } catch (_: Exception) {
                     null
@@ -946,6 +1529,7 @@ class SQLiteLogStore(
         .put("sessionLinkWindowMs", value.sessionLinkWindowMs)
         .put("themePreference", value.themePreference.wireValue)
         .put("unitPreference", value.unitPreference.wireValue)
+        .put("historyGapThresholdSeconds", value.historyGapThresholdSeconds ?: JSONObject.NULL)
 
     private fun validatedSettings(values: JSONObject, revision: Int): SettingsRecord {
         fun integer(name: String, range: LongRange): Long {
@@ -972,6 +1556,14 @@ class SQLiteLogStore(
             (values.opt(name) as? String)
                 ?.let(UnitPreference::fromWire)
                 ?: throw ProductStoreException.InvalidSettingsPatch
+        fun historyGapThresholdSeconds(name: String): Double? {
+            val raw = values.opt(name)
+            if (raw == null || raw == JSONObject.NULL) return null
+            val value = (raw as? Number)?.toDouble()
+                ?: throw ProductStoreException.InvalidSettingsPatch
+            if (!value.isFinite()) throw ProductStoreException.InvalidSettingsPatch
+            return value.coerceIn(0.1..3_600.0)
+        }
         return SettingsRecord(
             revision = revision,
             idleProbeIntervalMs = integer("idleProbeIntervalMs", 100L..10_000L),
@@ -984,6 +1576,7 @@ class SQLiteLogStore(
             sessionLinkWindowMs = integer("sessionLinkWindowMs", 60_000L..86_400_000L),
             themePreference = themePreference("themePreference"),
             unitPreference = unitPreference("unitPreference"),
+            historyGapThresholdSeconds = historyGapThresholdSeconds("historyGapThresholdSeconds"),
         )
     }
 
@@ -1134,7 +1727,14 @@ class SQLiteLogStore(
                     "setpoint_adjustment,wheelslip,darkride,charging,alert_reason," +
                     "firmware_fault,pack_voltage_v,duty_cycle,controller_temp_c," +
                     "motor_temp_c,motor_current_a,battery_current_a,erpm,speed_kph," +
-                    "detail_json,extension_json",
+                    "pitchDeg,balancePitchDeg,rollDeg,directionalMotorCurrentA," +
+                    "filteredMotorCurrentA,requestedBalanceCurrentA,boosterCurrentA," +
+                    "fieldWeakeningCurrentA,footpadAdc1V,footpadAdc2V,remoteInput," +
+                    "setpointDeg,atrSetpointDeg,brakeTiltSetpointDeg,torqueTiltSetpointDeg," +
+                    "turnTiltSetpointDeg,remoteSetpointDeg," +
+                    "atrAccelerationDifferenceErpmPerSecond,atrSpeedBoost,distanceM,odometerM," +
+                    "ampHoursDrawnAh,ampHoursChargedAh,wattHoursDrawnWh,wattHoursChargedWh," +
+                    "batteryLevel,chargingCurrentA,chargingVoltageV,extension_json",
             )
             db.rawQuery(
                 """
@@ -1143,7 +1743,16 @@ class SQLiteLogStore(
                        stop_condition, setpoint_adjustment, wheelslip, darkride, charging,
                        alert_reason, firmware_fault, raw_pack_voltage_v, duty_cycle,
                        controller_temp_c, motor_temp_c, motor_current_a, battery_current_a,
-                       erpm, speed_kph, detail_json, extension_json
+                       erpm, speed_kph, pitch_deg, balance_pitch_deg, roll_deg,
+                       directional_motor_current_a, filtered_motor_current_a,
+                       requested_balance_current_a, booster_current_a, field_weakening_current_a,
+                       footpad_adc_1_v, footpad_adc_2_v, remote_input, setpoint_deg,
+                       atr_setpoint_deg, brake_tilt_setpoint_deg, torque_tilt_setpoint_deg,
+                       turn_tilt_setpoint_deg, remote_setpoint_deg,
+                       atr_acceleration_difference_erpm_per_second, atr_speed_boost, distance_m,
+                       odometer_m, amp_hours_drawn_ah, amp_hours_charged_ah, watt_hours_drawn_wh,
+                       watt_hours_charged_wh, battery_level, charging_current_a, charging_voltage_v,
+                       extension_json
                 FROM sample ORDER BY sequence
                 """.trimIndent(),
                 null,
@@ -1152,7 +1761,7 @@ class SQLiteLogStore(
                     writer.appendLine(
                         (0 until cursor.columnCount).joinToString(",") { index ->
                             if (cursor.isNull(index)) "" else if (
-                                index in setOf(4, 5, 6, 7, 8, 9, 13, 14, 23, 24)
+                                index in setOf(4, 5, 6, 7, 8, 9, 13, 14, 51)
                             ) {
                                 csv(cursor.getString(index))
                             } else {
@@ -1205,83 +1814,237 @@ class SQLiteLogStore(
 
     private fun csv(value: String): String = "\"${value.replace("\"", "\"\"")}\""
 
-    private fun updateCatalogSummary(record: SessionRecord, samples: List<TelemetrySample>) {
-        data class Prior(
-            val elapsed: Long?,
-            val speed: Double?,
-            val riding: Long,
-            val distance: Double,
-            val maxSpeed: Double?,
-            val maxDuty: Double?,
-            val count: Long,
+    private fun markCatalogDirty(jobId: String) {
+        catalog.writableDatabase.execSQL(
+            "UPDATE session_catalog SET integrity = 'dirty' WHERE job_id = ?",
+            arrayOf(jobId),
         )
-        val db = catalog.writableDatabase
-        val prior = db.rawQuery(
-            """
-            SELECT last_sample_elapsed_ms, last_speed_mps, riding_elapsed_ms, distance_m,
-                   max_speed_mps, max_duty_cycle, sample_count
-            FROM session_catalog WHERE job_id = ?
-            """.trimIndent(),
-            arrayOf(record.jobId.value),
-        ).use { cursor ->
-            check(cursor.moveToFirst())
-            Prior(
-                if (cursor.isNull(0)) null else cursor.getLong(0),
-                cursor.optionalDouble(1),
-                cursor.getLong(2),
-                cursor.optionalDouble(3) ?: 0.0,
-                cursor.optionalDouble(4),
-                cursor.optionalDouble(5),
-                cursor.getLong(6),
-            )
+    }
+
+    /** Rebuild catalog boundaries and aggregates from the authoritative marker. */
+    private fun reconcileSessionCatalog(sessionId: String, jobId: String, fileName: String) {
+        val file = File(root, fileName)
+        if (!file.exists()) {
+            markCatalogDirty(jobId)
+            return
         }
-        var previousElapsed = prior.elapsed
-        var previousSpeed = prior.speed
-        var riding = prior.riding
-        var distance = prior.distance
-        var maxSpeed = prior.maxSpeed
-        var maxDuty = prior.maxDuty
-        for (sample in samples.sortedBy { it.elapsedMs }) {
-            val speed = sample.speedKph?.let { kotlin.math.abs(it) / 3.6 }
-            previousElapsed?.let { elapsed ->
-                val delta = maxOf(0, sample.elapsedMs - elapsed)
-                if (sample.rideState == fail.acheron.floatview.backend.RideState.RIDING) riding += delta
-                if (speed != null) {
-                    distance += ((previousSpeed ?: speed) + speed) * 0.5 * delta / 1_000.0
+        val session = SQLiteDatabase.openDatabase(file.path, null, SQLiteDatabase.OPEN_READONLY)
+        try {
+            val healthy = session.rawQuery("PRAGMA integrity_check", null).use { cursor ->
+                cursor.moveToFirst() && cursor.getString(0) == "ok"
+            }
+            if (!healthy) {
+                markCatalogDirty(jobId)
+                return
+            }
+            data class Marker(
+                val sampleSequence: Long,
+                val eventSequence: Long,
+                val recordedCount: Long,
+                val storedCount: Long,
+                val eventCount: Long,
+                val elapsed: Long,
+                val revision: Long,
+            )
+            val marker = session.rawQuery(
+                """
+                SELECT committed_sample_sequence, committed_event_sequence,
+                       recorded_sample_count, stored_sample_count, committed_event_count,
+                       committed_elapsed_ms, history_revision
+                FROM commit_marker WHERE singleton = 1
+                """.trimIndent(),
+                null,
+            ).use { cursor ->
+                if (!cursor.moveToFirst()) error("Missing session commit marker")
+                Marker(
+                    cursor.getLong(0), cursor.getLong(1), cursor.getLong(2),
+                    cursor.getLong(3), cursor.getLong(4), cursor.getLong(5), cursor.getLong(6),
+                )
+            }
+            var previousElapsed: Long? = null
+            var previousSpeed: Double? = null
+            var ridingElapsed = 0L
+            var distance = 0.0
+            var maxSpeed: Double? = null
+            var maxSpeedSequence: Long? = null
+            var maxDuty: Double? = null
+            var maxDutySequence: Long? = null
+            var lastElapsed: Long? = null
+            var lastSpeed: Double? = null
+            session.rawQuery(
+                """
+                SELECT sequence, monotonic_elapsed_ms, ride_state, speed_kph, duty_cycle
+                FROM sample ORDER BY monotonic_elapsed_ms ASC, sequence ASC
+                """.trimIndent(),
+                null,
+            ).use { cursor ->
+                while (cursor.moveToNext()) {
+                    val sequence = cursor.getLong(0)
+                    val elapsed = cursor.getLong(1)
+                    val riding = cursor.getString(2) == "riding"
+                    val speed = if (cursor.isNull(3)) null else kotlin.math.abs(cursor.getDouble(3)) / 3.6
+                    val duty = if (cursor.isNull(4)) null else kotlin.math.abs(cursor.getDouble(4))
+                    previousElapsed?.let { prior ->
+                        val delta = maxOf(0L, elapsed - prior)
+                        if (riding) ridingElapsed += delta
+                        if (speed != null) distance += ((previousSpeed ?: speed) + speed) * 0.5 * delta / 1_000.0
+                    }
+                    if (speed != null && (maxSpeed == null || speed > maxSpeed!!)) {
+                        maxSpeed = speed
+                        maxSpeedSequence = sequence
+                    }
+                    if (duty != null && (maxDuty == null || duty > maxDuty!!)) {
+                        maxDuty = duty
+                        maxDutySequence = sequence
+                    }
+                    previousElapsed = elapsed
+                    previousSpeed = speed
+                    lastElapsed = elapsed
+                    lastSpeed = speed
                 }
             }
-            if (speed != null) maxSpeed = maxOf(maxSpeed ?: speed, speed)
-            sample.dutyCycle?.let { duty ->
-                val absolute = kotlin.math.abs(duty)
-                maxDuty = maxOf(maxDuty ?: absolute, absolute)
-            }
-            previousElapsed = sample.elapsedMs
-            previousSpeed = speed
+            val storedCount = DatabaseUtils.longForQuery(session, "SELECT COUNT(*) FROM sample", null)
+            val actualEventCount = DatabaseUtils.longForQuery(session, "SELECT COUNT(*) FROM session_event", null)
+            val actualEventSequence = DatabaseUtils.longForQuery(
+                session, "SELECT COALESCE(MAX(sequence), 0) FROM session_event", null,
+            )
+            catalog.writableDatabase.execSQL(
+                """
+                UPDATE session_catalog SET integrity = CASE WHEN integrity = 'dirty' THEN 'complete' ELSE integrity END,
+                  committed_sequence = ?, committed_event_sequence = ?,
+                  sample_count = ?, stored_sample_count = ?, event_count = ?,
+                  committed_elapsed_ms = ?, history_revision = ?,
+                  riding_elapsed_ms = ?, total_elapsed_ms = ?, distance_m = ?,
+                  max_speed_mps = ?, max_duty_cycle = ?,
+                  max_speed_source_sequence = ?, max_duty_source_sequence = ?,
+                  last_sample_elapsed_ms = ?, last_speed_mps = ?
+                WHERE session_id = ? AND job_id = ?
+                """.trimIndent(),
+                arrayOf(
+                    marker.sampleSequence,
+                    maxOf(marker.eventSequence, actualEventSequence),
+                    marker.recordedCount,
+                    maxOf(marker.storedCount, storedCount),
+                    maxOf(marker.eventCount, actualEventCount),
+                    maxOf(marker.elapsed, lastElapsed ?: 0L),
+                    marker.revision,
+                    ridingElapsed,
+                    lastElapsed ?: 0L,
+                    distance,
+                    maxSpeed,
+                    maxDuty,
+                    maxSpeedSequence,
+                    maxDutySequence,
+                    lastElapsed,
+                    lastSpeed,
+                    sessionId,
+                    jobId,
+                ),
+            )
+        } finally {
+            session.close()
         }
-        val last = samples.maxByOrNull { it.elapsedMs } ?: return
+    }
+
+    private fun reconcileCatalog(db: SQLiteDatabase) {
+        db.rawQuery(
+            "SELECT session_id, job_id, file_name FROM session_catalog WHERE pending_delete = 0",
+            null,
+        ).use { cursor ->
+            while (cursor.moveToNext()) {
+                val sessionId = cursor.getString(0)
+                val jobId = cursor.getString(1)
+                try {
+                    reconcileSessionCatalog(sessionId, jobId, cursor.getString(2))
+                } catch (_: Exception) {
+                    markCatalogDirty(jobId)
+                }
+            }
+        }
+    }
+
+    private fun reconcileDirtyCatalog(jobId: String) {
+        catalog.writableDatabase.rawQuery(
+            """
+            SELECT session_id, file_name FROM session_catalog
+            WHERE job_id = ? AND pending_delete = 0 AND integrity = 'dirty'
+            """.trimIndent(),
+            arrayOf(jobId),
+        ).use { cursor ->
+            while (cursor.moveToNext()) {
+                reconcileSessionCatalog(cursor.getString(0), jobId, cursor.getString(1))
+            }
+        }
+    }
+
+    private fun reconcileDirtyCatalog() {
+        catalog.writableDatabase.rawQuery(
+            """
+            SELECT session_id, job_id, file_name FROM session_catalog
+            WHERE pending_delete = 0 AND integrity = 'dirty'
+            """.trimIndent(),
+            null,
+        ).use { cursor ->
+            while (cursor.moveToNext()) {
+                reconcileSessionCatalog(cursor.getString(0), cursor.getString(1), cursor.getString(2))
+            }
+        }
+    }
+
+    private fun updateCatalogSummary(record: SessionRecord, samples: List<TelemetrySample>) {
+        val sessionDatabase = requireNotNull(sessionDb)
+        val marker = sessionDatabase.rawQuery(
+            """
+            SELECT committed_sample_sequence, committed_event_sequence,
+                   recorded_sample_count, stored_sample_count, committed_event_count,
+                   committed_elapsed_ms, riding_elapsed_ms, distance_m,
+                   maximum_speed_kph, maximum_duty_cycle,
+                   maximum_speed_source_sequence, maximum_duty_source_sequence,
+                   last_speed_kph
+            FROM commit_marker WHERE singleton = 1
+            """.trimIndent(),
+            null,
+        ).use { cursor ->
+            check(cursor.moveToFirst())
+            arrayOf<Any?>(
+                cursor.getLong(0), cursor.getLong(1), cursor.getLong(2), cursor.getLong(3),
+                cursor.getLong(4), cursor.getLong(5), cursor.getLong(6),
+                if (cursor.isNull(7)) null else cursor.getDouble(7),
+                if (cursor.isNull(8)) null else cursor.getDouble(8),
+                if (cursor.isNull(9)) null else cursor.getDouble(9),
+                if (cursor.isNull(10)) null else cursor.getLong(10),
+                if (cursor.isNull(11)) null else cursor.getLong(11),
+                if (cursor.isNull(12)) null else cursor.getDouble(12),
+            )
+        }
+        val db = catalog.writableDatabase
         db.execSQL(
             """
-            UPDATE session_catalog SET committed_sequence = ?, sample_count = ?,
-              riding_elapsed_ms = ?, total_elapsed_ms = ?, distance_m = ?,
-              max_speed_mps = ?, max_duty_cycle = ?, last_sample_elapsed_ms = ?,
+            UPDATE session_catalog SET committed_sequence = ?, committed_event_sequence = ?,
+              committed_elapsed_ms = ?, stored_sample_count = ?, sample_count = ?,
+              event_count = ?, riding_elapsed_ms = ?, total_elapsed_ms = ?, distance_m = ?,
+              max_speed_mps = ?, max_duty_cycle = ?, max_speed_source_sequence = ?,
+              max_duty_source_sequence = ?, last_sample_elapsed_ms = ?,
               last_speed_mps = ? WHERE job_id = ?
             """.trimIndent(),
             arrayOf(
-                maxOf(record.committedSequence, samples.maxOf { it.sequence }),
-                prior.count + samples.size,
-                riding,
-                last.elapsedMs,
-                distance,
-                maxSpeed,
-                maxDuty,
-                last.elapsedMs,
-                previousSpeed,
+                marker[0], marker[1], marker[5], marker[3], marker[2], marker[4], marker[6], marker[5], marker[7],
+                (marker[8] as Double?)?.let { kotlin.math.abs(it) / 3.6 },
+                (marker[9] as Double?)?.let { kotlin.math.abs(it) },
+                marker[10], marker[11], marker[5],
+                (marker[12] as Double?)?.let { kotlin.math.abs(it) / 3.6 },
                 record.jobId.value,
             ),
         )
     }
 
     private fun openSession(sessionId: String): SQLiteDatabase {
+        catalog.writableDatabase.rawQuery(
+            "SELECT job_id FROM session_catalog WHERE session_id = ? AND pending_delete = 0",
+            arrayOf(sessionId),
+        ).use { cursor ->
+            if (cursor.moveToFirst()) reconcileDirtyCatalog(cursor.getString(0))
+        }
         val fileName = catalog.writableDatabase.rawQuery(
             "SELECT file_name FROM session_catalog WHERE session_id = ? AND pending_delete = 0",
             arrayOf(sessionId),
@@ -1294,6 +2057,88 @@ class SQLiteLogStore(
         return SQLiteDatabase.openDatabase(file.path, null, SQLiteDatabase.OPEN_READWRITE)
     }
 
+    /**
+     * Resolve a historical file under a short monitor, then scan it on a
+     * dedicated read-only/query-only WAL connection. The lease prevents a
+     * pending deletion from removing the file while the connection is alive,
+     * while the semaphore bounds native historical work to two readers.
+     */
+    private fun <T> withReadLease(sessionId: String, body: (SQLiteDatabase, CancellationSignal) -> T): T {
+        historicalReadSlots.acquire()
+        var file: File? = null
+        var leased = false
+        try {
+            synchronized(this) {
+                reconcileDirtyCatalog()
+                val fileName = catalog.writableDatabase.rawQuery(
+                    "SELECT file_name FROM session_catalog WHERE session_id = ? AND pending_delete = 0",
+                    arrayOf(sessionId),
+                ).use { cursor ->
+                    if (!cursor.moveToFirst()) throw SessionStoreException.SessionNotFound
+                    cursor.getString(0)
+                }
+                file = File(root, fileName)
+                if (!file!!.exists()) throw SessionStoreException.SessionNotFound
+                synchronized(leaseLock) {
+                    if (maintenanceSessions.contains(sessionId)) {
+                        throw SessionStoreException.MaintenanceInProgress
+                    }
+                    activeReadLeases[sessionId] = (activeReadLeases[sessionId] ?: 0) + 1
+                }
+                leased = true
+            }
+            val database = SQLiteDatabase.openDatabase(file!!.path, null, SQLiteDatabase.OPEN_READONLY)
+            val cancellationSignal = CancellationSignal()
+            synchronized(leaseLock) {
+                historicalDatabases.getOrPut(sessionId) { linkedSetOf() }.add(database)
+                historicalCancellationSignals.getOrPut(sessionId) { linkedSetOf() }.add(cancellationSignal)
+            }
+            try {
+                // OPEN_READONLY connections reject execSQL transaction calls,
+                // but SQLite still permits a deferred read transaction when it
+                // is prepared as a query. This pins one WAL snapshot for the
+                // complete bounded read without blocking the writer.
+                database.rawQuery("BEGIN DEFERRED TRANSACTION", null).use { }
+                return body(database, cancellationSignal)
+            } finally {
+                try { database.rawQuery("ROLLBACK", null).use { } } catch (_: Exception) { }
+                synchronized(leaseLock) {
+                    historicalDatabases[sessionId]?.remove(database)
+                    if (historicalDatabases[sessionId].isNullOrEmpty()) historicalDatabases.remove(sessionId)
+                    historicalCancellationSignals[sessionId]?.remove(cancellationSignal)
+                    if (historicalCancellationSignals[sessionId].isNullOrEmpty()) {
+                        historicalCancellationSignals.remove(sessionId)
+                    }
+                }
+                database.close()
+            }
+        } finally {
+            var lastLease = false
+            synchronized(leaseLock) {
+                if (leased) {
+                    val count = activeReadLeases[sessionId] ?: 0
+                    if (count <= 1) {
+                        activeReadLeases.remove(sessionId)
+                        lastLease = true
+                    } else {
+                        activeReadLeases[sessionId] = count - 1
+                    }
+                }
+            }
+            if (lastLease) {
+                synchronized(this) {
+                    catalog.writableDatabase.rawQuery(
+                        "SELECT file_name FROM session_catalog WHERE session_id = ? AND pending_delete = 1",
+                        arrayOf(sessionId),
+                    ).use { cursor ->
+                        if (cursor.moveToFirst()) finalizePendingDelete(sessionId, cursor.getString(0))
+                    }
+                }
+            }
+            historicalReadSlots.release()
+        }
+    }
+
     private fun readSeries(
         sessionId: String,
         start: Long,
@@ -1301,62 +2146,93 @@ class SQLiteLogStore(
         fields: List<String>,
         maxPoints: Int,
         lossless: Boolean,
+        maximumSequence: Long?,
     ): List<SessionSeriesPoint> {
-        val uniqueFields = fields.distinct()
-        if (uniqueFields.isEmpty()) throw SessionStoreException.InvalidRange
-        val columns = uniqueFields.map { field ->
-            SERIES_COLUMNS[field] ?: run {
-                if (field.isEmpty() || field.toByteArray(Charsets.UTF_8).size > 64) {
-                    throw SessionStoreException.UnsupportedField(field)
-                }
-                val path = ("$." + JSONObject.quote(field)).replace("'", "''")
-                "json_extract(extension_json, '$path')"
-            }
-        }
-        val selected = columns.mapIndexed { index, column ->
-            if (lossless) "$column AS value_$index" else "AVG($column) AS value_$index"
-        }.joinToString()
+        val projection = seriesProjection(fields)
         val sql: String
         val arguments: Array<String>
-        if (lossless) {
-            sql = """
-                SELECT monotonic_elapsed_ms, $selected FROM sample
-                WHERE monotonic_elapsed_ms BETWEEN ? AND ?
-                ORDER BY monotonic_elapsed_ms, sequence LIMIT ?
-            """.trimIndent()
-            arguments = arrayOf(start.toString(), end.toString(), maxPoints.toString())
-        } else {
-            val span = maxOf(1, end - start + 1)
-            sql = """
-                SELECT MIN(monotonic_elapsed_ms), $selected FROM sample
-                WHERE monotonic_elapsed_ms BETWEEN ? AND ?
-                GROUP BY ((monotonic_elapsed_ms - ?) * ? / ?)
-                ORDER BY MIN(monotonic_elapsed_ms) LIMIT ?
-            """.trimIndent()
-            arguments = arrayOf(
-                start.toString(),
-                end.toString(),
-                start.toString(),
-                maxPoints.toString(),
-                span.toString(),
-                maxPoints.toString(),
-            )
-        }
-        return openSession(sessionId).use { db ->
-            db.rawQuery(sql, arguments).use { cursor ->
+        val sequencePredicate = if (maximumSequence == null) "" else " AND sequence <= ?"
+        arguments = buildList {
+            add(start.toString())
+            add(end.toString())
+            maximumSequence?.let { add(it.toString()) }
+            add(maxPoints.toString())
+        }.toTypedArray()
+        sql = """
+            SELECT sequence, monotonic_elapsed_ms, ride_state, ${projection.selected} FROM sample
+            WHERE monotonic_elapsed_ms BETWEEN ? AND ?$sequencePredicate
+            ORDER BY monotonic_elapsed_ms, sequence LIMIT ?
+        """.trimIndent()
+        return withReadLease(sessionId) { db, cancellationSignal ->
+            db.rawQuery(sql, arguments, cancellationSignal).use { cursor ->
                 buildList {
                     while (cursor.moveToNext()) {
                         add(
                             SessionSeriesPoint(
-                                cursor.getLong(0),
-                                uniqueFields.mapIndexed { index, field ->
-                                    field to cursor.optionalDouble(index + 1)
+                                cursor.getLong(1),
+                                projection.fields.mapIndexed { index, field ->
+                                    field to cursor.seriesDouble(index + 3, field, projection.extensionColumn)
                                 }.toMap(),
+                                cursor.getLong(0),
+                                cursor.getString(2),
                             ),
                         )
                     }
                 }
             }
+        }
+    }
+
+    private data class SeriesProjection(
+        val fields: List<String>,
+        val selected: String,
+        val extensionColumn: Int?,
+    )
+
+    /**
+     * Android API 29 does not ship SQLite's JSON1 extension. Keep extension
+     * values in their bounded JSON column and decode only the requested numeric
+     * keys after the indexed sample scan, while stable fields remain direct
+     * nullable columns.
+     */
+    private fun seriesProjection(fields: List<String>): SeriesProjection {
+        val uniqueFields = fields.distinct()
+        if (uniqueFields.isEmpty() || uniqueFields.size > 16) throw SessionStoreException.InvalidRange
+        uniqueFields.forEach { field ->
+            if (SERIES_COLUMNS[field] == null &&
+                (field.isEmpty() || field.toByteArray(Charsets.UTF_8).size > 64)
+            ) {
+                throw SessionStoreException.UnsupportedField(field)
+            }
+        }
+        val hasExtensions = uniqueFields.any { SERIES_COLUMNS[it] == null }
+        val selected = buildString {
+            append(uniqueFields.joinToString(", ") { SERIES_COLUMNS[it] ?: "NULL" })
+            if (hasExtensions) append(", extension_json")
+        }
+        return SeriesProjection(
+            uniqueFields,
+            selected,
+            if (hasExtensions) 3 + uniqueFields.size else null,
+        )
+    }
+
+    private fun android.database.Cursor.seriesDouble(
+        index: Int,
+        field: String,
+        extensionColumn: Int?,
+    ): Double? {
+        if (SERIES_COLUMNS[field] != null) return optionalDouble(index)
+        val payloadIndex = extensionColumn ?: return null
+        if (isNull(payloadIndex)) return null
+        return try {
+            val payload = JSONObject(getString(payloadIndex))
+            if (!payload.has(field) || payload.isNull(field)) null
+            else payload.get(field).let { value ->
+                (value as? Number)?.toDouble()?.takeIf(Double::isFinite)
+            }
+        } catch (_: Exception) {
+            null
         }
     }
 
@@ -1659,52 +2535,6 @@ class SQLiteLogStore(
             .forEach(db::execSQL)
     }
 
-    private fun telemetryDetailJson(sample: TelemetrySample): String {
-        val value = JSONObject()
-        fun put(key: String, number: Double?) {
-            if (number != null) {
-                require(number.isFinite()) { "Telemetry detail must be finite" }
-                value.put(key, number)
-            }
-        }
-        put("pitchDeg", sample.pitchDeg)
-        put("balancePitchDeg", sample.balancePitchDeg)
-        put("rollDeg", sample.rollDeg)
-        put("directionalMotorCurrentA", sample.directionalMotorCurrentA)
-        put("filteredMotorCurrentA", sample.filteredMotorCurrentA)
-        put("requestedBalanceCurrentA", sample.requestedBalanceCurrentA)
-        put("boosterCurrentA", sample.boosterCurrentA)
-        put("fieldWeakeningCurrentA", sample.fieldWeakeningCurrentA)
-        put("footpadAdc1V", sample.footpadAdc1V)
-        put("footpadAdc2V", sample.footpadAdc2V)
-        put("remoteInput", sample.remoteInput)
-        put("setpointDeg", sample.setpointDeg)
-        put("atrSetpointDeg", sample.atrSetpointDeg)
-        put("brakeTiltSetpointDeg", sample.brakeTiltSetpointDeg)
-        put("torqueTiltSetpointDeg", sample.torqueTiltSetpointDeg)
-        put("turnTiltSetpointDeg", sample.turnTiltSetpointDeg)
-        put("remoteSetpointDeg", sample.remoteSetpointDeg)
-        put(
-            "atrAccelerationDifferenceErpmPerSecond",
-            sample.atrAccelerationDifferenceErpmPerSecond,
-        )
-        put("atrSpeedBoost", sample.atrSpeedBoost)
-        put("distanceM", sample.distanceM)
-        put("odometerM", sample.odometerM)
-        put("ampHoursDrawnAh", sample.ampHoursDrawnAh)
-        put("ampHoursChargedAh", sample.ampHoursChargedAh)
-        put("wattHoursDrawnWh", sample.wattHoursDrawnWh)
-        put("wattHoursChargedWh", sample.wattHoursChargedWh)
-        put("batteryLevel", sample.batteryLevel)
-        put("chargingCurrentA", sample.chargingCurrentA)
-        put("chargingVoltageV", sample.chargingVoltageV)
-        return value.toString().also {
-            require(it.toByteArray(Charsets.UTF_8).size <= 16_384) {
-                "Telemetry detail JSON exceeds its bound"
-            }
-        }
-    }
-
     private fun telemetryExtensionJson(values: Map<String, Double>): String {
         require(values.size <= 32) { "Too many telemetry extension fields" }
         values.forEach { (key, value) ->
@@ -1719,6 +2549,29 @@ class SQLiteLogStore(
             }
         }
     }
+
+    private fun stableNumericValues(sample: TelemetrySample): Map<String, Double?> = mapOf(
+        "packVoltageV" to sample.packVoltageV, "dutyCycle" to sample.dutyCycle,
+        "controllerTempC" to sample.controllerTempC, "motorTempC" to sample.motorTempC,
+        "motorCurrentA" to sample.motorCurrentA, "batteryCurrentA" to sample.batteryCurrentA,
+        "erpm" to sample.erpm, "speedKph" to sample.speedKph, "pitchDeg" to sample.pitchDeg,
+        "balancePitchDeg" to sample.balancePitchDeg, "rollDeg" to sample.rollDeg,
+        "directionalMotorCurrentA" to sample.directionalMotorCurrentA,
+        "filteredMotorCurrentA" to sample.filteredMotorCurrentA,
+        "requestedBalanceCurrentA" to sample.requestedBalanceCurrentA,
+        "boosterCurrentA" to sample.boosterCurrentA, "fieldWeakeningCurrentA" to sample.fieldWeakeningCurrentA,
+        "footpadAdc1V" to sample.footpadAdc1V, "footpadAdc2V" to sample.footpadAdc2V,
+        "remoteInput" to sample.remoteInput, "setpointDeg" to sample.setpointDeg,
+        "atrSetpointDeg" to sample.atrSetpointDeg, "brakeTiltSetpointDeg" to sample.brakeTiltSetpointDeg,
+        "torqueTiltSetpointDeg" to sample.torqueTiltSetpointDeg, "turnTiltSetpointDeg" to sample.turnTiltSetpointDeg,
+        "remoteSetpointDeg" to sample.remoteSetpointDeg,
+        "atrAccelerationDifferenceErpmPerSecond" to sample.atrAccelerationDifferenceErpmPerSecond,
+        "atrSpeedBoost" to sample.atrSpeedBoost, "distanceM" to sample.distanceM,
+        "odometerM" to sample.odometerM, "ampHoursDrawnAh" to sample.ampHoursDrawnAh,
+        "ampHoursChargedAh" to sample.ampHoursChargedAh, "wattHoursDrawnWh" to sample.wattHoursDrawnWh,
+        "wattHoursChargedWh" to sample.wattHoursChargedWh, "batteryLevel" to sample.batteryLevel,
+        "chargingCurrentA" to sample.chargingCurrentA, "chargingVoltageV" to sample.chargingVoltageV,
+    )
 
     private fun transitionValues(sample: TelemetrySample): List<Pair<String, String>> = buildList {
         sample.packageState?.let { add("packageState" to it.wireValue) }
@@ -1829,41 +2682,35 @@ class SQLiteLogStore(
             "batteryCurrentA" to "battery_current_a",
             "erpm" to "erpm",
             "speedKph" to "speed_kph",
-            "pitchDeg" to "json_extract(detail_json, '$.pitchDeg')",
-            "balancePitchDeg" to "json_extract(detail_json, '$.balancePitchDeg')",
-            "rollDeg" to "json_extract(detail_json, '$.rollDeg')",
-            "directionalMotorCurrentA" to
-                "json_extract(detail_json, '$.directionalMotorCurrentA')",
-            "filteredMotorCurrentA" to "json_extract(detail_json, '$.filteredMotorCurrentA')",
-            "requestedBalanceCurrentA" to
-                "json_extract(detail_json, '$.requestedBalanceCurrentA')",
-            "boosterCurrentA" to "json_extract(detail_json, '$.boosterCurrentA')",
-            "fieldWeakeningCurrentA" to
-                "json_extract(detail_json, '$.fieldWeakeningCurrentA')",
-            "footpadAdc1V" to "json_extract(detail_json, '$.footpadAdc1V')",
-            "footpadAdc2V" to "json_extract(detail_json, '$.footpadAdc2V')",
-            "remoteInput" to "json_extract(detail_json, '$.remoteInput')",
-            "setpointDeg" to "json_extract(detail_json, '$.setpointDeg')",
-            "atrSetpointDeg" to "json_extract(detail_json, '$.atrSetpointDeg')",
-            "brakeTiltSetpointDeg" to
-                "json_extract(detail_json, '$.brakeTiltSetpointDeg')",
-            "torqueTiltSetpointDeg" to
-                "json_extract(detail_json, '$.torqueTiltSetpointDeg')",
-            "turnTiltSetpointDeg" to "json_extract(detail_json, '$.turnTiltSetpointDeg')",
-            "remoteSetpointDeg" to "json_extract(detail_json, '$.remoteSetpointDeg')",
+            "pitchDeg" to "pitch_deg",
+            "balancePitchDeg" to "balance_pitch_deg",
+            "rollDeg" to "roll_deg",
+            "directionalMotorCurrentA" to "directional_motor_current_a",
+            "filteredMotorCurrentA" to "filtered_motor_current_a",
+            "requestedBalanceCurrentA" to "requested_balance_current_a",
+            "boosterCurrentA" to "booster_current_a",
+            "fieldWeakeningCurrentA" to "field_weakening_current_a",
+            "footpadAdc1V" to "footpad_adc_1_v",
+            "footpadAdc2V" to "footpad_adc_2_v",
+            "remoteInput" to "remote_input",
+            "setpointDeg" to "setpoint_deg",
+            "atrSetpointDeg" to "atr_setpoint_deg",
+            "brakeTiltSetpointDeg" to "brake_tilt_setpoint_deg",
+            "torqueTiltSetpointDeg" to "torque_tilt_setpoint_deg",
+            "turnTiltSetpointDeg" to "turn_tilt_setpoint_deg",
+            "remoteSetpointDeg" to "remote_setpoint_deg",
             "atrAccelerationDifferenceErpmPerSecond" to
-                "json_extract(detail_json, '$.atrAccelerationDifferenceErpmPerSecond')",
-            "atrSpeedBoost" to "json_extract(detail_json, '$.atrSpeedBoost')",
-            "distanceM" to "json_extract(detail_json, '$.distanceM')",
-            "odometerM" to "json_extract(detail_json, '$.odometerM')",
-            "ampHoursDrawnAh" to "json_extract(detail_json, '$.ampHoursDrawnAh')",
-            "ampHoursChargedAh" to "json_extract(detail_json, '$.ampHoursChargedAh')",
-            "wattHoursDrawnWh" to "json_extract(detail_json, '$.wattHoursDrawnWh')",
-            "wattHoursChargedWh" to
-                "json_extract(detail_json, '$.wattHoursChargedWh')",
-            "batteryLevel" to "json_extract(detail_json, '$.batteryLevel')",
-            "chargingCurrentA" to "json_extract(detail_json, '$.chargingCurrentA')",
-            "chargingVoltageV" to "json_extract(detail_json, '$.chargingVoltageV')",
+                "atr_acceleration_difference_erpm_per_second",
+            "atrSpeedBoost" to "atr_speed_boost",
+            "distanceM" to "distance_m",
+            "odometerM" to "odometer_m",
+            "ampHoursDrawnAh" to "amp_hours_drawn_ah",
+            "ampHoursChargedAh" to "amp_hours_charged_ah",
+            "wattHoursDrawnWh" to "watt_hours_drawn_wh",
+            "wattHoursChargedWh" to "watt_hours_charged_wh",
+            "batteryLevel" to "battery_level",
+            "chargingCurrentA" to "charging_current_a",
+            "chargingVoltageV" to "charging_voltage_v",
         )
         val SESSION_SORT_COLUMNS = mapOf(
             "startedAt" to "started_at_ms",

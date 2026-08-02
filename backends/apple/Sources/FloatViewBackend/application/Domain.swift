@@ -674,6 +674,31 @@ public struct SessionSummaryRecord: Sendable, Codable, Equatable {
   }
 }
 
+public struct SessionPublishedSnapshotRecord: Sendable, Codable, Equatable {
+  public let historyRevision: Int64
+  public let committedSampleSequence: Int64
+  public let committedEventSequence: Int64
+  public let committedElapsedMs: Int64
+  public let recordedSampleCount: Int64
+  public let storedSampleCount: Int64
+
+  public init(
+    historyRevision: Int64,
+    committedSampleSequence: Int64,
+    committedEventSequence: Int64,
+    committedElapsedMs: Int64,
+    recordedSampleCount: Int64,
+    storedSampleCount: Int64
+  ) {
+    self.historyRevision = historyRevision
+    self.committedSampleSequence = committedSampleSequence
+    self.committedEventSequence = committedEventSequence
+    self.committedElapsedMs = committedElapsedMs
+    self.recordedSampleCount = recordedSampleCount
+    self.storedSampleCount = storedSampleCount
+  }
+}
+
 public struct SessionPage: Sendable, Equatable {
   public let items: [SessionSummaryRecord]
   public let nextCursor: String?
@@ -739,10 +764,122 @@ public struct SessionListQuery: Sendable, Equatable {
 public struct SessionSeriesPoint: Sendable, Equatable {
   public let elapsedMs: Int64
   public let values: [String: Double?]
+  public let sequence: Int64
+  public let rideState: String?
 
-  public init(elapsedMs: Int64, values: [String: Double?]) {
+  public init(
+    elapsedMs: Int64,
+    values: [String: Double?],
+    sequence: Int64 = 0,
+    rideState: String? = nil
+  ) {
     self.elapsedMs = elapsedMs
     self.values = values
+    self.sequence = sequence
+    self.rideState = rideState
+  }
+}
+
+public struct SessionHistoryConfiguration: Sendable, Equatable {
+  public let expectedRidingPersistenceMs: Int64
+  public let expectedIdlePersistenceMs: Int64
+  public let retainedResolutionSeconds: Int64
+
+  public init(
+    expectedRidingPersistenceMs: Int64,
+    expectedIdlePersistenceMs: Int64,
+    retainedResolutionSeconds: Int64 = 0
+  ) {
+    self.expectedRidingPersistenceMs = expectedRidingPersistenceMs
+    self.expectedIdlePersistenceMs = expectedIdlePersistenceMs
+    self.retainedResolutionSeconds = retainedResolutionSeconds
+  }
+}
+
+public struct SessionPruneMetadataRecord: Sendable, Equatable {
+  public let targetResolutionSeconds: Int64?
+  public let recordedSampleCount: Int64
+  public let storedSampleCount: Int64
+  public let policy: String?
+
+  public init(
+    targetResolutionSeconds: Int64?,
+    recordedSampleCount: Int64,
+    storedSampleCount: Int64,
+    policy: String?
+  ) {
+    self.targetResolutionSeconds = targetResolutionSeconds
+    self.recordedSampleCount = recordedSampleCount
+    self.storedSampleCount = storedSampleCount
+    self.policy = policy
+  }
+}
+
+public struct SessionPrunePreviewRecord: Sendable, Equatable {
+  public let recordedSampleCount: Int64
+  public let estimatedStoredSampleCount: Int64
+  public let estimatedReclaimableBytes: Int64?
+  public let skipped: Bool
+  public let skipReason: String?
+
+  public init(
+    recordedSampleCount: Int64,
+    estimatedStoredSampleCount: Int64,
+    estimatedReclaimableBytes: Int64?,
+    skipped: Bool,
+    skipReason: String?
+  ) {
+    self.recordedSampleCount = recordedSampleCount
+    self.estimatedStoredSampleCount = estimatedStoredSampleCount
+    self.estimatedReclaimableBytes = estimatedReclaimableBytes
+    self.skipped = skipped
+    self.skipReason = skipReason
+  }
+}
+
+public struct SessionMaintenanceJobRecord: Sendable, Equatable {
+  public let operationID: String
+  public let kind: String
+  public let scope: String
+  public let state: String
+  public let sessionID: String?
+  public let targetResolutionSeconds: Int64
+  public let upperSessionID: String?
+  public let lastSessionID: String?
+  public let completedSessions: Int64
+  public let skippedSessions: Int64
+  public let retainedSamples: Int64
+  public let reclaimableBytes: Int64
+  public let error: String?
+
+  public init(
+    operationID: String,
+    kind: String,
+    scope: String,
+    state: String,
+    sessionID: String?,
+    targetResolutionSeconds: Int64,
+    upperSessionID: String?,
+    lastSessionID: String?,
+    completedSessions: Int64,
+    skippedSessions: Int64,
+    retainedSamples: Int64,
+    reclaimableBytes: Int64,
+    error: String?
+  ) {
+    self.operationID = operationID
+    self.kind = kind
+    self.scope = scope
+    self.state = state
+    self.sessionID = sessionID
+    self.targetResolutionSeconds = targetResolutionSeconds
+    self.upperSessionID = upperSessionID
+    self.lastSessionID = lastSessionID
+    self.completedSessions = completedSessions
+    self.skippedSessions = skippedSessions
+    self.retainedSamples = retainedSamples
+    self.reclaimableBytes = reclaimableBytes
+    self.error = error
   }
 }
 
@@ -751,12 +888,20 @@ public struct SessionEventRecord: Sendable, Equatable {
   public let elapsedMs: Int64
   public let kind: String
   public let detailsJSON: String
+  public let sourceSampleSequence: Int64?
 
-  public init(eventID: String, elapsedMs: Int64, kind: String, detailsJSON: String) {
+  public init(
+    eventID: String,
+    elapsedMs: Int64,
+    kind: String,
+    detailsJSON: String,
+    sourceSampleSequence: Int64? = nil
+  ) {
     self.eventID = eventID
     self.elapsedMs = elapsedMs
     self.kind = kind
     self.detailsJSON = detailsJSON
+    self.sourceSampleSequence = sourceSampleSequence
   }
 }
 
@@ -817,6 +962,7 @@ public struct SettingsRecord: Sendable, Codable, Equatable {
   public let sessionLinkWindowMs: Int64
   public let themePreference: ThemePreference
   public let unitPreference: UnitPreference
+  public let historyGapThresholdSeconds: Double?
 
   public init(
     revision: Int = 0,
@@ -829,7 +975,8 @@ public struct SettingsRecord: Sendable, Codable, Equatable {
     automaticSessionLinkingEnabled: Bool = false,
     sessionLinkWindowMs: Int64 = 7_200_000,
     themePreference: ThemePreference = .system,
-    unitPreference: UnitPreference = .metric
+    unitPreference: UnitPreference = .metric,
+    historyGapThresholdSeconds: Double? = nil
   ) {
     self.revision = revision
     self.idleProbeIntervalMs = idleProbeIntervalMs
@@ -842,6 +989,7 @@ public struct SettingsRecord: Sendable, Codable, Equatable {
     self.sessionLinkWindowMs = sessionLinkWindowMs
     self.themePreference = themePreference
     self.unitPreference = unitPreference
+    self.historyGapThresholdSeconds = historyGapThresholdSeconds
   }
 }
 
@@ -1165,6 +1313,7 @@ public extension ProductStorePort {
 public enum SessionStoreError: Error, Equatable {
   case sessionNotFound
   case sessionActive
+  case maintenanceInProgress
   case invalidCursor
   case invalidRange
   case unsupportedField(String)
@@ -1174,6 +1323,22 @@ public enum SessionStoreError: Error, Equatable {
 public protocol SessionStorePort: AnyObject, Sendable {
   func sessions(_ query: SessionListQuery) throws -> SessionPage
   func session(sessionID: String) throws -> SessionSummaryRecord
+  func sessionSnapshot(sessionID: String) throws -> SessionPublishedSnapshotRecord
+  func sessionHistoryConfiguration(sessionID: String) throws -> SessionHistoryConfiguration
+  func sessionPruneMetadata(sessionID: String) throws -> SessionPruneMetadataRecord
+  func prunePreview(sessionID: String, targetResolutionSeconds: Int64) throws -> SessionPrunePreviewRecord
+  func pruneSession(sessionID: String, targetResolutionSeconds: Int64) throws -> SessionPrunePreviewRecord
+  func maintenanceJob() throws -> SessionMaintenanceJobRecord?
+  func saveMaintenanceJob(_ job: SessionMaintenanceJobRecord) throws
+  func cancelMaintenanceJob(operationID: String) throws -> SessionMaintenanceJobRecord?
+  func querySeries(
+    sessionID: String,
+    startElapsedMs: Int64,
+    endElapsedMs: Int64,
+    fields: [String],
+    maxPoints: Int,
+    publishedSampleSequence: Int64?
+  ) throws -> [SessionSeriesPoint]
   func querySeries(
     sessionID: String,
     startElapsedMs: Int64,
@@ -1181,13 +1346,44 @@ public protocol SessionStorePort: AnyObject, Sendable {
     fields: [String],
     maxPoints: Int
   ) throws -> [SessionSeriesPoint]
+  func querySeriesSource(
+    sessionID: String,
+    startElapsedMs: Int64,
+    endElapsedMs: Int64,
+    fields: [String],
+    maxRows: Int,
+    publishedSampleSequence: Int64?
+  ) throws -> [SessionSeriesPoint]
+  func queryNearestSample(
+    sessionID: String,
+    targetElapsedMs: Int64,
+    fields: [String],
+    publishedSampleSequence: Int64?
+  ) throws -> SessionSeriesPoint?
+  func sessionEvents(
+    sessionID: String,
+    startElapsedMs: Int64,
+    endElapsedMs: Int64,
+    publishedEventSequence: Int64?
+  ) throws -> [SessionEventRecord]
   func sessionEvents(
     sessionID: String,
     startElapsedMs: Int64,
     endElapsedMs: Int64
   ) throws -> [SessionEventRecord]
   func sessionExtensionFields(sessionID: String) throws -> [String]
-  func diagnosticWindow(
+  func querySampleWindow(
+    sessionID: String,
+    centerElapsedMs: Int64,
+    beforeMs: Int64,
+    afterMs: Int64,
+    fields: [String],
+    publishedSampleSequence: Int64?
+  ) throws -> [SessionSeriesPoint]
+  /// Interrupts any in-flight historical reads for a disconnected HTTP
+  /// request. Implementations keep this connection-local and best-effort.
+  func cancelHistoricalReads(sessionID: String)
+  func querySampleWindow(
     sessionID: String,
     centerElapsedMs: Int64,
     beforeMs: Int64,
@@ -1195,6 +1391,7 @@ public protocol SessionStorePort: AnyObject, Sendable {
     fields: [String]
   ) throws -> [SessionSeriesPoint]
   func deleteSession(sessionID: String) throws
+  func cancelPendingDelete(operationID: String) throws -> Bool
   func exportSession(sessionID: String, format: String) throws -> SessionExportRecord
   func sessionGroups() throws -> [SessionGroupRecord]
   func sessionGroup(sessionGroupID: String) throws -> SessionGroupRecord
@@ -1202,12 +1399,107 @@ public protocol SessionStorePort: AnyObject, Sendable {
 }
 
 public extension SessionStorePort {
+  func querySeries(
+    sessionID: String,
+    startElapsedMs: Int64,
+    endElapsedMs: Int64,
+    fields: [String],
+    maxPoints: Int,
+    publishedSampleSequence _: Int64?
+  ) throws -> [SessionSeriesPoint] {
+    try querySeries(
+      sessionID: sessionID, startElapsedMs: startElapsedMs, endElapsedMs: endElapsedMs,
+      fields: fields, maxPoints: maxPoints
+    )
+  }
+
+  func queryNearestSample(
+    sessionID: String,
+    targetElapsedMs: Int64,
+    fields: [String],
+    publishedSampleSequence _: Int64?
+  ) throws -> SessionSeriesPoint? {
+    try querySeries(
+      sessionID: sessionID, startElapsedMs: max(0, targetElapsedMs - 1),
+      endElapsedMs: targetElapsedMs + 1, fields: fields, maxPoints: 2
+    ).min { left, right in
+      let leftDistance = abs(left.elapsedMs - targetElapsedMs)
+      let rightDistance = abs(right.elapsedMs - targetElapsedMs)
+      return leftDistance < rightDistance ||
+        (leftDistance == rightDistance && (left.elapsedMs < right.elapsedMs ||
+          (left.elapsedMs == right.elapsedMs && left.sequence < right.sequence)))
+    }
+  }
+
+  func querySeriesSource(
+    sessionID: String,
+    startElapsedMs: Int64,
+    endElapsedMs: Int64,
+    fields: [String],
+    maxRows: Int,
+    publishedSampleSequence _: Int64?
+  ) throws -> [SessionSeriesPoint] {
+    guard maxRows >= 1 else { throw SessionStoreError.invalidRange }
+    return try querySeries(
+      sessionID: sessionID, startElapsedMs: startElapsedMs, endElapsedMs: endElapsedMs,
+      fields: fields, maxPoints: min(maxRows, 2_000)
+    )
+  }
+
+  func sessionEvents(
+    sessionID: String,
+    startElapsedMs: Int64,
+    endElapsedMs: Int64,
+    publishedEventSequence _: Int64?
+  ) throws -> [SessionEventRecord] {
+    try sessionEvents(
+      sessionID: sessionID, startElapsedMs: startElapsedMs, endElapsedMs: endElapsedMs
+    )
+  }
+
+  func querySampleWindow(
+    sessionID: String,
+    centerElapsedMs: Int64,
+    beforeMs: Int64,
+    afterMs: Int64,
+    fields: [String],
+    publishedSampleSequence _: Int64?
+  ) throws -> [SessionSeriesPoint] {
+    try querySampleWindow(
+      sessionID: sessionID, centerElapsedMs: centerElapsedMs,
+      beforeMs: beforeMs, afterMs: afterMs, fields: fields
+    )
+  }
+
+  func sessionSnapshot(sessionID _: String) throws -> SessionPublishedSnapshotRecord {
+    throw SessionStoreError.sessionNotFound
+  }
+  func cancelHistoricalReads(sessionID _: String) {}
+  func sessionHistoryConfiguration(sessionID _: String) throws -> SessionHistoryConfiguration {
+    SessionHistoryConfiguration(expectedRidingPersistenceMs: 1_000, expectedIdlePersistenceMs: 1_000)
+  }
+  func sessionPruneMetadata(sessionID _: String) throws -> SessionPruneMetadataRecord {
+    SessionPruneMetadataRecord(targetResolutionSeconds: nil, recordedSampleCount: 0, storedSampleCount: 0, policy: nil)
+  }
+  func prunePreview(sessionID _: String, targetResolutionSeconds _: Int64) throws -> SessionPrunePreviewRecord {
+    throw SessionStoreError.sessionNotFound
+  }
+  func pruneSession(sessionID _: String, targetResolutionSeconds _: Int64) throws -> SessionPrunePreviewRecord {
+    throw SessionStoreError.sessionNotFound
+  }
+  func maintenanceJob() throws -> SessionMaintenanceJobRecord? { nil }
+  func saveMaintenanceJob(_: SessionMaintenanceJobRecord) throws {}
+  func cancelMaintenanceJob(operationID _: String) throws -> SessionMaintenanceJobRecord? { nil }
   func sessionExtensionFields(sessionID _: String) throws -> [String] {
     []
   }
 
   func deleteSession(sessionID _: String) throws {
     throw SessionStoreError.sessionNotFound
+  }
+
+  func cancelPendingDelete(operationID _: String) throws -> Bool {
+    false
   }
 
   func exportSession(sessionID _: String, format _: String) throws -> SessionExportRecord {

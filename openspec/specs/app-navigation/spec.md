@@ -3,7 +3,9 @@
 ## Purpose
 
 Define the routed application destinations, route-aware primary navigation, and focused connection, session, board, and settings flows.
+
 ## Requirements
+
 ### Requirement: Four primary application destinations
 
 The frontend SHALL provide Home, Sessions, Boards, and Settings as primary destinations. Home SHALL own discovery and connection, Sessions SHALL own recorded-session browsing, Boards SHALL own saved-board configuration, and Settings SHALL own options that apply across the application.
@@ -73,7 +75,7 @@ Home SHALL show Bluetooth readiness, discovery, and connection controls when no 
 
 ### Requirement: Routed session browsing
 
-Sessions SHALL list the bounded recent session summaries supplied by authoritative application state. Selecting a session SHALL navigate to a detail route that loads its bounded review series and retains the existing diagnostics, export, deletion, and group-unlinking operations.
+Sessions SHALL list the bounded recent session summaries supplied by authoritative application state. Selecting a session SHALL navigate to a detail route that loads metadata-first authenticated series/sample/event pages and retains export, deletion, prune-state, and group-unlinking operations.
 
 #### Scenario: Open session
 
@@ -151,4 +153,3 @@ Route parameters and navigation state SHALL remain bounded and MUST NOT be used 
 
 - **WHEN** a detail route contains an invalid, unknown, or stale opaque identifier
 - **THEN** the frontend leaves the detail view without reconnecting the backend or discarding unrelated application state
-

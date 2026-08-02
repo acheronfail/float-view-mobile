@@ -8,6 +8,7 @@ import Foundation
 
 public enum SQLiteLogStoreError: Error {
   case sqlite(String)
+  case cancelled
   case noActiveSession
   case wrongJob
   case storageFull
@@ -15,12 +16,15 @@ public enum SQLiteLogStoreError: Error {
 
 private final class Database: @unchecked Sendable {
   private var handle: OpaquePointer?
+  private var cancellation: SQLiteCancellation?
 
-  init(url: URL) throws {
+  init(url: URL, readOnly: Bool = false) throws {
+    let flags = (readOnly ? SQLITE_OPEN_READONLY : SQLITE_OPEN_CREATE | SQLITE_OPEN_READWRITE)
+      | SQLITE_OPEN_FULLMUTEX
     if sqlite3_open_v2(
       url.path,
       &handle,
-      SQLITE_OPEN_CREATE | SQLITE_OPEN_READWRITE | SQLITE_OPEN_FULLMUTEX,
+      flags,
       nil
     ) != SQLITE_OK {
       throw SQLiteLogStoreError.sqlite("Unable to open \(url.lastPathComponent)")
@@ -65,6 +69,7 @@ private final class Database: @unchecked Sendable {
     bind(values, to: statement)
     var result: [T] = []
     while true {
+      if cancellation?.isCancelled == true { throw SQLiteLogStoreError.cancelled }
       switch sqlite3_step(statement) {
       case SQLITE_ROW: try result.append(map(statement))
       case SQLITE_DONE: return result
@@ -88,6 +93,7 @@ private final class Database: @unchecked Sendable {
     defer { sqlite3_finalize(statement) }
     bind(values, to: statement)
     while true {
+      if cancellation?.isCancelled == true { throw SQLiteLogStoreError.cancelled }
       switch sqlite3_step(statement) {
       case SQLITE_ROW: try body(statement)
       case SQLITE_DONE: return
@@ -109,6 +115,15 @@ private final class Database: @unchecked Sendable {
     return Int(sqlite3_column_int64(statement, 0))
   }
 
+  func interrupt() {
+    cancellation?.cancel()
+    sqlite3_interrupt(handle)
+  }
+
+  func installCancellation(_ value: SQLiteCancellation) {
+    cancellation = value
+  }
+
   private func bind(_ values: [SQLiteValue], to statement: OpaquePointer?) {
     for (index, value) in values.enumerated() {
       let position = Int32(index + 1)
@@ -120,6 +135,19 @@ private final class Database: @unchecked Sendable {
       case .null: sqlite3_bind_null(statement, position)
       }
     }
+  }
+}
+
+private final class SQLiteCancellation: @unchecked Sendable {
+  private let lock = NSLock()
+  private var value = false
+
+  var isCancelled: Bool {
+    lock.withLock { value }
+  }
+
+  func cancel() {
+    lock.withLock { value = true }
   }
 }
 
@@ -141,6 +169,16 @@ public final class SQLiteLogStore: LogStorePort, ProductStorePort, SessionStoreP
   private var current: SessionRecord?
   private var session: Database?
   private let lock = NSLock()
+  private var activeReadLeases: [String: Int] = [:]
+  private var maintenanceSessions: Set<String> = []
+  private var historicalConnections: [String: [Database]] = [:]
+  private var historicalCancellations: [String: [SQLiteCancellation]] = [:]
+  private let historicalReadSlots = DispatchSemaphore(value: 2)
+  /// A deletion is marked in the catalog before touching the session file. The
+  /// in-memory set closes the small window between the file removal and the
+  /// catalog transaction so cancellation cannot resurrect a session after the
+  /// irreversible part has started.
+  private var deletingSessions: Set<String> = []
 
   public init(
     root: URL,
@@ -162,6 +200,13 @@ public final class SQLiteLogStore: LogStorePort, ProductStorePort, SessionStoreP
     #endif
     catalog = try Database(url: root.appending(path: "catalog.sqlite"))
     try catalog.execute(String(contentsOf: schemaDirectory.appending(path: "catalog.sql")))
+    // The session marker is authoritative when a process died after a session
+    // commit but before the catalog summary converged. Reconcile those rows
+    // before any session list/read can expose stale boundaries or aggregates.
+    try reconcileCatalogLocked()
+    // Process death releases native leases. Preserve the bounded cursor and
+    // counters, but expose an interrupted job as resumable on the next request.
+    try catalog.execute("UPDATE session_maintenance_job SET state = 'pending' WHERE singleton = 1 AND state IN ('running', 'cancel_requested')")
     try resumePendingDeletes()
     try cleanupStagedExports()
   }
@@ -202,6 +247,18 @@ public final class SQLiteLogStore: LogStorePort, ProductStorePort, SessionStoreP
     )
     let profile = try boardProfileLocked(savedDeviceID: savedDevice.savedDeviceID, at: at)
     let settings = try settingsLocked()
+    try session.statement(
+      """
+      INSERT INTO session_metadata(
+        singleton, expected_riding_persistence_ms, expected_idle_persistence_ms
+      ) VALUES (1, ?, ?)
+      """,
+      values: [.integer(settings.ridingPersistIntervalMs), .integer(settings.idlePersistIntervalMs)]
+    )
+    try session.statement(
+      "INSERT INTO commit_marker(singleton, committed_at_ms) VALUES (1, ?)",
+      values: [.integer(timestamp)]
+    )
     let deviceSnapshot = try Self.jsonString([
       "savedDeviceId": savedDevice.savedDeviceID,
       "deviceHistoryId": savedDevice.deviceHistoryID,
@@ -256,6 +313,7 @@ public final class SQLiteLogStore: LogStorePort, ProductStorePort, SessionStoreP
     defer { lock.unlock() }
     guard var record = current, let session else { throw SQLiteLogStoreError.noActiveSession }
     guard record.jobID == jobID else { throw SQLiteLogStoreError.wrongJob }
+    try reconcileDirtyCatalogLocked(jobID: jobID.value)
     guard StoragePolicy.level(availableBytes: availableBytes()) != .stop else {
       throw SQLiteLogStoreError.storageFull
     }
@@ -267,10 +325,8 @@ public final class SQLiteLogStore: LogStorePort, ProductStorePort, SessionStoreP
         "SELECT COALESCE(MAX(sequence), 0) + 1 FROM session_event",
         map: { sqlite3_column_int64($0, 0) }
       ).first ?? 1
-      var appendedEvents: Int64 = 0
       for sample in samples {
         let optional: (Double?) -> SQLiteValue = { $0.map(SQLiteValue.real) ?? .null }
-        let detailJSON = try Self.telemetryDetailJSON(sample)
         let extensionJSON = try Self.telemetryExtensionJSON(sample.extensionFields)
         let values: [SQLiteValue] = [
           .integer(sample.sequence),
@@ -294,12 +350,39 @@ public final class SQLiteLogStore: LogStorePort, ProductStorePort, SessionStoreP
           optional(sample.controllerTempC),
           optional(sample.motorTempC),
           sample.footpadState.map { .text($0.rawValue) } ?? .null,
-          .text(detailJSON),
           .text(extensionJSON),
           optional(sample.motorCurrentA),
           optional(sample.batteryCurrentA),
           optional(sample.erpm),
           optional(sample.speedKph),
+          optional(sample.pitchDeg),
+          optional(sample.balancePitchDeg),
+          optional(sample.rollDeg),
+          optional(sample.directionalMotorCurrentA),
+          optional(sample.filteredMotorCurrentA),
+          optional(sample.requestedBalanceCurrentA),
+          optional(sample.boosterCurrentA),
+          optional(sample.fieldWeakeningCurrentA),
+          optional(sample.footpadAdc1V),
+          optional(sample.footpadAdc2V),
+          optional(sample.remoteInput),
+          optional(sample.setpointDeg),
+          optional(sample.atrSetpointDeg),
+          optional(sample.brakeTiltSetpointDeg),
+          optional(sample.torqueTiltSetpointDeg),
+          optional(sample.turnTiltSetpointDeg),
+          optional(sample.remoteSetpointDeg),
+          optional(sample.atrAccelerationDifferenceErpmPerSecond),
+          optional(sample.atrSpeedBoost),
+          optional(sample.distanceM),
+          optional(sample.odometerM),
+          optional(sample.ampHoursDrawnAh),
+          optional(sample.ampHoursChargedAh),
+          optional(sample.wattHoursDrawnWh),
+          optional(sample.wattHoursChargedWh),
+          optional(sample.batteryLevel),
+          optional(sample.chargingCurrentA),
+          optional(sample.chargingVoltageV),
         ]
         try session.statement(
           """
@@ -308,9 +391,17 @@ public final class SQLiteLogStore: LogStorePort, ProductStorePort, SessionStoreP
             package_state, package_mode, stop_condition, setpoint_adjustment,
             wheelslip, darkride, charging, alert_reason, firmware_fault,
             raw_pack_voltage_v, duty_cycle, controller_temp_c, motor_temp_c,
-            footpad_state, detail_json, extension_json,
-            motor_current_a, battery_current_a, erpm, speed_kph
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            footpad_state, extension_json,
+            motor_current_a, battery_current_a, erpm, speed_kph,
+            pitch_deg, balance_pitch_deg, roll_deg, directional_motor_current_a,
+            filtered_motor_current_a, requested_balance_current_a, booster_current_a,
+            field_weakening_current_a, footpad_adc_1_v, footpad_adc_2_v, remote_input,
+            setpoint_deg, atr_setpoint_deg, brake_tilt_setpoint_deg, torque_tilt_setpoint_deg,
+            turn_tilt_setpoint_deg, remote_setpoint_deg,
+            atr_acceleration_difference_erpm_per_second, atr_speed_boost, distance_m,
+            odometer_m, amp_hours_drawn_ah, amp_hours_charged_ah, watt_hours_drawn_wh,
+            watt_hours_charged_wh, battery_level, charging_current_a, charging_voltage_v
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
           """,
           values: values
         )
@@ -319,41 +410,106 @@ public final class SQLiteLogStore: LogStorePort, ProductStorePort, SessionStoreP
           map: { sqlite3_column_int64($0, 0) }
         ).first == 1
         guard inserted else { continue }
+        for (field, value) in Self.numericValues(sample) where value != nil {
+          try session.statement(
+            "INSERT OR IGNORE INTO session_numeric_field(field_name, source, first_sequence) VALUES (?, 'stable', ?)",
+            values: [.text(field), .integer(sample.sequence)]
+          )
+        }
+        for field in sample.extensionFields.keys {
+          try session.statement(
+            "INSERT OR IGNORE INTO session_numeric_field(field_name, source, first_sequence) VALUES (?, 'extension', ?)",
+            values: [.text(field), .integer(sample.sequence)]
+          )
+        }
         for (kind, value) in Self.transitionValues(sample) {
           if previousTransitions[kind] == value { continue }
           let detailsJSON = try Self.jsonString(["value": value])
           try session.statement(
             """
             INSERT INTO session_event(
-              sequence, observed_at_ms, monotonic_elapsed_ms, kind, details_json
-            ) VALUES (?, ?, ?, ?, ?)
+              sequence, source_sample_sequence, observed_at_ms, monotonic_elapsed_ms, kind, details_json
+            ) VALUES (?, ?, ?, ?, ?, ?)
             """,
             values: [
               .integer(eventSequence),
+              .integer(sample.sequence),
               .integer(Int64(sample.observedAt.timeIntervalSince1970 * 1_000)),
               .integer(sample.elapsedMs), .text(kind), .text(detailsJSON),
             ]
           )
           previousTransitions[kind] = value
           eventSequence += 1
-          appendedEvents += 1
         }
       }
       let last = samples.map(\.sequence).max()!
       try session.statement(
-        "INSERT OR REPLACE INTO commit_marker(singleton, committed_sequence, committed_at_ms) VALUES (1, ?, ?)",
-        values: [.integer(last), .integer(Int64(samples.last!.observedAt.timeIntervalSince1970 * 1_000))]
+        """
+        WITH ordered AS (
+          SELECT sequence, monotonic_elapsed_ms, ride_state, speed_kph, duty_cycle,
+                 LAG(monotonic_elapsed_ms) OVER (
+                   ORDER BY monotonic_elapsed_ms, sequence
+                 ) AS previous_elapsed_ms,
+                 LAG(speed_kph) OVER (
+                   ORDER BY monotonic_elapsed_ms, sequence
+                 ) AS previous_speed_kph
+          FROM sample
+        )
+        UPDATE commit_marker SET
+          committed_sample_sequence = MAX(committed_sample_sequence, ?),
+          committed_event_sequence = COALESCE((SELECT MAX(sequence) FROM session_event), 0),
+          recorded_sample_count = recorded_sample_count + ?,
+          stored_sample_count = (SELECT COUNT(*) FROM sample),
+          committed_event_count = (SELECT COUNT(*) FROM session_event),
+          committed_elapsed_ms = COALESCE((SELECT MAX(monotonic_elapsed_ms) FROM sample), 0),
+          committed_at_ms = ?,
+          riding_elapsed_ms = COALESCE((SELECT SUM(
+            CASE WHEN ride_state = 'riding' AND previous_elapsed_ms IS NOT NULL
+              THEN MAX(0, monotonic_elapsed_ms - previous_elapsed_ms) ELSE 0 END
+          ) FROM ordered), 0),
+          distance_m = (SELECT COALESCE(SUM(
+            CASE WHEN speed_kph IS NOT NULL AND previous_elapsed_ms IS NOT NULL
+              THEN ((ABS(previous_speed_kph) + ABS(speed_kph)) / 2.0)
+                * MAX(0, monotonic_elapsed_ms - previous_elapsed_ms) / 3600.0
+              ELSE 0 END
+          ), 0) FROM ordered),
+          maximum_speed_kph = (SELECT MAX(ABS(speed_kph)) FROM sample),
+          maximum_speed_source_sequence = (
+            SELECT sequence FROM sample
+            WHERE speed_kph IS NOT NULL
+            ORDER BY ABS(speed_kph) DESC, monotonic_elapsed_ms, sequence LIMIT 1
+          ),
+          maximum_duty_cycle = (SELECT MAX(ABS(duty_cycle)) FROM sample),
+          maximum_duty_source_sequence = (
+            SELECT sequence FROM sample
+            WHERE duty_cycle IS NOT NULL
+            ORDER BY ABS(duty_cycle) DESC, monotonic_elapsed_ms, sequence LIMIT 1
+          ),
+          last_speed_kph = (
+            SELECT speed_kph FROM sample
+            ORDER BY monotonic_elapsed_ms DESC, sequence DESC LIMIT 1
+          ),
+          last_ride_state = (
+            SELECT ride_state FROM sample
+            ORDER BY monotonic_elapsed_ms DESC, sequence DESC LIMIT 1
+          )
+        WHERE singleton = 1
+        """,
+        values: [
+          .integer(last), .integer(Int64(samples.count)),
+          .integer(Int64(samples.last!.observedAt.timeIntervalSince1970 * 1_000)),
+        ]
       )
       try session.execute("COMMIT")
-      try updateCatalogSummaryLocked(record: record, samples: samples)
-      if appendedEvents > 0 {
-        try catalog.statement(
-          """
-          UPDATE session_catalog SET event_count = event_count + ?
-          WHERE job_id = ? AND state = 'active'
-          """,
-          values: [.integer(appendedEvents), .text(record.jobID.value)]
-        )
+      do {
+        // Catalog convergence is deliberately outside the writer transaction.
+        // A catalog failure must not make a committed batch appear rolled back;
+        // mark it dirty so the marker-driven reconciler repairs it before the
+        // next append/read/publication.
+        try updateCatalogSummaryLocked(record: record, samples: samples)
+      } catch {
+        try? markCatalogDirtyLocked(jobID: record.jobID.value)
+        throw error
       }
       record = SessionRecord(
         sessionID: record.sessionID, jobID: record.jobID, deviceID: record.deviceID,
@@ -372,6 +528,7 @@ public final class SQLiteLogStore: LogStorePort, ProductStorePort, SessionStoreP
     defer { lock.unlock() }
     guard let record = current else { throw SQLiteLogStoreError.noActiveSession }
     guard record.jobID == jobID else { throw SQLiteLogStoreError.wrongJob }
+    try reconcileDirtyCatalogLocked(jobID: jobID.value)
     let enteredRiding = try session?.scalarInt(
       "SELECT EXISTS(SELECT 1 FROM sample WHERE ride_state = 'riding')"
     ) == 1
@@ -421,6 +578,7 @@ public final class SQLiteLogStore: LogStorePort, ProductStorePort, SessionStoreP
   public func sessions(_ query: SessionListQuery) throws -> SessionPage {
     lock.lock()
     defer { lock.unlock() }
+    try reconcileDirtyCatalogLocked()
     guard (1 ... 100).contains(query.limit) else { throw SessionStoreError.invalidRange }
     guard let sortColumn = Self.sessionSortColumns[query.sortField] else {
       throw SessionStoreError.invalidRange
@@ -494,6 +652,7 @@ public final class SQLiteLogStore: LogStorePort, ProductStorePort, SessionStoreP
   public func session(sessionID: String) throws -> SessionSummaryRecord {
     lock.lock()
     defer { lock.unlock() }
+    try reconcileDirtyCatalogLocked()
     guard let value = try catalog.query(
       """
       SELECT session_id, device_history_id, device_snapshot_json, started_at_ms, ended_at_ms,
@@ -507,6 +666,265 @@ public final class SQLiteLogStore: LogStorePort, ProductStorePort, SessionStoreP
     return value
   }
 
+  public func sessionSnapshot(sessionID: String) throws -> SessionPublishedSnapshotRecord {
+    lock.lock()
+    defer { lock.unlock() }
+    try reconcileDirtyCatalogLocked()
+    guard let value = try catalog.query(
+      """
+      SELECT history_revision, committed_sequence, committed_event_sequence,
+             committed_elapsed_ms, sample_count, stored_sample_count
+      FROM session_catalog WHERE session_id = ? AND pending_delete = 0
+      """,
+      values: [.text(sessionID)],
+      map: { statement in
+        SessionPublishedSnapshotRecord(
+          historyRevision: sqlite3_column_int64(statement, 0),
+          committedSampleSequence: sqlite3_column_int64(statement, 1),
+          committedEventSequence: sqlite3_column_int64(statement, 2),
+          committedElapsedMs: sqlite3_column_int64(statement, 3),
+          recordedSampleCount: sqlite3_column_int64(statement, 4),
+          storedSampleCount: sqlite3_column_int64(statement, 5)
+        )
+      }
+    ).first else { throw SessionStoreError.sessionNotFound }
+    return value
+  }
+
+  public func sessionHistoryConfiguration(sessionID: String) throws -> SessionHistoryConfiguration {
+    try withReadLease(sessionID: sessionID) { database, cancellation in
+      guard let value = try database.query(
+        """
+        SELECT expected_riding_persistence_ms, expected_idle_persistence_ms,
+               COALESCE(retained_resolution_seconds, 0)
+        FROM session_metadata WHERE singleton = 1
+        """,
+        map: { statement in
+          SessionHistoryConfiguration(
+            expectedRidingPersistenceMs: sqlite3_column_int64(statement, 0),
+            expectedIdlePersistenceMs: sqlite3_column_int64(statement, 1),
+            retainedResolutionSeconds: sqlite3_column_int64(statement, 2)
+          )
+        }
+      ).first else { throw SessionStoreError.sessionNotFound }
+      return value
+    }
+  }
+
+  public func sessionPruneMetadata(sessionID: String) throws -> SessionPruneMetadataRecord {
+    try withReadLease(sessionID: sessionID) { database, cancellation in
+      guard let value = try database.query(
+        """
+        SELECT retained_resolution_seconds, prune_policy
+        FROM session_metadata WHERE singleton = 1
+        """,
+        map: { statement in
+          (
+            resolution: sqlite3_column_type(statement, 0) == SQLITE_NULL ? nil : sqlite3_column_int64(statement, 0),
+            policy: Self.columnText(statement, 1)
+          )
+        }
+      ).first else { throw SessionStoreError.sessionNotFound }
+      let snapshot = try sessionSnapshot(sessionID: sessionID)
+      return SessionPruneMetadataRecord(
+        targetResolutionSeconds: value.resolution,
+        recordedSampleCount: snapshot.recordedSampleCount,
+        storedSampleCount: snapshot.storedSampleCount,
+        policy: value.policy
+      )
+    }
+  }
+
+  public func prunePreview(sessionID: String, targetResolutionSeconds: Int64) throws -> SessionPrunePreviewRecord {
+    let selection = try pruneSelection(sessionID: sessionID, targetResolutionSeconds: targetResolutionSeconds)
+    let skipped = selection.keep.count == selection.rows.count
+    return SessionPrunePreviewRecord(
+      recordedSampleCount: Int64(selection.rows.count),
+      estimatedStoredSampleCount: Int64(selection.keep.count),
+      estimatedReclaimableBytes: Int64(max(0, selection.rows.count - selection.keep.count) * 256),
+      skipped: skipped,
+      skipReason: skipped ? "already_at_or_below_target" : nil
+    )
+  }
+
+  public func pruneSession(sessionID: String, targetResolutionSeconds: Int64) throws -> SessionPrunePreviewRecord {
+    let selection = try pruneSelection(sessionID: sessionID, targetResolutionSeconds: targetResolutionSeconds)
+    if selection.keep.count == selection.rows.count {
+      return SessionPrunePreviewRecord(
+        recordedSampleCount: Int64(selection.rows.count), estimatedStoredSampleCount: Int64(selection.keep.count),
+        estimatedReclaimableBytes: 0, skipped: true, skipReason: "already_at_or_below_target"
+      )
+    }
+    lock.lock()
+    defer { lock.unlock() }
+    guard current?.sessionID.value != sessionID else { throw SessionStoreError.sessionActive }
+    guard activeReadLeases[sessionID, default: 0] == 0 else {
+      throw SessionStoreError.maintenanceInProgress
+    }
+    guard maintenanceSessions.insert(sessionID).inserted else {
+      throw SessionStoreError.maintenanceInProgress
+    }
+    defer { maintenanceSessions.remove(sessionID) }
+    guard let fileName = try catalog.query(
+      "SELECT file_name FROM session_catalog WHERE session_id = ? AND pending_delete = 0",
+      values: [.text(sessionID)], map: { Self.columnText($0, 0)! }
+    ).first else { throw SessionStoreError.sessionNotFound }
+    let database = try openSessionLocked(sessionID: sessionID)
+    try database.execute("BEGIN IMMEDIATE")
+    do {
+      try database.execute("PRAGMA temp_store = FILE")
+      try database.execute("CREATE TEMP TABLE prune_keep(sequence INTEGER PRIMARY KEY)")
+      for sequence in selection.keep {
+        try database.statement("INSERT INTO prune_keep(sequence) VALUES (?)", values: [.integer(sequence)])
+      }
+      try database.execute("DELETE FROM sample WHERE sequence NOT IN (SELECT sequence FROM prune_keep)")
+      try database.statement(
+        "UPDATE session_metadata SET pruned_at_ms = ?, retained_resolution_seconds = ?, prune_policy = 'm4-source-v1' WHERE singleton = 1",
+        values: [.integer(Int64(Date().timeIntervalSince1970 * 1_000)), .integer(targetResolutionSeconds)]
+      )
+      try database.statement(
+        "UPDATE commit_marker SET stored_sample_count = (SELECT COUNT(*) FROM sample), history_revision = history_revision + 1, committed_at_ms = ? WHERE singleton = 1",
+        values: [.integer(Int64(Date().timeIntervalSince1970 * 1_000))]
+      )
+      try database.execute("COMMIT")
+      try? database.execute("DROP TABLE IF EXISTS prune_keep")
+      // Logical pruning is already durable. These bounded follow-up steps make
+      // reclaimed pages visible without holding the writer transaction open or
+      // requiring a blocking full VACUUM.
+      try? database.execute("PRAGMA wal_checkpoint(PASSIVE)")
+      try? database.execute("PRAGMA incremental_vacuum(256)")
+    } catch {
+      try? database.execute("ROLLBACK")
+      throw error
+    }
+    let jobID = try catalog.query(
+      "SELECT job_id FROM session_catalog WHERE session_id = ?",
+      values: [.text(sessionID)], map: { Self.columnText($0, 0)! }
+    ).first!
+    try reconcileSessionCatalogLocked(sessionID: sessionID, jobID: jobID, fileName: fileName)
+    return SessionPrunePreviewRecord(
+      recordedSampleCount: Int64(selection.rows.count),
+      estimatedStoredSampleCount: Int64(selection.keep.count),
+      estimatedReclaimableBytes: Int64(max(0, selection.rows.count - selection.keep.count) * 256),
+      skipped: false, skipReason: nil
+    )
+  }
+
+  public func maintenanceJob() throws -> SessionMaintenanceJobRecord? {
+    lock.lock()
+    defer { lock.unlock() }
+    return try catalog.query(
+      """
+      SELECT operation_id, kind, scope, state, session_id, target_resolution_seconds,
+             upper_session_id, last_session_id, completed_sessions, skipped_sessions,
+             retained_samples, reclaimable_bytes, error
+      FROM session_maintenance_job WHERE singleton = 1
+      """,
+      map: { statement in
+        SessionMaintenanceJobRecord(
+          operationID: Self.columnText(statement, 0)!,
+          kind: Self.columnText(statement, 1)!,
+          scope: Self.columnText(statement, 2)!,
+          state: Self.columnText(statement, 3)!,
+          sessionID: Self.columnText(statement, 4),
+          targetResolutionSeconds: sqlite3_column_int64(statement, 5),
+          upperSessionID: Self.columnText(statement, 6),
+          lastSessionID: Self.columnText(statement, 7),
+          completedSessions: sqlite3_column_int64(statement, 8),
+          skippedSessions: sqlite3_column_int64(statement, 9),
+          retainedSamples: sqlite3_column_int64(statement, 10),
+          reclaimableBytes: sqlite3_column_int64(statement, 11),
+          error: Self.columnText(statement, 12)
+        )
+      }
+    ).first
+  }
+
+  public func saveMaintenanceJob(_ job: SessionMaintenanceJobRecord) throws {
+    lock.lock()
+    defer { lock.unlock() }
+    try catalog.statement(
+      """
+      INSERT OR REPLACE INTO session_maintenance_job(
+        singleton, operation_id, kind, scope, session_id, state,
+        target_resolution_seconds, upper_session_id, last_session_id,
+        completed_sessions, skipped_sessions, retained_samples,
+        reclaimable_bytes, error, updated_at_ms
+      ) VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      """,
+      values: [
+        .text(job.operationID), .text(job.kind), .text(job.scope),
+        job.sessionID.map(SQLiteValue.text) ?? .null, .text(job.state),
+        .integer(job.targetResolutionSeconds), job.upperSessionID.map(SQLiteValue.text) ?? .null,
+        job.lastSessionID.map(SQLiteValue.text) ?? .null, .integer(job.completedSessions),
+        .integer(job.skippedSessions), .integer(job.retainedSamples), .integer(job.reclaimableBytes),
+        job.error.map(SQLiteValue.text) ?? .null,
+        .integer(Int64(Date().timeIntervalSince1970 * 1_000))
+      ]
+    )
+  }
+
+  public func cancelMaintenanceJob(operationID: String) throws -> SessionMaintenanceJobRecord? {
+    guard let job = try maintenanceJob(), job.operationID == operationID else { return nil }
+    guard !["completed", "cancelled", "failed"].contains(job.state) else { return job }
+    let updated = SessionMaintenanceJobRecord(
+      operationID: job.operationID, kind: job.kind, scope: job.scope,
+      state: "cancel_requested", sessionID: job.sessionID,
+      targetResolutionSeconds: job.targetResolutionSeconds, upperSessionID: job.upperSessionID,
+      lastSessionID: job.lastSessionID, completedSessions: job.completedSessions,
+      skippedSessions: job.skippedSessions, retainedSamples: job.retainedSamples,
+      reclaimableBytes: job.reclaimableBytes, error: job.error
+    )
+    try saveMaintenanceJob(updated)
+    if let sessionID = job.sessionID { cancelHistoricalReads(sessionID: sessionID) }
+    return updated
+  }
+
+  private struct PruneSelection {
+    let rows: [SessionSeriesPoint]
+    let keep: [Int64]
+  }
+
+  private func pruneSelection(sessionID: String, targetResolutionSeconds: Int64) throws -> PruneSelection {
+    guard (1 ... 300).contains(targetResolutionSeconds) else { throw SessionStoreError.invalidRange }
+    if current?.sessionID.value == sessionID { throw SessionStoreError.sessionActive }
+    let existingResolution = try withReadLease(sessionID: sessionID) { database, cancellation in
+      try database.query("SELECT retained_resolution_seconds FROM session_metadata WHERE singleton = 1") { statement in
+        sqlite3_column_type(statement, 0) == SQLITE_NULL ? nil : sqlite3_column_int64(statement, 0)
+      }.first ?? nil
+    }
+    if let existingResolution, existingResolution > 0,
+       targetResolutionSeconds <= existingResolution || targetResolutionSeconds % existingResolution != 0 {
+      throw SessionStoreError.invalidRange
+    }
+    let rows = try withReadLease(sessionID: sessionID) { database, cancellation in
+      try database.query(
+        "SELECT sequence, monotonic_elapsed_ms, ride_state, speed_kph, raw_pack_voltage_v FROM sample ORDER BY monotonic_elapsed_ms, sequence"
+      ) { statement in
+        SessionSeriesPoint(
+          elapsedMs: sqlite3_column_int64(statement, 1),
+          values: [
+            "speedKph": Self.columnDouble(statement, 3),
+            "packVoltageV": Self.columnDouble(statement, 4),
+          ],
+          sequence: sqlite3_column_int64(statement, 0),
+          rideState: Self.columnText(statement, 2)
+        )
+      }
+    }
+    let protected = try withReadLease(sessionID: sessionID) { database, cancellation in
+      var sequences = Set<Int64>()
+      try database.forEachRow("SELECT first_sequence FROM session_numeric_field") { sequences.insert(sqlite3_column_int64($0, 0)) }
+      try database.forEachRow("SELECT source_sample_sequence FROM session_event WHERE source_sample_sequence IS NOT NULL") { sequences.insert(sqlite3_column_int64($0, 0)) }
+      return sequences
+    }
+    let keep = try SessionHistoryReducer.selectPruneRows(
+      rows: rows, fields: ["speedKph", "packVoltageV"], targetResolutionSeconds: targetResolutionSeconds,
+      protectedSequences: protected, eventSourceSequences: []
+    )
+    return PruneSelection(rows: rows, keep: keep)
+  }
+
   public func querySeries(
     sessionID: String,
     startElapsedMs: Int64,
@@ -514,28 +932,148 @@ public final class SQLiteLogStore: LogStorePort, ProductStorePort, SessionStoreP
     fields: [String],
     maxPoints: Int
   ) throws -> [SessionSeriesPoint] {
+    try querySeries(
+      sessionID: sessionID, startElapsedMs: startElapsedMs, endElapsedMs: endElapsedMs,
+      fields: fields, maxPoints: maxPoints, publishedSampleSequence: nil
+    )
+  }
+
+  public func cancelHistoricalReads(sessionID: String) {
+    lock.lock()
+    let connections = historicalConnections[sessionID] ?? []
+    let cancellations = historicalCancellations[sessionID] ?? []
+    lock.unlock()
+    cancellations.forEach { $0.cancel() }
+    connections.forEach { $0.interrupt() }
+  }
+
+  public func querySeries(
+    sessionID: String,
+    startElapsedMs: Int64,
+    endElapsedMs: Int64,
+    fields: [String],
+    maxPoints: Int,
+    publishedSampleSequence: Int64?
+  ) throws -> [SessionSeriesPoint] {
     guard startElapsedMs <= endElapsedMs, (1 ... 2_000).contains(maxPoints) else {
       throw SessionStoreError.invalidRange
     }
     return try readSeries(
       sessionID: sessionID, start: startElapsedMs, end: endElapsedMs,
-      fields: fields, maxPoints: maxPoints, lossless: false
+      fields: fields, maxPoints: maxPoints, lossless: false,
+      maximumSequence: publishedSampleSequence
     )
   }
 
-  public func diagnosticWindow(
+  public func querySeriesSource(
+    sessionID: String,
+    startElapsedMs: Int64,
+    endElapsedMs: Int64,
+    fields: [String],
+    maxRows: Int,
+    publishedSampleSequence: Int64?
+  ) throws -> [SessionSeriesPoint] {
+    guard startElapsedMs <= endElapsedMs, (1 ... 200_000).contains(maxRows) else {
+      throw SessionStoreError.invalidRange
+    }
+    return try readSeries(
+      sessionID: sessionID, start: startElapsedMs, end: endElapsedMs,
+      fields: fields, maxPoints: maxRows, lossless: true,
+      maximumSequence: publishedSampleSequence
+    )
+  }
+
+  public func queryNearestSample(
+    sessionID: String,
+    targetElapsedMs: Int64,
+    fields: [String],
+    publishedSampleSequence: Int64?
+  ) throws -> SessionSeriesPoint? {
+    guard targetElapsedMs >= 0 else { throw SessionStoreError.invalidRange }
+    let uniqueFields = Array(NSOrderedSet(array: fields)) as? [String] ?? fields
+    guard !uniqueFields.isEmpty, uniqueFields.count <= 16 else {
+      throw SessionStoreError.invalidRange
+    }
+    let columns = try uniqueFields.map { field -> String in
+      if let column = Self.seriesColumns[field] { return column }
+      guard !field.isEmpty, field.lengthOfBytes(using: .utf8) <= 64 else {
+        throw SessionStoreError.unsupportedField(field)
+      }
+      let encoded = try JSONSerialization.data(withJSONObject: field, options: [.fragmentsAllowed])
+      let jsonKey = String(decoding: encoded, as: UTF8.self)
+      let path = ("$." + jsonKey).replacingOccurrences(of: "'", with: "''")
+      return "json_extract(extension_json, '\(path)' )"
+    }
+    let selected = columns.enumerated().map { index, column in
+      "\(column) AS value_\(index)"
+    }.joined(separator: ", ")
+    return try withReadLease(sessionID: sessionID) { database, cancellation in
+      let sequencePredicate = publishedSampleSequence == nil ? "" : " AND sequence <= ?"
+      func seek(order: String, comparator: String) throws -> SessionSeriesPoint? {
+        var values: [SQLiteValue] = [.integer(targetElapsedMs)]
+        if let publishedSampleSequence { values.append(.integer(publishedSampleSequence)) }
+        return try database.query(
+          """
+          SELECT sequence, monotonic_elapsed_ms, ride_state, \(selected) FROM sample
+          WHERE monotonic_elapsed_ms \(comparator) ?\(sequencePredicate)
+          ORDER BY monotonic_elapsed_ms \(order), sequence \(order) LIMIT 1
+          """,
+          values: values
+        ) { statement in
+          var result: [String: Double?] = [:]
+          for (index, field) in uniqueFields.enumerated() {
+            result[field] = .some(Self.columnDouble(statement, Int32(index + 3)))
+          }
+          return SessionSeriesPoint(
+            elapsedMs: sqlite3_column_int64(statement, 1),
+            values: result,
+            sequence: sqlite3_column_int64(statement, 0),
+            rideState: Self.columnText(statement, 2)
+          )
+        }.first
+      }
+      let candidates = [
+        try seek(order: "DESC", comparator: "<="),
+        try seek(order: "ASC", comparator: ">="),
+      ].compactMap { $0 }
+      return candidates.min { left, right in
+        let leftDistance = abs(left.elapsedMs - targetElapsedMs)
+        let rightDistance = abs(right.elapsedMs - targetElapsedMs)
+        return leftDistance < rightDistance ||
+          (leftDistance == rightDistance && (left.elapsedMs < right.elapsedMs ||
+            (left.elapsedMs == right.elapsedMs && left.sequence < right.sequence)))
+      }
+    }
+  }
+
+  public func querySampleWindow(
     sessionID: String,
     centerElapsedMs: Int64,
     beforeMs: Int64,
     afterMs: Int64,
     fields: [String]
   ) throws -> [SessionSeriesPoint] {
+    try querySampleWindow(
+      sessionID: sessionID, centerElapsedMs: centerElapsedMs, beforeMs: beforeMs,
+      afterMs: afterMs, fields: fields, publishedSampleSequence: nil
+    )
+  }
+
+  public func querySampleWindow(
+    sessionID: String,
+    centerElapsedMs: Int64,
+    beforeMs: Int64,
+    afterMs: Int64,
+    fields: [String],
+    publishedSampleSequence: Int64?
+  ) throws -> [SessionSeriesPoint] {
     guard centerElapsedMs >= 0, (0 ... 300_000).contains(beforeMs),
           (0 ... 300_000).contains(afterMs)
     else { throw SessionStoreError.invalidRange }
     return try readSeries(
       sessionID: sessionID, start: max(0, centerElapsedMs - beforeMs),
-      end: centerElapsedMs + afterMs, fields: fields, maxPoints: 2_000, lossless: true
+      end: centerElapsedMs + afterMs, fields: fields, maxPoints: 2_000, lossless: true,
+      maximumSequence: publishedSampleSequence
     )
   }
 
@@ -544,49 +1082,71 @@ public final class SQLiteLogStore: LogStorePort, ProductStorePort, SessionStoreP
     startElapsedMs: Int64,
     endElapsedMs: Int64
   ) throws -> [SessionEventRecord] {
+    try sessionEvents(
+      sessionID: sessionID, startElapsedMs: startElapsedMs, endElapsedMs: endElapsedMs,
+      publishedEventSequence: nil
+    )
+  }
+
+  public func sessionEvents(
+    sessionID: String,
+    startElapsedMs: Int64,
+    endElapsedMs: Int64,
+    publishedEventSequence: Int64?
+  ) throws -> [SessionEventRecord] {
     guard startElapsedMs <= endElapsedMs else { throw SessionStoreError.invalidRange }
-    lock.lock()
-    defer { lock.unlock() }
-    let database = try openSessionLocked(sessionID: sessionID)
-    return try database.query(
-      """
-      SELECT sequence, monotonic_elapsed_ms, kind, details_json FROM (
-        SELECT sequence, monotonic_elapsed_ms, kind, details_json FROM session_event
-        WHERE monotonic_elapsed_ms BETWEEN ? AND ?
-          AND kind IN (
-            'packageState', 'packageMode', 'footpadState', 'stopCondition',
-            'setpointAdjustment', 'wheelslip', 'darkride', 'charging',
-            'alertReason', 'firmwareFault'
-          )
-        ORDER BY sequence DESC LIMIT 2001
-      ) ORDER BY monotonic_elapsed_ms, sequence
-      """,
-      values: [.integer(startElapsedMs), .integer(endElapsedMs)]
-    ) { statement in
-      SessionEventRecord(
-        eventID: String(sqlite3_column_int64(statement, 0)),
-        elapsedMs: sqlite3_column_int64(statement, 1),
-        kind: Self.columnText(statement, 2)!,
-        detailsJSON: Self.columnText(statement, 3) ?? "{}"
-      )
+    return try withReadLease(sessionID: sessionID) { database, cancellation in
+      var values: [SQLiteValue] = [.integer(startElapsedMs), .integer(endElapsedMs)]
+      let sequencePredicate: String
+      if let publishedEventSequence {
+        sequencePredicate = " AND sequence <= ?"
+        values.append(.integer(publishedEventSequence))
+      } else {
+        sequencePredicate = ""
+      }
+      return try database.query(
+        """
+        SELECT sequence, source_sample_sequence, monotonic_elapsed_ms, kind, details_json FROM (
+          SELECT sequence, source_sample_sequence, monotonic_elapsed_ms, kind, details_json FROM session_event
+          WHERE monotonic_elapsed_ms BETWEEN ? AND ?
+            \(sequencePredicate)
+            AND kind IN (
+              'packageState', 'packageMode', 'footpadState', 'stopCondition',
+              'setpointAdjustment', 'wheelslip', 'darkride', 'charging',
+              'alertReason', 'firmwareFault'
+            )
+          ORDER BY monotonic_elapsed_ms, sequence LIMIT 501
+        ) ORDER BY monotonic_elapsed_ms, sequence
+        """,
+        values: values
+      ) { statement in
+        SessionEventRecord(
+          eventID: String(sqlite3_column_int64(statement, 0)),
+          elapsedMs: sqlite3_column_int64(statement, 2),
+          kind: Self.columnText(statement, 3)!,
+          detailsJSON: Self.columnText(statement, 4) ?? "{}",
+          sourceSampleSequence: sqlite3_column_type(statement, 1) == SQLITE_NULL ? nil : sqlite3_column_int64(statement, 1)
+        )
+      }
     }
   }
 
   public func sessionExtensionFields(sessionID: String) throws -> [String] {
-    lock.lock()
-    defer { lock.unlock() }
-    let database = try openSessionLocked(sessionID: sessionID)
-    let fields = try database.query(
-      """
-      SELECT DISTINCT json_each.key FROM sample, json_each(sample.extension_json)
-      ORDER BY json_each.key LIMIT 33
-      """,
-      map: { Self.columnText($0, 0)! }
-    )
-    guard fields.count <= 32 else {
-      throw SQLiteLogStoreError.sqlite("Stored telemetry extensions exceed their bound")
+    return try withReadLease(sessionID: sessionID) { database, cancellation in
+      let fields = try database.query(
+        """
+        SELECT field_name FROM session_numeric_field
+        WHERE source = 'extension'
+        ORDER BY field_name
+        LIMIT 33
+        """,
+        map: { Self.columnText($0, 0)! }
+      )
+      guard fields.count <= 32 else {
+        throw SQLiteLogStoreError.sqlite("Stored telemetry extensions exceed their bound")
+      }
+      return fields
     }
-    return fields
   }
 
   public func savedDevices() throws -> [SavedDeviceRecord] {
@@ -880,18 +1440,31 @@ public final class SQLiteLogStore: LogStorePort, ProductStorePort, SessionStoreP
   private func deleteSessionLocked(sessionID: String) throws {
     if current?.sessionID.value == sessionID { throw SessionStoreError.sessionActive }
     guard let sessionRow = try catalog.query(
-      "SELECT file_name, state FROM session_catalog WHERE session_id = ?",
+      "SELECT file_name, state, pending_delete FROM session_catalog WHERE session_id = ?",
       values: [.text(sessionID)],
-      map: { (Self.columnText($0, 0)!, Self.columnText($0, 1)!) }
+      map: {
+        (Self.columnText($0, 0)!, Self.columnText($0, 1)!, sqlite3_column_int($0, 2) != 0)
+      }
     ).first else {
       return
     }
     if sessionRow.1 == "active" { throw SessionStoreError.sessionActive }
-    let fileName = sessionRow.0
+    if sessionRow.2 { return }
     try catalog.statement(
       "UPDATE session_catalog SET pending_delete = 1 WHERE session_id = ?",
       values: [.text(sessionID)]
     )
+    // Existing readers retain their WAL snapshot. New readers observe the
+    // pending flag under the same lock and are rejected until cancellation or
+    // the final release completes the deletion.
+    if activeReadLeases[sessionID, default: 0] > 0 { return }
+    try finalizePendingDeleteLocked(sessionID: sessionID, fileName: sessionRow.0)
+  }
+
+  private func finalizePendingDeleteLocked(sessionID: String, fileName: String) throws {
+    guard activeReadLeases[sessionID, default: 0] == 0 else { return }
+    guard deletingSessions.insert(sessionID).inserted else { return }
+    defer { deletingSessions.remove(sessionID) }
     try removeSessionFiles(fileName: fileName)
     try catalog.execute("BEGIN IMMEDIATE")
     do {
@@ -905,6 +1478,27 @@ public final class SQLiteLogStore: LogStorePort, ProductStorePort, SessionStoreP
       try? catalog.execute("ROLLBACK")
       throw error
     }
+  }
+
+  /// Restores a pending deletion while its file still exists. The operation
+  /// identifier is the session identifier for the native synchronous delete
+  /// API; no token or path is exposed to the WebView.
+  public func cancelPendingDelete(operationID: String) throws -> Bool {
+    lock.lock()
+    defer { lock.unlock() }
+    guard !deletingSessions.contains(operationID) else { return false }
+    guard let row = try catalog.query(
+      "SELECT file_name, pending_delete FROM session_catalog WHERE session_id = ?",
+      values: [.text(operationID)],
+      map: { (Self.columnText($0, 0)!, sqlite3_column_int($0, 1) != 0) }
+    ).first, row.1 else { return false }
+    let file = root.appending(path: row.0)
+    guard FileManager.default.fileExists(atPath: file.path) else { return false }
+    try catalog.statement(
+      "UPDATE session_catalog SET pending_delete = 0 WHERE session_id = ? AND pending_delete = 1",
+      values: [.text(operationID)]
+    )
+    return try catalog.scalarInt("SELECT changes()") == 1
   }
 
   public func sessionGroups() throws -> [SessionGroupRecord] {
@@ -989,7 +1583,7 @@ public final class SQLiteLogStore: LogStorePort, ProductStorePort, SessionStoreP
         defer { try? handle.close() }
         try handle.write(contentsOf: Data((
           """
-          sequence,observed_at_ms,slow_observed_at_ms,elapsed_ms,ride_state,package_state,package_mode,footpad_state,stop_condition,setpoint_adjustment,wheelslip,darkride,charging,alert_reason,firmware_fault,pack_voltage_v,duty_cycle,controller_temp_c,motor_temp_c,motor_current_a,battery_current_a,erpm,speed_kph,detail_json,extension_json
+          sequence,observed_at_ms,slow_observed_at_ms,elapsed_ms,ride_state,package_state,package_mode,footpad_state,stop_condition,setpoint_adjustment,wheelslip,darkride,charging,alert_reason,firmware_fault,pack_voltage_v,duty_cycle,controller_temp_c,motor_temp_c,motor_current_a,battery_current_a,erpm,speed_kph,pitchDeg,balancePitchDeg,rollDeg,directionalMotorCurrentA,filteredMotorCurrentA,requestedBalanceCurrentA,boosterCurrentA,fieldWeakeningCurrentA,footpadAdc1V,footpadAdc2V,remoteInput,setpointDeg,atrSetpointDeg,brakeTiltSetpointDeg,torqueTiltSetpointDeg,turnTiltSetpointDeg,remoteSetpointDeg,atrAccelerationDifferenceErpmPerSecond,atrSpeedBoost,distanceM,odometerM,ampHoursDrawnAh,ampHoursChargedAh,wattHoursDrawnWh,wattHoursChargedWh,batteryLevel,chargingCurrentA,chargingVoltageV,extension_json
           """ + "\n"
         ).utf8))
         try database.forEachRow(
@@ -999,13 +1593,21 @@ public final class SQLiteLogStore: LogStorePort, ProductStorePort, SessionStoreP
                  setpoint_adjustment, wheelslip, darkride, charging, alert_reason,
                  firmware_fault, raw_pack_voltage_v, duty_cycle, controller_temp_c,
                  motor_temp_c, motor_current_a, battery_current_a, erpm, speed_kph,
-                 detail_json, extension_json
+                 pitch_deg, balance_pitch_deg, roll_deg, directional_motor_current_a,
+                 filtered_motor_current_a, requested_balance_current_a, booster_current_a,
+                 field_weakening_current_a, footpad_adc_1_v, footpad_adc_2_v, remote_input,
+                 setpoint_deg, atr_setpoint_deg, brake_tilt_setpoint_deg, torque_tilt_setpoint_deg,
+                 turn_tilt_setpoint_deg, remote_setpoint_deg,
+                 atr_acceleration_difference_erpm_per_second, atr_speed_boost, distance_m,
+                 odometer_m, amp_hours_drawn_ah, amp_hours_charged_ah, watt_hours_drawn_wh,
+                 watt_hours_charged_wh, battery_level, charging_current_a, charging_voltage_v,
+                 extension_json
           FROM sample ORDER BY sequence
           """
         ) { statement in
           var columns: [String] = []
-          let textColumns: Set = [4, 5, 6, 7, 8, 9, 13, 14, 23, 24]
-          for index in 0 ..< 25 {
+          let textColumns: Set = [4, 5, 6, 7, 8, 9, 13, 14, 51]
+          for index in 0 ..< 52 {
             if sqlite3_column_type(statement, Int32(index)) == SQLITE_NULL {
               columns.append("")
             } else if textColumns.contains(index) {
@@ -1071,6 +1673,9 @@ public final class SQLiteLogStore: LogStorePort, ProductStorePort, SessionStoreP
     {
       if values["minimumSessionDistance"] == nil {
         values["minimumSessionDistance"] = SettingsRecord().minimumSessionDistance
+      }
+      if values["historyGapThresholdSeconds"] == nil {
+        values["historyGapThresholdSeconds"] = NSNull()
       }
       if let value = try? Self.validatedSettings(values, revision: stored.0) {
         return value
@@ -1320,69 +1925,230 @@ public final class SQLiteLogStore: LogStorePort, ProductStorePort, SessionStoreP
 
   private func updateCatalogSummaryLocked(
     record: SessionRecord,
-    samples: [TelemetrySample]
+    samples _: [TelemetrySample]
   ) throws {
-    let prior = try catalog.query(
+    guard let session else { return }
+    let marker = try session.query(
       """
-      SELECT last_sample_elapsed_ms, last_speed_mps, riding_elapsed_ms, distance_m,
-             max_speed_mps, max_duty_cycle, sample_count
-      FROM session_catalog WHERE job_id = ?
+      SELECT committed_sample_sequence, committed_event_sequence,
+             recorded_sample_count, stored_sample_count, committed_event_count,
+             committed_elapsed_ms, riding_elapsed_ms, distance_m,
+             maximum_speed_kph, maximum_duty_cycle,
+             maximum_speed_source_sequence, maximum_duty_source_sequence,
+             last_speed_kph
+      FROM commit_marker WHERE singleton = 1
       """,
-      values: [.text(record.jobID.value)]
-    ) { statement in
-      (
-        elapsed: sqlite3_column_type(statement, 0) == SQLITE_NULL
-          ? nil : sqlite3_column_int64(statement, 0),
-        speed: Self.columnDouble(statement, 1),
-        riding: sqlite3_column_int64(statement, 2),
-        distance: Self.columnDouble(statement, 3) ?? 0,
-        maxSpeed: Self.columnDouble(statement, 4),
-        maxDuty: Self.columnDouble(statement, 5),
-        count: sqlite3_column_int64(statement, 6)
-      )
-    }.first
-    var previousElapsed = prior?.elapsed
-    var previousSpeed = prior?.speed
-    var riding = prior?.riding ?? 0
-    var distance = prior?.distance ?? 0
-    var maxSpeed = prior?.maxSpeed
-    var maxDuty = prior?.maxDuty
-    for sample in samples.sorted(by: { $0.elapsedMs < $1.elapsedMs }) {
-      let speed = sample.speedKph.map { abs($0) / 3.6 }
-      if let previousElapsed {
-        let delta = max(0, sample.elapsedMs - previousElapsed)
-        if sample.rideState == .riding { riding += delta }
-        if let speed {
-          distance += ((previousSpeed ?? speed) + speed) * 0.5 * Double(delta) / 1_000
-        }
+      map: { statement in
+        (
+          committedSequence: sqlite3_column_int64(statement, 0),
+          eventSequence: sqlite3_column_int64(statement, 1),
+          recordedCount: sqlite3_column_int64(statement, 2),
+          storedCount: sqlite3_column_int64(statement, 3),
+          eventCount: sqlite3_column_int64(statement, 4),
+          elapsed: sqlite3_column_int64(statement, 5),
+          riding: sqlite3_column_int64(statement, 6),
+          distance: Self.columnDouble(statement, 7),
+          maxSpeed: Self.columnDouble(statement, 8),
+          maxDuty: Self.columnDouble(statement, 9),
+          maxSpeedSequence: sqlite3_column_type(statement, 10) == SQLITE_NULL ? nil : sqlite3_column_int64(statement, 10),
+          maxDutySequence: sqlite3_column_type(statement, 11) == SQLITE_NULL ? nil : sqlite3_column_int64(statement, 11),
+          lastSpeed: Self.columnDouble(statement, 12)
+        )
       }
-      if let speed { maxSpeed = max(maxSpeed ?? speed, speed) }
-      if let duty = sample.dutyCycle.map(abs) { maxDuty = max(maxDuty ?? duty, duty) }
-      previousElapsed = sample.elapsedMs
-      previousSpeed = speed
-    }
-    guard let last = samples.max(by: { $0.elapsedMs < $1.elapsedMs }) else { return }
+    ).first
+    guard let marker else { return }
     try catalog.statement(
       """
-      UPDATE session_catalog SET committed_sequence = ?, sample_count = ?,
+      UPDATE session_catalog SET committed_sequence = ?, committed_event_sequence = ?,
+        committed_elapsed_ms = ?, stored_sample_count = ?, sample_count = ?,
         riding_elapsed_ms = ?, total_elapsed_ms = ?, distance_m = ?,
-        max_speed_mps = ?, max_duty_cycle = ?, last_sample_elapsed_ms = ?,
+        max_speed_mps = ?, max_duty_cycle = ?, max_speed_source_sequence = ?,
+        max_duty_source_sequence = ?, last_sample_elapsed_ms = ?,
         last_speed_mps = ? WHERE job_id = ?
       """,
       values: [
-        .integer(max(record.committedSequence, samples.map(\.sequence).max() ?? 0)),
-        .integer((prior?.count ?? 0) + Int64(samples.count)),
-        .integer(riding), .integer(last.elapsedMs), .real(distance),
-        maxSpeed.map(SQLiteValue.real) ?? .null,
-        maxDuty.map(SQLiteValue.real) ?? .null,
-        .integer(last.elapsedMs),
-        previousSpeed.map(SQLiteValue.real) ?? .null,
+        .integer(marker.committedSequence), .integer(marker.eventSequence),
+        .integer(marker.elapsed), .integer(marker.storedCount), .integer(marker.recordedCount),
+        .integer(marker.riding), .integer(marker.elapsed), marker.distance.map(SQLiteValue.real) ?? .null,
+        marker.maxSpeed.map { .real(abs($0) / 3.6) } ?? .null,
+        marker.maxDuty.map { .real(abs($0)) } ?? .null,
+        marker.maxSpeedSequence.map(SQLiteValue.integer) ?? .null,
+        marker.maxDutySequence.map(SQLiteValue.integer) ?? .null,
+        .integer(marker.elapsed), marker.lastSpeed.map { .real(abs($0) / 3.6) } ?? .null,
         .text(record.jobID.value),
       ]
     )
   }
 
+  private func markCatalogDirtyLocked(jobID: String) throws {
+    try catalog.statement(
+      "UPDATE session_catalog SET integrity = 'dirty' WHERE job_id = ?",
+      values: [.text(jobID)]
+    )
+  }
+
+  /// Rebuild a catalog row from the session's durable marker and canonical
+  /// rows. This is intentionally idempotent: it may run during startup, before
+  /// an append, or after a catalog write failed following a committed batch.
+  private func reconcileSessionCatalogLocked(
+    sessionID: String,
+    jobID: String,
+    fileName: String
+  ) throws {
+    let file = root.appending(path: fileName)
+    guard FileManager.default.fileExists(atPath: file.path) else {
+      try? markCatalogDirtyLocked(jobID: jobID)
+      return
+    }
+    let database = try Database(url: file)
+    let check = try database.query("PRAGMA integrity_check", map: { Self.columnText($0, 0) ?? "" }).first
+    guard check == "ok" else {
+      try? markCatalogDirtyLocked(jobID: jobID)
+      return
+    }
+    let marker = try database.query(
+      """
+      SELECT committed_sample_sequence, committed_event_sequence,
+             recorded_sample_count, stored_sample_count, committed_event_count,
+             committed_elapsed_ms, history_revision, committed_at_ms
+      FROM commit_marker WHERE singleton = 1
+      """,
+      map: { statement in
+        (
+          sampleSequence: sqlite3_column_int64(statement, 0),
+          eventSequence: sqlite3_column_int64(statement, 1),
+          recordedCount: sqlite3_column_int64(statement, 2),
+          storedCount: sqlite3_column_int64(statement, 3),
+          eventCount: sqlite3_column_int64(statement, 4),
+          elapsed: sqlite3_column_int64(statement, 5),
+          revision: sqlite3_column_int64(statement, 6),
+          committedAt: sqlite3_column_int64(statement, 7)
+        )
+      }
+    ).first
+    guard let marker else { throw SQLiteLogStoreError.sqlite("Missing session commit marker") }
+
+    let rows: [(sequence: Int64, elapsed: Int64, riding: Bool, speed: Double?, duty: Double?)] = try database.query(
+      """
+      SELECT sequence, monotonic_elapsed_ms, ride_state, speed_kph, duty_cycle
+      FROM sample ORDER BY monotonic_elapsed_ms ASC, sequence ASC
+      """
+    ) { statement in
+      (
+        sequence: sqlite3_column_int64(statement, 0),
+        elapsed: sqlite3_column_int64(statement, 1),
+        riding: Self.columnText(statement, 2) == RideState.riding.rawValue,
+        speed: Self.columnDouble(statement, 3).map { abs($0) / 3.6 },
+        duty: Self.columnDouble(statement, 4).map(abs)
+      )
+    }
+    var ridingElapsed: Int64 = 0
+    var distance = 0.0
+    var maxSpeed: Double?
+    var maxSpeedSequence: Int64?
+    var maxDuty: Double?
+    var maxDutySequence: Int64?
+    var previousElapsed: Int64?
+    var previousSpeed: Double?
+    for row in rows {
+      if let previousElapsed {
+        let delta = max(0, row.elapsed - previousElapsed)
+        if row.riding { ridingElapsed += delta }
+        if let speed = row.speed {
+          distance += ((previousSpeed ?? speed) + speed) * 0.5 * Double(delta) / 1_000
+        }
+      }
+      if let speed = row.speed, maxSpeed == nil || speed > maxSpeed! {
+        maxSpeed = speed
+        maxSpeedSequence = row.sequence
+      }
+      if let duty = row.duty, maxDuty == nil || duty > maxDuty! {
+        maxDuty = duty
+        maxDutySequence = row.sequence
+      }
+      previousElapsed = row.elapsed
+      previousSpeed = row.speed
+    }
+    let storedCount = Int64(rows.count)
+    let actualEventCount = Int64(try database.scalarInt("SELECT COUNT(*) FROM session_event"))
+    let actualEventSequence = Int64(try database.scalarInt("SELECT COALESCE(MAX(sequence), 0) FROM session_event"))
+    let actualElapsed = rows.last?.elapsed ?? 0
+    let lastSpeed = rows.last?.speed
+    let lastElapsed = rows.last?.elapsed
+    try catalog.statement(
+      """
+      UPDATE session_catalog SET integrity = CASE WHEN integrity = 'dirty' THEN 'complete' ELSE integrity END,
+        committed_sequence = ?, committed_event_sequence = ?,
+        sample_count = ?, stored_sample_count = ?, event_count = ?,
+        committed_elapsed_ms = ?, history_revision = ?,
+        riding_elapsed_ms = ?, total_elapsed_ms = ?, distance_m = ?,
+        max_speed_mps = ?, max_duty_cycle = ?,
+        max_speed_source_sequence = ?, max_duty_source_sequence = ?,
+        last_sample_elapsed_ms = ?, last_speed_mps = ?
+      WHERE session_id = ? AND job_id = ?
+      """,
+      values: [
+        .integer(marker.sampleSequence), .integer(max(marker.eventSequence, actualEventSequence)),
+        .integer(marker.recordedCount), .integer(max(marker.storedCount, storedCount)),
+        .integer(max(marker.eventCount, actualEventCount)), .integer(max(marker.elapsed, actualElapsed)),
+        .integer(marker.revision), .integer(ridingElapsed), .integer(actualElapsed), .real(distance),
+        maxSpeed.map(SQLiteValue.real) ?? .null, maxDuty.map(SQLiteValue.real) ?? .null,
+        maxSpeedSequence.map(SQLiteValue.integer) ?? .null, maxDutySequence.map(SQLiteValue.integer) ?? .null,
+        lastElapsed.map(SQLiteValue.integer) ?? .null, lastSpeed.map(SQLiteValue.real) ?? .null,
+        .text(sessionID), .text(jobID),
+      ]
+    )
+  }
+
+  private func reconcileCatalogLocked() throws {
+    let rows = try catalog.query(
+      "SELECT session_id, job_id, file_name FROM session_catalog WHERE pending_delete = 0",
+      map: { (Self.columnText($0, 0)!, Self.columnText($0, 1)!, Self.columnText($0, 2)!) }
+    )
+    for (sessionID, jobID, fileName) in rows {
+      do {
+        try reconcileSessionCatalogLocked(sessionID: sessionID, jobID: jobID, fileName: fileName)
+      } catch {
+        try? markCatalogDirtyLocked(jobID: jobID)
+      }
+    }
+  }
+
+  private func reconcileDirtyCatalogLocked(jobID: String) throws {
+    let rows = try catalog.query(
+      """
+      SELECT session_id, file_name FROM session_catalog
+      WHERE job_id = ? AND pending_delete = 0 AND integrity = 'dirty'
+      """,
+      values: [.text(jobID)],
+      map: { (Self.columnText($0, 0)!, Self.columnText($0, 1)!) }
+    )
+    for (sessionID, fileName) in rows {
+      try reconcileSessionCatalogLocked(sessionID: sessionID, jobID: jobID, fileName: fileName)
+    }
+  }
+
+  private func reconcileDirtyCatalogLocked() throws {
+    let rows = try catalog.query(
+      """
+      SELECT session_id, job_id, file_name FROM session_catalog
+      WHERE pending_delete = 0 AND integrity = 'dirty'
+      """,
+      map: { (Self.columnText($0, 0)!, Self.columnText($0, 1)!, Self.columnText($0, 2)!) }
+    )
+    for (sessionID, jobID, fileName) in rows {
+      try reconcileSessionCatalogLocked(sessionID: sessionID, jobID: jobID, fileName: fileName)
+    }
+  }
+
   private func openSessionLocked(sessionID: String) throws -> Database {
+    if let jobID = try catalog.query(
+      "SELECT job_id FROM session_catalog WHERE session_id = ? AND pending_delete = 0",
+      values: [.text(sessionID)],
+      map: { Self.columnText($0, 0)! }
+    ).first {
+      try reconcileDirtyCatalogLocked(jobID: jobID)
+    }
     guard let fileName = try catalog.query(
       "SELECT file_name FROM session_catalog WHERE session_id = ? AND pending_delete = 0",
       values: [.text(sessionID)],
@@ -1391,13 +2157,105 @@ public final class SQLiteLogStore: LogStorePort, ProductStorePort, SessionStoreP
     return try Database(url: root.appending(path: fileName))
   }
 
+  private struct ReadLease {
+    let sessionID: String
+    let fileURL: URL
+  }
+
+  /// Resolve a historical file under the short store lock, then let the
+  /// caller scan it on a dedicated query-only WAL connection. The lease keeps
+  /// deletion from removing a file while a reader is still opening or using
+  /// it, and the deferred transaction gives the request one stable snapshot.
+  private func acquireReadLeaseLocked(sessionID: String) throws -> ReadLease {
+    guard !maintenanceSessions.contains(sessionID) else {
+      throw SessionStoreError.maintenanceInProgress
+    }
+    try reconcileDirtyCatalogLocked()
+    guard let fileName = try catalog.query(
+      """
+      SELECT file_name FROM session_catalog
+      WHERE session_id = ? AND pending_delete = 0
+      """,
+      values: [.text(sessionID)],
+      map: { Self.columnText($0, 0)! }
+    ).first else { throw SessionStoreError.sessionNotFound }
+    activeReadLeases[sessionID, default: 0] += 1
+    return ReadLease(sessionID: sessionID, fileURL: root.appending(path: fileName))
+  }
+
+  private func releaseReadLease(_ lease: ReadLease) {
+    lock.lock()
+    defer { lock.unlock() }
+    guard let count = activeReadLeases[lease.sessionID] else { return }
+    if count <= 1 {
+      activeReadLeases.removeValue(forKey: lease.sessionID)
+      // Deletion is deliberately best-effort here: if the file operation is
+      // interrupted the durable pending marker is retried at the next store
+      // open, and the session remains hidden from new readers meanwhile.
+      if let fileName = try? catalog.query(
+        "SELECT file_name FROM session_catalog WHERE session_id = ? AND pending_delete = 1",
+        values: [.text(lease.sessionID)],
+        map: { Self.columnText($0, 0)! }
+      ).first {
+        try? finalizePendingDeleteLocked(sessionID: lease.sessionID, fileName: fileName)
+      }
+    } else {
+      activeReadLeases[lease.sessionID] = count - 1
+    }
+  }
+
+  private func withReadLease<T>(
+    sessionID: String,
+    body: (Database, SQLiteCancellation) throws -> T
+  ) throws -> T {
+    // Keep historical work bounded independently from the loopback request
+    // executor. The slot is acquired before the lease so a queued request
+    // cannot make deletion appear blocked while it waits for a reader slot.
+    historicalReadSlots.wait()
+    defer { historicalReadSlots.signal() }
+    lock.lock()
+    let lease: ReadLease
+    do {
+      lease = try acquireReadLeaseLocked(sessionID: sessionID)
+    } catch {
+      lock.unlock()
+      throw error
+    }
+    lock.unlock()
+    defer { releaseReadLease(lease) }
+
+    let database = try Database(url: lease.fileURL, readOnly: true)
+    let cancellation = SQLiteCancellation()
+    database.installCancellation(cancellation)
+    lock.lock()
+    historicalConnections[sessionID, default: []].append(database)
+    historicalCancellations[sessionID, default: []].append(cancellation)
+    lock.unlock()
+    defer {
+      lock.lock()
+      historicalConnections[sessionID]?.removeAll { $0 === database }
+      if historicalConnections[sessionID]?.isEmpty == true {
+        historicalConnections.removeValue(forKey: sessionID)
+      }
+      historicalCancellations[sessionID]?.removeAll { $0 === cancellation }
+      if historicalCancellations[sessionID]?.isEmpty == true {
+        historicalCancellations.removeValue(forKey: sessionID)
+      }
+      lock.unlock()
+    }
+    try database.execute("PRAGMA query_only = ON; PRAGMA busy_timeout = 1000; BEGIN DEFERRED")
+    defer { try? database.execute("ROLLBACK") }
+    return try body(database, cancellation)
+  }
+
   private func readSeries(
     sessionID: String,
     start: Int64,
     end: Int64,
     fields: [String],
     maxPoints: Int,
-    lossless: Bool
+    lossless: Bool,
+    maximumSequence: Int64?
   ) throws -> [SessionSeriesPoint] {
     let uniqueFields = Array(NSOrderedSet(array: fields)) as? [String] ?? fields
     guard !uniqueFields.isEmpty else { throw SessionStoreError.invalidRange }
@@ -1414,43 +2272,46 @@ public final class SQLiteLogStore: LogStorePort, ProductStorePort, SessionStoreP
       let path = ("$." + jsonKey).replacingOccurrences(of: "'", with: "''")
       return "json_extract(extension_json, '\(path)')"
     }
-    lock.lock()
-    defer { lock.unlock() }
-    let database = try openSessionLocked(sessionID: sessionID)
-    let selected = columns.enumerated().map { index, column in
-      lossless ? "\(column) AS value_\(index)" : "AVG(\(column)) AS value_\(index)"
-    }.joined(separator: ", ")
-    let sql: String
-    let values: [SQLiteValue]
-    if lossless {
-      sql = """
-      SELECT monotonic_elapsed_ms, \(selected) FROM sample
-      WHERE monotonic_elapsed_ms BETWEEN ? AND ?
-      ORDER BY monotonic_elapsed_ms, sequence LIMIT ?
-      """
-      values = [.integer(start), .integer(end), .integer(Int64(maxPoints))]
-    } else {
-      let span = max(1, end - start + 1)
-      sql = """
-      SELECT MIN(monotonic_elapsed_ms), \(selected) FROM sample
-      WHERE monotonic_elapsed_ms BETWEEN ? AND ?
-      GROUP BY ((monotonic_elapsed_ms - ?) * ? / ?)
-      ORDER BY MIN(monotonic_elapsed_ms) LIMIT ?
-      """
-      values = [
-        .integer(start), .integer(end), .integer(start),
-        .integer(Int64(maxPoints)), .integer(span), .integer(Int64(maxPoints)),
-      ]
-    }
-    return try database.query(sql, values: values) { statement in
-      var result: [String: Double?] = [:]
-      for (index, field) in uniqueFields.enumerated() {
-        result[field] = .some(Self.columnDouble(statement, Int32(index + 1)))
+    return try withReadLease(sessionID: sessionID) { database, cancellation in
+      let selected = columns.enumerated().map { index, column in
+        "\(column) AS value_\(index)"
+      }.joined(separator: ", ")
+      let sql: String
+      var values: [SQLiteValue] = [.integer(start), .integer(end)]
+      let sequencePredicate: String
+      if let maximumSequence {
+        sequencePredicate = " AND sequence <= ?"
+        values.append(.integer(maximumSequence))
+      } else {
+        sequencePredicate = ""
       }
-      return SessionSeriesPoint(
-        elapsedMs: sqlite3_column_int64(statement, 0),
-        values: result
-      )
+      if lossless {
+        sql = """
+        SELECT sequence, monotonic_elapsed_ms, ride_state, \(selected) FROM sample
+        WHERE monotonic_elapsed_ms BETWEEN ? AND ?\(sequencePredicate)
+        ORDER BY monotonic_elapsed_ms, sequence LIMIT ?
+        """
+        values.append(.integer(Int64(maxPoints)))
+      } else {
+        sql = """
+        SELECT sequence, monotonic_elapsed_ms, ride_state, \(selected) FROM sample
+        WHERE monotonic_elapsed_ms BETWEEN ? AND ?\(sequencePredicate)
+        ORDER BY monotonic_elapsed_ms, sequence LIMIT ?
+        """
+        values.append(.integer(Int64(maxPoints)))
+      }
+      return try database.query(sql, values: values) { statement in
+        var result: [String: Double?] = [:]
+        for (index, field) in uniqueFields.enumerated() {
+          result[field] = .some(Self.columnDouble(statement, Int32(index + 3)))
+        }
+        return SessionSeriesPoint(
+          elapsedMs: sqlite3_column_int64(statement, 1),
+          values: result,
+          sequence: sqlite3_column_int64(statement, 0),
+          rideState: Self.columnText(statement, 2)
+        )
+      }
     }
   }
 
@@ -1463,78 +2324,60 @@ public final class SQLiteLogStore: LogStorePort, ProductStorePort, SessionStoreP
     "batteryCurrentA": "battery_current_a",
     "erpm": "erpm",
     "speedKph": "speed_kph",
-    "pitchDeg": "json_extract(detail_json, '$.pitchDeg')",
-    "balancePitchDeg": "json_extract(detail_json, '$.balancePitchDeg')",
-    "rollDeg": "json_extract(detail_json, '$.rollDeg')",
-    "directionalMotorCurrentA": "json_extract(detail_json, '$.directionalMotorCurrentA')",
-    "filteredMotorCurrentA": "json_extract(detail_json, '$.filteredMotorCurrentA')",
-    "requestedBalanceCurrentA": "json_extract(detail_json, '$.requestedBalanceCurrentA')",
-    "boosterCurrentA": "json_extract(detail_json, '$.boosterCurrentA')",
-    "fieldWeakeningCurrentA": "json_extract(detail_json, '$.fieldWeakeningCurrentA')",
-    "footpadAdc1V": "json_extract(detail_json, '$.footpadAdc1V')",
-    "footpadAdc2V": "json_extract(detail_json, '$.footpadAdc2V')",
-    "remoteInput": "json_extract(detail_json, '$.remoteInput')",
-    "setpointDeg": "json_extract(detail_json, '$.setpointDeg')",
-    "atrSetpointDeg": "json_extract(detail_json, '$.atrSetpointDeg')",
-    "brakeTiltSetpointDeg": "json_extract(detail_json, '$.brakeTiltSetpointDeg')",
-    "torqueTiltSetpointDeg": "json_extract(detail_json, '$.torqueTiltSetpointDeg')",
-    "turnTiltSetpointDeg": "json_extract(detail_json, '$.turnTiltSetpointDeg')",
-    "remoteSetpointDeg": "json_extract(detail_json, '$.remoteSetpointDeg')",
+    "pitchDeg": "pitch_deg",
+    "balancePitchDeg": "balance_pitch_deg",
+    "rollDeg": "roll_deg",
+    "directionalMotorCurrentA": "directional_motor_current_a",
+    "filteredMotorCurrentA": "filtered_motor_current_a",
+    "requestedBalanceCurrentA": "requested_balance_current_a",
+    "boosterCurrentA": "booster_current_a",
+    "fieldWeakeningCurrentA": "field_weakening_current_a",
+    "footpadAdc1V": "footpad_adc_1_v",
+    "footpadAdc2V": "footpad_adc_2_v",
+    "remoteInput": "remote_input",
+    "setpointDeg": "setpoint_deg",
+    "atrSetpointDeg": "atr_setpoint_deg",
+    "brakeTiltSetpointDeg": "brake_tilt_setpoint_deg",
+    "torqueTiltSetpointDeg": "torque_tilt_setpoint_deg",
+    "turnTiltSetpointDeg": "turn_tilt_setpoint_deg",
+    "remoteSetpointDeg": "remote_setpoint_deg",
     "atrAccelerationDifferenceErpmPerSecond":
-      "json_extract(detail_json, '$.atrAccelerationDifferenceErpmPerSecond')",
-    "atrSpeedBoost": "json_extract(detail_json, '$.atrSpeedBoost')",
-    "distanceM": "json_extract(detail_json, '$.distanceM')",
-    "odometerM": "json_extract(detail_json, '$.odometerM')",
-    "ampHoursDrawnAh": "json_extract(detail_json, '$.ampHoursDrawnAh')",
-    "ampHoursChargedAh": "json_extract(detail_json, '$.ampHoursChargedAh')",
-    "wattHoursDrawnWh": "json_extract(detail_json, '$.wattHoursDrawnWh')",
-    "wattHoursChargedWh": "json_extract(detail_json, '$.wattHoursChargedWh')",
-    "batteryLevel": "json_extract(detail_json, '$.batteryLevel')",
-    "chargingCurrentA": "json_extract(detail_json, '$.chargingCurrentA')",
-    "chargingVoltageV": "json_extract(detail_json, '$.chargingVoltageV')",
+      "atr_acceleration_difference_erpm_per_second",
+    "atrSpeedBoost": "atr_speed_boost",
+    "distanceM": "distance_m",
+    "odometerM": "odometer_m",
+    "ampHoursDrawnAh": "amp_hours_drawn_ah",
+    "ampHoursChargedAh": "amp_hours_charged_ah",
+    "wattHoursDrawnWh": "watt_hours_drawn_wh",
+    "wattHoursChargedWh": "watt_hours_charged_wh",
+    "batteryLevel": "battery_level",
+    "chargingCurrentA": "charging_current_a",
+    "chargingVoltageV": "charging_voltage_v",
   ]
 
-  private static func telemetryDetailJSON(_ sample: TelemetrySample) throws -> String {
-    var values: [String: Any] = [:]
-    func add(_ key: String, _ value: Double?) {
-      if let value { values[key] = value }
-    }
-    add("pitchDeg", sample.pitchDeg)
-    add("balancePitchDeg", sample.balancePitchDeg)
-    add("rollDeg", sample.rollDeg)
-    add("directionalMotorCurrentA", sample.directionalMotorCurrentA)
-    add("filteredMotorCurrentA", sample.filteredMotorCurrentA)
-    add("requestedBalanceCurrentA", sample.requestedBalanceCurrentA)
-    add("boosterCurrentA", sample.boosterCurrentA)
-    add("fieldWeakeningCurrentA", sample.fieldWeakeningCurrentA)
-    add("footpadAdc1V", sample.footpadAdc1V)
-    add("footpadAdc2V", sample.footpadAdc2V)
-    add("remoteInput", sample.remoteInput)
-    add("setpointDeg", sample.setpointDeg)
-    add("atrSetpointDeg", sample.atrSetpointDeg)
-    add("brakeTiltSetpointDeg", sample.brakeTiltSetpointDeg)
-    add("torqueTiltSetpointDeg", sample.torqueTiltSetpointDeg)
-    add("turnTiltSetpointDeg", sample.turnTiltSetpointDeg)
-    add("remoteSetpointDeg", sample.remoteSetpointDeg)
-    add(
-      "atrAccelerationDifferenceErpmPerSecond",
-      sample.atrAccelerationDifferenceErpmPerSecond
-    )
-    add("atrSpeedBoost", sample.atrSpeedBoost)
-    add("distanceM", sample.distanceM)
-    add("odometerM", sample.odometerM)
-    add("ampHoursDrawnAh", sample.ampHoursDrawnAh)
-    add("ampHoursChargedAh", sample.ampHoursChargedAh)
-    add("wattHoursDrawnWh", sample.wattHoursDrawnWh)
-    add("wattHoursChargedWh", sample.wattHoursChargedWh)
-    add("batteryLevel", sample.batteryLevel)
-    add("chargingCurrentA", sample.chargingCurrentA)
-    add("chargingVoltageV", sample.chargingVoltageV)
-    let data = try JSONSerialization.data(withJSONObject: values, options: [.sortedKeys])
-    guard data.count <= 16_384, let result = String(data: data, encoding: .utf8) else {
-      throw SQLiteLogStoreError.sqlite("Telemetry detail JSON exceeds its bound")
-    }
-    return result
+  private static func numericValues(_ sample: TelemetrySample) -> [String: Double?] {
+    [
+      "packVoltageV": sample.packVoltageV, "dutyCycle": sample.dutyCycle,
+      "controllerTempC": sample.controllerTempC, "motorTempC": sample.motorTempC,
+      "motorCurrentA": sample.motorCurrentA, "batteryCurrentA": sample.batteryCurrentA,
+      "erpm": sample.erpm, "speedKph": sample.speedKph, "pitchDeg": sample.pitchDeg,
+      "balancePitchDeg": sample.balancePitchDeg, "rollDeg": sample.rollDeg,
+      "directionalMotorCurrentA": sample.directionalMotorCurrentA,
+      "filteredMotorCurrentA": sample.filteredMotorCurrentA,
+      "requestedBalanceCurrentA": sample.requestedBalanceCurrentA,
+      "boosterCurrentA": sample.boosterCurrentA, "fieldWeakeningCurrentA": sample.fieldWeakeningCurrentA,
+      "footpadAdc1V": sample.footpadAdc1V, "footpadAdc2V": sample.footpadAdc2V,
+      "remoteInput": sample.remoteInput, "setpointDeg": sample.setpointDeg,
+      "atrSetpointDeg": sample.atrSetpointDeg, "brakeTiltSetpointDeg": sample.brakeTiltSetpointDeg,
+      "torqueTiltSetpointDeg": sample.torqueTiltSetpointDeg, "turnTiltSetpointDeg": sample.turnTiltSetpointDeg,
+      "remoteSetpointDeg": sample.remoteSetpointDeg,
+      "atrAccelerationDifferenceErpmPerSecond": sample.atrAccelerationDifferenceErpmPerSecond,
+      "atrSpeedBoost": sample.atrSpeedBoost, "distanceM": sample.distanceM,
+      "odometerM": sample.odometerM, "ampHoursDrawnAh": sample.ampHoursDrawnAh,
+      "ampHoursChargedAh": sample.ampHoursChargedAh, "wattHoursDrawnWh": sample.wattHoursDrawnWh,
+      "wattHoursChargedWh": sample.wattHoursChargedWh, "batteryLevel": sample.batteryLevel,
+      "chargingCurrentA": sample.chargingCurrentA, "chargingVoltageV": sample.chargingVoltageV,
+    ]
   }
 
   private static func telemetryExtensionJSON(_ values: [String: Double]) throws -> String {
@@ -1614,6 +2457,7 @@ public final class SQLiteLogStore: LogStorePort, ProductStorePort, SessionStoreP
     "sessionLinkWindowMs",
     "themePreference",
     "unitPreference",
+    "historyGapThresholdSeconds",
   ]
 
   private static func settingsDictionary(_ value: SettingsRecord) -> [String: Any] {
@@ -1628,6 +2472,7 @@ public final class SQLiteLogStore: LogStorePort, ProductStorePort, SessionStoreP
       "sessionLinkWindowMs": value.sessionLinkWindowMs,
       "themePreference": value.themePreference.rawValue,
       "unitPreference": value.unitPreference.rawValue,
+      "historyGapThresholdSeconds": value.historyGapThresholdSeconds ?? NSNull(),
     ]
   }
 
@@ -1667,6 +2512,15 @@ public final class SQLiteLogStore: LogStorePort, ProductStorePort, SessionStoreP
       else { throw ProductStoreError.invalidSettingsPatch }
       return value
     }
+    func historyGapThresholdSeconds(_ key: String) throws -> Double? {
+      guard let raw = values[key] else { throw ProductStoreError.invalidSettingsPatch }
+      if raw is NSNull { return nil }
+      guard let number = raw as? NSNumber,
+            CFGetTypeID(number) != CFBooleanGetTypeID(),
+            number.doubleValue.isFinite
+      else { throw ProductStoreError.invalidSettingsPatch }
+      return min(3_600, max(0.1, number.doubleValue))
+    }
     return try SettingsRecord(
       revision: revision,
       idleProbeIntervalMs: integer("idleProbeIntervalMs", 100 ... 10_000),
@@ -1678,7 +2532,8 @@ public final class SQLiteLogStore: LogStorePort, ProductStorePort, SessionStoreP
       automaticSessionLinkingEnabled: boolean("automaticSessionLinkingEnabled"),
       sessionLinkWindowMs: integer("sessionLinkWindowMs", 60_000 ... 86_400_000),
       themePreference: themePreference("themePreference"),
-      unitPreference: unitPreference("unitPreference")
+      unitPreference: unitPreference("unitPreference"),
+      historyGapThresholdSeconds: historyGapThresholdSeconds("historyGapThresholdSeconds")
     )
   }
 

@@ -1,7 +1,13 @@
 export const MAX_MESSAGE_BYTES = 65_536;
+export const MAX_SESSION_DATA_REQUEST_BYTES = 16_384;
+export const MAX_SESSION_DATA_RESPONSE_BYTES = 4 * 1024 * 1024;
+export const MAX_SESSION_DATA_FIELDS = 16;
+export const MAX_SESSION_SERIES_BUCKETS = 1_024;
+export const MAX_SESSION_SERIES_OBSERVATIONS = 65_536;
+export const MAX_SESSION_SAMPLE_ROWS = 2_000;
+export const MAX_SESSION_EVENT_ROWS = 500;
+export const MAX_SESSION_CURSOR_BYTES = 512;
 export const MAX_RECENT_ITEMS = 50;
-export const MAX_SERIES_POINTS = 2_000;
-export const MAX_SESSION_EVENTS = 2_000;
 export const MAX_CAN_DISCOVERY_IDS = 64;
 export const MAX_CONTROLLER_CANDIDATES = 16;
 export const MAX_TELEMETRY_FIELDS = 64;
@@ -281,6 +287,62 @@ export interface SessionSummary {
   maxDutyCycle?: number | null;
 }
 
+export type SessionFieldSource = 'stable' | 'extension';
+
+export interface SessionFieldDescriptor {
+  name: string;
+  unit: string | null;
+  source: SessionFieldSource;
+}
+
+export interface SessionPublishedSnapshot {
+  historyRevision: number;
+  committedSampleSequence: number;
+  committedEventSequence: number;
+  committedElapsedMs: number;
+}
+
+export interface SessionPruneMetadata {
+  targetResolutionSeconds: number | null;
+  recordedSampleCount: number;
+  storedSampleCount: number;
+  policy: string | null;
+}
+
+export interface SessionMetadata {
+  summary: SessionSummary;
+  fields: SessionFieldDescriptor[];
+  eventCount: number;
+  recordedSampleCount: number;
+  storedSampleCount: number;
+  prune: SessionPruneMetadata;
+  snapshot: SessionPublishedSnapshot;
+}
+
+export type SessionOperationKind = 'delete' | 'prunePreview' | 'prune';
+export type SessionOperationStatus = 'queued' | 'running' | 'cancelling' | 'completed' | 'cancelled' | 'failed';
+
+export interface SessionOperationState {
+  operationId: string;
+  kind: SessionOperationKind;
+  status: SessionOperationStatus;
+  sessionId: string | null;
+  scope: 'one' | 'all';
+  targetResolutionSeconds: number | null;
+  completedSessions: number;
+  eligibleSessions: number | null;
+  error: BackendError | null;
+}
+
+export interface SessionPrunePreview {
+  operation: SessionOperationState;
+  recordedSampleCount: number;
+  estimatedStoredSampleCount: number;
+  estimatedReclaimableBytes: number | null;
+  skipped: boolean;
+  skipReason: string | null;
+}
+
 export interface SessionGroup {
   sessionGroupId: string;
   deviceHistoryId: string;
@@ -304,36 +366,7 @@ export interface Settings {
   sessionLinkWindowMs: number;
   themePreference: ThemePreference;
   unitPreference: UnitPreference;
-}
-
-export interface SeriesPoint {
-  elapsedMs: number;
-  values: Record<string, number | null>;
-}
-
-export type SessionEventKind =
-  | 'packageState'
-  | 'packageMode'
-  | 'footpadState'
-  | 'stopCondition'
-  | 'setpointAdjustment'
-  | 'wheelslip'
-  | 'darkride'
-  | 'charging'
-  | 'alertReason'
-  | 'firmwareFault';
-
-export interface SessionEvent {
-  elapsedMs: number;
-  kind: SessionEventKind;
-  value: string;
-}
-
-export interface SessionDetail {
-  summary: SessionSummary;
-  series: SeriesPoint[];
-  events: SessionEvent[];
-  eventsTruncated: boolean;
+  historyGapThresholdSeconds: number | null;
 }
 
 export interface ExportResult {
@@ -350,6 +383,7 @@ export interface AppState {
   recentSessions: SessionSummary[];
   sessionGroups: SessionGroup[];
   settings: Settings;
+  sessionOperation?: SessionOperationState | null;
 }
 
 export type BackendErrorCode =
@@ -399,16 +433,22 @@ export interface BackendMethods {
     params: { savedDeviceId: string; expectedRevision: number; patch: Record<string, unknown> };
     result: BoardProfile;
   };
-  'session.get': { params: { sessionId: string; maxPoints?: number }; result: SessionDetail };
-  'session.getDiagnostics': {
-    params: { sessionId: string; centerElapsedMs: number; beforeMs: number; afterMs: number };
-    result: SeriesPoint[];
-  };
+  'session.get': { params: { sessionId: string }; result: SessionMetadata };
   'session.export': {
     params: { sessionId: string; format: 'float-view-archive' | 'csv' };
     result: ExportResult;
   };
   'session.delete': { params: { sessionId: string }; result: Accepted };
+  'session.delete.cancel': { params: { operationId: string }; result: SessionOperationState };
+  'session.prune.preview': {
+    params: { scope: 'one' | 'all'; sessionId?: string; targetResolutionSeconds: number };
+    result: SessionPrunePreview;
+  };
+  'session.prune.start': {
+    params: { scope: 'one' | 'all'; sessionId?: string; targetResolutionSeconds: number };
+    result: SessionOperationState;
+  };
+  'session.prune.cancel': { params: { operationId: string }; result: SessionOperationState };
   'sessionGroup.unlink': { params: { sessionGroupId: string }; result: Accepted };
 }
 

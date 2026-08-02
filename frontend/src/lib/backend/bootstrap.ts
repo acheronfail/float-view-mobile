@@ -2,6 +2,7 @@ import { connectApiClient, type ApiClient } from './client';
 
 export type BootstrapDocument = {
   webSocketUrl: string;
+  sessionDataUrl?: string;
   sessionToken?: string;
 };
 
@@ -22,6 +23,16 @@ export function bootstrapWebSocketUrl(document: BootstrapDocument, base: string,
     url.host = frontend.host;
   }
   if (document.sessionToken) url.searchParams.set('token', document.sessionToken);
+  return url;
+}
+
+export function bootstrapSessionDataUrl(document: BootstrapDocument, base: string, development: boolean): URL {
+  const url = new URL(document.sessionDataUrl ?? '/api/session-data', base);
+  if (development) {
+    const frontend = new URL(base);
+    url.protocol = frontend.protocol;
+    url.host = frontend.host;
+  }
   return url;
 }
 

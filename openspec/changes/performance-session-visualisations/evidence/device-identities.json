@@ -1,0 +1,25 @@
+{
+  "ios": {
+    "deviceId": "00008101-00195021268B001E",
+    "productType": "iPhone13,2",
+    "hardwareModel": "D53gAP",
+    "osVersion": "18.6.1",
+    "osBuild": "22G90",
+    "webView": "WKWebView (system WebKit; version follows iOS 18.6.1)"
+  },
+  "android": {
+    "deviceId": "1cfb7634120d7ece",
+    "model": "SM-G965F",
+    "osVersion": "10",
+    "apiLevel": 29,
+    "webViewPackage": "com.google.android.webview",
+    "webViewVersion": "148.0.7778.178"
+  },
+  "fixture": {
+    "serialPort": "/dev/cu.usbmodem2101"
+  },
+  "notes": [
+    "The physical matrix passed all nine scenarios on each target.",
+    "The shared runner records scenario durations; initial-visible-SVG, settled-fetch, cache-size, long-task, and cancellation-release stage timings require an instrumented session review and are not inferred from BLE scenario durations."
+  ]
+}

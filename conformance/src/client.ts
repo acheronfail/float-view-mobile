@@ -7,6 +7,14 @@ import type {
   BackendResult,
 } from '../../frontend/src/lib/backend/contract.ts';
 import { MAX_MESSAGE_BYTES } from '../../frontend/src/lib/backend/contract.ts';
+import { MAX_SESSION_DATA_REQUEST_BYTES } from '../../frontend/src/lib/backend/contract.ts';
+import {
+  readBoundedJson,
+  validateSessionDataRequest,
+  validateSessionDataResult,
+  type SessionDataRequest,
+  type SessionDataResult,
+} from '../../frontend/src/lib/backend/session-data.ts';
 
 export class ConformanceError extends Error {
   readonly error: BackendError;
@@ -19,6 +27,7 @@ export class ConformanceError extends Error {
 
 export class ConformanceClient {
   private readonly socket: WebSocket;
+  private readonly origin: string;
   private nextId = 1;
   private state?: AppState;
   private readonly stateWaiters = new Set<{
@@ -37,10 +46,41 @@ export class ConformanceClient {
     }
   >();
 
-  private constructor(socket: WebSocket) {
+  private constructor(socket: WebSocket, origin: string) {
     this.socket = socket;
+    this.origin = origin;
     socket.on('message', (data) => this.receive(data.toString()));
     socket.on('close', () => this.rejectAll(new Error('Backend closed the socket')));
+  }
+
+  private dataEndpoint(): { url: string; token: string } {
+    const value = new URL(this.socket.url);
+    const token = value.searchParams.get('token') ?? '';
+    value.protocol = value.protocol === 'wss:' ? 'https:' : 'http:';
+    value.pathname = '/api/session-data';
+    value.search = '';
+    return { url: value.toString(), token };
+  }
+
+  async sessionData(request: SessionDataRequest): Promise<SessionDataResult> {
+    const validated = validateSessionDataRequest(request);
+    const body = JSON.stringify(validated);
+    if (Buffer.byteLength(body, 'utf8') > MAX_SESSION_DATA_REQUEST_BYTES)
+      throw new Error('Session-data request exceeded bound');
+    const endpoint = this.dataEndpoint();
+    const response = await fetch(endpoint.url, {
+      method: 'POST',
+      body,
+      headers: {
+        Origin: this.origin,
+        'X-Float-View-Token': endpoint.token,
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+        'Accept-Encoding': 'gzip',
+      },
+    });
+    if (!response.ok) throw new Error(`Session-data request failed: HTTP ${response.status}`);
+    return validateSessionDataResult(await readBoundedJson(response), validated);
   }
 
   static open(url: string, origin: string, timeoutMs = 5_000): Promise<ConformanceClient> {
@@ -52,7 +92,7 @@ export class ConformanceClient {
       }, timeoutMs);
       socket.once('open', () => {
         clearTimeout(timer);
-        resolve(new ConformanceClient(socket));
+        resolve(new ConformanceClient(socket, origin));
       });
       socket.once('error', (error) => {
         clearTimeout(timer);
@@ -106,7 +146,9 @@ export class ConformanceClient {
   }
 
   private receive(text: string) {
-    if (text.length > MAX_MESSAGE_BYTES) throw new Error('Backend message exceeded bound');
+    if (Buffer.byteLength(text, 'utf8') > MAX_MESSAGE_BYTES) {
+      throw new Error('Backend message exceeded bound');
+    }
     const message = JSON.parse(text) as Record<string, unknown>;
     if (message.event === 'state.changed') {
       const state = message.data as AppState;

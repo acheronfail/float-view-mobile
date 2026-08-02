@@ -1,14 +1,17 @@
-import type {
-  AppState,
-  BackendError,
-  BackendMethod,
-  ConnectionIssueCode,
-  ControllerCandidate,
-  Request,
-  Response,
-  SeriesPoint,
-  SessionSummary,
-  StateChanged,
+import {
+  MAX_MESSAGE_BYTES,
+  type AppState,
+  type BackendError,
+  type BackendMethod,
+  type ConnectionIssueCode,
+  type ControllerCandidate,
+  type Request,
+  type Response,
+  type SessionMetadata,
+  type SessionOperationState,
+  type SessionPrunePreview,
+  type SessionSummary,
+  type StateChanged,
 } from '../src/lib/backend/contract.ts';
 
 const discoveredBoard = {
@@ -55,29 +58,33 @@ const secondSession: SessionSummary = {
   endedAt: '2026-01-01T00:03:00Z',
 };
 
-const series: SeriesPoint[] = [
-  {
-    elapsedMs: 0,
-    values: detailedSeriesValues({
-      speedKph: 0,
-      erpm: 0,
-      packVoltageV: 60,
-      dutyCycle: 0.1,
-      distanceM: 0,
-    }),
-  },
-  {
-    elapsedMs: 60_000,
-    values: detailedSeriesValues({
-      speedKph: 20,
-      erpm: 3_240,
-      packVoltageV: 55,
-      dutyCycle: 0.8,
-      distanceM: 300,
-      fieldWeakeningCurrentA: 7,
-    }),
-  },
-];
+const sessionFields = Object.keys(detailedSeriesValues({})).map((name) => ({
+  name,
+  unit: name.endsWith('V') ? 'V' : name.endsWith('A') ? 'A' : null,
+  source: 'stable' as const,
+}));
+
+function sessionMetadata(summary: SessionSummary): SessionMetadata {
+  return {
+    summary,
+    fields: sessionFields,
+    eventCount: summary.eventCount,
+    recordedSampleCount: summary.sampleCount,
+    storedSampleCount: summary.sampleCount,
+    prune: {
+      targetResolutionSeconds: null,
+      recordedSampleCount: summary.sampleCount,
+      storedSampleCount: summary.sampleCount,
+      policy: null,
+    },
+    snapshot: {
+      historyRevision: 0,
+      committedSampleSequence: Math.max(0, summary.sampleCount - 1),
+      committedEventSequence: Math.max(0, summary.eventCount - 1),
+      committedElapsedMs: summary.totalElapsedMs,
+    },
+  };
+}
 
 function detailedSeriesValues(overrides: Record<string, number>): Record<string, number | null> {
   return {
@@ -171,15 +178,22 @@ export class MockBackend {
       sessionLinkWindowMs: 7_200_000,
       themePreference: 'system',
       unitPreference: 'metric',
+      historyGapThresholdSeconds: null,
     },
+    sessionOperation: null,
   };
+
+  private operation?: SessionOperationState;
+  private operationTimer?: ReturnType<typeof setTimeout>;
 
   constructor(publish: (event: StateChanged) => void = () => {}) {
     this.publish = publish;
   }
 
   handlePayload(payload: string): Response {
-    if (payload.length > 65_536) return failure(0, 'invalid_request', 'Message is too large');
+    if (Buffer.byteLength(payload, 'utf8') > MAX_MESSAGE_BYTES) {
+      return failure(0, 'invalid_request', 'Message is too large');
+    }
     let value: unknown;
     try {
       value = JSON.parse(payload);
@@ -386,12 +400,17 @@ export class MockBackend {
           'sessionLinkWindowMs',
           'themePreference',
           'unitPreference',
+          'historyGapThresholdSeconds',
         ]);
+        const historyGap = patch.historyGapThresholdSeconds;
         if (
           !Object.keys(patch).length ||
           Object.keys(patch).some((key) => !allowed.has(key)) ||
           ('themePreference' in patch && !['system', 'light', 'dark'].includes(String(patch.themePreference))) ||
-          ('unitPreference' in patch && !['metric', 'imperial'].includes(String(patch.unitPreference)))
+          ('unitPreference' in patch && !['metric', 'imperial'].includes(String(patch.unitPreference))) ||
+          ('historyGapThresholdSeconds' in patch &&
+            historyGap !== null &&
+            (typeof historyGap !== 'number' || !Number.isFinite(historyGap) || historyGap < 0.1 || historyGap > 3_600))
         ) {
           return failure(id, 'invalid_request', 'Settings patch is invalid');
         }
@@ -446,22 +465,8 @@ export class MockBackend {
       }
       case 'session.get': {
         const found = this.findSession(params);
-        return found
-          ? success(id, {
-              summary: found,
-              series,
-              events: [
-                { elapsedMs: 0, kind: 'packageState', value: 'running' },
-                { elapsedMs: 0, kind: 'footpadState', value: 'both' },
-              ],
-              eventsTruncated: false,
-            })
-          : failure(id, 'not_found', 'Session was not found');
+        return found ? success(id, sessionMetadata(found)) : failure(id, 'not_found', 'Session was not found');
       }
-      case 'session.getDiagnostics':
-        return this.findSession(params)
-          ? success(id, [{ elapsedMs: number(params.centerElapsedMs) ?? 0, values: { packVoltageV: 57 } }])
-          : failure(id, 'not_found', 'Session was not found');
       case 'session.export':
         return this.findSession(params)
           ? success(id, {
@@ -484,6 +489,50 @@ export class MockBackend {
         });
         return accepted(id);
       }
+      case 'session.delete.cancel':
+        return this.operation?.operationId === string(params.operationId)
+          ? success(id, this.operation)
+          : failure(id, 'not_found', 'Deletion operation was not found');
+      case 'session.prune.preview': {
+        const target = integer(params.targetResolutionSeconds);
+        if (!target || target < 1 || target > 300)
+          return failure(id, 'invalid_request', 'Prune resolution must be 1 through 300 seconds');
+        const found = params.scope === 'one' ? this.findSession(params) : undefined;
+        if (params.scope === 'one' && !found) return failure(id, 'not_found', 'Session was not found');
+        const operation = this.startOperation(
+          'prunePreview',
+          found?.sessionId ?? null,
+          params.scope === 'all' ? 'all' : 'one',
+          target
+        );
+        const preview: SessionPrunePreview = {
+          operation,
+          recordedSampleCount:
+            found?.sampleCount ?? this.state.recentSessions.reduce((sum, item) => sum + item.sampleCount, 0),
+          estimatedStoredSampleCount: found
+            ? Math.min(found.sampleCount, Math.ceil(found.totalElapsedMs / (target * 1000)) * 8 + 2)
+            : 0,
+          estimatedReclaimableBytes: found ? Math.max(0, found.sampleCount - 2) * 256 : null,
+          skipped: false,
+          skipReason: null,
+        };
+        return success(id, preview);
+      }
+      case 'session.prune.start': {
+        const target = integer(params.targetResolutionSeconds);
+        if (!target || target < 1 || target > 300)
+          return failure(id, 'invalid_request', 'Prune resolution must be 1 through 300 seconds');
+        const found = params.scope === 'one' ? this.findSession(params) : undefined;
+        if (params.scope === 'one' && !found) return failure(id, 'not_found', 'Session was not found');
+        return success(
+          id,
+          this.startOperation('prune', found?.sessionId ?? null, params.scope === 'all' ? 'all' : 'one', target)
+        );
+      }
+      case 'session.prune.cancel':
+        return this.operation?.operationId === string(params.operationId)
+          ? success(id, this.cancelOperation())
+          : failure(id, 'not_found', 'Prune operation was not found');
       case 'sessionGroup.unlink': {
         const groupId = string(params.sessionGroupId);
         if (!this.state.sessionGroups.some((group) => group.sessionGroupId === groupId)) {
@@ -677,6 +726,52 @@ export class MockBackend {
   private findSession(params: Record<string, unknown>) {
     const sessionId = string(params.sessionId);
     return this.state.recentSessions.find((item) => item.sessionId === sessionId);
+  }
+
+  private startOperation(
+    kind: SessionOperationState['kind'],
+    sessionId: string | null,
+    scope: SessionOperationState['scope'],
+    targetResolutionSeconds: number
+  ): SessionOperationState {
+    const operation: SessionOperationState = {
+      operationId: `${kind}-${this.state.revision + 1}`,
+      kind,
+      status: kind === 'prunePreview' ? 'completed' : 'queued',
+      sessionId,
+      scope,
+      targetResolutionSeconds,
+      completedSessions: kind === 'prunePreview' ? (scope === 'one' ? 1 : this.state.recentSessions.length) : 0,
+      eligibleSessions: scope === 'one' ? 1 : this.state.recentSessions.length,
+      error: null,
+    };
+    this.operation = operation;
+    this.change({ ...this.state, sessionOperation: operation });
+    if (kind === 'prune') {
+      this.operationTimer = setTimeout(() => {
+        this.operationTimer = undefined;
+        if (this.operation?.operationId !== operation.operationId || this.operation.status !== 'queued') return;
+        const completed: SessionOperationState = {
+          ...operation,
+          status: 'completed',
+          completedSessions: operation.eligibleSessions ?? 0,
+        };
+        this.operation = completed;
+        this.change({ ...this.state, sessionOperation: completed });
+      }, 0);
+      this.operationTimer.unref?.();
+    }
+    return operation;
+  }
+
+  private cancelOperation(): SessionOperationState {
+    const operation = this.operation!;
+    if (this.operationTimer) clearTimeout(this.operationTimer);
+    this.operationTimer = undefined;
+    const cancelled = { ...operation, status: 'cancelled' as const };
+    this.operation = cancelled;
+    this.change({ ...this.state, sessionOperation: cancelled });
+    return cancelled;
   }
 
   private scheduleDiscoveryExpiry() {

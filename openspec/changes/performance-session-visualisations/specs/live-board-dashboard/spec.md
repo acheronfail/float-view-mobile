@@ -26,7 +26,7 @@ Session metadata SHALL appear before history and the shared session feature SHAL
 
 ### Requirement: Detailed telemetry interactions
 
-Historical chart controls and inspection SHALL use native control semantics and Pointer Events with explicit gesture arbitration, capture, cancellation, and `touch-action: pan-y`. A tap SHALL select a crosshair; a horizontal background drag beyond the movement threshold SHALL pan; a drag beginning on the crosshair handle SHALL inspect; and two active touch pointers regardless of `isPrimary` SHALL pinch around their midpoint. Mouse hover, hovering pen, touch or contact pen selection, keyboard operation, and assistive technology SHALL reach the same exact retained-source tooltip model. Guarded pointer/click activation SHALL prevent double actions, and vertical page scrolling SHALL remain usable.
+Historical chart controls and inspection SHALL use native control semantics and Pointer Events with explicit gesture arbitration, capture, cancellation, and `touch-action: pan-y`. A tap SHALL select a crosshair; a one-pointer background drag beyond the movement threshold SHALL select an elapsed range for zoom; the selection SHALL show start/end vertical guides and opaque outside regions; and two active touch pointers regardless of `isPrimary` SHALL pinch around their midpoint. Mouse hover, hovering pen, touch or contact pen selection, keyboard operation, and assistive technology SHALL reach the same exact retained-source tooltip model. Guarded pointer/click activation SHALL prevent double actions, and vertical page scrolling SHALL remain usable.
 
 #### Scenario: Mouse hover inspection
 
@@ -43,9 +43,14 @@ Historical chart controls and inspection SHALL use native control semantics and 
 - **WHEN** a second active touch joins the chart gesture even though it is not the primary pointer
 - **THEN** the viewport pinches around the two-pointer midpoint and neither contact is misclassified as an invalid one-pointer activation
 
+#### Scenario: Drag range selection
+
+- **WHEN** a primary pointer drags across a chart background beyond the minimum selection distance
+- **THEN** vertical guides follow the selection endpoints, the outside regions are visibly opaque, and release zooms every chart to the selected elapsed range
+
 #### Scenario: Non-primary one-pointer activation
 
-- **WHEN** a non-primary pointer attempts to initiate a one-pointer pan, selection, or control activation
+- **WHEN** a non-primary pointer attempts to initiate a one-pointer selection or control activation
 - **THEN** no unintended action is committed
 
 #### Scenario: Cancelled gesture
@@ -93,10 +98,10 @@ All loaded charts SHALL share one inclusive elapsed viewport bounded by the publ
 - **WHEN** two touch contacts narrow a four-hour overview to a short elapsed range
 - **THEN** the current SVG responds during the gesture and the settled chart replaces it with extrema-preserving range data within the target
 
-#### Scenario: Horizontal pan
+#### Scenario: Range zoom
 
-- **WHEN** a background drag pans a zoomed chart beyond either session edge
-- **THEN** the viewport remains clamped, superseded work is cancelled, and the newest matching response wins
+- **WHEN** a background drag selects an elapsed range near either session edge
+- **THEN** the selected range remains clamped to the published session bounds, superseded work is cancelled, and the newest matching response wins
 
 #### Scenario: Full-range reset
 

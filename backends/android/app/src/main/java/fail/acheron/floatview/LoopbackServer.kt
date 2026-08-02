@@ -15,9 +15,16 @@ import fail.acheron.floatview.backend.ProductStoreException
 import fail.acheron.floatview.backend.SessionExportRecord
 import fail.acheron.floatview.backend.SessionEventRecord
 import fail.acheron.floatview.backend.SessionGroupRecord
+import fail.acheron.floatview.backend.SessionElapsedRange
+import fail.acheron.floatview.backend.SessionGapPolicyRecord
+import fail.acheron.floatview.backend.SessionHistoryCursor
+import fail.acheron.floatview.backend.SessionHistoryReducer
+import fail.acheron.floatview.backend.SessionPruneMetadataRecord
+import fail.acheron.floatview.backend.SessionMaintenanceJobRecord
 import fail.acheron.floatview.backend.SessionListQuery
 import fail.acheron.floatview.backend.SessionRecord
 import fail.acheron.floatview.backend.SessionSeriesPoint
+import fail.acheron.floatview.backend.SessionPublishedSnapshotRecord
 import fail.acheron.floatview.backend.SessionStoreException
 import fail.acheron.floatview.backend.SessionSummaryRecord
 import fail.acheron.floatview.backend.SettingsRecord
@@ -27,14 +34,17 @@ import fail.acheron.floatview.protocol.refloat.RefloatCompatibility
 import fail.acheron.floatview.protocol.vesc.ControllerRoute
 import fail.acheron.floatview.protocol.vesc.VescCompatibility
 import io.ktor.http.ContentType
+import io.ktor.http.HttpStatusCode
 import io.ktor.server.application.install
 import io.ktor.server.cio.CIO
 import io.ktor.server.engine.EmbeddedServer
 import io.ktor.server.engine.embeddedServer
 import io.ktor.server.request.header
+import io.ktor.server.request.receiveText
 import io.ktor.server.response.respondBytes
 import io.ktor.server.response.respondText
 import io.ktor.server.routing.get
+import io.ktor.server.routing.post
 import io.ktor.server.routing.routing
 import io.ktor.server.websocket.WebSockets
 import io.ktor.server.websocket.webSocket
@@ -44,7 +54,10 @@ import io.ktor.websocket.close
 import io.ktor.websocket.readText
 import io.ktor.websocket.send
 import java.security.SecureRandom
+import java.io.ByteArrayOutputStream
+import java.util.zip.GZIPOutputStream
 import java.util.concurrent.atomic.AtomicInteger
+import java.util.UUID
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -53,10 +66,12 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.selects.select
+import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
 
 internal const val ANDROID_BACKEND_PORT = 11012
+internal const val LOOPBACK_MAX_MESSAGE_BYTES = 65_536
 
 class LoopbackServer(
     private val assets: AssetManager,
@@ -78,7 +93,7 @@ class LoopbackServer(
         if (server != null) return
         val html = assets.open("index.html").use { it.readBytes() }
         val started = embeddedServer(CIO, host = "127.0.0.1", port = requestedPort) {
-            install(WebSockets) { maxFrameSize = MAX_MESSAGE_BYTES.toLong() }
+            install(WebSockets) { maxFrameSize = LOOPBACK_MAX_MESSAGE_BYTES.toLong() }
             routing {
                 get("/") {
                     call.respondBytes(html, ContentType.Text.Html)
@@ -87,10 +102,61 @@ class LoopbackServer(
                     call.respondText(
                         JSONObject()
                             .put("webSocketUrl", "ws://127.0.0.1:$port/api/ws")
+                            .put("sessionDataUrl", "http://127.0.0.1:$port/api/session-data")
                             .put("sessionToken", token)
                             .toString(),
                         ContentType.Application.Json,
                     )
+                }
+                post("/api/session-data") {
+                    call.response.headers.append("Cache-Control", "no-store")
+                    if (call.request.header("Origin") != origin || call.request.header("X-Float-View-Token") != token) {
+                        call.respondText("", status = HttpStatusCode.Forbidden)
+                        return@post
+                    }
+                    if (call.request.header("Content-Length")?.toLongOrNull()?.let { it > 16_384 } == true) {
+                        call.respondText("", status = HttpStatusCode.PayloadTooLarge)
+                        return@post
+                    }
+                    val body = call.receiveText()
+                    if (body.toByteArray(Charsets.UTF_8).size > 16_384) {
+                        call.respondText("", status = HttpStatusCode.PayloadTooLarge)
+                        return@post
+                    }
+                    try {
+                        val requestPayload = JSONObject(body)
+                        val sessionId = requestPayload.optString("sessionId")
+                        if (sessionId.isEmpty()) {
+                            call.respondText("", status = HttpStatusCode.BadRequest)
+                            return@post
+                        }
+                        val payload = withContext(Dispatchers.IO) {
+                            try {
+                                sessionData(requestPayload).toString().toByteArray(Charsets.UTF_8)
+                            } finally {
+                                // Ktor cancellation runs this finally block when
+                                // the client disconnects, closing any dedicated
+                                // SQLite reader for this request.
+                                applicationService.cancelHistoricalReads(sessionId)
+                            }
+                        }
+                        if (payload.size > 4 * 1024 * 1024) {
+                            call.respondText("", status = HttpStatusCode.PayloadTooLarge)
+                            return@post
+                        }
+                        if (call.request.header("Accept-Encoding")?.contains("gzip", ignoreCase = true) == true) {
+                            val compressed = ByteArrayOutputStream(payload.size)
+                            withContext(Dispatchers.IO) {
+                                GZIPOutputStream(compressed).use { it.write(payload) }
+                            }
+                            call.response.headers.append("Content-Encoding", "gzip")
+                            call.respondBytes(compressed.toByteArray(), ContentType.Application.Json)
+                        } else {
+                            call.respondBytes(payload, ContentType.Application.Json)
+                        }
+                    } catch (_: Exception) {
+                        call.respondText("", status = HttpStatusCode.BadRequest)
+                    }
                 }
                 webSocket("/api/ws") {
                     if (
@@ -130,7 +196,7 @@ class LoopbackServer(
                         for (frame in incoming) {
                             if (frame !is Frame.Text) continue
                             val text = frame.readText()
-                            if (text.toByteArray().size > MAX_MESSAGE_BYTES) {
+                            if (text.toByteArray().size > LOOPBACK_MAX_MESSAGE_BYTES) {
                                 close(CloseReason(CloseReason.Codes.TOO_BIG, "Message too large"))
                                 break
                             }
@@ -270,53 +336,12 @@ class LoopbackServer(
                     val sessionId = requiredString("sessionId")
                         ?: return failure(id.toInt(), "invalid_request", "sessionId is required")
                     val summary = applicationService.session(sessionId)
-                    val numericFields =
-                        DIAGNOSTIC_FIELDS + applicationService.sessionExtensionFields(sessionId)
-                    val maxPoints = (params.optInt("maxPoints", 400)).coerceIn(1, MAX_SERIES_POINTS)
-                    val rawEvents = applicationService.sessionEvents(
-                        sessionId,
-                        0,
-                        summary.totalElapsedMs,
-                    )
                     success(
-                        JSONObject()
-                            .put("summary", session(summary))
-                            .put(
-                                "series",
-                                JSONArray(
-                                    applicationService.querySessionSeries(
-                                        sessionId,
-                                        0,
-                                        summary.totalElapsedMs,
-                                        numericFields,
-                                        maxPoints,
-                                    ).map(::seriesPoint),
-                                ),
-                            )
-                            .put("events", JSONArray(rawEvents.takeLast(MAX_SESSION_EVENTS).map(::sessionEvent)))
-                            .put("eventsTruncated", rawEvents.size > MAX_SESSION_EVENTS)
-                    )
-                }
-                "session.getDiagnostics" -> {
-                    val sessionId = requiredString("sessionId")
-                        ?: return failure(id.toInt(), "invalid_request", "sessionId is required")
-                    val center = params.number("centerElapsedMs")
-                        ?: return failure(id.toInt(), "invalid_request", "centerElapsedMs is required")
-                    val before = params.number("beforeMs")
-                        ?: return failure(id.toInt(), "invalid_request", "beforeMs is required")
-                    val after = params.number("afterMs")
-                        ?: return failure(id.toInt(), "invalid_request", "afterMs is required")
-                    val numericFields =
-                        DIAGNOSTIC_FIELDS + applicationService.sessionExtensionFields(sessionId)
-                    success(
-                        JSONArray(
-                            applicationService.diagnosticWindow(
-                                sessionId,
-                                center,
-                                before,
-                                after,
-                                numericFields,
-                            ).map(::seriesPoint),
+                        sessionMetadata(
+                            summary,
+                            applicationService.sessionExtensionFields(sessionId),
+                            applicationService.sessionSnapshot(sessionId),
+                            applicationService.sessionPruneMetadata(sessionId),
                         ),
                     )
                 }
@@ -337,6 +362,142 @@ class LoopbackServer(
                         ?: return failure(id.toInt(), "invalid_request", "sessionId is required")
                     applicationService.deleteSession(sessionId)
                     success(accepted())
+                }
+                "session.delete.cancel" -> {
+                    val operationId = params.optString("operationId")
+                    val cancelled = applicationService.cancelPendingDelete(operationId)
+                    success(operation(
+                        operationId,
+                        "delete",
+                        if (cancelled) "cancelled" else "completed",
+                        if (cancelled) operationId else null,
+                        null,
+                    ))
+                }
+                "session.prune.preview" -> {
+                    val target = params.optInt("targetResolutionSeconds", 0)
+                    if (target !in 1..300) return failure(id.toInt(), "invalid_request", "Prune resolution must be 1 through 300 seconds")
+                    val scope = params.optString("scope", if (params.has("sessionId")) "one" else "all")
+                    if (scope != "one" && scope != "all") return failure(id.toInt(), "invalid_request", "scope must be one or all")
+                    val requestedSessionId = params.optString("sessionId").takeIf { it.isNotEmpty() }
+                    if (scope == "one" && requestedSessionId == null) return failure(id.toInt(), "invalid_request", "sessionId is required for one-session prune preview")
+                    val sessionIds = pruneSessionIds(scope, requestedSessionId)
+                    val previous = applicationService.maintenanceJob()?.takeIf {
+                        it.kind == "prune_preview" && it.scope == scope && it.sessionId == requestedSessionId &&
+                            it.targetResolutionSeconds == target.toLong() && it.state == "pending"
+                    }
+                    val workIds = previous?.lastSessionId?.let { last ->
+                        sessionIds.dropWhile { it != last }.drop(1)
+                    } ?: sessionIds
+                    var job = previous?.copy(state = "running", upperSessionId = sessionIds.lastOrNull()) ?: SessionMaintenanceJobRecord(
+                        operationId = "prunePreview-${UUID.randomUUID()}",
+                        kind = "prune_preview",
+                        scope = scope,
+                        state = "running",
+                        sessionId = requestedSessionId,
+                        targetResolutionSeconds = target.toLong(),
+                        upperSessionId = sessionIds.lastOrNull(),
+                        lastSessionId = null,
+                        completedSessions = 0,
+                        skippedSessions = 0,
+                        retainedSamples = 0,
+                        reclaimableBytes = 0,
+                        error = null,
+                    )
+                    applicationService.saveMaintenanceJob(job)
+                    var recorded = 0L
+                    var stored = 0L
+                    var reclaimable = 0L
+                    var skipped = true
+                    var skipReason: String? = null
+                    workIds.forEach { sessionId ->
+                        if (applicationService.maintenanceJob()?.state == "cancel_requested") return@forEach
+                        val preview = applicationService.prunePreview(sessionId, target.toLong())
+                        recorded += preview.recordedSampleCount
+                        stored += preview.estimatedStoredSampleCount
+                        reclaimable += preview.estimatedReclaimableBytes ?: 0L
+                        skipped = skipped && preview.skipped
+                        if (preview.skipReason != null) skipReason = preview.skipReason
+                        job = job.copy(
+                            lastSessionId = sessionId,
+                            completedSessions = job.completedSessions + 1,
+                            skippedSessions = job.skippedSessions + if (preview.skipped) 1 else 0,
+                            retainedSamples = job.retainedSamples + preview.estimatedStoredSampleCount,
+                            reclaimableBytes = job.reclaimableBytes + (preview.estimatedReclaimableBytes ?: 0L),
+                        )
+                        applicationService.saveMaintenanceJob(job)
+                    }
+                    job = job.copy(
+                        state = if (job.state == "cancel_requested" || applicationService.maintenanceJob()?.state == "cancel_requested") "cancelled" else "completed",
+                    )
+                    applicationService.saveMaintenanceJob(job)
+                    success(
+                        JSONObject()
+                            .put("operation", maintenanceJobJson(job))
+                            .put("recordedSampleCount", recorded)
+                            .put("estimatedStoredSampleCount", stored)
+                            .put("estimatedReclaimableBytes", reclaimable)
+                            .put("skipped", skipped)
+                            .put("skipReason", skipReason ?: JSONObject.NULL),
+                    )
+                }
+                "session.prune.start" -> {
+                    val target = params.optInt("targetResolutionSeconds", 0)
+                    if (target !in 1..300) return failure(id.toInt(), "invalid_request", "Prune resolution must be 1 through 300 seconds")
+                    val scope = params.optString("scope", if (params.has("sessionId")) "one" else "all")
+                    if (scope != "one" && scope != "all") return failure(id.toInt(), "invalid_request", "scope must be one or all")
+                    val requestedSessionId = params.optString("sessionId").takeIf { it.isNotEmpty() }
+                    if (scope == "one" && requestedSessionId == null) return failure(id.toInt(), "invalid_request", "sessionId is required for one-session prune")
+                    val sessionIds = pruneSessionIds(scope, requestedSessionId)
+                    val previous = applicationService.maintenanceJob()?.takeIf {
+                        it.kind == "prune" && it.scope == scope && it.sessionId == requestedSessionId &&
+                            it.targetResolutionSeconds == target.toLong() && it.state == "pending"
+                    }
+                    val workIds = previous?.lastSessionId?.let { last ->
+                        sessionIds.dropWhile { it != last }.drop(1)
+                    } ?: sessionIds
+                    var job = previous?.copy(state = "running", upperSessionId = sessionIds.lastOrNull()) ?: SessionMaintenanceJobRecord(
+                        operationId = "prune-${UUID.randomUUID()}",
+                        kind = "prune",
+                        scope = scope,
+                        state = "running",
+                        sessionId = requestedSessionId,
+                        targetResolutionSeconds = target.toLong(),
+                        upperSessionId = sessionIds.lastOrNull(),
+                        lastSessionId = null,
+                        completedSessions = 0,
+                        skippedSessions = 0,
+                        retainedSamples = 0,
+                        reclaimableBytes = 0,
+                        error = null,
+                    )
+                    applicationService.saveMaintenanceJob(job)
+                    try {
+                        workIds.forEach { sessionId ->
+                            if (applicationService.maintenanceJob()?.state == "cancel_requested") return@forEach
+                            val result = applicationService.pruneSession(sessionId, target.toLong())
+                            job = job.copy(
+                                lastSessionId = sessionId,
+                                completedSessions = job.completedSessions + 1,
+                                skippedSessions = job.skippedSessions + if (result.skipped) 1 else 0,
+                                retainedSamples = job.retainedSamples + result.estimatedStoredSampleCount,
+                                reclaimableBytes = job.reclaimableBytes + (result.estimatedReclaimableBytes ?: 0L),
+                            )
+                            applicationService.saveMaintenanceJob(job)
+                        }
+                    } catch (error: Exception) {
+                        applicationService.saveMaintenanceJob(job.copy(state = "failed", error = error.message?.take(256)))
+                        throw error
+                    }
+                    job = job.copy(
+                        state = if (job.state == "cancel_requested" || applicationService.maintenanceJob()?.state == "cancel_requested") "cancelled" else "completed",
+                    )
+                    applicationService.saveMaintenanceJob(job)
+                    success(maintenanceJobJson(job))
+                }
+                "session.prune.cancel" -> {
+                    val job = applicationService.cancelMaintenanceJob(params.optString("operationId"))
+                    success(job?.let(::maintenanceJobJson) ?: operation(params.optString("operationId"), "prune", "cancelled", null, null))
                 }
                 "sessionGroup.unlink" -> {
                     val groupId = requiredString("sessionGroupId")
@@ -369,6 +530,8 @@ class LoopbackServer(
                     failure(id.toInt(), "not_found", "Session was not found")
                 SessionStoreException.SessionActive ->
                     failure(id.toInt(), "invalid_state", "Session is active")
+                SessionStoreException.MaintenanceInProgress ->
+                    failure(id.toInt(), "unavailable", "Session maintenance is in progress")
                 else -> failure(id.toInt(), "invalid_request", "Session request is invalid")
             }
         } catch (_: IllegalStateException) {
@@ -431,6 +594,8 @@ class LoopbackServer(
                     .take(MAX_RECENT_ITEMS).map(::sessionGroup)),
             )
             .put("settings", runCatching { settings(applicationService.settings()) }.getOrDefault(JSONObject()))
+            .put("sessionOperation", runCatching { applicationService.maintenanceJob() }
+                .getOrNull()?.let(::maintenanceJobJson) ?: JSONObject.NULL)
     }
 
     private fun bluetooth(value: BluetoothState, scanning: Boolean = false) = JSONObject()
@@ -544,6 +709,253 @@ class LoopbackServer(
         .put("maxSpeedMps", value.maxSpeedMps ?: JSONObject.NULL)
         .put("maxDutyCycle", value.maxDutyCycle ?: JSONObject.NULL)
 
+    private fun sessionMetadata(
+        value: SessionSummaryRecord,
+        extensions: List<String>,
+        snapshot: SessionPublishedSnapshotRecord,
+        prune: SessionPruneMetadataRecord,
+    ) = JSONObject()
+        .put("summary", session(value))
+        .put("fields", JSONArray((NUMERIC_FIELDS.map { field ->
+            JSONObject().put("name", field).put("unit", unit(field) ?: JSONObject.NULL).put("source", "stable")
+        } + extensions.map { field ->
+            JSONObject().put("name", field).put("unit", JSONObject.NULL).put("source", "extension")
+        })))
+        .put("eventCount", value.eventCount)
+        .put("recordedSampleCount", snapshot.recordedSampleCount)
+        .put("storedSampleCount", snapshot.storedSampleCount)
+        .put("prune", JSONObject()
+            .put("targetResolutionSeconds", prune.targetResolutionSeconds ?: JSONObject.NULL)
+            .put("recordedSampleCount", prune.recordedSampleCount)
+            .put("storedSampleCount", prune.storedSampleCount)
+            .put("policy", prune.policy ?: JSONObject.NULL))
+        .put("snapshot", JSONObject()
+            .put("historyRevision", snapshot.historyRevision)
+            .put("committedSampleSequence", snapshot.committedSampleSequence)
+            .put("committedEventSequence", snapshot.committedEventSequence)
+            .put("committedElapsedMs", snapshot.committedElapsedMs))
+
+    private fun sessionData(params: JSONObject): JSONObject {
+        val kind = params.getString("kind")
+        val sessionId = params.getString("sessionId")
+        val range = params.getJSONObject("range")
+        val start = range.getLong("startElapsedMs")
+        val end = range.getLong("endElapsedMs")
+        val snapshot = params.getJSONObject("snapshot")
+        val published = applicationService.sessionSnapshot(sessionId)
+        require(snapshot.getLong("historyRevision") == published.historyRevision)
+        require(snapshot.getLong("committedSampleSequence") == published.committedSampleSequence)
+        require(snapshot.getLong("committedEventSequence") == published.committedEventSequence)
+        require(snapshot.getLong("committedElapsedMs") == published.committedElapsedMs)
+        val echoedSnapshot = JSONObject()
+            .put("historyRevision", snapshot.getLong("historyRevision"))
+            .put("committedSampleSequence", snapshot.getLong("committedSampleSequence"))
+            .put("committedEventSequence", snapshot.getLong("committedEventSequence"))
+            .put("committedElapsedMs", snapshot.getLong("committedElapsedMs"))
+        val fields = params.optJSONArray("fields") ?: JSONArray()
+        require(fields.length() in 1..16 || kind == "events")
+        val fieldNames = (0 until fields.length()).map { fields.getString(it) }
+        val extensionFields = applicationService.sessionExtensionFields(sessionId).toSet()
+        if (kind == "series" || kind == "samples") {
+            val descriptors = JSONArray(fieldNames.map { JSONObject().put("name", it).put("unit", unit(it) ?: JSONObject.NULL).put("source", if (it in extensionFields) "extension" else "stable") })
+            val base = JSONObject()
+                .put("kind", kind)
+                .put("sessionId", sessionId)
+                .put("snapshot", echoedSnapshot)
+                .put("range", range)
+                .put("fields", descriptors)
+            if (kind == "series") {
+                val buckets = params.optInt("buckets", 1).coerceIn(1, 1_024)
+                val gap = params.optJSONObject("gapPolicy") ?: throw SessionStoreException.InvalidRange
+                val threshold = if (gap.isNull("thresholdSeconds")) null else gap.getDouble("thresholdSeconds")
+                if (threshold != null && (!threshold.isFinite() || threshold < 0.1 || threshold > 3_600)) {
+                    throw SessionStoreException.InvalidRange
+                }
+                val source = applicationService.querySessionSeriesSource(
+                    sessionId, start, end, fieldNames, 200_000,
+                    snapshot.getLong("committedSampleSequence"),
+                )
+                val historyConfiguration = applicationService.sessionHistoryConfiguration(sessionId)
+                val reduced = SessionHistoryReducer.reduceSeries(
+                    source,
+                    fieldNames,
+                    SessionElapsedRange(start, end),
+                    buckets,
+                    SessionGapPolicyRecord(threshold),
+                    expectedPersistenceMs = historyConfiguration.expectedIdlePersistenceMs,
+                    expectedRidingPersistenceMs = historyConfiguration.expectedRidingPersistenceMs,
+                    expectedIdlePersistenceMs = historyConfiguration.expectedIdlePersistenceMs,
+                    retainedResolutionSeconds = historyConfiguration.retainedResolutionSeconds,
+                )
+                val columns = JSONObject()
+                fieldNames.forEach { field ->
+                    val column = reduced.getValue(field)
+                    columns.put(field, JSONObject()
+                        .put("elapsedMs", JSONArray(column.elapsedMs))
+                        .put("sequence", JSONArray(column.sequence))
+                        .put("values", JSONArray(column.values.map { it ?: JSONObject.NULL }))
+                        .put("generations", JSONArray(column.generations)))
+                }
+                return base.put("gapPolicy", JSONObject().put("thresholdSeconds", threshold ?: JSONObject.NULL)).put("columns", columns)
+            }
+            val seed = SessionHistoryCursor(
+                sessionId,
+                published,
+                SessionElapsedRange(start, end),
+                start,
+                0,
+            )
+            val decodedCursor = params.optString("cursor").takeIf { it.isNotEmpty() && !params.isNull("cursor") }?.let { raw ->
+                SessionHistoryReducer.decodeCursor(raw).also { cursor ->
+                    if (cursor.sessionId != sessionId || cursor.range != seed.range ||
+                        cursor.snapshot.historyRevision != published.historyRevision ||
+                        cursor.snapshot.committedSampleSequence != published.committedSampleSequence ||
+                        cursor.snapshot.committedEventSequence != published.committedEventSequence ||
+                        cursor.snapshot.committedElapsedMs != published.committedElapsedMs
+                    ) throw SessionStoreException.InvalidCursor
+                }
+            }
+            val mode = params.optString("mode", "window")
+            val points: List<SessionSeriesPoint>
+            val nextCursor: String?
+            if (mode == "nearest") {
+                val target = if (!params.has("targetElapsedMs")) throw SessionStoreException.InvalidRange
+                else params.getLong("targetElapsedMs")
+                if (target !in start..end) throw SessionStoreException.InvalidRange
+                points = applicationService.queryNearestSessionSample(
+                    sessionId, target, fieldNames, snapshot.getLong("committedSampleSequence"),
+                )?.let { listOf(it) } ?: emptyList()
+                nextCursor = null
+            } else {
+                val source = applicationService.querySessionSeriesSource(
+                    sessionId, start, end, fieldNames, 200_000,
+                    snapshot.getLong("committedSampleSequence"),
+                )
+                val page = SessionHistoryReducer.page(
+                    source,
+                    params.optInt("limit", 2_000).coerceIn(1, 2_000),
+                    decodedCursor,
+                    seed,
+                )
+                points = page.first
+                nextCursor = page.second?.let(SessionHistoryReducer::encodeCursor)
+            }
+            val values = JSONObject()
+            fieldNames.forEach { field -> values.put(field, JSONArray(points.map { it.values[field] ?: JSONObject.NULL })) }
+            return base.put("mode", mode)
+                .put("elapsedMs", JSONArray(points.map { it.elapsedMs }))
+                .put("sequence", JSONArray(points.map { it.sequence }))
+                .put("values", values)
+                .put("nextCursor", nextCursor ?: JSONObject.NULL)
+        }
+        require(kind == "events")
+        val seed = SessionHistoryCursor(
+            sessionId,
+            published,
+            SessionElapsedRange(start, end),
+            start,
+            0,
+        )
+        val decodedCursor = params.optString("cursor").takeIf { it.isNotEmpty() && !params.isNull("cursor") }?.let { raw ->
+            SessionHistoryReducer.decodeCursor(raw).also { cursor ->
+                if (cursor.sessionId != sessionId || cursor.range != seed.range ||
+                    cursor.snapshot.historyRevision != published.historyRevision ||
+                    cursor.snapshot.committedSampleSequence != published.committedSampleSequence ||
+                    cursor.snapshot.committedEventSequence != published.committedEventSequence ||
+                    cursor.snapshot.committedElapsedMs != published.committedElapsedMs
+                ) throw SessionStoreException.InvalidCursor
+            }
+        }
+        val allEvents = applicationService.sessionEvents(
+            sessionId, start, end, snapshot.getLong("committedEventSequence"),
+        ).sortedWith(compareBy<SessionEventRecord> { it.elapsedMs }.thenBy { it.eventId.toLongOrNull() ?: 0L })
+        val pageEvents = allEvents.filter { event ->
+            val cursor = decodedCursor ?: return@filter true
+            val sequence = event.eventId.toLongOrNull() ?: 0L
+            event.elapsedMs > cursor.elapsedMs || (event.elapsedMs == cursor.elapsedMs && sequence > cursor.sequence)
+        }
+        val events = pageEvents.take(params.optInt("limit", 500).coerceIn(1, 500))
+        val nextCursor = if (events.isNotEmpty() && events.size < pageEvents.size) {
+            val last = events.last()
+            SessionHistoryReducer.encodeCursor(seed.copy(
+                elapsedMs = last.elapsedMs,
+                sequence = last.eventId.toLongOrNull() ?: 0L,
+            ))
+        } else null
+        return JSONObject()
+            .put("kind", "events")
+            .put("sessionId", sessionId)
+            .put("snapshot", echoedSnapshot)
+            .put("range", range)
+            .put("page", JSONObject()
+                .put("elapsedMs", JSONArray(events.map { it.elapsedMs }))
+                .put("sequence", JSONArray(events.map { it.eventId.toLongOrNull() ?: 0 }))
+                .put("sourceSampleSequence", JSONArray(events.map { it.sourceSampleSequence ?: 0 }))
+                .put("kinds", JSONArray(events.map { it.kind }))
+                .put("values", JSONArray(events.map { JSONObject(it.detailsJson).optString("value", "") })))
+            .put("nextCursor", nextCursor ?: JSONObject.NULL)
+    }
+
+    private fun operation(
+        operationId: String,
+        kind: String,
+        status: String,
+        sessionId: String?,
+        target: Int?,
+        completedSessions: Int = if (status == "completed") 1 else 0,
+        eligibleSessions: Int = 1,
+    ) = JSONObject()
+        .put("operationId", operationId)
+        .put("kind", kind)
+        .put("status", status)
+        .put("sessionId", sessionId ?: JSONObject.NULL)
+        .put("scope", if (sessionId == null) "all" else "one")
+        .put("targetResolutionSeconds", target ?: JSONObject.NULL)
+        .put("completedSessions", completedSessions)
+        .put("eligibleSessions", eligibleSessions)
+        .put("error", JSONObject.NULL)
+
+    private fun maintenanceJobJson(job: SessionMaintenanceJobRecord) = JSONObject()
+        .put("operationId", job.operationId)
+        .put("kind", if (job.kind == "prune_preview") "prunePreview" else "prune")
+        .put("status", if (job.state == "cancel_requested") "cancelling" else job.state)
+        .put("sessionId", job.sessionId ?: JSONObject.NULL)
+        .put("scope", job.scope)
+        .put("targetResolutionSeconds", job.targetResolutionSeconds)
+        .put("completedSessions", job.completedSessions)
+        .put("eligibleSessions", if (job.upperSessionId == null) JSONObject.NULL else job.completedSessions)
+        .put("error", job.error ?: JSONObject.NULL)
+
+    private fun pruneSessionIds(scope: String, sessionId: String?): List<String> {
+        if (scope == "one") return listOf(requireNotNull(sessionId))
+        var cursor: String? = null
+        val ids = mutableListOf<String>()
+        do {
+            val page = applicationService.sessions(
+                SessionListQuery(
+                    cursor = cursor,
+                    limit = 100,
+                    state = "completed",
+                    integrity = "complete",
+                    sortField = "startedAt",
+                    sortDescending = true,
+                ),
+            )
+            ids += page.items.map { it.sessionId }
+            cursor = page.nextCursor
+        } while (cursor != null)
+        return ids
+    }
+
+    private fun unit(field: String): String? = when {
+        field.endsWith("V") -> "V"
+        field.endsWith("A") -> "A"
+        field.endsWith("Ah") -> "Ah"
+        field.endsWith("Wh") -> "Wh"
+        field.endsWith("M") || field.endsWith("m") -> "m"
+        else -> null
+    }
+
     private fun seriesPoint(value: SessionSeriesPoint): JSONObject {
         val fields = JSONObject()
         value.values.forEach { (key, field) -> fields.put(key, field ?: JSONObject.NULL) }
@@ -569,6 +981,7 @@ class LoopbackServer(
         .put("sessionLinkWindowMs", value.sessionLinkWindowMs)
         .put("themePreference", value.themePreference.wireValue)
         .put("unitPreference", value.unitPreference.wireValue)
+        .put("historyGapThresholdSeconds", value.historyGapThresholdSeconds ?: JSONObject.NULL)
 
     private fun liveSample(value: TelemetrySample) = JSONObject()
         .put("sequence", value.sequence)
@@ -654,11 +1067,8 @@ class LoopbackServer(
             this is VescProtocolMessage.RefloatInfo
 
     private companion object {
-        const val MAX_MESSAGE_BYTES = 65_536
         const val MAX_RECENT_ITEMS = 50
-        const val MAX_SERIES_POINTS = 2_000
-        const val MAX_SESSION_EVENTS = 2_000
-        val DIAGNOSTIC_FIELDS = listOf(
+        val NUMERIC_FIELDS = listOf(
             "packVoltageV", "dutyCycle", "controllerTempC", "motorTempC",
             "motorCurrentA", "batteryCurrentA", "erpm", "speedKph", "pitchDeg",
             "balancePitchDeg", "rollDeg", "directionalMotorCurrentA",

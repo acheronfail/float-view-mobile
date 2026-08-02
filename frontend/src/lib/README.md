@@ -9,7 +9,7 @@ catch-all technical directories.
 - `app/` owns the persistent application shell, primary navigation, and effective theme.
 - `backend/` owns bootstrap, transport, authoritative frontend state, and `contract.ts`.
 - `features/connection/` owns Home discovery/connection and the live-board view.
-- `features/sessions/` owns session lists, review, diagnostics, grouping, and export.
+- `features/sessions/` owns session lists, metadata-first progressive review, exact samples, event pages, grouping, and export.
 - `features/boards/` owns saved-board lists and Board Profile configuration.
 - `features/settings/` owns application-wide settings UI.
 - `ui/` is reserved for domain-independent presentation reused by multiple features.
@@ -41,7 +41,9 @@ unavailable, and actual, requested, directional, filtered, booster, and
 field-weakening currents remain distinct ampere readings. Do not calculate or
 label any current or torque utilization.
 
-Session review uses the same stable numeric field names and units for bounded
-charts and displays typed state transitions beside them. Earlier-event
-truncation is explicit. Frequently updating controls use primary pointer release
-with cancellation and a guarded keyboard or assistive click path.
+Session review loads metadata through the WebSocket control plane, then requests
+only the selected stable or extension fields through the authenticated bounded
+session-data endpoint. Overview series, exact retained samples, and chronological
+event pages remain separate revisioned queries; `session.get` never embeds
+history. Frequently updating controls use primary pointer release with
+cancellation and a guarded keyboard or assistive click path.

@@ -48,6 +48,7 @@ const initial: AppState = {
     sessionLinkWindowMs: 7_200_000,
     themePreference: 'system',
     unitPreference: 'metric',
+    historyGapThresholdSeconds: null,
   },
 };
 
@@ -107,9 +108,22 @@ class FakeClient {
             ridingElapsedMs: 1_000,
             totalElapsedMs: 1_000,
           },
-          series: [{ elapsedMs: 0, values: { fieldWeakeningCurrentA: 4 } }],
-          events: [{ elapsedMs: 500, kind: 'stopCondition', value: 'quickStop' }],
-          eventsTruncated: true,
+          fields: [{ name: 'fieldWeakeningCurrentA', unit: 'A', source: 'stable' }],
+          eventCount: 1,
+          recordedSampleCount: 2,
+          storedSampleCount: 2,
+          prune: {
+            targetResolutionSeconds: null,
+            recordedSampleCount: 2,
+            storedSampleCount: 2,
+            policy: null,
+          },
+          snapshot: {
+            historyRevision: 0,
+            committedSampleSequence: 1,
+            committedEventSequence: 0,
+            committedElapsedMs: 1_000,
+          },
         };
         break;
       default:
@@ -171,7 +185,7 @@ describe('BackendState', () => {
     store.close();
   });
 
-  it('recovers bounded historical series and typed transitions together', async () => {
+  it('loads bounded session metadata without embedding history', async () => {
     const client = new FakeClient();
     const store = new BackendState(
       async () => ({ webSocketUrl: 'ws://test' }),
@@ -179,12 +193,10 @@ describe('BackendState', () => {
     );
     await store.connect();
     expect(await store.openSession('session-1')).toBe(true);
-    expect(store.sessionSeries).toEqual([{ elapsedMs: 0, values: { fieldWeakeningCurrentA: 4 } }]);
-    expect(store.sessionEvents).toEqual([{ elapsedMs: 500, kind: 'stopCondition', value: 'quickStop' }]);
-    expect(store.sessionEventsTruncated).toBe(true);
+    expect(store.sessionMetadata?.fields).toEqual([{ name: 'fieldWeakeningCurrentA', unit: 'A', source: 'stable' }]);
+    expect(store.sessionMetadata?.recordedSampleCount).toBe(2);
     store.closeSession();
-    expect(store.sessionEvents).toEqual([]);
-    expect(store.sessionEventsTruncated).toBe(false);
+    expect(store.sessionMetadata).toBeNull();
     store.close();
   });
 });

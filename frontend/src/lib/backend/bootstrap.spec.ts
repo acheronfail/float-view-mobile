@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { bootstrapWebSocketUrl } from './bootstrap';
+import { bootstrapSessionDataUrl, bootstrapWebSocketUrl } from './bootstrap';
 
 describe('bootstrap WebSocket endpoint', () => {
   it('routes native development sockets through the Vite origin', () => {
@@ -23,5 +23,15 @@ describe('bootstrap WebSocket endpoint', () => {
         false
       ).toString()
     ).toBe('ws://127.0.0.1:11011/api/ws?token=token');
+  });
+
+  it('routes authenticated session-data requests through the development origin', () => {
+    expect(
+      bootstrapSessionDataUrl(
+        { webSocketUrl: 'ws://127.0.0.1:11011/api/ws', sessionDataUrl: 'http://127.0.0.1:11011/api/session-data' },
+        'http://127.0.0.1:11002/',
+        true
+      ).toString()
+    ).toBe('http://127.0.0.1:11002/api/session-data');
   });
 });

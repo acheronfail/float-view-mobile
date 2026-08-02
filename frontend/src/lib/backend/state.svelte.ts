@@ -2,13 +2,15 @@ import type {
   AppState,
   BluetoothState,
   BoardProfile,
-  SeriesPoint,
-  SessionEvent,
+  SessionMetadata,
   SessionSummary,
   Settings,
 } from '$lib/backend/contract';
 import { connectBootstrap, loadBootstrap } from './bootstrap';
 import { ApiRequestError, type ApiClient } from './client';
+import { SessionDataClient } from './session-data-client';
+import { SessionReviewController } from './session-controller';
+import type { SessionDataRequest, SessionDataResult } from './session-data';
 
 export type BackendConnectionStatus = 'starting' | 'connected' | 'reconnecting' | 'failed';
 export type PermissionOutcome = 'ready' | 'pending' | 'denied' | 'restricted';
@@ -32,14 +34,12 @@ export class BackendState {
   snapshot = $state<AppState | null>(null);
   error = $state<string | null>(null);
   selectedSession = $state<SessionSummary | null>(null);
-  sessionSeries = $state<SeriesPoint[]>([]);
-  sessionEvents = $state<SessionEvent[]>([]);
-  sessionEventsTruncated = $state(false);
-  diagnosticSeries = $state<SeriesPoint[]>([]);
+  sessionMetadata = $state<SessionMetadata | null>(null);
   selectedBoardProfile = $state<BoardProfile | null>(null);
   exportStatus = $state<string | null>(null);
   busy = $state(false);
   private client: ApiClient | null = null;
+  private sessionDataClient: SessionDataClient | null = null;
   private connecting: Promise<void> | null = null;
   private unsubscribeState: (() => void) | null = null;
 
@@ -92,7 +92,9 @@ export class BackendState {
     this.client?.close();
     this.client = null;
     try {
-      this.client = await this.bootstrapConnector(await this.bootstrapLoader());
+      const bootstrap = await this.bootstrapLoader();
+      this.client = await this.bootstrapConnector(bootstrap);
+      this.sessionDataClient = new SessionDataClient(bootstrap);
       this.unsubscribeState = this.client.onStateChanged((state) => this.acceptState(state));
       this.acceptState(await this.client.request('state.get', {}));
       this.status = 'connected';
@@ -189,27 +191,21 @@ export class BackendState {
 
   async openSession(sessionId: string): Promise<boolean> {
     return this.run(async (client) => {
-      const detail = await client.request('session.get', { sessionId, maxPoints: 2_000 });
-      this.selectedSession = detail.summary;
-      this.sessionSeries = detail.series;
-      this.sessionEvents = detail.events;
-      this.sessionEventsTruncated = detail.eventsTruncated;
-      this.diagnosticSeries = [];
+      const metadata = await client.request('session.get', { sessionId });
+      this.sessionMetadata = metadata;
+      this.selectedSession = metadata.summary;
       this.exportStatus = null;
     });
   }
 
-  async loadDiagnosticWindow(centerElapsedMs: number): Promise<void> {
-    const session = this.selectedSession;
-    if (!session) return;
-    await this.run(async (client) => {
-      this.diagnosticSeries = await client.request('session.getDiagnostics', {
-        sessionId: session.sessionId,
-        centerElapsedMs: Math.max(0, Math.round(centerElapsedMs)),
-        beforeMs: 15_000,
-        afterMs: 15_000,
-      });
-    });
+  requestSessionData(request: SessionDataRequest, signal?: AbortSignal): Promise<SessionDataResult> {
+    if (!this.sessionDataClient) return Promise.reject(new Error('Session-data endpoint is not connected'));
+    return this.sessionDataClient.request(request, signal);
+  }
+
+  createSessionReviewController(metadata: SessionMetadata): SessionReviewController {
+    if (!this.sessionDataClient) throw new Error('Session-data endpoint is not connected');
+    return new SessionReviewController(metadata, this.sessionDataClient);
   }
 
   async exportSession(format: 'float-view-archive' | 'csv'): Promise<void> {
@@ -246,10 +242,7 @@ export class BackendState {
 
   closeSession() {
     this.selectedSession = null;
-    this.sessionSeries = [];
-    this.sessionEvents = [];
-    this.sessionEventsTruncated = false;
-    this.diagnosticSeries = [];
+    this.sessionMetadata = null;
     this.exportStatus = null;
   }
 
@@ -258,6 +251,7 @@ export class BackendState {
     this.unsubscribeState = null;
     this.client?.close();
     this.client = null;
+    this.sessionDataClient = null;
   }
 
   private acceptState(state: AppState) {

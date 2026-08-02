@@ -3,7 +3,9 @@
 ## Purpose
 
 Define repository ownership and the minimal Android, iOS, and macOS host responsibilities around the shared frontend and native backends.
+
 ## Requirements
+
 ### Requirement: Lowercase ownership layout
 
 The repository SHALL place the frontend under `/frontend`, the shared Apple implementation and its iOS/macOS hosts under `/backends/apple`, the Android implementation and host under `/backends/android`, shared backend SQL and immutable protocol fixtures under `/backends`, canonical acceptance under top-level `/conformance`, and supporting firmware under `/tools/vesc-test-device`.
@@ -204,7 +206,7 @@ Apple and Android SHALL retain mirrored owners for Refloat family decoding, tele
 
 ### Requirement: Equivalent native detailed persistence
 
-The Apple and Android current schemas SHALL durably store the same detailed typed values in bounded `detail_json`, unknown negotiated values in bounded `extension_json`, and discrete transitions in the existing `session_event` table with an independent monotonic event sequence, observation time, elapsed time, and single-session ownership. Multiple transitions from one sample SHALL be inserted in stable catalog order. Existing summary/query fields SHALL remain columns. Incompatible test-stage databases SHALL be deleted and recreated from the current schema rather than migrated.
+The Apple and Android current schemas SHALL durably store the same detailed typed values in dedicated nullable stable columns, unknown negotiated values only in bounded `extension_json`, write-time field presence in `session_numeric_field`, and discrete transitions in `session_event` with an independent monotonic event sequence, source-sample sequence, observation time, elapsed time, and single-session ownership. Multiple transitions from one sample SHALL be inserted in stable catalog order. An authoritative commit marker SHALL publish sample/event boundaries, recorded/stored counts, elapsed coverage, history revision, and summary source evidence before catalog metadata is exposed. Incompatible test-stage databases SHALL be deleted and recreated from the current schema rather than migrated.
 
 #### Scenario: Equivalent stored sample
 

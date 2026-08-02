@@ -322,6 +322,52 @@ data class SessionSummaryRecord(
     val maxDutyCycle: Double?,
 )
 
+data class SessionPublishedSnapshotRecord(
+    val historyRevision: Long,
+    val committedSampleSequence: Long,
+    val committedEventSequence: Long,
+    val committedElapsedMs: Long,
+    val recordedSampleCount: Long,
+    val storedSampleCount: Long,
+)
+
+data class SessionHistoryConfiguration(
+    val expectedRidingPersistenceMs: Long,
+    val expectedIdlePersistenceMs: Long,
+    val retainedResolutionSeconds: Long = 0,
+)
+
+data class SessionPruneMetadataRecord(
+    val targetResolutionSeconds: Long?,
+    val recordedSampleCount: Long,
+    val storedSampleCount: Long,
+    val policy: String?,
+)
+
+data class SessionPrunePreviewRecord(
+    val recordedSampleCount: Long,
+    val estimatedStoredSampleCount: Long,
+    val estimatedReclaimableBytes: Long?,
+    val skipped: Boolean,
+    val skipReason: String?,
+)
+
+data class SessionMaintenanceJobRecord(
+    val operationId: String,
+    val kind: String,
+    val scope: String,
+    val state: String,
+    val sessionId: String?,
+    val targetResolutionSeconds: Long,
+    val upperSessionId: String?,
+    val lastSessionId: String?,
+    val completedSessions: Long,
+    val skippedSessions: Long,
+    val retainedSamples: Long,
+    val reclaimableBytes: Long,
+    val error: String?,
+)
+
 data class SessionPage(
     val items: List<SessionSummaryRecord>,
     val nextCursor: String?,
@@ -348,6 +394,8 @@ data class SessionListQuery(
 data class SessionSeriesPoint(
     val elapsedMs: Long,
     val values: Map<String, Double?>,
+    val sequence: Long = 0,
+    val rideState: String? = null,
 )
 
 data class SessionEventRecord(
@@ -355,6 +403,7 @@ data class SessionEventRecord(
     val elapsedMs: Long,
     val kind: String,
     val detailsJson: String,
+    val sourceSampleSequence: Long? = null,
 )
 
 data class SessionGroupRecord(
@@ -402,6 +451,7 @@ data class SettingsRecord(
     val sessionLinkWindowMs: Long = 7_200_000,
     val themePreference: ThemePreference = ThemePreference.SYSTEM,
     val unitPreference: UnitPreference = UnitPreference.METRIC,
+    val historyGapThresholdSeconds: Double? = null,
 )
 
 sealed interface BluetoothEvent {
@@ -577,6 +627,7 @@ interface ProductStorePort {
 sealed class SessionStoreException(message: String) : RuntimeException(message) {
     data object SessionNotFound : SessionStoreException("Session not found")
     data object SessionActive : SessionStoreException("Active session cannot be changed")
+    data object MaintenanceInProgress : SessionStoreException("Session maintenance is in progress")
     data object InvalidCursor : SessionStoreException("Invalid session cursor")
     data object InvalidRange : SessionStoreException("Invalid session range")
     data object InvalidExportFormat : SessionStoreException("Invalid export format")
@@ -587,6 +638,20 @@ sealed class SessionStoreException(message: String) : RuntimeException(message) 
 interface SessionStorePort {
     fun sessions(query: SessionListQuery): SessionPage
     fun session(sessionId: String): SessionSummaryRecord
+    fun sessionSnapshot(sessionId: String): SessionPublishedSnapshotRecord =
+        throw SessionStoreException.SessionNotFound
+    fun sessionHistoryConfiguration(sessionId: String): SessionHistoryConfiguration =
+        SessionHistoryConfiguration(1_000, 1_000)
+    fun sessionPruneMetadata(sessionId: String): SessionPruneMetadataRecord =
+        SessionPruneMetadataRecord(null, 0, 0, null)
+    fun cancelHistoricalReads(sessionId: String) = Unit
+    fun prunePreview(sessionId: String, targetResolutionSeconds: Long): SessionPrunePreviewRecord =
+        throw SessionStoreException.SessionNotFound
+    fun pruneSession(sessionId: String, targetResolutionSeconds: Long): SessionPrunePreviewRecord =
+        throw SessionStoreException.SessionNotFound
+    fun maintenanceJob(): SessionMaintenanceJobRecord? = null
+    fun saveMaintenanceJob(job: SessionMaintenanceJobRecord) = Unit
+    fun cancelMaintenanceJob(operationId: String): SessionMaintenanceJobRecord? = null
     fun querySeries(
         sessionId: String,
         startElapsedMs: Long,
@@ -594,22 +659,75 @@ interface SessionStorePort {
         fields: List<String>,
         maxPoints: Int,
     ): List<SessionSeriesPoint>
+    fun querySeries(
+        sessionId: String,
+        startElapsedMs: Long,
+        endElapsedMs: Long,
+        fields: List<String>,
+        maxPoints: Int,
+        publishedSampleSequence: Long?,
+    ): List<SessionSeriesPoint> = querySeries(
+        sessionId, startElapsedMs, endElapsedMs, fields, maxPoints,
+    )
+    fun querySeriesSource(
+        sessionId: String,
+        startElapsedMs: Long,
+        endElapsedMs: Long,
+        fields: List<String>,
+        maxRows: Int,
+        publishedSampleSequence: Long?,
+    ): List<SessionSeriesPoint> = querySeries(
+        sessionId, startElapsedMs, endElapsedMs, fields, maxRows.coerceAtMost(2_000),
+        publishedSampleSequence,
+    )
+    fun queryNearestSample(
+        sessionId: String,
+        targetElapsedMs: Long,
+        fields: List<String>,
+        publishedSampleSequence: Long?,
+    ): SessionSeriesPoint? = querySeriesSource(
+        sessionId,
+        maxOf(0, targetElapsedMs - 1),
+        targetElapsedMs + 1,
+        fields,
+        2,
+        publishedSampleSequence,
+    ).minWithOrNull(compareBy<SessionSeriesPoint> {
+        kotlin.math.abs(it.elapsedMs - targetElapsedMs)
+    }.thenBy { it.elapsedMs }.thenBy { it.sequence })
     fun sessionEvents(
         sessionId: String,
         startElapsedMs: Long,
         endElapsedMs: Long,
     ): List<SessionEventRecord>
+    fun sessionEvents(
+        sessionId: String,
+        startElapsedMs: Long,
+        endElapsedMs: Long,
+        publishedEventSequence: Long?,
+    ): List<SessionEventRecord> = sessionEvents(sessionId, startElapsedMs, endElapsedMs)
     fun sessionExtensionFields(sessionId: String): List<String> = emptyList()
-    fun diagnosticWindow(
+    fun querySampleWindow(
         sessionId: String,
         centerElapsedMs: Long,
         beforeMs: Long,
         afterMs: Long,
         fields: List<String>,
     ): List<SessionSeriesPoint>
+    fun querySampleWindow(
+        sessionId: String,
+        centerElapsedMs: Long,
+        beforeMs: Long,
+        afterMs: Long,
+        fields: List<String>,
+        publishedSampleSequence: Long?,
+    ): List<SessionSeriesPoint> = querySampleWindow(
+        sessionId, centerElapsedMs, beforeMs, afterMs, fields,
+    )
     fun deleteSession(sessionId: String) {
         throw SessionStoreException.SessionNotFound
     }
+    fun cancelPendingDelete(operationId: String): Boolean = false
     fun exportSession(sessionId: String, format: String): SessionExportRecord =
         throw SessionStoreException.SessionNotFound
     fun sessionGroups(): List<SessionGroupRecord> = emptyList()

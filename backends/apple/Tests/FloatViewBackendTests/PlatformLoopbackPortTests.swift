@@ -11,6 +11,11 @@ struct PlatformLoopbackPortTests {
     #expect(PlatformLoopbackPort.macOS != PlatformLoopbackPort.iOS)
   }
 
+  @Test("WebSocket control messages remain bounded to 65,536 UTF-8 bytes")
+  func webSocketMessageLimit() {
+    #expect(LoopbackProtocolLimits.maximumWebSocketMessageBytes == 65_536)
+  }
+
   @Test("bind failure identifies the unavailable address")
   func bindFailure() {
     let message = loopbackStartupFailure(

@@ -1,0 +1,41 @@
+{
+  "generatedAt": "2026-08-02T00:02:16.260Z",
+  "runtime": "v24.15.0",
+  "fixture": {
+    "samples": 150000,
+    "fields": 4,
+    "buckets": 1024
+  },
+  "runs": [
+    {
+      "reducedMs": 601.77575,
+      "gzipMs": 3.225750000000062,
+      "renderMs": 0.4032079999999496
+    },
+    {
+      "reducedMs": 550.6829999999999,
+      "gzipMs": 2.381249999999909,
+      "renderMs": 0.1402090000001408
+    },
+    {
+      "reducedMs": 538.203,
+      "gzipMs": 2.36525000000006,
+      "renderMs": 0.0993750000000091
+    }
+  ],
+  "medianMs": {
+    "reduced": 550.6829999999999,
+    "gzip": 2.381249999999909,
+    "render": 0.1402090000001408
+  },
+  "response": {
+    "decodedBytes": 272089,
+    "gzipBytes": 93758,
+    "observations": 12006,
+    "svgPathSegments": 4
+  },
+  "notes": [
+    "Deterministic software probe; it does not substitute for the recorded iPhone 12/Galaxy S9 empty-cache checkpoint.",
+    "Native storage query-plan and physical stage timings remain separate diagnostics."
+  ]
+}

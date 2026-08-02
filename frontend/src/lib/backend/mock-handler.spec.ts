@@ -39,6 +39,13 @@ describe('deterministic mock backend', () => {
     ).toMatchObject({ error: { code: 'conflict' } });
   });
 
+  it('rejects control payloads that exceed 65,536 UTF-8 bytes', () => {
+    const backend = new MockBackend();
+    expect(backend.handlePayload('😀'.repeat(16_385))).toMatchObject({
+      error: { code: 'invalid_request', message: 'Message is too large' },
+    });
+  });
+
   it('covers every mandatory method', () => {
     const backend = new MockBackend();
     const request = (id: number, method: string, params: Record<string, unknown> = {}) =>
@@ -48,10 +55,19 @@ describe('deterministic mock backend', () => {
     expect(request(3, 'device.disconnect')).toMatchObject({ result: { accepted: true } });
     expect(request(4, 'boardProfile.get', { savedDeviceId: 'saved-board' })).toHaveProperty('result');
     expect(request(5, 'session.get', { sessionId: 'session-1' })).toHaveProperty('result');
-    expect(request(6, 'session.getDiagnostics', { sessionId: 'session-1' })).toHaveProperty('result');
-    expect(request(7, 'session.export', { sessionId: 'session-1', format: 'csv' })).toHaveProperty('result');
     expect(
-      request(8, 'savedDevice.update', {
+      request(6, 'session.prune.preview', { scope: 'one', sessionId: 'session-1', targetResolutionSeconds: 10 })
+    ).toHaveProperty('result');
+    const prune = request(7, 'session.prune.start', {
+      scope: 'one',
+      sessionId: 'session-1',
+      targetResolutionSeconds: 10,
+    }) as { result: { operationId: string } };
+    expect(prune).toHaveProperty('result');
+    expect(request(8, 'session.prune.cancel', { operationId: prune.result.operationId })).toHaveProperty('result');
+    expect(request(9, 'session.export', { sessionId: 'session-1', format: 'csv' })).toHaveProperty('result');
+    expect(
+      request(10, 'savedDevice.update', {
         savedDeviceId: 'saved-board',
         expectedRevision: 0,
         customDisplayName: 'My board',

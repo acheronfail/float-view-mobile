@@ -185,35 +185,145 @@ async function exerciseProductMethods(client: ConformanceClient, state: AppState
   const session = required(current.recentSessions[0], 'connections did not create a session');
   const detail = await client.request('session.get', {
     sessionId: session.sessionId,
-    maxPoints: 100,
   });
   assert.equal(detail.summary.sessionId, session.sessionId);
-  assert.ok(detail.series.length <= 100);
-  assert.ok(detail.events.length <= 2_000);
-  assert.equal(typeof detail.eventsTruncated, 'boolean');
-  for (const event of detail.events) {
-    assert.ok(stableSessionEventKinds.has(event.kind));
-    assert.ok(Number.isSafeInteger(event.elapsedMs) && event.elapsedMs >= 0);
-    assert.equal(typeof event.value, 'string');
-  }
-  for (const point of detail.series) {
-    assert.ok(Number.isSafeInteger(point.elapsedMs) && point.elapsedMs >= 0);
+  assert.ok(detail.fields.length > 0 && detail.fields.length <= 64);
+  assert.ok(Number.isSafeInteger(detail.snapshot.historyRevision));
+  assert.ok(detail.storedSampleCount <= detail.recordedSampleCount);
+  assert.doesNotMatch(JSON.stringify(detail), /controllerUuid|controllerUUID|launchToken|bluetoothIdentifier/);
+  const historyRange = { startElapsedMs: 0, endElapsedMs: detail.snapshot.committedElapsedMs };
+  const field = detail.fields[0]?.name;
+  assert.ok(field, 'session metadata did not publish a numeric field');
+  const overview = await client.sessionData({
+    kind: 'series',
+    sessionId: session.sessionId,
+    snapshot: detail.snapshot,
+    range: historyRange,
+    fields: [field],
+    buckets: 16,
+    gapPolicy: { thresholdSeconds: null },
+  });
+  assert.equal(overview.kind, 'series');
+  const samples = await client.sessionData({
+    kind: 'samples',
+    sessionId: session.sessionId,
+    snapshot: detail.snapshot,
+    range: historyRange,
+    fields: [field],
+    mode: 'window',
+    limit: 100,
+  });
+  assert.equal(samples.kind, 'samples');
+  if (samples.nextCursor) {
+    const continuation = await client.sessionData({
+      kind: 'samples',
+      sessionId: session.sessionId,
+      snapshot: detail.snapshot,
+      range: historyRange,
+      fields: [field],
+      mode: 'window',
+      limit: 100,
+      cursor: samples.nextCursor,
+    });
+    assert.equal(continuation.kind, 'samples');
+    const sampleElapsed = samples.elapsedMs.at(-1) ?? -1;
+    const sampleSequence = samples.sequence.at(-1) ?? -1;
     assert.ok(
-      Object.entries(point.values).every(
-        ([field, value]) =>
-          !field.toLowerCase().includes('utilization') &&
-          (value === null || (typeof value === 'number' && Number.isFinite(value)))
+      continuation.elapsedMs.every(
+        (elapsed, index) => elapsed > sampleElapsed ||
+          (elapsed === sampleElapsed && continuation.sequence[index]! > sampleSequence)
       )
     );
   }
-  assert.doesNotMatch(JSON.stringify(detail), /controllerUuid|controllerUUID|launchToken|bluetoothIdentifier/);
-  const diagnostics = await client.request('session.getDiagnostics', {
+  const nearest = await client.sessionData({
+    kind: 'samples',
     sessionId: session.sessionId,
-    centerElapsedMs: 0,
-    beforeMs: 1_000,
-    afterMs: 1_000,
+    snapshot: detail.snapshot,
+    range: historyRange,
+    fields: [field],
+    mode: 'nearest',
+    limit: 1,
+    targetElapsedMs: Math.floor(detail.snapshot.committedElapsedMs / 2),
   });
-  assert.ok(diagnostics.length <= 2_000);
+  assert.equal(nearest.kind, 'samples');
+  assert.equal(nearest.mode, 'nearest');
+  assert.ok(nearest.sequence.length <= 1);
+  const events = await client.sessionData({
+    kind: 'events',
+    sessionId: session.sessionId,
+    snapshot: detail.snapshot,
+    range: historyRange,
+    limit: 100,
+  });
+  assert.equal(events.kind, 'events');
+  if (events.nextCursor) {
+    const eventContinuation = await client.sessionData({
+      kind: 'events',
+      sessionId: session.sessionId,
+      snapshot: detail.snapshot,
+      range: historyRange,
+      limit: 100,
+      cursor: events.nextCursor,
+    });
+    assert.equal(eventContinuation.kind, 'events');
+    const eventElapsed = events.page.elapsedMs.at(-1) ?? -1;
+    const eventSequence = events.page.sequence.at(-1) ?? -1;
+    assert.ok(
+      eventContinuation.page.elapsedMs.every(
+        (elapsed, index) => elapsed > eventElapsed ||
+          (elapsed === eventElapsed && eventContinuation.page.sequence[index]! > eventSequence)
+      )
+    );
+  }
+  await expectSessionDataFailure(
+    client,
+    {
+      kind: 'samples',
+      sessionId: session.sessionId,
+      snapshot: { ...detail.snapshot, historyRevision: detail.snapshot.historyRevision + 1 },
+      range: historyRange,
+      fields: [field],
+      mode: 'window',
+      limit: 1,
+    },
+    'stale revision'
+  );
+  const prunePreview = await client.request('session.prune.preview', {
+    scope: 'one',
+    sessionId: session.sessionId,
+    targetResolutionSeconds: 5,
+  });
+  assert.equal(prunePreview.operation.kind, 'prunePreview');
+  assert.equal(prunePreview.operation.status, 'completed');
+  assert.ok(prunePreview.estimatedStoredSampleCount <= prunePreview.recordedSampleCount);
+  const prune = await client.request('session.prune.start', {
+    scope: 'one',
+    sessionId: session.sessionId,
+    targetResolutionSeconds: 5,
+  });
+  assert.equal(prune.kind, 'prune');
+  assert.ok(['queued', 'running', 'completed'].includes(prune.status));
+  if (prune.status !== 'completed') {
+    const observed = await client.request('state.get', {});
+    if (!observed.sessionOperation ||
+        observed.sessionOperation.operationId !== prune.operationId ||
+        !['completed', 'cancelled', 'failed'].includes(observed.sessionOperation.status)) {
+    const terminal = await client.waitForState(
+      (value) => {
+        const operation = value.sessionOperation;
+        return operation?.operationId === prune.operationId &&
+          ['completed', 'cancelled', 'failed'].includes(operation.status);
+      },
+      { afterRevision: observed.revision }
+    );
+    assert.ok(terminal.sessionOperation);
+    }
+  }
+  assert.ok(Number.isSafeInteger(prune.completedSessions));
+  const afterPrune = await client.request('session.get', { sessionId: session.sessionId });
+  assert.ok(afterPrune.snapshot.historyRevision >= detail.snapshot.historyRevision);
+  const cancelledPrune = await client.request('session.prune.cancel', { operationId: prune.operationId });
+  assert.ok(['completed', 'cancelled'].includes(cancelledPrune.status));
   await client.request('session.export', {
     sessionId: session.sessionId,
     format: 'csv',
@@ -230,6 +340,14 @@ async function exerciseProductMethods(client: ConformanceClient, state: AppState
   await client.request('session.delete', { sessionId: session.sessionId });
   const deleted = await client.request('state.get', {});
   assert.ok(!deleted.recentSessions.some((item) => item.sessionId === session.sessionId));
+}
+
+async function expectSessionDataFailure(
+  client: ConformanceClient,
+  request: Parameters<ConformanceClient['sessionData']>[0],
+  label: string
+) {
+  await assert.rejects(client.sessionData(request), () => true, label);
 }
 
 async function createCompletedSession(client: ConformanceClient, deviceId: string) {
@@ -333,7 +451,8 @@ async function createCompletedSession(client: ConformanceClient, deviceId: strin
     ridingState = connected;
   } else {
     ridingState = await client.waitForState(
-      (value) => value.activeConnection?.deviceId === deviceId && value.activeConnection.latestSample?.rideState === 'riding',
+      (value) =>
+        value.activeConnection?.deviceId === deviceId && value.activeConnection.latestSample?.rideState === 'riding',
       { afterRevision: connected.revision }
     );
   }
@@ -361,19 +480,6 @@ const stableConnectionIssueCodes = new Set<ConnectionIssueCode>([
   'unsupported_refloat',
 ]);
 
-const stableSessionEventKinds = new Set([
-  'packageState',
-  'packageMode',
-  'footpadState',
-  'stopCondition',
-  'setpointAdjustment',
-  'wheelslip',
-  'darkride',
-  'charging',
-  'alertReason',
-  'firmwareFault',
-]);
-
 export function assertState(state: AppState) {
   assert.ok(Number.isSafeInteger(state.revision));
   assert.ok(Array.isArray(state.discoveredDevices));
@@ -386,6 +492,7 @@ export function assertState(state: AppState) {
   assert.ok(state.sessionGroups.length <= 50);
   assert.deepEqual(Object.keys(state.settings).sort(), [
     'automaticSessionLinkingEnabled',
+    'historyGapThresholdSeconds',
     'idlePersistIntervalMs',
     'idleProbeIntervalMs',
     'minimumSessionDistance',
@@ -480,8 +587,11 @@ export const mandatoryMethods: BackendMethod[] = [
   'boardProfile.get',
   'boardProfile.update',
   'session.get',
-  'session.getDiagnostics',
   'session.export',
   'session.delete',
+  'session.delete.cancel',
+  'session.prune.preview',
+  'session.prune.start',
+  'session.prune.cancel',
   'sessionGroup.unlink',
 ];

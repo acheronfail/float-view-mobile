@@ -102,12 +102,12 @@ Every detailed telemetry request SHALL use the one selected verified direct-or-C
 
 ### Requirement: Durable detailed telemetry lifecycle
 
-For a dynamic package, each accepted compact response SHALL replace the latest compact cache and its `slowObservedAt`; the next accepted realtime response SHALL merge that cache into one normalized sample. Device-reported accumulated values SHALL replace previous values even when they decrease. Each accepted normalized sample SHALL be assigned one monotonic session sequence and stored durably with bounded typed detail and extension values in the same commit unit. A changed discrete state SHALL append one deduplicated typed `session_event` in that transaction. Live state, session detail, diagnostics, and export SHALL derive from the normalized records and observed events. The current disposable schema SHALL be updated consistently on Apple and Android without a migration framework.
+For a dynamic package, each accepted compact response SHALL replace the latest compact cache and its `slowObservedAt`; the next accepted realtime response SHALL merge that cache into one normalized sample. Device-reported accumulated values SHALL replace previous values even when they decrease. Each accepted normalized sample SHALL be assigned one monotonic session sequence and stored durably with bounded typed detail and extension values in the same commit unit. A changed discrete state SHALL append one deduplicated typed `session_event` in that transaction. Live state, session metadata/data pages, and export SHALL derive from the normalized records and observed events. The current disposable schema SHALL be updated consistently on Apple and Android without a migration framework.
 
 #### Scenario: Persist and recover detailed sample
 
 - **WHEN** a detailed sample is accepted and the frontend is recreated
-- **THEN** the live snapshot and session detail recover the same committed values and sequence without requiring the WebView to have observed the original event
+- **THEN** the live snapshot and session metadata/data recover the same committed values and sequence without requiring the WebView to have observed the original event
 
 #### Scenario: Device counter decreases
 

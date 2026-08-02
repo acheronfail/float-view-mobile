@@ -9,6 +9,7 @@ import fail.acheron.floatview.backend.PackageState
 import fail.acheron.floatview.backend.RideState
 import fail.acheron.floatview.backend.ProductStoreException
 import fail.acheron.floatview.backend.SessionListQuery
+import fail.acheron.floatview.backend.SessionMaintenanceJobRecord
 import fail.acheron.floatview.backend.SessionStoreException
 import fail.acheron.floatview.backend.SetpointAdjustment
 import fail.acheron.floatview.backend.TelemetrySample
@@ -93,7 +94,7 @@ class SQLiteSessionQueryInstrumentedTest {
             store.sessionExtensionFields(record.sessionId.value),
         )
 
-        val diagnostic = store.diagnosticWindow(
+        val diagnostic = store.querySampleWindow(
             record.sessionId.value,
             50_000,
             2_000,
@@ -110,6 +111,35 @@ class SQLiteSessionQueryInstrumentedTest {
             store.sessionEvents(record.sessionId.value, 0, 99_000)
                 .count { it.kind == "packageState" },
         )
+
+        val catalogDatabase = SQLiteDatabase.openDatabase(
+            File(root, "logs/catalog.sqlite").path,
+            null,
+            SQLiteDatabase.OPEN_READONLY,
+        )
+        val sessionFile = catalogDatabase.rawQuery(
+            "SELECT file_name FROM session_catalog WHERE session_id = ?",
+            arrayOf(record.sessionId.value),
+        ).use { cursor ->
+            assertTrue(cursor.moveToFirst())
+            cursor.getString(0)
+        }
+        catalogDatabase.close()
+        val planDatabase = SQLiteDatabase.openDatabase(
+            File(root, "logs/$sessionFile").path,
+            null,
+            SQLiteDatabase.OPEN_READONLY,
+        )
+        fun plan(sql: String): String = planDatabase.rawQuery("EXPLAIN QUERY PLAN $sql", null).use { cursor ->
+            buildString {
+                while (cursor.moveToNext()) append(cursor.getString(3)).append('|')
+            }
+        }
+        assertTrue(plan("SELECT sequence, monotonic_elapsed_ms FROM sample WHERE monotonic_elapsed_ms BETWEEN 0 AND 99000 ORDER BY monotonic_elapsed_ms, sequence LIMIT 12").contains("sample_elapsed"))
+        assertTrue(plan("SELECT sequence FROM session_event WHERE (monotonic_elapsed_ms > 1000 OR (monotonic_elapsed_ms = 1000 AND sequence > 1)) ORDER BY monotonic_elapsed_ms, sequence LIMIT 500").contains("session_event_elapsed"))
+        assertTrue(plan("SELECT sequence FROM sample WHERE monotonic_elapsed_ms <= 50000 ORDER BY monotonic_elapsed_ms DESC, sequence DESC LIMIT 1").contains("sample_elapsed"))
+        assertTrue(plan("SELECT sequence FROM sample WHERE sequence IN (1, 2, 3) ORDER BY sequence LIMIT 3").contains("INTEGER PRIMARY KEY"))
+        planDatabase.close()
 
         val short = store.create(DeviceId("query-fixture"), startedAt.plusSeconds(200))
         store.append(
@@ -139,6 +169,97 @@ class SQLiteSessionQueryInstrumentedTest {
         )
         assertEquals(listOf(record.sessionId.value), firstPage.items.map { it.sessionId })
         assertEquals(null, firstPage.nextCursor)
+    }
+
+    @Test
+    fun deterministicLargeSessionBuilderUsesLosslessSourcePath() {
+        val store = SQLiteLogStore(context, availableBytes = { 2_000_000_000 })
+        val startedAt = Instant.ofEpochMilli(1_700_300_000_000)
+        val record = store.create(DeviceId("large-fixture"), startedAt)
+        var sequence = 1L
+        repeat(30) {
+            val batch = (0 until 5_000).map { offset ->
+                val index = sequence + offset
+                TelemetrySample(
+                    sequence = index,
+                    observedAt = startedAt.plusMillis(index * 1_000L),
+                    elapsedMs = index * 1_000L,
+                    rideState = if (index < 149_000) RideState.RIDING else RideState.IDLE,
+                    packVoltageV = 58.0 - (index % 20) * .01,
+                    speedKph = (index % 80).toDouble(),
+                    extension = mapOf("fixtureValue" to (index % 17).toDouble()),
+                )
+            }
+            store.append(record.jobId, batch)
+            sequence += 5_000
+        }
+        store.close(record.jobId, startedAt.plusSeconds(200), "large-fixture")
+        val source = store.querySeriesSource(
+            record.sessionId.value,
+            1_000,
+            150_000_000,
+            listOf("packVoltageV", "fixtureValue"),
+            200_000,
+            150_000,
+        )
+        assertEquals(150_000, source.size)
+        assertEquals(1L, source.first().sequence)
+        assertEquals(150_000L, source.last().sequence)
+    }
+
+    @Test
+    fun prunePreviewAndCommitRetainProtectedRowsAndAdvanceRevision() {
+        val store = SQLiteLogStore(context, availableBytes = { 2_000_000_000 })
+        val startedAt = Instant.ofEpochMilli(1_700_400_000_000)
+        val record = store.create(DeviceId("prune-fixture"), startedAt)
+        store.append(record.jobId, (0 until 24).map { index ->
+            TelemetrySample(
+                sequence = (index + 1).toLong(),
+                observedAt = startedAt.plusSeconds(index.toLong()),
+                elapsedMs = index * 500L,
+                rideState = RideState.RIDING,
+                packVoltageV = 60.0 - index * .2,
+                speedKph = 360.0,
+                extension = if (index >= 12) mapOf("late" to index.toDouble()) else emptyMap(),
+            )
+        })
+        store.close(record.jobId, startedAt.plusSeconds(20), "prune")
+        val preview = store.prunePreview(record.sessionId.value, 5)
+        assertEquals(24, preview.recordedSampleCount)
+        assertTrue(preview.estimatedStoredSampleCount <= 24)
+        store.pruneSession(record.sessionId.value, 5)
+        val snapshot = store.sessionSnapshot(record.sessionId.value)
+        assertEquals(1, snapshot.historyRevision)
+        assertEquals(24, snapshot.recordedSampleCount)
+        assertEquals(preview.estimatedStoredSampleCount, snapshot.storedSampleCount)
+        assertTrue(
+            store.querySeriesSource(
+                record.sessionId.value, 0, 20_000, listOf("speedKph"), 200_000,
+                snapshot.committedSampleSequence,
+            ).any { it.sequence == 1L },
+        )
+        assertThrows(SessionStoreException.InvalidRange::class.java) {
+            store.prunePreview(record.sessionId.value, 5)
+        }
+        store.saveMaintenanceJob(
+            SessionMaintenanceJobRecord(
+                operationId = "prune-test",
+                kind = "prune",
+                scope = "one",
+                state = "running",
+                sessionId = record.sessionId.value,
+                targetResolutionSeconds = 10,
+                upperSessionId = record.sessionId.value,
+                lastSessionId = null,
+                completedSessions = 0,
+                skippedSessions = 0,
+                retainedSamples = 0,
+                reclaimableBytes = 0,
+                error = null,
+            ),
+        )
+        assertEquals("cancel_requested", store.cancelMaintenanceJob("prune-test")?.state)
+        assertEquals("prune-test", store.maintenanceJob()?.operationId)
     }
 
     @Test
