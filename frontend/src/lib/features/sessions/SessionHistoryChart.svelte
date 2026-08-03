@@ -6,12 +6,14 @@
   import type { SessionSeriesResult } from '$lib/backend/session-data';
   import { backendState } from '$lib/backend/state.svelte';
   import { activateFromKeyboardOrAssistiveClick, activateFromPointer } from '$lib/ui/activation';
-  import { axisTicks, buildPathSegments, finiteDomain, zeroReference } from './history-geometry';
+  import { axisTicks, buildPathSegments, finiteDomain, zeroReference, type NumericDomain } from './history-geometry';
   import { buildChartTooltipEntries } from './chart-tooltip';
   import {
     formatSessionFieldValue,
     sessionChartGroups,
+    sessionFieldIsChartable,
     sessionFieldUnit,
+    sortSessionFields,
     type SessionChartGroup,
   } from './session-fields';
   import { firstVisibleChartField, toggleChartField } from './chart-visibility';
@@ -42,17 +44,12 @@
   let reviewController: SessionReviewController | null = null;
   let activeField = $state('');
   let inspectionMs = $state(0);
-  let exactStatus = $state<'idle' | 'pending' | 'exact' | 'unavailable' | 'error'>('idle');
+  let exactStatus = $state<'idle' | 'exact'>('idle');
   let inspectionFrame: number | null = null;
-  let inspectionDebounce: number | null = null;
-  let inspectionInFlight = false;
-  let inspectionRequestVersion = 0;
   let queuedInspection: number | null = null;
-  let tooltipWidths = new SvelteMap<string, number>();
   let touchDevice = $state(false);
   let mouseDevice = $state(false);
 
-  const INSPECTION_DEBOUNCE_MS = 60;
   const CHART_WIDTH = 320;
   const CHART_HEIGHT = 96;
   const Y_TICK_COUNT = 5;
@@ -64,7 +61,7 @@
   type InteractionMode = (typeof INTERACTION_MODES)[number];
   let interactionMode = $state<InteractionMode>('zoom');
 
-  const fields = $derived(metadata.fields.slice(0, 16));
+  const fields = $derived(sortSessionFields(metadata.fields.filter((field) => sessionFieldIsChartable(field.name))));
   const fieldGroups = $derived.by(() => {
     const groups: SessionMetadata['fields'][] = [];
     let stable: SessionMetadata['fields'] = [];
@@ -134,17 +131,62 @@
     return finiteDomain(values, chartGroup.axis);
   }
 
-  function chartHasColumns(chartGroup: SessionChartGroup): boolean {
-    return chartGroup.fields.some((field) => Boolean(result?.columns[field.name]));
-  }
-
-  function chartTooltipEntries(chartGroup: SessionChartGroup, domain: NonNullable<ReturnType<typeof chartDomain>>) {
+  function chartTooltipEntries(chartGroup: SessionChartGroup, domain: NumericDomain) {
     return buildChartTooltipEntries(chartGroup, result?.columns, hiddenFields, inspectionMs, domain, {
       width: CHART_WIDTH,
       height: CHART_HEIGHT,
       viewport: visibleViewport,
     });
   }
+
+  const chartModels = $derived.by(() => {
+    const models = new SvelteMap<
+      string,
+      {
+        domain: NumericDomain | null;
+        hasColumns: boolean;
+        hasFiniteValues: boolean;
+        yTicks: number[];
+        yTickLabels: number[];
+        zero: number | null;
+        paths: Map<string, string[]>;
+      }
+    >();
+
+    chartGroups.forEach((chartGroup) => {
+      const domain = chartDomain(chartGroup);
+      const paths = new SvelteMap<string, string[]>();
+      if (domain) {
+        chartGroup.fields.forEach((field) => {
+          const column = result?.columns[field.name];
+          if (column) {
+            paths.set(
+              field.name,
+              buildPathSegments(column, {
+                width: CHART_WIDTH,
+                height: CHART_HEIGHT,
+                viewport: visibleViewport,
+                domain,
+              })
+            );
+          }
+        });
+      }
+      const yTicks = axisTicks(domain, Y_TICK_COUNT);
+      models.set(chartGroup.id, {
+        domain,
+        hasColumns: chartGroup.fields.some((field) => Boolean(result?.columns[field.name])),
+        hasFiniteValues: chartGroup.fields.some((field) =>
+          result?.columns[field.name]?.values.some((value) => value !== null && Number.isFinite(value))
+        ),
+        yTicks,
+        yTickLabels: [...yTicks].reverse(),
+        zero: zeroReference(domain),
+        paths,
+      });
+    });
+    return models;
+  });
 
   function isFieldVisible(fieldName: string): boolean {
     return !hiddenFields.has(fieldName);
@@ -230,60 +272,25 @@
   function queueInspection(elapsedMs: number) {
     if (!activeField) return;
     const target = Math.max(0, Math.min(duration, Math.round(elapsedMs)));
-    const changed = target !== inspectionMs;
-    inspectionMs = target;
-    if (changed) inspectionRequestVersion += 1;
-    if (!changed && exactStatus === 'exact') return;
-    exactStatus = 'pending';
     queuedInspection = target;
-    if (inspectionFrame !== null || typeof window === 'undefined') return;
+    if (inspectionFrame !== null) return;
+    if (typeof window === 'undefined') {
+      commitInspection();
+      return;
+    }
     inspectionFrame = window.requestAnimationFrame(() => {
       inspectionFrame = null;
-      scheduleInspectionRequest();
+      commitInspection();
     });
   }
 
-  function scheduleInspectionRequest() {
-    if (inspectionInFlight || queuedInspection === null || typeof window === 'undefined') return;
-    if (inspectionDebounce !== null) window.clearTimeout(inspectionDebounce);
-    inspectionDebounce = window.setTimeout(() => {
-      inspectionDebounce = null;
-      if (inspectionInFlight || queuedInspection === null) return;
-      const target = queuedInspection;
-      queuedInspection = null;
-      void inspectAt(target, inspectionRequestVersion);
-    }, INSPECTION_DEBOUNCE_MS);
-  }
-
-  async function inspectAt(target: number, requestVersion: number) {
-    if (!activeField) return;
-    const field = activeField;
-    const activeGroup = fieldGroups.find((group) => group.some((candidate) => candidate.name === field));
-    inspectionInFlight = true;
-    try {
-      reviewController ??= backendState.createSessionReviewController(metadata);
-      const response = await reviewController.loadSamples({
-        kind: 'samples',
-        range: { startElapsedMs: 0, endElapsedMs: duration },
-        fields: (activeGroup ?? fields.slice(0, 1)).map((field) => field.name),
-        mode: 'nearest',
-        limit: 1,
-        targetElapsedMs: target,
-      });
-      if (requestVersion === inspectionRequestVersion && inspectionMs === target && activeField === field) {
-        const value = response.values[field]?.[0] ?? null;
-        exactStatus = value === null ? 'unavailable' : 'exact';
-      }
-    } catch (reason) {
-      if (!(reason instanceof DOMException && reason.name === 'AbortError')) {
-        if (requestVersion === inspectionRequestVersion && inspectionMs === target && activeField === field) {
-          exactStatus = 'error';
-        }
-      }
-    } finally {
-      inspectionInFlight = false;
-      scheduleInspectionRequest();
-    }
+  function commitInspection() {
+    if (queuedInspection === null) return;
+    const target = queuedInspection;
+    queuedInspection = null;
+    if (target === inspectionMs && exactStatus === 'exact') return;
+    inspectionMs = target;
+    exactStatus = 'exact';
   }
 
   function elapsedAtClientX(clientX: number, bounds: DOMRect): number {
@@ -471,36 +478,8 @@
     }
   }
 
-  function path(
-    column: SessionSeriesResult['columns'][string],
-    domain: NonNullable<ReturnType<typeof chartDomain>>
-  ): string[] {
-    return buildPathSegments(column, {
-      width: CHART_WIDTH,
-      height: CHART_HEIGHT,
-      viewport: visibleViewport,
-      domain,
-    });
-  }
-
-  function measureTooltip(node: HTMLElement, fieldName: string) {
-    const updateWidth = () => tooltipWidths.set(fieldName, node.offsetWidth);
-    updateWidth();
-    if (typeof ResizeObserver === 'undefined') return;
-    const observer = new ResizeObserver(updateWidth);
-    observer.observe(node);
-    return {
-      destroy() {
-        observer.disconnect();
-        tooltipWidths.delete(fieldName);
-      },
-    };
-  }
-
-  function tooltipStyle(chartKey: string, pointX: number): string {
-    const width = tooltipWidths.get(chartKey);
-    const gap = 4;
-    const alignLeft = width === undefined ? pointX > CHART_WIDTH / 2 : pointX + width + gap > CHART_WIDTH;
+  function tooltipStyle(pointX: number): string {
+    const alignLeft = pointX > CHART_WIDTH / 2;
     const left = `${(Math.max(0, Math.min(CHART_WIDTH, pointX)) / CHART_WIDTH) * 100}%`;
     return `left: ${left}; transform: ${alignLeft ? 'translateX(calc(-100% - 0.25rem))' : 'translateX(0.25rem)'}`;
   }
@@ -510,11 +489,10 @@
   }
 
   function dismissInspection() {
-    inspectionRequestVersion += 1;
     queuedInspection = null;
-    if (inspectionDebounce !== null && typeof window !== 'undefined') {
-      window.clearTimeout(inspectionDebounce);
-      inspectionDebounce = null;
+    if (inspectionFrame !== null && typeof window !== 'undefined') {
+      window.cancelAnimationFrame(inspectionFrame);
+      inspectionFrame = null;
     }
     exactStatus = 'idle';
   }
@@ -567,7 +545,6 @@
 
   onDestroy(() => {
     if (inspectionFrame !== null && typeof window !== 'undefined') window.cancelAnimationFrame(inspectionFrame);
-    if (inspectionDebounce !== null && typeof window !== 'undefined') window.clearTimeout(inspectionDebounce);
     if (resizeFrame !== null && typeof window !== 'undefined') window.cancelAnimationFrame(resizeFrame);
     groupObserver?.disconnect();
     reviewController?.dispose();
@@ -597,15 +574,14 @@
           {/if}
 
           {#each chartGroupsForRequestGroup(groupIndex) as chartGroup (chartGroup.id)}
-            {@const domain = chartDomain(chartGroup)}
-            {@const hasColumns = chartHasColumns(chartGroup)}
-            {@const hasFiniteValues = chartGroup.fields.some((field) =>
-              result?.columns[field.name]?.values.some((value) => value !== null && Number.isFinite(value))
-            )}
-            {@const yTicks = axisTicks(domain, Y_TICK_COUNT)}
-            {@const yTickLabels = [...yTicks].reverse()}
-            {@const zero = zeroReference(domain)}
-            {@const tooltipEntries = domain ? chartTooltipEntries(chartGroup, domain) : []}
+            {@const chartModel = chartModels.get(chartGroup.id)}
+            {@const domain = chartModel?.domain ?? null}
+            {@const hasColumns = chartModel?.hasColumns ?? false}
+            {@const hasFiniteValues = chartModel?.hasFiniteValues ?? false}
+            {@const yTicks = chartModel?.yTicks ?? []}
+            {@const yTickLabels = chartModel?.yTickLabels ?? []}
+            {@const zero = chartModel?.zero ?? null}
+            {@const tooltipEntries = inspectionVisible && domain ? chartTooltipEntries(chartGroup, domain) : []}
             {@const tooltipAnchor = tooltipEntries[0]?.point ?? null}
             <div>
               <SectionTitle title={chartGroup.title} detail={chartGroup.unit ?? 'value'} />
@@ -666,7 +642,7 @@
                       {/if}
                       {#each chartGroup.fields as field (field.name)}
                         {@const column = result?.columns[field.name]}
-                        {@const paths = column ? path(column, domain) : []}
+                        {@const paths = chartModel?.paths.get(field.name) ?? []}
                         {#if column && isFieldVisible(field.name)}
                           {#each paths as segment (segment)}
                             <path
@@ -751,9 +727,8 @@
                     {/if}
                     {#if inspectionVisible && tooltipAnchor}
                       <div
-                        use:measureTooltip={chartGroup.id}
                         class="pointer-events-none absolute top-1 z-10 w-max max-w-none rounded border border-outline bg-surface px-2 py-1 font-mono text-[10px] leading-tight whitespace-nowrap shadow"
-                        style={tooltipStyle(chartGroup.id, tooltipAnchor.x)}
+                        style={tooltipStyle(tooltipAnchor.x)}
                         role="status"
                       >
                         <div class="grid grid-cols-[max-content_max-content] gap-x-3 gap-y-0.5">

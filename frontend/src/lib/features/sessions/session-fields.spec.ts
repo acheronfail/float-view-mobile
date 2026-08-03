@@ -4,13 +4,42 @@ import {
   sessionChartGroupMetadata,
   sessionChartGroups,
   sessionChartField,
+  sessionFieldIsChartable,
+  sessionFieldMetadata,
   sessionFieldValueFormat,
+  sortSessionFields,
 } from './session-fields';
 
 describe('session chart field metadata', () => {
   it('defines each shared chart title once', () => {
     expect(sessionChartGroupMetadata.temperature.title).toBe('Temperature');
-    expect(sessionChartGroupMetadata.current.title).toBe('Current');
+    expect(sessionChartGroupMetadata.current.title).toBe('Electrical current');
+    expect(sessionChartGroupMetadata.torqueControl.title).toBe('Torque control');
+    expect(sessionChartGroupMetadata.fieldWeakening.title).toBe('Field weakening');
+    expect(sessionChartGroupMetadata.voltage.title).toBe('Electrical voltage');
+    expect(sessionChartGroupMetadata.setpoints.title).toBe('Setpoints');
+    expect(sessionChartGroupMetadata.charge.title).toBe('Charge');
+    expect(sessionChartGroupMetadata.energy.title).toBe('Energy');
+  });
+
+  it('groups torque control fields and excludes the booster contribution', () => {
+    const groups = sessionChartGroups([
+      { name: 'requestedBalanceCurrentA' },
+      { name: 'directionalMotorCurrentA' },
+      { name: 'filteredMotorCurrentA' },
+      { name: 'boosterCurrentA' },
+      { name: 'fieldWeakeningCurrentA' },
+    ]);
+
+    expect(groups.find((group) => group.id === 'torqueControl')?.fields.map((field) => field.name)).toEqual([
+      'directionalMotorCurrentA',
+      'filteredMotorCurrentA',
+      'requestedBalanceCurrentA',
+    ]);
+    expect(groups.find((group) => group.id === 'fieldWeakening')?.fields.map((field) => field.name)).toEqual([
+      'fieldWeakeningCurrentA',
+    ]);
+    expect(groups.flatMap((group) => group.fields.map((field) => field.name))).not.toContain('boosterCurrentA');
   });
 
   it('groups compatible temperature fields in metadata order', () => {
@@ -19,8 +48,39 @@ describe('session chart field metadata', () => {
 
     expect(temperature?.title).toBe('Temperature');
     expect(temperature?.unit).toBe('°C');
-    expect(temperature?.fields.map((field) => field.name)).toEqual(['motorTempC', 'controllerTempC']);
+    expect(temperature?.fields.map((field) => field.name)).toEqual(['controllerTempC', 'motorTempC']);
     expect(groups.map((group) => group.id)).toEqual(['temperature', 'speedKph']);
+  });
+
+  it('uses session metadata insertion order for chart groups and fields', () => {
+    const fields = [
+      { name: 'speedKph' },
+      { name: 'packVoltageV' },
+      { name: 'batteryLevel' },
+      { name: 'controllerTempC' },
+      { name: 'motorTempC' },
+    ];
+    const groups = sessionChartGroups(fields);
+
+    expect(groups.map((group) => group.id)).toEqual(['batteryLevel', 'voltage', 'temperature', 'speedKph']);
+    expect(sortSessionFields(fields).map((field) => field.name)).toEqual([
+      'batteryLevel',
+      'packVoltageV',
+      'controllerTempC',
+      'motorTempC',
+      'speedKph',
+    ]);
+  });
+
+  it('charts every stable field except the intentionally hidden booster contribution', () => {
+    const fields = Object.keys(sessionFieldMetadata).map((name) => ({ name }));
+    const chartedNames = new Set(
+      sessionChartGroups(fields).flatMap((group) => group.fields.map((field) => field.name))
+    );
+
+    expect(chartedNames).toEqual(
+      new Set(Object.keys(sessionFieldMetadata).filter((name) => sessionFieldIsChartable(name)))
+    );
   });
 
   it('falls back to a standalone chart for extension fields', () => {

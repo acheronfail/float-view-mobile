@@ -47,7 +47,7 @@ export interface SessionChartGroupDefinition {
 }
 
 export interface SessionFieldChartMetadata {
-  readonly group?: string;
+  readonly group?: keyof typeof sessionChartGroupMetadata;
   readonly color?: string;
   readonly axis?: SessionAxisPolicy;
   readonly format?: SessionFieldValueFormat;
@@ -57,6 +57,7 @@ export interface SessionFieldChartMetadata {
 export interface SessionFieldDefinition {
   readonly displayName: string;
   readonly unit: string;
+  readonly chartable?: boolean;
   readonly chart?: SessionFieldChartMetadata;
 }
 
@@ -74,6 +75,14 @@ export interface SessionChartField {
 export const sessionChartGroupMetadata = {
   temperature: { title: 'Temperature' },
   current: { title: 'Current' },
+  torqueControl: { title: 'Torque control' },
+  fieldWeakening: { title: 'Field weakening' },
+  imu: { title: 'IMU' },
+  footpads: { title: 'Footpads' },
+  voltage: { title: 'Voltage' },
+  setpoints: { title: 'Setpoints' },
+  charge: { title: 'Charge' },
+  energy: { title: 'Energy' },
 } satisfies Record<string, SessionChartGroupDefinition>;
 
 export interface SessionChartGroup {
@@ -86,10 +95,47 @@ export interface SessionChartGroup {
   readonly precision: number;
 }
 
+/**
+ * Note order of this defines the order of the charts in the session view!
+ * Order of fields in the same group determines their order rendered on the chart.
+ */
 export const sessionFieldMetadata = {
+  batteryLevel: {
+    displayName: 'Battery level',
+    unit: '%',
+    chart: {
+      axis: { kind: 'fixed', min: 0, max: 1 },
+      color: 'var(--app-success)',
+      format: 'percent',
+      precision: 0,
+    },
+  },
   packVoltageV: {
     displayName: 'Pack voltage',
     unit: 'V',
+    chart: {
+      group: 'voltage',
+      color: 'var(--app-accent)',
+      precision: 2,
+    },
+  },
+  motorCurrentA: {
+    displayName: 'Motor current (draw/regen)',
+    unit: 'A',
+    chart: {
+      group: 'current',
+      color: 'var(--app-warning)',
+      precision: 2,
+    },
+  },
+  batteryCurrentA: {
+    displayName: 'Battery current',
+    unit: 'A',
+    chart: {
+      group: 'current',
+      color: 'var(--app-danger)',
+      precision: 2,
+    },
   },
   dutyCycle: {
     displayName: 'Duty cycle',
@@ -98,6 +144,22 @@ export const sessionFieldMetadata = {
       axis: { kind: 'fixed', min: 0, max: 1 },
       color: 'var(--app-warning)',
       format: 'percent',
+      precision: 0,
+    },
+  },
+  speedKph: {
+    displayName: 'Speed',
+    unit: 'km/h',
+    chart: {
+      color: 'var(--app-success)',
+      precision: 1,
+    },
+  },
+  erpm: {
+    displayName: 'ERPM',
+    unit: 'electrical rpm',
+    chart: {
+      color: 'var(--app-accent)',
       precision: 0,
     },
   },
@@ -119,156 +181,267 @@ export const sessionFieldMetadata = {
       precision: 1,
     },
   },
-  motorCurrentA: {
-    displayName: 'Motor current',
-    unit: 'A',
-    chart: {
-      group: 'current',
-      color: 'var(--app-warning)',
-      precision: 2,
-    },
-  },
-  batteryCurrentA: {
-    displayName: 'Battery current',
-    unit: 'A',
-    chart: {
-      group: 'current',
-      color: 'var(--app-danger)',
-      precision: 2,
-    },
-  },
-  erpm: {
-    displayName: 'ERPM',
-    unit: 'electrical rpm',
-    chart: {
-      precision: 0,
-    },
-  },
-  speedKph: {
-    displayName: 'Speed',
-    unit: 'km/h',
-  },
   pitchDeg: {
     displayName: 'Pitch',
     unit: 'deg',
+    chart: {
+      group: 'imu',
+      color: 'var(--app-success)',
+      precision: 1,
+    },
   },
   balancePitchDeg: {
     displayName: 'Balance pitch',
     unit: 'deg',
+
+    chart: {
+      group: 'imu',
+      color: 'var(--app-danger)',
+      precision: 1,
+    },
   },
   rollDeg: {
     displayName: 'Roll',
     unit: 'deg',
+
+    chart: {
+      group: 'imu',
+      color: 'var(--app-warning)',
+      precision: 1,
+    },
   },
   directionalMotorCurrentA: {
-    displayName: 'Directional motor current',
+    displayName: 'Torque-producing current',
     unit: 'A',
+    chart: {
+      group: 'torqueControl',
+      color: 'var(--app-accent)',
+      precision: 2,
+    },
   },
   filteredMotorCurrentA: {
-    displayName: 'Filtered motor current',
+    displayName: 'Smoothed torque current',
     unit: 'A',
+    chart: {
+      group: 'torqueControl',
+      color: 'var(--app-success)',
+      precision: 2,
+    },
   },
   requestedBalanceCurrentA: {
-    displayName: 'Requested balance current',
+    displayName: 'Balance current request',
     unit: 'A',
+    chart: {
+      group: 'torqueControl',
+      color: 'var(--app-warning)',
+      precision: 2,
+    },
   },
   boosterCurrentA: {
-    displayName: 'Booster current',
+    displayName: 'Booster contribution',
     unit: 'A',
+    chartable: false,
   },
   fieldWeakeningCurrentA: {
-    displayName: 'Field-weakening current',
+    displayName: 'Field-weakening d-axis current',
     unit: 'A',
+    chart: {
+      group: 'fieldWeakening',
+      color: 'var(--app-danger)',
+      precision: 2,
+    },
   },
   footpadAdc1V: {
     displayName: 'Footpad ADC 1',
     unit: 'V',
+    chart: {
+      group: 'footpads',
+      color: 'var(--app-success)',
+      precision: 2,
+    },
   },
   footpadAdc2V: {
     displayName: 'Footpad ADC 2',
     unit: 'V',
+    chart: {
+      group: 'footpads',
+      color: 'var(--app-warning)',
+      precision: 2,
+    },
   },
   remoteInput: {
     displayName: 'Remote input',
-    unit: 'ratio',
+    unit: '%',
+    chart: {
+      axis: { kind: 'fixed', min: 0, max: 1 },
+      color: 'var(--app-accent)',
+      format: 'percent',
+      precision: 0,
+    },
   },
   setpointDeg: {
     displayName: 'Final setpoint',
     unit: 'deg',
+    chart: {
+      group: 'setpoints',
+      color: 'var(--app-accent)',
+      precision: 1,
+    },
   },
   atrSetpointDeg: {
     displayName: 'ATR setpoint',
     unit: 'deg',
+    chart: {
+      group: 'setpoints',
+      color: 'var(--app-success)',
+      precision: 1,
+    },
   },
   brakeTiltSetpointDeg: {
     displayName: 'Brake-tilt setpoint',
     unit: 'deg',
+    chart: {
+      group: 'setpoints',
+      color: 'var(--app-warning)',
+      precision: 1,
+    },
   },
   torqueTiltSetpointDeg: {
     displayName: 'Torque-tilt setpoint',
     unit: 'deg',
+    chart: {
+      group: 'setpoints',
+      color: 'var(--app-danger)',
+      precision: 1,
+    },
   },
   turnTiltSetpointDeg: {
     displayName: 'Turn-tilt setpoint',
     unit: 'deg',
+    chart: {
+      group: 'setpoints',
+      color: 'var(--app-warning)',
+      precision: 1,
+    },
   },
   remoteSetpointDeg: {
     displayName: 'Remote setpoint',
     unit: 'deg',
+    chart: {
+      group: 'setpoints',
+      color: 'var(--app-success)',
+      precision: 1,
+    },
   },
   atrAccelerationDifferenceErpmPerSecond: {
     displayName: 'ATR acceleration difference',
     unit: 'electrical rpm/s',
+    chart: {
+      color: 'var(--app-accent)',
+      precision: 0,
+    },
   },
   atrSpeedBoost: {
     displayName: 'ATR speed boost',
-    unit: 'ratio',
+    unit: '%',
+    chart: {
+      axis: { kind: 'fixed', min: 0, max: 1 },
+      color: 'var(--app-warning)',
+      format: 'percent',
+      precision: 0,
+    },
   },
   distanceM: {
     displayName: 'Trip distance',
     unit: 'm',
+    chartable: false,
   },
   odometerM: {
     displayName: 'Odometer',
     unit: 'm',
+    chartable: false,
   },
   ampHoursDrawnAh: {
     displayName: 'Amp-hours drawn',
     unit: 'Ah',
+    chart: {
+      group: 'charge',
+      color: 'var(--app-warning)',
+      precision: 2,
+    },
   },
   ampHoursChargedAh: {
     displayName: 'Amp-hours charged',
     unit: 'Ah',
+    chart: {
+      group: 'charge',
+      color: 'var(--app-success)',
+      precision: 2,
+    },
   },
   wattHoursDrawnWh: {
     displayName: 'Watt-hours drawn',
     unit: 'Wh',
+    chart: {
+      group: 'energy',
+      color: 'var(--app-warning)',
+      precision: 1,
+    },
   },
   wattHoursChargedWh: {
     displayName: 'Watt-hours charged',
     unit: 'Wh',
-  },
-  batteryLevel: {
-    displayName: 'Battery level',
-    unit: 'ratio',
+    chart: {
+      group: 'energy',
+      color: 'var(--app-success)',
+      precision: 1,
+    },
   },
   chargingCurrentA: {
     displayName: 'Charging current',
     unit: 'A',
+    chart: {
+      group: 'current',
+      color: 'var(--app-success)',
+      precision: 2,
+    },
   },
   chargingVoltageV: {
     displayName: 'Charging voltage',
     unit: 'V',
+    chart: {
+      group: 'voltage',
+      color: 'var(--app-success)',
+      precision: 2,
+    },
   },
 } satisfies Record<StableSessionFieldName, SessionFieldDefinition>;
 
+const sessionFieldMetadataOrder = new Map(Object.keys(sessionFieldMetadata).map((name, index) => [name, index]));
+
 const DEFAULT_AXIS: SessionAxisPolicy = { kind: 'auto' };
-const DEFAULT_COLOR = 'var(--app-accent)';
+const DEFAULT_COLOR = 'var(--app-warning)';
 const DEFAULT_PRECISION = 2;
 const MAX_PRECISION = 6;
 
 function definitionFor(name: string): SessionFieldDefinition | null {
   return name in sessionFieldMetadata ? sessionFieldMetadata[name as StableSessionFieldName] : null;
+}
+
+export function sessionFieldIsChartable(name: string): boolean {
+  return definitionFor(name)?.chartable !== false;
+}
+
+export function sortSessionFields<T extends { readonly name: string }>(fields: readonly T[]): T[] {
+  return fields
+    .map((field, index) => ({ field, index }))
+    .sort((left, right) => {
+      const leftOrder = sessionFieldMetadataOrder.get(left.field.name) ?? Infinity;
+      const rightOrder = sessionFieldMetadataOrder.get(right.field.name) ?? Infinity;
+      if (leftOrder !== rightOrder) return leftOrder - rightOrder;
+      return left.index - right.index;
+    })
+    .map(({ field }) => field);
 }
 
 function sameAxis(left: SessionAxisPolicy, right: SessionAxisPolicy): boolean {
@@ -295,7 +468,8 @@ export function sessionChartField(name: string): SessionChartField {
 
 export function sessionChartGroups(fields: readonly { name: string }[]): SessionChartGroup[] {
   const groups = new Map<string, SessionChartField[]>();
-  for (const field of fields) {
+  for (const field of sortSessionFields(fields)) {
+    if (!sessionFieldIsChartable(field.name)) continue;
     const chartField = sessionChartField(field.name);
     const group = groups.get(chartField.group);
     if (group) group.push(chartField);
