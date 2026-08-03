@@ -2,6 +2,7 @@ package fail.acheron.floatview
 
 import android.content.res.AssetManager
 import android.util.Base64
+import android.util.Log
 import fail.acheron.floatview.backend.ActiveConnectionSnapshot
 import fail.acheron.floatview.backend.ApplicationService
 import fail.acheron.floatview.backend.BluetoothState
@@ -74,6 +75,22 @@ import org.json.JSONObject
 internal const val ANDROID_BACKEND_PORT = 11012
 internal const val LOOPBACK_MAX_MESSAGE_BYTES = 65_536
 
+private class SessionDataTiming {
+    val startedNs = System.nanoTime()
+    var kind = "unknown"
+    var sourceRows = 0
+    var metadataMs = 0.0
+    var configurationMs = 0.0
+    var sourceMs = 0.0
+    var reducerMs = 0.0
+    var jsonMs = 0.0
+    var gzipMs = 0.0
+    var responseBytes = 0
+    var compressedBytes = 0
+
+    fun totalMs(): Double = (System.nanoTime() - startedNs) / 1_000_000.0
+}
+
 class LoopbackServer(
     private val assets: AssetManager,
     private val applicationService: ApplicationService,
@@ -81,6 +98,7 @@ class LoopbackServer(
     private val events: EventHub,
     private val requestedPort: Int = 0,
     private val platform: String = "android",
+    private val performanceDiagnostics: Boolean = false,
 ) {
     private val token = ByteArray(32).also(SecureRandom()::nextBytes)
         .let { Base64.encodeToString(it, Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING) }
@@ -123,13 +141,16 @@ class LoopbackServer(
                         call.respondText("", status = HttpStatusCode.PayloadTooLarge)
                         return@post
                     }
+                    val timing = SessionDataTiming()
                     val body = call.receiveText()
                     if (body.toByteArray(Charsets.UTF_8).size > 16_384) {
                         call.respondText("", status = HttpStatusCode.PayloadTooLarge)
                         return@post
                     }
                     try {
+                        val decodeStarted = System.nanoTime()
                         val requestPayload = JSONObject(body)
+                        timing.jsonMs = (System.nanoTime() - decodeStarted) / 1_000_000.0
                         val sessionId = requestPayload.optString("sessionId")
                         if (sessionId.isEmpty()) {
                             call.respondText("", status = HttpStatusCode.BadRequest)
@@ -137,7 +158,11 @@ class LoopbackServer(
                         }
                         val payload = withContext(Dispatchers.IO) {
                             try {
-                                sessionData(requestPayload).toString().toByteArray(Charsets.UTF_8)
+                                val value = sessionData(requestPayload, timing)
+                                val encodeStarted = System.nanoTime()
+                                value.toString().toByteArray(Charsets.UTF_8).also {
+                                    timing.jsonMs += (System.nanoTime() - encodeStarted) / 1_000_000.0
+                                }
                             } finally {
                                 // Ktor cancellation runs this finally block when
                                 // the client disconnects, closing any dedicated
@@ -149,16 +174,21 @@ class LoopbackServer(
                             call.respondText("", status = HttpStatusCode.PayloadTooLarge)
                             return@post
                         }
+                        timing.responseBytes = payload.size
                         if (call.request.header("Accept-Encoding")?.contains("gzip", ignoreCase = true) == true) {
                             val compressed = ByteArrayOutputStream(payload.size)
+                            val gzipStarted = System.nanoTime()
                             withContext(Dispatchers.IO) {
                                 GZIPOutputStream(compressed).use { it.write(payload) }
                             }
+                            timing.gzipMs = (System.nanoTime() - gzipStarted) / 1_000_000.0
+                            timing.compressedBytes = compressed.size()
                             call.response.headers.append("Content-Encoding", "gzip")
                             call.respondBytes(compressed.toByteArray(), ContentType.Application.Json)
                         } else {
                             call.respondBytes(payload, ContentType.Application.Json)
                         }
+                        logSessionDataTiming(timing)
                     } catch (_: Exception) {
                         call.respondText("", status = HttpStatusCode.BadRequest)
                     }
@@ -807,13 +837,15 @@ class LoopbackServer(
             .put("committedEventSequence", snapshot.committedEventSequence)
             .put("committedElapsedMs", snapshot.committedElapsedMs))
 
-    private fun sessionData(params: JSONObject): JSONObject {
+    private fun sessionData(params: JSONObject, timing: SessionDataTiming): JSONObject {
         val kind = params.getString("kind")
+        timing.kind = kind
         val sessionId = params.getString("sessionId")
         val range = params.getJSONObject("range")
         val start = range.getLong("startElapsedMs")
         val end = range.getLong("endElapsedMs")
         val snapshot = params.getJSONObject("snapshot")
+        val metadataStarted = System.nanoTime()
         val published = applicationService.sessionSnapshot(sessionId)
         require(snapshot.getLong("historyRevision") == published.historyRevision)
         require(snapshot.getLong("committedSampleSequence") == published.committedSampleSequence)
@@ -828,6 +860,7 @@ class LoopbackServer(
         require(fields.length() in 1..16 || kind == "events")
         val fieldNames = (0 until fields.length()).map { fields.getString(it) }
         val extensionFields = applicationService.sessionExtensionFields(sessionId).toSet()
+        timing.metadataMs = (System.nanoTime() - metadataStarted) / 1_000_000.0
         if (kind == "series" || kind == "samples") {
             val descriptors = JSONArray(fieldNames.map { JSONObject().put("name", it).put("source", if (it in extensionFields) "extension" else "stable") })
             val base = JSONObject()
@@ -843,11 +876,17 @@ class LoopbackServer(
                 if (threshold != null && (!threshold.isFinite() || threshold < 0.1 || threshold > 3_600)) {
                     throw SessionStoreException.InvalidRange
                 }
+                val sourceStarted = System.nanoTime()
                 val source = applicationService.querySessionSeriesSource(
                     sessionId, start, end, fieldNames, 200_000,
                     snapshot.getLong("committedSampleSequence"),
                 )
+                timing.sourceMs = (System.nanoTime() - sourceStarted) / 1_000_000.0
+                timing.sourceRows = source.size
+                val configurationStarted = System.nanoTime()
                 val historyConfiguration = applicationService.sessionHistoryConfiguration(sessionId)
+                timing.configurationMs = (System.nanoTime() - configurationStarted) / 1_000_000.0
+                val reducerStarted = System.nanoTime()
                 val reduced = SessionHistoryReducer.reduceSeries(
                     source,
                     fieldNames,
@@ -858,7 +897,9 @@ class LoopbackServer(
                     expectedRidingPersistenceMs = historyConfiguration.expectedRidingPersistenceMs,
                     expectedIdlePersistenceMs = historyConfiguration.expectedIdlePersistenceMs,
                     retainedResolutionSeconds = historyConfiguration.retainedResolutionSeconds,
+                    rowsAreOrdered = true,
                 )
+                timing.reducerMs = (System.nanoTime() - reducerStarted) / 1_000_000.0
                 val columns = JSONObject()
                 fieldNames.forEach { field ->
                     val column = reduced.getValue(field)
@@ -966,6 +1007,19 @@ class LoopbackServer(
                 .put("kinds", JSONArray(events.map { it.kind }))
                 .put("values", JSONArray(events.map { JSONObject(it.detailsJson).optString("value", "") })))
             .put("nextCursor", nextCursor ?: JSONObject.NULL)
+    }
+
+    private fun logSessionDataTiming(timing: SessionDataTiming) {
+        if (!performanceDiagnostics) return
+        Log.d(
+            "FloatViewPerformance",
+            "session-data kind=${timing.kind} rows=${timing.sourceRows} " +
+                "metadata_ms=${timing.metadataMs} config_ms=${timing.configurationMs} " +
+                "source_ms=${timing.sourceMs} reducer_ms=${timing.reducerMs} " +
+                "json_ms=${timing.jsonMs} gzip_ms=${timing.gzipMs} " +
+                "response_bytes=${timing.responseBytes} compressed_bytes=${timing.compressedBytes} " +
+                "total_ms=${timing.totalMs()}",
+        )
     }
 
     private fun operation(

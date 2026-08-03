@@ -56,6 +56,12 @@ final class SessionHistoryReducerTests: XCTestCase {
       range: SessionElapsedRange(startElapsedMs: 0, endElapsedMs: 10_000), buckets: 4,
       gapPolicy: SessionGapPolicyRecord(thresholdSeconds: 2)
     )
+    let orderedResult = try SessionHistoryReducer.reduceSeries(
+      rows: rows, fields: ["speedKph", "packVoltageV", "extensionLate"],
+      range: SessionElapsedRange(startElapsedMs: 0, endElapsedMs: 10_000), buckets: 4,
+      gapPolicy: SessionGapPolicyRecord(thresholdSeconds: 2), rowsAreOrdered: true
+    )
+    XCTAssertEqual(orderedResult, result)
     XCTAssertEqual(result["speedKph"]?.values.compactMap { $0 }, [0, 20, 5, 7, 2, 3])
     XCTAssertEqual(result["speedKph"]?.generations, [0, 0, 0, 2, 3, 3])
     XCTAssertEqual(result["packVoltageV"]?.values.compactMap { $0 }, [60, 56, 55, 54, 53])

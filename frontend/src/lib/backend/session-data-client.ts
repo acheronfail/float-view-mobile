@@ -2,11 +2,17 @@ import { bootstrapSessionDataUrl, type BootstrapDocument } from './bootstrap';
 import { MAX_SESSION_DATA_REQUEST_BYTES } from './contract';
 import {
   readBoundedJson,
+  recordSessionDataDecodedBytes,
+  type SessionDataReadTiming,
   validateSessionDataRequest,
   validateSessionDataResult,
   type SessionDataRequest,
   type SessionDataResult,
 } from './session-data';
+
+function timestamp(): number {
+  return globalThis.performance?.now() ?? Date.now();
+}
 
 export class SessionDataClient {
   private readonly endpoint: URL;
@@ -24,6 +30,7 @@ export class SessionDataClient {
   private readonly token: string;
 
   async request(request: SessionDataRequest, signal?: AbortSignal): Promise<SessionDataResult> {
+    const started = timestamp();
     const validated = validateSessionDataRequest(request);
     const body = JSON.stringify(validated);
     if (new TextEncoder().encode(body).byteLength > MAX_SESSION_DATA_REQUEST_BYTES) {
@@ -41,6 +48,23 @@ export class SessionDataClient {
       },
     });
     if (!response.ok) throw new Error(`Session-data request failed: HTTP ${response.status}`);
-    return validateSessionDataResult(await readBoundedJson(response), validated);
+    const readTiming: SessionDataReadTiming = { decodedBytes: 0, bodyMs: 0, parseMs: 0 };
+    const value = await readBoundedJson(response, readTiming);
+    const validationStarted = timestamp();
+    const result = validateSessionDataResult(value, validated);
+    if (import.meta.env.DEV) {
+      console.debug('[Float View performance] session-data', {
+        kind: request.kind,
+        fields: 'fields' in request ? request.fields.length : 0,
+        decodedBytes: readTiming.decodedBytes,
+        fetchMs: Math.round((validationStarted - started - readTiming.bodyMs - readTiming.parseMs) * 100) / 100,
+        bodyMs: Math.round(readTiming.bodyMs * 100) / 100,
+        parseMs: Math.round(readTiming.parseMs * 100) / 100,
+        validateMs: Math.round((timestamp() - validationStarted) * 100) / 100,
+        totalMs: Math.round((timestamp() - started) * 100) / 100,
+      });
+    }
+    recordSessionDataDecodedBytes(result, readTiming.decodedBytes);
+    return result;
   }
 }

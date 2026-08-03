@@ -68,6 +68,13 @@ public enum SessionHistoryReducer {
     let generation: Int
   }
 
+  private struct BucketCandidates {
+    var first: Candidate?
+    var minimum: Candidate?
+    var maximum: Candidate?
+    var last: Candidate?
+  }
+
   public static let maximumSeriesObservations = 65_536
 
   public static func reduceSeries(
@@ -79,7 +86,8 @@ public enum SessionHistoryReducer {
     expectedPersistenceMs: Int64 = 1_000,
     expectedRidingPersistenceMs: Int64? = nil,
     expectedIdlePersistenceMs: Int64? = nil,
-    retainedResolutionSeconds: Int64 = 0
+    retainedResolutionSeconds: Int64 = 0,
+    rowsAreOrdered: Bool = false
   ) throws -> [String: SessionSeriesColumnRecord] {
     guard range.startElapsedMs <= range.endElapsedMs,
           (1 ... 1_024).contains(buckets),
@@ -87,9 +95,11 @@ public enum SessionHistoryReducer {
           Set(fields).count == fields.count
     else { throw SessionStoreError.invalidRange }
 
-    let ordered = rows
-      .filter { $0.elapsedMs >= range.startElapsedMs && $0.elapsedMs <= range.endElapsedMs }
-      .sorted(by: compare)
+    let ordered = rowsAreOrdered
+      ? rows
+      : rows
+        .filter { $0.elapsedMs >= range.startElapsedMs && $0.elapsedMs <= range.endElapsedMs }
+        .sorted(by: compare)
     let span = max(1, range.endElapsedMs - range.startElapsedMs + 1)
     let thresholdMs: Int64
     if let thresholdSeconds = gapPolicy.thresholdSeconds {
@@ -108,10 +118,10 @@ public enum SessionHistoryReducer {
       }
     }
 
-    var generations = Dictionary(uniqueKeysWithValues: fields.map { ($0, 0) })
-    var bucketsByField: [String: [Int: [Int64: Candidate]]] = Dictionary(
-      uniqueKeysWithValues: fields.map { ($0, [:]) }
-    )
+    var generations = Array(repeating: 0, count: fields.count)
+    var bucketsByField = fields.map { _ in
+      Array<BucketCandidates?>(repeating: nil, count: buckets)
+    }
     var previousElapsed: Int64?
     var previousRideState: String?
 
@@ -129,50 +139,56 @@ public enum SessionHistoryReducer {
         )
         : thresholdMs
       if let previousElapsed, row.elapsedMs - previousElapsed > edgeThreshold {
-        for field in fields {
-          generations[field, default: 0] += 1
-        }
+        for index in generations.indices { generations[index] += 1 }
       }
       previousElapsed = row.elapsedMs
       previousRideState = row.rideState
       let offset = max(0, row.elapsedMs - range.startElapsedMs)
       let bucket = min(buckets - 1, Int((offset * Int64(buckets)) / span))
-      for field in fields {
-        guard let wrapped = row.values[field], let value = wrapped else {
-          generations[field, default: 0] += 1
+      for (index, field) in fields.enumerated() {
+        guard let value = row.values[field] ?? nil else {
+          generations[index] += 1
           continue
         }
         let candidate = Candidate(
           point: row,
           value: value,
-          generation: generations[field, default: 0]
+          generation: generations[index]
         )
-        var fieldBuckets = bucketsByField[field, default: [:]]
-        var bucketRows = fieldBuckets[bucket, default: [:]]
-        bucketRows[row.sequence] = candidate
-        fieldBuckets[bucket] = bucketRows
-        bucketsByField[field] = fieldBuckets
+        var bucketCandidates = bucketsByField[index][bucket] ?? BucketCandidates()
+        if bucketCandidates.first == nil || compareCandidate(candidate, bucketCandidates.first!) {
+          bucketCandidates.first = candidate
+        }
+        if bucketCandidates.minimum == nil || candidate.value < bucketCandidates.minimum!.value ||
+          (candidate.value == bucketCandidates.minimum!.value &&
+            compareCandidate(candidate, bucketCandidates.minimum!))
+        {
+          bucketCandidates.minimum = candidate
+        }
+        if bucketCandidates.maximum == nil || candidate.value > bucketCandidates.maximum!.value ||
+          (candidate.value == bucketCandidates.maximum!.value &&
+            compareCandidate(candidate, bucketCandidates.maximum!))
+        {
+          bucketCandidates.maximum = candidate
+        }
+        if bucketCandidates.last == nil || compareCandidate(bucketCandidates.last!, candidate) {
+          bucketCandidates.last = candidate
+        }
+        bucketsByField[index][bucket] = bucketCandidates
       }
     }
 
     var result: [String: SessionSeriesColumnRecord] = [:]
     var observationCount = 0
-    for field in fields {
+    for (index, field) in fields.enumerated() {
       var selected: [Int64: Candidate] = [:]
-      for bucketRows in bucketsByField[field, default: [:]].values {
-        let candidates = Array(bucketRows.values)
-        guard let first = candidates.min(by: compareCandidate),
-              let last = candidates.max(by: compareCandidate)
-        else { continue }
-        let minimum = candidates.reduce(first) { best, candidate in
-          candidate.value < best.value ||
-            (candidate.value == best.value && compareCandidate(candidate, best)) ? candidate : best
-        }
-        let maximum = candidates.reduce(first) { best, candidate in
-          candidate.value > best.value ||
-            (candidate.value == best.value && compareCandidate(candidate, best)) ? candidate : best
-        }
-        for candidate in [first, minimum, maximum, last] {
+      for bucketCandidates in bucketsByField[index] {
+        for candidate in [
+          bucketCandidates?.first,
+          bucketCandidates?.minimum,
+          bucketCandidates?.maximum,
+          bucketCandidates?.last,
+        ].compactMap({ $0 }) {
           selected[candidate.point.sequence] = candidate
         }
       }

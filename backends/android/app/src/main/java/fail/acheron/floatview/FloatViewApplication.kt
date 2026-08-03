@@ -1,6 +1,7 @@
 package fail.acheron.floatview
 
 import android.app.Application
+import android.content.pm.ApplicationInfo
 
 class FloatViewApplication : Application() {
     lateinit var runtime: BackendRuntime
@@ -18,6 +19,7 @@ class FloatViewApplication : Application() {
                 runtime.exportPresentationBroker::present,
                 runtime.events,
                 requestedPort = ANDROID_BACKEND_PORT,
+                performanceDiagnostics = applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0,
             ).also { it.start() }
         } catch (error: Exception) {
             throw backendStartupFailure(ANDROID_BACKEND_PORT, error)

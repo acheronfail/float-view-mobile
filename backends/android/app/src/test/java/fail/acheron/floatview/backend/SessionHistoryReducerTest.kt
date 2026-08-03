@@ -5,6 +5,37 @@ import org.junit.Test
 
 class SessionHistoryReducerTest {
     @Test
+    fun orderedSeriesFastPathMatchesReference() {
+        val rows = (0 until 100).map { index ->
+            SessionSeriesPoint(
+                elapsedMs = index * 1_000L,
+                sequence = index.toLong(),
+                rideState = if (index < 80) "riding" else "idle",
+                values = mapOf(
+                    "speedKph" to if (index % 17 == 0) null else (index % 23).toDouble(),
+                    "packVoltageV" to 60.0 - index / 100.0,
+                ),
+            )
+        }
+        val reference = SessionHistoryReducer.reduceSeries(
+            rows,
+            listOf("speedKph", "packVoltageV"),
+            SessionElapsedRange(0, 99_000),
+            16,
+            SessionGapPolicyRecord(null),
+        )
+        val ordered = SessionHistoryReducer.reduceSeries(
+            rows,
+            listOf("speedKph", "packVoltageV"),
+            SessionElapsedRange(0, 99_000),
+            16,
+            SessionGapPolicyRecord(null),
+            rowsAreOrdered = true,
+        )
+        assertEquals(reference, ordered)
+    }
+
+    @Test
     fun pruneSelectionProtectsBoundariesEventsAndFieldStarts() {
         val rows = (0 until 24).map { index ->
             SessionSeriesPoint(

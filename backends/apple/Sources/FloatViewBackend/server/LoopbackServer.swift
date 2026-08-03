@@ -16,6 +16,24 @@ public func loopbackStartupFailure(port: UInt16, error: any Error) -> String {
   "failed to bind Float View backend to 127.0.0.1:\(port): \(error)"
 }
 
+private final class SessionDataTiming: @unchecked Sendable {
+  let startedAt = DispatchTime.now().uptimeNanoseconds
+  var kind = "unknown"
+  var sourceRows = 0
+  var metadataMs = 0.0
+  var configurationMs = 0.0
+  var sourceMs = 0.0
+  var reducerMs = 0.0
+  var jsonMs = 0.0
+  var gzipMs = 0.0
+  var responseBytes = 0
+  var compressedBytes = 0
+
+  var totalMs: Double {
+    Double(DispatchTime.now().uptimeNanoseconds - startedAt) / 1_000_000
+  }
+}
+
 public final class LoopbackServer: @unchecked Sendable {
   public let token: String
   public private(set) var port: UInt16 = 0
@@ -102,33 +120,41 @@ public final class LoopbackServer: @unchecked Sendable {
         if let contentLength = request.headers[HTTPHeader("Content-Length")].flatMap(Int.init), contentLength > 16_384 {
           return HTTPResponse(statusCode: .payloadTooLarge, headers: [.cacheControl: "no-store"])
         }
+        let timing = SessionDataTiming()
         let body = try await request.bodyData
         guard body.count <= 16_384 else { return HTTPResponse(
           statusCode: .payloadTooLarge,
           headers: [.cacheControl: "no-store"]
         ) }
         do {
+          let decodeStarted = DispatchTime.now().uptimeNanoseconds
           guard let payload = try JSONSerialization.jsonObject(with: body) as? [String: Any] else {
             return HTTPResponse(statusCode: .badRequest, headers: [.cacheControl: "no-store"])
           }
+          timing.jsonMs = Double(DispatchTime.now().uptimeNanoseconds - decodeStarted) / 1_000_000
           guard let sessionID = payload["sessionId"] as? String, !sessionID.isEmpty else {
             return HTTPResponse(statusCode: .badRequest, headers: [.cacheControl: "no-store"])
           }
           let result = try await withTaskCancellationHandler(operation: {
-            try self.sessionDataPayload(payload)
+            try self.sessionDataPayload(payload, timing: timing)
           }, onCancel: {
             self.applicationService.cancelHistoricalReads(sessionID: sessionID)
           })
           guard let result else {
             return HTTPResponse(statusCode: .badRequest, headers: [.cacheControl: "no-store"])
           }
+          let encodeStarted = DispatchTime.now().uptimeNanoseconds
           let responseData = try JSONSerialization.data(withJSONObject: result)
+          timing.responseBytes = responseData.count
+          timing.jsonMs += Double(DispatchTime.now().uptimeNanoseconds - encodeStarted) / 1_000_000
           guard responseData.count <= 4 * 1024 * 1024 else {
             return HTTPResponse(statusCode: .payloadTooLarge, headers: [.cacheControl: "no-store"])
           }
           if request.headers[HTTPHeader("Accept-Encoding")]?.localizedCaseInsensitiveContains("gzip") == true,
-             let compressed = Self.gzip(responseData)
+             let compressed = Self.gzip(responseData, timing: timing)
           {
+            timing.compressedBytes = compressed.count
+            Self.logSessionDataTiming(timing)
             return HTTPResponse(
               statusCode: .ok,
               headers: [
@@ -139,6 +165,7 @@ public final class LoopbackServer: @unchecked Sendable {
               body: compressed
             )
           }
+          Self.logSessionDataTiming(timing)
           return HTTPResponse(
             statusCode: .ok,
             headers: [.contentType: "application/json", .cacheControl: "no-store"],
@@ -805,7 +832,7 @@ public final class LoopbackServer: @unchecked Sendable {
     ]
   }
 
-  private func sessionDataPayload(_ params: [String: Any]) throws -> [String: Any]? {
+  private func sessionDataPayload(_ params: [String: Any], timing: SessionDataTiming) throws -> [String: Any]? {
     guard let kind = params["kind"] as? String,
           let sessionID = params["sessionId"] as? String,
           let range = params["range"] as? [String: Any],
@@ -813,9 +840,11 @@ public final class LoopbackServer: @unchecked Sendable {
           let end = (range["endElapsedMs"] as? NSNumber)?.int64Value,
           let snapshot = params["snapshot"] as? [String: Any]
     else { return nil }
+    timing.kind = kind
     let fields = (params["fields"] as? [String] ?? []).filter { !$0.isEmpty }
     guard start >= 0, end >= start, fields.count <= 16,
           kind == "events" || (!fields.isEmpty && Set(fields).count == fields.count) else { return nil }
+    let metadataStarted = DispatchTime.now().uptimeNanoseconds
     let published = try applicationService.sessionSnapshot(sessionID: sessionID)
     guard let snapshotRevision = snapshot["historyRevision"] as? NSNumber,
           let sampleSequence = snapshot["committedSampleSequence"] as? NSNumber,
@@ -834,6 +863,7 @@ public final class LoopbackServer: @unchecked Sendable {
       "committedElapsedMs": committedElapsed.int64Value,
     ]
     let extensionFields = try Set(applicationService.sessionExtensionFields(sessionID: sessionID))
+    timing.metadataMs = Double(DispatchTime.now().uptimeNanoseconds - metadataStarted) / 1_000_000
     let descriptors = fields.map { field in
       [
         "name": field,
@@ -848,11 +878,17 @@ public final class LoopbackServer: @unchecked Sendable {
         throw SessionStoreError.invalidRange
       }
       guard gap != nil, gap?["thresholdSeconds"] != nil else { throw SessionStoreError.invalidRange }
+      let sourceStarted = DispatchTime.now().uptimeNanoseconds
       let source = try applicationService.querySessionSeriesSource(
         sessionID: sessionID, startElapsedMs: start, endElapsedMs: end, fields: fields,
         maxRows: 200_000, publishedSampleSequence: sampleSequence.int64Value
       )
+      timing.sourceMs = Double(DispatchTime.now().uptimeNanoseconds - sourceStarted) / 1_000_000
+      timing.sourceRows = source.count
+      let configurationStarted = DispatchTime.now().uptimeNanoseconds
       let historyConfiguration = try applicationService.sessionHistoryConfiguration(sessionID: sessionID)
+      timing.configurationMs = Double(DispatchTime.now().uptimeNanoseconds - configurationStarted) / 1_000_000
+      let reducerStarted = DispatchTime.now().uptimeNanoseconds
       let reduced = try SessionHistoryReducer.reduceSeries(
         rows: source, fields: fields,
         range: SessionElapsedRange(startElapsedMs: start, endElapsedMs: end),
@@ -860,8 +896,10 @@ public final class LoopbackServer: @unchecked Sendable {
         gapPolicy: SessionGapPolicyRecord(thresholdSeconds: threshold),
         expectedRidingPersistenceMs: historyConfiguration.expectedRidingPersistenceMs,
         expectedIdlePersistenceMs: historyConfiguration.expectedIdlePersistenceMs,
-        retainedResolutionSeconds: historyConfiguration.retainedResolutionSeconds
+        retainedResolutionSeconds: historyConfiguration.retainedResolutionSeconds,
+        rowsAreOrdered: true
       )
+      timing.reducerMs = Double(DispatchTime.now().uptimeNanoseconds - reducerStarted) / 1_000_000
       let columns = Dictionary(uniqueKeysWithValues: fields.map { field in
         let column = reduced[field]!
         let values: [Any] = column.values.map { $0 as Any? ?? NSNull() }
@@ -1032,7 +1070,8 @@ public final class LoopbackServer: @unchecked Sendable {
     return ids
   }
 
-  private static func gzip(_ data: Data) -> Data? {
+  private static func gzip(_ data: Data, timing: SessionDataTiming? = nil) -> Data? {
+    let started = DispatchTime.now().uptimeNanoseconds
     var stream = z_stream()
     guard deflateInit2_(
       &stream,
@@ -1044,7 +1083,12 @@ public final class LoopbackServer: @unchecked Sendable {
       ZLIB_VERSION,
       Int32(MemoryLayout<z_stream>.size)
     ) == Z_OK else { return nil }
-    defer { deflateEnd(&stream) }
+    defer {
+      deflateEnd(&stream)
+      if let timing {
+        timing.gzipMs = Double(DispatchTime.now().uptimeNanoseconds - started) / 1_000_000
+      }
+    }
     var output = Data(count: max(256, data.count + data.count / 100 + 256))
     let result = data.withUnsafeBytes { inputBuffer in
       output.withUnsafeMutableBytes { outputBuffer in
@@ -1058,6 +1102,19 @@ public final class LoopbackServer: @unchecked Sendable {
     guard result == Z_STREAM_END else { return nil }
     output.count = Int(stream.total_out)
     return output
+  }
+
+  private static func logSessionDataTiming(_ timing: SessionDataTiming) {
+    #if DEBUG
+      print(
+        "[FloatView performance] session-data kind=\(timing.kind) rows=\(timing.sourceRows) " +
+          "metadata_ms=\(timing.metadataMs) config_ms=\(timing.configurationMs) " +
+          "source_ms=\(timing.sourceMs) reducer_ms=\(timing.reducerMs) " +
+          "json_ms=\(timing.jsonMs) gzip_ms=\(timing.gzipMs) " +
+          "response_bytes=\(timing.responseBytes) compressed_bytes=\(timing.compressedBytes) " +
+          "total_ms=\(timing.totalMs)"
+      )
+    #endif
   }
 
   private func sessionPayload(_ value: SessionSummaryRecord) -> [String: Any] {

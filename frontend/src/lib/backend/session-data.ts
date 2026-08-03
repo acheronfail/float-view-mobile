@@ -102,6 +102,26 @@ export class SessionDataProtocolError extends Error {
   }
 }
 
+export interface SessionDataReadTiming {
+  decodedBytes: number;
+  bodyMs: number;
+  parseMs: number;
+}
+
+const decodedByteSizes = new WeakMap<object, number>();
+
+export function recordSessionDataDecodedBytes(value: SessionDataResult, bytes: number): void {
+  decodedByteSizes.set(value, bytes);
+}
+
+export function sessionDataDecodedBytes(value: SessionDataResult): number | undefined {
+  return decodedByteSizes.get(value);
+}
+
+function timestamp(): number {
+  return globalThis.performance?.now() ?? Date.now();
+}
+
 const finiteInteger = (value: unknown): value is number => Number.isSafeInteger(value) && (value as number) >= 0;
 const finiteNumber = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value);
 
@@ -205,13 +225,20 @@ function sameSnapshot(left: SessionPublishedSnapshot, right: SessionPublishedSna
   );
 }
 
-export async function readBoundedJson(response: Response): Promise<unknown> {
+export async function readBoundedJson(response: Response, timing?: SessionDataReadTiming): Promise<unknown> {
+  const bodyStarted = timestamp();
   if (!response.body) {
     const text = await response.text();
-    if (new TextEncoder().encode(text).byteLength > MAX_SESSION_DATA_RESPONSE_BYTES) {
+    const encodedBytes = new TextEncoder().encode(text).byteLength;
+    timing && (timing.decodedBytes = encodedBytes);
+    timing && (timing.bodyMs = timestamp() - bodyStarted);
+    if (encodedBytes > MAX_SESSION_DATA_RESPONSE_BYTES) {
       throw new SessionDataProtocolError('Session-data response exceeds the decoded byte limit');
     }
-    return JSON.parse(text);
+    const parseStarted = timestamp();
+    const value = JSON.parse(text);
+    timing && (timing.parseMs = timestamp() - parseStarted);
+    return value;
   }
   const reader = response.body.getReader();
   const chunks: Uint8Array[] = [];
@@ -228,13 +255,18 @@ export async function readBoundedJson(response: Response): Promise<unknown> {
   } finally {
     reader.releaseLock();
   }
+  timing && (timing.decodedBytes = total);
+  timing && (timing.bodyMs = timestamp() - bodyStarted);
   const merged = new Uint8Array(total);
   let offset = 0;
   for (const chunk of chunks) {
     merged.set(chunk, offset);
     offset += chunk.byteLength;
   }
-  return JSON.parse(new TextDecoder().decode(merged));
+  const parseStarted = timestamp();
+  const value = JSON.parse(new TextDecoder().decode(merged));
+  timing && (timing.parseMs = timestamp() - parseStarted);
+  return value;
 }
 
 function validateSnapshot(value: unknown): asserts value is SessionPublishedSnapshot {

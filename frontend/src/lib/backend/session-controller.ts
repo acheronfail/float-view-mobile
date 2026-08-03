@@ -8,6 +8,7 @@ import type {
   SessionSamplesResult,
   SessionEventsResult,
 } from './session-data.ts';
+import { sessionDataDecodedBytes } from './session-data.ts';
 import { SessionDataClient } from './session-data-client';
 
 const MAX_CACHE_ENTRIES = 32;
@@ -117,7 +118,7 @@ export class SessionReviewController {
     const result = await this.client.request(request, abort.signal);
     if (this.disposed || generation !== this.generations.get(channel) || !isExpected(result))
       throw new DOMException('Superseded session-data request', 'AbortError');
-    const bytes = new TextEncoder().encode(JSON.stringify(result)).byteLength;
+    const bytes = sessionDataDecodedBytes(result) ?? new TextEncoder().encode(JSON.stringify(result)).byteLength;
     this.cache.set(key, { value: result, bytes });
     this.cacheBytes += bytes;
     this.trimCache();

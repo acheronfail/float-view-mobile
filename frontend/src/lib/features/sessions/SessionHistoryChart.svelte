@@ -19,7 +19,7 @@
   import { firstVisibleChartField, toggleChartField } from './chart-visibility';
   import { clampViewport, panViewport, pinchViewport, type Viewport } from './viewport';
   import SectionTitle from '../../ui/SectionTitle.svelte';
-    import Spinner from '../../ui/Spinner.svelte';
+  import Spinner from '../../ui/Spinner.svelte';
 
   let { metadata }: { metadata: SessionMetadata } = $props();
   let plot = $state<HTMLElement | null>(null);
@@ -221,6 +221,7 @@
   async function loadSeriesGroup(index: number, buckets: number) {
     const group = fieldGroups[index];
     if (!group?.length || inFlightGroups.has(index)) return;
+    const started = globalThis.performance?.now() ?? Date.now();
     inFlightGroups.add(index);
     groupLoading.set(index, true);
     groupErrors.delete(index);
@@ -236,6 +237,19 @@
       );
       groupResults.set(index, groupResult);
       rebuildResult();
+      if (import.meta.env.DEV) {
+        const paintStarted = globalThis.performance?.now() ?? Date.now();
+        requestAnimationFrame(() => {
+          console.debug('[Float View performance] session-history-group', {
+            group: index,
+            fields: group.length,
+            buckets,
+            responseAndStateMs: Math.round((paintStarted - started) * 100) / 100,
+            firstPaintMs: Math.round(((globalThis.performance?.now() ?? Date.now()) - started) * 100) / 100,
+            observations: Object.values(groupResult.columns).reduce((sum, column) => sum + column.values.length, 0),
+          });
+        });
+      }
     } catch (reason) {
       if (!(reason instanceof DOMException && reason.name === 'AbortError')) {
         const message = reason instanceof Error ? reason.message : String(reason);
@@ -528,7 +542,12 @@
           if (Number.isInteger(index)) prefetchGroup(index);
         });
       },
-      { root: plot, rootMargin: '160px' }
+      // `plot` grows with the chart groups and is not a scroll container. If
+      // used as the root, every group is intersecting as soon as the page is
+      // rendered and the whole session is fetched immediately. The viewport
+      // root keeps the first group eager while limiting prefetch to nearby
+      // groups.
+      { rootMargin: '160px' }
     );
     groupNodes.forEach((node) => groupObserver?.observe(node));
     return () => {
@@ -550,7 +569,7 @@
 
 <div bind:this={plot} class="mt-3">
   {#if loading}
-    <p class="mt-2 text-lg text-muted flex flex-row items-center gap-2" role="status">
+    <p class="mt-2 flex flex-row items-center gap-2 text-lg text-muted" role="status">
       <Spinner />
       Loading chart data…
     </p>
