@@ -19,6 +19,10 @@ struct WebView: UIViewRepresentable {
   func makeUIView(context: Context) -> WKWebView {
     let configuration = WKWebViewConfiguration()
 
+    #if DEBUG
+      configuration.userContentController.add(context.coordinator, name: "floatViewPerformance")
+    #endif
+
     let webView = WKWebView(frame: .zero, configuration: configuration)
     webView.navigationDelegate = context.coordinator
 
@@ -36,7 +40,7 @@ struct WebView: UIViewRepresentable {
     context.coordinator.load(url, in: webView)
   }
 
-  final class Coordinator: NSObject, WKNavigationDelegate {
+  final class Coordinator: NSObject, WKNavigationDelegate, WKScriptMessageHandler {
     private let onContentProcessTerminated: () -> Void
     private var loadedURL: URL?
 
@@ -54,6 +58,19 @@ struct WebView: UIViewRepresentable {
       DispatchQueue.main.async { [onContentProcessTerminated] in
         onContentProcessTerminated()
       }
+    }
+
+    func userContentController(_: WKUserContentController, didReceive message: WKScriptMessage) {
+      guard message.name == "floatViewPerformance" else { return }
+      guard
+        let body = message.body as? [String: Any],
+        let data = try? JSONSerialization.data(withJSONObject: body, options: [.sortedKeys]),
+        let text = String(data: data, encoding: .utf8)
+      else {
+        print("[FloatView frontend performance] \(message.body)")
+        return
+      }
+      print("[FloatView frontend performance] \(text)")
     }
   }
 }

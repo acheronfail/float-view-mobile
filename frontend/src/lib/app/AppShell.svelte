@@ -19,10 +19,33 @@
   onMount(() => {
     themeController = new ThemeController(browserThemeEnvironment());
     const stopTheme = themeController.start();
+    const handleNativeImportStarted = () => {
+      backendState.sessionImporting = true;
+      backendState.error = null;
+      void goto('#/sessions');
+    };
+    const handleNativeImport = (event: Event) => {
+      backendState.sessionImporting = false;
+      const sessionId = (event as CustomEvent<{ sessionId?: unknown }>).detail?.sessionId;
+      if (typeof sessionId === 'string' && sessionId) {
+        void goto(`#/sessions/${encodeURIComponent(sessionId)}`);
+      }
+    };
+    const handleNativeImportFailure = (event: Event) => {
+      backendState.sessionImporting = false;
+      const message = (event as CustomEvent<{ message?: unknown }>).detail?.message;
+      backendState.error = typeof message === 'string' && message ? message : 'Session import failed';
+    };
+    window.addEventListener('floatview:session-import-started', handleNativeImportStarted);
+    window.addEventListener('floatview:session-imported', handleNativeImport);
+    window.addEventListener('floatview:session-import-failed', handleNativeImportFailure);
     const preference = backendState.settings?.themePreference;
     if (preference) themeController.reconcile(preference);
     void backendState.connect();
     return () => {
+      window.removeEventListener('floatview:session-import-started', handleNativeImportStarted);
+      window.removeEventListener('floatview:session-imported', handleNativeImport);
+      window.removeEventListener('floatview:session-import-failed', handleNativeImportFailure);
       stopTheme();
       themeController = undefined;
       backendState.close();

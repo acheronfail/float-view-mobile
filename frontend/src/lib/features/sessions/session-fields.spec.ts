@@ -13,10 +13,10 @@ import {
 describe('session chart field metadata', () => {
   it('defines each shared chart title once', () => {
     expect(sessionChartGroupMetadata.temperature.title).toBe('Temperature');
-    expect(sessionChartGroupMetadata.current.title).toBe('Electrical current');
+    expect(sessionChartGroupMetadata.current.title).toBe('Current');
     expect(sessionChartGroupMetadata.torqueControl.title).toBe('Torque control');
     expect(sessionChartGroupMetadata.fieldWeakening.title).toBe('Field weakening');
-    expect(sessionChartGroupMetadata.voltage.title).toBe('Electrical voltage');
+    expect(sessionChartGroupMetadata.voltage.title).toBe('Voltage');
     expect(sessionChartGroupMetadata.setpoints.title).toBe('Setpoints');
     expect(sessionChartGroupMetadata.charge.title).toBe('Charge');
     expect(sessionChartGroupMetadata.energy.title).toBe('Energy');
@@ -49,7 +49,7 @@ describe('session chart field metadata', () => {
     expect(temperature?.title).toBe('Temperature');
     expect(temperature?.unit).toBe('°C');
     expect(temperature?.fields.map((field) => field.name)).toEqual(['controllerTempC', 'motorTempC']);
-    expect(groups.map((group) => group.id)).toEqual(['temperature', 'speedKph']);
+    expect(groups.map((group) => group.id)).toEqual(['speedKph', 'temperature']);
   });
 
   it('uses session metadata insertion order for chart groups and fields', () => {
@@ -62,13 +62,13 @@ describe('session chart field metadata', () => {
     ];
     const groups = sessionChartGroups(fields);
 
-    expect(groups.map((group) => group.id)).toEqual(['batteryLevel', 'voltage', 'temperature', 'speedKph']);
+    expect(groups.map((group) => group.id)).toEqual(['batteryLevel', 'voltage', 'speedKph', 'temperature']);
     expect(sortSessionFields(fields).map((field) => field.name)).toEqual([
       'batteryLevel',
       'packVoltageV',
+      'speedKph',
       'controllerTempC',
       'motorTempC',
-      'speedKph',
     ]);
   });
 

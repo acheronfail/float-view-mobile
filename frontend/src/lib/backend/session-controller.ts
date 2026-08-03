@@ -10,6 +10,7 @@ import type {
 } from './session-data.ts';
 import { sessionDataDecodedBytes } from './session-data.ts';
 import { SessionDataClient } from './session-data-client';
+import { reportFrontendPerformance } from './performance-log';
 
 const MAX_CACHE_ENTRIES = 32;
 const MAX_CACHE_BYTES = 8 * 1024 * 1024;
@@ -30,6 +31,10 @@ export class SessionReviewController {
 
   get cacheLimits() {
     return SESSION_REVIEW_CACHE_LIMITS;
+  }
+
+  get cacheStats() {
+    return { entries: this.cache.size, bytes: this.cacheBytes };
   }
 
   async loadSeries(
@@ -110,19 +115,27 @@ export class SessionReviewController {
       this.cache.set(key, cached);
       return cached.value;
     }
-    this.activeAbort.get(channel)?.abort();
+    const previousAbort = this.activeAbort.get(channel);
+    if (previousAbort) {
+      reportFrontendPerformance('session-data-abort', { channel });
+      previousAbort.abort();
+    }
     const abort = new AbortController();
     this.activeAbort.set(channel, abort);
     const generation = (this.generations.get(channel) ?? 0) + 1;
     this.generations.set(channel, generation);
-    const result = await this.client.request(request, abort.signal);
-    if (this.disposed || generation !== this.generations.get(channel) || !isExpected(result))
-      throw new DOMException('Superseded session-data request', 'AbortError');
-    const bytes = sessionDataDecodedBytes(result) ?? new TextEncoder().encode(JSON.stringify(result)).byteLength;
-    this.cache.set(key, { value: result, bytes });
-    this.cacheBytes += bytes;
-    this.trimCache();
-    return result;
+    try {
+      const result = await this.client.request(request, abort.signal);
+      if (this.disposed || generation !== this.generations.get(channel) || !isExpected(result))
+        throw new DOMException('Superseded session-data request', 'AbortError');
+      const bytes = sessionDataDecodedBytes(result) ?? new TextEncoder().encode(JSON.stringify(result)).byteLength;
+      this.cache.set(key, { value: result, bytes });
+      this.cacheBytes += bytes;
+      this.trimCache();
+      return result;
+    } finally {
+      if (this.activeAbort.get(channel) === abort) this.activeAbort.delete(channel);
+    }
   }
 }
 

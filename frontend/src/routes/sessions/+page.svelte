@@ -4,6 +4,7 @@
   import { bottomTabForRoute } from '$lib/app/navigation';
   import MenuItem from '$lib/ui/MenuItem.svelte';
   import { backendState } from '$lib/backend/state.svelte';
+  import { reportFrontendPerformance } from '$lib/backend/performance-log';
   import SessionList from '$lib/features/sessions/SessionList.svelte';
 
   const pageHeader = bottomTabForRoute('/sessions')!;
@@ -19,6 +20,11 @@
   async function importSession(event: Event) {
     const input = event.currentTarget as HTMLInputElement;
     const file = input.files?.[0];
+    reportFrontendPerformance('session-import-file', {
+      hasFile: Boolean(file),
+      bytes: file?.size ?? 0,
+      type: file?.type || 'unknown',
+    });
     input.value = '';
     if (!file) return;
     const sessionId = await backendState.importSession(file);
@@ -41,17 +47,18 @@
     menuLabel="Session actions"
   >
     {#snippet menu(closeMenu)}
-      <MenuItem label="Import session" disabled={backendState.busy} onactivate={() => chooseImport(closeMenu)} />
+      <MenuItem
+        label="Import session"
+        disabled={backendState.busy || backendState.sessionImporting}
+        onactivate={() => chooseImport(closeMenu)}
+      />
     {/snippet}
   </PageHeader>
 
-  <input
-    bind:this={importInput}
-    class="hidden"
-    type="file"
-    accept=".floatview,application/octet-stream"
-    onchange={importSession}
-  />
+  <input bind:this={importInput} class="hidden" type="file" accept="*/*" onchange={importSession} />
+  {#if backendState.sessionImporting}
+    <p class="text-muted" role="status">Importing session…</p>
+  {/if}
   {#if backendState.error}
     <p class="text-warning" role="alert">{backendState.error}</p>
   {/if}

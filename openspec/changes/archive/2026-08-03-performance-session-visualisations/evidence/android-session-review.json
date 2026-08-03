@@ -1,0 +1,185 @@
+{
+  "target": "android-session-review",
+  "status": "complete-for-android-accepted",
+  "generatedAt": "2026-08-03T15:05:00Z",
+  "device": {
+    "deviceId": "1cfb7634120d7ece",
+    "model": "Samsung Galaxy S9 (SM-G965F)",
+    "osVersion": "Android 10",
+    "apiLevel": 29,
+    "webView": "com.google.android.webview 148.0.7778.178"
+  },
+  "app": {
+    "configuration": "Debug",
+    "fixture": "conformance/generated/float-view-150000.floatview",
+    "samples": 150000,
+    "featureCache": "empty at the start of each captured WebView run"
+  },
+  "instrumentation": {
+    "endpoint": "session-data",
+    "sourceMs": "SQLite ordered scan and bounded reduction combined",
+    "reducerMs": "disabled per-row timing; reported as 0",
+    "frontendEvents": [
+      "session-data",
+      "session-history-group",
+      "session-history-gesture-preview",
+      "session-history-longtask"
+    ],
+    "frontendMetrics": [
+      "fetch/body/parse/validate/total time",
+      "first useful group paint",
+      "decoded cache entries and bytes",
+      "SVG and path counts",
+      "long-task count and duration"
+    ]
+  },
+  "cleanCacheRuns": [
+    {
+      "run": 1,
+      "initialGroup": {
+        "fields": 9,
+        "rows": 150000,
+        "nativeTotalMs": 3542.17919,
+        "frontendTotalMs": 3635.5,
+        "firstPaintMs": 3879.2,
+        "decodedBytes": 258484,
+        "cacheEntries": 1,
+        "cacheBytes": 258484,
+        "svgCount": 7,
+        "svgPathSegments": 9,
+        "observations": 11369,
+        "longTaskCount": 2
+      },
+      "followingFullGroup": {
+        "fields": 16,
+        "nativeTotalMs": 5234.715997,
+        "frontendTotalMs": 5276.5,
+        "firstPaintMs": 5555.9,
+        "cacheEntries": 2,
+        "cacheBytes": 659314,
+        "observations": 17127,
+        "longTaskCount": 4
+      }
+    },
+    {
+      "run": 2,
+      "initialGroup": {
+        "fields": 9,
+        "rows": 150000,
+        "nativeTotalMs": 4005.207228,
+        "frontendTotalMs": 4117.2,
+        "firstPaintMs": 4312,
+        "decodedBytes": 258484,
+        "cacheEntries": 1,
+        "cacheBytes": 258484,
+        "svgCount": 7,
+        "svgPathSegments": 9,
+        "observations": 11369,
+        "longTaskCount": 3
+      },
+      "followingFullGroup": {
+        "fields": 16,
+        "nativeTotalMs": 5170.294188,
+        "frontendTotalMs": 5209.3,
+        "firstPaintMs": 5536,
+        "cacheEntries": 2,
+        "cacheBytes": 659314,
+        "observations": 17127,
+        "longTaskCount": 6
+      }
+    },
+    {
+      "run": 3,
+      "initialGroup": {
+        "fields": 9,
+        "rows": 150000,
+        "nativeTotalMs": 3243.981998,
+        "frontendTotalMs": 3292.4,
+        "firstPaintMs": 3478.3,
+        "decodedBytes": 258484,
+        "cacheEntries": 1,
+        "cacheBytes": 258484,
+        "svgCount": 7,
+        "svgPathSegments": 9,
+        "observations": 11369,
+        "longTaskCount": 1
+      },
+      "followingFullGroup": {
+        "fields": 16,
+        "nativeTotalMs": 5365.528419,
+        "frontendTotalMs": 5420.1,
+        "firstPaintMs": 5777.2,
+        "cacheEntries": 2,
+        "cacheBytes": 659314,
+        "observations": 17127,
+        "longTaskCount": 3
+      }
+    }
+  ],
+  "gestureRun": {
+    "previewEvents": [
+      {
+        "mode": "zoom",
+        "previewMs": 19.2,
+        "svgPathSegments": 25
+      },
+      {
+        "mode": "pan",
+        "previewMs": 27.9,
+        "svgPathSegments": 25
+      }
+    ],
+    "settledRequests": [
+      {
+        "rows": 86781,
+        "nativeTotalMs": 1695.407768,
+        "frontendTotalMs": 1727.5,
+        "firstPaintMs": 2099.3,
+        "observations": 10809
+      },
+      {
+        "rows": 86781,
+        "nativeTotalMs": 1702.890615,
+        "frontendTotalMs": 1748.2,
+        "firstPaintMs": 2046.8,
+        "observations": 10819
+      }
+    ],
+    "cacheEntries": 4,
+    "cacheBytes": 1153310,
+    "longTaskCount": 14,
+    "longTaskTotalMs": 2402,
+    "longTaskMaxMs": 377,
+    "staleResponseObserved": false
+  },
+  "importFlow": {
+    "pickerResult": "RESULT_OK with one URI",
+    "nativeImportMs": 2294,
+    "samplesVisibleAfterImport": 150000,
+    "activityCrashObservedBeforeFix": "missing kotlinx-coroutines-android Main dispatcher in the temporary native fallback",
+    "activityCrashObservedAfterFix": false
+  },
+  "interaction": {
+    "touchFloatingActionButton": "visible",
+    "modeSequence": ["info", "zoom", "pan"],
+    "bounds": "[889,1903][1039,2052]"
+  },
+  "acceptance": {
+    "decision": "accepted",
+    "scope": "Galaxy S9 physical session-review checkpoint",
+    "rationale": "The target misses are acceptable for this substantially older Android device; the archive imports, the session opens, and touch zoom/pan controls are usable."
+  },
+  "observations": [
+    "Three clean WebView runs produced initial useful group paints of 3,879 ms, 4,312 ms, and 3,478 ms; all miss the one-second diagnostic target.",
+    "The first useful group was consistently a 9-field request with 258,484 decoded bytes and 9 path segments. The next 16-field group took 5.17–5.37 seconds natively and painted at 5.54–5.78 seconds.",
+    "Touch zoom and pan previews appeared in 19–28 ms. Settled narrowed requests took about 1.70–1.75 seconds and painted at about 2.05–2.10 seconds, missing the 250 ms settled target.",
+    "The touch FAB was absent when detection relied only on the WebView coarse-pointer media query; navigator.maxTouchPoints/ontouchstart fallback restored it.",
+    "Native Android URI import is required on this Galaxy S9/WebView: the picker returns a URI but does not populate the DOM FileList. The host now imports the archive and notifies the frontend."
+  ],
+  "limitations": [
+    "The app was a Debug build; a Release-build comparison remains useful before using these values as a shipping baseline.",
+    "Explicit cancellation-release timing was not captured; the gesture requests were allowed to settle.",
+    "WAL/resource-cleanup and active-persistence checks are covered by the native test suites but were not re-run as part of this UI checkpoint.",
+    "Browser interaction scenarios remain open."
+  ]
+}

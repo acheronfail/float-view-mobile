@@ -1,5 +1,6 @@
 import { bootstrapSessionDataUrl, type BootstrapDocument } from './bootstrap';
 import { MAX_SESSION_DATA_REQUEST_BYTES } from './contract';
+import { reportFrontendPerformance } from './performance-log';
 import {
   readBoundedJson,
   recordSessionDataDecodedBytes,
@@ -52,18 +53,20 @@ export class SessionDataClient {
     const value = await readBoundedJson(response, readTiming);
     const validationStarted = timestamp();
     const result = validateSessionDataResult(value, validated);
-    if (import.meta.env.DEV) {
-      console.debug('[Float View performance] session-data', {
-        kind: request.kind,
-        fields: 'fields' in request ? request.fields.length : 0,
-        decodedBytes: readTiming.decodedBytes,
-        fetchMs: Math.round((validationStarted - started - readTiming.bodyMs - readTiming.parseMs) * 100) / 100,
-        bodyMs: Math.round(readTiming.bodyMs * 100) / 100,
-        parseMs: Math.round(readTiming.parseMs * 100) / 100,
-        validateMs: Math.round((timestamp() - validationStarted) * 100) / 100,
-        totalMs: Math.round((timestamp() - started) * 100) / 100,
-      });
-    }
+    reportFrontendPerformance('session-data', {
+      kind: request.kind,
+      fields: 'fields' in request ? request.fields.length : 0,
+      decodedBytes: readTiming.decodedBytes,
+      fetchMs: Math.round((validationStarted - started - readTiming.bodyMs - readTiming.parseMs) * 100) / 100,
+      bodyMs: Math.round(readTiming.bodyMs * 100) / 100,
+      parseMs: Math.round(readTiming.parseMs * 100) / 100,
+      validateMs: Math.round((timestamp() - validationStarted) * 100) / 100,
+      totalMs: Math.round((timestamp() - started) * 100) / 100,
+      observations: Object.values(result.kind === 'series' ? result.columns : {}).reduce(
+        (sum, column) => sum + column.values.length,
+        0
+      ),
+    });
     recordSessionDataDecodedBytes(result, readTiming.decodedBytes);
     return result;
   }

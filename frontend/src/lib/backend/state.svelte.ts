@@ -41,6 +41,7 @@ export class BackendState {
   selectedBoardProfile = $state<BoardProfile | null>(null);
   exportStatus = $state<string | null>(null);
   busy = $state(false);
+  sessionImporting = $state(false);
   platform = $state<FrontendPlatform>('web');
   private client: ApiClient | null = null;
   private sessionDataClient: SessionDataClient | null = null;

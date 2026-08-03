@@ -112,6 +112,10 @@ class LoopbackServer(
     val port: Int get() = boundPort
     val origin: String get() = "http://127.0.0.1:$port"
 
+    fun publishSessionCatalogChanged() {
+        events.publish(SessionCatalogChanged)
+    }
+
     fun start() {
         if (server != null) return
         val html = assets.open("index.html").use { it.readBytes() }
@@ -261,7 +265,10 @@ class LoopbackServer(
                             JSONObject().put("sessionId", sessionId).toString(),
                             ContentType.Application.Json,
                         )
-                    } catch (_: Exception) {
+                    } catch (error: Exception) {
+                        if (performanceDiagnostics) {
+                            Log.e("FloatViewImport", "session import failed: ${error::class.simpleName}")
+                        }
                         call.respondText("", status = HttpStatusCode.BadRequest)
                     }
                 }
