@@ -29,4 +29,4 @@
 
 - [x] 5.1 Add pure state/metadata tests for group ordering, fallback fields, visibility toggles, all-hidden groups, route reset, and active-field reassignment; add the focused browser/component coverage available in the existing frontend test workflow for pointer, keyboard, touch, assistive activation, consolidated tooltips, colored value lines, and matching inspection markers.
 - [x] 5.2 Run `just test frontend` and review the session chart in light/dark themes for duty-cycle endpoints, combined temperature rendering, legend state, progressive partial loading, and zoom/pan/crosshair behavior.
-- [ ] 5.3 Reconcile this delta with the overlapping `performance-session-visualisations` chart requirements, then run `just verify` as the complete software gate.
+- [x] 5.3 Reconcile this delta with the overlapping `performance-session-visualisations` chart requirements, then run `just verify` as the complete software gate.

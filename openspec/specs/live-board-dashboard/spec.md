@@ -192,66 +192,86 @@ The live experience SHALL surface package state and mode, footpad state, wheelsl
 
 ### Requirement: Detailed historical telemetry review
 
-Session metadata SHALL appear before history and the shared session feature SHALL progressively render the same supported detailed numeric fields through responsive SVG charts whose observations and DOM geometry are bounded by requested fields and current horizontal CSS-pixel resolution rather than raw sample count. Charts SHALL preserve stable names, units, real elapsed spacing, finite extrema, deterministic axes, and configured or derived continuity gaps. Transition events SHALL be inspectable through chronological range pages alongside the shared viewport. The frontend MUST NOT load or retain the complete lossless ride, silently truncate history, interpolate exact values from an envelope, or branch by native platform.
+Session review SHALL expose metadata first, then the same supported detailed fields through bounded authenticated columnar series/exact-sample requests, plus observed semantic transitions through chronological event pages. It SHALL preserve nullability and units, allow inspection of fixture-generated scenes after disconnect, cap each data request to 16 fields/1,024 buckets/65,536 observations, cap sample pages at 2,000 rows and event pages at 500 rows, and disclose retained/pruned history metadata. The review SHALL compose compatible fields into metadata-defined visual chart groups without changing the independent field columns returned by the data service. Each chart group SHALL use one y-axis: either an explicitly defined fixed domain or a deterministic domain derived from all finite values in the group, including lines currently hidden from view. Display formatting SHALL be consistent between axis labels and exact values; bounded ratio fields SHALL be able to show their semantic percentage range without changing transported values. A multi-field group SHALL render one line per field and a legend below the plot. During inspection, each chart group SHALL render one tooltip at the shared elapsed position, with one newline-separated, field-colored value line for each visible field and a marker at that field’s corresponding y-position.
 
 #### Scenario: Review field weakening
 
 - **WHEN** a session includes field-weakening current and high duty
-- **THEN** historical review shows both series independently in their contract units with their visible-range extrema preserved
+- **THEN** historical detail shows both raw series in their contract units, with each field assigned to its metadata-defined chart group
 
-#### Scenario: Review stop event
+#### Scenario: Review bounded duty cycle
 
-- **WHEN** a session transitions through a stop condition inside the visible elapsed range
-- **THEN** chronological event paging makes the transition inspectable alongside surrounding telemetry without embedding every session event
+- **WHEN** a session contains duty-cycle ratios within the normal bounded range
+- **THEN** the duty-cycle chart always includes `0%` and `100%` as its axis endpoints and exact values use the same percentage formatting
 
-#### Scenario: Long complete-catalog session
+#### Scenario: Compare temperatures
 
-- **WHEN** a user opens a 150,000-sample session containing every stable numeric field and bounded extensions
-- **THEN** metadata and a useful first visible SVG group appear within the mobile target without creating one frontend object or DOM node per raw sample
+- **WHEN** a session contains motor temperature and controller temperature
+- **THEN** both fields appear as separate colored lines in one temperature chart with one shared °C axis, a legend underneath, and one consolidated tooltip containing separate colored lines for both values
 
-#### Scenario: Missing field interval
+#### Scenario: Hidden line does not change the shared scale
 
-- **WHEN** the backend reports separate continuity segments around unavailable telemetry
-- **THEN** the SVG leaves a visible gap and does not connect, average, or substitute the missing values
+- **WHEN** one line in a multi-field chart is hidden through its legend
+- **THEN** the remaining line is omitted from the SVG while the chart domain, ticks, viewport, exact-sample requests, and other line states remain stable
+
+#### Scenario: Missing or unavailable field
+
+- **WHEN** a requested group column is absent, null, or split by a continuity gap
+- **THEN** the affected line remains unavailable or broken without being replaced by zero, connected across the gap, or allowed to block other loaded lines in the group
+
+#### Scenario: Recreated session route
+
+- **WHEN** the session route or frontend controller is recreated
+- **THEN** metadata-defined grouping and axis policies are rebuilt, all lines start visible, and no prior route’s hidden-line state or stale geometry is applied
 
 ### Requirement: Detailed telemetry interactions
 
-Historical chart controls and inspection SHALL use native control semantics and Pointer Events with explicit gesture arbitration, capture, cancellation, and `touch-action: pan-y`. A tap SHALL select a crosshair; a one-pointer background drag beyond the movement threshold SHALL select an elapsed range for zoom; the selection SHALL show start/end vertical guides and opaque outside regions; and two active touch pointers regardless of `isPrimary` SHALL pinch around their midpoint. Mouse hover, hovering pen, touch or contact pen selection, keyboard operation, and assistive technology SHALL reach the same exact retained-source tooltip model. Guarded pointer/click activation SHALL prevent double actions, and vertical page scrolling SHALL remain usable.
+Any interactive telemetry disclosure, group selector, chart control, session annotation control, or historical chart legend SHALL use native semantics, appropriate `touch-action`, primary Pointer Events with cancellation, and a guarded keyboard and assistive-technology click path without double activation. A chart legend item SHALL expose whether its associated line is visible, SHALL toggle only that line, and SHALL remain operable on desktop and touch clients. Hidden legend items SHALL be visibly greyed and struck through and SHALL also expose an equivalent non-color state. Legend state SHALL not change historical request bounds, viewport state, or backend data.
 
-#### Scenario: Mouse hover inspection
+#### Scenario: Touch disclosure
 
-- **WHEN** a mouse or hovering pen moves across a chart
-- **THEN** a bounded crosshair tooltip tracks elapsed position and reports the nearest exact retained source value when it arrives without presenting envelope geometry as exact
+- **WHEN** a primary touch pointer opens a detailed telemetry group in a frequently updating live view
+- **THEN** it opens exactly once and remains operable while samples continue updating
 
-#### Scenario: Touch inspection
+#### Scenario: Non-primary activation
 
-- **WHEN** a primary touch or contact pen taps the plot or drags the existing crosshair handle
-- **THEN** the same tooltip is pinned or updated with exact-value, unit, elapsed-time, pending, and unavailable semantics suitable for a client without hover
+- **WHEN** a non-primary pointer or cancelled gesture targets a detailed telemetry control
+- **THEN** no action is performed
 
-#### Scenario: Two-touch pinch
+#### Scenario: Prompt recovered
 
-- **WHEN** a second active touch joins the chart gesture even though it is not the primary pointer
-- **THEN** the viewport pinches around the two-pointer midpoint and neither contact is misclassified as an invalid one-pointer activation
+- **WHEN** the frontend is recreated while selection remains pending
+- **THEN** the prompt is reconstructed from `state.get` without starting another connection or discovery request
 
-#### Scenario: Drag range selection
+#### Scenario: User disconnects instead
 
-- **WHEN** a primary pointer drags across a chart background beyond the minimum selection distance
-- **THEN** vertical guides follow the selection endpoints, the outside regions are visibly opaque, and release zooms every chart to the selected elapsed range
+- **WHEN** the user chooses to disconnect while the prompt is visible
+- **THEN** the frontend requests disconnection and closes the prompt when authoritative state removes the active connection
 
-#### Scenario: Non-primary one-pointer activation
+#### Scenario: Show or hide one chart line
 
-- **WHEN** a non-primary pointer attempts to initiate a one-pointer selection or control activation
-- **THEN** no unintended action is committed
+- **WHEN** the user activates a legend item with a primary pointer, touch, keyboard, or assistive technology
+- **THEN** the associated line toggles exactly once, the legend exposes the new pressed/visibility state, and all other lines remain unchanged
 
-#### Scenario: Cancelled gesture
+#### Scenario: Hidden legend item remains discoverable
 
-- **WHEN** a pointer is cancelled, capture is lost, the browser takes a vertical scroll, or the route is disposed
-- **THEN** transient gesture state and requests are cleared without stale selection or range mutation
+- **WHEN** a line is hidden
+- **THEN** its legend label remains present, greyed, and struck through, with accessible text indicating that activation will show the line again
 
-#### Scenario: Keyboard and assistive inspection
+#### Scenario: Hide the active inspection field
 
-- **WHEN** a user operates visible zoom/pan/reset controls or the native/equivalent crosshair slider with keyboard or assistive technology
-- **THEN** the same bounded viewport and exact-tooltip capabilities are exposed with meaningful value text and no double activation
+- **WHEN** the user hides the field currently driving exact tooltip presentation
+- **THEN** inspection moves to a visible sibling in the same chart group or becomes unavailable without issuing a stale request for the hidden field
+
+#### Scenario: Hide every line
+
+- **WHEN** the user hides every line in a multi-field chart
+- **THEN** the chart and legend remain available, no line is rendered, and any legend item can restore its line without changing the shared viewport
+
+#### Scenario: Consolidated multi-line tooltip
+
+- **WHEN** inspection is active on a chart with multiple visible lines
+- **THEN** exactly one tooltip is rendered for that chart, its value lines are separated vertically and colored to match their line tokens, and each value has a marker at the same elapsed x-position
 
 ### Requirement: Progressive responsive SVG chart groups
 
