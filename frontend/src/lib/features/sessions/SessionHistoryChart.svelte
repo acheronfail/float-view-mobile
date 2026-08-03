@@ -19,6 +19,7 @@
   import { firstVisibleChartField, toggleChartField } from './chart-visibility';
   import { clampViewport, panViewport, pinchViewport, type Viewport } from './viewport';
   import SectionTitle from '../../ui/SectionTitle.svelte';
+    import Spinner from '../../ui/Spinner.svelte';
 
   let { metadata }: { metadata: SessionMetadata } = $props();
   let plot = $state<HTMLElement | null>(null);
@@ -548,7 +549,12 @@
 </script>
 
 <div bind:this={plot} class="mt-3">
-  {#if loading}<p class="mt-2 text-xs text-muted" role="status">Loading chart data…</p>{/if}
+  {#if loading}
+    <p class="mt-2 text-lg text-muted flex flex-row items-center gap-2" role="status">
+      <Spinner />
+      Loading chart data…
+    </p>
+  {/if}
 
   {#if error}<p class="mt-2 text-sm text-warning" role="alert">{error}</p>{/if}
 
