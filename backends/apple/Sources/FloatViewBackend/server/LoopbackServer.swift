@@ -1190,7 +1190,7 @@ public final class LoopbackServer: @unchecked Sendable {
   }
 
   private static func encodeSessionCatalogCursor(_ value: [String: Any]) -> String {
-    Self.json(value).base64EncodedString()
+    json(value).base64EncodedString()
   }
 
   private static func decodeSessionCatalogCursor(_ value: String) -> [String: Any]? {
@@ -1211,7 +1211,8 @@ private struct BackendMessageHandler: WSMessageHandler {
     AsyncStream(bufferingPolicy: .bufferingNewest(1)) { continuation in
       let subscription = server.events.subscribe { event in
         if invalidatesState(event) {
-          continuation.yield(.text(server.stateChanged(catalogChanged: event is SessionRecord || event is SessionCatalogChanged)))
+          continuation
+            .yield(.text(server.stateChanged(catalogChanged: event is SessionRecord || event is SessionCatalogChanged)))
         }
       }
       Task {
@@ -1248,7 +1249,7 @@ private func invalidatesState(_ event: any Sendable) -> Bool {
     event is SettingsRecord || event is TelemetrySample || event is SessionCatalogChanged
 }
 
-private struct SessionCatalogChanged: Sendable {}
+private struct SessionCatalogChanged {}
 
 private enum LoopbackServerError: Error {
   case failedToBind

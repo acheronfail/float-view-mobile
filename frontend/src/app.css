@@ -1,5 +1,8 @@
 @import 'tailwindcss';
 
+@custom-variant tall (@media (min-height: 48rem));
+@custom-variant taller (@media (min-height: 64rem));
+
 @theme inline {
   --color-canvas: var(--app-canvas);
   --color-surface: var(--app-surface);

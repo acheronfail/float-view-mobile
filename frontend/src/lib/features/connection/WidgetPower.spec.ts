@@ -1,7 +1,7 @@
 import { render } from 'svelte/server';
 import { describe, expect, it } from 'vitest';
 import type { LiveSample } from '../../backend/contract';
-import GaugePower from './GaugePower.svelte';
+import GaugePower from './WidgetPower.svelte';
 
 describe('battery power gauge', () => {
   it('shows pack and per-cell voltage when the configured series count is available', () => {

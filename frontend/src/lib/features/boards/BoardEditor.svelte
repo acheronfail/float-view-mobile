@@ -23,6 +23,9 @@
   const saveQueue = new SerialSaveQueue();
 
   const device = $derived(backendState.savedDevices.find((value) => value.savedDeviceId === savedDeviceId));
+  let name = $derived(
+    (customDisplayName.length ? customDisplayName : (device?.advertisedName ?? device?.bluetoothIdentifier)) ?? 'Board'
+  );
 
   onMount(() => {
     let active = true;
@@ -75,8 +78,13 @@
 >
   {#if !embedded}<a class="text-accent" href="#/boards">← Boards</a>{/if}
   {#if backendState.selectedBoardProfile && device}
-    <h2 id="board-heading" class:mt-3={!embedded} class="text-xl font-medium">Configure board</h2>
-    <p class="mt-1 text-sm text-muted">Changes save automatically on this device.</p>
+    <h2 class="font-mono text-xl font-bold text-accent">{name}</h2>
+
+    {#if backendState.selectedBoardProfile.missingFields.length}
+      <p class="mt-3 text-sm text-warning">
+        ⚠️️ Missing: {backendState.selectedBoardProfile.missingFields.join(', ')}
+      </p>
+    {/if}
     <div class="mt-4 grid gap-3 sm:grid-cols-2">
       <label class="text-sm sm:col-span-2">
         <span class="mb-1 block text-muted">Display name</span>
@@ -157,13 +165,6 @@
         </select>
       </label>
     </div>
-    {#if backendState.selectedBoardProfile.missingFields.length}
-      <p class="mt-3 text-sm text-warning">
-        Missing: {backendState.selectedBoardProfile.missingFields.join(', ')}
-      </p>
-    {:else}
-      <p class="mt-3 text-sm text-success">Core board setup complete</p>
-    {/if}
   {:else}
     <p class="text-muted">Loading board configuration…</p>
   {/if}

@@ -555,8 +555,7 @@ public final class SQLiteLogStore: LogStorePort, ProductStorePort, SessionStoreP
           .text(reason), .text(jobID.value),
         ]
       )
-      if retainSession {
-      }
+      if retainSession {}
       try catalog.execute("COMMIT")
     } catch {
       try? catalog.execute("ROLLBACK")

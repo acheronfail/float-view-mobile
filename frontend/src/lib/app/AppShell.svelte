@@ -42,7 +42,10 @@
 
 <main class="min-h-screen bg-canvas text-foreground">
   <div
-    class="app-safe-area mx-auto flex min-h-screen flex-col"
+    class="app-safe-area mx-auto flex flex-col"
+    class:min-h-screen={!liveRoute}
+    class:h-screen={liveRoute}
+    class:min-h-0={liveRoute}
     class:max-w-3xl={!liveRoute}
     class:max-w-5xl={liveRoute}
     class:app-safe-area-with-tabs={activeBottomTab}
@@ -55,7 +58,7 @@
       </header>
     {/if}
 
-    <div class="flex-1">
+    <div class="flex flex-1 flex-col" class:min-h-0={liveRoute}>
       {@render children()}
     </div>
   </div>

@@ -29,6 +29,18 @@
   const animatedSpeed = new Tween(0);
   const animatedLoad = new Tween(0);
 
+  let textbox = $derived.by(() => {
+    if (!sample || !sample.fieldWeakeningCurrentA) {
+      return { title: 'DISTANCE', value: formatDistanceM(sample?.distanceM, units), color: 'undefined' };
+    }
+
+    return {
+      title: 'FIELD WEAKENING',
+      value: `${sample.fieldWeakeningCurrentA.toFixed(1)} A`,
+      color: 'success',
+    };
+  });
+
   $effect(() => {
     void animatedSpeed.set(speed ?? 0, {
       duration: prefersReducedMotion.current ? 0 : 150,
@@ -100,10 +112,10 @@
   }
 </script>
 
-<div class="rounded-2xl border border-outline bg-surface p-3 sm:p-5">
+<div class="flex h-full min-h-0 items-center justify-center overflow-hidden">
   <svg
     viewBox="0 0 320 300"
-    class="mx-auto block w-full max-w-md overflow-visible text-foreground"
+    class="mx-auto block h-full max-h-full w-auto max-w-full overflow-visible text-foreground"
     role="img"
     aria-labelledby="gauge-title gauge-description"
   >
@@ -209,15 +221,24 @@
       {load == null ? '—' : `${animatedLoad.current.toFixed(0)}%`}
     </text>
 
-    <rect x="105" y="236" width="110" height="38" rx="9" class="fill-elevated stroke-outline [stroke-width:1]" />
+    <rect
+      x="105"
+      y="236"
+      width="110"
+      height="38"
+      rx="9"
+      class="fill-elevated stroke-outline [stroke-width:1] stroke-{textbox.color} transition-colors"
+    />
     <text
       x="160"
       y="251"
-      class="fill-current text-[9px] font-semibold tracking-[0.12em] text-muted"
-      text-anchor="middle">DISTANCE</text
+      class="fill-current text-[9px] font-semibold tracking-widest text-muted text-{textbox.color} transition-colors"
+      text-anchor="middle"
     >
+      {textbox.title}
+    </text>
     <text x="160" y="268" class="fill-current font-mono text-[11px] font-semibold text-foreground" text-anchor="middle">
-      {formatDistanceM(sample?.distanceM, units)}
+      {textbox.value}
     </text>
   </svg>
 </div>

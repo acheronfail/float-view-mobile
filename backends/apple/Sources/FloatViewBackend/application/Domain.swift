@@ -1485,7 +1485,6 @@ public extension SessionStorePort {
   func exportSession(sessionID _: String, format _: String) throws -> SessionExportRecord {
     throw SessionStoreError.sessionNotFound
   }
-
 }
 
 public protocol EventSink: Sendable {
