@@ -8,6 +8,7 @@ import {
   pointAtElapsed,
   zeroReference,
 } from './history-geometry';
+import { sessionChartGroups } from './session-fields';
 
 describe('historical session geometry', () => {
   it('pads constant finite domains deterministically and exposes zero when applicable', () => {
@@ -80,5 +81,48 @@ describe('historical session geometry', () => {
     expect(axisTicks({ min: -1, max: 3 }, 5)).toEqual([-1, 0, 1, 2, 3]);
     expect(formatAxisTick(62.125)).toBe('62.1');
     expect(formatAxisTick(0.52125)).toBe('0.521');
+  });
+
+  it('uses a fixed domain without padding the visible values', () => {
+    const duty = sessionChartGroups([{ name: 'dutyCycle' }])[0]!;
+    expect(finiteDomain([0.25, 0.5, 0.75], duty.axis)).toEqual({ min: 0, max: 1 });
+    expect(axisTicks(finiteDomain([0.25, 0.5, 0.75], duty.axis), 3)).toEqual([0, 0.5, 1]);
+  });
+
+  it('shares one automatic domain across the temperature fields', () => {
+    const temperature = sessionChartGroups([{ name: 'motorTempC' }, { name: 'controllerTempC' }])[0]!;
+    const domain = finiteDomain([28, 86, 72, 30], temperature.axis);
+    expect(domain).toEqual({ min: 25.1, max: 88.9 });
+    expect(
+      buildPathSegments(
+        {
+          elapsedMs: [0, 1],
+          sequence: [0, 1],
+          values: [28, 30],
+          generations: [0, 0],
+        },
+        { width: 100, height: 50, viewport: { startElapsedMs: 0, endElapsedMs: 1 }, domain: domain! }
+      )
+    ).toHaveLength(1);
+  });
+
+  it('places inspection dots for every line at the shared elapsed position', () => {
+    const domain = { min: 20, max: 100 };
+    const motor = pointAtElapsed(
+      { elapsedMs: [0, 10], sequence: [0, 1], values: [28, 32], generations: [0, 0] },
+      5,
+      domain,
+      { width: 320, height: 96, viewport: { startElapsedMs: 0, endElapsedMs: 10 } }
+    );
+    const controller = pointAtElapsed(
+      { elapsedMs: [0, 10], sequence: [0, 1], values: [30, 40], generations: [0, 0] },
+      5,
+      domain,
+      { width: 320, height: 96, viewport: { startElapsedMs: 0, endElapsedMs: 10 } }
+    );
+
+    expect(motor?.x).toBe(160);
+    expect(controller?.x).toBe(160);
+    expect(motor?.y).not.toBe(controller?.y);
   });
 });

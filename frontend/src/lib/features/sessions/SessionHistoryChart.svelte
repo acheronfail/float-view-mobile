@@ -1,26 +1,23 @@
 <script lang="ts">
   import { onDestroy, onMount } from 'svelte';
-  import { SvelteMap } from 'svelte/reactivity';
+  import { SvelteMap, SvelteSet } from 'svelte/reactivity';
   import type { SessionMetadata } from '$lib/backend/contract';
   import type { SessionReviewController } from '$lib/backend/session-controller';
   import type { SessionSeriesResult } from '$lib/backend/session-data';
   import { backendState } from '$lib/backend/state.svelte';
   import { activateFromKeyboardOrAssistiveClick, activateFromPointer } from '$lib/ui/activation';
+  import { axisTicks, buildPathSegments, finiteDomain, zeroReference } from './history-geometry';
+  import { buildChartTooltipEntries } from './chart-tooltip';
   import {
-    axisTicks,
-    buildPathSegments,
-    finiteDomain,
-    formatAxisTick,
-    pointAtElapsed,
-    zeroReference,
-  } from './history-geometry';
-  import { sessionFieldDisplayName, sessionFieldUnit } from './session-fields';
+    formatSessionFieldValue,
+    sessionChartGroups,
+    sessionFieldUnit,
+    type SessionChartGroup,
+  } from './session-fields';
+  import { firstVisibleChartField, toggleChartField } from './chart-visibility';
   import { clampViewport, panViewport, pinchViewport, type Viewport } from './viewport';
-    import SectionTitle from '../../ui/SectionTitle.svelte';
+  import SectionTitle from '../../ui/SectionTitle.svelte';
 
-  // TODO: only show `reset` button on non-touch devices, and only when zoomed
-  // TODO: some charts axes should always show 0
-  // TODO: combine some fields in to a single chart, and also have clickable legends to show/hide
   // TODO: sticky `<- Sessions` and menu in header
 
   let { metadata }: { metadata: SessionMetadata } = $props();
@@ -34,6 +31,7 @@
   let groupResults = new SvelteMap<number, SessionSeriesResult>();
   let groupLoading = new SvelteMap<number, boolean>();
   let groupErrors = new SvelteMap<number, string>();
+  let hiddenFields = new SvelteSet<string>();
   // Keep the in-flight guard outside Svelte's reactive graph. The initial
   // loading effect must not rerun just because it updates the loading map.
   // eslint-disable-next-line svelte/prefer-svelte-reactivity
@@ -81,6 +79,7 @@
     if (stable.length) groups.unshift(stable);
     return groups;
   });
+  const chartGroups = $derived(sessionChartGroups(fields));
   const visibleViewport = $derived(previewViewport ?? viewport);
   const span = $derived(Math.max(1, visibleViewport.endElapsedMs - visibleViewport.startElapsedMs));
   const duration = $derived(Math.max(1, metadata.summary.totalElapsedMs));
@@ -111,10 +110,60 @@
   let inspectionVisible = $derived(exactStatus !== 'idle');
 
   $effect(() => {
-    if (!activeField && fields.length) activeField = fields[0]!.name;
+    if (!activeField && fields.length) {
+      const firstVisible = fields.find((field) => !hiddenFields.has(field.name));
+      if (firstVisible) activeField = firstVisible.name;
+    }
     if (!width || !fieldGroups.length) return;
     void loadSeriesGroup(0, width);
   });
+
+  function chartGroupRequestIndex(chartGroup: SessionChartGroup): number {
+    const index = fieldGroups.findIndex((group) =>
+      chartGroup.fields.some((field) => group.some((candidate) => candidate.name === field.name))
+    );
+    return index < 0 ? 0 : index;
+  }
+
+  function chartGroupsForRequestGroup(index: number): SessionChartGroup[] {
+    return chartGroups.filter((chartGroup) => chartGroupRequestIndex(chartGroup) === index);
+  }
+
+  function chartDomain(chartGroup: SessionChartGroup) {
+    const values = chartGroup.fields.flatMap((field) => result?.columns[field.name]?.values ?? []);
+    return finiteDomain(values, chartGroup.axis);
+  }
+
+  function chartHasColumns(chartGroup: SessionChartGroup): boolean {
+    return chartGroup.fields.some((field) => Boolean(result?.columns[field.name]));
+  }
+
+  function chartTooltipEntries(chartGroup: SessionChartGroup, domain: NonNullable<ReturnType<typeof chartDomain>>) {
+    return buildChartTooltipEntries(chartGroup, result?.columns, hiddenFields, inspectionMs, domain, {
+      width: CHART_WIDTH,
+      height: CHART_HEIGHT,
+      viewport: visibleViewport,
+    });
+  }
+
+  function isFieldVisible(fieldName: string): boolean {
+    return !hiddenFields.has(fieldName);
+  }
+
+  function toggleField(fieldName: string): void {
+    const willHide = !hiddenFields.has(fieldName);
+    const nextHidden = toggleChartField(hiddenFields, fieldName);
+    hiddenFields.clear();
+    nextHidden.forEach((name) => hiddenFields.add(name));
+
+    if (willHide && activeField === fieldName) {
+      dismissInspection();
+      const group = chartGroups.find((candidate) => candidate.fields.some((field) => field.name === fieldName));
+      activeField = group ? (firstVisibleChartField(group.fields, hiddenFields) ?? '') : '';
+    } else if (!willHide && !activeField) {
+      activeField = fieldName;
+    }
+  }
 
   function rebuildResult() {
     const loaded = [...groupResults.values()];
@@ -422,8 +471,16 @@
     }
   }
 
-  function path(column: SessionSeriesResult['columns'][string]): string[] {
-    return buildPathSegments(column, { width: CHART_WIDTH, height: CHART_HEIGHT, viewport: visibleViewport });
+  function path(
+    column: SessionSeriesResult['columns'][string],
+    domain: NonNullable<ReturnType<typeof chartDomain>>
+  ): string[] {
+    return buildPathSegments(column, {
+      width: CHART_WIDTH,
+      height: CHART_HEIGHT,
+      viewport: visibleViewport,
+      domain,
+    });
   }
 
   function measureTooltip(node: HTMLElement, fieldName: string) {
@@ -440,16 +497,16 @@
     };
   }
 
-  function tooltipStyle(fieldName: string, pointX: number): string {
-    const width = tooltipWidths.get(fieldName);
+  function tooltipStyle(chartKey: string, pointX: number): string {
+    const width = tooltipWidths.get(chartKey);
     const gap = 4;
     const alignLeft = width === undefined ? pointX > CHART_WIDTH / 2 : pointX + width + gap > CHART_WIDTH;
     const left = `${(Math.max(0, Math.min(CHART_WIDTH, pointX)) / CHART_WIDTH) * 100}%`;
     return `left: ${left}; transform: ${alignLeft ? 'translateX(calc(-100% - 0.25rem))' : 'translateX(0.25rem)'}`;
   }
 
-  function formatTooltipValue(value: number): string {
-    return Number(value.toPrecision(6)).toString();
+  function formatTooltipValue(fieldName: string, value: number): string {
+    return formatSessionFieldValue(fieldName, value);
   }
 
   function dismissInspection() {
@@ -525,7 +582,12 @@
   {#if result}
     <div class="mt-3 space-y-3">
       {#each fieldGroups as group, groupIndex (groupIndex)}
-        <div use:observeGroup={groupIndex} data-history-group={groupIndex} class="space-y-3">
+        <div
+          use:observeGroup={groupIndex}
+          data-history-group={groupIndex}
+          data-history-field-count={group.length}
+          class="space-y-3"
+        >
           {#if groupLoading.get(groupIndex) && !groupResults.has(groupIndex)}
             <p class="text-xs text-muted" role="status">Loading group {groupIndex + 1}…</p>
           {/if}
@@ -534,31 +596,29 @@
             <p class="text-xs text-warning" role="alert">{groupErrors.get(groupIndex)}</p>
           {/if}
 
-          {#each group as field (field.name)}
-            {@const column = result?.columns[field.name]}
-            {@const paths = column ? path(column) : []}
-            {@const domain = column ? finiteDomain(column.values) : null}
+          {#each chartGroupsForRequestGroup(groupIndex) as chartGroup (chartGroup.id)}
+            {@const domain = chartDomain(chartGroup)}
+            {@const hasColumns = chartHasColumns(chartGroup)}
+            {@const hasFiniteValues = chartGroup.fields.some((field) =>
+              result?.columns[field.name]?.values.some((value) => value !== null && Number.isFinite(value))
+            )}
             {@const yTicks = axisTicks(domain, Y_TICK_COUNT)}
             {@const yTickLabels = [...yTicks].reverse()}
             {@const zero = zeroReference(domain)}
-            {@const point =
-              column && domain
-                ? pointAtElapsed(column, inspectionMs, domain, {
-                    width: CHART_WIDTH,
-                    height: CHART_HEIGHT,
-                    viewport: visibleViewport,
-                  })
-                : null}
+            {@const tooltipEntries = domain ? chartTooltipEntries(chartGroup, domain) : []}
+            {@const tooltipAnchor = tooltipEntries[0]?.point ?? null}
             <div>
-              <SectionTitle title={sessionFieldDisplayName(field.name)} detail={sessionFieldUnit(field.name) ?? 'value'} />
+              <SectionTitle title={chartGroup.title} detail={chartGroup.unit ?? 'value'} />
 
-              {#if paths.length}
+              {#if hasColumns && domain && hasFiniteValues}
                 <div class="mt-2 flex items-stretch gap-1">
                   <div
-                    class="flex h-36 shrink-0 text-right flex-col justify-between text-[8px] leading-none text-muted"
+                    class="flex h-36 shrink-0 flex-col justify-between text-right text-[8px] leading-none text-muted"
                     aria-hidden="true"
                   >
-                    {#each yTickLabels as tick (tick)}<span>{formatAxisTick(tick)}</span>{/each}
+                    {#each yTickLabels as tick (tick)}
+                      <span>{formatSessionFieldValue(chartGroup.fields[0]!.name, tick)}</span>
+                    {/each}
                   </div>
                   <div class="relative min-w-0 flex-1">
                     <svg
@@ -566,7 +626,7 @@
                       viewBox={`0 0 ${CHART_WIDTH} ${CHART_HEIGHT}`}
                       preserveAspectRatio="none"
                       role="img"
-                      aria-label={`${sessionFieldDisplayName(field.name)} over elapsed time`}
+                      aria-label={`${chartGroup.title} over elapsed time`}
                       onpointerdown={(event) => {
                         beginGesture(event);
                       }}
@@ -581,8 +641,7 @@
                       {#each yTicks as tick (tick)}
                         {@const y =
                           CHART_HEIGHT -
-                          ((tick - (domain?.min ?? 0)) /
-                            Math.max(Number.EPSILON, (domain?.max ?? 1) - (domain?.min ?? 0))) *
+                          ((tick - domain.min) / Math.max(Number.EPSILON, domain.max - domain.min)) *
                             (CHART_HEIGHT - 4) -
                           2}
                         <line
@@ -595,21 +654,31 @@
                           stroke-dasharray="2 2"
                         />
                       {/each}
-                      {#if zero !== null}<line
+                      {#if zero !== null}
+                        <line
                           x1="0"
                           x2={CHART_WIDTH}
                           y1={CHART_HEIGHT - zero * (CHART_HEIGHT - 4) - 2}
                           y2={CHART_HEIGHT - zero * (CHART_HEIGHT - 4) - 2}
                           stroke="var(--app-muted)"
                           stroke-dasharray="2 2"
-                        />{/if}
-                      {#each paths as segment (segment)}<path
-                          d={segment}
-                          fill="none"
-                          stroke="var(--app-accent)"
-                          stroke-width="1.5"
-                          vector-effect="non-scaling-stroke"
-                        />{/each}
+                        />
+                      {/if}
+                      {#each chartGroup.fields as field (field.name)}
+                        {@const column = result?.columns[field.name]}
+                        {@const paths = column ? path(column, domain) : []}
+                        {#if column && isFieldVisible(field.name)}
+                          {#each paths as segment (segment)}
+                            <path
+                              d={segment}
+                              fill="none"
+                              stroke={field.color}
+                              stroke-width="1.5"
+                              vector-effect="non-scaling-stroke"
+                            />
+                          {/each}
+                        {/if}
+                      {/each}
                       {#if inspectionVisible}
                         <line
                           x1={((inspectionMs - visibleViewport.startElapsedMs) / span) * CHART_WIDTH}
@@ -655,17 +724,19 @@
                           stroke-width="1.5"
                         />
                       {/if}
-                      {#if inspectionVisible && point}
-                        <circle
-                          cx={point.x}
-                          cy={point.y}
-                          r="2.75"
-                          fill="var(--app-accent)"
-                          stroke="var(--app-canvas)"
-                          stroke-width="1"
-                          vector-effect="non-scaling-stroke"
-                        />
-                      {/if}
+                      {#each tooltipEntries as entry (entry.field.name)}
+                        {#if inspectionVisible}
+                          <circle
+                            cx={entry.point.x}
+                            cy={entry.point.y}
+                            r="2.75"
+                            fill={entry.field.color}
+                            stroke="var(--app-canvas)"
+                            stroke-width="1"
+                            vector-effect="non-scaling-stroke"
+                          />
+                        {/if}
+                      {/each}
                     </svg>
                     {#if panEdge === 'start'}
                       <div
@@ -678,26 +749,62 @@
                         aria-hidden="true"
                       ></div>
                     {/if}
-                    {#if inspectionVisible && point}
+                    {#if inspectionVisible && tooltipAnchor}
                       <div
-                        use:measureTooltip={field.name}
-                        class="pointer-events-none absolute top-1 z-10 max-w-[calc(100%-0.5rem)] truncate rounded border border-outline bg-surface px-2 py-1 text-[10px] leading-tight shadow"
-                        style={tooltipStyle(field.name, point.x)}
+                        use:measureTooltip={chartGroup.id}
+                        class="pointer-events-none absolute top-1 z-10 w-max max-w-none rounded border border-outline bg-surface px-2 py-1 font-mono text-[10px] leading-tight whitespace-nowrap shadow"
+                        style={tooltipStyle(chartGroup.id, tooltipAnchor.x)}
                         role="status"
                       >
-                        {sessionFieldDisplayName(field.name)}: {formatTooltipValue(
-                          point.value
-                        )}{#if sessionFieldUnit(field.name)}
-                          {sessionFieldUnit(field.name)}{/if}
+                        <div class="grid grid-cols-[max-content_max-content] gap-x-3 gap-y-0.5">
+                          {#each tooltipEntries as entry (entry.field.name)}
+                            <span class="contents">
+                              <span class="text-left" style={`color: ${entry.field.color}`}>
+                                {entry.field.displayName}:
+                              </span>
+                              <span class="text-right" style={`color: ${entry.field.color}`}>
+                                {formatTooltipValue(entry.field.name, entry.point.value)}
+                                {#if sessionFieldUnit(entry.field.name) && entry.field.format !== 'percent'}
+                                  {sessionFieldUnit(entry.field.name)}
+                                {/if}
+                              </span>
+                            </span>
+                          {/each}
+                        </div>
                       </div>
                     {/if}
                   </div>
                 </div>
-                {#if column.values.some((value) => value === null)}<p class="text-[10px] text-muted">
-                    Null or time gaps are shown as breaks.
-                  </p>{/if}
-              {:else if column}<p class="mt-1 text-xs text-muted">No finite samples in this range.</p>
+                {#if chartGroup.fields.some( (field) => result?.columns[field.name]?.values.some((value) => value === null) )}
+                  <p class="text-[10px] text-muted">Null or time gaps are shown as breaks.</p>
+                {/if}
+              {:else if hasColumns}<p class="mt-1 text-xs text-muted">No finite samples in this range.</p>
               {:else}<p class="mt-1 text-xs text-muted">Waiting for this field group.</p>{/if}
+
+              {#if chartGroup.fields.length > 1}
+                <div class="mt-2 flex flex-wrap gap-x-3 gap-y-1" role="group" aria-label={`${chartGroup.title} series`}>
+                  {#each chartGroup.fields as field (field.name)}
+                    {@const visible = isFieldVisible(field.name)}
+                    <button
+                      type="button"
+                      class={`flex touch-manipulation items-center gap-1.5 rounded px-1 py-0.5 text-xs ${
+                        visible ? 'text-foreground' : 'text-muted line-through'
+                      }`}
+                      aria-pressed={visible}
+                      aria-label={`${visible ? 'Hide' : 'Show'} ${field.displayName} line`}
+                      onpointerdown={(event) => activateFromPointer(event, () => toggleField(field.name))}
+                      onclick={(event) => activateFromKeyboardOrAssistiveClick(event, () => toggleField(field.name))}
+                    >
+                      <span
+                        class="inline-block size-2.5 rounded-full"
+                        style={`background-color: ${field.color}`}
+                        aria-hidden="true"
+                      ></span>
+                      <span>{field.displayName}</span>
+                    </button>
+                  {/each}
+                </div>
+              {/if}
             </div>
           {/each}
         </div>

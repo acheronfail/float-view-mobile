@@ -1,5 +1,6 @@
 import type { SessionSeriesColumn } from '$lib/backend/session-data';
 import type { Viewport } from './viewport';
+import type { SessionAxisPolicy } from './session-fields';
 
 export interface NumericDomain {
   min: number;
@@ -10,6 +11,7 @@ export interface PlotPathOptions {
   width: number;
   height: number;
   viewport: Viewport;
+  domain?: NumericDomain;
 }
 
 export interface PlotPoint {
@@ -19,7 +21,14 @@ export interface PlotPoint {
   y: number;
 }
 
-export function finiteDomain(values: readonly (number | null)[]): NumericDomain | null {
+export function finiteDomain(
+  values: readonly (number | null)[],
+  policy: SessionAxisPolicy = { kind: 'auto' }
+): NumericDomain | null {
+  if (policy.kind === 'fixed') {
+    if (!Number.isFinite(policy.min) || !Number.isFinite(policy.max) || policy.max <= policy.min) return null;
+    return { min: policy.min, max: policy.max };
+  }
   const finite = values.filter((value): value is number => value !== null && Number.isFinite(value));
   if (!finite.length) return null;
   const minimum = Math.min(...finite);
@@ -29,7 +38,7 @@ export function finiteDomain(values: readonly (number | null)[]): NumericDomain 
 }
 
 export function buildPathSegments(column: SessionSeriesColumn, options: PlotPathOptions): string[] {
-  const domain = finiteDomain(column.values);
+  const domain = options.domain ?? finiteDomain(column.values);
   if (!domain) return [];
   const span = Math.max(1, options.viewport.endElapsedMs - options.viewport.startElapsedMs);
   const height = Math.max(2, options.height);
