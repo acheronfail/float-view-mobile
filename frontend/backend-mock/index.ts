@@ -7,7 +7,11 @@ import { tmpdir } from 'node:os';
 import path, { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { WebSocketServer } from 'ws';
-import { MAX_MESSAGE_BYTES, MAX_SESSION_DATA_REQUEST_BYTES } from '../src/lib/backend/contract.ts';
+import {
+  MAX_MESSAGE_BYTES,
+  MAX_SESSION_DATA_REQUEST_BYTES,
+  MAX_SESSION_IMPORT_BYTES,
+} from '../src/lib/backend/contract.ts';
 import { MockBackend } from './api-v1.ts';
 import { validateSessionDataRequest, type SessionDataRequest } from '../src/lib/backend/session-data.ts';
 import {
@@ -41,8 +45,39 @@ app.get('/api/bootstrap', (_request, response) => {
     webSocketUrl: '/api/ws',
     sessionDataUrl: '/api/session-data',
     sessionExportUrl: '/api/session-export',
+    sessionImportUrl: '/api/session-import',
     sessionToken,
     platform: 'web',
+  });
+});
+
+app.post('/api/session-import', (request, response) => {
+  response.set('Cache-Control', 'no-store');
+  if (request.headers.origin !== expectedOrigin || request.headers['x-float-view-token'] !== sessionToken) {
+    response.status(403).end();
+    return;
+  }
+  if (Number(request.headers['content-length'] ?? 0) > MAX_SESSION_IMPORT_BYTES) {
+    response.status(413).end();
+    return;
+  }
+  const chunks: Buffer[] = [];
+  let bytes = 0;
+  request.on('data', (chunk: Buffer) => {
+    bytes += chunk.byteLength;
+    if (bytes <= MAX_SESSION_IMPORT_BYTES) chunks.push(chunk);
+  });
+  request.on('end', () => {
+    if (bytes > MAX_SESSION_IMPORT_BYTES) {
+      response.status(413).end();
+      return;
+    }
+    if (!activeMockBackend) {
+      response.status(503).end();
+      return;
+    }
+    const sessionId = activeMockBackend.importSession(Buffer.concat(chunks));
+    response.type('application/json').json({ sessionId });
   });
 });
 
@@ -314,6 +349,7 @@ export function getMockBootstrap(port: number) {
   return {
     webSocketUrl: `ws://127.0.0.1:${port}/api/ws?token=${encodeURIComponent(sessionToken)}`,
     sessionExportUrl: '/api/session-export',
+    sessionImportUrl: '/api/session-import',
     origin: expectedOrigin,
     platform: 'web' as const,
   };

@@ -31,7 +31,8 @@ object SessionHistoryReducer {
     private const val MAX_CURSOR_BYTES = 4_096
 
     private data class Candidate(
-        val point: SessionSeriesPoint,
+        val elapsedMs: Long,
+        val sequence: Long,
         val value: Double,
         val generation: Int,
     )
@@ -42,6 +43,135 @@ object SessionHistoryReducer {
         var maximum: Candidate? = null,
         var last: Candidate? = null,
     )
+
+    /**
+     * Bounded ordered reducer used while SQLite is walking a historical
+     * cursor. Only four candidate roles per field/bucket are retained.
+     */
+    class SeriesAccumulator(
+        private val fields: List<String>,
+        private val range: SessionElapsedRange,
+        private val buckets: Int,
+        private val gapPolicy: SessionGapPolicyRecord,
+        private val expectedPersistenceMs: Long = 1_000,
+        private val expectedRidingPersistenceMs: Long? = null,
+        private val expectedIdlePersistenceMs: Long? = null,
+        private val retainedResolutionSeconds: Long = 0,
+    ) {
+        private val configuredThresholdMs: Long? = gapPolicy.thresholdSeconds?.let { seconds ->
+            if (!seconds.isFinite() || seconds < 0.1 || seconds > 3_600) {
+                throw SessionStoreException.InvalidRange
+            }
+            max(1L, (seconds * 1_000.0).toLong())
+        }
+        private val generations = IntArray(fields.size)
+        private val byField = List(fields.size) { arrayOfNulls<BucketCandidates>(buckets.coerceAtLeast(0)) }
+        private var previousElapsed: Long? = null
+        private var previousRideState: String? = null
+
+        init {
+            if (range.startElapsedMs > range.endElapsedMs || buckets !in 1..1_024 ||
+                fields.isEmpty() || fields.size > 16 || fields.toSet().size != fields.size
+            ) throw SessionStoreException.InvalidRange
+            if (expectedRidingPersistenceMs != null && expectedRidingPersistenceMs <= 0) {
+                throw SessionStoreException.InvalidRange
+            }
+            if (expectedIdlePersistenceMs != null && expectedIdlePersistenceMs <= 0) {
+                throw SessionStoreException.InvalidRange
+            }
+        }
+
+        fun append(row: SessionSeriesPoint) {
+            append(
+                elapsedMs = row.elapsedMs,
+                sequence = row.sequence,
+                rideState = row.rideState,
+                values = fields.map { row.values[it] },
+            )
+        }
+
+        fun append(
+            elapsedMs: Long,
+            sequence: Long,
+            rideState: String?,
+            values: List<Double?>,
+        ) {
+            val phasePersistence = if (previousRideState == "riding") {
+                expectedRidingPersistenceMs ?: expectedPersistenceMs
+            } else {
+                expectedIdlePersistenceMs ?: expectedPersistenceMs
+            }
+            val edgeThreshold = configuredThresholdMs ?: maxOf(
+                1_000L,
+                max(1L, phasePersistence) * 3L,
+                max(0L, retainedResolutionSeconds) * 3_000L,
+            )
+            if (previousElapsed != null && elapsedMs - previousElapsed!! > edgeThreshold) {
+                generations.indices.forEach { index -> generations[index] += 1 }
+            }
+            previousElapsed = elapsedMs
+            previousRideState = rideState
+            val span = max(1L, range.endElapsedMs - range.startElapsedMs + 1L)
+            val offset = max(0L, elapsedMs - range.startElapsedMs)
+            val bucket = min(buckets - 1, (offset * buckets / span).toInt())
+            fields.indices.forEach { index ->
+                val value = values[index]
+                if (value == null) {
+                    generations[index] += 1
+                } else {
+                    val candidate = Candidate(elapsedMs, sequence, value, generations[index])
+                    val bucketCandidates = byField[index][bucket] ?: BucketCandidates()
+                    if (bucketCandidates.first == null || compareCandidates(candidate, bucketCandidates.first!!) < 0) {
+                        bucketCandidates.first = candidate
+                    }
+                    if (
+                        bucketCandidates.minimum == null ||
+                        candidate.value < bucketCandidates.minimum!!.value ||
+                        (candidate.value == bucketCandidates.minimum!!.value &&
+                            compareCandidates(candidate, bucketCandidates.minimum!!) < 0)
+                    ) bucketCandidates.minimum = candidate
+                    if (
+                        bucketCandidates.maximum == null ||
+                        candidate.value > bucketCandidates.maximum!!.value ||
+                        (candidate.value == bucketCandidates.maximum!!.value &&
+                            compareCandidates(candidate, bucketCandidates.maximum!!) < 0)
+                    ) bucketCandidates.maximum = candidate
+                    if (bucketCandidates.last == null || compareCandidates(candidate, bucketCandidates.last!!) > 0) {
+                        bucketCandidates.last = candidate
+                    }
+                    byField[index][bucket] = bucketCandidates
+                }
+            }
+        }
+
+        fun finish(): Map<String, SessionSeriesColumnRecord> {
+            val result = linkedMapOf<String, SessionSeriesColumnRecord>()
+            var observations = 0
+            fields.forEachIndexed { index, field ->
+                val selected = linkedMapOf<Long, Candidate>()
+                byField[index].forEach { bucketCandidates ->
+                    listOf(
+                        bucketCandidates?.first,
+                        bucketCandidates?.minimum,
+                        bucketCandidates?.maximum,
+                        bucketCandidates?.last,
+                        ).filterNotNull().forEach { selected[it.sequence] = it }
+                }
+                val orderedSelected = selected.values.sortedWith { left, right ->
+                    compareKey(left.elapsedMs, left.sequence, right.elapsedMs, right.sequence)
+                }
+                observations += orderedSelected.size
+                if (observations > MAX_SERIES_OBSERVATIONS) throw SessionStoreException.InvalidRange
+                result[field] = SessionSeriesColumnRecord(
+                    elapsedMs = orderedSelected.map { it.elapsedMs },
+                    sequence = orderedSelected.map { it.sequence },
+                    values = orderedSelected.map { it.value },
+                    generations = orderedSelected.map { it.generation },
+                )
+            }
+            return result
+        }
+    }
 
     fun reduceSeries(
         rows: List<SessionSeriesPoint>,
@@ -55,101 +185,15 @@ object SessionHistoryReducer {
         retainedResolutionSeconds: Long = 0,
         rowsAreOrdered: Boolean = false,
     ): Map<String, SessionSeriesColumnRecord> {
-        if (range.startElapsedMs > range.endElapsedMs || buckets !in 1..1_024 ||
-            fields.isEmpty() || fields.size > 16 || fields.toSet().size != fields.size
-        ) throw SessionStoreException.InvalidRange
+        val accumulator = SeriesAccumulator(
+            fields, range, buckets, gapPolicy, expectedPersistenceMs,
+            expectedRidingPersistenceMs, expectedIdlePersistenceMs, retainedResolutionSeconds,
+        )
         val ordered = if (rowsAreOrdered) rows else rows.filter {
             it.elapsedMs in range.startElapsedMs..range.endElapsedMs
         }.sortedWith(pointComparator)
-        val span = max(1L, range.endElapsedMs - range.startElapsedMs + 1L)
-        val thresholdMs = gapPolicy.thresholdSeconds?.let { seconds ->
-            if (!seconds.isFinite() || seconds < 0.1 || seconds > 3_600) {
-                throw SessionStoreException.InvalidRange
-            }
-            max(1L, (seconds * 1_000.0).toLong())
-        }
-        val generations = IntArray(fields.size)
-        val byField = List(fields.size) { arrayOfNulls<BucketCandidates>(buckets) }
-        var previousElapsed: Long? = null
-        var previousRideState: String? = null
-        for (row in ordered) {
-            val phasePersistence = if (previousRideState == "riding") {
-                expectedRidingPersistenceMs ?: expectedPersistenceMs
-            } else {
-                expectedIdlePersistenceMs ?: expectedPersistenceMs
-            }
-            val edgeThreshold = thresholdMs ?: maxOf(
-                1_000L,
-                max(1L, phasePersistence) * 3L,
-                max(0L, retainedResolutionSeconds) * 3_000L,
-            )
-            if (previousElapsed != null && row.elapsedMs - previousElapsed!! > edgeThreshold) {
-                generations.indices.forEach { index -> generations[index] += 1 }
-            }
-            previousElapsed = row.elapsedMs
-            previousRideState = row.rideState
-            val offset = max(0L, row.elapsedMs - range.startElapsedMs)
-            val bucket = min(buckets - 1, (offset * buckets / span).toInt())
-            fields.forEachIndexed { index, field ->
-                val value = row.values[field]
-                if (value == null) {
-                    generations[index] += 1
-                } else {
-                    val candidate = Candidate(
-                        row,
-                        value,
-                        generations[index],
-                    )
-                    val bucketCandidates = byField[index][bucket] ?: BucketCandidates()
-                    if (bucketCandidates.first == null || compareCandidates(candidate, bucketCandidates.first!!).let { it < 0 }) {
-                        bucketCandidates.first = candidate
-                    }
-                    if (
-                        bucketCandidates.minimum == null ||
-                        candidate.value < bucketCandidates.minimum!!.value ||
-                        (candidate.value == bucketCandidates.minimum!!.value &&
-                            compareCandidates(candidate, bucketCandidates.minimum!!) < 0)
-                    ) {
-                        bucketCandidates.minimum = candidate
-                    }
-                    if (
-                        bucketCandidates.maximum == null ||
-                        candidate.value > bucketCandidates.maximum!!.value ||
-                        (candidate.value == bucketCandidates.maximum!!.value &&
-                            compareCandidates(candidate, bucketCandidates.maximum!!) < 0)
-                    ) {
-                        bucketCandidates.maximum = candidate
-                    }
-                    if (bucketCandidates.last == null || compareCandidates(candidate, bucketCandidates.last!!) > 0) {
-                        bucketCandidates.last = candidate
-                    }
-                    byField[index][bucket] = bucketCandidates
-                }
-            }
-        }
-        val result = linkedMapOf<String, SessionSeriesColumnRecord>()
-        var observations = 0
-        fields.forEachIndexed { index, field ->
-            val selected = linkedMapOf<Long, Candidate>()
-            byField[index].forEach { bucketCandidates ->
-                listOf(
-                    bucketCandidates?.first,
-                    bucketCandidates?.minimum,
-                    bucketCandidates?.maximum,
-                    bucketCandidates?.last,
-                ).filterNotNull().forEach { selected[it.point.sequence] = it }
-            }
-            val orderedSelected = selected.values.sortedWith { left, right -> comparePoints(left.point, right.point) }
-            observations += orderedSelected.size
-            if (observations > MAX_SERIES_OBSERVATIONS) throw SessionStoreException.InvalidRange
-            result[field] = SessionSeriesColumnRecord(
-                elapsedMs = orderedSelected.map { it.point.elapsedMs },
-                sequence = orderedSelected.map { it.point.sequence },
-                values = orderedSelected.map { it.value },
-                generations = orderedSelected.map { it.generation },
-            )
-        }
-        return result
+        ordered.forEach(accumulator::append)
+        return accumulator.finish()
     }
 
     fun nearestSample(rows: List<SessionSeriesPoint>, targetElapsedMs: Long): SessionSeriesPoint? =
@@ -285,7 +329,8 @@ object SessionHistoryReducer {
     private fun comparePoints(left: SessionSeriesPoint, right: SessionSeriesPoint): Int =
         compareKey(left.elapsedMs, left.sequence, right.elapsedMs, right.sequence)
 
-    private fun compareCandidates(left: Candidate, right: Candidate): Int = comparePoints(left.point, right.point)
+    private fun compareCandidates(left: Candidate, right: Candidate): Int =
+        compareKey(left.elapsedMs, left.sequence, right.elapsedMs, right.sequence)
 
     private fun compareKey(leftElapsed: Long, leftSequence: Long, rightElapsed: Long, rightSequence: Long): Int =
         leftElapsed.compareTo(rightElapsed).takeIf { it != 0 } ?: leftSequence.compareTo(rightSequence)

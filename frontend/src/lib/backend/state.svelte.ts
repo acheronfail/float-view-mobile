@@ -12,6 +12,7 @@ import { ApiRequestError, type ApiClient } from './client';
 import { SessionDataClient } from './session-data-client';
 import { SessionReviewController } from './session-controller';
 import { SessionExportClient, triggerBrowserDownload, type SessionExportFormat } from './session-export-client';
+import { SessionImportClient } from './session-import-client';
 import type { SessionDataRequest, SessionDataResult } from './session-data';
 
 export type BackendConnectionStatus = 'starting' | 'connected' | 'reconnecting' | 'failed';
@@ -44,6 +45,7 @@ export class BackendState {
   private client: ApiClient | null = null;
   private sessionDataClient: SessionDataClient | null = null;
   private sessionExportClient: SessionExportClient | null = null;
+  private sessionImportClient: SessionImportClient | null = null;
   private connecting: Promise<void> | null = null;
   private unsubscribeState: (() => void) | null = null;
 
@@ -96,6 +98,7 @@ export class BackendState {
       this.client = await this.bootstrapConnector(bootstrap);
       this.sessionDataClient = new SessionDataClient(bootstrap);
       this.sessionExportClient = new SessionExportClient(bootstrap);
+      this.sessionImportClient = new SessionImportClient(bootstrap);
       this.platform = bootstrap.platform ?? 'web';
       this.unsubscribeState = this.client.onStateChanged((state) => this.acceptState(state));
       this.acceptState(await this.client.request('state.get', {}));
@@ -238,6 +241,15 @@ export class BackendState {
     });
   }
 
+  async importSession(file: Blob): Promise<string | null> {
+    let sessionId: string | null = null;
+    const imported = await this.run(async () => {
+      if (!this.sessionImportClient) throw new Error('Session import is not connected');
+      sessionId = (await this.sessionImportClient.upload(file)).sessionId;
+    });
+    return imported ? sessionId : null;
+  }
+
   async deleteSelectedSession(): Promise<boolean> {
     const session = this.selectedSession;
     if (!session) return false;
@@ -264,6 +276,7 @@ export class BackendState {
     this.client = null;
     this.sessionDataClient = null;
     this.sessionExportClient = null;
+    this.sessionImportClient = null;
     this.platform = 'web';
   }
 

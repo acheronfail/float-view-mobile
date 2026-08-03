@@ -230,14 +230,14 @@ export async function readBoundedJson(response: Response, timing?: SessionDataRe
   if (!response.body) {
     const text = await response.text();
     const encodedBytes = new TextEncoder().encode(text).byteLength;
-    timing && (timing.decodedBytes = encodedBytes);
-    timing && (timing.bodyMs = timestamp() - bodyStarted);
+    if (timing) timing.decodedBytes = encodedBytes;
+    if (timing) timing.bodyMs = timestamp() - bodyStarted;
     if (encodedBytes > MAX_SESSION_DATA_RESPONSE_BYTES) {
       throw new SessionDataProtocolError('Session-data response exceeds the decoded byte limit');
     }
     const parseStarted = timestamp();
     const value = JSON.parse(text);
-    timing && (timing.parseMs = timestamp() - parseStarted);
+    if (timing) timing.parseMs = timestamp() - parseStarted;
     return value;
   }
   const reader = response.body.getReader();
@@ -255,8 +255,8 @@ export async function readBoundedJson(response: Response, timing?: SessionDataRe
   } finally {
     reader.releaseLock();
   }
-  timing && (timing.decodedBytes = total);
-  timing && (timing.bodyMs = timestamp() - bodyStarted);
+  if (timing) timing.decodedBytes = total;
+  if (timing) timing.bodyMs = timestamp() - bodyStarted;
   const merged = new Uint8Array(total);
   let offset = 0;
   for (const chunk of chunks) {
@@ -265,7 +265,7 @@ export async function readBoundedJson(response: Response, timing?: SessionDataRe
   }
   const parseStarted = timestamp();
   const value = JSON.parse(new TextDecoder().decode(merged));
-  timing && (timing.parseMs = timestamp() - parseStarted);
+  if (timing) timing.parseMs = timestamp() - parseStarted;
   return value;
 }
 

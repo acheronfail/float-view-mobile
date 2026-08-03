@@ -1,13 +1,14 @@
 import { gzipSync } from 'node:zlib';
 import { mkdirSync, writeFileSync } from 'node:fs';
-import { dirname } from 'node:path';
+import { dirname, resolve } from 'node:path';
 import { performance } from 'node:perf_hooks';
 import { reduceSeries, type ReferenceSample } from '../../frontend/src/lib/backend/session-reference.ts';
 
 const SAMPLE_COUNT = 150_000;
 const RUNS = 3;
 const output =
-  process.argv[2] ?? 'openspec/changes/performance-session-visualisations/evidence/software-measurements.json';
+  process.argv[2] ??
+  resolve(import.meta.dirname, '../../openspec/changes/performance-session-visualisations/evidence/software-measurements.json');
 
 const source: ReferenceSample[] = Array.from({ length: SAMPLE_COUNT }, (_, index) => ({
   sequence: index + 1,

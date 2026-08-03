@@ -41,6 +41,7 @@ import io.ktor.server.cio.CIO
 import io.ktor.server.engine.EmbeddedServer
 import io.ktor.server.engine.embeddedServer
 import io.ktor.server.request.header
+import io.ktor.server.request.receive
 import io.ktor.server.request.receiveText
 import io.ktor.server.response.respondBytes
 import io.ktor.server.response.respondText
@@ -74,6 +75,7 @@ import org.json.JSONObject
 
 internal const val ANDROID_BACKEND_PORT = 11012
 internal const val LOOPBACK_MAX_MESSAGE_BYTES = 65_536
+internal const val MAX_SESSION_IMPORT_BYTES = 128 * 1024 * 1024
 
 private class SessionDataTiming {
     val startedNs = System.nanoTime()
@@ -125,6 +127,7 @@ class LoopbackServer(
                             .put("webSocketUrl", "ws://127.0.0.1:$port/api/ws")
                             .put("sessionDataUrl", "http://127.0.0.1:$port/api/session-data")
                             .put("sessionExportUrl", "http://127.0.0.1:$port/api/session-export")
+                            .put("sessionImportUrl", "http://127.0.0.1:$port/api/session-import")
                             .put("sessionToken", token)
                             .put("platform", platform)
                             .toString(),
@@ -229,6 +232,34 @@ class LoopbackServer(
                         call.respondBytes(
                             file.readBytes(),
                             if (format == "csv") ContentType.Text.CSV else ContentType.Application.OctetStream,
+                        )
+                    } catch (_: Exception) {
+                        call.respondText("", status = HttpStatusCode.BadRequest)
+                    }
+                }
+                post("/api/session-import") {
+                    call.response.headers.append(HttpHeaders.CacheControl, "no-store")
+                    if (call.request.header("Origin") != origin || call.request.header("X-Float-View-Token") != token) {
+                        call.respondText("", status = HttpStatusCode.Forbidden)
+                        return@post
+                    }
+                    if (call.request.header("Content-Length")?.toLongOrNull()?.let { it > MAX_SESSION_IMPORT_BYTES } == true) {
+                        call.respondText("", status = HttpStatusCode.PayloadTooLarge)
+                        return@post
+                    }
+                    try {
+                        val body = call.receive<ByteArray>()
+                        if (body.size > MAX_SESSION_IMPORT_BYTES) {
+                            call.respondText("", status = HttpStatusCode.PayloadTooLarge)
+                            return@post
+                        }
+                        val sessionId = withContext(Dispatchers.IO) {
+                            applicationService.importSessionArchive(body)
+                        }
+                        events.publish(SessionCatalogChanged)
+                        call.respondText(
+                            JSONObject().put("sessionId", sessionId).toString(),
+                            ContentType.Application.Json,
                         )
                     } catch (_: Exception) {
                         call.respondText("", status = HttpStatusCode.BadRequest)
@@ -876,33 +907,31 @@ class LoopbackServer(
                 if (threshold != null && (!threshold.isFinite() || threshold < 0.1 || threshold > 3_600)) {
                     throw SessionStoreException.InvalidRange
                 }
-                val sourceStarted = System.nanoTime()
-                val source = applicationService.querySessionSeriesSource(
-                    sessionId, start, end, fieldNames, 200_000,
-                    snapshot.getLong("committedSampleSequence"),
-                )
-                timing.sourceMs = (System.nanoTime() - sourceStarted) / 1_000_000.0
-                timing.sourceRows = source.size
                 val configurationStarted = System.nanoTime()
                 val historyConfiguration = applicationService.sessionHistoryConfiguration(sessionId)
                 timing.configurationMs = (System.nanoTime() - configurationStarted) / 1_000_000.0
-                val reducerStarted = System.nanoTime()
-                val reduced = SessionHistoryReducer.reduceSeries(
-                    source,
-                    fieldNames,
-                    SessionElapsedRange(start, end),
-                    buckets,
-                    SessionGapPolicyRecord(threshold),
+                val streamed = applicationService.reduceSessionSeries(
+                    sessionId = sessionId,
+                    startElapsedMs = start,
+                    endElapsedMs = end,
+                    fields = fieldNames,
+                    buckets = buckets,
+                    gapPolicy = SessionGapPolicyRecord(threshold),
                     expectedPersistenceMs = historyConfiguration.expectedIdlePersistenceMs,
                     expectedRidingPersistenceMs = historyConfiguration.expectedRidingPersistenceMs,
                     expectedIdlePersistenceMs = historyConfiguration.expectedIdlePersistenceMs,
                     retainedResolutionSeconds = historyConfiguration.retainedResolutionSeconds,
-                    rowsAreOrdered = true,
+                    publishedSampleSequence = snapshot.getLong("committedSampleSequence"),
                 )
-                timing.reducerMs = (System.nanoTime() - reducerStarted) / 1_000_000.0
+                // The reducer is now fed directly from the SQLite cursor. The
+                // native reader reports both portions without a second full-row
+                // pass or retained source array.
+                timing.sourceMs = streamed.sourceMs
+                timing.reducerMs = streamed.reducerMs
+                timing.sourceRows = streamed.sourceRows
                 val columns = JSONObject()
                 fieldNames.forEach { field ->
-                    val column = reduced.getValue(field)
+                    val column = streamed.columns.getValue(field)
                     columns.put(field, JSONObject()
                         .put("elapsedMs", JSONArray(column.elapsedMs))
                         .put("sequence", JSONArray(column.sequence))

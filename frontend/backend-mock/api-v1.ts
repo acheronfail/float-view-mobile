@@ -709,6 +709,31 @@ export class MockBackend {
     return Boolean(this.findSession({ sessionId }));
   }
 
+  importSession(archive: Uint8Array): string {
+    void archive;
+    const sessionId = `imported-${this.nextSession++}`;
+    const startedAt = new Date().toISOString();
+    this.sessionCatalog = [
+      {
+        ...session,
+        sessionId,
+        displayName: 'Imported performance session',
+        startedAt,
+        endedAt: new Date(Date.parse(startedAt) + 149_999_000).toISOString(),
+        sampleCount: 150_000,
+        eventCount: 2,
+        ridingElapsedMs: 134_999_000,
+        totalElapsedMs: 149_999_000,
+        distanceM: 810_000,
+        maxSpeedMps: 10,
+        maxDutyCycle: 0.849,
+      },
+      ...this.sessionCatalog,
+    ];
+    this.change({ ...this.state }, true);
+    return sessionId;
+  }
+
   private sessionList(
     cursor: unknown,
     limit: number

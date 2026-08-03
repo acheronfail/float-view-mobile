@@ -780,6 +780,28 @@ public struct SessionSeriesPoint: Sendable, Equatable {
   }
 }
 
+public struct SessionSeriesReductionRecord: Sendable {
+  public let columns: [String: SessionSeriesColumnRecord]
+  public let sourceRows: Int
+  public let sourceMs: Double
+  public let reducerMs: Double
+  public let elapsedMs: Double
+
+  public init(
+    columns: [String: SessionSeriesColumnRecord],
+    sourceRows: Int,
+    sourceMs: Double,
+    reducerMs: Double,
+    elapsedMs: Double
+  ) {
+    self.columns = columns
+    self.sourceRows = sourceRows
+    self.sourceMs = sourceMs
+    self.reducerMs = reducerMs
+    self.elapsedMs = elapsedMs
+  }
+}
+
 public struct SessionHistoryConfiguration: Sendable, Equatable {
   public let expectedRidingPersistenceMs: Int64
   public let expectedIdlePersistenceMs: Int64
@@ -1290,6 +1312,7 @@ public enum SessionStoreError: Error, Equatable {
   case invalidRange
   case unsupportedField(String)
   case invalidExportFormat
+  case invalidArchive
 }
 
 public protocol SessionStorePort: AnyObject, Sendable {
@@ -1326,6 +1349,19 @@ public protocol SessionStorePort: AnyObject, Sendable {
     maxRows: Int,
     publishedSampleSequence: Int64?
   ) throws -> [SessionSeriesPoint]
+  func reduceSeries(
+    sessionID: String,
+    startElapsedMs: Int64,
+    endElapsedMs: Int64,
+    fields: [String],
+    buckets: Int,
+    gapPolicy: SessionGapPolicyRecord,
+    expectedPersistenceMs: Int64,
+    expectedRidingPersistenceMs: Int64?,
+    expectedIdlePersistenceMs: Int64?,
+    retainedResolutionSeconds: Int64,
+    publishedSampleSequence: Int64?
+  ) throws -> SessionSeriesReductionRecord
   func queryNearestSample(
     sessionID: String,
     targetElapsedMs: Int64,
@@ -1365,6 +1401,7 @@ public protocol SessionStorePort: AnyObject, Sendable {
   func deleteSession(sessionID: String) throws
   func cancelPendingDelete(operationID: String) throws -> Bool
   func exportSession(sessionID: String, format: String) throws -> SessionExportRecord
+  func importSessionArchive(data: Data) throws -> String
 }
 
 public extension SessionStorePort {
@@ -1412,6 +1449,49 @@ public extension SessionStorePort {
     return try querySeries(
       sessionID: sessionID, startElapsedMs: startElapsedMs, endElapsedMs: endElapsedMs,
       fields: fields, maxPoints: min(maxRows, 2_000)
+    )
+  }
+
+  func reduceSeries(
+    sessionID: String,
+    startElapsedMs: Int64,
+    endElapsedMs: Int64,
+    fields: [String],
+    buckets: Int,
+    gapPolicy: SessionGapPolicyRecord,
+    expectedPersistenceMs: Int64,
+    expectedRidingPersistenceMs: Int64?,
+    expectedIdlePersistenceMs: Int64?,
+    retainedResolutionSeconds: Int64,
+    publishedSampleSequence: Int64?
+  ) throws -> SessionSeriesReductionRecord {
+    let started = DispatchTime.now().uptimeNanoseconds
+    let rows = try querySeriesSource(
+      sessionID: sessionID,
+      startElapsedMs: startElapsedMs,
+      endElapsedMs: endElapsedMs,
+      fields: fields,
+      maxRows: 200_000,
+      publishedSampleSequence: publishedSampleSequence
+    )
+    let columns = try SessionHistoryReducer.reduceSeries(
+      rows: rows,
+      fields: fields,
+      range: SessionElapsedRange(startElapsedMs: startElapsedMs, endElapsedMs: endElapsedMs),
+      buckets: buckets,
+      gapPolicy: gapPolicy,
+      expectedPersistenceMs: expectedPersistenceMs,
+      expectedRidingPersistenceMs: expectedRidingPersistenceMs,
+      expectedIdlePersistenceMs: expectedIdlePersistenceMs,
+      retainedResolutionSeconds: retainedResolutionSeconds,
+      rowsAreOrdered: true
+    )
+    return SessionSeriesReductionRecord(
+      columns: columns,
+      sourceRows: rows.count,
+      sourceMs: 0,
+      reducerMs: Double(DispatchTime.now().uptimeNanoseconds - started) / 1_000_000,
+      elapsedMs: Double(DispatchTime.now().uptimeNanoseconds - started) / 1_000_000
     )
   }
 
@@ -1484,6 +1564,10 @@ public extension SessionStorePort {
 
   func exportSession(sessionID _: String, format _: String) throws -> SessionExportRecord {
     throw SessionStoreError.sessionNotFound
+  }
+
+  func importSessionArchive(data _: Data) throws -> String {
+    throw SessionStoreError.invalidArchive
   }
 }
 

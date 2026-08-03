@@ -6,6 +6,7 @@ export type BootstrapDocument = {
   webSocketUrl: string;
   sessionDataUrl?: string;
   sessionExportUrl?: string;
+  sessionImportUrl?: string;
   sessionToken?: string;
   platform?: FrontendPlatform;
 };
@@ -42,6 +43,16 @@ export function bootstrapSessionDataUrl(document: BootstrapDocument, base: strin
 
 export function bootstrapSessionExportUrl(document: BootstrapDocument, base: string, development: boolean): URL {
   const url = new URL(document.sessionExportUrl ?? '/api/session-export', base);
+  if (development) {
+    const frontend = new URL(base);
+    url.protocol = frontend.protocol;
+    url.host = frontend.host;
+  }
+  return url;
+}
+
+export function bootstrapSessionImportUrl(document: BootstrapDocument, base: string, development: boolean): URL {
+  const url = new URL(document.sessionImportUrl ?? '/api/session-import', base);
   if (development) {
     const frontend = new URL(base);
     url.protocol = frontend.protocol;

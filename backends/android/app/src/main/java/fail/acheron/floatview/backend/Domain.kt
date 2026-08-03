@@ -398,6 +398,14 @@ data class SessionSeriesPoint(
     val rideState: String? = null,
 )
 
+data class SessionSeriesReductionRecord(
+    val columns: Map<String, SessionSeriesColumnRecord>,
+    val sourceRows: Int,
+    val sourceMs: Double,
+    val reducerMs: Double,
+    val elapsedMs: Double,
+)
+
 data class SessionEventRecord(
     val eventId: String,
     val elapsedMs: Long,
@@ -621,6 +629,7 @@ sealed class SessionStoreException(message: String) : RuntimeException(message) 
     data object InvalidCursor : SessionStoreException("Invalid session cursor")
     data object InvalidRange : SessionStoreException("Invalid session range")
     data object InvalidExportFormat : SessionStoreException("Invalid export format")
+    data object InvalidArchive : SessionStoreException("Invalid session archive")
     data class UnsupportedField(val field: String) :
         SessionStoreException("Unsupported session field: $field")
 }
@@ -670,6 +679,38 @@ interface SessionStorePort {
         sessionId, startElapsedMs, endElapsedMs, fields, maxRows.coerceAtMost(2_000),
         publishedSampleSequence,
     )
+    fun reduceSeries(
+        sessionId: String,
+        startElapsedMs: Long,
+        endElapsedMs: Long,
+        fields: List<String>,
+        buckets: Int,
+        gapPolicy: SessionGapPolicyRecord,
+        expectedPersistenceMs: Long,
+        expectedRidingPersistenceMs: Long?,
+        expectedIdlePersistenceMs: Long?,
+        retainedResolutionSeconds: Long,
+        publishedSampleSequence: Long?,
+    ): SessionSeriesReductionRecord {
+        val started = System.nanoTime()
+        val rows = querySeriesSource(
+            sessionId, startElapsedMs, endElapsedMs, fields, 200_000, publishedSampleSequence,
+        )
+        val columns = SessionHistoryReducer.reduceSeries(
+            rows,
+            fields,
+            SessionElapsedRange(startElapsedMs, endElapsedMs),
+            buckets,
+            gapPolicy,
+            expectedPersistenceMs,
+            expectedRidingPersistenceMs,
+            expectedIdlePersistenceMs,
+            retainedResolutionSeconds,
+            rowsAreOrdered = true,
+        )
+        val elapsedMs = (System.nanoTime() - started) / 1_000_000.0
+        return SessionSeriesReductionRecord(columns, rows.size, 0.0, elapsedMs, elapsedMs)
+    }
     fun queryNearestSample(
         sessionId: String,
         targetElapsedMs: Long,
@@ -720,6 +761,8 @@ interface SessionStorePort {
     fun cancelPendingDelete(operationId: String): Boolean = false
     fun exportSession(sessionId: String, format: String): SessionExportRecord =
         throw SessionStoreException.SessionNotFound
+    fun importSessionArchive(data: ByteArray): String =
+        throw SessionStoreException.InvalidArchive
 }
 
 fun interface EventSink {

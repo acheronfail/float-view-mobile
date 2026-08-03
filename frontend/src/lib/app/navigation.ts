@@ -13,7 +13,7 @@ export const bottomTabs = [
     routeId: '/sessions',
     icon: 'sessions',
     title: 'Sessions',
-    subtitle: 'Where did I ride again?',
+    subtitle: 'Recorded rides',
   },
   {
     label: 'boards',

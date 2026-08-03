@@ -31,7 +31,13 @@ private final class Database: @unchecked Sendable {
     }
   }
 
-  deinit { sqlite3_close(handle) }
+  func close() {
+    guard let handle else { return }
+    sqlite3_close(handle)
+    self.handle = nil
+  }
+
+  deinit { close() }
 
   func execute(_ sql: String) throws {
     var message: UnsafeMutablePointer<CChar>?
@@ -995,6 +1001,82 @@ public final class SQLiteLogStore: LogStorePort, ProductStorePort, SessionStoreP
     )
   }
 
+  public func reduceSeries(
+    sessionID: String,
+    startElapsedMs: Int64,
+    endElapsedMs: Int64,
+    fields: [String],
+    buckets: Int,
+    gapPolicy: SessionGapPolicyRecord,
+    expectedPersistenceMs: Int64,
+    expectedRidingPersistenceMs: Int64?,
+    expectedIdlePersistenceMs: Int64?,
+    retainedResolutionSeconds: Int64,
+    publishedSampleSequence: Int64?
+  ) throws -> SessionSeriesReductionRecord {
+    guard startElapsedMs <= endElapsedMs else { throw SessionStoreError.invalidRange }
+    let uniqueFields = Array(NSOrderedSet(array: fields)) as? [String] ?? fields
+    guard !uniqueFields.isEmpty, uniqueFields.count <= 16 else { throw SessionStoreError.invalidRange }
+    let columns = try uniqueFields.map { field -> String in
+      if let column = Self.seriesColumns[field] { return column }
+      guard !field.isEmpty, field.lengthOfBytes(using: .utf8) <= 64 else {
+        throw SessionStoreError.unsupportedField(field)
+      }
+      let encoded = try JSONSerialization.data(withJSONObject: field, options: [.fragmentsAllowed])
+      let jsonKey = String(decoding: encoded, as: UTF8.self)
+      let path = ("$." + jsonKey).replacingOccurrences(of: "'", with: "''")
+      return "json_extract(extension_json, '\(path)')"
+    }
+    return try withReadLease(sessionID: sessionID) { database, _ in
+      let selected = columns.enumerated().map { index, column in
+        "\(column) AS value_\(index)"
+      }.joined(separator: ", ")
+      let sequencePredicate = publishedSampleSequence == nil ? "" : " AND sequence <= ?"
+      var values: [SQLiteValue] = [.integer(startElapsedMs), .integer(endElapsedMs)]
+      if let publishedSampleSequence { values.append(.integer(publishedSampleSequence)) }
+      values.append(.integer(200_000))
+      let sql = """
+        SELECT sequence, monotonic_elapsed_ms, ride_state, \(selected) FROM sample
+        WHERE monotonic_elapsed_ms BETWEEN ? AND ?\(sequencePredicate)
+        ORDER BY monotonic_elapsed_ms, sequence LIMIT ?
+        """
+      let accumulator = try SessionHistoryReducer.SeriesAccumulator(
+        fields: uniqueFields,
+        range: SessionElapsedRange(startElapsedMs: startElapsedMs, endElapsedMs: endElapsedMs),
+        buckets: buckets,
+        gapPolicy: gapPolicy,
+        expectedPersistenceMs: expectedPersistenceMs,
+        expectedRidingPersistenceMs: expectedRidingPersistenceMs,
+        expectedIdlePersistenceMs: expectedIdlePersistenceMs,
+        retainedResolutionSeconds: retainedResolutionSeconds
+      )
+      let started = DispatchTime.now().uptimeNanoseconds
+      var rowValues = Array<Double?>(repeating: nil, count: uniqueFields.count)
+      var rowCount = 0
+      try database.forEachRow(sql, values: values) { statement in
+        for index in uniqueFields.indices {
+          rowValues[index] = Self.columnDouble(statement, Int32(index + 3))
+        }
+        accumulator.append(
+          elapsedMs: sqlite3_column_int64(statement, 1),
+          sequence: sqlite3_column_int64(statement, 0),
+          rideState: Self.columnText(statement, 2),
+          values: rowValues
+        )
+        rowCount += 1
+      }
+      let reducedColumns = try accumulator.finish()
+      let elapsedNanos = DispatchTime.now().uptimeNanoseconds - started
+      return SessionSeriesReductionRecord(
+        columns: reducedColumns,
+        sourceRows: rowCount,
+        sourceMs: Double(elapsedNanos) / 1_000_000,
+        reducerMs: 0,
+        elapsedMs: Double(elapsedNanos) / 1_000_000
+      )
+    }
+  }
+
   public func queryNearestSample(
     sessionID: String,
     targetElapsedMs: Int64,
@@ -1612,6 +1694,108 @@ public final class SQLiteLogStore: LogStorePort, ProductStorePort, SessionStoreP
     } catch {
       try? FileManager.default.removeItem(at: output)
       throw error
+    }
+  }
+
+  @discardableResult
+  public func importSessionArchive(data: Data) throws -> String {
+    lock.lock()
+    defer { lock.unlock() }
+    guard data.count <= 128 * 1024 * 1024 else { throw SessionStoreError.invalidArchive }
+    if current != nil { throw SessionStoreError.sessionActive }
+
+    let importID = UUID().uuidString
+    let sessionID = importID
+    let jobID = UUID().uuidString
+    let fileName = "session-\(sessionID).sqlite"
+    let temporary = root.appending(path: "import-\(importID).floatview.tmp")
+    let destination = root.appending(path: fileName)
+    func removeSQLiteSidecars(_ file: URL) {
+      for suffix in ["-wal", "-shm"] {
+        try? FileManager.default.removeItem(at: URL(fileURLWithPath: file.path + suffix))
+      }
+    }
+    func removeSQLiteFiles(_ file: URL) {
+      removeSQLiteSidecars(file)
+      try? FileManager.default.removeItem(at: file)
+    }
+    do {
+      try data.write(to: temporary, options: .atomic)
+      let archive = try Database(url: temporary)
+      defer { archive.close() }
+      let formatVersion = try archive.query(
+        "SELECT value FROM float_view_archive_metadata WHERE key = 'format_version'",
+        map: { Self.columnText($0, 0) }
+      ).first ?? nil
+      let manifestText = try archive.query(
+        "SELECT value FROM float_view_archive_metadata WHERE key = 'session'",
+        map: { Self.columnText($0, 0) }
+      ).first ?? nil
+      guard formatVersion == "1",
+            let manifestText,
+            let manifest = try JSONSerialization.jsonObject(with: Data(manifestText.utf8)) as? [String: Any],
+            try archive.query("PRAGMA integrity_check", map: { Self.columnText($0, 0) ?? "" }).first == "ok",
+            try archive.scalarInt("SELECT EXISTS(SELECT 1 FROM commit_marker WHERE singleton = 1)") == 1,
+            try archive.scalarInt("SELECT COUNT(*) FROM sample") > 0
+      else { throw SessionStoreError.invalidArchive }
+
+      func text(_ key: String, fallback: String) -> String {
+        guard let value = manifest[key] as? String, !value.isEmpty else { return fallback }
+        return value
+      }
+      func integer(_ key: String, fallback: Int64) -> Int64 {
+        guard let value = manifest[key] as? NSNumber else { return fallback }
+        return value.int64Value
+      }
+      func optionalInteger(_ key: String) -> SQLiteValue {
+        guard let value = manifest[key] as? NSNumber else { return .null }
+        return .integer(value.int64Value)
+      }
+      func json(_ key: String) throws -> String {
+        guard let value = manifest[key] as? [String: Any] else { return "{}" }
+        return try Self.jsonString(value)
+      }
+
+      let deviceHistoryID = text("deviceHistoryId", fallback: "imported-device")
+      let deviceSnapshot = try json("deviceSnapshot")
+      let profileSnapshot = try json("boardProfileSnapshot")
+      let startedAtMs = integer("startedAtMs", fallback: Int64(Date().timeIntervalSince1970 * 1_000))
+      let requestedIdleMs = max(1, integer("requestedIdleMs", fallback: 1_000))
+      let effectiveIdleMs = max(1, integer("effectiveIdleMs", fallback: requestedIdleMs))
+      let requestedRidingMs = max(1, integer("requestedRidingMs", fallback: 1_000))
+      let effectiveRidingMs = max(1, integer("effectiveRidingMs", fallback: requestedRidingMs))
+      let closeReason = (manifest["closeReason"] as? String).map(SQLiteValue.text) ?? .null
+
+      archive.close()
+      removeSQLiteSidecars(temporary)
+      try FileManager.default.moveItem(at: temporary, to: destination)
+      try catalog.statement(
+        """
+        INSERT INTO session_catalog(
+          session_id, job_id, device_history_id, device_snapshot_json,
+          profile_snapshot_json, profile_revision, file_name, started_at_ms,
+          ended_at_ms, state, integrity, requested_idle_ms, effective_idle_ms,
+          requested_riding_ms, effective_riding_ms, close_reason
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'completed', 'complete', ?, ?, ?, ?, ?)
+        """,
+        values: [
+          .text(sessionID), .text(jobID), .text(deviceHistoryID), .text(deviceSnapshot),
+          .text(profileSnapshot), .integer(integer("boardProfileRevision", fallback: 0)),
+          .text(fileName), .integer(startedAtMs), optionalInteger("endedAtMs"),
+          .integer(requestedIdleMs), .integer(effectiveIdleMs),
+          .integer(requestedRidingMs), .integer(effectiveRidingMs), closeReason,
+        ]
+      )
+      try reconcileSessionCatalogLocked(sessionID: sessionID, jobID: jobID, fileName: fileName)
+      return sessionID
+    } catch let error as SessionStoreError {
+      removeSQLiteFiles(temporary)
+      removeSQLiteFiles(destination)
+      throw error
+    } catch {
+      removeSQLiteFiles(temporary)
+      removeSQLiteFiles(destination)
+      throw SessionStoreError.invalidArchive
     }
   }
 

@@ -520,11 +520,18 @@ private func executeSQLite(database: URL, sql: String) throws {
   #expect(manifest["boardProfileSnapshot"] is [String: Any])
   #expect(try sqliteInt(archive.fileURL, "SELECT COUNT(*) FROM sample") == 2)
 
+  let importedSessionID = try store.importSessionArchive(data: Data(contentsOf: archive.fileURL))
+  #expect(importedSessionID != sessionIDs[0])
+  let imported = try store.session(sessionID: importedSessionID)
+  #expect(imported.sampleCount == 2)
+  #expect(imported.integrity == "complete")
+
   try store.deleteSession(sessionID: sessionIDs[0])
   try store.deleteSession(sessionID: sessionIDs[0])
   #expect(throws: SessionStoreError.sessionNotFound) {
     try store.session(sessionID: sessionIDs[0])
   }
+  try store.deleteSession(sessionID: importedSessionID)
   let active = try store.create(
     deviceID: DeviceID("management-fixture"),
     at: base.addingTimeInterval(300)

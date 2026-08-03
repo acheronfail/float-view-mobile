@@ -6,12 +6,14 @@
   import { backendState } from '$lib/backend/state.svelte';
   import BottomTabBar from './BottomTabBar.svelte';
   import { bottomTabForRoute } from './navigation';
+  import PageHeader from '$lib/ui/PageHeader.svelte';
   import { browserThemeEnvironment, ThemeController } from './theme';
 
   let { children }: { children: Snippet } = $props();
   let themeController: ThemeController | undefined;
   const activeBottomTab = $derived(bottomTabForRoute(page.route.id));
   const liveRoute = $derived(page.route.id === '/live');
+  const sessionsRoute = $derived(page.route.id === '/sessions');
   const pageHeader = $derived(activeBottomTab);
 
   onMount(() => {
@@ -51,11 +53,8 @@
     class:app-safe-area-with-tabs={activeBottomTab}
     class:app-safe-area-without-tabs={!activeBottomTab}
   >
-    {#if !liveRoute && pageHeader}
-      <header class="mb-5">
-        <h1 id="app-title" class="text-3xl font-semibold">{pageHeader.title}</h1>
-        <p class="text-sm text-muted">{pageHeader.subtitle}</p>
-      </header>
+    {#if !liveRoute && !sessionsRoute && pageHeader}
+      <PageHeader headingId="app-title" title={pageHeader.title} subtitle={pageHeader.subtitle} />
     {/if}
 
     <div class="flex flex-1 flex-col" class:min-h-0={liveRoute}>

@@ -259,6 +259,35 @@ public final class ApplicationService: @unchecked Sendable {
     )
   }
 
+  public func reduceSessionSeries(
+    sessionID: String,
+    startElapsedMs: Int64,
+    endElapsedMs: Int64,
+    fields: [String],
+    buckets: Int,
+    gapPolicy: SessionGapPolicyRecord,
+    expectedPersistenceMs: Int64,
+    expectedRidingPersistenceMs: Int64?,
+    expectedIdlePersistenceMs: Int64?,
+    retainedResolutionSeconds: Int64,
+    publishedSampleSequence: Int64? = nil
+  ) throws -> SessionSeriesReductionRecord {
+    guard let sessionStore else { throw ApplicationError.productStoreUnavailable }
+    return try sessionStore.reduceSeries(
+      sessionID: sessionID,
+      startElapsedMs: startElapsedMs,
+      endElapsedMs: endElapsedMs,
+      fields: fields,
+      buckets: buckets,
+      gapPolicy: gapPolicy,
+      expectedPersistenceMs: expectedPersistenceMs,
+      expectedRidingPersistenceMs: expectedRidingPersistenceMs,
+      expectedIdlePersistenceMs: expectedIdlePersistenceMs,
+      retainedResolutionSeconds: retainedResolutionSeconds,
+      publishedSampleSequence: publishedSampleSequence
+    )
+  }
+
   public func queryNearestSessionSample(
     sessionID: String,
     targetElapsedMs: Int64,
@@ -356,6 +385,11 @@ public final class ApplicationService: @unchecked Sendable {
   ) throws -> SessionExportRecord {
     guard let sessionStore else { throw ApplicationError.productStoreUnavailable }
     return try sessionStore.exportSession(sessionID: sessionID, format: format)
+  }
+
+  public func importSessionArchive(data: Data) throws -> String {
+    guard let sessionStore else { throw ApplicationError.productStoreUnavailable }
+    return try sessionStore.importSessionArchive(data: data)
   }
 
   public func startDiscovery() throws -> String {

@@ -185,6 +185,34 @@ class ApplicationService(
         requireNotNull(sessionStore) { "Session store is unavailable" }
             .querySeriesSource(sessionId, startElapsedMs, endElapsedMs, fields, maxRows, publishedSampleSequence)
 
+    fun reduceSessionSeries(
+        sessionId: String,
+        startElapsedMs: Long,
+        endElapsedMs: Long,
+        fields: List<String>,
+        buckets: Int,
+        gapPolicy: SessionGapPolicyRecord,
+        expectedPersistenceMs: Long,
+        expectedRidingPersistenceMs: Long?,
+        expectedIdlePersistenceMs: Long?,
+        retainedResolutionSeconds: Long,
+        publishedSampleSequence: Long? = null,
+    ): SessionSeriesReductionRecord =
+        requireNotNull(sessionStore) { "Session store is unavailable" }
+            .reduceSeries(
+                sessionId = sessionId,
+                startElapsedMs = startElapsedMs,
+                endElapsedMs = endElapsedMs,
+                fields = fields,
+                buckets = buckets,
+                gapPolicy = gapPolicy,
+                expectedPersistenceMs = expectedPersistenceMs,
+                expectedRidingPersistenceMs = expectedRidingPersistenceMs,
+                expectedIdlePersistenceMs = expectedIdlePersistenceMs,
+                retainedResolutionSeconds = retainedResolutionSeconds,
+                publishedSampleSequence = publishedSampleSequence,
+            )
+
     fun queryNearestSessionSample(
         sessionId: String,
         targetElapsedMs: Long,
@@ -256,6 +284,10 @@ class ApplicationService(
     fun exportSession(sessionId: String, format: String): SessionExportRecord =
         requireNotNull(sessionStore) { "Session store is unavailable" }
             .exportSession(sessionId, format)
+
+    fun importSessionArchive(data: ByteArray): String =
+        requireNotNull(sessionStore) { "Session store is unavailable" }
+            .importSessionArchive(data)
 
     @Synchronized
     fun startDiscovery(): String {

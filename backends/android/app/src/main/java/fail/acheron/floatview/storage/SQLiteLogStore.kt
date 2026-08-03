@@ -15,11 +15,14 @@ import fail.acheron.floatview.backend.ProductStorePort
 import fail.acheron.floatview.backend.SavedDeviceRecord
 import fail.acheron.floatview.backend.SessionId
 import fail.acheron.floatview.backend.SessionEventRecord
+import fail.acheron.floatview.backend.SessionElapsedRange
 import fail.acheron.floatview.backend.SessionExportRecord
+import fail.acheron.floatview.backend.SessionGapPolicyRecord
 import fail.acheron.floatview.backend.SessionListQuery
 import fail.acheron.floatview.backend.SessionPage
 import fail.acheron.floatview.backend.SessionRecord
 import fail.acheron.floatview.backend.SessionSeriesPoint
+import fail.acheron.floatview.backend.SessionSeriesReductionRecord
 import fail.acheron.floatview.backend.SessionPublishedSnapshotRecord
 import fail.acheron.floatview.backend.SessionHistoryConfiguration
 import fail.acheron.floatview.backend.SessionHistoryReducer
@@ -879,6 +882,71 @@ class SQLiteLogStore(
         )
     }
 
+    override fun reduceSeries(
+        sessionId: String,
+        startElapsedMs: Long,
+        endElapsedMs: Long,
+        fields: List<String>,
+        buckets: Int,
+        gapPolicy: SessionGapPolicyRecord,
+        expectedPersistenceMs: Long,
+        expectedRidingPersistenceMs: Long?,
+        expectedIdlePersistenceMs: Long?,
+        retainedResolutionSeconds: Long,
+        publishedSampleSequence: Long?,
+    ): SessionSeriesReductionRecord {
+        if (startElapsedMs > endElapsedMs) throw SessionStoreException.InvalidRange
+        val projection = seriesProjection(fields)
+        val sequencePredicate = if (publishedSampleSequence == null) "" else " AND sequence <= ?"
+        val arguments = buildList {
+            add(startElapsedMs.toString())
+            add(endElapsedMs.toString())
+            publishedSampleSequence?.let { add(it.toString()) }
+            add("200000")
+        }.toTypedArray()
+        val sql = """
+            SELECT sequence, monotonic_elapsed_ms, ride_state, ${projection.selected} FROM sample
+            WHERE monotonic_elapsed_ms BETWEEN ? AND ?$sequencePredicate
+            ORDER BY monotonic_elapsed_ms, sequence LIMIT ?
+        """.trimIndent()
+        return withReadLease(sessionId) { db, cancellationSignal ->
+            val accumulator = SessionHistoryReducer.SeriesAccumulator(
+                projection.fields,
+                SessionElapsedRange(startElapsedMs, endElapsedMs),
+                buckets,
+                gapPolicy,
+                expectedPersistenceMs,
+                expectedRidingPersistenceMs,
+                expectedIdlePersistenceMs,
+                retainedResolutionSeconds,
+            )
+            val started = System.nanoTime()
+            val rowValues = MutableList<Double?>(projection.fields.size) { null }
+            var rowCount = 0
+            db.rawQuery(sql, arguments, cancellationSignal).use { cursor ->
+                while (cursor.moveToNext()) {
+                    cursor.populateSeriesValues(projection, rowValues)
+                    accumulator.append(
+                        elapsedMs = cursor.getLong(1),
+                        sequence = cursor.getLong(0),
+                        rideState = cursor.getString(2),
+                        values = rowValues,
+                    )
+                    rowCount += 1
+                }
+            }
+            val reducedColumns = accumulator.finish()
+            val elapsedNanos = System.nanoTime() - started
+            SessionSeriesReductionRecord(
+                columns = reducedColumns,
+                sourceRows = rowCount,
+                sourceMs = elapsedNanos / 1_000_000.0,
+                reducerMs = 0.0,
+                elapsedMs = elapsedNanos / 1_000_000.0,
+            )
+        }
+    }
+
     override fun queryNearestSample(
         sessionId: String,
         targetElapsedMs: Long,
@@ -1413,6 +1481,120 @@ class SQLiteLogStore(
         } catch (error: Exception) {
             output.delete()
             throw error
+        }
+    }
+
+    @Synchronized
+    override fun importSessionArchive(data: ByteArray): String {
+        if (data.size > 128 * 1024 * 1024) throw SessionStoreException.InvalidArchive
+        if (current != null) throw SessionStoreException.SessionActive
+
+        val importId = UUID.randomUUID().toString()
+        val sessionId = importId
+        val jobId = UUID.randomUUID().toString()
+        val fileName = "session-$sessionId.sqlite"
+        val temporary = File(root, "import-$importId.floatview.tmp")
+        val destination = File(root, fileName)
+        fun removeSQLiteSidecars(file: File) {
+            File(file.path + "-wal").delete()
+            File(file.path + "-shm").delete()
+        }
+        try {
+            temporary.outputStream().use { it.write(data) }
+            val manifest = SQLiteDatabase.openDatabase(
+                temporary.path,
+                null,
+                SQLiteDatabase.OPEN_READWRITE,
+            ).use { archive ->
+                val formatVersion = archive.rawQuery(
+                    "SELECT value FROM float_view_archive_metadata WHERE key = 'format_version'",
+                    null,
+                ).use { cursor -> if (cursor.moveToFirst()) cursor.getString(0) else null }
+                val manifestText = archive.rawQuery(
+                    "SELECT value FROM float_view_archive_metadata WHERE key = 'session'",
+                    null,
+                ).use { cursor -> if (cursor.moveToFirst()) cursor.getString(0) else null }
+                val healthy = archive.rawQuery("PRAGMA integrity_check", null).use { cursor ->
+                    cursor.moveToFirst() && cursor.getString(0) == "ok"
+                }
+                val hasMarker = DatabaseUtils.longForQuery(
+                    archive,
+                    "SELECT EXISTS(SELECT 1 FROM commit_marker WHERE singleton = 1)",
+                    null,
+                ) == 1L
+                val sampleCount = DatabaseUtils.longForQuery(archive, "SELECT COUNT(*) FROM sample", null)
+                if (formatVersion != "1" || manifestText.isNullOrEmpty() || !healthy || !hasMarker || sampleCount == 0L) {
+                    throw SessionStoreException.InvalidArchive
+                }
+                JSONObject(manifestText)
+            }
+            removeSQLiteSidecars(temporary)
+
+            val deviceHistoryId = manifest.optString("deviceHistoryId").ifEmpty { "imported-device" }
+            val deviceSnapshot = manifest.optJSONObject("deviceSnapshot")?.toString() ?: "{}"
+            val profileSnapshot = manifest.optJSONObject("boardProfileSnapshot")?.toString() ?: "{}"
+            val startedAtMs = manifest.optLong("startedAtMs", System.currentTimeMillis())
+            val endedAtMs = if (manifest.has("endedAtMs") && !manifest.isNull("endedAtMs")) {
+                manifest.optLong("endedAtMs")
+            } else {
+                null
+            }
+            val requestedIdleMs = manifest.optLong("requestedIdleMs", 1_000L).coerceAtLeast(1L)
+            val effectiveIdleMs = manifest.optLong("effectiveIdleMs", requestedIdleMs).coerceAtLeast(1L)
+            val requestedRidingMs = manifest.optLong("requestedRidingMs", 1_000L).coerceAtLeast(1L)
+            val effectiveRidingMs = manifest.optLong("effectiveRidingMs", requestedRidingMs).coerceAtLeast(1L)
+            val closeReason = if (manifest.has("closeReason") && !manifest.isNull("closeReason")) {
+                manifest.optString("closeReason")
+            } else {
+                null
+            }
+
+            if (!temporary.renameTo(destination)) throw SessionStoreException.InvalidArchive
+            val catalogDb = catalog.writableDatabase
+            catalogDb.beginTransaction()
+            try {
+                catalogDb.execSQL(
+                    """
+                    INSERT INTO session_catalog(
+                      session_id, job_id, device_history_id, device_snapshot_json,
+                      profile_snapshot_json, profile_revision, file_name, started_at_ms,
+                      ended_at_ms, state, integrity, requested_idle_ms, effective_idle_ms,
+                      requested_riding_ms, effective_riding_ms, close_reason
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'completed', 'complete', ?, ?, ?, ?, ?)
+                    """.trimIndent(),
+                    arrayOf(
+                        sessionId,
+                        jobId,
+                        deviceHistoryId,
+                        deviceSnapshot,
+                        profileSnapshot,
+                        manifest.optLong("boardProfileRevision", 0L),
+                        fileName,
+                        startedAtMs,
+                        endedAtMs,
+                        requestedIdleMs,
+                        effectiveIdleMs,
+                        requestedRidingMs,
+                        effectiveRidingMs,
+                        closeReason,
+                    ),
+                )
+                catalogDb.setTransactionSuccessful()
+            } finally {
+                catalogDb.endTransaction()
+            }
+            reconcileSessionCatalog(sessionId, jobId, fileName)
+            return sessionId
+        } catch (error: SessionStoreException) {
+            removeSQLiteSidecars(temporary)
+            temporary.delete()
+            SQLiteDatabase.deleteDatabase(destination)
+            throw error
+        } catch (_: Exception) {
+            removeSQLiteSidecars(temporary)
+            temporary.delete()
+            SQLiteDatabase.deleteDatabase(destination)
+            throw SessionStoreException.InvalidArchive
         }
     }
 
@@ -2024,9 +2206,7 @@ class SQLiteLogStore(
                         add(
                             SessionSeriesPoint(
                                 cursor.getLong(1),
-                                projection.fields.mapIndexed { index, field ->
-                                    field to cursor.seriesDouble(index + 3, field, projection.extensionColumn)
-                                }.toMap(),
+                                cursor.seriesValues(projection),
                                 cursor.getLong(0),
                                 cursor.getString(2),
                             ),
@@ -2087,6 +2267,33 @@ class SQLiteLogStore(
             }
         } catch (_: Exception) {
             null
+        }
+    }
+
+    private fun android.database.Cursor.seriesValues(projection: SeriesProjection): Map<String, Double?> {
+        val values = MutableList<Double?>(projection.fields.size) { null }
+        populateSeriesValues(projection, values)
+        return projection.fields.zip(values).toMap()
+    }
+
+    private fun android.database.Cursor.populateSeriesValues(
+        projection: SeriesProjection,
+        values: MutableList<Double?>,
+    ) {
+        val extension = projection.extensionColumn?.takeIf { !isNull(it) }?.let { index ->
+            try {
+                JSONObject(getString(index))
+            } catch (_: Exception) {
+                null
+            }
+        }
+        projection.fields.forEachIndexed { index, field ->
+            values[index] = if (SERIES_COLUMNS[field] != null) {
+                optionalDouble(index + 3)
+            } else {
+                val value = extension?.opt(field)
+                (value as? Number)?.toDouble()?.takeIf(Double::isFinite)
+            }
         }
     }
 

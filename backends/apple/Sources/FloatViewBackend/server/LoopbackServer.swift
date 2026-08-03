@@ -10,6 +10,7 @@ public enum PlatformLoopbackPort {
 
 public enum LoopbackProtocolLimits {
   public static let maximumWebSocketMessageBytes = 65_536
+  public static let maximumSessionImportBytes = 128 * 1024 * 1024
 }
 
 public func loopbackStartupFailure(port: UInt16, error: any Error) -> String {
@@ -91,6 +92,7 @@ public final class LoopbackServer: @unchecked Sendable {
           "webSocketUrl": "\(self.origin.replacingOccurrences(of: "http", with: "ws"))/api/ws",
           "sessionDataUrl": "\(self.origin)/api/session-data",
           "sessionExportUrl": "\(self.origin)/api/session-export",
+          "sessionImportUrl": "\(self.origin)/api/session-import",
           "sessionToken": self.token,
           "platform": self.platform,
         ])
@@ -170,6 +172,33 @@ public final class LoopbackServer: @unchecked Sendable {
             statusCode: .ok,
             headers: [.contentType: "application/json", .cacheControl: "no-store"],
             body: responseData
+          )
+        } catch {
+          return HTTPResponse(statusCode: .badRequest, headers: [.cacheControl: "no-store"])
+        }
+      }
+      await server.appendRoute("POST /api/session-import") { [weak self] request in
+        guard let self,
+              request.headers[HTTPHeader("Origin")] == self.origin,
+              request.headers[HTTPHeader("X-Float-View-Token")] == self.token
+        else { return HTTPResponse(statusCode: .forbidden, headers: [.cacheControl: "no-store"]) }
+        if let contentLength = request.headers[HTTPHeader("Content-Length")].flatMap(Int.init),
+           contentLength > LoopbackProtocolLimits.maximumSessionImportBytes
+        {
+          return HTTPResponse(statusCode: .payloadTooLarge, headers: [.cacheControl: "no-store"])
+        }
+        do {
+          let body = try await request.bodyData
+          guard body.count <= LoopbackProtocolLimits.maximumSessionImportBytes else {
+            return HTTPResponse(statusCode: .payloadTooLarge, headers: [.cacheControl: "no-store"])
+          }
+          let sessionID = try self.applicationService.importSessionArchive(data: body)
+          self.events.publish(SessionCatalogChanged())
+          let response = try JSONSerialization.data(withJSONObject: ["sessionId": sessionID])
+          return HTTPResponse(
+            statusCode: .ok,
+            headers: [.contentType: "application/json", .cacheControl: "no-store"],
+            body: response
           )
         } catch {
           return HTTPResponse(statusCode: .badRequest, headers: [.cacheControl: "no-store"])
@@ -878,30 +907,27 @@ public final class LoopbackServer: @unchecked Sendable {
         throw SessionStoreError.invalidRange
       }
       guard gap != nil, gap?["thresholdSeconds"] != nil else { throw SessionStoreError.invalidRange }
-      let sourceStarted = DispatchTime.now().uptimeNanoseconds
-      let source = try applicationService.querySessionSeriesSource(
-        sessionID: sessionID, startElapsedMs: start, endElapsedMs: end, fields: fields,
-        maxRows: 200_000, publishedSampleSequence: sampleSequence.int64Value
-      )
-      timing.sourceMs = Double(DispatchTime.now().uptimeNanoseconds - sourceStarted) / 1_000_000
-      timing.sourceRows = source.count
       let configurationStarted = DispatchTime.now().uptimeNanoseconds
       let historyConfiguration = try applicationService.sessionHistoryConfiguration(sessionID: sessionID)
       timing.configurationMs = Double(DispatchTime.now().uptimeNanoseconds - configurationStarted) / 1_000_000
-      let reducerStarted = DispatchTime.now().uptimeNanoseconds
-      let reduced = try SessionHistoryReducer.reduceSeries(
-        rows: source, fields: fields,
-        range: SessionElapsedRange(startElapsedMs: start, endElapsedMs: end),
+      let streamed = try applicationService.reduceSessionSeries(
+        sessionID: sessionID, startElapsedMs: start, endElapsedMs: end, fields: fields,
         buckets: buckets,
         gapPolicy: SessionGapPolicyRecord(thresholdSeconds: threshold),
+        expectedPersistenceMs: 1_000,
         expectedRidingPersistenceMs: historyConfiguration.expectedRidingPersistenceMs,
         expectedIdlePersistenceMs: historyConfiguration.expectedIdlePersistenceMs,
         retainedResolutionSeconds: historyConfiguration.retainedResolutionSeconds,
-        rowsAreOrdered: true
+        publishedSampleSequence: sampleSequence.int64Value
       )
-      timing.reducerMs = Double(DispatchTime.now().uptimeNanoseconds - reducerStarted) / 1_000_000
+      // The bounded reducer now runs during the SQLite cursor walk. The
+      // native reader reports the cursor and accumulator portions separately;
+      // neither stage retains a second full-row array.
+      timing.sourceMs = streamed.sourceMs
+      timing.reducerMs = streamed.reducerMs
+      timing.sourceRows = streamed.sourceRows
       let columns = Dictionary(uniqueKeysWithValues: fields.map { field in
-        let column = reduced[field]!
+        let column = streamed.columns[field]!
         let values: [Any] = column.values.map { $0 as Any? ?? NSNull() }
         return (field, [
           "elapsedMs": column.elapsedMs,
@@ -1226,7 +1252,7 @@ public final class LoopbackServer: @unchecked Sendable {
     case .sessionNotFound: failure(id, .notFound, "Session was not found")
     case .sessionActive: failure(id, .invalidState, "Session is still active")
     case .maintenanceInProgress: failure(id, .unavailable, "Session maintenance is in progress")
-    case .invalidCursor, .invalidRange, .unsupportedField, .invalidExportFormat:
+    case .invalidCursor, .invalidRange, .unsupportedField, .invalidExportFormat, .invalidArchive:
       failure(id, .invalidRequest, "Session request is invalid")
     }
   }

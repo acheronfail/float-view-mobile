@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onDestroy, onMount } from 'svelte';
   import { SvelteMap, SvelteSet } from 'svelte/reactivity';
-  import type { SessionMetadata } from '$lib/backend/contract';
+  import { MAX_SESSION_DATA_FIELDS, type SessionMetadata } from '$lib/backend/contract';
   import type { SessionReviewController } from '$lib/backend/session-controller';
   import type { SessionSeriesResult } from '$lib/backend/session-data';
   import { backendState } from '$lib/backend/state.svelte';
@@ -54,6 +54,8 @@
   const Y_TICK_COUNT = 5;
   const MIN_SELECTION_PIXELS = 8;
   const INTERACTION_MODES = ['info', 'zoom', 'pan'] as const;
+  const MAX_FIELDS_PER_SERIES_REQUEST = MAX_SESSION_DATA_FIELDS;
+  const FIRST_VISIBLE_GROUP_FIELDS = 9;
 
   type InteractionMode = (typeof INTERACTION_MODES)[number];
   let interactionMode = $state<InteractionMode>('info');
@@ -63,11 +65,11 @@
     const groups: SessionMetadata['fields'][] = [];
     let stable: SessionMetadata['fields'] = [];
     fields.forEach((field) => {
-      if (field.source === 'stable' && stable.length < 9) {
+      if (field.source === 'stable' && stable.length < FIRST_VISIBLE_GROUP_FIELDS) {
         stable = [...stable, field];
         return;
       }
-      if (!groups.length || groups.at(-1)!.length >= 8) groups.push([]);
+      if (!groups.length || groups.at(-1)!.length >= MAX_FIELDS_PER_SERIES_REQUEST) groups.push([]);
       groups[groups.length - 1] = [...groups.at(-1)!, field];
     });
     if (stable.length) groups.unshift(stable);
