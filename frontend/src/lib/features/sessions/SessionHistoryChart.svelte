@@ -20,8 +20,6 @@
   import { clampViewport, panViewport, pinchViewport, type Viewport } from './viewport';
   import SectionTitle from '../../ui/SectionTitle.svelte';
 
-  // TODO: sticky `<- Sessions` and menu in header
-
   let { metadata }: { metadata: SessionMetadata } = $props();
   let plot = $state<HTMLElement | null>(null);
   let width = $state(0);
@@ -54,12 +52,10 @@
   const CHART_HEIGHT = 96;
   const Y_TICK_COUNT = 5;
   const MIN_SELECTION_PIXELS = 8;
-  const INTERACTION_MODES = ['zoom', 'pan', 'info'] as const;
+  const INTERACTION_MODES = ['info', 'zoom', 'pan'] as const;
 
-  // TODO: persist this state so it's remembered when navigating around
-  // TODO: different color per mode
   type InteractionMode = (typeof INTERACTION_MODES)[number];
-  let interactionMode = $state<InteractionMode>('zoom');
+  let interactionMode = $state<InteractionMode>('info');
 
   const fields = $derived(sortSessionFields(metadata.fields.filter((field) => sessionFieldIsChartable(field.name))));
   const fieldGroups = $derived.by(() => {
@@ -806,7 +802,7 @@
     {#if isZoomed}
       <button
         type="button"
-        class="flex size-14 touch-manipulation flex-col items-center justify-center rounded-full border border-outline bg-accent text-[8px] font-semibold tracking-[0.12em] text-on-accent uppercase shadow-xl"
+        class="flex size-14 touch-manipulation flex-col items-center justify-center rounded-full border border-outline bg-accent text-[10px] font-bold tracking-[0.12em] text-on-accent uppercase shadow-xl"
         aria-label={`Chart mode: ${interactionMode}. Switch to ${nextInteractionMode()} mode`}
         title={`Switch to ${nextInteractionMode()} mode`}
         onpointerdown={(event) => activateFromPointer(event, reset)}
@@ -818,7 +814,7 @@
 
     <button
       type="button"
-      class="flex size-14 touch-manipulation flex-col items-center justify-center rounded-full border border-outline bg-accent text-[8px] font-semibold tracking-[0.12em] text-on-accent uppercase shadow-xl"
+      class="flex size-14 touch-manipulation flex-col items-center justify-center rounded-full border border-outline bg-accent text-[10px] font-bold tracking-[0.12em] text-on-accent uppercase shadow-xl"
       aria-label={`Chart mode: ${interactionMode}. Switch to ${nextInteractionMode()} mode`}
       title={`Switch to ${nextInteractionMode()} mode`}
       onpointerdown={(event) => activateFromPointer(event, cycleInteractionMode)}
