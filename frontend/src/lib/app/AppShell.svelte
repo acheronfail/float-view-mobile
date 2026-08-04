@@ -10,7 +10,7 @@
   import { browserThemeEnvironment, ThemeController } from './theme';
 
   let { children }: { children: Snippet } = $props();
-  let themeController: ThemeController | undefined;
+  let themeController = $state<ThemeController | undefined>(undefined);
   const activeBottomTab = $derived(bottomTabForRoute(page.route.id));
   const liveRoute = $derived(page.route.id === '/live');
   const sessionsRoute = $derived(page.route.id === '/sessions');
@@ -53,7 +53,7 @@
   });
 
   $effect(() => {
-    const preference = backendState.settings?.themePreference;
+    const preference = backendState.snapshot?.settings?.themePreference;
     if (!preference) return;
     themeController?.reconcile(preference);
   });

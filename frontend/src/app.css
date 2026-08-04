@@ -84,6 +84,29 @@ html {
   font: inherit;
 }
 
+.leaflet-control-attribution {
+  font-size: 0.625rem;
+  line-height: 1.2;
+  padding: 0 3px;
+}
+
+/* Keep remote map tiles readable against the dark application palette. The
+ * route overlays stay unfiltered so their existing colors remain meaningful. */
+:root[data-theme='dark'] .leaflet-container {
+  background: var(--app-surface);
+}
+
+:root[data-theme='dark'] .leaflet-layer,
+:root[data-theme='dark'] .leaflet-control-zoom-in,
+:root[data-theme='dark'] .leaflet-control-zoom-out,
+:root[data-theme='dark'] .leaflet-control-attribution {
+  filter: invert(100%) hue-rotate(180deg) brightness(95%) contrast(90%);
+}
+
+:root[data-theme='dark'] .leaflet-attribution-flag {
+  filter: invert(100%) hue-rotate(180deg);
+}
+
 .rider-icon {
   background: transparent;
   border: 0;

@@ -264,7 +264,7 @@
         bind:this={node}
         role="img"
         aria-label="Recorded session route"
-        class="h-64 w-full rounded-lg bg-surface"
+        class="h-64 w-full rounded-lg"
         class:hidden
       ></div>
       <div class="flex flex-row items-center justify-between">
