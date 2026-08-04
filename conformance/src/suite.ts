@@ -251,19 +251,6 @@ async function exerciseProductMethods(client: ConformanceClient, state: AppState
       )
     );
   }
-  const nearest = await client.sessionData({
-    kind: 'samples',
-    sessionId: session.sessionId,
-    snapshot: detail.snapshot,
-    range: historyRange,
-    fields: [field],
-    mode: 'nearest',
-    limit: 1,
-    targetElapsedMs: Math.floor(detail.snapshot.committedElapsedMs / 2),
-  });
-  assert.equal(nearest.kind, 'samples');
-  assert.equal(nearest.mode, 'nearest');
-  assert.ok(nearest.sequence.length <= 1);
   const events = await client.sessionData({
     kind: 'events',
     sessionId: session.sessionId,

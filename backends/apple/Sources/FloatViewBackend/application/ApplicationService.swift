@@ -327,19 +327,6 @@ public final class ApplicationService: @unchecked Sendable {
     )
   }
 
-  public func queryNearestSessionSample(
-    sessionID: String,
-    targetElapsedMs: Int64,
-    fields: [String],
-    publishedSampleSequence: Int64? = nil
-  ) throws -> SessionSeriesPoint? {
-    guard let sessionStore else { throw ApplicationError.productStoreUnavailable }
-    return try sessionStore.queryNearestSample(
-      sessionID: sessionID, targetElapsedMs: targetElapsedMs,
-      fields: fields, publishedSampleSequence: publishedSampleSequence
-    )
-  }
-
   public func cancelHistoricalReads(sessionID: String) {
     sessionStore?.cancelHistoricalReads(sessionID: sessionID)
   }

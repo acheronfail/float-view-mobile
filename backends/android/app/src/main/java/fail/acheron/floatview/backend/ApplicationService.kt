@@ -247,15 +247,6 @@ class ApplicationService(
                 publishedSampleSequence = publishedSampleSequence,
             )
 
-    fun queryNearestSessionSample(
-        sessionId: String,
-        targetElapsedMs: Long,
-        fields: List<String>,
-        publishedSampleSequence: Long? = null,
-    ): SessionSeriesPoint? =
-        requireNotNull(sessionStore) { "Session store is unavailable" }
-            .queryNearestSample(sessionId, targetElapsedMs, fields, publishedSampleSequence)
-
     fun sessionEvents(
         sessionId: String,
         startElapsedMs: Long,

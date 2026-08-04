@@ -2,7 +2,6 @@ package fail.acheron.floatview.backend
 
 import org.json.JSONObject
 import java.util.Base64
-import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
 
@@ -195,14 +194,6 @@ object SessionHistoryReducer {
         ordered.forEach(accumulator::append)
         return accumulator.finish()
     }
-
-    fun nearestSample(rows: List<SessionSeriesPoint>, targetElapsedMs: Long): SessionSeriesPoint? =
-        rows.minWithOrNull(Comparator { left, right ->
-            val leftDistance = abs(left.elapsedMs - targetElapsedMs)
-            val rightDistance = abs(right.elapsedMs - targetElapsedMs)
-            if (leftDistance != rightDistance) leftDistance.compareTo(rightDistance)
-            else comparePoints(left, right)
-        })
 
     fun selectPruneRows(
         rows: List<SessionSeriesPoint>,

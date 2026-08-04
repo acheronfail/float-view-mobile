@@ -69,14 +69,7 @@ final class SessionHistoryReducerTests: XCTestCase {
     XCTAssertEqual(result["extensionLate"]?.values.compactMap { $0 }, [0.5, 0.7, 0.8, 0.9, 1, 1.1])
   }
 
-  func testNearestTieAndCursorPageReplayAreDeterministic() throws {
-    let rows = [
-      SessionSeriesPoint(elapsedMs: 900, values: [:], sequence: 3),
-      SessionSeriesPoint(elapsedMs: 900, values: [:], sequence: 2),
-      SessionSeriesPoint(elapsedMs: 1_100, values: [:], sequence: 9),
-    ]
-    XCTAssertEqual(SessionHistoryReducer.nearestSample(rows: rows, targetElapsedMs: 1_000)?.sequence, 2)
-
+  func testCursorPageReplayIsDeterministic() throws {
     let range = SessionElapsedRange(startElapsedMs: 0, endElapsedMs: 10_000)
     let seed = SessionHistoryCursor(
       sessionID: "session-1", snapshot: snapshot, range: range, elapsedMs: 0, sequence: 0

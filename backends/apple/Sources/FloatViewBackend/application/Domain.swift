@@ -1501,12 +1501,6 @@ public protocol SessionStorePort: AnyObject, Sendable {
     retainedResolutionSeconds: Int64,
     publishedSampleSequence: Int64?
   ) throws -> SessionSeriesReductionRecord
-  func queryNearestSample(
-    sessionID: String,
-    targetElapsedMs: Int64,
-    fields: [String],
-    publishedSampleSequence: Int64?
-  ) throws -> SessionSeriesPoint?
   func sessionEvents(
     sessionID: String,
     startElapsedMs: Int64,
@@ -1575,24 +1569,6 @@ public extension SessionStorePort {
       sessionID: sessionID, startElapsedMs: startElapsedMs, endElapsedMs: endElapsedMs,
       fields: fields, maxPoints: maxPoints
     )
-  }
-
-  func queryNearestSample(
-    sessionID: String,
-    targetElapsedMs: Int64,
-    fields: [String],
-    publishedSampleSequence _: Int64?
-  ) throws -> SessionSeriesPoint? {
-    try querySeries(
-      sessionID: sessionID, startElapsedMs: max(0, targetElapsedMs - 1),
-      endElapsedMs: targetElapsedMs + 1, fields: fields, maxPoints: 2
-    ).min { left, right in
-      let leftDistance = abs(left.elapsedMs - targetElapsedMs)
-      let rightDistance = abs(right.elapsedMs - targetElapsedMs)
-      return leftDistance < rightDistance ||
-        (leftDistance == rightDistance && (left.elapsedMs < right.elapsedMs ||
-            (left.elapsedMs == right.elapsedMs && left.sequence < right.sequence)))
-    }
   }
 
   func querySeriesSource(

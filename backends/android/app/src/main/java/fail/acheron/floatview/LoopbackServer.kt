@@ -982,34 +982,21 @@ class LoopbackServer(
                     ) throw SessionStoreException.InvalidCursor
                 }
             }
-            val mode = params.optString("mode", "window")
-            val points: List<SessionSeriesPoint>
-            val nextCursor: String?
-            if (mode == "nearest") {
-                val target = if (!params.has("targetElapsedMs")) throw SessionStoreException.InvalidRange
-                else params.getLong("targetElapsedMs")
-                if (target !in start..end) throw SessionStoreException.InvalidRange
-                points = applicationService.queryNearestSessionSample(
-                    sessionId, target, fieldNames, snapshot.getLong("committedSampleSequence"),
-                )?.let { listOf(it) } ?: emptyList()
-                nextCursor = null
-            } else {
-                val source = applicationService.querySessionSeriesSource(
-                    sessionId, start, end, fieldNames, 200_000,
-                    snapshot.getLong("committedSampleSequence"),
-                )
-                val page = SessionHistoryReducer.page(
-                    source,
-                    params.optInt("limit", 2_000).coerceIn(1, 2_000),
-                    decodedCursor,
-                    seed,
-                )
-                points = page.first
-                nextCursor = page.second?.let(SessionHistoryReducer::encodeCursor)
-            }
+            val source = applicationService.querySessionSeriesSource(
+                sessionId, start, end, fieldNames, 200_000,
+                snapshot.getLong("committedSampleSequence"),
+            )
+            val page = SessionHistoryReducer.page(
+                source,
+                params.optInt("limit", 2_000).coerceIn(1, 2_000),
+                decodedCursor,
+                seed,
+            )
+            val points = page.first
+            val nextCursor = page.second?.let(SessionHistoryReducer::encodeCursor)
             val values = JSONObject()
             fieldNames.forEach { field -> values.put(field, JSONArray(points.map { it.values[field] ?: JSONObject.NULL })) }
-            return base.put("mode", mode)
+            return base.put("mode", "window")
                 .put("elapsedMs", JSONArray(points.map { it.elapsedMs }))
                 .put("sequence", JSONArray(points.map { it.sequence }))
                 .put("values", values)

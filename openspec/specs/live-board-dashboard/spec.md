@@ -192,7 +192,7 @@ The live experience SHALL surface package state and mode, footpad state, wheelsl
 
 ### Requirement: Detailed historical telemetry review
 
-Session review SHALL expose metadata first, then the same supported detailed fields through bounded authenticated columnar series/exact-sample requests, plus observed semantic transitions through chronological event pages. It SHALL preserve nullability and units, allow inspection of fixture-generated scenes after disconnect, cap each data request to 16 fields/1,024 buckets/65,536 observations, cap sample pages at 2,000 rows and event pages at 500 rows, and disclose retained/pruned history metadata. The review SHALL compose compatible fields into metadata-defined visual chart groups without changing the independent field columns returned by the data service. Each chart group SHALL use one y-axis: either an explicitly defined fixed domain or a deterministic domain derived from all finite values in the group, including lines currently hidden from view. Display formatting SHALL be consistent between axis labels and exact values; bounded ratio fields SHALL be able to show their semantic percentage range without changing transported values. A multi-field group SHALL render one line per field and a legend below the plot. During inspection, each chart group SHALL render one tooltip at the shared elapsed position, with one newline-separated, field-colored value line for each visible field and a marker at that field’s corresponding y-position.
+Session review SHALL expose metadata first, then the same supported detailed fields through bounded authenticated columnar series and sample-window requests, plus observed semantic transitions through chronological event pages. It SHALL preserve nullability and units, allow inspection of fixture-generated scenes after disconnect, cap each data request to 16 fields/1,024 buckets/65,536 observations, cap sample pages at 2,000 rows and event pages at 500 rows, and disclose retained/pruned history metadata. The review SHALL compose compatible fields into metadata-defined visual chart groups without changing the independent field columns returned by the data service. Each chart group SHALL use one y-axis: either an explicitly defined fixed domain or a deterministic domain derived from all finite values in the group, including lines currently hidden from view. Display formatting SHALL be consistent between axis labels and tooltip values; bounded ratio fields SHALL be able to show their semantic percentage range without changing transported values. A multi-field group SHALL render one line per field and a legend below the plot. During inspection, each chart group SHALL render one tooltip at the shared elapsed position, with one newline-separated, field-colored value line for each visible field and a marker at that field’s corresponding y-position.
 
 #### Scenario: Review field weakening
 
@@ -202,7 +202,7 @@ Session review SHALL expose metadata first, then the same supported detailed fie
 #### Scenario: Review bounded duty cycle
 
 - **WHEN** a session contains duty-cycle ratios within the normal bounded range
-- **THEN** the duty-cycle chart always includes `0%` and `100%` as its axis endpoints and exact values use the same percentage formatting
+- **THEN** the duty-cycle chart always includes `0%` and `100%` as its axis endpoints and tooltip values use the same percentage formatting
 
 #### Scenario: Compare temperatures
 
@@ -212,7 +212,7 @@ Session review SHALL expose metadata first, then the same supported detailed fie
 #### Scenario: Hidden line does not change the shared scale
 
 - **WHEN** one line in a multi-field chart is hidden through its legend
-- **THEN** the remaining line is omitted from the SVG while the chart domain, ticks, viewport, exact-sample requests, and other line states remain stable
+- **THEN** the remaining line is omitted from the SVG while the chart domain, ticks, viewport, series requests, and other line states remain stable
 
 #### Scenario: Missing or unavailable field
 
@@ -258,11 +258,6 @@ Any interactive telemetry disclosure, group selector, chart control, session ann
 - **WHEN** a line is hidden
 - **THEN** its legend label remains present, greyed, and struck through, with accessible text indicating that activation will show the line again
 
-#### Scenario: Hide the active inspection field
-
-- **WHEN** the user hides the field currently driving exact tooltip presentation
-- **THEN** inspection moves to a visible sibling in the same chart group or becomes unavailable without issuing a stale request for the hidden field
-
 #### Scenario: Hide every line
 
 - **WHEN** the user hides every line in a multi-field chart
@@ -275,7 +270,7 @@ Any interactive telemetry disclosure, group selector, chart control, session ann
 
 ### Requirement: Progressive responsive SVG chart groups
 
-One route-scoped session controller SHALL own metadata, history revision, captured gap policy, the shared elapsed viewport, request generations, bounded cache, and independent loading/error state for series groups, exact inspection, and events. After measuring a positive width it SHALL load the first visible stable group, use one reusable intersection boundary to prefetch nearby stable or extension groups for the current viewport, and abort or ignore obsolete work on resize, snapshot or revision replacement, gap-policy change, navigation, or frontend recreation. Stable groups SHALL contain at most nine fields and negotiated extensions SHALL be chunked into groups of at most eight. Cache ownership SHALL be bounded by both entry count and decoded bytes.
+One route-scoped session controller SHALL own metadata, history revision, captured gap policy, the shared elapsed viewport, request generations, bounded cache, and independent loading/error state for series groups and events. After measuring a positive width it SHALL load the first visible stable group, use one reusable intersection boundary to prefetch nearby stable or extension groups for the current viewport, and abort or ignore obsolete work on resize, snapshot or revision replacement, gap-policy change, navigation, or frontend recreation. Stable groups SHALL contain at most nine fields and negotiated extensions SHALL be chunked into groups of at most eight. Cache ownership SHALL be bounded by both entry count and decoded bytes.
 
 #### Scenario: Initial visible group
 
@@ -316,34 +311,19 @@ All loaded charts SHALL share one inclusive elapsed viewport bounded by the publ
 - **WHEN** reset is activated by pointer, keyboard, or assistive technology
 - **THEN** all chart groups return to the published complete elapsed range through the same bounded request model
 
-### Requirement: Exact crosshair tooltip presentation
+### Requirement: Synchronous crosshair tooltip presentation
 
-Crosshair position SHALL map to elapsed time and exact inspection SHALL request the deterministic nearest retained source sample for the applicable loaded field group. At most one field SHALL be active for tooltip presentation at a time while one shared crosshair synchronizes elapsed position across the group. At most one nearest lookup per group SHALL be in flight with one coalesced latest target; the exact retained row SHALL populate the bounded group cache without presenting multiple competing tooltips. The tooltip SHALL distinguish loading from exact data, show elapsed time, stable label, exact value and unit or unavailable state, remain within the visible viewport, and not intercept plot pointers. Pointer leave SHALL dismiss unpinned hover; touch/pen selection SHALL remain pinned until replacement, explicit close, Escape, or route disposal. Crosshair state SHALL remain coherent when newer series geometry arrives.
+Crosshair position SHALL map to elapsed time, and each loaded chart group SHALL derive its tooltip values synchronously from the loaded series at that position. One shared crosshair SHALL synchronize elapsed position across the charts without issuing an exact-value lookup request. Tooltips SHALL show the field label, formatted value, and unit, remain within the visible viewport, and not intercept plot pointers. Pointer leave SHALL dismiss the inspection, and newer series geometry SHALL keep the crosshair and tooltip position coherent.
 
-#### Scenario: Inspect an extrema bucket
+#### Scenario: Shared chart inspection
 
-- **WHEN** the crosshair targets a bucket containing multiple raw values
-- **THEN** tooltip content comes from the backend's nearest exact retained source row and not the bucket extrema, an average, or an interpolated SVG coordinate
-
-#### Scenario: Shared group crosshair
-
-- **WHEN** pointer, touch, or keyboard inspection activates one field in a multi-field group
-- **THEN** one tooltip presents that field while every chart in the group reflects the same elapsed crosshair and may reuse the returned exact row
-
-#### Scenario: Pending exact lookup
-
-- **WHEN** pointer or slider movement advances while an older exact request remains in flight
-- **THEN** the visual crosshair moves immediately, the tooltip identifies pending exact data, and only the coalesced newest target may replace its content
-
-#### Scenario: Exact value unavailable
-
-- **WHEN** the selected exact row has no value for a displayed field
-- **THEN** the tooltip reports unavailable rather than zero, a neighboring value, or an envelope estimate
+- **WHEN** pointer or touch inspection activates an elapsed position
+- **THEN** every chart with loaded data renders its own tooltip from the corresponding loaded series values at the shared position
 
 #### Scenario: Tooltip near an edge
 
-- **WHEN** inspection occurs near a chart or viewport edge on a narrow touch client
-- **THEN** the tooltip repositions within the visible viewport without obscuring or capturing the active crosshair handle
+- **WHEN** inspection occurs near a chart edge
+- **THEN** the tooltip repositions within the visible chart viewport without obscuring or capturing the plot pointer
 
 ### Requirement: Range-bound historical transition pages
 
@@ -361,12 +341,12 @@ The session feature SHALL request chronological transition pages for the current
 
 ### Requirement: Completed and growing session query compatibility
 
-The route-scoped controller SHALL use one published metadata revision and snapshot for every historical request and SHALL be able to replace either with newer metadata without replacing its querying, caching, rendering, tooltip, or event model. A history-revision change SHALL abort and discard every older cache entry, cursor, exact request, and series response before refreshing. This change SHALL continue to enter history through the sessions screen; presenting active-session history from the live screen and presenting ride-prune controls are deferred.
+The route-scoped controller SHALL use one published metadata revision and snapshot for every historical request and SHALL be able to replace either with newer metadata without replacing its querying, caching, rendering, tooltip, or event model. A history-revision change SHALL abort and discard every older cache entry, cursor, and series response before refreshing. This change SHALL continue to enter history through the sessions screen; presenting active-session history from the live screen and presenting ride-prune controls are deferred.
 
 #### Scenario: Completed session
 
 - **WHEN** the user opens a completed session
-- **THEN** overview, zoom, exact-value, retained-window, and event queries use its stable final revision and boundary and disclose whether the ride was pruned
+- **THEN** overview, zoom, retained-window, and event queries use its stable final revision and boundary and disclose whether the ride was pruned
 
 #### Scenario: Future active-session entry point
 
@@ -380,7 +360,7 @@ The route-scoped controller SHALL use one published metadata revision and snapsh
 
 ### Requirement: Configurable historical continuity threshold
 
-The shared settings UI SHALL expose an optional history-gap threshold stored in seconds. It SHALL accept only finite values from 0.1 through 3,600, SHALL allow the value to be cleared to automatic mode, and SHALL explain that automatic mode uses ride phase, persistence cadence, and retained pruning resolution. A settings revision SHALL invalidate series geometry whose cache key captured another gap policy without invalidating exact retained rows solely because continuity presentation changed.
+The shared settings UI SHALL expose an optional history-gap threshold stored in seconds. It SHALL accept only finite values from 0.1 through 3,600, SHALL allow the value to be cleared to automatic mode, and SHALL explain that automatic mode uses ride phase, persistence cadence, and retained pruning resolution. A settings revision SHALL invalidate series geometry whose cache key captured another gap policy without invalidating retained sample rows solely because continuity presentation changed.
 
 #### Scenario: Set explicit threshold
 

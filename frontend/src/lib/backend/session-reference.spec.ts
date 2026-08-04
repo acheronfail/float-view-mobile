@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest';
 import {
   decodeCursor,
   encodeCursor,
-  nearestSample,
   paginateSamples,
   reduceSeries,
   selectPruneRows,
@@ -46,19 +45,6 @@ describe('reference historical kernels', () => {
     expect(() => decodeCursor('not-a-cursor')).toThrow();
   });
 
-  it('prefers the earlier sample and lower sequence on nearest ties', () => {
-    expect(
-      nearestSample(
-        [
-          { sequence: 9, elapsedMs: 1_100, values: {} },
-          { sequence: 3, elapsedMs: 900, values: {} },
-          { sequence: 2, elapsedMs: 900, values: {} },
-        ],
-        1_000
-      )?.sequence
-    ).toBe(2);
-  });
-
   it('keeps immutable edge/tie/gap vectors and excludes no fields from late discovery', () => {
     const vector = SESSION_DATA_VECTORS[0]!;
     expect(Object.isFrozen(SESSION_DATA_VECTORS)).toBe(true);
@@ -69,7 +55,6 @@ describe('reference historical kernels', () => {
     expect(reduced.extensionLate.values.at(-1)).toBe(1.1);
     expect(reduced.speedKph.values).toEqual(vector.expectedSegments.speedKph);
     expect(reduced.speedKph.generations).toEqual(vector.expectedGenerations.speedKph);
-    expect(nearestSample(vector.samples, vector.nearestTargetElapsedMs)?.sequence).toBe(13);
   });
 
   it('covers dense sample/event pages and rejects cursor replay across snapshots', () => {

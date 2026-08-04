@@ -450,7 +450,7 @@ The canonical black-box suite SHALL exercise the same session-data HTTP requests
 
 #### Scenario: Cross-platform data response
 
-- **WHEN** canonical conformance sends one valid series, samples, nearest, or events request to any supported target
+- **WHEN** canonical conformance sends one valid series, samples, or events request to any supported target
 - **THEN** the decoded response satisfies the same hand-written contract and immutable expected result
 
 #### Scenario: Unauthenticated HTTP query
@@ -470,7 +470,7 @@ The canonical black-box suite SHALL exercise the same session-data HTTP requests
 
 ### Requirement: Immutable historical aggregation and pagination vectors
 
-Conformance SHALL own immutable platform-neutral vectors containing ordered raw samples, stable and extension fields, null and time-gap continuity cases, ride phases, session-captured persistence intervals, pruning resolution, published revisions/boundaries, bounded requests, exact expected M4 segments, nearest candidates, and keyset pages. The frontend mock, Swift reducer/reader, Kotlin reducer/reader, and canonical suite SHALL consume those vectors. Vectors SHALL cover checked bucket boundaries, extrema order and deduplication, duplicate elapsed values, sequence ties, nulls at and across bucket edges, alternating gaps, configured and derived time gaps, snapshot/revision exclusion, late fields, exact-nearest ties, dense sample windows, event pages, and invalid cursor replay.
+Conformance SHALL own immutable platform-neutral vectors containing ordered raw samples, stable and extension fields, null and time-gap continuity cases, ride phases, session-captured persistence intervals, pruning resolution, published revisions/boundaries, bounded requests, exact expected M4 segments, and keyset pages. The frontend mock, Swift reducer/reader, Kotlin reducer/reader, and canonical suite SHALL consume those vectors. Vectors SHALL cover checked bucket boundaries, extrema order and deduplication, duplicate elapsed values, sequence ties, nulls at and across bucket edges, alternating gaps, configured and derived time gaps, snapshot/revision exclusion, late fields, dense sample windows, event pages, and invalid cursor replay.
 
 #### Scenario: Extrema order
 
@@ -490,7 +490,7 @@ Conformance SHALL own immutable platform-neutral vectors containing ordered raw 
 #### Scenario: Snapshot exclusion
 
 - **WHEN** fixture rows, fields, or events exist beyond the request's published boundaries
-- **THEN** every implementation excludes them from metadata, series, samples, nearest, and event results
+- **THEN** every implementation excludes them from metadata, series, samples, and event results
 
 #### Scenario: Page continuation
 
@@ -499,7 +499,7 @@ Conformance SHALL own immutable platform-neutral vectors containing ordered raw 
 
 ### Requirement: Canonical SQLite storage and reader verification
 
-Native verification SHALL create the shared current schema verbatim and SHALL inspect representative query plans and lifecycle behavior for both hosts. It SHALL verify dedicated stable-column persistence, bounded extension decoding, field-presence discovery after late samples, marker/catalog publication order, in-process and restart reconciliation, history/prune metadata, incremental auto-vacuum, read-only WAL snapshots, writer non-obstruction, cancellability, two-read concurrency, cancellation-release and ordinary-completion target measurements, and reader coordination with deletion/export/pruning/recovery. Series and exact query plans MUST use an elapsed index without avoidable full-range distance sorting or temporary ordering.
+Native verification SHALL create the shared current schema verbatim and SHALL inspect representative query plans and lifecycle behavior for both hosts. It SHALL verify dedicated stable-column persistence, bounded extension decoding, field-presence discovery after late samples, marker/catalog publication order, in-process and restart reconciliation, history/prune metadata, incremental auto-vacuum, read-only WAL snapshots, writer non-obstruction, cancellability, two-read concurrency, cancellation-release and ordinary-completion target measurements, and reader coordination with deletion/export/pruning/recovery. Series and sample-page query plans MUST use an elapsed index without avoidable full-range sorting or temporary ordering.
 
 #### Scenario: Requested stable columns only
 
@@ -523,17 +523,12 @@ Native verification SHALL create the shared current schema verbatim and SHALL in
 
 ### Requirement: Cross-input chart and tooltip conformance
 
-Frontend verification SHALL exercise the shared chart viewport and one-active-field exact tooltip model with mouse, touch, pen, keyboard, and assistive-technology inputs. It SHALL cover hover, tap-to-pin, synchronized group crosshair, crosshair-handle drag, background pan threshold, two-touch pinch where only one contact is primary, vertical page scrolling, pointer cancellation/lost capture, visible controls, range-slider value text, pending/exact/unavailable tooltip content, edge positioning, Escape/close dismissal, stale exact responses, and guarded activation without double action.
+Frontend verification SHALL exercise the shared chart viewport and synchronous per-chart tooltip model with mouse, touch, pen, keyboard, and assistive-technology inputs. It SHALL cover hover, synchronized chart inspection, background pan threshold, two-touch pinch where only one contact is primary, vertical page scrolling, pointer cancellation/lost capture, visible controls, edge positioning, and guarded activation without double action.
 
 #### Scenario: Desktop hover and mobile touch equivalence
 
 - **WHEN** mouse hover and touch tap target the same elapsed position in equivalent chart state
-- **THEN** both paths resolve the same exact retained source sample and present equivalent elapsed, label, value, unit, and unavailable semantics
-
-#### Scenario: Hover request coalescing
-
-- **WHEN** rapid mouse or pen movement advances while one exact request is in flight
-- **THEN** at most one request plus one latest target is retained and an older response never replaces the newest tooltip
+- **THEN** both paths use the same loaded series position and present equivalent elapsed, label, formatted value, and unit semantics
 
 #### Scenario: Gesture arbitration
 

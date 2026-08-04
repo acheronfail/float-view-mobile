@@ -18,7 +18,6 @@ export interface SessionDataVector {
   readonly buckets: readonly number[];
   readonly expectedGenerations: Readonly<Record<string, readonly number[]>>;
   readonly expectedSegments: Readonly<Record<string, readonly (number | null)[]>>;
-  readonly nearestTargetElapsedMs: number;
   readonly pruneResolutionSeconds: readonly number[];
 }
 
@@ -106,7 +105,6 @@ export const SESSION_DATA_VECTORS: readonly SessionDataVector[] = freeze([
       packVoltageV: [60, 56, 55, 54, 53],
       extensionLate: [0.5, 0.7, 0.8, 0.9, 1, 1.1],
     },
-    nearestTargetElapsedMs: 1_000,
     pruneResolutionSeconds: [1, 5],
   },
   {

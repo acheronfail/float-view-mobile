@@ -1156,69 +1156,6 @@ public final class SQLiteLogStore: LogStorePort, ProductStorePort, SessionStoreP
     }
   }
 
-  public func queryNearestSample(
-    sessionID: String,
-    targetElapsedMs: Int64,
-    fields: [String],
-    publishedSampleSequence: Int64?
-  ) throws -> SessionSeriesPoint? {
-    guard targetElapsedMs >= 0 else { throw SessionStoreError.invalidRange }
-    let uniqueFields = Array(NSOrderedSet(array: fields)) as? [String] ?? fields
-    guard !uniqueFields.isEmpty, uniqueFields.count <= 16 else {
-      throw SessionStoreError.invalidRange
-    }
-    let columns = try uniqueFields.map { field -> String in
-      if let column = Self.seriesColumns[field] { return column }
-      guard !field.isEmpty, field.lengthOfBytes(using: .utf8) <= 64 else {
-        throw SessionStoreError.unsupportedField(field)
-      }
-      let encoded = try JSONSerialization.data(withJSONObject: field, options: [.fragmentsAllowed])
-      let jsonKey = String(decoding: encoded, as: UTF8.self)
-      let path = ("$." + jsonKey).replacingOccurrences(of: "'", with: "''")
-      return "json_extract(extension_json, '\(path)' )"
-    }
-    let selected = columns.enumerated().map { index, column in
-      "\(column) AS value_\(index)"
-    }.joined(separator: ", ")
-    return try withReadLease(sessionID: sessionID) { database, _ in
-      let sequencePredicate = publishedSampleSequence == nil ? "" : " AND sequence <= ?"
-      func seek(order: String, comparator: String) throws -> SessionSeriesPoint? {
-        var values: [SQLiteValue] = [.integer(targetElapsedMs)]
-        if let publishedSampleSequence { values.append(.integer(publishedSampleSequence)) }
-        return try database.query(
-          """
-          SELECT sequence, monotonic_elapsed_ms, ride_state, \(selected) FROM sample
-          WHERE monotonic_elapsed_ms \(comparator) ?\(sequencePredicate)
-          ORDER BY monotonic_elapsed_ms \(order), sequence \(order) LIMIT 1
-          """,
-          values: values
-        ) { statement in
-          var result: [String: Double?] = [:]
-          for (index, field) in uniqueFields.enumerated() {
-            result[field] = .some(Self.columnDouble(statement, Int32(index + 3)))
-          }
-          return SessionSeriesPoint(
-            elapsedMs: sqlite3_column_int64(statement, 1),
-            values: result,
-            sequence: sqlite3_column_int64(statement, 0),
-            rideState: Self.columnText(statement, 2)
-          )
-        }.first
-      }
-      let candidates = try [
-        seek(order: "DESC", comparator: "<="),
-        seek(order: "ASC", comparator: ">="),
-      ].compactMap { $0 }
-      return candidates.min { left, right in
-        let leftDistance = abs(left.elapsedMs - targetElapsedMs)
-        let rightDistance = abs(right.elapsedMs - targetElapsedMs)
-        return leftDistance < rightDistance ||
-          (leftDistance == rightDistance && (left.elapsedMs < right.elapsedMs ||
-              (left.elapsedMs == right.elapsedMs && left.sequence < right.sequence)))
-      }
-    }
-  }
-
   public func querySampleWindow(
     sessionID: String,
     centerElapsedMs: Int64,

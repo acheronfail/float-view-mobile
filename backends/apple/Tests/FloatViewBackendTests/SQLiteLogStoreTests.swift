@@ -130,14 +130,6 @@ private func executeSQLite(database: URL, sql: String) throws {
   #expect(!overview.isEmpty)
   #expect(overview.count <= 12)
   #expect(overview.allSatisfy { $0.values.keys.count == 4 })
-  let nearest = try store.queryNearestSample(
-    sessionID: record.sessionID.value,
-    targetElapsedMs: 500,
-    fields: ["packVoltageV", "future.energy"],
-    publishedSampleSequence: 100
-  )
-  #expect(nearest?.sequence == 1)
-  #expect(nearest?.rideState == RideState.idle.rawValue)
   #expect(try store.sessionExtensionFields(sessionID: record.sessionID.value) == [
     "future.energy",
   ])

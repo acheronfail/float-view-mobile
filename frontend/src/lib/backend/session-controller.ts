@@ -63,9 +63,7 @@ export class SessionReviewController {
 
   async loadSamples(request: Omit<SessionSamplesRequest, 'sessionId' | 'snapshot'>): Promise<SessionSamplesResult> {
     return this.load(
-      request.mode === 'nearest'
-        ? `exact:${request.fields.join('\u0000')}`
-        : `samples:${request.fields.join('\u0000')}`,
+      `samples:${request.fields.join('\u0000')}`,
       { ...request, sessionId: this.metadata.summary.sessionId, snapshot: this.metadata.snapshot },
       (result): result is SessionSamplesResult => result.kind === 'samples'
     );

@@ -187,15 +187,6 @@ export function selectPruneRows(
   );
 }
 
-export function nearestSample(rows: readonly ReferenceSample[], targetElapsedMs: number): ReferenceSample | null {
-  return (
-    rows.slice().sort((left, right) => {
-      const distance = Math.abs(left.elapsedMs - targetElapsedMs) - Math.abs(right.elapsedMs - targetElapsedMs);
-      return distance || compareKey(left, right);
-    })[0] ?? null
-  );
-}
-
 export interface CursorState {
   version: 1;
   sessionId: string;

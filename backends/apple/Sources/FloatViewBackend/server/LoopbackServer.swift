@@ -961,9 +961,7 @@ public final class LoopbackServer: @unchecked Sendable {
               "gapPolicy": echoedGap, "fields": descriptors, "columns": columns]
     }
     if kind == "samples" {
-      let requestedLimit = (params["mode"] as? String) == "nearest"
-        ? 1
-        : min(max((params["limit"] as? NSNumber)?.intValue ?? 2_000, 1), 2_000)
+      let requestedLimit = min(max((params["limit"] as? NSNumber)?.intValue ?? 2_000, 1), 2_000)
       let seed = SessionHistoryCursor(
         sessionID: sessionID, snapshot: published,
         range: SessionElapsedRange(startElapsedMs: start, endElapsedMs: end), elapsedMs: start, sequence: 0
@@ -978,33 +976,20 @@ public final class LoopbackServer: @unchecked Sendable {
       } else {
         decodedCursor = nil
       }
-      let mode = params["mode"] as? String ?? "window"
-      let points: [SessionSeriesPoint]
-      let nextCursor: String?
-      if mode == "nearest" {
-        guard let target = (params["targetElapsedMs"] as? NSNumber)?.int64Value,
-              target >= start, target <= end else { throw SessionStoreError.invalidRange }
-        points = try applicationService.queryNearestSessionSample(
-          sessionID: sessionID, targetElapsedMs: target, fields: fields,
-          publishedSampleSequence: sampleSequence.int64Value
-        ).map { [$0] } ?? []
-        nextCursor = nil
-      } else {
-        let source = try applicationService.querySessionSeriesSource(
-          sessionID: sessionID, startElapsedMs: start, endElapsedMs: end, fields: fields,
-          maxRows: 200_000, publishedSampleSequence: sampleSequence.int64Value
-        )
-        let page = try SessionHistoryReducer.page(
-          rows: source, limit: requestedLimit, cursor: decodedCursor, cursorContext: seed
-        )
-        points = page.rows
-        nextCursor = try page.next.map(SessionHistoryReducer.encodeCursor)
-      }
+      let source = try applicationService.querySessionSeriesSource(
+        sessionID: sessionID, startElapsedMs: start, endElapsedMs: end, fields: fields,
+        maxRows: 200_000, publishedSampleSequence: sampleSequence.int64Value
+      )
+      let page = try SessionHistoryReducer.page(
+        rows: source, limit: requestedLimit, cursor: decodedCursor, cursorContext: seed
+      )
+      let points = page.rows
+      let nextCursor = try page.next.map(SessionHistoryReducer.encodeCursor)
       let values = Dictionary(uniqueKeysWithValues: fields.map { field in
         (field, points.map { point -> Any in point.values[field].flatMap { $0 } as Any? ?? NSNull() })
       })
       return ["kind": kind, "sessionId": sessionID, "snapshot": echoedSnapshot, "range": range,
-              "mode": mode, "fields": descriptors, "elapsedMs": points.map(\.elapsedMs),
+              "mode": "window", "fields": descriptors, "elapsedMs": points.map(\.elapsedMs),
               "sequence": points.map(\.sequence), "values": values, "nextCursor": nextCursor as Any? ?? NSNull()]
     }
     if kind == "locations" {

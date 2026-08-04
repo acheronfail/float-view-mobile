@@ -17,7 +17,6 @@ import { validateSessionDataRequest, type SessionDataRequest } from '../src/lib/
 import {
   decodeCursor,
   encodeCursor,
-  nearestSample,
   paginateEvents,
   paginateSamples,
   reduceSeries,
@@ -264,31 +263,26 @@ function mockSessionDataResult(request: SessionDataRequest): Record<string, unkn
   if (request.kind === 'samples') {
     let rows: ReferenceSample[];
     let nextCursor: string | null = null;
-    if (request.mode === 'nearest' && request.targetElapsedMs !== undefined) {
-      const nearest = nearestSample(source, request.targetElapsedMs);
-      rows = nearest ? [nearest] : [];
-    } else {
-      const cursor = request.cursor ? decodeCursor(request.cursor) : null;
-      if (
-        cursor &&
-        (cursor.sessionId !== request.sessionId ||
-          JSON.stringify(cursor.snapshot) !== JSON.stringify(request.snapshot) ||
-          JSON.stringify(cursor.range) !== JSON.stringify(request.range))
-      ) {
-        throw new Error('Cursor does not match the requested snapshot');
-      }
-      const page = paginateSamples(source, request.limit, cursor);
-      rows = page.rows;
-      if (rows.length && rows.length < source.length) {
-        const last = rows.at(-1)!;
-        nextCursor = encodeCursor({
-          sessionId: request.sessionId,
-          snapshot: request.snapshot,
-          range: request.range,
-          elapsedMs: last.elapsedMs,
-          sequence: last.sequence,
-        });
-      }
+    const cursor = request.cursor ? decodeCursor(request.cursor) : null;
+    if (
+      cursor &&
+      (cursor.sessionId !== request.sessionId ||
+        JSON.stringify(cursor.snapshot) !== JSON.stringify(request.snapshot) ||
+        JSON.stringify(cursor.range) !== JSON.stringify(request.range))
+    ) {
+      throw new Error('Cursor does not match the requested snapshot');
+    }
+    const page = paginateSamples(source, request.limit, cursor);
+    rows = page.rows;
+    if (rows.length && rows.length < source.length) {
+      const last = rows.at(-1)!;
+      nextCursor = encodeCursor({
+        sessionId: request.sessionId,
+        snapshot: request.snapshot,
+        range: request.range,
+        elapsedMs: last.elapsedMs,
+        sequence: last.sequence,
+      });
     }
     return {
       kind: 'samples',

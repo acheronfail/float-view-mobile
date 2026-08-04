@@ -785,21 +785,6 @@ interface SessionStorePort {
         val elapsedMs = (System.nanoTime() - started) / 1_000_000.0
         return SessionSeriesReductionRecord(columns, rows.size, 0.0, elapsedMs, elapsedMs)
     }
-    fun queryNearestSample(
-        sessionId: String,
-        targetElapsedMs: Long,
-        fields: List<String>,
-        publishedSampleSequence: Long?,
-    ): SessionSeriesPoint? = querySeriesSource(
-        sessionId,
-        maxOf(0, targetElapsedMs - 1),
-        targetElapsedMs + 1,
-        fields,
-        2,
-        publishedSampleSequence,
-    ).minWithOrNull(compareBy<SessionSeriesPoint> {
-        kotlin.math.abs(it.elapsedMs - targetElapsedMs)
-    }.thenBy { it.elapsedMs }.thenBy { it.sequence })
     fun sessionEvents(
         sessionId: String,
         startElapsedMs: Long,

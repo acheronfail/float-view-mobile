@@ -323,7 +323,7 @@ Opening a historical request SHALL acquire a lease only while the catalog row is
 
 ### Requirement: Indexed field-minimized historical access
 
-Each host SHALL map every stable contract field to its dedicated SQL column and SHALL parse `extension_json` at most once per row only when requested extensions are present. Series scans, keyset sample/event pages, and exact predecessor/successor seeks SHALL constrain the published sequence and elapsed range, preserve `(elapsedMs, sequence)` order, and use representative checked query plans without an avoidable full-table sort. Metadata SHALL obtain available fields from bounded field-presence rows rather than scanning samples.
+Each host SHALL map every stable contract field to its dedicated SQL column and SHALL parse `extension_json` at most once per row only when requested extensions are present. Series scans and keyset sample/event pages SHALL constrain the published sequence and elapsed range, preserve `(elapsedMs, sequence)` order, and use representative checked query plans without an avoidable full-table sort. Metadata SHALL obtain available fields from bounded field-presence rows rather than scanning samples.
 
 #### Scenario: Stable field query
 
@@ -334,11 +334,6 @@ Each host SHALL map every stable contract field to its dedicated SQL column and 
 
 - **WHEN** a request asks for several valid extension fields
 - **THEN** each selected row's bounded extension object is decoded no more than once and only the requested values reach the reducer
-
-#### Scenario: Indexed exact lookup
-
-- **WHEN** a nearest-sample tooltip request targets the middle of a long session
-- **THEN** the host compares indexed exact, predecessor, and successor candidates rather than sorting the full range by absolute distance
 
 ### Requirement: Mirrored native ride pruning
 

@@ -1016,46 +1016,6 @@ class SQLiteLogStore(
         }
     }
 
-    override fun queryNearestSample(
-        sessionId: String,
-        targetElapsedMs: Long,
-        fields: List<String>,
-        publishedSampleSequence: Long?,
-    ): SessionSeriesPoint? {
-        if (targetElapsedMs < 0) throw SessionStoreException.InvalidRange
-        val projection = seriesProjection(fields)
-        return withReadLease(sessionId) { db, cancellationSignal ->
-            fun seek(comparator: String, order: String): SessionSeriesPoint? {
-                val sequencePredicate = if (publishedSampleSequence == null) "" else " AND sequence <= ?"
-                val arguments = buildList {
-                    add(targetElapsedMs.toString())
-                    publishedSampleSequence?.let { add(it.toString()) }
-                }.toTypedArray()
-                val sql = """
-                    SELECT sequence, monotonic_elapsed_ms, ride_state, ${projection.selected} FROM sample
-                    WHERE monotonic_elapsed_ms $comparator ?$sequencePredicate
-                    ORDER BY monotonic_elapsed_ms $order, sequence $order LIMIT 1
-                """.trimIndent()
-                return db.rawQuery(sql, arguments, cancellationSignal).use { cursor ->
-                    if (!cursor.moveToFirst()) return@use null
-                    SessionSeriesPoint(
-                        cursor.getLong(1),
-                        projection.fields.mapIndexed { index, field ->
-                            field to cursor.seriesDouble(index + 3, field, projection.extensionColumn)
-                        }.toMap(),
-                        cursor.getLong(0),
-                        cursor.getString(2),
-                    )
-                }
-            }
-            listOf(seek("<=", "DESC"), seek(">=", "ASC")).filterNotNull().minWithOrNull(
-                compareBy<SessionSeriesPoint> { kotlin.math.abs(it.elapsedMs - targetElapsedMs) }
-                    .thenBy { it.elapsedMs }
-                    .thenBy { it.sequence },
-            )
-        }
-    }
-
     override fun querySampleWindow(
         sessionId: String,
         centerElapsedMs: Long,

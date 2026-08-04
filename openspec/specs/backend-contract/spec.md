@@ -570,12 +570,7 @@ A `series` query SHALL select one published sample boundary and history revision
 
 ### Requirement: Exact samples and pageable transition events
 
-A `samples` window query SHALL return chronological exact retained source rows for requested fields in keyset pages of at most 2,000 with explicit continuation state. A nearest-sample query SHALL use indexed exact, predecessor, and successor candidates and deterministically prefer earlier elapsed time and then lower sequence on a distance tie. An `events` query SHALL return chronological committed transitions for an elapsed range in keyset pages of at most 500. Sample and event cursors SHALL be opaque, bounded, versioned, and bound to their session, history revision, snapshot, range, and last `(elapsedMs, sequence)` key so all results remain reachable without duplication or cross-request replay.
-
-#### Scenario: Crosshair exact value
-
-- **WHEN** the frontend requests the nearest committed sample to a crosshair elapsed time
-- **THEN** the backend returns zero or one exact stored row rather than an interpolated or envelope value
+A `samples` window query SHALL return chronological exact retained source rows for requested fields in keyset pages of at most 2,000 with explicit continuation state. An `events` query SHALL return chronological committed transitions for an elapsed range in keyset pages of at most 500. Sample and event cursors SHALL be opaque, bounded, versioned, and bound to their session, history revision, snapshot, range, and last `(elapsedMs, sequence)` key so all results remain reachable without duplication or cross-request replay.
 
 #### Scenario: Dense diagnostic window
 

@@ -34,10 +34,9 @@ export interface SessionSeriesRequest extends SessionDataRequestBase {
 export interface SessionSamplesRequest extends SessionDataRequestBase {
   kind: 'samples';
   fields: string[];
-  mode: 'window' | 'nearest';
+  mode: 'window';
   limit: number;
   cursor?: string | null;
-  targetElapsedMs?: number;
 }
 
 export interface SessionEventsRequest extends SessionDataRequestBase {
@@ -80,7 +79,7 @@ export interface SessionSamplesResult {
   sessionId: string;
   snapshot: SessionPublishedSnapshot;
   range: SessionDataRange;
-  mode: 'window' | 'nearest';
+  mode: 'window';
   fields: SessionFieldDescriptor[];
   elapsedMs: number[];
   sequence: number[];
@@ -183,7 +182,6 @@ export function validateSessionDataRequest(value: unknown): SessionDataRequest {
     mode?: unknown;
     limit?: unknown;
     cursor?: unknown;
-    targetElapsedMs?: unknown;
   };
   if (
     request.kind !== 'series' &&
@@ -218,16 +216,13 @@ export function validateSessionDataRequest(value: unknown): SessionDataRequest {
   }
   if (request.kind === 'samples') {
     const fields = validateFields(request.fields);
-    if (request.mode !== 'window' && request.mode !== 'nearest')
+    if (request.mode !== 'window')
       throw new SessionDataProtocolError('Invalid sample mode');
     const limit = request.limit;
     if (!finiteInteger(limit) || limit < 1 || limit > MAX_SESSION_SAMPLE_ROWS) {
       throw new SessionDataProtocolError('Sample page size is out of bounds');
     }
     if (request.cursor !== undefined && request.cursor !== null) validateCursor(request.cursor);
-    if (request.mode === 'nearest' && !finiteInteger(request.targetElapsedMs)) {
-      throw new SessionDataProtocolError('Nearest target is required');
-    }
     return { ...request, fields, limit } as SessionSamplesRequest;
   }
   if (request.kind === 'locations') {

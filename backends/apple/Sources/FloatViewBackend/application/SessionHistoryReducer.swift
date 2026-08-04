@@ -271,18 +271,6 @@ public enum SessionHistoryReducer {
     return try accumulator.finish()
   }
 
-  public static func nearestSample(
-    rows: [SessionSeriesPoint],
-    targetElapsedMs: Int64
-  ) -> SessionSeriesPoint? {
-    rows.min { left, right in
-      let leftDistance = abs(Double(left.elapsedMs) - Double(targetElapsedMs))
-      let rightDistance = abs(Double(right.elapsedMs) - Double(targetElapsedMs))
-      if leftDistance != rightDistance { return leftDistance < rightDistance }
-      return compare(left, right)
-    }
-  }
-
   /// Selects real source rows for a deterministic, bounded-resolution prune.
   /// Semantic evidence is protected first; remaining bucket roles are covered
   /// greedily with at most eight additional rows per bucket.
