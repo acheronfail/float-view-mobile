@@ -3,7 +3,7 @@
   import ListItem from '$lib/ui/ListItem.svelte';
 </script>
 
-<section aria-label="Boards" class="flex flex-col gap-4">
+<section aria-label="Boards" class="flex flex-col gap-4 py-2">
   {#if backendState.savedDevices.length}
     <ul class="flex flex-col gap-2">
       {#each backendState.savedDevices as device (device.savedDeviceId)}

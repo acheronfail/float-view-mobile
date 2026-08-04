@@ -1,9 +1,42 @@
 <script lang="ts">
+  import { onMount } from 'svelte';
   import { goto } from '$app/navigation';
+  import AppHeaderSubtitle from '$lib/app/AppHeaderSubtitle.svelte';
   import { backendState } from '$lib/backend/state.svelte';
   import ListItem from '$lib/ui/ListItem.svelte';
   import SectionTitle from '../../ui/SectionTitle.svelte';
   import Spinner from '../../ui/Spinner.svelte';
+
+  const SCAN_INTERVAL_MS = 10_000;
+  const RETRY_INTERVAL_MS = 1_000;
+
+  onMount(() => {
+    let active = true;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+
+    const wait = (delayMs: number) =>
+      new Promise<void>((resolve) => {
+        timer = setTimeout(resolve, delayMs);
+      });
+
+    async function scanWhileActive() {
+      while (active) {
+        if (backendState.status === 'connected' && !backendState.scanning && !backendState.busy) {
+          await backendState.scan();
+          if (!active) return;
+          await wait(SCAN_INTERVAL_MS);
+        } else {
+          await wait(RETRY_INTERVAL_MS);
+        }
+      }
+    }
+
+    void scanWhileActive();
+    return () => {
+      active = false;
+      if (timer) clearTimeout(timer);
+    };
+  });
 
   async function connect(deviceId: string) {
     if (await backendState.connectDevice(deviceId)) await goto('#/live');
@@ -15,28 +48,21 @@
 
   // TODO: show connection strength with progress bar and dB
   // TODO: show uuid rather than just `discovered` or state or whatever that is
-  // TODO: show overall stats below header but above scan button here (total odometer sum, total ride time)
+  // TODO: show overall stats below header but above scan results (total odometer sum, total ride time)
 </script>
 
-{#snippet scanButton()}
-  <button
-      class="inline-flex items-center justify-center gap-2 rounded-lg bg-accent px-4 py-2 text-on-accent disabled:opacity-50"
-      disabled={backendState.busy || backendState.scanning}
-      onclick={() => backendState.scan()}
-    >
-      {#if backendState.scanning}
+<AppHeaderSubtitle owner="/">
+  <span aria-live="polite" class="inline-flex items-center gap-2">
+    <span class="flex flex-row items-center gap-2">
         <Spinner />
-        <span aria-live="polite">Scanning…</span>
-      {:else}
-        Scan for boards
-      {/if}
-    </button>
-{/snippet}
+        Scanning…
+      </span>
+  </span>
+</AppHeaderSubtitle>
 
-<section aria-label="Scan for boards" class="flex flex-col gap-4 py-2">
+<section aria-label="VESC devices" class="flex flex-col gap-4 py-2">
   {#if backendState.status === 'connected'}
     {#if backendState.discoveredDevices.length}
-      {@render scanButton()}
       <div class="flex flex-col gap-2">
         <SectionTitle title="Discovered boards" />
         <ul class="flex flex-col gap-2">
@@ -56,9 +82,7 @@
         </ul>
       </div>
     {:else}
-      <div class="h-full w-full flex items-center justify-center">
-        {@render scanButton()}
-      </div>
+      <p class="text-center text-muted">Looking for VESC devices…</p>
     {/if}
   {:else if backendState.status === 'failed'}
     <p role="alert" class="text-warning">{backendState.error}</p>

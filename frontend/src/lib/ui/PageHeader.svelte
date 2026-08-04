@@ -1,4 +1,5 @@
 <script lang="ts">
+  import type { Component, Snippet } from 'svelte';
   import type { AppHeaderAction } from '$lib/app/header';
   import Menu from './Menu.svelte';
   import MenuItem from './MenuItem.svelte';
@@ -7,6 +8,8 @@
     headingId,
     title,
     subtitle,
+    subtitleSnippet,
+    subtitleComponent,
     subtitleClass = 'text-sm text-muted',
     titleClass = 'text-3xl font-semibold',
     menuLabel,
@@ -19,6 +22,8 @@
     headingId: string;
     title: string;
     subtitle?: string;
+    subtitleSnippet?: Snippet;
+    subtitleComponent?: Component;
     subtitleClass?: string;
     titleClass?: string;
     menuLabel?: string;
@@ -57,7 +62,13 @@
   <div class="min-w-0">
     {#if backHref}<a class="text-accent" href={backHref}>{backLabel}</a>{/if}
     <h1 id={headingId} class={titleClass}>{title}</h1>
-    {#if subtitle}<p class={subtitleClass}>{subtitle}</p>{/if}
+    {#if subtitleSnippet}
+      <p class={subtitleClass}>{@render subtitleSnippet()}</p>
+    {:else if subtitleComponent}
+      <p class={subtitleClass}><svelte:component this={subtitleComponent} /></p>
+    {:else if subtitle}
+      <p class={subtitleClass}>{subtitle}</p>
+    {/if}
   </div>
   {#if actions?.length && menuLabel}
     <Menu label={menuLabel} bind:button>

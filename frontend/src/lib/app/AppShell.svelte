@@ -122,6 +122,8 @@
       headingId="app-title"
       title={appHeader.title}
       subtitle={appHeader.subtitle}
+      subtitleSnippet={appHeader.subtitleSnippet}
+      subtitleComponent={appHeader.subtitleComponent}
       subtitleClass={appHeader.subtitleClass}
       titleClass={appHeader.titleClass}
       backHref={appHeader.backHref}
