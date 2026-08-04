@@ -305,6 +305,83 @@ function mockSessionDataResult(request: SessionDataRequest): Record<string, unkn
       nextCursor,
     };
   }
+  if (request.kind === 'locations') {
+    if (request.sessionId !== 'session-1') {
+      return {
+        kind: 'locations',
+        sessionId: request.sessionId,
+        snapshot: request.snapshot,
+        range: request.range,
+        points: [],
+        gaps: [],
+        nextCursor: null,
+        locationBoundary: { lastSequence: 0, lastElapsedMs: 0 },
+      };
+    }
+    const points = [
+      {
+        locationSequence: 1,
+        elapsedMs: 10_000,
+        latitude: -33.8688,
+        longitude: 151.2093,
+        accuracyM: 4.5,
+        observedAt: '2026-01-01T00:00:10.000Z',
+      },
+      {
+        locationSequence: 2,
+        elapsedMs: 20_000,
+        latitude: -33.869,
+        longitude: 151.2098,
+        accuracyM: null,
+        observedAt: '2026-01-01T00:00:20.000Z',
+      },
+      {
+        locationSequence: 3,
+        elapsedMs: 50_000,
+        latitude: -33.87,
+        longitude: 151.2105,
+        accuracyM: 12,
+        observedAt: '2026-01-01T00:00:50.000Z',
+      },
+    ].filter(
+      (point) => point.elapsedMs >= request.range.startElapsedMs && point.elapsedMs <= request.range.endElapsedMs
+    );
+    const gaps =
+      request.range.startElapsedMs <= 20_000 && request.range.endElapsedMs >= 20_000
+        ? [{ startElapsedMs: 20_001, endElapsedMs: 49_999, reason: 'noFix' as const }]
+        : [];
+    const cursor = request.cursor ? decodeCursor(request.cursor) : null;
+    if (
+      cursor &&
+      (cursor.sessionId !== request.sessionId ||
+        JSON.stringify(cursor.snapshot) !== JSON.stringify(request.snapshot) ||
+        JSON.stringify(cursor.range) !== JSON.stringify(request.range))
+    ) {
+      throw new Error('Cursor does not match the requested snapshot');
+    }
+    const page = points.slice(cursor ? points.findIndex((point) => point.locationSequence > cursor.sequence) : 0);
+    const rows = page.slice(0, request.limit);
+    const last = rows.at(-1);
+    return {
+      kind: 'locations',
+      sessionId: request.sessionId,
+      snapshot: request.snapshot,
+      range: request.range,
+      points: rows,
+      gaps,
+      nextCursor:
+        last && rows.length < page.length
+          ? encodeCursor({
+              sessionId: request.sessionId,
+              snapshot: request.snapshot,
+              range: request.range,
+              elapsedMs: last.elapsedMs,
+              sequence: last.locationSequence,
+            })
+          : null,
+      locationBoundary: { lastSequence: 3, lastElapsedMs: 50_000 },
+    };
+  }
   const events: ReferenceEvent[] = [
     { sequence: 1, sourceSampleSequence: 0, elapsedMs: 0, kind: 'packageState', value: 'running' },
     { sequence: 2, sourceSampleSequence: 1, elapsedMs: 60_000, kind: 'packageState', value: 'stopped' },

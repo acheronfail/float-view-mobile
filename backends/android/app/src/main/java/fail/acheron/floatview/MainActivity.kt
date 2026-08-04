@@ -41,6 +41,7 @@ class MainActivity : Activity() {
         super.onCreate(savedInstanceState)
         val app = application as FloatViewApplication
         app.runtime.permissionBroker.attach(this)
+        app.runtime.locationPermissionBroker.attach(this)
         app.runtime.exportPresentationBroker.attach(this)
         applySystemBarTheme(app.runtime.applicationService.settings().themePreference)
         themeSubscription = app.runtime.events.subscribe { event ->
@@ -177,6 +178,7 @@ class MainActivity : Activity() {
         handler.removeCallbacks(delayedTeardown)
         val runtime = (application as FloatViewApplication).runtime
         runtime.permissionBroker.detach(this)
+        runtime.locationPermissionBroker.detach(this)
         runtime.exportPresentationBroker.detach(this)
         importScope.cancel()
         themeSubscription?.close()
@@ -264,6 +266,10 @@ class MainActivity : Activity() {
                     runtime.bluetooth.currentState(),
                 ),
             )
+        } else if (requestCode == LocationPermissionBroker.LOCATION_PERMISSION_REQUEST) {
+            val runtime = (application as FloatViewApplication).runtime
+            runtime.locationPermissionBroker.recordResult(permissions)
+            runtime.events.publish(runtime.applicationService.locationState())
         }
     }
 

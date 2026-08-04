@@ -83,13 +83,25 @@ async function exerciseProductMethods(client: ConformanceClient, state: AppState
   assert.equal(settings.minimumSessionDistance, 100);
   assert.equal(settings.themePreference, 'dark');
   assert.equal(settings.unitPreference, 'imperial');
+  const locationSettings = await client.request('settings.update', {
+    expectedRevision: settings.revision,
+    patch: { locationRecordingEnabled: true, includeGpsLocationWhenExporting: true },
+  });
+  assert.equal(locationSettings.locationRecordingEnabled, true);
+  assert.equal(locationSettings.includeGpsLocationWhenExporting, true);
+  const locationState = await client.request('location.requestPermission', {});
+  assert.ok(
+    ['notDetermined', 'foregroundOnly', 'authorized', 'denied', 'restricted', 'unavailable'].includes(
+      locationState.status
+    )
+  );
   await expectError(
     (
       client as unknown as {
         request(method: string, params: unknown): Promise<unknown>;
       }
     ).request('settings.update', {
-      expectedRevision: settings.revision,
+      expectedRevision: locationSettings.revision,
       patch: { automaticSessionLinkingEnabled: true },
     }),
     'invalid_request'
@@ -98,7 +110,7 @@ async function exerciseProductMethods(client: ConformanceClient, state: AppState
   // Software-host sessions are intentionally brief; retain them so the rest of
   // the canonical session surface can be exercised deterministically.
   await client.request('settings.update', {
-    expectedRevision: settings.revision,
+    expectedRevision: locationSettings.revision,
     patch: { minimumSessionDistance: 0 },
   });
 
@@ -494,6 +506,8 @@ export function assertState(state: AppState) {
     'historyGapThresholdSeconds',
     'idlePersistIntervalMs',
     'idleProbeIntervalMs',
+    'includeGpsLocationWhenExporting',
+    'locationRecordingEnabled',
     'minimumSessionDistance',
     'postRideTailMs',
     'reconnectDurationMs',
@@ -502,6 +516,12 @@ export function assertState(state: AppState) {
     'themePreference',
     'unitPreference',
   ]);
+  assert.ok(
+    ['disabled', 'notDetermined', 'foregroundOnly', 'authorized', 'denied', 'restricted', 'unavailable'].includes(
+      state.location.status
+    )
+  );
+  assert.ok(['available', 'foregroundOnly', 'unavailable'].includes(state.location.backgroundCapture));
   assert.ok(['system', 'light', 'dark'].includes(state.settings.themePreference));
   assert.ok(['metric', 'imperial'].includes(state.settings.unitPreference));
 
@@ -576,6 +596,8 @@ function required<T>(value: T | null | undefined, message: string): T {
 export const mandatoryMethods: BackendMethod[] = [
   'state.get',
   'bluetooth.requestPermission',
+  'location.requestPermission',
+  'location.openSettings',
   'bluetooth.scan',
   'device.connect',
   'device.selectController',

@@ -12,6 +12,8 @@ const snapshot = {
   committedSampleSequence: 10,
   committedEventSequence: 2,
   committedElapsedMs: 1_000,
+  committedLocationSequence: 0,
+  committedLocationElapsedMs: 0,
 };
 const range = { startElapsedMs: 0, endElapsedMs: 1_000 };
 
@@ -93,6 +95,62 @@ describe('session-data protocol', () => {
       request
     );
     expect(result.kind).toBe('series');
+  });
+
+  it('validates bounded location pages and explicit gaps', () => {
+    const request = validateSessionDataRequest({
+      kind: 'locations',
+      sessionId: 'session-1',
+      snapshot,
+      range,
+      limit: 2,
+      cursor: null,
+    });
+    const result = validateSessionDataResult(
+      {
+        kind: 'locations',
+        sessionId: 'session-1',
+        snapshot,
+        range,
+        points: [
+          {
+            locationSequence: 1,
+            elapsedMs: 100,
+            latitude: -33.8,
+            longitude: 151.2,
+            accuracyM: null,
+            observedAt: '2026-01-01T00:00:00.100Z',
+          },
+          {
+            locationSequence: 2,
+            elapsedMs: 900,
+            latitude: -33.9,
+            longitude: 151.3,
+            accuracyM: 5,
+            observedAt: '2026-01-01T00:00:00.900Z',
+          },
+        ],
+        gaps: [{ startElapsedMs: 101, endElapsedMs: 899, reason: 'noFix' }],
+        nextCursor: 'cursor',
+        locationBoundary: { lastSequence: 2, lastElapsedMs: 900 },
+      },
+      request
+    );
+    if (result.kind !== 'locations') throw new Error('Expected location result');
+    expect(result.points).toHaveLength(2);
+    expect(result.gaps[0]?.reason).toBe('noFix');
+    expect(() =>
+      validateSessionDataRequest({ kind: 'locations', sessionId: 'session-1', snapshot, range, limit: 0 })
+    ).toThrow(SessionDataProtocolError);
+    expect(() =>
+      validateSessionDataResult(
+        {
+          ...result,
+          snapshot: { ...snapshot, committedLocationSequence: 99 },
+        },
+        request
+      )
+    ).toThrow(SessionDataProtocolError);
   });
 
   it('counts decoded streamed bytes before parsing', async () => {

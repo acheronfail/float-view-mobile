@@ -295,6 +295,10 @@ public final class LoopbackServer: @unchecked Sendable {
         return success(snapshot())
       case "bluetooth.requestPermission":
         return success(bluetoothPayload(applicationService.requestBluetoothPermission()))
+      case "location.requestPermission":
+        return success(locationPayload(applicationService.requestLocationPermission()))
+      case "location.openSettings":
+        return success(locationPayload(applicationService.openLocationSettings()))
       case "bluetooth.scan":
         let scanID = try applicationService.startDiscovery()
         let requestedTimeoutMs = (params["timeoutMs"] as? NSNumber)?.intValue ?? 5_000
@@ -675,6 +679,7 @@ public final class LoopbackServer: @unchecked Sendable {
       "activeConnection": connection,
       "sessionCatalogRevision": revisionLock.withLock { sessionCatalogRevision },
       "settings": (try? applicationService.settings()).map(settingsPayload) ?? [:],
+      "location": locationPayload(applicationService.locationState()),
       "sessionOperation": (try? applicationService.maintenanceJob())
         .flatMap { $0.map(maintenanceJobPayload) } ?? NSNull(),
     ]
@@ -857,6 +862,15 @@ public final class LoopbackServer: @unchecked Sendable {
         "committedSampleSequence": snapshot.committedSampleSequence,
         "committedEventSequence": snapshot.committedEventSequence,
         "committedElapsedMs": snapshot.committedElapsedMs,
+        "committedLocationSequence": snapshot.committedLocationSequence,
+        "committedLocationElapsedMs": snapshot.committedLocationElapsedMs,
+      ],
+      "location": [
+        "available": snapshot.recordedLocationCount > 0,
+        "count": snapshot.recordedLocationCount,
+        "lastSequence": snapshot.committedLocationSequence,
+        "lastElapsedMs": snapshot.committedLocationElapsedMs,
+        "status": snapshot.locationStatus,
       ],
     ]
   }
@@ -872,24 +886,30 @@ public final class LoopbackServer: @unchecked Sendable {
     timing.kind = kind
     let fields = (params["fields"] as? [String] ?? []).filter { !$0.isEmpty }
     guard start >= 0, end >= start, fields.count <= 16,
-          kind == "events" || (!fields.isEmpty && Set(fields).count == fields.count) else { return nil }
+          kind == "events" || kind == "locations" || (!fields.isEmpty && Set(fields).count == fields.count) else { return nil }
     let metadataStarted = DispatchTime.now().uptimeNanoseconds
     let published = try applicationService.sessionSnapshot(sessionID: sessionID)
     guard let snapshotRevision = snapshot["historyRevision"] as? NSNumber,
           let sampleSequence = snapshot["committedSampleSequence"] as? NSNumber,
           let eventSequence = snapshot["committedEventSequence"] as? NSNumber,
-          let committedElapsed = snapshot["committedElapsedMs"] as? NSNumber
+          let committedElapsed = snapshot["committedElapsedMs"] as? NSNumber,
+          let locationSequence = snapshot["committedLocationSequence"] as? NSNumber,
+          let locationElapsed = snapshot["committedLocationElapsedMs"] as? NSNumber
     else { return nil }
     guard snapshotRevision.int64Value == published.historyRevision,
           sampleSequence.int64Value == published.committedSampleSequence,
           eventSequence.int64Value == published.committedEventSequence,
-          committedElapsed.int64Value == published.committedElapsedMs
+          committedElapsed.int64Value == published.committedElapsedMs,
+          locationSequence.int64Value == published.committedLocationSequence,
+          locationElapsed.int64Value == published.committedLocationElapsedMs
     else { throw SessionStoreError.invalidRange }
     let echoedSnapshot: [String: Any] = [
       "historyRevision": snapshotRevision.int64Value,
       "committedSampleSequence": sampleSequence.int64Value,
       "committedEventSequence": eventSequence.int64Value,
       "committedElapsedMs": committedElapsed.int64Value,
+      "committedLocationSequence": locationSequence.int64Value,
+      "committedLocationElapsedMs": locationElapsed.int64Value,
     ]
     let extensionFields = try Set(applicationService.sessionExtensionFields(sessionID: sessionID))
     timing.metadataMs = Double(DispatchTime.now().uptimeNanoseconds - metadataStarted) / 1_000_000
@@ -986,6 +1006,30 @@ public final class LoopbackServer: @unchecked Sendable {
       return ["kind": kind, "sessionId": sessionID, "snapshot": echoedSnapshot, "range": range,
               "mode": mode, "fields": descriptors, "elapsedMs": points.map(\.elapsedMs),
               "sequence": points.map(\.sequence), "values": values, "nextCursor": nextCursor as Any? ?? NSNull()]
+    }
+    if kind == "locations" {
+      let requestedLimit = min(max((params["limit"] as? NSNumber)?.intValue ?? 1, 1), 2_000)
+      let page = try applicationService.querySessionLocations(
+        sessionID: sessionID,
+        startElapsedMs: start,
+        endElapsedMs: end,
+        limit: requestedLimit,
+        cursor: params["cursor"] as? String,
+        publishedLocationSequence: published.committedLocationSequence
+      )
+      return [
+        "kind": kind, "sessionId": sessionID, "snapshot": echoedSnapshot, "range": range,
+        "points": page.points.map { point in
+          ["locationSequence": point.locationSequence, "elapsedMs": point.elapsedMs,
+           "latitude": point.latitude, "longitude": point.longitude,
+           "accuracyM": point.accuracyM ?? NSNull(),
+           "observedAt": ISO8601DateFormatter().string(from: point.observedAt)]
+        },
+        "gaps": page.gaps.map { ["startElapsedMs": $0.startElapsedMs, "endElapsedMs": $0.endElapsedMs, "reason": $0.reason] },
+        "nextCursor": page.nextCursor as Any? ?? NSNull(),
+        "locationBoundary": ["lastSequence": page.snapshot.committedLocationSequence,
+                              "lastElapsedMs": page.snapshot.committedLocationElapsedMs],
+      ]
     }
     guard kind == "events" else { return nil }
     let requestedLimit = min(max((params["limit"] as? NSNumber)?.intValue ?? 500, 1), 500)
@@ -1194,6 +1238,40 @@ public final class LoopbackServer: @unchecked Sendable {
       "themePreference": value.themePreference.rawValue,
       "unitPreference": value.unitPreference.rawValue,
       "historyGapThresholdSeconds": value.historyGapThresholdSeconds ?? NSNull(),
+      "locationRecordingEnabled": value.locationRecordingEnabled,
+      "includeGpsLocationWhenExporting": value.includeGpsLocationWhenExporting,
+    ]
+  }
+
+  private func locationPayload(_ value: LocationProviderState) -> [String: Any] {
+    let enabled = (try? applicationService.settings().locationRecordingEnabled) ?? false
+    guard enabled else {
+      return [
+        "status": "disabled",
+        "permissionAction": "requestPermission",
+        "backgroundCapture": "unavailable",
+        "reason": NSNull(),
+      ]
+    }
+    let status: String
+    switch value.authorization {
+    case .notDetermined: status = "notDetermined"
+    case .foregroundOnly: status = "foregroundOnly"
+    case .authorized: status = "authorized"
+    case .denied: status = "denied"
+    case .restricted: status = "restricted"
+    case .unavailable: status = "unavailable"
+    }
+    let permissionAction: Any = switch value.authorization {
+    case .notDetermined: "requestPermission"
+    case .denied, .restricted, .foregroundOnly: "openSettings"
+    case .authorized, .unavailable: NSNull()
+    }
+    return [
+      "status": status,
+      "permissionAction": permissionAction,
+      "backgroundCapture": value.backgroundCapture.rawValue,
+      "reason": value.reason ?? NSNull(),
     ]
   }
 
@@ -1329,7 +1407,7 @@ private func invalidatesState(_ event: any Sendable) -> Bool {
   return event is BluetoothState || event is DiscoverySnapshot || event is ConnectionState ||
     event is KnownDevice ||
     event is SessionRecord || event is SavedDeviceRecord || event is BoardProfileRecord ||
-    event is SettingsRecord || event is TelemetrySample || event is SessionCatalogChanged
+    event is SettingsRecord || event is LocationProviderState || event is TelemetrySample || event is SessionCatalogChanged
 }
 
 private struct SessionCatalogChanged {}

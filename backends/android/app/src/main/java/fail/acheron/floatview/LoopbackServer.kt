@@ -12,6 +12,8 @@ import fail.acheron.floatview.backend.DeviceId
 import fail.acheron.floatview.backend.DiscoveredDevice
 import fail.acheron.floatview.backend.DiscoverySnapshot
 import fail.acheron.floatview.backend.EventHub
+import fail.acheron.floatview.backend.LocationProviderAuthorization
+import fail.acheron.floatview.backend.LocationProviderState
 import fail.acheron.floatview.backend.ProductStoreException
 import fail.acheron.floatview.backend.SessionExportRecord
 import fail.acheron.floatview.backend.SessionEventRecord
@@ -26,6 +28,7 @@ import fail.acheron.floatview.backend.SessionRecord
 import fail.acheron.floatview.backend.SessionSeriesPoint
 import fail.acheron.floatview.backend.SessionPublishedSnapshotRecord
 import fail.acheron.floatview.backend.SessionStoreException
+import fail.acheron.floatview.backend.JobId
 import fail.acheron.floatview.backend.SessionSummaryRecord
 import fail.acheron.floatview.backend.SettingsRecord
 import fail.acheron.floatview.backend.TelemetrySample
@@ -359,6 +362,8 @@ class LoopbackServer(
                 "state.get" -> success(snapshot())
                 "bluetooth.requestPermission" ->
                     success(bluetooth(applicationService.requestBluetoothPermission()))
+                "location.requestPermission" -> success(locationPayload(applicationService.requestLocationPermission()))
+                "location.openSettings" -> success(locationPayload(applicationService.openLocationSettings()))
                 "bluetooth.scan" -> {
                     val scanId = applicationService.startDiscovery()
                     val timeoutMs = (params.number("timeoutMs") ?: 5_000L).coerceIn(1L, 60_000L)
@@ -734,6 +739,7 @@ class LoopbackServer(
             .put("activeConnection", activePayload ?: JSONObject.NULL)
             .put("sessionCatalogRevision", sessionCatalogRevision.get())
             .put("settings", runCatching { settings(applicationService.settings()) }.getOrDefault(JSONObject()))
+            .put("location", locationPayload(applicationService.locationState()))
             .put("sessionOperation", runCatching { applicationService.maintenanceJob() }
                 .getOrNull()?.let(::maintenanceJobJson) ?: JSONObject.NULL)
     }
@@ -864,6 +870,12 @@ class LoopbackServer(
         .put("eventCount", value.eventCount)
         .put("recordedSampleCount", snapshot.recordedSampleCount)
         .put("storedSampleCount", snapshot.storedSampleCount)
+        .put("location", JSONObject()
+            .put("available", snapshot.recordedLocationCount > 0)
+            .put("count", snapshot.recordedLocationCount)
+            .put("lastSequence", snapshot.committedLocationSequence)
+            .put("lastElapsedMs", snapshot.committedLocationElapsedMs)
+            .put("status", snapshot.locationStatus))
         .put("prune", JSONObject()
             .put("targetResolutionSeconds", prune.targetResolutionSeconds ?: JSONObject.NULL)
             .put("recordedSampleCount", prune.recordedSampleCount)
@@ -873,7 +885,9 @@ class LoopbackServer(
             .put("historyRevision", snapshot.historyRevision)
             .put("committedSampleSequence", snapshot.committedSampleSequence)
             .put("committedEventSequence", snapshot.committedEventSequence)
-            .put("committedElapsedMs", snapshot.committedElapsedMs))
+            .put("committedElapsedMs", snapshot.committedElapsedMs)
+            .put("committedLocationSequence", snapshot.committedLocationSequence)
+            .put("committedLocationElapsedMs", snapshot.committedLocationElapsedMs))
 
     private fun sessionData(params: JSONObject, timing: SessionDataTiming): JSONObject {
         val kind = params.getString("kind")
@@ -889,13 +903,17 @@ class LoopbackServer(
         require(snapshot.getLong("committedSampleSequence") == published.committedSampleSequence)
         require(snapshot.getLong("committedEventSequence") == published.committedEventSequence)
         require(snapshot.getLong("committedElapsedMs") == published.committedElapsedMs)
+        require(snapshot.getLong("committedLocationSequence") == published.committedLocationSequence)
+        require(snapshot.getLong("committedLocationElapsedMs") == published.committedLocationElapsedMs)
         val echoedSnapshot = JSONObject()
             .put("historyRevision", snapshot.getLong("historyRevision"))
             .put("committedSampleSequence", snapshot.getLong("committedSampleSequence"))
             .put("committedEventSequence", snapshot.getLong("committedEventSequence"))
             .put("committedElapsedMs", snapshot.getLong("committedElapsedMs"))
+            .put("committedLocationSequence", snapshot.getLong("committedLocationSequence"))
+            .put("committedLocationElapsedMs", snapshot.getLong("committedLocationElapsedMs"))
         val fields = params.optJSONArray("fields") ?: JSONArray()
-        require(fields.length() in 1..16 || kind == "events")
+        require(fields.length() in 1..16 || kind == "events" || kind == "locations")
         val fieldNames = (0 until fields.length()).map { fields.getString(it) }
         val extensionFields = applicationService.sessionExtensionFields(sessionId).toSet()
         timing.metadataMs = (System.nanoTime() - metadataStarted) / 1_000_000.0
@@ -996,6 +1014,38 @@ class LoopbackServer(
                 .put("sequence", JSONArray(points.map { it.sequence }))
                 .put("values", values)
                 .put("nextCursor", nextCursor ?: JSONObject.NULL)
+        }
+        if (kind == "locations") {
+            val page = applicationService.querySessionLocations(
+                sessionId = sessionId,
+                startElapsedMs = start,
+                endElapsedMs = end,
+                limit = params.optInt("limit", 1).coerceIn(1, 2_000),
+                cursor = params.optString("cursor").takeIf { it.isNotEmpty() && !params.isNull("cursor") },
+                publishedLocationSequence = published.committedLocationSequence,
+            )
+            return JSONObject()
+                .put("kind", kind)
+                .put("sessionId", sessionId)
+                .put("snapshot", echoedSnapshot)
+                .put("range", range)
+                .put("points", JSONArray(page.points.map { point ->
+                    JSONObject().put("locationSequence", point.locationSequence)
+                        .put("elapsedMs", point.elapsedMs)
+                        .put("latitude", point.latitude)
+                        .put("longitude", point.longitude)
+                        .put("accuracyM", point.accuracyM ?: JSONObject.NULL)
+                        .put("observedAt", point.observedAt.toString())
+                }))
+                .put("gaps", JSONArray(page.gaps.map { gap ->
+                    JSONObject().put("startElapsedMs", gap.startElapsedMs)
+                        .put("endElapsedMs", gap.endElapsedMs)
+                        .put("reason", gap.reason)
+                }))
+                .put("nextCursor", page.nextCursor ?: JSONObject.NULL)
+                .put("locationBoundary", JSONObject()
+                    .put("lastSequence", page.snapshot.committedLocationSequence)
+                    .put("lastElapsedMs", page.snapshot.committedLocationElapsedMs))
         }
         require(kind == "events")
         val seed = SessionHistoryCursor(
@@ -1126,6 +1176,39 @@ class LoopbackServer(
         .put("themePreference", value.themePreference.wireValue)
         .put("unitPreference", value.unitPreference.wireValue)
         .put("historyGapThresholdSeconds", value.historyGapThresholdSeconds ?: JSONObject.NULL)
+        .put("locationRecordingEnabled", value.locationRecordingEnabled)
+        .put("includeGpsLocationWhenExporting", value.includeGpsLocationWhenExporting)
+
+    private fun locationPayload(value: LocationProviderState): JSONObject {
+        val enabled = runCatching { applicationService.settings().locationRecordingEnabled }.getOrDefault(false)
+        if (!enabled) {
+            return JSONObject()
+                .put("status", "disabled")
+                .put("permissionAction", "requestPermission")
+                .put("backgroundCapture", "unavailable")
+                .put("reason", JSONObject.NULL)
+        }
+        val status = when (value.authorization) {
+            LocationProviderAuthorization.NOT_DETERMINED -> "notDetermined"
+            LocationProviderAuthorization.FOREGROUND_ONLY -> "foregroundOnly"
+            LocationProviderAuthorization.AUTHORIZED -> "authorized"
+            LocationProviderAuthorization.DENIED -> "denied"
+            LocationProviderAuthorization.RESTRICTED -> "restricted"
+            LocationProviderAuthorization.UNAVAILABLE -> "unavailable"
+        }
+        return JSONObject()
+            .put("status", status)
+            .put(
+                "permissionAction",
+                when (status) {
+                    "notDetermined" -> "requestPermission"
+                    "denied", "restricted" -> "openSettings"
+                    else -> JSONObject.NULL
+                },
+            )
+            .put("backgroundCapture", value.backgroundCapture.name.lowercase())
+            .put("reason", value.reason ?: JSONObject.NULL)
+    }
 
     private fun liveSample(value: TelemetrySample) = JSONObject()
         .put("sequence", value.sequence)
@@ -1205,6 +1288,7 @@ class LoopbackServer(
             this is BoardProfileRecord ||
             this is fail.acheron.floatview.backend.SavedDeviceRecord ||
             this is SettingsRecord ||
+            this is LocationProviderState ||
             this is TelemetrySample ||
             this === SessionCatalogChanged ||
             this is VescProtocolMessage.Firmware ||

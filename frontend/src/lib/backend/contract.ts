@@ -7,6 +7,8 @@ export const MAX_SESSION_SERIES_BUCKETS = 1_024;
 export const MAX_SESSION_SERIES_OBSERVATIONS = 65_536;
 export const MAX_SESSION_SAMPLE_ROWS = 2_000;
 export const MAX_SESSION_EVENT_ROWS = 500;
+export const MAX_SESSION_LOCATION_ROWS = 2_000;
+export const MAX_SESSION_LOCATION_GAPS = 2_000;
 export const MAX_SESSION_CURSOR_BYTES = 512;
 export const MAX_SESSION_LIST_PAGE = 100;
 export const MAX_SESSION_LIST_CURSOR_BYTES = 1_024;
@@ -301,6 +303,49 @@ export interface SessionPublishedSnapshot {
   committedSampleSequence: number;
   committedEventSequence: number;
   committedElapsedMs: number;
+  committedLocationSequence: number;
+  committedLocationElapsedMs: number;
+}
+
+export type LocationAuthorizationStatus =
+  | 'disabled'
+  | 'notDetermined'
+  | 'foregroundOnly'
+  | 'authorized'
+  | 'denied'
+  | 'restricted'
+  | 'unavailable';
+
+export type LocationPermissionAction = 'requestPermission' | 'openSettings' | null;
+
+export interface LocationState {
+  status: LocationAuthorizationStatus;
+  permissionAction: LocationPermissionAction;
+  backgroundCapture: 'available' | 'foregroundOnly' | 'unavailable';
+  reason: string | null;
+}
+
+export interface SessionLocationMetadata {
+  available: boolean;
+  count: number;
+  lastSequence: number;
+  lastElapsedMs: number;
+  status: 'available' | 'disabled' | 'unavailable' | 'gap';
+}
+
+export interface SessionLocationPoint {
+  locationSequence: number;
+  elapsedMs: number;
+  latitude: number;
+  longitude: number;
+  accuracyM: number | null;
+  observedAt: string;
+}
+
+export interface SessionLocationGap {
+  startElapsedMs: number;
+  endElapsedMs: number;
+  reason: 'providerUnavailable' | 'permissionUnavailable' | 'noFix' | 'unknown';
 }
 
 export interface SessionPruneMetadata {
@@ -317,6 +362,7 @@ export interface SessionMetadata {
   recordedSampleCount: number;
   storedSampleCount: number;
   prune: SessionPruneMetadata;
+  location: SessionLocationMetadata;
   snapshot: SessionPublishedSnapshot;
 }
 
@@ -364,6 +410,8 @@ export interface Settings {
   themePreference: ThemePreference;
   unitPreference: UnitPreference;
   historyGapThresholdSeconds: number | null;
+  locationRecordingEnabled: boolean;
+  includeGpsLocationWhenExporting: boolean;
 }
 
 export interface ExportResult {
@@ -379,6 +427,7 @@ export interface AppState {
   activeConnection: ActiveConnection | null;
   sessionCatalogRevision: number;
   settings: Settings;
+  location: LocationState;
   sessionOperation?: SessionOperationState | null;
 }
 
@@ -406,6 +455,8 @@ export interface BackendMethods {
   'state.get': { params: EmptyParams; result: AppState };
   'bluetooth.requestPermission': { params: EmptyParams; result: BluetoothState };
   'bluetooth.scan': { params: { timeoutMs?: number }; result: Accepted };
+  'location.requestPermission': { params: EmptyParams; result: LocationState };
+  'location.openSettings': { params: EmptyParams; result: LocationState };
   'device.connect': { params: { deviceId: string }; result: Accepted };
   'device.selectController': {
     params: { deviceId: string; canId: number };

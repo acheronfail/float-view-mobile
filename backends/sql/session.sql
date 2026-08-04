@@ -70,6 +70,17 @@ CREATE TABLE IF NOT EXISTS sample (
 );
 CREATE INDEX IF NOT EXISTS sample_elapsed ON sample(monotonic_elapsed_ms, sequence);
 
+CREATE TABLE IF NOT EXISTS location (
+  location_sequence INTEGER PRIMARY KEY NOT NULL,
+  observed_at_ms INTEGER NOT NULL,
+  monotonic_elapsed_ms INTEGER NOT NULL CHECK (monotonic_elapsed_ms >= 0),
+  latitude REAL NOT NULL CHECK (latitude BETWEEN -90.0 AND 90.0),
+  longitude REAL NOT NULL CHECK (longitude BETWEEN -180.0 AND 180.0),
+  accuracy_m REAL CHECK (accuracy_m IS NULL OR accuracy_m >= 0.0),
+  UNIQUE(monotonic_elapsed_ms, latitude, longitude)
+);
+CREATE INDEX IF NOT EXISTS location_elapsed ON location(monotonic_elapsed_ms, location_sequence);
+
 CREATE TABLE IF NOT EXISTS session_numeric_field (
   field_name TEXT PRIMARY KEY NOT NULL CHECK (length(CAST(field_name AS BLOB)) BETWEEN 1 AND 64),
   source TEXT NOT NULL CHECK (source IN ('stable', 'extension')),
@@ -110,5 +121,10 @@ CREATE TABLE IF NOT EXISTS commit_marker (
   maximum_duty_cycle REAL,
   maximum_duty_source_sequence INTEGER,
   last_speed_kph REAL,
-  last_ride_state TEXT
+  last_ride_state TEXT,
+  committed_location_sequence INTEGER NOT NULL DEFAULT 0,
+  committed_location_elapsed_ms INTEGER NOT NULL DEFAULT 0,
+  recorded_location_count INTEGER NOT NULL DEFAULT 0,
+  stored_location_count INTEGER NOT NULL DEFAULT 0,
+  last_location_status TEXT NOT NULL DEFAULT 'disabled'
 );

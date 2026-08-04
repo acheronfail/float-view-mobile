@@ -36,6 +36,8 @@ test('session-data conformance preserves cursor identity and rejects bounded/aut
     committedSampleSequence: 1,
     committedEventSequence: 2,
     committedElapsedMs: 60_000,
+    committedLocationSequence: 3,
+    committedLocationElapsedMs: 50_000,
   };
   const range = { startElapsedMs: 0, endElapsedMs: 60_000 };
   try {
@@ -63,6 +65,31 @@ test('session-data conformance preserves cursor identity and rejects bounded/aut
     assert.equal(second.kind, 'samples');
     if (second.kind !== 'samples') throw new Error('Expected sample page');
     assert.deepEqual(second.sequence, [1]);
+
+    const locationPage = await client.sessionData({
+      kind: 'locations',
+      sessionId: 'session-1',
+      snapshot,
+      range,
+      limit: 2,
+    });
+    if (locationPage.kind !== 'locations') throw new Error('Expected location page');
+    assert.equal(locationPage.points.length, 2);
+    assert.equal(locationPage.gaps[0]?.reason, 'noFix');
+    assert.ok(locationPage.nextCursor);
+    const locationReplay = await client.sessionData({
+      kind: 'locations',
+      sessionId: 'session-1',
+      snapshot,
+      range,
+      limit: 2,
+      cursor: locationPage.nextCursor,
+    });
+    if (locationReplay.kind !== 'locations') throw new Error('Expected location replay');
+    assert.deepEqual(
+      locationReplay.points.map((point) => point.locationSequence),
+      [3]
+    );
 
     const eventPage = await client.sessionData({
       kind: 'events',

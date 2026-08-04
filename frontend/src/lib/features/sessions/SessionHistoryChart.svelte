@@ -29,7 +29,10 @@
   import SectionTitle from '../../ui/SectionTitle.svelte';
   import Spinner from '../../ui/Spinner.svelte';
 
-  let { metadata }: { metadata: SessionMetadata } = $props();
+  let {
+    metadata,
+    onselectionchange = () => {},
+  }: { metadata: SessionMetadata; onselectionchange?: (elapsedMs: number) => void } = $props();
   let plot = $state<HTMLElement | null>(null);
   let width = $state(0);
   let viewport = $state<Viewport>({ startElapsedMs: 0, endElapsedMs: metadata.summary.totalElapsedMs });
@@ -342,6 +345,7 @@
     queuedInspection = null;
     if (target === inspectionMs && exactStatus === 'exact') return;
     inspectionMs = target;
+    onselectionchange(target);
     exactValue = null;
     if (!activeField) return;
     exactController ??= new ExactTooltipController(
@@ -375,6 +379,7 @@
         exactStatus = snapshot.status;
         exactValue = snapshot.value;
         inspectionMs = snapshot.targetElapsedMs;
+        onselectionchange(snapshot.targetElapsedMs);
         inspectionPinned = snapshot.pinned;
       }
     );

@@ -43,6 +43,27 @@
 
     <div>
       <SectionTitle title="Session settings" />
+      <div class="mt-3 space-y-3 rounded-lg border border-outline bg-elevated p-3">
+        <label class="flex items-center gap-3 text-sm text-muted">
+          <input
+            type="checkbox"
+            checked={backendState.settings.locationRecordingEnabled}
+            onchange={(event) =>
+              backendState.updateSessionSettings({ locationRecordingEnabled: event.currentTarget.checked })}
+          />
+          Record ride location
+        </label>
+        <label class="flex items-center gap-3 text-sm text-muted">
+          <input
+            type="checkbox"
+            checked={backendState.settings.includeGpsLocationWhenExporting}
+            onchange={(event) =>
+              backendState.updateSessionSettings({ includeGpsLocationWhenExporting: event.currentTarget.checked })}
+          />
+          Include GPS columns in CSV exports
+        </label>
+        <p class="text-xs text-muted">Location capture is native-owned and stops outside active riding.</p>
+      </div>
       <label class="mt-3 block text-sm text-muted">
         Minimum ride distance (meters)
         <input

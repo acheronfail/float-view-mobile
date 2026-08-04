@@ -109,12 +109,13 @@ private final class Database: @unchecked Sendable {
     }
   }
 
-  func scalarInt(_ sql: String) throws -> Int {
+  func scalarInt(_ sql: String, values: [SQLiteValue] = []) throws -> Int {
     var statement: OpaquePointer?
     guard sqlite3_prepare_v2(handle, sql, -1, &statement, nil) == SQLITE_OK else {
       throw SQLiteLogStoreError.sqlite(String(cString: sqlite3_errmsg(handle)))
     }
     defer { sqlite3_finalize(statement) }
+    bind(values, to: statement)
     guard sqlite3_step(statement) == SQLITE_ROW else {
       throw SQLiteLogStoreError.sqlite(String(cString: sqlite3_errmsg(handle)))
     }
@@ -167,6 +168,7 @@ private enum SQLiteValue {
 }
 
 public final class SQLiteLogStore: LogStorePort, ProductStorePort, SessionStorePort, @unchecked Sendable {
+  private static let csvLocationToleranceMs: Int64 = 10_000
   private static let initialMissingFields = ["seriesCount", "parallelCount", "motor"]
   private let root: URL
   private let schemaDirectory: URL
@@ -532,6 +534,72 @@ public final class SQLiteLogStore: LogStorePort, ProductStorePort, SessionStoreP
     }
   }
 
+  public func appendLocations(jobID: JobID, observations: [LocationObservation]) throws {
+    lock.lock()
+    defer { lock.unlock() }
+    guard let record = current, record.jobID == jobID, let session else {
+      throw SQLiteLogStoreError.noActiveSession
+    }
+    if observations.isEmpty { return }
+    let ordered = observations.sorted { left, right in
+      left.elapsedMs < right.elapsedMs || (left.elapsedMs == right.elapsedMs && left.observedAt < right.observedAt)
+    }
+    try session.execute("BEGIN IMMEDIATE")
+    do {
+      var sequence = try session.scalarInt("SELECT COALESCE(MAX(location_sequence), 0) FROM location")
+      var accepted = 0
+      for observation in ordered {
+        guard observation.elapsedMs >= 0,
+              (-90 ... 90).contains(observation.latitude),
+              (-180 ... 180).contains(observation.longitude),
+              observation.accuracyM.map({ $0.isFinite && $0 >= 0 }) ?? true
+        else { throw SessionStoreError.invalidRange }
+        let duplicate = try session.scalarInt(
+          "SELECT EXISTS(SELECT 1 FROM location WHERE monotonic_elapsed_ms = ? AND latitude = ? AND longitude = ?)",
+          values: [.integer(observation.elapsedMs), .real(observation.latitude), .real(observation.longitude)]
+        ) == 1
+        if duplicate { continue }
+        sequence += 1
+        try session.statement(
+          "INSERT INTO location(location_sequence, observed_at_ms, monotonic_elapsed_ms, latitude, longitude, accuracy_m) VALUES (?, ?, ?, ?, ?, ?)",
+          values: [
+            .integer(Int64(sequence)),
+            .integer(Int64(observation.observedAt.timeIntervalSince1970 * 1_000)),
+            .integer(observation.elapsedMs),
+            .real(observation.latitude),
+            .real(observation.longitude),
+            observation.accuracyM.map(SQLiteValue.real) ?? .null,
+          ]
+        )
+        accepted += 1
+      }
+      if accepted > 0 {
+        let elapsed = try session.scalarInt(
+          "SELECT monotonic_elapsed_ms FROM location WHERE location_sequence = ?",
+          values: [.integer(Int64(sequence))]
+        )
+        try session.statement(
+          "UPDATE commit_marker SET committed_location_sequence = ?, committed_location_elapsed_ms = ?, recorded_location_count = recorded_location_count + ?, stored_location_count = (SELECT COUNT(*) FROM location), last_location_status = 'available' WHERE singleton = 1",
+          values: [.integer(Int64(sequence)), .integer(Int64(elapsed)), .integer(Int64(accepted))]
+        )
+      }
+      try session.execute("COMMIT")
+      let marker = try session.query(
+        "SELECT committed_location_sequence, committed_location_elapsed_ms, recorded_location_count, stored_location_count, last_location_status FROM commit_marker WHERE singleton = 1",
+        map: { statement in
+          (sqlite3_column_int64(statement, 0), sqlite3_column_int64(statement, 1), sqlite3_column_int64(statement, 2), sqlite3_column_int64(statement, 3), Self.columnText(statement, 4) ?? "disabled")
+        }
+      ).first!
+      try catalog.statement(
+        "UPDATE session_catalog SET committed_location_sequence = ?, committed_location_elapsed_ms = ?, location_count = ?, recorded_location_count = ?, stored_location_count = ?, location_status = ? WHERE job_id = ?",
+        values: [.integer(marker.0), .integer(marker.1), .integer(marker.2), .integer(marker.2), .integer(marker.3), .text(marker.4), .text(jobID.value)]
+      )
+    } catch {
+      try? session.execute("ROLLBACK")
+      throw error
+    }
+  }
+
   public func close(jobID: JobID, at: Date, reason: String) throws -> SessionRecord {
     lock.lock()
     defer { lock.unlock() }
@@ -680,7 +748,9 @@ public final class SQLiteLogStore: LogStorePort, ProductStorePort, SessionStoreP
     guard let value = try catalog.query(
       """
       SELECT history_revision, committed_sequence, committed_event_sequence,
-             committed_elapsed_ms, sample_count, stored_sample_count
+             committed_elapsed_ms, sample_count, stored_sample_count,
+             committed_location_sequence, committed_location_elapsed_ms,
+             location_count, recorded_location_count, stored_location_count, location_status
       FROM session_catalog WHERE session_id = ? AND pending_delete = 0
       """,
       values: [.text(sessionID)],
@@ -691,7 +761,12 @@ public final class SQLiteLogStore: LogStorePort, ProductStorePort, SessionStoreP
           committedEventSequence: sqlite3_column_int64(statement, 2),
           committedElapsedMs: sqlite3_column_int64(statement, 3),
           recordedSampleCount: sqlite3_column_int64(statement, 4),
-          storedSampleCount: sqlite3_column_int64(statement, 5)
+          storedSampleCount: sqlite3_column_int64(statement, 5),
+          committedLocationSequence: sqlite3_column_int64(statement, 6),
+          committedLocationElapsedMs: sqlite3_column_int64(statement, 7),
+          recordedLocationCount: sqlite3_column_int64(statement, 9),
+          storedLocationCount: sqlite3_column_int64(statement, 10),
+          locationStatus: Self.columnText(statement, 11) ?? "disabled"
         )
       }
     ).first else { throw SessionStoreError.sessionNotFound }
@@ -786,11 +861,15 @@ public final class SQLiteLogStore: LogStorePort, ProductStorePort, SessionStoreP
       }
       try database.execute("DELETE FROM sample WHERE sequence NOT IN (SELECT sequence FROM prune_keep)")
       try database.statement(
+        "DELETE FROM location WHERE NOT EXISTS (SELECT 1 FROM sample WHERE ABS(sample.monotonic_elapsed_ms - location.monotonic_elapsed_ms) <= ?)",
+        values: [.integer(targetResolutionSeconds * 1_000)]
+      )
+      try database.statement(
         "UPDATE session_metadata SET pruned_at_ms = ?, retained_resolution_seconds = ?, prune_policy = 'm4-source-v1' WHERE singleton = 1",
         values: [.integer(Int64(Date().timeIntervalSince1970 * 1_000)), .integer(targetResolutionSeconds)]
       )
       try database.statement(
-        "UPDATE commit_marker SET stored_sample_count = (SELECT COUNT(*) FROM sample), history_revision = history_revision + 1, committed_at_ms = ? WHERE singleton = 1",
+        "UPDATE commit_marker SET stored_sample_count = (SELECT COUNT(*) FROM sample), stored_location_count = (SELECT COUNT(*) FROM location), history_revision = history_revision + 1, committed_at_ms = ? WHERE singleton = 1",
         values: [.integer(Int64(Date().timeIntervalSince1970 * 1_000))]
       )
       try database.execute("COMMIT")
@@ -1228,6 +1307,84 @@ public final class SQLiteLogStore: LogStorePort, ProductStorePort, SessionStoreP
     }
   }
 
+  public func queryLocations(
+    sessionID: String,
+    startElapsedMs: Int64,
+    endElapsedMs: Int64,
+    limit: Int,
+    cursor: String?,
+    publishedLocationSequence: Int64?
+  ) throws -> SessionLocationPageRecord {
+    guard startElapsedMs <= endElapsedMs, (1 ... 2_000).contains(limit) else {
+      throw SessionStoreError.invalidRange
+    }
+    let snapshot = try sessionSnapshot(sessionID: sessionID)
+    if let publishedLocationSequence, publishedLocationSequence != snapshot.committedLocationSequence {
+      throw SessionStoreError.invalidRange
+    }
+    var afterSequence: Int64 = 0
+    if let cursor {
+      guard let data = Data(base64Encoded: cursor),
+            let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+            object["sessionId"] as? String == sessionID,
+            (object["startElapsedMs"] as? NSNumber)?.int64Value == startElapsedMs,
+            (object["endElapsedMs"] as? NSNumber)?.int64Value == endElapsedMs,
+            (object["historyRevision"] as? NSNumber)?.int64Value == snapshot.historyRevision,
+            let sequence = (object["locationSequence"] as? NSNumber)?.int64Value,
+            sequence >= 0
+      else { throw SessionStoreError.invalidCursor }
+      afterSequence = sequence
+    }
+    return try withReadLease(sessionID: sessionID) { database, _ in
+      var values: [SQLiteValue] = [.integer(startElapsedMs), .integer(endElapsedMs)]
+      var sequencePredicate = ""
+      if let publishedLocationSequence {
+        sequencePredicate += " AND location_sequence <= ?"
+        values.append(.integer(publishedLocationSequence))
+      }
+      if afterSequence > 0 {
+        sequencePredicate += " AND location_sequence > ?"
+        values.append(.integer(afterSequence))
+      }
+      values.append(.integer(Int64(limit + 1)))
+      let rows = try database.query(
+        """
+        SELECT location_sequence, monotonic_elapsed_ms, latitude, longitude, accuracy_m, observed_at_ms
+        FROM location WHERE monotonic_elapsed_ms BETWEEN ? AND ?\(sequencePredicate)
+        ORDER BY monotonic_elapsed_ms, location_sequence LIMIT ?
+        """,
+        values: values
+      ) { statement in
+        SessionLocationPointRecord(
+          locationSequence: sqlite3_column_int64(statement, 0),
+          elapsedMs: sqlite3_column_int64(statement, 1),
+          latitude: sqlite3_column_double(statement, 2),
+          longitude: sqlite3_column_double(statement, 3),
+          accuracyM: sqlite3_column_type(statement, 4) == SQLITE_NULL ? nil : sqlite3_column_double(statement, 4),
+          observedAt: Date(timeIntervalSince1970: Double(sqlite3_column_int64(statement, 5)) / 1_000)
+        )
+      }
+      let hasMore = rows.count > limit
+      let page = hasMore ? Array(rows.prefix(limit)) : rows
+      let gaps: [SessionLocationGapRecord] = zip(page, page.dropFirst()).compactMap { left, right in
+        right.elapsedMs - left.elapsedMs > 10_000
+          ? SessionLocationGapRecord(startElapsedMs: left.elapsedMs + 1, endElapsedMs: right.elapsedMs - 1, reason: "noFix")
+          : nil
+      }
+      let next = hasMore ? page.last.flatMap { point in
+        try? JSONSerialization.data(withJSONObject: [
+          "sessionId": sessionID,
+          "startElapsedMs": startElapsedMs,
+          "endElapsedMs": endElapsedMs,
+          "historyRevision": snapshot.historyRevision,
+          "locationSequence": point.locationSequence,
+        ])
+          .base64EncodedString()
+      } : nil
+      return SessionLocationPageRecord(points: page, gaps: gaps, nextCursor: next, snapshot: snapshot)
+    }
+  }
+
   public func sessionExtensionFields(sessionID: String) throws -> [String] {
     return try withReadLease(sessionID: sessionID) { database, _ in
       let fields = try database.query(
@@ -1627,6 +1784,7 @@ public final class SQLiteLogStore: LogStorePort, ProductStorePort, SessionStoreP
     do {
       let source = root.appending(path: fileName)
       let database = try openSessionLocked(sessionID: sessionID)
+      let includeGpsLocation = try settingsLocked().includeGpsLocationWhenExporting
       try database.execute("PRAGMA wal_checkpoint(FULL)")
       if format == "float-view-archive" {
         try FileManager.default.copyItem(at: source, to: output)
@@ -1654,7 +1812,7 @@ public final class SQLiteLogStore: LogStorePort, ProductStorePort, SessionStoreP
         defer { try? handle.close() }
         try handle.write(contentsOf: Data((
           """
-          sequence,observed_at_ms,slow_observed_at_ms,elapsed_ms,ride_state,package_state,package_mode,footpad_state,stop_condition,setpoint_adjustment,wheelslip,darkride,charging,alert_reason,firmware_fault,pack_voltage_v,duty_cycle,controller_temp_c,motor_temp_c,motor_current_a,battery_current_a,erpm,speed_kph,pitchDeg,balancePitchDeg,rollDeg,directionalMotorCurrentA,filteredMotorCurrentA,requestedBalanceCurrentA,boosterCurrentA,fieldWeakeningCurrentA,footpadAdc1V,footpadAdc2V,remoteInput,setpointDeg,atrSetpointDeg,brakeTiltSetpointDeg,torqueTiltSetpointDeg,turnTiltSetpointDeg,remoteSetpointDeg,atrAccelerationDifferenceErpmPerSecond,atrSpeedBoost,distanceM,odometerM,ampHoursDrawnAh,ampHoursChargedAh,wattHoursDrawnWh,wattHoursChargedWh,batteryLevel,chargingCurrentA,chargingVoltageV,extension_json
+          sequence,observed_at_ms,slow_observed_at_ms,elapsed_ms,ride_state,package_state,package_mode,footpad_state,stop_condition,setpoint_adjustment,wheelslip,darkride,charging,alert_reason,firmware_fault,pack_voltage_v,duty_cycle,controller_temp_c,motor_temp_c,motor_current_a,battery_current_a,erpm,speed_kph,pitchDeg,balancePitchDeg,rollDeg,directionalMotorCurrentA,filteredMotorCurrentA,requestedBalanceCurrentA,boosterCurrentA,fieldWeakeningCurrentA,footpadAdc1V,footpadAdc2V,remoteInput,setpointDeg,atrSetpointDeg,brakeTiltSetpointDeg,torqueTiltSetpointDeg,turnTiltSetpointDeg,remoteSetpointDeg,atrAccelerationDifferenceErpmPerSecond,atrSpeedBoost,distanceM,odometerM,ampHoursDrawnAh,ampHoursChargedAh,wattHoursDrawnWh,wattHoursChargedWh,batteryLevel,chargingCurrentA,chargingVoltageV,extension_json\(includeGpsLocation ? ",gpsAccuracy,gpsLongitude,gpsLatitude" : "")
           """ + "\n"
         ).utf8))
         try database.forEachRow(
@@ -1687,6 +1845,12 @@ public final class SQLiteLogStore: LogStorePort, ProductStorePort, SessionStoreP
               columns.append(String(cString: sqlite3_column_text(statement, Int32(index))))
             }
           }
+          if includeGpsLocation {
+            columns.append(contentsOf: try nearestLocationCSVColumns(
+              database: database,
+              elapsedMs: sqlite3_column_int64(statement, 3)
+            ))
+          }
           try handle.write(contentsOf: Data((columns.joined(separator: ",") + "\n").utf8))
         }
       }
@@ -1695,6 +1859,27 @@ public final class SQLiteLogStore: LogStorePort, ProductStorePort, SessionStoreP
       try? FileManager.default.removeItem(at: output)
       throw error
     }
+  }
+
+  private func nearestLocationCSVColumns(database: Database, elapsedMs: Int64) throws -> [String] {
+    let tolerance = Self.csvLocationToleranceMs
+    return try database.query(
+      """
+      SELECT accuracy_m, longitude, latitude
+      FROM location
+      WHERE monotonic_elapsed_ms BETWEEN ? AND ?
+      ORDER BY ABS(monotonic_elapsed_ms - ?) ASC, location_sequence ASC
+      LIMIT 1
+      """,
+      values: [.integer(elapsedMs - tolerance), .integer(elapsedMs + tolerance), .integer(elapsedMs)],
+      map: { statement in
+        [
+          sqlite3_column_type(statement, 0) == SQLITE_NULL ? "" : String(sqlite3_column_double(statement, 0)),
+          String(sqlite3_column_double(statement, 1)),
+          String(sqlite3_column_double(statement, 2)),
+        ]
+      }
+    ).first ?? ["", "", ""]
   }
 
   @discardableResult
@@ -1850,6 +2035,12 @@ public final class SQLiteLogStore: LogStorePort, ProductStorePort, SessionStoreP
       if values["historyGapThresholdSeconds"] == nil {
         values["historyGapThresholdSeconds"] = NSNull()
       }
+      if values["locationRecordingEnabled"] == nil {
+        values["locationRecordingEnabled"] = false
+      }
+      if values["includeGpsLocationWhenExporting"] == nil {
+        values["includeGpsLocationWhenExporting"] = false
+      }
       if let value = try? Self.validatedSettings(values, revision: stored.0) {
         return value
       }
@@ -1982,7 +2173,8 @@ public final class SQLiteLogStore: LogStorePort, ProductStorePort, SessionStoreP
              committed_elapsed_ms, riding_elapsed_ms, distance_m,
              maximum_speed_kph, maximum_duty_cycle,
              maximum_speed_source_sequence, maximum_duty_source_sequence,
-             last_speed_kph
+             last_speed_kph, committed_location_sequence,
+             committed_location_elapsed_ms, recorded_location_count, stored_location_count, last_location_status
       FROM commit_marker WHERE singleton = 1
       """,
       map: { statement in
@@ -2005,7 +2197,12 @@ public final class SQLiteLogStore: LogStorePort, ProductStorePort, SessionStoreP
             statement,
             11
           ),
-          lastSpeed: Self.columnDouble(statement, 12)
+          lastSpeed: Self.columnDouble(statement, 12),
+          locationSequence: sqlite3_column_int64(statement, 13),
+          locationElapsed: sqlite3_column_int64(statement, 14),
+          locationCount: sqlite3_column_int64(statement, 15),
+          storedLocationCount: sqlite3_column_int64(statement, 16),
+          locationStatus: Self.columnText(statement, 17) ?? "disabled"
         )
       }
     ).first
@@ -2017,7 +2214,8 @@ public final class SQLiteLogStore: LogStorePort, ProductStorePort, SessionStoreP
         riding_elapsed_ms = ?, total_elapsed_ms = ?, distance_m = ?,
         max_speed_mps = ?, max_duty_cycle = ?, max_speed_source_sequence = ?,
         max_duty_source_sequence = ?, last_sample_elapsed_ms = ?,
-        last_speed_mps = ? WHERE job_id = ?
+        last_speed_mps = ?, committed_location_sequence = ?,
+        committed_location_elapsed_ms = ?, location_count = ?, recorded_location_count = ?, stored_location_count = ?, location_status = ? WHERE job_id = ?
       """,
       values: [
         .integer(marker.committedSequence), .integer(marker.eventSequence),
@@ -2028,6 +2226,8 @@ public final class SQLiteLogStore: LogStorePort, ProductStorePort, SessionStoreP
         marker.maxSpeedSequence.map(SQLiteValue.integer) ?? .null,
         marker.maxDutySequence.map(SQLiteValue.integer) ?? .null,
         .integer(marker.elapsed), marker.lastSpeed.map { .real(abs($0) / 3.6) } ?? .null,
+        .integer(marker.locationSequence), .integer(marker.locationElapsed), .integer(marker.locationCount),
+        .integer(marker.locationCount), .integer(marker.storedLocationCount), .text(marker.locationStatus),
         .text(record.jobID.value),
       ]
     )
@@ -2063,7 +2263,9 @@ public final class SQLiteLogStore: LogStorePort, ProductStorePort, SessionStoreP
       """
       SELECT committed_sample_sequence, committed_event_sequence,
              recorded_sample_count, stored_sample_count, committed_event_count,
-             committed_elapsed_ms, history_revision, committed_at_ms
+             committed_elapsed_ms, history_revision, committed_at_ms,
+             committed_location_sequence, committed_location_elapsed_ms,
+             recorded_location_count, stored_location_count, last_location_status
       FROM commit_marker WHERE singleton = 1
       """,
       map: { statement in
@@ -2075,7 +2277,12 @@ public final class SQLiteLogStore: LogStorePort, ProductStorePort, SessionStoreP
           eventCount: sqlite3_column_int64(statement, 4),
           elapsed: sqlite3_column_int64(statement, 5),
           revision: sqlite3_column_int64(statement, 6),
-          committedAt: sqlite3_column_int64(statement, 7)
+          committedAt: sqlite3_column_int64(statement, 7),
+          locationSequence: sqlite3_column_int64(statement, 8),
+          locationElapsed: sqlite3_column_int64(statement, 9),
+          locationCount: sqlite3_column_int64(statement, 10),
+          storedLocationCount: sqlite3_column_int64(statement, 11),
+          locationStatus: Self.columnText(statement, 12) ?? "disabled"
         )
       }
     ).first
@@ -2138,6 +2345,8 @@ public final class SQLiteLogStore: LogStorePort, ProductStorePort, SessionStoreP
         max_speed_mps = ?, max_duty_cycle = ?,
         max_speed_source_sequence = ?, max_duty_source_sequence = ?,
         last_sample_elapsed_ms = ?, last_speed_mps = ?
+        , committed_location_sequence = ?, committed_location_elapsed_ms = ?,
+        location_count = ?, recorded_location_count = ?, stored_location_count = ?, location_status = ?
       WHERE session_id = ? AND job_id = ?
       """,
       values: [
@@ -2148,6 +2357,8 @@ public final class SQLiteLogStore: LogStorePort, ProductStorePort, SessionStoreP
         maxSpeed.map(SQLiteValue.real) ?? .null, maxDuty.map(SQLiteValue.real) ?? .null,
         maxSpeedSequence.map(SQLiteValue.integer) ?? .null, maxDutySequence.map(SQLiteValue.integer) ?? .null,
         lastElapsed.map(SQLiteValue.integer) ?? .null, lastSpeed.map(SQLiteValue.real) ?? .null,
+        .integer(marker.locationSequence), .integer(marker.locationElapsed), .integer(marker.locationCount),
+        .integer(marker.locationCount), .integer(marker.storedLocationCount), .text(marker.locationStatus),
         .text(sessionID), .text(jobID),
       ]
     )
@@ -2509,6 +2720,8 @@ public final class SQLiteLogStore: LogStorePort, ProductStorePort, SessionStoreP
     "themePreference",
     "unitPreference",
     "historyGapThresholdSeconds",
+    "locationRecordingEnabled",
+    "includeGpsLocationWhenExporting",
   ]
 
   private static func settingsDictionary(_ value: SettingsRecord) -> [String: Any] {
@@ -2522,6 +2735,8 @@ public final class SQLiteLogStore: LogStorePort, ProductStorePort, SessionStoreP
       "themePreference": value.themePreference.rawValue,
       "unitPreference": value.unitPreference.rawValue,
       "historyGapThresholdSeconds": value.historyGapThresholdSeconds ?? NSNull(),
+      "locationRecordingEnabled": value.locationRecordingEnabled,
+      "includeGpsLocationWhenExporting": value.includeGpsLocationWhenExporting,
     ]
   }
 
@@ -2564,6 +2779,12 @@ public final class SQLiteLogStore: LogStorePort, ProductStorePort, SessionStoreP
       else { throw ProductStoreError.invalidSettingsPatch }
       return min(3_600, max(0.1, number.doubleValue))
     }
+    func bool(_ key: String) throws -> Bool {
+      guard let number = values[key] as? NSNumber, CFGetTypeID(number) == CFBooleanGetTypeID() else {
+        throw ProductStoreError.invalidSettingsPatch
+      }
+      return number.boolValue
+    }
     return try SettingsRecord(
       revision: revision,
       idleProbeIntervalMs: integer("idleProbeIntervalMs", 100 ... 10_000),
@@ -2574,7 +2795,9 @@ public final class SQLiteLogStore: LogStorePort, ProductStorePort, SessionStoreP
       minimumSessionDistance: double("minimumSessionDistance", 0 ... 1_000_000),
       themePreference: themePreference("themePreference"),
       unitPreference: unitPreference("unitPreference"),
-      historyGapThresholdSeconds: historyGapThresholdSeconds("historyGapThresholdSeconds")
+      historyGapThresholdSeconds: historyGapThresholdSeconds("historyGapThresholdSeconds"),
+      locationRecordingEnabled: bool("locationRecordingEnabled"),
+      includeGpsLocationWhenExporting: bool("includeGpsLocationWhenExporting")
     )
   }
 

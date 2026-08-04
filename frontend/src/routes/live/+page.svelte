@@ -7,11 +7,11 @@
   import DetailedView from '$lib/features/connection/DetailedView.svelte';
   import LiveView from '$lib/features/connection/LiveView.svelte';
   import { shouldConfirmDisconnect } from '$lib/features/connection/live';
-  import { activateFromKeyboardOrAssistiveClick, activateFromPointer } from '$lib/ui/activation';
   import BottomSheet from '$lib/ui/BottomSheet.svelte';
   import ConfirmDialog from '$lib/ui/ConfirmDialog.svelte';
   import MenuItem from '$lib/ui/MenuItem.svelte';
   import StickyHeader from '$lib/ui/StickyHeader.svelte';
+  import { activateFromKeyboardOrAssistiveClick, activateFromPointer } from '$lib/ui/activation';
 
   const viewOptions = [
     { type: 'normal', displayName: 'Normal View' },
@@ -37,6 +37,9 @@
     const currentIndex = viewOptions.findIndex((option) => option.type === view);
     return viewOptions[(currentIndex + 1) % viewOptions.length] ?? viewOptions[0];
   });
+
+  const location = $derived(backendState.snapshot?.location);
+  const locationNeedsAction = $derived(Boolean(location && location.status !== 'authorized'));
 
   // TODO: translate this into a display name we can show in the UI
   const deviceState = $derived.by(() => {
@@ -75,6 +78,14 @@
       void goto('#/', { replaceState: true });
     }
   });
+
+  function activateLocation() {
+    if (location?.status === 'disabled') {
+      void backendState.updateSessionSettings({ locationRecordingEnabled: true });
+    } else {
+      void backendState.requestLocationPermission();
+    }
+  }
 
   function isSafeState(states: Set<string>) {
     return states.has('switchHalf') || states.has('reverseStop') || states.has('quickStop');
@@ -164,36 +175,29 @@
       {/snippet}
     </StickyHeader>
 
-    <div class="shrink-0 space-y-2">
-      {#if connection.firmware && !connection.firmware.supported}
-        <div class="rounded-xl border border-warning/50 bg-warning/10 p-3 text-sm text-warning">
-          Firmware {connection.firmware.vescVersion} / {connection.firmware.packageVersion} is not supported. Live values
-          may be incomplete.
-        </div>
-      {/if}
-      {#if connection.connectionIssue}
-        <div class="rounded-xl border border-warning/50 bg-warning/10 p-3 text-sm text-warning">
-          <p>{connection.connectionIssue.message}</p>
-          {#if connection.state === 'failed'}
-            <button
-              type="button"
-              class="mt-3 touch-manipulation rounded-md border border-warning/60 px-3 py-2 font-medium"
-              disabled={backendState.busy}
-              onpointerdown={(event) =>
-                activateFromPointer(event, async () => {
-                  await backendState.connectDevice(connection.deviceId);
-                })}
-              onclick={(event) =>
-                activateFromKeyboardOrAssistiveClick(event, async () => {
-                  await backendState.connectDevice(connection.deviceId);
-                })}
-            >
-              {backendState.busy ? 'Retrying…' : 'Retry connection'}
-            </button>
-          {/if}
-        </div>
-      {/if}
-    </div>
+    {#if locationNeedsAction && location}
+      <div
+        class="flex items-center justify-between gap-3 rounded-lg border border-warning/40 bg-warning/10 px-3 py-2 text-sm"
+      >
+        <span>
+          {location.status === 'disabled'
+            ? 'Record this ride location?'
+            : (location.reason ?? 'Location recording is unavailable.')}
+        </span>
+        <button
+          type="button"
+          class="touch-manipulation rounded border border-warning px-2 py-1 text-warning"
+          onpointerdown={(event) => activateFromPointer(event, activateLocation)}
+          onclick={(event) => activateFromKeyboardOrAssistiveClick(event, activateLocation)}
+        >
+          {location.status === 'disabled'
+            ? 'Enable'
+            : location.permissionAction === 'openSettings'
+              ? 'Settings'
+              : 'Allow'}
+        </button>
+      </div>
+    {/if}
 
     {#if view === 'normal'}
       <div class="min-h-0 flex-1 overflow-hidden">
@@ -208,13 +212,37 @@
   {#if backendState.error}<p role="alert" class="shrink-0 text-warning">{backendState.error}</p>{/if}
 </section>
 
+{#if connection}
+  <ConfirmDialog
+    open={Boolean(connection?.connectionIssue)}
+    titleId="connection-issue-confirmation-title"
+    title="Connection issue"
+    description={connection?.connectionIssue?.message ?? 'An unknown connection issue occurred.'}
+    confirmLabel="Retry"
+    appearance="warning"
+    onconfirm={async () => { await backendState.connectDevice(connection.deviceId); }}
+    oncancel={() => {}}
+  />
+
+  <ConfirmDialog
+    open={Boolean(connection.firmware && !connection.firmware.supported)}
+    titleId="firmware-unsupported-confirmation-title"
+    title="Firmware unsupported"
+    description="Firmware {connection.firmware?.vescVersion} / {connection.firmware?.packageVersion} is not supported. Live values may be incomplete."
+    confirmLabel="Continue"
+    appearance="warning"
+    onconfirm={() => {}}
+    oncancel={disconnect}
+  />
+{/if}
+
 <ConfirmDialog
   open={disconnectConfirmationOpen}
   titleId="disconnect-confirmation-title"
   title="Disconnect board?"
   description="The board is not idle. This will stop the active session and disconnect the board."
   confirmLabel="Disconnect"
-  destructive
+  appearance="destructive"
   busy={disconnecting}
   onconfirm={disconnect}
   oncancel={cancelDisconnect}

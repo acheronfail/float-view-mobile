@@ -18,6 +18,7 @@
     aria-label="Live board widgets"
     class="grid h-full min-h-0 grid-rows-[minmax(4rem,auto)_minmax(0,1fr)_auto_auto] gap-2"
   >
+
     <div class:opacity-45={dimmed} class="min-h-0 overflow-hidden transition-opacity">
       <WidgetFootpads {sample} />
     </div>

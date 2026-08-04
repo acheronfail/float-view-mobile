@@ -250,6 +250,58 @@ private func executeSQLite(database: URL, sql: String) throws {
   ).count > boundedEvents.count)
 }
 
+@Test func locationRowsUseIndependentBoundariesAndExplicitGaps() throws {
+  let root = FileManager.default.temporaryDirectory
+    .appending(path: "float-view-location-\(UUID().uuidString)")
+  defer { try? FileManager.default.removeItem(at: root) }
+  let store = try SQLiteLogStore(
+    root: root,
+    schemaDirectory: repositoryRoot().appending(path: "sql"),
+    availableBytes: { 2_000_000_000 }
+  )
+  let startedAt = Date(timeIntervalSince1970: 1_700_200_000)
+  let record = try store.create(deviceID: DeviceID("location-fixture"), at: startedAt)
+  try store.append(jobID: record.jobID, samples: [
+    TelemetrySample(sequence: 1, observedAt: startedAt, elapsedMs: 0, rideState: .idle),
+    TelemetrySample(sequence: 2, observedAt: startedAt, elapsedMs: 10_000, rideState: .riding),
+    TelemetrySample(sequence: 3, observedAt: startedAt, elapsedMs: 20_000, rideState: .riding),
+    TelemetrySample(sequence: 4, observedAt: startedAt, elapsedMs: 50_000, rideState: .riding),
+  ])
+  try store.appendLocations(jobID: record.jobID, observations: [
+    LocationObservation(observedAt: startedAt, elapsedMs: 10_000, latitude: -33.8, longitude: 151.2, accuracyM: nil),
+    LocationObservation(observedAt: startedAt, elapsedMs: 20_000, latitude: -33.81, longitude: 151.21, accuracyM: 4),
+    LocationObservation(observedAt: startedAt, elapsedMs: 50_000, latitude: -33.82, longitude: 151.22, accuracyM: 8),
+    LocationObservation(observedAt: startedAt, elapsedMs: 50_000, latitude: -33.82, longitude: 151.22, accuracyM: 8),
+  ])
+  let snapshot = try store.sessionSnapshot(sessionID: record.sessionID.value)
+  #expect(snapshot.committedLocationSequence == 3)
+  #expect(snapshot.recordedLocationCount == 3)
+  let first = try store.queryLocations(
+    sessionID: record.sessionID.value, startElapsedMs: 0, endElapsedMs: 50_000,
+    limit: 2, cursor: nil, publishedLocationSequence: snapshot.committedLocationSequence
+  )
+  #expect(first.points.map(\.locationSequence) == [1, 2])
+  #expect(first.nextCursor != nil)
+  let second = try store.queryLocations(
+    sessionID: record.sessionID.value, startElapsedMs: 0, endElapsedMs: 50_000,
+    limit: 2, cursor: first.nextCursor, publishedLocationSequence: snapshot.committedLocationSequence
+  )
+  #expect(second.points.map(\.locationSequence) == [3])
+  #expect(first.gaps.isEmpty)
+  #expect(second.gaps.isEmpty)
+  let complete = try store.queryLocations(
+    sessionID: record.sessionID.value, startElapsedMs: 0, endElapsedMs: 50_000,
+    limit: 3, cursor: nil, publishedLocationSequence: snapshot.committedLocationSequence
+  )
+  #expect(complete.gaps.map(\.reason) == ["noFix"])
+  #expect(throws: SessionStoreError.invalidRange) {
+    _ = try store.queryLocations(
+      sessionID: record.sessionID.value, startElapsedMs: 0, endElapsedMs: 50_000,
+      limit: 2, cursor: nil, publishedLocationSequence: 2
+    )
+  }
+}
+
 @Test func representativeHistoricalQueriesUseElapsedIndexes() throws {
   let root = FileManager.default.temporaryDirectory
     .appending(path: "float-view-query-plans-\(UUID().uuidString)")

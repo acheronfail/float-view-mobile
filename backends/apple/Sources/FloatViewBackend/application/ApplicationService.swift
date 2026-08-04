@@ -8,6 +8,7 @@ public final class ApplicationService: @unchecked Sendable {
   private let sessionStore: (any SessionStorePort)?
   private let protocolCodec: VescProtocolPort?
   private let scheduler: (any SchedulerPort)?
+  private let locationProvider: (any LocationProviderPort)?
   private let events: EventSink
   private var reconnectDurationMs: Int64
   private var idleProbeIntervalMs: Int64
@@ -29,6 +30,9 @@ public final class ApplicationService: @unchecked Sendable {
   private var sessionFirmware: FirmwareRecord?
   private var sessionRefloatPackageVersion: String?
   private var latestPersistedSample: TelemetrySample?
+  private var locationCaptureStartedMonotonicMs: Int64?
+  private var locationCaptureBaseElapsedMs: Int64 = 0
+  private var locationCaptureActive = false
   private var currentLimits: ControllerCurrentLimits?
   private var reconnectTimer: (any CancellationPort)?
   private var reconnectStartedAtMs: Int64?
@@ -78,7 +82,8 @@ public final class ApplicationService: @unchecked Sendable {
     protocolCodec: VescProtocolPort? = nil,
     scheduler: (any SchedulerPort)? = nil,
     events: EventSink,
-    samplingSettings: SamplingSettings = .init()
+    samplingSettings: SamplingSettings = .init(),
+    locationProvider: (any LocationProviderPort)? = nil
   ) {
     self.bluetooth = bluetooth
     self.clock = clock
@@ -87,6 +92,7 @@ public final class ApplicationService: @unchecked Sendable {
     self.sessionStore = sessionStore
     self.protocolCodec = protocolCodec
     self.scheduler = scheduler
+    self.locationProvider = locationProvider
     self.events = events
     reconnectDurationMs = samplingSettings.reconnectDurationMs
     idleProbeIntervalMs = samplingSettings.idleProbeIntervalMs
@@ -180,6 +186,34 @@ public final class ApplicationService: @unchecked Sendable {
     return try productStore.settings()
   }
 
+  public func locationState() -> LocationProviderState {
+    let enabled = (try? productStore?.settings().locationRecordingEnabled) ?? false
+    guard enabled else {
+      return LocationProviderState(
+        authorization: .unavailable,
+        backgroundCapture: .unavailable,
+        reason: nil
+      )
+    }
+    return locationProvider?.state() ?? LocationProviderState(
+      authorization: .unavailable,
+      backgroundCapture: .unavailable,
+      reason: "This host does not provide location capture."
+    )
+  }
+
+  @discardableResult
+  public func requestLocationPermission() -> LocationProviderState {
+    locationProvider?.requestPermission()
+    return locationState()
+  }
+
+  @discardableResult
+  public func openLocationSettings() -> LocationProviderState {
+    locationProvider?.openSettings()
+    return locationState()
+  }
+
   public func updateSettings(
     expectedRevision: Int,
     patchJSON: String
@@ -203,6 +237,11 @@ public final class ApplicationService: @unchecked Sendable {
         idleIntervalMs: value.idleProbeIntervalMs,
         postRideTailMs: value.postRideTailMs
       )
+      if !value.locationRecordingEnabled {
+        stopLocationCapture()
+      } else {
+        locationProvider?.requestPermission()
+      }
     }
     events.publish(value)
     return value
@@ -315,6 +354,25 @@ public final class ApplicationService: @unchecked Sendable {
     return try sessionStore.sessionEvents(
       sessionID: sessionID, startElapsedMs: startElapsedMs, endElapsedMs: endElapsedMs,
       publishedEventSequence: publishedEventSequence
+    )
+  }
+
+  public func querySessionLocations(
+    sessionID: String,
+    startElapsedMs: Int64,
+    endElapsedMs: Int64,
+    limit: Int,
+    cursor: String?,
+    publishedLocationSequence: Int64?
+  ) throws -> SessionLocationPageRecord {
+    guard let sessionStore else { throw ApplicationError.productStoreUnavailable }
+    return try sessionStore.queryLocations(
+      sessionID: sessionID,
+      startElapsedMs: startElapsedMs,
+      endElapsedMs: endElapsedMs,
+      limit: limit,
+      cursor: cursor,
+      publishedLocationSequence: publishedLocationSequence
     )
   }
 
@@ -586,6 +644,7 @@ public final class ApplicationService: @unchecked Sendable {
     cancelReconnect()
     telemetryPolling.cancelLayout()
     telemetryPolling.stop()
+    stopLocationCapture()
     if let active = logStore.active() {
       try events.publish(
         logStore.close(jobID: active.jobID, at: clock.now(), reason: "explicit_disconnect")
@@ -598,10 +657,67 @@ public final class ApplicationService: @unchecked Sendable {
     lock.lock()
     defer { lock.unlock() }
     guard connectionState == .ready, let active = logStore.active() else { return }
+    updateLocationCapture(rideState: sample.rideState)
     if sampling.shouldPersist(rideState: sample.rideState, elapsedMs: sample.elapsedMs) {
       try logStore.append(jobID: active.jobID, samples: [sample])
       latestPersistedSample = sample
       events.publish(sample)
+    }
+  }
+
+  private func updateLocationCapture(rideState: RideState) {
+    guard let locationProvider,
+          let productStore,
+          let settings = try? productStore.settings(),
+          settings.locationRecordingEnabled,
+          rideState == .riding,
+          let active = logStore.active()
+    else {
+      stopLocationCapture()
+      return
+    }
+    let providerState = locationProvider.state()
+    guard providerState.authorization == .authorized || providerState.authorization == .foregroundOnly else {
+      stopLocationCapture()
+      return
+    }
+    guard !locationCaptureActive else { return }
+    locationCaptureActive = true
+    locationCaptureStartedMonotonicMs = clock.monotonicMilliseconds()
+    locationCaptureBaseElapsedMs = latestPersistedSample?.elapsedMs ?? 0
+    locationProvider.startUpdates { [weak self] observation in
+      self?.ingestLocation(observation, jobID: active.jobID)
+    }
+  }
+
+  private func stopLocationCapture() {
+    guard locationCaptureActive else { return }
+    locationCaptureActive = false
+    locationCaptureStartedMonotonicMs = nil
+    locationProvider?.stopUpdates()
+  }
+
+  private func ingestLocation(_ observation: LocationProviderObservation, jobID: JobID) {
+    lock.lock()
+    defer { lock.unlock() }
+    guard locationCaptureActive,
+          let started = locationCaptureStartedMonotonicMs,
+          logStore.active()?.jobID == jobID
+    else { return }
+    let elapsedMs = locationCaptureBaseElapsedMs + max(0, clock.monotonicMilliseconds() - started)
+    do {
+      try logStore.appendLocations(
+        jobID: jobID,
+        observations: [LocationObservation(
+          observedAt: observation.observedAt,
+          elapsedMs: elapsedMs,
+          latitude: observation.latitude,
+          longitude: observation.longitude,
+          accuracyM: observation.accuracyM
+        )]
+      )
+    } catch {
+      events.publish(String(describing: error))
     }
   }
 

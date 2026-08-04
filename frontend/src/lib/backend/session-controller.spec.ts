@@ -25,7 +25,15 @@ const metadata: SessionMetadata = {
   recordedSampleCount: 2,
   storedSampleCount: 2,
   prune: { targetResolutionSeconds: null, recordedSampleCount: 2, storedSampleCount: 2, policy: null },
-  snapshot: { historyRevision: 1, committedSampleSequence: 1, committedEventSequence: 0, committedElapsedMs: 60_000 },
+  snapshot: {
+    historyRevision: 1,
+    committedSampleSequence: 1,
+    committedEventSequence: 0,
+    committedElapsedMs: 60_000,
+    committedLocationSequence: 0,
+    committedLocationElapsedMs: 0,
+  },
+  location: { available: false, count: 0, lastSequence: 0, lastElapsedMs: 0, status: 'disabled' },
 };
 
 function clientWithResponses() {

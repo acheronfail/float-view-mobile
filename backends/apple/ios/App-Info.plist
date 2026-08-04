@@ -31,6 +31,10 @@
 	<string>This app uses Bluetooth to communicate with VESC devices.</string>
 	<key>NSBluetoothPeripheralUsageDescription</key>
 	<string>This app uses Bluetooth to communicate with VESC devices.</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>Float View records an optional ride route while you are riding.</string>
+	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+	<string>Float View records an optional ride route while the app is backgrounded during a ride.</string>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
 	<key>UIFileSharingEnabled</key>
@@ -38,6 +42,7 @@
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>bluetooth-central</string>
+		<string>location</string>
 	</array>
 	<key>UILaunchScreen</key>
 	<dict/>

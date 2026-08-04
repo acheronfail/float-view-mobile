@@ -67,6 +67,7 @@ const sessionFields = Object.keys(detailedSeriesValues({})).map((name) => ({
 }));
 
 function sessionMetadata(summary: SessionSummary): SessionMetadata {
+  const hasLocation = summary.sessionId === 'session-1';
   return {
     summary,
     fields: sessionFields,
@@ -84,7 +85,12 @@ function sessionMetadata(summary: SessionSummary): SessionMetadata {
       committedSampleSequence: Math.max(0, summary.sampleCount - 1),
       committedEventSequence: Math.max(0, summary.eventCount - 1),
       committedElapsedMs: summary.totalElapsedMs,
+      committedLocationSequence: hasLocation ? 3 : 0,
+      committedLocationElapsedMs: hasLocation ? 50_000 : 0,
     },
+    location: hasLocation
+      ? { available: true, count: 3, lastSequence: 3, lastElapsedMs: 50_000, status: 'available' }
+      : { available: false, count: 0, lastSequence: 0, lastElapsedMs: 0, status: 'disabled' },
   };
 }
 
@@ -171,6 +177,14 @@ export class MockBackend {
       themePreference: 'system',
       unitPreference: 'metric',
       historyGapThresholdSeconds: null,
+      locationRecordingEnabled: false,
+      includeGpsLocationWhenExporting: false,
+    },
+    location: {
+      status: 'disabled',
+      permissionAction: 'requestPermission',
+      backgroundCapture: 'unavailable',
+      reason: null,
     },
     sessionOperation: null,
   };
@@ -212,6 +226,21 @@ export class MockBackend {
         return success(id, this.state);
       case 'bluetooth.requestPermission':
         return success(id, this.state.bluetooth);
+      case 'location.requestPermission': {
+        const location = {
+          ...this.state.location,
+          status: this.state.settings.locationRecordingEnabled ? ('authorized' as const) : ('disabled' as const),
+          permissionAction: this.state.settings.locationRecordingEnabled ? null : ('requestPermission' as const),
+          backgroundCapture: this.state.settings.locationRecordingEnabled
+            ? ('available' as const)
+            : ('unavailable' as const),
+          reason: null,
+        };
+        this.change({ ...this.state, location });
+        return success(id, location);
+      }
+      case 'location.openSettings':
+        return success(id, this.state.location);
       case 'bluetooth.scan':
         this.change({
           ...this.state,
@@ -388,6 +417,8 @@ export class MockBackend {
           'themePreference',
           'unitPreference',
           'historyGapThresholdSeconds',
+          'locationRecordingEnabled',
+          'includeGpsLocationWhenExporting',
         ]);
         const historyGap = patch.historyGapThresholdSeconds;
         if (
@@ -397,7 +428,12 @@ export class MockBackend {
           ('unitPreference' in patch && !['metric', 'imperial'].includes(String(patch.unitPreference))) ||
           ('historyGapThresholdSeconds' in patch &&
             historyGap !== null &&
-            (typeof historyGap !== 'number' || !Number.isFinite(historyGap) || historyGap < 0.1 || historyGap > 3_600))
+            (typeof historyGap !== 'number' ||
+              !Number.isFinite(historyGap) ||
+              historyGap < 0.1 ||
+              historyGap > 3_600)) ||
+          ('locationRecordingEnabled' in patch && typeof patch.locationRecordingEnabled !== 'boolean') ||
+          ('includeGpsLocationWhenExporting' in patch && typeof patch.includeGpsLocationWhenExporting !== 'boolean')
         ) {
           return failure(id, 'invalid_request', 'Settings patch is invalid');
         }
@@ -406,7 +442,20 @@ export class MockBackend {
           ...patch,
           revision: this.state.settings.revision + 1,
         };
-        this.change({ ...this.state, settings });
+        const location = settings.locationRecordingEnabled
+          ? {
+              ...this.state.location,
+              status:
+                this.state.location.status === 'disabled' ? ('notDetermined' as const) : this.state.location.status,
+              permissionAction: this.state.location.status === 'authorized' ? null : ('requestPermission' as const),
+            }
+          : {
+              ...this.state.location,
+              status: 'disabled' as const,
+              permissionAction: 'requestPermission' as const,
+              backgroundCapture: 'unavailable' as const,
+            };
+        this.change({ ...this.state, settings, location });
         return success(id, settings);
       }
       case 'boardProfile.get': {

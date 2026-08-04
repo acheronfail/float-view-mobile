@@ -66,6 +66,12 @@ CREATE TABLE IF NOT EXISTS session_catalog (
   max_duty_source_sequence INTEGER,
   last_sample_elapsed_ms INTEGER,
   last_speed_mps REAL,
+  committed_location_sequence INTEGER NOT NULL DEFAULT 0,
+  committed_location_elapsed_ms INTEGER NOT NULL DEFAULT 0,
+  location_count INTEGER NOT NULL DEFAULT 0,
+  recorded_location_count INTEGER NOT NULL DEFAULT 0,
+  stored_location_count INTEGER NOT NULL DEFAULT 0,
+  location_status TEXT NOT NULL DEFAULT 'disabled',
   pending_delete INTEGER NOT NULL DEFAULT 0 CHECK (pending_delete IN (0, 1))
 );
 CREATE INDEX IF NOT EXISTS session_catalog_device_started

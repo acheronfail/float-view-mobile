@@ -10,6 +10,7 @@ import fail.acheron.floatview.backend.BoardProfileRecord
 import fail.acheron.floatview.backend.ControllerRoutingHint
 import fail.acheron.floatview.backend.JobId
 import fail.acheron.floatview.backend.LogStorePort
+import fail.acheron.floatview.backend.LocationObservation
 import fail.acheron.floatview.backend.ProductStoreException
 import fail.acheron.floatview.backend.ProductStorePort
 import fail.acheron.floatview.backend.SavedDeviceRecord
@@ -24,6 +25,9 @@ import fail.acheron.floatview.backend.SessionRecord
 import fail.acheron.floatview.backend.SessionSeriesPoint
 import fail.acheron.floatview.backend.SessionSeriesReductionRecord
 import fail.acheron.floatview.backend.SessionPublishedSnapshotRecord
+import fail.acheron.floatview.backend.SessionLocationGapRecord
+import fail.acheron.floatview.backend.SessionLocationPageRecord
+import fail.acheron.floatview.backend.SessionLocationPointRecord
 import fail.acheron.floatview.backend.SessionHistoryConfiguration
 import fail.acheron.floatview.backend.SessionHistoryReducer
 import fail.acheron.floatview.backend.SessionPruneMetadataRecord
@@ -422,6 +426,59 @@ class SQLiteLogStore(
     }
 
     @Synchronized
+    override fun appendLocations(jobId: JobId, observations: List<LocationObservation>) {
+        val record = requireNotNull(current) { "No active session" }
+        require(record.jobId == jobId) { "Wrong logging job" }
+        if (observations.isEmpty()) return
+        val db = requireNotNull(sessionDb)
+        val ordered = observations.sortedWith(compareBy<LocationObservation> { it.elapsedMs }.thenBy { it.observedAt })
+        db.beginTransaction()
+        var lastSequence = 0L
+        var acceptedCount = 0
+        try {
+            var sequence = DatabaseUtils.longForQuery(db, "SELECT COALESCE(MAX(location_sequence), 0) FROM location", null)
+            ordered.forEach { observation ->
+                require(observation.elapsedMs >= 0 && observation.latitude in -90.0..90.0 && observation.longitude in -180.0..180.0)
+                require(observation.accuracyM == null || observation.accuracyM.isFinite() && observation.accuracyM >= 0.0)
+                val duplicate = DatabaseUtils.longForQuery(
+                    db,
+                    "SELECT EXISTS(SELECT 1 FROM location WHERE monotonic_elapsed_ms = ? AND latitude = ? AND longitude = ?)",
+                    arrayOf(observation.elapsedMs.toString(), observation.latitude.toString(), observation.longitude.toString()),
+                ) == 1L
+                if (duplicate) return@forEach
+                sequence += 1
+                db.execSQL(
+                    "INSERT INTO location(location_sequence, observed_at_ms, monotonic_elapsed_ms, latitude, longitude, accuracy_m) VALUES (?, ?, ?, ?, ?, ?)",
+                    arrayOf(sequence, observation.observedAt.toEpochMilli(), observation.elapsedMs, observation.latitude, observation.longitude, observation.accuracyM),
+                )
+                lastSequence = sequence
+                acceptedCount += 1
+            }
+            if (lastSequence > 0) {
+                val lastElapsed = DatabaseUtils.longForQuery(db, "SELECT monotonic_elapsed_ms FROM location WHERE location_sequence = ?", arrayOf(lastSequence.toString()))
+                db.execSQL(
+                    "UPDATE commit_marker SET committed_location_sequence = ?, committed_location_elapsed_ms = ?, recorded_location_count = recorded_location_count + ?, stored_location_count = (SELECT COUNT(*) FROM location), last_location_status = 'available' WHERE singleton = 1",
+                    arrayOf(lastSequence, lastElapsed, acceptedCount),
+                )
+            }
+            db.setTransactionSuccessful()
+        } finally {
+            db.endTransaction()
+        }
+        val marker = db.rawQuery(
+            "SELECT committed_location_sequence, committed_location_elapsed_ms, recorded_location_count, stored_location_count, last_location_status FROM commit_marker WHERE singleton = 1",
+            null,
+        ).use { cursor ->
+            check(cursor.moveToFirst())
+            arrayOf(cursor.getLong(0), cursor.getLong(1), cursor.getLong(2), cursor.getLong(3), cursor.getString(4))
+        }
+        catalog.writableDatabase.execSQL(
+            "UPDATE session_catalog SET committed_location_sequence = ?, committed_location_elapsed_ms = ?, location_count = ?, recorded_location_count = ?, stored_location_count = ?, location_status = ? WHERE job_id = ?",
+            arrayOf(marker[0], marker[1], marker[2], marker[2], marker[3], marker[4], jobId.value),
+        )
+    }
+
+    @Synchronized
     override fun close(jobId: JobId, at: Instant, reason: String): SessionRecord {
         val record = requireNotNull(current) { "No active session" }
         require(record.jobId == jobId) { "Wrong logging job" }
@@ -566,7 +623,9 @@ class SQLiteLogStore(
         return catalog.writableDatabase.rawQuery(
             """
             SELECT history_revision, committed_sequence, committed_event_sequence,
-                   committed_elapsed_ms, sample_count, stored_sample_count
+                   committed_elapsed_ms, sample_count, stored_sample_count,
+                   committed_location_sequence, committed_location_elapsed_ms,
+                   location_count, recorded_location_count, stored_location_count, location_status
             FROM session_catalog WHERE session_id = ? AND pending_delete = 0
             """.trimIndent(),
             arrayOf(sessionId),
@@ -579,6 +638,11 @@ class SQLiteLogStore(
                 committedElapsedMs = cursor.getLong(3),
                 recordedSampleCount = cursor.getLong(4),
                 storedSampleCount = cursor.getLong(5),
+                committedLocationSequence = cursor.getLong(6),
+                committedLocationElapsedMs = cursor.getLong(7),
+                recordedLocationCount = cursor.getLong(9),
+                storedLocationCount = cursor.getLong(10),
+                locationStatus = cursor.getString(11),
             )
         }
     }
@@ -671,6 +735,10 @@ class SQLiteLogStore(
                 }
                 db.execSQL("DELETE FROM sample WHERE sequence NOT IN (SELECT sequence FROM prune_keep)")
                 db.execSQL(
+                    "DELETE FROM location WHERE NOT EXISTS (SELECT 1 FROM sample WHERE ABS(sample.monotonic_elapsed_ms - location.monotonic_elapsed_ms) <= ?)",
+                    arrayOf(targetResolutionSeconds * 1_000),
+                )
+                db.execSQL(
                     """
                     UPDATE session_metadata SET pruned_at_ms = ?, retained_resolution_seconds = ?,
                       prune_policy = 'm4-source-v1'
@@ -681,6 +749,7 @@ class SQLiteLogStore(
                 db.execSQL(
                     """
                     UPDATE commit_marker SET stored_sample_count = (SELECT COUNT(*) FROM sample),
+                      stored_location_count = (SELECT COUNT(*) FROM location),
                       history_revision = history_revision + 1, committed_at_ms = ?
                     WHERE singleton = 1
                     """.trimIndent(),
@@ -1075,6 +1144,88 @@ class SQLiteLogStore(
         }
     }
 
+    override fun queryLocations(
+        sessionId: String,
+        startElapsedMs: Long,
+        endElapsedMs: Long,
+        limit: Int,
+        cursor: String?,
+        publishedLocationSequence: Long?,
+    ): SessionLocationPageRecord {
+        if (startElapsedMs > endElapsedMs || limit !in 1..2_000) throw SessionStoreException.InvalidRange
+        val snapshot = sessionSnapshot(sessionId)
+        if (publishedLocationSequence != null && publishedLocationSequence != snapshot.committedLocationSequence) {
+            throw SessionStoreException.InvalidRange
+        }
+        val afterSequence = cursor?.let {
+            try {
+                val value = JSONObject(String(Base64.decode(it, Base64.DEFAULT), Charsets.UTF_8))
+                require(value.getString("sessionId") == sessionId)
+                require(value.getLong("startElapsedMs") == startElapsedMs)
+                require(value.getLong("endElapsedMs") == endElapsedMs)
+                require(value.getLong("historyRevision") == snapshot.historyRevision)
+                require(value.getLong("locationSequence") >= 0)
+                value.getLong("locationSequence")
+            } catch (_: Exception) {
+                throw SessionStoreException.InvalidCursor
+            }
+        } ?: 0L
+        return withReadLease(sessionId) { db, cancellationSignal ->
+            val predicates = mutableListOf("monotonic_elapsed_ms BETWEEN ? AND ?")
+            val args = mutableListOf(startElapsedMs.toString(), endElapsedMs.toString())
+            publishedLocationSequence?.let {
+                predicates += "location_sequence <= ?"
+                args += it.toString()
+            }
+            if (afterSequence > 0) {
+                predicates += "location_sequence > ?"
+                args += afterSequence.toString()
+            }
+            args += (limit + 1).toString()
+            val rows = db.rawQuery(
+                """
+                SELECT location_sequence, monotonic_elapsed_ms, latitude, longitude, accuracy_m, observed_at_ms
+                FROM location WHERE ${predicates.joinToString(" AND ")}
+                ORDER BY monotonic_elapsed_ms, location_sequence LIMIT ?
+                """.trimIndent(),
+                args.toTypedArray(),
+                cancellationSignal,
+            ).use { cursorValue ->
+                buildList {
+                    while (cursorValue.moveToNext()) add(
+                        SessionLocationPointRecord(
+                            locationSequence = cursorValue.getLong(0),
+                            elapsedMs = cursorValue.getLong(1),
+                            latitude = cursorValue.getDouble(2),
+                            longitude = cursorValue.getDouble(3),
+                            accuracyM = if (cursorValue.isNull(4)) null else cursorValue.getDouble(4),
+                            observedAt = Instant.ofEpochMilli(cursorValue.getLong(5)),
+                        ),
+                    )
+                }
+            }
+            val page = rows.take(limit)
+            val gaps = page.zipWithNext().mapNotNull { (left, right) ->
+                if (right.elapsedMs - left.elapsedMs > 10_000) {
+                    SessionLocationGapRecord(left.elapsedMs + 1, right.elapsedMs - 1, "noFix")
+                } else null
+            }
+            val nextCursor = if (rows.size > limit && page.isNotEmpty()) {
+                Base64.encodeToString(
+                    JSONObject()
+                        .put("sessionId", sessionId)
+                        .put("startElapsedMs", startElapsedMs)
+                        .put("endElapsedMs", endElapsedMs)
+                        .put("historyRevision", snapshot.historyRevision)
+                        .put("locationSequence", page.last().locationSequence)
+                        .toString().toByteArray(Charsets.UTF_8),
+                    Base64.NO_WRAP,
+                )
+            } else null
+            SessionLocationPageRecord(page, gaps, nextCursor, snapshot)
+        }
+    }
+
     override fun sessionExtensionFields(sessionId: String): List<String> =
         withReadLease(sessionId) { db, cancellationSignal ->
             db.rawQuery(
@@ -1449,7 +1600,7 @@ class SQLiteLogStore(
             openSession(sessionId).use { session ->
                 executePragma(session, "PRAGMA wal_checkpoint(FULL)")
                 if (format == "csv") {
-                    writeCsv(session, output)
+                    writeCsv(session, output, settings(db).includeGpsLocationWhenExporting)
                 }
             }
             if (format == "float-view-archive") {
@@ -1655,6 +1806,12 @@ class SQLiteLogStore(
                     if (!values.has("historyGapThresholdSeconds")) {
                         values.put("historyGapThresholdSeconds", JSONObject.NULL)
                     }
+                    if (!values.has("locationRecordingEnabled")) {
+                        values.put("locationRecordingEnabled", false)
+                    }
+                    if (!values.has("includeGpsLocationWhenExporting")) {
+                        values.put("includeGpsLocationWhenExporting", false)
+                    }
                     validatedSettings(values, values.optInt("revision", 0))
                 } catch (_: Exception) {
                     null
@@ -1683,6 +1840,8 @@ class SQLiteLogStore(
         .put("themePreference", value.themePreference.wireValue)
         .put("unitPreference", value.unitPreference.wireValue)
         .put("historyGapThresholdSeconds", value.historyGapThresholdSeconds ?: JSONObject.NULL)
+        .put("locationRecordingEnabled", value.locationRecordingEnabled)
+        .put("includeGpsLocationWhenExporting", value.includeGpsLocationWhenExporting)
 
     private fun validatedSettings(values: JSONObject, revision: Int): SettingsRecord {
         fun integer(name: String, range: LongRange): Long {
@@ -1715,6 +1874,11 @@ class SQLiteLogStore(
             if (!value.isFinite()) throw ProductStoreException.InvalidSettingsPatch
             return value.coerceIn(0.1..3_600.0)
         }
+        fun boolean(name: String): Boolean {
+            val raw = values.opt(name)
+            if (raw !is Boolean) throw ProductStoreException.InvalidSettingsPatch
+            return raw
+        }
         return SettingsRecord(
             revision = revision,
             idleProbeIntervalMs = integer("idleProbeIntervalMs", 100L..10_000L),
@@ -1726,6 +1890,8 @@ class SQLiteLogStore(
             themePreference = themePreference("themePreference"),
             unitPreference = unitPreference("unitPreference"),
             historyGapThresholdSeconds = historyGapThresholdSeconds("historyGapThresholdSeconds"),
+            locationRecordingEnabled = boolean("locationRecordingEnabled"),
+            includeGpsLocationWhenExporting = boolean("includeGpsLocationWhenExporting"),
         )
     }
 
@@ -1755,7 +1921,7 @@ class SQLiteLogStore(
             }
     }
 
-    private fun writeCsv(db: SQLiteDatabase, output: File) {
+    private fun writeCsv(db: SQLiteDatabase, output: File, includeGpsLocation: Boolean) {
         BufferedWriter(OutputStreamWriter(FileOutputStream(output), Charsets.UTF_8), 64 * 1024).use { writer ->
             writer.appendLine(
                 "sequence,observed_at_ms,slow_observed_at_ms,elapsed_ms,ride_state," +
@@ -1770,7 +1936,8 @@ class SQLiteLogStore(
                     "turnTiltSetpointDeg,remoteSetpointDeg," +
                     "atrAccelerationDifferenceErpmPerSecond,atrSpeedBoost,distanceM,odometerM," +
                     "ampHoursDrawnAh,ampHoursChargedAh,wattHoursDrawnWh,wattHoursChargedWh," +
-                    "batteryLevel,chargingCurrentA,chargingVoltageV,extension_json",
+                    "batteryLevel,chargingCurrentA,chargingVoltageV,extension_json" +
+                        if (includeGpsLocation) ",gpsAccuracy,gpsLongitude,gpsLatitude" else "",
             )
             db.rawQuery(
                 """
@@ -1794,8 +1961,7 @@ class SQLiteLogStore(
                 null,
             ).use { cursor ->
                 while (cursor.moveToNext()) {
-                    writer.appendLine(
-                        (0 until cursor.columnCount).joinToString(",") { index ->
+                    val columns = (0 until cursor.columnCount).map { index ->
                             if (cursor.isNull(index)) "" else if (
                                 index in setOf(4, 5, 6, 7, 8, 9, 13, 14, 51)
                             ) {
@@ -1803,10 +1969,34 @@ class SQLiteLogStore(
                             } else {
                                 cursor.getString(index)
                             }
-                        },
-                    )
+                        }.toMutableList()
+                    if (includeGpsLocation) {
+                        columns += nearestLocationCsvColumns(db, cursor.getLong(3))
+                    }
+                    writer.appendLine(columns.joinToString(","))
                 }
             }
+        }
+    }
+
+    private fun nearestLocationCsvColumns(db: SQLiteDatabase, elapsedMs: Long): List<String> {
+        val tolerance = CSV_LOCATION_TOLERANCE_MS
+        return db.rawQuery(
+            """
+            SELECT accuracy_m, longitude, latitude
+            FROM location
+            WHERE monotonic_elapsed_ms BETWEEN ? AND ?
+            ORDER BY ABS(monotonic_elapsed_ms - ?) ASC, location_sequence ASC
+            LIMIT 1
+            """.trimIndent(),
+            arrayOf((elapsedMs - tolerance).toString(), (elapsedMs + tolerance).toString(), elapsedMs.toString()),
+        ).use { cursor ->
+            if (!cursor.moveToFirst()) return listOf("", "", "")
+            listOf(
+                cursor.optionalString(0)?.toDoubleOrNull()?.toString() ?: "",
+                cursor.getDouble(1).toString(),
+                cursor.getDouble(2).toString(),
+            )
         }
     }
 
@@ -1881,12 +2071,19 @@ class SQLiteLogStore(
                 val eventCount: Long,
                 val elapsed: Long,
                 val revision: Long,
+                val locationSequence: Long,
+                val locationElapsed: Long,
+                val locationCount: Long,
+                val storedLocationCount: Long,
+                val locationStatus: String,
             )
             val marker = session.rawQuery(
                 """
                 SELECT committed_sample_sequence, committed_event_sequence,
                        recorded_sample_count, stored_sample_count, committed_event_count,
-                       committed_elapsed_ms, history_revision
+                       committed_elapsed_ms, history_revision,
+                       committed_location_sequence, committed_location_elapsed_ms,
+                       recorded_location_count, stored_location_count, last_location_status
                 FROM commit_marker WHERE singleton = 1
                 """.trimIndent(),
                 null,
@@ -1895,6 +2092,7 @@ class SQLiteLogStore(
                 Marker(
                     cursor.getLong(0), cursor.getLong(1), cursor.getLong(2),
                     cursor.getLong(3), cursor.getLong(4), cursor.getLong(5), cursor.getLong(6),
+                    cursor.getLong(7), cursor.getLong(8), cursor.getLong(9), cursor.getLong(10), cursor.getString(11),
                 )
             }
             var previousElapsed: Long? = null
@@ -1953,7 +2151,9 @@ class SQLiteLogStore(
                   riding_elapsed_ms = ?, total_elapsed_ms = ?, distance_m = ?,
                   max_speed_mps = ?, max_duty_cycle = ?,
                   max_speed_source_sequence = ?, max_duty_source_sequence = ?,
-                  last_sample_elapsed_ms = ?, last_speed_mps = ?
+                  last_sample_elapsed_ms = ?, last_speed_mps = ?,
+                  committed_location_sequence = ?, committed_location_elapsed_ms = ?,
+                  location_count = ?, recorded_location_count = ?, stored_location_count = ?, location_status = ?
                 WHERE session_id = ? AND job_id = ?
                 """.trimIndent(),
                 arrayOf(
@@ -1973,6 +2173,12 @@ class SQLiteLogStore(
                     maxDutySequence,
                     lastElapsed,
                     lastSpeed,
+                    marker.locationSequence,
+                    marker.locationElapsed,
+                    marker.locationCount,
+                    marker.locationCount,
+                    marker.storedLocationCount,
+                    marker.locationStatus,
                     sessionId,
                     jobId,
                 ),
@@ -2036,7 +2242,8 @@ class SQLiteLogStore(
                    committed_elapsed_ms, riding_elapsed_ms, distance_m,
                    maximum_speed_kph, maximum_duty_cycle,
                    maximum_speed_source_sequence, maximum_duty_source_sequence,
-                   last_speed_kph
+                   last_speed_kph, committed_location_sequence,
+                   committed_location_elapsed_ms, recorded_location_count, stored_location_count, last_location_status
             FROM commit_marker WHERE singleton = 1
             """.trimIndent(),
             null,
@@ -2051,6 +2258,7 @@ class SQLiteLogStore(
                 if (cursor.isNull(10)) null else cursor.getLong(10),
                 if (cursor.isNull(11)) null else cursor.getLong(11),
                 if (cursor.isNull(12)) null else cursor.getDouble(12),
+                cursor.getLong(13), cursor.getLong(14), cursor.getLong(15), cursor.getLong(16), cursor.getString(17),
             )
         }
         val db = catalog.writableDatabase
@@ -2061,7 +2269,8 @@ class SQLiteLogStore(
               event_count = ?, riding_elapsed_ms = ?, total_elapsed_ms = ?, distance_m = ?,
               max_speed_mps = ?, max_duty_cycle = ?, max_speed_source_sequence = ?,
               max_duty_source_sequence = ?, last_sample_elapsed_ms = ?,
-              last_speed_mps = ? WHERE job_id = ?
+              last_speed_mps = ?, committed_location_sequence = ?,
+              committed_location_elapsed_ms = ?, location_count = ?, recorded_location_count = ?, stored_location_count = ?, location_status = ? WHERE job_id = ?
             """.trimIndent(),
             arrayOf(
                 marker[0], marker[1], marker[5], marker[3], marker[2], marker[4], marker[6], marker[5], marker[7],
@@ -2069,6 +2278,7 @@ class SQLiteLogStore(
                 (marker[9] as Double?)?.let { kotlin.math.abs(it) },
                 marker[10], marker[11], marker[5],
                 (marker[12] as Double?)?.let { kotlin.math.abs(it) / 3.6 },
+                marker[13], marker[14], marker[15], marker[15], marker[16], marker[17],
                 record.jobId.value,
             ),
         )
@@ -2730,8 +2940,12 @@ class SQLiteLogStore(
             "minimumSessionDistance",
             "themePreference",
             "unitPreference",
+            "historyGapThresholdSeconds",
+            "locationRecordingEnabled",
+            "includeGpsLocationWhenExporting",
         )
         const val MAX_PROFILE_BYTES = 65_536
+        const val CSV_LOCATION_TOLERANCE_MS = 10_000L
         val SERIES_COLUMNS = mapOf(
             "packVoltageV" to "raw_pack_voltage_v",
             "dutyCycle" to "duty_cycle",

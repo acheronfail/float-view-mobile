@@ -19,10 +19,13 @@ import fail.acheron.floatview.backend.EventHub
 import fail.acheron.floatview.backend.SamplingSettings
 import fail.acheron.floatview.backend.SessionExportRecord
 import fail.acheron.floatview.backend.SessionRecord
+import fail.acheron.floatview.backend.LocationProviderState
 import fail.acheron.floatview.backend.SystemScheduler
 import fail.acheron.floatview.storage.SQLiteLogStore
 import fail.acheron.floatview.protocol.VescProtocolService
 import fail.acheron.floatview.protocol.vesc.SoftwareVescPeripheral
+import fail.acheron.floatview.location.AndroidLocationProvider
+import fail.acheron.floatview.location.LocationPermissionRequester
 import java.lang.ref.WeakReference
 import java.io.File
 import java.time.Instant
@@ -33,6 +36,7 @@ class BackendRuntime(application: FloatViewApplication) {
     private val debuggable =
         application.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0
     val permissionBroker = BluetoothPermissionBroker(application)
+    val locationPermissionBroker = LocationPermissionBroker(application)
     val exportPresentationBroker = ExportPresentationBroker(application)
     private val relay = BluetoothEventRelay()
     val events = EventHub()
@@ -53,6 +57,10 @@ class BackendRuntime(application: FloatViewApplication) {
                 if (debuggable) Log.d("FloatViewState", "adapter $diagnostic")
             }
         }
+    private val locationProvider = AndroidLocationProvider(
+        applicationContext,
+        LocationPermissionRequester(locationPermissionBroker::request),
+    )
     val applicationService = ApplicationService(
         bluetooth,
         SystemClock,
@@ -61,6 +69,7 @@ class BackendRuntime(application: FloatViewApplication) {
         sessionStore = logStore,
         protocol = VescProtocolService(),
         scheduler = SystemScheduler(),
+        locationProvider = locationProvider,
         samplingSettings = logStore.settings().let { settings ->
             SamplingSettings(
                 idlePersistIntervalMs = settings.idlePersistIntervalMs,
@@ -101,6 +110,9 @@ class BackendRuntime(application: FloatViewApplication) {
             } else {
                 LoggingForegroundService.stop(applicationContext)
             }
+        }
+        if (event is LocationProviderState) {
+            LoggingForegroundService.refreshForegroundType(applicationContext)
         }
     }
 
@@ -213,6 +225,48 @@ class BluetoothPermissionBroker(application: FloatViewApplication) : BluetoothPe
 
     companion object {
         const val BLUETOOTH_PERMISSION_REQUEST = 7001
+    }
+}
+
+class LocationPermissionBroker(application: FloatViewApplication) : LocationPermissionRequester {
+    private var activity = WeakReference<Activity>(null)
+    private var pending: Array<String>? = null
+    private val awaitingResult = mutableSetOf<String>()
+
+    @Synchronized
+    fun attach(value: Activity) {
+        activity = WeakReference(value)
+        pending?.also {
+            pending = null
+            request(it)
+        }
+    }
+
+    @Synchronized
+    fun detach(value: Activity) {
+        if (activity.get() === value) activity.clear()
+    }
+
+    @Synchronized
+    override fun request(permissions: Array<String>) {
+        val current = activity.get()
+        if (current == null) {
+            pending = permissions
+            return
+        }
+        awaitingResult += permissions
+        current.runOnUiThread {
+            current.requestPermissions(permissions, LOCATION_PERMISSION_REQUEST)
+        }
+    }
+
+    @Synchronized
+    fun recordResult(permissions: Array<out String>) {
+        permissions.forEach { awaitingResult -= it }
+    }
+
+    companion object {
+        const val LOCATION_PERMISSION_REQUEST = 7002
     }
 }
 

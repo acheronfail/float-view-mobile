@@ -12,6 +12,7 @@ class ApplicationService(
     private val protocol: VescProtocolPort? = null,
     private val scheduler: SchedulerPort? = null,
     samplingSettings: SamplingSettings = SamplingSettings(),
+    private val locationProvider: LocationProviderPort? = null,
     private val events: EventSink,
 ) {
     init {
@@ -60,6 +61,9 @@ class ApplicationService(
     private var reconnectStartedAtMs: Long? = null
     private var reconnectAttempt = 0
     private var latestPersistedSample: TelemetrySample? = null
+    private var locationCaptureStartedMonotonicMs: Long? = null
+    private var locationCaptureBaseElapsedMs = 0L
+    private var locationCaptureActive = false
     private var currentLimits: ControllerCurrentLimits? = null
     var activeDeviceId: DeviceId? = null
         private set
@@ -134,6 +138,34 @@ class ApplicationService(
         requireNotNull(productStore) { "Product store is unavailable" }.settings()
 
     @Synchronized
+    fun locationState(): LocationProviderState {
+        val enabled = runCatching { settings().locationRecordingEnabled }.getOrDefault(false)
+        if (!enabled) {
+            return LocationProviderState(
+                LocationProviderAuthorization.UNAVAILABLE,
+                LocationProviderBackgroundCapture.UNAVAILABLE,
+            )
+        }
+        return locationProvider?.state() ?: LocationProviderState(
+            LocationProviderAuthorization.UNAVAILABLE,
+            LocationProviderBackgroundCapture.UNAVAILABLE,
+            "This host does not provide location capture.",
+        )
+    }
+
+    @Synchronized
+    fun requestLocationPermission(): LocationProviderState {
+        locationProvider?.requestPermission()
+        return locationState()
+    }
+
+    @Synchronized
+    fun openLocationSettings(): LocationProviderState {
+        locationProvider?.openSettings()
+        return locationState()
+    }
+
+    @Synchronized
     fun updateSettings(expectedRevision: Int, patchJson: String): SettingsRecord =
         requireNotNull(productStore) { "Product store is unavailable" }
             .updateSettings(expectedRevision, patchJson)
@@ -151,6 +183,8 @@ class ApplicationService(
                     ),
                 )
                 telemetryPolling.updateSettings(value.idleProbeIntervalMs, value.postRideTailMs)
+                if (!value.locationRecordingEnabled) stopLocationCapture()
+                else locationProvider?.requestPermission()
                 events.publish(value)
             }
 
@@ -230,6 +264,17 @@ class ApplicationService(
     ): List<SessionEventRecord> =
         requireNotNull(sessionStore) { "Session store is unavailable" }
             .sessionEvents(sessionId, startElapsedMs, endElapsedMs, publishedEventSequence)
+
+    fun querySessionLocations(
+        sessionId: String,
+        startElapsedMs: Long,
+        endElapsedMs: Long,
+        limit: Int,
+        cursor: String?,
+        publishedLocationSequence: Long?,
+    ): SessionLocationPageRecord =
+        requireNotNull(sessionStore) { "Session store is unavailable" }
+            .queryLocations(sessionId, startElapsedMs, endElapsedMs, limit, cursor, publishedLocationSequence)
 
     fun sessionExtensionFields(sessionId: String): List<String> =
         requireNotNull(sessionStore) { "Session store is unavailable" }
@@ -492,6 +537,7 @@ class ApplicationService(
         cancelReconnect()
         telemetryPolling.cancelLayout()
         telemetryPolling.stop()
+        stopLocationCapture()
         logStore.active()?.let {
             events.publish(logStore.close(it.jobId, clock.now(), "explicit_disconnect"))
         }
@@ -502,11 +548,67 @@ class ApplicationService(
     fun ingest(sample: TelemetrySample) {
         val active = logStore.active() ?: return
         if (connectionState != ConnectionState.READY) return
+        updateLocationCapture(sample.rideState)
         if (sampling.shouldPersist(sample.rideState, sample.elapsedMs)) {
             logStore.append(active.jobId, listOf(sample))
             latestPersistedSample = sample
             events.publish(sample)
         }
+    }
+
+    @Synchronized
+    private fun updateLocationCapture(rideState: RideState) {
+        val provider = locationProvider
+        val active = logStore.active()
+        val enabled = runCatching { settings().locationRecordingEnabled }.getOrDefault(false)
+        val providerState = provider?.state()
+        val eligible = enabled && rideState == RideState.RIDING && active != null &&
+            (providerState?.authorization == LocationProviderAuthorization.AUTHORIZED ||
+                providerState?.authorization == LocationProviderAuthorization.FOREGROUND_ONLY)
+        if (!eligible) {
+            stopLocationCapture()
+            return
+        }
+        if (locationCaptureActive) return
+        val activeSession = requireNotNull(active)
+        val activeProvider = requireNotNull(provider)
+        locationCaptureActive = true
+        locationCaptureStartedMonotonicMs = clock.monotonicMillis()
+        locationCaptureBaseElapsedMs = latestPersistedSample?.elapsedMs ?: 0L
+        val jobId = activeSession.jobId
+        activeProvider.startUpdates { observation ->
+            ingestLocation(observation, jobId)
+        }
+    }
+
+    @Synchronized
+    private fun stopLocationCapture() {
+        if (!locationCaptureActive) return
+        locationCaptureActive = false
+        locationCaptureStartedMonotonicMs = null
+        locationProvider?.stopUpdates()
+    }
+
+    @Synchronized
+    private fun ingestLocation(observation: LocationProviderObservation, jobId: JobId) {
+        val started = locationCaptureStartedMonotonicMs ?: return
+        if (!locationCaptureActive || logStore.active()?.jobId != jobId) return
+        val elapsedMs = locationCaptureBaseElapsedMs +
+            (clock.monotonicMillis() - started).coerceAtLeast(0L)
+        runCatching {
+            logStore.appendLocations(
+                jobId,
+                listOf(
+                    LocationObservation(
+                        observation.observedAt,
+                        elapsedMs,
+                        observation.latitude,
+                        observation.longitude,
+                        observation.accuracyM,
+                    ),
+                ),
+            )
+        }.onFailure(events::publish)
     }
 
     @Synchronized

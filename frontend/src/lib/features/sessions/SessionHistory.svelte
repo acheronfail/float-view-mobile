@@ -2,9 +2,10 @@
   import type { SessionMetadata } from '$lib/backend/contract';
   import SessionHistoryChart from './SessionHistoryChart.svelte';
 
-  let { metadata }: { metadata: SessionMetadata } = $props();
+  let { metadata, onselectionchange }: { metadata: SessionMetadata; onselectionchange?: (elapsedMs: number) => void } =
+    $props();
 </script>
 
 <section aria-labelledby="history-heading">
-  <SessionHistoryChart {metadata} />
+  <SessionHistoryChart {metadata} {onselectionchange} />
 </section>

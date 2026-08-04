@@ -77,7 +77,8 @@ final class AppBackend: ObservableObject {
         ridingPersistIntervalMs: settings.ridingPersistIntervalMs,
         postRideTailMs: settings.postRideTailMs,
         reconnectDurationMs: settings.reconnectDurationMs
-      )
+      ),
+      locationProvider: CoreLocationAdapter()
     )
     relay.setHandler { [weak applicationService] event in
       try? applicationService?.receive(event)

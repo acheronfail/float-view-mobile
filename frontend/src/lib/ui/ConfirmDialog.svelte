@@ -1,3 +1,7 @@
+
+<script lang="ts" module>
+  export type DialogAppearance = 'normal' | 'warning' | 'destructive';
+</script>
 <script lang="ts">
   import { tick } from 'svelte';
   import { activateFromKeyboardOrAssistiveClick, activateFromPointer, type Activation } from './activation';
@@ -9,7 +13,7 @@
     description,
     confirmLabel = 'Confirm',
     cancelLabel = 'Cancel',
-    destructive = false,
+    appearance = 'normal',
     busy = false,
     onconfirm,
     oncancel,
@@ -20,7 +24,7 @@
     description: string;
     confirmLabel?: string;
     cancelLabel?: string;
-    destructive?: boolean;
+    appearance?: DialogAppearance;
     busy?: boolean;
     onconfirm: Activation;
     oncancel: Activation;
@@ -103,10 +107,12 @@
         <button
           type="button"
           class="touch-manipulation rounded-lg px-4 py-2 font-medium"
-          class:bg-danger={destructive}
-          class:text-on-danger={destructive}
-          class:bg-accent={!destructive}
-          class:text-on-accent={!destructive}
+          class:bg-danger={appearance === 'destructive'}
+          class:text-on-danger={appearance === 'destructive'}
+          class:bg-warning={appearance === 'warning'}
+          class:text-on-warning={appearance === 'warning'}
+          class:bg-accent={appearance === 'normal'}
+          class:text-on-accent={appearance === 'normal'}
           disabled={busy}
           onpointerdown={(event) => activateFromPointer(event, confirm)}
           onclick={(event) => activateFromKeyboardOrAssistiveClick(event, confirm)}

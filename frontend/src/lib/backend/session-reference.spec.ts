@@ -21,6 +21,8 @@ const snapshot = {
   committedSampleSequence: 4,
   committedEventSequence: 0,
   committedElapsedMs: 10_000,
+  committedLocationSequence: 0,
+  committedLocationElapsedMs: 0,
 };
 const range = { startElapsedMs: 0, endElapsedMs: 10_000 };
 

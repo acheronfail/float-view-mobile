@@ -1,4 +1,5 @@
 @import 'tailwindcss';
+@import 'leaflet/dist/leaflet.css';
 
 @custom-variant tall (@media (min-height: 48rem));
 @custom-variant taller (@media (min-height: 64rem));
@@ -76,6 +77,16 @@ html {
 
 .app-safe-area-without-tabs {
   padding-bottom: max(1.5rem, env(safe-area-inset-bottom, 0px));
+}
+
+.leaflet-container {
+  background: var(--app-surface);
+  font: inherit;
+}
+
+.rider-icon {
+  background: transparent;
+  border: 0;
 }
 
 .bottom-tabs-safe-area {

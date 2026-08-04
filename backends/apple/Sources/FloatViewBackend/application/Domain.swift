@@ -681,6 +681,11 @@ public struct SessionPublishedSnapshotRecord: Sendable, Codable, Equatable {
   public let committedElapsedMs: Int64
   public let recordedSampleCount: Int64
   public let storedSampleCount: Int64
+  public let committedLocationSequence: Int64
+  public let committedLocationElapsedMs: Int64
+  public let recordedLocationCount: Int64
+  public let storedLocationCount: Int64
+  public let locationStatus: String
 
   public init(
     historyRevision: Int64,
@@ -688,7 +693,12 @@ public struct SessionPublishedSnapshotRecord: Sendable, Codable, Equatable {
     committedEventSequence: Int64,
     committedElapsedMs: Int64,
     recordedSampleCount: Int64,
-    storedSampleCount: Int64
+    storedSampleCount: Int64,
+    committedLocationSequence: Int64 = 0,
+    committedLocationElapsedMs: Int64 = 0,
+    recordedLocationCount: Int64 = 0,
+    storedLocationCount: Int64 = 0,
+    locationStatus: String = "disabled"
   ) {
     self.historyRevision = historyRevision
     self.committedSampleSequence = committedSampleSequence
@@ -696,7 +706,125 @@ public struct SessionPublishedSnapshotRecord: Sendable, Codable, Equatable {
     self.committedElapsedMs = committedElapsedMs
     self.recordedSampleCount = recordedSampleCount
     self.storedSampleCount = storedSampleCount
+    self.committedLocationSequence = committedLocationSequence
+    self.committedLocationElapsedMs = committedLocationElapsedMs
+    self.recordedLocationCount = recordedLocationCount
+    self.storedLocationCount = storedLocationCount
+    self.locationStatus = locationStatus
   }
+}
+
+public struct SessionLocationPointRecord: Sendable, Codable, Equatable {
+  public let locationSequence: Int64
+  public let elapsedMs: Int64
+  public let latitude: Double
+  public let longitude: Double
+  public let accuracyM: Double?
+  public let observedAt: Date
+
+  public init(locationSequence: Int64, elapsedMs: Int64, latitude: Double, longitude: Double, accuracyM: Double?, observedAt: Date) {
+    self.locationSequence = locationSequence
+    self.elapsedMs = elapsedMs
+    self.latitude = latitude
+    self.longitude = longitude
+    self.accuracyM = accuracyM
+    self.observedAt = observedAt
+  }
+}
+
+public struct SessionLocationGapRecord: Sendable, Codable, Equatable {
+  public let startElapsedMs: Int64
+  public let endElapsedMs: Int64
+  public let reason: String
+
+  public init(startElapsedMs: Int64, endElapsedMs: Int64, reason: String) {
+    self.startElapsedMs = startElapsedMs
+    self.endElapsedMs = endElapsedMs
+    self.reason = reason
+  }
+}
+
+public struct SessionLocationPageRecord: Sendable, Codable, Equatable {
+  public let points: [SessionLocationPointRecord]
+  public let gaps: [SessionLocationGapRecord]
+  public let nextCursor: String?
+  public let snapshot: SessionPublishedSnapshotRecord
+
+  public init(points: [SessionLocationPointRecord], gaps: [SessionLocationGapRecord], nextCursor: String?, snapshot: SessionPublishedSnapshotRecord) {
+    self.points = points
+    self.gaps = gaps
+    self.nextCursor = nextCursor
+    self.snapshot = snapshot
+  }
+}
+
+public struct LocationObservation: Sendable, Codable, Equatable {
+  public let observedAt: Date
+  public let elapsedMs: Int64
+  public let latitude: Double
+  public let longitude: Double
+  public let accuracyM: Double?
+
+  public init(observedAt: Date, elapsedMs: Int64, latitude: Double, longitude: Double, accuracyM: Double?) {
+    self.observedAt = observedAt
+    self.elapsedMs = elapsedMs
+    self.latitude = latitude
+    self.longitude = longitude
+    self.accuracyM = accuracyM
+  }
+}
+
+public enum LocationProviderAuthorization: String, Sendable, Codable {
+  case notDetermined
+  case foregroundOnly
+  case authorized
+  case denied
+  case restricted
+  case unavailable
+}
+
+public enum LocationProviderBackgroundCapture: String, Sendable, Codable {
+  case available
+  case foregroundOnly
+  case unavailable
+}
+
+public struct LocationProviderState: Sendable, Codable, Equatable {
+  public let authorization: LocationProviderAuthorization
+  public let backgroundCapture: LocationProviderBackgroundCapture
+  public let reason: String?
+
+  public init(
+    authorization: LocationProviderAuthorization,
+    backgroundCapture: LocationProviderBackgroundCapture,
+    reason: String? = nil
+  ) {
+    self.authorization = authorization
+    self.backgroundCapture = backgroundCapture
+    self.reason = reason
+  }
+}
+
+public struct LocationProviderObservation: Sendable, Codable, Equatable {
+  public let observedAt: Date
+  public let latitude: Double
+  public let longitude: Double
+  public let accuracyM: Double?
+
+  public init(observedAt: Date, latitude: Double, longitude: Double, accuracyM: Double?) {
+    self.observedAt = observedAt
+    self.latitude = latitude
+    self.longitude = longitude
+    self.accuracyM = accuracyM
+  }
+}
+
+public protocol LocationProviderPort: AnyObject, Sendable {
+  func state() -> LocationProviderState
+  func requestPermission()
+  func openSettings()
+  func startUpdates(_ handler: @escaping @Sendable (LocationProviderObservation) -> Void)
+  func stopUpdates()
 }
 
 public struct SessionPage: Sendable, Equatable {
@@ -961,6 +1089,8 @@ public struct SettingsRecord: Sendable, Codable, Equatable {
   public let themePreference: ThemePreference
   public let unitPreference: UnitPreference
   public let historyGapThresholdSeconds: Double?
+  public let locationRecordingEnabled: Bool
+  public let includeGpsLocationWhenExporting: Bool
 
   public init(
     revision: Int = 0,
@@ -972,7 +1102,9 @@ public struct SettingsRecord: Sendable, Codable, Equatable {
     minimumSessionDistance: Double = 100,
     themePreference: ThemePreference = .system,
     unitPreference: UnitPreference = .metric,
-    historyGapThresholdSeconds: Double? = nil
+    historyGapThresholdSeconds: Double? = nil,
+    locationRecordingEnabled: Bool = false,
+    includeGpsLocationWhenExporting: Bool = false
   ) {
     self.revision = revision
     self.idleProbeIntervalMs = idleProbeIntervalMs
@@ -984,6 +1116,8 @@ public struct SettingsRecord: Sendable, Codable, Equatable {
     self.themePreference = themePreference
     self.unitPreference = unitPreference
     self.historyGapThresholdSeconds = historyGapThresholdSeconds
+    self.locationRecordingEnabled = locationRecordingEnabled
+    self.includeGpsLocationWhenExporting = includeGpsLocationWhenExporting
   }
 }
 
@@ -1215,8 +1349,13 @@ public protocol ClockPort: Sendable {
 public protocol LogStorePort: AnyObject, Sendable {
   func create(deviceID: DeviceID, advertisedName: String?, at: Date) throws -> SessionRecord
   func append(jobID: JobID, samples: [TelemetrySample]) throws
+  func appendLocations(jobID: JobID, observations: [LocationObservation]) throws
   func close(jobID: JobID, at: Date, reason: String) throws -> SessionRecord
   func active() -> SessionRecord?
+}
+
+public extension LogStorePort {
+  func appendLocations(jobID _: JobID, observations _: [LocationObservation]) throws {}
 }
 
 public protocol ProductStorePort: AnyObject, Sendable {
@@ -1374,6 +1513,14 @@ public protocol SessionStorePort: AnyObject, Sendable {
     endElapsedMs: Int64,
     publishedEventSequence: Int64?
   ) throws -> [SessionEventRecord]
+  func queryLocations(
+    sessionID: String,
+    startElapsedMs: Int64,
+    endElapsedMs: Int64,
+    limit: Int,
+    cursor: String?,
+    publishedLocationSequence: Int64?
+  ) throws -> SessionLocationPageRecord
   func sessionEvents(
     sessionID: String,
     startElapsedMs: Int64,
@@ -1405,6 +1552,17 @@ public protocol SessionStorePort: AnyObject, Sendable {
 }
 
 public extension SessionStorePort {
+  func queryLocations(
+    sessionID _: String,
+    startElapsedMs _: Int64,
+    endElapsedMs _: Int64,
+    limit _: Int,
+    cursor _: String?,
+    publishedLocationSequence _: Int64?
+  ) throws -> SessionLocationPageRecord {
+    throw SessionStoreError.sessionNotFound
+  }
+
   func querySeries(
     sessionID: String,
     startElapsedMs: Int64,

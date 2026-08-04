@@ -174,6 +174,21 @@ export class BackendState {
         patch,
       });
       if (this.snapshot) this.acceptState({ ...this.snapshot, settings: updated });
+      if (patch.locationRecordingEnabled === true) {
+        const location = await client.request('location.requestPermission', {});
+        if (this.snapshot) this.acceptState({ ...this.snapshot, location });
+      }
+    });
+  }
+
+  async requestLocationPermission(): Promise<void> {
+    await this.run(async (client) => {
+      const action = this.snapshot?.location.permissionAction;
+      const location =
+        action === 'openSettings'
+          ? await client.request('location.openSettings', {})
+          : await client.request('location.requestPermission', {});
+      if (this.snapshot) this.acceptState({ ...this.snapshot, location });
     });
   }
 

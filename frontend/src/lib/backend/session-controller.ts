@@ -7,6 +7,8 @@ import type {
   SessionSeriesResult,
   SessionSamplesResult,
   SessionEventsResult,
+  SessionLocationsRequest,
+  SessionLocationsResult,
 } from './session-data.ts';
 import { sessionDataDecodedBytes } from './session-data.ts';
 import { SessionDataClient } from './session-data-client';
@@ -74,6 +76,16 @@ export class SessionReviewController {
       'events',
       { ...request, sessionId: this.metadata.summary.sessionId, snapshot: this.metadata.snapshot },
       (result): result is SessionEventsResult => result.kind === 'events'
+    );
+  }
+
+  async loadLocations(
+    request: Omit<SessionLocationsRequest, 'sessionId' | 'snapshot'>
+  ): Promise<SessionLocationsResult> {
+    return this.load(
+      `locations:${request.range.startElapsedMs}:${request.range.endElapsedMs}:${request.cursor ?? ''}`,
+      { ...request, sessionId: this.metadata.summary.sessionId, snapshot: this.metadata.snapshot },
+      (result): result is SessionLocationsResult => result.kind === 'locations'
     );
   }
 

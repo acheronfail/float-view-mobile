@@ -4,6 +4,8 @@ import {
   MAX_SESSION_DATA_REQUEST_BYTES,
   MAX_SESSION_DATA_RESPONSE_BYTES,
   MAX_SESSION_EVENT_ROWS,
+  MAX_SESSION_LOCATION_GAPS,
+  MAX_SESSION_LOCATION_ROWS,
   MAX_SESSION_SAMPLE_ROWS,
   MAX_SESSION_SERIES_BUCKETS,
   MAX_SESSION_SERIES_OBSERVATIONS,
@@ -11,7 +13,7 @@ import {
   type SessionPublishedSnapshot,
 } from './contract.ts';
 
-export type SessionDataKind = 'series' | 'samples' | 'events';
+export type SessionDataKind = 'series' | 'samples' | 'events' | 'locations';
 export type SessionDataRange = { startElapsedMs: number; endElapsedMs: number };
 export type SessionGapPolicy = { thresholdSeconds: number | null };
 
@@ -44,7 +46,17 @@ export interface SessionEventsRequest extends SessionDataRequestBase {
   cursor?: string | null;
 }
 
-export type SessionDataRequest = SessionSeriesRequest | SessionSamplesRequest | SessionEventsRequest;
+export interface SessionLocationsRequest extends SessionDataRequestBase {
+  kind: 'locations';
+  limit: number;
+  cursor?: string | null;
+}
+
+export type SessionDataRequest =
+  | SessionSeriesRequest
+  | SessionSamplesRequest
+  | SessionEventsRequest
+  | SessionLocationsRequest;
 
 export interface SessionSeriesColumn {
   elapsedMs: number[];
@@ -93,7 +105,36 @@ export interface SessionEventsResult {
   nextCursor: string | null;
 }
 
-export type SessionDataResult = SessionSeriesResult | SessionSamplesResult | SessionEventsResult;
+export interface SessionLocationsResult {
+  kind: 'locations';
+  sessionId: string;
+  snapshot: SessionPublishedSnapshot;
+  range: SessionDataRange;
+  points: Array<{
+    locationSequence: number;
+    elapsedMs: number;
+    latitude: number;
+    longitude: number;
+    accuracyM: number | null;
+    observedAt: string;
+  }>;
+  gaps: Array<{
+    startElapsedMs: number;
+    endElapsedMs: number;
+    reason: 'providerUnavailable' | 'permissionUnavailable' | 'noFix' | 'unknown';
+  }>;
+  nextCursor: string | null;
+  locationBoundary: {
+    lastSequence: number;
+    lastElapsedMs: number;
+  };
+}
+
+export type SessionDataResult =
+  | SessionSeriesResult
+  | SessionSamplesResult
+  | SessionEventsResult
+  | SessionLocationsResult;
 
 export class SessionDataProtocolError extends Error {
   constructor(message: string) {
@@ -144,7 +185,12 @@ export function validateSessionDataRequest(value: unknown): SessionDataRequest {
     cursor?: unknown;
     targetElapsedMs?: unknown;
   };
-  if (request.kind !== 'series' && request.kind !== 'samples' && request.kind !== 'events') {
+  if (
+    request.kind !== 'series' &&
+    request.kind !== 'samples' &&
+    request.kind !== 'events' &&
+    request.kind !== 'locations'
+  ) {
     throw new SessionDataProtocolError('Unsupported session-data request kind');
   }
   if (typeof request.sessionId !== 'string' || request.sessionId.length === 0) {
@@ -184,6 +230,14 @@ export function validateSessionDataRequest(value: unknown): SessionDataRequest {
     }
     return { ...request, fields, limit } as SessionSamplesRequest;
   }
+  if (request.kind === 'locations') {
+    const limit = request.limit;
+    if (!finiteInteger(limit) || limit < 1 || limit > MAX_SESSION_LOCATION_ROWS) {
+      throw new SessionDataProtocolError('Location page size is out of bounds');
+    }
+    if (request.cursor !== undefined && request.cursor !== null) validateCursor(request.cursor);
+    return { ...request, limit } as SessionLocationsRequest;
+  }
   const limit = request.limit;
   if (!finiteInteger(limit) || limit < 1 || limit > MAX_SESSION_EVENT_ROWS) {
     throw new SessionDataProtocolError('Event page size is out of bounds');
@@ -213,6 +267,7 @@ export function validateSessionDataResult(value: unknown, request: SessionDataRe
     return validateSeriesResult(result as Partial<SessionSeriesResult>, request as SessionSeriesRequest);
   if (result.kind === 'samples')
     return validateSamplesResult(result as Partial<SessionSamplesResult>, request as SessionSamplesRequest);
+  if (result.kind === 'locations') return validateLocationsResult(result as Partial<SessionLocationsResult>);
   return validateEventsResult(result as Partial<SessionEventsResult>);
 }
 
@@ -221,7 +276,9 @@ function sameSnapshot(left: SessionPublishedSnapshot, right: SessionPublishedSna
     left.historyRevision === right.historyRevision &&
     left.committedSampleSequence === right.committedSampleSequence &&
     left.committedEventSequence === right.committedEventSequence &&
-    left.committedElapsedMs === right.committedElapsedMs
+    left.committedElapsedMs === right.committedElapsedMs &&
+    left.committedLocationSequence === right.committedLocationSequence &&
+    left.committedLocationElapsedMs === right.committedLocationElapsedMs
   );
 }
 
@@ -276,7 +333,9 @@ function validateSnapshot(value: unknown): asserts value is SessionPublishedSnap
     !finiteInteger(snapshot.historyRevision) ||
     !finiteInteger(snapshot.committedSampleSequence) ||
     !finiteInteger(snapshot.committedEventSequence) ||
-    !finiteInteger(snapshot.committedElapsedMs)
+    !finiteInteger(snapshot.committedElapsedMs) ||
+    !finiteInteger(snapshot.committedLocationSequence) ||
+    !finiteInteger(snapshot.committedLocationElapsedMs)
   ) {
     throw new SessionDataProtocolError('Published snapshot contains an unsafe integer');
   }
@@ -412,6 +471,65 @@ function validateEventsResult(value: Partial<SessionEventsResult>): SessionEvent
   });
   if (value.nextCursor !== null && value.nextCursor !== undefined) validateCursor(value.nextCursor);
   return value as SessionEventsResult;
+}
+
+function validateLocationsResult(value: Partial<SessionLocationsResult>): SessionLocationsResult {
+  if (!Array.isArray(value.points) || value.points.length > MAX_SESSION_LOCATION_ROWS) {
+    throw new SessionDataProtocolError('Invalid location points');
+  }
+  if (!Array.isArray(value.gaps) || value.gaps.length > MAX_SESSION_LOCATION_GAPS) {
+    throw new SessionDataProtocolError('Invalid location gaps');
+  }
+  if (
+    !value.locationBoundary ||
+    !finiteInteger(value.locationBoundary.lastSequence) ||
+    !finiteInteger(value.locationBoundary.lastElapsedMs)
+  ) {
+    throw new SessionDataProtocolError('Invalid location boundary');
+  }
+  let previousSequence = -1;
+  let previousElapsed = -1;
+  for (const point of value.points) {
+    if (
+      !point ||
+      typeof point !== 'object' ||
+      !finiteInteger(point.locationSequence) ||
+      point.locationSequence <= previousSequence ||
+      !finiteInteger(point.elapsedMs) ||
+      point.elapsedMs < previousElapsed ||
+      typeof point.latitude !== 'number' ||
+      !Number.isFinite(point.latitude) ||
+      point.latitude < -90 ||
+      point.latitude > 90 ||
+      typeof point.longitude !== 'number' ||
+      !Number.isFinite(point.longitude) ||
+      point.longitude < -180 ||
+      point.longitude > 180 ||
+      (point.accuracyM !== null && (!finiteNumber(point.accuracyM) || point.accuracyM < 0)) ||
+      typeof point.observedAt !== 'string' ||
+      point.observedAt.length === 0
+    ) {
+      throw new SessionDataProtocolError('Invalid location point');
+    }
+    previousSequence = point.locationSequence;
+    previousElapsed = point.elapsedMs;
+  }
+  let previousGapEnd = -1;
+  for (const gap of value.gaps) {
+    if (
+      !gap ||
+      !finiteInteger(gap.startElapsedMs) ||
+      !finiteInteger(gap.endElapsedMs) ||
+      gap.endElapsedMs <= gap.startElapsedMs ||
+      gap.startElapsedMs < previousGapEnd ||
+      !['providerUnavailable', 'permissionUnavailable', 'noFix', 'unknown'].includes(gap.reason)
+    ) {
+      throw new SessionDataProtocolError('Invalid location gap');
+    }
+    previousGapEnd = gap.endElapsedMs;
+  }
+  if (value.nextCursor !== null && value.nextCursor !== undefined) validateCursor(value.nextCursor);
+  return value as SessionLocationsResult;
 }
 
 function validateFieldDescriptors(

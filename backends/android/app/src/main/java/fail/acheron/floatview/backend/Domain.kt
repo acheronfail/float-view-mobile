@@ -329,7 +329,78 @@ data class SessionPublishedSnapshotRecord(
     val committedElapsedMs: Long,
     val recordedSampleCount: Long,
     val storedSampleCount: Long,
+    val committedLocationSequence: Long = 0,
+    val committedLocationElapsedMs: Long = 0,
+    val recordedLocationCount: Long = 0,
+    val storedLocationCount: Long = 0,
+    val locationStatus: String = "disabled",
 )
+
+data class SessionLocationPointRecord(
+    val locationSequence: Long,
+    val elapsedMs: Long,
+    val latitude: Double,
+    val longitude: Double,
+    val accuracyM: Double?,
+    val observedAt: Instant,
+)
+
+data class SessionLocationGapRecord(
+    val startElapsedMs: Long,
+    val endElapsedMs: Long,
+    val reason: String,
+)
+
+data class SessionLocationPageRecord(
+    val points: List<SessionLocationPointRecord>,
+    val gaps: List<SessionLocationGapRecord>,
+    val nextCursor: String?,
+    val snapshot: SessionPublishedSnapshotRecord,
+)
+
+data class LocationObservation(
+    val observedAt: Instant,
+    val elapsedMs: Long,
+    val latitude: Double,
+    val longitude: Double,
+    val accuracyM: Double?,
+)
+
+enum class LocationProviderAuthorization {
+    NOT_DETERMINED,
+    FOREGROUND_ONLY,
+    AUTHORIZED,
+    DENIED,
+    RESTRICTED,
+    UNAVAILABLE,
+}
+
+enum class LocationProviderBackgroundCapture {
+    AVAILABLE,
+    FOREGROUND_ONLY,
+    UNAVAILABLE,
+}
+
+data class LocationProviderState(
+    val authorization: LocationProviderAuthorization,
+    val backgroundCapture: LocationProviderBackgroundCapture,
+    val reason: String? = null,
+)
+
+data class LocationProviderObservation(
+    val observedAt: Instant,
+    val latitude: Double,
+    val longitude: Double,
+    val accuracyM: Double?,
+)
+
+interface LocationProviderPort {
+    fun state(): LocationProviderState
+    fun requestPermission()
+    fun openSettings()
+    fun startUpdates(handler: (LocationProviderObservation) -> Unit)
+    fun stopUpdates()
+}
 
 data class SessionHistoryConfiguration(
     val expectedRidingPersistenceMs: Long,
@@ -450,6 +521,8 @@ data class SettingsRecord(
     val themePreference: ThemePreference = ThemePreference.SYSTEM,
     val unitPreference: UnitPreference = UnitPreference.METRIC,
     val historyGapThresholdSeconds: Double? = null,
+    val locationRecordingEnabled: Boolean = false,
+    val includeGpsLocationWhenExporting: Boolean = false,
 )
 
 sealed interface BluetoothEvent {
@@ -531,6 +604,7 @@ interface ClockPort {
 interface LogStorePort {
     fun create(deviceId: DeviceId, advertisedName: String?, at: Instant): SessionRecord
     fun append(jobId: JobId, samples: List<TelemetrySample>)
+    fun appendLocations(jobId: JobId, observations: List<LocationObservation>) = Unit
     fun close(jobId: JobId, at: Instant, reason: String): SessionRecord
     fun active(): SessionRecord?
 }
@@ -731,6 +805,14 @@ interface SessionStorePort {
         startElapsedMs: Long,
         endElapsedMs: Long,
     ): List<SessionEventRecord>
+    fun queryLocations(
+        sessionId: String,
+        startElapsedMs: Long,
+        endElapsedMs: Long,
+        limit: Int,
+        cursor: String?,
+        publishedLocationSequence: Long?,
+    ): SessionLocationPageRecord = throw SessionStoreException.SessionNotFound
     fun sessionEvents(
         sessionId: String,
         startElapsedMs: Long,

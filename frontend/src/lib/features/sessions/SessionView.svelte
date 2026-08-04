@@ -9,12 +9,14 @@
   import { sessionExportLabel } from './session-export';
   import SessionHistory from './SessionHistory.svelte';
   import SessionEvents from './SessionEvents.svelte';
+  import SessionLocationMap from './SessionLocationMap.svelte';
 
   let { sessionId }: { sessionId: string } = $props();
   let menuButton = $state<HTMLButtonElement>();
   let deleteConfirmationOpen = $state(false);
   let deleting = $state(false);
   let sessionHeaderHeight = $state(0);
+  let selectedElapsedMs = $state(0);
   const units = $derived(backendState.settings?.unitPreference ?? 'metric');
 
   onMount(() => {
@@ -104,7 +106,15 @@
     </div>
 
     {#if backendState.sessionMetadata}
-      <SessionHistory metadata={backendState.sessionMetadata} />
+      <div class="grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(18rem,0.42fr)]">
+        <SessionHistory
+          metadata={backendState.sessionMetadata}
+          onselectionchange={(elapsedMs) => (selectedElapsedMs = elapsedMs)}
+        />
+        {#if backendState.sessionMetadata.location.available}
+          <SessionLocationMap metadata={backendState.sessionMetadata} {selectedElapsedMs} />
+        {/if}
+      </div>
     {/if}
 
     {#if backendState.sessionMetadata}<SessionEvents metadata={backendState.sessionMetadata} />{/if}
@@ -120,7 +130,7 @@
   title="Delete session?"
   description={`Permanently delete this ${backendState.selectedSession?.sampleCount ?? 0}-sample session? This cannot be undone.`}
   confirmLabel="Delete"
-  destructive
+  appearance="destructive"
   busy={deleting}
   onconfirm={deleteSession}
   oncancel={cancelDeleteSession}

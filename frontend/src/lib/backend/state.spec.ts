@@ -35,6 +35,12 @@ const initial: AppState = {
   ],
   activeConnection: null,
   sessionCatalogRevision: 0,
+  location: {
+    status: 'disabled',
+    permissionAction: 'requestPermission',
+    backgroundCapture: 'unavailable',
+    reason: null,
+  },
   settings: {
     revision: 0,
     idleProbeIntervalMs: 500,
@@ -46,6 +52,8 @@ const initial: AppState = {
     themePreference: 'system',
     unitPreference: 'metric',
     historyGapThresholdSeconds: null,
+    locationRecordingEnabled: false,
+    includeGpsLocationWhenExporting: false,
   },
 };
 
@@ -120,7 +128,10 @@ class FakeClient {
             committedSampleSequence: 1,
             committedEventSequence: 0,
             committedElapsedMs: 1_000,
+            committedLocationSequence: 0,
+            committedLocationElapsedMs: 0,
           },
+          location: { available: false, count: 0, lastSequence: 0, lastElapsedMs: 0, status: 'disabled' },
         };
         break;
       default:

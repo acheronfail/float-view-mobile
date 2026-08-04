@@ -59,6 +59,8 @@ describe.sequential('mock transport authentication', () => {
         committedSampleSequence: 1,
         committedEventSequence: 0,
         committedElapsedMs: 60_000,
+        committedLocationSequence: 0,
+        committedLocationElapsedMs: 0,
       },
       range: { startElapsedMs: 0, endElapsedMs: 60_000 },
       fields: ['packVoltageV'],
@@ -118,6 +120,8 @@ describe.sequential('mock transport authentication', () => {
         committedSampleSequence: 1,
         committedEventSequence: 2,
         committedElapsedMs: 60_000,
+        committedLocationSequence: 0,
+        committedLocationElapsedMs: 0,
       },
       range: { startElapsedMs: 0, endElapsedMs: 60_000 },
     };
