@@ -587,12 +587,26 @@ public final class SQLiteLogStore: LogStorePort, ProductStorePort, SessionStoreP
       let marker = try session.query(
         "SELECT committed_location_sequence, committed_location_elapsed_ms, recorded_location_count, stored_location_count, last_location_status FROM commit_marker WHERE singleton = 1",
         map: { statement in
-          (sqlite3_column_int64(statement, 0), sqlite3_column_int64(statement, 1), sqlite3_column_int64(statement, 2), sqlite3_column_int64(statement, 3), Self.columnText(statement, 4) ?? "disabled")
+          (
+            sqlite3_column_int64(statement, 0),
+            sqlite3_column_int64(statement, 1),
+            sqlite3_column_int64(statement, 2),
+            sqlite3_column_int64(statement, 3),
+            Self.columnText(statement, 4) ?? "disabled"
+          )
         }
       ).first!
       try catalog.statement(
         "UPDATE session_catalog SET committed_location_sequence = ?, committed_location_elapsed_ms = ?, location_count = ?, recorded_location_count = ?, stored_location_count = ?, location_status = ? WHERE job_id = ?",
-        values: [.integer(marker.0), .integer(marker.1), .integer(marker.2), .integer(marker.2), .integer(marker.3), .text(marker.4), .text(jobID.value)]
+        values: [
+          .integer(marker.0),
+          .integer(marker.1),
+          .integer(marker.2),
+          .integer(marker.2),
+          .integer(marker.3),
+          .text(marker.4),
+          .text(jobID.value),
+        ]
       )
     } catch {
       try? session.execute("ROLLBACK")
@@ -1115,10 +1129,10 @@ public final class SQLiteLogStore: LogStorePort, ProductStorePort, SessionStoreP
       if let publishedSampleSequence { values.append(.integer(publishedSampleSequence)) }
       values.append(.integer(200_000))
       let sql = """
-        SELECT sequence, monotonic_elapsed_ms, ride_state, \(selected) FROM sample
-        WHERE monotonic_elapsed_ms BETWEEN ? AND ?\(sequencePredicate)
-        ORDER BY monotonic_elapsed_ms, sequence LIMIT ?
-        """
+      SELECT sequence, monotonic_elapsed_ms, ride_state, \(selected) FROM sample
+      WHERE monotonic_elapsed_ms BETWEEN ? AND ?\(sequencePredicate)
+      ORDER BY monotonic_elapsed_ms, sequence LIMIT ?
+      """
       let accumulator = try SessionHistoryReducer.SeriesAccumulator(
         fields: uniqueFields,
         range: SessionElapsedRange(startElapsedMs: startElapsedMs, endElapsedMs: endElapsedMs),
@@ -1130,7 +1144,7 @@ public final class SQLiteLogStore: LogStorePort, ProductStorePort, SessionStoreP
         retainedResolutionSeconds: retainedResolutionSeconds
       )
       let started = DispatchTime.now().uptimeNanoseconds
-      var rowValues = Array<Double?>(repeating: nil, count: uniqueFields.count)
+      var rowValues = [Double?](repeating: nil, count: uniqueFields.count)
       var rowCount = 0
       try database.forEachRow(sql, values: values) { statement in
         for index in uniqueFields.indices {
@@ -1305,7 +1319,11 @@ public final class SQLiteLogStore: LogStorePort, ProductStorePort, SessionStoreP
       let page = hasMore ? Array(rows.prefix(limit)) : rows
       let gaps: [SessionLocationGapRecord] = zip(page, page.dropFirst()).compactMap { left, right in
         right.elapsedMs - left.elapsedMs > 10_000
-          ? SessionLocationGapRecord(startElapsedMs: left.elapsedMs + 1, endElapsedMs: right.elapsedMs - 1, reason: "noFix")
+          ? SessionLocationGapRecord(
+            startElapsedMs: left.elapsedMs + 1,
+            endElapsedMs: right.elapsedMs - 1,
+            reason: "noFix"
+          )
           : nil
       }
       let next = hasMore ? page.last.flatMap { point in
@@ -1316,7 +1334,7 @@ public final class SQLiteLogStore: LogStorePort, ProductStorePort, SessionStoreP
           "historyRevision": snapshot.historyRevision,
           "locationSequence": point.locationSequence,
         ])
-          .base64EncodedString()
+        .base64EncodedString()
       } : nil
       return SessionLocationPageRecord(points: page, gaps: gaps, nextCursor: next, snapshot: snapshot)
     }
@@ -1749,7 +1767,8 @@ public final class SQLiteLogStore: LogStorePort, ProductStorePort, SessionStoreP
         defer { try? handle.close() }
         try handle.write(contentsOf: Data((
           """
-          sequence,observed_at_ms,slow_observed_at_ms,elapsed_ms,ride_state,package_state,package_mode,footpad_state,stop_condition,setpoint_adjustment,wheelslip,darkride,charging,alert_reason,firmware_fault,pack_voltage_v,duty_cycle,controller_temp_c,motor_temp_c,motor_current_a,battery_current_a,erpm,speed_kph,pitchDeg,balancePitchDeg,rollDeg,directionalMotorCurrentA,filteredMotorCurrentA,requestedBalanceCurrentA,boosterCurrentA,fieldWeakeningCurrentA,footpadAdc1V,footpadAdc2V,remoteInput,setpointDeg,atrSetpointDeg,brakeTiltSetpointDeg,torqueTiltSetpointDeg,turnTiltSetpointDeg,remoteSetpointDeg,atrAccelerationDifferenceErpmPerSecond,atrSpeedBoost,distanceM,odometerM,ampHoursDrawnAh,ampHoursChargedAh,wattHoursDrawnWh,wattHoursChargedWh,batteryLevel,chargingCurrentA,chargingVoltageV,extension_json\(includeGpsLocation ? ",gpsAccuracy,gpsLongitude,gpsLatitude" : "")
+          sequence,observed_at_ms,slow_observed_at_ms,elapsed_ms,ride_state,package_state,package_mode,footpad_state,stop_condition,setpoint_adjustment,wheelslip,darkride,charging,alert_reason,firmware_fault,pack_voltage_v,duty_cycle,controller_temp_c,motor_temp_c,motor_current_a,battery_current_a,erpm,speed_kph,pitchDeg,balancePitchDeg,rollDeg,directionalMotorCurrentA,filteredMotorCurrentA,requestedBalanceCurrentA,boosterCurrentA,fieldWeakeningCurrentA,footpadAdc1V,footpadAdc2V,remoteInput,setpointDeg,atrSetpointDeg,brakeTiltSetpointDeg,torqueTiltSetpointDeg,turnTiltSetpointDeg,remoteSetpointDeg,atrAccelerationDifferenceErpmPerSecond,atrSpeedBoost,distanceM,odometerM,ampHoursDrawnAh,ampHoursChargedAh,wattHoursDrawnWh,wattHoursChargedWh,batteryLevel,chargingCurrentA,chargingVoltageV,extension_json\(includeGpsLocation ?
+            ",gpsAccuracy,gpsLongitude,gpsLatitude" : "")
           """ + "\n"
         ).utf8))
         try database.forEachRow(
@@ -1783,7 +1802,7 @@ public final class SQLiteLogStore: LogStorePort, ProductStorePort, SessionStoreP
             }
           }
           if includeGpsLocation {
-            columns.append(contentsOf: try nearestLocationCSVColumns(
+            try columns.append(contentsOf: nearestLocationCSVColumns(
               database: database,
               elapsedMs: sqlite3_column_int64(statement, 3)
             ))

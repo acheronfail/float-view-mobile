@@ -60,6 +60,7 @@ const initial: AppState = {
 class FakeClient {
   isOpen = true;
   state = structuredClone(initial);
+  locationRequests: string[] = [];
   private handler?: (state: AppState) => void;
 
   async request<M extends BackendMethod>(method: M, params: BackendParams<M>): Promise<BackendResult<M>> {
@@ -83,6 +84,32 @@ class FakeClient {
         break;
       case 'device.disconnect':
         result = { accepted: true };
+        break;
+      case 'location.requestPermission':
+        this.locationRequests.push(method);
+        this.state = {
+          ...this.state,
+          location: {
+            status: 'authorized',
+            permissionAction: null,
+            backgroundCapture: 'available',
+            reason: null,
+          },
+        };
+        result = this.state.location;
+        break;
+      case 'location.openSettings':
+        this.locationRequests.push(method);
+        this.state = {
+          ...this.state,
+          location: {
+            status: 'authorized',
+            permissionAction: null,
+            backgroundCapture: 'available',
+            reason: null,
+          },
+        };
+        result = this.state.location;
         break;
       case 'savedDevice.update': {
         const update = params as BackendParams<'savedDevice.update'>;
@@ -145,6 +172,9 @@ class FakeClient {
       this.handler = undefined;
     };
   }
+  emitState() {
+    this.handler?.(this.state);
+  }
   close() {
     this.isOpen = false;
   }
@@ -174,6 +204,32 @@ describe('BackendState', () => {
     });
     expect(store.settings?.minimumSessionDistance).toBe(250);
     expect(store.snapshot?.revision).toBe(2);
+    store.close();
+  });
+
+  it('enables location with an immediate permission request and routes denied state to settings', async () => {
+    const client = new FakeClient();
+    const store = new BackendState(
+      async () => ({ webSocketUrl: 'ws://test' }),
+      async () => client as unknown as ApiClient
+    );
+    await store.connect();
+    await store.updateSessionSettings({ locationRecordingEnabled: true });
+    expect(client.locationRequests).toEqual(['location.requestPermission']);
+    expect(store.snapshot?.location.status).toBe('authorized');
+
+    client.state = {
+      ...client.state,
+      location: {
+        status: 'denied',
+        permissionAction: 'openSettings',
+        backgroundCapture: 'unavailable',
+        reason: 'Enable location in Settings.',
+      },
+    };
+    client.emitState();
+    await store.requestLocationPermission();
+    expect(client.locationRequests.at(-1)).toBe('location.openSettings');
     store.close();
   });
 

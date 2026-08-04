@@ -56,6 +56,82 @@ func onlyPersistedSamplesPublishLiveState() throws {
 }
 
 @Test
+func locationCaptureStartsForAuthorizedRidingAndStopsOnIdle() throws {
+  let store = MemoryStore()
+  let products = MemoryProductStore()
+  products.settingsRecord = SettingsRecord(locationRecordingEnabled: true)
+  let provider = FakeLocationProvider(
+    state: LocationProviderState(authorization: .authorized, backgroundCapture: .available)
+  )
+  let clock = MutableClock()
+  let service = readyLocationService(store: store, products: products, provider: provider, clock: clock)
+
+  try service.ingest(TelemetrySample(
+    sequence: 1,
+    observedAt: .init(timeIntervalSince1970: 0),
+    elapsedMs: 0,
+    rideState: .riding
+  ))
+  #expect(provider.startCount == 1)
+  clock.date = .init(timeIntervalSince1970: 1.5)
+  provider.emit(.init(observedAt: clock.date, latitude: 1, longitude: 2, accuracyM: 5))
+  #expect(store.locationObservations.count == 1)
+  #expect(store.locationObservations[0].elapsedMs == 1_500)
+
+  try service.ingest(TelemetrySample(sequence: 2, observedAt: clock.date, elapsedMs: 2_000, rideState: .idle))
+  #expect(provider.stopCount == 1)
+  provider.emit(.init(observedAt: clock.date, latitude: 3, longitude: 4, accuracyM: nil))
+  #expect(store.locationObservations.count == 1)
+}
+
+@Test
+func deniedLocationPermissionDoesNotStartCapture() throws {
+  let store = MemoryStore()
+  let products = MemoryProductStore()
+  products.settingsRecord = SettingsRecord(locationRecordingEnabled: true)
+  let provider = FakeLocationProvider(
+    state: LocationProviderState(authorization: .denied, backgroundCapture: .unavailable)
+  )
+  let service = readyLocationService(store: store, products: products, provider: provider, clock: MutableClock())
+
+  try service.ingest(TelemetrySample(
+    sequence: 1,
+    observedAt: .init(timeIntervalSince1970: 0),
+    elapsedMs: 0,
+    rideState: .riding
+  ))
+  #expect(provider.startCount == 0)
+}
+
+@Test
+func locationProviderStatusTransitionStopsCaptureAndDisconnectClosesTheSession() throws {
+  let store = MemoryStore()
+  let products = MemoryProductStore()
+  products.settingsRecord = SettingsRecord(locationRecordingEnabled: true)
+  let provider = FakeLocationProvider(
+    state: LocationProviderState(authorization: .authorized, backgroundCapture: .available)
+  )
+  let service = readyLocationService(store: store, products: products, provider: provider, clock: MutableClock())
+  try service.ingest(TelemetrySample(
+    sequence: 1,
+    observedAt: .init(timeIntervalSince1970: 0),
+    elapsedMs: 0,
+    rideState: .riding
+  ))
+  #expect(provider.startCount == 1)
+  provider.currentState = LocationProviderState(authorization: .denied, backgroundCapture: .unavailable)
+  try service.ingest(TelemetrySample(
+    sequence: 2,
+    observedAt: .init(timeIntervalSince1970: 1),
+    elapsedMs: 1_000,
+    rideState: .riding
+  ))
+  #expect(provider.stopCount == 1)
+  try service.disconnect()
+  #expect(store.closeReasons == ["explicit_disconnect"])
+}
+
+@Test
 func boardProfileUpdatesRemainLocalAndPublishPersistedRevision() throws {
   let bluetooth = FakeBluetooth()
   let products = MemoryProductStore()
@@ -1343,6 +1419,7 @@ private final class MemoryStore: LogStorePort, @unchecked Sendable {
   var createCount = 0
   var appended: [TelemetrySample] = []
   var closeReasons: [String] = []
+  var locationObservations: [LocationObservation] = []
   func create(
     deviceID: DeviceID,
     advertisedName _: String?,
@@ -1363,6 +1440,10 @@ private final class MemoryStore: LogStorePort, @unchecked Sendable {
 
   func append(jobID _: JobID, samples: [TelemetrySample]) throws {
     appended += samples
+  }
+
+  func appendLocations(jobID _: JobID, observations: [LocationObservation]) throws {
+    locationObservations += observations
   }
 
   func close(jobID _: JobID, at _: Date, reason: String) throws -> SessionRecord {
@@ -1398,6 +1479,7 @@ private final class FailingStore: LogStorePort, @unchecked Sendable {
 
 private final class MemoryProductStore: ProductStorePort, @unchecked Sendable {
   var routingHint: ControllerRoutingHint?
+  var settingsRecord = SettingsRecord()
   var savedDevice = SavedDeviceRecord(
     savedDeviceID: "saved-board",
     deviceHistoryID: "history-board",
@@ -1414,6 +1496,10 @@ private final class MemoryProductStore: ProductStorePort, @unchecked Sendable {
 
   func savedDevices() throws -> [SavedDeviceRecord] {
     [savedDevice]
+  }
+
+  func settings() throws -> SettingsRecord {
+    settingsRecord
   }
 
   func ensureSavedDevice(
@@ -1523,6 +1609,58 @@ private final class MemoryProductStore: ProductStorePort, @unchecked Sendable {
     }
     routingHint = nil
   }
+}
+
+private final class FakeLocationProvider: LocationProviderPort, @unchecked Sendable {
+  var currentState: LocationProviderState
+  var startCount = 0
+  var stopCount = 0
+  private var handler: (@Sendable (LocationProviderObservation) -> Void)?
+
+  init(state: LocationProviderState) {
+    currentState = state
+  }
+
+  func state() -> LocationProviderState {
+    currentState
+  }
+
+  func requestPermission() {}
+  func openSettings() {}
+  func startUpdates(_ handler: @escaping @Sendable (LocationProviderObservation) -> Void) {
+    startCount += 1
+    self.handler = handler
+  }
+
+  func stopUpdates() {
+    stopCount += 1
+    handler = nil
+  }
+
+  func emit(_ observation: LocationProviderObservation) {
+    handler?(observation)
+  }
+}
+
+private func readyLocationService(
+  store: MemoryStore,
+  products: MemoryProductStore,
+  provider: FakeLocationProvider,
+  clock: MutableClock
+) -> ApplicationService {
+  let service = ApplicationService(
+    bluetooth: FakeBluetooth(),
+    clock: clock,
+    logStore: store,
+    productStore: products,
+    events: IgnoreEvents(),
+    locationProvider: provider
+  )
+  let id = DeviceID("fixture")
+  try! service.receive(.deviceFound(id, name: "Fixture", rssi: -40))
+  try! service.connect(id)
+  try! service.receive(.connectionChanged(id, .ready))
+  return service
 }
 
 private enum TestError: Error {

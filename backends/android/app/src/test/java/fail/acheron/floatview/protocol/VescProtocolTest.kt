@@ -470,4 +470,17 @@ class VescProtocolTest {
         assertEquals(0.0, telemetry.batteryCurrentA!!, 0.0)
         assertEquals(-0.07818603515625, telemetry.erpm)
     }
+
+    @Test
+    fun androidHardwareRefloatLayoutDecodesAcrossDefaultAttPayloadChunks() {
+        val service = VescProtocolService()
+        val layoutFrame = fixtureCases("refloat/rtdata-1.2.3-android-hardware.json")[1].hexBytes()
+        val messages = layoutFrame.asList().chunked(20).flatMap { chunk ->
+            service.receive(chunk.toByteArray())
+        }
+
+        val layout = messages.single() as VescProtocolMessage.RefloatTelemetryLayout
+        assertEquals(16, layout.fields.size)
+        assertEquals(10, layout.runtimeFields.size)
+    }
 }

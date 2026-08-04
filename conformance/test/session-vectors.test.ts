@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { SESSION_DATA_VECTORS } from '../../frontend/src/lib/backend/session-vectors.ts';
 import { reduceSeries, selectPruneRows } from '../../frontend/src/lib/backend/session-reference.ts';
+import { csvLocationColumns, nearestLocation } from '../../frontend/src/lib/backend/location-projection.ts';
 import { ConformanceClient } from '../src/client.ts';
 import { getMockBootstrap, startMockServer, stopMockServer } from '../../frontend/backend-mock/index.ts';
 
@@ -25,6 +26,21 @@ test('canonical pruning vectors retain protected source evidence at aligned reso
   assert.ok(retained.includes(10));
   assert.ok(retained.includes(18));
   assert.ok(retained.includes(12));
+});
+
+test('CSV location projection is opt-in, nearest, tie-stable, and independently bounded', () => {
+  const points = [
+    { locationSequence: 4, elapsedMs: 500, accuracyM: 4.5, latitude: -33.86, longitude: 151.2 },
+    { locationSequence: 5, elapsedMs: 1_500, accuracyM: null, latitude: -33.87, longitude: 151.21 },
+  ];
+  assert.equal(nearestLocation(1_000, points)?.locationSequence, 4);
+  assert.deepEqual(csvLocationColumns(1_500, points), {
+    accuracy: '',
+    longitude: '151.21',
+    latitude: '-33.87',
+  });
+  assert.deepEqual(csvLocationColumns(20_000, points), { accuracy: '', longitude: '', latitude: '' });
+  assert.deepEqual(csvLocationColumns(1_500, []), { accuracy: '', longitude: '', latitude: '' });
 });
 
 test('session-data conformance preserves cursor identity and rejects bounded/auth failures', async () => {

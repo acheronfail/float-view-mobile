@@ -251,6 +251,7 @@ private func executeSQLite(database: URL, sql: String) throws {
     schemaDirectory: repositoryRoot().appending(path: "sql"),
     availableBytes: { 2_000_000_000 }
   )
+  _ = try store.updateSettings(expectedRevision: 0, patchJSON: #"{"minimumSessionDistance":0}"#)
   let startedAt = Date(timeIntervalSince1970: 1_700_200_000)
   let record = try store.create(deviceID: DeviceID("location-fixture"), at: startedAt)
   try store.append(jobID: record.jobID, samples: [
@@ -292,6 +293,27 @@ private func executeSQLite(database: URL, sql: String) throws {
       limit: 2, cursor: nil, publishedLocationSequence: 2
     )
   }
+
+  _ = try store.close(jobID: record.jobID, at: startedAt.addingTimeInterval(50), reason: "location-test")
+  _ = try store.pruneSession(sessionID: record.sessionID.value, targetResolutionSeconds: 5)
+  #expect(try store.sessionSnapshot(sessionID: record.sessionID.value).recordedLocationCount == 3)
+  _ = try store.updateSettings(expectedRevision: 1, patchJSON: #"{"includeGpsLocationWhenExporting":true}"#)
+  let csv = try store.exportSession(sessionID: record.sessionID.value, format: "csv")
+  let csvText = try String(contentsOf: csv.fileURL)
+  #expect(csvText.contains("gpsAccuracy,gpsLongitude,gpsLatitude"))
+  #expect(csvText.contains("151.21"))
+  #expect(csvText.contains("-33.81"))
+
+  let reopened = try SQLiteLogStore(
+    root: root,
+    schemaDirectory: repositoryRoot().appending(path: "sql"),
+    availableBytes: { 2_000_000_000 }
+  )
+  let persisted = try reopened.sessionSnapshot(sessionID: record.sessionID.value)
+  #expect(persisted.committedLocationSequence == 3)
+  #expect(persisted.recordedLocationCount == 3)
+  try reopened.deleteSession(sessionID: record.sessionID.value)
+  #expect(try reopened.sessions(SessionListQuery()).items.isEmpty)
 }
 
 @Test func representativeHistoricalQueriesUseElapsedIndexes() throws {

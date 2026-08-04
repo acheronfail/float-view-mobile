@@ -3,6 +3,7 @@ vendor/
 backends/android/build/
 backends/android/app/build/
 backends/apple/.build/
+backends/apple/Sources/FloatViewMac/Resources/
 .svelte-kit/
 
 # this has its own formatting

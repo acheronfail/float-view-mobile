@@ -39,7 +39,7 @@ class VescBluetoothPolicyTest {
     @Test
     fun `setup validates profile elements and write response modes`() {
         assertEquals(
-            VescBluetoothPolicy.WriteMode.WITH_RESPONSE,
+            VescBluetoothPolicy.WriteMode.WITHOUT_RESPONSE,
             VescBluetoothPolicy.writeMode(true, true),
         )
         assertEquals(
@@ -49,6 +49,16 @@ class VescBluetoothPolicyTest {
         assertEquals(
             VescBluetoothPolicy.WriteMode.UNSUPPORTED,
             VescBluetoothPolicy.writeMode(false, false),
+        )
+        assertTrue(
+            VescBluetoothPolicy.writeCompletionRequired(
+                VescBluetoothPolicy.WriteMode.WITH_RESPONSE,
+            ),
+        )
+        assertFalse(
+            VescBluetoothPolicy.writeCompletionRequired(
+                VescBluetoothPolicy.WriteMode.WITHOUT_RESPONSE,
+            ),
         )
         assertEquals(
             null,

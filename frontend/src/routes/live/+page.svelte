@@ -12,6 +12,7 @@
   import MenuItem from '$lib/ui/MenuItem.svelte';
   import StickyHeader from '$lib/ui/StickyHeader.svelte';
   import { activateFromKeyboardOrAssistiveClick, activateFromPointer } from '$lib/ui/activation';
+  import { locationRequiresAction } from '$lib/features/connection/location-presentation';
 
   const viewOptions = [
     { type: 'normal', displayName: 'Normal View' },
@@ -23,6 +24,8 @@
   let view = $state<View>('normal');
   let configureOpen = $state(false);
   let disconnectConfirmationOpen = $state(false);
+  let connectionIssueConfirmationOpen = $state(false);
+  let firmwareUnsupportedConfirmationOpen = $state(false);
   let disconnecting = $state(false);
   let menuButton = $state<HTMLButtonElement>();
   let editor = $state<BoardEditor>();
@@ -39,9 +42,41 @@
   });
 
   const location = $derived(backendState.snapshot?.location);
-  const locationNeedsAction = $derived(Boolean(location && location.status !== 'authorized'));
+  const locationNeedsAction = $derived(locationRequiresAction(location));
+  const connectionIssueKey = $derived(
+    connection?.connectionIssue ? `${connection.deviceId}:${connection.connectionIssue.code}` : null
+  );
+  const unsupportedFirmwareKey = $derived(
+    connection?.firmware?.supported === false
+      ? `${connection.deviceId}:${connection.firmware.vescVersion}:${connection.firmware.packageVersion}`
+      : null
+  );
 
-  // TODO: translate this into a display name we can show in the UI
+  let lastConnectionIssueKey = $state<string | null>(null);
+  let lastUnsupportedFirmwareKey = $state<string | null>(null);
+
+  $effect(() => {
+    const issueKey = connectionIssueKey;
+    if (!issueKey) {
+      connectionIssueConfirmationOpen = false;
+      lastConnectionIssueKey = null;
+    } else if (issueKey !== lastConnectionIssueKey) {
+      connectionIssueConfirmationOpen = true;
+      lastConnectionIssueKey = issueKey;
+    }
+  });
+
+  $effect(() => {
+    const firmwareKey = unsupportedFirmwareKey;
+    if (!firmwareKey) {
+      firmwareUnsupportedConfirmationOpen = false;
+      lastUnsupportedFirmwareKey = null;
+    } else if (firmwareKey !== lastUnsupportedFirmwareKey) {
+      firmwareUnsupportedConfirmationOpen = true;
+      lastUnsupportedFirmwareKey = firmwareKey;
+    }
+  });
+
   const deviceState = $derived.by(() => {
     if (connection?.state !== 'ready')
       return {
@@ -118,6 +153,26 @@
     disconnectConfirmationOpen = false;
     await tick();
     menuButton?.focus();
+  }
+
+  async function retryConnection() {
+    const deviceId = connection?.deviceId;
+    connectionIssueConfirmationOpen = false;
+    if (deviceId) await backendState.connectDevice(deviceId);
+  }
+
+  function continueWithUnsupportedFirmware() {
+    firmwareUnsupportedConfirmationOpen = false;
+  }
+
+  async function cancelConnectionIssue() {
+    connectionIssueConfirmationOpen = false;
+    await disconnect();
+  }
+
+  async function cancelUnsupportedFirmware() {
+    firmwareUnsupportedConfirmationOpen = false;
+    await disconnect();
   }
 
   function openConfigure(closeMenu?: () => void) {
@@ -214,25 +269,26 @@
 
 {#if connection}
   <ConfirmDialog
-    open={Boolean(connection?.connectionIssue)}
+    open={connectionIssueConfirmationOpen}
     titleId="connection-issue-confirmation-title"
     title="Connection issue"
     description={connection?.connectionIssue?.message ?? 'An unknown connection issue occurred.'}
     confirmLabel="Retry"
     appearance="warning"
-    onconfirm={async () => { await backendState.connectDevice(connection.deviceId); }}
-    oncancel={() => {}}
+    onconfirm={retryConnection}
+    oncancel={cancelConnectionIssue}
   />
 
   <ConfirmDialog
-    open={Boolean(connection.firmware && !connection.firmware.supported)}
+    open={firmwareUnsupportedConfirmationOpen}
     titleId="firmware-unsupported-confirmation-title"
     title="Firmware unsupported"
-    description="Firmware {connection.firmware?.vescVersion} / {connection.firmware?.packageVersion} is not supported. Live values may be incomplete."
+    description="Firmware {connection.firmware?.vescVersion} / {connection.firmware
+      ?.packageVersion} is not supported. Live values may be incomplete."
     confirmLabel="Continue"
     appearance="warning"
-    onconfirm={() => {}}
-    oncancel={disconnect}
+    onconfirm={continueWithUnsupportedFirmware}
+    oncancel={cancelUnsupportedFirmware}
   />
 {/if}
 

@@ -216,8 +216,7 @@ export function validateSessionDataRequest(value: unknown): SessionDataRequest {
   }
   if (request.kind === 'samples') {
     const fields = validateFields(request.fields);
-    if (request.mode !== 'window')
-      throw new SessionDataProtocolError('Invalid sample mode');
+    if (request.mode !== 'window') throw new SessionDataProtocolError('Invalid sample mode');
     const limit = request.limit;
     if (!finiteInteger(limit) || limit < 1 || limit > MAX_SESSION_SAMPLE_ROWS) {
       throw new SessionDataProtocolError('Sample page size is out of bounds');

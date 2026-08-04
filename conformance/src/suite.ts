@@ -15,6 +15,8 @@ export interface PhysicalTarget extends Target {
   platform: 'android' | 'ios' | 'macos';
   productionBluetooth: true;
   prepareSuite?(report: (message: string) => void): Promise<void>;
+  /** Prepare OS-level location permissions without changing app settings. */
+  prepareLocation?(report: (message: string) => void): Promise<void>;
   finishSuite?(report: (message: string) => void): Promise<void>;
 }
 
@@ -509,6 +511,11 @@ export function assertState(state: AppState) {
     )
   );
   assert.ok(['available', 'foregroundOnly', 'unavailable'].includes(state.location.backgroundCapture));
+  assert.doesNotMatch(
+    JSON.stringify(state),
+    /"(?:latitude|longitude|accuracyM|gpsAccuracy|gpsLatitude|gpsLongitude)"/,
+    'live state exposed location coordinates'
+  );
   assert.ok(['system', 'light', 'dark'].includes(state.settings.themePreference));
   assert.ok(['metric', 'imperial'].includes(state.settings.unitPreference));
 

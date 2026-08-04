@@ -117,16 +117,16 @@ class BackendRuntime(application: FloatViewApplication) {
     }
 
     init {
-        val remainingDebugCaptures = AtomicInteger(64)
+        val remainingDebugNotifications = AtomicInteger(64)
         relay.handler = { event ->
             if (
                 debuggable &&
                 event is BluetoothEvent.Notification &&
-                remainingDebugCaptures.getAndDecrement() > 0
+                remainingDebugNotifications.getAndDecrement() > 0
             ) {
                 Log.d(
-                    "FloatViewProtocolCapture",
-                    event.bytes.joinToString(separator = "") { "%02x".format(it) },
+                    "FloatViewProtocol",
+                    "notification_bytes=${event.bytes.size}",
                 )
             }
             applicationService.onBluetoothEvent(event)

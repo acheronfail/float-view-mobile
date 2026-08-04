@@ -5,9 +5,20 @@ import { FixtureRunner } from '../fixture/runner.ts';
 import { fixtureScenarios, physicalScenarioMatrix, type PhysicalScenarioName } from '../fixture/scenarios.ts';
 import { FixtureClient } from '../fixture/serial.ts';
 import { ConformanceClient } from './client.ts';
+import type { LocationState } from '../../frontend/src/lib/backend/contract.ts';
 import type { PhysicalTarget } from './suite.ts';
 
 type Progress = (message: string) => void;
+type LocationCheckpoint = {
+  authorization: LocationState['status'];
+  backgroundCapture: LocationState['backgroundCapture'];
+  beforeCount: number;
+  afterCount: number;
+  persistedDelta: number;
+  beforeSequence: number;
+  afterSequence: number;
+};
+const LOCATION_BACKGROUND_DWELL_MS = 10_000;
 
 export async function runPhysicalConformance(
   target: PhysicalTarget,
@@ -15,12 +26,18 @@ export async function runPhysicalConformance(
   report: Progress = (message) => process.stdout.write(`${message}\n`)
 ) {
   const names = physicalScenarioMatrix[target.platform];
-  const results: Array<{ scenario: PhysicalScenarioName; revision: number; durationMs: number }> = [];
+  const results: Array<{
+    scenario: PhysicalScenarioName;
+    revision: number;
+    durationMs: number;
+    locationCheckpoint?: LocationCheckpoint;
+  }> = [];
   let primaryFailure: unknown;
   report(`Physical conformance: ${target.name}`);
   report(`Preparing ${target.name}...`);
   try {
     await target.prepareSuite?.((message) => report(`  ${message}`));
+    await target.prepareLocation?.((message) => report(`  ${message}`));
     report(`Prepared ${target.name}`);
     for (const [index, name] of names.entries()) {
       report('');
@@ -73,6 +90,7 @@ async function runPhysicalScenario(
   const runner = new FixtureRunner(scenario, fixture, undefined, 1_000, (message) => report(`  ${message}`));
   let client: ConformanceClient | undefined;
   let passed = false;
+  let locationCheckpoint: LocationCheckpoint | undefined;
   try {
     await runner.start();
     const endpoint = await target.start();
@@ -90,7 +108,7 @@ async function runPhysicalScenario(
     const initial = await client.request('state.get', {});
     await client.request('settings.update', {
       expectedRevision: initial.settings.revision,
-      patch: { minimumSessionDistance: 0 },
+      patch: { minimumSessionDistance: 0, locationRecordingEnabled: false },
     });
     await client.request('bluetooth.scan', { timeoutMs: 5_000 }, 10_000);
     const discovered = await client.waitForState(
@@ -172,7 +190,16 @@ async function runPhysicalScenario(
     } else if (name === 'unexpected-disconnect') {
       await runReconnect(client, runner, device.deviceId, activeSession.sessionId, ready.revision, false);
     } else if (name === 'background') {
-      client = await runBackground(target, client, runner, device.deviceId, activeSession.sessionId, report);
+      const backgroundResult = await runBackground(
+        target,
+        client,
+        runner,
+        device.deviceId,
+        activeSession.sessionId,
+        report
+      );
+      client = backgroundResult.client;
+      locationCheckpoint = backgroundResult.locationCheckpoint;
     } else {
       // The fixture's fifth telemetry response is the first riding sample.
       // Every session expected to remain reviewable must reach it explicitly.
@@ -207,7 +234,7 @@ async function runPhysicalScenario(
     runner.verify();
     const finalState = await client.request('state.get', {});
     passed = true;
-    return { scenario: name, revision: finalState.revision };
+    return { scenario: name, revision: finalState.revision, locationCheckpoint };
   } catch (error) {
     const diagnostics = runner.diagnosticSnapshot();
     if (diagnostics.length) {
@@ -276,8 +303,9 @@ async function runBackground(
   deviceId: string,
   sessionId: string,
   report: Progress
-) {
+): Promise<{ client: ConformanceClient; locationCheckpoint: LocationCheckpoint }> {
   assert.ok(target.background && target.foreground && target.endpoint, 'Mobile lifecycle is unavailable');
+  const location = await enablePhysicalLocation(client, report);
   await runner.waitForRequests(
     (requests) => requests.filter((request) => request.kind === 'telemetry').length >= 4,
     15_000
@@ -285,6 +313,7 @@ async function runBackground(
   const before = await client.request('state.get', {});
   const beforeSession = before.activeConnection?.activeSession;
   assert.ok(beforeSession, 'Active session disappeared before backgrounding');
+  const beforeMetadata = await client.request('session.get', { sessionId });
   report('  App > background');
   await target.background();
   client.close();
@@ -293,6 +322,8 @@ async function runBackground(
       requests.filter((request) => request.kind === 'telemetry').length >= runner.scenario.minimumTelemetryResponses,
     20_000
   );
+  report(`  Location: background dwell ${LOCATION_BACKGROUND_DWELL_MS}ms`);
+  await new Promise((resolve) => setTimeout(resolve, LOCATION_BACKGROUND_DWELL_MS));
   report('  App > foreground');
   await target.foreground();
   const endpoint = await target.endpoint();
@@ -305,8 +336,80 @@ async function runBackground(
     recoveredSession.sampleCount > beforeSession.sampleCount,
     'Native session did not accumulate samples while backgrounded'
   );
+  const afterMetadata = await replacement.request('session.get', { sessionId });
+  const persistedDelta = afterMetadata.location.count - beforeMetadata.location.count;
+  const locationCheckpoint: LocationCheckpoint = {
+    authorization: location.status,
+    backgroundCapture: location.backgroundCapture,
+    beforeCount: beforeMetadata.location.count,
+    afterCount: afterMetadata.location.count,
+    persistedDelta,
+    beforeSequence: beforeMetadata.snapshot.committedLocationSequence,
+    afterSequence: afterMetadata.snapshot.committedLocationSequence,
+  };
+  report(
+    `  Location checkpoint: status=${location.status} background=${location.backgroundCapture} ` +
+      `rows=${beforeMetadata.location.count}->${afterMetadata.location.count} ` +
+      `sequence=${beforeMetadata.snapshot.committedLocationSequence}->${afterMetadata.snapshot.committedLocationSequence}`
+  );
+  assert.ok(
+    afterMetadata.snapshot.committedLocationSequence >= beforeMetadata.snapshot.committedLocationSequence,
+    'Location boundary regressed after foreground recovery'
+  );
+  if (target.platform === 'android' && location.backgroundCapture === 'available') {
+    assert.ok(
+      persistedDelta > 0,
+      'Android location capability was available but no location row persisted during the background checkpoint'
+    );
+  }
   await completeSession(replacement, deviceId, sessionId, target.platform !== 'android');
-  return replacement;
+  return { client: replacement, locationCheckpoint };
+}
+
+async function enablePhysicalLocation(client: ConformanceClient, report: Progress) {
+  let state = await client.request('state.get', {});
+  if (!state.settings.locationRecordingEnabled) {
+    const settings = await client.request('settings.update', {
+      expectedRevision: state.settings.revision,
+      patch: { locationRecordingEnabled: true },
+    });
+    assert.equal(settings.locationRecordingEnabled, true);
+  }
+
+  let location = await client.request('location.requestPermission', {});
+  if (location.status === 'notDetermined') {
+    location = await pollLocationState(client, (next) => next.status !== 'notDetermined', 60_000);
+  }
+  if (location.status === 'foregroundOnly' || location.permissionAction === 'openSettings') {
+    report('  Location: background capability requires platform settings; waiting for authorization');
+    await client.request('location.openSettings', {});
+    location = await pollLocationState(
+      client,
+      (next) => next.status === 'authorized' && next.backgroundCapture === 'available',
+      60_000
+    );
+  }
+  assert.equal(location.status, 'authorized', `Location authorization is ${location.status}`);
+  assert.equal(location.backgroundCapture, 'available', `Location background capture is ${location.backgroundCapture}`);
+  report(`  Location: ${location.status}/${location.backgroundCapture}`);
+  return location;
+}
+
+async function pollLocationState(
+  client: ConformanceClient,
+  predicate: (state: LocationState) => boolean,
+  timeoutMs: number
+) {
+  const deadline = performance.now() + timeoutMs;
+  let latest = (await client.request('state.get', {})).location;
+  while (performance.now() < deadline) {
+    if (predicate(latest)) return latest;
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    latest = (await client.request('state.get', {})).location;
+  }
+  throw new Error(
+    `Timed out resolving location state; latest=${latest.status}/${latest.backgroundCapture} reason=${latest.reason ?? 'none'}`
+  );
 }
 
 function formatDuration(milliseconds: number) {

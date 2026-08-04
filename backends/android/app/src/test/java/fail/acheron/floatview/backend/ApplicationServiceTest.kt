@@ -101,6 +101,95 @@ class ApplicationServiceTest {
     }
 
     @Test
+    fun `location capture starts only for an authorized riding session and stops on idle`() {
+        val store = FakeStore()
+        val products = FakeProductStore().apply {
+            settingsRecord = SettingsRecord(locationRecordingEnabled = true)
+        }
+        val provider = FakeLocationProvider(
+            LocationProviderState(
+                LocationProviderAuthorization.AUTHORIZED,
+                LocationProviderBackgroundCapture.AVAILABLE,
+            ),
+        )
+        val clock = FakeClock()
+        val service = readyService(store, products, provider, clock)
+
+        service.ingest(TelemetrySample(1, Instant.EPOCH, 0, RideState.RIDING))
+        assertEquals(1, provider.startCount)
+        clock.monotonicMs = 1_500
+        provider.emit(LocationProviderObservation(Instant.EPOCH.plusSeconds(1), 1.0, 2.0, 5.0))
+        assertEquals(1, store.locationObservations.size)
+        assertEquals(1_500L, store.locationObservations.single().elapsedMs)
+
+        service.ingest(TelemetrySample(2, Instant.EPOCH.plusSeconds(2), 2_000, RideState.IDLE))
+        assertEquals(1, provider.stopCount)
+        provider.emit(LocationProviderObservation(Instant.EPOCH.plusSeconds(2), 3.0, 4.0, null))
+        assertEquals(1, store.locationObservations.size)
+    }
+
+    @Test
+    fun `denied location permission prevents capture and foreground-only remains usable`() {
+        val store = FakeStore()
+        val products = FakeProductStore().apply {
+            settingsRecord = SettingsRecord(locationRecordingEnabled = true)
+        }
+        val denied = FakeLocationProvider(
+            LocationProviderState(
+                LocationProviderAuthorization.DENIED,
+                LocationProviderBackgroundCapture.UNAVAILABLE,
+            ),
+        )
+        val service = readyService(store, products, denied, FakeClock())
+        service.ingest(TelemetrySample(1, Instant.EPOCH, 0, RideState.RIDING))
+        assertEquals(0, denied.startCount)
+
+        val foregroundOnly = FakeLocationProvider(
+            LocationProviderState(
+                LocationProviderAuthorization.FOREGROUND_ONLY,
+                LocationProviderBackgroundCapture.FOREGROUND_ONLY,
+            ),
+        )
+        val foregroundService = readyService(store = FakeStore(), products = products, provider = foregroundOnly, clock = FakeClock())
+        foregroundService.ingest(TelemetrySample(1, Instant.EPOCH, 0, RideState.RIDING))
+        assertEquals(1, foregroundOnly.startCount)
+    }
+
+    @Test
+    fun `location capture stops on disconnect and restarts with a recovered service`() {
+        val store = FakeStore()
+        val products = FakeProductStore().apply {
+            settingsRecord = SettingsRecord(locationRecordingEnabled = true)
+        }
+        val clock = FakeClock()
+        val firstProvider = FakeLocationProvider(
+            LocationProviderState(
+                LocationProviderAuthorization.AUTHORIZED,
+                LocationProviderBackgroundCapture.AVAILABLE,
+            ),
+        )
+        val first = readyService(store, products, firstProvider, clock)
+        first.ingest(TelemetrySample(1, Instant.EPOCH, 0, RideState.RIDING))
+        first.disconnect()
+        assertEquals(1, firstProvider.stopCount)
+        assertEquals(listOf("explicit_disconnect"), store.closeReasons)
+
+        // A restarted service can reuse an active durable session and reacquire
+        // the provider when the board becomes ready again.
+        val recoveredStore = FakeStore()
+        recoveredStore.seedActive(DeviceId("fixture"))
+        val recoveredProvider = FakeLocationProvider(
+            LocationProviderState(
+                LocationProviderAuthorization.AUTHORIZED,
+                LocationProviderBackgroundCapture.AVAILABLE,
+            ),
+        )
+        val recovered = readyService(recoveredStore, products, recoveredProvider, clock)
+        recovered.ingest(TelemetrySample(1, Instant.EPOCH, 0, RideState.RIDING))
+        assertEquals(1, recoveredProvider.startCount)
+    }
+
+    @Test
     fun `discovery owns scan and deduplicates devices`() {
         val bluetooth = FakeBluetooth()
         val clock = FakeClock()
@@ -1141,6 +1230,7 @@ class ApplicationServiceTest {
         var createCount = 0
         val appended = mutableListOf<TelemetrySample>()
         val closeReasons = mutableListOf<String>()
+        val locationObservations = mutableListOf<LocationObservation>()
         override fun create(deviceId: DeviceId, advertisedName: String?, at: Instant): SessionRecord =
             SessionRecord(SessionId("session"), JobId("job"), deviceId, at, 0, true)
                 .also {
@@ -1149,6 +1239,12 @@ class ApplicationServiceTest {
                 }
         override fun append(jobId: JobId, samples: List<TelemetrySample>) {
             appended += samples
+        }
+        override fun appendLocations(jobId: JobId, observations: List<LocationObservation>) {
+            locationObservations += observations
+        }
+        fun seedActive(deviceId: DeviceId) {
+            current = SessionRecord(SessionId("recovered-session"), JobId("recovered-job"), deviceId, Instant.EPOCH, 0, true)
         }
         override fun close(jobId: JobId, at: Instant, reason: String): SessionRecord {
             closeReasons += reason
@@ -1159,6 +1255,7 @@ class ApplicationServiceTest {
 
     private class FakeProductStore : ProductStorePort {
         var routingHint: ControllerRoutingHint? = null
+        var settingsRecord = SettingsRecord()
         var saved = SavedDeviceRecord(
             "saved-board",
             "history-board",
@@ -1176,6 +1273,8 @@ class ApplicationServiceTest {
         )
 
         override fun savedDevices() = listOf(saved)
+
+        override fun settings() = settingsRecord
 
         override fun ensureSavedDevice(
             deviceId: DeviceId,
@@ -1257,6 +1356,49 @@ class ApplicationServiceTest {
             }
             routingHint = null
         }
+    }
+
+    private class FakeLocationProvider(
+        private var currentState: LocationProviderState,
+    ) : LocationProviderPort {
+        var startCount = 0
+        var stopCount = 0
+        private var handler: ((LocationProviderObservation) -> Unit)? = null
+
+        override fun state() = currentState
+        override fun requestPermission() = Unit
+        override fun openSettings() = Unit
+        override fun startUpdates(handler: (LocationProviderObservation) -> Unit) {
+            startCount += 1
+            this.handler = handler
+        }
+        override fun stopUpdates() {
+            stopCount += 1
+            handler = null
+        }
+        fun emit(observation: LocationProviderObservation) {
+            handler?.invoke(observation)
+        }
+    }
+
+    private fun readyService(
+        store: FakeStore,
+        products: FakeProductStore,
+        provider: LocationProviderPort,
+        clock: FakeClock,
+    ): ApplicationService {
+        val service = ApplicationService(
+            FakeBluetooth(),
+            clock,
+            store,
+            productStore = products,
+            locationProvider = provider,
+        ) {}
+        val id = DeviceId("fixture")
+        service.onBluetoothEvent(BluetoothEvent.DeviceFound(id, "Fixture", -40))
+        service.connect(id)
+        service.onBluetoothEvent(BluetoothEvent.ConnectionChanged(id, ConnectionState.READY))
+        return service
     }
 
     private class FailingStore : LogStorePort {

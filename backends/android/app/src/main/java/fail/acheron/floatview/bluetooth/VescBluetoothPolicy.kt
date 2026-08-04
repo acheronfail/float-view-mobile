@@ -34,10 +34,13 @@ internal object VescBluetoothPolicy {
         supportsWriteWithoutResponse: Boolean,
     ): WriteMode =
         when {
-            supportsWriteWithResponse -> WriteMode.WITH_RESPONSE
             supportsWriteWithoutResponse -> WriteMode.WITHOUT_RESPONSE
+            supportsWriteWithResponse -> WriteMode.WITH_RESPONSE
             else -> WriteMode.UNSUPPORTED
         }
+
+    fun writeCompletionRequired(writeMode: WriteMode): Boolean =
+        writeMode == WriteMode.WITH_RESPONSE
 
     fun setupFailure(
         hasService: Boolean,

@@ -8,7 +8,10 @@ const SAMPLE_COUNT = 150_000;
 const RUNS = 3;
 const output =
   process.argv[2] ??
-  resolve(import.meta.dirname, '../../openspec/changes/performance-session-visualisations/evidence/software-measurements.json');
+  resolve(
+    import.meta.dirname,
+    '../../openspec/changes/performance-session-visualisations/evidence/software-measurements.json'
+  );
 
 const source: ReferenceSample[] = Array.from({ length: SAMPLE_COUNT }, (_, index) => ({
   sequence: index + 1,

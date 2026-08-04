@@ -886,7 +886,8 @@ public final class LoopbackServer: @unchecked Sendable {
     timing.kind = kind
     let fields = (params["fields"] as? [String] ?? []).filter { !$0.isEmpty }
     guard start >= 0, end >= start, fields.count <= 16,
-          kind == "events" || kind == "locations" || (!fields.isEmpty && Set(fields).count == fields.count) else { return nil }
+          kind == "events" || kind == "locations" || (!fields.isEmpty && Set(fields).count == fields.count)
+    else { return nil }
     let metadataStarted = DispatchTime.now().uptimeNanoseconds
     let published = try applicationService.sessionSnapshot(sessionID: sessionID)
     guard let snapshotRevision = snapshot["historyRevision"] as? NSNumber,
@@ -1010,10 +1011,14 @@ public final class LoopbackServer: @unchecked Sendable {
            "accuracyM": point.accuracyM ?? NSNull(),
            "observedAt": ISO8601DateFormatter().string(from: point.observedAt)]
         },
-        "gaps": page.gaps.map { ["startElapsedMs": $0.startElapsedMs, "endElapsedMs": $0.endElapsedMs, "reason": $0.reason] },
+        "gaps": page.gaps.map { [
+          "startElapsedMs": $0.startElapsedMs,
+          "endElapsedMs": $0.endElapsedMs,
+          "reason": $0.reason,
+        ] },
         "nextCursor": page.nextCursor as Any? ?? NSNull(),
         "locationBoundary": ["lastSequence": page.snapshot.committedLocationSequence,
-                              "lastElapsedMs": page.snapshot.committedLocationElapsedMs],
+                             "lastElapsedMs": page.snapshot.committedLocationElapsedMs],
       ]
     }
     guard kind == "events" else { return nil }
@@ -1392,7 +1397,8 @@ private func invalidatesState(_ event: any Sendable) -> Bool {
   return event is BluetoothState || event is DiscoverySnapshot || event is ConnectionState ||
     event is KnownDevice ||
     event is SessionRecord || event is SavedDeviceRecord || event is BoardProfileRecord ||
-    event is SettingsRecord || event is LocationProviderState || event is TelemetrySample || event is SessionCatalogChanged
+    event is SettingsRecord || event is LocationProviderState || event is TelemetrySample ||
+    event is SessionCatalogChanged
 }
 
 private struct SessionCatalogChanged {}

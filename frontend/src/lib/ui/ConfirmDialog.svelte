@@ -1,7 +1,7 @@
-
 <script lang="ts" module>
   export type DialogAppearance = 'normal' | 'warning' | 'destructive';
 </script>
+
 <script lang="ts">
   import { tick } from 'svelte';
   import { activateFromKeyboardOrAssistiveClick, activateFromPointer, type Activation } from './activation';

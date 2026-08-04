@@ -722,7 +722,14 @@ public struct SessionLocationPointRecord: Sendable, Codable, Equatable {
   public let accuracyM: Double?
   public let observedAt: Date
 
-  public init(locationSequence: Int64, elapsedMs: Int64, latitude: Double, longitude: Double, accuracyM: Double?, observedAt: Date) {
+  public init(
+    locationSequence: Int64,
+    elapsedMs: Int64,
+    latitude: Double,
+    longitude: Double,
+    accuracyM: Double?,
+    observedAt: Date
+  ) {
     self.locationSequence = locationSequence
     self.elapsedMs = elapsedMs
     self.latitude = latitude
@@ -750,7 +757,12 @@ public struct SessionLocationPageRecord: Sendable, Codable, Equatable {
   public let nextCursor: String?
   public let snapshot: SessionPublishedSnapshotRecord
 
-  public init(points: [SessionLocationPointRecord], gaps: [SessionLocationGapRecord], nextCursor: String?, snapshot: SessionPublishedSnapshotRecord) {
+  public init(
+    points: [SessionLocationPointRecord],
+    gaps: [SessionLocationGapRecord],
+    nextCursor: String?,
+    snapshot: SessionPublishedSnapshotRecord
+  ) {
     self.points = points
     self.gaps = gaps
     self.nextCursor = nextCursor

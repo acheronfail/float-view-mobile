@@ -33,11 +33,20 @@ export function androidPhysicalTarget(deviceSerial: string): PhysicalTarget {
     prepared = true;
     report('Android: permissions and loopback forwarding ready');
   };
+  const prepareLocation = async (report: (message: string) => void = () => undefined) => {
+    assertPhysicalDevice(deviceSerial);
+    const apiLevel = androidApiLevel(deviceSerial);
+    for (const permission of androidLocationRuntimePermissions(apiLevel)) {
+      adb(deviceSerial, 'shell', 'pm', 'grant', applicationId, permission);
+    }
+    report('Android: location permissions ready');
+  };
   return {
     name: 'android-physical',
     platform: 'android',
     productionBluetooth: true,
     prepareSuite,
+    prepareLocation,
     async start() {
       await prepareSuite();
       adb(deviceSerial, 'shell', 'am', 'force-stop', applicationId);
@@ -111,6 +120,13 @@ export function androidRuntimePermissions(apiLevel: number) {
   }
   if (apiLevel >= 23) return ['android.permission.ACCESS_FINE_LOCATION'];
   return [];
+}
+
+export function androidLocationRuntimePermissions(apiLevel: number) {
+  const permissions = [...androidRuntimePermissions(apiLevel)];
+  if (apiLevel >= 23) permissions.push('android.permission.ACCESS_FINE_LOCATION');
+  if (apiLevel >= 29) permissions.push('android.permission.ACCESS_BACKGROUND_LOCATION');
+  return [...new Set(permissions)];
 }
 
 function adb(serial: string, ...args: string[]) {

@@ -25,7 +25,12 @@
   let {
     metadata,
     onselectionchange = () => {},
-  }: { metadata: SessionMetadata; onselectionchange?: (elapsedMs: number) => void } = $props();
+    onviewportchange = () => {},
+  }: {
+    metadata: SessionMetadata;
+    onselectionchange?: (elapsedMs: number) => void;
+    onviewportchange?: (viewport: Viewport) => void;
+  } = $props();
   let plot = $state<HTMLElement | null>(null);
   let width = $state(0);
   let viewport = $state<Viewport>({ startElapsedMs: 0, endElapsedMs: metadata.summary.totalElapsedMs });
@@ -114,6 +119,10 @@
     };
   });
   let inspectionVisible = $derived(exactStatus !== 'idle');
+
+  $effect(() => {
+    onviewportchange(viewport);
+  });
 
   $effect(() => {
     if (!activeField && fields.length) {

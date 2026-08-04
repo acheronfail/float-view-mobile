@@ -44,7 +44,7 @@
   >
   {#if menuOpen}
     <div
-      class="absolute top-12 right-0 z-20 min-w-52 overflow-hidden rounded-xl border border-outline bg-elevated shadow-xl"
+      class="absolute top-12 right-0 z-30 min-w-52 overflow-hidden rounded-xl border border-outline bg-elevated shadow-xl"
     >
       {@render children(closeMenu)}
     </div>

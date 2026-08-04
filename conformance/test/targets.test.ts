@@ -6,6 +6,7 @@ import {
   ANDROID_BACKEND_PORT,
   androidBuildArguments,
   androidLaunchArguments,
+  androidLocationRuntimePermissions,
   androidPhysicalTarget,
   androidRuntimePermissions,
   androidStorageResetArguments,
@@ -140,6 +141,21 @@ test('Android physical permissions follow the device API level', () => {
   assert.deepEqual(androidRuntimePermissions(31), [
     'android.permission.BLUETOOTH_SCAN',
     'android.permission.BLUETOOTH_CONNECT',
+  ]);
+});
+
+test('Android location preparation grants foreground and background capability where supported', () => {
+  assert.deepEqual(androidLocationRuntimePermissions(22), []);
+  assert.deepEqual(androidLocationRuntimePermissions(28), ['android.permission.ACCESS_FINE_LOCATION']);
+  assert.deepEqual(androidLocationRuntimePermissions(30), [
+    'android.permission.ACCESS_FINE_LOCATION',
+    'android.permission.ACCESS_BACKGROUND_LOCATION',
+  ]);
+  assert.deepEqual(androidLocationRuntimePermissions(31), [
+    'android.permission.BLUETOOTH_SCAN',
+    'android.permission.BLUETOOTH_CONNECT',
+    'android.permission.ACCESS_FINE_LOCATION',
+    'android.permission.ACCESS_BACKGROUND_LOCATION',
   ]);
 });
 

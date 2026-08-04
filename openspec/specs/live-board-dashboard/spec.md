@@ -3,7 +3,9 @@
 ## Purpose
 
 Define the focused live-board experience, including responsive telemetry, connection and session state, board configuration, and safe disconnect controls.
+
 ## Requirements
+
 ### Requirement: Focused responsive live dashboard
 
 The live-board view SHALL remain a focused subordinate screen without primary tabs and SHALL present every field in the current live telemetry contract at an intentional stable position in a responsive grid. The grid SHALL render three, two, or one usable columns as available width decreases, SHALL preserve stable cell placement while values update, and SHALL render unavailable values as placeholders.

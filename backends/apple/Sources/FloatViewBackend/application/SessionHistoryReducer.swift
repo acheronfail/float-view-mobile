@@ -132,7 +132,7 @@ public enum SessionHistoryReducer {
       self.expectedIdlePersistenceMs = expectedIdlePersistenceMs
       self.retainedResolutionSeconds = retainedResolutionSeconds
       generations = Array(repeating: 0, count: fields.count)
-      bucketsByField = fields.map { _ in Array<BucketCandidates?>(repeating: nil, count: buckets) }
+      bucketsByField = fields.map { _ in [BucketCandidates?](repeating: nil, count: buckets) }
     }
 
     public func append(_ row: SessionSeriesPoint) {
@@ -152,7 +152,9 @@ public enum SessionHistoryReducer {
     ) {
       let edgeThreshold = thresholdForCurrentPhase()
       if let previousElapsed, elapsedMs - previousElapsed > edgeThreshold {
-        for index in generations.indices { generations[index] += 1 }
+        for index in generations.indices {
+          generations[index] += 1
+        }
       }
       previousElapsed = elapsedMs
       previousRideState = rideState
@@ -264,10 +266,12 @@ public enum SessionHistoryReducer {
     )
     let ordered = rowsAreOrdered
       ? rows
-        : rows
-        .filter { $0.elapsedMs >= range.startElapsedMs && $0.elapsedMs <= range.endElapsedMs }
-        .sorted(by: compare)
-    for row in ordered { accumulator.append(row) }
+      : rows
+      .filter { $0.elapsedMs >= range.startElapsedMs && $0.elapsedMs <= range.endElapsedMs }
+      .sorted(by: compare)
+    for row in ordered {
+      accumulator.append(row)
+    }
     return try accumulator.finish()
   }
 

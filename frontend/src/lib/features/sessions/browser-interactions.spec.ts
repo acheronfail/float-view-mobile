@@ -58,5 +58,4 @@ describe('browser chart interaction scenarios', () => {
     target.dispatchEvent(new Event('pointerup'));
     expect(action).not.toHaveBeenCalled();
   });
-
 });

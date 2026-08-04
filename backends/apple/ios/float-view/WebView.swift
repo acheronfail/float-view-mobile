@@ -55,6 +55,9 @@ struct WebView: UIViewRepresentable {
     }
 
     func webViewWebContentProcessDidTerminate(_: WKWebView) {
+      #if DEBUG
+        print("[FloatView WebView] web content process terminated; recovering frontend")
+      #endif
       DispatchQueue.main.async { [onContentProcessTerminated] in
         onContentProcessTerminated()
       }

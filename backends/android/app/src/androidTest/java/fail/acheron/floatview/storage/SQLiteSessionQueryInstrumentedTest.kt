@@ -5,6 +5,7 @@ import android.database.sqlite.SQLiteDatabase
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import fail.acheron.floatview.backend.DeviceId
+import fail.acheron.floatview.backend.LocationObservation
 import fail.acheron.floatview.backend.PackageState
 import fail.acheron.floatview.backend.RideState
 import fail.acheron.floatview.backend.ProductStoreException
@@ -172,6 +173,42 @@ class SQLiteSessionQueryInstrumentedTest {
     }
 
     @Test
+    fun locationCommitBoundariesSurviveSparseWritesRestartAndDeletion() {
+        val store = SQLiteLogStore(context, availableBytes = { 2_000_000_000 })
+        val startedAt = Instant.ofEpochMilli(1_700_500_000_000)
+        val record = store.create(DeviceId("location-boundary"), startedAt)
+        store.appendLocations(record.jobId, listOf(
+            LocationObservation(startedAt.plusSeconds(20), 20_000, -33.82, 151.22, 8.0),
+            LocationObservation(startedAt, 0, -33.80, 151.20, null),
+            LocationObservation(startedAt.plusSeconds(20), 20_000, -33.83, 151.23, 4.0),
+            LocationObservation(startedAt.plusSeconds(20), 20_000, -33.82, 151.22, 8.0),
+        ))
+        val snapshot = store.sessionSnapshot(record.sessionId.value)
+        assertEquals(3, snapshot.committedLocationSequence)
+        assertEquals(3, snapshot.recordedLocationCount)
+        val first = store.queryLocations(
+            record.sessionId.value, 0, 20_000, 2, null, snapshot.committedLocationSequence,
+        )
+        assertEquals(listOf(1L, 2L), first.points.map { it.locationSequence })
+        assertTrue(first.nextCursor != null)
+        val second = store.queryLocations(
+            record.sessionId.value, 0, 20_000, 2, first.nextCursor, snapshot.committedLocationSequence,
+        )
+        assertEquals(listOf(3L), second.points.map { it.locationSequence })
+        assertEquals(listOf("noFix"), first.gaps.map { it.reason })
+
+        store.close(record.jobId, startedAt.plusSeconds(20), "location-boundary")
+        store.pruneSession(record.sessionId.value, 5)
+        assertEquals(3, store.sessionSnapshot(record.sessionId.value).recordedLocationCount)
+        val restarted = SQLiteLogStore(context, availableBytes = { 2_000_000_000 })
+        val persisted = restarted.sessionSnapshot(record.sessionId.value)
+        assertEquals(snapshot.committedLocationSequence, persisted.committedLocationSequence)
+        assertEquals(3, persisted.recordedLocationCount)
+        restarted.deleteSession(record.sessionId.value)
+        assertTrue(restarted.sessions(SessionListQuery()).items.none { it.sessionId == record.sessionId.value })
+    }
+
+    @Test
     fun deterministicLargeSessionBuilderUsesLosslessSourcePath() {
         val store = SQLiteLogStore(context, availableBytes = { 2_000_000_000 })
         val startedAt = Instant.ofEpochMilli(1_700_300_000_000)
@@ -336,15 +373,24 @@ class SQLiteSessionQueryInstrumentedTest {
                     ),
                 ),
             )
+            if (offset == 0L) {
+                store.appendLocations(record.jobId, listOf(
+                    LocationObservation(base, 0, -33.8, 151.2, null),
+                    LocationObservation(base.plusSeconds(60), 60_000, -33.81, 151.21, 5.0),
+                ))
+            }
             store.close(record.jobId, base.plusSeconds(offset + 60), "test")
         }
 
+        store.updateSettings(1, """{"includeGpsLocationWhenExporting":true}""")
         val csv = store.exportSession(sessionIds[0], "csv")
         val csvText = File(csv.filePath).readText()
         assertTrue(csvText.contains("pack_voltage_v"))
         assertTrue(csvText.contains("setpoint_adjustment"))
         assertTrue(csvText.contains("fieldWeakeningCurrentA"))
         assertTrue(csvText.contains("future.energy"))
+        assertTrue(csvText.contains("gpsAccuracy,gpsLongitude,gpsLatitude"))
+        assertTrue(csvText.contains("151.21"))
         assertFalse(csvText.contains("management-fixture"))
         val archive = store.exportSession(sessionIds[0], "float-view-archive")
         SQLiteDatabase.openDatabase(

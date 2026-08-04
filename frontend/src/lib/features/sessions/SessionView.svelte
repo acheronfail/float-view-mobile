@@ -10,14 +10,25 @@
   import SessionHistory from './SessionHistory.svelte';
   import SessionEvents from './SessionEvents.svelte';
   import SessionLocationMap from './SessionLocationMap.svelte';
+  import type { Viewport } from './viewport';
 
   let { sessionId }: { sessionId: string } = $props();
   let menuButton = $state<HTMLButtonElement>();
   let deleteConfirmationOpen = $state(false);
   let deleting = $state(false);
   let sessionHeaderHeight = $state(0);
+  let locationMapHeight = $state(0);
   let selectedElapsedMs = $state(0);
+  let chartViewport = $state<Viewport | null>(null);
   const units = $derived(backendState.settings?.unitPreference ?? 'metric');
+
+  $effect(() => {
+    if (!backendState.sessionMetadata?.location.available) locationMapHeight = 0;
+  });
+
+  $effect(() => {
+    if (backendState.sessionMetadata?.summary.sessionId !== sessionId) chartViewport = null;
+  });
 
   onMount(() => {
     let active = true;
@@ -59,7 +70,7 @@
 <section
   aria-labelledby="session-heading"
   class="space-y-2"
-  style={`--section-header-top: calc(max(1.5rem, env(safe-area-inset-top, 0px)) + ${sessionHeaderHeight}px)`}
+  style={`--section-header-top: calc(max(1.5rem, env(safe-area-inset-top, 0px)) + ${sessionHeaderHeight + locationMapHeight}px)`}
 >
   {#if backendState.selectedSession}
     <StickyHeader
@@ -92,28 +103,36 @@
       {/snippet}
     </StickyHeader>
 
-    <div class="mt-4 grid grid-cols-2 gap-3">
-      <div class="rounded-lg border border-outline bg-elevated p-3">
-        <p class="text-sm text-muted">Samples</p>
-        <p class="text-xl">{backendState.selectedSession.sampleCount}</p>
-      </div>
-      <div class="rounded-lg border border-outline bg-elevated p-3">
-        <p class="text-sm text-muted">Distance</p>
-        <p class="text-xl">
-          {formatDistanceM(backendState.selectedSession.distanceM, units)}
-        </p>
-      </div>
-    </div>
-
     {#if backendState.sessionMetadata}
-      <div class="grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(18rem,0.42fr)]">
+      {#if backendState.sessionMetadata.location.available}
+        <SessionLocationMap
+          metadata={backendState.sessionMetadata}
+          {selectedElapsedMs}
+          viewport={chartViewport}
+          stickyTop={sessionHeaderHeight}
+          bind:height={locationMapHeight}
+        />
+      {/if}
+
+      <div class="mt-4 grid grid-cols-2 gap-3">
+        <div class="rounded-lg border border-outline bg-elevated p-3">
+          <p class="text-sm text-muted">Samples</p>
+          <p class="text-xl">{backendState.selectedSession.sampleCount}</p>
+        </div>
+        <div class="rounded-lg border border-outline bg-elevated p-3">
+          <p class="text-sm text-muted">Distance</p>
+          <p class="text-xl">
+            {formatDistanceM(backendState.selectedSession.distanceM, units)}
+          </p>
+        </div>
+      </div>
+
+      <div class="mt-3">
         <SessionHistory
           metadata={backendState.sessionMetadata}
           onselectionchange={(elapsedMs) => (selectedElapsedMs = elapsedMs)}
+          onviewportchange={(viewport) => (chartViewport = viewport)}
         />
-        {#if backendState.sessionMetadata.location.available}
-          <SessionLocationMap metadata={backendState.sessionMetadata} {selectedElapsedMs} />
-        {/if}
       </div>
     {/if}
 

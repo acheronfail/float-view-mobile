@@ -59,7 +59,6 @@ class AndroidBluetoothAdapter(
     private var safeWritePayloadBytes = DEFAULT_WRITE_PAYLOAD_BYTES
     private var savedDeviceIds = emptySet<DeviceId>()
     private var serviceDiscoveryStarted = false
-    private var mtuFallback: Runnable? = null
     private var connectionTimeout: Runnable? = null
     private val radioReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
@@ -246,21 +245,41 @@ class AndroidBluetoothAdapter(
         }
         val (gatt, characteristic, bytes) = pending
         try {
-            characteristic.writeType =
-                if (
+            val writeMode = VescBluetoothPolicy.writeMode(
+                supportsWriteWithResponse =
                     characteristic.properties and
-                    BluetoothGattCharacteristic.PROPERTY_WRITE != 0
-                ) {
-                    BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
-                } else {
-                    BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
-                }
+                        BluetoothGattCharacteristic.PROPERTY_WRITE != 0,
+                supportsWriteWithoutResponse =
+                    characteristic.properties and
+                        BluetoothGattCharacteristic.PROPERTY_WRITE_NO_RESPONSE != 0,
+            )
+            val completionRequired = VescBluetoothPolicy.writeCompletionRequired(writeMode)
+            characteristic.writeType = if (completionRequired) {
+                BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
+            } else {
+                BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
+            }
+            // Keep the queue occupied for both write modes. A write without
+            // response has no callback we can use for flow control, so its
+            // delayed continuation below provides the required pacing.
+            synchronized(this) { writeInFlight = true }
             @Suppress("DEPRECATION")
             characteristic.value = bytes
             @Suppress("DEPRECATION")
             if (!gatt.writeCharacteristic(characteristic)) {
                 synchronized(this) { writeInFlight = false }
                 failConnection(deviceId, "vesc_write_start_failed")
+            } else if (!completionRequired) {
+                // Android does not deliver a completion callback for a
+                // write-without-response operation. Advance after a small
+                // bounded delay so consecutive commands do not overrun the
+                // platform GATT queue.
+                handler.postDelayed({
+                    synchronized(this) {
+                        if (deviceId == activeDeviceId) writeInFlight = false
+                    }
+                    drainWriteQueue(deviceId)
+                }, NO_RESPONSE_WRITE_DELAY_MS)
             }
         } catch (_: SecurityException) {
             synchronized(this) { writeInFlight = false }
@@ -301,24 +320,29 @@ class AndroidBluetoothAdapter(
                         ),
                     )
                     try {
-                        if (gatt.requestMtu(VESC_ATT_MTU)) {
-                            scheduleMtuFallback(deviceId, gatt)
-                        } else {
-                            discoverServices(deviceId, gatt)
-                        }
+                        // VESC Express' Nordic UART forwarding path drops a
+                        // three-byte slice of long notifications on some
+                        // Android/Samsung combinations after an MTU 247
+                        // exchange. Keep the default ATT payload (20 bytes)
+                        // so long VESC frames arrive intact and are reassembled
+                        // by VescFrameStreamDecoder.
+                        diagnosticHandler("gatt_mtu=default_23")
+                        discoverServices(deviceId, gatt)
                     } catch (_: SecurityException) {
                         failConnection(deviceId, "permission_required")
                     }
                 }
-                newState == BluetoothProfile.STATE_DISCONNECTED -> {
-                    cancelConnectionTimeout()
-                    clearConnection(gatt)
-                    eventHandler(
-                        BluetoothEvent.ConnectionChanged(deviceId, ConnectionState.DISCONNECTED),
-                    )
-                }
                 status != BluetoothGatt.GATT_SUCCESS -> {
+                    cancelConnectionTimeout()
+                    diagnosticHandler("connect_failed_$status")
                     eventHandler(BluetoothEvent.ConnectionChanged(deviceId, ConnectionState.FAILED))
+                    if (newState == BluetoothProfile.STATE_DISCONNECTED) {
+                        clearConnection(gatt)
+                        eventHandler(
+                            BluetoothEvent.ConnectionChanged(deviceId, ConnectionState.DISCONNECTED),
+                        )
+                        return
+                    }
                     try {
                         gatt.disconnect()
                     } catch (_: SecurityException) {
@@ -328,23 +352,14 @@ class AndroidBluetoothAdapter(
                         )
                     }
                 }
-            }
-        }
-
-        override fun onMtuChanged(gatt: BluetoothGatt, mtu: Int, status: Int) {
-            val deviceId = synchronized(this@AndroidBluetoothAdapter) {
-                if (gatt === activeGatt) activeDeviceId else null
-            } ?: return
-            cancelMtuFallback()
-            if (status == BluetoothGatt.GATT_SUCCESS && mtu >= DEFAULT_ATT_MTU) {
-                synchronized(this@AndroidBluetoothAdapter) {
-                    safeWritePayloadBytes = maxOf(
-                        DEFAULT_WRITE_PAYLOAD_BYTES,
-                        minOf(mtu - ATT_OVERHEAD_BYTES, MAXIMUM_WRITE_PAYLOAD_BYTES),
+                newState == BluetoothProfile.STATE_DISCONNECTED -> {
+                    cancelConnectionTimeout()
+                    clearConnection(gatt)
+                    eventHandler(
+                        BluetoothEvent.ConnectionChanged(deviceId, ConnectionState.DISCONNECTED),
                     )
                 }
             }
-            discoverServices(deviceId, gatt)
         }
 
         override fun onServicesDiscovered(gatt: BluetoothGatt, status: Int) {
@@ -376,6 +391,10 @@ class AndroidBluetoothAdapter(
                 failConnection(deviceId, setupFailure)
                 return
             }
+            diagnosticHandler(
+                "gatt_profile writeMode=${writeMode.name.lowercase()} " +
+                    "notify=${(notify?.properties?.and(BluetoothGattCharacteristic.PROPERTY_NOTIFY) ?: 0) != 0}",
+            )
             val validatedWrite = requireNotNull(write)
             val validatedNotify = requireNotNull(notify)
             synchronized(this@AndroidBluetoothAdapter) {
@@ -470,10 +489,10 @@ class AndroidBluetoothAdapter(
             }
         }
 
-        @Deprecated("Deprecated in Android 13, retained for Android 10 compatibility")
-        override fun onCharacteristicChanged(
+        private fun handleCharacteristicChanged(
             gatt: BluetoothGatt,
             characteristic: BluetoothGattCharacteristic,
+            value: ByteArray,
         ) {
             val deviceId = synchronized(this@AndroidBluetoothAdapter) {
                 if (gatt === activeGatt && characteristic === notifyCharacteristic) {
@@ -482,8 +501,24 @@ class AndroidBluetoothAdapter(
                     null
                 }
             } ?: return
+            eventHandler(BluetoothEvent.Notification(deviceId, value.copyOf()))
+        }
+
+        override fun onCharacteristicChanged(
+            gatt: BluetoothGatt,
+            characteristic: BluetoothGattCharacteristic,
+            value: ByteArray,
+        ) {
+            handleCharacteristicChanged(gatt, characteristic, value)
+        }
+
+        @Deprecated("Deprecated in Android 13, retained for Android 10 compatibility")
+        override fun onCharacteristicChanged(
+            gatt: BluetoothGatt,
+            characteristic: BluetoothGattCharacteristic,
+        ) {
             @Suppress("DEPRECATION")
-            eventHandler(BluetoothEvent.Notification(deviceId, characteristic.value.copyOf()))
+            handleCharacteristicChanged(gatt, characteristic, characteristic.value.copyOf())
         }
     }
 
@@ -521,7 +556,6 @@ class AndroidBluetoothAdapter(
         writeInFlight = false
         safeWritePayloadBytes = DEFAULT_WRITE_PAYLOAD_BYTES
         serviceDiscoveryStarted = false
-        cancelMtuFallback()
         try {
             gatt?.close()
         } catch (_: SecurityException) {
@@ -544,19 +578,6 @@ class AndroidBluetoothAdapter(
         }
         connectionTimeout = timeout
         handler.postDelayed(timeout, CONNECTION_ATTEMPT_TIMEOUT_MS)
-    }
-
-    private fun scheduleMtuFallback(deviceId: DeviceId, gatt: BluetoothGatt) {
-        cancelMtuFallback()
-        Runnable { discoverServices(deviceId, gatt) }.also {
-            mtuFallback = it
-            handler.postDelayed(it, MTU_FALLBACK_MS)
-        }
-    }
-
-    private fun cancelMtuFallback() {
-        mtuFallback?.let(handler::removeCallbacks)
-        mtuFallback = null
     }
 
     private fun discoverServices(deviceId: DeviceId, gatt: BluetoothGatt) {
@@ -597,12 +618,8 @@ class AndroidBluetoothAdapter(
     companion object {
         private const val LOG_TAG = "FloatViewBluetooth"
         private const val CONNECTION_ATTEMPT_TIMEOUT_MS = 10_000L
-        private const val MTU_FALLBACK_MS = 1_000L
-        private const val VESC_ATT_MTU = 247
-        private const val DEFAULT_ATT_MTU = 23
-        private const val ATT_OVERHEAD_BYTES = 3
+        private const val NO_RESPONSE_WRITE_DELAY_MS = 20L
         private const val DEFAULT_WRITE_PAYLOAD_BYTES = 20
-        private const val MAXIMUM_WRITE_PAYLOAD_BYTES = 512
         private val CLIENT_CHARACTERISTIC_CONFIGURATION =
             UUID.fromString("00002902-0000-1000-8000-00805f9b34fb")
     }
