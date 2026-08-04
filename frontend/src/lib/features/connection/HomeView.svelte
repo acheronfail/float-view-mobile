@@ -15,11 +15,11 @@
 
   // TODO: show connection strength with progress bar and dB
   // TODO: show uuid rather than just `discovered` or state or whatever that is
+  // TODO: show overall stats below header but above scan button here (total odometer sum, total ride time)
 </script>
 
-<section aria-label="Scan for boards" class="flex flex-col gap-4">
-  {#if backendState.status === 'connected'}
-    <button
+{#snippet scanButton()}
+  <button
       class="inline-flex items-center justify-center gap-2 rounded-lg bg-accent px-4 py-2 text-on-accent disabled:opacity-50"
       disabled={backendState.busy || backendState.scanning}
       onclick={() => backendState.scan()}
@@ -31,8 +31,12 @@
         Scan for boards
       {/if}
     </button>
+{/snippet}
 
+<section aria-label="Scan for boards" class="flex flex-col gap-4 py-2">
+  {#if backendState.status === 'connected'}
     {#if backendState.discoveredDevices.length}
+      {@render scanButton()}
       <div class="flex flex-col gap-2">
         <SectionTitle title="Discovered boards" />
         <ul class="flex flex-col gap-2">
@@ -50,6 +54,10 @@
             </li>
           {/each}
         </ul>
+      </div>
+    {:else}
+      <div class="h-full w-full flex items-center justify-center">
+        {@render scanButton()}
       </div>
     {/if}
   {:else if backendState.status === 'failed'}

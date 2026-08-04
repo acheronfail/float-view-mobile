@@ -18,13 +18,11 @@
     metadata,
     selectedElapsedMs = 0,
     viewport = null,
-    stickyTop = 0,
     height = $bindable(0),
   }: {
     metadata: SessionMetadata;
     selectedElapsedMs?: number;
     viewport?: Viewport | null;
-    stickyTop?: number;
     height?: number;
   } = $props();
   let node = $state<HTMLDivElement | null>(null);
@@ -243,7 +241,7 @@
   use:observeSize
   aria-label="Session location map"
   class="sticky z-11 bg-canvas"
-  style={`top: calc(max(1.5rem, env(safe-area-inset-top, 0px)) + ${stickyTop}px)`}
+  style="top: var(--app-header-bottom, 0px)"
 >
   <div class="mb-2 flex items-center justify-between">
     {#if loading}

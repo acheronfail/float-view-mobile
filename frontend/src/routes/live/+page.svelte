@@ -1,6 +1,7 @@
 <script lang="ts">
+  import { getContext, onDestroy, tick } from 'svelte';
   import { goto } from '$app/navigation';
-  import { tick } from 'svelte';
+  import { APP_HEADER_CONTEXT, type AppHeaderContext } from '$lib/app/header';
   import { backendState } from '$lib/backend/state.svelte';
   import BoardEditor from '$lib/features/boards/BoardEditor.svelte';
   import ControllerSelection from '$lib/features/connection/ControllerSelection.svelte';
@@ -9,8 +10,6 @@
   import { shouldConfirmDisconnect } from '$lib/features/connection/live';
   import BottomSheet from '$lib/ui/BottomSheet.svelte';
   import ConfirmDialog from '$lib/ui/ConfirmDialog.svelte';
-  import MenuItem from '$lib/ui/MenuItem.svelte';
-  import StickyHeader from '$lib/ui/StickyHeader.svelte';
   import { activateFromKeyboardOrAssistiveClick, activateFromPointer } from '$lib/ui/activation';
   import { locationRequiresAction } from '$lib/features/connection/location-presentation';
 
@@ -27,9 +26,9 @@
   let connectionIssueConfirmationOpen = $state(false);
   let firmwareUnsupportedConfirmationOpen = $state(false);
   let disconnecting = $state(false);
-  let menuButton = $state<HTMLButtonElement>();
   let editor = $state<BoardEditor>();
-  let liveHeaderHeight = $state(0);
+  const appHeader = getContext<AppHeaderContext>(APP_HEADER_CONTEXT);
+  const headerOwner = '/live';
   const connection = $derived(backendState.snapshot?.activeConnection);
   const sample = $derived(connection?.latestSample);
   const live = $derived(connection?.state === 'ready');
@@ -109,6 +108,46 @@
   });
 
   $effect(() => {
+    if (!connection) {
+      appHeader.set(headerOwner, { title: 'Live board', subtitle: 'Recovering connection…' });
+      return;
+    }
+
+    appHeader.set(headerOwner, {
+      title: connection.displayName,
+      subtitle: deviceState.display,
+      subtitleClass: deviceState.safetyStateActive
+        ? 'text-sm capitalize text-danger'
+        : live
+          ? 'text-sm capitalize text-success'
+          : 'text-sm capitalize text-warning',
+      menuLabel: 'Board actions',
+      menu: [
+        {
+          label: nextView.displayName,
+          onactivate: (closeMenu: () => void) => cycleView(closeMenu),
+        },
+        ...(connection.savedDeviceId
+          ? [
+              {
+                label: 'Configure board',
+                appearance: savedDevice && !savedDevice.profileComplete ? ('warning' as const) : ('normal' as const),
+                onactivate: (closeMenu: () => void) => openConfigure(closeMenu),
+              },
+            ]
+          : []),
+        {
+          label: 'Disconnect',
+          appearance: 'destructive' as const,
+          disabled: backendState.busy,
+          onactivate: (closeMenu: () => void) => requestDisconnect(closeMenu),
+        },
+      ],
+    });
+  });
+  onDestroy(() => appHeader.clear(headerOwner));
+
+  $effect(() => {
     if (backendState.status === 'connected' && !connection) {
       void goto('#/', { replaceState: true });
     }
@@ -152,7 +191,7 @@
   async function cancelDisconnect() {
     disconnectConfirmationOpen = false;
     await tick();
-    menuButton?.focus();
+    appHeader.focusMenu();
   }
 
   async function retryConnection() {
@@ -186,50 +225,18 @@
     await editor?.flush();
     configureOpen = false;
     await tick();
-    menuButton?.focus();
+    appHeader.focusMenu();
   }
 </script>
 
 <section
-  aria-labelledby="live-heading"
+  aria-labelledby="app-title"
   class="flex flex-col gap-2"
   class:flex-1={view === 'normal'}
   class:min-h-0={view === 'normal'}
   class:flex-none={view === 'detailed'}
-  style={`--section-header-top: calc(max(1.5rem, env(safe-area-inset-top, 0px)) + ${liveHeaderHeight}px)`}
 >
   {#if connection}
-    <StickyHeader
-      bind:button={menuButton}
-      bind:headerHeight={liveHeaderHeight}
-      headingId="live-heading"
-      title={connection.displayName}
-      subtitle={deviceState.display}
-      subtitleClass={deviceState.safetyStateActive
-        ? 'mt-1 text-sm capitalize text-danger'
-        : live
-          ? 'mt-1 text-sm capitalize text-success'
-          : 'mt-1 text-sm capitalize text-warning'}
-      menuLabel="Board actions"
-    >
-      {#snippet menu(closeMenu)}
-        <MenuItem label={nextView.displayName} onactivate={() => cycleView(closeMenu)} />
-        {#if connection.savedDeviceId}
-          <MenuItem
-            appearance={savedDevice && !savedDevice.profileComplete ? 'warning' : 'normal'}
-            label="Configure board"
-            onactivate={() => openConfigure(closeMenu)}
-          />
-        {/if}
-        <MenuItem
-          label="Disconnect"
-          appearance="destructive"
-          disabled={backendState.busy}
-          onactivate={() => requestDisconnect(closeMenu)}
-        />
-      {/snippet}
-    </StickyHeader>
-
     {#if locationNeedsAction && location}
       <div
         class="flex items-center justify-between gap-3 rounded-lg border border-warning/40 bg-warning/10 px-3 py-2 text-sm"

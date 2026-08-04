@@ -1,23 +1,30 @@
 <script lang="ts">
-  import type { Snippet } from 'svelte';
+  import type { AppHeaderAction } from '$lib/app/header';
   import Menu from './Menu.svelte';
+  import MenuItem from './MenuItem.svelte';
 
   let {
     headingId,
     title,
     subtitle,
-    sticky = false,
+    subtitleClass = 'text-sm text-muted',
+    titleClass = 'text-3xl font-semibold',
     menuLabel,
-    menu,
+    actions,
+    backHref,
+    backLabel = 'Back',
     headerHeight = $bindable(0),
     button = $bindable(),
   }: {
     headingId: string;
     title: string;
     subtitle?: string;
-    sticky?: boolean;
+    subtitleClass?: string;
+    titleClass?: string;
     menuLabel?: string;
-    menu?: Snippet<[close: () => void]>;
+    actions?: AppHeaderAction[];
+    backHref?: string;
+    backLabel?: string;
     headerHeight?: number;
     button?: HTMLButtonElement;
   } = $props();
@@ -39,26 +46,30 @@
 
 <header
   use:observeHeader
-  class={sticky
-    ? 'sticky z-20 flex shrink-0 items-start justify-between gap-4 border-b border-b-accent-soft bg-canvas'
-    : 'mb-5'}
-  style={sticky ? `top: ${safeAreaTop}` : undefined}
+  class="sticky z-20 flex shrink-0 items-start justify-between gap-4 border-b border-b-accent-soft bg-canvas"
+  style={`top: ${safeAreaTop}`}
 >
-  {#if sticky}
-    <span
-      aria-hidden="true"
-      class="pointer-events-none absolute right-0 bottom-full left-0 bg-canvas"
-      style={`height: ${safeAreaTop}`}
-    ></span>
-  {/if}
+  <span
+    aria-hidden="true"
+    class="pointer-events-none absolute right-0 bottom-full left-0 bg-canvas"
+    style={`height: ${safeAreaTop}`}
+  ></span>
   <div class="min-w-0">
-    <h1 id={headingId} class="text-3xl font-semibold">{title}</h1>
-    {#if subtitle}<p class="text-sm text-muted">{subtitle}</p>{/if}
+    {#if backHref}<a class="text-accent" href={backHref}>{backLabel}</a>{/if}
+    <h1 id={headingId} class={titleClass}>{title}</h1>
+    {#if subtitle}<p class={subtitleClass}>{subtitle}</p>{/if}
   </div>
-  {#if menu && menuLabel}
+  {#if actions?.length && menuLabel}
     <Menu label={menuLabel} bind:button>
       {#snippet children(closeMenu)}
-        {@render menu(closeMenu)}
+        {#each actions as action (action.label)}
+          <MenuItem
+            label={action.label}
+            appearance={action.appearance}
+            disabled={action.disabled}
+            onactivate={() => action.onactivate(closeMenu)}
+          />
+        {/each}
       {/snippet}
     </Menu>
   {/if}

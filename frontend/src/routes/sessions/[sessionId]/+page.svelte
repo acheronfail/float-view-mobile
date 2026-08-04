@@ -9,7 +9,6 @@
   <SessionView {sessionId} />
 {:else}
   <section class="rounded-2xl border border-outline bg-surface p-5">
-    <a class="text-accent" href="#/sessions">← Sessions</a>
     <p role="alert" class="mt-3 text-warning">This session identifier is invalid.</p>
   </section>
 {/if}

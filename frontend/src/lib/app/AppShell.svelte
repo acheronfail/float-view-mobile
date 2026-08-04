@@ -1,20 +1,59 @@
 <script lang="ts">
   import type { Snippet } from 'svelte';
-  import { onMount } from 'svelte';
+  import { onMount, setContext } from 'svelte';
   import { goto } from '$app/navigation';
   import { page } from '$app/state';
   import { backendState } from '$lib/backend/state.svelte';
   import BottomTabBar from './BottomTabBar.svelte';
   import { bottomTabForRoute } from './navigation';
+  import {
+    APP_HEADER_CONTEXT,
+    type AppHeaderConfig,
+    type AppHeaderContext,
+    type AppHeaderPatch,
+  } from './header';
   import PageHeader from '$lib/ui/PageHeader.svelte';
   import { browserThemeEnvironment, ThemeController } from './theme';
 
   let { children }: { children: Snippet } = $props();
   let themeController = $state<ThemeController | undefined>(undefined);
+  let appHeaderHeight = $state(0);
+  let appHeaderButton = $state<HTMLButtonElement>();
+  let headerRegistration = $state<{ owner: string; patch: AppHeaderPatch } | undefined>();
   const activeBottomTab = $derived(bottomTabForRoute(page.route.id));
   const liveRoute = $derived(page.route.id === '/live');
-  const sessionsRoute = $derived(page.route.id === '/sessions');
-  const pageHeader = $derived(activeBottomTab);
+
+  const headerContext: AppHeaderContext = {
+    set(owner, patch) {
+      headerRegistration = { owner, patch };
+    },
+    clear(owner) {
+      if (headerRegistration?.owner === owner) headerRegistration = undefined;
+    },
+    focusMenu() {
+      appHeaderButton?.focus();
+    },
+  };
+  setContext(APP_HEADER_CONTEXT, headerContext);
+
+  const routeHeader = $derived.by((): AppHeaderConfig => {
+    if (activeBottomTab) return activeBottomTab;
+
+    switch (page.route.id) {
+      case '/live':
+        return { title: 'Live board', subtitle: 'Recovering connection…' };
+      case '/sessions/[sessionId]':
+        return { title: 'Session', backHref: '#/sessions', backLabel: '← Sessions' };
+      case '/boards/[savedDeviceId]':
+        return { title: 'Board', backHref: '#/boards', backLabel: '← Boards' };
+      default:
+        return { title: 'Float View' };
+    }
+  });
+  const appHeader = $derived.by((): AppHeaderConfig => ({
+    ...routeHeader,
+    ...(headerRegistration?.owner === page.route.id ? headerRegistration.patch : {}),
+  }));
 
   onMount(() => {
     themeController = new ThemeController(browserThemeEnvironment());
@@ -75,10 +114,21 @@
     class:max-w-5xl={liveRoute}
     class:app-safe-area-with-tabs={activeBottomTab}
     class:app-safe-area-without-tabs={!activeBottomTab}
+    style={`--app-header-height: ${appHeaderHeight}px`}
   >
-    {#if !liveRoute && !sessionsRoute && pageHeader}
-      <PageHeader headingId="app-title" title={pageHeader.title} subtitle={pageHeader.subtitle} />
-    {/if}
+    <PageHeader
+      bind:button={appHeaderButton}
+      bind:headerHeight={appHeaderHeight}
+      headingId="app-title"
+      title={appHeader.title}
+      subtitle={appHeader.subtitle}
+      subtitleClass={appHeader.subtitleClass}
+      titleClass={appHeader.titleClass}
+      backHref={appHeader.backHref}
+      backLabel={appHeader.backLabel}
+      menuLabel={appHeader.menu?.length ? appHeader.menuLabel : undefined}
+      actions={appHeader.menu}
+    />
 
     <div class="flex flex-1 flex-col" class:min-h-0={liveRoute}>
       {@render children()}

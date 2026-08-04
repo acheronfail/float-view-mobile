@@ -1,6 +1,7 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { getContext, onDestroy, onMount } from 'svelte';
   import { goto } from '$app/navigation';
+  import { APP_HEADER_CONTEXT, type AppHeaderContext } from '$lib/app/header';
   import { backendState } from '$lib/backend/state.svelte';
   import {
     normalizedCustomName,
@@ -20,12 +21,24 @@
   let parallelCount = $state<number | undefined>();
   let motor = $state('');
   let preferredCanId = $state<number | undefined>();
+  const appHeader = getContext<AppHeaderContext>(APP_HEADER_CONTEXT);
+  const headerOwner = '/boards/[savedDeviceId]';
   const saveQueue = new SerialSaveQueue();
 
   const device = $derived(backendState.savedDevices.find((value) => value.savedDeviceId === savedDeviceId));
   let name = $derived(
     (customDisplayName.length ? customDisplayName : (device?.advertisedName ?? device?.bluetoothIdentifier)) ?? 'Board'
   );
+
+  $effect(() => {
+    if (embedded) return;
+    appHeader.set(headerOwner, {
+      title: name,
+      backHref: '#/boards',
+      backLabel: '← Boards',
+    });
+  });
+  onDestroy(() => appHeader.clear(headerOwner));
 
   onMount(() => {
     let active = true;
@@ -69,17 +82,9 @@
 </script>
 
 <section
-  aria-labelledby="board-heading"
-  class:rounded-2xl={!embedded}
-  class:border={!embedded}
-  class:border-outline={!embedded}
-  class:bg-surface={!embedded}
-  class:p-5={!embedded}
+  aria-labelledby="app-title"
 >
-  {#if !embedded}<a class="text-accent" href="#/boards">← Boards</a>{/if}
   {#if backendState.selectedBoardProfile && device}
-    <h2 class="font-mono text-xl font-bold text-accent">{name}</h2>
-
     {#if backendState.selectedBoardProfile.missingFields.length}
       <p class="mt-3 text-sm text-warning">
         ⚠️️ Missing: {backendState.selectedBoardProfile.missingFields.join(', ')}
