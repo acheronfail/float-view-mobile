@@ -116,7 +116,7 @@ test('canonical route assertions distinguish direct and CAN polling and reject u
   assert.equal(bounded.diagnostics.length, 50);
 });
 
-test('authoritative snapshots enforce pre-ready identity, route, ordering, bounds, and privacy', () => {
+test('authoritative snapshots enforce pre-ready identity, route, ordering, bounds, and live telemetry shape', () => {
   const backend = connectedBackend();
   backend.simulateIdentifying();
   const identifying = state(backend);

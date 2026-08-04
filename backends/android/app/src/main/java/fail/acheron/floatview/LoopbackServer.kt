@@ -14,6 +14,8 @@ import fail.acheron.floatview.backend.DiscoverySnapshot
 import fail.acheron.floatview.backend.EventHub
 import fail.acheron.floatview.backend.LocationProviderAuthorization
 import fail.acheron.floatview.backend.LocationProviderState
+import fail.acheron.floatview.backend.LocationUpdated
+import fail.acheron.floatview.backend.LiveLocation
 import fail.acheron.floatview.backend.ProductStoreException
 import fail.acheron.floatview.backend.SessionExportRecord
 import fail.acheron.floatview.backend.SessionEventRecord
@@ -754,6 +756,7 @@ class LoopbackServer(
         .put("deviceId", value.id.value)
         .put("name", value.advertisedName ?: "")
         .put("state", "discovered")
+        .put("rssi", value.rssi ?: JSONObject.NULL)
         .put("lastSeenAt", value.lastSeenAt.toString())
 
     private fun connection(value: ActiveConnectionSnapshot) = JSONObject()
@@ -809,6 +812,7 @@ class LoopbackServer(
         )
         .put("activeSession", value.activeSession?.let(::session) ?: JSONObject.NULL)
         .put("latestSample", value.latestSample?.let(::liveSample) ?: JSONObject.NULL)
+        .put("latestLocation", value.latestLocation?.let(::liveLocation) ?: JSONObject.NULL)
         .put(
             "currentLimits",
             value.currentLimits?.let { limits ->
@@ -1254,6 +1258,12 @@ class LoopbackServer(
         .put("chargingVoltageV", value.chargingVoltageV ?: JSONObject.NULL)
         .put("extensions", JSONObject(value.extension))
 
+    private fun liveLocation(value: LiveLocation) = JSONObject()
+        .put("latitude", value.latitude)
+        .put("longitude", value.longitude)
+        .put("accuracyM", value.accuracyM ?: JSONObject.NULL)
+        .put("observedAt", value.observedAt.toString())
+
     private fun sessionEvent(value: SessionEventRecord): JSONObject =
         JSONObject()
             .put("elapsedMs", value.elapsedMs)
@@ -1277,6 +1287,7 @@ class LoopbackServer(
             this is SettingsRecord ||
             this is LocationProviderState ||
             this is TelemetrySample ||
+            this === LocationUpdated ||
             this === SessionCatalogChanged ||
             this is VescProtocolMessage.Firmware ||
             this is VescProtocolMessage.CurrentLimits ||

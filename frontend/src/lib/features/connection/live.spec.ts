@@ -20,6 +20,7 @@ const connection = (state: ActiveConnection['state']): ActiveConnection => ({
   connectionIssue: null,
   activeSession: null,
   latestSample: null,
+  latestLocation: null,
   currentLimits: null,
 });
 

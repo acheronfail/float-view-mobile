@@ -30,6 +30,7 @@ public final class ApplicationService: @unchecked Sendable {
   private var sessionFirmware: FirmwareRecord?
   private var sessionRefloatPackageVersion: String?
   private var latestPersistedSample: TelemetrySample?
+  private var latestLocation: LiveLocation?
   private var locationCaptureStartedMonotonicMs: Int64?
   private var locationCaptureBaseElapsedMs: Int64 = 0
   private var locationCaptureActive = false
@@ -502,6 +503,7 @@ public final class ApplicationService: @unchecked Sendable {
     cancelReconnect()
     telemetryPolling.resetSession()
     latestPersistedSample = nil
+    latestLocation = nil
     resetFirmwareDiscovery()
     protocolCodec?.reset()
     transition(.connecting)
@@ -582,6 +584,7 @@ public final class ApplicationService: @unchecked Sendable {
         activeDeviceID = nil
         activeDeviceName = nil
         latestPersistedSample = nil
+        latestLocation = nil
         resetFirmwareDiscovery()
       }
       transition(state)
@@ -703,6 +706,13 @@ public final class ApplicationService: @unchecked Sendable {
           accuracyM: observation.accuracyM
         )]
       )
+      latestLocation = LiveLocation(
+        latitude: observation.latitude,
+        longitude: observation.longitude,
+        accuracyM: observation.accuracyM,
+        observedAt: observation.observedAt
+      )
+      events.publish(LocationUpdated())
     } catch {
       events.publish(String(describing: error))
     }
@@ -735,6 +745,7 @@ public final class ApplicationService: @unchecked Sendable {
       savedDevice: savedDevice ?? nil,
       activeSession: activeSession ?? nil,
       latestSample: latestPersistedSample,
+      latestLocation: latestLocation,
 
       currentLimits: currentLimits,
       controllerRoute: controllerDiscovery.controllerRoute,
@@ -1122,6 +1133,7 @@ public final class ApplicationService: @unchecked Sendable {
     activeDeviceID = nil
     activeDeviceName = nil
     latestPersistedSample = nil
+    latestLocation = nil
     resetFirmwareDiscovery()
     transition(.disconnected)
     events.publish(reason)

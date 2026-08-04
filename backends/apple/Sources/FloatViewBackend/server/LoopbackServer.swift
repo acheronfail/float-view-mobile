@@ -668,6 +668,7 @@ public final class LoopbackServer: @unchecked Sendable {
         active.deviceID.value
       value["activeSession"] = active.activeSession.map(sessionPayload) ?? NSNull()
       value["latestSample"] = active.latestSample.map(liveSamplePayload) ?? NSNull()
+      value["latestLocation"] = active.latestLocation.map(liveLocationPayload) ?? NSNull()
       value["currentLimits"] = active.currentLimits.map(currentLimitsPayload) ?? NSNull()
       connection = value
     }
@@ -699,6 +700,7 @@ public final class LoopbackServer: @unchecked Sendable {
       "deviceId": value.deviceID.value,
       "name": value.name ?? "",
       "state": "discovered",
+      "rssi": value.rssi.map { $0 as Any } ?? NSNull(),
       "lastSeenAt": ISO8601DateFormatter().string(from: value.lastSeenAt),
     ]
   }
@@ -721,6 +723,15 @@ public final class LoopbackServer: @unchecked Sendable {
       "batteryCurrentMaxA": value.batteryCurrentMaxA,
       "batteryCurrentMinA": value.batteryCurrentMinA,
       "batterySeriesCells": value.batterySeriesCells ?? NSNull(),
+    ]
+  }
+
+  private func liveLocationPayload(_ value: LiveLocation) -> [String: Any] {
+    [
+      "latitude": value.latitude,
+      "longitude": value.longitude,
+      "accuracyM": value.accuracyM.map { $0 as Any } ?? NSNull(),
+      "observedAt": ISO8601DateFormatter().string(from: value.observedAt),
     ]
   }
 
@@ -1398,7 +1409,7 @@ private func invalidatesState(_ event: any Sendable) -> Bool {
     event is KnownDevice ||
     event is SessionRecord || event is SavedDeviceRecord || event is BoardProfileRecord ||
     event is SettingsRecord || event is LocationProviderState || event is TelemetrySample ||
-    event is SessionCatalogChanged
+    event is LocationUpdated || event is SessionCatalogChanged
 }
 
 private struct SessionCatalogChanged {}

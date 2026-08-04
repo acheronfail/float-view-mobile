@@ -29,6 +29,7 @@ const connection: ActiveConnection = {
   connectionIssue: null,
   firmware: null,
   latestSample: null,
+  latestLocation: null,
   activeSession: null,
   currentLimits: null,
 };

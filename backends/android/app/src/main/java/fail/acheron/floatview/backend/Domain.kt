@@ -144,6 +144,13 @@ data class DiscoveredDevice(
     val lastSeenAt: Instant,
 )
 
+data class LiveLocation(
+    val latitude: Double,
+    val longitude: Double,
+    val accuracyM: Double?,
+    val observedAt: Instant,
+)
+
 data class ActiveConnectionSnapshot(
     val deviceId: DeviceId,
     val advertisedName: String?,
@@ -151,6 +158,7 @@ data class ActiveConnectionSnapshot(
     val savedDevice: SavedDeviceRecord? = null,
     val activeSession: SessionSummaryRecord? = null,
     val latestSample: TelemetrySample? = null,
+    val latestLocation: LiveLocation? = null,
     val currentLimits: ControllerCurrentLimits? = null,
     val controllerRoute: ControllerRoute? = null,
     val controllerCandidates: List<ControllerCandidate> = emptyList(),
@@ -393,6 +401,8 @@ data class LocationProviderObservation(
     val longitude: Double,
     val accuracyM: Double?,
 )
+
+object LocationUpdated
 
 interface LocationProviderPort {
     fun state(): LocationProviderState

@@ -9,6 +9,7 @@
 
   const SCAN_INTERVAL_MS = 10_000;
   const RETRY_INTERVAL_MS = 1_000;
+  const SIGNAL_BAR_HEIGHTS = [4, 8, 12, 16];
 
   onMount(() => {
     let active = true;
@@ -42,21 +43,27 @@
     if (await backendState.connectDevice(deviceId)) await goto('#/live');
   }
 
-  function formatDeviceState(state: string) {
-    return state.replaceAll('_', ' ').replace(/\b\w/g, (character) => character.toUpperCase());
+  function signalBarCount(rssi: number | null | undefined) {
+    if (rssi === null || rssi === undefined || !Number.isFinite(rssi)) return 0;
+    if (rssi >= -60) return 4;
+    if (rssi >= -70) return 3;
+    if (rssi >= -80) return 2;
+    return 1;
   }
 
-  // TODO: show connection strength with progress bar and dB
-  // TODO: show uuid rather than just `discovered` or state or whatever that is
+  function formatSignalStrength(rssi: number | null | undefined) {
+    return rssi === null || rssi === undefined || !Number.isFinite(rssi) ? 'Unavailable' : `${rssi} dBm`;
+  }
+
   // TODO: show overall stats below header but above scan results (total odometer sum, total ride time)
 </script>
 
 <AppHeaderSubtitle owner="/">
   <span aria-live="polite" class="inline-flex items-center gap-2">
     <span class="flex flex-row items-center gap-2">
-        <Spinner />
-        Scanning…
-      </span>
+      <Spinner />
+      Scanning…
+    </span>
   </span>
 </AppHeaderSubtitle>
 
@@ -68,13 +75,37 @@
         <ul class="flex flex-col gap-2">
           {#each backendState.discoveredDevices as device (device.deviceId)}
             <li>
-              <ListItem title={device.name} subtitle={formatDeviceState(device.state)}>
+              <ListItem title={device.name || device.deviceId} subtitle={device.deviceId}>
                 {#snippet trailing()}
-                  <button
-                    class="rounded-md bg-accent px-3 py-1 text-on-accent disabled:opacity-50"
-                    disabled={backendState.busy}
-                    onclick={() => connect(device.deviceId)}>Connect</button
-                  >
+                  <div class="flex items-center gap-2">
+                    <span
+                      aria-label={`Signal strength: ${formatSignalStrength(device.rssi)}`}
+                      class="inline-flex shrink-0 items-center gap-1 text-accent"
+                      role="img"
+                    >
+                      <svg aria-hidden="true" class="size-4" viewBox="0 0 24 24" fill="none">
+                        {#each SIGNAL_BAR_HEIGHTS as height, index (index)}
+                          <rect
+                            x={2 + index * 5}
+                            y={22 - height}
+                            width="3"
+                            {height}
+                            rx="1"
+                            fill="currentColor"
+                            opacity={index < signalBarCount(device.rssi) ? 1 : 0.2}
+                          />
+                        {/each}
+                      </svg>
+                      <span class="text-xs whitespace-nowrap text-muted tabular-nums">
+                        {formatSignalStrength(device.rssi)}
+                      </span>
+                    </span>
+                    <button
+                      class="rounded-md bg-accent px-3 py-1 text-on-accent disabled:opacity-50"
+                      disabled={backendState.busy}
+                      onclick={() => connect(device.deviceId)}>Connect</button
+                    >
+                  </div>
                 {/snippet}
               </ListItem>
             </li>

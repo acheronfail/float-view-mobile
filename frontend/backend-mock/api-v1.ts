@@ -21,6 +21,7 @@ const discoveredBoard = {
   deviceId: 'mock-board',
   name: 'Float View Test VESC',
   state: 'discovered' as const,
+  rssi: -48,
   lastSeenAt: '2026-01-01T00:00:00Z',
 };
 
@@ -287,6 +288,7 @@ export class MockBackend {
               connectionIssue: null,
               activeSession,
               latestSample: null,
+              latestLocation: null,
               currentLimits: {
                 motorCurrentMaxA: 100,
                 motorCurrentMinA: -100,
@@ -646,9 +648,15 @@ export class MockBackend {
       maxSpeedMps: latestSample.speedKph / 3.6,
       maxDutyCycle: latestSample.dutyCycle,
     };
+    const latestLocation = {
+      latitude: -33.8688,
+      longitude: 151.2093,
+      accuracyM: 12,
+      observedAt: latestSample.observedAt,
+    };
     this.change({
       ...this.state,
-      activeConnection: { ...active, latestSample, activeSession },
+      activeConnection: { ...active, latestSample, latestLocation, activeSession },
     });
   }
 

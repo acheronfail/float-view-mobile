@@ -136,7 +136,17 @@ describe('deterministic mock backend', () => {
 
   it('publishes complete live snapshots at the configured persistence cadence', () => {
     const events: {
-      data: { activeConnection: { latestSample: { packageState: string } } };
+      data: {
+        activeConnection: {
+          latestSample: { packageState: string };
+          latestLocation: {
+            latitude: number;
+            longitude: number;
+            accuracyM: number | null;
+            observedAt: string;
+          };
+        };
+      };
     }[] = [];
     const backend = new MockBackend((event) => events.push(event as (typeof events)[number]));
     backend.handle({ id: 1, method: 'bluetooth.scan', params: {} });
@@ -150,9 +160,17 @@ describe('deterministic mock backend', () => {
       packageState: 'running',
       footpadState: 'both',
     });
+    const liveLocation = events.at(-1)?.data.activeConnection.latestLocation;
+    expect(liveLocation).toEqual({
+      latitude: -33.8688,
+      longitude: 151.2093,
+      accuracyM: 12,
+      observedAt: expect.any(String),
+    });
     expect(events.at(-1)?.data.activeConnection).toMatchObject({
       state: 'reconnecting',
       latestSample: liveSample,
+      latestLocation: liveLocation,
     });
   });
 

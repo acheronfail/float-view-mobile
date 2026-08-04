@@ -58,6 +58,11 @@ export interface Device {
   lastSeenAt?: string | null;
 }
 
+export interface DiscoveredDevice extends Device {
+  /** Latest Bluetooth scan signal strength in dBm. */
+  rssi: number | null;
+}
+
 export interface FirmwareInfo {
   vescVersion: string;
   packageName: string;
@@ -225,6 +230,13 @@ export interface LiveSample {
   extensions: Record<string, number>;
 }
 
+export interface LiveLocation {
+  latitude: number;
+  longitude: number;
+  accuracyM: number | null;
+  observedAt: string;
+}
+
 export interface ActiveConnection extends Device {
   firmware: FirmwareInfo | null;
   savedDeviceId: string | null;
@@ -234,6 +246,7 @@ export interface ActiveConnection extends Device {
   connectionIssue: ConnectionIssue | null;
   activeSession: SessionSummary | null;
   latestSample: LiveSample | null;
+  latestLocation: LiveLocation | null;
   currentLimits: ControllerCurrentLimits | null;
 }
 
@@ -422,7 +435,7 @@ export interface ExportResult {
 export interface AppState {
   revision: number;
   bluetooth: BluetoothState;
-  discoveredDevices: Device[];
+  discoveredDevices: DiscoveredDevice[];
   savedDevices: SavedDevice[];
   activeConnection: ActiveConnection | null;
   sessionCatalogRevision: number;

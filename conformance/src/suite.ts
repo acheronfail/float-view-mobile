@@ -491,6 +491,17 @@ export function assertState(state: AppState) {
   assert.ok(Number.isSafeInteger(state.sessionCatalogRevision));
   assert.ok(state.discoveredDevices.length <= 50);
   assert.ok(state.savedDevices.length <= 50);
+  assert.equal(
+    new Set(state.discoveredDevices.map((device) => device.deviceId)).size,
+    state.discoveredDevices.length,
+    'discovered devices contain duplicate IDs'
+  );
+  for (const device of state.discoveredDevices) {
+    assert.ok(
+      device.rssi === null || Number.isSafeInteger(device.rssi),
+      'discovered device RSSI is not an integer or null'
+    );
+  }
   assert.deepEqual(Object.keys(state.settings).sort(), [
     'historyGapThresholdSeconds',
     'idlePersistIntervalMs',
@@ -511,16 +522,23 @@ export function assertState(state: AppState) {
     )
   );
   assert.ok(['available', 'foregroundOnly', 'unavailable'].includes(state.location.backgroundCapture));
-  assert.doesNotMatch(
-    JSON.stringify(state),
-    /"(?:latitude|longitude|accuracyM|gpsAccuracy|gpsLatitude|gpsLongitude)"/,
-    'live state exposed location coordinates'
-  );
   assert.ok(['system', 'light', 'dark'].includes(state.settings.themePreference));
   assert.ok(['metric', 'imperial'].includes(state.settings.unitPreference));
 
   const active = state.activeConnection;
   if (!active) return;
+  const latestLocation = active.latestLocation;
+  if (latestLocation) {
+    assert.deepEqual(Object.keys(latestLocation).sort(), ['accuracyM', 'latitude', 'longitude', 'observedAt']);
+    assert.ok(Number.isFinite(latestLocation.latitude));
+    assert.ok(latestLocation.latitude >= -90 && latestLocation.latitude <= 90);
+    assert.ok(Number.isFinite(latestLocation.longitude));
+    assert.ok(latestLocation.longitude >= -180 && latestLocation.longitude <= 180);
+    assert.ok(
+      latestLocation.accuracyM === null || (Number.isFinite(latestLocation.accuracyM) && latestLocation.accuracyM >= 0)
+    );
+    assert.ok(typeof latestLocation.observedAt === 'string' && Number.isFinite(Date.parse(latestLocation.observedAt)));
+  }
   assert.ok(active.controllerCandidates.length <= 16);
   assert.deepEqual(
     active.controllerCandidates.map((candidate) => candidate.canId),

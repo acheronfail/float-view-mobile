@@ -14,6 +14,7 @@
   const connection = $derived(backendState.snapshot?.activeConnection);
   const sample = $derived(connection?.latestSample);
   const session = $derived(connection?.activeSession);
+  const location = $derived(connection?.latestLocation);
   const units = $derived(backendState.settings?.unitPreference ?? 'metric');
   const dimmed = $derived(connection ? readingsAreDimmed(connection) : false);
   const routeDescription = $derived(controllerRouteDescription(connection?.controllerConnection ?? null));
@@ -50,6 +51,10 @@
     return `${hours.toString().padStart(2, '0')}:${minutes
       .toString()
       .padStart(2, '0')}:${(seconds % 60).toString().padStart(2, '0')}`;
+  }
+
+  function coordinate(value: number | null | undefined) {
+    return value == null ? 'Unavailable' : value.toFixed(6);
   }
 </script>
 
@@ -101,6 +106,14 @@
       items={[
         ['Controller', temperature(sample?.controllerTempC)],
         ['Motor', temperature(sample?.motorTempC)],
+      ] as [string, string][]}
+    />
+    <TelemetrySection
+      title="Location"
+      items={[
+        ['GPS accuracy', measured(location?.accuracyM, 'm', 1)],
+        ['Latitude', coordinate(location?.latitude)],
+        ['Longitude', coordinate(location?.longitude)],
       ] as [string, string][]}
     />
     <TelemetrySection

@@ -40,6 +40,7 @@ class ApplicationService(
     private var sessionControllerUuid: ByteArray? = null
     private var sessionFirmware: FirmwareRecord? = null
     private var sessionRefloatPackageVersion: String? = null
+    private var latestLocation: LiveLocation? = null
     private val telemetryPolling = TelemetryPolling(
         clock = clock,
         scheduler = scheduler,
@@ -372,6 +373,7 @@ class ApplicationService(
             sessionRefloatPackageVersion = null
         }
         latestPersistedSample = null
+        latestLocation = null
         explicitDisconnect = false
         cancelReconnect()
         telemetryPolling.resetSession()
@@ -470,6 +472,7 @@ class ApplicationService(
                     activeDeviceId = null
                     activeDeviceName = null
                     latestPersistedSample = null
+                    latestLocation = null
                     resetFirmwareDiscovery()
                 }
                 transition(event.state)
@@ -599,6 +602,14 @@ class ApplicationService(
                     ),
                 ),
             )
+        }.onSuccess {
+            latestLocation = LiveLocation(
+                latitude = observation.latitude,
+                longitude = observation.longitude,
+                accuracyM = observation.accuracyM,
+                observedAt = observation.observedAt,
+            )
+            events.publish(LocationUpdated)
         }.onFailure(events::publish)
     }
 
@@ -620,6 +631,7 @@ class ApplicationService(
             savedDevice = currentSavedDevice ?: savedDevice,
             activeSession = activeSession,
             latestSample = latestPersistedSample,
+            latestLocation = latestLocation,
             currentLimits = currentLimits,
             controllerRoute = controllerDiscovery.controllerRoute,
             controllerCandidates = controllerDiscovery.controllerCandidates,
@@ -1017,6 +1029,7 @@ class ApplicationService(
         activeDeviceId = null
         activeDeviceName = null
         latestPersistedSample = null
+        latestLocation = null
         resetFirmwareDiscovery()
         transition(ConnectionState.DISCONNECTED)
         events.publish(reason)

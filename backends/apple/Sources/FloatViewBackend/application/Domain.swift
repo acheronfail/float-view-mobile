@@ -192,6 +192,20 @@ public struct DiscoverySnapshot: Sendable, Equatable {
   }
 }
 
+public struct LiveLocation: Sendable, Codable, Equatable {
+  public let latitude: Double
+  public let longitude: Double
+  public let accuracyM: Double?
+  public let observedAt: Date
+
+  public init(latitude: Double, longitude: Double, accuracyM: Double?, observedAt: Date) {
+    self.latitude = latitude
+    self.longitude = longitude
+    self.accuracyM = accuracyM
+    self.observedAt = observedAt
+  }
+}
+
 public struct ActiveConnectionSnapshot: Sendable, Equatable {
   public let deviceID: DeviceID
   public let name: String?
@@ -199,6 +213,7 @@ public struct ActiveConnectionSnapshot: Sendable, Equatable {
   public let savedDevice: SavedDeviceRecord?
   public let activeSession: SessionSummaryRecord?
   public let latestSample: TelemetrySample?
+  public let latestLocation: LiveLocation?
   public let currentLimits: ControllerCurrentLimits?
   public let controllerRoute: ControllerRoute?
   public let controllerCandidates: [ControllerCandidate]
@@ -211,6 +226,7 @@ public struct ActiveConnectionSnapshot: Sendable, Equatable {
     savedDevice: SavedDeviceRecord? = nil,
     activeSession: SessionSummaryRecord? = nil,
     latestSample: TelemetrySample? = nil,
+    latestLocation: LiveLocation? = nil,
     currentLimits: ControllerCurrentLimits? = nil,
     controllerRoute: ControllerRoute? = nil,
     controllerCandidates: [ControllerCandidate] = [],
@@ -222,6 +238,7 @@ public struct ActiveConnectionSnapshot: Sendable, Equatable {
     self.savedDevice = savedDevice
     self.activeSession = activeSession
     self.latestSample = latestSample
+    self.latestLocation = latestLocation
     self.currentLimits = currentLimits
     self.controllerRoute = controllerRoute
     self.controllerCandidates = controllerCandidates
@@ -830,6 +847,8 @@ public struct LocationProviderObservation: Sendable, Codable, Equatable {
     self.accuracyM = accuracyM
   }
 }
+
+public struct LocationUpdated: Sendable {}
 
 public protocol LocationProviderPort: AnyObject, Sendable {
   func state() -> LocationProviderState
