@@ -3,6 +3,7 @@
   import { goto } from '$app/navigation';
   import { APP_HEADER_CONTEXT, type AppHeaderContext } from '$lib/app/header';
   import { backendState } from '$lib/backend/state.svelte';
+  import Icon from '$lib/ui/Icon.svelte';
   import {
     normalizedCustomName,
     SerialSaveQueue,
@@ -35,7 +36,7 @@
     appHeader.set(headerOwner, {
       title: name,
       backHref: '#/sessions',
-      backLabel: '← Sessions',
+      backLabel: 'Sessions',
     });
   });
   onDestroy(() => {
@@ -83,13 +84,12 @@
   }
 </script>
 
-<section
-  aria-labelledby="app-title"
->
+<section aria-labelledby="app-title">
   {#if backendState.selectedBoardProfile && device}
     {#if backendState.selectedBoardProfile.missingFields.length}
       <p class="mt-3 text-sm text-warning">
-        ⚠️️ Missing: {backendState.selectedBoardProfile.missingFields.join(', ')}
+        <Icon name="triangle-alert" class="mr-1 text-xl" />
+        Missing: {backendState.selectedBoardProfile.missingFields.join(', ')}
       </p>
     {/if}
     <div class="mt-4 grid gap-3 sm:grid-cols-2">
@@ -128,7 +128,9 @@
       </label>
       <div class="rounded-md border border-outline bg-elevated px-3 py-2 text-sm sm:col-span-2">
         <span class="block text-muted">Bluetooth identifier</span>
-        <code class="mt-1 block break-all text-foreground">{device.bluetoothIdentifier ?? 'Not locally associated'}</code>
+        <code class="mt-1 block break-all text-foreground"
+          >{device.bluetoothIdentifier ?? 'Not locally associated'}</code
+        >
       </div>
       <label class="text-sm">
         <span class="mb-1 block text-muted">Battery series cells (S)</span>

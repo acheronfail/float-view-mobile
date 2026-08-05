@@ -29,12 +29,13 @@ describe('bottom navigation', () => {
     const { body } = render(BottomTabBar, { props: { routeId: '/sessions' } });
 
     expect(body).toContain('data-app-navigation="bottom-tabs"');
-    expect(body.match(/<svg/g)).toHaveLength(3);
+    expect(body.match(/class="i-lucide-/g)).toHaveLength(3);
     expect(body.match(/aria-current="page"/g)).toHaveLength(1);
     expect(body).toContain('href="#/sessions"');
     for (const { label } of bottomTabs) expect(body).toContain(`<span>${label}</span>`);
-    expect(body).toContain('M12 3v18');
-    expect(body).toContain('19.4 15');
+    expect(body).toContain('i-lucide-bluetooth');
+    expect(body).toContain('i-lucide-route');
+    expect(body).toContain('i-lucide-settings');
     expect(body).not.toContain('>Devices<');
   });
 

@@ -35,13 +35,13 @@
 
   $effect(() => {
     if (!board) {
-      appHeader.set(headerOwner, { title: 'Board', backHref: '#/sessions', backLabel: '← Sessions' });
+      appHeader.set(headerOwner, { title: 'Board', backHref: '#/sessions', backLabel: 'Sessions' });
       return;
     }
     appHeader.set(headerOwner, {
       title: board.displayName,
       backHref: '#/sessions',
-      backLabel: '← Sessions',
+      backLabel: 'Sessions',
       menuLabel: 'Board actions',
       menu: [
         {

@@ -110,9 +110,16 @@ html {
   filter: invert(100%) hue-rotate(180deg);
 }
 
-.rider-icon {
+.location-marker {
   background: transparent;
   border: 0;
+}
+
+.location-marker > .i-lucide-map-pin {
+  display: block;
+  width: 2rem;
+  height: 2rem;
+  color: var(--app-accent);
 }
 
 .bottom-tabs-safe-area {

@@ -1,9 +1,11 @@
+import type { IconName } from '$lib/ui/icon';
+
 export const bottomTabs = [
   {
     label: 'connect',
     href: '#/',
     routeId: '/',
-    icon: 'connect',
+    icon: 'bluetooth',
     title: 'Connect',
     subtitle: "Where's my board at?",
   },
@@ -11,7 +13,7 @@ export const bottomTabs = [
     label: 'sessions',
     href: '#/sessions',
     routeId: '/sessions',
-    icon: 'sessions',
+    icon: 'route',
     title: 'Sessions',
     subtitle: 'Where did I ride again?',
   },
@@ -23,7 +25,14 @@ export const bottomTabs = [
     title: 'Settings',
     subtitle: 'Tinker and customize your experience.',
   },
-] as const;
+] as const satisfies readonly {
+  label: string;
+  href: string;
+  routeId: string;
+  icon: IconName;
+  title: string;
+  subtitle: string;
+}[];
 
 export type BottomTab = (typeof bottomTabs)[number];
 

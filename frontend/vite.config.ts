@@ -1,7 +1,11 @@
 import tailwindcss from '@tailwindcss/vite';
+import { icons as lucideIcons } from '@iconify-json/lucide';
+import presetIcons from '@unocss/preset-icons';
+import UnoCSS from 'unocss/vite';
 import { sveltekit } from '@sveltejs/kit/vite';
 import { defineConfig, type Plugin, type ProxyOptions } from 'vite';
 import { MOCK_BACKEND_PORT, startMockServer, stopMockServer } from './backend-mock';
+import { iconClasses } from './src/lib/ui/icon';
 
 export const DEVELOPMENT_PORT = 11002;
 export const MOCK_BACKEND_ORIGIN = `http://127.0.0.1:${MOCK_BACKEND_PORT}`;
@@ -72,7 +76,24 @@ function mockBackend(target: string): Plugin {
 const backendOrigin = selectedBackendOrigin();
 
 export default defineConfig({
-  plugins: [mockBackend(backendOrigin), tailwindcss(), sveltekit()],
+  plugins: [
+    mockBackend(backendOrigin),
+    tailwindcss(),
+    UnoCSS({
+      safelist: Object.values(iconClasses),
+      presets: [
+        presetIcons({
+          mode: 'mask',
+          collections: { lucide: () => lucideIcons },
+          extraProperties: {
+            display: 'inline-block',
+            'vertical-align': 'middle',
+          },
+        }),
+      ],
+    }),
+    sveltekit(),
+  ],
 
   build: {
     rollupOptions: {

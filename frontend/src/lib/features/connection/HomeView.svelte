@@ -4,6 +4,8 @@
   import AppHeaderSubtitle from '$lib/app/AppHeaderSubtitle.svelte';
   import { backendState } from '$lib/backend/state.svelte';
   import type { DiscoveredDevice } from '$lib/backend/contract';
+  import Icon from '$lib/ui/Icon.svelte';
+  import type { IconName } from '$lib/ui/icon';
   import ListItem from '$lib/ui/ListItem.svelte';
   import NewBoardDialog from '$lib/ui/NewBoardDialog.svelte';
   import SectionTitle from '../../ui/SectionTitle.svelte';
@@ -11,7 +13,6 @@
 
   const SCAN_INTERVAL_MS = 10_000;
   const RETRY_INTERVAL_MS = 1_000;
-  const SIGNAL_BAR_HEIGHTS = [4, 8, 12, 16];
   let pendingDevice = $state<DiscoveredDevice | null>(null);
 
   onMount(() => {
@@ -74,10 +75,23 @@
     return 1;
   }
 
+  function signalIconName(rssi: number | null | undefined): IconName {
+    switch (signalBarCount(rssi)) {
+      case 1:
+        return 'signal-low';
+      case 2:
+        return 'signal-medium';
+      case 3:
+      case 4:
+        return 'signal-high';
+      default:
+        return 'signal';
+    }
+  }
+
   function formatSignalStrength(rssi: number | null | undefined) {
     return rssi === null || rssi === undefined || !Number.isFinite(rssi) ? 'Unavailable' : `${rssi} dBm`;
   }
-
 </script>
 
 <AppHeaderSubtitle owner="/">
@@ -110,19 +124,7 @@
                       class="inline-flex shrink-0 items-center gap-1 text-accent"
                       role="img"
                     >
-                      <svg aria-hidden="true" class="size-4" viewBox="0 0 24 24" fill="none">
-                        {#each SIGNAL_BAR_HEIGHTS as height, index (index)}
-                          <rect
-                            x={2 + index * 5}
-                            y={22 - height}
-                            width="3"
-                            {height}
-                            rx="1"
-                            fill="currentColor"
-                            opacity={index < signalBarCount(device.rssi) ? 1 : 0.2}
-                          />
-                        {/each}
-                      </svg>
+                      <Icon name={signalIconName(device.rssi)} class="text-3xl" />
                       <span class="text-xs whitespace-nowrap text-muted tabular-nums">
                         {formatSignalStrength(device.rssi)}
                       </span>

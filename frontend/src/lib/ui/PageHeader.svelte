@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { Component, Snippet } from 'svelte';
   import type { AppHeaderAction } from '$lib/app/header';
+  import Icon from './Icon.svelte';
   import Menu from './Menu.svelte';
   import MenuItem from './MenuItem.svelte';
 
@@ -60,7 +61,12 @@
     style={`height: ${safeAreaTop}`}
   ></span>
   <div class="min-w-0">
-    {#if backHref}<a class="text-accent" href={backHref}>{backLabel}</a>{/if}
+    {#if backHref}
+      <a class="inline-flex items-center text-accent" href={backHref}>
+        <Icon name="arrow-left" class="mr-1 text-xl" />
+        {backLabel}
+      </a>
+    {/if}
     <h1 id={headingId} class={titleClass}>{title}</h1>
     {#if subtitleSnippet}
       <p class={subtitleClass}>{@render subtitleSnippet()}</p>

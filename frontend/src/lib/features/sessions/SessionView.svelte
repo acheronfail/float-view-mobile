@@ -23,14 +23,13 @@
   const units = $derived(backendState.settings?.unitPreference ?? 'metric');
   const owningBoardSavedDeviceId = $derived(
     boardSavedDeviceId ??
-      backendState.savedDevices.find((device) => device.deviceHistoryId === backendState.selectedSession?.deviceHistoryId)
-        ?.savedDeviceId ??
+      backendState.savedDevices.find(
+        (device) => device.deviceHistoryId === backendState.selectedSession?.deviceHistoryId
+      )?.savedDeviceId ??
       null
   );
   const returnHref = $derived(
-    owningBoardSavedDeviceId
-      ? `#/sessions/boards/${encodeURIComponent(owningBoardSavedDeviceId)}`
-      : '#/sessions'
+    owningBoardSavedDeviceId ? `#/sessions/boards/${encodeURIComponent(owningBoardSavedDeviceId)}` : '#/sessions'
   );
 
   $effect(() => {
@@ -39,7 +38,7 @@
     appHeader.set(headerOwner, {
       title: sessionStartDateLabel(session?.startedAt) ?? 'Session',
       backHref: returnHref,
-      backLabel: owningBoardSavedDeviceId ? '← Board sessions' : '← Sessions',
+      backLabel: owningBoardSavedDeviceId ? 'Board sessions' : 'Sessions',
       ...(session
         ? {
             menuLabel: 'Session actions',
@@ -126,10 +125,8 @@
           viewport={chartViewport}
           bind:height={locationMapHeight}
         />
-        {:else}
-        <div class="rounded-lg border border-outline bg-elevated p-3">
-          No location data was saved for this ride.
-        </div>
+      {:else}
+        <div class="rounded-lg border border-outline bg-elevated p-3">No location data was saved for this ride.</div>
       {/if}
 
       <div class="mt-3">

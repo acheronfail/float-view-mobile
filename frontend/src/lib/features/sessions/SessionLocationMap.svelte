@@ -4,6 +4,7 @@
   import type { SessionLocationGap, SessionLocationPoint, SessionMetadata } from '$lib/backend/contract';
   import { backendState } from '$lib/backend/state.svelte';
   import { activateFromKeyboardOrAssistiveClick, activateFromPointer } from '$lib/ui/activation';
+  import { iconClasses } from '$lib/ui/icon';
   import {
     locationAtElapsed,
     locationAtOrBefore,
@@ -11,8 +12,9 @@
     visibleLocationSegments,
   } from './location-geometry';
   import type { Viewport } from './viewport';
-  import riderSvg from './rider-icon.svg?raw';
   import Spinner from '../../ui/Spinner.svelte';
+
+  const locationMarkerHtml = `<span class="${iconClasses['map-pin']}" aria-hidden="true"></span>`;
 
   let {
     metadata,
@@ -32,7 +34,7 @@
   let map: Leaflet.Map | null = null;
   let baseLayers: Leaflet.Polyline[] = [];
   let travelledLayers: Leaflet.Polyline[] = [];
-  let riderMarker: Leaflet.Marker | null = null;
+  let locationMarker: Leaflet.Marker | null = null;
   let hasInitialView = false;
   let lastViewportKey: string | null = null;
   let mapLayoutReady = $state(false);
@@ -52,7 +54,7 @@
     });
     return () => {
       active = false;
-      riderMarker?.remove();
+      locationMarker?.remove();
       map?.remove();
       map = null;
       hasInitialView = false;
@@ -166,7 +168,7 @@
     if (!map) return;
     baseLayers.forEach((layer) => layer.remove());
     travelledLayers.forEach((layer) => layer.remove());
-    riderMarker?.remove();
+    locationMarker?.remove();
 
     baseLayers = visibleSegments.map((segment) =>
       Leaflet.polyline(
@@ -191,8 +193,13 @@
       ).addTo(map!)
     );
     if (marker) {
-      riderMarker = Leaflet.marker([marker.latitude, marker.longitude], {
-        icon: Leaflet.divIcon({ className: 'rider-icon', html: riderSvg, iconSize: [32, 48], iconAnchor: [16, 40] }),
+      locationMarker = Leaflet.marker([marker.latitude, marker.longitude], {
+        icon: Leaflet.divIcon({
+          className: 'location-marker',
+          html: locationMarkerHtml,
+          iconSize: [32, 48],
+          iconAnchor: [16, 40],
+        }),
         title: 'Selected location',
       }).addTo(map);
     }

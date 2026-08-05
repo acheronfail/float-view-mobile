@@ -6,12 +6,7 @@
   import { backendState } from '$lib/backend/state.svelte';
   import BottomTabBar from './BottomTabBar.svelte';
   import { bottomTabForRoute } from './navigation';
-  import {
-    APP_HEADER_CONTEXT,
-    type AppHeaderConfig,
-    type AppHeaderContext,
-    type AppHeaderPatch,
-  } from './header';
+  import { APP_HEADER_CONTEXT, type AppHeaderConfig, type AppHeaderContext, type AppHeaderPatch } from './header';
   import PageHeader from '$lib/ui/PageHeader.svelte';
   import { browserThemeEnvironment, ThemeController } from './theme';
 
@@ -43,17 +38,19 @@
       case '/live':
         return { title: 'Live board', subtitle: 'Recovering connection…' };
       case '/sessions/[sessionId]':
-        return { title: 'Session', backHref: '#/sessions', backLabel: '← Sessions' };
+        return { title: 'Session', backHref: '#/sessions', backLabel: 'Sessions' };
       case '/sessions/boards/[savedDeviceId]':
-        return { title: 'Board', backHref: '#/sessions', backLabel: '← Sessions' };
+        return { title: 'Board', backHref: '#/sessions', backLabel: 'Sessions' };
       default:
         return { title: 'Float View' };
     }
   });
-  const appHeader = $derived.by((): AppHeaderConfig => ({
-    ...routeHeader,
-    ...(headerRegistration?.owner === page.route.id ? headerRegistration.patch : {}),
-  }));
+  const appHeader = $derived.by(
+    (): AppHeaderConfig => ({
+      ...routeHeader,
+      ...(headerRegistration?.owner === page.route.id ? headerRegistration.patch : {}),
+    })
+  );
 
   onMount(() => {
     themeController = new ThemeController(browserThemeEnvironment());

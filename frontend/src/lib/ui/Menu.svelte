@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { Snippet } from 'svelte';
   import { activateFromKeyboardOrAssistiveClick, activateFromPointer, isPrimaryPointerActivation } from './activation';
+  import Icon from './Icon.svelte';
 
   let {
     label,
@@ -36,12 +37,14 @@
   <button
     bind:this={button}
     type="button"
-    class="grid h-11 w-11 touch-manipulation place-items-center rounded-full border border-outline bg-surface text-xl"
+    class="grid h-11 w-11 touch-manipulation place-items-center rounded-full border border-outline bg-surface"
     aria-label={label}
     aria-expanded={menuOpen}
     onpointerdown={(event) => activateFromPointer(event, toggleMenu)}
-    onclick={(event) => activateFromKeyboardOrAssistiveClick(event, toggleMenu)}>⋮</button
+    onclick={(event) => activateFromKeyboardOrAssistiveClick(event, toggleMenu)}
   >
+    <Icon name="ellipsis-vertical" class="text-xl" />
+  </button>
   {#if menuOpen}
     <div
       class="absolute top-12 right-0 z-30 min-w-52 overflow-hidden rounded-xl border border-outline bg-elevated shadow-xl"
