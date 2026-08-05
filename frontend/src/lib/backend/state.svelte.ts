@@ -4,6 +4,7 @@ import type {
   BoardProfile,
   SessionMetadata,
   SessionListPage,
+  SessionPrunePreview,
   SessionSummary,
   Settings,
 } from '$lib/backend/contract';
@@ -292,6 +293,37 @@ export class BackendState {
     return this.run(async (client) => {
       await client.request('session.delete', { sessionId: session.sessionId });
       this.closeSession();
+    });
+  }
+
+  async previewSessionPrune(
+    scope: 'one' | 'all',
+    targetResolutionSeconds: number,
+    sessionId?: string
+  ): Promise<SessionPrunePreview | null> {
+    let preview: SessionPrunePreview | null = null;
+    const completed = await this.run(async (client) => {
+      preview = await client.request('session.prune.preview', {
+        scope,
+        ...(sessionId ? { sessionId } : {}),
+        targetResolutionSeconds,
+      });
+    });
+    return completed ? preview : null;
+  }
+
+  async startSessionPrune(scope: 'one' | 'all', targetResolutionSeconds: number, sessionId?: string): Promise<boolean> {
+    return this.run(async (client) => {
+      await client.request('session.prune.start', {
+        scope,
+        ...(sessionId ? { sessionId } : {}),
+        targetResolutionSeconds,
+      });
+      if (scope === 'one' && sessionId && this.selectedSession?.sessionId === sessionId) {
+        const metadata = await client.request('session.get', { sessionId });
+        this.sessionMetadata = metadata;
+        this.selectedSession = metadata.summary;
+      }
     });
   }
 

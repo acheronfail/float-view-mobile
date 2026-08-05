@@ -3,7 +3,7 @@
 </script>
 
 <script lang="ts">
-  import { tick } from 'svelte';
+  import { tick, type Snippet } from 'svelte';
   import { activateFromKeyboardOrAssistiveClick, activateFromPointer, type Activation } from './activation';
 
   let {
@@ -15,8 +15,10 @@
     cancelLabel = 'Cancel',
     appearance = 'normal',
     busy = false,
+    confirmDisabled = false,
     onconfirm,
     oncancel,
+    children,
   }: {
     open: boolean;
     titleId: string;
@@ -26,8 +28,10 @@
     cancelLabel?: string;
     appearance?: DialogAppearance;
     busy?: boolean;
+    confirmDisabled?: boolean;
     onconfirm: Activation;
     oncancel: Activation;
+    children?: Snippet;
   } = $props();
 
   let dialog = $state<HTMLElement>();
@@ -45,7 +49,7 @@
   }
 
   function confirm() {
-    if (!busy) void onconfirm();
+    if (!busy && !confirmDisabled) void onconfirm();
   }
 
   function handleKeydown(event: KeyboardEvent) {
@@ -95,6 +99,9 @@
     >
       <h2 id={titleId} class="text-xl font-semibold">{title}</h2>
       <p id={`${titleId}-description`} class="mt-2 text-sm leading-6 text-muted">{description}</p>
+      {#if children}
+        <div class="mt-4">{@render children()}</div>
+      {/if}
       <div class="mt-6 flex justify-end gap-3">
         <button
           bind:this={cancelButton}
@@ -113,7 +120,7 @@
           class:text-on-warning={appearance === 'warning'}
           class:bg-accent={appearance === 'normal'}
           class:text-on-accent={appearance === 'normal'}
-          disabled={busy}
+          disabled={busy || confirmDisabled}
           onpointerdown={(event) => activateFromPointer(event, confirm)}
           onclick={(event) => activateFromKeyboardOrAssistiveClick(event, confirm)}
           >{busy ? 'Working…' : confirmLabel}</button

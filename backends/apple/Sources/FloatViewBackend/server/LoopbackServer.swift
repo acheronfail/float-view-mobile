@@ -622,6 +622,7 @@ public final class LoopbackServer: @unchecked Sendable {
           retainedSamples: job.retainedSamples, reclaimableBytes: job.reclaimableBytes, error: nil
         )
         try applicationService.saveMaintenanceJob(job)
+        events.publish(SessionCatalogChanged())
         return success(maintenanceJobPayload(job))
       case "session.prune.cancel":
         let operationID = params["operationId"] as? String ?? ""

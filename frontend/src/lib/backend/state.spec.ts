@@ -67,6 +67,8 @@ class FakeClient {
   isOpen = true;
   state = structuredClone(initial);
   locationRequests: string[] = [];
+  pruneRequests: Array<{ method: string; scope: string; sessionId?: string; targetResolutionSeconds: number }> = [];
+  prunedResolution: number | null = null;
   private handler?: (state: AppState) => void;
 
   async request<M extends BackendMethod>(method: M, params: BackendParams<M>): Promise<BackendResult<M>> {
@@ -151,7 +153,7 @@ class FakeClient {
           recordedSampleCount: 2,
           storedSampleCount: 2,
           prune: {
-            targetResolutionSeconds: null,
+            targetResolutionSeconds: this.prunedResolution,
             recordedSampleCount: 2,
             storedSampleCount: 2,
             policy: null,
@@ -167,6 +169,46 @@ class FakeClient {
           location: { available: false, count: 0, lastSequence: 0, lastElapsedMs: 0, status: 'disabled' },
         };
         break;
+      case 'session.prune.preview': {
+        const request = params as BackendParams<'session.prune.preview'>;
+        this.pruneRequests.push({ method, ...request });
+        result = {
+          operation: {
+            operationId: 'preview-1',
+            kind: 'prunePreview',
+            status: 'completed',
+            sessionId: request.sessionId ?? null,
+            scope: request.scope,
+            targetResolutionSeconds: request.targetResolutionSeconds,
+            completedSessions: 1,
+            eligibleSessions: 1,
+            error: null,
+          },
+          recordedSampleCount: 2,
+          estimatedStoredSampleCount: 1,
+          estimatedReclaimableBytes: 256,
+          skipped: false,
+          skipReason: null,
+        };
+        break;
+      }
+      case 'session.prune.start': {
+        const request = params as BackendParams<'session.prune.start'>;
+        this.pruneRequests.push({ method, ...request });
+        this.prunedResolution = request.targetResolutionSeconds;
+        result = {
+          operationId: 'prune-1',
+          kind: 'prune',
+          status: 'completed',
+          sessionId: request.sessionId ?? null,
+          scope: request.scope,
+          targetResolutionSeconds: request.targetResolutionSeconds,
+          completedSessions: 1,
+          eligibleSessions: 1,
+          error: null,
+        };
+        break;
+      }
       default:
         throw new Error(`Unexpected method ${method}`);
     }
@@ -211,6 +253,25 @@ describe('BackendState', () => {
     expect(store.settings?.minimumSessionDistance).toBe(250);
     expect(store.snapshot?.revision).toBe(2);
     store.close();
+  });
+
+  it('previews and commits a selected-session prune, then reloads its metadata', async () => {
+    const client = new FakeClient();
+    const store = new BackendState(
+      async () => ({ webSocketUrl: 'ws://test' }),
+      async () => client as unknown as ApiClient
+    );
+    await store.connect();
+    await store.openSession('session-1');
+
+    const preview = await store.previewSessionPrune('one', 5, 'session-1');
+    expect(preview?.estimatedStoredSampleCount).toBe(1);
+    expect(await store.startSessionPrune('one', 5, 'session-1')).toBe(true);
+    expect(client.pruneRequests).toEqual([
+      { method: 'session.prune.preview', scope: 'one', sessionId: 'session-1', targetResolutionSeconds: 5 },
+      { method: 'session.prune.start', scope: 'one', sessionId: 'session-1', targetResolutionSeconds: 5 },
+    ]);
+    expect(store.sessionMetadata?.prune.targetResolutionSeconds).toBe(5);
   });
 
   it('enables location with an immediate permission request and routes denied state to settings', async () => {

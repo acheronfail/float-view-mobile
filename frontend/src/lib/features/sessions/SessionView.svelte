@@ -5,6 +5,8 @@
   import { backendState } from '$lib/backend/state.svelte';
   import { formatDistanceM } from '$lib/features/measurements/format';
   import ConfirmDialog from '$lib/ui/ConfirmDialog.svelte';
+  import PruneDialog from './PruneDialog.svelte';
+  import { hasCoarserPruneResolution } from './prune';
   import { sessionExportLabel } from './session-export';
   import SessionHistory from './SessionHistory.svelte';
   import SessionEvents from './SessionEvents.svelte';
@@ -14,6 +16,7 @@
 
   let { sessionId, boardSavedDeviceId }: { sessionId: string; boardSavedDeviceId?: string | null } = $props();
   let deleteConfirmationOpen = $state(false);
+  let pruneOpen = $state(false);
   let deleting = $state(false);
   let locationMapHeight = $state(0);
   let selectedElapsedMs = $state(0);
@@ -54,6 +57,14 @@
                 onactivate: (closeMenu: () => void) => exportSession(closeMenu, 'csv'),
               },
               {
+                label: 'Prune',
+                appearance: 'warning' as const,
+                disabled:
+                  !canExport ||
+                  !hasCoarserPruneResolution(backendState.sessionMetadata?.prune.targetResolutionSeconds ?? null),
+                onactivate: (closeMenu: () => void) => requestPruneSession(closeMenu),
+              },
+              {
                 label: 'Delete session',
                 appearance: 'destructive' as const,
                 disabled: !canExport,
@@ -88,6 +99,17 @@
   function requestDeleteSession(closeMenu: () => void) {
     closeMenu();
     if (backendState.selectedSession) deleteConfirmationOpen = true;
+  }
+
+  function requestPruneSession(closeMenu: () => void) {
+    closeMenu();
+    if (backendState.selectedSession) pruneOpen = true;
+  }
+
+  async function closePruneSession() {
+    pruneOpen = false;
+    await tick();
+    appHeader.focusMenu();
   }
 
   async function cancelDeleteSession() {
@@ -130,11 +152,13 @@
       {/if}
 
       <div class="mt-3">
-        <SessionHistory
-          metadata={backendState.sessionMetadata}
-          onselectionchange={(elapsedMs) => (selectedElapsedMs = elapsedMs)}
-          onviewportchange={(viewport) => (chartViewport = viewport)}
-        />
+        {#key backendState.sessionMetadata.snapshot.historyRevision}
+          <SessionHistory
+            metadata={backendState.sessionMetadata}
+            onselectionchange={(elapsedMs) => (selectedElapsedMs = elapsedMs)}
+            onviewportchange={(viewport) => (chartViewport = viewport)}
+          />
+        {/key}
       </div>
 
       <div class="mt-4 grid grid-cols-2 gap-3">
@@ -157,6 +181,16 @@
   {/if}
   {#if backendState.error}<p role="alert" class="mt-3 text-warning">{backendState.error}</p>{/if}
 </section>
+
+<PruneDialog
+  open={pruneOpen}
+  scope="one"
+  existingResolutionSeconds={backendState.sessionMetadata?.prune.targetResolutionSeconds}
+  error={backendState.error}
+  onpreview={(resolution) => backendState.previewSessionPrune('one', resolution, sessionId)}
+  onprune={(resolution) => backendState.startSessionPrune('one', resolution, sessionId)}
+  oncancel={closePruneSession}
+/>
 
 <ConfirmDialog
   open={deleteConfirmationOpen}

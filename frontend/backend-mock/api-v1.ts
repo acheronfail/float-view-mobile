@@ -275,7 +275,8 @@ export class MockBackend {
         if (!active && deviceId !== discoveredBoard.deviceId) {
           return failure(id, 'not_found', 'Device is no longer available');
         }
-        const savedDeviceId = trackingMode === 'saved' ? (discoveredBoard.savedDeviceId ?? savedBoard.savedDeviceId) : null;
+        const savedDeviceId =
+          trackingMode === 'saved' ? (discoveredBoard.savedDeviceId ?? savedBoard.savedDeviceId) : null;
         const savedDevice = savedDeviceId
           ? this.state.savedDevices.find((value) => value.savedDeviceId === savedDeviceId)
           : undefined;
@@ -419,9 +420,7 @@ export class MockBackend {
         if (this.state.activeConnection?.savedDeviceId === savedDeviceId) {
           return failure(id, 'invalid_state', 'Disconnect the board before forgetting it');
         }
-        this.sessionCatalog = this.sessionCatalog.filter(
-          (item) => item.deviceHistoryId !== current.deviceHistoryId
-        );
+        this.sessionCatalog = this.sessionCatalog.filter((item) => item.deviceHistoryId !== current.deviceHistoryId);
         this.profiles.delete(current.savedDeviceId);
         this.change(
           {
@@ -707,14 +706,15 @@ export class MockBackend {
           maxDutyCycle: latestSample.dutyCycle,
         }
       : null;
-    const latestLocation = active.trackingMode === 'saved'
-      ? {
-          latitude: -33.8688,
-          longitude: 151.2093,
-          accuracyM: 12,
-          observedAt: latestSample.observedAt,
-        }
-      : null;
+    const latestLocation =
+      active.trackingMode === 'saved'
+        ? {
+            latitude: -33.8688,
+            longitude: 151.2093,
+            accuracyM: 12,
+            observedAt: latestSample.observedAt,
+          }
+        : null;
     this.change({
       ...this.state,
       activeConnection: { ...active, latestSample, latestLocation, activeSession },
@@ -888,7 +888,9 @@ export class MockBackend {
   ):
     | { value: SessionListPage; error?: undefined }
     | { value?: undefined; error: { code: BackendError['code']; message: string } } {
-    const ordered = this.sessionCatalog.filter((item) => item.deviceHistoryId === deviceHistoryId).sort(compareSessions);
+    const ordered = this.sessionCatalog
+      .filter((item) => item.deviceHistoryId === deviceHistoryId)
+      .sort(compareSessions);
     let start = 0;
     if (cursor !== undefined && cursor !== null) {
       if (typeof cursor !== 'string' || Buffer.byteLength(cursor, 'utf8') > MAX_SESSION_LIST_CURSOR_BYTES) {
@@ -967,7 +969,11 @@ export class MockBackend {
           completedSessions: operation.eligibleSessions ?? 0,
         };
         this.operation = completed;
-        this.change({ ...this.state, sessionOperation: completed });
+        this.change({
+          ...this.state,
+          sessionCatalogRevision: this.state.sessionCatalogRevision + 1,
+          sessionOperation: completed,
+        });
       }, 0);
       this.operationTimer.unref?.();
     }
@@ -1009,7 +1015,9 @@ export class MockBackend {
   private refreshSummaries(catalog: SessionSummary[], savedDevices = this.state.savedDevices) {
     return savedDevices.map((device) => {
       const sessions = catalog.filter((item) => item.deviceHistoryId === device.deviceHistoryId);
-      const distances = sessions.map((item) => item.distanceM).filter((value): value is number => typeof value === 'number');
+      const distances = sessions
+        .map((item) => item.distanceM)
+        .filter((value): value is number => typeof value === 'number');
       return {
         ...device,
         summary: {

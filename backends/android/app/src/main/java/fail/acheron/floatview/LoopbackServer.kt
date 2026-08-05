@@ -679,6 +679,7 @@ class LoopbackServer(
                         state = if (job.state == "cancel_requested" || applicationService.maintenanceJob()?.state == "cancel_requested") "cancelled" else "completed",
                     )
                     applicationService.saveMaintenanceJob(job)
+                    events.publish(SessionCatalogChanged)
                     success(maintenanceJobJson(job))
                 }
                 "session.prune.cancel" -> {
