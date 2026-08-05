@@ -47,7 +47,7 @@
   aria-labelledby="app-title"
   class="space-y-4"
 >
-  <input bind:this={importInput} class="hidden" type="file" accept="*/*" onchange={importSession} />
+  <input bind:this={importInput} class="hidden" type="file" accept=".floatview,application/octet-stream" onchange={importSession} />
   {#if backendState.sessionImporting}
     <p class="text-muted" role="status">Importing session…</p>
   {/if}
