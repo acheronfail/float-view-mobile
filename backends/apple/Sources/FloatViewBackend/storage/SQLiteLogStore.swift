@@ -254,6 +254,7 @@ public final class SQLiteLogStore: LogStorePort, ProductStorePort, SessionStoreP
     let savedDevice = try ensureSavedDeviceLocked(
       deviceID: deviceID,
       advertisedName: advertisedName,
+      stableIdentity: nil,
       at: at
     )
     let profile = try boardProfileLocked(savedDeviceID: savedDevice.savedDeviceID, at: at)
@@ -311,6 +312,23 @@ public final class SQLiteLogStore: LogStorePort, ProductStorePort, SessionStoreP
     return try ensureSavedDeviceLocked(
       deviceID: deviceID,
       advertisedName: advertisedName,
+      stableIdentity: nil,
+      at: at
+    )
+  }
+
+  public func ensureSavedDevice(
+    deviceID: DeviceID,
+    advertisedName: String?,
+    stableIdentity: String?,
+    at: Date
+  ) throws -> SavedDeviceRecord {
+    lock.lock()
+    defer { lock.unlock() }
+    return try ensureSavedDeviceLocked(
+      deviceID: deviceID,
+      advertisedName: advertisedName,
+      stableIdentity: stableIdentity,
       at: at
     )
   }
@@ -1364,15 +1382,88 @@ public final class SQLiteLogStore: LogStorePort, ProductStorePort, SessionStoreP
     return try savedDevicesLocked()
   }
 
+  public func deleteSavedDevice(savedDeviceID: String) throws {
+    lock.lock()
+    defer { lock.unlock() }
+    guard current == nil else { throw ProductStoreError.savedDeviceActive }
+    guard let deviceHistoryID = try catalog.query(
+      "SELECT device_history_id FROM saved_device WHERE saved_device_id = ?",
+      values: [.text(savedDeviceID)],
+      map: { Self.columnText($0, 0)! }
+    ).first else { throw ProductStoreError.savedDeviceNotFound }
+    let files = try catalog.query(
+      "SELECT file_name FROM session_catalog WHERE device_history_id = ?",
+      values: [.text(deviceHistoryID)],
+      map: { Self.columnText($0, 0)! }
+    )
+    try catalog.execute("BEGIN IMMEDIATE")
+    do {
+      try catalog.statement(
+        "DELETE FROM board_profile WHERE saved_device_id = ?",
+        values: [.text(savedDeviceID)]
+      )
+      try catalog.statement(
+        "DELETE FROM controller_route_hint WHERE saved_device_id = ?",
+        values: [.text(savedDeviceID)]
+      )
+      try catalog.statement(
+        "DELETE FROM session_catalog WHERE device_history_id = ?",
+        values: [.text(deviceHistoryID)]
+      )
+      try catalog.statement(
+        "DELETE FROM saved_device WHERE saved_device_id = ?",
+        values: [.text(savedDeviceID)]
+      )
+      guard try catalog.scalarInt("SELECT changes()") == 1 else {
+        throw ProductStoreError.savedDeviceNotFound
+      }
+      try catalog.execute("COMMIT")
+    } catch {
+      try? catalog.execute("ROLLBACK")
+      throw error
+    }
+    for fileName in files {
+      let file = root.appending(path: fileName)
+      try? FileManager.default.removeItem(at: file)
+      try? FileManager.default.removeItem(atPath: file.path + "-wal")
+      try? FileManager.default.removeItem(atPath: file.path + "-shm")
+    }
+  }
+
+  public func ensureImportedSavedDevice(
+    deviceHistoryID: String,
+    displayName: String?,
+    profileSnapshotJSON: String,
+    at: Date
+  ) throws -> SavedDeviceRecord {
+    lock.lock()
+    defer { lock.unlock() }
+    return try ensureImportedSavedDeviceLocked(
+      deviceHistoryID: deviceHistoryID,
+      displayName: displayName,
+      profileSnapshotJSON: profileSnapshotJSON,
+      at: at
+    )
+  }
+
   private func savedDevicesLocked() throws -> [SavedDeviceRecord] {
     return try catalog.query(
       """
       SELECT d.saved_device_id, d.device_history_id, d.revision,
              d.custom_display_name, d.advertised_name, d.opaque_platform_id,
              d.last_seen_at_ms, d.last_connected_at_ms,
-             COALESCE(p.json, '{}')
+             COALESCE(p.json, '{}'),
+             COUNT(s.session_id),
+             COALESCE(SUM(s.riding_elapsed_ms), 0),
+             SUM(s.distance_m),
+             MAX(s.started_at_ms)
       FROM saved_device d
       LEFT JOIN board_profile p ON p.saved_device_id = d.saved_device_id
+      LEFT JOIN session_catalog s
+        ON s.device_history_id = d.device_history_id AND s.pending_delete = 0
+      GROUP BY d.saved_device_id, d.device_history_id, d.revision,
+               d.custom_display_name, d.advertised_name, d.opaque_platform_id,
+               d.last_seen_at_ms, d.last_connected_at_ms, p.json, d.created_at_ms
       ORDER BY COALESCE(d.last_connected_at_ms, d.created_at_ms) DESC
       """
     ) { statement in
@@ -1383,10 +1474,17 @@ public final class SQLiteLogStore: LogStorePort, ProductStorePort, SessionStoreP
         revision: Int(sqlite3_column_int64(statement, 2)),
         customDisplayName: Self.columnText(statement, 3),
         advertisedName: Self.columnText(statement, 4),
-        bluetoothIdentifier: Self.columnText(statement, 5)!,
+        bluetoothIdentifier: Self.columnText(statement, 5),
         lastSeenAt: Self.columnDate(statement, 6),
         lastConnectedAt: Self.columnDate(statement, 7),
-        profileComplete: Self.missingFields(valuesJSON: valuesJSON).isEmpty
+        profileComplete: Self.missingFields(valuesJSON: valuesJSON).isEmpty,
+        summary: BoardHistorySummaryRecord(
+          sessionCount: Int(sqlite3_column_int64(statement, 9)),
+          totalRidingElapsedMs: sqlite3_column_int64(statement, 10),
+          totalDistanceM: sqlite3_column_type(statement, 11) == SQLITE_NULL
+            ? nil : sqlite3_column_double(statement, 11),
+          mostRecentSessionAt: Self.columnDate(statement, 12)
+        )
       )
     }
   }
@@ -1897,9 +1995,12 @@ public final class SQLiteLogStore: LogStorePort, ProductStorePort, SessionStoreP
         return try Self.jsonString(value)
       }
 
-      let deviceHistoryID = text("deviceHistoryId", fallback: "imported-device")
+      guard let rawDeviceHistoryID = manifest["deviceHistoryId"] as? String,
+            let deviceHistoryID = Self.normalizedDeviceHistoryID(rawDeviceHistoryID)
+      else { throw SessionStoreError.invalidArchive }
       let deviceSnapshot = try json("deviceSnapshot")
       let profileSnapshot = try json("boardProfileSnapshot")
+      let displayName = (manifest["deviceSnapshot"] as? [String: Any])?["displayName"] as? String
       let startedAtMs = integer("startedAtMs", fallback: Int64(Date().timeIntervalSince1970 * 1_000))
       let requestedIdleMs = max(1, integer("requestedIdleMs", fallback: 1_000))
       let effectiveIdleMs = max(1, integer("effectiveIdleMs", fallback: requestedIdleMs))
@@ -1910,23 +2011,36 @@ public final class SQLiteLogStore: LogStorePort, ProductStorePort, SessionStoreP
       archive.close()
       removeSQLiteSidecars(temporary)
       try FileManager.default.moveItem(at: temporary, to: destination)
-      try catalog.statement(
-        """
-        INSERT INTO session_catalog(
-          session_id, job_id, device_history_id, device_snapshot_json,
-          profile_snapshot_json, profile_revision, file_name, started_at_ms,
-          ended_at_ms, state, integrity, requested_idle_ms, effective_idle_ms,
-          requested_riding_ms, effective_riding_ms, close_reason
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'completed', 'complete', ?, ?, ?, ?, ?)
-        """,
-        values: [
-          .text(sessionID), .text(jobID), .text(deviceHistoryID), .text(deviceSnapshot),
-          .text(profileSnapshot), .integer(integer("boardProfileRevision", fallback: 0)),
-          .text(fileName), .integer(startedAtMs), optionalInteger("endedAtMs"),
-          .integer(requestedIdleMs), .integer(effectiveIdleMs),
-          .integer(requestedRidingMs), .integer(effectiveRidingMs), closeReason,
-        ]
-      )
+      try catalog.execute("BEGIN IMMEDIATE")
+      do {
+        _ = try ensureImportedSavedDeviceLocked(
+          deviceHistoryID: deviceHistoryID,
+          displayName: displayName,
+          profileSnapshotJSON: profileSnapshot,
+          at: Date(timeIntervalSince1970: Double(startedAtMs) / 1_000)
+        )
+        try catalog.statement(
+          """
+          INSERT INTO session_catalog(
+            session_id, job_id, device_history_id, device_snapshot_json,
+            profile_snapshot_json, profile_revision, file_name, started_at_ms,
+            ended_at_ms, state, integrity, requested_idle_ms, effective_idle_ms,
+            requested_riding_ms, effective_riding_ms, close_reason
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'completed', 'complete', ?, ?, ?, ?, ?)
+          """,
+          values: [
+            .text(sessionID), .text(jobID), .text(deviceHistoryID), .text(deviceSnapshot),
+            .text(profileSnapshot), .integer(integer("boardProfileRevision", fallback: 0)),
+            .text(fileName), .integer(startedAtMs), optionalInteger("endedAtMs"),
+            .integer(requestedIdleMs), .integer(effectiveIdleMs),
+            .integer(requestedRidingMs), .integer(effectiveRidingMs), closeReason,
+          ]
+        )
+        try catalog.execute("COMMIT")
+      } catch {
+        try? catalog.execute("ROLLBACK")
+        throw error
+      }
       try reconcileSessionCatalogLocked(sessionID: sessionID, jobID: jobID, fileName: fileName)
       return sessionID
     } catch let error as SessionStoreError {
@@ -2815,57 +2929,45 @@ public final class SQLiteLogStore: LogStorePort, ProductStorePort, SessionStoreP
   private func ensureSavedDeviceLocked(
     deviceID: DeviceID,
     advertisedName: String?,
+    stableIdentity: String?,
     at: Date
   ) throws -> SavedDeviceRecord {
-    let existing = try catalog.query(
-      """
-      SELECT saved_device_id, device_history_id, revision, custom_display_name,
-             advertised_name, opaque_platform_id, last_seen_at_ms, last_connected_at_ms
-      FROM saved_device WHERE opaque_platform_id = ? LIMIT 1
-      """,
-      values: [.text(deviceID.value)]
-    ) { statement in
-      SavedDeviceRecord(
-        savedDeviceID: Self.columnText(statement, 0)!,
-        deviceHistoryID: Self.columnText(statement, 1)!,
-        revision: Int(sqlite3_column_int64(statement, 2)),
-        customDisplayName: Self.columnText(statement, 3),
-        advertisedName: Self.columnText(statement, 4),
-        bluetoothIdentifier: Self.columnText(statement, 5)!,
-        lastSeenAt: Self.columnDate(statement, 6),
-        lastConnectedAt: Self.columnDate(statement, 7),
-        profileComplete: false
-      )
-    }.first
+    let stableIdentity = stableIdentity.flatMap(Self.normalizedDeviceHistoryID)
+    let stableMatch = stableIdentity.flatMap { identity in
+      try? catalog.query(
+        "SELECT saved_device_id FROM saved_device WHERE device_history_id = ? LIMIT 1",
+        values: [.text(identity)],
+        map: { Self.columnText($0, 0)! }
+      ).first
+    } ?? nil
+    let localMatch = try catalog.query(
+      "SELECT saved_device_id FROM saved_device WHERE opaque_platform_id = ? LIMIT 1",
+      values: [.text(deviceID.value)],
+      map: { Self.columnText($0, 0)! }
+    ).first
+    let existingID = stableMatch ?? localMatch
     let timestamp = Int64(at.timeIntervalSince1970 * 1_000)
-    if let existing {
+    if let existingID {
       try catalog.statement(
         """
         UPDATE saved_device
-        SET advertised_name = COALESCE(?, advertised_name), last_seen_at_ms = ?,
+        SET opaque_platform_id = ?, advertised_name = COALESCE(?, advertised_name), last_seen_at_ms = ?,
             last_connected_at_ms = ?
         WHERE saved_device_id = ?
         """,
         values: [
-          advertisedName.map(SQLiteValue.text) ?? .null,
-          .integer(timestamp), .integer(timestamp), .text(existing.savedDeviceID),
+          .text(deviceID.value), advertisedName.map(SQLiteValue.text) ?? .null,
+          .integer(timestamp), .integer(timestamp), .text(existingID),
         ]
       )
-      _ = try boardProfileLocked(savedDeviceID: existing.savedDeviceID, at: at)
-      return SavedDeviceRecord(
-        savedDeviceID: existing.savedDeviceID,
-        deviceHistoryID: existing.deviceHistoryID,
-        revision: existing.revision,
-        customDisplayName: existing.customDisplayName,
-        advertisedName: advertisedName ?? existing.advertisedName,
-        bluetoothIdentifier: existing.bluetoothIdentifier,
-        lastSeenAt: at,
-        lastConnectedAt: at,
-        profileComplete: false
-      )
+      _ = try boardProfileLocked(savedDeviceID: existingID, at: at)
+      guard let value = try savedDevicesLocked().first(where: { $0.savedDeviceID == existingID }) else {
+        throw ProductStoreError.savedDeviceNotFound
+      }
+      return value
     }
     let savedDeviceID = UUID().uuidString
-    let deviceHistoryID = UUID().uuidString
+    let deviceHistoryID = stableIdentity ?? UUID().uuidString
     try catalog.statement(
       """
       INSERT INTO saved_device(
@@ -2880,15 +2982,64 @@ public final class SQLiteLogStore: LogStorePort, ProductStorePort, SessionStoreP
       ]
     )
     _ = try boardProfileLocked(savedDeviceID: savedDeviceID, at: at)
-    return SavedDeviceRecord(
-      savedDeviceID: savedDeviceID,
-      deviceHistoryID: deviceHistoryID,
-      advertisedName: advertisedName,
-      bluetoothIdentifier: deviceID.value,
-      lastSeenAt: at,
-      lastConnectedAt: at,
-      profileComplete: false
+    guard let value = try savedDevicesLocked().first(where: { $0.savedDeviceID == savedDeviceID }) else {
+      throw ProductStoreError.savedDeviceNotFound
+    }
+    return value
+  }
+
+  private func ensureImportedSavedDeviceLocked(
+    deviceHistoryID: String,
+    displayName: String?,
+    profileSnapshotJSON: String,
+    at: Date
+  ) throws -> SavedDeviceRecord {
+    guard let historyID = Self.normalizedDeviceHistoryID(deviceHistoryID) else {
+      throw SessionStoreError.invalidArchive
+    }
+    guard profileSnapshotJSON.utf8.count <= 16_384,
+          let profileData = profileSnapshotJSON.data(using: .utf8),
+          let profileObject = try? JSONSerialization.jsonObject(with: profileData),
+          profileObject is [String: Any]
+    else { throw SessionStoreError.invalidArchive }
+    if let existing = try catalog.query(
+      "SELECT saved_device_id FROM saved_device WHERE device_history_id = ? LIMIT 1",
+      values: [.text(historyID)],
+      map: { Self.columnText($0, 0)! }
+    ).first {
+      _ = try boardProfileLocked(savedDeviceID: existing, at: at)
+      guard let value = try savedDevicesLocked().first(where: { $0.savedDeviceID == existing }) else {
+        throw ProductStoreError.savedDeviceNotFound
+      }
+      return value
+    }
+    let trimmedName = displayName?.trimmingCharacters(in: .whitespacesAndNewlines)
+    let normalizedName = trimmedName?.isEmpty == true ? nil : trimmedName
+    guard normalizedName?.utf8.count ?? 0 <= 128 else {
+      throw SessionStoreError.invalidArchive
+    }
+    let savedDeviceID = UUID().uuidString
+    let timestamp = Int64(at.timeIntervalSince1970 * 1_000)
+    try catalog.statement(
+      """
+      INSERT INTO saved_device(
+        saved_device_id, device_history_id, opaque_platform_id, advertised_name,
+        custom_display_name, revision, created_at_ms, last_seen_at_ms, last_connected_at_ms
+      ) VALUES (?, ?, NULL, ?, NULL, 0, ?, NULL, NULL)
+      """,
+      values: [
+        .text(savedDeviceID), .text(historyID), normalizedName.map(SQLiteValue.text) ?? .null,
+        .integer(timestamp),
+      ]
     )
+    try catalog.statement(
+      "INSERT INTO board_profile(saved_device_id, revision, json, updated_at_ms) VALUES (?, 0, ?, ?)",
+      values: [.text(savedDeviceID), .text(profileSnapshotJSON), .integer(timestamp)]
+    )
+    guard let value = try savedDevicesLocked().first(where: { $0.savedDeviceID == savedDeviceID }) else {
+      throw ProductStoreError.savedDeviceNotFound
+    }
+    return value
   }
 
   private func controllerRoutingHintLocked(
@@ -3047,6 +3198,19 @@ public final class SQLiteLogStore: LogStorePort, ProductStorePort, SessionStoreP
       index = next
     }
     return Data(bytes)
+  }
+
+  private static func normalizedDeviceHistoryID(_ value: String) -> String? {
+    let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !trimmed.isEmpty, trimmed.utf8.count <= 128,
+          trimmed.utf8.allSatisfy({ byte in
+            (byte >= 48 && byte <= 57) ||
+              (byte >= 65 && byte <= 90) ||
+              (byte >= 97 && byte <= 122) ||
+              byte == 45 || byte == 46 || byte == 95
+          })
+    else { return nil }
+    return trimmed
   }
 
   private static func jsonString(_ object: Any) throws -> String {

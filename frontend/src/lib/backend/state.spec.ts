@@ -31,6 +31,12 @@ const initial: AppState = {
       advertisedName: 'Advertised',
       bluetoothIdentifier: 'AA:BB:CC:DD:EE:FF',
       profileComplete: false,
+      summary: {
+        sessionCount: 0,
+        totalRidingElapsedMs: 0,
+        totalDistanceM: null,
+        mostRecentSessionAt: null,
+      },
     },
   ],
   activeConnection: null,
@@ -119,7 +125,7 @@ class FakeClient {
           ...current,
           revision: current.revision + 1,
           customDisplayName,
-          displayName: customDisplayName ?? current.advertisedName ?? current.bluetoothIdentifier,
+          displayName: customDisplayName ?? current.advertisedName ?? current.bluetoothIdentifier ?? 'Board',
         };
         this.state = { ...this.state, savedDevices: [saved] };
         result = saved;

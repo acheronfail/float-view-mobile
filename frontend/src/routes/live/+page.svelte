@@ -41,7 +41,7 @@
   });
 
   const location = $derived(backendState.snapshot?.location);
-  const locationNeedsAction = $derived(locationRequiresAction(location));
+  const locationNeedsAction = $derived(connection?.trackingMode === 'saved' && locationRequiresAction(location));
   const connectionIssueKey = $derived(
     connection?.connectionIssue ? `${connection.deviceId}:${connection.connectionIssue.code}` : null
   );
@@ -197,7 +197,7 @@
   async function retryConnection() {
     const deviceId = connection?.deviceId;
     connectionIssueConfirmationOpen = false;
-    if (deviceId) await backendState.connectDevice(deviceId);
+    if (deviceId) await backendState.connectDevice(deviceId, connection?.trackingMode ?? 'saved');
   }
 
   function continueWithUnsupportedFirmware() {

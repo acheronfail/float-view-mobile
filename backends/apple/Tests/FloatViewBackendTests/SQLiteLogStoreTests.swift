@@ -995,6 +995,58 @@ private func executeSQLite(database: URL, sql: String) throws {
   #expect(try store.controllerRoutingHint(savedDeviceID: saved.savedDeviceID) == nil)
 }
 
+@Test func forgettingBoardRemovesAllOwnedDataAcrossRestart() throws {
+  let root = FileManager.default.temporaryDirectory
+    .appending(path: "float-view-forget-board-\(UUID().uuidString)")
+  defer { try? FileManager.default.removeItem(at: root) }
+  let schema = repositoryRoot().appending(path: "sql")
+  let store = try SQLiteLogStore(
+    root: root,
+    schemaDirectory: schema,
+    availableBytes: { 2_000_000_000 }
+  )
+  let session = try store.create(
+    deviceID: DeviceID("private-platform-id"),
+    advertisedName: "Board",
+    at: .distantPast
+  )
+  let saved = try #require(store.savedDevices().first)
+  try store.storeControllerRoutingHint(
+    .init(savedDeviceID: saved.savedDeviceID, canID: 42, controllerUUID: Data((1 ... 12).map(UInt8.init))),
+    at: .distantPast
+  )
+  try store.append(jobID: session.jobID, samples: [
+    TelemetrySample(
+      sequence: 1, observedAt: .distantPast, elapsedMs: 0,
+      rideState: .riding, speedKph: 18
+    ),
+    TelemetrySample(
+      sequence: 2, observedAt: .distantPast, elapsedMs: 30_000,
+      rideState: .riding, speedKph: 18
+    ),
+  ])
+  _ = try store.close(jobID: session.jobID, at: .distantPast.addingTimeInterval(1), reason: "test")
+
+  let catalogURL = root.appending(path: "catalog.sqlite")
+  let storedSessionFile = try sqliteText(catalogURL, "SELECT file_name FROM session_catalog")
+  let sessionFile = try #require(storedSessionFile)
+  let sessionURL = root.appending(path: sessionFile)
+  try store.deleteSavedDevice(savedDeviceID: saved.savedDeviceID)
+
+  #expect(try store.savedDevices().isEmpty)
+  #expect(try sqliteInt(catalogURL, "SELECT COUNT(*) FROM board_profile") == 0)
+  #expect(try sqliteInt(catalogURL, "SELECT COUNT(*) FROM controller_route_hint") == 0)
+  #expect(try sqliteInt(catalogURL, "SELECT COUNT(*) FROM session_catalog") == 0)
+  #expect(!FileManager.default.fileExists(atPath: sessionURL.path))
+
+  let reopened = try SQLiteLogStore(
+    root: root,
+    schemaDirectory: schema,
+    availableBytes: { 2_000_000_000 }
+  )
+  #expect(try reopened.savedDevices().isEmpty)
+}
+
 private func sqliteExecute(_ url: URL, _ sql: String) throws {
   var database: OpaquePointer?
   guard sqlite3_open_v2(

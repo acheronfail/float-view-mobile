@@ -139,7 +139,7 @@ async function runPhysicalScenario(
         beforeConnect = await client.request('state.get', {});
       }
     }
-    await client.request('device.connect', { deviceId: device.deviceId }, 15_000);
+    await client.request('device.connect', { deviceId: device.deviceId, trackingMode: 'saved' }, 15_000);
     let afterConnectRevision = beforeConnect.revision;
     if (scenario.selectCanId !== undefined) {
       const selecting = await client.waitForState(
@@ -430,7 +430,9 @@ async function completeSession(client: ConformanceClient, deviceId: string, sess
   assert.ok(!disconnected.activeConnection || disconnected.activeConnection.deviceId !== deviceId);
   if (!exerciseReview) return;
   const completed = await client.request('state.get', {});
-  const page = await client.request('session.list', { limit: 100 });
+  const savedDevice = completed.savedDevices.find((item) => item.bluetoothIdentifier === deviceId);
+  assert.ok(savedDevice);
+  const page = await client.request('session.list', { savedDeviceId: savedDevice.savedDeviceId, limit: 100 });
   const session = page.items.find((item) => item.sessionId === sessionId);
   assert.ok(session, 'Completed durable session is absent');
   assert.equal(session.state, 'completed');
@@ -455,7 +457,7 @@ async function completeSession(client: ConformanceClient, deviceId: string, sess
   assert.equal(data.kind, 'series');
   await client.request('session.export', { sessionId, format: 'csv' });
   await client.request('session.delete', { sessionId });
-  const deleted = await client.request('session.list', { limit: 100 });
+  const deleted = await client.request('session.list', { savedDeviceId: savedDevice.savedDeviceId, limit: 100 });
   assert.ok(!deleted.items.some((item) => item.sessionId === sessionId));
 }
 

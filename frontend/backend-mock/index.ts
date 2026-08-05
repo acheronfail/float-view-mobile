@@ -1,10 +1,7 @@
 import { randomBytes } from 'node:crypto';
-import { DatabaseSync } from 'node:sqlite';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import express from 'express';
 import { createServer } from 'node:http';
-import { tmpdir } from 'node:os';
-import path, { join } from 'node:path';
+import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { WebSocketServer } from 'ws';
 import {
@@ -75,8 +72,12 @@ app.post('/api/session-import', (request, response) => {
       response.status(503).end();
       return;
     }
-    const sessionId = activeMockBackend.importSession(Buffer.concat(chunks));
-    response.type('application/json').json({ sessionId });
+    try {
+      const sessionId = activeMockBackend.importSession(Buffer.concat(chunks));
+      response.type('application/json').json({ sessionId });
+    } catch {
+      response.status(400).end();
+    }
   });
 });
 
@@ -113,7 +114,7 @@ app.post('/api/session-export', (request, response) => {
         response.status(404).end();
         return;
       }
-      const exported = createMockExport(sessionId, format);
+      const exported = createMockExport(sessionId, format, activeMockBackend.archiveIdentity(sessionId));
       response.set({
         'Content-Type': exported.contentType,
         'Content-Disposition': `attachment; filename="${exported.fileName}"`,
@@ -428,7 +429,8 @@ export function getMockBootstrap(port: number) {
 
 function createMockExport(
   sessionId: string,
-  format: 'float-view-archive' | 'csv'
+  format: 'float-view-archive' | 'csv',
+  identity: { deviceHistoryId: string; displayName: string } | null
 ): { fileName: string; contentType: string; body: Buffer } {
   const fileName = `float-view-${sessionId}.${format === 'csv' ? 'csv' : 'floatview'}`;
   if (format === 'csv') {
@@ -439,24 +441,12 @@ function createMockExport(
     };
   }
 
-  const directory = mkdtempSync(join(tmpdir(), 'float-view-export-'));
-  const pathName = join(directory, fileName);
-  let database: DatabaseSync | undefined;
-  try {
-    database = new DatabaseSync(pathName);
-    const escapedSessionId = sessionId.replaceAll("'", "''");
-    database.exec(
-      `CREATE TABLE float_view_archive_metadata(key TEXT PRIMARY KEY NOT NULL, value TEXT NOT NULL);\n` +
-        `INSERT INTO float_view_archive_metadata(key, value) VALUES ('format_version', '1');\n` +
-        `INSERT INTO float_view_archive_metadata(key, value) VALUES ('session', '${escapedSessionId}');`
-    );
-    database.close();
-    database = undefined;
-    return { fileName, contentType: 'application/octet-stream', body: readFileSync(pathName) };
-  } finally {
-    database?.close();
-    rmSync(directory, { recursive: true, force: true });
-  }
+  if (!identity) throw new Error('Session was not found');
+  return {
+    fileName,
+    contentType: 'application/octet-stream',
+    body: Buffer.from(JSON.stringify({ sessionId, ...identity }), 'utf8'),
+  };
 }
 
 export function stopMockServer(): Promise<void> {

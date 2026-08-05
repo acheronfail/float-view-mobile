@@ -22,7 +22,7 @@
   let motor = $state('');
   let preferredCanId = $state<number | undefined>();
   const appHeader = getContext<AppHeaderContext>(APP_HEADER_CONTEXT);
-  const headerOwner = '/boards/[savedDeviceId]';
+  const headerOwner = '/sessions/boards/[savedDeviceId]';
   const saveQueue = new SerialSaveQueue();
 
   const device = $derived(backendState.savedDevices.find((value) => value.savedDeviceId === savedDeviceId));
@@ -34,11 +34,13 @@
     if (embedded) return;
     appHeader.set(headerOwner, {
       title: name,
-      backHref: '#/boards',
-      backLabel: '← Boards',
+      backHref: '#/sessions',
+      backLabel: '← Sessions',
     });
   });
-  onDestroy(() => appHeader.clear(headerOwner));
+  onDestroy(() => {
+    if (!embedded) appHeader.clear(headerOwner);
+  });
 
   onMount(() => {
     let active = true;
@@ -46,7 +48,7 @@
       if (!active) return;
       if (!opened) {
         if (embedded) onclose?.();
-        else void goto('#/boards', { replaceState: true });
+        else void goto('#/sessions', { replaceState: true });
         return;
       }
       customDisplayName = device?.customDisplayName ?? '';
@@ -98,7 +100,7 @@
           type="text"
           maxlength="128"
           bind:value={customDisplayName}
-          placeholder={device.advertisedName ?? device.bluetoothIdentifier}
+          placeholder={device.advertisedName ?? device.bluetoothIdentifier ?? 'Board'}
           onblur={saveName}
         />
       </label>
@@ -126,7 +128,7 @@
       </label>
       <div class="rounded-md border border-outline bg-elevated px-3 py-2 text-sm sm:col-span-2">
         <span class="block text-muted">Bluetooth identifier</span>
-        <code class="mt-1 block break-all text-foreground">{device.bluetoothIdentifier}</code>
+        <code class="mt-1 block break-all text-foreground">{device.bluetoothIdentifier ?? 'Not locally associated'}</code>
       </div>
       <label class="text-sm">
         <span class="mb-1 block text-muted">Battery series cells (S)</span>

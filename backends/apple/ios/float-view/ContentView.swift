@@ -81,7 +81,13 @@ final class AppBackend: ObservableObject {
       locationProvider: CoreLocationAdapter()
     )
     relay.setHandler { [weak applicationService] event in
-      try? applicationService?.receive(event)
+      do {
+        try applicationService?.receive(event)
+      } catch {
+        #if DEBUG
+          print("[FloatViewBackend] Bluetooth event handling failed: \(error)")
+        #endif
+      }
     }
 
     let html = try! Data(contentsOf: Bundle.main.url(forResource: "index", withExtension: "html")!)
@@ -254,6 +260,8 @@ private struct DebugEventSink: EventSink {
         print("[FloatViewState] connection state=\(state.rawValue)")
       case let session as SessionRecord:
         print("[FloatViewState] session active=\(session.active)")
+      case let message as String:
+        print("[FloatViewBackend] \(message)")
       default:
         break
       }

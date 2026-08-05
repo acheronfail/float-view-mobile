@@ -312,12 +312,15 @@ public final class LoopbackServer: @unchecked Sendable {
         guard let deviceID = params["deviceId"] as? String, !deviceID.isEmpty else {
           return failure(id, .invalidRequest, "deviceId is required")
         }
+        guard let trackingRaw = params["trackingMode"] as? String,
+              let trackingMode = TrackingMode(rawValue: trackingRaw)
+        else { return failure(id, .invalidRequest, "trackingMode must be saved or guest") }
         if let active = applicationService.activeConnectionSnapshot(),
            active.deviceID.value != deviceID || active.state != .failed
         {
           return failure(id, .invalidState, "A different board is already active")
         }
-        try applicationService.connect(DeviceID(deviceID))
+        try applicationService.connect(DeviceID(deviceID), trackingMode: trackingMode)
         return success(["accepted": true])
       case "device.selectController":
         guard let deviceID = params["deviceId"] as? String, !deviceID.isEmpty,
@@ -347,6 +350,13 @@ public final class LoopbackServer: @unchecked Sendable {
           expectedRevision: expected,
           customDisplayName: params["customDisplayName"] as? String
         )))
+      case "savedDevice.delete":
+        guard let savedID = params["savedDeviceId"] as? String, !savedID.isEmpty else {
+          return failure(id, .invalidRequest, "savedDeviceId is required")
+        }
+        try applicationService.deleteSavedDevice(savedDeviceID: savedID)
+        events.publish(SessionCatalogChanged())
+        return success(["accepted": true])
       case "settings.update":
         guard let expected = params["expectedRevision"] as? Int,
               let patch = params["patch"] as? [String: Any]
@@ -373,33 +383,41 @@ public final class LoopbackServer: @unchecked Sendable {
           patchJSON: Self.jsonString(patch)
         )))
       case "session.list":
-        guard let limit = (params["limit"] as? NSNumber)?.intValue, (1 ... 100).contains(limit) else {
-          return failure(id, .invalidRequest, "Session page size must be 1 through 100")
+        guard let savedID = params["savedDeviceId"] as? String, !savedID.isEmpty,
+              let limit = (params["limit"] as? NSNumber)?.intValue, (1 ... 100).contains(limit) else {
+          return failure(id, .invalidRequest, "savedDeviceId and a valid session page size are required")
         }
-        let cursor = params["cursor"] as? String
+        guard let board = try applicationService.savedDevices().first(where: { $0.savedDeviceID == savedID }) else {
+          return failure(id, .notFound, "Saved board was not found")
+        }
+        let deviceHistoryID = board.deviceHistoryID
+        let cursorValue = params["cursor"] as? String
         let context: [String: Any]?
-        if let cursor {
-          guard cursor.utf8.count <= 1_024, let decoded = Self.decodeSessionCatalogCursor(cursor) else {
-            return failure(id, .invalidRequest, "Session cursor is invalid")
-          }
+        if let cursorValue {
+          guard cursorValue.utf8.count <= 1_024,
+                let decoded = Self.decodeSessionCatalogCursor(cursorValue),
+                decoded["deviceHistoryId"] as? String == deviceHistoryID
+          else { return failure(id, .invalidRequest, "Session cursor is invalid") }
           guard let revision = decoded["catalogRevision"] as? Int,
                 revision == revisionLock.withLock({ sessionCatalogRevision })
-          else {
-            return failure(id, .conflict, "Session cursor is stale")
-          }
+          else { return failure(id, .conflict, "Session cursor is stale") }
           context = decoded
         } else {
+          if params.keys.contains("cursor"), !(params["cursor"] is NSNull) {
+            return failure(id, .invalidRequest, "Session cursor is invalid")
+          }
           context = nil
         }
         let innerCursor = context?["innerCursor"] as? String
         let page = try applicationService.sessions(SessionListQuery(
-          cursor: innerCursor, limit: limit,
+          cursor: innerCursor, limit: limit, deviceHistoryID: deviceHistoryID,
           sortField: "startedAt", sortDescending: true
         ))
         let nextCursor = page.nextCursor.map { inner in
           Self.encodeSessionCatalogCursor([
             "version": 1,
             "query": "startedAt.desc.sessionId.desc",
+            "deviceHistoryId": deviceHistoryID,
             "catalogRevision": revisionLock.withLock { sessionCatalogRevision },
             "innerCursor": inner,
             "lastStartedAt": page.items.last.map { ISO8601DateFormatter().string(from: $0.startedAt) } ?? NSNull(),
@@ -702,6 +720,7 @@ public final class LoopbackServer: @unchecked Sendable {
       "state": "discovered",
       "rssi": value.rssi.map { $0 as Any } ?? NSNull(),
       "lastSeenAt": ISO8601DateFormatter().string(from: value.lastSeenAt),
+      "savedDeviceId": value.savedDeviceID ?? NSNull(),
     ]
   }
 
@@ -710,6 +729,7 @@ public final class LoopbackServer: @unchecked Sendable {
       "deviceId": value.deviceID.value,
       "name": value.savedDevice?.displayName ?? value.name ?? value.deviceID.value,
       "state": deviceState(value.state),
+      "trackingMode": value.trackingMode.rawValue,
       "controllerConnection": value.controllerRoute.map(controllerRoutePayload) ?? NSNull(),
       "controllerCandidates": value.controllerCandidates.map(controllerCandidatePayload),
       "connectionIssue": value.connectionIssue.map(connectionIssuePayload) ?? NSNull(),
@@ -764,10 +784,17 @@ public final class LoopbackServer: @unchecked Sendable {
       "displayName": value.displayName,
       "customDisplayName": value.customDisplayName ?? NSNull(),
       "advertisedName": value.advertisedName ?? NSNull(),
-      "bluetoothIdentifier": value.bluetoothIdentifier,
+      "bluetoothIdentifier": value.bluetoothIdentifier.map { $0 as Any } ?? NSNull(),
       "lastSeenAt": value.lastSeenAt.map(ISO8601DateFormatter().string) ?? NSNull(),
       "lastConnectedAt": value.lastConnectedAt.map(ISO8601DateFormatter().string) ?? NSNull(),
       "profileComplete": value.profileComplete,
+      "summary": [
+        "sessionCount": value.summary.sessionCount,
+        "totalRidingElapsedMs": value.summary.totalRidingElapsedMs,
+        "totalDistanceM": value.summary.totalDistanceM.map { $0 as Any } ?? NSNull(),
+        "mostRecentSessionAt": value.summary.mostRecentSessionAt
+          .map(ISO8601DateFormatter().string) ?? NSNull(),
+      ],
     ]
   }
 
@@ -1321,6 +1348,8 @@ public final class LoopbackServer: @unchecked Sendable {
     case .savedDeviceNotFound: failure(id, .notFound, "Saved device was not found")
     case .savedDeviceRevisionConflict, .profileRevisionConflict, .settingsRevisionConflict:
       failure(id, .conflict, "Resource revision changed")
+    case .savedDeviceActive:
+      failure(id, .invalidState, "Disconnect the board before forgetting it")
     case .invalidSavedDevicePatch, .invalidProfilePatch, .invalidSettingsPatch:
       failure(id, .invalidRequest, "Patch is invalid")
     }

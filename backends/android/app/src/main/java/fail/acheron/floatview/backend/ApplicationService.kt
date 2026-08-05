@@ -2,6 +2,7 @@ package fail.acheron.floatview.backend
 
 import fail.acheron.floatview.protocol.refloat.RefloatTelemetryFamily
 import fail.acheron.floatview.protocol.vesc.ControllerRoute
+import java.security.MessageDigest
 
 class ApplicationService(
     private val bluetooth: BluetoothPort,
@@ -18,7 +19,7 @@ class ApplicationService(
     init {
         val savedIds = runCatching {
             productStore?.savedDevices().orEmpty()
-                .map { DeviceId(it.bluetoothIdentifier) }
+                .mapNotNull { it.bluetoothIdentifier?.let(::DeviceId) }
                 .toSet()
         }.getOrDefault(emptySet())
         bluetooth.configureSavedDeviceIds(savedIds)
@@ -33,6 +34,7 @@ class ApplicationService(
     private var discoveryExpiryTimer: CancellationPort? = null
     private var discoveryExpiryGeneration = 0L
     private val controllerDiscovery = ControllerDiscovery()
+    private var trackingMode = TrackingMode.SAVED
     private var currentSavedDevice: SavedDeviceRecord? = null
     private var identificationTimer: CancellationPort? = null
     private var canProbeTimer: CancellationPort? = null
@@ -97,6 +99,14 @@ class ApplicationService(
             .updateSavedDevice(savedDeviceId, expectedRevision, customDisplayName, clock.now())
             .also(events::publish)
 
+    @Synchronized
+    fun deleteSavedDevice(savedDeviceId: String) {
+        if (activeConnectionSnapshot()?.savedDevice?.savedDeviceId == savedDeviceId) {
+            throw ProductStoreException.SavedDeviceActive
+        }
+        requireNotNull(productStore) { "Product store is unavailable" }.deleteSavedDevice(savedDeviceId)
+    }
+
     fun boardProfile(savedDeviceId: String): BoardProfileRecord =
         requireNotNull(productStore) { "Product store is unavailable" }
             .boardProfile(savedDeviceId)
@@ -112,24 +122,24 @@ class ApplicationService(
 
     @Synchronized
     fun selectController(deviceId: DeviceId, canId: Int) {
-        val store = productStore
-        val savedDevice = currentSavedDevice
         check(
             activeDeviceId == deviceId &&
-                connectionState == ConnectionState.SELECTING_CONTROLLER &&
-                store != null &&
-                savedDevice != null,
+                connectionState == ConnectionState.SELECTING_CONTROLLER,
         ) { "Controller selection is not valid for the current state" }
         val effect = controllerDiscovery.selectController(canId)
         val selectedFirmware =
             (effect as ControllerDiscoveryEffect.RequestRefloatInfo).rememberController
                 ?: error("Selected controller identity is unavailable")
-        store.selectController(
-            savedDevice.savedDeviceId,
-            canId,
-            ControllerDiscoveryPolicy.meaningfulUuid(selectedFirmware.controllerUuid),
-            clock.now(),
-        ).also(events::publish)
+        if (trackingMode == TrackingMode.SAVED) {
+            val store = requireNotNull(productStore) { "Product store is unavailable" }
+            val savedDevice = requireNotNull(currentSavedDevice) { "Saved board is unavailable" }
+            store.selectController(
+                savedDevice.savedDeviceId,
+                canId,
+                ControllerDiscoveryPolicy.meaningfulUuid(selectedFirmware.controllerUuid),
+                clock.now(),
+            ).also(events::publish)
+        }
         controllerDiscovery.clearIssue()
         transition(ConnectionState.IDENTIFYING)
         performDiscoveryEffect(effect.copy(rememberController = null))
@@ -355,16 +365,21 @@ class ApplicationService(
     }
 
     @Synchronized
-    fun connect(deviceId: DeviceId) {
+    fun connect(deviceId: DeviceId, trackingMode: TrackingMode = TrackingMode.SAVED) {
         require(knownDevicesById.containsKey(deviceId)) { "Unknown device" }
         require(activeDeviceId == null || activeDeviceId == deviceId) {
             "Only one board can be active"
+        }
+        if (activeDeviceId == deviceId && connectionState == ConnectionState.FAILED && this.trackingMode != trackingMode) {
+            error("A retry must keep the active tracking mode")
         }
         if (activeScanId != null) {
             bluetooth.stopDiscovery()
             activeScanId = null
         }
         activeDeviceId = deviceId
+        this.trackingMode = trackingMode
+        currentSavedDevice = null
         activeDeviceName = knownDevicesById[deviceId]?.advertisedName
         if (logStore.active() == null) {
             sessionControllerRoute = null
@@ -406,7 +421,7 @@ class ApplicationService(
                 } else if (
                     event.state.radio != BluetoothRadioState.POWERED_ON &&
                     activeDeviceId != null &&
-                    logStore.active() != null &&
+                    (trackingMode == TrackingMode.SAVED || trackingMode == TrackingMode.GUEST) &&
                     !explicitDisconnect
                 ) {
                     beginReconnect()
@@ -419,6 +434,7 @@ class ApplicationService(
                     event.advertisedName,
                     event.rssi,
                     clock.now(),
+                    savedDeviceId = savedDeviceIdFor(event.deviceId),
                 )
                 knownDevicesById[event.deviceId] = device
                 scheduleDiscoveryExpiry()
@@ -443,7 +459,7 @@ class ApplicationService(
                     (event.state == ConnectionState.FAILED ||
                         event.state == ConnectionState.DISCONNECTED) &&
                     !explicitDisconnect &&
-                    logStore.active() != null
+                    (trackingMode == TrackingMode.SAVED || trackingMode == TrackingMode.GUEST)
                 ) {
                     beginReconnect()
                     return
@@ -532,16 +548,23 @@ class ApplicationService(
         telemetryPolling.cancelLayout()
         telemetryPolling.stop()
         stopLocationCapture()
-        logStore.active()?.let {
-            events.publish(logStore.close(it.jobId, clock.now(), "explicit_disconnect"))
+        if (trackingMode == TrackingMode.SAVED) {
+            logStore.active()?.let {
+                events.publish(logStore.close(it.jobId, clock.now(), "explicit_disconnect"))
+            }
         }
         bluetooth.disconnect(deviceId)
     }
 
     @Synchronized
     fun ingest(sample: TelemetrySample) {
-        val active = logStore.active() ?: return
         if (connectionState != ConnectionState.READY) return
+        if (trackingMode == TrackingMode.GUEST) {
+            latestPersistedSample = sample
+            events.publish(sample)
+            return
+        }
+        val active = logStore.active() ?: return
         updateLocationCapture(sample.rideState)
         if (sampling.shouldPersist(sample.rideState, sample.elapsedMs)) {
             logStore.append(active.jobId, listOf(sample))
@@ -554,7 +577,8 @@ class ApplicationService(
     private fun updateLocationCapture(rideState: RideState) {
         val provider = locationProvider
         val active = logStore.active()
-        val enabled = runCatching { settings().locationRecordingEnabled }.getOrDefault(false)
+        val enabled = trackingMode == TrackingMode.SAVED &&
+            runCatching { settings().locationRecordingEnabled }.getOrDefault(false)
         val providerState = provider?.state()
         val eligible = enabled && rideState == RideState.RIDING && active != null &&
             (providerState?.authorization == LocationProviderAuthorization.AUTHORIZED ||
@@ -619,16 +643,18 @@ class ApplicationService(
     @Synchronized
     fun activeConnectionSnapshot(): ActiveConnectionSnapshot? {
         val deviceId = activeDeviceId ?: return null
-        val savedDevice = productStore?.savedDevices()
+        val savedDevice = if (trackingMode == TrackingMode.SAVED) productStore?.savedDevices()
             ?.firstOrNull { it.bluetoothIdentifier == deviceId.value }
-        val activeSession = logStore.active()?.sessionId?.value?.let { sessionId ->
+        else null
+        val activeSession = if (trackingMode == TrackingMode.SAVED) logStore.active()?.sessionId?.value?.let { sessionId ->
             runCatching { sessionStore?.session(sessionId) }.getOrNull()
-        }
+        } else null
         return ActiveConnectionSnapshot(
             deviceId = deviceId,
             advertisedName = activeDeviceName,
             state = connectionState,
-            savedDevice = currentSavedDevice ?: savedDevice,
+            trackingMode = trackingMode,
+            savedDevice = if (trackingMode == TrackingMode.SAVED) currentSavedDevice ?: savedDevice else null,
             activeSession = activeSession,
             latestSample = latestPersistedSample,
             latestLocation = latestLocation,
@@ -658,26 +684,29 @@ class ApplicationService(
 
     private fun handleFirmware(value: FirmwareRecord) {
         if (value.canId == null) {
-            currentSavedDevice = try {
-                val deviceId = activeDeviceId ?: return
-                productStore?.ensureSavedDevice(
-                    deviceId,
-                    activeDeviceName,
-                    clock.now(),
-                )
-            } catch (_: Exception) {
-                failIdentification(
-                    ConnectionIssueCode.TRANSPORT_SETUP_FAILED,
-                    "Unable to save the VESC device.",
-                )
-                return
+            if (trackingMode == TrackingMode.SAVED) {
+                currentSavedDevice = try {
+                    val deviceId = activeDeviceId ?: return
+                    productStore?.ensureSavedDevice(
+                        deviceId,
+                        activeDeviceName,
+                        stableBoardIdentity(value.controllerUuid),
+                        clock.now(),
+                    )
+                } catch (_: Exception) {
+                    failIdentification(
+                        ConnectionIssueCode.TRANSPORT_SETUP_FAILED,
+                        "Unable to save the VESC device.",
+                    )
+                    return
+                }
             }
-            currentSavedDevice?.let { savedDevice ->
+            if (trackingMode == TrackingMode.SAVED) currentSavedDevice?.let { savedDevice ->
                 val savedIds = runCatching {
                     productStore?.savedDevices().orEmpty()
-                        .map { DeviceId(it.bluetoothIdentifier) }
+                        .mapNotNull { it.bluetoothIdentifier?.let(::DeviceId) }
                         .toSet()
-                }.getOrDefault(setOf(DeviceId(savedDevice.bluetoothIdentifier)))
+                }.getOrDefault(setOfNotNull(savedDevice.bluetoothIdentifier?.let(::DeviceId)))
                 bluetooth.configureSavedDeviceIds(savedIds)
             }
             val profile = currentSavedDevice?.let {
@@ -709,7 +738,7 @@ class ApplicationService(
     }
 
     private fun controllerContinuity() = ControllerContinuity(
-        hasActiveSession = logStore.active() != null,
+        hasActiveSession = trackingMode == TrackingMode.SAVED && logStore.active() != null,
         route = sessionControllerRoute,
         controllerUuid = sessionControllerUuid,
     )
@@ -758,7 +787,7 @@ class ApplicationService(
             }
             is ControllerDiscoveryEffect.RequestRefloatInfo -> {
                 val selected = effect.rememberController
-                val savedDevice = currentSavedDevice
+                val savedDevice = if (trackingMode == TrackingMode.SAVED) currentSavedDevice else null
                 val canId = selected?.canId
                 val uuid = ControllerDiscoveryPolicy.meaningfulUuid(selected?.controllerUuid)
                 if (savedDevice != null && canId != null && uuid != null) {
@@ -794,7 +823,7 @@ class ApplicationService(
         val route = controllerDiscovery.controllerRoute ?: return
         val selectedFirmware = controllerDiscovery.firmware ?: return
         cancelIdentificationTimeout()
-        if (logStore.active() != null) {
+        if (trackingMode == TrackingMode.SAVED && logStore.active() != null) {
             if (!controllerContinuityIsProven(route, selectedFirmware)) {
                 failIdentification(
                     ConnectionIssueCode.CONTROLLER_CHANGED,
@@ -802,7 +831,7 @@ class ApplicationService(
                 )
                 return
             }
-        } else {
+        } else if (trackingMode == TrackingMode.SAVED) {
             try {
                 events.publish(
                     logStore.create(
@@ -847,7 +876,7 @@ class ApplicationService(
     /** Production hosts always provide a VESC codec and never take this path. */
     private fun completeWithoutProtocol() {
         val deviceId = activeDeviceId ?: return
-        if (logStore.active() == null) {
+        if (trackingMode == TrackingMode.SAVED && logStore.active() == null) {
             try {
                 events.publish(
                     logStore.create(
@@ -897,7 +926,7 @@ class ApplicationService(
         telemetryPolling.cancelLayout()
         telemetryPolling.stop()
         controllerDiscovery.markFailure(code, message)
-        if (code == ConnectionIssueCode.CONTROLLER_CHANGED) {
+        if (trackingMode == TrackingMode.SAVED && code == ConnectionIssueCode.CONTROLLER_CHANGED) {
             logStore.active()?.let {
                 runCatching { logStore.close(it.jobId, clock.now(), code.name.lowercase()) }
             }
@@ -1021,7 +1050,7 @@ class ApplicationService(
     private fun finishReconnect(reason: String) {
         val deviceId = activeDeviceId
         cancelReconnect()
-        logStore.active()?.let {
+        if (trackingMode == TrackingMode.SAVED) logStore.active()?.let {
             events.publish(logStore.close(it.jobId, clock.now(), reason))
         }
         explicitDisconnect = true
@@ -1056,6 +1085,22 @@ class ApplicationService(
         cancelIdentificationTimeout()
         cancelCanProbeTimeout()
         protocol?.reset()
+    }
+
+    private fun savedDeviceIdFor(deviceId: DeviceId): String? =
+        runCatching {
+            productStore?.savedDevices()?.firstOrNull { it.bluetoothIdentifier == deviceId.value }?.savedDeviceId
+        }.getOrNull()
+
+    private fun stableBoardIdentity(value: ByteArray?): String? {
+        val meaningful = ControllerDiscoveryPolicy.meaningfulUuid(value) ?: return null
+        val input = ByteArray("float-view-board-v1\u0000".toByteArray().size + meaningful.size).also {
+            val prefix = "float-view-board-v1\u0000".toByteArray()
+            prefix.copyInto(it)
+            meaningful.copyInto(it, prefix.size)
+        }
+        val digest = MessageDigest.getInstance("SHA-256").digest(input)
+        return "vesc-v1-" + digest.joinToString("") { byte -> "%02x".format(byte.toInt() and 0xff) }
     }
 
     private fun permissionAllowsUse(state: BluetoothPermissionState): Boolean =

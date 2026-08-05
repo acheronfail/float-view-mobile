@@ -9,9 +9,10 @@
   import SessionHistory from './SessionHistory.svelte';
   import SessionEvents from './SessionEvents.svelte';
   import SessionLocationMap from './SessionLocationMap.svelte';
+  import { sessionStartDateLabel } from './session-label';
   import type { Viewport } from './viewport';
 
-  let { sessionId }: { sessionId: string } = $props();
+  let { sessionId, boardSavedDeviceId }: { sessionId: string; boardSavedDeviceId?: string | null } = $props();
   let deleteConfirmationOpen = $state(false);
   let deleting = $state(false);
   let locationMapHeight = $state(0);
@@ -20,14 +21,25 @@
   const appHeader = getContext<AppHeaderContext>(APP_HEADER_CONTEXT);
   const headerOwner = '/sessions/[sessionId]';
   const units = $derived(backendState.settings?.unitPreference ?? 'metric');
+  const owningBoardSavedDeviceId = $derived(
+    boardSavedDeviceId ??
+      backendState.savedDevices.find((device) => device.deviceHistoryId === backendState.selectedSession?.deviceHistoryId)
+        ?.savedDeviceId ??
+      null
+  );
+  const returnHref = $derived(
+    owningBoardSavedDeviceId
+      ? `#/sessions/boards/${encodeURIComponent(owningBoardSavedDeviceId)}`
+      : '#/sessions'
+  );
 
   $effect(() => {
     const session = backendState.selectedSession;
     const canExport = !backendState.busy && session?.state !== 'active';
     appHeader.set(headerOwner, {
-      title: session?.displayName ?? 'Session',
-      backHref: '#/sessions',
-      backLabel: '← Sessions',
+      title: sessionStartDateLabel(session?.startedAt) ?? 'Session',
+      backHref: returnHref,
+      backLabel: owningBoardSavedDeviceId ? '← Board sessions' : '← Sessions',
       ...(session
         ? {
             menuLabel: 'Session actions',
@@ -66,7 +78,7 @@
   onMount(() => {
     let active = true;
     void backendState.openSession(sessionId).then((opened) => {
-      if (active && !opened) void goto('#/sessions', { replaceState: true });
+      if (active && !opened) void goto(returnHref, { replaceState: true });
     });
     return () => {
       active = false;
@@ -96,13 +108,13 @@
     const deleted = await backendState.deleteSelectedSession();
     deleting = false;
     deleteConfirmationOpen = false;
-    if (deleted) await goto('#/sessions', { replaceState: true });
+    if (deleted) await goto(returnHref, { replaceState: true });
   }
 </script>
 
 <section
   aria-labelledby="app-title"
-  class="space-y-2"
+  class="space-y-2 py-2"
   style={`--section-header-top: calc(var(--app-header-bottom) + ${locationMapHeight}px)`}
 >
   {#if backendState.selectedSession}

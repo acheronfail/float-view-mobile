@@ -5,7 +5,7 @@ PRAGMA synchronous = FULL;
 CREATE TABLE IF NOT EXISTS saved_device (
   saved_device_id TEXT PRIMARY KEY NOT NULL,
   device_history_id TEXT UNIQUE NOT NULL,
-  opaque_platform_id TEXT UNIQUE NOT NULL,
+  opaque_platform_id TEXT UNIQUE,
   advertised_name TEXT,
   custom_display_name TEXT,
   revision INTEGER NOT NULL DEFAULT 0 CHECK (revision >= 0),
@@ -15,7 +15,8 @@ CREATE TABLE IF NOT EXISTS saved_device (
 );
 
 CREATE TABLE IF NOT EXISTS board_profile (
-  saved_device_id TEXT PRIMARY KEY NOT NULL REFERENCES saved_device(saved_device_id),
+  saved_device_id TEXT PRIMARY KEY NOT NULL
+    REFERENCES saved_device(saved_device_id) ON DELETE CASCADE,
   revision INTEGER NOT NULL CHECK (revision >= 0),
   json TEXT NOT NULL,
   updated_at_ms INTEGER NOT NULL

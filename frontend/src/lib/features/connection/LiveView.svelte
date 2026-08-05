@@ -14,10 +14,13 @@
 </script>
 
 {#if connection}
-  <section
-    aria-label="Live board widgets"
-    class="grid h-full min-h-0 grid-rows-[minmax(4rem,auto)_minmax(0,1fr)_auto_auto] gap-2"
-  >
+  <section aria-label="Live board widgets" class="flex h-full min-h-0 flex-col gap-2">
+    {#if connection.trackingMode === 'guest'}
+      <p class="flex shrink-0 items-center justify-between gap-3 rounded-lg border border-warning/40 bg-warning/10 px-3 py-2 text-sm" role="status">
+        <span>Guest connection — live data will not be saved or tracked.</span>
+      </p>
+    {/if}
+    <div class="grid min-h-0 flex-1 grid-rows-[minmax(4rem,auto)_minmax(0,1fr)_auto_auto] gap-2">
     <div class:opacity-45={dimmed} class="min-h-0 overflow-hidden transition-opacity">
       <WidgetFootpads {sample} />
     </div>
@@ -32,6 +35,7 @@
 
     <div class:opacity-45={dimmed} class="min-h-0 overflow-hidden transition-opacity">
       <WidgetPower {sample} batterySeriesCells={currentLimits?.batterySeriesCells} />
+    </div>
     </div>
   </section>
 {:else}

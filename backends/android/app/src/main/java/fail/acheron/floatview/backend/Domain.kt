@@ -28,6 +28,8 @@ enum class ConnectionState {
     FAILED
 }
 
+enum class TrackingMode { SAVED, GUEST }
+
 data class ControllerCandidate(
     val canId: Int,
     val hardwareName: String?,
@@ -142,6 +144,7 @@ data class DiscoveredDevice(
     val advertisedName: String?,
     val rssi: Int?,
     val lastSeenAt: Instant,
+    val savedDeviceId: String? = null,
 )
 
 data class LiveLocation(
@@ -155,6 +158,7 @@ data class ActiveConnectionSnapshot(
     val deviceId: DeviceId,
     val advertisedName: String?,
     val state: ConnectionState,
+    val trackingMode: TrackingMode = TrackingMode.SAVED,
     val savedDevice: SavedDeviceRecord? = null,
     val activeSession: SessionSummaryRecord? = null,
     val latestSample: TelemetrySample? = null,
@@ -626,10 +630,18 @@ data class SavedDeviceRecord(
     val displayName: String,
     val customDisplayName: String? = null,
     val advertisedName: String? = null,
-    val bluetoothIdentifier: String,
+    val bluetoothIdentifier: String?,
     val lastSeenAt: Instant? = null,
     val lastConnectedAt: Instant? = null,
     val profileComplete: Boolean,
+    val summary: BoardHistorySummaryRecord = BoardHistorySummaryRecord(),
+)
+
+data class BoardHistorySummaryRecord(
+    val sessionCount: Int = 0,
+    val totalRidingElapsedMs: Long = 0,
+    val totalDistanceM: Double? = null,
+    val mostRecentSessionAt: Instant? = null,
 )
 
 data class BoardProfileRecord(
@@ -662,6 +674,7 @@ sealed class ProductStoreException(message: String) : RuntimeException(message) 
     data class SettingsRevisionConflict(val currentRevision: Int) :
         ProductStoreException("Settings revision conflict")
     data object InvalidSettingsPatch : ProductStoreException("Invalid settings patch")
+    data object SavedDeviceActive : ProductStoreException("Saved device is active")
 }
 
 interface ProductStorePort {
@@ -670,6 +683,12 @@ interface ProductStorePort {
         advertisedName: String?,
         at: Instant,
     ): SavedDeviceRecord = throw ProductStoreException.SavedDeviceNotFound
+    fun ensureSavedDevice(
+        deviceId: DeviceId,
+        advertisedName: String?,
+        stableIdentity: String?,
+        at: Instant,
+    ): SavedDeviceRecord = ensureSavedDevice(deviceId, advertisedName, at)
     fun savedDevices(): List<SavedDeviceRecord>
     fun updateSavedDevice(
         savedDeviceId: String,
@@ -701,6 +720,13 @@ interface ProductStorePort {
     fun controllerRoutingHint(savedDeviceId: String): ControllerRoutingHint? = null
     fun storeControllerRoutingHint(hint: ControllerRoutingHint, at: Instant) = Unit
     fun clearControllerRoutingHint(savedDeviceId: String) = Unit
+    fun deleteSavedDevice(savedDeviceId: String): Unit = throw ProductStoreException.SavedDeviceNotFound
+    fun ensureImportedSavedDevice(
+        deviceHistoryId: String,
+        displayName: String?,
+        profileSnapshotJson: String,
+        at: Instant,
+    ): SavedDeviceRecord = throw ProductStoreException.InvalidSavedDevicePatch
     fun settings(): SettingsRecord = SettingsRecord()
     fun updateSettings(expectedRevision: Int, patchJson: String): SettingsRecord =
         throw ProductStoreException.InvalidSettingsPatch

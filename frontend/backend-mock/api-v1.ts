@@ -3,6 +3,7 @@ import {
   MAX_SESSION_LIST_CURSOR_BYTES,
   MAX_SESSION_LIST_PAGE,
   type AppState,
+  type BoardHistorySummary,
   type BackendError,
   type BackendMethod,
   type ConnectionIssueCode,
@@ -23,6 +24,7 @@ const discoveredBoard = {
   state: 'discovered' as const,
   rssi: -48,
   lastSeenAt: '2026-01-01T00:00:00Z',
+  savedDeviceId: 'saved-board' as string | null,
 };
 
 const savedBoard = {
@@ -36,6 +38,12 @@ const savedBoard = {
   lastSeenAt: '2026-01-01T00:00:00Z',
   lastConnectedAt: null,
   profileComplete: false,
+  summary: {
+    sessionCount: 2,
+    totalRidingElapsedMs: 100_000,
+    totalDistanceM: 600,
+    mostRecentSessionAt: '2026-01-01T00:02:00Z',
+  } satisfies BoardHistorySummary,
 };
 
 const session: SessionSummary = {
@@ -252,28 +260,46 @@ export class MockBackend {
         return accepted(id);
       case 'device.connect': {
         const deviceId = string(params.deviceId);
+        const trackingMode = params.trackingMode;
         if (!deviceId) return failure(id, 'invalid_request', 'deviceId is required');
+        if (trackingMode !== 'saved' && trackingMode !== 'guest') {
+          return failure(id, 'invalid_request', 'trackingMode must be saved or guest');
+        }
         const active = this.state.activeConnection;
         if (active && (active.deviceId !== deviceId || active.state !== 'failed')) {
           return failure(id, 'invalid_state', 'A board is already active');
         }
+        if (active && active.trackingMode !== trackingMode) {
+          return failure(id, 'invalid_state', 'A retry must keep the active tracking mode');
+        }
         if (!active && deviceId !== discoveredBoard.deviceId) {
           return failure(id, 'not_found', 'Device is no longer available');
         }
-        this.activeSessionId = `session-${this.nextSession++}`;
+        const savedDeviceId = trackingMode === 'saved' ? (discoveredBoard.savedDeviceId ?? savedBoard.savedDeviceId) : null;
+        const savedDevice = savedDeviceId
+          ? this.state.savedDevices.find((value) => value.savedDeviceId === savedDeviceId)
+          : undefined;
+        if (trackingMode === 'saved' && !savedDevice) {
+          return failure(id, 'not_found', 'Saved board is not available');
+        }
+        this.activeSessionId = trackingMode === 'saved' ? `session-${this.nextSession++}` : undefined;
         if (this.discoveryExpiryTimer) clearTimeout(this.discoveryExpiryTimer);
         this.discoveryExpiryTimer = undefined;
-        const activeSession: SessionSummary = {
-          ...session,
-          sessionId: this.activeSessionId,
-          startedAt: new Date().toISOString(),
-          endedAt: null,
-          state: 'active' as const,
-          sampleCount: 0,
-          ridingElapsedMs: 0,
-          totalElapsedMs: 0,
-        };
-        this.sessionCatalog = [activeSession, ...this.sessionCatalog];
+        const activeSession: SessionSummary | null = this.activeSessionId
+          ? {
+              ...session,
+              sessionId: this.activeSessionId,
+              deviceHistoryId: savedDevice?.deviceHistoryId ?? session.deviceHistoryId,
+              displayName: savedDevice?.displayName ?? session.displayName,
+              startedAt: new Date().toISOString(),
+              endedAt: null,
+              state: 'active' as const,
+              sampleCount: 0,
+              ridingElapsedMs: 0,
+              totalElapsedMs: 0,
+            }
+          : null;
+        if (activeSession) this.sessionCatalog = [activeSession, ...this.sessionCatalog];
         this.change(
           {
             ...this.state,
@@ -281,8 +307,9 @@ export class MockBackend {
             activeConnection: {
               ...discoveredBoard,
               state: 'ready',
-              savedDeviceId: savedBoard.savedDeviceId,
-              displayName: savedBoard.displayName,
+              trackingMode,
+              savedDeviceId,
+              displayName: savedDevice?.displayName ?? discoveredBoard.name,
               controllerConnection: { kind: 'direct' },
               controllerCandidates: [],
               connectionIssue: null,
@@ -306,7 +333,7 @@ export class MockBackend {
               },
             },
           },
-          true
+          Boolean(activeSession)
         );
         return accepted(id);
       }
@@ -326,14 +353,16 @@ export class MockBackend {
         ) {
           return failure(id, 'invalid_state', 'Controller selection is no longer available');
         }
-        const profile = this.profiles.get(active.savedDeviceId ?? '');
-        if (!profile) return failure(id, 'invalid_state', 'Saved board is unavailable');
-        const updated = {
-          ...profile,
-          revision: profile.revision + 1,
-          values: { ...profile.values, preferredCanId: canId },
-        };
-        this.profiles.set(profile.savedDeviceId, updated);
+        if (active.trackingMode === 'saved') {
+          const profile = this.profiles.get(active.savedDeviceId ?? '');
+          if (!profile) return failure(id, 'invalid_state', 'Saved board is unavailable');
+          const updated = {
+            ...profile,
+            revision: profile.revision + 1,
+            values: { ...profile.values, preferredCanId: canId },
+          };
+          this.profiles.set(profile.savedDeviceId, updated);
+        }
         this.pendingCandidates = [];
         this.change({
           ...this.state,
@@ -363,7 +392,7 @@ export class MockBackend {
           ...current,
           revision: current.revision + 1,
           customDisplayName,
-          displayName: customDisplayName ?? current.advertisedName ?? current.bluetoothIdentifier,
+          displayName: customDisplayName ?? current.advertisedName ?? current.bluetoothIdentifier ?? 'Board',
         };
         this.change({
           ...this.state,
@@ -380,6 +409,28 @@ export class MockBackend {
               : this.state.activeConnection,
         });
         return success(id, updated);
+      }
+      case 'savedDevice.delete': {
+        const savedDeviceId = string(params.savedDeviceId);
+        const current = savedDeviceId
+          ? this.state.savedDevices.find((device) => device.savedDeviceId === savedDeviceId)
+          : undefined;
+        if (!current) return accepted(id);
+        if (this.state.activeConnection?.savedDeviceId === savedDeviceId) {
+          return failure(id, 'invalid_state', 'Disconnect the board before forgetting it');
+        }
+        this.sessionCatalog = this.sessionCatalog.filter(
+          (item) => item.deviceHistoryId !== current.deviceHistoryId
+        );
+        this.profiles.delete(current.savedDeviceId);
+        this.change(
+          {
+            ...this.state,
+            savedDevices: this.state.savedDevices.filter((device) => device.savedDeviceId !== savedDeviceId),
+          },
+          true
+        );
+        return accepted(id);
       }
       case 'device.disconnect': {
         const activeSessionId = this.activeSessionId;
@@ -506,11 +557,17 @@ export class MockBackend {
         return found ? success(id, sessionMetadata(found)) : failure(id, 'not_found', 'Session was not found');
       }
       case 'session.list': {
+        const savedDeviceId = string(params.savedDeviceId);
         const limit = integer(params.limit);
+        if (!savedDeviceId) {
+          return failure(id, 'invalid_request', 'savedDeviceId is required');
+        }
         if (limit === null || limit < 1 || limit > MAX_SESSION_LIST_PAGE) {
           return failure(id, 'invalid_request', 'Session page size must be 1 through 100');
         }
-        const page = this.sessionList(params.cursor, limit);
+        const board = this.state.savedDevices.find((value) => value.savedDeviceId === savedDeviceId);
+        if (!board) return failure(id, 'not_found', 'Saved board was not found');
+        const page = this.sessionList(board.deviceHistoryId, params.cursor, limit);
         return page.error ? failure(id, page.error.code, page.error.message) : success(id, page.value);
       }
       case 'session.export':
@@ -583,7 +640,7 @@ export class MockBackend {
 
   publishTelemetry(): void {
     const active = this.state.activeConnection;
-    if (!active || active.state !== 'ready' || !active.activeSession) return;
+    if (!active || active.state !== 'ready') return;
     const sequence = (active.latestSample?.sequence ?? 0) + 1;
     const elapsedMs = sequence * this.state.settings.ridingPersistIntervalMs;
     const latestSample = {
@@ -640,20 +697,24 @@ export class MockBackend {
       chargingVoltageV: 0,
       extensions: {},
     };
-    const activeSession = {
-      ...active.activeSession,
-      sampleCount: sequence,
-      ridingElapsedMs: elapsedMs,
-      totalElapsedMs: elapsedMs,
-      maxSpeedMps: latestSample.speedKph / 3.6,
-      maxDutyCycle: latestSample.dutyCycle,
-    };
-    const latestLocation = {
-      latitude: -33.8688,
-      longitude: 151.2093,
-      accuracyM: 12,
-      observedAt: latestSample.observedAt,
-    };
+    const activeSession = active.activeSession
+      ? {
+          ...active.activeSession,
+          sampleCount: sequence,
+          ridingElapsedMs: elapsedMs,
+          totalElapsedMs: elapsedMs,
+          maxSpeedMps: latestSample.speedKph / 3.6,
+          maxDutyCycle: latestSample.dutyCycle,
+        }
+      : null;
+    const latestLocation = active.trackingMode === 'saved'
+      ? {
+          latitude: -33.8688,
+          longitude: 151.2093,
+          accuracyM: 12,
+          observedAt: latestSample.observedAt,
+        }
+      : null;
     this.change({
       ...this.state,
       activeConnection: { ...active, latestSample, latestLocation, activeSession },
@@ -684,7 +745,7 @@ export class MockBackend {
         activeConnection: {
           ...active,
           state: 'identifying',
-          savedDeviceId: savedBoard.savedDeviceId,
+          savedDeviceId: active.trackingMode === 'saved' ? active.savedDeviceId : null,
           controllerConnection: null,
           controllerCandidates: [],
           connectionIssue: null,
@@ -766,15 +827,44 @@ export class MockBackend {
     return Boolean(this.findSession({ sessionId }));
   }
 
+  archiveIdentity(sessionId: string): { deviceHistoryId: string; displayName: string } | null {
+    const found = this.findSession({ sessionId });
+    return found ? { deviceHistoryId: found.deviceHistoryId, displayName: found.displayName } : null;
+  }
+
   importSession(archive: Uint8Array): string {
-    void archive;
+    const imported = parseArchiveIdentity(archive);
+    let importedBoard = this.state.savedDevices.find((value) => value.deviceHistoryId === imported.deviceHistoryId);
+    if (!importedBoard) {
+      importedBoard = {
+        savedDeviceId: `saved-${imported.deviceHistoryId}`,
+        deviceHistoryId: imported.deviceHistoryId,
+        revision: 0,
+        displayName: imported.displayName,
+        customDisplayName: null,
+        advertisedName: imported.displayName,
+        bluetoothIdentifier: null,
+        lastSeenAt: null,
+        lastConnectedAt: null,
+        profileComplete: false,
+        summary: emptySummary(),
+      };
+      this.state = { ...this.state, savedDevices: [...this.state.savedDevices, importedBoard] };
+      this.profiles.set(importedBoard.savedDeviceId, {
+        savedDeviceId: importedBoard.savedDeviceId,
+        revision: 0,
+        values: {},
+        missingFields: ['seriesCount', 'parallelCount', 'motor'],
+      });
+    }
     const sessionId = `imported-${this.nextSession++}`;
     const startedAt = new Date().toISOString();
     this.sessionCatalog = [
       {
         ...session,
         sessionId,
-        displayName: 'Imported performance session',
+        deviceHistoryId: importedBoard.deviceHistoryId,
+        displayName: importedBoard.displayName,
         startedAt,
         endedAt: new Date(Date.parse(startedAt) + 149_999_000).toISOString(),
         sampleCount: 150_000,
@@ -787,17 +877,18 @@ export class MockBackend {
       },
       ...this.sessionCatalog,
     ];
-    this.change({ ...this.state }, true);
+    this.change({ ...this.state, savedDevices: this.refreshSummaries(this.sessionCatalog) }, true);
     return sessionId;
   }
 
   private sessionList(
+    deviceHistoryId: string,
     cursor: unknown,
     limit: number
   ):
     | { value: SessionListPage; error?: undefined }
     | { value?: undefined; error: { code: BackendError['code']; message: string } } {
-    const ordered = [...this.sessionCatalog].sort(compareSessions);
+    const ordered = this.sessionCatalog.filter((item) => item.deviceHistoryId === deviceHistoryId).sort(compareSessions);
     let start = 0;
     if (cursor !== undefined && cursor !== null) {
       if (typeof cursor !== 'string' || Buffer.byteLength(cursor, 'utf8') > MAX_SESSION_LIST_CURSOR_BYTES) {
@@ -816,6 +907,7 @@ export class MockBackend {
         !context ||
         context.version !== 1 ||
         context.query !== 'startedAt.desc.sessionId.desc' ||
+        context.deviceHistoryId !== deviceHistoryId ||
         !lastStartedAt ||
         !lastSessionId
       ) {
@@ -835,6 +927,7 @@ export class MockBackend {
             JSON.stringify({
               version: 1,
               query: 'startedAt.desc.sessionId.desc',
+              deviceHistoryId,
               catalogRevision: this.state.sessionCatalogRevision,
               lastStartedAt: last.startedAt,
               lastSessionId: last.sessionId,
@@ -904,12 +997,29 @@ export class MockBackend {
   private change(next: AppState, catalogChanged = false) {
     this.state = {
       ...next,
+      savedDevices: catalogChanged ? this.refreshSummaries(this.sessionCatalog, next.savedDevices) : next.savedDevices,
       revision: this.state.revision + 1,
       sessionCatalogRevision: catalogChanged
         ? this.state.sessionCatalogRevision + 1
         : this.state.sessionCatalogRevision,
     };
     this.publish({ event: 'state.changed', data: this.state });
+  }
+
+  private refreshSummaries(catalog: SessionSummary[], savedDevices = this.state.savedDevices) {
+    return savedDevices.map((device) => {
+      const sessions = catalog.filter((item) => item.deviceHistoryId === device.deviceHistoryId);
+      const distances = sessions.map((item) => item.distanceM).filter((value): value is number => typeof value === 'number');
+      return {
+        ...device,
+        summary: {
+          sessionCount: sessions.length,
+          totalRidingElapsedMs: sessions.reduce((total, item) => total + item.ridingElapsedMs, 0),
+          totalDistanceM: distances.length ? distances.reduce((total, value) => total + value, 0) : null,
+          mostRecentSessionAt: sessions.slice().sort(compareSessions)[0]?.startedAt ?? null,
+        },
+      };
+    });
   }
 }
 
@@ -946,4 +1056,35 @@ function integer(value: unknown): number | null {
 function compareSessions(left: SessionSummary, right: SessionSummary): number {
   const startedAt = right.startedAt.localeCompare(left.startedAt);
   return startedAt || right.sessionId.localeCompare(left.sessionId);
+}
+
+function emptySummary(): BoardHistorySummary {
+  return {
+    sessionCount: 0,
+    totalRidingElapsedMs: 0,
+    totalDistanceM: null,
+    mostRecentSessionAt: null,
+  };
+}
+
+function parseArchiveIdentity(archive: Uint8Array): { deviceHistoryId: string; displayName: string } {
+  try {
+    const text = new TextDecoder().decode(archive);
+    const value = JSON.parse(text) as { deviceHistoryId?: unknown; displayName?: unknown };
+    if (
+      typeof value.deviceHistoryId !== 'string' ||
+      !/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(value.deviceHistoryId)
+    ) {
+      throw new Error('Session archive is missing a valid board identity');
+    }
+    return {
+      deviceHistoryId: value.deviceHistoryId,
+      displayName:
+        typeof value.displayName === 'string' && value.displayName.trim()
+          ? value.displayName.trim().slice(0, 128)
+          : 'Imported board',
+    };
+  } catch {
+    throw new Error('Session archive is missing a valid board identity');
+  }
 }

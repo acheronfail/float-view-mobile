@@ -13,6 +13,7 @@ const connection = (state: ActiveConnection['state']): ActiveConnection => ({
   name: 'Board',
   displayName: 'Board',
   state,
+  trackingMode: 'guest',
   firmware: null,
   savedDeviceId: null,
   controllerConnection: null,

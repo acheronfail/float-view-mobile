@@ -3,13 +3,16 @@
   import { goto } from '$app/navigation';
   import AppHeaderSubtitle from '$lib/app/AppHeaderSubtitle.svelte';
   import { backendState } from '$lib/backend/state.svelte';
+  import type { DiscoveredDevice } from '$lib/backend/contract';
   import ListItem from '$lib/ui/ListItem.svelte';
+  import NewBoardDialog from '$lib/ui/NewBoardDialog.svelte';
   import SectionTitle from '../../ui/SectionTitle.svelte';
   import Spinner from '../../ui/Spinner.svelte';
 
   const SCAN_INTERVAL_MS = 10_000;
   const RETRY_INTERVAL_MS = 1_000;
   const SIGNAL_BAR_HEIGHTS = [4, 8, 12, 16];
+  let pendingDevice = $state<DiscoveredDevice | null>(null);
 
   onMount(() => {
     let active = true;
@@ -39,8 +42,28 @@
     };
   });
 
-  async function connect(deviceId: string) {
-    if (await backendState.connectDevice(deviceId)) await goto('#/live');
+  async function chooseDevice(device: DiscoveredDevice) {
+    if (backendState.busy) return;
+    if (!device.savedDeviceId) {
+      pendingDevice = device;
+      return;
+    }
+    if (await backendState.connectDevice(device.deviceId, 'saved')) await goto('#/live');
+  }
+
+  function cancelNewBoard() {
+    pendingDevice = null;
+  }
+
+  async function connectNewBoard(trackingMode: 'saved' | 'guest') {
+    const device = pendingDevice;
+    if (!device) return;
+    pendingDevice = null;
+    if (await backendState.connectDevice(device.deviceId, trackingMode)) {
+      await goto('#/live');
+    } else {
+      pendingDevice = device;
+    }
   }
 
   function signalBarCount(rssi: number | null | undefined) {
@@ -55,7 +78,6 @@
     return rssi === null || rssi === undefined || !Number.isFinite(rssi) ? 'Unavailable' : `${rssi} dBm`;
   }
 
-  // TODO: show overall stats below header but above scan results (total odometer sum, total ride time)
 </script>
 
 <AppHeaderSubtitle owner="/">
@@ -78,7 +100,7 @@
               <ListItem
                 title={device.name || device.deviceId}
                 subtitle={device.deviceId}
-                onactivate={() => connect(device.deviceId)}
+                onactivate={() => chooseDevice(device)}
                 disabled={backendState.busy}
               >
                 {#snippet trailing()}
@@ -126,3 +148,12 @@
     <p role="alert" class="text-warning">{backendState.error}</p>
   {/if}
 </section>
+
+<NewBoardDialog
+  open={pendingDevice !== null}
+  boardName={pendingDevice?.name || 'This board'}
+  busy={backendState.busy}
+  oncancel={cancelNewBoard}
+  onguest={() => connectNewBoard('guest')}
+  onsave={() => connectNewBoard('saved')}
+/>

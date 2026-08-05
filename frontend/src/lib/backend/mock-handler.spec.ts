@@ -46,12 +46,97 @@ describe('deterministic mock backend', () => {
     });
   });
 
+  it('keeps guest telemetry and controller selection out of durable state', () => {
+    const backend = new MockBackend();
+    backend.handle({ id: 1, method: 'bluetooth.scan', params: {} });
+    backend.handle({ id: 2, method: 'device.connect', params: { deviceId: 'mock-board', trackingMode: 'guest' } });
+    const before = (backend.handle({ id: 3, method: 'state.get', params: {} }) as { result: AppState }).result;
+    expect(before.activeConnection).toMatchObject({
+      trackingMode: 'guest',
+      savedDeviceId: null,
+      activeSession: null,
+    });
+
+    backend.publishTelemetry();
+    backend.simulateControllerSelection([
+      { canId: 7, hardwareName: 'VESC 7', firmwareName: 'Refloat', vescVersion: '6.06', vescSupported: true },
+      { canId: 42, hardwareName: 'VESC 42', firmwareName: 'Refloat', vescVersion: '6.06', vescSupported: true },
+    ]);
+    expect(
+      backend.handle({
+        id: 4,
+        method: 'device.selectController',
+        params: { deviceId: 'mock-board', canId: 7 },
+      })
+    ).toMatchObject({ result: { accepted: true } });
+    const live = (backend.handle({ id: 5, method: 'state.get', params: {} }) as { result: AppState }).result;
+    expect(live.activeConnection).toMatchObject({
+      trackingMode: 'guest',
+      savedDeviceId: null,
+      activeSession: null,
+      latestSample: expect.any(Object),
+      latestLocation: null,
+    });
+    expect(live.sessionCatalogRevision).toBe(before.sessionCatalogRevision);
+    expect(live.savedDevices[0]?.summary).toEqual(before.savedDevices[0]?.summary);
+    expect(backend.profiles.get('saved-board')?.revision).toBe(0);
+  });
+
+  it('requires board scope, merges imported identities, and creates empty configurable boards', () => {
+    const backend = new MockBackend();
+    expect(backend.handle({ id: 1, method: 'session.list', params: { limit: 1 } })).toMatchObject({
+      error: { code: 'invalid_request' },
+    });
+
+    const mergedSessionId = backend.importSession(
+      new TextEncoder().encode(JSON.stringify({ deviceHistoryId: 'history-board', displayName: 'Renamed board' }))
+    );
+    const mergedBoard = (backend.handle({ id: 2, method: 'state.get', params: {} }) as { result: AppState }).result
+      .savedDevices[0];
+    expect(mergedBoard?.summary.sessionCount).toBe(3);
+    expect(
+      (backend.handle({ id: 3, method: 'session.list', params: { savedDeviceId: 'saved-board', limit: 100 } }) as {
+        result: { items: Array<{ sessionId: string }> };
+      }).result.items.some((item) => item.sessionId === mergedSessionId)
+    ).toBe(true);
+
+    const createdSessionId = backend.importSession(
+      new TextEncoder().encode(JSON.stringify({ deviceHistoryId: 'history-imported', displayName: 'Imported board' }))
+    );
+    const afterImport = (backend.handle({ id: 4, method: 'state.get', params: {} }) as { result: AppState }).result;
+    const importedBoard = afterImport.savedDevices.find((value) => value.deviceHistoryId === 'history-imported');
+    expect(importedBoard).toMatchObject({ displayName: 'Imported board', summary: { sessionCount: 1 } });
+    expect(
+      (backend.handle({ id: 5, method: 'session.list', params: { savedDeviceId: importedBoard?.savedDeviceId, limit: 100 } }) as {
+        result: { items: Array<{ sessionId: string }> };
+      }).result.items.map((item) => item.sessionId)
+    ).toContain(createdSessionId);
+    expect(() => backend.importSession(new Uint8Array([1, 2, 3]))).toThrow('valid board identity');
+  });
+
+  it('forgets a board only after disconnect and removes its history', () => {
+    const backend = new MockBackend();
+    backend.handle({ id: 1, method: 'bluetooth.scan', params: {} });
+    backend.handle({ id: 2, method: 'device.connect', params: { deviceId: 'mock-board', trackingMode: 'saved' } });
+    expect(backend.handle({ id: 3, method: 'savedDevice.delete', params: { savedDeviceId: 'saved-board' } })).toMatchObject({
+      error: { code: 'invalid_state' },
+    });
+    backend.handle({ id: 4, method: 'device.disconnect', params: {} });
+    expect(backend.handle({ id: 5, method: 'savedDevice.delete', params: { savedDeviceId: 'saved-board' } })).toMatchObject({
+      result: { accepted: true },
+    });
+    expect((backend.handle({ id: 6, method: 'state.get', params: {} }) as { result: AppState }).result.savedDevices).toEqual([]);
+    expect(
+      backend.handle({ id: 7, method: 'session.list', params: { savedDeviceId: 'saved-board', limit: 100 } })
+    ).toMatchObject({ error: { code: 'not_found' } });
+  });
+
   it('covers every mandatory method', () => {
     const backend = new MockBackend();
     const request = (id: number, method: string, params: Record<string, unknown> = {}) =>
       backend.handle({ id, method, params });
     request(1, 'bluetooth.scan');
-    request(2, 'device.connect', { deviceId: 'mock-board' });
+    request(2, 'device.connect', { deviceId: 'mock-board', trackingMode: 'saved' });
     expect(request(3, 'device.disconnect')).toMatchObject({ result: { accepted: true } });
     expect(request(4, 'boardProfile.get', { savedDeviceId: 'saved-board' })).toHaveProperty('result');
     expect(request(5, 'session.get', { sessionId: 'session-1' })).toHaveProperty('result');
@@ -73,7 +158,7 @@ describe('deterministic mock backend', () => {
         customDisplayName: 'My board',
       })
     ).toMatchObject({ result: { displayName: 'My board', revision: 1 } });
-    expect(request(11, 'session.list', { limit: 1 })).toMatchObject({
+    expect(request(11, 'session.list', { savedDeviceId: 'saved-board', limit: 1 })).toMatchObject({
       result: { items: expect.any(Array), catalogRevision: expect.any(Number) },
     });
     expect(request(12, 'sessionGroup.unlink', { sessionGroupId: 'group-1' })).toMatchObject({
@@ -81,11 +166,15 @@ describe('deterministic mock backend', () => {
     });
   });
 
-  it('pages the standalone catalog beyond fifty sessions without offset state', () => {
+  it('pages one saved board beyond fifty sessions without offset state', () => {
     const backend = new MockBackend();
     for (let index = 0; index < 51; index += 1) {
       backend.handle({ id: index * 3 + 1, method: 'bluetooth.scan', params: {} });
-      backend.handle({ id: index * 3 + 2, method: 'device.connect', params: { deviceId: 'mock-board' } });
+      backend.handle({
+        id: index * 3 + 2,
+        method: 'device.connect',
+        params: { deviceId: 'mock-board', trackingMode: 'saved' },
+      });
       backend.handle({ id: index * 3 + 3, method: 'device.disconnect', params: {} });
     }
     const items: string[] = [];
@@ -95,7 +184,7 @@ describe('deterministic mock backend', () => {
       const response = backend.handle({
         id: items.length + 100,
         method: 'session.list',
-        params: { limit: 25, cursor },
+        params: { savedDeviceId: 'saved-board', limit: 25, cursor },
       }) as {
         result: { items: Array<{ sessionId: string }>; catalogRevision: number; nextCursor: string | null };
       };
@@ -112,7 +201,7 @@ describe('deterministic mock backend', () => {
   it('keeps telemetry-only state changes out of catalog revision invalidation', () => {
     const backend = new MockBackend();
     backend.handle({ id: 1, method: 'bluetooth.scan', params: {} });
-    backend.handle({ id: 2, method: 'device.connect', params: { deviceId: 'mock-board' } });
+    backend.handle({ id: 2, method: 'device.connect', params: { deviceId: 'mock-board', trackingMode: 'saved' } });
     const before = (backend.handle({ id: 3, method: 'state.get', params: {} }) as { result: AppState }).result;
     backend.publishTelemetry();
     const after = (backend.handle({ id: 4, method: 'state.get', params: {} }) as { result: AppState }).result;
@@ -124,13 +213,17 @@ describe('deterministic mock backend', () => {
 
   it('rejects a catalog cursor after a visible mutation', () => {
     const backend = new MockBackend();
-    const first = backend.handle({ id: 1, method: 'session.list', params: { limit: 1 } }) as {
+    const first = backend.handle({ id: 1, method: 'session.list', params: { savedDeviceId: 'saved-board', limit: 1 } }) as {
       result: { nextCursor: string | null };
     };
     expect(first.result.nextCursor).not.toBeNull();
     backend.handle({ id: 2, method: 'session.delete', params: { sessionId: 'session-1' } });
     expect(
-      backend.handle({ id: 3, method: 'session.list', params: { limit: 1, cursor: first.result.nextCursor } })
+      backend.handle({
+        id: 3,
+        method: 'session.list',
+        params: { savedDeviceId: 'saved-board', limit: 1, cursor: first.result.nextCursor },
+      })
     ).toMatchObject({ error: { code: 'conflict' } });
   });
 
@@ -150,7 +243,7 @@ describe('deterministic mock backend', () => {
     }[] = [];
     const backend = new MockBackend((event) => events.push(event as (typeof events)[number]));
     backend.handle({ id: 1, method: 'bluetooth.scan', params: {} });
-    backend.handle({ id: 2, method: 'device.connect', params: { deviceId: 'mock-board' } });
+    backend.handle({ id: 2, method: 'device.connect', params: { deviceId: 'mock-board', trackingMode: 'saved' } });
     backend.publishTelemetry();
     const liveSample = events.at(-1)?.data.activeConnection.latestSample;
     backend.simulateConnectionState('reconnecting');
@@ -177,7 +270,7 @@ describe('deterministic mock backend', () => {
   it('sorts bounded controller choices and persists one supported CAN selection', () => {
     const backend = new MockBackend();
     backend.handle({ id: 1, method: 'bluetooth.scan', params: {} });
-    backend.handle({ id: 2, method: 'device.connect', params: { deviceId: 'mock-board' } });
+    backend.handle({ id: 2, method: 'device.connect', params: { deviceId: 'mock-board', trackingMode: 'saved' } });
     backend.simulateControllerSelection([
       {
         canId: 42,
@@ -232,7 +325,7 @@ describe('deterministic mock backend', () => {
   it('never publishes a partial controller prompt beyond the contract bound', () => {
     const backend = new MockBackend();
     backend.handle({ id: 1, method: 'bluetooth.scan', params: {} });
-    backend.handle({ id: 2, method: 'device.connect', params: { deviceId: 'mock-board' } });
+    backend.handle({ id: 2, method: 'device.connect', params: { deviceId: 'mock-board', trackingMode: 'saved' } });
     backend.simulateControllerSelection(
       Array.from({ length: 17 }, (_, canId) => ({
         canId,

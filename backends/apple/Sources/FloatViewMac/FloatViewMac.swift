@@ -369,9 +369,12 @@ private final class MacBackendRuntime: @unchecked Sendable {
   func makeServer(
     exportPresenter: (@Sendable (SessionExportRecord) -> Bool)? = nil
   ) -> LoopbackServer {
-    LoopbackServer(
+    let port = ProcessInfo.processInfo.environment["FLOAT_VIEW_CONFORMANCE_PORT"]
+      .flatMap(UInt16.init)
+      ?? PlatformLoopbackPort.macOS
+    return LoopbackServer(
       html: html,
-      port: PlatformLoopbackPort.macOS,
+      port: port,
       applicationService: applicationService,
       exportPresenter: exportPresenter,
       events: events

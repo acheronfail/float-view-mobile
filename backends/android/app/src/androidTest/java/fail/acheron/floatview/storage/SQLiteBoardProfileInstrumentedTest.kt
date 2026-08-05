@@ -200,4 +200,48 @@ class SQLiteBoardProfileInstrumentedTest {
         assertEquals(null, store.controllerRoutingHint(saved.savedDeviceId))
     }
 
+    @Test
+    fun forgettingBoardRemovesAllOwnedDataAcrossRestart() {
+        val store = SQLiteLogStore(context, availableBytes = { 2_000_000_000 })
+        val session = store.create(DeviceId("private-platform-id"), "Board", Instant.EPOCH)
+        val saved = store.savedDevices().single()
+        store.storeControllerRoutingHint(
+            ControllerRoutingHint(saved.savedDeviceId, 42, ByteArray(12) { (it + 1).toByte() }),
+            Instant.EPOCH,
+        )
+        store.close(session.jobId, Instant.ofEpochSecond(1), "test")
+
+        val catalog = SQLiteDatabase.openDatabase(
+            File(root, "catalog.sqlite").path,
+            null,
+            SQLiteDatabase.OPEN_READONLY,
+        )
+        val sessionFile = catalog.rawQuery("SELECT file_name FROM session_catalog", null).use { cursor ->
+            assertTrue(cursor.moveToFirst())
+            cursor.getString(0)
+        }
+        catalog.close()
+
+        store.deleteSavedDevice(saved.savedDeviceId)
+        assertTrue(store.savedDevices().isEmpty())
+        assertFalse(File(root, sessionFile).exists())
+
+        val remaining = SQLiteDatabase.openDatabase(
+            File(root, "catalog.sqlite").path,
+            null,
+            SQLiteDatabase.OPEN_READONLY,
+        )
+        fun count(table: String): Int = remaining.rawQuery("SELECT COUNT(*) FROM $table", null).use { cursor ->
+            assertTrue(cursor.moveToFirst())
+            cursor.getInt(0)
+        }
+        assertEquals(0, count("board_profile"))
+        assertEquals(0, count("controller_route_hint"))
+        assertEquals(0, count("session_catalog"))
+        remaining.close()
+
+        val reopened = SQLiteLogStore(context, availableBytes = { 2_000_000_000 })
+        assertTrue(reopened.savedDevices().isEmpty())
+    }
+
 }

@@ -8,6 +8,7 @@ const connection: ActiveConnection = {
   name: 'Board',
   displayName: 'Board',
   state: 'selecting_controller',
+  trackingMode: 'saved',
   savedDeviceId: 'saved-board',
   controllerConnection: null,
   controllerCandidates: [

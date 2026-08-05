@@ -5,11 +5,10 @@ import BottomTabBar from './BottomTabBar.svelte';
 import { bottomTabForRoute, bottomTabs } from './navigation';
 
 describe('bottom navigation', () => {
-  it('maps the four exact labels to their top-level hash routes', () => {
+  it('maps the three exact labels to their top-level hash routes', () => {
     expect(bottomTabs.map(({ label, href, routeId }) => ({ label, href, routeId }))).toEqual([
       { label: 'connect', href: '#/', routeId: '/' },
       { label: 'sessions', href: '#/sessions', routeId: '/sessions' },
-      { label: 'boards', href: '#/boards', routeId: '/boards' },
       { label: 'settings', href: '#/settings', routeId: '/settings' },
     ]);
   });
@@ -17,7 +16,7 @@ describe('bottom navigation', () => {
   it('selects only exact top-level routes', () => {
     expect(bottomTabForRoute('/')?.label).toBe('connect');
     expect(bottomTabForRoute('/sessions')?.label).toBe('sessions');
-    expect(bottomTabForRoute('/boards')?.label).toBe('boards');
+    expect(bottomTabForRoute('/boards')).toBeUndefined();
     expect(bottomTabForRoute('/settings')?.label).toBe('settings');
     expect(bottomTabForRoute('/live')).toBeUndefined();
     expect(bottomTabForRoute('/sessions/session-1')).toBeUndefined();
@@ -30,10 +29,12 @@ describe('bottom navigation', () => {
     const { body } = render(BottomTabBar, { props: { routeId: '/sessions' } });
 
     expect(body).toContain('data-app-navigation="bottom-tabs"');
-    expect(body.match(/<svg/g)).toHaveLength(4);
+    expect(body.match(/<svg/g)).toHaveLength(3);
     expect(body.match(/aria-current="page"/g)).toHaveLength(1);
     expect(body).toContain('href="#/sessions"');
     for (const { label } of bottomTabs) expect(body).toContain(`<span>${label}</span>`);
+    expect(body).toContain('M12 3v18');
+    expect(body).toContain('19.4 15');
     expect(body).not.toContain('>Devices<');
   });
 

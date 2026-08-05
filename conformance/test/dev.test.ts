@@ -12,10 +12,10 @@ import {
   androidLaunchArguments,
   backendOrigin,
   childExitFailure,
-  iosPhysicalLaunchArguments,
-  iosPhysicalTerminateArguments,
+  iosPhysicalConsoleLaunchArguments,
   iosProxyArguments,
   iosSimulatorBuildArguments,
+  iosSimulatorConsoleLaunchArguments,
   selectAndroidDeviceFromList,
   selectIOSSimulatorFromList,
   waitForURL,
@@ -63,7 +63,7 @@ test('Android development preserves app data and requires explicit ambiguous sel
   assert.equal(selectAndroidDeviceFromList(multiple, 'two'), 'two');
 });
 
-test('iOS development prefers a booted simulator and uses same-number iproxy', () => {
+test('iOS development prefers a booted simulator, forwards logs, and uses same-number iproxy', () => {
   const devices = {
     devices: {
       'iOS 26': [
@@ -88,7 +88,15 @@ test('iOS development prefers a booted simulator and uses same-number iproxy', (
     'CODE_SIGNING_ALLOWED=NO',
     'build',
   ]);
-  assert.deepEqual(iosPhysicalLaunchArguments('physical', '/launch.json'), [
+  assert.deepEqual(iosSimulatorConsoleLaunchArguments('booted'), [
+    'simctl',
+    'launch',
+    '--terminate-running-process',
+    '--console',
+    'booted',
+    'fail.acheron.float-view',
+  ]);
+  assert.deepEqual(iosPhysicalConsoleLaunchArguments('physical'), [
     'devicectl',
     'device',
     'process',
@@ -96,21 +104,8 @@ test('iOS development prefers a booted simulator and uses same-number iproxy', (
     '--device',
     'physical',
     '--terminate-existing',
-    '--quiet',
-    '--json-output',
-    '/launch.json',
+    '--console',
     'fail.acheron.float-view',
-  ]);
-  assert.deepEqual(iosPhysicalTerminateArguments('physical', 42), [
-    'devicectl',
-    'device',
-    'process',
-    'terminate',
-    '--device',
-    'physical',
-    '--pid',
-    '42',
-    '--quiet',
   ]);
 });
 

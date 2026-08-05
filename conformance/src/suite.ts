@@ -128,6 +128,7 @@ async function exerciseProductMethods(client: ConformanceClient, state: AppState
     savedDeviceId: profileDevice.savedDeviceId,
   });
   assert.equal(typeof profileDevice.bluetoothIdentifier, 'string');
+  assert.ok(profileDevice.bluetoothIdentifier);
   assert.ok(profileDevice.bluetoothIdentifier.length > 0);
   const renamed = await client.request('savedDevice.update', {
     savedDeviceId: profileDevice.savedDeviceId,
@@ -193,11 +194,15 @@ async function exerciseProductMethods(client: ConformanceClient, state: AppState
   );
 
   const current = await client.request('state.get', {});
-  const firstPage = await client.request('session.list', { limit: 1 });
+  const firstPage = await client.request('session.list', { savedDeviceId: profileDevice.savedDeviceId, limit: 1 });
   const session = required(firstPage.items[0], 'connections did not create a session');
   assert.ok(firstPage.items.length <= 1);
   if (firstPage.nextCursor) {
-    const secondPage = await client.request('session.list', { limit: 1, cursor: firstPage.nextCursor });
+    const secondPage = await client.request('session.list', {
+      savedDeviceId: profileDevice.savedDeviceId,
+      limit: 1,
+      cursor: firstPage.nextCursor,
+    });
     assert.ok(secondPage.items.length <= 1);
     assert.notEqual(secondPage.items[0]?.sessionId, firstPage.items[0]?.sessionId);
   }
@@ -341,7 +346,7 @@ async function exerciseProductMethods(client: ConformanceClient, state: AppState
   await expectError(client.request('session.get', { sessionId: 'missing-session' }), 'not_found');
 
   await client.request('session.delete', { sessionId: session.sessionId });
-  const deleted = await client.request('session.list', { limit: 100 });
+  const deleted = await client.request('session.list', { savedDeviceId: profileDevice.savedDeviceId, limit: 100 });
   assert.ok(!deleted.items.some((item) => item.sessionId === session.sessionId));
 }
 
@@ -360,13 +365,14 @@ async function createCompletedSession(client: ConformanceClient, deviceId: strin
     before.discoveredDevices.some((device) => device.deviceId === deviceId),
     'scan did not rediscover the session device'
   );
-  await client.request('device.connect', { deviceId });
+  await client.request('device.connect', { deviceId, trackingMode: 'saved' });
   const connected = await client.waitForState(
     (value) => value.activeConnection?.deviceId === deviceId && value.activeConnection.state === 'ready',
     { afterRevision: before.revision }
   );
   assertState(connected);
   assert.ok(connected.activeConnection);
+  const savedDeviceId = connected.activeConnection.savedDeviceId;
   assert.equal(connected.activeConnection.displayName, connected.activeConnection.name);
   assert.ok(connected.activeConnection.savedDeviceId);
   assert.ok(connected.activeConnection.activeSession);
@@ -459,13 +465,14 @@ async function createCompletedSession(client: ConformanceClient, deviceId: strin
       { afterRevision: connected.revision }
     );
   }
-  await expectError(client.request('device.connect', { deviceId }), 'invalid_state');
+  await expectError(client.request('device.connect', { deviceId, trackingMode: 'saved' }), 'invalid_state');
   await client.request('device.disconnect', {});
   await client.waitForState((value) => value.activeConnection === null, {
     afterRevision: ridingState.revision,
   });
   const completed = await client.request('state.get', {});
-  const page = await client.request('session.list', { limit: 100 });
+  assert.ok(savedDeviceId);
+  const page = await client.request('session.list', { savedDeviceId, limit: 100 });
   assert.ok(
     page.items.some((item) => item.state === 'completed'),
     'disconnect did not retain the session'
@@ -501,6 +508,19 @@ export function assertState(state: AppState) {
       device.rssi === null || Number.isSafeInteger(device.rssi),
       'discovered device RSSI is not an integer or null'
     );
+    assert.ok(device.savedDeviceId === null || typeof device.savedDeviceId === 'string');
+  }
+  for (const board of state.savedDevices) {
+    assert.ok(board.bluetoothIdentifier === null || typeof board.bluetoothIdentifier === 'string');
+    assert.deepEqual(Object.keys(board.summary).sort(), [
+      'mostRecentSessionAt',
+      'sessionCount',
+      'totalDistanceM',
+      'totalRidingElapsedMs',
+    ]);
+    assert.ok(Number.isSafeInteger(board.summary.sessionCount));
+    assert.ok(Number.isSafeInteger(board.summary.totalRidingElapsedMs));
+    assert.ok(board.summary.totalDistanceM === null || Number.isFinite(board.summary.totalDistanceM));
   }
   assert.deepEqual(Object.keys(state.settings).sort(), [
     'historyGapThresholdSeconds',
@@ -527,6 +547,12 @@ export function assertState(state: AppState) {
 
   const active = state.activeConnection;
   if (!active) return;
+  assert.ok(active.trackingMode === 'saved' || active.trackingMode === 'guest');
+  if (active.trackingMode === 'guest') {
+    assert.equal(active.savedDeviceId, null);
+    assert.equal(active.activeSession, null);
+    assert.equal(active.latestLocation, null);
+  }
   const latestLocation = active.latestLocation;
   if (latestLocation) {
     assert.deepEqual(Object.keys(latestLocation).sort(), ['accuracyM', 'latitude', 'longitude', 'observedAt']);
@@ -574,7 +600,8 @@ export function assertState(state: AppState) {
   }
   if (active.state === 'ready') {
     assert.ok(active.controllerConnection, 'ready connection has no controller route');
-    assert.ok(active.activeSession, 'ready connection has no active durable session');
+    if (active.trackingMode === 'saved') assert.ok(active.activeSession, 'ready connection has no active durable session');
+    else assert.equal(active.activeSession, null);
     assert.ok(active.firmware?.supported, 'ready connection has unsupported or absent firmware');
     assert.deepEqual(active.controllerCandidates, []);
     assert.equal(active.connectionIssue, null);
@@ -615,6 +642,7 @@ export const mandatoryMethods: BackendMethod[] = [
   'device.selectController',
   'device.disconnect',
   'savedDevice.update',
+  'savedDevice.delete',
   'settings.update',
   'boardProfile.get',
   'boardProfile.update',

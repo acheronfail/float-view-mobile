@@ -4,7 +4,7 @@
   import { APP_HEADER_CONTEXT, type AppHeaderContext } from '$lib/app/header';
   import { backendState } from '$lib/backend/state.svelte';
   import { reportFrontendPerformance } from '$lib/backend/performance-log';
-  import SessionList from '$lib/features/sessions/SessionList.svelte';
+  import BoardList from '$lib/features/boards/BoardList.svelte';
 
   const appHeader = getContext<AppHeaderContext>(APP_HEADER_CONTEXT);
   let importInput = $state<HTMLInputElement>();
@@ -39,7 +39,7 @@
     input.value = '';
     if (!file) return;
     const sessionId = await backendState.importSession(file);
-    if (sessionId) await goto(`#/sessions/${encodeURIComponent(sessionId)}`);
+    if (sessionId) await goto(await backendState.sessionHref(sessionId));
   }
 </script>
 
@@ -54,5 +54,5 @@
   {#if backendState.error}
     <p class="text-warning" role="alert">{backendState.error}</p>
   {/if}
-  <SessionList />
+  <BoardList />
 </section>

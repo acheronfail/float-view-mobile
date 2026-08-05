@@ -1,4 +1,5 @@
 import Foundation
+import CryptoKit
 
 public final class ApplicationService: @unchecked Sendable {
   private let bluetooth: BluetoothPort
@@ -22,6 +23,7 @@ public final class ApplicationService: @unchecked Sendable {
   private var discoveryExpiryTimer: (any CancellationPort)?
   private var discoveryExpiryGeneration = 0
   private let controllerDiscovery = ControllerDiscovery()
+  private var trackingMode: TrackingMode = .saved
   private var currentSavedDevice: SavedDeviceRecord?
   private var identificationTimer: (any CancellationPort)?
   private var canProbeTimer: (any CancellationPort)?
@@ -100,7 +102,7 @@ public final class ApplicationService: @unchecked Sendable {
     sampling = AdaptiveSamplingPolicy(settings: samplingSettings)
     bluetoothState = bluetooth.currentState()
     let savedIDs = ((try? productStore?.savedDevices()) ?? [])
-      .map { DeviceID($0.bluetoothIdentifier) }
+      .compactMap { $0.bluetoothIdentifier.map(DeviceID.init) }
     bluetooth.configureSavedDeviceIDs(Set(savedIDs))
   }
 
@@ -133,6 +135,17 @@ public final class ApplicationService: @unchecked Sendable {
     return value
   }
 
+  public func deleteSavedDevice(savedDeviceID: String) throws {
+    lock.lock()
+    defer { lock.unlock() }
+    if activeConnectionSnapshot()?.savedDevice?.savedDeviceID == savedDeviceID {
+      throw ProductStoreError.savedDeviceActive
+    }
+    guard let productStore else { throw ApplicationError.productStoreUnavailable }
+    try productStore.deleteSavedDevice(savedDeviceID: savedDeviceID)
+    events.publish(String("saved device deleted"))
+  }
+
   public func boardProfile(savedDeviceID: String) throws -> BoardProfileRecord {
     guard let productStore else { throw ApplicationError.productStoreUnavailable }
     return try productStore.boardProfile(savedDeviceID: savedDeviceID)
@@ -159,9 +172,7 @@ public final class ApplicationService: @unchecked Sendable {
     defer { lock.unlock() }
     guard activeDeviceID == deviceID,
           connectionState == .selectingController,
-          controllerDiscovery.canSelect(canID: canID),
-          let productStore,
-          let savedDevice = currentSavedDevice
+          controllerDiscovery.canSelect(canID: canID)
     else {
       throw ApplicationError.invalidControllerSelection
     }
@@ -170,13 +181,18 @@ public final class ApplicationService: @unchecked Sendable {
     else {
       throw ApplicationError.invalidControllerSelection
     }
-    let profile = try productStore.selectController(
-      savedDeviceID: savedDevice.savedDeviceID,
-      canID: canID,
-      controllerUUID: ControllerDiscoveryPolicy.meaningfulUUID(selectedFirmware.controllerUUID),
-      at: clock.now()
-    )
-    events.publish(profile)
+    if trackingMode == .saved {
+      guard let productStore, let savedDevice = currentSavedDevice else {
+        throw ApplicationError.invalidControllerSelection
+      }
+      let profile = try productStore.selectController(
+        savedDeviceID: savedDevice.savedDeviceID,
+        canID: canID,
+        controllerUUID: ControllerDiscoveryPolicy.meaningfulUUID(selectedFirmware.controllerUUID),
+        at: clock.now()
+      )
+      events.publish(profile)
+    }
     controllerDiscovery.clearIssue()
     transition(.identifying)
     performDiscoveryEffect(.requestRefloatInfo(route: route, rememberController: nil))
@@ -477,7 +493,7 @@ public final class ApplicationService: @unchecked Sendable {
     ))
   }
 
-  public func connect(_ deviceID: DeviceID) throws {
+  public func connect(_ deviceID: DeviceID, trackingMode: TrackingMode = .saved) throws {
     lock.lock()
     defer { lock.unlock() }
     guard knownDevicesByID[deviceID] != nil else {
@@ -486,12 +502,17 @@ public final class ApplicationService: @unchecked Sendable {
     guard activeDeviceID == nil || activeDeviceID == deviceID else {
       throw ApplicationError.activeDeviceConflict
     }
+    if activeDeviceID == deviceID, connectionState == .failed, self.trackingMode != trackingMode {
+      throw ApplicationError.activeDeviceConflict
+    }
     if activeScanID != nil {
       bluetooth.stopDiscovery()
       activeScanID = nil
       cancelPendingDiscoveryPublish()
     }
     activeDeviceID = deviceID
+    self.trackingMode = trackingMode
+    currentSavedDevice = nil
     activeDeviceName = knownDevicesByID[deviceID]?.name
     if logStore.active() == nil {
       sessionControllerRoute = nil
@@ -530,7 +551,7 @@ public final class ApplicationService: @unchecked Sendable {
         finishReconnect(reason: "bluetooth_permission_denied")
       } else if state.radio != .poweredOn,
                 activeDeviceID != nil,
-                logStore.active() != nil,
+                trackingMode == .saved || trackingMode == .guest,
                 !explicitDisconnect
       {
         beginReconnect()
@@ -541,7 +562,8 @@ public final class ApplicationService: @unchecked Sendable {
         deviceID: deviceID,
         name: name,
         rssi: rssi,
-        lastSeenAt: clock.now()
+        lastSeenAt: clock.now(),
+        savedDeviceID: savedDeviceID(for: deviceID)
       )
       knownDevicesByID[deviceID] = device
       scheduleDiscoveryExpiry()
@@ -563,12 +585,13 @@ public final class ApplicationService: @unchecked Sendable {
       }
       if state == .failed || state == .disconnected,
          !explicitDisconnect,
-         logStore.active() != nil
+         (trackingMode == .saved || trackingMode == .guest)
       {
         beginReconnect()
         return
       }
-      if state == .failed, logStore.active() == nil, !explicitDisconnect {
+      if state == .failed, trackingMode == .saved || trackingMode == .guest, !explicitDisconnect,
+         logStore.active() == nil {
         controllerDiscovery.markFailure(
           .transportSetupFailed,
           "The VESC Bluetooth transport could not be prepared."
@@ -635,7 +658,7 @@ public final class ApplicationService: @unchecked Sendable {
     telemetryPolling.cancelLayout()
     telemetryPolling.stop()
     stopLocationCapture()
-    if let active = logStore.active() {
+    if trackingMode == .saved, let active = logStore.active() {
       try events.publish(
         logStore.close(jobID: active.jobID, at: clock.now(), reason: "explicit_disconnect")
       )
@@ -646,7 +669,13 @@ public final class ApplicationService: @unchecked Sendable {
   public func ingest(_ sample: TelemetrySample) throws {
     lock.lock()
     defer { lock.unlock() }
-    guard connectionState == .ready, let active = logStore.active() else { return }
+    guard connectionState == .ready else { return }
+    if trackingMode == .guest {
+      latestPersistedSample = sample
+      events.publish(sample)
+      return
+    }
+    guard let active = logStore.active() else { return }
     updateLocationCapture(rideState: sample.rideState)
     if sampling.shouldPersist(rideState: sample.rideState, elapsedMs: sample.elapsedMs) {
       try logStore.append(jobID: active.jobID, samples: [sample])
@@ -656,7 +685,8 @@ public final class ApplicationService: @unchecked Sendable {
   }
 
   private func updateLocationCapture(rideState: RideState) {
-    guard let locationProvider,
+    guard trackingMode == .saved,
+          let locationProvider,
           let productStore,
           let settings = try? productStore.settings(),
           settings.locationRecordingEnabled,
@@ -732,17 +762,15 @@ public final class ApplicationService: @unchecked Sendable {
     lock.lock()
     defer { lock.unlock() }
     guard let activeDeviceID else { return nil }
-    let savedDevice = try? productStore?.savedDevices().first {
-      $0.bluetoothIdentifier == activeDeviceID.value
-    }
-    let activeSession = logStore.active().flatMap { record in
+    let activeSession = trackingMode == .saved ? logStore.active().flatMap { record in
       try? sessionStore?.session(sessionID: record.sessionID.value)
-    }
+    } : nil
     return ActiveConnectionSnapshot(
       deviceID: activeDeviceID,
       name: activeDeviceName,
       state: connectionState,
-      savedDevice: savedDevice ?? nil,
+      trackingMode: trackingMode,
+      savedDevice: trackingMode == .saved ? currentSavedDevice : nil,
       activeSession: activeSession ?? nil,
       latestSample: latestPersistedSample,
       latestLocation: latestLocation,
@@ -781,21 +809,25 @@ public final class ApplicationService: @unchecked Sendable {
 
   private func handleFirmware(_ value: FirmwareRecord) {
     if value.canID == nil {
-      do {
-        currentSavedDevice = try productStore?.ensureSavedDevice(
-          deviceID: activeDeviceID ?? DeviceID(""),
-          advertisedName: activeDeviceName,
-          at: clock.now()
-        )
-        if let currentSavedDevice {
-          let saved = (try? productStore?.savedDevices()) ?? [currentSavedDevice]
-          bluetooth.configureSavedDeviceIDs(Set(
-            saved.map { DeviceID($0.bluetoothIdentifier) }
-          ))
+      if trackingMode == .saved {
+        do {
+          let stableIdentity = Self.stableBoardIdentity(value.controllerUUID)
+          currentSavedDevice = try productStore?.ensureSavedDevice(
+            deviceID: activeDeviceID ?? DeviceID(""),
+            advertisedName: activeDeviceName,
+            stableIdentity: stableIdentity,
+            at: clock.now()
+          )
+          if let currentSavedDevice {
+            let saved = (try? productStore?.savedDevices()) ?? [currentSavedDevice]
+            bluetooth.configureSavedDeviceIDs(Set(
+              saved.compactMap { $0.bluetoothIdentifier.map(DeviceID.init) }
+            ))
+          }
+        } catch {
+          failIdentification(.transportSetupFailed, "Unable to save the VESC device.")
+          return
         }
-      } catch {
-        failIdentification(.transportSetupFailed, "Unable to save the VESC device.")
-        return
       }
       let profile = try? currentSavedDevice.flatMap {
         try productStore?.boardProfile(savedDeviceID: $0.savedDeviceID)
@@ -827,7 +859,7 @@ public final class ApplicationService: @unchecked Sendable {
 
   private func controllerContinuity() -> ControllerContinuity {
     ControllerContinuity(
-      hasActiveSession: logStore.active() != nil,
+      hasActiveSession: trackingMode == .saved && logStore.active() != nil,
       route: sessionControllerRoute,
       controllerUUID: sessionControllerUUID
     )
@@ -861,7 +893,8 @@ public final class ApplicationService: @unchecked Sendable {
       restartIdentificationTimeout()
       performDiscoveryEffect(next)
     case let .requestRefloatInfo(route, selected):
-      if let selected,
+      if trackingMode == .saved,
+         let selected,
          let savedDevice = currentSavedDevice,
          let canID = selected.canID,
          let uuid = ControllerDiscoveryPolicy.meaningfulUUID(selected.controllerUUID)
@@ -905,7 +938,7 @@ public final class ApplicationService: @unchecked Sendable {
           let firmware = controllerDiscovery.firmware
     else { return }
     cancelIdentificationTimeout()
-    if logStore.active() != nil {
+    if trackingMode == .saved, logStore.active() != nil {
       guard controllerContinuityIsProven(route: route, firmware: firmware) else {
         failIdentification(
           .controllerChanged,
@@ -913,7 +946,7 @@ public final class ApplicationService: @unchecked Sendable {
         )
         return
       }
-    } else {
+    } else if trackingMode == .saved {
       do {
         try events.publish(logStore.create(
           deviceID: deviceID,
@@ -956,7 +989,7 @@ public final class ApplicationService: @unchecked Sendable {
   /// Production hosts always provide a VESC codec and never take this path.
   private func completeWithoutProtocol() {
     guard let deviceID = activeDeviceID else { return }
-    if logStore.active() == nil {
+    if trackingMode == .saved, logStore.active() == nil {
       do {
         try events.publish(logStore.create(
           deviceID: deviceID,
@@ -1008,7 +1041,7 @@ public final class ApplicationService: @unchecked Sendable {
     telemetryPolling.cancelLayout()
     telemetryPolling.stop()
     controllerDiscovery.markFailure(code, message)
-    if code == .controllerChanged, let active = logStore.active() {
+    if trackingMode == .saved, code == .controllerChanged, let active = logStore.active() {
       _ = try? logStore.close(jobID: active.jobID, at: clock.now(), reason: code.rawValue)
     }
     transition(.failed)
@@ -1119,7 +1152,7 @@ public final class ApplicationService: @unchecked Sendable {
   private func finishReconnect(reason: String) {
     let deviceID = activeDeviceID
     cancelReconnect()
-    if let active = logStore.active() {
+    if trackingMode == .saved, let active = logStore.active() {
       do {
         try events.publish(
           logStore.close(jobID: active.jobID, at: clock.now(), reason: reason)
@@ -1146,6 +1179,14 @@ public final class ApplicationService: @unchecked Sendable {
     reconnectAttempt = 0
   }
 
+  private static func stableBoardIdentity(_ value: Data?) -> String? {
+    guard let value = ControllerDiscoveryPolicy.meaningfulUUID(value) else { return nil }
+    var input = Data("float-view-board-v1\0".utf8)
+    input.append(value)
+    let digest = SHA256.hash(data: input)
+    return "vesc-v1-" + digest.map { String(format: "%02x", $0) }.joined()
+  }
+
   private func transition(_ state: ConnectionState) {
     connectionState = state
     events.publish(state)
@@ -1169,6 +1210,13 @@ public final class ApplicationService: @unchecked Sendable {
         self.events.publish(self.discoverySnapshot())
       }
     }
+  }
+
+  private func savedDeviceID(for deviceID: DeviceID) -> String? {
+    guard let productStore else { return nil }
+    return (try? productStore.savedDevices())?.first {
+      $0.bluetoothIdentifier == deviceID.value
+    }?.savedDeviceID
   }
 
   private func cancelPendingDiscoveryPublish() {

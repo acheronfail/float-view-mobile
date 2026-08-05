@@ -7,6 +7,7 @@ import android.database.DatabaseUtils
 import android.os.CancellationSignal
 import fail.acheron.floatview.backend.DeviceId
 import fail.acheron.floatview.backend.BoardProfileRecord
+import fail.acheron.floatview.backend.BoardHistorySummaryRecord
 import fail.acheron.floatview.backend.ControllerRoutingHint
 import fail.acheron.floatview.backend.JobId
 import fail.acheron.floatview.backend.LogStorePort
@@ -112,7 +113,7 @@ class SQLiteLogStore(
         val started = at.toEpochMilli()
         catalogDb.beginTransaction()
         try {
-            val savedDevice = ensureSavedDevice(catalogDb, deviceId, advertisedName, at)
+            val savedDevice = ensureSavedDevice(catalogDb, deviceId, advertisedName, null, at)
             val profile = boardProfile(catalogDb, savedDevice.savedDeviceId, at)
             val settings = settings(catalogDb)
             db.execSQL(
@@ -175,10 +176,19 @@ class SQLiteLogStore(
         deviceId: DeviceId,
         advertisedName: String?,
         at: Instant,
+    ): SavedDeviceRecord = ensureSavedDevice(catalog.writableDatabase, deviceId, advertisedName, null, at)
+
+    @Synchronized
+    override fun ensureSavedDevice(
+        deviceId: DeviceId,
+        advertisedName: String?,
+        stableIdentity: String?,
+        at: Instant,
     ): SavedDeviceRecord = ensureSavedDevice(
         catalog.writableDatabase,
         deviceId,
         advertisedName,
+        stableIdentity,
         at,
     )
 
@@ -1214,9 +1224,16 @@ class SQLiteLogStore(
             """
             SELECT d.saved_device_id, d.device_history_id, d.revision,
                    d.custom_display_name, d.advertised_name, d.opaque_platform_id,
-                   d.last_seen_at_ms, d.last_connected_at_ms, COALESCE(p.json, '{}')
+                   d.last_seen_at_ms, d.last_connected_at_ms, COALESCE(p.json, '{}'),
+                   COUNT(s.session_id), COALESCE(SUM(s.riding_elapsed_ms), 0),
+                   SUM(s.distance_m), MAX(s.started_at_ms)
             FROM saved_device d
             LEFT JOIN board_profile p ON p.saved_device_id = d.saved_device_id
+            LEFT JOIN session_catalog s
+              ON s.device_history_id = d.device_history_id AND s.pending_delete = 0
+            GROUP BY d.saved_device_id, d.device_history_id, d.revision,
+                     d.custom_display_name, d.advertised_name, d.opaque_platform_id,
+                     d.last_seen_at_ms, d.last_connected_at_ms, p.json, d.created_at_ms
             ORDER BY COALESCE(d.last_connected_at_ms, d.created_at_ms) DESC
             """.trimIndent(),
             null,
@@ -1226,7 +1243,7 @@ class SQLiteLogStore(
                     val valuesJson = cursor.getString(8)
                     val customName = cursor.optionalString(3)
                     val advertisedName = cursor.optionalString(4)
-                    val identifier = cursor.getString(5)
+                    val identifier = cursor.optionalString(5)
                     add(
                         SavedDeviceRecord(
                             savedDeviceId = cursor.getString(0),
@@ -1239,12 +1256,70 @@ class SQLiteLogStore(
                             lastSeenAt = cursor.optionalInstant(6),
                             lastConnectedAt = cursor.optionalInstant(7),
                             profileComplete = missingFields(valuesJson).isEmpty(),
+                            summary = BoardHistorySummaryRecord(
+                                sessionCount = cursor.getInt(9),
+                                totalRidingElapsedMs = cursor.getLong(10),
+                                totalDistanceM = cursor.optionalDouble(11),
+                                mostRecentSessionAt = cursor.optionalInstant(12),
+                            ),
                         ),
                     )
                 }
             }
         }
     }
+
+    @Synchronized
+    override fun deleteSavedDevice(savedDeviceId: String) {
+        if (current != null) throw ProductStoreException.SavedDeviceActive
+        val db = catalog.writableDatabase
+        val historyId = db.rawQuery(
+            "SELECT device_history_id FROM saved_device WHERE saved_device_id = ?",
+            arrayOf(savedDeviceId),
+        ).use { cursor ->
+            if (!cursor.moveToFirst()) throw ProductStoreException.SavedDeviceNotFound
+            cursor.getString(0)
+        }
+        val files = db.rawQuery(
+            "SELECT file_name FROM session_catalog WHERE device_history_id = ?",
+            arrayOf(historyId),
+        ).use { cursor ->
+            buildList {
+                while (cursor.moveToNext()) add(cursor.getString(0))
+            }
+        }
+        db.beginTransaction()
+        try {
+            db.delete("board_profile", "saved_device_id = ?", arrayOf(savedDeviceId))
+            db.delete("controller_route_hint", "saved_device_id = ?", arrayOf(savedDeviceId))
+            db.delete("session_catalog", "device_history_id = ?", arrayOf(historyId))
+            val deleted = db.delete("saved_device", "saved_device_id = ?", arrayOf(savedDeviceId))
+            if (deleted != 1) throw ProductStoreException.SavedDeviceNotFound
+            db.setTransactionSuccessful()
+        } finally {
+            db.endTransaction()
+        }
+        files.forEach { fileName ->
+            val file = File(root, fileName)
+            file.delete()
+            File(file.path + "-wal").delete()
+            File(file.path + "-shm").delete()
+        }
+    }
+
+    @Synchronized
+    override fun ensureImportedSavedDevice(
+        deviceHistoryId: String,
+        displayName: String?,
+        profileSnapshotJson: String,
+        at: Instant,
+    ): SavedDeviceRecord = ensureImportedSavedDevice(
+        catalog.writableDatabase,
+        deviceHistoryId,
+        displayName,
+        profileSnapshotJson,
+        at,
+    )
 
     @Synchronized
     override fun updateSavedDevice(
@@ -1641,9 +1716,13 @@ class SQLiteLogStore(
             }
             removeSQLiteSidecars(temporary)
 
-            val deviceHistoryId = manifest.optString("deviceHistoryId").ifEmpty { "imported-device" }
+            val deviceHistoryId = (manifest.opt("deviceHistoryId") as? String)
+                ?.takeIf(::isValidDeviceHistoryId)
+                ?: throw SessionStoreException.InvalidArchive
             val deviceSnapshot = manifest.optJSONObject("deviceSnapshot")?.toString() ?: "{}"
             val profileSnapshot = manifest.optJSONObject("boardProfileSnapshot")?.toString() ?: "{}"
+            val displayName = manifest.optJSONObject("deviceSnapshot")?.optString("displayName")
+                ?.takeIf(String::isNotEmpty)
             val startedAtMs = manifest.optLong("startedAtMs", System.currentTimeMillis())
             val endedAtMs = if (manifest.has("endedAtMs") && !manifest.isNull("endedAtMs")) {
                 manifest.optLong("endedAtMs")
@@ -1664,6 +1743,13 @@ class SQLiteLogStore(
             val catalogDb = catalog.writableDatabase
             catalogDb.beginTransaction()
             try {
+                ensureImportedSavedDevice(
+                    catalogDb,
+                    deviceHistoryId,
+                    displayName,
+                    profileSnapshot,
+                    Instant.ofEpochMilli(startedAtMs),
+                )
                 catalogDb.execSQL(
                     """
                     INSERT INTO session_catalog(
@@ -2527,46 +2613,36 @@ class SQLiteLogStore(
         db: SQLiteDatabase,
         deviceId: DeviceId,
         advertisedName: String?,
+        stableIdentity: String?,
         at: Instant,
     ): SavedDeviceRecord {
-        db.rawQuery(
-            """
-            SELECT saved_device_id, device_history_id, revision, custom_display_name,
-                   advertised_name, opaque_platform_id, last_seen_at_ms, last_connected_at_ms
-            FROM saved_device WHERE opaque_platform_id = ? LIMIT 1
-            """.trimIndent(),
+        val normalizedIdentity = stableIdentity?.takeIf(::isValidDeviceHistoryId)
+        val stableMatch = normalizedIdentity?.let { identity ->
+            db.rawQuery(
+                "SELECT saved_device_id FROM saved_device WHERE device_history_id = ? LIMIT 1",
+                arrayOf(identity),
+            ).use { cursor -> if (cursor.moveToFirst()) cursor.getString(0) else null }
+        }
+        val localMatch = db.rawQuery(
+            "SELECT saved_device_id FROM saved_device WHERE opaque_platform_id = ? LIMIT 1",
             arrayOf(deviceId.value),
-        ).use { cursor ->
-            if (cursor.moveToFirst()) {
-                val customName = cursor.optionalString(3)
-                val storedAdvertisedName = advertisedName ?: cursor.optionalString(4)
-                val identifier = cursor.getString(5)
-                val record = SavedDeviceRecord(
-                    savedDeviceId = cursor.getString(0),
-                    deviceHistoryId = cursor.getString(1),
-                    revision = cursor.getInt(2),
-                    displayName = resolvedDisplayName(customName, storedAdvertisedName, identifier),
-                    customDisplayName = customName,
-                    advertisedName = storedAdvertisedName,
-                    bluetoothIdentifier = identifier,
-                    lastSeenAt = cursor.optionalInstant(6),
-                    lastConnectedAt = at,
-                    profileComplete = false,
-                )
-                db.execSQL(
-                    """
-                    UPDATE saved_device
-                    SET last_connected_at_ms = ?, advertised_name = COALESCE(?, advertised_name)
-                    WHERE saved_device_id = ?
-                    """.trimIndent(),
-                    arrayOf(at.toEpochMilli(), advertisedName, record.savedDeviceId),
-                )
-                boardProfile(db, record.savedDeviceId, at)
-                return record
-            }
+        ).use { cursor -> if (cursor.moveToFirst()) cursor.getString(0) else null }
+        val existingId = stableMatch ?: localMatch
+        if (existingId != null) {
+            db.execSQL(
+                """
+                UPDATE saved_device
+                SET opaque_platform_id = ?, last_connected_at_ms = ?,
+                    advertised_name = COALESCE(?, advertised_name)
+                WHERE saved_device_id = ?
+                """.trimIndent(),
+                arrayOf(deviceId.value, at.toEpochMilli(), advertisedName, existingId),
+            )
+            boardProfile(db, existingId, at)
+            return savedDevices().first { it.savedDeviceId == existingId }
         }
         val savedDeviceId = UUID.randomUUID().toString()
-        val deviceHistoryId = UUID.randomUUID().toString()
+        val deviceHistoryId = normalizedIdentity ?: UUID.randomUUID().toString()
         db.execSQL(
             """
             INSERT INTO saved_device(
@@ -2584,16 +2660,45 @@ class SQLiteLogStore(
             ),
         )
         boardProfile(db, savedDeviceId, at)
-        return SavedDeviceRecord(
-            savedDeviceId,
-            deviceHistoryId,
-            0,
-            resolvedDisplayName(null, advertisedName, deviceId.value),
-            advertisedName = advertisedName,
-            bluetoothIdentifier = deviceId.value,
-            lastConnectedAt = at,
-            profileComplete = false,
+        return savedDevices().first { it.savedDeviceId == savedDeviceId }
+    }
+
+    private fun ensureImportedSavedDevice(
+        db: SQLiteDatabase,
+        deviceHistoryId: String,
+        displayName: String?,
+        profileSnapshotJson: String,
+        at: Instant,
+    ): SavedDeviceRecord {
+        if (!isValidDeviceHistoryId(deviceHistoryId) || profileSnapshotJson.toByteArray().size > 16_384) {
+            throw SessionStoreException.InvalidArchive
+        }
+        runCatching { JSONObject(profileSnapshotJson) }.getOrElse { throw SessionStoreException.InvalidArchive }
+        val existingId = db.rawQuery(
+            "SELECT saved_device_id FROM saved_device WHERE device_history_id = ? LIMIT 1",
+            arrayOf(deviceHistoryId),
+        ).use { cursor -> if (cursor.moveToFirst()) cursor.getString(0) else null }
+        if (existingId != null) {
+            boardProfile(db, existingId, at)
+            return savedDevices().first { it.savedDeviceId == existingId }
+        }
+        val normalizedName = displayName?.trim()?.takeIf(String::isNotEmpty)
+        if ((normalizedName?.toByteArray()?.size ?: 0) > 128) throw SessionStoreException.InvalidArchive
+        val savedDeviceId = UUID.randomUUID().toString()
+        db.execSQL(
+            """
+            INSERT INTO saved_device(
+              saved_device_id, device_history_id, opaque_platform_id, advertised_name,
+              custom_display_name, revision, created_at_ms, last_seen_at_ms, last_connected_at_ms
+            ) VALUES (?, ?, NULL, ?, NULL, 0, ?, NULL, NULL)
+            """.trimIndent(),
+            arrayOf(savedDeviceId, deviceHistoryId, normalizedName, at.toEpochMilli()),
         )
+        db.execSQL(
+            "INSERT INTO board_profile(saved_device_id, revision, json, updated_at_ms) VALUES (?, 0, ?, ?)",
+            arrayOf(savedDeviceId, profileSnapshotJson, at.toEpochMilli()),
+        )
+        return savedDevices().first { it.savedDeviceId == savedDeviceId }
     }
 
     private fun storeControllerRoutingHint(
@@ -2696,10 +2801,11 @@ class SQLiteLogStore(
     private fun resolvedDisplayName(
         customDisplayName: String?,
         advertisedName: String?,
-        bluetoothIdentifier: String,
+        bluetoothIdentifier: String?,
     ): String = customDisplayName?.takeIf(String::isNotBlank)
         ?: advertisedName?.takeIf(String::isNotBlank)
         ?: bluetoothIdentifier
+        ?: "Board"
 
     private fun validInitialProfileValues(values: JSONObject): Boolean {
         fun integerInRange(key: String, range: IntRange): Boolean {
@@ -2891,6 +2997,14 @@ class SQLiteLogStore(
 
     private companion object {
         val INITIAL_MISSING_FIELDS = listOf("seriesCount", "parallelCount", "motor")
+        fun isValidDeviceHistoryId(value: String): Boolean {
+            val bytes = value.toByteArray(Charsets.UTF_8)
+            return bytes.isNotEmpty() && bytes.size <= 128 && bytes.all { byte ->
+                val unsigned = byte.toInt() and 0xff
+                unsigned in 48..57 || unsigned in 65..90 || unsigned in 97..122 ||
+                    unsigned == 45 || unsigned == 46 || unsigned == 95
+            }
+        }
         val SETTING_KEYS = setOf(
             "idleProbeIntervalMs",
             "idlePersistIntervalMs",

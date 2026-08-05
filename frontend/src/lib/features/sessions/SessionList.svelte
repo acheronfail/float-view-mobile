@@ -6,10 +6,12 @@
   import { formatDistanceM } from '$lib/features/measurements/format';
   import ListItem from '$lib/ui/ListItem.svelte';
   import SectionTitle from '$lib/ui/SectionTitle.svelte';
+  import { sessionStartDateLabel } from './session-label';
+
+  let { savedDeviceId }: { savedDeviceId: string } = $props();
 
   const PAGE_SIZE = 50;
   const units = $derived(backendState.settings?.unitPreference ?? 'metric');
-  const dateFormatter = new Intl.DateTimeFormat(undefined, { year: 'numeric', month: 'long', day: 'numeric' });
 
   type LoadedSession = {
     summary: SessionSummary;
@@ -73,7 +75,7 @@
       if (!group) {
         group = {
           key,
-          label: date ? dateFormatter.format(date) : 'Unknown date',
+          label: sessionStartDateLabel(summary.startedAt) ?? 'Unknown date',
           sessions: [],
         };
         groupedByDate.set(key, group);
@@ -97,7 +99,7 @@
     error = null;
 
     try {
-      const page = await backendState.listSessions(PAGE_SIZE, cursor);
+      const page = await backendState.listSessions(savedDeviceId, PAGE_SIZE, cursor);
       if (generation !== requestGeneration) return;
 
       // A state event can arrive while the page is in flight. Do not append a
@@ -174,8 +176,8 @@
           {#each dateGroup.sessions as loaded (loaded.summary.sessionId)}
             <li>
               <ListItem
-                href={`#/sessions/${encodeURIComponent(loaded.summary.sessionId)}`}
-                title={loaded.summary.displayName}
+                href={`#/sessions/${encodeURIComponent(loaded.summary.sessionId)}?board=${encodeURIComponent(savedDeviceId)}`}
+                title={loaded.dateLabel}
                 subtitle={`${loaded.summary.state} · ${Math.round(loaded.summary.totalElapsedMs / 60000)} min · ${formatDistanceM(loaded.summary.distanceM, units)}`}
               />
             </li>

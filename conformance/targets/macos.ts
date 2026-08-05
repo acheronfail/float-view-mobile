@@ -30,6 +30,7 @@ function makeMacosTarget(physical: boolean): Target & Partial<Pick<PhysicalTarge
         FLOAT_VIEW_FRONTEND_HTML: `${root}/frontend/build/index.html`,
         FLOAT_VIEW_SQL_ROOT: `${root}/backends/sql`,
         FLOAT_VIEW_LOG_ROOT: logRoot,
+        FLOAT_VIEW_CONFORMANCE_PORT: '0',
       };
       if (physical) {
         delete env.FLOAT_VIEW_SOFTWARE_BACKEND;

@@ -61,6 +61,8 @@ export interface Device {
 export interface DiscoveredDevice extends Device {
   /** Latest Bluetooth scan signal strength in dBm. */
   rssi: number | null;
+  /** Saved board matched by the native platform association, when known. */
+  savedDeviceId: string | null;
 }
 
 export interface FirmwareInfo {
@@ -230,6 +232,13 @@ export interface LiveSample {
   extensions: Record<string, number>;
 }
 
+export interface BoardHistorySummary {
+  sessionCount: number;
+  totalRidingElapsedMs: number;
+  totalDistanceM: number | null;
+  mostRecentSessionAt: string | null;
+}
+
 export interface LiveLocation {
   latitude: number;
   longitude: number;
@@ -239,6 +248,7 @@ export interface LiveLocation {
 
 export interface ActiveConnection extends Device {
   firmware: FirmwareInfo | null;
+  trackingMode: 'saved' | 'guest';
   savedDeviceId: string | null;
   displayName: string;
   controllerConnection: ControllerConnection | null;
@@ -265,10 +275,11 @@ export interface SavedDevice {
   displayName: string;
   customDisplayName?: string | null;
   advertisedName?: string | null;
-  bluetoothIdentifier: string;
+  bluetoothIdentifier: string | null;
   lastSeenAt?: string | null;
   lastConnectedAt?: string | null;
   profileComplete: boolean;
+  summary: BoardHistorySummary;
 }
 
 export interface BoardProfileValues extends Record<string, unknown> {
@@ -470,7 +481,10 @@ export interface BackendMethods {
   'bluetooth.scan': { params: { timeoutMs?: number }; result: Accepted };
   'location.requestPermission': { params: EmptyParams; result: LocationState };
   'location.openSettings': { params: EmptyParams; result: LocationState };
-  'device.connect': { params: { deviceId: string }; result: Accepted };
+  'device.connect': {
+    params: { deviceId: string; trackingMode: 'saved' | 'guest' };
+    result: Accepted;
+  };
   'device.selectController': {
     params: { deviceId: string; canId: number };
     result: Accepted;
@@ -484,6 +498,7 @@ export interface BackendMethods {
     };
     result: SavedDevice;
   };
+  'savedDevice.delete': { params: { savedDeviceId: string }; result: Accepted };
   'settings.update': {
     params: { expectedRevision: number; patch: Omit<Partial<Settings>, 'revision'> };
     result: Settings;
@@ -494,7 +509,7 @@ export interface BackendMethods {
     result: BoardProfile;
   };
   'session.list': {
-    params: { limit: number; cursor?: string | null };
+    params: { savedDeviceId: string; limit: number; cursor?: string | null };
     result: SessionListPage;
   };
   'session.get': { params: { sessionId: string }; result: SessionMetadata };

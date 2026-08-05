@@ -1,6 +1,5 @@
 import { execFileSync, spawn, type ChildProcess } from 'node:child_process';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
-import { tmpdir, platform } from 'node:os';
+import { platform } from 'node:os';
 import { join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
@@ -66,7 +65,11 @@ export function iosSimulatorBuildArguments(project: string, device: string, deri
   ];
 }
 
-export function iosPhysicalLaunchArguments(device: string, result: string) {
+export function iosSimulatorConsoleLaunchArguments(device: string) {
+  return ['simctl', 'launch', '--terminate-running-process', '--console', device, IOS_BUNDLE];
+}
+
+export function iosPhysicalConsoleLaunchArguments(device: string) {
   return [
     'devicectl',
     'device',
@@ -75,15 +78,9 @@ export function iosPhysicalLaunchArguments(device: string, result: string) {
     '--device',
     device,
     '--terminate-existing',
-    '--quiet',
-    '--json-output',
-    result,
+    '--console',
     IOS_BUNDLE,
   ];
-}
-
-export function iosPhysicalTerminateArguments(device: string, pid: number) {
-  return ['devicectl', 'device', 'process', 'terminate', '--device', device, '--pid', String(pid), '--quiet'];
 }
 
 export function childExitFailure(label: string, code: number | null, signal: NodeJS.Signals | null) {
@@ -207,13 +204,16 @@ async function startIOS(
       ['simctl', 'install', device, `${derived}/Build/Products/Debug-iphonesimulator/float-view.app`],
       { stdio: 'inherit' }
     );
-    execFileSync('xcrun', ['simctl', 'launch', '--terminate-running-process', device, IOS_BUNDLE], {
-      env: {
-        ...environment,
-        SIMCTL_CHILD_FLOAT_VIEW_CONFORMANCE_PORT: String(IOS_PORT),
-      },
-      stdio: 'inherit',
-    });
+    track(
+      spawn('xcrun', iosSimulatorConsoleLaunchArguments(device), {
+        env: {
+          ...environment,
+          SIMCTL_CHILD_FLOAT_VIEW_CONFORMANCE_PORT: String(IOS_PORT),
+        },
+        stdio: 'inherit',
+      }),
+      `iOS Simulator backend console on ${device}`
+    );
     cleanup.push(() => execBestEffort('xcrun', ['simctl', 'terminate', device, IOS_BUNDLE]));
     return;
   }
@@ -256,20 +256,13 @@ async function startIOS(
     stdio: ['ignore', 'ignore', 'inherit'],
   });
   track(proxy, `iOS iproxy on 127.0.0.1:${IOS_PORT}`);
-  const scratch = mkdtempSync(join(tmpdir(), 'float-view-ios-dev-'));
-  const result = join(scratch, 'launch.json');
-  execFileSync('xcrun', iosPhysicalLaunchArguments(device, result), { stdio: 'inherit' });
-  const pid = (
-    JSON.parse(readFileSync(result, 'utf8')) as {
-      result?: { process?: { processIdentifier?: number } };
-    }
-  ).result?.process?.processIdentifier;
-  cleanup.push(() => {
-    if (pid) {
-      execBestEffort('xcrun', iosPhysicalTerminateArguments(device, pid));
-    }
-    rmSync(scratch, { recursive: true, force: true });
-  });
+  track(
+    spawn('xcrun', iosPhysicalConsoleLaunchArguments(device), {
+      env: environment,
+      stdio: 'inherit',
+    }),
+    `iOS backend console on ${device}`
+  );
 }
 
 function buildMacos(root: string) {

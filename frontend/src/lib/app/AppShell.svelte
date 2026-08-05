@@ -44,8 +44,8 @@
         return { title: 'Live board', subtitle: 'Recovering connection…' };
       case '/sessions/[sessionId]':
         return { title: 'Session', backHref: '#/sessions', backLabel: '← Sessions' };
-      case '/boards/[savedDeviceId]':
-        return { title: 'Board', backHref: '#/boards', backLabel: '← Boards' };
+      case '/sessions/boards/[savedDeviceId]':
+        return { title: 'Board', backHref: '#/sessions', backLabel: '← Sessions' };
       default:
         return { title: 'Float View' };
     }
@@ -67,7 +67,7 @@
       backendState.sessionImporting = false;
       const sessionId = (event as CustomEvent<{ sessionId?: unknown }>).detail?.sessionId;
       if (typeof sessionId === 'string' && sessionId) {
-        void goto(`#/sessions/${encodeURIComponent(sessionId)}`);
+        void backendState.sessionHref(sessionId).then((href) => goto(href));
       }
     };
     const handleNativeImportFailure = (event: Event) => {

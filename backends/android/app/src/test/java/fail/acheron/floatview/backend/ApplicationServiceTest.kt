@@ -1299,7 +1299,7 @@ class ApplicationServiceTest {
             val normalized = customDisplayName?.trim()?.takeIf(String::isNotEmpty)
             return saved.copy(
                 revision = saved.revision + 1,
-                displayName = normalized ?: saved.advertisedName ?: saved.bluetoothIdentifier,
+                displayName = normalized ?: saved.advertisedName ?: saved.bluetoothIdentifier ?: "Board",
                 customDisplayName = normalized,
             ).also { saved = it }
         }

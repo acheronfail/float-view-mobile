@@ -17,6 +17,7 @@ import type { SessionDataRequest, SessionDataResult } from './session-data';
 
 export type BackendConnectionStatus = 'starting' | 'connected' | 'reconnecting' | 'failed';
 export type PermissionOutcome = 'ready' | 'pending' | 'denied' | 'restricted';
+export type TrackingMode = 'saved' | 'guest';
 
 export function permissionOutcome(state: BluetoothState): PermissionOutcome {
   switch (state.scanPermission) {
@@ -126,8 +127,8 @@ export class BackendState {
     });
   }
 
-  async connectDevice(deviceId: string): Promise<boolean> {
-    return this.run((client) => client.request('device.connect', { deviceId }).then(() => undefined));
+  async connectDevice(deviceId: string, trackingMode: TrackingMode = 'saved'): Promise<boolean> {
+    return this.run((client) => client.request('device.connect', { deviceId, trackingMode }).then(() => undefined));
   }
 
   async disconnectDevice(): Promise<void> {
@@ -162,6 +163,13 @@ export class BackendState {
               }
             : this.snapshot.activeConnection,
       });
+    });
+  }
+
+  async deleteSavedDevice(savedDeviceId: string): Promise<boolean> {
+    return this.run(async (client) => {
+      await client.request('savedDevice.delete', { savedDeviceId });
+      if (this.selectedBoardProfile?.savedDeviceId === savedDeviceId) this.closeBoardProfile();
     });
   }
 
@@ -219,10 +227,22 @@ export class BackendState {
     });
   }
 
-  async listSessions(limit: number, cursor: string | null = null): Promise<SessionListPage> {
+  async sessionHref(sessionId: string): Promise<string> {
+    const opened = await this.openSession(sessionId);
+    if (!opened || this.selectedSession?.sessionId !== sessionId) {
+      return `#/sessions/${encodeURIComponent(sessionId)}`;
+    }
+    const savedDeviceId = this.savedDevices.find(
+      (device) => device.deviceHistoryId === this.selectedSession?.deviceHistoryId
+    )?.savedDeviceId;
+    const boardQuery = savedDeviceId ? `?board=${encodeURIComponent(savedDeviceId)}` : '';
+    return `#/sessions/${encodeURIComponent(sessionId)}${boardQuery}`;
+  }
+
+  async listSessions(savedDeviceId: string, limit: number, cursor: string | null = null): Promise<SessionListPage> {
     if (!this.client?.isOpen) await this.connect();
     if (!this.client?.isOpen) throw new Error('Backend is not connected');
-    return this.client.request('session.list', { limit, cursor });
+    return this.client.request('session.list', { savedDeviceId, limit, cursor });
   }
 
   requestSessionData(request: SessionDataRequest, signal?: AbortSignal): Promise<SessionDataResult> {

@@ -34,6 +34,7 @@ import fail.acheron.floatview.backend.JobId
 import fail.acheron.floatview.backend.SessionSummaryRecord
 import fail.acheron.floatview.backend.SettingsRecord
 import fail.acheron.floatview.backend.TelemetrySample
+import fail.acheron.floatview.backend.TrackingMode
 import fail.acheron.floatview.backend.VescProtocolMessage
 import fail.acheron.floatview.protocol.refloat.RefloatCompatibility
 import fail.acheron.floatview.protocol.vesc.ControllerRoute
@@ -379,6 +380,11 @@ class LoopbackServer(
                 "device.connect" -> {
                     val deviceId = requiredString("deviceId")
                         ?: return failure(id.toInt(), "invalid_request", "deviceId is required")
+                    val trackingMode = when (params.optString("trackingMode")) {
+                        "saved" -> TrackingMode.SAVED
+                        "guest" -> TrackingMode.GUEST
+                        else -> return failure(id.toInt(), "invalid_request", "trackingMode must be saved or guest")
+                    }
                     val active = applicationService.activeConnectionSnapshot()
                     if (
                         active != null &&
@@ -386,7 +392,10 @@ class LoopbackServer(
                     ) {
                         return failure(id.toInt(), "invalid_state", "A different board is already active")
                     }
-                    applicationService.connect(DeviceId(deviceId))
+                    if (active != null && active.trackingMode != trackingMode) {
+                        return failure(id.toInt(), "invalid_state", "A retry must keep the active tracking mode")
+                    }
+                    applicationService.connect(DeviceId(deviceId), trackingMode)
                     success(accepted())
                 }
                 "device.selectController" -> {
@@ -432,6 +441,13 @@ class LoopbackServer(
                     }
                     success(savedDevice(applicationService.updateSavedDevice(savedId, expected.toInt(), name)))
                 }
+                "savedDevice.delete" -> {
+                    val savedId = requiredString("savedDeviceId")
+                        ?: return failure(id.toInt(), "invalid_request", "savedDeviceId is required")
+                    applicationService.deleteSavedDevice(savedId)
+                    events.publish(SessionCatalogChanged)
+                    success(accepted())
+                }
                 "boardProfile.get" -> {
                     val savedId = requiredString("savedDeviceId")
                         ?: return failure(id.toInt(), "invalid_request", "savedDeviceId is required")
@@ -455,12 +471,19 @@ class LoopbackServer(
                     )
                 }
                 "session.list" -> {
+                    val savedDeviceId = requiredString("savedDeviceId")
+                        ?: return failure(id.toInt(), "invalid_request", "savedDeviceId is required")
                     val limit = params.number("limit")?.toInt()
                         ?: return failure(id.toInt(), "invalid_request", "Session page size is required")
                     if (limit !in 1..100) return failure(id.toInt(), "invalid_request", "Session page size must be 1 through 100")
+                    val board = applicationService.savedDevices().firstOrNull { it.savedDeviceId == savedDeviceId }
+                        ?: return failure(id.toInt(), "not_found", "Saved board was not found")
                     val rawCursor = params.optString("cursor").takeIf { params.has("cursor") && !params.isNull("cursor") }
                     val context = rawCursor?.let(::decodeSessionCatalogCursor)
                     if (rawCursor != null && context == null) {
+                        return failure(id.toInt(), "invalid_request", "Session cursor is invalid")
+                    }
+                    if (context != null && context.optString("deviceHistoryId") != board.deviceHistoryId) {
                         return failure(id.toInt(), "invalid_request", "Session cursor is invalid")
                     }
                     if (context != null && context.getLong("catalogRevision") != sessionCatalogRevision.get().toLong()) {
@@ -470,6 +493,7 @@ class LoopbackServer(
                         SessionListQuery(
                             cursor = context?.getString("innerCursor"),
                             limit = limit,
+                            deviceHistoryId = board.deviceHistoryId,
                             sortField = "startedAt",
                             sortDescending = true,
                         ),
@@ -479,6 +503,7 @@ class LoopbackServer(
                             JSONObject()
                                 .put("version", 1)
                                 .put("query", "startedAt.desc.sessionId.desc")
+                                .put("deviceHistoryId", board.deviceHistoryId)
                                 .put("catalogRevision", sessionCatalogRevision.get())
                                 .put("innerCursor", inner)
                                 .put("lastStartedAt", page.items.lastOrNull()?.startedAt?.toString() ?: JSONObject.NULL)
@@ -678,6 +703,8 @@ class LoopbackServer(
                 ProductStoreException.InvalidSavedDevicePatch,
                 ProductStoreException.InvalidSettingsPatch,
                 -> failure(id.toInt(), "invalid_request", "Patch is invalid")
+                ProductStoreException.SavedDeviceActive ->
+                    failure(id.toInt(), "invalid_state", "Disconnect the board before forgetting it")
             }
         } catch (error: SessionStoreException) {
             when (error) {
@@ -758,9 +785,11 @@ class LoopbackServer(
         .put("state", "discovered")
         .put("rssi", value.rssi ?: JSONObject.NULL)
         .put("lastSeenAt", value.lastSeenAt.toString())
+        .put("savedDeviceId", value.savedDeviceId ?: JSONObject.NULL)
 
     private fun connection(value: ActiveConnectionSnapshot) = JSONObject()
         .put("deviceId", value.deviceId.value)
+        .put("trackingMode", if (value.trackingMode == TrackingMode.SAVED) "saved" else "guest")
         .put("savedDeviceId", value.savedDevice?.savedDeviceId ?: JSONObject.NULL)
         .put("name", value.savedDevice?.displayName ?: value.advertisedName ?: value.deviceId.value)
         .put("displayName", value.savedDevice?.displayName ?: value.advertisedName ?: value.deviceId.value)
@@ -836,6 +865,14 @@ class LoopbackServer(
         .put("lastSeenAt", value.lastSeenAt?.toString() ?: JSONObject.NULL)
         .put("lastConnectedAt", value.lastConnectedAt?.toString() ?: JSONObject.NULL)
         .put("profileComplete", value.profileComplete)
+        .put(
+            "summary",
+            JSONObject()
+                .put("sessionCount", value.summary.sessionCount)
+                .put("totalRidingElapsedMs", value.summary.totalRidingElapsedMs)
+                .put("totalDistanceM", value.summary.totalDistanceM ?: JSONObject.NULL)
+                .put("mostRecentSessionAt", value.summary.mostRecentSessionAt?.toString() ?: JSONObject.NULL),
+        )
 
     private fun boardProfile(value: BoardProfileRecord) = JSONObject()
         .put("savedDeviceId", value.savedDeviceId)

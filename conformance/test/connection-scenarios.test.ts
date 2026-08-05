@@ -232,7 +232,7 @@ test('failed retry, replacement interruption, and frontend recovery remain autho
     assert.equal(failed.activeConnection?.connectionIssue?.code, code);
     assert.equal(failed.activeConnection?.connectionIssue?.message.length, 1_024);
     if (code === 'controller_changed') {
-      const sessions = result(handle(backend, 3_000, 'session.list', { limit: 100 })) as {
+      const sessions = result(handle(backend, 3_000, 'session.list', { savedDeviceId: 'saved-board', limit: 100 })) as {
         items: Array<{ state: string }>;
       };
       assert.ok(sessions.items.some((item) => item.state === 'interrupted'));
@@ -242,7 +242,10 @@ test('failed retry, replacement interruption, and frontend recovery remain autho
 
   const retry = connectedBackend();
   retry.simulateConnectionFailure('preferred_controller_unavailable', 'Configured controller unavailable');
-  assert.deepEqual(result(handle(retry, 20, 'device.connect', { deviceId: 'mock-board' })), { accepted: true });
+  assert.deepEqual(
+    result(handle(retry, 20, 'device.connect', { deviceId: 'mock-board', trackingMode: 'saved' })),
+    { accepted: true }
+  );
   const recovered = state(retry);
   assertState(recovered);
   assert.equal(recovered.activeConnection?.state, 'ready');
@@ -279,7 +282,7 @@ const controllerCandidates: ControllerCandidate[] = [
 function connectedBackend() {
   const backend = new MockBackend();
   handle(backend, 1, 'bluetooth.scan', {});
-  handle(backend, 2, 'device.connect', { deviceId: 'mock-board' });
+  handle(backend, 2, 'device.connect', { deviceId: 'mock-board', trackingMode: 'saved' });
   return backend;
 }
 
