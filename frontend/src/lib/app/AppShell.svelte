@@ -95,17 +95,27 @@
   });
 
   $effect(() => {
+    document.documentElement.classList.toggle('live-route', liveRoute);
+    return () => document.documentElement.classList.remove('live-route');
+  });
+
+  $effect(() => {
     if (backendState.status === 'connected' && backendState.snapshot?.activeConnection && page.route.id === '/') {
       void goto('#/live', { replaceState: true });
     }
   });
 </script>
 
-<main class="min-h-screen bg-canvas text-foreground">
+<main
+  class="bg-canvas text-foreground"
+  class:min-h-screen={!liveRoute}
+  class:h-dvh={liveRoute}
+  class:overflow-hidden={liveRoute}
+>
   <div
     class="app-safe-area mx-auto flex flex-col"
     class:min-h-screen={!liveRoute}
-    class:h-screen={liveRoute}
+    class:h-full={liveRoute}
     class:min-h-0={liveRoute}
     class:max-w-3xl={!liveRoute}
     class:max-w-5xl={liveRoute}
@@ -122,6 +132,7 @@
       subtitleSnippet={appHeader.subtitleSnippet}
       subtitleClass={appHeader.subtitleClass}
       titleClass={appHeader.titleClass}
+      bottomBorder={appHeader.bottomBorder}
       backHref={appHeader.backHref}
       backLabel={appHeader.backLabel}
       menuLabel={appHeader.menu?.length ? appHeader.menuLabel : undefined}

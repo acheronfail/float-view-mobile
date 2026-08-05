@@ -51,6 +51,7 @@
   --app-foreground: #f1f5f9;
   --app-muted: #94a3b8;
   --app-outline: #334155;
+  /* TODO: #a2d4d8 */
   --app-accent: #6366f1;
   --app-on-accent: #ffffff;
   --app-accent-soft: #312e81;
@@ -63,6 +64,17 @@
 
 html {
   background: var(--app-canvas);
+}
+
+body {
+  background: var(--app-canvas);
+}
+
+html.live-route,
+html.live-route body {
+  height: 100%;
+  overflow: hidden;
+  overscroll-behavior: none;
 }
 
 .app-safe-area {
@@ -134,6 +146,10 @@ input,
 select,
 summary {
   -webkit-tap-highlight-color: transparent;
+}
+
+a {
+  -webkit-touch-callout: none;
 }
 
 button,

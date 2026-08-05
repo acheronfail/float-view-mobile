@@ -12,6 +12,7 @@
     subtitleSnippet,
     subtitleClass = 'text-sm text-muted',
     titleClass = 'text-3xl font-semibold',
+    bottomBorder = true,
     menuLabel,
     actions,
     backHref,
@@ -25,6 +26,7 @@
     subtitleSnippet?: Snippet;
     subtitleClass?: string;
     titleClass?: string;
+    bottomBorder?: boolean;
     menuLabel?: string;
     actions?: AppHeaderAction[];
     backHref?: string;
@@ -50,7 +52,9 @@
 
 <header
   use:observeHeader
-  class="sticky z-20 flex shrink-0 items-start justify-between gap-4 border-b border-b-accent-soft bg-canvas"
+  class="sticky z-20 flex shrink-0 items-start justify-between gap-4 bg-canvas"
+  class:border-b={bottomBorder}
+  class:border-b-accent-soft={bottomBorder}
   style={`top: ${safeAreaTop}`}
 >
   <span

@@ -115,6 +115,7 @@
 
     appHeader.set(headerOwner, {
       title: connection.displayName,
+      bottomBorder: view === 'detailed',
       subtitle: deviceState.display,
       subtitleClass: deviceState.safetyStateActive
         ? 'text-sm capitalize text-danger'
@@ -229,13 +230,7 @@
   }
 </script>
 
-<section
-  aria-labelledby="app-title"
-  class="flex flex-col gap-2"
-  class:flex-1={view === 'normal'}
-  class:min-h-0={view === 'normal'}
-  class:flex-none={view === 'detailed'}
->
+<section aria-labelledby="app-title" class="flex h-full min-h-0 flex-1 flex-col gap-2">
   {#if connection}
     {#if locationNeedsAction && location}
       <div
@@ -262,11 +257,16 @@
     {/if}
 
     {#if view === 'normal'}
-      <div class="min-h-0 flex-1 overflow-hidden">
+      <div class="h-full min-h-0 flex-1 overflow-hidden">
         <LiveView />
       </div>
     {:else}
-      <DetailedView />
+      <div
+        class="min-h-0 flex-1 overflow-y-auto overscroll-y-auto"
+        style="--section-header-top: 0px"
+      >
+        <DetailedView />
+      </div>
     {/if}
   {:else}
     <p class="text-muted">Recovering active connection…</p>

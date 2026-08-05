@@ -9,6 +9,8 @@ import SwiftUI
 import WebKit
 
 struct WebView: UIViewRepresentable {
+  @Environment(\.colorScheme) private var colorScheme
+
   let url: URL
   let onContentProcessTerminated: () -> Void
 
@@ -25,19 +27,30 @@ struct WebView: UIViewRepresentable {
 
     let webView = WKWebView(frame: .zero, configuration: configuration)
     webView.navigationDelegate = context.coordinator
+    webView.allowsLinkPreview = false
 
     if #available(iOS 16.4, *) {
       webView.isInspectable = true
     }
 
-    webView.isOpaque = false
+    applyCanvasColor(to: webView)
     webView.scrollView.pinchGestureRecognizer?.isEnabled = false
     context.coordinator.load(url, in: webView)
     return webView
   }
 
   func updateUIView(_ webView: WKWebView, context: Context) {
+    applyCanvasColor(to: webView)
     context.coordinator.load(url, in: webView)
+  }
+
+  private func applyCanvasColor(to webView: WKWebView) {
+    let color = colorScheme == .dark
+      ? UIColor(red: 2 / 255, green: 6 / 255, blue: 23 / 255, alpha: 1)
+      : UIColor(red: 248 / 255, green: 250 / 255, blue: 252 / 255, alpha: 1)
+    webView.isOpaque = true
+    webView.backgroundColor = color
+    webView.scrollView.backgroundColor = color
   }
 
   final class Coordinator: NSObject, WKNavigationDelegate, WKScriptMessageHandler {
