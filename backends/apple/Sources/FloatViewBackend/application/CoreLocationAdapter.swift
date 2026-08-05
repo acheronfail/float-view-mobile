@@ -11,8 +11,11 @@ import Foundation
 public final class CoreLocationAdapter: NSObject, LocationProviderPort, CLLocationManagerDelegate, @unchecked Sendable {
   private let manager = CLLocationManager()
   private let lock = NSLock()
+  private let observationQueue = DispatchQueue(label: "fail.acheron.float-view.location")
   private var handler: (@Sendable (LocationProviderObservation) -> Void)?
   private var lastReason: String?
+  private var servicesEnabled = false
+  private var authorization: CLAuthorizationStatus = .notDetermined
 
   override public init() {
     super.init()
@@ -24,18 +27,21 @@ public final class CoreLocationAdapter: NSObject, LocationProviderPort, CLLocati
       manager.allowsBackgroundLocationUpdates = true
       manager.showsBackgroundLocationIndicator = false
     #endif
+    performOnMain { [weak self] in self?.refreshState() }
   }
 
   public func state() -> LocationProviderState {
-    guard CLLocationManager.locationServicesEnabled() else {
+    let cached = lock.withLock {
+      (servicesEnabled: servicesEnabled, authorization: authorization, reason: lastReason)
+    }
+    guard cached.servicesEnabled else {
       return LocationProviderState(
         authorization: .unavailable,
         backgroundCapture: .unavailable,
         reason: "Location services are disabled."
       )
     }
-    let authorization = manager.authorizationStatus
-    switch authorization {
+    switch cached.authorization {
     case .notDetermined:
       return LocationProviderState(
         authorization: .notDetermined,
@@ -46,13 +52,13 @@ public final class CoreLocationAdapter: NSObject, LocationProviderPort, CLLocati
       return LocationProviderState(
         authorization: .denied,
         backgroundCapture: .unavailable,
-        reason: lastReason ?? "Location permission was denied."
+        reason: cached.reason ?? "Location permission was denied."
       )
     case .restricted:
       return LocationProviderState(
         authorization: .restricted,
         backgroundCapture: .unavailable,
-        reason: lastReason ?? "Location permission is restricted."
+        reason: cached.reason ?? "Location permission is restricted."
       )
     case .authorizedAlways:
       return LocationProviderState(authorization: .authorized, backgroundCapture: .available)
@@ -78,6 +84,7 @@ public final class CoreLocationAdapter: NSObject, LocationProviderPort, CLLocati
   public func requestPermission() {
     performOnMain { [weak self] in
       guard let self else { return }
+      refreshState()
       #if os(iOS)
         manager.requestWhenInUseAuthorization()
       #else
@@ -100,7 +107,10 @@ public final class CoreLocationAdapter: NSObject, LocationProviderPort, CLLocati
 
   public func startUpdates(_ handler: @escaping @Sendable (LocationProviderObservation) -> Void) {
     lock.withLock { self.handler = handler }
-    performOnMain { [weak self] in self?.manager.startUpdatingLocation() }
+    performOnMain { [weak self] in
+      self?.refreshState()
+      self?.manager.startUpdatingLocation()
+    }
   }
 
   public func stopUpdates() {
@@ -109,9 +119,7 @@ public final class CoreLocationAdapter: NSObject, LocationProviderPort, CLLocati
   }
 
   public func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
-    if manager.authorizationStatus == .denied {
-      lock.withLock { lastReason = "Location permission was denied." }
-    }
+    refreshState(manager)
   }
 
   public func locationManager(_: CLLocationManager, didFailWithError _: Error) {
@@ -129,7 +137,24 @@ public final class CoreLocationAdapter: NSObject, LocationProviderPort, CLLocati
       longitude: location.coordinate.longitude,
       accuracyM: location.horizontalAccuracy >= 0 ? location.horizontalAccuracy : nil
     )
-    lock.withLock { handler }?(observation)
+    guard let handler = lock.withLock({ handler }) else { return }
+    observationQueue.async { handler(observation) }
+  }
+
+  /// CLLocationManager is main-thread-owned. Backend snapshots read only this
+  /// cached value so they cannot participate in a Core Location/application
+  /// service lock inversion while telemetry and location callbacks are active.
+  private func refreshState(_ manager: CLLocationManager? = nil) {
+    let manager = manager ?? self.manager
+    let servicesEnabled = CLLocationManager.locationServicesEnabled()
+    let authorization = manager.authorizationStatus
+    lock.withLock {
+      self.servicesEnabled = servicesEnabled
+      self.authorization = authorization
+      if authorization == .denied {
+        lastReason = "Location permission was denied."
+      }
+    }
   }
 
   private func performOnMain(_ action: @escaping @Sendable () -> Void) {
