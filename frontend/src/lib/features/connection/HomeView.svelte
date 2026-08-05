@@ -75,9 +75,14 @@
         <ul class="flex flex-col gap-2">
           {#each backendState.discoveredDevices as device (device.deviceId)}
             <li>
-              <ListItem title={device.name || device.deviceId} subtitle={device.deviceId}>
+              <ListItem
+                title={device.name || device.deviceId}
+                subtitle={device.deviceId}
+                onactivate={() => connect(device.deviceId)}
+                disabled={backendState.busy}
+              >
                 {#snippet trailing()}
-                  <div class="flex items-center gap-2">
+                  <span class="flex items-center gap-2">
                     <span
                       aria-label={`Signal strength: ${formatSignalStrength(device.rssi)}`}
                       class="inline-flex shrink-0 items-center gap-1 text-accent"
@@ -100,12 +105,7 @@
                         {formatSignalStrength(device.rssi)}
                       </span>
                     </span>
-                    <button
-                      class="rounded-md bg-accent px-3 py-1 text-on-accent disabled:opacity-50"
-                      disabled={backendState.busy}
-                      onclick={() => connect(device.deviceId)}>Connect</button
-                    >
-                  </div>
+                  </span>
                 {/snippet}
               </ListItem>
             </li>
@@ -117,7 +117,7 @@
     {/if}
   {:else if backendState.status === 'failed'}
     <p role="alert" class="text-warning">{backendState.error}</p>
-    <button class="rounded-lg bg-elevated px-4 py-2" onclick={() => backendState.connect()}>Retry</button>
+    <button type="button" class="rounded-lg bg-elevated px-4 py-2" onclick={() => backendState.connect()}>Retry</button>
   {:else}
     <p class="text-muted">Connecting to backend…</p>
   {/if}

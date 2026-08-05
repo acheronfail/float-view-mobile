@@ -12,11 +12,7 @@
             href={`#/boards/${encodeURIComponent(device.savedDeviceId)}`}
             title={device.displayName}
             subtitle={device.profileComplete ? 'Configured' : 'Setup available'}
-          >
-            {#snippet trailing()}
-              <span class="text-accent">Configure →</span>
-            {/snippet}
-          </ListItem>
+          />
         </li>
       {/each}
     </ul>
