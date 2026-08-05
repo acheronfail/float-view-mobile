@@ -1,4 +1,4 @@
-import type { Component, Snippet } from 'svelte';
+import type { Snippet } from 'svelte';
 import type { MenuItemAppearance } from '$lib/ui/MenuItem.svelte';
 
 export type AppHeaderAction = {
@@ -12,7 +12,6 @@ export type AppHeaderPatch = {
   title?: string;
   subtitle?: string;
   subtitleSnippet?: Snippet;
-  subtitleComponent?: Component;
   subtitleClass?: string;
   titleClass?: string;
   backHref?: string;

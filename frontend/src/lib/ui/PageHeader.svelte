@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { Component, Snippet } from 'svelte';
+  import type { Snippet } from 'svelte';
   import type { AppHeaderAction } from '$lib/app/header';
   import Icon from './Icon.svelte';
   import Menu from './Menu.svelte';
@@ -10,7 +10,6 @@
     title,
     subtitle,
     subtitleSnippet,
-    subtitleComponent,
     subtitleClass = 'text-sm text-muted',
     titleClass = 'text-3xl font-semibold',
     menuLabel,
@@ -24,7 +23,6 @@
     title: string;
     subtitle?: string;
     subtitleSnippet?: Snippet;
-    subtitleComponent?: Component;
     subtitleClass?: string;
     titleClass?: string;
     menuLabel?: string;
@@ -70,8 +68,6 @@
     <h1 id={headingId} class={titleClass}>{title}</h1>
     {#if subtitleSnippet}
       <p class={subtitleClass}>{@render subtitleSnippet()}</p>
-    {:else if subtitleComponent}
-      <p class={subtitleClass}><svelte:component this={subtitleComponent} /></p>
     {:else if subtitle}
       <p class={subtitleClass}>{subtitle}</p>
     {/if}
