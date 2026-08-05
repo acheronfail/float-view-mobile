@@ -39,11 +39,25 @@ enum FloatViewMac {
     }
 
     let application = NSApplication.shared
+    installApplicationIcon(on: application)
     let delegate = MacAppDelegate(html: html)
     application.delegate = delegate
     application.setActivationPolicy(.regular)
     installMainMenu(on: application)
     application.run()
+  }
+
+  @MainActor
+  private static func installApplicationIcon(on application: NSApplication) {
+    guard
+      let iconURL = Bundle.module.url(
+        forResource: "FloatView",
+        withExtension: "icns",
+        subdirectory: "Resources"
+      ),
+      let icon = NSImage(contentsOf: iconURL)
+    else { return }
+    application.applicationIconImage = icon
   }
 
   private static func printReadiness(
