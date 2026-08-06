@@ -15,6 +15,7 @@ The upstream Refloat sources show stable commands for package enablement and fly
 - Present the controls in the existing `/live` connected-board action menu with clear current, unavailable, and pending states.
 - Preserve riding telemetry priority and route every command and response through the connection-wide scheduler.
 - Confirm one-way operations from fresh Refloat telemetry and fail closed on unknown versions, stale connections, unsafe state, or malformed responses.
+- Reject every device mutation while authoritative package mode is flywheel except the exact command 22 transition needed to disable flywheel and return to normal mode.
 - Exercise identical behavior through the mock backend, native implementations, canonical conformance suite, and interactive fixture.
 
 ### Non-Goals
@@ -54,7 +55,9 @@ Alternative considered: read, edit, and rewrite the complete Refloat configurati
 
 Apple and Android each add a mirrored Refloat control owner in the application-service layer. It consumes typed package information/telemetry events, selects the exact control profile, applies safety policy, submits typed requests to `VescRequestScheduler`, and publishes normalized control state. Protocol code remains responsible only for encoding, decoding, route correlation, and typed events.
 
-The owner permits one Refloat control action at a time per board connection. A duplicate request for the already confirmed value is idempotent. A request that conflicts with the pending action returns `invalid_state`; requests without a supported writable Refloat connection return `unavailable` or `invalid_state` according to the contract.
+The connection service exposes one native `RefloatMutationCoordinator` (internal name may vary) used by the control owner immediately before scheduler submission. It is the sole Refloat write authority and is deliberately extensible by later audited mutation families; owners may not retain a parallel lock or direct write path. The coordinator permits one Refloat control action at a time per board connection. A duplicate request for the already confirmed value is idempotent and sends no packet. A request that conflicts with the pending action returns `invalid_state`; requests without a supported writable Refloat connection return `unavailable` or `invalid_state` according to the contract.
+
+When authoritative package mode is flywheel, the boundary rejects every device mutation, including package enablement, lighting, and fatal clearing. The sole exception is the exact command 22 transition that disables flywheel after the existing idle/disengagement checks pass. This exception is necessary to leave flywheel mode and does not authorize another command family.
 
 ### 4. Confirm effects from telemetry and bound every operation
 
@@ -78,7 +81,7 @@ The scheduler may defer the one-second lighting refresh while higher-priority wo
 
 Package enable/disable and flywheel changes require an idle board according to the existing live-board motion state. Disabling the package and enabling flywheel also require user confirmation in `/live`; the flywheel confirmation explains the package's upright/nose-up engagement expectation. Refloat remains the final authority for its own internal engagement checks.
 
-LED and headlight changes are allowed while riding because they are operational lighting controls. Fatal-error clear is shown only for Refloat 1.2.x and enabled only when the fatal latch is present, no active firmware fault is reported, the board is idle, and the connection is writable. The fatal latch bit is decoded separately from the active fault/alert field so clearing a historical latch cannot conceal a current fault.
+LED and headlight changes are allowed while riding because they are operational lighting controls, but not while package mode is flywheel. Fatal-error clear is shown only for Refloat 1.2.x and enabled only when the fatal latch is present, no active firmware fault is reported, the board is idle, the package is not in flywheel mode, and the connection is writable. Package enablement is likewise unavailable in flywheel mode. The only actionable mutation while flywheel is active is an eligible flywheel-disable request. The fatal latch bit is decoded separately from the active fault/alert field so clearing a historical latch cannot conceal a current fault.
 
 The menu uses the existing primary-pointer activation pattern plus a guarded keyboard/assistive click path. Pending controls are disabled, and confirmation dismissal or completion restores focus to the invoking menu item.
 
@@ -94,6 +97,7 @@ The fixture continues to reject every other package write, malformed payload, un
 - **One-way commands can be accepted but ignored.** Telemetry confirmation and a three-second timeout avoid false success, at the cost of a short pending state.
 - **Lighting state can change outside Float View.** A one-second best-effort refresh makes the menu converge without adding high-frequency traffic; values may briefly lag another client.
 - **Fatal latch and active fault are easy to conflate.** Separate normalized fields and the no-active-fault gate make the distinction testable in both native implementations.
+- **Refloat temporarily changes in-memory configuration while flywheel is active.** A fail-closed mutation boundary permits only flywheel disable until normal mode is authoritatively restored, preventing another write from persisting or interacting with that temporary state.
 - **The shared scheduler is being introduced by another active change.** Sequencing this implementation after its scheduler avoids parallel request coordinators and duplicate lifecycle logic, but creates a delivery dependency.
 - **More actions increase menu density.** Compact state labels, conditional fatal clear, and the existing sheet/confirmation components keep the connected-board menu usable without adding a separate settings surface.
 

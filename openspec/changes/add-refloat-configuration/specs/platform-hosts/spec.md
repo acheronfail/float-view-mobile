@@ -2,7 +2,7 @@
 
 ### Requirement: Mirrored native Refloat configuration ownership
 
-Apple and Android SHALL add matching owners for custom-schema chunk assembly, bounded Qt/zlib and XML decoding, normalized schema validation, CRC32C signature construction, typed value encoding/decoding, configuration operation lifecycle, and exact-version saved-configuration persistence. Protocol owners SHALL depend only on VESC framing/routing and configuration models; application coordination SHALL own scheduler submission and safety; storage SHALL own schema cache and Tunes; loopback serialization SHALL expose only normalized bounded contract values. Frontend code MUST NOT parse device XML, compute wire signatures, choose routes/commands, or persist authoritative Tunes.
+Apple and Android SHALL add matching owners for custom-schema chunk assembly, bounded Qt/zlib and XML decoding, normalized schema validation, CRC32C signature construction, typed value encoding/decoding, configuration operation lifecycle, and exact-version saved-configuration persistence. Protocol owners SHALL depend only on VESC framing/routing and configuration models; one application-level mutation coordinator SHALL own authorization, exclusivity, and scheduler submission for semantic controls, configuration writes, and Tune apply; no feature owner may retain a parallel write path. Storage SHALL own schema cache and Tunes; loopback serialization SHALL expose only normalized bounded contract values. Frontend code MUST NOT parse device XML, compute wire signatures, choose routes/commands, or persist authoritative Tunes.
 
 #### Scenario: Locate schema codec
 
@@ -13,6 +13,11 @@ Apple and Android SHALL add matching owners for custom-schema chunk assembly, bo
 
 - **WHEN** the frontend is recreated during schema loading or after saved configurations exist
 - **THEN** native connection, operation, cache, and durable Tune ownership remain intact and are recovered through authenticated contract methods
+
+#### Scenario: Mirrored flywheel boundary
+
+- **WHEN** either native backend observes flywheel mode
+- **THEN** its shared coordinator invalidates configuration current state and rejects every device mutation except eligible flywheel disable with behavior equivalent to the other backend
 
 #### Scenario: Storage schema change
 

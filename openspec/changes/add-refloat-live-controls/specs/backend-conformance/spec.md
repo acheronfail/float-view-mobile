@@ -18,7 +18,7 @@ Canonical physical conformance SHALL permit required VESC identity, discovery, t
 
 ### Requirement: Canonical Refloat control coverage
 
-Canonical conformance SHALL cover `refloat.control.set`, `refloat.fatalError.clear`, and every `RefloatControls` field against mock, Apple, and Android. Software scenarios SHALL exercise representative Refloat 1.0.0, 1.1.0, and 1.2.3 profiles across direct and CAN routes; ready and reconnecting lifecycle; saved and guest tracking; normal and read-only firmware; idle and riding state; capability absence; idempotence; competing requests; timeouts; malformed responses; stale generations; frontend recreation; and exact state revisions. Physical coverage SHALL include one direct and one CAN-routed writable control sequence per native backend without requiring motor movement.
+Canonical conformance SHALL cover `refloat.control.set`, `refloat.fatalError.clear`, and every `RefloatControls` field against mock, Apple, and Android. Software scenarios SHALL exercise representative Refloat 1.0.0, 1.1.0, and 1.2.3 profiles across direct and CAN routes; ready and reconnecting lifecycle; saved and guest tracking; normal, flywheel, and read-only modes; idle and riding state; capability absence; idempotence; competing requests; timeouts; malformed responses; stale generations; frontend recreation; and exact state revisions. The flywheel matrix SHALL prove that every device mutation except eligible flywheel disable emits no packet. Physical coverage SHALL include one direct and one CAN-routed writable control sequence per native backend without requiring motor movement.
 
 #### Scenario: Versioned software matrix
 
@@ -29,6 +29,11 @@ Canonical conformance SHALL cover `refloat.control.set`, `refloat.fatalError.cle
 
 - **WHEN** conformance requests controls while read-only, reconnecting, riding, in an incompatible package mode, without capability, during an active fault, or while another action is pending
 - **THEN** Apple and Android return the same stable error, emit no prohibited command, and preserve the last confirmed controls
+
+#### Scenario: Flywheel mutation matrix
+
+- **WHEN** conformance requests package, lighting, fatal-clear, or another mutating operation while flywheel mode is active
+- **THEN** mock, Apple, Android, and the fixture reject it without transmission, while an eligible flywheel-disable request emits only the exact command 22 bytes
 
 #### Scenario: Frontend recovery
 

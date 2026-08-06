@@ -31,7 +31,7 @@ For each audited stable Refloat 1.0.0–1.2.3 connection, the native backend and
 
 ### Requirement: Exact signed value codec
 
-The native backends and simulator SHALL decode current command 93 and default command 94 responses only against the active normalized schema. Each response MUST contain the exact CRC32C configuration signature, one complete value in serialization order using the declared VESC wire encoding, and no remainder. Writes SHALL serialize the same signature followed by a complete validated value set. Numeric values MUST be finite, within declared bounds, and encodable; integers, enums, booleans, bitfields, and strings MUST satisfy their exact type and bounds. Unknown, missing, duplicate, stale, or extra values MUST be rejected before a command is sent.
+The native backends and simulator SHALL decode current command 93 and default command 94 responses only against the active normalized schema. A command-93 current read MUST be issued and accepted only while authoritative package mode is normal; entering flywheel SHALL invalidate any loaded current values, and no current response observed during flywheel may advance a revision or become an editable or saved source. Schema reads and command-94 default reads MAY remain available in flywheel because they do not serialize Refloat's temporary in-memory calibration. Each accepted response MUST contain the exact CRC32C configuration signature, one complete value in serialization order using the declared VESC wire encoding, and no remainder. Writes SHALL serialize the same signature followed by a complete validated value set. Numeric values MUST be finite, within declared bounds, and encodable; integers, enums, booleans, bitfields, and strings MUST satisfy their exact type and bounds. Unknown, missing, duplicate, stale, or extra values MUST be rejected before a command is sent.
 
 #### Scenario: Current values
 
@@ -42,6 +42,16 @@ The native backends and simulator SHALL decode current command 93 and default co
 
 - **WHEN** command 94 returns a complete payload matching the active schema signature
 - **THEN** the backend returns one typed default value for every serialized field without changing the device or current-value revision
+
+#### Scenario: Current values requested during flywheel
+
+- **WHEN** authoritative package mode is flywheel and current configuration is requested or a late command-93 response arrives
+- **THEN** the backend returns `invalid_state` or discards the response, keeps current values unloaded, and sends or accepts no command-93 current snapshot
+
+#### Scenario: Defaults requested during flywheel
+
+- **WHEN** authoritative package mode is flywheel and package defaults are requested
+- **THEN** command 94 may return validated immutable defaults without creating current write authority
 
 #### Scenario: Signature mismatch
 
@@ -55,7 +65,7 @@ The native backends and simulator SHALL decode current command 93 and default co
 
 ### Requirement: Safe persistent write with mandatory readback
 
-A Refloat configuration write SHALL require the active ready read/write connection generation, selected route, exact supported package version, matching schema signature, latest current-value base revision, normal package mode, exactly idle ride state, no engaged footpad, and no competing Refloat mutation. The backend SHALL validate and serialize the complete draft, submit command 95 through the connection-wide request scheduler, treat its acknowledgement as non-authoritative, then reread command 93 and compare every canonical value after documented firmware normalization. Success SHALL be returned only after a complete match. Timeout, rejection, disconnect, route or generation replacement, malformed readback, or mismatch MUST NOT return success.
+A Refloat configuration write SHALL require the active ready read/write connection generation, selected route, exact supported package version, matching schema signature, latest normal-mode current-value base revision, authoritatively normal package mode, exactly idle ride state, no engaged footpad, and no competing Refloat mutation. While flywheel mode is active the centralized mutation authority MUST reject command 95 and Tune apply before scheduler submission; the only permitted device mutation is an eligible semantic command 22 that disables flywheel. The backend SHALL validate and serialize the complete draft, submit command 95 through the connection-wide request scheduler, treat its acknowledgement as non-authoritative, then reread command 93 and compare every canonical value after documented firmware normalization. Success SHALL be returned only after a complete match. Timeout, rejection, disconnect, route or generation replacement, malformed readback, or mismatch MUST NOT return success.
 
 #### Scenario: Verified direct write
 
@@ -74,7 +84,7 @@ A Refloat configuration write SHALL require the active ready read/write connecti
 
 #### Scenario: Unsafe board state
 
-- **WHEN** a write is requested while riding, a footpad is engaged, package mode is not normal, firmware is read-only, or another Refloat mutation is pending
+- **WHEN** a write is requested while riding, a footpad is engaged, package mode is flywheel or otherwise not normal, firmware is read-only, or another Refloat mutation is pending
 - **THEN** the backend returns `invalid_state`, sends no command 95, and preserves current values
 
 #### Scenario: Indeterminate interruption
@@ -84,7 +94,7 @@ A Refloat configuration write SHALL require the active ready read/write connecti
 
 ### Requirement: Exact-version saved configurations
 
-Native persistence SHALL store bounded application-wide named complete Refloat configurations with opaque ID, revision, name, optional description, package name, exact package version, full-schema fingerprint, wire signature, complete typed values, and timestamps. List and apply workflows SHALL match the active exact package version, fingerprint, and signature; configurations MUST NOT be automatically migrated, merged, or offered as applicable across versions. Create, update, and delete SHALL use bounded values and revision conflict semantics. Applying a saved configuration SHALL pass through the same fresh-base, safety, serialization, scheduler, and readback lifecycle as an edited draft.
+Native persistence SHALL store bounded application-wide named complete Refloat configurations with opaque ID, revision, name, optional description, package name, exact package version, full-schema fingerprint, wire signature, complete typed values, and timestamps. List and apply workflows SHALL match the active exact package version, fingerprint, and signature; configurations MUST NOT be automatically migrated, merged, or offered as applicable across versions. Create or update from device current values SHALL require a fresh authoritative normal-mode current revision and MUST reject stale or flywheel-temporary values. Create, update, and delete SHALL otherwise use bounded values and revision conflict semantics. Applying a saved configuration SHALL pass through the same fresh-base, safety, serialization, scheduler, and readback lifecycle as an edited draft.
 
 #### Scenario: Save current configuration
 
@@ -108,7 +118,7 @@ Native persistence SHALL store bounded application-wide named complete Refloat c
 
 ### Requirement: Configuration lifecycle and schema cache
 
-Configuration state SHALL be connection-generation scoped and independent of WebView lifetime. A valid nonzero firmware hardware-configuration CRC MAY key a bounded native schema cache together with exact controller firmware, package version, and custom-config index; cache contents MUST pass the same schema/signature validation as downloaded bytes. Missing, zero, changed, corrupt, or mismatched cache identity SHALL cause a bounded device fetch. Reconnect SHALL make writes unavailable until schema and fresh current values are re-established, and a replacement version or signature SHALL invalidate the old draft and pending operation.
+Configuration state SHALL be connection-generation scoped and independent of WebView lifetime. A valid nonzero firmware hardware-configuration CRC MAY key a bounded native schema cache together with exact controller firmware, package version, and custom-config index; cache contents MUST pass the same schema/signature validation as downloaded bytes. Missing, zero, changed, corrupt, or mismatched cache identity SHALL cause a bounded device fetch. Reconnect or entry into flywheel SHALL make current values unloaded and writes unavailable. Confirmed return from flywheel to normal mode SHALL require a fresh command-93 read before editing from current, saving current, command 95, or Tune apply; a replacement version or signature SHALL invalidate the old draft and pending operation.
 
 #### Scenario: Frontend recreation
 
@@ -129,3 +139,8 @@ Configuration state SHALL be connection-generation scoped and independent of Web
 
 - **WHEN** reconnect identifies a different exact package version or schema signature
 - **THEN** the previous draft, values, schema pages, and pending operation cannot be used for the replacement connection
+
+#### Scenario: Flywheel lifecycle
+
+- **WHEN** telemetry enters flywheel mode and later confirms return to normal mode
+- **THEN** loaded current values and their write authority are invalidated on entry and remain unavailable after exit until a fresh normal-mode command-93 read succeeds

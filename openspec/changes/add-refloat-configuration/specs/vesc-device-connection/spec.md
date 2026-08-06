@@ -26,7 +26,7 @@ For audited controller firmware, native identity decoding SHALL retain a bounded
 
 ### Requirement: Centralized Refloat mutation authorization
 
-The connection service SHALL provide one native authorization and exclusivity boundary for semantic Refloat controls and complete custom-configuration writes. It SHALL evaluate current access mode, exact package profile, route, generation, package/ride/footpad state, and pending work immediately before scheduler submission. Test-version firmware and unsupported package versions SHALL permit eligible reads but no Refloat mutations.
+The connection service SHALL provide one native mutation coordinator and authorization boundary for semantic Refloat controls, complete custom-configuration writes, and Tune apply. It SHALL evaluate current access mode, exact package profile, route, generation, package/ride/footpad state, and pending work immediately before scheduler submission, and no owner may retain a parallel mutation lock or direct write path. Test-version firmware and unsupported package versions SHALL permit eligible reads but no Refloat mutations. While authoritative package mode is flywheel, the coordinator SHALL reject every device mutation except the exact eligible command 22 transition that disables flywheel.
 
 #### Scenario: Competing semantic control
 
@@ -42,3 +42,13 @@ The connection service SHALL provide one native authorization and exclusivity bo
 
 - **WHEN** audited test-version firmware opens Refloat configuration
 - **THEN** schema and current/default reads may succeed but write and Tune apply remain unavailable
+
+#### Scenario: Flywheel mutation authorization
+
+- **WHEN** authoritative package mode is flywheel and any semantic control, command 95 write, or Tune apply is requested
+- **THEN** centralized authorization sends no mutation unless the request is the eligible exact command 22 flywheel-disable transition
+
+#### Scenario: Flywheel current read
+
+- **WHEN** authoritative package mode is flywheel and command 93 current values are requested or received late
+- **THEN** the request is not submitted or the response is discarded without creating a current revision, while schema and default reads remain eligible

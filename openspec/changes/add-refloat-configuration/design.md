@@ -4,7 +4,7 @@ VESC firmware exposes registered custom configurations through commands 92–95.
 
 Float View currently does not retain the firmware custom-config count or hardware-configuration CRC, implement commands 92–95, parse `ConfigParams`, expose configuration methods, or store named Refloat configurations. The earlier `support-vesc-bms-telemetry` change introduces the one-request-in-flight `VescRequestScheduler`; `add-refloat-live-controls` introduces exact-version Refloat mutation profiles and one pending semantic control action. This change is deliberately proposed before those changes are implemented, so its first task is a blocking reconciliation against their archived repository state.
 
-The upstream VESC acknowledgement for command 95 does not carry Refloat's `set_cfg` success value. A received acknowledgement therefore proves only transport handling, not persistence. Refloat also rewrites `meta.is_default`, can reject writes in special modes, and otherwise permits configuration changes while running. Float View needs stricter product safety and mandatory current-value readback.
+The upstream VESC acknowledgement for command 95 does not carry Refloat's `set_cfg` success value. A received acknowledgement therefore proves only transport handling, not persistence. Refloat also rewrites `meta.is_default`, can reject writes in special modes, and otherwise permits configuration changes while running. Flywheel mode temporarily overwrites many fields in Refloat's in-memory `float_conf` and restores EEPROM values only when flywheel stops, so command 93 during flywheel does not represent a safe persistent base. Float View needs stricter product safety, protected current-value reads, and mandatory post-write readback.
 
 ## Goals / Non-Goals
 
@@ -16,6 +16,7 @@ The upstream VESC acknowledgement for command 95 does not carry Refloat's `set_c
 - Verify every write by rereading current values and comparing canonical wire values.
 - Store bounded named full configurations by exact package version and schema signature and never migrate them implicitly.
 - Preserve the existing semantic live controls and arbitrate all Refloat mutations through one connection-scoped policy.
+- Reject every device mutation while flywheel mode is active except the exact safety-gated semantic command that disables flywheel, and prevent flywheel-temporary values from becoming an editable or saved current configuration.
 - Make malformed, oversized, stale, read-only, unsafe, unsupported, and unverifiable operations fail closed.
 
 **Non-Goals:**
@@ -48,17 +49,19 @@ The frontend receives normalized fields and typed values and submits a complete 
 
 Alternative considered: parse XML and serialize values once in TypeScript. That would reduce mirrored code but move protocol validation into a disposable WebView, permit opaque native writes, and violate the repository's ownership boundary.
 
-### 3. Use a connection-scoped configuration owner above the shared scheduler
+### 3. Use one connection-scoped mutation coordinator above the shared scheduler
 
-One `RefloatConfigurationService` per native backend owns schema availability, the current/default value revisions, one configuration operation, schema cache access, and saved-configuration application. It submits typed scheduler transactions using the selected controller route exactly once. Schema chunks are background controller work; explicit current/default reads and a user write are below due riding telemetry but above background lighting refresh, auxiliary discovery, and BMS polling. No catch-up chunk queue is accumulated.
+One `RefloatConfigurationService` per native backend owns schema availability, the current/default value revisions, one configuration operation, schema cache access, and saved-configuration application. A single connection-scoped `RefloatMutationCoordinator` (final name may follow the reconciled native API) owns authorization and exclusivity for semantic controls, complete configuration writes, and Tune apply. Owners request mutations from it immediately before scheduler submission; they do not maintain parallel locks or direct write paths. Schema chunks are background controller work; explicit current/default reads and a user write are below due riding telemetry but above background lighting refresh, auxiliary discovery, and BMS polling. No catch-up chunk queue is accumulated.
 
-The configuration owner and semantic live-control owner share one connection-generation mutation gate. A configuration write cannot overlap package/flywheel/lighting/fatal operations, and a semantic persistent action cannot begin during a configuration write or verification read. Disconnect, route replacement, or generation change cancels outstanding work and prevents late responses from updating replacement state.
+The coordinator permits at most one device mutation lifecycle at a time. A configuration write cannot overlap package/flywheel/lighting/fatal operations, and no semantic mutation can begin during a configuration write or verification read. While authoritative package mode is flywheel, it rejects every device mutation—including package, lighting, fatal-clear, command 95, and Tune apply—except the exact command 22 transition that disables flywheel after its normal safety checks. Disconnect, route replacement, or generation change cancels outstanding work and prevents late responses from updating replacement state.
+
+Entering flywheel marks loaded current configuration values stale and clears their write authority. Command 93 current reads are not issued or accepted until telemetry confirms return to normal mode, because Refloat serializes flywheel's temporary in-memory calibration through that command. Schema reads and command 94 default reads remain allowed because they do not capture the temporary state. After confirmed flywheel disable, the configuration owner requires a fresh command 93 read before editing from current, saving current, command 95, or Tune apply becomes eligible.
 
 Alternative considered: give configuration its own write/timeout coordinator. That would reintroduce competing requests on the uncorrelated VESC stream and duplicate scheduler lifecycle logic.
 
 ### 4. Keep large schemas out of authoritative state and page them by subgroup
 
-`ActiveConnection` gains only a small `refloatConfiguration` summary: status, writable flag, exact package version, nullable schema signature, whether current/default values are loaded, and nullable pending operation. It contains neither schema fields nor saved configurations.
+`ActiveConnection` gains only a small `refloatConfiguration` summary: status, writable flag, exact package version, nullable schema signature, whether current/default values are loaded, and nullable pending operation. It contains neither schema fields nor saved configurations. Entering flywheel clears current-loaded/write-ready state while schema/default availability may remain visible.
 
 Mandatory control methods open/refresh the configuration, retrieve a bounded subgroup page with a cursor, read current or default values, and write a complete draft. Every schema page has bounded fields, enum values, description bytes, and encoded JSON size below the existing WebSocket limit. Values are returned as one bounded map because the audited serialized field count and value sizes fit comfortably; the contract still fixes count and byte limits.
 
@@ -68,9 +71,9 @@ Alternative considered: publish schema in `AppState`. Expanded metadata and desc
 
 ### 5. Write from a complete base and verify canonical readback
 
-Current and default reads each produce a complete immutable value set with a monotonically increasing connection-local revision. Editing occurs in the frontend, but write requires the latest current-value revision as its base even when the visible draft began from defaults or a saved configuration. The backend merges no partial patch: it validates a complete value for every serialized field against the active schema and rejects missing, extra, stale, or mismatched inputs.
+Current and default reads each produce a complete immutable value set with a monotonically increasing connection-local revision. A current read is authoritative only in confirmed normal package mode; entering flywheel invalidates it, command 93 remains unavailable throughout flywheel, and confirmed flywheel exit requires a new current read. Editing occurs in the frontend, but write requires the latest normal-mode current-value revision as its base even when the visible draft began from defaults or a saved configuration. The backend merges no partial patch: it validates a complete value for every serialized field against the active schema and rejects missing, extra, stale, or mismatched inputs.
 
-Write eligibility requires the same active device, ready read/write access, exact supported package and schema, normal package mode, exactly idle ride state, no engaged footpad, no other Refloat mutation, and a fresh current base. The frontend presents a bounded diff and explicit persistent-write warning, but native policy remains authoritative.
+Write eligibility requires the same active device, ready read/write access, exact supported package and schema, authoritatively normal package mode, exactly idle ride state, no engaged footpad, no other Refloat mutation, and a fresh post-flywheel current base. The frontend presents a bounded diff and explicit persistent-write warning, but the native coordinator remains authoritative.
 
 After command 95 acknowledgement, the owner schedules command 93, decodes it under the same schema, and compares every canonical value after expected firmware normalization. `meta.is_default` is expected to become false. Only a complete match returns success and publishes the new revision. Timeout, acknowledgement without matching readback, rejected/silent firmware behavior, disconnect, or mismatch returns `unavailable` or `conflict` and exposes the newly read device values when safe; it never reports optimistic success.
 
@@ -78,7 +81,7 @@ Alternative considered: treat command 95 acknowledgement as success. VESC discar
 
 ### 6. Store full exact-version configurations, not inferred Refloat Tunes
 
-The catalog gains a bounded `refloat_configuration` table containing opaque ID, revision, bounded name and optional description, exact package name/version, full-schema fingerprint, wire signature, bounded typed values JSON, and created/updated times. The product stores application-wide configurations so a rider can switch compatible boards, while list/apply filters strictly by the active exact version, fingerprint, and signature.
+The catalog gains a bounded `refloat_configuration` table containing opaque ID, revision, bounded name and optional description, exact package name/version, full-schema fingerprint, wire signature, bounded typed values JSON, and created/updated times. The product stores application-wide configurations so a rider can switch compatible boards, while list/apply filters strictly by the active exact version, fingerprint, and signature. Creating or updating a record from device current values requires a fresh authoritative normal-mode current revision; flywheel-temporary or stale current values are never accepted as a saved configuration source.
 
 The menu label is `Tunes…`, but records are complete configurations. The XML does not contain Refloat's QML tune blacklist, so calling a dynamically inferred subset equivalent to upstream Tunes would be inaccurate. There is no automatic migration: a different exact version creates a separate namespace and old records remain visible only in management views explicitly designed for incompatible records.
 
@@ -92,7 +95,7 @@ To avoid downloading roughly sixty 400-byte chunks on every connection, native s
 
 ### 8. Give the editor a dedicated full-height connection-owned surface
 
-The `/live` menu adds `Configure Refloat` when configuration discovery has begun and `Tunes…` when a supported exact version is known. Configure Refloat opens a full-height responsive surface owned by `features/connection`, with generated subgroup navigation, search, field help, current/default source selection, dirty count, validation, write diff, and focus/unsaved-change handling. It uses native button semantics and the established primary-pointer plus guarded keyboard/assistive activation path.
+The `/live` menu adds `Configure Refloat` when configuration discovery has begun and `Tunes…` when a supported exact version is known. Configure Refloat opens a full-height responsive surface owned by `features/connection`, with generated subgroup navigation, search, field help, current/default source selection, dirty count, validation, write diff, and focus/unsaved-change handling. The editor labels schema fields such as `leds.on` and `leds.headlights_on` as persistent startup defaults, while the live menu labels dedicated lighting controls as current runtime overrides. In flywheel mode the editor may show schema/default information, but current-device loading, saving from current, write, and Tune apply are unavailable until a fresh post-flywheel current read. It uses native button semantics and the established primary-pointer plus guarded keyboard/assistive activation path.
 
 The surface reconstructs by reopening the native connection-scoped configuration after WebView recreation. It never retains a local schema or operation as authoritative. A reconnect makes editing read-only until schema and current values are re-established; a device/version/signature replacement discards the draft after warning rather than applying it to the new target.
 
@@ -100,7 +103,7 @@ The surface reconstructs by reopening the native connection-scoped configuration
 
 Conformance owns immutable compressed schemas, signatures, default/current byte fixtures, and semantic expected values for every audited stable Refloat release. The programmable fixture composes the selected exact release with one disposable configuration model, answers commands 92–95 over direct or CAN routing, validates full writes, persists them only for the powered fixture scenario, and resets them with its selected package configuration. It never commands motor hardware.
 
-Malformed, unknown, test-version, riding, special-mode, stale, and prohibited commands remain rejected. Canonical software tests cover all exact releases; the physical checkpoint uses representative legacy and dynamic releases and restores the starting configuration after verified writes.
+Malformed, unknown, test-version, riding, special-mode, stale, and prohibited commands remain rejected. In simulated flywheel mode every mutation except eligible flywheel disable is rejected, command 93 current reads are withheld, and exiting flywheel requires a fresh current read. Canonical software tests cover all exact releases; the physical checkpoint uses representative legacy and dynamic releases and restores the starting configuration after verified writes.
 
 ## Risks / Trade-offs
 
@@ -109,6 +112,8 @@ Malformed, unknown, test-version, riding, special-mode, stale, and prohibited co
 - **Schema download can take many BLE round trips.** → Use scheduler-friendly bounded chunks, no catch-up queue, progress state, and validated CRC-keyed caching.
 - **A write can succeed but verification can be interrupted.** → Return an indeterminate failure, retain no optimistic value, and force a fresh current read before another write.
 - **Full configurations may be called Tunes but include hardware and safety fields.** → Label them clearly as complete Refloat configurations in explanatory copy and defer a curated Tune subset until separately specified.
+- **Semantic controls and the full editor overlap on package disablement and lighting names.** → Keep their source-correct wire paths, centralize mutation authority, invalidate shared persistent state after semantic changes, refresh semantic state after full writes, and label runtime lighting separately from persistent startup defaults.
+- **Flywheel exposes temporary values through Refloat's current-config serializer.** → Invalidate current state on entry, withhold command 93 and all mutations except flywheel disable, and require a fresh normal-mode current read after exit.
 - **Earlier active changes modify the same specs and ownership.** → Make post-archive reconciliation a blocking first task and revalidate every delta against canonical specs before implementation.
 - **The VESC firmware may normalize values beyond `meta.is_default`.** → Golden fixtures define known normalization; any unrecognized mismatch fails visibly rather than silently weakening comparison.
 
@@ -118,7 +123,7 @@ Malformed, unknown, test-version, riding, special-mode, stale, and prohibited co
 2. Before applying this change, rerun OpenSpec context/status, revise proposal/design/specs/tasks against canonical repository state, resolve overlapping requirements, and commit the revised planning phase.
 3. Add immutable upstream-derived schemas and codec vectors, then implement the mirrored read-only schema/current/default path through the existing scheduler.
 4. Extend the contract/mock and generated read-only editor before enabling writes.
-5. Add the native mutation gate, complete write/readback flow, simulator behavior, and safety/conformance matrix.
+5. Extend the existing native mutation coordinator, then add the complete write/readback flow, simulator behavior, and safety/conformance matrix.
 6. Add exact-version persistence and Tunes management, bump disposable storage schema, and finish UI integration.
 7. Run focused frontend/native/conformance tests and `just verify`; perform the explicit physical BLE checkpoint with restoration.
 

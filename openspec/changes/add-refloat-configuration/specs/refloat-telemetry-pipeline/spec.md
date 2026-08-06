@@ -2,7 +2,7 @@
 
 ### Requirement: Configuration safety evidence
 
-The native application SHALL use authoritative normalized Refloat telemetry as safety evidence for a persistent configuration write. Eligibility SHALL require exactly idle ride state, normal package mode, no engaged footpad, and a fresh sample belonging to the current connection generation. Missing, unknown, stale, or contradictory evidence MUST make the write unavailable. Configuration reads SHALL remain independent of ride-session persistence and SHALL NOT create samples, events, aggregates, extensions, or exports.
+The native application SHALL use authoritative normalized Refloat telemetry as safety evidence for every device mutation and for current-configuration authority. Persistent configuration eligibility SHALL require exactly idle ride state, normal package mode, no engaged footpad, and a fresh sample belonging to the current connection generation. While flywheel mode is active, every mutation except eligible flywheel disable SHALL be unavailable, loaded current configuration SHALL be invalidated, and command 93 SHALL be withheld so temporary in-memory calibration cannot become an authoritative base. Missing, unknown, stale, or contradictory evidence MUST make the write unavailable. Configuration reads SHALL remain independent of ride-session persistence and SHALL NOT create samples, events, aggregates, extensions, or exports.
 
 #### Scenario: Fresh idle evidence
 
@@ -16,8 +16,13 @@ The native application SHALL use authoritative normalized Refloat telemetry as s
 
 #### Scenario: Configuration read during riding
 
-- **WHEN** current or default values are requested while riding
+- **WHEN** current or default values are requested while riding in non-flywheel package mode
 - **THEN** the read may proceed at scheduler priority without changing or persisting telemetry state
+
+#### Scenario: Configuration access during flywheel
+
+- **WHEN** authoritative telemetry reports flywheel mode
+- **THEN** schema and default reads may continue, current reads are rejected or withheld, and no current revision or device mutation is authorized except eligible flywheel disable
 
 ### Requirement: Audited custom configuration exception
 
@@ -30,8 +35,13 @@ The existing Refloat read and product-control allowlists SHALL additionally perm
 
 #### Scenario: Allowed verified write
 
-- **WHEN** an audited writable idle controller receives a complete valid command 95 payload through the specified configuration lifecycle
+- **WHEN** an audited writable idle controller in authoritatively normal package mode receives a complete valid command 95 payload through the specified configuration lifecycle
 - **THEN** the simulator updates disposable configuration state for later command-93 verification
+
+#### Scenario: Flywheel mutation remains rejected
+
+- **WHEN** flywheel mode is active and a peer attempts command 95 or another mutation other than eligible flywheel disable
+- **THEN** no success is simulated, no values change, and one bounded diagnostic is recorded
 
 #### Scenario: Arbitrary mutation remains rejected
 

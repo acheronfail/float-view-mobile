@@ -41,8 +41,13 @@ The backends and conformance simulator SHALL implement source-faithful telemetry
 
 #### Scenario: Allowed product control
 
-- **WHEN** the fixture receives a version-correct package, flywheel, lighting, or clear-fatal command permitted by `refloat-live-controls`
+- **WHEN** the fixture receives a version-correct package, flywheel, lighting, or clear-fatal command permitted by `refloat-live-controls` in the current authoritative package mode
 - **THEN** it applies only that bounded semantic transition and returns or later reports the source-defined confirmation
+
+#### Scenario: Flywheel write exclusion
+
+- **WHEN** flywheel mode is active and the fixture receives any mutation other than the exact eligible flywheel-disable command
+- **THEN** it reports no simulated success, sends no mutation onward, and preserves semantic and configuration state
 
 #### Scenario: Deferred history command
 

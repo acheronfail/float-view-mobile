@@ -2,7 +2,7 @@
 
 ### Requirement: Extensible live action menu
 
-The live header SHALL provide one accessible menu trigger whose menu contains the current view switch, stateful Refloat package and flywheel actions, lighting actions only when lighting capability is present, Clear fatal error only when a Refloat 1.2.x fatal latch remains after its active firmware fault has ended, Configure board when saved identity exists, and Stop and disconnect. Each Refloat item SHALL display its last confirmed on/off state, SHALL be disabled unless its native preconditions are currently satisfied, and SHALL remain unavailable while its action is pending. Disabling Refloat and enabling flywheel SHALL require explicit contextual confirmation before the backend request is sent. Every menu and confirmation control SHALL retain native button semantics, use primary Pointer Events with cancellation and a guarded keyboard/assistive click path, avoid double activation, and restore focus to the menu trigger after completion or cancellation.
+The live header SHALL provide one accessible menu trigger whose menu contains the current view switch, stateful Refloat package and flywheel actions, lighting actions only when lighting capability is present, Clear fatal error only when a Refloat 1.2.x fatal latch remains after its active firmware fault has ended, Configure board when saved identity exists, and Stop and disconnect. Each Refloat item SHALL display its last confirmed on/off state, SHALL be disabled unless its native preconditions are currently satisfied, and SHALL remain unavailable while its action is pending. While authoritative package mode is flywheel, every mutating menu action SHALL be unavailable except an eligible flywheel-disable action; display-only state, view switching, and disconnect remain available. Disabling Refloat and enabling flywheel SHALL require explicit contextual confirmation before the backend request is sent. Every menu and confirmation control SHALL retain native button semantics, use primary Pointer Events with cancellation and a guarded keyboard/assistive click path, avoid double activation, and restore focus to the menu trigger after completion or cancellation.
 
 #### Scenario: Open menu
 
@@ -33,6 +33,11 @@ The live header SHALL provide one accessible menu trigger whose menu contains th
 
 - **WHEN** the user chooses to enable flywheel from an eligible idle normal state
 - **THEN** an explicit warning requires the board to be disengaged, nose-up, and balanced before confirmation sends the request
+
+#### Scenario: Flywheel mode actions
+
+- **WHEN** authoritative state reports active flywheel mode
+- **THEN** package, lighting, and fatal-clear mutations are visibly unavailable and only an eligible flywheel-disable action can issue a mutation request
 
 #### Scenario: Clearable fatal latch
 

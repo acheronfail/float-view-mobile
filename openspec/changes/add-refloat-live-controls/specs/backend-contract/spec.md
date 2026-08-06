@@ -61,8 +61,13 @@ Every supported backend SHALL implement the WebSocket control methods `state.get
 
 #### Scenario: Control unavailable
 
-- **WHEN** a control is requested before controls are ready, during reconnect, for absent lighting or fatal capability, or on read-only firmware
+- **WHEN** a control is requested before controls are ready, during reconnect, for absent lighting or fatal capability, on read-only firmware, or while flywheel mode prohibits that mutation
 - **THEN** the backend returns `invalid_state` without changing board or authoritative control state
+
+#### Scenario: Flywheel disable remains actionable
+
+- **WHEN** authoritative state reports active idle flywheel mode and the user requests flywheel disabled
+- **THEN** the backend may perform the exact safety-gated flywheel-disable operation while every other mutating control remains unavailable
 
 #### Scenario: Confirmation timeout
 

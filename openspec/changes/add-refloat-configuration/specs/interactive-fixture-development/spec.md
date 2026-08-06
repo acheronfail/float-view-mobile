@@ -26,7 +26,7 @@ The interactive fixture SHALL compose each selected audited Refloat release with
 
 ### Requirement: Strict custom-configuration rejection
 
-The fixture SHALL answer configuration mutations only for normal writable audited firmware, index `0`, complete valid signatures and values, and configured safe scenario state. It SHALL reject test-version writes, unknown indexes, malformed or partial values, prohibited modes, unsafe state, arbitrary app-data tuning, firmware/motor configuration, and motor-control commands without weakening the existing fail-fast allowlist.
+The fixture SHALL answer configuration mutations only for normal writable audited firmware, index `0`, complete valid signatures and values, and configured safe scenario state. It SHALL reject test-version writes, unknown indexes, malformed or partial values, prohibited modes, unsafe state, arbitrary app-data tuning, firmware/motor configuration, and motor-control commands without weakening the existing fail-fast allowlist. While simulated package mode is flywheel it SHALL reject every mutation except eligible flywheel disable, withhold command-93 current values, invalidate loaded current state, and require a fresh current read after returning to normal mode; schema and default reads may remain available.
 
 #### Scenario: Test firmware write
 
@@ -42,3 +42,8 @@ The fixture SHALL answer configuration mutations only for normal writable audite
 
 - **WHEN** a source-correct package, flywheel, lighting, or fatal control is received
 - **THEN** its dedicated live-control behavior remains available and coordinated with, but not replaced by, the full configuration model
+
+#### Scenario: Flywheel configuration isolation
+
+- **WHEN** simulated flywheel mode is active and a client requests command 93, command 95, Tune apply, or another mutation
+- **THEN** the fixture supplies no current snapshot or mutation success except for eligible flywheel disable and preserves disposable persistent configuration values

@@ -53,6 +53,11 @@ While powered on, the coordinator SHALL answer the composed configuration's allo
 - **WHEN** the writable native peer sends a version-correct package, flywheel, lighting, or clear-fatal request
 - **THEN** interactive mode updates its complete simulated control state and supplies the exact immediate or telemetry confirmation without commanding ESP32 motor hardware
 
+#### Scenario: Mutation while flywheel is active
+
+- **WHEN** simulated package mode is flywheel and the native peer sends any mutating request other than an eligible flywheel-disable command
+- **THEN** interactive mode supplies no successful response and preserves all simulated state, while the exact flywheel-disable command may return the model to normal mode
+
 #### Scenario: Unsafe request
 
 - **WHEN** the native peer sends an unknown or prohibited mutating VESC request

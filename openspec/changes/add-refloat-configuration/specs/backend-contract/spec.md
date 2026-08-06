@@ -26,7 +26,7 @@ Every supported backend SHALL implement mandatory `refloat.configuration.open`, 
 
 ### Requirement: Small authoritative configuration availability
 
-`ActiveConnection.refloatConfiguration` SHALL be null before Refloat discovery begins and otherwise contain only bounded status from `loading`, `ready`, or `unavailable`; writability; nullable exact package version until legacy schema identity resolves; nullable schema fingerprint and wire signature; current/default-loaded flags; and nullable pending operation from `schema`, `readCurrent`, `readDefault`, `write`, or `applyTune`. It MUST NOT contain schema fields, raw XML, raw values, saved configurations, private controller identity, or cache keys. Availability and pending-operation changes SHALL publish newer complete authoritative snapshots, while bulk schema/value results remain request-scoped.
+`ActiveConnection.refloatConfiguration` SHALL be null before Refloat discovery begins and otherwise contain only bounded status from `loading`, `ready`, or `unavailable`; writability; nullable exact package version until legacy schema identity resolves; nullable schema fingerprint and wire signature; current/default-loaded flags; and nullable pending operation from `schema`, `readCurrent`, `readDefault`, `write`, or `applyTune`. It MUST NOT contain schema fields, raw XML, raw values, saved configurations, private controller identity, or cache keys. Entry into flywheel mode SHALL clear the current-loaded flag and writability without discarding validated schema/default availability; confirmed exit SHALL not restore them until a fresh current read succeeds. Availability and pending-operation changes SHALL publish newer complete authoritative snapshots, while bulk schema/value results remain request-scoped.
 
 #### Scenario: Ready configuration
 
@@ -42,3 +42,8 @@ Every supported backend SHALL implement mandatory `refloat.configuration.open`, 
 
 - **WHEN** telemetry snapshots continue while a schema page or value request is outstanding
 - **THEN** authoritative state remains bounded and conflated without embedding or repeatedly delivering the bulk result
+
+#### Scenario: Flywheel configuration contract
+
+- **WHEN** authoritative package mode is flywheel
+- **THEN** `read(current)`, `write`, and `tune.apply` return `invalid_state`, schema/default reads may remain available, and the summary reports no loaded authoritative current values

@@ -36,7 +36,7 @@ The native backends and conformance simulator SHALL implement only the product c
 
 ### Requirement: Native safety and access gates
 
-The native backend SHALL authorize each Refloat control against the current connection generation, selected route, exact compatibility profile, firmware access mode, authoritative control state, latest board state, and pending operation before writing. All controls require a ready read/write connection. Package disablement and either flywheel transition additionally require an idle board; package disablement requires normal package mode; flywheel enablement requires ready package state and normal package mode; flywheel disablement requires idle flywheel mode. Fatal clearing requires a latched fatal error with no active firmware fault. Lighting changes MAY occur while riding when lighting capability is present. A rejected action MUST send no board command and MUST leave authoritative state unchanged apart from a bounded error or cleared stale pending marker.
+The native backend SHALL authorize each Refloat control through one connection-scoped mutation coordinator against the current connection generation, selected route, exact compatibility profile, firmware access mode, authoritative control state, latest board state, and pending operation immediately before scheduler submission. The coordinator SHALL be the sole extensible Refloat write authority; no control owner may retain a parallel lock or direct write path. All controls require a ready read/write connection. Package disablement and either flywheel transition additionally require an idle board; package disablement requires normal package mode; flywheel enablement requires ready package state and normal package mode; flywheel disablement requires idle flywheel mode. While authoritative package mode is flywheel, every device mutation MUST be rejected except the exact command 22 transition that disables flywheel after its normal idle and disengagement checks pass. Fatal clearing requires a latched fatal error with no active firmware fault and non-flywheel package mode. Lighting changes MAY occur while riding when lighting capability is present but MUST NOT occur in flywheel mode. A rejected action MUST send no board command and MUST leave authoritative state unchanged apart from a bounded error or cleared stale pending marker.
 
 #### Scenario: Read-only firmware
 
@@ -53,6 +53,11 @@ The native backend SHALL authorize each Refloat control against the current conn
 - **WHEN** flywheel enablement is requested while Refloat is not ready in normal mode or flywheel disablement is requested before disengagement
 - **THEN** the backend returns `invalid_state` without sending command 22
 
+#### Scenario: Flywheel-mode mutation exclusion
+
+- **WHEN** package enablement, lighting, fatal clearing, or any other device mutation is requested while authoritative package mode is flywheel
+- **THEN** the backend returns `invalid_state` and sends no mutating packet, while an eligible request to disable flywheel may send only command 22
+
 #### Scenario: Active fatal fault
 
 - **WHEN** fatal clearing is requested while the underlying firmware fault remains active
@@ -60,7 +65,7 @@ The native backend SHALL authorize each Refloat control against the current conn
 
 #### Scenario: Riding lighting change
 
-- **WHEN** a ready read/write connection with lighting capability requests a new LED or headlight state while riding
+- **WHEN** a ready read/write connection in non-flywheel package mode with lighting capability requests a new LED or headlight state while riding
 - **THEN** the backend permits the runtime lighting action without changing package configuration or ride persistence
 
 ### Requirement: Serialized route-correct control lifecycle

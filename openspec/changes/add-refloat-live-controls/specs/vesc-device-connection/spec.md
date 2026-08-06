@@ -6,6 +6,8 @@ The backends SHALL support audited VESC firmware 6.02, 6.05, 6.06, and 7.00 thro
 
 The backends SHALL support the wire families represented by every audited Refloat source package from 1.0.0 through 1.2.3 through explicit tested compatibility mappings. Refloat 1.0.x SHALL use its fixed legacy telemetry protocol, legacy lighting command 202, and shared package/flywheel controls and SHALL be detected and reported as wire version `1.0` because its INFO response does not contain a patch version. Refloat 1.1.x SHALL use its dynamic ID/data protocol, legacy lighting command 202, and shared package/flywheel controls. Refloat 1.2.x SHALL use its dynamic protocol with bounded alert/fault data, stable lighting command 20, shared package/flywheel controls, and clear-fatal command 36.
 
+The connection-scoped Refloat mutation coordinator SHALL be the only path that may submit a Refloat write and SHALL reject every mutating command while authoritative package mode is flywheel except an eligible command 22 request that disables flywheel. This mode check MUST occur immediately before scheduler submission so stale frontend state or a queued request cannot bypass it.
+
 #### Scenario: Audited VESC core profile
 
 - **WHEN** a direct or CAN-routed controller reports stable VESC 6.02, 6.05, 6.06, or 7.00 with the complete source-defined identity baseline
@@ -40,3 +42,8 @@ The backends SHALL support the wire families represented by every audited Refloa
 
 - **WHEN** controller or package identity does not match an explicit compatibility entry, including VESC 7.01 while it is a test build
 - **THEN** the backend reports that identity as unsupported without treating recognizable command IDs as compatible
+
+#### Scenario: Flywheel write authorization
+
+- **WHEN** authoritative package mode is flywheel and a caller requests a package, lighting, fatal, or other device mutation
+- **THEN** centralized authorization emits no request, while an eligible flywheel-disable transition may emit only command 22
