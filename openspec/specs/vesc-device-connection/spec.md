@@ -3,9 +3,7 @@
 ## Purpose
 
 TBD - created by archiving change support-direct-and-can-vesc-connections. Update Purpose after archive.
-
 ## Requirements
-
 ### Requirement: Bounded VESC BLE discovery and stream setup
 
 Each native backend SHALL mirror VESC Tool's saved-device discovery rule: it MAY observe BLE advertisements without a service filter but SHALL publish a device only when the advertisement contains the Nordic UART service UUID or its exact Apple peripheral UUID or Android Bluetooth address already belongs to a saved board. Saved status SHALL bypass only the advertisement check. Every connection SHALL still boundedly discover the required UART service and characteristics, enable notifications, and segment outbound frames to the available BLE write payload. Operation at the default ATT MTU SHALL remain supported; an increased MTU MUST be an optimization rather than a connection prerequisite.
@@ -177,9 +175,11 @@ When discovery finds more than one VESC motor controller, the backend SHALL paus
 
 ### Requirement: Exact supported compatibility families
 
-The backends SHALL support audited VESC firmware 6.02, 6.05, 6.06, and 7.00 through an exact compatibility catalog mapped to one `vescCoreReadOnly` profile for the commands Float View consumes. A VESC controller SHALL be supported only when `COMM_FW_VERSION` contains the complete bounded identity baseline, reports `HW_TYPE_VESC`, matches an exact catalog entry, and the selected route subsequently proves compatible Refloat INFO and layout behavior. A zero test-version marker selects normal access; a nonzero marker on an audited version selects read-only access. Read operations SHALL remain allowed in either mode, while write operations SHALL be rejected by a centralized capability check. A bounded four-byte hardware-CRC suffix MAY be absent or present according to the audited release fixture, but its value, the hardware or firmware display name, and the controller UUID MUST NOT broaden compatibility.
+The backends SHALL support audited VESC firmware 6.02, 6.05, 6.06, and 7.00 through an exact compatibility catalog mapped to one `vescCoreReadOnly` profile for the VESC-level commands Float View consumes, an exact shutdown capability for 6.05, 6.06, and 7.00, and exact Refloat control subprofiles for normal firmware. A VESC controller SHALL be supported only when `COMM_FW_VERSION` contains the complete bounded identity baseline, reports `HW_TYPE_VESC`, matches an exact catalog entry, and the selected route subsequently proves compatible Refloat INFO and layout behavior. A zero test-version marker selects normal read/write access; a nonzero marker on an audited version selects read-only access. Read operations SHALL remain allowed in either mode, while Refloat writes and shutdown SHALL pass a centralized capability and safety check before encoding. A bounded four-byte hardware-CRC suffix MAY be absent or present according to the audited release fixture, but its value, the hardware or firmware display name, and the controller UUID MUST NOT broaden compatibility or shutdown availability.
 
-The backends SHALL support the wire families represented by Refloat source packages 1.0.0, 1.1.0, and 1.2.3 through explicit tested compatibility mappings. The 1.0.0 source package SHALL use its fixed legacy telemetry protocol and SHALL be detected and reported as wire version `1.0` because its INFO response does not contain a patch version. Refloat 1.1.0 SHALL use its dynamic ID and data protocol, and Refloat 1.2.3 SHALL use its dynamic protocol with bounded alert and fault data.
+The backends SHALL support the wire families represented by every audited Refloat source package from 1.0.0 through 1.2.3 through explicit tested compatibility mappings. Refloat 1.0.x SHALL use its fixed legacy telemetry protocol, legacy lighting command 202, and shared package/flywheel controls and SHALL be detected and reported as wire version `1.0` because its INFO response does not contain a patch version. Refloat 1.1.x SHALL use its dynamic ID/data protocol, legacy lighting command 202, and shared package/flywheel controls. Refloat 1.2.x SHALL use its dynamic protocol with bounded alert/fault data, stable lighting command 20, shared package/flywheel controls, and clear-fatal command 36.
+
+The connection-scoped device mutation coordinator SHALL be the only path that may submit a Refloat write or controller shutdown and SHALL reject every mutating command while authoritative package mode is flywheel except an eligible command 22 request that disables flywheel. This mode check MUST occur immediately before scheduler submission so stale frontend state or a queued request cannot bypass it.
 
 #### Scenario: Audited VESC core profile
 
@@ -194,7 +194,7 @@ The backends SHALL support the wire families represented by Refloat source packa
 #### Scenario: Audited test build is read-only
 
 - **WHEN** an audited 6.02/6.05/6.06/7.00 controller reports a nonzero firmware test-version marker
-- **THEN** the backend reaches `ready` after route and Refloat validation, allows read operations, and rejects write operations with `unsupported_operation`
+- **THEN** the backend reaches `ready` after route and Refloat validation, allows read operations, and rejects Refloat control operations with `invalid_state`
 
 #### Scenario: Malformed VESC identity
 
@@ -203,18 +203,48 @@ The backends SHALL support the wire families represented by Refloat source packa
 
 #### Scenario: Legacy Refloat session
 
-- **WHEN** a direct or CAN-routed controller returns legacy Refloat INFO wire byte `10` from the source-package-1.0.0 protocol family
-- **THEN** the backend reports package version `1.0`, uses the fixed legacy packets, and reaches `ready` without requesting dynamic layouts or claiming that the device reported patch `.0`
+- **WHEN** a direct or CAN-routed controller returns legacy Refloat INFO wire byte `10` from an audited source-package-1.0.x protocol family
+- **THEN** the backend reports package version `1.0`, uses the fixed legacy telemetry and legacy lighting profile, and reaches `ready` without requesting dynamic layouts or claiming that the device reported patch `.0`
 
 #### Scenario: Dynamic Refloat sessions
 
-- **WHEN** a direct or CAN-routed controller reports Refloat 1.1.0 or 1.2.3
-- **THEN** the backend negotiates the corresponding dynamic layout and decodes its source-faithful response shape
+- **WHEN** a direct or CAN-routed controller reports an audited Refloat 1.1.x or 1.2.x release
+- **THEN** the backend negotiates the corresponding dynamic telemetry and exact control profile without inferring support from a broad version range
 
 #### Scenario: Unsupported identity
 
 - **WHEN** controller or package identity does not match an explicit compatibility entry, including VESC 7.01 while it is a test build
-- **THEN** the backend reports that identity as unsupported without treating a broad version range as compatible
+- **THEN** the backend reports that identity as unsupported without treating recognizable command IDs as compatible
+
+#### Scenario: Flywheel write authorization
+
+- **WHEN** authoritative package mode is flywheel and a caller requests a package, lighting, fatal, or other device mutation
+- **THEN** centralized authorization emits no request, while an eligible flywheel-disable transition may emit only command 22
+
+#### Scenario: Audited VESC shutdown profile
+
+- **WHEN** a ready writable controller reports stable VESC 6.05, 6.06, or 7.00 and authoritative ride state is idle outside flywheel mode
+- **THEN** the backend exposes shutdown and may send exactly `[156, 0, 0]` through the selected route without inspecting hardware name
+
+#### Scenario: VESC 6.02 has no shutdown command
+
+- **WHEN** an otherwise supported controller reports VESC 6.02
+- **THEN** the backend keeps shutdown unavailable and sends no command 156
+
+#### Scenario: CAN-routed shutdown
+
+- **WHEN** shutdown targets a selected CAN controller
+- **THEN** the backend wraps `[156, 0, 0]` exactly once with `COMM_FORWARD_CAN` for that controller and does not emit direct or broadcast `CAN_PACKET_SHUTDOWN`
+
+#### Scenario: Unsafe shutdown variants
+
+- **WHEN** any caller requests forced shutdown, restart, broadcast shutdown, retry, or shutdown while the board is not authoritatively idle
+- **THEN** the backend emits no mutation and returns the stable invalid-state or invalid-request error applicable to the malformed or unsafe request
+
+#### Scenario: Shutdown disconnect lifecycle
+
+- **WHEN** the current selected controller or BLE transport disappears after an accepted generation-scoped shutdown request
+- **THEN** the backend treats the loss as intentional and suppresses reconnect, while a connection that remains healthy past the bounded intent window continues normally
 
 ### Requirement: Route-correct telemetry lifecycle
 

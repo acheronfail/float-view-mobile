@@ -1,12 +1,10 @@
 ## Purpose
 
 Define the source-faithful Refloat telemetry protocol, normalization, bounded extensions, polling, and durable lifecycle shared by native backends and the conformance simulator.
-
 ## Requirements
-
 ### Requirement: Supported detailed Refloat read protocol
 
-The backends and conformance simulator SHALL implement source-faithful read-only telemetry for audited stable Refloat source packages 1.0.0–1.0.1, 1.1.0–1.1.2, and 1.2.0–1.2.3. The simulator SHALL encode the fixed-layout Refloat 1.0.x command 1 realtime response for retained legacy compatibility; native polling SHALL use command 10 for 1.0.x. Compact command 10 SHALL expose every supported detail level through level 4, including controller state, footpad values, control setpoints, field-weakening current when available, distance, temperatures, odometer, energy totals, battery level, charging values, and active firmware faults. Dynamic commands 31/32 SHALL negotiate and decode the complete always-present and running-only field lists plus package state, mode, flags, stop condition, setpoint adjustment, alert reason, charging tail, and the 1.2.x active-alert tail. Command 35 history and data-recorder commands 41–43 SHALL NOT be requested or simulated by this change.
+The backends and conformance simulator SHALL implement source-faithful telemetry plus only the Refloat product-control allowlist defined by `refloat-live-controls` for audited stable Refloat source packages 1.0.0–1.0.1, 1.1.0–1.1.2, and 1.2.0–1.2.3. The independently allowlisted VESC-core shutdown command MUST NOT broaden the Refloat package-command allowlist. The simulator SHALL encode the fixed-layout Refloat 1.0.x command 1 realtime response for retained legacy compatibility; native polling SHALL use command 10 for 1.0.x. Compact command 10 SHALL expose every supported detail level through level 4, including controller state, footpad values, control setpoints, field-weakening current when available, distance, temperatures, odometer, energy totals, battery level, charging values, and active firmware faults. Dynamic commands 31/32 SHALL negotiate and decode the complete always-present and running-only field lists plus package state, mode, flags, stop condition, setpoint adjustment, alert reason, charging tail, and the 1.2.x active-alert and fatal-latch state. Command 35 history and data-recorder commands 41–43 SHALL NOT be requested or simulated by this change.
 
 #### Scenario: Complete legacy compact response
 
@@ -40,8 +38,23 @@ The backends and conformance simulator SHALL implement source-faithful read-only
 
 #### Scenario: Unsupported write command
 
-- **WHEN** the fixture receives a Refloat tuning, configuration, lighting, flywheel, motor-control, or other unsupported write command
+- **WHEN** the fixture receives Refloat tuning, arbitrary configuration, Handtest, remote, RC-move, motor-control, recording, history, or another mutation outside the product-control allowlist
 - **THEN** it returns no simulated success, records one bounded diagnostic, and does not mutate board state
+
+#### Scenario: Allowed product control
+
+- **WHEN** the fixture receives a version-correct package, flywheel, lighting, or clear-fatal command permitted by `refloat-live-controls` in the current authoritative package mode
+- **THEN** it applies only that bounded semantic transition and returns or later reports the source-defined confirmation
+
+#### Scenario: VESC shutdown is not a Refloat command
+
+- **WHEN** the fixture receives exact VESC-core command `[156, 0, 0]` under its independently eligible shutdown profile
+- **THEN** it applies only the controller-loss simulation and does not route command 156 into Refloat package handling or broaden the Refloat mutation allowlist
+
+#### Scenario: Flywheel write exclusion
+
+- **WHEN** flywheel mode is active and the fixture receives any mutation other than the exact eligible flywheel-disable command
+- **THEN** it reports no simulated success, sends no mutation onward, and preserves semantic and configuration state
 
 #### Scenario: Deferred history command
 
@@ -126,7 +139,7 @@ For a dynamic package, each accepted compact response SHALL replace the latest c
 
 ### Requirement: Raw load and active fault semantics
 
-The product SHALL expose raw actual, requested, directional, filtered, booster, and field-weakening current independently in amperes and SHALL NOT derive torque or current utilization. Refloat 1.2.x active firmware-fault state SHALL remain distinct from transient pushback and alert-reason state. Session history SHALL contain only transitions observed by Float View and SHALL NOT claim to be command 35 device history.
+The product SHALL expose raw actual, requested, directional, filtered, booster, and field-weakening current independently in amperes and SHALL NOT derive torque or current utilization. Refloat 1.2.x fatal-latch state SHALL remain distinct from its active firmware-fault code, transient pushback, and alert-reason state. Session history SHALL contain only transitions observed by Float View, SHALL NOT persist the live-only fatal latch, and SHALL NOT claim to be command 35 device history.
 
 #### Scenario: High current
 
@@ -136,4 +149,9 @@ The product SHALL expose raw actual, requested, directional, filtered, booster, 
 #### Scenario: Firmware fault and pushback
 
 - **WHEN** duty pushback is active without a VESC firmware fault
-- **THEN** the sample reports duty setpoint adjustment and its alert reason without fabricating an active firmware fault
+- **THEN** the sample reports duty setpoint adjustment and its alert reason without fabricating an active firmware fault or fatal latch
+
+#### Scenario: Fault ends but latch remains
+
+- **WHEN** Refloat 1.2.x clears its active firmware-fault mask but retains the encoded fatal-error state bit
+- **THEN** live control state reports an inactive fault and a clearable fatal latch without adding a historical firmware-fault transition

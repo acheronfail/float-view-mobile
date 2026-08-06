@@ -3,9 +3,7 @@
 ## Purpose
 
 Define the development-only SvelteKit control surface, serial coordinator, source-faithful VESC/Refloat simulation, and software verification contract for manually exercising Float View against the programmable ESP32 fixture.
-
 ## Requirements
-
 ### Requirement: Development-only fixture entry point
 
 The repository SHALL provide `just fixture dev [port]` as the public entry point for a SvelteKit development server at `http://127.0.0.1:11004` that controls the programmable ESP32 fixture. The application MUST run only through the Vite development loop and MUST NOT introduce a production adapter, build artifact, preview command, separate package, separate lockfile, deployment, or production runtime.
@@ -105,37 +103,52 @@ The controller SHALL expose one atomic configuration action plus idempotent powe
 
 ### Requirement: Composable source-faithful controller variants
 
-The controller SHALL compose one stable THOR300 identity, one of the controller VESC firmware variants 6.02, 6.05, and 6.06, and one of the exact Refloat codecs 1.0.0, 1.1.0, and 1.2.3 at runtime. It MUST NOT implement the combinations as a registry of nine or eighteen declared board profiles. Each selected controller/package pair SHALL reproduce its source version's read-only wire behavior rather than changing display labels alone.
+The controller SHALL compose one stable THOR300 identity, one audited VESC firmware variant from 6.02, 6.05, 6.06, or 7.00, and one exact Refloat codec from 1.0.0–1.0.1, 1.1.0–1.1.2, or 1.2.0–1.2.3 at runtime. It MUST NOT implement the combinations as a registry of declared board profiles. Each selected controller/package pair SHALL reproduce its source version's identity, read protocol, exact product-control behavior, and version-applicable shutdown behavior rather than changing display labels alone.
 
 #### Scenario: Variant matrix is available
 
 - **WHEN** the control surface loads a complete state snapshot
-- **THEN** it offers exactly the three supported controller firmware values and exact Refloat values and identifies THOR300 VESC 6.06 with Refloat 1.2.3 as the default
+- **THEN** it offers the audited controller firmware and Refloat values and identifies THOR300 VESC 6.06 with Refloat 1.2.3 as the default
 
 #### Scenario: Configuration saved while powered off
 
 - **WHEN** a developer saves any supported firmware/Refloat pair together with topology and CAN ID while the fixture is powered off and disconnected
-- **THEN** the coordinator atomically applies the complete configuration, resets configuration-scoped framing, layout, telemetry, and counters, advances the state revision once, and uses only the new composed identity on the next connection
+- **THEN** the coordinator atomically applies the complete configuration, resets configuration-scoped framing, layout, telemetry, control state, and counters, advances the state revision once, and uses only the new composed identity on the next connection
 
 #### Scenario: Configuration save while active
 
 - **WHEN** a developer attempts to save any changed configuration field while advertising or connected
-- **THEN** the server rejects the whole save without changing identity, forwarding, or protocol state
+- **THEN** the server rejects the whole save without changing identity, forwarding, protocol, or control state
 
 #### Scenario: VESC firmware response shape
 
-- **WHEN** the native backend requests controller firmware from a composed 6.02, 6.05, or 6.06 variant
-- **THEN** the response reports that exact version and uses the source-version `COMM_FW_VERSION` layout, including the 6.06 hardware-CRC tail and no invented tail for 6.02 or 6.05
+- **WHEN** the native backend requests controller firmware from a composed audited variant
+- **THEN** the response reports that exact version and uses the source-version `COMM_FW_VERSION` layout and version-applicable hardware-CRC tail
 
 #### Scenario: Stable controller model identity
 
 - **WHEN** any selected firmware variant answers controller firmware
 - **THEN** it reports the deliberate THOR300 hardware name and VESC hardware type while only source-derived layout, version, and optional-tail fields vary
 
-#### Scenario: All combinations remain read-only
+#### Scenario: Allowlisted controls only
 
-- **WHEN** any of the nine runtime controller/package combinations receives an unknown or mutating request
-- **THEN** it supplies no response regardless of whether that upstream version could implement the command
+- **WHEN** a normal stable runtime combination receives a source-correct Refloat product control
+- **THEN** it applies the bounded semantic state change while unknown, motor-control, and unrelated mutation requests receive no response
+
+#### Scenario: Test-version combinations remain read-only
+
+- **WHEN** an audited test-version runtime combination receives any Refloat product-control request
+- **THEN** it supplies no mutating response and preserves simulated state
+
+#### Scenario: Exact shutdown request
+
+- **WHEN** a stable VESC 6.05, 6.06, or 7.00 variant receives `[156, 0, 0]` through its selected route while simulated ride state is idle and package mode is not flywheel
+- **THEN** it records one shutdown intent and simulates selected-controller disappearance without powering off the ESP32
+
+#### Scenario: Unsupported shutdown shape
+
+- **WHEN** VESC 6.02, a test-version variant, or any scenario receives forced, restart, malformed, retried, direct-CAN, or broadcast shutdown
+- **THEN** the fixture rejects the request, preserves simulated controller state, and records one bounded diagnostic
 
 ### Requirement: Selectable direct and VESC Express topology
 
@@ -227,22 +240,37 @@ Each Refloat codec SHALL implement the source-derived INFO and read-only telemet
 
 ### Requirement: Read-only Refloat device simulation
 
-While powered on, the coordinator SHALL answer the composed configuration's allowlisted VESC transport identity, optional CAN discovery, controller identity, Refloat identity, and applicable read-only telemetry requests through real BLE. It MUST NOT answer motor-control, firmware-write, persistent-configuration, unknown, or malformed requests.
+While powered on, the coordinator SHALL answer the composed configuration's allowlisted VESC transport identity, optional CAN discovery, controller identity, Refloat identity, applicable telemetry reads, exact Refloat product controls, and exact eligible VESC-core shutdown for normal stable firmware through real BLE. It MUST NOT answer forced-shutdown, restart, broadcast-shutdown, motor-control, firmware-write, arbitrary persistent-configuration, tuning, recording, history, Handtest, remote, RC-move, unknown, or malformed requests. Audited test-version firmware SHALL remain read-only.
 
 #### Scenario: Native backend connects
 
 - **WHEN** a production native backend discovers and connects to the advertising ESP32
-- **THEN** the coordinator services its identity, topology, Refloat layout, and telemetry requests using the existing conformance-owned framing and fixtures
+- **THEN** the coordinator services its identity, topology, Refloat layout, telemetry, and eligible product-control requests using conformance-owned framing and fixtures
+
+#### Scenario: Eligible control request
+
+- **WHEN** the writable native peer sends a version-correct package, flywheel, lighting, or clear-fatal request
+- **THEN** interactive mode updates its complete simulated control state and supplies the exact immediate or telemetry confirmation without commanding ESP32 motor hardware
+
+#### Scenario: Mutation while flywheel is active
+
+- **WHEN** simulated package mode is flywheel and the native peer sends any mutating request other than an eligible flywheel-disable command
+- **THEN** interactive mode supplies no successful response and preserves all simulated state, while the exact flywheel-disable command may return the model to normal mode
 
 #### Scenario: Unsafe request
 
-- **WHEN** the native peer sends an unknown or potentially mutating VESC request
+- **WHEN** the native peer sends an unknown or prohibited mutating VESC request
 - **THEN** interactive mode supplies no response, records a bounded actionable diagnostic without terminating its serial loop, and does not weaken canonical conformance's fail-fast request allowlist
 
 #### Scenario: Canonical conformance remains deterministic
 
-- **WHEN** automated physical conformance uses its existing fixture scenarios
-- **THEN** their scripted telemetry phases, exact fixture responses, cadence assertions, and cleanup behavior remain deterministic
+- **WHEN** automated physical conformance uses its fixture scenarios
+- **THEN** scripted telemetry and control phases, exact fixture responses, cadence assertions, safety rejections, and cleanup behavior remain deterministic
+
+#### Scenario: Shutdown does not power off the fixture
+
+- **WHEN** automated physical conformance accepts an eligible shutdown request
+- **THEN** the host-owned scenario models controller loss while the ESP32 remains powered, emits no motor action, and remains available for deterministic cleanup
 
 ### Requirement: Plausible interactive telemetry
 
