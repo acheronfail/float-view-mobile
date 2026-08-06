@@ -2,9 +2,19 @@ package fail.acheron.floatview.backend
 
 import fail.acheron.floatview.protocol.refloat.RefloatTelemetryFamily
 import fail.acheron.floatview.protocol.refloat.RefloatCommand
+import fail.acheron.floatview.protocol.refloat.RefloatBooleanControl
+import fail.acheron.floatview.protocol.refloat.RefloatCompatibility
+import fail.acheron.floatview.protocol.refloat.RefloatControlCodec
+import fail.acheron.floatview.protocol.refloat.RefloatControlProfile
+import fail.acheron.floatview.protocol.refloat.RefloatLightingState
 import fail.acheron.floatview.protocol.vesc.ControllerRoute
+import fail.acheron.floatview.protocol.vesc.VescCommandRouter
+import fail.acheron.floatview.protocol.vesc.VescCompatibility
+import fail.acheron.floatview.protocol.VescFrameCodec
 import fail.acheron.floatview.protocol.vesc.VescCommand
 import java.security.MessageDigest
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 
 class ApplicationService(
     private val bluetooth: BluetoothPort,
@@ -66,6 +76,13 @@ class ApplicationService(
         onFailure = { reason ->
             synchronized(this) {
                 events.publish(reason)
+                if (refloatMutations.controllerActions(false).pendingAction == ControllerPendingAction.SHUTDOWN) {
+                    shutdownIntentTimer?.cancel()
+                    shutdownIntentTimer = null
+                    refloatMutations.clearShutdown(vescGeneration)
+                    finishReconnect("controller_shutdown")
+                    return@synchronized
+                }
                 failIdentification(
                     ConnectionIssueCode.IDENTIFICATION_TIMEOUT,
                     "Refloat telemetry negotiation timed out.",
@@ -82,6 +99,14 @@ class ApplicationService(
     private var locationCaptureBaseElapsedMs = 0L
     private var locationCaptureActive = false
     private var currentLimits: ControllerCurrentLimits? = null
+    private val refloatMutations = DeviceMutationCoordinator()
+    private var refloatProfile: RefloatControlProfile? = null
+    private var latestRefloatTelemetry: RefloatTelemetryRecord? = null
+    private var refloatRefreshTimer: CancellationPort? = null
+    private var refloatMutationTimer: CancellationPort? = null
+    private var shutdownIntentTimer: CancellationPort? = null
+    private var refloatWaiter: RefloatMutationWaiter? = null
+    private val refloatScheduler: SchedulerPort by lazy { scheduler ?: SystemScheduler() }
     var activeDeviceId: DeviceId? = null
         private set
     private var activeDeviceName: String? = null
@@ -475,6 +500,16 @@ class ApplicationService(
             }
             is BluetoothEvent.ConnectionChanged -> {
                 if (event.deviceId != activeDeviceId) return
+                if (
+                    (event.state == ConnectionState.FAILED || event.state == ConnectionState.DISCONNECTED) &&
+                    refloatMutations.controllerActions(false).pendingAction == ControllerPendingAction.SHUTDOWN
+                ) {
+                    shutdownIntentTimer?.cancel()
+                    shutdownIntentTimer = null
+                    refloatMutations.clearShutdown(vescGeneration)
+                    finishReconnect("controller_shutdown")
+                    return
+                }
                 if (event.state == ConnectionState.READY) {
                     if (protocol == null) {
                         completeWithoutProtocol()
@@ -546,6 +581,8 @@ class ApplicationService(
                                 } else {
                                     RefloatCommand.GET_ALL_DATA.id
                                 }
+                            is VescProtocolMessage.RefloatLighting ->
+                                VescCommand.CUSTOM_APP_DATA.id to message.command.id
                         }
                         if (
                             !vescRequests.receive(event.bytes, identity.first, identity.second)
@@ -618,8 +655,18 @@ class ApplicationService(
                                     ),
                                 )
                             }
-                            is VescProtocolMessage.RefloatTelemetry ->
+                            is VescProtocolMessage.RefloatTelemetry -> {
                                 telemetryPolling.receive(message.value)
+                                latestRefloatTelemetry = message.value
+                                val pending = refloatMutations.snapshot()?.pendingAction
+                                val updated = refloatMutations.observeTelemetry(message.value)
+                                if (pending != null && updated?.pendingAction == null) finishRefloatMutation(Result.success(updated!!))
+                            }
+                            is VescProtocolMessage.RefloatLighting -> {
+                                val pending = refloatMutations.snapshot()?.pendingAction
+                                val updated = refloatMutations.observeLighting(message.state)
+                                if (pending != null && updated?.pendingAction == null) finishRefloatMutation(Result.success(updated!!))
+                            }
                         }
                         if (message !is VescProtocolMessage.BmsValuesPayload) events.publish(message)
                     }
@@ -763,7 +810,47 @@ class ApplicationService(
             controllerCandidates = controllerDiscovery.controllerCandidates,
             connectionIssue = controllerDiscovery.connectionIssue,
             bms = auxiliaryDiscovery.state,
+            refloatControls = refloatMutations.snapshot(),
+            controllerActions = controllerActionsSnapshot(),
         )
+    }
+
+    @Synchronized
+    fun shutdownController() {
+        val codec = protocol ?: throw RefloatMutationException()
+        val route = controllerDiscovery.controllerRoute ?: throw RefloatMutationException()
+        val firmware = controllerDiscovery.firmware ?: throw RefloatMutationException()
+        val telemetry = latestRefloatTelemetry ?: throw RefloatMutationException()
+        val context = ControllerShutdownContext(
+            vescGeneration,
+            connectionState == ConnectionState.READY,
+            VescCompatibility.supportsShutdown(firmware),
+            telemetry.rideState,
+            telemetry.packageMode,
+        )
+        val actions = refloatMutations.authorizeShutdown(context)
+        try {
+            events.publish(actions)
+            vescRequests.enqueueOneWay(
+                codec.controllerShutdownRequest(route),
+                VescExpectedResponse(VescCommand.SHUTDOWN.id),
+                VescRequestPriority.RIDING_TELEMETRY,
+                VescRequestContext.ControllerShutdown(route.toRequestRoute()),
+                SHUTDOWN_INTENT_TIMEOUT_MS,
+                vescGeneration,
+            ) { _, outcome ->
+                if (outcome != VescRequestCompletion.Sent) {
+                    synchronized(this) { expireShutdownIntent(context.generation) }
+                }
+            }
+            shutdownIntentTimer?.cancel()
+            shutdownIntentTimer = refloatScheduler.schedule(SHUTDOWN_INTENT_TIMEOUT_MS) {
+                synchronized(this) { expireShutdownIntent(context.generation) }
+            }
+        } catch (error: Exception) {
+            refloatMutations.clearShutdown(context.generation)
+            throw error
+        }
     }
 
     @Synchronized
@@ -771,6 +858,42 @@ class ApplicationService(
 
     @Synchronized
     fun refloatPackageVersionSnapshot(): String? = controllerDiscovery.refloatPackageVersion
+
+    fun setRefloatControl(control: RefloatBooleanControl, enabled: Boolean): RefloatControls {
+        var immediate: RefloatControls? = null
+        var waiter: RefloatMutationWaiter? = null
+        synchronized(this) {
+            val context = refloatMutationContext()
+            when (val authorization = refloatMutations.authorizeSet(control, enabled, context)) {
+                is RefloatMutationAuthorization.Idempotent -> immediate = authorization.controls
+                is RefloatMutationAuthorization.Mutation -> {
+                    waiter = RefloatMutationWaiter().also { refloatWaiter = it }
+                    events.publish(authorization.controls)
+                    submitRefloatMutation(authorization.mutation, context.route, context.generation)
+                    armRefloatMutationTimeout(context.generation)
+                }
+            }
+        }
+        return immediate ?: waiter!!.await()
+    }
+
+    fun clearRefloatFatalError(): RefloatControls {
+        var immediate: RefloatControls? = null
+        var waiter: RefloatMutationWaiter? = null
+        synchronized(this) {
+            val context = refloatMutationContext()
+            when (val authorization = refloatMutations.authorizeFatalClear(context)) {
+                is RefloatMutationAuthorization.Idempotent -> immediate = authorization.controls
+                is RefloatMutationAuthorization.Mutation -> {
+                    waiter = RefloatMutationWaiter().also { refloatWaiter = it }
+                    events.publish(authorization.controls)
+                    submitRefloatMutation(authorization.mutation, context.route, context.generation)
+                    armRefloatMutationTimeout(context.generation)
+                }
+            }
+        }
+        return immediate ?: waiter!!.await()
+    }
 
     private fun startFirmwareDiscovery(deviceId: DeviceId) {
         if (protocol == null || activeDeviceId != deviceId) return
@@ -995,6 +1118,7 @@ class ApplicationService(
         controllerDiscovery.clearIssue()
         clearDiscoveredDevices(publish = false)
         transition(ConnectionState.READY)
+        configureRefloatControls(selectedFirmware)
         protocol?.let { decoder ->
             runCatching {
                 submitVescRequest(
@@ -1107,7 +1231,9 @@ class ApplicationService(
                     when (completion) {
                         VescRequestCompletion.TimedOut, VescRequestCompletion.QueueFull ->
                             recordBmsFailure()
-                        is VescRequestCompletion.Response -> Unit
+                        is VescRequestCompletion.Response,
+                        VescRequestCompletion.Sent,
+                        -> Unit
                         VescRequestCompletion.Cancelled, VescRequestCompletion.StaleGeneration ->
                             return@synchronized
                     }
@@ -1327,6 +1453,136 @@ class ApplicationService(
         reconnectAttempt = 0
     }
 
+    private fun configureRefloatControls(firmware: FirmwareRecord) {
+        val profile = controllerDiscovery.refloatPackageVersion?.let(RefloatCompatibility::controlProfile)
+        val access = VescCompatibility.accessMode(firmware)
+        if (profile == null || access == null) { refloatProfile = null; return }
+        refloatProfile = profile
+        latestRefloatTelemetry = null
+        events.publish(refloatMutations.configure(
+            vescGeneration, profile,
+            access == fail.acheron.floatview.protocol.vesc.VescAccessMode.READ_WRITE,
+        ))
+        scheduleRefloatLightingRefresh()
+    }
+
+    private fun requestRefloatLighting(route: ControllerRoute, profile: RefloatControlProfile) {
+        if (connectionState != ConnectionState.READY || refloatMutations.snapshot()?.pendingAction != null) return
+        runCatching {
+            val snapshot = refloatMutations.snapshot()
+            val command = RefloatControlCodec.lightingRequest(
+                profile, null, current = RefloatLightingState(
+                    snapshot?.ledsEnabled ?: false, snapshot?.headlightsEnabled ?: false,
+                ),
+            )
+            submitVescRequest(
+                VescFrameCodec.encode(VescCommandRouter.route(command, route)),
+                VescExpectedResponse(VescCommand.CUSTOM_APP_DATA.id, command[2].toInt() and 0xff),
+                VescRequestPriority.AUXILIARY, VescRequestContext.RefloatLighting(route.toRequestRoute()),
+                CAN_PROBE_TIMEOUT_MS,
+            )
+        }.onFailure { events.publish("refloat_lighting_refresh_failed") }
+    }
+
+    private fun scheduleRefloatLightingRefresh() {
+        refloatRefreshTimer?.cancel()
+        refloatRefreshTimer = refloatScheduler.schedule(REFLOAT_REFRESH_MS) {
+            synchronized(this) {
+                val route = controllerDiscovery.controllerRoute
+                val profile = refloatProfile
+                if (route != null && profile != null) {
+                    requestRefloatLighting(route, profile)
+                    scheduleRefloatLightingRefresh()
+                }
+            }
+        }
+    }
+
+    private fun refloatMutationContext(): RefloatMutationContext {
+        val route = controllerDiscovery.controllerRoute
+        val profile = refloatProfile
+        val telemetry = latestRefloatTelemetry
+        val firmware = controllerDiscovery.firmware
+        if (connectionState != ConnectionState.READY || route == null || profile == null || telemetry == null || firmware == null) throw RefloatMutationException()
+        return RefloatMutationContext(
+            vescGeneration, route, profile, true,
+            VescCompatibility.accessMode(firmware) == fail.acheron.floatview.protocol.vesc.VescAccessMode.READ_WRITE,
+            telemetry.rideState, telemetry.packageState, telemetry.packageMode,
+        )
+    }
+
+    private fun submitRefloatMutation(
+        mutation: AuthorizedRefloatMutation,
+        route: ControllerRoute,
+        generation: VescRequestGeneration,
+    ) {
+        val payload = VescFrameCodec.encode(VescCommandRouter.route(mutation.payload, route))
+        val completion: (VescScheduledRequest, VescRequestCompletion) -> Unit = { _, outcome ->
+            when (outcome) {
+                is VescRequestCompletion.Response, VescRequestCompletion.Sent -> Unit
+                else -> synchronized(this) { failRefloatMutation(generation) }
+            }
+        }
+        if (mutation.oneWay) {
+            vescRequests.enqueueOneWay(
+                payload, mutation.expectedResponse, VescRequestPriority.RIDING_TELEMETRY,
+                VescRequestContext.RefloatControl(route.toRequestRoute()), REFLOAT_MUTATION_TIMEOUT_MS,
+                generation, completion,
+            )
+        } else {
+            vescRequests.enqueue(
+                payload, mutation.expectedResponse, VescRequestPriority.RIDING_TELEMETRY,
+                VescRequestContext.RefloatControl(route.toRequestRoute()), REFLOAT_MUTATION_TIMEOUT_MS,
+                generation, completion,
+            )
+        }
+    }
+
+    private fun armRefloatMutationTimeout(generation: VescRequestGeneration) {
+        refloatMutationTimer?.cancel()
+        refloatMutationTimer = refloatScheduler.schedule(REFLOAT_MUTATION_TIMEOUT_MS) {
+            synchronized(this) { failRefloatMutation(generation) }
+        }
+    }
+
+    private fun failRefloatMutation(generation: VescRequestGeneration) {
+        val updated = refloatMutations.failPending(generation) ?: return
+        events.publish("refloat_control_confirmation_timeout")
+        events.publish(updated)
+        finishRefloatMutation(Result.failure(RefloatMutationException(unavailable = true)))
+    }
+
+    private fun finishRefloatMutation(result: Result<RefloatControls>) {
+        refloatMutationTimer?.cancel(); refloatMutationTimer = null
+        val waiter = refloatWaiter; refloatWaiter = null
+        waiter?.finish(result)
+    }
+
+    private fun cancelRefloatControls() {
+        refloatRefreshTimer?.cancel(); refloatRefreshTimer = null
+        refloatMutationTimer?.cancel(); refloatMutationTimer = null
+        shutdownIntentTimer?.cancel(); shutdownIntentTimer = null
+        refloatProfile = null; latestRefloatTelemetry = null
+        refloatMutations.cancel()
+        finishRefloatMutation(Result.failure(RefloatMutationException(unavailable = true)))
+    }
+
+    private fun controllerActionsSnapshot(): ControllerActions {
+        val supported = controllerDiscovery.firmware?.let(VescCompatibility::supportsShutdown) ?: false
+        val telemetry = latestRefloatTelemetry
+        val available = connectionState == ConnectionState.READY && supported &&
+            telemetry?.rideState == RideState.IDLE && telemetry.packageMode != PackageMode.FLYWHEEL &&
+            refloatMutations.snapshot()?.pendingAction == null
+        return refloatMutations.controllerActions(available)
+    }
+
+    private fun expireShutdownIntent(generation: VescRequestGeneration) {
+        val actions = refloatMutations.clearShutdown(generation) ?: return
+        shutdownIntentTimer?.cancel(); shutdownIntentTimer = null
+        events.publish("controller_shutdown_unconfirmed")
+        events.publish(actions)
+    }
+
     private fun transition(state: ConnectionState) {
         connectionState = state
         events.publish(state)
@@ -1342,6 +1598,7 @@ class ApplicationService(
         bmsPollTimer = null
         bmsFailureCount = 0
         currentLimits = null
+        cancelRefloatControls()
         currentSavedDevice = null
         cancelIdentificationTimeout()
         cancelCanProbeTimeout()
@@ -1386,5 +1643,26 @@ class ApplicationService(
         // COMM_PING_CAN can synchronously probe all 255 CAN IDs at 10 ms per ID.
         const val CAN_SCAN_TIMEOUT_MS = 10_000L
         const val CAN_PROBE_TIMEOUT_MS = 1_000L
+        const val REFLOAT_REFRESH_MS = 1_000L
+        const val REFLOAT_MUTATION_TIMEOUT_MS = 3_000L
+        // Android can surface controller power loss only after the BLE link
+        // supervision timeout (GATT status 8), well after the command write.
+        const val SHUTDOWN_INTENT_TIMEOUT_MS = 30_000L
+    }
+}
+
+private class RefloatMutationWaiter {
+    private val latch = CountDownLatch(1)
+    @Volatile private var result: Result<RefloatControls>? = null
+
+    @Synchronized fun finish(value: Result<RefloatControls>) {
+        if (result != null) return
+        result = value
+        latch.countDown()
+    }
+
+    fun await(): RefloatControls {
+        if (!latch.await(3_250, TimeUnit.MILLISECONDS)) throw RefloatMutationException(unavailable = true)
+        return result!!.getOrThrow()
     }
 }

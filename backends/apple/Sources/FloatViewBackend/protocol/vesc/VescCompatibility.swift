@@ -44,4 +44,11 @@ public enum VescCompatibility {
     guard let mode = accessMode(firmware) else { return false }
     return operation == .read || mode == .readWrite
   }
+
+  public static func supportsShutdown(_ firmware: FirmwareRecord) -> Bool {
+    guard accessMode(firmware) == .readWrite else { return false }
+    return Set<VescFirmwareVersion>([.init(6, 5), .init(6, 6), .init(7, 0)]).contains(
+      .init(firmware.major, firmware.minor)
+    )
+  }
 }

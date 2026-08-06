@@ -3,13 +3,24 @@
   import { goto } from '$app/navigation';
   import { APP_HEADER_CONTEXT, type AppHeaderContext } from '$lib/app/header';
   import { backendState } from '$lib/backend/state.svelte';
+  import type { RefloatControl } from '$lib/backend/contract';
   import BoardEditor from '$lib/features/boards/BoardEditor.svelte';
   import ControllerSelection from '$lib/features/connection/ControllerSelection.svelte';
   import DetailedView from '$lib/features/connection/DetailedView.svelte';
+  import FlywheelModeOverlay from '$lib/features/connection/FlywheelModeOverlay.svelte';
   import LiveView from '$lib/features/connection/LiveView.svelte';
   import BmsView from '$lib/features/connection/BmsView.svelte';
   import { bmsMenuVisible } from '$lib/features/connection/bms';
-  import { shouldConfirmDisconnect } from '$lib/features/connection/live';
+  import {
+    controllerShutdownConfirmation,
+    controllerShutdownDisabled,
+    flywheelDisableUnavailable,
+    flywheelOverlayVisible,
+    refloatControlConfirmation,
+    refloatMenuActions,
+    shouldConfirmDisconnect,
+    type RefloatControlConfirmation,
+  } from '$lib/features/connection/live';
   import BottomSheet from '$lib/ui/BottomSheet.svelte';
   import ConfirmDialog from '$lib/ui/ConfirmDialog.svelte';
   import { activateFromKeyboardOrAssistiveClick, activateFromPointer } from '$lib/ui/activation';
@@ -29,6 +40,8 @@
   let connectionIssueConfirmationOpen = $state(false);
   let firmwareUnsupportedConfirmationOpen = $state(false);
   let disconnecting = $state(false);
+  let shutdownConfirmationOpen = $state(false);
+  let refloatConfirmation = $state<RefloatControlConfirmation | null>(null);
   let editor = $state<BoardEditor>();
   const appHeader = getContext<AppHeaderContext>(APP_HEADER_CONTEXT);
   const headerOwner = '/live';
@@ -131,6 +144,21 @@
           label: nextView.displayName,
           onactivate: (closeMenu: () => void) => cycleView(closeMenu),
         },
+        ...refloatMenuActions(connection).map((action) => ({
+          label: action.label,
+          disabled: action.disabled,
+          appearance: action.kind === 'clearFatalError' ? ('warning' as const) : ('normal' as const),
+          onactivate: (closeMenu: () => void) => activateRefloatAction(action, closeMenu),
+        })),
+        {
+          label: 'Shut down controller',
+          appearance: 'destructive' as const,
+          disabled: backendState.busy || controllerShutdownDisabled(connection),
+          onactivate: (closeMenu: () => void) => {
+            closeMenu();
+            shutdownConfirmationOpen = true;
+          },
+        },
         ...(connection.savedDeviceId
           ? [
               {
@@ -192,6 +220,59 @@
       return;
     }
     void disconnect();
+  }
+
+  function activateRefloatAction(action: ReturnType<typeof refloatMenuActions>[number], closeMenu: () => void) {
+    closeMenu();
+    if (action.kind === 'clearFatalError') {
+      void performFatalClear();
+      return;
+    }
+    refloatConfirmation = refloatControlConfirmation(action.control, action.enabled);
+    if (refloatConfirmation) return;
+    void performRefloatControl(action.control, action.enabled);
+  }
+
+  async function performRefloatControl(control?: RefloatControl, enabled?: boolean) {
+    const confirmed = refloatConfirmation;
+    const selectedControl = control ?? confirmed?.control;
+    const selectedEnabled = enabled ?? confirmed?.enabled;
+    if (!selectedControl || selectedEnabled === undefined) return;
+    await backendState.setRefloatControl(selectedControl, selectedEnabled);
+    refloatConfirmation = null;
+    await tick();
+    appHeader.focusMenu();
+  }
+
+  async function performFatalClear() {
+    await backendState.clearRefloatFatalError();
+    await tick();
+    appHeader.focusMenu();
+  }
+
+  async function disableFlywheelMode() {
+    if (!connection || flywheelDisableUnavailable(connection)) return;
+    await backendState.setRefloatControl('flywheel', false);
+  }
+
+  async function cancelRefloatConfirmation() {
+    refloatConfirmation = null;
+    await tick();
+    appHeader.focusMenu();
+  }
+
+  async function performControllerShutdown() {
+    if (!connection || controllerShutdownDisabled(connection)) return;
+    await backendState.shutdownController();
+    shutdownConfirmationOpen = false;
+    await tick();
+    if (backendState.snapshot?.activeConnection) appHeader.focusMenu();
+  }
+
+  async function cancelControllerShutdown() {
+    shutdownConfirmationOpen = false;
+    await tick();
+    appHeader.focusMenu();
   }
 
   async function disconnect() {
@@ -334,6 +415,30 @@
   oncancel={cancelDisconnect}
 />
 
+<ConfirmDialog
+  open={refloatConfirmation !== null}
+  titleId="refloat-control-confirmation-title"
+  title={refloatConfirmation?.title ?? 'Confirm Refloat control'}
+  description={refloatConfirmation?.description ?? ''}
+  confirmLabel={refloatConfirmation?.confirmLabel ?? 'Confirm'}
+  appearance="warning"
+  busy={backendState.busy}
+  onconfirm={() => performRefloatControl()}
+  oncancel={cancelRefloatConfirmation}
+/>
+
+<ConfirmDialog
+  open={shutdownConfirmationOpen}
+  titleId="controller-shutdown-confirmation-title"
+  title={controllerShutdownConfirmation.title}
+  description={controllerShutdownConfirmation.description}
+  confirmLabel={controllerShutdownConfirmation.confirmLabel}
+  appearance="destructive"
+  busy={backendState.busy || connection?.controllerActions.pendingAction === 'shutdown'}
+  onconfirm={performControllerShutdown}
+  oncancel={cancelControllerShutdown}
+/>
+
 {#if configureOpen && connection?.savedDeviceId}
   <BottomSheet title="Board configuration" titleId="configure-sheet-title" onclose={closeConfigure}>
     <BoardEditor bind:this={editor} savedDeviceId={connection.savedDeviceId} embedded onclose={closeConfigure} />
@@ -342,4 +447,12 @@
 
 {#if connection?.state === 'selecting_controller'}
   <ControllerSelection {connection} ondisconnect={disconnect} />
+{/if}
+
+{#if flywheelOverlayVisible(connection)}
+  <FlywheelModeOverlay
+    busy={backendState.busy || connection?.refloatControls?.pendingAction === 'flywheel'}
+    disabled={flywheelDisableUnavailable(connection)}
+    ondisable={disableFlywheelMode}
+  />
 {/if}

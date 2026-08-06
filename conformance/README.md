@@ -65,6 +65,31 @@ The telemetry matrix covers Refloat 1.0.0 command 1 plus command 10 detail
 levels 1–4, and Refloat 1.1.0/1.2.3 command 31/32 plus periodic command 10
 detail 4. Command 35 history and commands 41–43 are intentionally deferred.
 
+The product-control matrix covers exact commands 12, 22, 202, 20, and 36 for
+representative Refloat 1.0.0, 1.1.0, and 1.2.3 direct and CAN routes. Its
+disposable state model confirms one-way writes through later telemetry and
+lighting through exact responses, while rejecting malformed, wrong-route,
+test-version, moving, active-fault, competing, stale, and flywheel-prohibited
+work. Exact flywheel disable remains permitted while the active flywheel run
+state is normalized as riding, matching Refloat's stop-before-mode-change
+command behavior. The ESP32 remains a byte bridge and has no motor-motion
+command path.
+
+The separate physical control checkpoint must run each native backend against
+both direct and CAN fixture routes. Exercise idempotent reads/writes first, then
+package, lighting, flywheel enable/disable, and eligible fatal clear while the
+fixture reports idle. Record confirmation, timeout/recovery, and reconnect reset,
+and explicitly assert that no motor command or movement occurred. Unavailable
+hardware is recorded as unavailable rather than replaced with software evidence.
+
+The controller-shutdown matrix accepts only exact VESC-core `[156, 0, 0]` on
+writable stable VESC 6.05, 6.06, and 7.00 routes. It covers direct and one-level
+CAN forwarding, idle-only authorization, flywheel and competing-mutation
+exclusion, malformed/forced/restart/broadcast/repeated rejection, selected-node
+or transport loss without powering down the ESP32, and a deterministic
+unsupported-hardware no-op. Shutdown is accepted-only, one-way, and never
+retried; neither the simulator nor contract state asserts confirmed power-off.
+
 ## Physical BMS checkpoint
 
 The explicit hardware checkpoint remains separate from `just verify`. Run the

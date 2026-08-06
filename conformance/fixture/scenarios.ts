@@ -10,6 +10,10 @@ import {
 } from './boards.ts';
 import { encodeFirmwarePayload, thor300 } from './firmware.ts';
 import type { ConnectionIssueCode } from '../../frontend/src/lib/backend/contract.ts';
+import { ControllerShutdownModel } from './controller-shutdown.ts';
+import { RefloatControlModel } from './refloat-controls.ts';
+import { refloatCodecs } from './refloat.ts';
+import { idleTelemetry, type TelemetrySource } from './telemetry.ts';
 import {
   encodeBmsFirmwarePayload,
   encodeVbms32FirmwarePayload,
@@ -21,6 +25,11 @@ export type PhysicalScenarioName =
   | 'identity'
   | 'direct'
   | 'direct-legacy'
+  | 'control-direct'
+  | 'control-can'
+  | 'shutdown-direct'
+  | 'shutdown-can'
+  | 'shutdown-no-op'
   | 'explicit-can'
   | 'generic-gateway'
   | 'ambiguous'
@@ -44,6 +53,62 @@ export interface FixtureScenario {
   selectCanId?: number;
   expectedBmsConnection?: 'direct' | { canId: number };
 }
+
+const controlDirectBoard: BoardConfiguration = {
+  ...directThor,
+  name: 'Direct / Refloat product controls',
+  controllers: directThor.controllers.map((controller) => ({
+    ...controller,
+    refloat: refloatCodecs['1.2.3'],
+    refloatControls: new RefloatControlModel('1.2.3'),
+    telemetry: idleControlTelemetry(),
+  })),
+};
+
+const controlCanBoard: BoardConfiguration = {
+  ...expressExplicitThor,
+  name: 'Express CAN / Refloat product controls',
+  controllers: expressExplicitThor.controllers.map((controller) => ({
+    ...controller,
+    refloat: refloatCodecs['1.2.3'],
+    refloatControls: new RefloatControlModel('1.2.3'),
+    telemetry: idleControlTelemetry(),
+  })),
+};
+
+function idleControlTelemetry(): TelemetrySource {
+  return {
+    phase: () => 'idle',
+    next: () => idleTelemetry,
+  };
+}
+
+const shutdownDirectBoard: BoardConfiguration = {
+  ...controlDirectBoard,
+  name: 'Direct / controller shutdown',
+  controllers: controlDirectBoard.controllers.map((controller) => ({
+    ...controller,
+    shutdown: new ControllerShutdownModel('disconnect'),
+  })),
+};
+
+const shutdownCanBoard: BoardConfiguration = {
+  ...controlCanBoard,
+  name: 'Express CAN / controller shutdown',
+  controllers: controlCanBoard.controllers.map((controller) => ({
+    ...controller,
+    shutdown: new ControllerShutdownModel('disconnect'),
+  })),
+};
+
+const shutdownNoOpBoard: BoardConfiguration = {
+  ...controlDirectBoard,
+  name: 'Direct / unsupported hardware shutdown no-op',
+  controllers: controlDirectBoard.controllers.map((controller) => ({
+    ...controller,
+    shutdown: new ControllerShutdownModel('no-op'),
+  })),
+};
 
 const physicalCanBms: BmsConfiguration = {
   canId: 42,
@@ -92,6 +157,46 @@ export const fixtureScenarios: Record<PhysicalScenarioName, FixtureScenario> = {
     board: directLegacyThor,
     fragmentBytes: 20,
     minimumTelemetryResponses: 2,
+    preferredCanId: null,
+    requiresMobileLifecycle: false,
+  },
+  'control-direct': {
+    name: 'control-direct',
+    board: controlDirectBoard,
+    fragmentBytes: 20,
+    minimumTelemetryResponses: 6,
+    preferredCanId: null,
+    requiresMobileLifecycle: false,
+  },
+  'control-can': {
+    name: 'control-can',
+    board: controlCanBoard,
+    fragmentBytes: 20,
+    minimumTelemetryResponses: 6,
+    preferredCanId: 42,
+    requiresMobileLifecycle: false,
+  },
+  'shutdown-direct': {
+    name: 'shutdown-direct',
+    board: shutdownDirectBoard,
+    fragmentBytes: 20,
+    minimumTelemetryResponses: 1,
+    preferredCanId: null,
+    requiresMobileLifecycle: false,
+  },
+  'shutdown-can': {
+    name: 'shutdown-can',
+    board: shutdownCanBoard,
+    fragmentBytes: 20,
+    minimumTelemetryResponses: 1,
+    preferredCanId: 42,
+    requiresMobileLifecycle: false,
+  },
+  'shutdown-no-op': {
+    name: 'shutdown-no-op',
+    board: shutdownNoOpBoard,
+    fragmentBytes: 20,
+    minimumTelemetryResponses: 1,
     preferredCanId: null,
     requiresMobileLifecycle: false,
   },
@@ -188,6 +293,11 @@ export const physicalScenarioMatrix = {
     'identity',
     'direct',
     'direct-legacy',
+    'control-direct',
+    'control-can',
+    'shutdown-direct',
+    'shutdown-can',
+    'shutdown-no-op',
     'explicit-can',
     'generic-gateway',
     'ambiguous',
@@ -201,6 +311,11 @@ export const physicalScenarioMatrix = {
     'identity',
     'direct',
     'direct-legacy',
+    'control-direct',
+    'control-can',
+    'shutdown-direct',
+    'shutdown-can',
+    'shutdown-no-op',
     'explicit-can',
     'generic-gateway',
     'ambiguous',
@@ -215,6 +330,11 @@ export const physicalScenarioMatrix = {
     'identity',
     'direct',
     'direct-legacy',
+    'control-direct',
+    'control-can',
+    'shutdown-direct',
+    'shutdown-can',
+    'shutdown-no-op',
     'explicit-can',
     'generic-gateway',
     'ambiguous',

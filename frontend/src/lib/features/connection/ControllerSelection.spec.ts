@@ -29,6 +29,8 @@ const connection: ActiveConnection = {
   ],
   connectionIssue: null,
   bms: { status: 'discovering', connection: null, candidates: [], latestSnapshot: null },
+  refloatControls: null,
+  controllerActions: { shutdownAvailable: false, pendingAction: null },
   firmware: null,
   latestSample: null,
   latestLocation: null,

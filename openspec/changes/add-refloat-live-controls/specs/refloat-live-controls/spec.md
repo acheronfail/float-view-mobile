@@ -36,7 +36,7 @@ The native backends and conformance simulator SHALL implement only the product c
 
 ### Requirement: Native safety and access gates
 
-The native backend SHALL authorize each Refloat control through one connection-scoped mutation coordinator against the current connection generation, selected route, exact compatibility profile, firmware access mode, authoritative control state, latest board state, and pending operation immediately before scheduler submission. The coordinator SHALL be the sole extensible Refloat write authority; no control owner may retain a parallel lock or direct write path. All controls require a ready read/write connection. Package disablement and either flywheel transition additionally require an idle board; package disablement requires normal package mode; flywheel enablement requires ready package state and normal package mode; flywheel disablement requires idle flywheel mode. While authoritative package mode is flywheel, every device mutation MUST be rejected except the exact command 22 transition that disables flywheel after its normal idle and disengagement checks pass. Fatal clearing requires a latched fatal error with no active firmware fault and non-flywheel package mode. Lighting changes MAY occur while riding when lighting capability is present but MUST NOT occur in flywheel mode. A rejected action MUST send no board command and MUST leave authoritative state unchanged apart from a bounded error or cleared stale pending marker.
+The native backend SHALL authorize each Refloat control through one connection-scoped device mutation coordinator against the current connection generation, selected route, exact compatibility profile, firmware access mode, authoritative control state, latest board state, and pending operation immediately before scheduler submission. The coordinator SHALL be the sole authority for Refloat writes and controller shutdown; no control owner may retain a parallel lock or direct write path. All controls require a ready read/write connection. Package disablement and flywheel enablement additionally require an idle board; package disablement requires normal package mode; flywheel enablement requires ready package state and normal package mode. Flywheel disablement requires authoritative flywheel mode but MUST remain available while the package run state is active and normalized as riding because upstream command 22 performs `state_flywheel_off` followed by `flywheel_stop`. While authoritative package mode is flywheel, every device mutation, including controller shutdown, MUST be rejected except that exact command 22 off transition. Fatal clearing requires a latched fatal error with no active firmware fault and non-flywheel package mode. Lighting changes MAY occur while riding when lighting capability is present but MUST NOT occur in flywheel mode. A rejected action MUST send no board command and MUST leave authoritative state unchanged apart from a bounded error or cleared stale pending marker.
 
 #### Scenario: Read-only firmware
 
@@ -48,10 +48,15 @@ The native backend SHALL authorize each Refloat control through one connection-s
 - **WHEN** package disablement is requested while the latest authoritative ride state is not exactly idle
 - **THEN** the backend returns `invalid_state` without sending command 12
 
-#### Scenario: Flywheel precondition failure
+#### Scenario: Flywheel enable precondition failure
 
-- **WHEN** flywheel enablement is requested while Refloat is not ready in normal mode or flywheel disablement is requested before disengagement
+- **WHEN** flywheel enablement is requested while Refloat is not idle and ready in normal mode
 - **THEN** the backend returns `invalid_state` without sending command 22
+
+#### Scenario: Active flywheel disable
+
+- **WHEN** exact flywheel disable is requested while authoritative package mode is flywheel and its run state is normalized as riding
+- **THEN** the backend sends only command 22 off and waits for telemetry to confirm normal mode
 
 #### Scenario: Flywheel-mode mutation exclusion
 
@@ -68,9 +73,14 @@ The native backend SHALL authorize each Refloat control through one connection-s
 - **WHEN** a ready read/write connection in non-flywheel package mode with lighting capability requests a new LED or headlight state while riding
 - **THEN** the backend permits the runtime lighting action without changing package configuration or ride persistence
 
+#### Scenario: Shutdown competes with Refloat mutation
+
+- **WHEN** controller shutdown is pending and a Refloat action arrives, or a Refloat action is pending and shutdown arrives
+- **THEN** the shared mutation coordinator returns `invalid_state` for the competing action and emits no second mutation
+
 ### Requirement: Serialized route-correct control lifecycle
 
-Every Refloat control write, lighting status request, and confirmation probe SHALL use the selected controller route exactly once through the connection-wide bounded VESC request scheduler. At most one frontend control action MAY be pending. Due riding telemetry SHALL retain priority over control-state refresh work, while an accepted user action SHALL be processed ahead of auxiliary discovery and background control refresh. Lighting status SHALL be queried on ready entry, after reconnect, after a lighting action, and at a bounded low cadence while lighting is available. One-way package, flywheel, and fatal commands SHALL be confirmed through subsequent scheduled telemetry rather than by fabricating an acknowledgement. Timeout, malformed response, disconnect, route replacement, or generation change SHALL terminate the matching action, clear its pending marker, and MUST NOT allow a stale response to mutate the replacement connection.
+Every Refloat control write, lighting status request, confirmation probe, and controller shutdown SHALL use the selected controller route exactly once through the connection-wide bounded VESC request scheduler. At most one frontend mutation action MAY be pending. Due riding telemetry SHALL retain priority over control-state refresh work, while an accepted user action SHALL be processed ahead of auxiliary discovery and background control refresh. Lighting status SHALL be queried on ready entry, after reconnect, after a lighting action, and at a bounded low cadence while lighting is available. One-way package, flywheel, and fatal commands SHALL be confirmed through subsequent scheduled telemetry rather than by fabricating an acknowledgement; shutdown SHALL report only scheduler acceptance and then follow its bounded connection-loss lifecycle. Timeout, malformed response, disconnect, route replacement, or generation change SHALL terminate the matching action, clear its pending marker, and MUST NOT allow a stale response to mutate the replacement connection.
 
 #### Scenario: Direct control
 

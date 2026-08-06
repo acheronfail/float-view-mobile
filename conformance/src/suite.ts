@@ -470,6 +470,24 @@ async function createCompletedSession(client: ConformanceClient, deviceId: strin
       'wheelslip',
     ]);
   }
+  if (connected.activeConnection.refloatControls?.status === 'ready') {
+    const controls = connected.activeConnection.refloatControls;
+    if (controls.packageEnabled !== null && connected.activeConnection.latestSample?.rideState === 'idle') {
+      const idempotent = await client.request('refloat.control.set', {
+        control: 'package',
+        enabled: controls.packageEnabled,
+      });
+      assert.deepEqual(idempotent, controls, 'idempotent control request changed authoritative state');
+    }
+    if (controls.fatalErrorClearable) {
+      const cleared = await client.request('refloat.fatalError.clear', {});
+      assert.equal(cleared.fatalErrorLatched, false);
+      assert.equal(cleared.pendingAction, null);
+    } else {
+      await expectError(client.request('refloat.fatalError.clear', {}), 'invalid_state');
+    }
+  }
+  await expectError(client.request('controller.shutdown', { force: true } as never), 'invalid_request');
   let ridingState: AppState;
   if (connected.activeConnection.latestSample?.rideState === 'riding') {
     ridingState = connected;
@@ -480,6 +498,7 @@ async function createCompletedSession(client: ConformanceClient, deviceId: strin
       { afterRevision: connected.revision }
     );
   }
+  await expectError(client.request('controller.shutdown', {}), 'invalid_state');
   await expectError(client.request('device.connect', { deviceId, trackingMode: 'saved' }), 'invalid_state');
   await client.request('device.disconnect', {});
   await client.waitForState((value) => value.activeConnection === null, {
@@ -630,6 +649,42 @@ export function assertState(state: AppState) {
     assert.ok(snapshot.reportedCanId >= 0 && snapshot.reportedCanId <= 253);
   }
 
+  if (active.refloatControls) {
+    const controls = active.refloatControls;
+    assert.deepEqual(Object.keys(controls).sort(), [
+      'fatalErrorActive',
+      'fatalErrorClearAvailable',
+      'fatalErrorClearable',
+      'fatalErrorLatched',
+      'flywheelEnabled',
+      'headlightsEnabled',
+      'ledsEnabled',
+      'lightingAvailable',
+      'packageEnabled',
+      'pendingAction',
+      'status',
+      'writable',
+    ]);
+    assert.ok(['loading', 'ready', 'unavailable'].includes(controls.status));
+    assert.ok(
+      controls.pendingAction === null ||
+        ['package', 'flywheel', 'leds', 'headlights', 'clearFatalError'].includes(controls.pendingAction)
+    );
+    if (!controls.lightingAvailable) {
+      assert.equal(controls.ledsEnabled, null);
+      assert.equal(controls.headlightsEnabled, null);
+    }
+    if (!controls.fatalErrorClearAvailable) {
+      assert.equal(controls.fatalErrorClearable, false);
+    }
+  }
+
+  assert.deepEqual(Object.keys(active.controllerActions).sort(), ['pendingAction', 'shutdownAvailable']);
+  assert.ok(active.controllerActions.pendingAction === null || active.controllerActions.pendingAction === 'shutdown');
+  if (active.controllerActions.pendingAction === 'shutdown') {
+    assert.equal(active.controllerActions.shutdownAvailable, false);
+  }
+
   if (active.connectionIssue) {
     assert.ok(stableConnectionIssueCodes.has(active.connectionIssue.code));
     assert.ok(active.connectionIssue.message.length > 0);
@@ -689,6 +744,8 @@ export const mandatoryMethods: BackendMethod[] = [
   'device.connect',
   'device.selectController',
   'device.disconnect',
+  'refloat.control.set',
+  'refloat.fatalError.clear',
   'savedDevice.update',
   'savedDevice.delete',
   'settings.update',

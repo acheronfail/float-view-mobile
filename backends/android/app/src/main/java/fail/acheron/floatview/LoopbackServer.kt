@@ -8,6 +8,7 @@ import fail.acheron.floatview.backend.ApplicationService
 import fail.acheron.floatview.backend.BluetoothState
 import fail.acheron.floatview.backend.BoardProfileRecord
 import fail.acheron.floatview.backend.ConnectionState
+import fail.acheron.floatview.backend.ControllerActions
 import fail.acheron.floatview.backend.DeviceId
 import fail.acheron.floatview.backend.DiscoveredDevice
 import fail.acheron.floatview.backend.DiscoverySnapshot
@@ -17,6 +18,9 @@ import fail.acheron.floatview.backend.LocationProviderState
 import fail.acheron.floatview.backend.LocationUpdated
 import fail.acheron.floatview.backend.LiveLocation
 import fail.acheron.floatview.backend.ProductStoreException
+import fail.acheron.floatview.backend.RefloatControls
+import fail.acheron.floatview.backend.RefloatMutationException
+import fail.acheron.floatview.protocol.refloat.RefloatBooleanControl
 import fail.acheron.floatview.backend.SessionExportRecord
 import fail.acheron.floatview.backend.SessionEventRecord
 import fail.acheron.floatview.backend.SessionElapsedRange
@@ -439,6 +443,24 @@ class LoopbackServer(
                     applicationService.disconnect()
                     success(accepted())
                 }
+                "controller.shutdown" -> {
+                    if (params.length() != 0) return failure(id.toInt(), "invalid_request", "Controller shutdown does not accept parameters")
+                    applicationService.shutdownController()
+                    success(accepted())
+                }
+                "refloat.control.set" -> {
+                    if (params.length() != 2) return failure(id.toInt(), "invalid_request", "A valid Refloat control and boolean are required")
+                    val control = RefloatBooleanControl.entries.firstOrNull {
+                        it.wireValue == params.optString("control")
+                    } ?: return failure(id.toInt(), "invalid_request", "A valid Refloat control is required")
+                    val enabled = params.opt("enabled") as? Boolean
+                        ?: return failure(id.toInt(), "invalid_request", "enabled must be boolean")
+                    success(refloatControls(applicationService.setRefloatControl(control, enabled)))
+                }
+                "refloat.fatalError.clear" -> {
+                    if (params.length() != 0) return failure(id.toInt(), "invalid_request", "Fatal-error clear does not accept parameters")
+                    success(refloatControls(applicationService.clearRefloatFatalError()))
+                }
                 "settings.update" -> {
                     val expected = params.opt("expectedRevision") as? Number
                         ?: return failure(id.toInt(), "invalid_request", "expectedRevision is required")
@@ -709,6 +731,11 @@ class LoopbackServer(
                 }
                 else -> failure(id.toInt(), "invalid_request", "Unknown method")
             }
+        } catch (error: RefloatMutationException) {
+            failure(
+                id.toInt(), if (error.unavailable) "unavailable" else "invalid_state",
+                if (error.unavailable) "Refloat control confirmation was unavailable" else "Refloat control is not permitted in the current state",
+            )
         } catch (_: IllegalArgumentException) {
             failure(id.toInt(), "not_found", "Requested value was not found")
         } catch (_: IllegalStateException) {
@@ -854,6 +881,8 @@ class LoopbackServer(
             }),
         )
         .put("bms", bmsState(value.bms))
+        .put("refloatControls", value.refloatControls?.let(::refloatControls) ?: JSONObject.NULL)
+        .put("controllerActions", controllerActions(value.controllerActions))
         .put(
             "connectionIssue",
             value.connectionIssue?.let { issue ->
@@ -876,6 +905,24 @@ class LoopbackServer(
                     .put("batterySeriesCells", limits.batterySeriesCells ?: JSONObject.NULL)
             } ?: JSONObject.NULL,
         )
+
+    private fun refloatControls(value: RefloatControls) = JSONObject()
+        .put("status", value.status.wireValue)
+        .put("writable", value.writable)
+        .put("packageEnabled", value.packageEnabled ?: JSONObject.NULL)
+        .put("flywheelEnabled", value.flywheelEnabled ?: JSONObject.NULL)
+        .put("lightingAvailable", value.lightingAvailable)
+        .put("ledsEnabled", value.ledsEnabled ?: JSONObject.NULL)
+        .put("headlightsEnabled", value.headlightsEnabled ?: JSONObject.NULL)
+        .put("fatalErrorClearAvailable", value.fatalErrorClearAvailable)
+        .put("fatalErrorLatched", value.fatalErrorLatched ?: JSONObject.NULL)
+        .put("fatalErrorActive", value.fatalErrorActive ?: JSONObject.NULL)
+        .put("fatalErrorClearable", value.fatalErrorClearable ?: JSONObject.NULL)
+        .put("pendingAction", value.pendingAction?.wireValue ?: JSONObject.NULL)
+
+    private fun controllerActions(value: ControllerActions) = JSONObject()
+        .put("shutdownAvailable", value.shutdownAvailable)
+        .put("pendingAction", value.pendingAction?.wireValue ?: JSONObject.NULL)
 
     private fun bmsConnection(value: fail.acheron.floatview.backend.BmsConnection) = when (value) {
         fail.acheron.floatview.backend.BmsConnection.Direct -> JSONObject().put("kind", "direct")
@@ -1396,11 +1443,13 @@ class LoopbackServer(
             this is TelemetrySample ||
             this is fail.acheron.floatview.backend.BmsState ||
             this is fail.acheron.floatview.backend.BmsSnapshot ||
+            this is RefloatControls ||
             this === LocationUpdated ||
             this === SessionCatalogChanged ||
             this is VescProtocolMessage.Firmware ||
             this is VescProtocolMessage.CurrentLimits ||
-            this is VescProtocolMessage.RefloatInfo
+            this is VescProtocolMessage.RefloatInfo ||
+            this is VescProtocolMessage.RefloatLighting
 
     private object SessionCatalogChanged
 

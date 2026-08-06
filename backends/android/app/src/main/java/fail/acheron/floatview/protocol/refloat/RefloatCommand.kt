@@ -5,8 +5,13 @@ import fail.acheron.floatview.protocol.vesc.VescCommand
 enum class RefloatCommand(val id: Int) {
     INFO(0),
     GET_ALL_DATA(10),
+    PACKAGE_LOCK(12),
+    STABLE_LIGHTS(20),
+    FLYWHEEL(22),
     REALTIME_DATA_INTERNAL(31),
     REALTIME_DATA_INTERNAL_IDS(32),
+    ALERTS_CONTROL(36),
+    LEGACY_LIGHTS(202),
     ;
 
     val byte: Byte

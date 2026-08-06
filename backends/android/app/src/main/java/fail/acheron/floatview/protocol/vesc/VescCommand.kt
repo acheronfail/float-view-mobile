@@ -8,6 +8,7 @@ enum class VescCommand(val id: Int) {
     CUSTOM_APP_DATA(36),
     PING_CAN(62),
     BMS_GET_VALUES(96),
+    SHUTDOWN(156),
     ;
 
     val byte: Byte

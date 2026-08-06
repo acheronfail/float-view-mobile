@@ -3,6 +3,7 @@ import {
   MAX_SESSION_LIST_CURSOR_BYTES,
   MAX_SESSION_LIST_PAGE,
   type AppState,
+  type ActiveConnection,
   type BoardHistorySummary,
   type BackendError,
   type BackendMethod,
@@ -12,6 +13,9 @@ import {
   type ConnectionIssueCode,
   type ControllerCandidate,
   type Request,
+  type RefloatControl,
+  type RefloatControls,
+  type RefloatPendingAction,
   type Response,
   type SessionMetadata,
   type SessionListPage,
@@ -20,6 +24,22 @@ import {
   type SessionSummary,
   type StateChanged,
 } from '../src/lib/backend/contract.ts';
+
+const readyRefloatControls = (overrides: Partial<RefloatControls> = {}): RefloatControls => ({
+  status: 'ready',
+  writable: true,
+  packageEnabled: true,
+  flywheelEnabled: false,
+  lightingAvailable: true,
+  ledsEnabled: true,
+  headlightsEnabled: true,
+  fatalErrorClearAvailable: true,
+  fatalErrorLatched: true,
+  fatalErrorActive: false,
+  fatalErrorClearable: true,
+  pendingAction: null,
+  ...overrides,
+});
 
 const discoveredBoard = {
   deviceId: 'mock-board',
@@ -166,6 +186,8 @@ export class MockBackend {
   private activeSessionId?: string;
   private pendingCandidates: ControllerCandidate[] = [];
   private discoveryExpiryTimer?: ReturnType<typeof setTimeout>;
+  private refloatTimeoutOnce = false;
+  private shutdownOutcome: 'no-op' | 'disconnect' = 'no-op';
   private state: AppState = {
     revision: 0,
     bluetooth: {
@@ -318,6 +340,8 @@ export class MockBackend {
               controllerCandidates: [],
               connectionIssue: null,
               bms: { status: 'discovering', connection: null, candidates: [], latestSnapshot: null },
+              refloatControls: readyRefloatControls(),
+              controllerActions: { shutdownAvailable: false, pendingAction: null },
               activeSession,
               latestSample: null,
               latestLocation: null,
@@ -454,6 +478,26 @@ export class MockBackend {
         );
         return accepted(id);
       }
+      case 'controller.shutdown':
+        if (Object.keys(params).length !== 0) {
+          return failure(id, 'invalid_request', 'Controller shutdown takes no parameters');
+        }
+        return this.shutdownController(id);
+      case 'refloat.control.set': {
+        if (
+          Object.keys(params).sort().join(',') !== 'control,enabled' ||
+          !isRefloatControl(params.control) ||
+          typeof params.enabled !== 'boolean'
+        ) {
+          return failure(id, 'invalid_request', 'A supported control and boolean enabled value are required');
+        }
+        return this.setRefloatControl(id, params.control, params.enabled);
+      }
+      case 'refloat.fatalError.clear':
+        if (Object.keys(params).length !== 0) {
+          return failure(id, 'invalid_request', 'Fatal error clear takes no parameters');
+        }
+        return this.clearRefloatFatalError(id);
       case 'settings.update': {
         const expectedRevision = number(params.expectedRevision);
         const patch = asObject(params.patch);
@@ -730,7 +774,13 @@ export class MockBackend {
         : null;
     this.change({
       ...this.state,
-      activeConnection: { ...active, latestSample, latestLocation, activeSession },
+      activeConnection: {
+        ...active,
+        latestSample,
+        latestLocation,
+        activeSession,
+        controllerActions: { shutdownAvailable: false, pendingAction: null },
+      },
     });
   }
 
@@ -739,11 +789,84 @@ export class MockBackend {
   }
 
   simulateConnectionState(state: 'ready' | 'reconnecting'): void {
-    if (!this.state.activeConnection) return;
+    const active = this.state.activeConnection;
+    if (!active) return;
+    const refloatControls =
+      state === 'reconnecting'
+        ? {
+            status: 'loading' as const,
+            writable: false,
+            packageEnabled: null,
+            flywheelEnabled: null,
+            lightingAvailable: false,
+            ledsEnabled: null,
+            headlightsEnabled: null,
+            fatalErrorClearAvailable: false,
+            fatalErrorLatched: null,
+            fatalErrorActive: null,
+            fatalErrorClearable: null,
+            pendingAction: null,
+          }
+        : readyRefloatControls();
     this.change({
       ...this.state,
-      activeConnection: { ...this.state.activeConnection, state },
+      activeConnection: {
+        ...active,
+        state,
+        refloatControls,
+        controllerActions: {
+          shutdownAvailable: shutdownAvailable({ ...active, state, refloatControls }),
+          pendingAction: null,
+        },
+      },
     });
+  }
+
+  simulateRefloatControls(patch: Partial<RefloatControls>): void {
+    const active = this.state.activeConnection;
+    if (!active?.refloatControls) return;
+    const refloatControls = { ...active.refloatControls, ...patch };
+    this.change({
+      ...this.state,
+      activeConnection: {
+        ...active,
+        refloatControls,
+        controllerActions: {
+          shutdownAvailable: shutdownAvailable({ ...active, refloatControls }),
+          pendingAction: active.controllerActions.pendingAction,
+        },
+      },
+    });
+  }
+
+  simulateRefloatTimeout(): void {
+    this.refloatTimeoutOnce = true;
+  }
+
+  simulateShutdownOutcome(outcome: 'no-op' | 'disconnect'): void {
+    this.shutdownOutcome = outcome;
+  }
+
+  simulateRideState(rideState: 'idle' | 'riding' | 'unknown'): void {
+    const active = this.state.activeConnection;
+    if (!active?.latestSample) return;
+    const latestSample = { ...active.latestSample, rideState };
+    const available = shutdownAvailable({ ...active, latestSample });
+    this.change({
+      ...this.state,
+      activeConnection: {
+        ...active,
+        latestSample,
+        controllerActions: { shutdownAvailable: available, pendingAction: null },
+      },
+    });
+  }
+
+  simulateExternalLighting(ledsEnabled: boolean, headlightsEnabled: boolean): void {
+    const controls = this.state.activeConnection?.refloatControls;
+    if (!controls || !controls.lightingAvailable) return;
+    if (controls.ledsEnabled === ledsEnabled && controls.headlightsEnabled === headlightsEnabled) return;
+    this.simulateRefloatControls({ ledsEnabled, headlightsEnabled });
   }
 
   simulateBmsState(bms: BmsState): void {
@@ -854,6 +977,124 @@ export class MockBackend {
   private findSession(params: Record<string, unknown>) {
     const sessionId = string(params.sessionId);
     return this.sessionCatalog.find((item) => item.sessionId === sessionId);
+  }
+
+  private setRefloatControl(id: number, control: RefloatControl, enabled: boolean): Response {
+    const active = this.state.activeConnection;
+    const controls = active?.refloatControls;
+    if (!active || active.state !== 'ready' || !controls || controls.status !== 'ready' || !controls.writable) {
+      return failure(id, 'invalid_state', 'Refloat controls are not writable');
+    }
+    if (controls.pendingAction !== null) return failure(id, 'invalid_state', 'Another Refloat action is pending');
+    if (controls.flywheelEnabled && !(control === 'flywheel' && !enabled)) {
+      return failure(id, 'invalid_state', 'Only flywheel disable is available in flywheel mode');
+    }
+    if ((control === 'leds' || control === 'headlights') && !controls.lightingAvailable) {
+      return failure(id, 'invalid_state', 'Refloat lighting is unavailable');
+    }
+    const activeFlywheelDisable = control === 'flywheel' && !enabled && controls.flywheelEnabled === true;
+    if (
+      (control === 'package' || (control === 'flywheel' && !activeFlywheelDisable)) &&
+      active.latestSample?.rideState === 'riding'
+    ) {
+      return failure(id, 'invalid_state', 'The board must be idle for this control');
+    }
+    const field = refloatControlField(control);
+    if (controls[field] === null) return failure(id, 'invalid_state', 'The control state is unavailable');
+    if (controls[field] === enabled) return success(id, controls);
+    return this.completeRefloatAction(id, control, { [field]: enabled });
+  }
+
+  private clearRefloatFatalError(id: number): Response {
+    const active = this.state.activeConnection;
+    const controls = active?.refloatControls;
+    if (
+      !active ||
+      active.state !== 'ready' ||
+      !controls ||
+      controls.status !== 'ready' ||
+      !controls.writable ||
+      controls.pendingAction !== null ||
+      controls.flywheelEnabled ||
+      !controls.fatalErrorClearAvailable ||
+      controls.fatalErrorLatched !== true ||
+      controls.fatalErrorActive !== false ||
+      controls.fatalErrorClearable !== true ||
+      active.latestSample?.rideState === 'riding'
+    ) {
+      return failure(id, 'invalid_state', 'The fatal error is not clearable');
+    }
+    return this.completeRefloatAction(id, 'clearFatalError', {
+      fatalErrorLatched: false,
+      fatalErrorClearable: false,
+    });
+  }
+
+  private shutdownController(id: number): Response {
+    const active = this.state.activeConnection;
+    const actions = active?.controllerActions;
+    if (
+      !active ||
+      active.state !== 'ready' ||
+      !actions?.shutdownAvailable ||
+      actions.pendingAction !== null ||
+      active.latestSample?.rideState !== 'idle' ||
+      active.refloatControls?.pendingAction !== null ||
+      active.refloatControls?.flywheelEnabled === true
+    ) {
+      return failure(id, 'invalid_state', 'Controller shutdown is unavailable');
+    }
+    this.change({
+      ...this.state,
+      activeConnection: {
+        ...active,
+        controllerActions: { shutdownAvailable: false, pendingAction: 'shutdown' },
+      },
+    });
+    if (this.shutdownOutcome === 'disconnect') {
+      this.shutdownOutcome = 'no-op';
+      this.change({ ...this.state, activeConnection: null });
+      return accepted(id);
+    }
+    const pending = this.state.activeConnection!;
+    this.change({
+      ...this.state,
+      activeConnection: {
+        ...pending,
+        controllerActions: { shutdownAvailable: true, pendingAction: null },
+      },
+    });
+    return accepted(id);
+  }
+
+  private completeRefloatAction(
+    id: number,
+    action: RefloatPendingAction,
+    confirmed: Partial<RefloatControls>
+  ): Response {
+    const active = this.state.activeConnection!;
+    const controls = active.refloatControls!;
+    this.change({
+      ...this.state,
+      activeConnection: { ...active, refloatControls: { ...controls, pendingAction: action } },
+    });
+    const pendingActive = this.state.activeConnection!;
+    const pendingControls = pendingActive.refloatControls!;
+    if (this.refloatTimeoutOnce) {
+      this.refloatTimeoutOnce = false;
+      const unchanged = { ...pendingControls, pendingAction: null };
+      this.change({
+        ...this.state,
+        activeConnection: { ...pendingActive, refloatControls: unchanged },
+      });
+      return failure(id, 'unavailable', 'Refloat control confirmation timed out');
+    }
+    const complete = { ...pendingControls, ...confirmed, pendingAction: null };
+    this.change({
+      ...this.state,
+      activeConnection: { ...pendingActive, refloatControls: complete },
+    });
+    return success(id, complete);
   }
 
   hasSession(sessionId: string): boolean {
@@ -1092,6 +1333,37 @@ function number(value: unknown): number | null {
 
 function integer(value: unknown): number | null {
   return typeof value === 'number' && Number.isInteger(value) ? value : null;
+}
+
+function isRefloatControl(value: unknown): value is RefloatControl {
+  return value === 'package' || value === 'flywheel' || value === 'leds' || value === 'headlights';
+}
+
+function refloatControlField(
+  control: RefloatControl
+): 'packageEnabled' | 'flywheelEnabled' | 'ledsEnabled' | 'headlightsEnabled' {
+  switch (control) {
+    case 'package':
+      return 'packageEnabled';
+    case 'flywheel':
+      return 'flywheelEnabled';
+    case 'leds':
+      return 'ledsEnabled';
+    case 'headlights':
+      return 'headlightsEnabled';
+  }
+}
+
+function shutdownAvailable(active: ActiveConnection): boolean {
+  return (
+    active.state === 'ready' &&
+    active.firmware?.accessMode === 'readWrite' &&
+    ['6.05', '6.06', '7.00'].includes(active.firmware.vescVersion) &&
+    active.latestSample?.rideState === 'idle' &&
+    active.refloatControls?.flywheelEnabled !== true &&
+    active.refloatControls?.pendingAction === null &&
+    active.controllerActions.pendingAction === null
+  );
 }
 
 function validBmsConnection(value: BmsState['connection']): boolean {

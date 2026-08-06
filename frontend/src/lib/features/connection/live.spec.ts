@@ -1,12 +1,33 @@
 import { describe, expect, it } from 'vitest';
 import type { ActiveConnection } from '$lib/backend/contract';
 import {
+  controllerShutdownConfirmation,
+  controllerShutdownDisabled,
   controllerRouteDescription,
+  flywheelDisableUnavailable,
+  flywheelOverlayVisible,
   firmwareAccessDescription,
   readingsAreDimmed,
+  refloatControlConfirmation,
+  refloatMenuActions,
   shouldConfirmDisconnect,
   sortedControllerCandidates,
 } from './live';
+
+const refloatControls = {
+  status: 'ready' as const,
+  writable: true,
+  packageEnabled: true,
+  flywheelEnabled: false,
+  lightingAvailable: true,
+  ledsEnabled: true,
+  headlightsEnabled: false,
+  fatalErrorClearAvailable: true,
+  fatalErrorLatched: true,
+  fatalErrorActive: false,
+  fatalErrorClearable: true,
+  pendingAction: null,
+};
 
 const connection = (state: ActiveConnection['state']): ActiveConnection => ({
   deviceId: 'board',
@@ -20,6 +41,8 @@ const connection = (state: ActiveConnection['state']): ActiveConnection => ({
   controllerCandidates: [],
   connectionIssue: null,
   bms: { status: 'discovering', connection: null, candidates: [], latestSnapshot: null },
+  refloatControls: null,
+  controllerActions: { shutdownAvailable: false, pendingAction: null },
   activeSession: null,
   latestSample: null,
   latestLocation: null,
@@ -80,5 +103,96 @@ describe('live board behavior', () => {
       [7, false],
       [42, true],
     ]);
+  });
+
+  it('derives ready, riding, read-only, reconnecting, lighting, fatal, and pending menu gates', () => {
+    const ready = connection('ready');
+    ready.refloatControls = { ...refloatControls };
+    ready.latestSample = { rideState: 'idle', packageState: 'ready' } as ActiveConnection['latestSample'];
+    expect(refloatMenuActions(ready).map((item) => [item.label, item.disabled])).toEqual([
+      ['Refloat package: On', false],
+      ['Flywheel: Off', false],
+      ['LEDs: On', false],
+      ['Headlights: Off', false],
+      ['Clear fatal error', false],
+    ]);
+
+    ready.latestSample = { rideState: 'riding', packageState: 'running' } as ActiveConnection['latestSample'];
+    const riding = refloatMenuActions(ready);
+    expect(riding.find((item) => item.label === 'LEDs: On')?.disabled).toBe(false);
+    expect(riding.find((item) => item.label === 'Refloat package: On')?.disabled).toBe(true);
+    expect(riding.find((item) => item.label === 'Clear fatal error')?.disabled).toBe(true);
+
+    ready.refloatControls = { ...refloatControls, writable: false };
+    expect(refloatMenuActions(ready).every((item) => item.disabled)).toBe(true);
+    ready.state = 'reconnecting';
+    expect(refloatMenuActions(ready).every((item) => item.disabled)).toBe(true);
+
+    ready.state = 'ready';
+    ready.latestSample = { rideState: 'idle', packageState: 'ready' } as ActiveConnection['latestSample'];
+    ready.refloatControls = {
+      ...refloatControls,
+      lightingAvailable: false,
+      fatalErrorActive: true,
+      fatalErrorClearable: false,
+      pendingAction: 'package',
+    };
+    const unavailable = refloatMenuActions(ready);
+    expect(unavailable.some((item) => item.label.startsWith('LEDs'))).toBe(false);
+    expect(unavailable.find((item) => item.kind === 'clearFatalError')?.disabled).toBe(true);
+    expect(unavailable.every((item) => item.disabled)).toBe(true);
+  });
+
+  it('moves flywheel disable out of the menu while flywheel mode is active', () => {
+    const ready = connection('ready');
+    ready.refloatControls = { ...refloatControls, flywheelEnabled: true };
+    ready.latestSample = {
+      rideState: 'idle',
+      packageState: 'ready',
+      packageMode: 'flywheel',
+    } as ActiveConnection['latestSample'];
+    expect(refloatMenuActions(ready)).toEqual([]);
+    expect(flywheelOverlayVisible(ready)).toBe(true);
+    expect(flywheelDisableUnavailable(ready)).toBe(false);
+
+    ready.latestSample = { ...ready.latestSample, rideState: 'riding' } as ActiveConnection['latestSample'];
+    expect(flywheelDisableUnavailable(ready)).toBe(false);
+
+    ready.refloatControls = { ...ready.refloatControls, pendingAction: 'flywheel' };
+    expect(flywheelOverlayVisible(ready)).toBe(true);
+    expect(flywheelDisableUnavailable(ready)).toBe(true);
+
+    ready.refloatControls = { ...ready.refloatControls, flywheelEnabled: false, pendingAction: null };
+    expect(flywheelOverlayVisible(ready)).toBe(false);
+  });
+
+  it('requires contextual confirmation only for package disable and flywheel enable', () => {
+    expect(refloatControlConfirmation('package', false)).toMatchObject({
+      confirmLabel: 'Disable package',
+      description: expect.stringContaining('Balancing will be disabled'),
+    });
+    expect(refloatControlConfirmation('flywheel', true)).toMatchObject({
+      confirmLabel: 'Enable flywheel',
+      description: expect.stringContaining('nose-up'),
+    });
+    expect(refloatControlConfirmation('package', true)).toBeNull();
+    expect(refloatControlConfirmation('flywheel', false)).toBeNull();
+    expect(refloatControlConfirmation('leds', false)).toBeNull();
+  });
+
+  it('gates shutdown from authoritative controller action state and warns about no-op controllers', () => {
+    const ready = connection('ready');
+    expect(controllerShutdownDisabled(ready)).toBe(true);
+
+    ready.controllerActions = { shutdownAvailable: true, pendingAction: null };
+    expect(controllerShutdownDisabled(ready)).toBe(false);
+
+    ready.controllerActions = { shutdownAvailable: false, pendingAction: 'shutdown' };
+    expect(controllerShutdownDisabled(ready)).toBe(true);
+    expect(controllerShutdownConfirmation).toEqual({
+      title: 'Shut down controller?',
+      description: expect.stringContaining('Not all controllers support software shutdown'),
+      confirmLabel: 'Shut down',
+    });
   });
 });

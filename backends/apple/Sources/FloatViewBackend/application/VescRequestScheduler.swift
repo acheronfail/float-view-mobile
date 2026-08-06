@@ -42,6 +42,9 @@ public enum VescRequestContext: Sendable, Equatable {
   case refloatInfo(VescRequestRoute)
   case refloatLayout(VescRequestRoute)
   case refloatTelemetry(VescRequestRoute)
+  case refloatControl(VescRequestRoute)
+  case controllerShutdown(VescRequestRoute)
+  case refloatLighting(VescRequestRoute)
   case currentLimits(VescRequestRoute)
   case auxiliaryFirmware(VescRequestRoute)
   case bmsValues(VescRequestRoute)
@@ -50,7 +53,9 @@ public enum VescRequestContext: Sendable, Equatable {
     switch self {
     case .canPing, .auxiliaryCanPing: nil
     case let .controllerFirmware(route), let .refloatInfo(route), let .refloatLayout(route),
-         let .refloatTelemetry(route), let .currentLimits(route),
+         let .refloatTelemetry(route), let .refloatControl(route), let .controllerShutdown(route),
+         let .refloatLighting(route),
+         let .currentLimits(route),
          let .auxiliaryFirmware(route), let .bmsValues(route): route
     }
   }
@@ -99,6 +104,7 @@ public struct VescScheduledRequest: Sendable, Equatable {
 
 public enum VescRequestCompletion: Sendable, Equatable {
   case response(Data)
+  case sent
   case timedOut
   case queueFull
   case cancelled
@@ -112,6 +118,7 @@ public final class VescRequestScheduler: @unchecked Sendable {
     let request: VescScheduledRequest
     let timeoutMs: Int64
     let completion: Completion
+    let expectsResponse: Bool
   }
 
   private let clock: any ClockPort
@@ -173,6 +180,39 @@ public final class VescRequestScheduler: @unchecked Sendable {
     generation requestGeneration: VescRequestGeneration,
     completion: @escaping Completion
   ) {
+    enqueueInternal(
+      payload: payload, expectedResponse: expectedResponse, priority: priority,
+      context: context, timeoutMs: timeoutMs, generation: requestGeneration,
+      expectsResponse: true, completion: completion
+    )
+  }
+
+  public func enqueueOneWay(
+    payload: Data,
+    expectedResponse: VescExpectedResponse,
+    priority: VescRequestPriority,
+    context: VescRequestContext,
+    timeoutMs: Int64,
+    generation requestGeneration: VescRequestGeneration,
+    completion: @escaping Completion
+  ) {
+    enqueueInternal(
+      payload: payload, expectedResponse: expectedResponse, priority: priority,
+      context: context, timeoutMs: timeoutMs, generation: requestGeneration,
+      expectsResponse: false, completion: completion
+    )
+  }
+
+  private func enqueueInternal(
+    payload: Data,
+    expectedResponse: VescExpectedResponse,
+    priority: VescRequestPriority,
+    context: VescRequestContext,
+    timeoutMs: Int64,
+    generation requestGeneration: VescRequestGeneration,
+    expectsResponse: Bool,
+    completion: @escaping Completion
+  ) {
     precondition(timeoutMs > 0)
     let result: (Pending?, VescRequestCompletion?) = lock.withLock {
       nextSequence &+= 1
@@ -185,7 +225,10 @@ public final class VescRequestScheduler: @unchecked Sendable {
         deadlineMonotonicMs: clock.monotonicMilliseconds() + timeoutMs,
         generation: requestGeneration
       )
-      let pending = Pending(request: request, timeoutMs: timeoutMs, completion: completion)
+      let pending = Pending(
+        request: request, timeoutMs: timeoutMs, completion: completion,
+        expectsResponse: expectsResponse
+      )
       guard requestGeneration == generation else { return (pending, .staleGeneration) }
       guard queue.count < VescScheduledRequest.maxQueuedRequests else {
         return (pending, .queueFull)
@@ -264,7 +307,8 @@ public final class VescRequestScheduler: @unchecked Sendable {
           generation: next.request.generation
         ),
         timeoutMs: next.timeoutMs,
-        completion: next.completion
+        completion: next.completion,
+        expectsResponse: next.expectsResponse
       )
       inFlight = dispatched
       deadlineTimer = timerScheduler.schedule(afterMilliseconds: dispatched.timeoutMs) { [weak self] in
@@ -277,6 +321,23 @@ public final class VescRequestScheduler: @unchecked Sendable {
       return
     }
     write(send.request.payload)
+    if !send.expectsResponse { completeOneWay(sequence: send.request.sequence) }
+  }
+
+  private func completeOneWay(sequence: UInt64) {
+    let completed: Pending? = lock.withLock {
+      guard let current = inFlight,
+            current.request.sequence == sequence,
+            !current.expectsResponse
+      else { return nil }
+      deadlineTimer?.cancel()
+      deadlineTimer = nil
+      inFlight = nil
+      return current
+    }
+    guard let completed else { return }
+    completed.completion(completed.request, .sent)
+    pump()
   }
 
   private func timeout(sequence: UInt64, generation timeoutGeneration: VescRequestGeneration) {

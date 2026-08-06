@@ -8,6 +8,13 @@ enum class RefloatWireProfile(val family: RefloatTelemetryFamily) {
     DYNAMIC_ALERTS(RefloatTelemetryFamily.DYNAMIC),
 }
 
+enum class RefloatLightingProfile { LEGACY_COMMAND_202, STABLE_COMMAND_20 }
+
+data class RefloatControlProfile(
+    val lighting: RefloatLightingProfile,
+    val fatalClearAvailable: Boolean,
+)
+
 data class RefloatCompatibilityEntry(
     val sourceVersion: String,
     val wireVersion: String,
@@ -15,6 +22,13 @@ data class RefloatCompatibilityEntry(
 ) {
     val family: RefloatTelemetryFamily
         get() = profile.family
+    val controlProfile: RefloatControlProfile
+        get() = when (profile) {
+            RefloatWireProfile.LEGACY_FIXED, RefloatWireProfile.DYNAMIC ->
+                RefloatControlProfile(RefloatLightingProfile.LEGACY_COMMAND_202, false)
+            RefloatWireProfile.DYNAMIC_ALERTS ->
+                RefloatControlProfile(RefloatLightingProfile.STABLE_COMMAND_20, true)
+        }
 }
 
 object RefloatCompatibility {
@@ -32,6 +46,8 @@ object RefloatCompatibility {
 
     fun entry(wireVersion: String): RefloatCompatibilityEntry? =
         entries.firstOrNull { it.wireVersion == wireVersion }
+
+    fun controlProfile(wireVersion: String): RefloatControlProfile? = entry(wireVersion)?.controlProfile
 
     val requiredFields = listOf(
         "motor.speed", "motor.erpm", "motor.current", "motor.dir_current",

@@ -29,6 +29,10 @@ test('simulator follows exact Express, CAN, Refloat, and telemetry sequence', ()
   assert.equal(response(simulator, [34, 1, 14]).request.kind, 'motor-configuration');
   assert.equal(response(simulator, [34, 1, 36, 101, 0, 2, 0]).request.kind, 'refloat-info');
   assert.equal(response(simulator, [34, 1, 36, 101, 32]).request.kind, 'refloat-layout');
+  assert.deepEqual(
+    [...new FrameAssembler().append(response(simulator, [34, 1, 36, 101, 20, 0, 0, 0, 0, 0]).frame)[0]!],
+    [36, 101, 20, 3]
+  );
   for (const time of [100, 200, 300, 400]) {
     now = time;
     assert.equal(response(simulator, [34, 1, 36, 101, 31]).request.telemetryPhase, 'idle');
@@ -125,6 +129,18 @@ test('fixture runner tolerates a late notification after the peer disconnects', 
   await runner.stop(true);
 });
 
+test('fixture runner turns an accepted shutdown intent into controller loss without re-advertising', async () => {
+  const fixture = new FakeFixture();
+  const runner = new FixtureRunner(fixtureScenarios['shutdown-direct'], fixture);
+  await runner.start();
+  fixture.emit({ kind: 'CONNECTED' });
+  fixture.emit({ kind: 'WRITE', bytes: encodeFrame(Uint8Array.of(156, 0, 0)) });
+  await eventually(() => fixture.commands.includes('DISCONNECT'));
+  assert.equal(runner.simulator.requests.filter((request) => request.kind === 'controller-shutdown').length, 1);
+  assert.equal(fixture.commands.filter((command) => command === 'ADVERTISE').length, 1);
+  await runner.stop(true);
+});
+
 test('fixture runner retries reset when serial-open reboot loses initial commands', async () => {
   const fixture = new FakeFixture(3);
   const runner = new FixtureRunner(fixtureScenarios.identity, fixture, undefined, 5);
@@ -138,6 +154,11 @@ test('physical scenario matrix excludes desktop backgrounding', () => {
     'identity',
     'direct',
     'direct-legacy',
+    'control-direct',
+    'control-can',
+    'shutdown-direct',
+    'shutdown-can',
+    'shutdown-no-op',
     'explicit-can',
     'generic-gateway',
     'ambiguous',

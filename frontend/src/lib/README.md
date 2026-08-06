@@ -47,3 +47,20 @@ session-data endpoint. Overview series, exact retained samples, and chronologica
 event pages remain separate revisioned queries; `session.get` never embeds
 history. Frequently updating controls use primary pointer release with
 cancellation and a guarded keyboard or assistive click path.
+
+The connected-board menu consumes only authoritative `RefloatControls`. It does
+not infer package versions, protocol commands, or confirmed values. The four
+state-labelled boolean actions and conditional fatal clear remain disabled until
+the native owner reports ready and writable state, and no frontend state is
+optimistically changed or persisted. Package disable and flywheel enable use the
+shared confirmation UI. When authoritative state detects active flywheel mode,
+a non-dismissible application overlay replaces the menu escape path and exposes
+only Disable; it remains until telemetry confirms normal mode. Pointer Events
+and the guarded click path must not double-submit.
+
+Controller shutdown follows the same authoritative pattern. The live menu uses
+only `controllerActions.shutdownAvailable` and `pendingAction`; it does not infer
+support from a hardware name. Its destructive confirmation warns that some
+controllers safely ignore software shutdown. The result means only that the
+one-way request was accepted for transmission, not that controller power-off
+was observed.

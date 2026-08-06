@@ -2,11 +2,11 @@
 
 ### Requirement: Exact supported compatibility families
 
-The backends SHALL support audited VESC firmware 6.02, 6.05, 6.06, and 7.00 through an exact compatibility catalog mapped to one `vescCoreReadOnly` profile for the VESC-level commands Float View consumes and exact Refloat control subprofiles for normal firmware. A VESC controller SHALL be supported only when `COMM_FW_VERSION` contains the complete bounded identity baseline, reports `HW_TYPE_VESC`, matches an exact catalog entry, and the selected route subsequently proves compatible Refloat INFO and layout behavior. A zero test-version marker selects normal read/write access; a nonzero marker on an audited version selects read-only access. Read operations SHALL remain allowed in either mode, while Refloat writes SHALL pass a centralized capability and safety check before version-specific encoding. A bounded four-byte hardware-CRC suffix MAY be absent or present according to the audited release fixture, but its value, the hardware or firmware display name, and the controller UUID MUST NOT broaden compatibility.
+The backends SHALL support audited VESC firmware 6.02, 6.05, 6.06, and 7.00 through an exact compatibility catalog mapped to one `vescCoreReadOnly` profile for the VESC-level commands Float View consumes, an exact shutdown capability for 6.05, 6.06, and 7.00, and exact Refloat control subprofiles for normal firmware. A VESC controller SHALL be supported only when `COMM_FW_VERSION` contains the complete bounded identity baseline, reports `HW_TYPE_VESC`, matches an exact catalog entry, and the selected route subsequently proves compatible Refloat INFO and layout behavior. A zero test-version marker selects normal read/write access; a nonzero marker on an audited version selects read-only access. Read operations SHALL remain allowed in either mode, while Refloat writes and shutdown SHALL pass a centralized capability and safety check before encoding. A bounded four-byte hardware-CRC suffix MAY be absent or present according to the audited release fixture, but its value, the hardware or firmware display name, and the controller UUID MUST NOT broaden compatibility or shutdown availability.
 
 The backends SHALL support the wire families represented by every audited Refloat source package from 1.0.0 through 1.2.3 through explicit tested compatibility mappings. Refloat 1.0.x SHALL use its fixed legacy telemetry protocol, legacy lighting command 202, and shared package/flywheel controls and SHALL be detected and reported as wire version `1.0` because its INFO response does not contain a patch version. Refloat 1.1.x SHALL use its dynamic ID/data protocol, legacy lighting command 202, and shared package/flywheel controls. Refloat 1.2.x SHALL use its dynamic protocol with bounded alert/fault data, stable lighting command 20, shared package/flywheel controls, and clear-fatal command 36.
 
-The connection-scoped Refloat mutation coordinator SHALL be the only path that may submit a Refloat write and SHALL reject every mutating command while authoritative package mode is flywheel except an eligible command 22 request that disables flywheel. This mode check MUST occur immediately before scheduler submission so stale frontend state or a queued request cannot bypass it.
+The connection-scoped device mutation coordinator SHALL be the only path that may submit a Refloat write or controller shutdown and SHALL reject every mutating command while authoritative package mode is flywheel except an eligible command 22 request that disables flywheel. This mode check MUST occur immediately before scheduler submission so stale frontend state or a queued request cannot bypass it.
 
 #### Scenario: Audited VESC core profile
 
@@ -47,3 +47,28 @@ The connection-scoped Refloat mutation coordinator SHALL be the only path that m
 
 - **WHEN** authoritative package mode is flywheel and a caller requests a package, lighting, fatal, or other device mutation
 - **THEN** centralized authorization emits no request, while an eligible flywheel-disable transition may emit only command 22
+
+#### Scenario: Audited VESC shutdown profile
+
+- **WHEN** a ready writable controller reports stable VESC 6.05, 6.06, or 7.00 and authoritative ride state is idle outside flywheel mode
+- **THEN** the backend exposes shutdown and may send exactly `[156, 0, 0]` through the selected route without inspecting hardware name
+
+#### Scenario: VESC 6.02 has no shutdown command
+
+- **WHEN** an otherwise supported controller reports VESC 6.02
+- **THEN** the backend keeps shutdown unavailable and sends no command 156
+
+#### Scenario: CAN-routed shutdown
+
+- **WHEN** shutdown targets a selected CAN controller
+- **THEN** the backend wraps `[156, 0, 0]` exactly once with `COMM_FORWARD_CAN` for that controller and does not emit direct or broadcast `CAN_PACKET_SHUTDOWN`
+
+#### Scenario: Unsafe shutdown variants
+
+- **WHEN** any caller requests forced shutdown, restart, broadcast shutdown, retry, or shutdown while the board is not authoritatively idle
+- **THEN** the backend emits no mutation and returns the stable invalid-state or invalid-request error applicable to the malformed or unsafe request
+
+#### Scenario: Shutdown disconnect lifecycle
+
+- **WHEN** the current selected controller or BLE transport disappears after an accepted generation-scoped shutdown request
+- **THEN** the backend treats the loss as intentional and suppresses reconnect, while a connection that remains healthy past the bounded intent window continues normally

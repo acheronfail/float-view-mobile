@@ -158,6 +158,7 @@ export class FixtureRunner {
         this.report(`ESP < ERROR ${event.code}`);
         throw new Error(`Fixture error: ${event.code}`);
       case 'WRITE': {
+        const requestOffset = this.simulator.requests.length;
         const responses = this.simulator.receive(event.bytes);
         for (const response of responses) {
           const fragments = chunks(response.frame, this.scenario.fragmentBytes);
@@ -181,6 +182,13 @@ export class FixtureRunner {
           ) {
             await this.injectDisconnectAndReadvertise();
           }
+        }
+        if (
+          this.scenario.name !== 'shutdown-no-op' &&
+          this.simulator.requests.slice(requestOffset).some((request) => request.kind === 'controller-shutdown')
+        ) {
+          this.report('ESP > DISCONNECT (controller shutdown)');
+          await this.sendCommand('DISCONNECT');
         }
         break;
       }

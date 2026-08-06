@@ -1,0 +1,92 @@
+{
+  "schemaVersion": 1,
+  "id": "vesc-controller-shutdown-v1",
+  "provenance": "Source-derived from vendor/bldc commit dcbac819 COMM_SHUTDOWN dispatch and vendor/vesc_tool Commands::shutdown. Payload bytes are command 156, force 0, restart 0; CAN routes use COMM_FORWARD_CAN command 34 exactly once.",
+  "cases": [
+    {
+      "name": "vesc-6.05-direct",
+      "version": "6.05",
+      "route": "direct",
+      "request": [156, 0, 0]
+    },
+    {
+      "name": "vesc-6.06-can-42",
+      "version": "6.06",
+      "route": "can",
+      "canId": 42,
+      "request": [34, 42, 156, 0, 0]
+    },
+    {
+      "name": "vesc-7.00-direct-unsupported-hardware-no-op",
+      "version": "7.00",
+      "route": "direct",
+      "request": [156, 0, 0],
+      "hardwareShutdown": false
+    }
+  ],
+  "rejections": [
+    {
+      "name": "vesc-6.02-command-unavailable",
+      "version": "6.02",
+      "request": [156, 0, 0],
+      "reason": "unsupported_version"
+    },
+    {
+      "name": "test-build-read-only",
+      "version": "6.06",
+      "firmwareTestVersion": 1,
+      "request": [156, 0, 0],
+      "reason": "read_only"
+    },
+    {
+      "name": "truncated",
+      "version": "6.06",
+      "request": [156, 0],
+      "reason": "malformed"
+    },
+    {
+      "name": "oversized",
+      "version": "6.06",
+      "request": [156, 0, 0, 0],
+      "reason": "malformed"
+    },
+    {
+      "name": "forced",
+      "version": "6.06",
+      "request": [156, 1, 0],
+      "reason": "unsafe_variant"
+    },
+    {
+      "name": "restart",
+      "version": "6.06",
+      "request": [156, 0, 1],
+      "reason": "unsafe_variant"
+    },
+    {
+      "name": "direct-can-packet-id-is-not-host-shutdown",
+      "version": "6.06",
+      "request": [31],
+      "reason": "unsupported_command"
+    },
+    {
+      "name": "broadcast-forward-route",
+      "version": "6.06",
+      "request": [34, 255, 156, 0, 0],
+      "reason": "wrong_route"
+    },
+    {
+      "name": "wrong-can-route",
+      "version": "6.06",
+      "selectedCanId": 42,
+      "request": [34, 41, 156, 0, 0],
+      "reason": "wrong_route"
+    },
+    {
+      "name": "repeated-while-pending",
+      "version": "6.06",
+      "shutdownPending": true,
+      "request": [156, 0, 0],
+      "reason": "invalid_state"
+    }
+  ]
+}

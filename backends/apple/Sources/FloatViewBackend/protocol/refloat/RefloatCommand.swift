@@ -1,8 +1,13 @@
 public enum RefloatCommand: UInt8, Sendable {
   case info = 0
   case getAllData = 10
+  case packageLock = 12
+  case stableLights = 20
+  case flywheel = 22
   case realtimeDataInternal = 31
   case realtimeDataInternalIDs = 32
+  case alertsControl = 36
+  case legacyLights = 202
 }
 
 public enum RefloatWire {

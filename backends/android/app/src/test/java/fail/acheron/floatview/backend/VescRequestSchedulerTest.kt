@@ -83,6 +83,29 @@ class VescRequestSchedulerTest {
         assertEquals(1, harness.completions.size)
     }
 
+    @Test
+    fun releasesOneWayWriteBeforeTelemetryConfirmationWork() {
+        val harness = Harness()
+        val generation = harness.subject.beginGeneration()
+        harness.subject.enqueueOneWay(
+            byteArrayOf(12),
+            VescExpectedResponse(36, 12),
+            VescRequestPriority.CONTROLLER_WORK,
+            VescRequestContext.RefloatTelemetry(VescRequestRoute.Direct),
+            100,
+            generation,
+        ) { request, outcome -> harness.completions += request to outcome }
+        harness.enqueue(
+            31,
+            VescRequestPriority.RIDING_TELEMETRY,
+            VescRequestContext.RefloatTelemetry(VescRequestRoute.Direct),
+            generation,
+        )
+        assertEquals(listOf(12, 31), harness.writes)
+        assertEquals(VescRequestCompletion.Sent, harness.completions.first().second)
+        assertEquals(31, harness.subject.inFlightRequest()?.payload?.first()?.toInt())
+    }
+
     private class Harness {
         val clock = TestClock()
         val timers = TestTimers()

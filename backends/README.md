@@ -13,6 +13,51 @@ expected command, and rejects late work from older connection generations.
 Controller identification has the highest priority, riding telemetry precedes
 ordinary controller work, and auxiliary BMS traffic has the lowest priority.
 
+## Refloat product-control boundary
+
+`DeviceMutationCoordinator` is the sole connection-scoped owner of semantic
+package, flywheel, LED, headlight, and fatal-latch mutations. It authorizes only
+the current route and generation, exact audited VESC release firmware, and exact
+Refloat 1.0.x, 1.1.0–1.1.2, or 1.2.0–1.2.3 wire profiles. Audited VESC test
+firmware remains read-only. One action may be pending for at most three seconds;
+the request result and published state change only after matching telemetry or
+lighting confirms it. Disconnect, reconnect, and generation changes cancel the
+owner and its waiter.
+
+Package disable and flywheel enable retain the authoritative idle gate. Exact
+flywheel disable is the sole motion-state exception: active flywheel state is
+normalized as riding, and upstream command 22 performs its ordered stop before
+leaving flywheel mode. Every other mutation remains prohibited in that mode.
+
+All writes and the one-second best-effort lighting read use the shared request
+scheduler. Package, flywheel, and fatal-clear commands are one-way writes whose
+completion is confirmed by later telemetry. Lighting uses the exact release
+family response. While flywheel mode is active every mutation is rejected except
+an otherwise eligible flywheel disable. Tunes and profiles, reverse stop, simple
+start, recording/history, Handtest, remote/RC move, arbitrary configuration, and
+motor-control commands are outside this allowlist and fail closed.
+
+Refloat controls are live-only normalized state. They are never persisted,
+restored, exported, or inferred by the frontend, and bounded diagnostics contain
+no raw payloads or device identity.
+
+## Controller shutdown boundary
+
+`controller.shutdown` is a live-only, accepted-for-transmission action owned by
+the same `DeviceMutationCoordinator`. Stable writable VESC 6.05, 6.06, and 7.00
+controllers may receive exactly `[156, 0, 0]`, either directly or once inside
+`COMM_FORWARD_CAN`; VESC 6.02 and test builds remain unavailable. Authorization
+requires fresh authoritative idle telemetry, normal (non-flywheel) mode, the
+current route and generation, and no other pending device mutation.
+
+The write is one-way and is never retried. A controller or Bluetooth loss while
+the bounded shutdown intent is pending is classified as user-initiated and does
+not enter automatic reconnect. If the selected controller remains healthy, the
+intent expires and normal connectivity continues; this is the deterministic
+path for hardware that ignores the command. State reports only transmission
+acceptance and never claims power-off. Force, restart, broadcast, direct-CAN,
+arbitrary payload, and repeated-pending variants are outside the allowlist.
+
 Controller discovery owns controller compatibility, route selection, readiness,
 and ride-session continuity. It also publishes a bounded, structurally decoded
 hardware inventory after a complete CAN enumeration. `AuxiliaryNodeDiscovery`

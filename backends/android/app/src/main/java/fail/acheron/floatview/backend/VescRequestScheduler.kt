@@ -40,6 +40,9 @@ sealed interface VescRequestContext {
     data class RefloatInfo(override val route: VescRequestRoute) : VescRequestContext
     data class RefloatLayout(override val route: VescRequestRoute) : VescRequestContext
     data class RefloatTelemetry(override val route: VescRequestRoute) : VescRequestContext
+    data class RefloatControl(override val route: VescRequestRoute) : VescRequestContext
+    data class ControllerShutdown(override val route: VescRequestRoute) : VescRequestContext
+    data class RefloatLighting(override val route: VescRequestRoute) : VescRequestContext
     data class CurrentLimits(override val route: VescRequestRoute) : VescRequestContext
     data class AuxiliaryFirmware(override val route: VescRequestRoute) : VescRequestContext
     data class BmsValues(override val route: VescRequestRoute) : VescRequestContext
@@ -73,6 +76,7 @@ data class VescScheduledRequest(
 
 sealed interface VescRequestCompletion {
     data class Response(val payload: ByteArray) : VescRequestCompletion
+    data object Sent : VescRequestCompletion
     data object TimedOut : VescRequestCompletion
     data object QueueFull : VescRequestCompletion
     data object Cancelled : VescRequestCompletion
@@ -89,6 +93,7 @@ class VescRequestScheduler(
         val request: VescScheduledRequest,
         val timeoutMs: Long,
         val completion: (VescScheduledRequest, VescRequestCompletion) -> Unit,
+        val expectsResponse: Boolean,
     )
 
     private var generation = VescRequestGeneration(0)
@@ -130,6 +135,31 @@ class VescRequestScheduler(
         timeoutMs: Long,
         requestGeneration: VescRequestGeneration,
         completion: (VescScheduledRequest, VescRequestCompletion) -> Unit,
+    ) = enqueueInternal(
+        payload, expectedResponse, priority, context, timeoutMs, requestGeneration, true, completion,
+    )
+
+    fun enqueueOneWay(
+        payload: ByteArray,
+        expectedResponse: VescExpectedResponse,
+        priority: VescRequestPriority,
+        context: VescRequestContext,
+        timeoutMs: Long,
+        requestGeneration: VescRequestGeneration,
+        completion: (VescScheduledRequest, VescRequestCompletion) -> Unit,
+    ) = enqueueInternal(
+        payload, expectedResponse, priority, context, timeoutMs, requestGeneration, false, completion,
+    )
+
+    private fun enqueueInternal(
+        payload: ByteArray,
+        expectedResponse: VescExpectedResponse,
+        priority: VescRequestPriority,
+        context: VescRequestContext,
+        timeoutMs: Long,
+        requestGeneration: VescRequestGeneration,
+        expectsResponse: Boolean,
+        completion: (VescScheduledRequest, VescRequestCompletion) -> Unit,
     ) {
         require(timeoutMs > 0)
         val rejected: Pair<Pending, VescRequestCompletion>? = synchronized(this) {
@@ -143,7 +173,7 @@ class VescRequestScheduler(
                 clock.monotonicMillis() + timeoutMs,
                 requestGeneration,
             )
-            val pending = Pending(request, timeoutMs, completion)
+            val pending = Pending(request, timeoutMs, completion, expectsResponse)
             when {
                 requestGeneration != generation -> pending to VescRequestCompletion.StaleGeneration
                 queue.size >= VescScheduledRequest.MAX_QUEUED_REQUESTS ->
@@ -241,6 +271,20 @@ class VescRequestScheduler(
             return
         }
         write(send.request.payload.copyOf())
+        if (!send.expectsResponse) completeOneWay(send.request.sequence)
+    }
+
+    private fun completeOneWay(sequence: Long) {
+        val completed = synchronized(this) {
+            val current = inFlight
+            if (current?.request?.sequence != sequence || current.expectsResponse) return@synchronized null
+            deadlineTimer?.cancel()
+            deadlineTimer = null
+            inFlight = null
+            current
+        } ?: return
+        completed.completion(completed.request, VescRequestCompletion.Sent)
+        pump()
     }
 
     private fun timeout(sequence: Long, timeoutGeneration: VescRequestGeneration) {

@@ -5,7 +5,7 @@ import { FixtureRunner } from '../fixture/runner.ts';
 import { fixtureScenarios, physicalScenarioMatrix, type PhysicalScenarioName } from '../fixture/scenarios.ts';
 import { FixtureClient } from '../fixture/serial.ts';
 import { ConformanceClient } from './client.ts';
-import type { LocationState } from '../../frontend/src/lib/backend/contract.ts';
+import type { AppState, LocationState } from '../../frontend/src/lib/backend/contract.ts';
 import type { PhysicalTarget } from './suite.ts';
 
 type Progress = (message: string) => void;
@@ -19,6 +19,9 @@ type LocationCheckpoint = {
   afterSequence: number;
 };
 const LOCATION_BACKGROUND_DWELL_MS = 10_000;
+// Native shutdown intent remains active for 30 seconds so delayed BLE
+// link-supervision loss can still be classified as user initiated.
+export const SHUTDOWN_NO_OP_WAIT_MS = 35_000;
 
 export async function runPhysicalConformance(
   target: PhysicalTarget,
@@ -213,7 +216,17 @@ async function runPhysicalScenario(
     const activeSession = ready.activeConnection?.activeSession;
     assert.ok(activeSession, 'Ready connection did not create an active provisional session');
 
-    if (name === 'ride') {
+    if (name === 'control-direct' || name === 'control-can') {
+      await runRefloatControlCheckpoint(client, runner, ready);
+      const beforeDisconnect = await client.request('state.get', {});
+      await client.request('device.disconnect', {}, 10_000);
+      await client.waitForState((state) => state.activeConnection === null, {
+        afterRevision: beforeDisconnect.revision,
+        timeoutMs: 15_000,
+      });
+    } else if (name === 'shutdown-direct' || name === 'shutdown-can' || name === 'shutdown-no-op') {
+      await runControllerShutdownCheckpoint(client, runner, ready, name === 'shutdown-no-op');
+    } else if (name === 'ride') {
       await runRide(client, runner, device.deviceId, activeSession.sessionId, target.platform !== 'android');
     } else if (name === 'unexpected-disconnect') {
       await runReconnect(client, runner, device.deviceId, activeSession.sessionId, ready.revision, false);
@@ -273,6 +286,96 @@ async function runPhysicalScenario(
     client?.close();
     await target.stop().catch(() => undefined);
     await runner.stop(passed);
+  }
+}
+
+async function runRefloatControlCheckpoint(client: ConformanceClient, runner: FixtureRunner, ready: AppState) {
+  let state = ready;
+  if (
+    state.activeConnection?.refloatControls?.status !== 'ready' ||
+    state.activeConnection?.latestSample?.rideState !== 'idle'
+  ) {
+    state = await client.waitForState(
+      (value) =>
+        value.activeConnection?.refloatControls?.status === 'ready' &&
+        value.activeConnection.latestSample?.rideState === 'idle',
+      { afterRevision: state.revision, timeoutMs: 15_000 }
+    );
+  }
+  const initial = state.activeConnection!.refloatControls!;
+  assert.equal(initial.writable, true);
+  assert.equal(initial.pendingAction, null);
+  const requestOffset = runner.simulator.requests.length;
+
+  const set = async (control: 'package' | 'flywheel' | 'leds' | 'headlights', enabled: boolean) => {
+    const result = await client.request('refloat.control.set', { control, enabled }, 10_000);
+    assert.equal(result.pendingAction, null, `${control} did not confirm`);
+    const field = `${control}Enabled` as 'packageEnabled' | 'flywheelEnabled' | 'ledsEnabled' | 'headlightsEnabled';
+    assert.equal(result[field], enabled, `${control} confirmation did not match the request`);
+  };
+
+  await set('leds', !initial.ledsEnabled!);
+  await set('headlights', !initial.headlightsEnabled!);
+  await set('package', false);
+  await set('package', true);
+  await set('flywheel', true);
+  await set('flywheel', false);
+  if (initial.fatalErrorClearable) {
+    const cleared = await client.request('refloat.fatalError.clear', {}, 10_000);
+    assert.equal(cleared.fatalErrorLatched, false);
+    assert.equal(cleared.pendingAction, null);
+  }
+
+  const controlRequests = runner.simulator.requests.slice(requestOffset);
+  assert.ok(controlRequests.filter((request) => request.kind === 'refloat-control').length >= 6);
+  assert.ok(
+    controlRequests.every((request) => request.kind === 'refloat-control' || request.kind === 'telemetry'),
+    'control checkpoint emitted a non-control/non-telemetry request; motor movement is forbidden'
+  );
+}
+
+async function runControllerShutdownCheckpoint(
+  client: ConformanceClient,
+  runner: FixtureRunner,
+  ready: AppState,
+  expectNoOp: boolean
+) {
+  const state =
+    ready.activeConnection?.controllerActions.shutdownAvailable === true
+      ? ready
+      : await client.waitForState((value) => value.activeConnection?.controllerActions.shutdownAvailable === true, {
+          afterRevision: ready.revision,
+          timeoutMs: 15_000,
+        });
+  const requestOffset = runner.simulator.requests.length;
+  assert.deepEqual(await client.request('controller.shutdown', {}, 10_000), { accepted: true });
+  await runner.waitForRequests(
+    (requests) => requests.slice(requestOffset).some((request) => request.kind === 'controller-shutdown'),
+    10_000
+  );
+  const writes = runner.simulator.requests.slice(requestOffset);
+  assert.equal(writes.filter((request) => request.kind === 'controller-shutdown').length, 1);
+  assert.ok(
+    writes.every((request) => request.kind === 'controller-shutdown' || request.kind === 'telemetry'),
+    'shutdown checkpoint emitted a non-shutdown/non-telemetry request; motor movement is forbidden'
+  );
+  if (expectNoOp) {
+    const continued = await client.waitForState(
+      (value) =>
+        value.activeConnection?.controllerActions.pendingAction === null &&
+        value.activeConnection.controllerActions.shutdownAvailable,
+      { afterRevision: state.revision, timeoutMs: SHUTDOWN_NO_OP_WAIT_MS }
+    );
+    await client.request('device.disconnect', {}, 10_000);
+    await client.waitForState((value) => value.activeConnection === null, {
+      afterRevision: continued.revision,
+      timeoutMs: 15_000,
+    });
+  } else {
+    await client.waitForState((value) => value.activeConnection === null, {
+      afterRevision: state.revision,
+      timeoutMs: 15_000,
+    });
   }
 }
 

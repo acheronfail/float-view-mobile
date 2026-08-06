@@ -2,7 +2,7 @@
 
 ### Requirement: Supported detailed Refloat read protocol
 
-The backends and conformance simulator SHALL implement source-faithful telemetry plus only the product-control allowlist defined by `refloat-live-controls` for audited stable Refloat source packages 1.0.0–1.0.1, 1.1.0–1.1.2, and 1.2.0–1.2.3. The simulator SHALL encode the fixed-layout Refloat 1.0.x command 1 realtime response for retained legacy compatibility; native polling SHALL use command 10 for 1.0.x. Compact command 10 SHALL expose every supported detail level through level 4, including controller state, footpad values, control setpoints, field-weakening current when available, distance, temperatures, odometer, energy totals, battery level, charging values, and active firmware faults. Dynamic commands 31/32 SHALL negotiate and decode the complete always-present and running-only field lists plus package state, mode, flags, stop condition, setpoint adjustment, alert reason, charging tail, and the 1.2.x active-alert and fatal-latch state. Command 35 history and data-recorder commands 41–43 SHALL NOT be requested or simulated by this change.
+The backends and conformance simulator SHALL implement source-faithful telemetry plus only the Refloat product-control allowlist defined by `refloat-live-controls` for audited stable Refloat source packages 1.0.0–1.0.1, 1.1.0–1.1.2, and 1.2.0–1.2.3. The independently allowlisted VESC-core shutdown command MUST NOT broaden the Refloat package-command allowlist. The simulator SHALL encode the fixed-layout Refloat 1.0.x command 1 realtime response for retained legacy compatibility; native polling SHALL use command 10 for 1.0.x. Compact command 10 SHALL expose every supported detail level through level 4, including controller state, footpad values, control setpoints, field-weakening current when available, distance, temperatures, odometer, energy totals, battery level, charging values, and active firmware faults. Dynamic commands 31/32 SHALL negotiate and decode the complete always-present and running-only field lists plus package state, mode, flags, stop condition, setpoint adjustment, alert reason, charging tail, and the 1.2.x active-alert and fatal-latch state. Command 35 history and data-recorder commands 41–43 SHALL NOT be requested or simulated by this change.
 
 #### Scenario: Complete legacy compact response
 
@@ -43,6 +43,11 @@ The backends and conformance simulator SHALL implement source-faithful telemetry
 
 - **WHEN** the fixture receives a version-correct package, flywheel, lighting, or clear-fatal command permitted by `refloat-live-controls` in the current authoritative package mode
 - **THEN** it applies only that bounded semantic transition and returns or later reports the source-defined confirmation
+
+#### Scenario: VESC shutdown is not a Refloat command
+
+- **WHEN** the fixture receives exact VESC-core command `[156, 0, 0]` under its independently eligible shutdown profile
+- **THEN** it applies only the controller-loss simulation and does not route command 156 into Refloat package handling or broaden the Refloat mutation allowlist
 
 #### Scenario: Flywheel write exclusion
 

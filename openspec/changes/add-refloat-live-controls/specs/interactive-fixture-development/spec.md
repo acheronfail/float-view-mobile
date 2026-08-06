@@ -2,7 +2,7 @@
 
 ### Requirement: Composable source-faithful controller variants
 
-The controller SHALL compose one stable THOR300 identity, one audited VESC firmware variant from 6.02, 6.05, 6.06, or 7.00, and one exact Refloat codec from 1.0.0–1.0.1, 1.1.0–1.1.2, or 1.2.0–1.2.3 at runtime. It MUST NOT implement the combinations as a registry of declared board profiles. Each selected controller/package pair SHALL reproduce its source version's identity, read protocol, and exact product-control behavior rather than changing display labels alone.
+The controller SHALL compose one stable THOR300 identity, one audited VESC firmware variant from 6.02, 6.05, 6.06, or 7.00, and one exact Refloat codec from 1.0.0–1.0.1, 1.1.0–1.1.2, or 1.2.0–1.2.3 at runtime. It MUST NOT implement the combinations as a registry of declared board profiles. Each selected controller/package pair SHALL reproduce its source version's identity, read protocol, exact product-control behavior, and version-applicable shutdown behavior rather than changing display labels alone.
 
 #### Scenario: Variant matrix is available
 
@@ -39,9 +39,19 @@ The controller SHALL compose one stable THOR300 identity, one audited VESC firmw
 - **WHEN** an audited test-version runtime combination receives any Refloat product-control request
 - **THEN** it supplies no mutating response and preserves simulated state
 
+#### Scenario: Exact shutdown request
+
+- **WHEN** a stable VESC 6.05, 6.06, or 7.00 variant receives `[156, 0, 0]` through its selected route while simulated ride state is idle and package mode is not flywheel
+- **THEN** it records one shutdown intent and simulates selected-controller disappearance without powering off the ESP32
+
+#### Scenario: Unsupported shutdown shape
+
+- **WHEN** VESC 6.02, a test-version variant, or any scenario receives forced, restart, malformed, retried, direct-CAN, or broadcast shutdown
+- **THEN** the fixture rejects the request, preserves simulated controller state, and records one bounded diagnostic
+
 ### Requirement: Read-only Refloat device simulation
 
-While powered on, the coordinator SHALL answer the composed configuration's allowlisted VESC transport identity, optional CAN discovery, controller identity, Refloat identity, applicable telemetry reads, and exact Refloat product controls for normal stable firmware through real BLE. It MUST NOT answer motor-control, firmware-write, arbitrary persistent-configuration, tuning, recording, history, Handtest, remote, RC-move, unknown, or malformed requests. Audited test-version firmware SHALL remain read-only.
+While powered on, the coordinator SHALL answer the composed configuration's allowlisted VESC transport identity, optional CAN discovery, controller identity, Refloat identity, applicable telemetry reads, exact Refloat product controls, and exact eligible VESC-core shutdown for normal stable firmware through real BLE. It MUST NOT answer forced-shutdown, restart, broadcast-shutdown, motor-control, firmware-write, arbitrary persistent-configuration, tuning, recording, history, Handtest, remote, RC-move, unknown, or malformed requests. Audited test-version firmware SHALL remain read-only.
 
 #### Scenario: Native backend connects
 
@@ -67,3 +77,8 @@ While powered on, the coordinator SHALL answer the composed configuration's allo
 
 - **WHEN** automated physical conformance uses its fixture scenarios
 - **THEN** scripted telemetry and control phases, exact fixture responses, cadence assertions, safety rejections, and cleanup behavior remain deterministic
+
+#### Scenario: Shutdown does not power off the fixture
+
+- **WHEN** automated physical conformance accepts an eligible shutdown request
+- **THEN** the host-owned scenario models controller loss while the ESP32 remains powered, emits no motor action, and remains available for deterministic cleanup

@@ -40,6 +40,14 @@ public final class ApplicationService: @unchecked Sendable {
   private var locationCaptureBaseElapsedMs: Int64 = 0
   private var locationCaptureActive = false
   private var currentLimits: ControllerCurrentLimits?
+  private let refloatMutations = DeviceMutationCoordinator()
+  private var refloatProfile: RefloatControlProfile?
+  private var latestRefloatTelemetry: RefloatTelemetryRecord?
+  private var refloatRefreshTimer: (any CancellationPort)?
+  private var refloatMutationTimer: (any CancellationPort)?
+  private var shutdownIntentTimer: (any CancellationPort)?
+  private var refloatWaiter: RefloatMutationWaiter?
+  private lazy var refloatScheduler: any SchedulerPort = scheduler ?? SystemScheduler()
   private var vescGeneration = VescRequestGeneration(rawValue: 0)
   private lazy var vescRequests =
     VescRequestScheduler(
@@ -79,6 +87,13 @@ public final class ApplicationService: @unchecked Sendable {
       self?.lock.withLock {
         guard let self else { return }
         self.events.publish(reason)
+        if self.refloatMutations.controllerActions(shutdownAvailable: false).pendingAction == .shutdown {
+          self.shutdownIntentTimer?.cancel()
+          self.shutdownIntentTimer = nil
+          _ = self.refloatMutations.clearShutdown(generation: self.vescGeneration)
+          self.finishReconnect(reason: "controller_shutdown")
+          return
+        }
         self.failIdentification(
           .identificationTimeout,
           "Refloat telemetry negotiation timed out."
@@ -606,6 +621,15 @@ public final class ApplicationService: @unchecked Sendable {
       events.publish(reason)
     case let .connectionChanged(deviceID, state):
       guard deviceID == activeDeviceID else { return }
+      if state == .failed || state == .disconnected,
+         refloatMutations.controllerActions(shutdownAvailable: false).pendingAction == .shutdown
+      {
+        shutdownIntentTimer?.cancel()
+        shutdownIntentTimer = nil
+        _ = refloatMutations.clearShutdown(generation: vescGeneration)
+        finishReconnect(reason: "controller_shutdown")
+        return
+      }
       if state == .ready {
         if protocolCodec == nil {
           completeWithoutProtocol()
@@ -665,6 +689,8 @@ public final class ApplicationService: @unchecked Sendable {
             (VescCommand.customAppData.rawValue,
              value.kind == .realtime
                ? RefloatCommand.realtimeDataInternal.rawValue : RefloatCommand.getAllData.rawValue)
+          case let .refloatLighting(command, _):
+            (VescCommand.customAppData.rawValue, command.rawValue)
           }
           if !vescRequests.receive(
             payload: bytes,
@@ -729,6 +755,14 @@ public final class ApplicationService: @unchecked Sendable {
             )
           case let .refloatTelemetry(value):
             telemetryPolling.receive(value)
+            latestRefloatTelemetry = value
+            let wasPending = refloatMutations.snapshot()?.pendingAction
+            let updated = refloatMutations.observeTelemetry(value)
+            if wasPending != nil, updated?.pendingAction == nil { finishRefloatMutation(.success(updated!)) }
+          case let .refloatLighting(_, state):
+            let wasPending = refloatMutations.snapshot()?.pendingAction
+            let updated = refloatMutations.observeLighting(state)
+            if wasPending != nil, updated?.pendingAction == nil { finishRefloatMutation(.success(updated!)) }
           }
           events.publish(message)
         }
@@ -889,8 +923,88 @@ public final class ApplicationService: @unchecked Sendable {
       controllerRoute: controllerDiscovery.controllerRoute,
       controllerCandidates: controllerDiscovery.controllerCandidates,
       connectionIssue: controllerDiscovery.connectionIssue,
-      bms: auxiliaryDiscovery.state
+      bms: auxiliaryDiscovery.state,
+      refloatControls: refloatMutations.snapshot(),
+      controllerActions: controllerActionsSnapshot()
     )
+  }
+
+  public func shutdownController() throws {
+    try lock.withLock {
+      guard let protocolCodec,
+            let route = controllerDiscovery.controllerRoute,
+            let firmware = controllerDiscovery.firmware,
+            let telemetry = latestRefloatTelemetry
+      else { throw RefloatMutationError.invalidState }
+      let context = ControllerShutdownContext(
+        generation: vescGeneration,
+        connectionReady: connectionState == .ready,
+        shutdownSupported: VescCompatibility.supportsShutdown(firmware),
+        rideState: telemetry.rideState,
+        packageMode: telemetry.packageMode
+      )
+      let actions = try refloatMutations.authorizeShutdown(context: context)
+      do {
+        let payload = try protocolCodec.controllerShutdownRequest(route: route)
+        events.publish(actions)
+        vescRequests.enqueueOneWay(
+          payload: payload,
+          expectedResponse: .init(command: VescCommand.shutdown.rawValue),
+          priority: .ridingTelemetry,
+          context: .controllerShutdown(.init(route)),
+          timeoutMs: Self.shutdownIntentTimeoutMs,
+          generation: vescGeneration
+        ) { [weak self] _, outcome in
+          guard outcome != .sent else { return }
+          self?.lock.withLock { self?.expireShutdownIntent(generation: context.generation) }
+        }
+        shutdownIntentTimer?.cancel()
+        shutdownIntentTimer = refloatScheduler.schedule(
+          afterMilliseconds: Self.shutdownIntentTimeoutMs
+        ) { [weak self] in
+          self?.lock.withLock { self?.expireShutdownIntent(generation: context.generation) }
+        }
+      } catch {
+        _ = refloatMutations.clearShutdown(generation: context.generation)
+        throw error
+      }
+    }
+  }
+
+  public func setRefloatControl(_ control: RefloatBooleanControl, enabled: Bool) throws -> RefloatControls {
+    let waiter = try lock.withLock { () throws -> RefloatMutationWaiter? in
+      let context = try refloatMutationContext()
+      switch try refloatMutations.authorizeSet(control: control, enabled: enabled, context: context) {
+      case .idempotent: return nil
+      case let .mutation(mutation, state):
+        let waiter = RefloatMutationWaiter()
+        refloatWaiter = waiter
+        events.publish(state)
+        try submitRefloatMutation(mutation, route: context.route, generation: context.generation)
+        armRefloatMutationTimeout(generation: context.generation)
+        return waiter
+      }
+    }
+    guard let waiter else { return refloatMutations.snapshot()! }
+    return try waiter.wait(timeout: 3.25)
+  }
+
+  public func clearRefloatFatalError() throws -> RefloatControls {
+    let waiter = try lock.withLock { () throws -> RefloatMutationWaiter? in
+      let context = try refloatMutationContext()
+      switch try refloatMutations.authorizeFatalClear(context: context) {
+      case .idempotent: return nil
+      case let .mutation(mutation, _):
+        let waiter = RefloatMutationWaiter()
+        refloatWaiter = waiter
+        events.publish(refloatMutations.snapshot()!)
+        try submitRefloatMutation(mutation, route: context.route, generation: context.generation)
+        armRefloatMutationTimeout(generation: context.generation)
+        return waiter
+      }
+    }
+    guard let waiter else { return refloatMutations.snapshot()! }
+    return try waiter.wait(timeout: 3.25)
   }
 
   public func firmwareSnapshot() -> FirmwareRecord? {
@@ -1115,6 +1229,7 @@ public final class ApplicationService: @unchecked Sendable {
     controllerDiscovery.clearIssue()
     clearDiscoveredDevices(publish: false)
     transition(.ready)
+    configureRefloatControls(firmware: firmware)
     if let protocolCodec {
       do {
         try submitVescRequest(
@@ -1221,7 +1336,7 @@ public final class ApplicationService: @unchecked Sendable {
             guard let self, self.connectionState == .ready else { return }
             switch completion {
             case .timedOut, .queueFull: self.recordBmsFailure()
-            case .response: break
+            case .response, .sent: break
             case .cancelled, .staleGeneration: return
             }
             self.bmsPollTimer = self.scheduler?.schedule(afterMilliseconds: 1_000) { [weak self] in
@@ -1509,6 +1624,157 @@ public final class ApplicationService: @unchecked Sendable {
     if publish { events.publish(discoverySnapshot()) }
   }
 
+  private func configureRefloatControls(firmware: FirmwareRecord) {
+    guard let version = controllerDiscovery.refloatPackageVersion,
+          let profile = RefloatCompatibility.controlProfile(wireVersion: version),
+          let access = VescCompatibility.accessMode(firmware)
+    else {
+      refloatProfile = nil
+      return
+    }
+    refloatProfile = profile
+    latestRefloatTelemetry = nil
+    events.publish(refloatMutations.configure(
+      generation: vescGeneration, profile: profile, writable: access == .readWrite
+    ))
+    scheduleRefloatLightingRefresh()
+  }
+
+  private func requestRefloatLighting(route: ControllerRoute, profile: RefloatControlProfile) {
+    guard connectionState == .ready, refloatMutations.snapshot()?.pendingAction == nil else { return }
+    do {
+      let current = RefloatLightingState(
+        ledsEnabled: refloatMutations.snapshot()?.ledsEnabled ?? false,
+        headlightsEnabled: refloatMutations.snapshot()?.headlightsEnabled ?? false
+      )
+      let command = try RefloatControlCodec.lightingRequest(
+        profile: profile, control: nil, current: current
+      )
+      let payload = try Data(VescFrameCodec.encode(VescCommandRouter.route(command, via: route)))
+      submitVescRequest(
+        payload: payload,
+        expected: .init(command: VescCommand.customAppData.rawValue, refloatCommand: command[2]),
+        priority: .auxiliary,
+        context: .refloatLighting(.init(route)),
+        timeoutMs: Self.canProbeTimeoutMs
+      )
+    } catch {
+      events.publish("refloat_lighting_refresh_failed")
+    }
+  }
+
+  private func scheduleRefloatLightingRefresh() {
+    refloatRefreshTimer?.cancel()
+    refloatRefreshTimer = refloatScheduler.schedule(afterMilliseconds: Self.refloatRefreshMs) { [weak self] in
+      self?.lock.withLock {
+        guard let self,
+              let route = self.controllerDiscovery.controllerRoute,
+              let profile = self.refloatProfile
+        else { return }
+        self.requestRefloatLighting(route: route, profile: profile)
+        self.scheduleRefloatLightingRefresh()
+      }
+    }
+  }
+
+  private func refloatMutationContext() throws -> RefloatMutationContext {
+    guard connectionState == .ready,
+          let route = controllerDiscovery.controllerRoute,
+          let profile = refloatProfile,
+          let telemetry = latestRefloatTelemetry,
+          let firmware = controllerDiscovery.firmware
+    else { throw RefloatMutationError.invalidState }
+    return RefloatMutationContext(
+      generation: vescGeneration, route: route, profile: profile,
+      connectionReady: true, writable: VescCompatibility.accessMode(firmware) == .readWrite,
+      rideState: telemetry.rideState, packageState: telemetry.packageState,
+      packageMode: telemetry.packageMode
+    )
+  }
+
+  private func submitRefloatMutation(
+    _ mutation: AuthorizedRefloatMutation,
+    route: ControllerRoute,
+    generation: VescRequestGeneration
+  ) throws {
+    let data = try Data(VescFrameCodec.encode(VescCommandRouter.route(mutation.payload, via: route)))
+    let complete: @Sendable (VescScheduledRequest, VescRequestCompletion) -> Void = {
+      [weak self] _, outcome in
+      switch outcome {
+      case .response, .sent: break
+      case .timedOut, .queueFull, .cancelled, .staleGeneration:
+        self?.lock.withLock { self?.failRefloatMutation(generation: generation) }
+      }
+    }
+    if mutation.oneWay {
+      vescRequests.enqueueOneWay(
+        payload: data, expectedResponse: mutation.expectedResponse,
+        priority: .ridingTelemetry, context: .refloatControl(.init(route)),
+        timeoutMs: Self.refloatMutationTimeoutMs, generation: generation, completion: complete
+      )
+    } else {
+      vescRequests.enqueue(
+        payload: data, expectedResponse: mutation.expectedResponse,
+        priority: .ridingTelemetry, context: .refloatControl(.init(route)),
+        timeoutMs: Self.refloatMutationTimeoutMs, generation: generation, completion: complete
+      )
+    }
+  }
+
+  private func armRefloatMutationTimeout(generation: VescRequestGeneration) {
+    refloatMutationTimer?.cancel()
+    refloatMutationTimer = refloatScheduler.schedule(
+      afterMilliseconds: Self.refloatMutationTimeoutMs
+    ) { [weak self] in self?.lock.withLock { self?.failRefloatMutation(generation: generation) } }
+  }
+
+  private func failRefloatMutation(generation: VescRequestGeneration) {
+    guard let updated = refloatMutations.failPending(generation: generation) else { return }
+    events.publish("refloat_control_confirmation_timeout")
+    events.publish(updated)
+    finishRefloatMutation(.failure(.unavailable))
+  }
+
+  private func finishRefloatMutation(_ result: Result<RefloatControls, RefloatMutationError>) {
+    refloatMutationTimer?.cancel()
+    refloatMutationTimer = nil
+    let waiter = refloatWaiter
+    refloatWaiter = nil
+    waiter?.finish(result)
+  }
+
+  private func cancelRefloatControls() {
+    refloatRefreshTimer?.cancel()
+    refloatRefreshTimer = nil
+    refloatMutationTimer?.cancel()
+    refloatMutationTimer = nil
+    shutdownIntentTimer?.cancel()
+    shutdownIntentTimer = nil
+    refloatProfile = nil
+    latestRefloatTelemetry = nil
+    _ = refloatMutations.cancel()
+    finishRefloatMutation(.failure(.unavailable))
+  }
+
+  private func controllerActionsSnapshot() -> ControllerActions {
+    let supported = controllerDiscovery.firmware.map(VescCompatibility.supportsShutdown) ?? false
+    let telemetry = latestRefloatTelemetry
+    let available = connectionState == .ready
+      && supported
+      && telemetry?.rideState == .idle
+      && telemetry?.packageMode != .flywheel
+      && refloatMutations.snapshot()?.pendingAction == nil
+    return refloatMutations.controllerActions(shutdownAvailable: available)
+  }
+
+  private func expireShutdownIntent(generation: VescRequestGeneration) {
+    guard let actions = refloatMutations.clearShutdown(generation: generation) else { return }
+    shutdownIntentTimer?.cancel()
+    shutdownIntentTimer = nil
+    events.publish("controller_shutdown_unconfirmed")
+    events.publish(actions)
+  }
+
   private func resetFirmwareDiscovery() {
     vescGeneration = vescRequests.beginGeneration()
     telemetryPolling.cancelLayout()
@@ -1519,6 +1785,7 @@ public final class ApplicationService: @unchecked Sendable {
     bmsPollTimer = nil
     bmsFailureCount = 0
     currentLimits = nil
+    cancelRefloatControls()
     currentSavedDevice = nil
     cancelIdentificationTimeout()
     cancelCanProbeTimeout()
@@ -1532,6 +1799,11 @@ public final class ApplicationService: @unchecked Sendable {
   // COMM_PING_CAN can synchronously probe all 255 CAN IDs at 10 ms per ID.
   private static let canScanTimeoutMs: Int64 = 10_000
   private static let canProbeTimeoutMs: Int64 = 1_000
+  private static let refloatRefreshMs: Int64 = 1_000
+  private static let refloatMutationTimeoutMs: Int64 = 3_000
+  // Keep intent through a bounded BLE link-supervision timeout. A powered-off
+  // controller may not be reported disconnected immediately after the write.
+  private static let shutdownIntentTimeoutMs: Int64 = 30_000
 
   private static func bmsRouteDiagnostic(_ canID: UInt8?) -> String {
     canID.map { "can=\($0)" } ?? "direct"
@@ -1565,4 +1837,26 @@ public enum ApplicationError: Error, Equatable {
   case deviceNotReady
   case productStoreUnavailable
   case invalidControllerSelection
+}
+
+private final class RefloatMutationWaiter: @unchecked Sendable {
+  private let lock = NSLock()
+  private let semaphore = DispatchSemaphore(value: 0)
+  private var result: Result<RefloatControls, RefloatMutationError>?
+
+  func finish(_ result: Result<RefloatControls, RefloatMutationError>) {
+    let shouldSignal = lock.withLock {
+      guard self.result == nil else { return false }
+      self.result = result
+      return true
+    }
+    if shouldSignal { semaphore.signal() }
+  }
+
+  func wait(timeout: TimeInterval) throws -> RefloatControls {
+    guard semaphore.wait(timeout: .now() + timeout) == .success,
+          let result = lock.withLock({ result })
+    else { throw RefloatMutationError.unavailable }
+    return try result.get()
+  }
 }

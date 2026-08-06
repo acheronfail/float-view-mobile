@@ -15,6 +15,16 @@ public enum RefloatWireProfile: Sendable, Equatable {
   }
 }
 
+public enum RefloatLightingProfile: Sendable, Equatable {
+  case legacyCommand202
+  case stableCommand20
+}
+
+public struct RefloatControlProfile: Sendable, Equatable {
+  public let lighting: RefloatLightingProfile
+  public let fatalClearAvailable: Bool
+}
+
 public struct RefloatCompatibilityEntry: Sendable, Equatable {
   public let sourceVersion: String
   public let wireVersion: String
@@ -22,6 +32,15 @@ public struct RefloatCompatibilityEntry: Sendable, Equatable {
 
   public var family: RefloatTelemetryFamily {
     profile.family
+  }
+
+  public var controlProfile: RefloatControlProfile {
+    switch profile {
+    case .legacyFixed, .dynamic:
+      .init(lighting: .legacyCommand202, fatalClearAvailable: false)
+    case .dynamicAlerts:
+      .init(lighting: .stableCommand20, fatalClearAvailable: true)
+    }
   }
 }
 
@@ -40,6 +59,10 @@ public enum RefloatCompatibility {
 
   public static func entry(wireVersion: String) -> RefloatCompatibilityEntry? {
     entries.first { $0.wireVersion == wireVersion }
+  }
+
+  public static func controlProfile(wireVersion: String) -> RefloatControlProfile? {
+    entry(wireVersion: wireVersion)?.controlProfile
   }
 
   public static let requiredFields = [

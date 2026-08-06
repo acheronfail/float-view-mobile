@@ -347,6 +347,26 @@ public final class LoopbackServer: @unchecked Sendable {
       case "device.disconnect":
         try applicationService.disconnect()
         return success(["accepted": true])
+      case "controller.shutdown":
+        guard params.isEmpty else {
+          return failure(id, .invalidRequest, "Controller shutdown does not accept parameters")
+        }
+        try applicationService.shutdownController()
+        return success(["accepted": true])
+      case "refloat.control.set":
+        guard params.count == 2,
+              let rawControl = params["control"] as? String,
+              let control = RefloatBooleanControl(rawValue: rawControl),
+              let enabled = params["enabled"] as? Bool
+        else { return failure(id, .invalidRequest, "A valid Refloat control and boolean are required") }
+        return try success(refloatControlsPayload(
+          applicationService.setRefloatControl(control, enabled: enabled)
+        ))
+      case "refloat.fatalError.clear":
+        guard params.isEmpty else {
+          return failure(id, .invalidRequest, "Fatal-error clear does not accept parameters")
+        }
+        return try success(refloatControlsPayload(applicationService.clearRefloatFatalError()))
       case "savedDevice.update":
         guard let savedID = params["savedDeviceId"] as? String,
               let expected = params["expectedRevision"] as? Int,
@@ -654,6 +674,10 @@ public final class LoopbackServer: @unchecked Sendable {
       return productFailure(id, error)
     } catch let error as SessionStoreError {
       return sessionFailure(id, error)
+    } catch let error as RefloatMutationError {
+      return error == .invalidState
+        ? failure(id, .invalidState, "Refloat control is not permitted in the current state")
+        : failure(id, .unavailable, "Refloat control confirmation was unavailable")
     } catch {
       return failure(id, .internal, "Backend operation failed")
     }
@@ -744,6 +768,32 @@ public final class LoopbackServer: @unchecked Sendable {
       "controllerCandidates": value.controllerCandidates.map(controllerCandidatePayload),
       "connectionIssue": value.connectionIssue.map(connectionIssuePayload) ?? NSNull(),
       "bms": bmsStatePayload(value.bms),
+      "refloatControls": value.refloatControls.map(refloatControlsPayload) ?? NSNull(),
+      "controllerActions": controllerActionsPayload(value.controllerActions),
+    ]
+  }
+
+  private func refloatControlsPayload(_ value: RefloatControls) -> [String: Any] {
+    [
+      "status": value.status.rawValue,
+      "writable": value.writable,
+      "packageEnabled": value.packageEnabled ?? NSNull(),
+      "flywheelEnabled": value.flywheelEnabled ?? NSNull(),
+      "lightingAvailable": value.lightingAvailable,
+      "ledsEnabled": value.ledsEnabled ?? NSNull(),
+      "headlightsEnabled": value.headlightsEnabled ?? NSNull(),
+      "fatalErrorClearAvailable": value.fatalErrorClearAvailable,
+      "fatalErrorLatched": value.fatalErrorLatched ?? NSNull(),
+      "fatalErrorActive": value.fatalErrorActive ?? NSNull(),
+      "fatalErrorClearable": value.fatalErrorClearable ?? NSNull(),
+      "pendingAction": value.pendingAction?.rawValue ?? NSNull(),
+    ]
+  }
+
+  private func controllerActionsPayload(_ value: ControllerActions) -> [String: Any] {
+    [
+      "shutdownAvailable": value.shutdownAvailable,
+      "pendingAction": value.pendingAction?.rawValue ?? NSNull(),
     ]
   }
 
@@ -1490,7 +1540,7 @@ private struct BackendMessageHandler: WSMessageHandler {
 private func invalidatesState(_ event: any Sendable) -> Bool {
   if let message = event as? VescProtocolMessage {
     switch message {
-    case .firmware, .currentLimits, .refloatInfo:
+    case .firmware, .currentLimits, .refloatInfo, .refloatLighting:
       return true
     case .canDevices, .bmsValuesPayload, .refloatTelemetryLayout, .refloatTelemetry:
       return false
@@ -1500,7 +1550,7 @@ private func invalidatesState(_ event: any Sendable) -> Bool {
     event is KnownDevice ||
     event is SessionRecord || event is SavedDeviceRecord || event is BoardProfileRecord ||
     event is SettingsRecord || event is LocationProviderState || event is TelemetrySample ||
-    event is BmsState || event is BmsSnapshot ||
+    event is BmsState || event is BmsSnapshot || event is RefloatControls ||
     event is LocationUpdated || event is SessionCatalogChanged
 }
 

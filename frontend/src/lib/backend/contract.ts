@@ -291,6 +291,31 @@ export interface BmsState {
   latestSnapshot: BmsSnapshot | null;
 }
 
+export type RefloatControl = 'package' | 'flywheel' | 'leds' | 'headlights';
+export type RefloatPendingAction = RefloatControl | 'clearFatalError';
+
+/** Complete authoritative, connection-scoped Refloat control state. */
+export interface RefloatControls {
+  status: 'loading' | 'ready' | 'unavailable';
+  writable: boolean;
+  packageEnabled: boolean | null;
+  flywheelEnabled: boolean | null;
+  lightingAvailable: boolean;
+  ledsEnabled: boolean | null;
+  headlightsEnabled: boolean | null;
+  fatalErrorClearAvailable: boolean;
+  fatalErrorLatched: boolean | null;
+  fatalErrorActive: boolean | null;
+  fatalErrorClearable: boolean | null;
+  pendingAction: RefloatPendingAction | null;
+}
+
+/** Complete authoritative, connection-scoped VESC controller actions. */
+export interface ControllerActions {
+  shutdownAvailable: boolean;
+  pendingAction: 'shutdown' | null;
+}
+
 export interface ActiveConnection extends Device {
   firmware: FirmwareInfo | null;
   trackingMode: 'saved' | 'guest';
@@ -300,6 +325,10 @@ export interface ActiveConnection extends Device {
   controllerCandidates: ControllerCandidate[];
   connectionIssue: ConnectionIssue | null;
   bms: BmsState;
+  /** Null only before Refloat discovery begins. Never persisted. */
+  refloatControls: RefloatControls | null;
+  /** Live-only VESC controller actions. Never persisted. */
+  controllerActions: ControllerActions;
   activeSession: SessionSummary | null;
   latestSample: LiveSample | null;
   latestLocation: LiveLocation | null;
@@ -537,6 +566,12 @@ export interface BackendMethods {
     result: Accepted;
   };
   'device.disconnect': { params: EmptyParams; result: Accepted };
+  'controller.shutdown': { params: EmptyParams; result: Accepted };
+  'refloat.control.set': {
+    params: { control: RefloatControl; enabled: boolean };
+    result: RefloatControls;
+  };
+  'refloat.fatalError.clear': { params: EmptyParams; result: RefloatControls };
   'savedDevice.update': {
     params: {
       savedDeviceId: string;

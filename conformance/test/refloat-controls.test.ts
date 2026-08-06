@@ -1,0 +1,196 @@
+import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import test from 'node:test';
+import { fileURLToPath } from 'node:url';
+import {
+  decodeRefloatProductControl,
+  RefloatControlModel,
+  type RefloatControlRejection,
+  type RefloatProductControl,
+} from '../fixture/refloat-controls.ts';
+import type { RefloatVersion } from '../fixture/refloat.ts';
+import { composeBoard } from '../fixture/boards.ts';
+import { encodeFrame, FrameAssembler } from '../fixture/frame.ts';
+import { VescSimulator } from '../fixture/simulator.ts';
+import { idleTelemetry } from '../fixture/telemetry.ts';
+
+interface GoldenCase {
+  name: string;
+  version: RefloatVersion;
+  request: number[];
+  response: number[] | null;
+  control: RefloatProductControl;
+  enabled?: boolean;
+}
+
+interface RejectionCase {
+  name: string;
+  version: RefloatVersion;
+  request: number[];
+  selectedCanId?: number;
+  requestCanId?: number;
+  firmwareTestVersion?: number;
+  reason: RefloatControlRejection;
+}
+
+const path = fileURLToPath(new URL('../../backends/fixtures/refloat/product-controls.json', import.meta.url));
+const fixture = JSON.parse(readFileSync(path, 'utf8')) as {
+  cases: GoldenCase[];
+  rejections: RejectionCase[];
+};
+
+const decode = (frame: Uint8Array): Uint8Array => new FrameAssembler().append(frame)[0]!;
+
+test('source-derived product-control golden requests match the closed decoder', () => {
+  for (const item of fixture.cases) {
+    const result = decodeRefloatProductControl(item.version, Uint8Array.from(item.request));
+    assert.equal(result.accepted, true, item.name);
+    if (!result.accepted) continue;
+    assert.equal(result.value.control, item.control, item.name);
+    assert.equal(result.value.enabled, item.enabled, item.name);
+    if (item.response !== null) {
+      assert.deepEqual(item.response.slice(0, 3), [36, 101, item.request[2]], item.name);
+      assert.equal(item.response.length, 4, item.name);
+    }
+  }
+});
+
+test('malformed, oversized, wrong-route, test-version, and unsupported requests fail closed', () => {
+  for (const item of fixture.rejections) {
+    const result = decodeRefloatProductControl(item.version, Uint8Array.from(item.request), {
+      selectedCanId: item.selectedCanId,
+      requestCanId: item.requestCanId,
+      firmwareTestVersion: item.firmwareTestVersion,
+    });
+    assert.deepEqual(result, { accepted: false, reason: item.reason }, item.name);
+  }
+});
+
+test('direct and CAN simulators apply exact lighting responses and later one-way telemetry confirmation', () => {
+  for (const [topology, prefix] of [
+    ['direct', []],
+    ['express', [34, 42]],
+  ] as const) {
+    const simulator = new VescSimulator(composeBoard({ firmware: '6.06', refloat: '1.2.3', topology, canId: 42 }));
+    const lighting = simulator.receive(encodeFrame(Uint8Array.of(...prefix, 36, 101, 20, 0, 0, 0, 2, 1)));
+    assert.equal(lighting.length, 1);
+    assert.deepEqual([...decode(lighting[0]!.frame)], [36, 101, 20, 1]);
+
+    assert.deepEqual(simulator.receive(encodeFrame(Uint8Array.of(...prefix, 36, 101, 12, 1))), []);
+    const telemetry = simulator.receive(encodeFrame(Uint8Array.of(...prefix, 36, 101, 31)));
+    assert.equal(decode(telemetry[0]!.frame)[9]! & 0x03, 0, 'package disable confirms in telemetry');
+    assert.equal(simulator.requests.filter((item) => item.kind === 'refloat-control').length, 2);
+    assert.equal(
+      simulator.requests.some((item) => item.kind === 'motor-configuration'),
+      false
+    );
+  }
+});
+
+test('legacy lighting is exact and flywheel mode rejects every mutation except disable', () => {
+  const legacy = new VescSimulator(composeBoard({ firmware: '6.02', refloat: '1.0.0', topology: 'direct' }));
+  const response = legacy.receive(encodeFrame(Uint8Array.of(36, 101, 202, 1, 2)));
+  assert.deepEqual([...decode(response[0]!.frame)], [36, 101, 202, 2]);
+
+  const simulator = new VescSimulator(
+    composeBoard({
+      firmware: '6.06',
+      refloat: '1.2.3',
+      topology: 'direct',
+      requestPolicy: 'interactive',
+    })
+  );
+  assert.deepEqual(simulator.receive(encodeFrame(Uint8Array.of(36, 101, 22, 0x81, 0, 0, 0, 0, 1))), []);
+  for (const mutation of [
+    [36, 101, 12, 1],
+    [36, 101, 20, 0, 0, 0, 1, 0],
+    [36, 101, 36, 1],
+    [36, 101, 2, 0],
+  ]) {
+    assert.deepEqual(simulator.receive(encodeFrame(Uint8Array.from(mutation))), []);
+  }
+  assert.match(simulator.diagnostics.join('\n'), /Rejected Refloat control|Unsupported Refloat request/);
+  assert.deepEqual(simulator.receive(encodeFrame(Uint8Array.of(36, 101, 22, 0x80, 0, 0, 0, 0, 1))), []);
+  assert.equal(simulator.requests.filter((item) => item.kind === 'refloat-control').length, 2);
+});
+
+test('active flywheel telemetry is riding while exact disable remains authorized', () => {
+  const model = new RefloatControlModel('1.2.3', { flywheelEnabled: true });
+  const sample = model.applyToSample(idleTelemetry);
+  assert.equal(sample.packageState, 'running');
+  assert.equal(sample.packageMode, 'flywheel');
+  assert.deepEqual(model.apply(Uint8Array.of(36, 101, 22, 0x80, 0, 0, 0, 0, 1), { rideState: 'riding' }), {
+    accepted: true,
+    oneWay: true,
+  });
+});
+
+test('audited test-version simulator firmware remains read-only', () => {
+  const simulator = new VescSimulator(
+    composeBoard({
+      firmware: '7.00',
+      firmwareTestVersion: 1,
+      refloat: '1.2.3',
+      topology: 'direct',
+      requestPolicy: 'interactive',
+    })
+  );
+  assert.deepEqual(simulator.receive(encodeFrame(Uint8Array.of(36, 101, 12, 0))), []);
+  assert.match(simulator.diagnostics.at(-1) ?? '', /read_only/);
+  assert.equal(
+    simulator.requests.some((item) => item.kind === 'refloat-control'),
+    false
+  );
+});
+
+test('representative release families expose exact lighting state on direct and CAN routes', () => {
+  for (const [refloat, topology, command] of [
+    ['1.0.0', 'direct', 202],
+    ['1.0.0', 'express', 202],
+    ['1.1.0', 'direct', 202],
+    ['1.1.0', 'express', 202],
+    ['1.2.3', 'direct', 20],
+    ['1.2.3', 'express', 20],
+  ] as const) {
+    const prefix = topology === 'express' ? [34, 42] : [];
+    const request =
+      command === 202
+        ? Uint8Array.of(...prefix, 36, 101, command, 3, 2)
+        : Uint8Array.of(...prefix, 36, 101, command, 0, 0, 0, 3, 2);
+    const simulator = new VescSimulator(
+      composeBoard({ firmware: refloat === '1.0.0' ? '6.02' : '6.06', refloat, topology, canId: 42 })
+    );
+    const response = simulator.receive(encodeFrame(request));
+    assert.deepEqual([...decode(response[0]!.frame)], [36, 101, command, 2], `${refloat}-${topology}`);
+  }
+});
+
+test('canonical safety matrix covers motion, fault, idempotence, flywheel exclusion, and reset isolation', () => {
+  const normal = new RefloatControlModel('1.2.3', { fatalErrorLatched: true });
+  assert.equal(normal.apply(Uint8Array.of(36, 101, 12, 0), { rideState: 'idle' }).accepted, true);
+  assert.equal(normal.state.packageEnabled, true, 'idempotent package enable retains confirmed state');
+  assert.deepEqual(normal.apply(Uint8Array.of(36, 101, 12, 1), { rideState: 'riding' }), {
+    accepted: false,
+    reason: 'invalid_state',
+  });
+  normal.state.fatalErrorActive = true;
+  assert.deepEqual(normal.apply(Uint8Array.of(36, 101, 36, 1), { rideState: 'idle' }), {
+    accepted: false,
+    reason: 'invalid_state',
+  });
+
+  const flywheel = new RefloatControlModel('1.2.3', { flywheelEnabled: true });
+  for (const payload of [
+    Uint8Array.of(36, 101, 12, 1),
+    Uint8Array.of(36, 101, 20, 0, 0, 0, 1, 0),
+    Uint8Array.of(36, 101, 36, 1),
+  ]) {
+    assert.deepEqual(flywheel.apply(payload, { rideState: 'idle' }), {
+      accepted: false,
+      reason: 'invalid_state',
+    });
+  }
+  assert.equal(flywheel.apply(Uint8Array.of(36, 101, 22, 0x80, 0, 0, 0, 0, 1), { rideState: 'idle' }).accepted, true);
+  assert.equal(flywheel.state.flywheelEnabled, false);
+  assert.equal(new RefloatControlModel('1.2.3').state.flywheelEnabled, false, 'reconnect creates fresh state');
+});

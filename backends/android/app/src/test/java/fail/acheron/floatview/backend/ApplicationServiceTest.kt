@@ -6,6 +6,7 @@ import java.time.Instant
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -757,6 +758,48 @@ class ApplicationServiceTest {
     }
 
     @Test
+    fun `controller shutdown expires or classifies delayed BLE loss as intentional`() {
+        data class Ready(
+            val service: ApplicationService,
+            val bluetooth: FakeBluetooth,
+            val scheduler: FakeScheduler,
+            val id: DeviceId,
+        )
+
+        fun makeReady(): Ready {
+            val bluetooth = FakeBluetooth()
+            val scheduler = FakeScheduler()
+            val service = ApplicationService(
+                bluetooth, FakeClock(), FakeStore(), protocol = TelemetryProtocol(), scheduler = scheduler,
+            ) {}
+            val id = DeviceId("shutdown-fixture")
+            service.onBluetoothEvent(BluetoothEvent.DeviceFound(id, "THOR300", -40))
+            service.connect(id)
+            service.onBluetoothEvent(BluetoothEvent.ConnectionChanged(id, ConnectionState.READY))
+            listOf(1, 2, 3, 5).forEach {
+                service.onBluetoothEvent(BluetoothEvent.Notification(id, byteArrayOf(it.toByte())))
+            }
+            assertEquals(true, service.activeConnectionSnapshot()?.controllerActions?.shutdownAvailable)
+            return Ready(service, bluetooth, scheduler, id)
+        }
+
+        val noOp = makeReady()
+        noOp.service.shutdownController()
+        assertTrue(noOp.bluetooth.writes.any { it.contentEquals(byteArrayOf(156.toByte(), 0, 0)) })
+        assertEquals(ControllerPendingAction.SHUTDOWN, noOp.service.activeConnectionSnapshot()?.controllerActions?.pendingAction)
+        noOp.scheduler.fireOneShots(30_000)
+        assertNull(noOp.service.activeConnectionSnapshot()?.controllerActions?.pendingAction)
+        assertEquals(true, noOp.service.activeConnectionSnapshot()?.controllerActions?.shutdownAvailable)
+
+        val lost = makeReady()
+        lost.service.shutdownController()
+        lost.service.onBluetoothEvent(BluetoothEvent.ConnectionChanged(lost.id, ConnectionState.FAILED))
+        assertNull(lost.service.activeConnectionSnapshot())
+        assertEquals(ConnectionState.DISCONNECTED, lost.service.connectionState)
+        assertEquals(listOf(lost.id), lost.bluetooth.connected)
+    }
+
+    @Test
     fun `refloat telemetry keeps riding probe rate through post ride tail`() {
         val bluetooth = FakeBluetooth()
         val scheduler = FakeScheduler()
@@ -1074,6 +1117,7 @@ class ApplicationServiceTest {
             byteArrayOf(32, (route.canIdOrNull ?: 255).toByte())
         override fun refloatTelemetryRequest(route: ControllerRoute) =
             byteArrayOf(31, (route.canIdOrNull ?: 255).toByte())
+        override fun controllerShutdownRequest(route: ControllerRoute) = byteArrayOf(156.toByte(), 0, 0)
         override fun receive(bytes: ByteArray): List<VescProtocolMessage> =
             when (bytes.single().toInt()) {
                 1 -> listOf(

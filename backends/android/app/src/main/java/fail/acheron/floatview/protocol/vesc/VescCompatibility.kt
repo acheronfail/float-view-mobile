@@ -34,4 +34,12 @@ object VescCompatibility {
         val mode = accessMode(firmware) ?: return false
         return operation == VescOperation.READ || mode == VescAccessMode.READ_WRITE
     }
+
+    fun supportsShutdown(firmware: FirmwareRecord): Boolean =
+        accessMode(firmware) == VescAccessMode.READ_WRITE &&
+            VescFirmwareVersion(firmware.major, firmware.minor) in setOf(
+                VescFirmwareVersion(6, 5),
+                VescFirmwareVersion(6, 6),
+                VescFirmwareVersion(7, 0),
+            )
 }

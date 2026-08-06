@@ -2,7 +2,7 @@
 
 ### Requirement: Complete mandatory contract
 
-Every supported backend SHALL implement the WebSocket control methods `state.get`, `bluetooth.requestPermission`, `bluetooth.scan`, `device.connect`, `device.selectController`, `device.disconnect`, `refloat.control.set`, `refloat.fatalError.clear`, `savedDevice.update`, `savedDevice.delete`, `settings.update`, `boardProfile.get`, `boardProfile.update`, `session.list`, `session.get`, `session.export`, `session.delete`, `session.delete.cancel`, `session.prune.preview`, `session.prune.start`, and `session.prune.cancel`, plus the authenticated session-data request kinds `series`, `samples`, and `events`. Session-group methods SHALL NOT remain; `session.getDiagnostics` SHALL NOT remain; exact retained historical reads use `samples`. The frontend MUST NOT negotiate or branch on optional methods or platform capabilities.
+Every supported backend SHALL implement the WebSocket control methods `state.get`, `bluetooth.requestPermission`, `bluetooth.scan`, `device.connect`, `device.selectController`, `device.disconnect`, `controller.shutdown`, `refloat.control.set`, `refloat.fatalError.clear`, `savedDevice.update`, `savedDevice.delete`, `settings.update`, `boardProfile.get`, `boardProfile.update`, `session.list`, `session.get`, `session.export`, `session.delete`, `session.delete.cancel`, `session.prune.preview`, `session.prune.start`, and `session.prune.cancel`, plus the authenticated session-data request kinds `series`, `samples`, and `events`. Session-group methods SHALL NOT remain; `session.getDiagnostics` SHALL NOT remain; exact retained historical reads use `samples`. The frontend MUST NOT negotiate or branch on optional methods or platform capabilities.
 
 #### Scenario: Supported backend
 
@@ -16,7 +16,7 @@ Every supported backend SHALL implement the WebSocket control methods `state.get
 
 ### Requirement: Authoritative application state
 
-`state.get` SHALL return a bounded `AppState` containing a monotonic revision, a separate monotonic `sessionCatalogRevision`, Bluetooth state, discovered devices with an explicit saved-board match when known, saved devices with a stable opaque logical identity, resolved identity, and optional local platform association, active connection with `trackingMode` (`saved` or `guest`) and nullable saved-device identity, connection state, detected direct-or-CAN controller route, bounded controller candidates when selection is required, bounded connection issue when failed, firmware, complete live-only Refloat control state when protocol discovery has begun, saved-mode active-session summary when present, the latest successfully persisted sample for saved mode or bounded ephemeral latest sample for guest mode when known, and settings. Recent session summaries and session groups SHALL NOT be included; standalone or board-filtered session summaries SHALL be retrieved through `session.list`. Historical series, private controller UUIDs, raw VESC firmware identifiers, and diagnostic windows MUST NOT be included.
+`state.get` SHALL return a bounded `AppState` containing a monotonic revision, a separate monotonic `sessionCatalogRevision`, Bluetooth state, discovered devices with an explicit saved-board match when known, saved devices with a stable opaque logical identity, resolved identity, and optional local platform association, active connection with `trackingMode` (`saved` or `guest`) and nullable saved-device identity, connection state, detected direct-or-CAN controller route, bounded controller candidates when selection is required, bounded connection issue when failed, firmware, complete live-only Refloat control state when protocol discovery has begun, complete bounded controller-action state, saved-mode active-session summary when present, the latest successfully persisted sample for saved mode or bounded ephemeral latest sample for guest mode when known, and settings. Recent session summaries and session groups SHALL NOT be included; standalone or board-filtered session summaries SHALL be retrieved through `session.list`. Historical series, private controller UUIDs, raw VESC firmware identifiers, and diagnostic windows MUST NOT be included.
 
 #### Scenario: Initial state
 
@@ -66,10 +66,34 @@ Every supported backend SHALL implement the WebSocket control methods `state.get
 
 #### Scenario: Flywheel disable remains actionable
 
-- **WHEN** authoritative state reports active idle flywheel mode and the user requests flywheel disabled
-- **THEN** the backend may perform the exact safety-gated flywheel-disable operation while every other mutating control remains unavailable
+- **WHEN** authoritative state reports active flywheel mode and the user requests flywheel disabled, including while its package run state is normalized as riding
+- **THEN** the backend may perform only the exact source-defined flywheel-disable operation while every other mutating control remains unavailable
 
 #### Scenario: Confirmation timeout
 
 - **WHEN** an accepted action cannot obtain its required bounded response or confirmation
 - **THEN** the backend returns `unavailable`, clears `pendingAction`, and retains the last confirmed values
+
+### Requirement: Bounded controller shutdown contract
+
+`ActiveConnection.controllerActions` SHALL contain boolean `shutdownAvailable` and nullable `pendingAction`, whose only non-null value is `shutdown`. `controller.shutdown` SHALL accept empty parameters and return the existing `Accepted` result after the exact one-way request is accepted for transmission. `shutdownAvailable` SHALL be true only while the current selected route is ready, writable, on an audited stable VESC shutdown profile, authoritatively idle, outside flywheel mode, and free of another pending mutation. The result and state MUST NOT claim that controller power-off was confirmed.
+
+#### Scenario: Shutdown accepted for transmission
+
+- **WHEN** an eligible idle connection requests `controller.shutdown`
+- **THEN** the backend publishes shutdown-pending state, submits exactly one non-forced non-restart request, and returns `Accepted` without fabricating a device acknowledgement
+
+#### Scenario: Unsupported controller remains connected
+
+- **WHEN** the accepted shutdown request is ignored by controller hardware and the selected route remains available through the bounded intent window
+- **THEN** the backend clears shutdown-pending state, continues the active connection, and does not report confirmed power-off
+
+#### Scenario: Expected loss after shutdown
+
+- **WHEN** the selected controller or BLE transport disappears while current shutdown intent is pending
+- **THEN** the backend ends the active connection as user initiated and suppresses automatic reconnection
+
+#### Scenario: Shutdown unavailable
+
+- **WHEN** shutdown is requested on VESC 6.02, an unaudited or read-only firmware build, a non-ready or stale connection, a non-idle board, flywheel mode, or while another mutation is pending
+- **THEN** the backend returns `invalid_state`, sends no command, and preserves authoritative state apart from any bounded error

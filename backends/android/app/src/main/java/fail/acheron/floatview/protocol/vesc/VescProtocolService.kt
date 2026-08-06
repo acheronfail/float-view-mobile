@@ -11,6 +11,11 @@ import fail.acheron.floatview.protocol.refloat.RefloatInfoDecoder
 import fail.acheron.floatview.protocol.refloat.RefloatLegacyTelemetryDecoder
 import fail.acheron.floatview.protocol.refloat.RefloatCommand
 import fail.acheron.floatview.protocol.refloat.RefloatWire
+import fail.acheron.floatview.protocol.refloat.RefloatBooleanControl
+import fail.acheron.floatview.protocol.refloat.RefloatControlCodec
+import fail.acheron.floatview.protocol.refloat.RefloatControlProfile
+import fail.acheron.floatview.protocol.refloat.RefloatLightingProfile
+import fail.acheron.floatview.protocol.refloat.RefloatLightingState
 import fail.acheron.floatview.protocol.vesc.ControllerRoute
 import fail.acheron.floatview.protocol.vesc.VescCommand
 import fail.acheron.floatview.protocol.vesc.VescCommandRouter
@@ -327,6 +332,11 @@ class VescProtocolService : VescProtocolPort {
     override fun canPingRequest(): ByteArray =
         VescFrameCodec.encode(byteArrayOf(VescCommand.PING_CAN.byte))
 
+    override fun controllerShutdownRequest(route: ControllerRoute): ByteArray =
+        VescFrameCodec.encode(
+            VescCommandRouter.route(byteArrayOf(VescCommand.SHUTDOWN.byte, 0, 0), route),
+        )
+
     override fun motorConfigurationRequest(route: ControllerRoute): ByteArray =
         VescFrameCodec.encode(
             VescCommandRouter.route(byteArrayOf(VescCommand.GET_MOTOR_CONFIGURATION.byte), route),
@@ -383,6 +393,29 @@ class VescProtocolService : VescProtocolPort {
             ),
         )
     }
+
+    fun refloatPackageControlRequest(route: ControllerRoute, enabled: Boolean): ByteArray =
+        routedRefloatControl(RefloatControlCodec.packageRequest(enabled), route)
+
+    fun refloatFlywheelControlRequest(route: ControllerRoute, enabled: Boolean): ByteArray =
+        routedRefloatControl(RefloatControlCodec.flywheelRequest(enabled), route)
+
+    fun refloatLightingControlRequest(
+        route: ControllerRoute,
+        profile: RefloatControlProfile,
+        control: RefloatBooleanControl?,
+        enabled: Boolean = false,
+        current: RefloatLightingState,
+    ): ByteArray = routedRefloatControl(
+        RefloatControlCodec.lightingRequest(profile, control, enabled, current),
+        route,
+    )
+
+    fun refloatFatalClearRequest(route: ControllerRoute, profile: RefloatControlProfile): ByteArray =
+        routedRefloatControl(RefloatControlCodec.fatalClearRequest(profile), route)
+
+    private fun routedRefloatControl(command: ByteArray, route: ControllerRoute): ByteArray =
+        VescFrameCodec.encode(VescCommandRouter.route(command, route))
 
     override fun bmsValuesRequest(connection: BmsConnection): ByteArray {
         val route = when (connection) {
@@ -445,6 +478,18 @@ class VescProtocolService : VescProtocolPort {
                     ) {
                         VescProtocolMessage.RefloatTelemetry(
                             RefloatLegacyTelemetryDecoder.decode(payload),
+                        )
+                    } else if (command == RefloatCommand.LEGACY_LIGHTS) {
+                        val profile = RefloatControlProfile(RefloatLightingProfile.LEGACY_COMMAND_202, false)
+                        VescProtocolMessage.RefloatLighting(
+                            command,
+                            RefloatControlCodec.decodeLightingResponse(payload, profile),
+                        )
+                    } else if (command == RefloatCommand.STABLE_LIGHTS) {
+                        val profile = RefloatControlProfile(RefloatLightingProfile.STABLE_COMMAND_20, true)
+                        VescProtocolMessage.RefloatLighting(
+                            command,
+                            RefloatControlCodec.decodeLightingResponse(payload, profile),
                         )
                     } else {
                         null

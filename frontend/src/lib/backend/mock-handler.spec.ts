@@ -473,4 +473,179 @@ describe('deterministic mock backend', () => {
       })
     ).toMatchObject({ result: { revision: 2, values: { preferredBmsCanId: null } } });
   });
+
+  it('validates Refloat control envelopes and confirms complete state without optimistic results', () => {
+    const events: Array<{ data: AppState }> = [];
+    const backend = new MockBackend((event) => events.push(event));
+    backend.handle({ id: 1, method: 'bluetooth.scan', params: {} });
+    backend.handle({ id: 2, method: 'device.connect', params: { deviceId: 'mock-board', trackingMode: 'saved' } });
+    const before = (backend.handle({ id: 3, method: 'state.get', params: {} }) as { result: AppState }).result;
+
+    expect(
+      backend.handle({ id: 4, method: 'refloat.control.set', params: { control: 'tune', enabled: true } })
+    ).toMatchObject({ error: { code: 'invalid_request' } });
+    expect(
+      backend.handle({
+        id: 5,
+        method: 'refloat.control.set',
+        params: { control: 'leds', enabled: false, extra: true },
+      })
+    ).toMatchObject({ error: { code: 'invalid_request' } });
+    expect(backend.handle({ id: 6, method: 'refloat.fatalError.clear', params: { force: true } })).toMatchObject({
+      error: { code: 'invalid_request' },
+    });
+
+    const changed = backend.handle({
+      id: 7,
+      method: 'refloat.control.set',
+      params: { control: 'leds', enabled: false },
+    });
+    expect(changed).toMatchObject({
+      result: { status: 'ready', ledsEnabled: false, pendingAction: null },
+    });
+    const actionEvents = events.slice(-2).map((event) => event.data.activeConnection?.refloatControls);
+    expect(actionEvents[0]).toMatchObject({ ledsEnabled: true, pendingAction: 'leds' });
+    expect(actionEvents[1]).toMatchObject({ ledsEnabled: false, pendingAction: null });
+    expect(events.at(-1)?.data.revision).toBe(before.revision + 2);
+
+    const idempotentRevision = events.at(-1)!.data.revision;
+    expect(
+      backend.handle({ id: 8, method: 'refloat.control.set', params: { control: 'leds', enabled: false } })
+    ).toMatchObject({ result: { ledsEnabled: false, pendingAction: null } });
+    expect((backend.handle({ id: 9, method: 'state.get', params: {} }) as { result: AppState }).result.revision).toBe(
+      idempotentRevision
+    );
+  });
+
+  it('models every boolean control, fatal clearing, flywheel exclusion, and one-action bounds', () => {
+    const backend = new MockBackend();
+    backend.handle({ id: 1, method: 'bluetooth.scan', params: {} });
+    backend.handle({ id: 2, method: 'device.connect', params: { deviceId: 'mock-board', trackingMode: 'guest' } });
+
+    for (const [id, control, enabled] of [
+      [3, 'package', false],
+      [4, 'package', true],
+      [5, 'headlights', false],
+      [6, 'flywheel', true],
+    ] as const) {
+      expect(backend.handle({ id, method: 'refloat.control.set', params: { control, enabled } })).toMatchObject({
+        result: { pendingAction: null },
+      });
+    }
+    expect(
+      backend.handle({ id: 7, method: 'refloat.control.set', params: { control: 'package', enabled: false } })
+    ).toMatchObject({ error: { code: 'invalid_state' } });
+    expect(
+      backend.handle({ id: 8, method: 'refloat.control.set', params: { control: 'leds', enabled: true } })
+    ).toMatchObject({ error: { code: 'invalid_state' } });
+    expect(backend.handle({ id: 9, method: 'refloat.fatalError.clear', params: {} })).toMatchObject({
+      error: { code: 'invalid_state' },
+    });
+    backend.simulateRideState('riding');
+    expect(
+      backend.handle({ id: 10, method: 'refloat.control.set', params: { control: 'flywheel', enabled: false } })
+    ).toMatchObject({ result: { flywheelEnabled: false } });
+
+    backend.simulateRefloatControls({ pendingAction: 'package' });
+    expect(
+      backend.handle({ id: 11, method: 'refloat.control.set', params: { control: 'leds', enabled: true } })
+    ).toMatchObject({ error: { code: 'invalid_state' } });
+    backend.simulateRefloatControls({ pendingAction: null });
+    expect(backend.handle({ id: 12, method: 'refloat.fatalError.clear', params: {} })).toMatchObject({
+      result: { fatalErrorLatched: false, fatalErrorActive: false, fatalErrorClearable: false },
+    });
+  });
+
+  it('retains confirmed values on timeout and resets live-only controls across reconnect', () => {
+    const backend = new MockBackend();
+    backend.handle({ id: 1, method: 'bluetooth.scan', params: {} });
+    backend.handle({ id: 2, method: 'device.connect', params: { deviceId: 'mock-board', trackingMode: 'saved' } });
+    backend.simulateRefloatTimeout();
+    expect(
+      backend.handle({ id: 3, method: 'refloat.control.set', params: { control: 'headlights', enabled: false } })
+    ).toMatchObject({ error: { code: 'unavailable' } });
+    expect(
+      (backend.handle({ id: 4, method: 'state.get', params: {} }) as { result: AppState }).result.activeConnection
+        ?.refloatControls
+    ).toMatchObject({ headlightsEnabled: true, pendingAction: null });
+
+    backend.simulateExternalLighting(false, false);
+    expect(
+      (backend.handle({ id: 5, method: 'state.get', params: {} }) as { result: AppState }).result.activeConnection
+        ?.refloatControls
+    ).toMatchObject({ ledsEnabled: false, headlightsEnabled: false });
+    backend.simulateConnectionState('reconnecting');
+    expect(
+      (backend.handle({ id: 6, method: 'state.get', params: {} }) as { result: AppState }).result.activeConnection
+        ?.refloatControls
+    ).toMatchObject({ status: 'loading', writable: false, packageEnabled: null, pendingAction: null });
+    backend.simulateConnectionState('ready');
+    expect(
+      (backend.handle({ id: 7, method: 'state.get', params: {} }) as { result: AppState }).result.activeConnection
+        ?.refloatControls
+    ).toMatchObject({ status: 'ready', writable: true, packageEnabled: true });
+  });
+
+  it('keeps guest and saved control semantics equal and restores native pending state to a recreated frontend', () => {
+    const connect = (trackingMode: 'saved' | 'guest') => {
+      const backend = new MockBackend();
+      backend.handle({ id: 1, method: 'bluetooth.scan', params: {} });
+      backend.handle({ id: 2, method: 'device.connect', params: { deviceId: 'mock-board', trackingMode } });
+      return backend;
+    };
+    const saved = connect('saved');
+    const guest = connect('guest');
+    const controls = (backend: MockBackend, id: number) =>
+      (backend.handle({ id, method: 'state.get', params: {} }) as { result: AppState }).result.activeConnection
+        ?.refloatControls;
+    expect(controls(saved, 3)).toEqual(controls(guest, 3));
+
+    saved.simulateRefloatControls({ pendingAction: 'flywheel' });
+    expect(controls(saved, 4)).toMatchObject({ pendingAction: 'flywheel' });
+    expect(controls(saved, 5)).toMatchObject({ pendingAction: 'flywheel' });
+    saved.simulateRefloatControls({ pendingAction: null, writable: false });
+    expect(
+      saved.handle({ id: 6, method: 'refloat.control.set', params: { control: 'leds', enabled: false } })
+    ).toMatchObject({ error: { code: 'invalid_state' } });
+  });
+
+  it('models accepted-only shutdown, unsupported no-op, expected loss, and exact revisions', () => {
+    const events: Array<{ data: AppState }> = [];
+    const backend = new MockBackend((event) => events.push(event));
+    backend.handle({ id: 1, method: 'bluetooth.scan', params: {} });
+    backend.handle({ id: 2, method: 'device.connect', params: { deviceId: 'mock-board', trackingMode: 'guest' } });
+
+    expect(backend.handle({ id: 3, method: 'controller.shutdown', params: { force: true } })).toMatchObject({
+      error: { code: 'invalid_request' },
+    });
+    expect(backend.handle({ id: 4, method: 'controller.shutdown', params: {} })).toMatchObject({
+      error: { code: 'invalid_state' },
+    });
+
+    backend.publishTelemetry();
+    backend.simulateRideState('idle');
+    const beforeNoOp = events.at(-1)!.data.revision;
+    expect(backend.handle({ id: 5, method: 'controller.shutdown', params: {} })).toEqual({
+      id: 5,
+      result: { accepted: true },
+    });
+    expect(events.at(-2)?.data.activeConnection?.controllerActions).toEqual({
+      shutdownAvailable: false,
+      pendingAction: 'shutdown',
+    });
+    expect(events.at(-1)?.data.activeConnection?.controllerActions).toEqual({
+      shutdownAvailable: true,
+      pendingAction: null,
+    });
+    expect(events.at(-1)?.data.revision).toBe(beforeNoOp + 2);
+
+    backend.simulateShutdownOutcome('disconnect');
+    const beforeDisconnect = events.at(-1)!.data.revision;
+    expect(backend.handle({ id: 6, method: 'controller.shutdown', params: {} })).toEqual({
+      id: 6,
+      result: { accepted: true },
+    });
+    expect(events.at(-1)?.data.activeConnection).toBeNull();
+    expect(events.at(-1)?.data.revision).toBe(beforeDisconnect + 2);
+  });
 });

@@ -6,4 +6,5 @@ public enum VescCommand: UInt8, Sendable {
   case customAppData = 36
   case pingCAN = 62
   case bmsGetValues = 96
+  case shutdown = 156
 }

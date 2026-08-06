@@ -393,6 +393,43 @@ func readyRequestsFirmwareAndNotificationUpdatesSnapshot() throws {
 }
 
 @Test
+func controllerShutdownExpiresOrClassifiesDelayedBLELossAsIntentional() throws {
+  func makeReady() throws -> (ApplicationService, FakeBluetooth, FakeScheduler, DeviceID) {
+    let bluetooth = FakeBluetooth()
+    let scheduler = FakeScheduler()
+    let service = ApplicationService(
+      bluetooth: bluetooth, clock: FixedClock(), logStore: MemoryStore(),
+      protocolCodec: TelemetryProtocol(), scheduler: scheduler, events: IgnoreEvents()
+    )
+    let id = DeviceID("shutdown-fixture")
+    try service.receive(.deviceFound(id, name: "THOR300", rssi: -40))
+    try service.connect(id)
+    try service.receive(.connectionChanged(id, .ready))
+    for marker in [UInt8(1), 2, 3, 5] {
+      try service.receive(.notification(id, Data([marker])))
+    }
+    #expect(service.activeConnectionSnapshot()?.controllerActions.shutdownAvailable == true)
+    return (service, bluetooth, scheduler, id)
+  }
+
+  let (noOp, noOpBluetooth, noOpScheduler, _) = try makeReady()
+  try noOp.shutdownController()
+  #expect(noOpBluetooth.writes.contains(Data([156, 0, 0])))
+  #expect(noOp.activeConnectionSnapshot()?.controllerActions.pendingAction == .shutdown)
+  #expect(noOpScheduler.oneShotIntervals.contains(30_000))
+  noOpScheduler.fireOneShots(afterMilliseconds: 30_000)
+  #expect(noOp.activeConnectionSnapshot()?.controllerActions.pendingAction == nil)
+  #expect(noOp.activeConnectionSnapshot()?.controllerActions.shutdownAvailable == true)
+
+  let (lost, lostBluetooth, _, id) = try makeReady()
+  try lost.shutdownController()
+  try lost.receive(.connectionChanged(id, .failed))
+  #expect(lost.activeConnectionSnapshot() == nil)
+  #expect(lost.connectionState == .disconnected)
+  #expect(lostBluetooth.connected == [id])
+}
+
+@Test
 func customTransportDiscoversPrimaryThenRefloatPackageInOrder() throws {
   let bluetooth = FakeBluetooth()
   let service = ApplicationService(
@@ -789,7 +826,7 @@ func auxiliaryCanScanAllowsForTheFullFirmwareScanWindow() throws {
   try service.receive(.notification(id, Data([4])))
 
   #expect(bluetooth.writes.contains(Data([62])))
-  #expect(scheduler.oneShotIntervals.last == 10_000)
+  #expect(scheduler.oneShotIntervals.contains(10_000))
 }
 
 @Test
@@ -1242,6 +1279,10 @@ private final class TelemetryProtocol: VescProtocolPort, @unchecked Sendable {
 
   func refloatTelemetryRequest(route: ControllerRoute) throws -> Data {
     Data([31, route.canID ?? 255])
+  }
+
+  func controllerShutdownRequest(route _: ControllerRoute) throws -> Data {
+    Data([156, 0, 0])
   }
 
   func receive(_ bytes: Data) throws -> [VescProtocolMessage] {

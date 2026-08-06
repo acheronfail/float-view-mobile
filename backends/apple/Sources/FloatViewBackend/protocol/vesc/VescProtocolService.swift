@@ -323,6 +323,12 @@ public final class VescProtocolService: VescProtocolPort, @unchecked Sendable {
     try Data(VescFrameCodec.encode([VescCommand.pingCAN.rawValue]))
   }
 
+  public func controllerShutdownRequest(route: ControllerRoute) throws -> Data {
+    try Data(VescFrameCodec.encode(
+      VescCommandRouter.route([VescCommand.shutdown.rawValue, 0, 0], via: route)
+    ))
+  }
+
   public func refloatInfoRequest(route: ControllerRoute) throws -> Data {
     let command = RefloatWire.request(
       .info,
@@ -356,6 +362,39 @@ public final class VescProtocolService: VescProtocolPort, @unchecked Sendable {
       parameters: [RefloatWire.legacyTelemetryDetailLevel]
     )
     return try Data(VescFrameCodec.encode(VescCommandRouter.route(command, via: route)))
+  }
+
+  public func refloatPackageControlRequest(route: ControllerRoute, enabled: Bool) throws -> Data {
+    try routedRefloatControl(RefloatControlCodec.packageRequest(enabled: enabled), route: route)
+  }
+
+  public func refloatFlywheelControlRequest(route: ControllerRoute, enabled: Bool) throws -> Data {
+    try routedRefloatControl(RefloatControlCodec.flywheelRequest(enabled: enabled), route: route)
+  }
+
+  public func refloatLightingControlRequest(
+    route: ControllerRoute,
+    profile: RefloatControlProfile,
+    control: RefloatBooleanControl?,
+    enabled: Bool = false,
+    current: RefloatLightingState
+  ) throws -> Data {
+    try routedRefloatControl(
+      RefloatControlCodec.lightingRequest(
+        profile: profile, control: control, enabled: enabled, current: current
+      ),
+      route: route
+    )
+  }
+
+  public func refloatFatalClearRequest(
+    route: ControllerRoute, profile: RefloatControlProfile
+  ) throws -> Data {
+    try routedRefloatControl(RefloatControlCodec.fatalClearRequest(profile: profile), route: route)
+  }
+
+  private func routedRefloatControl(_ command: [UInt8], route: ControllerRoute) throws -> Data {
+    try Data(VescFrameCodec.encode(VescCommandRouter.route(command, via: route)))
   }
 
   public func bmsValuesRequest(connection: BmsConnection) throws -> Data {
@@ -417,6 +456,20 @@ public final class VescProtocolService: VescProtocolPort, @unchecked Sendable {
         }
         if command == .getAllData {
           return try .refloatTelemetry(RefloatLegacyTelemetryDecoder.decode(payload))
+        }
+        if command == .legacyLights {
+          let profile = RefloatControlProfile(lighting: .legacyCommand202, fatalClearAvailable: false)
+          return try .refloatLighting(
+            command: .legacyLights,
+            state: RefloatControlCodec.decodeLightingResponse(payload, profile: profile)
+          )
+        }
+        if command == .stableLights {
+          let profile = RefloatControlProfile(lighting: .stableCommand20, fatalClearAvailable: true)
+          return try .refloatLighting(
+            command: .stableLights,
+            state: RefloatControlCodec.decodeLightingResponse(payload, profile: profile)
+          )
         }
         return nil
       default:

@@ -70,6 +70,23 @@ import Testing
   #expect(harness.completions.map(\.1) == [.response(Data([62]))])
 }
 
+@Test func schedulerReleasesOneWayWriteBeforeTelemetryConfirmationWork() {
+  let harness = SchedulerHarness()
+  let generation = harness.subject.beginGeneration()
+  harness.subject.enqueueOneWay(
+    payload: Data([12]), expectedResponse: .init(command: 36, refloatCommand: 12),
+    priority: .controllerWork, context: .refloatTelemetry(.direct), timeoutMs: 100,
+    generation: generation
+  ) { [weak harness] request, outcome in harness?.completions.append((request, outcome)) }
+  harness.enqueue(
+    31, priority: .ridingTelemetry, context: .refloatTelemetry(.direct),
+    generation: generation
+  )
+  #expect(harness.writes == [12, 31])
+  #expect(harness.completions.first?.1 == .sent)
+  #expect(harness.subject.inFlightRequest?.payload == Data([31]))
+}
+
 private final class SchedulerHarness: @unchecked Sendable {
   let clock = SchedulerTestClock()
   let timers = SchedulerTestTimers()

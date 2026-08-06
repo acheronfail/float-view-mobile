@@ -93,6 +93,24 @@ class FakeClient {
       case 'device.disconnect':
         result = { accepted: true };
         break;
+      case 'refloat.control.set': {
+        const request = params as BackendParams<'refloat.control.set'>;
+        const controls = this.state.activeConnection?.refloatControls;
+        if (!controls) throw new Error('Missing Refloat controls');
+        const field = `${request.control}Enabled` as
+          | 'packageEnabled'
+          | 'flywheelEnabled'
+          | 'ledsEnabled'
+          | 'headlightsEnabled';
+        result = { ...controls, [field]: request.enabled };
+        break;
+      }
+      case 'refloat.fatalError.clear': {
+        const controls = this.state.activeConnection?.refloatControls;
+        if (!controls) throw new Error('Missing Refloat controls');
+        result = { ...controls, fatalErrorLatched: false, fatalErrorClearable: false };
+        break;
+      }
       case 'location.requestPermission':
         this.locationRequests.push(method);
         this.state = {
@@ -252,6 +270,70 @@ describe('BackendState', () => {
     });
     expect(store.settings?.minimumSessionDistance).toBe(250);
     expect(store.snapshot?.revision).toBe(2);
+    store.close();
+  });
+
+  it('waits for authoritative monotonic snapshots after Refloat method results', async () => {
+    const client = new FakeClient();
+    client.state = {
+      ...client.state,
+      activeConnection: {
+        deviceId: 'board',
+        name: 'Board',
+        displayName: 'Board',
+        state: 'ready',
+        trackingMode: 'guest',
+        savedDeviceId: null,
+        firmware: {
+          vescVersion: '6.06',
+          packageName: 'refloat',
+          packageVersion: '1.2.3',
+          accessMode: 'readWrite',
+          supported: true,
+        },
+        controllerConnection: { kind: 'direct' },
+        controllerCandidates: [],
+        connectionIssue: null,
+        bms: { status: 'not_found', connection: null, candidates: [], latestSnapshot: null },
+        refloatControls: {
+          status: 'ready',
+          writable: true,
+          packageEnabled: true,
+          flywheelEnabled: false,
+          lightingAvailable: true,
+          ledsEnabled: true,
+          headlightsEnabled: true,
+          fatalErrorClearAvailable: true,
+          fatalErrorLatched: true,
+          fatalErrorActive: false,
+          fatalErrorClearable: true,
+          pendingAction: null,
+        },
+        controllerActions: { shutdownAvailable: true, pendingAction: null },
+        activeSession: null,
+        latestSample: null,
+        latestLocation: null,
+        currentLimits: null,
+      },
+    };
+    const store = new BackendState(
+      async () => ({ webSocketUrl: 'ws://test' }),
+      async () => client as unknown as ApiClient
+    );
+    await store.connect();
+    expect(await store.setRefloatControl('leds', false)).toBe(true);
+    expect(store.refloatControls?.ledsEnabled).toBe(true);
+
+    client.state = {
+      ...client.state,
+      revision: client.state.revision + 1,
+      activeConnection: {
+        ...client.state.activeConnection!,
+        refloatControls: { ...client.state.activeConnection!.refloatControls!, ledsEnabled: false },
+      },
+    };
+    client.emitState();
+    expect(store.refloatControls?.ledsEnabled).toBe(false);
     store.close();
   });
 

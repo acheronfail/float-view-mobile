@@ -10,9 +10,11 @@ import {
   type FirmwareVersion,
 } from './firmware.ts';
 import { encodeRefloatTelemetry, refloatCodecs, type RefloatCodec, type RefloatVersion } from './refloat.ts';
+import { RefloatControlModel } from './refloat-controls.ts';
 import { idleTelemetry, type TelemetrySource } from './telemetry.ts';
 import { directTopology, expressTopology, type FixtureTopology, type TopologyStrategy } from './topology.ts';
 import type { BmsConfiguration } from './bms.ts';
+import { ControllerShutdownModel, type ControllerShutdownBehavior } from './controller-shutdown.ts';
 
 export interface FirmwareIdentity {
   major: number;
@@ -37,7 +39,9 @@ export interface ControllerConfiguration {
   telemetryPhases: TelemetryPhase[];
   /** Interactive workbench controllers project one shared semantic source. */
   refloat?: RefloatCodec;
+  refloatControls?: RefloatControlModel;
   telemetry?: TelemetrySource;
+  shutdown?: ControllerShutdownModel;
 }
 
 export interface BoardConfiguration {
@@ -63,10 +67,12 @@ export interface ComposedBoardConfiguration {
   controller: ControllerIdentity;
   firmware: FirmwareVariant;
   refloat: RefloatCodec;
+  refloatControls: RefloatControlModel;
   topology: TopologyStrategy;
   telemetry: TelemetrySource;
   requestPolicy: 'strict' | 'interactive';
   expressTransport: FirmwareIdentity;
+  shutdown: ControllerShutdownModel;
 }
 
 export interface BoardSelection {
@@ -76,6 +82,8 @@ export interface BoardSelection {
   canId?: number;
   telemetry?: TelemetrySource;
   requestPolicy?: 'strict' | 'interactive';
+  firmwareTestVersion?: number;
+  shutdownBehavior?: ControllerShutdownBehavior;
 }
 
 export interface InteractiveControllerSelection {
@@ -124,6 +132,7 @@ export const expressThor: BoardConfiguration = {
       refloatVersion: '1.2.3',
       refloatInfoPayload: required(refloat.get('versioned-info-v2'), 'Refloat info fixture'),
       telemetryLayoutPayload: required(refloat.get('dynamic-realtime-field-ids'), 'Refloat telemetry layout fixture'),
+      refloatControls: new RefloatControlModel('1.2.3'),
       telemetryPhases: [
         phase('idle', 4),
         phase('riding', 12),
@@ -152,6 +161,7 @@ export const directLegacyThor: BoardConfiguration = {
       refloatVersion: '1.0',
       refloatInfoPayload: refloatCodecs['1.0.0'].infoPayload,
       telemetryLayoutPayload: new Uint8Array(),
+      refloatControls: new RefloatControlModel('1.0.0'),
       telemetryPhases: [
         {
           name: 'idle',
@@ -230,13 +240,31 @@ export const ambiguousThor: BoardConfiguration = {
 };
 
 export function composeBoard(selection: BoardSelection): ComposedBoardConfiguration {
+  const baseFirmware = firmwareVariants[selection.firmware];
+  const testVersion = selection.firmwareTestVersion ?? baseFirmware.testVersion;
+  const firmware =
+    testVersion === baseFirmware.testVersion
+      ? baseFirmware
+      : {
+          ...baseFirmware,
+          testVersion,
+          payload: encodeFirmwarePayload(
+            thor300,
+            baseFirmware.major,
+            baseFirmware.minor,
+            baseFirmware.hardwareCrc,
+            testVersion
+          ),
+        };
   return {
     kind: 'composed',
     name: `${selection.topology === 'express' ? 'Express / ' : ''}THOR300 / Refloat ${selection.refloat}`,
     advertisedName: 'FloatView Test VESC',
     controller: thor300,
-    firmware: firmwareVariants[selection.firmware],
+    firmware,
     refloat: refloatCodecs[selection.refloat],
+    refloatControls: new RefloatControlModel(selection.refloat),
+    shutdown: new ControllerShutdownModel(selection.shutdownBehavior),
     topology: selection.topology === 'express' ? expressTopology(selection.canId ?? 1) : directTopology,
     telemetry: selection.telemetry ?? {
       phase: () => 'idle',
@@ -276,7 +304,9 @@ export function composeInteractiveBoard(selection: InteractiveBoardSelection): B
       telemetryLayoutPayload: codec.layoutPayload ?? new Uint8Array(),
       telemetryPhases: [],
       refloat: codec,
+      refloatControls: new RefloatControlModel(item.refloat),
       telemetry: selection.telemetry,
+      shutdown: new ControllerShutdownModel(),
     };
   });
   return {

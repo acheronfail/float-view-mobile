@@ -4,6 +4,7 @@ import java.time.Instant
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import fail.acheron.floatview.protocol.vesc.ControllerRoute
+import fail.acheron.floatview.protocol.refloat.RefloatCommand
 
 @JvmInline
 value class DeviceId(val value: String)
@@ -207,6 +208,27 @@ data class BmsState(
     val latestSnapshot: BmsSnapshot? = null,
 )
 
+enum class RefloatControlStatus(val wireValue: String) { LOADING("loading"), READY("ready"), UNAVAILABLE("unavailable") }
+enum class RefloatPendingAction(val wireValue: String) {
+    PACKAGE("package"), FLYWHEEL("flywheel"), LEDS("leds"), HEADLIGHTS("headlights"),
+    CLEAR_FATAL_ERROR("clearFatalError")
+}
+
+data class RefloatControls(
+    val status: RefloatControlStatus = RefloatControlStatus.LOADING,
+    val writable: Boolean = false,
+    val packageEnabled: Boolean? = null,
+    val flywheelEnabled: Boolean? = null,
+    val lightingAvailable: Boolean = false,
+    val ledsEnabled: Boolean? = null,
+    val headlightsEnabled: Boolean? = null,
+    val fatalErrorClearAvailable: Boolean = false,
+    val fatalErrorLatched: Boolean? = null,
+    val fatalErrorActive: Boolean? = null,
+    val fatalErrorClearable: Boolean? = null,
+    val pendingAction: RefloatPendingAction? = null,
+)
+
 data class ActiveConnectionSnapshot(
     val deviceId: DeviceId,
     val advertisedName: String?,
@@ -221,6 +243,8 @@ data class ActiveConnectionSnapshot(
     val controllerCandidates: List<ControllerCandidate> = emptyList(),
     val connectionIssue: ConnectionIssue? = null,
     val bms: BmsState = BmsState(),
+    val refloatControls: RefloatControls? = null,
+    val controllerActions: ControllerActions = ControllerActions(),
 )
 
 data class ControllerCurrentLimits(
@@ -254,6 +278,10 @@ sealed interface VescProtocolMessage {
         val runtimeFields: List<String>,
     ) : VescProtocolMessage
     data class RefloatTelemetry(val value: RefloatTelemetryRecord) : VescProtocolMessage
+    data class RefloatLighting(
+        val command: RefloatCommand,
+        val state: fail.acheron.floatview.protocol.refloat.RefloatLightingState,
+    ) : VescProtocolMessage
 }
 
 data class RefloatTelemetryRecord(
@@ -269,6 +297,7 @@ data class RefloatTelemetryRecord(
     val charging: Boolean? = null,
     val alertReason: AlertReason? = null,
     val firmwareFault: FirmwareFault? = null,
+    val fatalErrorLatched: Boolean? = null,
     val packVoltageV: Double? = null,
     val dutyCycle: Double? = null,
     val controllerTempC: Double? = null,
@@ -624,6 +653,8 @@ interface VescProtocolPort {
     fun motorConfigurationRequest(route: ControllerRoute): ByteArray =
         throw UnsupportedOperationException("Motor configuration reads are unavailable")
     fun canPingRequest(): ByteArray
+    fun controllerShutdownRequest(route: ControllerRoute): ByteArray =
+        throw UnsupportedOperationException("Controller shutdown is unavailable")
     fun refloatInfoRequest(route: ControllerRoute): ByteArray
     fun refloatTelemetryIdsRequest(route: ControllerRoute): ByteArray
     fun refloatTelemetryRequest(route: ControllerRoute): ByteArray

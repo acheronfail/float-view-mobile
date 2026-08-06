@@ -14,6 +14,8 @@ export type VescRequestKind =
   | 'motor-configuration'
   | 'refloat-info'
   | 'refloat-layout'
+  | 'refloat-control'
+  | 'controller-shutdown'
   | 'telemetry';
 
 export interface RecordedRequest {
@@ -36,6 +38,8 @@ export interface SimulatedResponse {
   request: RecordedRequest;
 }
 
+type SimulatedTransaction = { response?: Uint8Array; request: RecordedRequest };
+
 export class VescSimulator {
   private readonly board: BoardConfiguration | ComposedBoardConfiguration;
   private readonly now: () => number;
@@ -57,7 +61,7 @@ export class VescSimulator {
       const value = this.response(payload);
       if (!value) continue;
       this.requests.push(value.request);
-      responses.push({ frame: encodeFrame(value.response), request: value.request });
+      if (value.response) responses.push({ frame: encodeFrame(value.response), request: value.request });
     }
     return responses;
   }
@@ -94,7 +98,7 @@ export class VescSimulator {
     this.telemetryIndex = 0;
   }
 
-  private response(payload: Uint8Array): { response: Uint8Array; request: RecordedRequest } | undefined {
+  private response(payload: Uint8Array): SimulatedTransaction | undefined {
     if ('kind' in this.board) {
       return this.composedResponse(payload);
     }
@@ -145,12 +149,13 @@ export class VescSimulator {
     return this.rejectBoard(`Unknown CAN target ${canId}`);
   }
 
-  private composedResponse(payload: Uint8Array): { response: Uint8Array; request: RecordedRequest } | undefined {
+  private composedResponse(payload: Uint8Array): SimulatedTransaction | undefined {
     const board = this.board as ComposedBoardConfiguration;
     const command = payload[0];
     if (command === undefined) return this.reject('Empty VESC request');
     const at = this.now();
     if (board.topology.kind === 'direct') {
+      if (!board.shutdown.available) return undefined;
       if (command === 0) {
         return {
           response: board.firmware.payload,
@@ -185,8 +190,9 @@ export class VescSimulator {
     payload: Uint8Array,
     at: number,
     canId?: number
-  ): { response: Uint8Array; request: RecordedRequest } | undefined {
+  ): SimulatedTransaction | undefined {
     const command = payload[0];
+    if (!board.shutdown.available) return undefined;
     if (command === 0) {
       return {
         response: board.firmware.payload,
@@ -199,18 +205,42 @@ export class VescSimulator {
         request: { at, command, canId, kind: 'motor-configuration' },
       };
     }
+    if (command === 156) {
+      const phase = board.telemetry.phase();
+      const shutdown = board.shutdown.apply(board.firmware, payload, {
+        rideState: phase === 'idle' ? 'idle' : 'riding',
+        flywheel: board.refloatControls.state.flywheelEnabled,
+        mutationPending: false,
+      });
+      if (!shutdown.accepted) return this.reject(`Rejected controller shutdown ${shutdown.reason}`);
+      return { request: { at, command, canId, kind: 'controller-shutdown' } };
+    }
     if (command !== 36 || payload[1] !== 101) {
       return this.reject(`Unsafe or unsupported controller command ${String(command)}`);
     }
     const packet = payload[2];
+    if (packet !== undefined && [12, 20, 22, 36, 202].includes(packet)) {
+      const phase = board.telemetry.phase();
+      const control = board.refloatControls.apply(payload, {
+        ...(canId === undefined ? {} : { selectedCanId: canId, requestCanId: canId }),
+        firmwareTestVersion: board.firmware.testVersion,
+        rideState: phase === 'idle' ? 'idle' : 'riding',
+      });
+      if (!control.accepted) return this.reject(`Rejected Refloat control ${String(control.reason)}`);
+      return {
+        response: control.response,
+        request: { at, command, canId, kind: 'refloat-control' },
+      };
+    }
     const isTelemetry = packet === 1 || packet === 10 || packet === 31;
     const phase = board.telemetry.phase();
-    const response = board.refloat.respond(payload, isTelemetry ? board.telemetry.next() : idleTelemetry);
+    const sample = isTelemetry ? board.refloatControls.applyToSample(board.telemetry.next()) : idleTelemetry;
+    const response = board.refloat.respond(payload, sample);
     if (!response) return this.reject(`Unsupported Refloat request ${String(payload[2])}`);
     const kind =
       response.kind === 'info' ? 'refloat-info' : response.kind === 'layout' ? 'refloat-layout' : 'telemetry';
     return {
-      response: response.payload,
+      response: isTelemetry ? board.refloatControls.decorateTelemetry(response.payload) : response.payload,
       request: {
         at,
         command,
@@ -245,9 +275,10 @@ export class VescSimulator {
     payload: Uint8Array,
     at: number,
     canId?: number
-  ): { response: Uint8Array; request: RecordedRequest } | undefined {
+  ): SimulatedTransaction | undefined {
     const command = payload[0]!;
     const base = { at, command, ...(canId === undefined ? {} : { canId }) };
+    if (controller.shutdown && !controller.shutdown.available) return undefined;
     if (command === 0) {
       return {
         response: controller.firmware.payload,
@@ -260,19 +291,51 @@ export class VescSimulator {
         request: { ...base, kind: 'motor-configuration' },
       };
     }
+    if (command === 156 && controller.shutdown) {
+      const phase = controller.telemetry?.phase() ?? 'idle';
+      const version = `${controller.firmware.major}.${controller.firmware.minor.toString().padStart(2, '0')}` as const;
+      const shutdown = controller.shutdown.apply({ version, testVersion: 0 }, payload, {
+        rideState: phase === 'idle' ? 'idle' : 'riding',
+        flywheel: controller.refloatControls?.state.flywheelEnabled ?? false,
+        mutationPending: false,
+      });
+      if (!shutdown.accepted) return this.rejectBoard(`Rejected controller shutdown ${shutdown.reason}`);
+      return { request: { ...base, kind: 'controller-shutdown' } };
+    }
     if (command !== 36 || payload[1] !== 101) {
       return this.rejectBoard(`Unsafe or unsupported forwarded command ${command}`);
     }
+    const packet = payload[2];
+    if (packet !== undefined && [12, 20, 22, 36, 202].includes(packet) && controller.refloatControls) {
+      const phase =
+        controller.refloatControls.state.flywheelEnabled || controller.telemetry?.phase() === 'riding'
+          ? 'riding'
+          : 'idle';
+      const control = controller.refloatControls.apply(payload, {
+        ...(canId === undefined ? {} : { selectedCanId: canId, requestCanId: canId }),
+        rideState: phase,
+      });
+      if (!control.accepted) return this.rejectBoard(`Rejected Refloat control ${String(control.reason)}`);
+      return {
+        response: control.response,
+        request: { ...base, kind: 'refloat-control' },
+      };
+    }
     if (controller.refloat && controller.telemetry) {
-      const packet = payload[2];
       const isTelemetry = packet === 1 || packet === 10 || packet === 31;
       const phase = controller.telemetry.phase();
-      const response = controller.refloat.respond(payload, isTelemetry ? controller.telemetry.next() : idleTelemetry);
+      const sample = isTelemetry
+        ? (controller.refloatControls?.applyToSample(controller.telemetry.next()) ?? controller.telemetry.next())
+        : idleTelemetry;
+      const response = controller.refloat.respond(payload, sample);
       if (!response) return this.rejectBoard(`Unsupported Refloat request ${String(packet)}`);
       const kind =
         response.kind === 'info' ? 'refloat-info' : response.kind === 'layout' ? 'refloat-layout' : 'telemetry';
       return {
-        response: response.payload,
+        response:
+          isTelemetry && controller.refloatControls
+            ? controller.refloatControls.decorateTelemetry(response.payload)
+            : response.payload,
         request: {
           ...base,
           kind,
@@ -325,7 +388,7 @@ export class VescSimulator {
     payload: Uint8Array,
     at: number,
     canId?: number
-  ): { response: Uint8Array; request: RecordedRequest } | undefined {
+  ): SimulatedTransaction | undefined {
     const command = payload[0];
     if (bms.failureMode === 'timeout') return undefined;
     if (command === 0) {

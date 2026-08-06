@@ -79,6 +79,7 @@ class RefloatDynamicTelemetryDecoder {
             index += 4
         }
         var firmwareFault = null as fail.acheron.floatview.backend.FirmwareFault?
+        var fatalErrorLatched: Boolean? = null
         if (mask and 0x4 != 0) {
             val activeAlerts =
                 ((payload[index].toLong() and 0xff) shl 24) or
@@ -88,6 +89,7 @@ class RefloatDynamicTelemetryDecoder {
             if (activeAlerts and 1L != 0L) {
                 firmwareFault = RefloatTelemetryMappings.firmwareFault(payload[index + 8].toInt() and 0xff)
             }
+            fatalErrorLatched = payload[4].toInt() and 0x08 != 0
         }
         val extensions = values.filterKeys { it !in KNOWN_FIELDS }
         require(extensions.size <= MAX_EXTENSIONS) { "Too many Refloat extension fields" }
@@ -108,6 +110,7 @@ class RefloatDynamicTelemetryDecoder {
             charging = flags and 0x20 != 0,
             alertReason = RefloatTelemetryMappings.alertReason(payload[12].toInt() and 0xff),
             firmwareFault = firmwareFault,
+            fatalErrorLatched = fatalErrorLatched,
             packVoltageV = values["motor.batt_voltage"],
             dutyCycle = values["motor.duty_cycle"],
             controllerTempC = values["motor.mosfet_temp"],

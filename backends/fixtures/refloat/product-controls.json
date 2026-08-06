@@ -1,0 +1,109 @@
+{
+  "schemaVersion": 1,
+  "id": "refloat-product-controls-v1",
+  "provenance": "Source-derived from vendor/refloat stable tags v1.0.0, v1.1.0, and v1.2.3 src/main.c command dispatch, cmd_lock, cmd_flywheel_toggle, lights_control_request/response, and cmd_alerts_control.",
+  "cases": [
+    {
+      "name": "package-enable",
+      "version": "1.0.0",
+      "request": [36, 101, 12, 0],
+      "response": null,
+      "control": "package",
+      "enabled": true
+    },
+    {
+      "name": "package-disable",
+      "version": "1.2.3",
+      "request": [36, 101, 12, 1],
+      "response": null,
+      "control": "package",
+      "enabled": false
+    },
+    {
+      "name": "flywheel-enable-defaults-footpad-abort",
+      "version": "1.1.0",
+      "request": [36, 101, 22, 129, 0, 0, 0, 0, 1],
+      "response": null,
+      "control": "flywheel",
+      "enabled": true
+    },
+    {
+      "name": "flywheel-disable-defaults-footpad-abort",
+      "version": "1.2.3",
+      "request": [36, 101, 22, 128, 0, 0, 0, 0, 1],
+      "response": null,
+      "control": "flywheel",
+      "enabled": false
+    },
+    {
+      "name": "legacy-lighting-leds-off-headlights-on",
+      "version": "1.0.0",
+      "request": [36, 101, 202, 1, 2],
+      "response": [36, 101, 202, 2],
+      "control": "leds",
+      "enabled": false
+    },
+    {
+      "name": "stable-lighting-headlights-off-leds-on",
+      "version": "1.2.3",
+      "request": [36, 101, 20, 0, 0, 0, 2, 1],
+      "response": [36, 101, 20, 1],
+      "control": "headlights",
+      "enabled": false
+    },
+    {
+      "name": "fatal-clear",
+      "version": "1.2.3",
+      "request": [36, 101, 36, 1],
+      "response": null,
+      "control": "clearFatalError"
+    }
+  ],
+  "rejections": [
+    {
+      "name": "malformed-truncated-package",
+      "version": "1.0.0",
+      "request": [36, 101, 12],
+      "reason": "malformed"
+    },
+    {
+      "name": "oversized-stable-lighting",
+      "version": "1.2.3",
+      "request": [36, 101, 20, 0, 0, 0, 1, 1, 0],
+      "reason": "malformed"
+    },
+    {
+      "name": "wrong-route",
+      "version": "1.2.3",
+      "selectedCanId": 42,
+      "requestCanId": 41,
+      "request": [36, 101, 12, 0],
+      "reason": "wrong_route"
+    },
+    {
+      "name": "test-version-write",
+      "version": "1.2.3",
+      "firmwareTestVersion": 1,
+      "request": [36, 101, 12, 0],
+      "reason": "read_only"
+    },
+    {
+      "name": "legacy-command-on-stable-profile",
+      "version": "1.2.3",
+      "request": [36, 101, 202, 1, 1],
+      "reason": "unsupported_command"
+    },
+    {
+      "name": "stable-command-on-legacy-profile",
+      "version": "1.0.0",
+      "request": [36, 101, 20, 0, 0, 0, 1, 1],
+      "reason": "unsupported_command"
+    },
+    {
+      "name": "unsupported-runtime-tune",
+      "version": "1.2.3",
+      "request": [36, 101, 2, 0],
+      "reason": "unsupported_command"
+    }
+  ]
+}

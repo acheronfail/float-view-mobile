@@ -70,12 +70,14 @@ enum RefloatDynamicTelemetryDecoder {
       index += 4
     }
     var firmwareFault: FirmwareFault?
+    var fatalErrorLatched: Bool?
     if mask & 0x4 != 0 {
       let activeAlerts =
         UInt32(payload[index]) << 24 | UInt32(payload[index + 1]) << 16
           | UInt32(payload[index + 2]) << 8 | UInt32(payload[index + 3])
       firmwareFault = activeAlerts & 0x1 != 0
         ? RefloatTelemetryMappings.firmwareFault(payload[index + 8]) : nil
+      fatalErrorLatched = payload[4] & 0x08 != 0
     }
 
     let known = Set([
@@ -106,6 +108,7 @@ enum RefloatDynamicTelemetryDecoder {
       charging: flags & 0x20 != 0,
       alertReason: RefloatTelemetryMappings.alertReason(payload[12]),
       firmwareFault: firmwareFault,
+      fatalErrorLatched: fatalErrorLatched,
       packVoltageV: values["motor.batt_voltage"],
       dutyCycle: values["motor.duty_cycle"],
       controllerTempC: values["motor.mosfet_temp"],

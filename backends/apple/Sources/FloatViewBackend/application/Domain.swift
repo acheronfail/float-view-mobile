@@ -335,6 +335,8 @@ public struct ActiveConnectionSnapshot: Sendable, Equatable {
   public let controllerCandidates: [ControllerCandidate]
   public let connectionIssue: ConnectionIssue?
   public let bms: BmsState
+  public let refloatControls: RefloatControls?
+  public let controllerActions: ControllerActions
 
   public init(
     deviceID: DeviceID,
@@ -349,7 +351,9 @@ public struct ActiveConnectionSnapshot: Sendable, Equatable {
     controllerRoute: ControllerRoute? = nil,
     controllerCandidates: [ControllerCandidate] = [],
     connectionIssue: ConnectionIssue? = nil,
-    bms: BmsState = .init()
+    bms: BmsState = .init(),
+    refloatControls: RefloatControls? = nil,
+    controllerActions: ControllerActions = .init()
   ) {
     self.deviceID = deviceID
     self.name = name
@@ -364,6 +368,8 @@ public struct ActiveConnectionSnapshot: Sendable, Equatable {
     self.controllerCandidates = controllerCandidates
     self.connectionIssue = connectionIssue
     self.bms = bms
+    self.refloatControls = refloatControls
+    self.controllerActions = controllerActions
   }
 }
 
@@ -429,6 +435,7 @@ public enum VescProtocolMessage: Sendable, Equatable {
   case refloatInfo(version: String)
   case refloatTelemetryLayout(fields: [String], runtimeFields: [String])
   case refloatTelemetry(RefloatTelemetryRecord)
+  case refloatLighting(command: RefloatCommand, state: RefloatLightingState)
 }
 
 public struct RefloatTelemetryRecord: Sendable, Equatable {
@@ -444,6 +451,7 @@ public struct RefloatTelemetryRecord: Sendable, Equatable {
   public let charging: Bool?
   public let alertReason: AlertReason?
   public let firmwareFault: FirmwareFault?
+  public let fatalErrorLatched: Bool?
   public let packVoltageV: Double?
   public let dutyCycle: Double?
   public let controllerTempC: Double?
@@ -495,6 +503,7 @@ public struct RefloatTelemetryRecord: Sendable, Equatable {
     charging: Bool? = nil,
     alertReason: AlertReason? = nil,
     firmwareFault: FirmwareFault? = nil,
+    fatalErrorLatched: Bool? = nil,
     packVoltageV: Double? = nil,
     dutyCycle: Double? = nil,
     controllerTempC: Double? = nil,
@@ -545,6 +554,7 @@ public struct RefloatTelemetryRecord: Sendable, Equatable {
     self.charging = charging
     self.alertReason = alertReason
     self.firmwareFault = firmwareFault
+    self.fatalErrorLatched = fatalErrorLatched
     self.packVoltageV = packVoltageV
     self.dutyCycle = dutyCycle
     self.controllerTempC = controllerTempC
@@ -1424,6 +1434,7 @@ public protocol VescProtocolPort: AnyObject, Sendable {
   func firmwareRequest(route: ControllerRoute) throws -> Data
   func motorConfigurationRequest(route: ControllerRoute) throws -> Data
   func canPingRequest() throws -> Data
+  func controllerShutdownRequest(route: ControllerRoute) throws -> Data
   func refloatInfoRequest(route: ControllerRoute) throws -> Data
   func refloatTelemetryIDsRequest(route: ControllerRoute) throws -> Data
   func refloatTelemetryRequest(route: ControllerRoute) throws -> Data
@@ -1444,6 +1455,10 @@ public extension VescProtocolPort {
 
   func motorConfigurationRequest(route _: ControllerRoute) throws -> Data {
     throw VescProtocolError.unsupportedCommand(VescCommand.getMotorConfiguration.rawValue)
+  }
+
+  func controllerShutdownRequest(route _: ControllerRoute) throws -> Data {
+    throw VescProtocolError.unsupportedCommand(VescCommand.shutdown.rawValue)
   }
 
   func refloatLegacyTelemetryRequest(route: ControllerRoute) throws -> Data {

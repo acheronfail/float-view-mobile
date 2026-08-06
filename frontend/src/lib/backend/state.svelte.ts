@@ -7,6 +7,7 @@ import type {
   SessionPrunePreview,
   SessionSummary,
   Settings,
+  RefloatControl,
 } from '$lib/backend/contract';
 import { connectBootstrap, loadBootstrap, type FrontendPlatform } from './bootstrap';
 import { ApiRequestError, type ApiClient } from './client';
@@ -73,6 +74,10 @@ export class BackendState {
     return this.snapshot?.activeConnection?.firmware ?? null;
   }
 
+  get refloatControls() {
+    return this.snapshot?.activeConnection?.refloatControls ?? null;
+  }
+
   get sessionCatalogRevision() {
     return this.snapshot?.sessionCatalogRevision ?? 0;
   }
@@ -134,6 +139,18 @@ export class BackendState {
 
   async disconnectDevice(): Promise<void> {
     await this.run((client) => client.request('device.disconnect', {}).then(() => undefined));
+  }
+
+  async shutdownController(): Promise<boolean> {
+    return this.run((client) => client.request('controller.shutdown', {}).then(() => undefined));
+  }
+
+  async setRefloatControl(control: RefloatControl, enabled: boolean): Promise<boolean> {
+    return this.run((client) => client.request('refloat.control.set', { control, enabled }).then(() => undefined));
+  }
+
+  async clearRefloatFatalError(): Promise<boolean> {
+    return this.run((client) => client.request('refloat.fatalError.clear', {}).then(() => undefined));
   }
 
   async selectController(deviceId: string, canId: number): Promise<boolean> {
