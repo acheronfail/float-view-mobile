@@ -24,6 +24,7 @@ import fail.acheron.floatview.backend.SessionGapPolicyRecord
 import fail.acheron.floatview.backend.SessionHistoryCursor
 import fail.acheron.floatview.backend.SessionHistoryReducer
 import fail.acheron.floatview.backend.SessionPruneMetadataRecord
+import fail.acheron.floatview.backend.SessionReadCancellation
 import fail.acheron.floatview.backend.SessionMaintenanceJobRecord
 import fail.acheron.floatview.backend.SessionListQuery
 import fail.acheron.floatview.backend.SessionRecord
@@ -68,10 +69,13 @@ import java.util.zip.GZIPOutputStream
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.UUID
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.selects.select
@@ -169,19 +173,27 @@ class LoopbackServer(
                             call.respondText("", status = HttpStatusCode.BadRequest)
                             return@post
                         }
-                        val payload = withContext(Dispatchers.IO) {
+                        val readCancellation = SessionReadCancellation()
+                        val cancellationWatcher = launch(start = CoroutineStart.UNDISPATCHED) {
                             try {
-                                val value = sessionData(requestPayload, timing)
-                                val encodeStarted = System.nanoTime()
-                                value.toString().toByteArray(Charsets.UTF_8).also {
-                                    timing.jsonMs += (System.nanoTime() - encodeStarted) / 1_000_000.0
-                                }
+                                awaitCancellation()
                             } finally {
-                                // Ktor cancellation runs this finally block when
-                                // the client disconnects, closing any dedicated
-                                // SQLite reader for this request.
-                                applicationService.cancelHistoricalReads(sessionId)
+                                readCancellation.cancel()
                             }
+                        }
+                        val payload = try {
+                            withContext(Dispatchers.IO) {
+                                applicationService.withSessionReadCancellation(readCancellation) {
+                                    val value = sessionData(requestPayload, timing)
+                                    val encodeStarted = System.nanoTime()
+                                    value.toString().toByteArray(Charsets.UTF_8).also {
+                                        timing.jsonMs += (System.nanoTime() - encodeStarted) / 1_000_000.0
+                                    }
+                                }
+                            }
+                        } finally {
+                            cancellationWatcher.cancel()
+                            readCancellation.cancel()
                         }
                         if (payload.size > 4 * 1024 * 1024) {
                             call.respondText("", status = HttpStatusCode.PayloadTooLarge)
@@ -202,8 +214,17 @@ class LoopbackServer(
                             call.respondBytes(payload, ContentType.Application.Json)
                         }
                         logSessionDataTiming(timing)
-                    } catch (_: Exception) {
+                    } catch (error: CancellationException) {
+                        throw error
+                    } catch (_: org.json.JSONException) {
                         call.respondText("", status = HttpStatusCode.BadRequest)
+                    } catch (_: IllegalArgumentException) {
+                        call.respondText("", status = HttpStatusCode.BadRequest)
+                    } catch (_: SessionStoreException) {
+                        call.respondText("", status = HttpStatusCode.BadRequest)
+                    } catch (error: Exception) {
+                        Log.e("FloatViewBackend", "session-data failed (${error.javaClass.simpleName})")
+                        call.respondText("", status = HttpStatusCode.InternalServerError)
                     }
                 }
                 post("/api/session-export") {

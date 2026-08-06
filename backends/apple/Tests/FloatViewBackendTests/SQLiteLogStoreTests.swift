@@ -42,6 +42,19 @@ private func executeSQLite(database: URL, sql: String) throws {
   }
 }
 
+private final class ConcurrentResult<Value>: @unchecked Sendable {
+  private let lock = NSLock()
+  private var value: Result<Value, any Error>?
+
+  func set(_ result: Result<Value, any Error>) {
+    lock.withLock { value = result }
+  }
+
+  func get() -> Result<Value, any Error>? {
+    lock.withLock { value }
+  }
+}
+
 @Test func sqliteStoreDiscardsSessionsBelowMinimumDistance() throws {
   let root = FileManager.default.temporaryDirectory
     .appending(path: "float-view-store-\(UUID().uuidString)")
@@ -176,6 +189,106 @@ private func executeSQLite(database: URL, sql: String) throws {
   )
   #expect(firstPage.items.map(\.sessionID) == [record.sessionID.value])
   #expect(firstPage.nextCursor == nil)
+}
+
+@Test func cancellingOneRequestDoesNotAbortASiblingReadForTheSameSession() throws {
+  let root = FileManager.default.temporaryDirectory
+    .appending(path: "float-view-concurrent-read-\(UUID().uuidString)")
+  defer { try? FileManager.default.removeItem(at: root) }
+  let store = try SQLiteLogStore(
+    root: root,
+    schemaDirectory: repositoryRoot().appending(path: "sql"),
+    availableBytes: { 2_000_000_000 }
+  )
+  let startedAt = Date(timeIntervalSince1970: 1_700_000_000)
+  let record = try store.create(deviceID: DeviceID("concurrent-read-fixture"), at: startedAt)
+  var samples: [TelemetrySample] = []
+  for index in 0 ..< 100 {
+    samples.append(
+      TelemetrySample(
+        sequence: Int64(index + 1),
+        observedAt: startedAt.addingTimeInterval(Double(index)),
+        elapsedMs: Int64(index * 1_000),
+        rideState: .riding,
+        packageState: [.disabled, .startup, .ready, .running][index % 4],
+        packVoltageV: 60 - Double(index) / 100,
+        speedKph: 18
+      )
+    )
+  }
+  try store.append(jobID: record.jobID, samples: samples)
+  _ = try store.close(jobID: record.jobID, at: startedAt.addingTimeInterval(100), reason: "test")
+
+  let firstCancellation = SessionReadCancellation()
+  let secondCancellation = SessionReadCancellation()
+  let firstRegistered = DispatchSemaphore(value: 0)
+  let secondRegistered = DispatchSemaphore(value: 0)
+  let releaseFirst = DispatchSemaphore(value: 0)
+  let releaseSecond = DispatchSemaphore(value: 0)
+  let firstDone = DispatchSemaphore(value: 0)
+  let secondDone = DispatchSemaphore(value: 0)
+  defer {
+    releaseFirst.signal()
+    releaseSecond.signal()
+    store.onHistoricalReadRegisteredForTesting = nil
+  }
+  store.onHistoricalReadRegisteredForTesting = { cancellation in
+    if cancellation === firstCancellation {
+      firstRegistered.signal()
+      _ = releaseFirst.wait(timeout: .now() + 5)
+    } else if cancellation === secondCancellation {
+      secondRegistered.signal()
+      _ = releaseSecond.wait(timeout: .now() + 5)
+    }
+  }
+
+  let firstResult = ConcurrentResult<[SessionSeriesPoint]>()
+  DispatchQueue.global().async {
+    firstResult.set(Result {
+      try store.withSessionReadCancellation(firstCancellation) {
+        try store.querySeries(
+          sessionID: record.sessionID.value,
+          startElapsedMs: 0,
+          endElapsedMs: 99_000,
+          fields: ["packVoltageV"],
+          maxPoints: 100
+        )
+      }
+    })
+    firstDone.signal()
+  }
+  #expect(firstRegistered.wait(timeout: .now() + 5) == .success)
+
+  let secondResult = ConcurrentResult<[SessionEventRecord]>()
+  DispatchQueue.global().async {
+    secondResult.set(Result {
+      try store.withSessionReadCancellation(secondCancellation) {
+        try store.sessionEvents(
+          sessionID: record.sessionID.value,
+          startElapsedMs: 0,
+          endElapsedMs: 99_000
+        )
+      }
+    })
+    secondDone.signal()
+  }
+  #expect(secondRegistered.wait(timeout: .now() + 5) == .success)
+
+  secondCancellation.cancel()
+  releaseSecond.signal()
+  #expect(secondDone.wait(timeout: .now() + 5) == .success)
+  if case let .failure(error)? = secondResult.get() {
+    guard case SQLiteLogStoreError.cancelled = error else {
+      Issue.record("Expected the cancelled request to stop its own SQLite read, got \(error)")
+      return
+    }
+  } else {
+    Issue.record("Expected the cancelled request to fail")
+  }
+
+  releaseFirst.signal()
+  #expect(firstDone.wait(timeout: .now() + 5) == .success)
+  #expect(try firstResult.get()?.get().count == 100)
 }
 
 @Test func historicalReadsHonorThePublishedSnapshotBoundary() throws {

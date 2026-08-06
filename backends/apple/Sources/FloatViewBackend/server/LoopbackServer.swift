@@ -137,10 +137,13 @@ public final class LoopbackServer: @unchecked Sendable {
           guard let sessionID = payload["sessionId"] as? String, !sessionID.isEmpty else {
             return HTTPResponse(statusCode: .badRequest, headers: [.cacheControl: "no-store"])
           }
+          let readCancellation = SessionReadCancellation()
           let result = try await withTaskCancellationHandler(operation: {
-            try self.sessionDataPayload(payload, timing: timing)
+            try self.applicationService.withSessionReadCancellation(readCancellation) {
+              try self.sessionDataPayload(payload, timing: timing)
+            }
           }, onCancel: {
-            self.applicationService.cancelHistoricalReads(sessionID: sessionID)
+            readCancellation.cancel()
           })
           guard let result else {
             return HTTPResponse(statusCode: .badRequest, headers: [.cacheControl: "no-store"])
@@ -174,7 +177,12 @@ public final class LoopbackServer: @unchecked Sendable {
             body: responseData
           )
         } catch {
-          return HTTPResponse(statusCode: .badRequest, headers: [.cacheControl: "no-store"])
+          if error is CancellationError || Task.isCancelled { throw CancellationError() }
+          if error is SessionStoreError {
+            return HTTPResponse(statusCode: .badRequest, headers: [.cacheControl: "no-store"])
+          }
+          print("[FloatView] session-data failed (\(type(of: error)))")
+          return HTTPResponse(statusCode: .internalServerError, headers: [.cacheControl: "no-store"])
         }
       }
       await server.appendRoute("POST /api/session-import") { [weak self] request in

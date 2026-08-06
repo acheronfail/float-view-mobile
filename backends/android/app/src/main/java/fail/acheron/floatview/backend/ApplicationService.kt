@@ -315,6 +315,10 @@ class ApplicationService(
         requireNotNull(sessionStore) { "Session store is unavailable" }
             .sessionPruneMetadata(sessionId)
 
+    fun <T> withSessionReadCancellation(cancellation: SessionReadCancellation, body: () -> T): T =
+        requireNotNull(sessionStore) { "Session store is unavailable" }
+            .withSessionReadCancellation(cancellation, body)
+
     fun cancelHistoricalReads(sessionId: String) {
         sessionStore?.cancelHistoricalReads(sessionId)
     }

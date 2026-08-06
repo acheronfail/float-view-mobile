@@ -802,6 +802,39 @@ sealed class SessionStoreException(message: String) : RuntimeException(message) 
         SessionStoreException("Unsupported session field: $field")
 }
 
+/**
+ * Cancellation owned by one session-data request. Storage adapters register
+ * only the native work started by that request, so cancelling it cannot abort
+ * sibling requests that happen to read the same session.
+ */
+class SessionReadCancellation {
+    private val lock = Any()
+    private val callbacks = linkedSetOf<() -> Unit>()
+    private var cancelled = false
+
+    fun cancel() {
+        val pending = synchronized(lock) {
+            if (cancelled) return
+            cancelled = true
+            callbacks.toList().also { callbacks.clear() }
+        }
+        pending.forEach { callback -> runCatching(callback) }
+    }
+
+    fun register(callback: () -> Unit): AutoCloseable {
+        val invokeImmediately = synchronized(lock) {
+            if (cancelled) {
+                true
+            } else {
+                callbacks += callback
+                false
+            }
+        }
+        if (invokeImmediately) runCatching(callback)
+        return AutoCloseable { synchronized(lock) { callbacks.remove(callback) } }
+    }
+}
+
 interface SessionStorePort {
     fun sessions(query: SessionListQuery): SessionPage
     fun session(sessionId: String): SessionSummaryRecord
@@ -811,6 +844,7 @@ interface SessionStorePort {
         SessionHistoryConfiguration(1_000, 1_000)
     fun sessionPruneMetadata(sessionId: String): SessionPruneMetadataRecord =
         SessionPruneMetadataRecord(null, 0, 0, null)
+    fun <T> withSessionReadCancellation(cancellation: SessionReadCancellation, body: () -> T): T = body()
     fun cancelHistoricalReads(sessionId: String) = Unit
     fun prunePreview(sessionId: String, targetResolutionSeconds: Long): SessionPrunePreviewRecord =
         throw SessionStoreException.SessionNotFound

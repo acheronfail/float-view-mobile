@@ -33,6 +33,7 @@ import fail.acheron.floatview.backend.SessionHistoryConfiguration
 import fail.acheron.floatview.backend.SessionHistoryReducer
 import fail.acheron.floatview.backend.SessionPruneMetadataRecord
 import fail.acheron.floatview.backend.SessionPrunePreviewRecord
+import fail.acheron.floatview.backend.SessionReadCancellation
 import fail.acheron.floatview.backend.SessionMaintenanceJobRecord
 import fail.acheron.floatview.backend.SessionStoreException
 import fail.acheron.floatview.backend.SessionStorePort
@@ -69,9 +70,11 @@ class SQLiteLogStore(
     private val leaseLock = Any()
     private val activeReadLeases = mutableMapOf<String, Int>()
     private val maintenanceSessions = mutableSetOf<String>()
-    private val historicalDatabases = mutableMapOf<String, MutableSet<SQLiteDatabase>>()
     private val historicalCancellationSignals = mutableMapOf<String, MutableSet<CancellationSignal>>()
     private val deletingSessions = mutableSetOf<String>()
+    private val requestReadCancellation = ThreadLocal<SessionReadCancellation?>()
+
+    internal var onHistoricalReadRegisteredForTesting: ((SessionReadCancellation?) -> Unit)? = null
 
     init {
         reconcileCatalog(catalog.writableDatabase)
@@ -706,13 +709,22 @@ class SQLiteLogStore(
         )
     }
 
+    override fun <T> withSessionReadCancellation(cancellation: SessionReadCancellation, body: () -> T): T {
+        val previous = requestReadCancellation.get()
+        requestReadCancellation.set(cancellation)
+        return try {
+            body()
+        } finally {
+            if (previous == null) requestReadCancellation.remove()
+            else requestReadCancellation.set(previous)
+        }
+    }
+
     override fun cancelHistoricalReads(sessionId: String) {
-        val (signals, databases) = synchronized(leaseLock) {
-            (historicalCancellationSignals[sessionId]?.toList() ?: emptyList()) to
-                (historicalDatabases[sessionId]?.toList() ?: emptyList())
+        val signals = synchronized(leaseLock) {
+            historicalCancellationSignals[sessionId]?.toList() ?: emptyList()
         }
         signals.forEach { signal -> runCatching { signal.cancel() } }
-        databases.forEach { database -> runCatching { database.close() } }
     }
 
     @Synchronized
@@ -2381,11 +2393,13 @@ class SQLiteLogStore(
             }
             val database = SQLiteDatabase.openDatabase(file!!.path, null, SQLiteDatabase.OPEN_READONLY)
             val cancellationSignal = CancellationSignal()
+            val requestCancellation = requestReadCancellation.get()
             synchronized(leaseLock) {
-                historicalDatabases.getOrPut(sessionId) { linkedSetOf() }.add(database)
                 historicalCancellationSignals.getOrPut(sessionId) { linkedSetOf() }.add(cancellationSignal)
             }
+            val cancellationRegistration = requestCancellation?.register { cancellationSignal.cancel() }
             try {
+                onHistoricalReadRegisteredForTesting?.invoke(requestCancellation)
                 // OPEN_READONLY connections reject execSQL transaction calls,
                 // but SQLite still permits a deferred read transaction when it
                 // is prepared as a query. This pins one WAL snapshot for the
@@ -2393,10 +2407,9 @@ class SQLiteLogStore(
                 database.rawQuery("BEGIN DEFERRED TRANSACTION", null).use { }
                 return body(database, cancellationSignal)
             } finally {
+                cancellationRegistration?.close()
                 try { database.rawQuery("ROLLBACK", null).use { } } catch (_: Exception) { }
                 synchronized(leaseLock) {
-                    historicalDatabases[sessionId]?.remove(database)
-                    if (historicalDatabases[sessionId].isNullOrEmpty()) historicalDatabases.remove(sessionId)
                     historicalCancellationSignals[sessionId]?.remove(cancellationSignal)
                     if (historicalCancellationSignals[sessionId].isNullOrEmpty()) {
                         historicalCancellationSignals.remove(sessionId)

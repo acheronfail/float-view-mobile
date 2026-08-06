@@ -372,8 +372,12 @@ public final class ApplicationService: @unchecked Sendable {
     )
   }
 
-  public func cancelHistoricalReads(sessionID: String) {
-    sessionStore?.cancelHistoricalReads(sessionID: sessionID)
+  public func withSessionReadCancellation<T>(
+    _ cancellation: SessionReadCancellation,
+    body: () throws -> T
+  ) rethrows -> T {
+    guard let sessionStore else { return try body() }
+    return try sessionStore.withSessionReadCancellation(cancellation, body: body)
   }
 
   public func sessionEvents(

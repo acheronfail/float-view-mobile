@@ -2,6 +2,7 @@ package fail.acheron.floatview.storage
 
 import android.content.Context
 import android.database.sqlite.SQLiteDatabase
+import android.os.OperationCanceledException
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import fail.acheron.floatview.backend.DeviceId
@@ -11,12 +12,17 @@ import fail.acheron.floatview.backend.RideState
 import fail.acheron.floatview.backend.ProductStoreException
 import fail.acheron.floatview.backend.SessionListQuery
 import fail.acheron.floatview.backend.SessionMaintenanceJobRecord
+import fail.acheron.floatview.backend.SessionReadCancellation
 import fail.acheron.floatview.backend.SessionStoreException
 import fail.acheron.floatview.backend.SetpointAdjustment
 import fail.acheron.floatview.backend.TelemetrySample
 import fail.acheron.floatview.backend.ThemePreference
 import java.io.File
 import java.time.Instant
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.ExecutionException
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 import kotlin.math.abs
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -170,6 +176,83 @@ class SQLiteSessionQueryInstrumentedTest {
         )
         assertEquals(listOf(record.sessionId.value), firstPage.items.map { it.sessionId })
         assertEquals(null, firstPage.nextCursor)
+    }
+
+    @Test
+    fun cancellingOneRequestDoesNotAbortASiblingReadForTheSameSession() {
+        val store = SQLiteLogStore(context, availableBytes = { 2_000_000_000 })
+        val startedAt = Instant.ofEpochMilli(1_700_000_000_000)
+        val record = store.create(DeviceId("concurrent-read-fixture"), startedAt)
+        store.append(
+            record.jobId,
+            (0 until 100).map { index ->
+                TelemetrySample(
+                    sequence = (index + 1).toLong(),
+                    observedAt = startedAt.plusMillis(index * 1_000L),
+                    elapsedMs = index * 1_000L,
+                    rideState = RideState.RIDING,
+                    packVoltageV = 60.0 - index / 100.0,
+                    packageState = PackageState.entries[index % PackageState.entries.size],
+                    speedKph = 18.0,
+                )
+            },
+        )
+        store.close(record.jobId, startedAt.plusSeconds(100), "test")
+
+        val firstCancellation = SessionReadCancellation()
+        val secondCancellation = SessionReadCancellation()
+        val firstRegistered = CountDownLatch(1)
+        val secondRegistered = CountDownLatch(1)
+        val releaseFirst = CountDownLatch(1)
+        val releaseSecond = CountDownLatch(1)
+        store.onHistoricalReadRegisteredForTesting = { cancellation ->
+            when (cancellation) {
+                firstCancellation -> {
+                    firstRegistered.countDown()
+                    assertTrue(releaseFirst.await(5, TimeUnit.SECONDS))
+                }
+                secondCancellation -> {
+                    secondRegistered.countDown()
+                    assertTrue(releaseSecond.await(5, TimeUnit.SECONDS))
+                }
+            }
+        }
+
+        val executor = Executors.newFixedThreadPool(2)
+        try {
+            val first = executor.submit<List<fail.acheron.floatview.backend.SessionSeriesPoint>> {
+                store.withSessionReadCancellation(firstCancellation) {
+                    store.querySeries(
+                        record.sessionId.value,
+                        0,
+                        99_000,
+                        listOf("packVoltageV"),
+                        100,
+                    )
+                }
+            }
+            assertTrue(firstRegistered.await(5, TimeUnit.SECONDS))
+
+            val second = executor.submit<List<fail.acheron.floatview.backend.SessionEventRecord>> {
+                store.withSessionReadCancellation(secondCancellation) {
+                    store.sessionEvents(record.sessionId.value, 0, 99_000)
+                }
+            }
+            assertTrue(secondRegistered.await(5, TimeUnit.SECONDS))
+
+            secondCancellation.cancel()
+            releaseSecond.countDown()
+            val cancellationFailure = assertThrows(ExecutionException::class.java) { second.get(5, TimeUnit.SECONDS) }
+            assertTrue(cancellationFailure.cause is OperationCanceledException)
+
+            releaseFirst.countDown()
+            assertEquals(100, first.get(5, TimeUnit.SECONDS).size)
+        } finally {
+            releaseFirst.countDown()
+            releaseSecond.countDown()
+            executor.shutdownNow()
+            store.onHistoricalReadRegisteredForTesting = null
+        }
     }
 
     @Test

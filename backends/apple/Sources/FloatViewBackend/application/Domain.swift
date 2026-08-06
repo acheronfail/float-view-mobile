@@ -1675,6 +1675,46 @@ public enum SessionStoreError: Error, Equatable {
   case invalidArchive
 }
 
+/// Cancellation owned by one session-data request. Storage adapters register
+/// only the native work started by that request, so sibling requests for the
+/// same session remain independent.
+public final class SessionReadCancellation: @unchecked Sendable {
+  private let lock = NSLock()
+  private var callbacks: [UUID: @Sendable () -> Void] = [:]
+  private var cancelled = false
+
+  public init() {}
+
+  public func cancel() {
+    let pending = lock.withLock { () -> [@Sendable () -> Void] in
+      guard !cancelled else { return [] }
+      cancelled = true
+      defer { callbacks.removeAll() }
+      return Array(callbacks.values)
+    }
+    pending.forEach { $0() }
+  }
+
+  public func register(_ callback: @escaping @Sendable () -> Void) -> UUID? {
+    let registration = UUID()
+    let invokeImmediately = lock.withLock {
+      guard !cancelled else { return true }
+      callbacks[registration] = callback
+      return false
+    }
+    if invokeImmediately {
+      callback()
+      return nil
+    }
+    return registration
+  }
+
+  public func unregister(_ registration: UUID?) {
+    guard let registration else { return }
+    _ = lock.withLock { callbacks.removeValue(forKey: registration) }
+  }
+}
+
 public protocol SessionStorePort: AnyObject, Sendable {
   func sessions(_ query: SessionListQuery) throws -> SessionPage
   func session(sessionID: String) throws -> SessionSummaryRecord
@@ -1742,6 +1782,10 @@ public protocol SessionStorePort: AnyObject, Sendable {
     endElapsedMs: Int64
   ) throws -> [SessionEventRecord]
   func sessionExtensionFields(sessionID: String) throws -> [String]
+  func withSessionReadCancellation<T>(
+    _ cancellation: SessionReadCancellation,
+    body: () throws -> T
+  ) rethrows -> T
   func querySampleWindow(
     sessionID: String,
     centerElapsedMs: Int64,
@@ -1750,8 +1794,8 @@ public protocol SessionStorePort: AnyObject, Sendable {
     fields: [String],
     publishedSampleSequence: Int64?
   ) throws -> [SessionSeriesPoint]
-  /// Interrupts any in-flight historical reads for a disconnected HTTP
-  /// request. Implementations keep this connection-local and best-effort.
+  /// Interrupts every historical read for explicit session maintenance.
+  /// HTTP request cancellation uses `withSessionReadCancellation` instead.
   func cancelHistoricalReads(sessionID: String)
   func querySampleWindow(
     sessionID: String,
@@ -1767,6 +1811,13 @@ public protocol SessionStorePort: AnyObject, Sendable {
 }
 
 public extension SessionStorePort {
+  func withSessionReadCancellation<T>(
+    _: SessionReadCancellation,
+    body: () throws -> T
+  ) rethrows -> T {
+    try body()
+  }
+
   func queryLocations(
     sessionID _: String,
     startElapsedMs _: Int64,

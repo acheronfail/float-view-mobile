@@ -167,6 +167,10 @@ private enum SQLiteValue {
   case null
 }
 
+private enum SessionReadCancellationContext {
+  @TaskLocal static var current: SessionReadCancellation?
+}
+
 public final class SQLiteLogStore: LogStorePort, ProductStorePort, SessionStorePort, @unchecked Sendable {
   private static let csvLocationToleranceMs: Int64 = 10_000
   private static let initialMissingFields = ["seriesCount", "parallelCount", "motor"]
@@ -182,6 +186,7 @@ public final class SQLiteLogStore: LogStorePort, ProductStorePort, SessionStoreP
   private var historicalConnections: [String: [Database]] = [:]
   private var historicalCancellations: [String: [SQLiteCancellation]] = [:]
   private let historicalReadSlots = DispatchSemaphore(value: 2)
+  var onHistoricalReadRegisteredForTesting: (@Sendable (SessionReadCancellation?) -> Void)?
   /// A deletion is marked in the catalog before touching the session file. The
   /// in-memory set closes the small window between the file removal and the
   /// catalog transaction so cancellation cannot resurrect a session after the
@@ -1074,6 +1079,13 @@ public final class SQLiteLogStore: LogStorePort, ProductStorePort, SessionStoreP
     lock.unlock()
     cancellations.forEach { $0.cancel() }
     connections.forEach { $0.interrupt() }
+  }
+
+  public func withSessionReadCancellation<T>(
+    _ cancellation: SessionReadCancellation,
+    body: () throws -> T
+  ) rethrows -> T {
+    try SessionReadCancellationContext.$current.withValue(cancellation, operation: body)
   }
 
   public func querySeries(
@@ -2561,11 +2573,14 @@ public final class SQLiteLogStore: LogStorePort, ProductStorePort, SessionStoreP
     let database = try Database(url: lease.fileURL, readOnly: true)
     let cancellation = SQLiteCancellation()
     database.installCancellation(cancellation)
+    let requestCancellation = SessionReadCancellationContext.current
     lock.lock()
     historicalConnections[sessionID, default: []].append(database)
     historicalCancellations[sessionID, default: []].append(cancellation)
     lock.unlock()
+    let requestRegistration = requestCancellation?.register { database.interrupt() }
     defer {
+      requestCancellation?.unregister(requestRegistration)
       lock.lock()
       historicalConnections[sessionID]?.removeAll { $0 === database }
       if historicalConnections[sessionID]?.isEmpty == true {
@@ -2577,6 +2592,7 @@ public final class SQLiteLogStore: LogStorePort, ProductStorePort, SessionStoreP
       }
       lock.unlock()
     }
+    onHistoricalReadRegisteredForTesting?(requestCancellation)
     try database.execute("PRAGMA query_only = ON; PRAGMA busy_timeout = 1000; BEGIN DEFERRED")
     defer { try? database.execute("ROLLBACK") }
     return try body(database, cancellation)
