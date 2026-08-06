@@ -51,7 +51,7 @@ Alternative considered: parse XML and serialize values once in TypeScript. That 
 
 ### 3. Use one connection-scoped mutation coordinator above the shared scheduler
 
-One `RefloatConfigurationService` per native backend owns schema availability, the current/default value revisions, one configuration operation, schema cache access, and saved-configuration application. A single connection-scoped `RefloatMutationCoordinator` (final name may follow the reconciled native API) owns authorization and exclusivity for semantic controls, complete configuration writes, and Tune apply. Owners request mutations from it immediately before scheduler submission; they do not maintain parallel locks or direct write paths. Schema chunks are background controller work; explicit current/default reads and a user write are below due riding telemetry but above background lighting refresh, auxiliary discovery, and BMS polling. No catch-up chunk queue is accumulated.
+One `RefloatConfigurationService` per native backend owns schema availability, the current/default value revisions, one configuration operation, schema cache access, and saved-configuration application. The existing connection-scoped `DeviceMutationCoordinator` owns authorization and exclusivity for semantic controls, complete configuration writes, Tune apply, and controller shutdown. Owners request mutations from it immediately before scheduler submission; they do not maintain parallel locks or direct write paths. The mirrored scheduler API is `VescRequestScheduler.enqueue` with `VescRequestPriority.controllerWork`/`CONTROLLER_WORK`, a typed `VescRequestContext`, a deadline, and `VescRequestGeneration`. Configuration adds distinct schema-chunk, current-value, default-value, write, and verification contexts carrying the selected route plus operation/index/offset where applicable. These requests use controller-work priority: below due riding telemetry and controller identification, but above auxiliary lighting refresh, auxiliary discovery, and BMS polling. No catch-up chunk queue is accumulated.
 
 The coordinator permits at most one device mutation lifecycle at a time. A configuration write cannot overlap package/flywheel/lighting/fatal operations, and no semantic mutation can begin during a configuration write or verification read. While authoritative package mode is flywheel, it rejects every device mutation—including package, lighting, fatal-clear, command 95, and Tune apply—except the exact command 22 transition that disables flywheel after its normal safety checks. Disconnect, route replacement, or generation change cancels outstanding work and prevents late responses from updating replacement state.
 
@@ -75,7 +75,7 @@ Current and default reads each produce a complete immutable value set with a mon
 
 Write eligibility requires the same active device, ready read/write access, exact supported package and schema, authoritatively normal package mode, exactly idle ride state, no engaged footpad, no other Refloat mutation, and a fresh post-flywheel current base. The frontend presents a bounded diff and explicit persistent-write warning, but the native coordinator remains authoritative.
 
-After command 95 acknowledgement, the owner schedules command 93, decodes it under the same schema, and compares every canonical value after expected firmware normalization. `meta.is_default` is expected to become false. Only a complete match returns success and publishes the new revision. Timeout, acknowledgement without matching readback, rejected/silent firmware behavior, disconnect, or mismatch returns `unavailable` or `conflict` and exposes the newly read device values when safe; it never reports optimistic success.
+After command 95 acknowledgement, the owner schedules command 93, decodes it under the same schema, and compares every canonical value after expected firmware normalization. Refloat 1.0.0 and 1.0.1 perform no post-decode field normalization. Refloat 1.1.0 through 1.2.3 force `meta.is_default` to false and, only while firmware state is running, force `disabled` to false. Float View's idle-only write gate makes the running-state rule inapplicable to an authorized write, so audited readback expects only the version-applicable `meta.is_default` normalization. Only a complete match returns success and publishes the new revision. Timeout, acknowledgement without matching readback, rejected/silent firmware behavior, disconnect, or mismatch returns `unavailable` or `conflict` and exposes the newly read device values when safe; it never reports optimistic success.
 
 Alternative considered: treat command 95 acknowledgement as success. VESC discards Refloat's setter result, so this would claim writes that may have failed.
 
@@ -85,7 +85,7 @@ The catalog gains a bounded `refloat_configuration` table containing opaque ID, 
 
 The menu label is `Tunes…`, but records are complete configurations. The XML does not contain Refloat's QML tune blacklist, so calling a dynamically inferred subset equivalent to upstream Tunes would be inaccurate. There is no automatic migration: a different exact version creates a separate namespace and old records remain visible only in management views explicitly designed for incompatible records.
 
-The test-stage storage version is bumped and incompatible stores are recreated from canonical SQL rather than migrated.
+The test-stage storage version is bumped to one shared value on Apple and Android (reconciling the current Apple `10` and Android `9` markers) and incompatible stores are recreated from canonical SQL rather than migrated.
 
 Alternative considered: copy Refloat's QML Tune subset and migrations. That would create hand-maintained version policy outside the runtime schema and contradict the requested strict version isolation.
 
@@ -129,7 +129,8 @@ Malformed, unknown, test-version, riding, special-mode, stale, and prohibited co
 
 Rollback removes the configuration menu/actions, protocol handlers, schema cache, and catalog table while preserving telemetry and semantic live controls. Test-stage storage is recreated under the previous schema version. Device configuration is not automatically rolled back; the physical validation workflow restores its captured starting values before completion.
 
-## Open Questions
+## Resolved Pre-implementation Audits
 
-- Confirm final scheduler priority names and shared mutation-owner API after the prerequisite changes are archived.
-- Audit whether any supported release normalizes additional fields on write and capture each known case in immutable readback fixtures.
+- Scheduler submission uses the mirrored `VescRequestScheduler.enqueue` API, controller-work priority, typed request contexts, deadlines, and connection generations. Mutation authorization extends the existing `DeviceMutationCoordinator` rather than adding a Refloat-specific coordinator.
+- Vendored stable tags confirm that Refloat 1.0.0 and 1.0.1 apply no post-decode field normalization. Refloat 1.1.0 through 1.2.3 force `meta.is_default = false`; they also prevent package disable only when already running, a state excluded by Float View's write gate.
+- Vendored VESC firmware and VESC Tool confirm that `COMM_FW_VERSION` carries the custom-configuration count in the common capability tail and a nullable trailing big-endian hardware-configuration CRC after the firmware name.

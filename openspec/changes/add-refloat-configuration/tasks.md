@@ -1,9 +1,9 @@
 ## 1. Blocking prerequisite reconciliation
 
-- [ ] 1.1 Verify every preceding OpenSpec change that affects controller discovery, the request scheduler, BMS work, Refloat telemetry, live controls, fixture behavior, contract shape, or storage has been implemented, synced, and archived; stop without implementation if any prerequisite remains active.
-- [ ] 1.2 Re-read canonical specs and current frontend, Swift, Kotlin, SQL, conformance, and fixture ownership after those archives, then revise this proposal, design, delta specs, and tasks to remove stale names, resolve overlapping requirements, and preserve one scheduler and one Refloat mutation coordinator with no parallel write path.
-- [ ] 1.3 Resolve the final scheduler priority/context API and audit exact Refloat write normalization, especially legacy 1.0 patch identification and any fields beyond `meta.is_default`, against the then-current vendored sources.
-- [ ] 1.4 Run `OPENSPEC_TELEMETRY=0 openspec validate add-refloat-configuration --strict` and commit the reconciled planning artifacts before starting implementation.
+- [x] 1.1 Verify every preceding OpenSpec change that affects controller discovery, the request scheduler, BMS work, Refloat telemetry, live controls, fixture behavior, contract shape, or storage has been implemented, synced, and archived; stop without implementation if any prerequisite remains active.
+- [x] 1.2 Re-read canonical specs and current frontend, Swift, Kotlin, SQL, conformance, and fixture ownership after those archives, then revise this proposal, design, delta specs, and tasks to remove stale names, resolve overlapping requirements, and preserve one scheduler and one device mutation coordinator with no parallel write path.
+- [x] 1.3 Resolve the final scheduler priority/context API and audit exact Refloat write normalization, especially legacy 1.0 patch identification and any fields beyond `meta.is_default`, against the then-current vendored sources.
+- [x] 1.4 Run `OPENSPEC_TELEMETRY=0 openspec validate add-refloat-configuration --strict` and commit the reconciled planning artifacts before starting implementation.
 
 ## 2. Immutable schemas and protocol vectors
 
@@ -29,14 +29,14 @@
 - [ ] 4.2 Add VESC commands 92–95 and matching typed request/response decoders on Apple for exact index, total length, offset, chunk bytes, values payload, and write acknowledgement.
 - [ ] 4.3 Add the corresponding Kotlin commands and decoders with equivalent bounds and errors.
 - [ ] 4.4 Extend the source-faithful firmware identity fixtures/tests for version-applicable custom-config count and CRC tails without weakening existing strict remainder handling.
-- [ ] 4.5 Add typed scheduler transactions for schema chunks, mode-eligible current/default reads, full write, and verification read with exact route, offset, operation, priority, deadline, and connection-generation context on both platforms; command 93 must not submit or complete while flywheel mode is authoritative.
+- [ ] 4.5 Add typed `VescRequestContext` cases and `VescRequestScheduler.enqueue` transactions at `controllerWork`/`CONTROLLER_WORK` priority for schema chunks, mode-eligible current/default reads, full write, and verification read with exact route, index, offset, operation, deadline, and connection-generation context on both platforms; command 93 must not submit or complete while flywheel mode is authoritative.
 - [ ] 4.6 Verify direct and CAN routing wraps every command exactly once, rejects wrong-route/offset/generation responses, bounds chunk retries/queues, and preserves riding telemetry priority over configuration work.
 
 ## 5. Native configuration lifecycle and safety
 
 - [ ] 5.1 Implement the Apple connection-scoped `RefloatConfigurationService` for family discovery, exact audited schema resolution, bounded chunk assembly, progress/availability, current/default revisions, cancellation, and reconnect behavior.
 - [ ] 5.2 Implement the matching Android service with equivalent state transitions, deadlines, diagnostics, and lifecycle behavior.
-- [ ] 5.3 Extend the existing shared native `RefloatMutationCoordinator` on Apple so semantic live controls, full configuration writes, and Tune apply cannot overlap, all preconditions are rechecked immediately before scheduler submission, and every flywheel-mode mutation except eligible flywheel disable is rejected.
+- [ ] 5.3 Extend the existing shared native `DeviceMutationCoordinator` on Apple so semantic live controls, full configuration writes, Tune apply, and controller shutdown cannot overlap, all preconditions are rechecked immediately before scheduler submission, and every flywheel-mode mutation except eligible flywheel disable is rejected.
 - [ ] 5.4 Extend the matching existing Android mutation coordinator and remove any superseded per-owner exclusivity or direct write paths.
 - [ ] 5.5 Enforce ready read/write access, exact version/fingerprint/signature, latest normal-mode current base, normal package mode, idle ride state, no engaged footpad, fresh current-generation evidence, and complete validation before command 95 on both platforms; entering flywheel invalidates current state and confirmed exit requires a fresh command-93 read.
 - [ ] 5.6 Implement Apple command-95 acknowledgement followed by mandatory command-93 verification, expected firmware normalization, canonical comparison, mismatch/current-state publication, and indeterminate interruption behavior.
@@ -57,7 +57,7 @@
 ## 7. Exact-version native persistence and cache
 
 - [ ] 7.1 Add canonical SQL for bounded application-wide `refloat_configuration` records with revisions, names/descriptions, exact package version, schema fingerprint, wire signature, values JSON, timestamps, checks, and useful exact-match indexes.
-- [ ] 7.2 Bump the disposable storage version and update SQL/schema fixtures so incompatible test databases are recreated rather than migrated.
+- [ ] 7.2 Reconcile the current Apple `10` and Android `9` disposable storage markers to one shared next version and update SQL/schema fixtures so incompatible test databases are recreated rather than migrated.
 - [ ] 7.3 Implement Apple create/get/paged-list/update/delete operations with transactions, bounded JSON validation, optimistic revision conflicts, deterministic ordering/cursors, exact compatibility filtering, and rejection of stale or flywheel-temporary device-current sources.
 - [ ] 7.4 Implement matching Android persistence and query behavior, including the same normal-mode current-source requirement.
 - [ ] 7.5 Implement bounded Apple schema cache storage keyed by audited connection identity/custom index/nonzero hardware CRC with digest revalidation, corruption deletion, and fetch fallback.
