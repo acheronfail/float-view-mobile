@@ -13,6 +13,20 @@ The repository SHALL contain one top-level `/conformance` TypeScript black-box s
 - **WHEN** conformance runs against mock, Android, iOS, or macOS
 - **THEN** the same scenario and assertion implementations are used
 
+### Requirement: Initial identification recovery parity
+
+The canonical software suite SHALL verify that Apple and Android implement the same bounded recovery behavior for a missing initial direct firmware response, including generation cancellation and retry exhaustion.
+
+#### Scenario: Dropped first response recovers on both backends
+
+- **WHEN** the simulated BLE peer drops the first direct firmware response and returns a valid response to the recovery request
+- **THEN** each native backend reaches `ready` after exactly one transport connection and two direct firmware writes
+
+#### Scenario: Recovery remains bounded and generation-safe
+
+- **WHEN** both direct firmware responses are absent or the connection generation changes before the recovery callback
+- **THEN** conformance observes no third request, no stale state mutation, and no durable session before valid identification completes
+
 ### Requirement: Complete contract coverage
 
 The canonical suite SHALL cover every mandatory WebSocket control method including standalone `session.list`, pending-delete cancel, and prune preview/start/cancel, session-data HTTP request kind, result shape, state event, stable error, authentication rule, ordering invariant, lifecycle behavior, persistence behavior, and resource bound visible to the frontend. A required scenario MUST create its prerequisite device, Board Profile, session, history revision, snapshot, cursor, prune job, or session-list page and MUST fail rather than silently skip its assertions when that state is absent. Historical assertions SHALL use `session.get` metadata plus `series`, `samples`, and `events`; `session.getDiagnostics`, embedded `SessionDetail`, and session-group assertions SHALL NOT remain.
