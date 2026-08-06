@@ -74,8 +74,13 @@ run platform target="": build
         adb_args=()
         [[ -z "$serial" ]] || adb_args=(-s "$serial")
         adb "${adb_args[@]}" install -r backends/android/app/build/outputs/apk/debug/app-debug.apk
+        adb "${adb_args[@]}" logcat -c || true
         adb "${adb_args[@]}" shell am start -W \
           -n fail.acheron.floatview/fail.acheron.floatview.MainActivity
+        process_id="$(adb "${adb_args[@]}" shell pidof -s fail.acheron.floatview | tr -d '\r')"
+        [[ "$process_id" =~ ^[0-9]+$ ]] || { echo 'Float View did not start' >&2; exit 1; }
+        echo "Streaming Float View logs from Android process $process_id; press Ctrl-C to stop."
+        exec adb "${adb_args[@]}" logcat --pid="$process_id" -v color
         ;;
       ios)
         project="$PWD/backends/apple/ios/float-view.xcodeproj"

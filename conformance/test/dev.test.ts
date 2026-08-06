@@ -10,6 +10,7 @@ import {
   androidForwardRemovalArguments,
   androidInstallArguments,
   androidLaunchArguments,
+  androidLogcatArguments,
   backendOrigin,
   childExitFailure,
   iosPhysicalConsoleLaunchArguments,
@@ -58,6 +59,7 @@ test('Android development preserves app data and requires explicit ambiguous sel
     '-n',
     'fail.acheron.floatview/fail.acheron.floatview.MainActivity',
   ]);
+  assert.deepEqual(androidLogcatArguments('1234'), ['logcat', '--pid', '1234', '-v', 'color']);
   const multiple = 'List of devices attached\none\tdevice\ntwo\tdevice\n';
   assert.throws(() => selectAndroidDeviceFromList(multiple), /Pass an Android target/);
   assert.equal(selectAndroidDeviceFromList(multiple, 'two'), 'two');

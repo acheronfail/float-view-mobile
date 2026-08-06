@@ -44,6 +44,10 @@ export function androidLaunchArguments() {
   return ['shell', 'am', 'start', '-W', '-n', ANDROID_ACTIVITY];
 }
 
+export function androidLogcatArguments(processId: string) {
+  return ['logcat', '--pid', processId, '-v', 'color'];
+}
+
 export function iosProxyArguments(device: string) {
   return ['--udid', device, '--source', '127.0.0.1', `${IOS_PORT}:${IOS_PORT}`];
 }
@@ -141,7 +145,16 @@ export async function runDevelopment(targetPlatform: TargetPlatform, target = ''
       adb(serial, ...androidForwardArguments());
       cleanup.push(() => adbBestEffort(serial, ...androidForwardRemovalArguments()));
       cleanup.push(() => adbBestEffort(serial, 'shell', 'am', 'force-stop', ANDROID_APPLICATION));
+      adbBestEffort(serial, 'logcat', '-c');
       adb(serial, ...androidLaunchArguments());
+      const processId = androidProcessId(serial);
+      console.log(`Streaming Float View logs from Android process ${processId}; press Ctrl-C to stop.`);
+      track(
+        spawn('adb', ['-s', serial, ...androidLogcatArguments(processId)], {
+          stdio: ['ignore', 'inherit', 'inherit'],
+        }),
+        `Android logcat for process ${processId} on ${serial}`
+      );
       await waitForBootstrap(backendOrigin(targetPlatform), () => firstFailure);
     } else if (targetPlatform === 'ios') {
       await startIOS(root, target, track, cleanup, environment);
@@ -296,6 +309,14 @@ export function selectAndroidDeviceFromList(output: string, target = '') {
 
 function selectAndroidDevice() {
   return selectAndroidDeviceFromList(execFileSync('adb', ['devices'], { encoding: 'utf8' }));
+}
+
+function androidProcessId(serial: string) {
+  const processId = execFileSync('adb', ['-s', serial, 'shell', 'pidof', '-s', ANDROID_APPLICATION], {
+    encoding: 'utf8',
+  }).trim();
+  if (!/^\d+$/.test(processId)) throw new Error(`Float View did not start on Android device ${serial}`);
+  return processId;
 }
 
 function iosSimulatorIDs() {
