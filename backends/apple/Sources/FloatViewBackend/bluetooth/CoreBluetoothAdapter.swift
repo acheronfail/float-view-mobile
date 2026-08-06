@@ -114,7 +114,7 @@ public final class CoreBluetoothAdapter: NSObject, BluetoothPort, @unchecked Sen
       connectionGeneration &+= 1
       scheduleSetupDeadline(for: deviceID, generation: connectionGeneration)
       peripheral.delegate = self
-      diagnosticHandler("connect_requested")
+      diagnosticHandler("connect_requested peripheral_state=\(peripheral.state.rawValue)")
       if peripheral.state == .connected {
         eventHandler(.connectionChanged(deviceID, .connected))
         eventHandler(.connectionChanged(deviceID, .discoveringServices))
@@ -333,6 +333,7 @@ extension CoreBluetoothAdapter: CBCentralManagerDelegate {
 
   public func centralManager(_: CBCentralManager, didConnect peripheral: CBPeripheral) {
     guard let deviceID = activeDeviceID, peripheral == activePeripheral else { return }
+    diagnosticHandler("connected")
     eventHandler(.connectionChanged(deviceID, .connected))
     eventHandler(.connectionChanged(deviceID, .discoveringServices))
     peripheral.discoverServices([Self.serviceUUID])
@@ -364,6 +365,7 @@ extension CoreBluetoothAdapter: CBCentralManagerDelegate {
 
 extension CoreBluetoothAdapter: CBPeripheralDelegate {
   public func peripheral(_ peripheral: CBPeripheral, didDiscoverServices error: Error?) {
+    diagnosticHandler(Self.boundedTransportDiagnostic("services_discovered", error: error))
     guard peripheral == activePeripheral, error == nil else {
       failConnection("vesc_service_unavailable")
       return
@@ -389,6 +391,7 @@ extension CoreBluetoothAdapter: CBPeripheralDelegate {
     didDiscoverCharacteristicsFor service: CBService,
     error: Error?
   ) {
+    diagnosticHandler(Self.boundedTransportDiagnostic("characteristics_discovered", error: error))
     guard peripheral == activePeripheral, error == nil else {
       failConnection("vesc_characteristic_discovery_failed")
       return
@@ -409,6 +412,12 @@ extension CoreBluetoothAdapter: CBPeripheralDelegate {
       failConnection(failure)
       return
     }
+    let writeModeValue = switch writeMode {
+    case .withResponse: "with_response"
+    case .withoutResponse: "without_response"
+    case .unsupported: "unsupported"
+    }
+    diagnosticHandler("gatt_profile write_mode=\(writeModeValue) notify=true")
     writeCharacteristic = write
     notifyCharacteristic = notify
     guard let notifyCharacteristic = notify else { return }
@@ -423,6 +432,7 @@ extension CoreBluetoothAdapter: CBPeripheralDelegate {
     error: Error?
   ) {
     guard peripheral == activePeripheral, characteristic == notifyCharacteristic else { return }
+    diagnosticHandler(Self.boundedTransportDiagnostic("notifications_updated", error: error))
     guard error == nil, characteristic.isNotifying else {
       failConnection("vesc_notification_enable_failed")
       return
@@ -452,6 +462,9 @@ extension CoreBluetoothAdapter: CBPeripheralDelegate {
   ) {
     guard peripheral == activePeripheral, characteristic == writeCharacteristic else { return }
     writeInFlight = false
+    if error != nil {
+      diagnosticHandler(Self.boundedTransportDiagnostic("write_failed", error: error))
+    }
     guard error == nil else {
       failConnection("vesc_write_failed")
       return

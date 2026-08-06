@@ -45,6 +45,7 @@ export class VescSimulator {
   private readonly now: () => number;
   private readonly frames = new FrameAssembler();
   private telemetryIndex = 0;
+  private transportFirmwareAttempts = 0;
   readonly requests: RecordedRequest[] = [];
 
   readonly diagnostics: string[] = [];
@@ -106,8 +107,12 @@ export class VescSimulator {
     if (command === undefined) throw new Error('Empty VESC request');
     const at = this.now();
     if (command === 0) {
+      this.transportFirmwareAttempts += 1;
       return {
-        response: this.board.transport.payload,
+        response:
+          this.board.dropFirstTransportFirmwareResponse && this.transportFirmwareAttempts === 1
+            ? undefined
+            : this.board.transport.payload,
         request: { at, command, kind: 'transport-firmware' },
       };
     }

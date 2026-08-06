@@ -19,7 +19,6 @@ import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
-import android.util.Log
 import fail.acheron.floatview.backend.BluetoothEvent
 import fail.acheron.floatview.backend.BluetoothPermissionState
 import fail.acheron.floatview.backend.BluetoothPort
@@ -312,6 +311,7 @@ class AndroidBluetoothAdapter(
             } ?: return
             when {
                 status == BluetoothGatt.GATT_SUCCESS && newState == BluetoothProfile.STATE_CONNECTED -> {
+                    diagnosticHandler("connected")
                     eventHandler(BluetoothEvent.ConnectionChanged(deviceId, ConnectionState.CONNECTED))
                     eventHandler(
                         BluetoothEvent.ConnectionChanged(
@@ -429,7 +429,7 @@ class AndroidBluetoothAdapter(
                         // Nordic UART profile and NOTIFY capability but omit only
                         // the standard CCCD. Keep local routing enabled in this
                         // one compatibility case.
-                        Log.w(LOG_TAG, "Notification CCCD absent; using VESC compatibility path")
+                        diagnosticHandler("notifications_enabled compatibility=no_cccd")
                         cancelConnectionTimeout()
                         eventHandler(
                             BluetoothEvent.ConnectionChanged(deviceId, ConnectionState.READY),
@@ -462,9 +462,11 @@ class AndroidBluetoothAdapter(
                 descriptor.uuid == CLIENT_CHARACTERISTIC_CONFIGURATION &&
                 status == BluetoothGatt.GATT_SUCCESS
             ) {
+                diagnosticHandler("notifications_enabled descriptor_status=$status")
                 cancelConnectionTimeout()
                 eventHandler(BluetoothEvent.ConnectionChanged(deviceId, ConnectionState.READY))
             } else {
+                diagnosticHandler("notifications_failed descriptor_status=$status")
                 failConnection(deviceId, "vesc_cccd_write_failed")
             }
         }
@@ -524,7 +526,7 @@ class AndroidBluetoothAdapter(
 
     private fun failConnection(deviceId: DeviceId, reason: String) {
         cancelConnectionTimeout()
-        Log.w(LOG_TAG, "Connection failed: $reason")
+        diagnosticHandler("connection_failed reason=$reason")
         eventHandler(BluetoothEvent.ScanFailed(reason))
         eventHandler(BluetoothEvent.ConnectionChanged(deviceId, ConnectionState.FAILED))
         val gatt = synchronized(this) { activeGatt }
@@ -616,7 +618,6 @@ class AndroidBluetoothAdapter(
         )
 
     companion object {
-        private const val LOG_TAG = "FloatViewBluetooth"
         private const val CONNECTION_ATTEMPT_TIMEOUT_MS = 10_000L
         private const val NO_RESPONSE_WRITE_DELAY_MS = 20L
         private const val DEFAULT_WRITE_PAYLOAD_BYTES = 20

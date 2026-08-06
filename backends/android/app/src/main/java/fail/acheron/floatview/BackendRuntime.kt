@@ -102,6 +102,7 @@ class BackendRuntime(application: FloatViewApplication) {
                     "FloatViewState",
                     "session active=${event.active}",
                 )
+                is String -> Log.d("FloatViewBackend", event)
             }
         }
         if (event is SessionRecord) {

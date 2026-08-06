@@ -303,6 +303,109 @@ class ApplicationServiceTest {
     }
 
     @Test
+    fun `initial firmware timeout retries once without reconnecting`() {
+        val bluetooth = FakeBluetooth()
+        val scheduler = FakeScheduler()
+        val store = FakeStore()
+        val events = mutableListOf<Any>()
+        val service = ApplicationService(
+            bluetooth,
+            FakeClock(),
+            store,
+            productStore = FakeProductStore(),
+            protocol = TelemetryProtocol(),
+            scheduler = scheduler,
+        ) { events += it }
+        val id = DeviceId("fixture")
+
+        service.onBluetoothEvent(BluetoothEvent.DeviceFound(id, "Fixture", -40))
+        service.connect(id)
+        service.onBluetoothEvent(BluetoothEvent.ConnectionChanged(id, ConnectionState.READY))
+        assertEquals(listOf(listOf(1)), bluetooth.writes.map { bytes -> bytes.map { it.toInt() } })
+
+        scheduler.fireOneShots(2_000)
+        assertEquals(listOf(id), bluetooth.connected)
+        assertEquals(
+            listOf(listOf(1), listOf(1)),
+            bluetooth.writes.map { bytes -> bytes.map { it.toInt() } },
+        )
+
+        (1..3).forEach {
+            service.onBluetoothEvent(BluetoothEvent.Notification(id, byteArrayOf(it.toByte())))
+        }
+        assertEquals(ConnectionState.READY, service.connectionState)
+        assertEquals(1, store.createCount)
+        val diagnostics = events.filterIsInstance<String>()
+        assertTrue(
+            diagnostics.contains(
+                "connection_identification stage=firmware route=direct attempt=1 outcome=timed_out",
+            ),
+        )
+        assertTrue(
+            diagnostics.contains(
+                "connection_identification stage=firmware route=direct attempt=2 outcome=response",
+            ),
+        )
+    }
+
+    @Test
+    fun `initial firmware recovery is bounded and generation safe`() {
+        val exhaustedBluetooth = FakeBluetooth()
+        val exhaustedScheduler = FakeScheduler()
+        val exhaustedStore = FakeStore()
+        val exhausted = ApplicationService(
+            exhaustedBluetooth,
+            FakeClock(),
+            exhaustedStore,
+            protocol = TelemetryProtocol(),
+            scheduler = exhaustedScheduler,
+        ) {}
+        val id = DeviceId("fixture")
+        exhausted.onBluetoothEvent(BluetoothEvent.DeviceFound(id, "Fixture", -40))
+        exhausted.connect(id)
+        exhausted.onBluetoothEvent(BluetoothEvent.ConnectionChanged(id, ConnectionState.READY))
+        exhaustedScheduler.fireOneShots(2_000)
+        exhaustedScheduler.fireOneShots(8_000)
+        exhaustedScheduler.fireOneShots(10_000)
+        assertEquals(
+            listOf(listOf(1), listOf(1)),
+            exhaustedBluetooth.writes.map { bytes -> bytes.map { it.toInt() } },
+        )
+        assertEquals(ConnectionState.FAILED, exhausted.connectionState)
+        assertEquals(
+            ConnectionIssueCode.IDENTIFICATION_TIMEOUT,
+            exhausted.activeConnectionSnapshot()?.connectionIssue?.code,
+        )
+        assertNull(exhaustedStore.active())
+        (1..3).forEach {
+            exhausted.onBluetoothEvent(BluetoothEvent.Notification(id, byteArrayOf(it.toByte())))
+        }
+        assertEquals(ConnectionState.FAILED, exhausted.connectionState)
+        assertEquals(
+            listOf(listOf(1), listOf(1)),
+            exhaustedBluetooth.writes.map { bytes -> bytes.map { it.toInt() } },
+        )
+
+        val staleBluetooth = FakeBluetooth()
+        val staleScheduler = FakeScheduler()
+        val stale = ApplicationService(
+            staleBluetooth,
+            FakeClock(),
+            FakeStore(),
+            protocol = TelemetryProtocol(),
+            scheduler = staleScheduler,
+        ) {}
+        stale.onBluetoothEvent(BluetoothEvent.DeviceFound(id, "Fixture", -40))
+        stale.connect(id)
+        stale.onBluetoothEvent(BluetoothEvent.ConnectionChanged(id, ConnectionState.READY))
+        stale.disconnect()
+        stale.onBluetoothEvent(BluetoothEvent.ConnectionChanged(id, ConnectionState.DISCONNECTED))
+        staleScheduler.fireOneShots(2_000)
+        assertEquals(listOf(listOf(1)), staleBluetooth.writes.map { bytes -> bytes.map { it.toInt() } })
+        assertEquals(ConnectionState.DISCONNECTED, stale.connectionState)
+    }
+
+    @Test
     fun `custom transport discovers primary controller then refloat package in order`() {
         val bluetooth = FakeBluetooth()
         val service = ApplicationService(

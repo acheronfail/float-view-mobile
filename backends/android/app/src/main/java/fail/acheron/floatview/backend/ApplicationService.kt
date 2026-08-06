@@ -914,9 +914,67 @@ class ApplicationService(
         context: VescRequestContext,
         timeoutMs: Long,
         completion: (VescRequestCompletion) -> Unit = {},
+    ) = submitVescRequestWithDiagnostic(
+        payload, expected, priority, context, timeoutMs, null, completion,
+    )
+
+    private fun submitVescRequestWithDiagnostic(
+        payload: ByteArray,
+        expected: VescExpectedResponse,
+        priority: VescRequestPriority,
+        context: VescRequestContext,
+        timeoutMs: Long,
+        diagnosticAttempt: Int?,
+        completion: (VescRequestCompletion) -> Unit,
     ) {
+        if (priority == VescRequestPriority.CONTROLLER_IDENTIFICATION) {
+            events.publish(identificationDiagnostic(context, diagnosticAttempt, "submitted"))
+        }
         vescRequests.enqueue(payload, expected, priority, context, timeoutMs, vescGeneration) { _, outcome ->
+            if (priority == VescRequestPriority.CONTROLLER_IDENTIFICATION) {
+                events.publish(
+                    identificationDiagnostic(context, diagnosticAttempt, requestOutcomeDiagnostic(outcome)),
+                )
+            }
             completion(outcome)
+        }
+    }
+
+    private fun requestInitialFirmware(
+        attempt: Int,
+        identificationGeneration: Long,
+        requestGeneration: VescRequestGeneration,
+    ) {
+        if (
+            activeDeviceId == null ||
+            connectionState != ConnectionState.IDENTIFYING ||
+            controllerDiscovery.identificationGeneration != identificationGeneration ||
+            vescGeneration != requestGeneration
+        ) return
+        val decoder = protocol ?: return
+        try {
+            submitVescRequestWithDiagnostic(
+                decoder.firmwareRequest(ControllerRoute.Direct),
+                VescExpectedResponse(VescCommand.GET_FIRMWARE_VERSION.id),
+                VescRequestPriority.CONTROLLER_IDENTIFICATION,
+                VescRequestContext.ControllerFirmware(VescRequestRoute.Direct),
+                if (attempt == 1) {
+                    INITIAL_IDENTIFICATION_ATTEMPT_TIMEOUT_MS
+                } else {
+                    IDENTIFICATION_TIMEOUT_MS - INITIAL_IDENTIFICATION_ATTEMPT_TIMEOUT_MS
+                },
+                diagnosticAttempt = attempt,
+            ) { outcome ->
+                if (outcome == VescRequestCompletion.TimedOut && attempt == 1) synchronized(this) {
+                    requestInitialFirmware(2, identificationGeneration, requestGeneration)
+                }
+            }
+        } catch (error: Exception) {
+            failIdentification(
+                ConnectionIssueCode.TRANSPORT_SETUP_FAILED,
+                "Unable to request VESC firmware.",
+            )
+            events.publish(error)
         }
     }
 
@@ -987,6 +1045,14 @@ class ApplicationService(
                 if (activeDeviceId == null) return
                 val decoder = protocol ?: return
                 val route = effect.route
+                if (route == ControllerRoute.Direct) {
+                    requestInitialFirmware(
+                        1,
+                        controllerDiscovery.identificationGeneration,
+                        vescGeneration,
+                    )
+                    return
+                }
                 if (route is ControllerRoute.Can) scheduleCanProbeTimeout(route.canId)
                 try {
                     submitVescRequest(
@@ -1303,8 +1369,10 @@ class ApplicationService(
     }
 
     private fun failIdentification(code: ConnectionIssueCode, message: String) {
+        events.publish("connection_identification outcome=failed code=${code.name.lowercase()}")
         cancelIdentificationTimeout()
         cancelCanProbeTimeout()
+        vescRequests.cancel(vescGeneration)
         telemetryPolling.cancelLayout()
         telemetryPolling.stop()
         controllerDiscovery.markFailure(code, message)
@@ -1636,10 +1704,41 @@ class ApplicationService(
             if (character.isLetterOrDigit() || character == '-' || character == '_') character else '_'
         }.joinToString("").ifEmpty { "unknown" }
 
+    private fun identificationDiagnostic(
+        context: VescRequestContext,
+        attempt: Int?,
+        outcome: String,
+    ): String {
+        val stage = when (context) {
+            is VescRequestContext.ControllerFirmware -> "firmware"
+            VescRequestContext.CanPing -> "can_ping"
+            is VescRequestContext.RefloatInfo -> "refloat_info"
+            is VescRequestContext.RefloatLayout -> "telemetry_layout"
+            else -> "other"
+        }
+        val route = when (val value = context.route) {
+            VescRequestRoute.Direct -> "direct"
+            is VescRequestRoute.Can -> "can:${value.canId}"
+            null -> "none"
+        }
+        return "connection_identification stage=$stage route=$route " +
+            "attempt=${attempt ?: 1} outcome=$outcome"
+    }
+
+    private fun requestOutcomeDiagnostic(outcome: VescRequestCompletion): String = when (outcome) {
+        is VescRequestCompletion.Response -> "response"
+        VescRequestCompletion.Sent -> "sent"
+        VescRequestCompletion.TimedOut -> "timed_out"
+        VescRequestCompletion.QueueFull -> "queue_full"
+        VescRequestCompletion.Cancelled -> "cancelled"
+        VescRequestCompletion.StaleGeneration -> "stale_generation"
+    }
+
     private companion object {
         const val MAX_RECONNECT_BACKOFF_MS = 30_000L
         const val DISCOVERY_EXPIRY_MS = 120_000L
         const val IDENTIFICATION_TIMEOUT_MS = 10_000L
+        const val INITIAL_IDENTIFICATION_ATTEMPT_TIMEOUT_MS = 2_000L
         // COMM_PING_CAN can synchronously probe all 255 CAN IDs at 10 ms per ID.
         const val CAN_SCAN_TIMEOUT_MS = 10_000L
         const val CAN_PROBE_TIMEOUT_MS = 1_000L

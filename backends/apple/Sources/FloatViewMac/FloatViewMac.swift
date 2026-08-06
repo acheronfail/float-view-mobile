@@ -442,6 +442,8 @@ private struct DebugEventSink: EventSink {
         trace("[FloatViewState] connection state=\(state.rawValue)")
       case let session as SessionRecord:
         trace("[FloatViewState] session active=\(session.active)")
+      case let message as String:
+        trace("[FloatViewBackend] \(message)")
       default:
         break
       }

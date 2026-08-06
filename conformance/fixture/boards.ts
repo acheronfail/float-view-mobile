@@ -57,6 +57,8 @@ export interface BoardConfiguration {
   canPingIds?: number[];
   /** Targets that deliberately omit a response to exercise bounded timeouts. */
   silentCanIds?: number[];
+  /** Drops only the first local firmware response to exercise bounded startup recovery. */
+  dropFirstTransportFirmwareResponse?: boolean;
   requestPolicy?: 'strict' | 'interactive';
 }
 

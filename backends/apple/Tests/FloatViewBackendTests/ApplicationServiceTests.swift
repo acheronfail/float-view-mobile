@@ -393,6 +393,96 @@ func readyRequestsFirmwareAndNotificationUpdatesSnapshot() throws {
 }
 
 @Test
+func initialFirmwareTimeoutRetriesOnceWithoutReconnecting() throws {
+  let bluetooth = FakeBluetooth()
+  let scheduler = FakeScheduler()
+  let store = MemoryStore()
+  let events = CollectingEvents()
+  let service = ApplicationService(
+    bluetooth: bluetooth,
+    clock: FixedClock(),
+    logStore: store,
+    productStore: MemoryProductStore(),
+    protocolCodec: TelemetryProtocol(),
+    scheduler: scheduler,
+    events: events
+  )
+  let id = DeviceID("fixture")
+
+  try service.receive(.deviceFound(id, name: "Fixture", rssi: -40))
+  try service.connect(id)
+  try service.receive(.connectionChanged(id, .ready))
+  #expect(bluetooth.writes == [Data([1])])
+
+  scheduler.fireOneShots(afterMilliseconds: 2_000)
+  #expect(bluetooth.connected == [id])
+  #expect(bluetooth.writes == [Data([1]), Data([1])])
+
+  for byte in UInt8(1) ... 3 {
+    try service.receive(.notification(id, Data([byte])))
+  }
+  #expect(service.connectionState == .ready)
+  #expect(store.createCount == 1)
+  let diagnostics = events.values.compactMap { $0 as? String }
+  #expect(diagnostics.contains {
+    $0 == "connection_identification stage=firmware route=direct attempt=1 outcome=timed_out"
+  })
+  #expect(diagnostics.contains {
+    $0 == "connection_identification stage=firmware route=direct attempt=2 outcome=response"
+  })
+}
+
+@Test
+func initialFirmwareRecoveryIsBoundedAndGenerationSafe() throws {
+  let exhaustedBluetooth = FakeBluetooth()
+  let exhaustedScheduler = FakeScheduler()
+  let exhaustedStore = MemoryStore()
+  let exhausted = ApplicationService(
+    bluetooth: exhaustedBluetooth,
+    clock: FixedClock(),
+    logStore: exhaustedStore,
+    protocolCodec: TelemetryProtocol(),
+    scheduler: exhaustedScheduler,
+    events: IgnoreEvents()
+  )
+  let id = DeviceID("fixture")
+  try exhausted.receive(.deviceFound(id, name: "Fixture", rssi: -40))
+  try exhausted.connect(id)
+  try exhausted.receive(.connectionChanged(id, .ready))
+  exhaustedScheduler.fireOneShots(afterMilliseconds: 2_000)
+  exhaustedScheduler.fireOneShots(afterMilliseconds: 8_000)
+  exhaustedScheduler.fireOneShots(afterMilliseconds: 10_000)
+  #expect(exhaustedBluetooth.writes == [Data([1]), Data([1])])
+  #expect(exhausted.connectionState == .failed)
+  #expect(exhausted.activeConnectionSnapshot()?.connectionIssue?.code == .identificationTimeout)
+  #expect(exhaustedStore.active() == nil)
+  for byte in UInt8(1) ... 3 {
+    try exhausted.receive(.notification(id, Data([byte])))
+  }
+  #expect(exhausted.connectionState == .failed)
+  #expect(exhaustedBluetooth.writes == [Data([1]), Data([1])])
+
+  let staleBluetooth = FakeBluetooth()
+  let staleScheduler = FakeScheduler()
+  let stale = ApplicationService(
+    bluetooth: staleBluetooth,
+    clock: FixedClock(),
+    logStore: MemoryStore(),
+    protocolCodec: TelemetryProtocol(),
+    scheduler: staleScheduler,
+    events: IgnoreEvents()
+  )
+  try stale.receive(.deviceFound(id, name: "Fixture", rssi: -40))
+  try stale.connect(id)
+  try stale.receive(.connectionChanged(id, .ready))
+  try stale.disconnect()
+  try stale.receive(.connectionChanged(id, .disconnected))
+  staleScheduler.fireOneShots(afterMilliseconds: 2_000)
+  #expect(staleBluetooth.writes == [Data([1])])
+  #expect(stale.connectionState == .disconnected)
+}
+
+@Test
 func controllerShutdownExpiresOrClassifiesDelayedBLELossAsIntentional() throws {
   func makeReady() throws -> (ApplicationService, FakeBluetooth, FakeScheduler, DeviceID) {
     let bluetooth = FakeBluetooth()

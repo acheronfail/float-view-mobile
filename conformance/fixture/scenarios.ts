@@ -520,6 +520,7 @@ export const softwareBmsScenarios: Record<SoftwareBmsScenarioName, SoftwareBmsSc
 };
 
 export type SoftwareConnectionScenarioName =
+  | 'initial-firmware-retry'
   | 'automatic-can-discovery'
   | 'private-hint-match'
   | 'private-hint-fallback'
@@ -546,7 +547,7 @@ export interface SoftwareConnectionScenario {
   expectedRoute?: 'direct' | { canId: number };
   expectedIssue?: ConnectionIssueCode;
   expectsPing: boolean;
-  lifecycle: 'connect' | 'selection' | 'retry' | 'reconnect' | 'frontend-recovery';
+  lifecycle: 'connect' | 'initial-retry' | 'selection' | 'retry' | 'reconnect' | 'frontend-recovery';
 }
 
 const nonMotorNode = {
@@ -609,6 +610,13 @@ const staleHintBoard: BoardConfiguration = {
 };
 
 export const softwareConnectionScenarios: Record<SoftwareConnectionScenarioName, SoftwareConnectionScenario> = {
+  'initial-firmware-retry': {
+    name: 'initial-firmware-retry',
+    board: { ...directThor, dropFirstTransportFirmwareResponse: true },
+    expectedRoute: 'direct',
+    expectsPing: false,
+    lifecycle: 'initial-retry',
+  },
   'automatic-can-discovery': {
     name: 'automatic-can-discovery',
     board: expressThor,

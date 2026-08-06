@@ -14,6 +14,7 @@ import { VescSimulator } from '../fixture/simulator.ts';
 import { assertState } from '../src/suite.ts';
 
 const scenarioNames: SoftwareConnectionScenarioName[] = [
+  'initial-firmware-retry',
   'automatic-can-discovery',
   'private-hint-match',
   'private-hint-fallback',
@@ -37,6 +38,17 @@ test('canonical connection scenario catalog is complete and internally named', (
   for (const name of scenarioNames) {
     assert.equal(softwareConnectionScenarios[name].name, name);
   }
+});
+
+test('canonical initial identification scenario drops only the first direct firmware response', () => {
+  const retry = simulator('initial-firmware-retry');
+  assert.deepEqual(retry.receive(encodeFrame(Uint8Array.of(0))), []);
+  assert.equal(retry.requests.filter((item) => item.kind === 'transport-firmware').length, 1);
+
+  const recovered = retry.receive(encodeFrame(Uint8Array.of(0)));
+  assert.equal(recovered.length, 1);
+  assert.deepEqual(payload(recovered[0]!), [...directThor.transport.payload]);
+  assert.equal(retry.requests.filter((item) => item.kind === 'transport-firmware').length, 2);
 });
 
 test('canonical discovery scenarios exercise configured, hinted, mixed, and bounded CAN paths', () => {

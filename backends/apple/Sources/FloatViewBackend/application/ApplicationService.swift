@@ -1039,8 +1039,14 @@ public final class ApplicationService: @unchecked Sendable {
     priority: VescRequestPriority,
     context: VescRequestContext,
     timeoutMs: Int64,
+    diagnosticAttempt: Int? = nil,
     completion: @escaping @Sendable (VescRequestCompletion) -> Void = { _ in }
   ) {
+    if priority == .controllerIdentification {
+      events.publish(Self.identificationDiagnostic(
+        context: context, attempt: diagnosticAttempt, outcome: "submitted"
+      ))
+    }
     vescRequests.enqueue(
       payload: payload,
       expectedResponse: expected,
@@ -1048,7 +1054,52 @@ public final class ApplicationService: @unchecked Sendable {
       context: context,
       timeoutMs: timeoutMs,
       generation: vescGeneration
-    ) { _, outcome in completion(outcome) }
+    ) { [weak self] _, outcome in
+      if priority == .controllerIdentification {
+        self?.events.publish(Self.identificationDiagnostic(
+          context: context,
+          attempt: diagnosticAttempt,
+          outcome: Self.requestOutcomeDiagnostic(outcome)
+        ))
+      }
+      completion(outcome)
+    }
+  }
+
+  private func requestInitialFirmware(
+    attempt: Int,
+    identificationGeneration: Int,
+    requestGeneration: VescRequestGeneration
+  ) {
+    guard activeDeviceID != nil, connectionState == .identifying,
+          controllerDiscovery.identificationGeneration == identificationGeneration,
+          vescGeneration == requestGeneration,
+          let protocolCodec
+    else { return }
+    do {
+      try submitVescRequest(
+        payload: protocolCodec.firmwareRequest(route: .direct),
+        expected: .init(command: VescCommand.getFirmwareVersion.rawValue),
+        priority: .controllerIdentification,
+        context: .controllerFirmware(.direct),
+        timeoutMs: attempt == 1
+          ? Self.initialIdentificationAttemptTimeoutMs
+          : Self.identificationTimeoutMs - Self.initialIdentificationAttemptTimeoutMs,
+        diagnosticAttempt: attempt
+      ) { [weak self] outcome in
+        guard outcome == .timedOut, attempt == 1 else { return }
+        self?.lock.withLock {
+          self?.requestInitialFirmware(
+            attempt: 2,
+            identificationGeneration: identificationGeneration,
+            requestGeneration: requestGeneration
+          )
+        }
+      }
+    } catch {
+      failIdentification(.transportSetupFailed, "Unable to request VESC firmware.")
+      events.publish(String(describing: error))
+    }
   }
 
   private func handleFirmware(_ value: FirmwareRecord) {
@@ -1113,6 +1164,14 @@ public final class ApplicationService: @unchecked Sendable {
     switch effect {
     case let .probeFirmware(route):
       guard activeDeviceID != nil, let protocolCodec else { return }
+      if route == .direct {
+        requestInitialFirmware(
+          attempt: 1,
+          identificationGeneration: controllerDiscovery.identificationGeneration,
+          requestGeneration: vescGeneration
+        )
+        return
+      }
       if case let .can(canID) = route { scheduleCanProbeTimeout(canID: canID) }
       do {
         try submitVescRequest(
@@ -1409,8 +1468,10 @@ public final class ApplicationService: @unchecked Sendable {
   }
 
   private func failIdentification(_ code: ConnectionIssueCode, _ message: String) {
+    events.publish("connection_identification outcome=failed code=\(code.rawValue)")
     cancelIdentificationTimeout()
     cancelCanProbeTimeout()
+    vescRequests.cancel(generation: vescGeneration)
     telemetryPolling.cancelLayout()
     telemetryPolling.stop()
     controllerDiscovery.markFailure(code, message)
@@ -1796,13 +1857,14 @@ public final class ApplicationService: @unchecked Sendable {
   private static let discoveryExpiryMs: Int64 = 120_000
   private static let maxReconnectBackoffMs: Int64 = 30_000
   private static let identificationTimeoutMs: Int64 = 10_000
+  private static let initialIdentificationAttemptTimeoutMs: Int64 = 2_000
   // COMM_PING_CAN can synchronously probe all 255 CAN IDs at 10 ms per ID.
   private static let canScanTimeoutMs: Int64 = 10_000
   private static let canProbeTimeoutMs: Int64 = 1_000
   private static let refloatRefreshMs: Int64 = 1_000
   private static let refloatMutationTimeoutMs: Int64 = 3_000
-  // Keep intent through a bounded BLE link-supervision timeout. A powered-off
-  // controller may not be reported disconnected immediately after the write.
+  /// Keep intent through a bounded BLE link-supervision timeout. A powered-off
+  /// controller may not be reported disconnected immediately after the write.
   private static let shutdownIntentTimeoutMs: Int64 = 30_000
 
   private static func bmsRouteDiagnostic(_ canID: UInt8?) -> String {
@@ -1817,6 +1879,39 @@ public final class ApplicationService: @unchecked Sendable {
       return accepted ? Character(String(scalar)) : "_"
     }
     return scalarValues.isEmpty ? "unknown" : String(scalarValues)
+  }
+
+  private static func identificationDiagnostic(
+    context: VescRequestContext,
+    attempt: Int?,
+    outcome: String
+  ) -> String {
+    let stage: String
+    switch context {
+    case .controllerFirmware: stage = "firmware"
+    case .canPing: stage = "can_ping"
+    case .refloatInfo: stage = "refloat_info"
+    case .refloatLayout: stage = "telemetry_layout"
+    default: stage = "other"
+    }
+    let route = switch context.route {
+    case .direct: "direct"
+    case let .can(canID): "can:\(canID)"
+    case nil: "none"
+    }
+    return "connection_identification stage=\(stage) route=\(route) "
+      + "attempt=\(attempt ?? 1) outcome=\(outcome)"
+  }
+
+  private static func requestOutcomeDiagnostic(_ outcome: VescRequestCompletion) -> String {
+    switch outcome {
+    case .response: "response"
+    case .sent: "sent"
+    case .timedOut: "timed_out"
+    case .queueFull: "queue_full"
+    case .cancelled: "cancelled"
+    case .staleGeneration: "stale_generation"
+    }
   }
 
   private static func permissionAllowsUse(_ state: BluetoothPermissionState) -> Bool {
