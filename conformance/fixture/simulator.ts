@@ -3,11 +3,14 @@ import { encodeFrame, FrameAssembler } from './frame.ts';
 import { motorConfigurationPayload } from './firmware.ts';
 import { idleTelemetry } from './telemetry.ts';
 import { encodeLegacyCompact } from './refloat.ts';
+import { encodeBmsValuesPayload, type BmsConfiguration } from './bms.ts';
 
 export type VescRequestKind =
   | 'transport-firmware'
   | 'can-ping'
   | 'controller-firmware'
+  | 'bms-firmware'
+  | 'bms-values'
   | 'motor-configuration'
   | 'refloat-info'
   | 'refloat-layout'
@@ -105,12 +108,21 @@ export class VescSimulator {
       };
     }
     if (command === 62) {
+      const defaultIds = [
+        ...(this.board.transport.hardwareType === 0 ? [] : this.board.controllers.map((item) => item.canId)),
+        ...(this.board.bmsNodes ?? [])
+          .filter((item) => item.pingVisible !== false)
+          .flatMap((item) => (item.canId === undefined ? [] : [item.canId])),
+      ];
       return {
-        response: Uint8Array.of(62, ...(this.board.canPingIds ?? this.board.controllers.map((item) => item.canId))),
+        response: Uint8Array.of(62, ...(this.board.canPingIds ?? defaultIds)),
         request: { at, command, kind: 'can-ping' },
       };
     }
-    if (this.board.transport.hardwareType === 0) {
+    if (command === 96 && this.board.localBms) {
+      return this.bmsResponse(this.board.localBms, payload, at);
+    }
+    if (command !== 34 && this.board.transport.hardwareType === 0) {
       const controller = this.board.controllers[0];
       if (!controller) throw new Error('Direct board has no controller configuration');
       return this.controllerResponse(controller, payload, at);
@@ -127,8 +139,10 @@ export class VescSimulator {
       return this.rejectBoard(`Silent CAN target ${canId}`);
     }
     const controller = this.board.controllers.find((item) => item.canId === canId);
-    if (!controller) return this.rejectBoard(`Unknown CAN target ${canId}`);
-    return this.controllerResponse(controller, payload.slice(2), at, canId);
+    if (controller) return this.controllerResponse(controller, payload.slice(2), at, canId);
+    const bms = this.board.bmsNodes?.find((item) => item.canId === canId);
+    if (bms) return this.bmsResponse(bms, payload.slice(2), at, canId);
+    return this.rejectBoard(`Unknown CAN target ${canId}`);
   }
 
   private composedResponse(payload: Uint8Array): { response: Uint8Array; request: RecordedRequest } | undefined {
@@ -304,6 +318,72 @@ export class VescSimulator {
       default:
         throw new Error(`Unsupported Refloat request ${String(payload[2])}`);
     }
+  }
+
+  private bmsResponse(
+    bms: BmsConfiguration,
+    payload: Uint8Array,
+    at: number,
+    canId?: number
+  ): { response: Uint8Array; request: RecordedRequest } | undefined {
+    const command = payload[0];
+    if (bms.failureMode === 'timeout') return undefined;
+    if (command === 0) {
+      return { response: bms.firmware.payload, request: { at, command, canId, kind: 'bms-firmware' } };
+    }
+    if (command !== 96 || payload.length !== 1) {
+      return this.rejectBoard(`Unsafe or unsupported BMS command ${String(command)}`);
+    }
+    let response = encodeBmsValuesPayload(bms.valuesSource?.next() ?? bms.values, bms.tail);
+    response = malformedBmsResponse(response, bms.failureMode ?? 'none');
+    return { response, request: { at, command, canId, kind: 'bms-values' } };
+  }
+}
+
+function malformedBmsResponse(payload: Uint8Array, mode: BmsConfiguration['failureMode']): Uint8Array {
+  const result = payload.slice();
+  const cellCount = result[25] ?? 0;
+  const temperatureCountOffset = 26 + cellCount * 3;
+  const temperatureCount = result[temperatureCountOffset] ?? 0;
+  const reportedIdOffset = temperatureCountOffset + 1 + temperatureCount * 2 + 12;
+  const lifetimeOffset = reportedIdOffset + 1;
+  const fixedEnd = reportedIdOffset + 19;
+  switch (mode) {
+    case 'excessive-cells':
+      result[25] = 51;
+      return result;
+    case 'excessive-temperatures':
+      result[temperatureCountOffset] = 51;
+      return result;
+    case 'invalid-balancing':
+      if (cellCount > 0) result[26 + cellCount * 2] = 2;
+      return result;
+    case 'truncate-fixed':
+      return result.slice(0, 24);
+    case 'truncate-cells':
+      return result.slice(0, Math.max(26, 26 + cellCount * 2 - 1));
+    case 'truncate-balancing':
+      return result.slice(0, Math.max(26, temperatureCountOffset - 1));
+    case 'truncate-temperatures':
+      return result.slice(0, Math.max(temperatureCountOffset + 1, reportedIdOffset - 1));
+    case 'truncate-tail':
+      return result.slice(0, Math.max(0, fixedEnd - 1));
+    case 'non-finite-auto-float':
+      result.set([0x7f, 0x80, 0, 0], lifetimeOffset);
+      return result;
+    case 'reported-id-mismatch':
+      result[reportedIdOffset] = ((result[reportedIdOffset] ?? 0) + 1) % 254;
+      return result;
+    case 'unterminated-status':
+      return result[result.length - 1] === 0 ? result.slice(0, -1) : result;
+    case 'oversized-status':
+      return Uint8Array.from([...result.slice(0, fixedEnd), 1, ...new Uint8Array(41).fill(0x41), 0]);
+    case 'invalid-status-utf8':
+      return Uint8Array.from([...result.slice(0, fixedEnd), 1, 0xff, 0]);
+    case 'unexpected-remainder':
+      return Uint8Array.from([...result, 0]);
+    default:
+      return result;
   }
 }
 

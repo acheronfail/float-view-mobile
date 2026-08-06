@@ -2,12 +2,12 @@
 
 ### Requirement: Canonical VBMS simulation ownership
 
-`conformance/` SHALL own source-faithful local and CAN-routed VBMS identity, values encoding, topology composition, request classification, timeouts, malformed responses, and deterministic scenario behavior. The programmable ESP32 firmware MUST remain a bounded byte and event bridge and MUST NOT interpret BMS state or choose responses.
+`conformance/` SHALL own source-faithful local and CAN-routed stock VESC BMS 6.00 and VESC Express VBMS32 6.06 identity, values encoding, topology composition, request classification, timeouts, malformed responses, and deterministic scenario behavior. The programmable ESP32 firmware MUST remain a bounded byte and event bridge and MUST NOT interpret BMS state or choose responses.
 
 #### Scenario: Source-faithful VBMS fixtures
 
 - **WHEN** software or physical conformance answers VBMS firmware and values requests
-- **THEN** it uses immutable payload fixtures derived from the pinned upstream VBMS encoder and validates Swift, Kotlin, and simulator decoding against the same bytes
+- **THEN** it uses immutable payload fixtures derived from pinned `vesc_bms_fw` and `vesc_express` encoders and validates Swift, Kotlin, and simulator decoding against the same bytes
 
 #### Scenario: Routed BMS request
 

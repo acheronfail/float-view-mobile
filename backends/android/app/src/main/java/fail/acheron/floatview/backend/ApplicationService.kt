@@ -1,7 +1,9 @@
 package fail.acheron.floatview.backend
 
 import fail.acheron.floatview.protocol.refloat.RefloatTelemetryFamily
+import fail.acheron.floatview.protocol.refloat.RefloatCommand
 import fail.acheron.floatview.protocol.vesc.ControllerRoute
+import fail.acheron.floatview.protocol.vesc.VescCommand
 import java.security.MessageDigest
 
 class ApplicationService(
@@ -34,20 +36,32 @@ class ApplicationService(
     private var discoveryExpiryTimer: CancellationPort? = null
     private var discoveryExpiryGeneration = 0L
     private val controllerDiscovery = ControllerDiscovery()
+    private val auxiliaryDiscovery = AuxiliaryNodeDiscovery()
     private var trackingMode = TrackingMode.SAVED
     private var currentSavedDevice: SavedDeviceRecord? = null
     private var identificationTimer: CancellationPort? = null
     private var canProbeTimer: CancellationPort? = null
+    private var bmsPollTimer: CancellationPort? = null
+    private var bmsFailureCount = 0
     private var sessionControllerRoute: ControllerRoute? = null
     private var sessionControllerUuid: ByteArray? = null
     private var sessionFirmware: FirmwareRecord? = null
     private var sessionRefloatPackageVersion: String? = null
     private var latestLocation: LiveLocation? = null
+    private var vescGeneration = VescRequestGeneration(0)
+    private val vescRequests: VescRequestScheduler by lazy {
+        VescRequestScheduler(
+            clock,
+            scheduler ?: SystemScheduler(),
+            write = { bytes -> activeDeviceId?.let { bluetooth.write(it, bytes) } },
+            diagnostic = events::publish,
+        )
+    }
     private val telemetryPolling = TelemetryPolling(
         clock = clock,
         scheduler = scheduler,
         protocol = protocol,
-        write = bluetooth::write,
+        submit = ::submitVescRequest,
         onSample = ::ingest,
         onFailure = { reason ->
             synchronized(this) {
@@ -111,6 +125,7 @@ class ApplicationService(
         requireNotNull(productStore) { "Product store is unavailable" }
             .boardProfile(savedDeviceId)
 
+    @Synchronized
     fun updateBoardProfile(
         savedDeviceId: String,
         expectedRevision: Int,
@@ -118,7 +133,17 @@ class ApplicationService(
     ): BoardProfileRecord =
         requireNotNull(productStore) { "Product store is unavailable" }
             .updateBoardProfile(savedDeviceId, expectedRevision, patchJson, clock.now())
-            .also(events::publish)
+            .also { profile ->
+                events.publish(profile)
+                if (
+                    connectionState == ConnectionState.READY &&
+                    currentSavedDevice?.savedDeviceId == savedDeviceId
+                ) {
+                    bmsPollTimer?.cancel()
+                    bmsPollTimer = null
+                    startAuxiliaryDiscovery()
+                }
+            }
 
     @Synchronized
     fun selectController(deviceId: DeviceId, canId: Int) {
@@ -502,15 +527,77 @@ class ApplicationService(
                 }
                 try {
                     decoder.receive(event.bytes).forEach { message ->
+                        val requestContext = vescRequests.inFlightRequest()?.context
+                        val identity = when (message) {
+                            is VescProtocolMessage.Firmware -> VescCommand.GET_FIRMWARE_VERSION.id to null
+                            is VescProtocolMessage.CurrentLimits -> VescCommand.GET_MOTOR_CONFIGURATION.id to null
+                            is VescProtocolMessage.CanDevices -> VescCommand.PING_CAN.id to null
+                            is VescProtocolMessage.BmsValuesPayload -> VescCommand.BMS_GET_VALUES.id to null
+                            is VescProtocolMessage.RefloatInfo -> VescCommand.CUSTOM_APP_DATA.id to RefloatCommand.INFO.id
+                            is VescProtocolMessage.RefloatTelemetryLayout ->
+                                VescCommand.CUSTOM_APP_DATA.id to RefloatCommand.REALTIME_DATA_INTERNAL_IDS.id
+                            is VescProtocolMessage.RefloatTelemetry -> VescCommand.CUSTOM_APP_DATA.id to
+                                if (message.value.kind == RefloatTelemetryKind.REALTIME) {
+                                    RefloatCommand.REALTIME_DATA_INTERNAL.id
+                                } else {
+                                    RefloatCommand.GET_ALL_DATA.id
+                                }
+                        }
+                        if (
+                            !vescRequests.receive(event.bytes, identity.first, identity.second)
+                        ) return@forEach
                         when (message) {
-                            is VescProtocolMessage.Firmware -> handleFirmware(message.value)
+                            is VescProtocolMessage.Firmware -> {
+                                val attributed = attributedFirmware(message.value, requestContext)
+                                if (requestContext is VescRequestContext.AuxiliaryFirmware) {
+                                    events.publish(
+                                        "bms_discovery_identity:${bmsRouteDiagnostic(attributed.canId)}:" +
+                                            "type=${attributed.hardwareType}:" +
+                                            "version=${attributed.major}.${attributed.minor}:" +
+                                            "hardware=${bmsHardwareDiagnostic(attributed.hardwareName)}",
+                                    )
+                                    performAuxiliaryEffect(
+                                        auxiliaryDiscovery.acceptFirmware(
+                                            attributed, auxiliaryDiscovery.generation,
+                                        ),
+                                    )
+                                } else {
+                                    handleFirmware(attributed)
+                                }
+                            }
                             is VescProtocolMessage.CurrentLimits -> {
                                 if (connectionState == ConnectionState.READY) {
                                     currentLimits = message.value
                                 }
                             }
                             is VescProtocolMessage.CanDevices -> {
-                                handleCanDevices(message.canIds)
+                                if (requestContext == VescRequestContext.AuxiliaryCanPing) {
+                                    events.publish("bms_discovery_scan_result:count=${message.canIds.size}")
+                                    performAuxiliaryEffect(
+                                        auxiliaryDiscovery.acceptCanIds(
+                                            message.canIds, auxiliaryDiscovery.generation,
+                                        ),
+                                    )
+                                } else {
+                                    handleCanDevices(message.canIds)
+                                }
+                            }
+                            is VescProtocolMessage.BmsValuesPayload -> {
+                                val route = (requestContext as? VescRequestContext.BmsValues)?.route
+                                    ?: return@forEach
+                                val expectedCanId = (route as? VescRequestRoute.Can)?.canId
+                                try {
+                                    val snapshot = fail.acheron.floatview.protocol.VescPayloadDecoder.bmsValues(
+                                        message.payload, expectedCanId, clock.now(),
+                                    )
+                                    bmsFailureCount = 0
+                                    auxiliaryDiscovery.acceptSnapshot(snapshot)
+                                    events.publish("bms_values_attached:${bmsRouteDiagnostic(expectedCanId)}")
+                                    events.publish(snapshot)
+                                } catch (_: Exception) {
+                                    events.publish("bms_values_decode_failed:${bmsRouteDiagnostic(expectedCanId)}")
+                                    recordBmsFailure()
+                                }
                             }
                             is VescProtocolMessage.RefloatInfo -> {
                                 if (connectionState != ConnectionState.IDENTIFYING) return@forEach
@@ -530,13 +617,22 @@ class ApplicationService(
                             is VescProtocolMessage.RefloatTelemetry ->
                                 telemetryPolling.receive(message.value)
                         }
-                        events.publish(message)
+                        if (message !is VescProtocolMessage.BmsValuesPayload) events.publish(message)
                     }
                 } catch (error: Exception) {
                     events.publish(error)
                 }
             }
         }
+    }
+
+    private fun attributedFirmware(value: FirmwareRecord, context: VescRequestContext?): FirmwareRecord {
+        val canId = when (context) {
+            is VescRequestContext.ControllerFirmware -> (context.route as? VescRequestRoute.Can)?.canId
+            is VescRequestContext.AuxiliaryFirmware -> (context.route as? VescRequestRoute.Can)?.canId
+            else -> null
+        }
+        return value.copy(canId = canId ?: value.canId)
     }
 
     @Synchronized
@@ -662,6 +758,7 @@ class ApplicationService(
             controllerRoute = controllerDiscovery.controllerRoute,
             controllerCandidates = controllerDiscovery.controllerCandidates,
             connectionIssue = controllerDiscovery.connectionIssue,
+            bms = auxiliaryDiscovery.state,
         )
     }
 
@@ -673,6 +770,7 @@ class ApplicationService(
 
     private fun startFirmwareDiscovery(deviceId: DeviceId) {
         if (protocol == null || activeDeviceId != deviceId) return
+        vescGeneration = vescRequests.beginGeneration()
         val (generation, effect) = controllerDiscovery.begin()
         if (effect == ControllerDiscoveryEffect.None) return
         identificationTimer?.cancel()
@@ -680,6 +778,19 @@ class ApplicationService(
             identificationTimedOut(generation)
         }
         performDiscoveryEffect(effect)
+    }
+
+    private fun submitVescRequest(
+        payload: ByteArray,
+        expected: VescExpectedResponse,
+        priority: VescRequestPriority,
+        context: VescRequestContext,
+        timeoutMs: Long,
+        completion: (VescRequestCompletion) -> Unit = {},
+    ) {
+        vescRequests.enqueue(payload, expected, priority, context, timeoutMs, vescGeneration) { _, outcome ->
+            completion(outcome)
+        }
     }
 
     private fun handleFirmware(value: FirmwareRecord) {
@@ -746,12 +857,18 @@ class ApplicationService(
     private fun performDiscoveryEffect(effect: ControllerDiscoveryEffect) {
         when (effect) {
             is ControllerDiscoveryEffect.ProbeFirmware -> {
-                val deviceId = activeDeviceId ?: return
+                if (activeDeviceId == null) return
                 val decoder = protocol ?: return
                 val route = effect.route
                 if (route is ControllerRoute.Can) scheduleCanProbeTimeout(route.canId)
                 try {
-                    bluetooth.write(deviceId, decoder.firmwareRequest(route))
+                    submitVescRequest(
+                        decoder.firmwareRequest(route),
+                        VescExpectedResponse(fail.acheron.floatview.protocol.vesc.VescCommand.GET_FIRMWARE_VERSION.id),
+                        VescRequestPriority.CONTROLLER_IDENTIFICATION,
+                        VescRequestContext.ControllerFirmware(route.toRequestRoute()),
+                        if (route == ControllerRoute.Direct) IDENTIFICATION_TIMEOUT_MS else CAN_PROBE_TIMEOUT_MS,
+                    )
                 } catch (error: Exception) {
                     if (route == ControllerRoute.Direct) {
                         failIdentification(
@@ -769,10 +886,16 @@ class ApplicationService(
             }
             ControllerDiscoveryEffect.PingCan -> {
                 cancelCanProbeTimeout()
-                val deviceId = activeDeviceId ?: return
+                if (activeDeviceId == null) return
                 val decoder = protocol ?: return
                 try {
-                    bluetooth.write(deviceId, decoder.canPingRequest())
+                    submitVescRequest(
+                        decoder.canPingRequest(),
+                        VescExpectedResponse(fail.acheron.floatview.protocol.vesc.VescCommand.PING_CAN.id),
+                        VescRequestPriority.CONTROLLER_IDENTIFICATION,
+                        VescRequestContext.CanPing,
+                        IDENTIFICATION_TIMEOUT_MS,
+                    )
                 } catch (_: Exception) {
                     failIdentification(
                         ConnectionIssueCode.TRANSPORT_SETUP_FAILED,
@@ -798,9 +921,18 @@ class ApplicationService(
                         )
                     }
                 }
-                val deviceId = activeDeviceId ?: return
+                if (activeDeviceId == null) return
                 val decoder = protocol ?: return
-                bluetooth.write(deviceId, decoder.refloatInfoRequest(effect.route))
+                submitVescRequest(
+                    decoder.refloatInfoRequest(effect.route),
+                    VescExpectedResponse(
+                        fail.acheron.floatview.protocol.vesc.VescCommand.CUSTOM_APP_DATA.id,
+                        fail.acheron.floatview.protocol.refloat.RefloatCommand.INFO.id,
+                    ),
+                    VescRequestPriority.CONTROLLER_IDENTIFICATION,
+                    VescRequestContext.RefloatInfo(effect.route.toRequestRoute()),
+                    IDENTIFICATION_TIMEOUT_MS,
+                )
             }
             ControllerDiscoveryEffect.RequestTelemetryLayout -> {
                 val deviceId = activeDeviceId ?: return
@@ -861,7 +993,13 @@ class ApplicationService(
         transition(ConnectionState.READY)
         protocol?.let { decoder ->
             runCatching {
-                bluetooth.write(deviceId, decoder.motorConfigurationRequest(route))
+                submitVescRequest(
+                    decoder.motorConfigurationRequest(route),
+                    VescExpectedResponse(fail.acheron.floatview.protocol.vesc.VescCommand.GET_MOTOR_CONFIGURATION.id),
+                    VescRequestPriority.CONTROLLER_WORK,
+                    VescRequestContext.CurrentLimits(route.toRequestRoute()),
+                    CAN_PROBE_TIMEOUT_MS,
+                )
             }.onFailure(events::publish)
         }
         telemetryPolling.start(
@@ -871,6 +1009,120 @@ class ApplicationService(
             idleProbeIntervalMs,
             postRideTailMs,
         )
+        startAuxiliaryDiscovery()
+    }
+
+    private fun startAuxiliaryDiscovery() {
+        if (protocol?.supportsBmsTelemetry != true) return
+        val localIdentity = controllerDiscovery.transportFirmware ?: return
+        val profile = currentSavedDevice?.savedDeviceId?.let { savedDeviceId ->
+            runCatching { productStore?.boardProfile(savedDeviceId) }.getOrNull()
+        }
+        performAuxiliaryEffect(
+            auxiliaryDiscovery.begin(
+                localIdentity,
+                controllerDiscovery.classifiedInventory.takeIf { controllerDiscovery.inventoryComplete },
+                ControllerDiscoveryPolicy.preferredBmsCanId(profile?.valuesJson),
+            ),
+        )
+    }
+
+    private fun performAuxiliaryEffect(effect: AuxiliaryDiscoveryEffect) {
+        if (connectionState != ConnectionState.READY) return
+        val decoder = protocol ?: return
+        when (effect) {
+            AuxiliaryDiscoveryEffect.PingCan -> runCatching {
+                events.publish("bms_discovery_scan_started")
+                submitVescRequest(
+                    decoder.canPingRequest(),
+                    VescExpectedResponse(VescCommand.PING_CAN.id),
+                    VescRequestPriority.AUXILIARY,
+                    VescRequestContext.AuxiliaryCanPing,
+                    CAN_SCAN_TIMEOUT_MS,
+                ) { completion ->
+                    if (completion == VescRequestCompletion.TimedOut) synchronized(this) {
+                        auxiliaryDiscovery.markUnavailable()
+                    }
+                }
+            }.onFailure { auxiliaryDiscovery.markUnavailable() }
+            is AuxiliaryDiscoveryEffect.ProbeFirmware -> {
+                events.publish(
+                    "bms_discovery_probe:" +
+                        bmsRouteDiagnostic((effect.route as? ControllerRoute.Can)?.canId),
+                )
+                val generation = auxiliaryDiscovery.generation
+                val canId = (effect.route as? ControllerRoute.Can)?.canId
+                runCatching {
+                    submitVescRequest(
+                        decoder.firmwareRequest(effect.route),
+                        VescExpectedResponse(VescCommand.GET_FIRMWARE_VERSION.id),
+                        VescRequestPriority.AUXILIARY,
+                        VescRequestContext.AuxiliaryFirmware(effect.route.toRequestRoute()),
+                        CAN_PROBE_TIMEOUT_MS,
+                    ) { completion ->
+                        if (completion == VescRequestCompletion.TimedOut && canId != null) synchronized(this) {
+                            performAuxiliaryEffect(
+                                auxiliaryDiscovery.probeTimedOut(canId, generation),
+                            )
+                        }
+                    }
+                }.onFailure { auxiliaryDiscovery.markUnavailable() }
+            }
+            is AuxiliaryDiscoveryEffect.RequestValues -> {
+                events.publish(
+                    "bms_values_requested:${bmsRouteDiagnostic((effect.connection as? BmsConnection.Can)?.canId)}",
+                )
+                requestBmsValues(effect.connection)
+            }
+            AuxiliaryDiscoveryEffect.None -> {
+                events.publish("bms_discovery_complete:${auxiliaryDiscovery.state.status.wireValue}")
+                events.publish(auxiliaryDiscovery.state)
+            }
+        }
+    }
+
+    private fun requestBmsValues(connection: BmsConnection) {
+        if (connectionState != ConnectionState.READY) return
+        val decoder = protocol ?: return
+        bmsPollTimer?.cancel()
+        bmsPollTimer = null
+        val route = when (connection) {
+            BmsConnection.Direct -> VescRequestRoute.Direct
+            is BmsConnection.Can -> VescRequestRoute.Can(connection.canId)
+        }
+        runCatching {
+            submitVescRequest(
+                decoder.bmsValuesRequest(connection),
+                VescExpectedResponse(VescCommand.BMS_GET_VALUES.id),
+                VescRequestPriority.AUXILIARY,
+                VescRequestContext.BmsValues(route),
+                1_000,
+            ) { completion ->
+                synchronized(this) {
+                    if (connectionState != ConnectionState.READY) return@synchronized
+                    when (completion) {
+                        VescRequestCompletion.TimedOut, VescRequestCompletion.QueueFull ->
+                            recordBmsFailure()
+                        is VescRequestCompletion.Response -> Unit
+                        VescRequestCompletion.Cancelled, VescRequestCompletion.StaleGeneration ->
+                            return@synchronized
+                    }
+                    bmsPollTimer = scheduler?.schedule(1_000) {
+                        synchronized(this) {
+                            auxiliaryDiscovery.selectedConnection?.let(::requestBmsValues)
+                        }
+                    }
+                }
+            }
+        }.onFailure { recordBmsFailure() }
+    }
+
+    private fun recordBmsFailure() {
+        bmsFailureCount++
+        if (bmsFailureCount >= 3) {
+            auxiliaryDiscovery.markUnavailable()
+            events.publish(auxiliaryDiscovery.state)
+        }
     }
 
     /** Production hosts always provide a VESC codec and never take this path. */
@@ -1077,9 +1329,14 @@ class ApplicationService(
     }
 
     private fun resetFirmwareDiscovery() {
+        vescGeneration = vescRequests.beginGeneration()
         telemetryPolling.cancelLayout()
         telemetryPolling.stop()
         controllerDiscovery.reset()
+        auxiliaryDiscovery.reset()
+        bmsPollTimer?.cancel()
+        bmsPollTimer = null
+        bmsFailureCount = 0
         currentLimits = null
         currentSavedDevice = null
         cancelIdentificationTimeout()
@@ -1111,10 +1368,19 @@ class ApplicationService(
         state == BluetoothPermissionState.DENIED ||
             state == BluetoothPermissionState.RESTRICTED
 
+    private fun bmsRouteDiagnostic(canId: Int?): String = canId?.let { "can=$it" } ?: "direct"
+
+    private fun bmsHardwareDiagnostic(value: String?): String =
+        value.orEmpty().take(32).map { character ->
+            if (character.isLetterOrDigit() || character == '-' || character == '_') character else '_'
+        }.joinToString("").ifEmpty { "unknown" }
+
     private companion object {
         const val MAX_RECONNECT_BACKOFF_MS = 30_000L
         const val DISCOVERY_EXPIRY_MS = 120_000L
         const val IDENTIFICATION_TIMEOUT_MS = 10_000L
+        // COMM_PING_CAN can synchronously probe all 255 CAN IDs at 10 ms per ID.
+        const val CAN_SCAN_TIMEOUT_MS = 10_000L
         const val CAN_PROBE_TIMEOUT_MS = 1_000L
     }
 }

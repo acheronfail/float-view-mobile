@@ -3,7 +3,9 @@
 ## Purpose
 
 Define the routed application destinations, route-aware primary navigation, and focused connection, session, board, and settings flows.
+
 ## Requirements
+
 ### Requirement: Four primary application destinations
 
 The frontend SHALL provide Home, Sessions, and Settings as primary destinations. Home SHALL own discovery and connection, Sessions SHALL own the saved-board index and saved-board history, and Settings SHALL own options that apply across the application. Boards SHALL NOT remain a primary destination; saved-board configuration SHALL be reachable from a saved-board history route and LiveView.

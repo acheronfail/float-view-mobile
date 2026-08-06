@@ -246,6 +246,51 @@ export interface LiveLocation {
   observedAt: string;
 }
 
+export type BmsStatus = 'discovering' | 'not_found' | 'attached' | 'unavailable' | 'ambiguous';
+
+export type BmsConnection = { kind: 'direct' } | { kind: 'can'; canId: number };
+
+export interface BmsCandidate {
+  connection: BmsConnection;
+  hardwareName: string | null;
+  vescVersion: string;
+}
+
+/** Complete live-only VBMS values. Fractions use 0...1; humidity uses percent. */
+export interface BmsSnapshot {
+  observedAt: string;
+  totalVoltageV: number;
+  chargeVoltageV: number;
+  inputCurrentA: number;
+  inputIcCurrentA: number;
+  sessionAmpHoursAh: number;
+  sessionWattHoursWh: number;
+  cellVoltagesV: number[];
+  balancing: boolean[];
+  temperaturesC: number[];
+  icTemperatureC: number;
+  humiditySensorTemperatureC: number;
+  humidityPercent: number;
+  highestCellTemperatureC: number;
+  stateOfCharge: number;
+  stateOfHealth: number;
+  reportedCanId: number;
+  lifetimeChargeAmpHoursAh: number;
+  lifetimeChargeWattHoursWh: number;
+  lifetimeDischargeAmpHoursAh: number;
+  lifetimeDischargeWattHoursWh: number;
+  pressurePa: number;
+  dataVersion: number | null;
+  status: string | null;
+}
+
+export interface BmsState {
+  status: BmsStatus;
+  connection: BmsConnection | null;
+  candidates: BmsCandidate[];
+  latestSnapshot: BmsSnapshot | null;
+}
+
 export interface ActiveConnection extends Device {
   firmware: FirmwareInfo | null;
   trackingMode: 'saved' | 'guest';
@@ -254,6 +299,7 @@ export interface ActiveConnection extends Device {
   controllerConnection: ControllerConnection | null;
   controllerCandidates: ControllerCandidate[];
   connectionIssue: ConnectionIssue | null;
+  bms: BmsState;
   activeSession: SessionSummary | null;
   latestSample: LiveSample | null;
   latestLocation: LiveLocation | null;
@@ -287,6 +333,7 @@ export interface BoardProfileValues extends Record<string, unknown> {
   parallelCount?: number;
   motor?: string;
   preferredCanId?: number | null;
+  preferredBmsCanId?: number | null;
 }
 
 export interface BoardProfile {

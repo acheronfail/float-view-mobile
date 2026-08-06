@@ -43,4 +43,3 @@ The live header SHALL provide one accessible menu trigger whose menu contains th
 
 - **WHEN** a Refloat action is activated by primary pointer or keyboard/assistive click
 - **THEN** exactly one backend request is issued, while non-primary activation and the guarded synthetic click do not double activate it
-

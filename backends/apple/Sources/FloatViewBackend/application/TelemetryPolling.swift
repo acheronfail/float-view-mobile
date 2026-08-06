@@ -8,7 +8,10 @@ final class TelemetryPolling: @unchecked Sendable {
   private let clock: any ClockPort
   private let scheduler: (any SchedulerPort)?
   private let protocolCodec: (any VescProtocolPort)?
-  private let write: @Sendable (Data, DeviceID) -> Void
+  private let submit: @Sendable (
+    Data, VescExpectedResponse, VescRequestPriority, VescRequestContext, Int64,
+    @escaping @Sendable (VescRequestCompletion) -> Void
+  ) -> Void
   private let onSample: @Sendable (TelemetrySample) -> Void
   private let onFailure: @Sendable (String) -> Void
   private let onDiagnostic: @Sendable (String) -> Void
@@ -37,7 +40,10 @@ final class TelemetryPolling: @unchecked Sendable {
     clock: any ClockPort,
     scheduler: (any SchedulerPort)?,
     protocolCodec: (any VescProtocolPort)?,
-    write: @escaping @Sendable (Data, DeviceID) -> Void,
+    submit: @escaping @Sendable (
+      Data, VescExpectedResponse, VescRequestPriority, VescRequestContext, Int64,
+      @escaping @Sendable (VescRequestCompletion) -> Void
+    ) -> Void,
     onSample: @escaping @Sendable (TelemetrySample) -> Void,
     onFailure: @escaping @Sendable (String) -> Void,
     onDiagnostic: @escaping @Sendable (String) -> Void
@@ -45,7 +51,7 @@ final class TelemetryPolling: @unchecked Sendable {
     self.clock = clock
     self.scheduler = scheduler
     self.protocolCodec = protocolCodec
-    self.write = write
+    self.submit = submit
     self.onSample = onSample
     self.onFailure = onFailure
     self.onDiagnostic = onDiagnostic
@@ -188,13 +194,20 @@ final class TelemetryPolling: @unchecked Sendable {
   }
 
   private func sendLayoutRequest() {
-    guard let deviceID, let route, let protocolCodec else { return }
+    guard deviceID != nil, let route, let protocolCodec else { return }
     do {
       layoutAttempts += 1
-      try write(
-        RefloatPolling.layoutRequest(protocolCodec: protocolCodec, route: route),
-        deviceID
-      )
+      let bytes = try RefloatPolling.layoutRequest(protocolCodec: protocolCodec, route: route)
+      submit(
+        bytes,
+        .init(command: VescCommand.customAppData.rawValue,
+              refloatCommand: RefloatCommand.realtimeDataInternalIDs.rawValue),
+        .controllerWork,
+        .refloatLayout(.init(route)),
+        Self.requestTimeoutMs
+      ) { [weak self] outcome in
+        if outcome == .timedOut { self?.onDiagnostic("refloat_telemetry_layout_request_timeout") }
+      }
     } catch {
       onDiagnostic(String(describing: error))
     }
@@ -212,14 +225,9 @@ final class TelemetryPolling: @unchecked Sendable {
 
   private func requestSample() {
     lock.withLock {
-      guard active, let deviceID, let route, let protocolCodec else { return }
+      guard active, deviceID != nil, let route, let protocolCodec else { return }
       let nowMs = clock.monotonicMilliseconds()
-      if pendingRequest != nil {
-        guard let pendingSinceMs, nowMs - pendingSinceMs >= Self.requestTimeoutMs else { return }
-        onDiagnostic("refloat_telemetry_request_timeout")
-        pendingRequest = nil
-        self.pendingSinceMs = nil
-      }
+      if pendingRequest != nil { return }
       let request: PendingRequest
       do {
         let bytes: Data
@@ -244,7 +252,27 @@ final class TelemetryPolling: @unchecked Sendable {
         }
         pendingRequest = request
         pendingSinceMs = nowMs
-        write(bytes, deviceID)
+        let refloatCommand: UInt8 = switch request {
+        case .realtime: RefloatCommand.realtimeDataInternal.rawValue
+        case .compact, .legacy: RefloatCommand.getAllData.rawValue
+        }
+        let ridingPriority = previousRideState == .riding ||
+          (postRideProbeUntilMs.map { nowMs <= $0 } ?? false)
+        submit(
+          bytes,
+          .init(command: VescCommand.customAppData.rawValue, refloatCommand: refloatCommand),
+          ridingPriority ? .ridingTelemetry : .controllerWork,
+          .refloatTelemetry(.init(route)),
+          Self.requestTimeoutMs
+        ) { [weak self] outcome in
+          guard outcome == .timedOut else { return }
+          self?.lock.withLock {
+            guard self?.pendingRequest == request else { return }
+            self?.pendingRequest = nil
+            self?.pendingSinceMs = nil
+            self?.onDiagnostic("refloat_telemetry_request_timeout")
+          }
+        }
       } catch {
         onDiagnostic(String(describing: error))
       }

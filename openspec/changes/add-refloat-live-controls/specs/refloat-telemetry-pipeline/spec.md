@@ -67,4 +67,3 @@ The product SHALL expose raw actual, requested, directional, filtered, booster, 
 
 - **WHEN** Refloat 1.2.x clears its active firmware-fault mask but retains the encoded fatal-error state bit
 - **THEN** live control state reports an inactive fault and a clearable fatal latch without adding a historical firmware-fault transition
-

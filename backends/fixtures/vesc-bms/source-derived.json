@@ -1,0 +1,58 @@
+{
+  "schemaVersion": 1,
+  "provenance": {
+    "stockFirmware": "vendor/vesc_bms_fw/commands.c COMM_FW_VERSION common-prefix encoding, audited against the strict 6.00 HW_TYPE_VESC_BMS tail",
+    "vbms32Firmware": "vendor/vesc_express commit a9f496c48107ae507b2303157683843f3bbf236c (last 6.06 revision before the 7.00 version bump): main/commands.c COMM_FW_VERSION, main/hwconf/vesc/vbms32/hw_vbms32.h HW_NAME, and main/conf_general.h version. The deterministic vector uses a six-byte sample eFuse MAC, the source-defined six zero UUID bytes, empty firmware name, no optional QML image, and a zero hardware CRC fixture value.",
+    "values": "vendor/vesc_bms_fw/commands.c COMM_BMS_GET_VALUES and vendor/vesc_bms_fw/buffer.c fixed/auto float encoders",
+    "vbms32Values": "vendor/vesc_express commit a9f496c48107ae507b2303157683843f3bbf236c main/commands.c routes COMM_BMS_GET_VALUES to main/bms.c; its response layout was audited as equivalent to the retained values vectors",
+    "extendedTail": "vendor/vesc_tool/commands.cpp COMM_BMS_GET_VALUES optional data_version and NUL-terminated status decoding",
+    "note": "Immutable source-derived vectors; values are chosen to exercise signed fixed-point fields, arrays, flags, auto floats, and both exact tails."
+  },
+  "cases": [
+    {
+      "name": "vbms-firmware-6.00",
+      "kind": "firmware",
+      "payloadHex": "00060056424d530000112233445566778899aabb00000101"
+    },
+    {
+      "name": "vbms32-firmware-6.06",
+      "kind": "firmware",
+      "payloadHex": "00060656424d5333320000112233445500000000000000000201000000000000000000"
+    },
+    {
+      "name": "vbms-values-legacy-typical",
+      "kind": "values",
+      "payloadHex": "6003010b0003412140ff43a158ff445120000004e20000f424031068105e10540100010209f60a410abe09ab14820b6d036b03b62a428000004480000042000000440000002794"
+    },
+    {
+      "name": "vbms-values-extended-typical",
+      "kind": "values",
+      "payloadHex": "6003010b0003412140ff43a158ff445120000004e20000f424031068105e10540100010209f60a410abe09ab14820b6d036b03b62a428000004480000042000000440000002794014f4b00"
+    }
+  ],
+  "expectedValues": {
+    "totalVoltageV": 50.4,
+    "chargeVoltageV": 54.6,
+    "inputCurrentA": -12.345,
+    "inputIcCurrentA": -12.3,
+    "sessionAmpHoursAh": 1.25,
+    "sessionWattHoursWh": 62.5,
+    "cellVoltagesV": [4.2, 4.19, 4.18],
+    "balancing": [true, false, true],
+    "temperaturesC": [25.5, 26.25],
+    "icTemperatureC": 27.5,
+    "humiditySensorTemperatureC": 24.75,
+    "humidityPercent": 52.5,
+    "highestCellTemperatureC": 29.25,
+    "stateOfCharge": 0.875,
+    "stateOfHealth": 0.95,
+    "reportedCanId": 42,
+    "lifetimeChargeAmpHoursAh": 64.0,
+    "lifetimeChargeWattHoursWh": 1024.0,
+    "lifetimeDischargeAmpHoursAh": 32.0,
+    "lifetimeDischargeWattHoursWh": 512.0,
+    "pressurePa": 101320.0,
+    "extendedDataVersion": 1,
+    "extendedStatus": "OK"
+  }
+}

@@ -3,7 +3,9 @@
 ## Purpose
 
 Define repository ownership and the minimal Android, iOS, and macOS host responsibilities around the shared frontend and native backends.
+
 ## Requirements
+
 ### Requirement: Lowercase ownership layout
 
 The repository SHALL place the frontend under `/frontend`, the shared Apple implementation and its iOS/macOS hosts under `/backends/apple`, the Android implementation and host under `/backends/android`, shared backend SQL and immutable protocol fixtures under `/backends`, canonical acceptance under top-level `/conformance`, and supporting firmware under `/tools/vesc-test-device`.

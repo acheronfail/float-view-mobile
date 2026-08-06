@@ -11,6 +11,22 @@ class SoftwareVescPeripheral {
         val payload =
             when {
                 request.contentEquals(byteArrayOf(VescCommand.GET_FIRMWARE_VERSION.byte)) -> firmware
+                request.contentEquals(byteArrayOf(VescCommand.PING_CAN.byte)) ->
+                    byteArrayOf(VescCommand.PING_CAN.byte, BMS_CAN_ID.toByte())
+                request.contentEquals(
+                    byteArrayOf(
+                        VescCommand.FORWARD_CAN.byte,
+                        BMS_CAN_ID.toByte(),
+                        VescCommand.GET_FIRMWARE_VERSION.byte,
+                    ),
+                ) -> bmsFirmware
+                request.contentEquals(
+                    byteArrayOf(
+                        VescCommand.FORWARD_CAN.byte,
+                        BMS_CAN_ID.toByte(),
+                        VescCommand.BMS_GET_VALUES.byte,
+                    ),
+                ) -> bmsValues
                 request.contentEquals(
                     RefloatWire.request(
                         RefloatCommand.INFO,
@@ -30,6 +46,7 @@ class SoftwareVescPeripheral {
     }
 
     private companion object {
+        const val BMS_CAN_ID = 42
         val firmware =
             byteArrayOf(VescCommand.GET_FIRMWARE_VERSION.byte, 6, 6) +
                 "THOR300".encodeToByteArray() +
@@ -51,5 +68,10 @@ class SoftwareVescPeripheral {
                 this[39] = 60
                 this[40] = 56
             }
+        val bmsFirmware = "00060056424d530000112233445566778899aabb00000101".hexBytes()
+        val bmsValues =
+            "6003010b0003412140ff43a158ff445120000004e20000f424031068105e10540100010209f60a410abe09ab14820b6d036b03b62a428000004480000042000000440000002794014f4b00".hexBytes()
+
+        fun String.hexBytes(): ByteArray = chunked(2).map { it.toInt(16).toByte() }.toByteArray()
     }
 }

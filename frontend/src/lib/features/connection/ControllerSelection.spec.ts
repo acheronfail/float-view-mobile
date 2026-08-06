@@ -28,6 +28,7 @@ const connection: ActiveConnection = {
     },
   ],
   connectionIssue: null,
+  bms: { status: 'discovering', connection: null, candidates: [], latestSnapshot: null },
   firmware: null,
   latestSample: null,
   latestLocation: null,
@@ -50,5 +51,7 @@ describe('controller selection prompt', () => {
     expect(text).toContain('Unsupported');
     expect(text).toContain('Supported');
     expect(text).toContain('Disconnect');
+    expect(body).toContain('fixed inset-0 z-40 h-dvh');
+    expect(body).toContain('absolute inset-x-0 bottom-0');
   });
 });

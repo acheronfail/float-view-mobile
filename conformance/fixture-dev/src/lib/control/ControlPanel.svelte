@@ -7,14 +7,15 @@
     type TelemetrySample,
   } from '../../../../fixture/telemetry.ts';
   import {
+    bmsTopologyOptions,
     firmwareOptions,
     refloatOptions,
     scenarioTemplateOptions,
     topologyOptions,
-    type FixtureConfiguration,
     type FixtureSnapshot,
     type ScenarioTemplate,
   } from '../contract.ts';
+  import { bmsFailureModes } from '../../../../fixture/bms.ts';
   import ActionButton from './ActionButton.svelte';
   import { canonicalCanId, controlAvailability } from './availability.ts';
   import { ControlState } from './state.svelte.ts';
@@ -30,6 +31,14 @@
     canId: String(initialSnapshot.configuration.canId),
     firmware: initialSnapshot.configuration.firmware,
     refloat: initialSnapshot.configuration.refloat,
+    bmsTopology: initialSnapshot.configuration.bmsTopology,
+    bmsCanId: String(initialSnapshot.configuration.bmsCanId),
+    bmsVariant: initialSnapshot.configuration.bmsVariant,
+    bmsFailureMode: initialSnapshot.configuration.bmsFailureMode,
+    bmsCellCount: String(initialSnapshot.configuration.bmsCellCount),
+    bmsTemperatureCount: String(initialSnapshot.configuration.bmsTemperatureCount),
+    bmsStateOfCharge: String(initialSnapshot.configuration.bmsStateOfCharge),
+    bmsInputCurrentA: String(initialSnapshot.configuration.bmsInputCurrentA),
   });
   let selectedTemplate = $state<ScenarioTemplate>('singleExpress');
   let selectedScene = $state(initialSnapshot.scenario.scene);
@@ -45,7 +54,15 @@
   const snapshot = $derived(control.snapshot);
   const available = $derived(controlAvailability(snapshot));
   const canId = $derived(canonicalCanId(draft.canId));
-  const configurationValid = $derived(canId !== undefined);
+  const bmsCanId = $derived(canonicalCanId(draft.bmsCanId));
+  const configurationValid = $derived(
+    canId !== undefined &&
+      bmsCanId !== undefined &&
+      canonicalBoundedInteger(draft.bmsCellCount, 1, 50) !== undefined &&
+      canonicalBoundedInteger(draft.bmsTemperatureCount, 0, 50) !== undefined &&
+      canonicalBoundedDecimal(draft.bmsStateOfCharge, 0, 1) !== undefined &&
+      canonicalBoundedDecimal(draft.bmsInputCurrentA, -200, 200) !== undefined
+  );
   const unavailableFields = $derived(telemetryFieldNames.filter((field) => !snapshot.availableFields.includes(field)));
 
   $effect(() => {
@@ -55,6 +72,14 @@
       canId: String(snapshot.configuration.canId),
       firmware: snapshot.configuration.firmware,
       refloat: snapshot.configuration.refloat,
+      bmsTopology: snapshot.configuration.bmsTopology,
+      bmsCanId: String(snapshot.configuration.bmsCanId),
+      bmsVariant: snapshot.configuration.bmsVariant,
+      bmsFailureMode: snapshot.configuration.bmsFailureMode,
+      bmsCellCount: String(snapshot.configuration.bmsCellCount),
+      bmsTemperatureCount: String(snapshot.configuration.bmsTemperatureCount),
+      bmsStateOfCharge: String(snapshot.configuration.bmsStateOfCharge),
+      bmsInputCurrentA: String(snapshot.configuration.bmsInputCurrentA),
     };
     selectedScene = snapshot.scenario.scene;
     fragmentBytes = String(snapshot.scenario.fragmentBytes);
@@ -69,16 +94,24 @@
 
   function save() {
     if (canId === undefined) return;
-    const configuration: FixtureConfiguration = {
+    const configuration = {
       topology: draft.topology,
-      canId,
+      canId: draft.canId,
       firmware: draft.firmware,
       refloat: draft.refloat,
+      bmsTopology: draft.bmsTopology,
+      bmsCanId: draft.bmsCanId,
+      bmsVariant: draft.bmsVariant,
+      bmsFailureMode: draft.bmsFailureMode,
+      bmsCellCount: draft.bmsCellCount,
+      bmsTemperatureCount: draft.bmsTemperatureCount,
+      bmsStateOfCharge: draft.bmsStateOfCharge,
+      bmsInputCurrentA: draft.bmsInputCurrentA,
     };
     return control.act({
       kind: 'configure',
       configuration,
-    });
+    } as Record<string, unknown>);
   }
 
   function importScenario() {
@@ -100,6 +133,18 @@
     else if (typeof baseline === 'boolean') value = pinValue === 'true';
     else if (pinField === 'firmwareFault' && pinValue === 'null') value = null;
     return control.act({ kind: 'pin-field', field: pinField, value } as Record<string, unknown>);
+  }
+
+  function canonicalBoundedInteger(value: string, minimum: number, maximum: number) {
+    if (!/^(0|[1-9][0-9]*)$/.test(value)) return undefined;
+    const parsed = Number(value);
+    return parsed >= minimum && parsed <= maximum ? parsed : undefined;
+  }
+
+  function canonicalBoundedDecimal(value: string, minimum: number, maximum: number) {
+    if (!/^-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?$/.test(value)) return undefined;
+    const parsed = Number(value);
+    return Number.isFinite(parsed) && parsed >= minimum && parsed <= maximum ? parsed : undefined;
   }
 </script>
 
@@ -150,9 +195,54 @@
         >{snapshot.scenario.topology} · {snapshot.scenario.controllers.length} controller{snapshot.scenario.controllers
           .length === 1
           ? ''
-          : 's'}</span
+          : 's'} · {snapshot.scenario.bmsNodes.length} BMS</span
       >
     </div>
+    <fieldset disabled={!available.configure || control.loading}>
+      <legend>VESC BMS telemetry</legend>
+      <div class="form-grid compact">
+        <label
+          >BMS route
+          <select bind:value={draft.bmsTopology}>
+            {#each bmsTopologyOptions as topology}<option value={topology}>{topology}</option>{/each}
+          </select>
+        </label>
+        <label
+          >BMS CAN / reported ID
+          <input type="text" inputmode="numeric" bind:value={draft.bmsCanId} aria-invalid={bmsCanId === undefined} />
+        </label>
+        <label
+          >Response variant
+          <select bind:value={draft.bmsVariant}>
+            <option value="legacy">legacy</option>
+            <option value="extended">extended</option>
+          </select>
+        </label>
+        <label
+          >Failure mode
+          <select bind:value={draft.bmsFailureMode}>
+            {#each bmsFailureModes as mode}<option value={mode}>{mode}</option>{/each}
+          </select>
+        </label>
+        <label
+          >Cell count
+          <input type="text" inputmode="numeric" bind:value={draft.bmsCellCount} />
+        </label>
+        <label
+          >Temperature count
+          <input type="text" inputmode="numeric" bind:value={draft.bmsTemperatureCount} />
+        </label>
+        <label
+          >State of charge (0–1)
+          <input type="text" inputmode="decimal" bind:value={draft.bmsStateOfCharge} />
+        </label>
+        <label
+          >Input current (A)
+          <input type="text" inputmode="decimal" bind:value={draft.bmsInputCurrentA} />
+        </label>
+      </div>
+      <p class="hint">A direct BMS selects the direct VBMS topology and keeps the controller behind CAN.</p>
+    </fieldset>
     <div class="row">
       <select
         aria-label="Scenario template"
@@ -244,6 +334,16 @@
             action={() => control.act({ kind: 'replace-controller', alias: candidate.alias })}
             kind="danger"
           />
+        </article>
+      {/each}
+      {#each snapshot.scenario.bmsNodes as node (node.alias)}
+        <article>
+          <div>
+            <strong>{node.alias}</strong><span
+              >{node.route === 'direct' ? 'direct' : `CAN ${node.canId}`} · {node.variant} · {node.cellCount} cells ·
+              {node.temperatureCount} temperatures · {node.failureMode}</span
+            >
+          </div>
         </article>
       {/each}
     </div>
@@ -398,7 +498,7 @@
     </div>
     <p class="detail">
       {snapshot.counters.writes} writes · {snapshot.counters.responses} responses · {snapshot.counters.telemetry} telemetry
-      · {snapshot.counters.dropped} dropped
+      · {snapshot.counters.bms} BMS · {snapshot.counters.dropped} dropped
     </p>
     {#if snapshot.lastAttempt}
       <p
@@ -469,6 +569,15 @@
     border-radius: 1rem;
     background: #0f1b2d;
     padding: 1.1rem;
+  }
+  fieldset {
+    margin: 1rem 0;
+    border: 1px solid #26364c;
+    border-radius: 0.7rem;
+  }
+  legend {
+    color: #cbd5e1;
+    font-weight: 800;
   }
   .section-heading,
   .row {

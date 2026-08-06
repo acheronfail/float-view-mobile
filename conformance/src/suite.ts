@@ -54,7 +54,7 @@ export async function runConformance(target: Target) {
       'frontend recreation lost backend-owned state'
     );
 
-    await exerciseProductMethods(client, restored);
+    await exerciseProductMethods(client, restored, ['android', 'ios', 'macos'].includes(target.name));
     return {
       target: target.name,
       revision: (await client.request('state.get', {})).revision,
@@ -65,7 +65,7 @@ export async function runConformance(target: Target) {
   }
 }
 
-async function exerciseProductMethods(client: ConformanceClient, state: AppState) {
+async function exerciseProductMethods(client: ConformanceClient, state: AppState, expectSoftwareBms: boolean) {
   const device = required(state.discoveredDevices[0], 'scan did not create a discovered device');
   const settings = await client.request('settings.update', {
     expectedRevision: state.settings.revision,
@@ -116,8 +116,8 @@ async function exerciseProductMethods(client: ConformanceClient, state: AppState
     patch: { minimumSessionDistance: 0 },
   });
 
-  await createCompletedSession(client, device.deviceId);
-  await createCompletedSession(client, device.deviceId);
+  await createCompletedSession(client, device.deviceId, expectSoftwareBms);
+  await createCompletedSession(client, device.deviceId, expectSoftwareBms);
 
   const prepared = await client.request('state.get', {});
   const profileDevice = required(
@@ -358,7 +358,7 @@ async function expectSessionDataFailure(
   await assert.rejects(client.sessionData(request), () => true, label);
 }
 
-async function createCompletedSession(client: ConformanceClient, deviceId: string) {
+async function createCompletedSession(client: ConformanceClient, deviceId: string, expectSoftwareBms: boolean) {
   await client.request('bluetooth.scan', { timeoutMs: 100 });
   const before = await client.request('state.get', {});
   assert.ok(
@@ -366,10 +366,19 @@ async function createCompletedSession(client: ConformanceClient, deviceId: strin
     'scan did not rediscover the session device'
   );
   await client.request('device.connect', { deviceId, trackingMode: 'saved' });
-  const connected = await client.waitForState(
+  let connected = await client.waitForState(
     (value) => value.activeConnection?.deviceId === deviceId && value.activeConnection.state === 'ready',
     { afterRevision: before.revision }
   );
+  if (expectSoftwareBms && connected.activeConnection?.bms.status !== 'attached') {
+    connected = await client.waitForState(
+      (value) =>
+        value.activeConnection?.deviceId === deviceId &&
+        value.activeConnection.state === 'ready' &&
+        value.activeConnection.bms.status === 'attached',
+      { afterRevision: connected.revision }
+    );
+  }
   assertState(connected);
   assert.ok(connected.activeConnection);
   const savedDeviceId = connected.activeConnection.savedDeviceId;
@@ -385,6 +394,12 @@ async function createCompletedSession(client: ConformanceClient, deviceId: strin
   );
   assert.deepEqual(connected.activeConnection.controllerCandidates, []);
   assert.equal(connected.activeConnection.connectionIssue, null);
+  if (expectSoftwareBms) {
+    assert.deepEqual(connected.activeConnection.bms.connection, { kind: 'can', canId: 42 });
+    assert.equal(connected.activeConnection.bms.status, 'attached');
+    assert.equal(connected.activeConnection.bms.latestSnapshot?.reportedCanId, 42);
+    assert.equal(connected.activeConnection.bms.latestSnapshot?.status, 'OK');
+  }
   if (connected.activeConnection.currentLimits) {
     const limits = connected.activeConnection.currentLimits;
     assert.deepEqual(Object.keys(limits).sort(), [
@@ -593,6 +608,28 @@ export function assertState(state: AppState) {
     'controller candidates exposed a private UUID'
   );
 
+  assert.deepEqual(Object.keys(active.bms).sort(), ['candidates', 'connection', 'latestSnapshot', 'status']);
+  assert.ok(['discovering', 'not_found', 'attached', 'unavailable', 'ambiguous'].includes(active.bms.status));
+  assert.ok(active.bms.candidates.length <= 16);
+  assert.ok(!JSON.stringify(active.bms).toLowerCase().includes('uuid'), 'BMS state exposed a private UUID');
+  for (const candidate of active.bms.candidates) {
+    assert.deepEqual(Object.keys(candidate).sort(), ['connection', 'hardwareName', 'vescVersion']);
+    assertBmsConnection(candidate.connection);
+    assert.ok((candidate.hardwareName?.length ?? 0) <= 80);
+    assert.ok(candidate.vescVersion.length <= 32);
+  }
+  if (active.bms.connection) assertBmsConnection(active.bms.connection);
+  if (active.bms.latestSnapshot) {
+    const snapshot = active.bms.latestSnapshot;
+    assert.ok(snapshot.cellVoltagesV.length <= 50);
+    assert.equal(snapshot.balancing.length, snapshot.cellVoltagesV.length);
+    assert.ok(snapshot.temperaturesC.length <= 50);
+    assert.ok([...snapshot.cellVoltagesV, ...snapshot.temperaturesC].every(Number.isFinite));
+    assert.ok(snapshot.balancing.every((value) => typeof value === 'boolean'));
+    assert.ok(snapshot.status === null || new TextEncoder().encode(snapshot.status).length <= 40);
+    assert.ok(snapshot.reportedCanId >= 0 && snapshot.reportedCanId <= 253);
+  }
+
   if (active.connectionIssue) {
     assert.ok(stableConnectionIssueCodes.has(active.connectionIssue.code));
     assert.ok(active.connectionIssue.message.length > 0);
@@ -600,7 +637,8 @@ export function assertState(state: AppState) {
   }
   if (active.state === 'ready') {
     assert.ok(active.controllerConnection, 'ready connection has no controller route');
-    if (active.trackingMode === 'saved') assert.ok(active.activeSession, 'ready connection has no active durable session');
+    if (active.trackingMode === 'saved')
+      assert.ok(active.activeSession, 'ready connection has no active durable session');
     else assert.equal(active.activeSession, null);
     assert.ok(active.firmware?.supported, 'ready connection has unsupported or absent firmware');
     assert.deepEqual(active.controllerCandidates, []);
@@ -619,6 +657,16 @@ export function assertState(state: AppState) {
     assert.equal(active.connectionIssue, null);
     assert.deepEqual(active.controllerCandidates, []);
   }
+}
+
+function assertBmsConnection(connection: { kind: string; canId?: number }) {
+  if (connection.kind === 'direct') {
+    assert.deepEqual(Object.keys(connection), ['kind']);
+    return;
+  }
+  assert.equal(connection.kind, 'can');
+  assert.deepEqual(Object.keys(connection).sort(), ['canId', 'kind']);
+  assert.ok(Number.isInteger(connection.canId) && connection.canId! >= 0 && connection.canId! <= 253);
 }
 
 async function expectError(promise: Promise<unknown>, code: string) {

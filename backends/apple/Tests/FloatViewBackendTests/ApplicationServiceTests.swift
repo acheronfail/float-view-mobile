@@ -548,7 +548,7 @@ func silentCanNodesAreSkippedWithinTheOverallDiscoveryDeadline() throws {
   try service.receive(.notification(id, Data([2])))
   #expect(bluetooth.writes.last == Data([0, 7]))
 
-  scheduler.fire(1)
+  scheduler.fireOneShots(afterMilliseconds: 1_000)
   #expect(bluetooth.writes.last == Data([0, 42]))
   try service.receive(.notification(id, Data([4])))
   try service.receive(.notification(id, Data([5])))
@@ -767,6 +767,32 @@ func reconnectRevalidatesDirectIdentityAndResumesOneSession() throws {
 }
 
 @Test
+func auxiliaryCanScanAllowsForTheFullFirmwareScanWindow() throws {
+  let bluetooth = FakeBluetooth()
+  let scheduler = FakeScheduler()
+  let service = ApplicationService(
+    bluetooth: bluetooth,
+    clock: FixedClock(),
+    logStore: MemoryStore(),
+    protocolCodec: TelemetryProtocol(bmsEnabled: true),
+    scheduler: scheduler,
+    events: IgnoreEvents()
+  )
+  let id = DeviceID("direct-with-vbms")
+
+  try service.receive(.deviceFound(id, name: "Thor301", rssi: -40))
+  try service.connect(id)
+  try service.receive(.connectionChanged(id, .ready))
+  for marker in UInt8(1) ... 3 {
+    try service.receive(.notification(id, Data([marker])))
+  }
+  try service.receive(.notification(id, Data([4])))
+
+  #expect(bluetooth.writes.contains(Data([62])))
+  #expect(scheduler.oneShotIntervals.last == 10_000)
+}
+
+@Test
 func refloatTelemetryStartsIdleProbeAndSwitchesToRidingRate() throws {
   let bluetooth = FakeBluetooth()
   let scheduler = FakeScheduler()
@@ -786,22 +812,23 @@ func refloatTelemetryStartsIdleProbeAndSwitchesToRidingRate() throws {
   try service.receive(.connectionChanged(id, .ready))
   try service.receive(.notification(id, Data([1])))
   try service.receive(.notification(id, Data([2])))
-  #expect(scheduler.intervals == [10_000, 1_000])
+  #expect(scheduler.repeatingIntervals == [1_000])
   #expect(store.active() == nil)
   let firstLayoutRequestCount = bluetooth.writes.filter { $0 == Data([32, 255]) }.count
-  scheduler.fire(1)
+  scheduler.fireOneShots(afterMilliseconds: 900)
+  scheduler.fireRepeating(0)
   #expect(
     bluetooth.writes.filter { $0 == Data([32, 255]) }.count
       == firstLayoutRequestCount + 1
   )
   try service.receive(.notification(id, Data([3])))
-  #expect(scheduler.intervals == [10_000, 1_000, 500])
+  #expect(scheduler.repeatingIntervals == [1_000, 500])
   #expect(store.active() != nil)
   #expect(bluetooth.writes.contains(Data([31, 255])))
 
   try service.receive(.notification(id, Data([4])))
 
-  #expect(scheduler.intervals == [10_000, 1_000, 500, 100])
+  #expect(scheduler.repeatingIntervals == [1_000, 500, 100])
   #expect(store.appended.count == 1)
   #expect(store.appended.first?.rideState == .riding)
   #expect(store.appended.first?.packageState == .running)
@@ -836,13 +863,13 @@ func refloatTelemetryKeepsRidingProbeRateThroughPostRideTail() throws {
   try service.receive(.notification(id, Data([1])))
   try service.receive(.notification(id, Data([2])))
   try service.receive(.notification(id, Data([3])))
-  #expect(scheduler.intervals == [10_000, 1_000, 500])
+  #expect(scheduler.repeatingIntervals == [1_000, 500])
 
   clock.date = .init(timeIntervalSince1970: 1)
   try service.receive(.notification(id, Data([4])))
-  #expect(scheduler.intervals == [10_000, 1_000, 500, 100])
+  #expect(scheduler.repeatingIntervals == [1_000, 500, 100])
   try service.receive(.notification(id, Data([6])))
-  scheduler.fire(3)
+  scheduler.fireRepeating(2)
 
   clock.date = .init(timeIntervalSince1970: 2)
   try service.receive(.notification(id, Data([5])))
@@ -850,18 +877,18 @@ func refloatTelemetryKeepsRidingProbeRateThroughPostRideTail() throws {
   #expect(store.appended.last?.fieldWeakeningCurrentA == 1.5)
   #expect(store.appended.last?.distanceM == 42)
   clock.date = .init(timeIntervalSince1970: 6.999)
-  scheduler.fire(3)
+  scheduler.fireRepeating(2)
   try service.receive(.notification(id, Data([6])))
-  scheduler.fire(3)
+  scheduler.fireRepeating(2)
   try service.receive(.notification(id, Data([5])))
   #expect(store.appended.last?.distanceM == 7)
   #expect(store.appended.last?.slowObservedAt == Date(timeIntervalSince1970: 6.999))
-  #expect(scheduler.intervals == [10_000, 1_000, 500, 100])
+  #expect(scheduler.repeatingIntervals == [1_000, 500, 100])
 
   clock.date = .init(timeIntervalSince1970: 7.001)
-  scheduler.fire(3)
+  scheduler.fireRepeating(2)
   try service.receive(.notification(id, Data([5])))
-  #expect(scheduler.intervals == [10_000, 1_000, 500, 100, 500])
+  #expect(scheduler.repeatingIntervals == [1_000, 500, 100, 500])
 }
 
 @Test
@@ -886,7 +913,8 @@ func missingRefloatLayoutRetriesFinitelyAndFailsLoggingSession() throws {
   try service.receive(.notification(id, Data([2])))
   #expect(store.active() == nil)
   for _ in 0 ..< 5 {
-    scheduler.fire(1)
+    scheduler.fireOneShots(afterMilliseconds: 900)
+    scheduler.fireRepeating(0)
   }
 
   #expect(service.connectionState == .failed)
@@ -1178,6 +1206,16 @@ private final class CanDiscoveryProtocol: VescProtocolPort, @unchecked Sendable 
 
 private final class TelemetryProtocol: VescProtocolPort, @unchecked Sendable {
   private var compactCount = 0
+  private let bmsEnabled: Bool
+
+  init(bmsEnabled: Bool = false) {
+    self.bmsEnabled = bmsEnabled
+  }
+
+  var supportsBmsTelemetry: Bool {
+    bmsEnabled
+  }
+
   func reset() {}
   func firmwareRequest(route _: ControllerRoute) throws -> Data {
     Data([1])
@@ -1185,6 +1223,13 @@ private final class TelemetryProtocol: VescProtocolPort, @unchecked Sendable {
 
   func canPingRequest() throws -> Data {
     Data([62])
+  }
+
+  func bmsValuesRequest(connection: BmsConnection) throws -> Data {
+    switch connection {
+    case .direct: Data([96])
+    case let .can(canID): Data([34, canID, 96])
+    }
   }
 
   func refloatInfoRequest(route: ControllerRoute) throws -> Data {
@@ -1366,31 +1411,61 @@ private final class DiscoveryBoundaryProtocol: VescProtocolPort, @unchecked Send
 private final class FakeScheduler: SchedulerPort, @unchecked Sendable {
   var intervals: [Int64] = []
   var actions: [@Sendable () -> Void] = []
+  var repeatingIntervals: [Int64] = []
+  var repeatingActions: [@Sendable () -> Void] = []
+  var oneShotIntervals: [Int64] = []
+  var oneShotActions: [@Sendable () -> Void] = []
   func schedule(
     afterMilliseconds: Int64,
     action: @escaping @Sendable () -> Void
   ) -> any CancellationPort {
+    let cancellation = FakeCancellation()
     intervals.append(afterMilliseconds)
-    actions.append(action)
-    return FakeCancellation()
+    let guarded: @Sendable () -> Void = { if !cancellation.isCancelled { action() } }
+    actions.append(guarded)
+    oneShotIntervals.append(afterMilliseconds)
+    oneShotActions.append(guarded)
+    return cancellation
   }
 
   func scheduleRepeating(
     everyMilliseconds: Int64,
     action: @escaping @Sendable () -> Void
   ) -> any CancellationPort {
+    let cancellation = FakeCancellation()
     intervals.append(everyMilliseconds)
-    actions.append(action)
-    return FakeCancellation()
+    repeatingIntervals.append(everyMilliseconds)
+    let guarded: @Sendable () -> Void = { if !cancellation.isCancelled { action() } }
+    actions.append(guarded)
+    repeatingActions.append(guarded)
+    return cancellation
   }
 
   func fire(_ index: Int) {
     actions[index]()
   }
+
+  func fireRepeating(_ index: Int) {
+    repeatingActions[index]()
+  }
+
+  func fireOneShots(afterMilliseconds: Int64) {
+    for (index, interval) in oneShotIntervals.enumerated() where interval == afterMilliseconds {
+      oneShotActions[index]()
+    }
+  }
 }
 
 private final class FakeCancellation: CancellationPort, @unchecked Sendable {
-  func cancel() {}
+  private let lock = NSLock()
+  private var cancelled = false
+  var isCancelled: Bool {
+    lock.withLock { cancelled }
+  }
+
+  func cancel() {
+    lock.withLock { cancelled = true }
+  }
 }
 
 private struct FixedClock: ClockPort {

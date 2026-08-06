@@ -10,6 +10,7 @@ setup:
     [ -e "vendor/refloat" ] || git clone https://github.com/lukash/refloat "vendor/refloat"
     [ -e "vendor/vesc_tool" ] || git clone https://github.com/vedderb/vesc_tool "vendor/vesc_tool"
     [ -e "vendor/vesc_bms_fw" ] || git clone https://github.com/vedderb/vesc_bms_fw "vendor/vesc_bms_fw"
+    [ -e "vendor/vesc_express" ] || git clone https://github.com/vedderb/vesc_express "vendor/vesc_express"
     [ -e "vendor/float-view" ] || git clone https://github.com/acheronfail/float-view "vendor/float-view"
 
 lint:
@@ -101,7 +102,7 @@ run platform target="": build
           xcrun devicectl device install app --device "$target" \
             "$derived/Build/Products/Debug-iphoneos/float-view.app"
           xcrun devicectl device process launch --device "$target" \
-            --terminate-existing --quiet fail.acheron.float-view
+            --terminate-existing --console fail.acheron.float-view
         fi
         ;;
       macos)

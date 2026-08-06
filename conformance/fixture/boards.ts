@@ -12,6 +12,7 @@ import {
 import { encodeRefloatTelemetry, refloatCodecs, type RefloatCodec, type RefloatVersion } from './refloat.ts';
 import { idleTelemetry, type TelemetrySource } from './telemetry.ts';
 import { directTopology, expressTopology, type FixtureTopology, type TopologyStrategy } from './topology.ts';
+import type { BmsConfiguration } from './bms.ts';
 
 export interface FirmwareIdentity {
   major: number;
@@ -44,6 +45,10 @@ export interface BoardConfiguration {
   advertisedName: string;
   transport: FirmwareIdentity;
   controllers: ControllerConfiguration[];
+  /** Optional direct VBMS endpoint when the transport identity is hardware type 1. */
+  localBms?: BmsConfiguration;
+  /** Zero or more CAN-routed VBMS nodes, independently selected from controllers. */
+  bmsNodes?: BmsConfiguration[];
   /** Raw COMM_PING_CAN response, including deliberate duplicates/invalid IDs. */
   canPingIds?: number[];
   /** Targets that deliberately omit a response to exercise bounded timeouts. */
@@ -87,6 +92,8 @@ export interface InteractiveBoardSelection {
   controllers: readonly InteractiveControllerSelection[];
   canPingIds: readonly number[];
   telemetry: TelemetrySource;
+  localBms?: BmsConfiguration;
+  bmsNodes?: readonly BmsConfiguration[];
 }
 
 const expressFirmware = fixturePayload('../backends/fixtures/vesc/firmware-express-6.05.json');
@@ -275,8 +282,11 @@ export function composeInteractiveBoard(selection: InteractiveBoardSelection): B
   return {
     name: `Workbench / ${selection.topology}`,
     advertisedName: selection.advertisedName,
-    transport: selection.topology === 'direct' ? controllers[0]!.firmware : expressTransport,
+    transport:
+      selection.localBms?.firmware ?? (selection.topology === 'direct' ? controllers[0]!.firmware : expressTransport),
     controllers,
+    ...(selection.localBms ? { localBms: selection.localBms } : {}),
+    bmsNodes: [...(selection.bmsNodes ?? [])],
     canPingIds: [...selection.canPingIds],
     requestPolicy: 'interactive',
   };

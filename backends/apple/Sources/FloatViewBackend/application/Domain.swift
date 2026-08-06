@@ -213,6 +213,114 @@ public struct LiveLocation: Sendable, Codable, Equatable {
   }
 }
 
+public enum BmsConnection: Sendable, Equatable, Hashable {
+  case direct
+  case can(UInt8)
+}
+
+public enum BmsStatus: String, Sendable, Codable, Equatable {
+  case discovering
+  case notFound = "not_found"
+  case attached
+  case unavailable
+  case ambiguous
+}
+
+public struct BmsCandidate: Sendable, Equatable {
+  public let connection: BmsConnection
+  public let hardwareName: String?
+  public let vescVersion: String
+
+  public init(connection: BmsConnection, hardwareName: String?, vescVersion: String) {
+    self.connection = connection
+    self.hardwareName = hardwareName
+    self.vescVersion = vescVersion
+  }
+}
+
+public struct BmsSnapshot: Sendable, Equatable {
+  public let observedAt: Date
+  public let totalVoltageV: Double
+  public let chargeVoltageV: Double
+  public let inputCurrentA: Double
+  public let inputICCurrentA: Double
+  public let sessionAmpHoursAh: Double
+  public let sessionWattHoursWh: Double
+  public let cellVoltagesV: [Double]
+  public let balancing: [Bool]
+  public let temperaturesC: [Double]
+  public let icTemperatureC: Double
+  public let humiditySensorTemperatureC: Double
+  public let humidityPercent: Double
+  public let highestCellTemperatureC: Double
+  public let stateOfCharge: Double
+  public let stateOfHealth: Double
+  public let reportedCanID: UInt8
+  public let lifetimeChargeAmpHoursAh: Double
+  public let lifetimeChargeWattHoursWh: Double
+  public let lifetimeDischargeAmpHoursAh: Double
+  public let lifetimeDischargeWattHoursWh: Double
+  public let pressurePa: Double
+  public let dataVersion: UInt8?
+  public let status: String?
+
+  public init(
+    observedAt: Date, totalVoltageV: Double, chargeVoltageV: Double,
+    inputCurrentA: Double, inputICCurrentA: Double, sessionAmpHoursAh: Double,
+    sessionWattHoursWh: Double, cellVoltagesV: [Double], balancing: [Bool],
+    temperaturesC: [Double], icTemperatureC: Double, humiditySensorTemperatureC: Double,
+    humidityPercent: Double, highestCellTemperatureC: Double, stateOfCharge: Double,
+    stateOfHealth: Double, reportedCanID: UInt8, lifetimeChargeAmpHoursAh: Double,
+    lifetimeChargeWattHoursWh: Double, lifetimeDischargeAmpHoursAh: Double,
+    lifetimeDischargeWattHoursWh: Double, pressurePa: Double, dataVersion: UInt8?,
+    status: String?
+  ) {
+    self.observedAt = observedAt
+    self.totalVoltageV = totalVoltageV
+    self.chargeVoltageV = chargeVoltageV
+    self.inputCurrentA = inputCurrentA
+    self.inputICCurrentA = inputICCurrentA
+    self.sessionAmpHoursAh = sessionAmpHoursAh
+    self.sessionWattHoursWh = sessionWattHoursWh
+    self.cellVoltagesV = cellVoltagesV
+    self.balancing = balancing
+    self.temperaturesC = temperaturesC
+    self.icTemperatureC = icTemperatureC
+    self.humiditySensorTemperatureC = humiditySensorTemperatureC
+    self.humidityPercent = humidityPercent
+    self.highestCellTemperatureC = highestCellTemperatureC
+    self.stateOfCharge = stateOfCharge
+    self.stateOfHealth = stateOfHealth
+    self.reportedCanID = reportedCanID
+    self.lifetimeChargeAmpHoursAh = lifetimeChargeAmpHoursAh
+    self.lifetimeChargeWattHoursWh = lifetimeChargeWattHoursWh
+    self.lifetimeDischargeAmpHoursAh = lifetimeDischargeAmpHoursAh
+    self.lifetimeDischargeWattHoursWh = lifetimeDischargeWattHoursWh
+    self.pressurePa = pressurePa
+    self.dataVersion = dataVersion
+    self.status = status
+  }
+}
+
+public struct BmsState: Sendable, Equatable {
+  public let status: BmsStatus
+  public let connection: BmsConnection?
+  public let candidates: [BmsCandidate]
+  public let latestSnapshot: BmsSnapshot?
+
+  public init(
+    status: BmsStatus = .discovering,
+    connection: BmsConnection? = nil,
+    candidates: [BmsCandidate] = [],
+    latestSnapshot: BmsSnapshot? = nil
+  ) {
+    self.status = status
+    self.connection = connection
+    self.candidates = Array(candidates.prefix(16))
+    self.latestSnapshot = latestSnapshot
+  }
+}
+
 public struct ActiveConnectionSnapshot: Sendable, Equatable {
   public let deviceID: DeviceID
   public let name: String?
@@ -226,6 +334,7 @@ public struct ActiveConnectionSnapshot: Sendable, Equatable {
   public let controllerRoute: ControllerRoute?
   public let controllerCandidates: [ControllerCandidate]
   public let connectionIssue: ConnectionIssue?
+  public let bms: BmsState
 
   public init(
     deviceID: DeviceID,
@@ -239,7 +348,8 @@ public struct ActiveConnectionSnapshot: Sendable, Equatable {
     currentLimits: ControllerCurrentLimits? = nil,
     controllerRoute: ControllerRoute? = nil,
     controllerCandidates: [ControllerCandidate] = [],
-    connectionIssue: ConnectionIssue? = nil
+    connectionIssue: ConnectionIssue? = nil,
+    bms: BmsState = .init()
   ) {
     self.deviceID = deviceID
     self.name = name
@@ -253,6 +363,7 @@ public struct ActiveConnectionSnapshot: Sendable, Equatable {
     self.controllerRoute = controllerRoute
     self.controllerCandidates = controllerCandidates
     self.connectionIssue = connectionIssue
+    self.bms = bms
   }
 }
 
@@ -314,6 +425,7 @@ public enum VescProtocolMessage: Sendable, Equatable {
   case firmware(FirmwareRecord)
   case currentLimits(ControllerCurrentLimits)
   case canDevices([UInt8])
+  case bmsValuesPayload(Data)
   case refloatInfo(version: String)
   case refloatTelemetryLayout(fields: [String], runtimeFields: [String])
   case refloatTelemetry(RefloatTelemetryRecord)
@@ -1307,6 +1419,7 @@ public extension BluetoothPort {
 }
 
 public protocol VescProtocolPort: AnyObject, Sendable {
+  var supportsBmsTelemetry: Bool { get }
   func reset()
   func firmwareRequest(route: ControllerRoute) throws -> Data
   func motorConfigurationRequest(route: ControllerRoute) throws -> Data
@@ -1316,10 +1429,19 @@ public protocol VescProtocolPort: AnyObject, Sendable {
   func refloatTelemetryRequest(route: ControllerRoute) throws -> Data
   func refloatLegacyTelemetryRequest(route: ControllerRoute) throws -> Data
   func refloatCompactTelemetryRequest(route: ControllerRoute) throws -> Data
+  func bmsValuesRequest(connection: BmsConnection) throws -> Data
   func receive(_ bytes: Data) throws -> [VescProtocolMessage]
 }
 
 public extension VescProtocolPort {
+  var supportsBmsTelemetry: Bool {
+    false
+  }
+
+  func bmsValuesRequest(connection _: BmsConnection) throws -> Data {
+    throw VescProtocolError.unsupportedCommand(VescCommand.bmsGetValues.rawValue)
+  }
+
   func motorConfigurationRequest(route _: ControllerRoute) throws -> Data {
     throw VescProtocolError.unsupportedCommand(VescCommand.getMotorConfiguration.rawValue)
   }

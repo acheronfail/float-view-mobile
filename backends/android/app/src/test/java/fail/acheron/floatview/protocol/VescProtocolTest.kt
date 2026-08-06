@@ -2,11 +2,13 @@ package fail.acheron.floatview.protocol
 
 import java.nio.file.Files
 import java.nio.file.Path
+import java.time.Instant
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import fail.acheron.floatview.backend.BmsConnection
 import fail.acheron.floatview.backend.VescProtocolMessage
 import fail.acheron.floatview.backend.ControllerCurrentLimits
 import fail.acheron.floatview.backend.FirmwareRecord
@@ -22,6 +24,7 @@ import fail.acheron.floatview.protocol.vesc.ControllerRoute
 import fail.acheron.floatview.protocol.vesc.SoftwareVescPeripheral
 import fail.acheron.floatview.protocol.vesc.VescAccessMode
 import fail.acheron.floatview.protocol.vesc.VescFirmwareVersion
+import fail.acheron.floatview.protocol.vesc.VescFirmwareIdentityDecoder
 import fail.acheron.floatview.protocol.vesc.VescOperation
 
 private fun String.hexBytes(): ByteArray =
@@ -56,6 +59,33 @@ private fun refloatSourcePayload(name: String): ByteArray {
     return requireNotNull(pattern.find(json)).groupValues[1].hexBytes()
 }
 
+private fun bmsSourcePayload(name: String): ByteArray {
+    val json = String(
+        Files.readAllBytes(
+            Path.of(System.getProperty("floatViewFixtureRoot"), "vesc-bms/source-derived.json"),
+        ),
+    )
+    val pattern =
+        Regex(
+            "\"name\"\\s*:\\s*\"${Regex.escape(name)}\"[\\s\\S]*?\"payloadHex\"\\s*:\\s*\"([0-9a-f]+)\"",
+        )
+    return requireNotNull(pattern.find(json)).groupValues[1].hexBytes()
+}
+
+private fun boundedBmsPayload(
+    cells: Int,
+    temperatures: Int,
+    dataVersion: Int? = null,
+    status: ByteArray = byteArrayOf(),
+): ByteArray {
+    var payload = byteArrayOf(96) + ByteArray(24)
+    payload += byteArrayOf(cells.toByte()) + ByteArray(cells * 2) + ByteArray(cells)
+    payload += byteArrayOf(temperatures.toByte()) + ByteArray(temperatures * 2)
+    payload += ByteArray(12) + byteArrayOf(42) + ByteArray(18)
+    if (dataVersion != null) payload += byteArrayOf(dataVersion.toByte()) + status + byteArrayOf(0)
+    return payload
+}
+
 class VescProtocolTest {
     @Test
     fun softwareVescPeripheralProducesARidingLegacySample() {
@@ -68,6 +98,25 @@ class VescProtocolTest {
         val message = service.receive(response).single() as VescProtocolMessage.RefloatTelemetry
 
         assertEquals(RideState.RIDING, message.value.rideState)
+
+        val ping = requireNotNull(SoftwareVescPeripheral().response(service.canPingRequest()))
+        assertEquals(listOf(42), (service.receive(ping).single() as VescProtocolMessage.CanDevices).canIds)
+
+        val identity = requireNotNull(
+            SoftwareVescPeripheral().response(service.firmwareRequest(ControllerRoute.Can(42))),
+        )
+        assertEquals(
+            VescFirmwareIdentityDecoder.BMS_HARDWARE_TYPE,
+            (service.receive(identity).single() as VescProtocolMessage.Firmware).value.hardwareType,
+        )
+
+        val values = requireNotNull(
+            SoftwareVescPeripheral().response(service.bmsValuesRequest(BmsConnection.Can(42))),
+        )
+        val payload = (service.receive(values).single() as VescProtocolMessage.BmsValuesPayload).payload
+        val snapshot = VescPayloadDecoder.bmsValues(payload, 42, Instant.EPOCH)
+        assertEquals(42, snapshot.reportedCanId)
+        assertEquals("OK", snapshot.status)
     }
 
     @Test
@@ -348,7 +397,7 @@ class VescProtocolTest {
     }
 
     @Test
-    fun canDiscoveryAndForwardedFirmwarePreserveCanIdentity() {
+    fun protocolDecodingLeavesFirmwareRouteAttributionToScheduler() {
         val service = VescProtocolService()
         assertEquals(
             listOf(62),
@@ -366,7 +415,7 @@ class VescProtocolTest {
         )
         val firmwareFrame = fixture("vesc/firmware-6.06.json").hexBytes()
         val firmware = service.receive(firmwareFrame).single() as VescProtocolMessage.Firmware
-        assertEquals(42, firmware.value.canId)
+        assertEquals(null, firmware.value.canId)
         assertEquals("THOR300", firmware.value.hardwareName)
 
         assertEquals(
@@ -378,6 +427,138 @@ class VescProtocolTest {
             VescProtocolMessage.RefloatInfo("1.2"),
             service.receive(VescFrameCodec.encode(byteArrayOf(36, 101, 0, 12))).single(),
         )
+    }
+
+    @Test
+    fun bmsValuesRequestsUseExactDirectAndCanRoutes() {
+        val service = VescProtocolService()
+        assertEquals(
+            listOf(96),
+            VescFrameCodec.decode(service.bmsValuesRequest(fail.acheron.floatview.backend.BmsConnection.Direct))
+                .map { it.toInt() and 0xff },
+        )
+        assertEquals(
+            listOf(34, 42, 96),
+            VescFrameCodec.decode(service.bmsValuesRequest(fail.acheron.floatview.backend.BmsConnection.Can(42)))
+                .map { it.toInt() and 0xff },
+        )
+    }
+
+    @Test
+    fun firmwareIdentityUsesStrictHardwareSpecificTails() {
+        val vbms = byteArrayOf(0, 6, 0) + "VBMS".encodeToByteArray() + byteArrayOf(0) +
+            ByteArray(12) { 7 } + byteArrayOf(0, 0, 1, 1)
+        val decoded = VescPayloadDecoder.firmware(vbms)
+        assertEquals(1, decoded.hardwareType)
+        assertEquals(null, decoded.firmwareName)
+        assertTrue(requireNotNull(decoded.controllerUuid).contentEquals(ByteArray(12) { 7 }))
+        assertThrows(VescProtocolException::class.java) { VescPayloadDecoder.firmware(vbms + byteArrayOf(0)) }
+        assertThrows(VescProtocolException::class.java) {
+            VescPayloadDecoder.firmware(vbms.copyOf().also { it[2] = 1 })
+        }
+    }
+
+    @Test
+    fun sourceDerivedVbmsFirmwareAndValuesDecodeExactly() {
+        val firmware = VescPayloadDecoder.firmware(bmsSourcePayload("vbms-firmware-6.00"))
+        assertEquals(6, firmware.major)
+        assertEquals(0, firmware.minor)
+        assertEquals("VBMS", firmware.hardwareName)
+        assertEquals(1, firmware.hardwareType)
+
+        val vbms32 = VescPayloadDecoder.firmware(bmsSourcePayload("vbms32-firmware-6.06"))
+        assertEquals(6, vbms32.major)
+        assertEquals(6, vbms32.minor)
+        assertEquals("VBMS32", vbms32.hardwareName)
+        assertEquals(2, vbms32.hardwareType)
+        assertEquals(null, vbms32.firmwareName)
+
+        val observedAt = Instant.ofEpochSecond(1234)
+        val legacy = VescPayloadDecoder.bmsValues(
+            bmsSourcePayload("vbms-values-legacy-typical"),
+            expectedCanId = 42,
+            observedAt = observedAt,
+        )
+        assertEquals(observedAt, legacy.observedAt)
+        assertEquals(50.4, legacy.totalVoltageV, 0.0)
+        assertEquals(54.6, legacy.chargeVoltageV, 0.0)
+        assertEquals(-12.345, legacy.inputCurrentA, 0.0)
+        assertEquals(-12.3, legacy.inputIcCurrentA, 0.0)
+        assertEquals(1.25, legacy.sessionAmpHoursAh, 0.0)
+        assertEquals(62.5, legacy.sessionWattHoursWh, 0.0)
+        assertEquals(listOf(4.2, 4.19, 4.18), legacy.cellVoltagesV)
+        assertEquals(listOf(true, false, true), legacy.balancing)
+        assertEquals(listOf(25.5, 26.25), legacy.temperaturesC)
+        assertEquals(42, legacy.reportedCanId)
+        assertEquals(101_320.0, legacy.pressurePa, 0.001)
+        assertEquals(null, legacy.dataVersion)
+        assertEquals(null, legacy.status)
+
+        val extended = VescPayloadDecoder.bmsValues(
+            bmsSourcePayload("vbms-values-extended-typical"),
+            expectedCanId = 42,
+            observedAt = observedAt,
+        )
+        assertEquals(1, extended.dataVersion)
+        assertEquals("OK", extended.status)
+    }
+
+    @Test
+    fun bmsValuesAcceptExactMinimumAndMaximumBounds() {
+        val observedAt = Instant.EPOCH
+        val minimum = VescPayloadDecoder.bmsValues(
+            boundedBmsPayload(0, 0), expectedCanId = 42, observedAt = observedAt,
+        )
+        assertTrue(minimum.cellVoltagesV.isEmpty())
+        assertTrue(minimum.temperaturesC.isEmpty())
+
+        val maximum = VescPayloadDecoder.bmsValues(
+            boundedBmsPayload(50, 50, 255, ByteArray(40) { 'A'.code.toByte() }),
+            expectedCanId = 42,
+            observedAt = observedAt,
+        )
+        assertEquals(50, maximum.cellVoltagesV.size)
+        assertEquals(50, maximum.balancing.size)
+        assertEquals(50, maximum.temperaturesC.size)
+        assertEquals(40, maximum.status?.encodeToByteArray()?.size)
+    }
+
+    @Test
+    fun malformedBmsValuesNeverPublishPartialSnapshots() {
+        val observedAt = Instant.EPOCH
+        val legacy = bmsSourcePayload("vbms-values-legacy-typical")
+        for (length in 0 until legacy.size) {
+            assertThrows(VescProtocolException::class.java) {
+                VescPayloadDecoder.bmsValues(
+                    legacy.copyOf(length), expectedCanId = 42, observedAt = observedAt,
+                )
+            }
+        }
+
+        val excessiveCells = legacy.copyOf().also { it[25] = 51 }
+        val excessiveTemperatures = legacy.copyOf().also { it[35] = 51 }
+        val invalidBalancing = legacy.copyOf().also { it[32] = 2 }
+        val nonFiniteAutoFloat = legacy.copyOf().also {
+            byteArrayOf(0x7f, 0xff.toByte(), 0xff.toByte(), 0xff.toByte()).copyInto(it, 53)
+        }
+        val malformed = listOf(
+            excessiveCells,
+            excessiveTemperatures,
+            invalidBalancing,
+            nonFiniteAutoFloat,
+            legacy + byteArrayOf(1),
+            legacy + byteArrayOf(1) + ByteArray(41) { 'A'.code.toByte() } + byteArrayOf(0),
+            legacy + byteArrayOf(1, 0xff.toByte(), 0),
+            legacy + byteArrayOf(1, 'O'.code.toByte(), 0, 0),
+        )
+        malformed.forEach { payload ->
+            assertThrows(VescProtocolException::class.java) {
+                VescPayloadDecoder.bmsValues(payload, expectedCanId = 42, observedAt = observedAt)
+            }
+        }
+        assertThrows(VescProtocolException::class.java) {
+            VescPayloadDecoder.bmsValues(legacy, expectedCanId = 41, observedAt = observedAt)
+        }
     }
 
     @Test

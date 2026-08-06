@@ -3098,7 +3098,7 @@ public final class SQLiteLogStore: LogStorePort, ProductStorePort, SessionStoreP
     try catalog.statement(
       """
       INSERT OR IGNORE INTO board_profile(saved_device_id, revision, json, updated_at_ms)
-      VALUES (?, 0, '{}', ?)
+      VALUES (?, 0, '{"preferredBmsCanId":null}', ?)
       """,
       values: [.text(savedDeviceID), .integer(Int64(at.timeIntervalSince1970 * 1_000))]
     )
@@ -3169,7 +3169,8 @@ public final class SQLiteLogStore: LogStorePort, ProductStorePort, SessionStoreP
     }
     guard integer("seriesCount", range: 1 ... 36),
           integer("parallelCount", range: 1 ... 20),
-          integer("preferredCanId", range: 0 ... 253)
+          integer("preferredCanId", range: 0 ... 253),
+          integer("preferredBmsCanId", range: 0 ... 253)
     else { return false }
     guard let motor = values["motor"], !(motor is NSNull) else { return true }
     return (motor as? String).map { !$0.isEmpty && $0.utf8.count <= 128 } ?? false

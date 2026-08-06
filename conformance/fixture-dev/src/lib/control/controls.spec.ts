@@ -104,6 +104,10 @@ test('workbench renders persistent serial failures and request-attempt context',
   assert.match(source, /snapshot\.serial\.error/);
   assert.match(source, /snapshot\.lastAttempt/);
   assert.match(source, /role="alert">Serial bridge:/);
+  assert.match(source, /<fieldset disabled=\{!available\.configure \|\| control\.loading\}>/);
+  assert.match(source, /<legend>VESC BMS telemetry<\/legend>/);
+  assert.match(source, /BMS CAN \/ reported ID/);
+  assert.match(source, /snapshot\.counters\.bms/);
 });
 
 function baseSnapshot(): FixtureSnapshot {
@@ -115,6 +119,14 @@ function baseSnapshot(): FixtureSnapshot {
       canId: 1,
       firmware: '6.06',
       refloat: '1.2.3',
+      bmsTopology: 'can',
+      bmsCanId: 42,
+      bmsVariant: 'extended',
+      bmsFailureMode: 'none',
+      bmsCellCount: 15,
+      bmsTemperatureCount: 3,
+      bmsStateOfCharge: 0.75,
+      bmsInputCurrentA: 0,
     },
     scenario: {
       schemaVersion: 1,
@@ -123,6 +135,7 @@ function baseSnapshot(): FixtureSnapshot {
       topology: 'express',
       fragmentBytes: 244,
       controllers: [{ alias: 'primary', canId: 1, firmware: '6.06', refloat: '1.2.3', pingVisible: true }],
+      bmsNodes: [],
       discoveredCanIds: [],
       scene: 'idle',
       overrides: {},
@@ -133,7 +146,7 @@ function baseSnapshot(): FixtureSnapshot {
     power: 'off',
     ble: 'unavailable',
     ride: 'idle',
-    counters: { writes: 0, responses: 0, telemetry: 0, dropped: 0 },
+    counters: { writes: 0, responses: 0, telemetry: 0, bms: 0, dropped: 0 },
     diagnostics: [],
   };
 }

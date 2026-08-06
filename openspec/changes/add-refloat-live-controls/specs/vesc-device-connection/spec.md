@@ -40,4 +40,3 @@ The backends SHALL support the wire families represented by every audited Refloa
 
 - **WHEN** controller or package identity does not match an explicit compatibility entry, including VESC 7.01 while it is a test build
 - **THEN** the backend reports that identity as unsupported without treating recognizable command IDs as compatible
-

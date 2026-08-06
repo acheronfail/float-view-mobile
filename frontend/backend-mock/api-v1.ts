@@ -6,6 +6,9 @@ import {
   type BoardHistorySummary,
   type BackendError,
   type BackendMethod,
+  type BmsCandidate,
+  type BmsSnapshot,
+  type BmsState,
   type ConnectionIssueCode,
   type ControllerCandidate,
   type Request,
@@ -153,7 +156,7 @@ export class MockBackend {
       {
         savedDeviceId: savedBoard.savedDeviceId,
         revision: 0,
-        values: {} as Record<string, unknown>,
+        values: { preferredBmsCanId: null } as Record<string, unknown>,
         missingFields: ['seriesCount', 'parallelCount', 'motor'],
       },
     ],
@@ -314,6 +317,7 @@ export class MockBackend {
               controllerConnection: { kind: 'direct' },
               controllerCandidates: [],
               connectionIssue: null,
+              bms: { status: 'discovering', connection: null, candidates: [], latestSnapshot: null },
               activeSession,
               latestSample: null,
               latestLocation: null,
@@ -534,6 +538,15 @@ export class MockBackend {
         ) {
           return failure(id, 'invalid_request', 'Preferred CAN ID must be 0 through 253');
         }
+        if (
+          'preferredBmsCanId' in patch &&
+          patch.preferredBmsCanId !== null &&
+          (integer(patch.preferredBmsCanId) === null ||
+            (integer(patch.preferredBmsCanId) ?? -1) < 0 ||
+            (integer(patch.preferredBmsCanId) ?? 254) > 253)
+        ) {
+          return failure(id, 'invalid_request', 'Preferred BMS CAN ID must be 0 through 253');
+        }
         const updated = {
           ...current,
           revision: current.revision + 1,
@@ -730,6 +743,26 @@ export class MockBackend {
     this.change({
       ...this.state,
       activeConnection: { ...this.state.activeConnection, state },
+    });
+  }
+
+  simulateBmsState(bms: BmsState): void {
+    const active = this.state.activeConnection;
+    if (!active || !validBmsState(bms)) return;
+    this.change({ ...this.state, activeConnection: { ...active, bms } });
+  }
+
+  simulateBmsAttached(snapshot: BmsSnapshot, connection: BmsState['connection'] = { kind: 'direct' }): void {
+    if (!connection) return;
+    this.simulateBmsState({ status: 'attached', connection, candidates: [], latestSnapshot: snapshot });
+  }
+
+  simulateBmsAmbiguous(candidates: BmsCandidate[]): void {
+    this.simulateBmsState({
+      status: 'ambiguous',
+      connection: null,
+      candidates: [...candidates].sort(compareBmsCandidates),
+      latestSnapshot: null,
     });
   }
 
@@ -1059,6 +1092,53 @@ function number(value: unknown): number | null {
 
 function integer(value: unknown): number | null {
   return typeof value === 'number' && Number.isInteger(value) ? value : null;
+}
+
+function validBmsConnection(value: BmsState['connection']): boolean {
+  return (
+    value === null ||
+    value.kind === 'direct' ||
+    (value.kind === 'can' && Number.isInteger(value.canId) && value.canId >= 0 && value.canId <= 253)
+  );
+}
+
+function compareBmsCandidates(left: BmsCandidate, right: BmsCandidate): number {
+  const leftId = left.connection.kind === 'can' ? left.connection.canId : -1;
+  const rightId = right.connection.kind === 'can' ? right.connection.canId : -1;
+  return leftId - rightId;
+}
+
+function validBmsState(value: BmsState): boolean {
+  if (!validBmsConnection(value.connection) || value.candidates.length > 16) return false;
+  if (value.candidates.some((candidate) => !validBmsConnection(candidate.connection))) return false;
+  const snapshot = value.latestSnapshot;
+  if (snapshot) {
+    if (
+      snapshot.cellVoltagesV.length > 50 ||
+      snapshot.balancing.length !== snapshot.cellVoltagesV.length ||
+      snapshot.temperaturesC.length > 50 ||
+      (snapshot.status !== null && new TextEncoder().encode(snapshot.status).length > 40) ||
+      !Number.isInteger(snapshot.reportedCanId) ||
+      snapshot.reportedCanId < 0 ||
+      snapshot.reportedCanId > 253
+    )
+      return false;
+    const numbers = Object.entries(snapshot)
+      .filter(([key]) => !['observedAt', 'balancing', 'status', 'dataVersion'].includes(key))
+      .flatMap(([, item]) => (Array.isArray(item) ? item : [item]));
+    if (numbers.some((item) => typeof item !== 'number' || !Number.isFinite(item))) return false;
+  }
+  switch (value.status) {
+    case 'not_found':
+      return value.connection === null && value.candidates.length === 0 && snapshot === null;
+    case 'attached':
+      return value.connection !== null && value.candidates.length === 0 && snapshot !== null;
+    case 'ambiguous':
+      return value.connection === null && value.candidates.length >= 2 && snapshot === null;
+    case 'discovering':
+    case 'unavailable':
+      return true;
+  }
 }
 
 function compareSessions(left: SessionSummary, right: SessionSummary): number {

@@ -154,6 +154,59 @@ data class LiveLocation(
     val observedAt: Instant,
 )
 
+sealed interface BmsConnection {
+    data object Direct : BmsConnection
+    data class Can(val canId: Int) : BmsConnection
+}
+
+enum class BmsStatus(val wireValue: String) {
+    DISCOVERING("discovering"),
+    NOT_FOUND("not_found"),
+    ATTACHED("attached"),
+    UNAVAILABLE("unavailable"),
+    AMBIGUOUS("ambiguous"),
+}
+
+data class BmsCandidate(
+    val connection: BmsConnection,
+    val hardwareName: String?,
+    val vescVersion: String,
+)
+
+data class BmsSnapshot(
+    val observedAt: Instant,
+    val totalVoltageV: Double,
+    val chargeVoltageV: Double,
+    val inputCurrentA: Double,
+    val inputIcCurrentA: Double,
+    val sessionAmpHoursAh: Double,
+    val sessionWattHoursWh: Double,
+    val cellVoltagesV: List<Double>,
+    val balancing: List<Boolean>,
+    val temperaturesC: List<Double>,
+    val icTemperatureC: Double,
+    val humiditySensorTemperatureC: Double,
+    val humidityPercent: Double,
+    val highestCellTemperatureC: Double,
+    val stateOfCharge: Double,
+    val stateOfHealth: Double,
+    val reportedCanId: Int,
+    val lifetimeChargeAmpHoursAh: Double,
+    val lifetimeChargeWattHoursWh: Double,
+    val lifetimeDischargeAmpHoursAh: Double,
+    val lifetimeDischargeWattHoursWh: Double,
+    val pressurePa: Double,
+    val dataVersion: Int?,
+    val status: String?,
+)
+
+data class BmsState(
+    val status: BmsStatus = BmsStatus.DISCOVERING,
+    val connection: BmsConnection? = null,
+    val candidates: List<BmsCandidate> = emptyList(),
+    val latestSnapshot: BmsSnapshot? = null,
+)
+
 data class ActiveConnectionSnapshot(
     val deviceId: DeviceId,
     val advertisedName: String?,
@@ -167,6 +220,7 @@ data class ActiveConnectionSnapshot(
     val controllerRoute: ControllerRoute? = null,
     val controllerCandidates: List<ControllerCandidate> = emptyList(),
     val connectionIssue: ConnectionIssue? = null,
+    val bms: BmsState = BmsState(),
 )
 
 data class ControllerCurrentLimits(
@@ -193,6 +247,7 @@ sealed interface VescProtocolMessage {
     data class Firmware(val value: FirmwareRecord) : VescProtocolMessage
     data class CurrentLimits(val value: ControllerCurrentLimits) : VescProtocolMessage
     data class CanDevices(val canIds: List<Int>) : VescProtocolMessage
+    data class BmsValuesPayload(val payload: ByteArray) : VescProtocolMessage
     data class RefloatInfo(val version: String) : VescProtocolMessage
     data class RefloatTelemetryLayout(
         val fields: List<String>,
@@ -563,6 +618,7 @@ interface BluetoothPort {
 }
 
 interface VescProtocolPort {
+    val supportsBmsTelemetry: Boolean get() = false
     fun reset()
     fun firmwareRequest(route: ControllerRoute): ByteArray
     fun motorConfigurationRequest(route: ControllerRoute): ByteArray =
@@ -576,6 +632,8 @@ interface VescProtocolPort {
     fun refloatCompactTelemetryRequest(route: ControllerRoute): ByteArray =
         refloatLegacyTelemetryRequest(route)
     fun receive(bytes: ByteArray): List<VescProtocolMessage>
+    fun bmsValuesRequest(connection: BmsConnection): ByteArray =
+        throw UnsupportedOperationException("BMS values reads are unavailable")
 }
 
 fun interface CancellationPort {

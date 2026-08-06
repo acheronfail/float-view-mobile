@@ -1,11 +1,13 @@
 import { FixtureActionError, type FixtureCoordinator } from './coordinator/coordinator.server.ts';
 import {
+  bmsTopologyOptions,
   firmwareOptions,
   refloatOptions,
   topologyOptions,
   type FixtureAction,
   type FixtureConfiguration,
 } from './contract.ts';
+import { bmsFailureModes } from '../../../fixture/bms.ts';
 import { telemetryFieldNames, telemetryScenes } from '../../../fixture/telemetry.ts';
 import { parseScenarioDocument } from './coordinator/scenario-document.server.ts';
 import { authorizeMutation, HttpActionError } from './auth.server.ts';
@@ -51,7 +53,8 @@ export function parseAction(value: unknown): FixtureAction {
       if (
         value.template !== 'direct' &&
         value.template !== 'singleExpress' &&
-        value.template !== 'reportedMultiController'
+        value.template !== 'reportedMultiController' &&
+        value.template !== 'directVbms'
       ) {
         throw new Error('Invalid scenario template');
       }
@@ -132,6 +135,26 @@ export function parseAction(value: unknown): FixtureAction {
       }
       const canId = Number(configuration.canId);
       if (canId > 253) throw new Error('CAN ID must be from 0 through 253');
+      if (
+        typeof configuration.bmsTopology !== 'string' ||
+        !(bmsTopologyOptions as readonly string[]).includes(configuration.bmsTopology)
+      ) {
+        throw new Error('Invalid fixture configuration - missing BMS topology');
+      }
+      const bmsCanId = canonicalInteger(configuration.bmsCanId, 'BMS CAN ID', 0, 253);
+      if (configuration.bmsVariant !== 'legacy' && configuration.bmsVariant !== 'extended') {
+        throw new Error('Invalid fixture configuration - missing BMS variant');
+      }
+      if (
+        typeof configuration.bmsFailureMode !== 'string' ||
+        !bmsFailureModes.includes(configuration.bmsFailureMode as never)
+      ) {
+        throw new Error('Invalid fixture configuration - missing BMS failure mode');
+      }
+      const bmsCellCount = canonicalInteger(configuration.bmsCellCount, 'BMS cell count', 1, 50);
+      const bmsTemperatureCount = canonicalInteger(configuration.bmsTemperatureCount, 'BMS temperature count', 0, 50);
+      const bmsStateOfCharge = canonicalDecimal(configuration.bmsStateOfCharge, 'BMS state of charge', 0, 1);
+      const bmsInputCurrentA = canonicalDecimal(configuration.bmsInputCurrentA, 'BMS input current', -200, 200);
       return {
         kind: 'configure',
         configuration: {
@@ -139,12 +162,40 @@ export function parseAction(value: unknown): FixtureAction {
           firmware: configuration.firmware as FixtureConfiguration['firmware'],
           refloat: configuration.refloat as FixtureConfiguration['refloat'],
           canId,
+          bmsTopology: configuration.bmsTopology as FixtureConfiguration['bmsTopology'],
+          bmsCanId,
+          bmsVariant: configuration.bmsVariant as FixtureConfiguration['bmsVariant'],
+          bmsFailureMode: configuration.bmsFailureMode as FixtureConfiguration['bmsFailureMode'],
+          bmsCellCount,
+          bmsTemperatureCount,
+          bmsStateOfCharge,
+          bmsInputCurrentA,
         },
       };
     }
     default:
       throw new Error('Unknown fixture action');
   }
+}
+
+function canonicalInteger(value: unknown, label: string, minimum: number, maximum: number) {
+  if (typeof value !== 'string' || !/^(0|[1-9][0-9]*)$/.test(value)) {
+    throw new Error(`Invalid fixture configuration - missing ${label}`);
+  }
+  const parsed = Number(value);
+  if (parsed < minimum || parsed > maximum) throw new Error(`${label} must be from ${minimum} through ${maximum}`);
+  return parsed;
+}
+
+function canonicalDecimal(value: unknown, label: string, minimum: number, maximum: number) {
+  if (typeof value !== 'string' || !/^-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?$/.test(value)) {
+    throw new Error(`Invalid fixture configuration - missing ${label}`);
+  }
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed < minimum || parsed > maximum) {
+    throw new Error(`${label} must be from ${minimum} through ${maximum}`);
+  }
+  return parsed;
 }
 
 function json(value: unknown, status = 200) {

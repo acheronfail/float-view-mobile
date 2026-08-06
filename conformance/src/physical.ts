@@ -25,7 +25,15 @@ export async function runPhysicalConformance(
   fixturePath: string,
   report: Progress = (message) => process.stdout.write(`${message}\n`)
 ) {
-  const names = physicalScenarioMatrix[target.platform];
+  const matrix = physicalScenarioMatrix[target.platform];
+  const selected = process.env.FLOAT_VIEW_PHYSICAL_SCENARIOS?.split(',').filter(Boolean);
+  const names: readonly PhysicalScenarioName[] = selected?.length
+    ? selected.map((name) => {
+        if (!matrix.includes(name as never))
+          throw new Error(`Physical scenario ${name} is unavailable on ${target.platform}`);
+        return name as PhysicalScenarioName;
+      })
+    : matrix;
   const results: Array<{
     scenario: PhysicalScenarioName;
     revision: number;
@@ -110,11 +118,7 @@ async function runPhysicalScenario(
       expectedRevision: initial.settings.revision,
       patch: { minimumSessionDistance: 0, locationRecordingEnabled: false },
     });
-    await client.request('bluetooth.scan', { timeoutMs: 5_000 }, 10_000);
-    const discovered = await client.waitForState(
-      (state) => state.discoveredDevices.some((device) => device.name === scenario.board.advertisedName),
-      { afterRevision: initial.revision, timeoutMs: 15_000 }
-    );
+    const discovered = await discoverFixture(client, scenario.board.advertisedName, initial.revision);
     const device = discovered.discoveredDevices.find((candidate) => candidate.name === scenario.board.advertisedName);
     assert.ok(device, `Did not discover ${scenario.board.advertisedName}`);
     let beforeConnect = discovered;
@@ -162,13 +166,20 @@ async function runPhysicalScenario(
       });
       afterConnectRevision = selecting.revision;
     }
-    const ready = await client.waitForState(
+    let ready = await client.waitForState(
       (state) =>
         state.activeConnection?.deviceId === device.deviceId &&
         state.activeConnection.state === 'ready' &&
         state.activeConnection.firmware !== null,
       { afterRevision: afterConnectRevision, timeoutMs: 20_000 }
     );
+    if (scenario.expectedBmsConnection && ready.activeConnection?.bms.status !== 'attached') {
+      ready = await client.waitForState(
+        (state) =>
+          state.activeConnection?.deviceId === device.deviceId && state.activeConnection.bms.status === 'attached',
+        { afterRevision: ready.revision, timeoutMs: 15_000 }
+      );
+    }
     assertIdentity(ready.activeConnection!.firmware!, scenario.board, ready.activeConnection!.controllerConnection);
     const route = ready.activeConnection!.controllerConnection;
     assert.ok(route, 'Ready connection did not report its controller route');
@@ -182,6 +193,23 @@ async function runPhysicalScenario(
     }
     assert.deepEqual(ready.activeConnection!.controllerCandidates, []);
     assert.equal(ready.activeConnection!.connectionIssue, null);
+    if (scenario.expectedBmsConnection === 'direct') {
+      assert.deepEqual(ready.activeConnection!.bms.connection, { kind: 'direct' });
+    } else if (scenario.expectedBmsConnection) {
+      assert.deepEqual(ready.activeConnection!.bms.connection, {
+        kind: 'can',
+        canId: scenario.expectedBmsConnection.canId,
+      });
+    }
+    if (scenario.expectedBmsConnection) {
+      assert.equal(ready.activeConnection!.bms.status, 'attached');
+      assert.equal(
+        ready.activeConnection!.bms.latestSnapshot?.reportedCanId,
+        scenario.expectedBmsConnection === 'direct'
+          ? physicalDirectReportedCanId(scenario)
+          : scenario.expectedBmsConnection.canId
+      );
+    }
     const activeSession = ready.activeConnection?.activeSession;
     assert.ok(activeSession, 'Ready connection did not create an active provisional session');
 
@@ -246,6 +274,28 @@ async function runPhysicalScenario(
     await target.stop().catch(() => undefined);
     await runner.stop(passed);
   }
+}
+
+function physicalDirectReportedCanId(scenario: (typeof fixtureScenarios)[PhysicalScenarioName]) {
+  return scenario.board.localBms?.values.reportedCanId ?? 0;
+}
+
+async function discoverFixture(client: ConformanceClient, advertisedName: string, afterRevision: number) {
+  let latestRevision = afterRevision;
+  let lastError: unknown;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    await client.request('bluetooth.scan', { timeoutMs: 5_000 }, 10_000);
+    try {
+      return await client.waitForState(
+        (state) => state.discoveredDevices.some((device) => device.name === advertisedName),
+        { afterRevision: latestRevision, timeoutMs: 10_000 }
+      );
+    } catch (error) {
+      lastError = error;
+      latestRevision = (await client.request('state.get', {})).revision;
+    }
+  }
+  throw lastError ?? new Error(`Did not discover ${advertisedName}`);
 }
 
 async function runRide(

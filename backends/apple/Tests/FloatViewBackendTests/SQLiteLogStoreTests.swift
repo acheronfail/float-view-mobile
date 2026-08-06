@@ -897,7 +897,10 @@ private func executeSQLite(database: URL, sql: String) throws {
   _ = try store.close(jobID: session.jobID, at: .distantPast.addingTimeInterval(3), reason: "test")
 
   let catalogURL = root.appending(path: "catalog.sqlite")
-  #expect(try sqliteText(catalogURL, "SELECT profile_snapshot_json FROM session_catalog") == "{}")
+  #expect(
+    try sqliteText(catalogURL, "SELECT profile_snapshot_json FROM session_catalog")
+      == #"{"preferredBmsCanId":null}"#
+  )
   #expect(try sqliteInt(catalogURL, "SELECT profile_revision FROM session_catalog") == 0)
   #expect(try sqliteInt(catalogURL, "SELECT event_count FROM session_catalog") == 1)
   let storedSessionFile = try sqliteText(
@@ -962,13 +965,29 @@ private func executeSQLite(database: URL, sql: String) throws {
   #expect(configured.missingFields == ["seriesCount", "parallelCount", "motor"])
   #expect(try store.controllerRoutingHint(savedDeviceID: saved.savedDeviceID) == nil)
 
+  #expect(throws: ProductStoreError.invalidProfilePatch) {
+    try store.updateBoardProfile(
+      savedDeviceID: saved.savedDeviceID,
+      expectedRevision: configured.revision,
+      patchJSON: #"{"preferredBmsCanId":254}"#,
+      at: .distantPast
+    )
+  }
+  let bmsConfigured = try store.updateBoardProfile(
+    savedDeviceID: saved.savedDeviceID,
+    expectedRevision: configured.revision,
+    patchJSON: #"{"preferredBmsCanId":42}"#,
+    at: .distantPast
+  )
+  #expect(bmsConfigured.valuesJSON.contains(#""preferredBmsCanId":42"#))
+
   try store.storeControllerRoutingHint(
     .init(savedDeviceID: saved.savedDeviceID, canID: 42, controllerUUID: uuid),
     at: .distantPast
   )
   let editor = try store.updateBoardProfile(
     savedDeviceID: saved.savedDeviceID,
-    expectedRevision: configured.revision,
+    expectedRevision: bmsConfigured.revision,
     patchJSON: #"{"seriesCount":20}"#,
     at: .distantPast
   )

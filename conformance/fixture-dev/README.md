@@ -44,6 +44,13 @@ starting points for direct, single-Express, and reported multi-controller
 setups. Float View still chooses and polls only one active controller route; the
 workbench never drives that selection or reports a test result.
 
+The shared simulator in `../fixture/` also models zero, one, or multiple VBMS
+nodes independently from the controller route: direct controller plus CAN VBMS,
+Express plus CAN controller/VBMS, and direct VBMS gateway plus CAN controller.
+It owns source-faithful legacy/extended values, omitted-ping routing, timeouts,
+malformed responses, request counters, and the command-96 read-only allowlist.
+The ESP32 remains unchanged and has no VBMS scenario logic.
+
 Choose a coherent semantic scene, then optionally pin individual bounded values
 while the remaining motion continues, freeze/resume generated motion, or reset
 to the scene baseline. Connection controls can serialize a disconnect around a
@@ -66,6 +73,14 @@ This UI is for manual investigation beside a developer-operated product. The
 separate conformance runner remains the owner of scripted scenarios, assertions,
 pass/fail, and physical checkpoints. Shared protocol and semantic fixture types
 in `../fixture/` are used by both paths.
+
+In Float View, configure an ambiguous CAN VBMS with the Board Profile field
+`preferredBmsCanId` (`0...253` or clear). It does not change
+`preferredCanId` or restart the controller session. Once any VBMS identity is
+known, use the conditional BMS item in the live menu to inspect route, freshness,
+cells, balancing, temperatures, environment, counters, and optional extended
+status. Unavailable values remain visibly stale at their original observation
+time.
 
 The native backends support route-correct telemetry for direct and Express
 topologies across VESC 6.02, 6.05, 6.06, and 7.00 and the Refloat 1.0.0, 1.1.0, and

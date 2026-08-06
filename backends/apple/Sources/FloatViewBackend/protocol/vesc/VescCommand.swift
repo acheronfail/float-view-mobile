@@ -5,4 +5,5 @@ public enum VescCommand: UInt8, Sendable {
   case forwardCAN = 34
   case customAppData = 36
   case pingCAN = 62
+  case bmsGetValues = 96
 }

@@ -21,7 +21,7 @@
 
 <button
   type="button"
-  class="w-full flex flex-row items-center gap-2 touch-manipulation px-4 py-3 text-left hover:bg-surface disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-transparent"
+  class="flex w-full touch-manipulation flex-row items-center gap-2 px-4 py-3 text-left hover:bg-surface disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-transparent"
   class:text-danger={appearance === 'destructive'}
   class:text-warning={appearance === 'warning'}
   {disabled}

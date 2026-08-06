@@ -384,7 +384,8 @@ public final class LoopbackServer: @unchecked Sendable {
         )))
       case "session.list":
         guard let savedID = params["savedDeviceId"] as? String, !savedID.isEmpty,
-              let limit = (params["limit"] as? NSNumber)?.intValue, (1 ... 100).contains(limit) else {
+              let limit = (params["limit"] as? NSNumber)?.intValue, (1 ... 100).contains(limit)
+        else {
           return failure(id, .invalidRequest, "savedDeviceId and a valid session page size are required")
         }
         guard let board = try applicationService.savedDevices().first(where: { $0.savedDeviceID == savedID }) else {
@@ -734,6 +735,58 @@ public final class LoopbackServer: @unchecked Sendable {
       "controllerConnection": value.controllerRoute.map(controllerRoutePayload) ?? NSNull(),
       "controllerCandidates": value.controllerCandidates.map(controllerCandidatePayload),
       "connectionIssue": value.connectionIssue.map(connectionIssuePayload) ?? NSNull(),
+      "bms": bmsStatePayload(value.bms),
+    ]
+  }
+
+  private func bmsConnectionPayload(_ value: BmsConnection) -> [String: Any] {
+    switch value {
+    case .direct: ["kind": "direct"]
+    case let .can(canID): ["kind": "can", "canId": Int(canID)]
+    }
+  }
+
+  private func bmsStatePayload(_ value: BmsState) -> [String: Any] {
+    [
+      "status": value.status.rawValue,
+      "connection": value.connection.map(bmsConnectionPayload) ?? NSNull(),
+      "candidates": value.candidates.prefix(16).map { candidate in
+        [
+          "connection": bmsConnectionPayload(candidate.connection),
+          "hardwareName": candidate.hardwareName.map { $0 as Any } ?? NSNull(),
+          "vescVersion": candidate.vescVersion,
+        ]
+      },
+      "latestSnapshot": value.latestSnapshot.map(bmsSnapshotPayload) ?? NSNull(),
+    ]
+  }
+
+  private func bmsSnapshotPayload(_ value: BmsSnapshot) -> [String: Any] {
+    [
+      "observedAt": ISO8601DateFormatter().string(from: value.observedAt),
+      "totalVoltageV": value.totalVoltageV,
+      "chargeVoltageV": value.chargeVoltageV,
+      "inputCurrentA": value.inputCurrentA,
+      "inputIcCurrentA": value.inputICCurrentA,
+      "sessionAmpHoursAh": value.sessionAmpHoursAh,
+      "sessionWattHoursWh": value.sessionWattHoursWh,
+      "cellVoltagesV": Array(value.cellVoltagesV.prefix(50)),
+      "balancing": Array(value.balancing.prefix(50)),
+      "temperaturesC": Array(value.temperaturesC.prefix(50)),
+      "icTemperatureC": value.icTemperatureC,
+      "humiditySensorTemperatureC": value.humiditySensorTemperatureC,
+      "humidityPercent": value.humidityPercent,
+      "highestCellTemperatureC": value.highestCellTemperatureC,
+      "stateOfCharge": value.stateOfCharge,
+      "stateOfHealth": value.stateOfHealth,
+      "reportedCanId": Int(value.reportedCanID),
+      "lifetimeChargeAmpHoursAh": value.lifetimeChargeAmpHoursAh,
+      "lifetimeChargeWattHoursWh": value.lifetimeChargeWattHoursWh,
+      "lifetimeDischargeAmpHoursAh": value.lifetimeDischargeAmpHoursAh,
+      "lifetimeDischargeWattHoursWh": value.lifetimeDischargeWattHoursWh,
+      "pressurePa": value.pressurePa,
+      "dataVersion": value.dataVersion.map { Int($0) as Any } ?? NSNull(),
+      "status": value.status.flatMap { $0.utf8.count <= 40 ? $0 : nil } ?? NSNull(),
     ]
   }
 
@@ -1431,7 +1484,7 @@ private func invalidatesState(_ event: any Sendable) -> Bool {
     switch message {
     case .firmware, .currentLimits, .refloatInfo:
       return true
-    case .canDevices, .refloatTelemetryLayout, .refloatTelemetry:
+    case .canDevices, .bmsValuesPayload, .refloatTelemetryLayout, .refloatTelemetry:
       return false
     }
   }
@@ -1439,6 +1492,7 @@ private func invalidatesState(_ event: any Sendable) -> Bool {
     event is KnownDevice ||
     event is SessionRecord || event is SavedDeviceRecord || event is BoardProfileRecord ||
     event is SettingsRecord || event is LocationProviderState || event is TelemetrySample ||
+    event is BmsState || event is BmsSnapshot ||
     event is LocationUpdated || event is SessionCatalogChanged
 }
 

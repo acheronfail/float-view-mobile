@@ -62,4 +62,3 @@ While powered on, the coordinator SHALL answer the composed configuration's allo
 
 - **WHEN** automated physical conformance uses its fixture scenarios
 - **THEN** scripted telemetry and control phases, exact fixture responses, cadence assertions, safety rejections, and cleanup behavior remain deterministic
-

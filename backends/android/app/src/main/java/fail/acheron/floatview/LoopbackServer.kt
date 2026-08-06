@@ -832,6 +832,7 @@ class LoopbackServer(
                     .put("vescSupported", candidate.vescSupported)
             }),
         )
+        .put("bms", bmsState(value.bms))
         .put(
             "connectionIssue",
             value.connectionIssue?.let { issue ->
@@ -854,6 +855,53 @@ class LoopbackServer(
                     .put("batterySeriesCells", limits.batterySeriesCells ?: JSONObject.NULL)
             } ?: JSONObject.NULL,
         )
+
+    private fun bmsConnection(value: fail.acheron.floatview.backend.BmsConnection) = when (value) {
+        fail.acheron.floatview.backend.BmsConnection.Direct -> JSONObject().put("kind", "direct")
+        is fail.acheron.floatview.backend.BmsConnection.Can -> JSONObject()
+            .put("kind", "can")
+            .put("canId", value.canId)
+    }
+
+    private fun bmsState(value: fail.acheron.floatview.backend.BmsState) = JSONObject()
+        .put("status", value.status.wireValue)
+        .put("connection", value.connection?.let(::bmsConnection) ?: JSONObject.NULL)
+        .put(
+            "candidates",
+            JSONArray(value.candidates.take(16).map { candidate ->
+                JSONObject()
+                    .put("connection", bmsConnection(candidate.connection))
+                    .put("hardwareName", candidate.hardwareName ?: JSONObject.NULL)
+                    .put("vescVersion", candidate.vescVersion)
+            }),
+        )
+        .put("latestSnapshot", value.latestSnapshot?.let(::bmsSnapshot) ?: JSONObject.NULL)
+
+    private fun bmsSnapshot(value: fail.acheron.floatview.backend.BmsSnapshot) = JSONObject()
+        .put("observedAt", value.observedAt.toString())
+        .put("totalVoltageV", value.totalVoltageV)
+        .put("chargeVoltageV", value.chargeVoltageV)
+        .put("inputCurrentA", value.inputCurrentA)
+        .put("inputIcCurrentA", value.inputIcCurrentA)
+        .put("sessionAmpHoursAh", value.sessionAmpHoursAh)
+        .put("sessionWattHoursWh", value.sessionWattHoursWh)
+        .put("cellVoltagesV", JSONArray(value.cellVoltagesV.take(50)))
+        .put("balancing", JSONArray(value.balancing.take(50)))
+        .put("temperaturesC", JSONArray(value.temperaturesC.take(50)))
+        .put("icTemperatureC", value.icTemperatureC)
+        .put("humiditySensorTemperatureC", value.humiditySensorTemperatureC)
+        .put("humidityPercent", value.humidityPercent)
+        .put("highestCellTemperatureC", value.highestCellTemperatureC)
+        .put("stateOfCharge", value.stateOfCharge)
+        .put("stateOfHealth", value.stateOfHealth)
+        .put("reportedCanId", value.reportedCanId)
+        .put("lifetimeChargeAmpHoursAh", value.lifetimeChargeAmpHoursAh)
+        .put("lifetimeChargeWattHoursWh", value.lifetimeChargeWattHoursWh)
+        .put("lifetimeDischargeAmpHoursAh", value.lifetimeDischargeAmpHoursAh)
+        .put("lifetimeDischargeWattHoursWh", value.lifetimeDischargeWattHoursWh)
+        .put("pressurePa", value.pressurePa)
+        .put("dataVersion", value.dataVersion ?: JSONObject.NULL)
+        .put("status", value.status?.takeIf { it.toByteArray().size <= 40 } ?: JSONObject.NULL)
 
     private fun savedDevice(value: fail.acheron.floatview.backend.SavedDeviceRecord) = JSONObject()
         .put("savedDeviceId", value.savedDeviceId)
@@ -1325,6 +1373,8 @@ class LoopbackServer(
             this is SettingsRecord ||
             this is LocationProviderState ||
             this is TelemetrySample ||
+            this is fail.acheron.floatview.backend.BmsState ||
+            this is fail.acheron.floatview.backend.BmsSnapshot ||
             this === LocationUpdated ||
             this === SessionCatalogChanged ||
             this is VescProtocolMessage.Firmware ||

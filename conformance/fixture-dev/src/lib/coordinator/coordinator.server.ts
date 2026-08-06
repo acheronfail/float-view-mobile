@@ -3,6 +3,12 @@ import { chunks } from '../../../../fixture/runner.ts';
 import { led, type FixtureControl, type FixtureEvent } from '../../../../fixture/serial.ts';
 import { VescSimulator, type FixtureRequestAttempt, type RecordedRequest } from '../../../../fixture/simulator.ts';
 import {
+  encodeVbms32FirmwarePayload,
+  InteractiveBmsSource,
+  typicalBmsValues,
+  type BmsConfiguration,
+} from '../../../../fixture/bms.ts';
+import {
   idleTelemetry,
   InteractiveTelemetrySource,
   telemetryScenes,
@@ -20,7 +26,9 @@ import {
 } from '../contract.ts';
 import {
   availableTelemetryFields,
+  defaultBmsNode,
   parseScenarioDocument,
+  privateBmsIdentity,
   privateControllerIdentity,
   scenarioTemplate,
 } from './scenario-document.server.ts';
@@ -64,6 +72,14 @@ export class FixtureCoordinator {
       canId: 1,
       firmware: '6.06',
       refloat: '1.2.3',
+      bmsTopology: 'none',
+      bmsCanId: 42,
+      bmsVariant: 'extended',
+      bmsFailureMode: 'none',
+      bmsCellCount: 18,
+      bmsTemperatureCount: 4,
+      bmsStateOfCharge: 0.8,
+      bmsInputCurrentA: -4,
     },
     scenario: scenarioTemplate('singleExpress'),
     frozen: false,
@@ -72,7 +88,7 @@ export class FixtureCoordinator {
     power: 'off',
     ble: 'unavailable',
     ride: 'idle',
-    counters: { writes: 0, responses: 0, telemetry: 0, dropped: 0 },
+    counters: { writes: 0, responses: 0, telemetry: 0, bms: 0, dropped: 0 },
     diagnostics: [],
   };
 
@@ -286,6 +302,20 @@ export class FixtureCoordinator {
       firmware: configuration.firmware,
       refloat: configuration.refloat,
     };
+    if (configuration.bmsTopology !== 'none') {
+      const node = defaultBmsNode(configuration.bmsTopology === 'direct' ? 'direct' : 'can', configuration.bmsCanId);
+      node.variant = configuration.bmsVariant;
+      node.failureMode = configuration.bmsFailureMode;
+      node.cellCount = configuration.bmsCellCount;
+      node.temperatureCount = configuration.bmsTemperatureCount;
+      node.stateOfCharge = configuration.bmsStateOfCharge;
+      node.inputCurrentA = configuration.bmsInputCurrentA;
+      next.bmsNodes = [node];
+      if (configuration.bmsTopology === 'direct') {
+        next.topology = 'express';
+        next.controllers[0]!.pingVisible = true;
+      }
+    }
     this.applyScenario(next);
   }
 
@@ -299,16 +329,10 @@ export class FixtureCoordinator {
     for (const [field, value] of Object.entries(validated.overrides)) {
       this.telemetry.pin(field as keyof TelemetrySample, value as never);
     }
-    const primary = validated.controllers[0]!;
     this.state = {
       ...this.state,
       revision: this.state.revision + 1,
-      configuration: {
-        topology: validated.topology,
-        canId: primary.canId,
-        firmware: primary.firmware,
-        refloat: primary.refloat,
-      },
+      configuration: configurationFrom(validated),
       scenario: structuredClone(validated),
       ride: this.telemetry.phase(),
       telemetry: this.telemetry.lastSample(),
@@ -317,7 +341,7 @@ export class FixtureCoordinator {
       availableFields: this.resolvedAvailableFields(validated),
       lastAttempt: undefined,
       lastRequest: undefined,
-      counters: { writes: 0, responses: 0, telemetry: 0, dropped: 0 },
+      counters: { writes: 0, responses: 0, telemetry: 0, bms: 0, dropped: 0 },
       diagnostics: [],
     };
     this.simulator = this.createSimulator();
@@ -408,12 +432,7 @@ export class FixtureCoordinator {
     if (active) await this.requireFixture().command('ADVERTISE');
     this.update({
       scenario: structuredClone(validated),
-      configuration: {
-        topology: validated.topology,
-        canId: validated.controllers[0]!.canId,
-        firmware: validated.controllers[0]!.firmware,
-        refloat: validated.controllers[0]!.refloat,
-      },
+      configuration: configurationFrom(validated),
       availableFields: this.resolvedAvailableFields(validated),
       ble: active ? 'advertising' : this.state.ble,
     });
@@ -524,6 +543,7 @@ export class FixtureCoordinator {
             this.increment('telemetry');
             this.update({ telemetry: this.telemetry.lastSample() });
           }
+          if (response.request.kind === 'bms-values') this.increment('bms');
         }
         break;
       }
@@ -593,6 +613,36 @@ export class FixtureCoordinator {
   }
 
   private createSimulator() {
+    const bmsConfigurations = this.state.scenario.bmsNodes.map((node): BmsConfiguration => {
+      const source = new InteractiveBmsSource({
+        seed: node.seed,
+        cellCount: node.cellCount,
+        temperatureCount: node.temperatureCount,
+        stateOfCharge: node.stateOfCharge,
+        inputCurrentA: node.inputCurrentA,
+        reportedCanId: node.canId,
+      });
+      return {
+        ...(node.route === 'can' ? { canId: node.canId } : {}),
+        firmware: {
+          major: 6,
+          minor: 6,
+          hardwareName: 'VBMS32',
+          hardwareType: 2,
+          payload: encodeVbms32FirmwarePayload(
+            Uint8Array.from(privateBmsIdentity(this.state.scenario, node.alias).slice(0, 6))
+          ),
+        },
+        values: { ...typicalBmsValues, reportedCanId: node.canId },
+        valuesSource: source,
+        tail:
+          node.variant === 'legacy' ? { kind: 'legacy' } : { kind: 'extended', dataVersion: 1, status: node.status },
+        pingVisible: node.pingVisible,
+        failureMode: node.failureMode,
+      };
+    });
+    const localBms = bmsConfigurations.find((_, index) => this.state.scenario.bmsNodes[index]?.route === 'direct');
+    const canBms = bmsConfigurations.filter((_, index) => this.state.scenario.bmsNodes[index]?.route === 'can');
     return new VescSimulator(
       composeInteractiveBoard({
         advertisedName: this.state.scenario.advertisedName,
@@ -601,14 +651,18 @@ export class FixtureCoordinator {
           ...item,
           uuid: privateControllerIdentity(this.state.scenario, item.alias),
         })),
-        canPingIds:
-          this.state.scenario.topology === 'express'
-            ? [
-                ...this.state.scenario.discoveredCanIds,
-                ...this.state.scenario.controllers.filter((item) => item.pingVisible).map((item) => item.canId),
-              ]
-            : [],
+        canPingIds: [
+          ...this.state.scenario.discoveredCanIds,
+          ...(this.state.scenario.topology === 'express'
+            ? this.state.scenario.controllers.filter((item) => item.pingVisible).map((item) => item.canId)
+            : []),
+          ...this.state.scenario.bmsNodes
+            .filter((item) => item.route === 'can' && item.pingVisible)
+            .map((item) => item.canId),
+        ],
         telemetry: this.telemetry,
+        localBms,
+        bmsNodes: canBms,
       })
     );
   }
@@ -746,6 +800,39 @@ function validateConfiguration(configuration: FixtureConfiguration) {
   if (!Number.isInteger(configuration.canId) || configuration.canId < 0 || configuration.canId > 253) {
     throw new Error('CAN ID must be an integer from 0 through 253');
   }
+  const scenario = scenarioTemplate(configuration.topology === 'direct' ? 'direct' : 'singleExpress');
+  scenario.controllers[0]!.canId = configuration.canId;
+  if (configuration.bmsTopology !== 'none') {
+    const node = defaultBmsNode(configuration.bmsTopology === 'direct' ? 'direct' : 'can', configuration.bmsCanId);
+    node.variant = configuration.bmsVariant;
+    node.failureMode = configuration.bmsFailureMode;
+    node.cellCount = configuration.bmsCellCount;
+    node.temperatureCount = configuration.bmsTemperatureCount;
+    node.stateOfCharge = configuration.bmsStateOfCharge;
+    node.inputCurrentA = configuration.bmsInputCurrentA;
+    scenario.bmsNodes = [node];
+    if (configuration.bmsTopology === 'direct') scenario.topology = 'express';
+  }
+  parseScenarioDocument(scenario);
+}
+
+function configurationFrom(scenario: FixtureSnapshot['scenario']): FixtureConfiguration {
+  const primary = scenario.controllers[0]!;
+  const bms = scenario.bmsNodes[0];
+  return {
+    topology: scenario.topology,
+    canId: primary.canId,
+    firmware: primary.firmware,
+    refloat: primary.refloat,
+    bmsTopology: bms?.route ?? 'none',
+    bmsCanId: bms?.canId ?? 42,
+    bmsVariant: bms?.variant ?? 'extended',
+    bmsFailureMode: bms?.failureMode ?? 'none',
+    bmsCellCount: bms?.cellCount ?? 18,
+    bmsTemperatureCount: bms?.temperatureCount ?? 4,
+    bmsStateOfCharge: bms?.stateOfCharge ?? 0.8,
+    bmsInputCurrentA: bms?.inputCurrentA ?? -4,
+  };
 }
 
 function idleTelemetrySnapshot() {

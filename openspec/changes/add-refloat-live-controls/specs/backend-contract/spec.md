@@ -68,4 +68,3 @@ Every supported backend SHALL implement the WebSocket control methods `state.get
 
 - **WHEN** an accepted action cannot obtain its required bounded response or confirmation
 - **THEN** the backend returns `unavailable`, clears `pendingAction`, and retains the last confirmed values
-

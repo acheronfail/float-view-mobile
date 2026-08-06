@@ -85,6 +85,24 @@ import Testing
   }
 }
 
+@Test func controllerDiscoveryPublishesCompleteClassifiedInventory() {
+  let discovery = ControllerDiscovery()
+  let continuity = ControllerContinuity(hasActiveSession: false, route: nil, controllerUUID: nil)
+  #expect(discovery.acceptTransport(
+    firmware(hardwareType: 2), preferredCanID: nil, routingHint: nil
+  ) == .pingCAN)
+  #expect(discovery.acceptCANIDs([7, 4], continuity: continuity) == .probeFirmware(.can(4)))
+  #expect(discovery.acceptCANFirmware(
+    firmware(hardwareType: 1, canID: 4, minor: 0), continuity: continuity
+  ) == .probeFirmware(.can(7)))
+  #expect(discovery.acceptCANFirmware(
+    firmware(hardwareType: 0, canID: 7), continuity: continuity
+  ) == .requestRefloatInfo(route: .can(7), rememberController: firmware(hardwareType: 0, canID: 7)))
+  #expect(discovery.inventoryComplete)
+  #expect(discovery.classifiedInventory.map(\.canID) == [nil, 4, 7])
+  #expect(discovery.classifiedInventory.map(\.hardwareType) == [2, 1, 0])
+}
+
 private struct DiscoveryVector {
   let name: String
   let transportHardwareType: UInt8

@@ -17,6 +17,7 @@ package sources, for example:
 - <https://github.com/lukash/refloat>
 - <https://github.com/vedderb/vesc_tool>
 - <https://github.com/vedderb/vesc_bms_fw>
+- <https://github.com/vedderb/vesc_express>
 - <https://github.com/acheronfail/float-view>
 
 ## Contract and ownership

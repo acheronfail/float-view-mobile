@@ -1,8 +1,11 @@
 # saved-board-session-history Specification
 
 ## Purpose
+
 TBD - created by archiving change saved-board-sessions-and-guest-mode. Update Purpose after archive.
+
 ## Requirements
+
 ### Requirement: Sessions is the saved-board index
 
 The Sessions route SHALL show only the user's saved boards, using bounded board identity and derived history summary data. It MUST NOT show a global `All sessions` list, a second session sub-tab, or an unscoped date-grouped session feed. An empty saved-board collection SHALL explain that saving a board is required for session history.
@@ -193,4 +196,3 @@ Board summaries and board-scoped session lists SHALL be derived from the existin
 
 - **WHEN** a board-history cursor no longer matches the catalog revision or board filter
 - **THEN** the backend returns the standard bounded conflict and the frontend restarts that board's first page
-

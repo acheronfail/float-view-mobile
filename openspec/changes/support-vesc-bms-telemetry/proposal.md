@@ -4,7 +4,7 @@ Float View can identify and poll a motor controller but cannot discover a VESC B
 
 ## What Changes
 
-- Classify the local VESC endpoint and bounded CAN inventory by hardware type, retaining `HW_TYPE_VESC_BMS` nodes independently from the selected motor controller.
+- Classify the local VESC endpoint and bounded CAN inventory by an exact audited BMS compatibility catalog, retaining stock `HW_TYPE_VESC_BMS` 6.00 and VESC Express `VBMS32` `HW_TYPE_CUSTOM_MODULE` 6.06 nodes independently from the selected motor controller.
 - Add an auxiliary direct-or-CAN BMS route, authoritative `preferredBmsCanId` Board Profile setting, and deterministic handling for absent, unique, configured, timed-out, malformed, and multiple VBMS nodes.
 - Query a selected VBMS directly with `COMM_BMS_GET_VALUES`, decode bounded cell, balancing, temperature, charge, health, environmental, lifetime, version, and status values, and poll it on the serialized VESC request stream at a slow cadence.
 - Publish complete live-only BMS state and freshness through the shared frontend contract without persisting BMS samples into sessions, diagnostics, or exports.
@@ -12,7 +12,7 @@ Float View can identify and poll a motor controller but cannot discover a VESC B
 - Extend the conformance simulator and interactive fixture with source-faithful direct and CAN-routed VBMS identities and values, multiple-node ambiguity, configured routing, timeouts, malformed bounds, reconnect, and disconnect cases.
 - Keep controller discovery, Refloat telemetry, session creation, riding continuity, and connection `ready` independent of BMS discovery or failure.
 
-Non-goals are historical BMS storage or export, BMS configuration or mutation commands, support for non-VESC BMS protocols, automatic selection among multiple unconfigured VBMS nodes, and using a controller-cached BMS response as proof of attachment.
+Non-goals are historical BMS storage or export, BMS configuration or mutation commands, support for non-VESC BMS protocols or arbitrary custom modules, automatic selection among multiple unconfigured VBMS nodes, accepting unaudited VESC Express 7.00 identities, and using a controller-cached BMS response as proof of attachment.
 
 ## Capabilities
 

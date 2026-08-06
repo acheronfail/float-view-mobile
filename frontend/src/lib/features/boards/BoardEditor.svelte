@@ -22,6 +22,7 @@
   let parallelCount = $state<number | undefined>();
   let motor = $state('');
   let preferredCanId = $state<number | undefined>();
+  let preferredBmsCanId = $state<number | undefined>();
   const appHeader = getContext<AppHeaderContext>(APP_HEADER_CONTEXT);
   const headerOwner = '/sessions/boards/[savedDeviceId]';
   const saveQueue = new SerialSaveQueue();
@@ -58,6 +59,7 @@
       parallelCount = typeof values?.parallelCount === 'number' ? values.parallelCount : undefined;
       motor = typeof values?.motor === 'string' ? values.motor : '';
       preferredCanId = typeof values?.preferredCanId === 'number' ? values.preferredCanId : undefined;
+      preferredBmsCanId = typeof values?.preferredBmsCanId === 'number' ? values.preferredBmsCanId : undefined;
     });
     return () => {
       active = false;
@@ -103,6 +105,28 @@
           placeholder={device.advertisedName ?? device.bluetoothIdentifier ?? 'Board'}
           onblur={saveName}
         />
+      </label>
+      <label class="text-sm sm:col-span-2">
+        <span class="mb-1 block text-muted">Preferred BMS CAN ID (optional)</span>
+        <input
+          class="w-full rounded-md border border-outline bg-elevated px-3 py-2"
+          type="number"
+          min="0"
+          max="253"
+          inputmode="numeric"
+          bind:value={preferredBmsCanId}
+          aria-describedby="preferred-bms-can-help"
+          onblur={() => {
+            if (preferredBmsCanId === undefined) saveProfile({ preferredBmsCanId: null });
+            else if (validPreferredCanId(preferredBmsCanId)) saveProfile({ preferredBmsCanId });
+          }}
+        />
+        <span id="preferred-bms-can-help" class="mt-1 block text-xs text-muted">
+          Applies immediately to BMS discovery only. Leave blank to resume automatic BMS selection.
+        </span>
+        {#if preferredBmsCanId !== undefined && !validPreferredCanId(preferredBmsCanId)}
+          <span role="alert" class="mt-1 block text-xs text-warning"> Enter a whole CAN ID from 0 to 253. </span>
+        {/if}
       </label>
       <label class="text-sm sm:col-span-2">
         <span class="mb-1 block text-muted">Preferred CAN ID (optional)</span>

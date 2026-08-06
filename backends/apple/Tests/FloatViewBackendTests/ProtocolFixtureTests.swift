@@ -26,6 +26,15 @@ private struct RefloatSourceFixture: Decodable {
   let cases: [Case]
 }
 
+private struct BmsSourceFixture: Decodable {
+  struct Case: Decodable {
+    let name: String
+    let payloadHex: String
+  }
+
+  let cases: [Case]
+}
+
 private func fixture(_ relativePath: String) throws -> Fixture {
   var root = URL(fileURLWithPath: #filePath)
   for _ in 0 ..< 4 {
@@ -54,6 +63,36 @@ private func refloatSourcePayload(_ name: String) throws -> [UInt8] {
   )
   let fixture = try JSONDecoder().decode(RefloatSourceFixture.self, from: data)
   return try bytes(#require(fixture.cases.first { $0.name == name }).payloadHex)
+}
+
+private func bmsSourcePayload(_ name: String) throws -> [UInt8] {
+  var root = URL(fileURLWithPath: #filePath)
+  for _ in 0 ..< 4 {
+    root.deleteLastPathComponent()
+  }
+  let data = try Data(contentsOf: root.appending(path: "fixtures/vesc-bms/source-derived.json"))
+  let fixture = try JSONDecoder().decode(BmsSourceFixture.self, from: data)
+  return try bytes(#require(fixture.cases.first { $0.name == name }).payloadHex)
+}
+
+private func boundedBmsPayload(
+  cells: Int, temperatures: Int, dataVersion: UInt8? = nil, status: [UInt8] = []
+) -> [UInt8] {
+  var payload = [UInt8(96)] + Array(repeating: 0, count: 24)
+  payload.append(UInt8(cells))
+  payload += Array(repeating: 0, count: cells * 2)
+  payload += Array(repeating: 0, count: cells)
+  payload.append(UInt8(temperatures))
+  payload += Array(repeating: 0, count: temperatures * 2)
+  payload += Array(repeating: 0, count: 12)
+  payload.append(42)
+  payload += Array(repeating: 0, count: 18)
+  if let dataVersion {
+    payload.append(dataVersion)
+    payload += status
+    payload.append(0)
+  }
+  return payload
 }
 
 private func bytes(_ hex: String) -> [UInt8] {
@@ -265,7 +304,7 @@ private func bytes(_ hex: String) -> [UInt8] {
   #expect(try truncated.append(shortFrame.suffix(1)) == [[0, 6, 6, 0]])
 }
 
-@Test func canDiscoveryAndForwardedFirmwarePreserveCanIdentity() throws {
+@Test func protocolDecodingLeavesFirmwareRouteAttributionToScheduler() throws {
   let service = VescProtocolService()
   #expect(try VescFrameCodec.decode(Array(service.canPingRequest())) == [62])
   #expect(
@@ -288,7 +327,7 @@ private func bytes(_ hex: String) -> [UInt8] {
           hardwareName: "THOR300",
           firmwareName: nil,
           hardwareType: 0,
-          canID: 42,
+          canID: nil,
           controllerUUID: Data(repeating: 0, count: 12)
         )
       )
@@ -301,6 +340,127 @@ private func bytes(_ hex: String) -> [UInt8] {
     try service.receive(Data(VescFrameCodec.encode([36, 101, 0, 12])))
       == [.refloatInfo(version: "1.2")]
   )
+}
+
+@Test func bmsValuesRequestsUseExactDirectAndCANRoutes() throws {
+  let service = VescProtocolService()
+  #expect(try VescFrameCodec.decode(Array(service.bmsValuesRequest(connection: .direct))) == [96])
+  #expect(try VescFrameCodec.decode(Array(service.bmsValuesRequest(connection: .can(42)))) == [34, 42, 96])
+}
+
+@Test func firmwareIdentityUsesStrictHardwareSpecificTails() throws {
+  let vbms = [UInt8(0), 6, 0] + Array("VBMS".utf8) + [0] +
+    Array(repeating: UInt8(7), count: 12) + [0, 0, 1, 1]
+  let decoded = try VescPayloadDecoder.firmware(vbms)
+  #expect(decoded.hardwareType == 1)
+  #expect(decoded.firmwareName == nil)
+  #expect(decoded.controllerUUID == Data(repeating: 7, count: 12))
+  #expect(throws: VescProtocolError.self) { try VescPayloadDecoder.firmware(vbms + [0]) }
+  var wrongVersion = vbms
+  wrongVersion[2] = 1
+  #expect(throws: VescProtocolError.self) { try VescPayloadDecoder.firmware(wrongVersion) }
+}
+
+@Test func sourceDerivedVBMSFirmwareAndValuesDecodeExactly() throws {
+  let firmware = try VescPayloadDecoder.firmware(bmsSourcePayload("vbms-firmware-6.00"))
+  #expect(firmware.major == 6)
+  #expect(firmware.minor == 0)
+  #expect(firmware.hardwareName == "VBMS")
+  #expect(firmware.hardwareType == 1)
+
+  let vbms32 = try VescPayloadDecoder.firmware(bmsSourcePayload("vbms32-firmware-6.06"))
+  #expect(vbms32.major == 6)
+  #expect(vbms32.minor == 6)
+  #expect(vbms32.hardwareName == "VBMS32")
+  #expect(vbms32.hardwareType == 2)
+  #expect(vbms32.firmwareName == nil)
+
+  let observedAt = Date(timeIntervalSince1970: 1234)
+  let legacy = try VescPayloadDecoder.bmsValues(
+    bmsSourcePayload("vbms-values-legacy-typical"), expectedCanID: 42,
+    observedAt: observedAt
+  )
+  #expect(legacy.observedAt == observedAt)
+  #expect(legacy.totalVoltageV == 50.4)
+  #expect(legacy.chargeVoltageV == 54.6)
+  #expect(legacy.inputCurrentA == -12.345)
+  #expect(legacy.inputICCurrentA == -12.3)
+  #expect(legacy.sessionAmpHoursAh == 1.25)
+  #expect(legacy.sessionWattHoursWh == 62.5)
+  #expect(legacy.cellVoltagesV == [4.2, 4.19, 4.18])
+  #expect(legacy.balancing == [true, false, true])
+  #expect(legacy.temperaturesC == [25.5, 26.25])
+  #expect(legacy.reportedCanID == 42)
+  #expect(abs(legacy.pressurePa - 101_320) < 0.001)
+  #expect(legacy.dataVersion == nil)
+  #expect(legacy.status == nil)
+
+  let extended = try VescPayloadDecoder.bmsValues(
+    bmsSourcePayload("vbms-values-extended-typical"), expectedCanID: 42,
+    observedAt: observedAt
+  )
+  #expect(extended.dataVersion == 1)
+  #expect(extended.status == "OK")
+}
+
+@Test func bmsValuesAcceptExactMinimumAndMaximumBounds() throws {
+  let observedAt = Date(timeIntervalSince1970: 0)
+  let minimum = try VescPayloadDecoder.bmsValues(
+    boundedBmsPayload(cells: 0, temperatures: 0), expectedCanID: 42,
+    observedAt: observedAt
+  )
+  #expect(minimum.cellVoltagesV.isEmpty)
+  #expect(minimum.temperaturesC.isEmpty)
+
+  let maximumStatus = Array(repeating: UInt8(ascii: "A"), count: 40)
+  let maximum = try VescPayloadDecoder.bmsValues(
+    boundedBmsPayload(
+      cells: 50, temperatures: 50, dataVersion: 255, status: maximumStatus
+    ),
+    expectedCanID: 42, observedAt: observedAt
+  )
+  #expect(maximum.cellVoltagesV.count == 50)
+  #expect(maximum.balancing.count == 50)
+  #expect(maximum.temperaturesC.count == 50)
+  #expect(maximum.status?.utf8.count == 40)
+}
+
+@Test func malformedBmsValuesNeverPublishPartialSnapshots() throws {
+  let observedAt = Date(timeIntervalSince1970: 0)
+  let legacy = try bmsSourcePayload("vbms-values-legacy-typical")
+  for length in 0 ..< legacy.count {
+    #expect(throws: VescProtocolError.self) {
+      try VescPayloadDecoder.bmsValues(
+        Array(legacy.prefix(length)), expectedCanID: 42, observedAt: observedAt
+      )
+    }
+  }
+
+  var excessiveCells = legacy
+  excessiveCells[25] = 51
+  var excessiveTemperatures = legacy
+  excessiveTemperatures[35] = 51
+  var invalidBalancing = legacy
+  invalidBalancing[32] = 2
+  var nonFiniteAutoFloat = legacy
+  nonFiniteAutoFloat.replaceSubrange(53 ... 56, with: [0x7F, 0xFF, 0xFF, 0xFF])
+  let missingStatusTerminator: [UInt8] = legacy + [1]
+  let oversizedStatus: [UInt8] =
+    legacy + [1] + Array(repeating: UInt8(ascii: "A"), count: 41) + [0]
+  let invalidUTF8: [UInt8] = legacy + [1, 0xFF, 0]
+  let unexpectedRemainder: [UInt8] = legacy + [1, UInt8(ascii: "O"), 0, 0]
+  let malformed: [[UInt8]] = [
+    excessiveCells, excessiveTemperatures, invalidBalancing, nonFiniteAutoFloat,
+    missingStatusTerminator, oversizedStatus, invalidUTF8, unexpectedRemainder,
+  ]
+  for payload in malformed {
+    #expect(throws: VescProtocolError.self) {
+      try VescPayloadDecoder.bmsValues(payload, expectedCanID: 42, observedAt: observedAt)
+    }
+  }
+  #expect(throws: VescProtocolError.self) {
+    try VescPayloadDecoder.bmsValues(legacy, expectedCanID: 41, observedAt: observedAt)
+  }
 }
 
 @Test func exactCompatibilityCatalogsAndLegacyWireIdentityAreStable() throws {
@@ -435,6 +595,25 @@ private func bytes(_ hex: String) -> [UInt8] {
     return
   }
   #expect(value.rideState == .riding)
+
+  let ping = try #require(peripheral.response(to: service.canPingRequest()))
+  #expect(try service.receive(ping) == [.canDevices([42])])
+
+  let identityResponse = try #require(peripheral.response(to: service.firmwareRequest(route: .can(42))))
+  guard case let .firmware(identity) = try #require(service.receive(identityResponse).first) else {
+    Issue.record("Expected software peripheral VBMS identity")
+    return
+  }
+  #expect(identity.hardwareType == VescFirmwareIdentityDecoder.bmsHardwareType)
+
+  let valuesResponse = try #require(peripheral.response(to: service.bmsValuesRequest(connection: .can(42))))
+  guard case let .bmsValuesPayload(payload) = try #require(service.receive(valuesResponse).first) else {
+    Issue.record("Expected software peripheral VBMS values")
+    return
+  }
+  let snapshot = try VescPayloadDecoder.bmsValues(Array(payload), expectedCanID: 42, observedAt: .distantPast)
+  #expect(snapshot.reportedCanID == 42)
+  #expect(snapshot.status == "OK")
 }
 
 @Test func androidHardwareRefloatCaptureDecodesAcrossNotificationChunks() throws {

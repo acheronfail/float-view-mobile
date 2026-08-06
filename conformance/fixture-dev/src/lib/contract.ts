@@ -2,6 +2,7 @@ import type { FirmwareVersion } from '../../../fixture/firmware.ts';
 import type { RefloatVersion } from '../../../fixture/refloat.ts';
 import type { TelemetrySample, TelemetryScene } from '../../../fixture/telemetry.ts';
 import type { FixtureTopology } from '../../../fixture/topology.ts';
+import type { BmsFailureMode } from '../../../fixture/bms.ts';
 
 export const FIXTURE_DEV_ORIGIN = 'http://127.0.0.1:11004';
 export const FIXTURE_DEV_PORT = 11004;
@@ -11,6 +12,31 @@ export interface FixtureConfiguration {
   canId: number;
   firmware: FirmwareVersion;
   refloat: RefloatVersion;
+  bmsTopology: BmsTopology;
+  bmsCanId: number;
+  bmsVariant: 'legacy' | 'extended';
+  bmsFailureMode: BmsFailureMode;
+  bmsCellCount: number;
+  bmsTemperatureCount: number;
+  bmsStateOfCharge: number;
+  bmsInputCurrentA: number;
+}
+
+export type BmsTopology = 'none' | 'can' | 'direct';
+
+export interface ScenarioBmsNode {
+  alias: string;
+  route: 'direct' | 'can';
+  canId: number;
+  pingVisible: boolean;
+  variant: 'legacy' | 'extended';
+  status: string;
+  failureMode: BmsFailureMode;
+  seed: number;
+  cellCount: number;
+  temperatureCount: number;
+  stateOfCharge: number;
+  inputCurrentA: number;
 }
 
 export interface ScenarioController {
@@ -28,12 +54,13 @@ export interface FixtureScenarioDocument {
   topology: FixtureTopology;
   fragmentBytes: number;
   controllers: ScenarioController[];
+  bmsNodes: ScenarioBmsNode[];
   discoveredCanIds: number[];
   scene: TelemetryScene;
   overrides: Partial<TelemetrySample>;
 }
 
-export type ScenarioTemplate = 'direct' | 'singleExpress' | 'reportedMultiController';
+export type ScenarioTemplate = 'direct' | 'singleExpress' | 'reportedMultiController' | 'directVbms';
 
 export interface LastFixtureRequest {
   kind: string;
@@ -62,6 +89,7 @@ export interface FixtureCounters {
   writes: number;
   responses: number;
   telemetry: number;
+  bms: number;
   dropped: number;
 }
 
@@ -123,8 +151,10 @@ export const refloatOptions: readonly RefloatVersion[] = [
   '1.2.3',
 ];
 export const topologyOptions: readonly FixtureTopology[] = ['direct', 'express'];
+export const bmsTopologyOptions: readonly BmsTopology[] = ['none', 'can', 'direct'];
 export const scenarioTemplateOptions: readonly ScenarioTemplate[] = [
   'direct',
   'singleExpress',
   'reportedMultiController',
+  'directVbms',
 ];

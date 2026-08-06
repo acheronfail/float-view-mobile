@@ -1,17 +1,17 @@
 ## ADDED Requirements
 
-### Requirement: Hardware-typed auxiliary-node discovery
+### Requirement: Audited auxiliary-node compatibility discovery
 
-The native backend SHALL classify every structurally valid local and probed CAN firmware identity by upstream VESC hardware type, retain `HW_TYPE_VESC_BMS` candidates independently from motor-controller candidates, and bound one generation to 64 normalized CAN IDs and 16 VBMS candidates. BMS discovery or failure MUST NOT delay controller readiness, prevent session creation, interrupt controller polling, or change controller continuity decisions.
+The native backend SHALL classify every structurally valid local and probed CAN firmware identity and retain BMS candidates only when they match the exact audited compatibility catalog: stock `HW_TYPE_VESC_BMS` version 6.00, or hardware name `VBMS32`, `HW_TYPE_CUSTOM_MODULE`, version 6.06. Arbitrary custom modules and unaudited versions MUST NOT become BMS candidates. One generation SHALL remain bounded to 64 normalized CAN IDs and 16 BMS candidates. BMS discovery or failure MUST NOT delay controller readiness, prevent session creation, interrupt controller polling, or change controller continuity decisions.
 
 #### Scenario: Direct motor controller with CAN BMS
 
-- **WHEN** the BLE endpoint identifies as `HW_TYPE_VESC` and its CAN network contains one valid `HW_TYPE_VESC_BMS` node
+- **WHEN** the BLE endpoint identifies as `HW_TYPE_VESC` and its CAN network contains one exact supported stock VESC BMS or VBMS32 node
 - **THEN** the controller can become ready directly while a bounded auxiliary pass discovers the CAN-routed VBMS independently
 
 #### Scenario: Direct VBMS gateway
 
-- **WHEN** the BLE endpoint identifies as `HW_TYPE_VESC_BMS` and its CAN network contains one supported motor controller
+- **WHEN** the BLE endpoint identifies as an exact supported stock VESC BMS or VBMS32 and its CAN network contains one supported motor controller
 - **THEN** the backend retains a direct BMS candidate and continues controller discovery through CAN without treating the VBMS as the motor controller
 
 #### Scenario: Reused complete inventory
@@ -50,7 +50,7 @@ The backend SHALL select a directly connected local VBMS, an exact configured CA
 
 #### Scenario: Preferred BMS unavailable
 
-- **WHEN** the configured BMS route times out, returns malformed firmware, or identifies as a non-BMS hardware type
+- **WHEN** the configured BMS route times out, returns malformed firmware, or does not match an exact supported BMS compatibility entry
 - **THEN** BMS state becomes `unavailable` and the backend does not fall back to another discovered BMS or affect controller readiness
 
 #### Scenario: Active preference change
@@ -60,12 +60,22 @@ The backend SHALL select a directly connected local VBMS, an exact configured CA
 
 ### Requirement: Hardware-specific firmware identity parsing
 
-The firmware decoder SHALL parse one bounded common identity prefix and apply exact hardware-specific tails. A motor-controller identity SHALL retain its existing audited flags, firmware-name, and optional-CRC requirements; a supported VBMS identity SHALL end after its common prefix and custom-configuration count; and a malformed or unexpected remainder MUST NOT be classified as a valid BMS.
+The firmware decoder SHALL parse one bounded common identity prefix and apply exact wire-layout tails. A motor-controller or VESC Express custom-module identity SHALL retain its audited flags, firmware-name, and optional-CRC requirements; a supported stock VESC BMS identity SHALL end after its common prefix and custom-configuration count; and a malformed or unexpected remainder MUST NOT be classified as a valid BMS. Auxiliary discovery SHALL apply the exact compatibility catalog after structural decoding.
 
 #### Scenario: Source-faithful VBMS identity
 
 - **WHEN** firmware version 6.00 reports a bounded hardware name, 12-byte UUID, pairing marker, test version, `HW_TYPE_VESC_BMS`, and custom-configuration count with no remainder
 - **THEN** the decoder classifies it as a VBMS without requiring motor-only flags or a firmware name
+
+#### Scenario: Source-faithful VBMS32 identity
+
+- **WHEN** firmware version 6.06 reports hardware name `VBMS32`, `HW_TYPE_CUSTOM_MODULE`, the VESC Express capability bytes, terminated firmware name, and hardware CRC tail
+- **THEN** the decoder structurally accepts the custom-module identity and auxiliary discovery classifies only that exact audited tuple as a BMS
+
+#### Scenario: Unlisted custom module or version
+
+- **WHEN** a structurally valid custom module has another hardware name or version, including VBMS32 version 7.00
+- **THEN** it remains usable only for generic gateway inventory and is not selected or polled as a BMS
 
 #### Scenario: Motor identity remains strict
 

@@ -54,4 +54,12 @@ See `conformance/fixture-dev/README.md` for compatibility and ownership details.
 `just verify` is the software gate. Physical BLE conformance is intentionally a
 separate checkpoint because it requires a flashed ESP32 and real target devices.
 macOS runs identity, ride, and reconnect scenarios; Android and iOS additionally
-run mobile background-continuity coverage.
+run mobile background-continuity coverage. VBMS physical checks cover each
+available direct-controller/CAN-VBMS, Express/controller/VBMS, and direct-VBMS
+gateway topology; unavailable hardware combinations are recorded rather than
+replaced with weaker software coverage.
+
+Supported BMS identities are deliberately exact: stock VESC BMS 6.00/type 1
+and VESC Express `VBMS32` 6.06/type 2. See `backends/README.md` for the
+compatibility and future-version audit policy and `conformance/physical-checkpoints/`
+for retained hardware observations.

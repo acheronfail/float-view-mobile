@@ -16,14 +16,23 @@ test('action handler authorizes and atomically applies canonical configuration t
         canId: '42',
         firmware: '6.05',
         refloat: '1.1.0',
+        bmsTopology: 'can',
+        bmsCanId: '43',
+        bmsVariant: 'extended',
+        bmsFailureMode: 'none',
+        bmsCellCount: '15',
+        bmsTemperatureCount: '3',
+        bmsStateOfCharge: '0.72',
+        bmsInputCurrentA: '-4.5',
       },
     }),
     coordinator,
     token
   );
   assert.equal(response.status, 200);
-  const value = (await response.json()) as { configuration: { canId: number } };
+  const value = (await response.json()) as { configuration: { canId: number; bmsCanId: number } };
   assert.equal(value.configuration.canId, 42);
+  assert.equal(value.configuration.bmsCanId, 43);
 });
 
 test('action handler rejects origin, token, oversized, and noncanonical CAN values', async () => {
@@ -35,6 +44,14 @@ test('action handler rejects origin, token, oversized, and noncanonical CAN valu
       canId: '1',
       firmware: '6.06',
       refloat: '1.2.3',
+      bmsTopology: 'none',
+      bmsCanId: '42',
+      bmsVariant: 'legacy',
+      bmsFailureMode: 'none',
+      bmsCellCount: '15',
+      bmsTemperatureCount: '3',
+      bmsStateOfCharge: '0.75',
+      bmsInputCurrentA: '0',
     },
   };
   assert.equal(
@@ -53,6 +70,14 @@ test('action handler rejects origin, token, oversized, and noncanonical CAN valu
       token
     );
     assert.equal(response.status, 400, canId);
+  }
+  for (const bmsCanId of ['042', '-1', '254']) {
+    const response = await handleActionRequest(
+      request({ ...valid, configuration: { ...valid.configuration, bmsCanId } }),
+      coordinator,
+      token
+    );
+    assert.equal(response.status, 400, bmsCanId);
   }
 });
 

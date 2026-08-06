@@ -1,6 +1,8 @@
 package fail.acheron.floatview.protocol
 
 import fail.acheron.floatview.backend.FirmwareRecord
+import fail.acheron.floatview.backend.BmsConnection
+import fail.acheron.floatview.backend.BmsSnapshot
 import fail.acheron.floatview.backend.ControllerCurrentLimits
 import fail.acheron.floatview.backend.VescProtocolMessage
 import fail.acheron.floatview.backend.VescProtocolPort
@@ -13,6 +15,10 @@ import fail.acheron.floatview.protocol.vesc.ControllerRoute
 import fail.acheron.floatview.protocol.vesc.VescCommand
 import fail.acheron.floatview.protocol.vesc.VescCommandRouter
 import fail.acheron.floatview.protocol.vesc.VescFirmwareIdentityDecoder
+import java.nio.ByteBuffer
+import java.nio.charset.CharacterCodingException
+import java.nio.charset.CodingErrorAction
+import java.time.Instant
 
 data class FirmwareInfo(
     val major: Int,
@@ -84,6 +90,7 @@ data class VescFault(val code: Int, val kind: Kind) {
 
 private class ByteReader(private val bytes: ByteArray) {
     private var offset = 0
+    val remaining: Int get() = bytes.size - offset
     fun u8(): Int {
         if (offset >= bytes.size) throw VescProtocolException.TruncatedPayload
         return bytes[offset++].toInt() and 0xff
@@ -105,11 +112,32 @@ private class ByteReader(private val bytes: ByteArray) {
         if (exponentBits == 0 && significandBits == 0L) return 0.0
         val significand = significandBits.toDouble() / 16_777_216.0 + 0.5
         val value = Math.scalb(significand, exponentBits - 126)
-        return if (raw and 0x80000000L == 0L) value else -value
+        val signedValue = if (raw and 0x80000000L == 0L) value else -value
+        if (!signedValue.isFinite() || kotlin.math.abs(signedValue) > Float.MAX_VALUE.toDouble()) {
+            throw VescProtocolException.TruncatedPayload
+        }
+        return signedValue
     }
     fun skip(count: Int) {
         if (offset + count > bytes.size) throw VescProtocolException.TruncatedPayload
         offset += count
+    }
+    fun terminatedUtf8(maxContentBytes: Int): String {
+        val start = offset
+        val searchEnd = minOf(bytes.size, start + maxContentBytes + 1)
+        var terminator = start
+        while (terminator < searchEnd && bytes[terminator] != 0.toByte()) terminator++
+        if (terminator == searchEnd) throw VescProtocolException.TruncatedPayload
+        val decoder = Charsets.UTF_8.newDecoder()
+            .onMalformedInput(CodingErrorAction.REPORT)
+            .onUnmappableCharacter(CodingErrorAction.REPORT)
+        val value = try {
+            decoder.decode(ByteBuffer.wrap(bytes, start, terminator - start)).toString()
+        } catch (_: CharacterCodingException) {
+            throw VescProtocolException.TruncatedPayload
+        }
+        offset = terminator + 1
+        return value
     }
 }
 
@@ -143,6 +171,103 @@ object VescPayloadDecoder {
         val fault = reader.u8()
         return RealtimeValues(
             controllerTemp, motorTemp, motorCurrent, batteryCurrent, duty, erpm, voltage, fault,
+        )
+    }
+
+    fun bmsValues(
+        payload: ByteArray,
+        expectedCanId: Int? = null,
+        observedAt: Instant,
+    ): BmsSnapshot {
+        val reader = ByteReader(payload)
+        val command = reader.u8()
+        if (command != VescCommand.BMS_GET_VALUES.id) {
+            throw VescProtocolException.UnsupportedCommand(command)
+        }
+
+        val totalVoltage = reader.i32(1_000_000.0)
+        val chargeVoltage = reader.i32(1_000_000.0)
+        val inputCurrent = reader.i32(1_000_000.0)
+        val inputIcCurrent = reader.i32(1_000_000.0)
+        val sessionAmpHours = reader.i32(1_000.0)
+        val sessionWattHours = reader.i32(1_000.0)
+
+        val cellCount = reader.u8()
+        if (cellCount > 50) throw VescProtocolException.TruncatedPayload
+        val cellVoltages = List(cellCount) { reader.i16(1_000.0) }
+        val balancing = List(cellCount) {
+            when (reader.u8()) {
+                0 -> false
+                1 -> true
+                else -> throw VescProtocolException.TruncatedPayload
+            }
+        }
+
+        val temperatureCount = reader.u8()
+        if (temperatureCount > 50) throw VescProtocolException.TruncatedPayload
+        val temperatures = List(temperatureCount) { reader.i16(100.0) }
+        val icTemperature = reader.i16(100.0)
+        val humiditySensorTemperature = reader.i16(100.0)
+        val humidity = reader.i16(100.0)
+        val highestCellTemperature = reader.i16(100.0)
+        val stateOfCharge = reader.i16(1_000.0)
+        val stateOfHealth = reader.i16(1_000.0)
+        val reportedCanId = reader.u8()
+        if (reportedCanId > 253 || expectedCanId != null && reportedCanId != expectedCanId) {
+            throw VescProtocolException.TruncatedPayload
+        }
+        val lifetimeChargeAmpHours = reader.float32Auto()
+        val lifetimeChargeWattHours = reader.float32Auto()
+        val lifetimeDischargeAmpHours = reader.float32Auto()
+        val lifetimeDischargeWattHours = reader.float32Auto()
+        val pressure = reader.i16(0.1)
+
+        val dataVersion: Int?
+        val status: String?
+        if (reader.remaining == 0) {
+            dataVersion = null
+            status = null
+        } else {
+            dataVersion = reader.u8()
+            status = reader.terminatedUtf8(40)
+            if (reader.remaining != 0) throw VescProtocolException.TruncatedPayload
+        }
+
+        val numericValues = listOf(
+            totalVoltage, chargeVoltage, inputCurrent, inputIcCurrent,
+            sessionAmpHours, sessionWattHours, icTemperature,
+            humiditySensorTemperature, humidity, highestCellTemperature,
+            stateOfCharge, stateOfHealth, lifetimeChargeAmpHours,
+            lifetimeChargeWattHours, lifetimeDischargeAmpHours,
+            lifetimeDischargeWattHours, pressure,
+        ) + cellVoltages + temperatures
+        if (numericValues.any { !it.isFinite() }) throw VescProtocolException.TruncatedPayload
+
+        return BmsSnapshot(
+            observedAt = observedAt,
+            totalVoltageV = totalVoltage,
+            chargeVoltageV = chargeVoltage,
+            inputCurrentA = inputCurrent,
+            inputIcCurrentA = inputIcCurrent,
+            sessionAmpHoursAh = sessionAmpHours,
+            sessionWattHoursWh = sessionWattHours,
+            cellVoltagesV = cellVoltages,
+            balancing = balancing,
+            temperaturesC = temperatures,
+            icTemperatureC = icTemperature,
+            humiditySensorTemperatureC = humiditySensorTemperature,
+            humidityPercent = humidity,
+            highestCellTemperatureC = highestCellTemperature,
+            stateOfCharge = stateOfCharge,
+            stateOfHealth = stateOfHealth,
+            reportedCanId = reportedCanId,
+            lifetimeChargeAmpHoursAh = lifetimeChargeAmpHours,
+            lifetimeChargeWattHoursWh = lifetimeChargeWattHours,
+            lifetimeDischargeAmpHoursAh = lifetimeDischargeAmpHours,
+            lifetimeDischargeWattHoursWh = lifetimeDischargeWattHours,
+            pressurePa = pressure,
+            dataVersion = dataVersion,
+            status = status,
         )
     }
 
@@ -180,20 +305,18 @@ object VescPayloadDecoder {
 }
 
 class VescProtocolService : VescProtocolPort {
+    override val supportsBmsTelemetry: Boolean = true
     private var stream = VescFrameStreamDecoder()
-    private var pendingFirmwareCanId: Int? = null
     private val dynamicTelemetry = RefloatDynamicTelemetryDecoder()
 
     @Synchronized
     override fun reset() {
         stream = VescFrameStreamDecoder()
-        pendingFirmwareCanId = null
         dynamicTelemetry.reset()
     }
 
     @Synchronized
     override fun firmwareRequest(route: ControllerRoute): ByteArray {
-        pendingFirmwareCanId = (route as? ControllerRoute.Can)?.canId
         val payload = VescCommandRouter.route(
             byteArrayOf(VescCommand.GET_FIRMWARE_VERSION.byte),
             route,
@@ -261,6 +384,16 @@ class VescProtocolService : VescProtocolPort {
         )
     }
 
+    override fun bmsValuesRequest(connection: BmsConnection): ByteArray {
+        val route = when (connection) {
+            BmsConnection.Direct -> ControllerRoute.Direct
+            is BmsConnection.Can -> ControllerRoute.Can(connection.canId)
+        }
+        return VescFrameCodec.encode(
+            VescCommandRouter.route(byteArrayOf(VescCommand.BMS_GET_VALUES.byte), route),
+        )
+    }
+
     @Synchronized
     override fun receive(bytes: ByteArray): List<VescProtocolMessage> =
         stream.append(bytes).mapNotNull { payload ->
@@ -274,7 +407,7 @@ class VescProtocolService : VescProtocolPort {
                             info.hardwareName,
                             info.firmwareName,
                             info.hardwareType,
-                            pendingFirmwareCanId,
+                            null,
                             info.controllerUuid,
                             info.testVersion,
                         ),
@@ -285,6 +418,7 @@ class VescProtocolService : VescProtocolPort {
                 VescCommand.PING_CAN.id -> VescProtocolMessage.CanDevices(
                     payload.drop(1).map { it.toInt() and 0xff }.distinct().sorted(),
                 )
+                VescCommand.BMS_GET_VALUES.id -> VescProtocolMessage.BmsValuesPayload(payload)
                 VescCommand.CUSTOM_APP_DATA.id -> {
                     val command = RefloatWire.command(payload) ?: return@mapNotNull null
                     if (

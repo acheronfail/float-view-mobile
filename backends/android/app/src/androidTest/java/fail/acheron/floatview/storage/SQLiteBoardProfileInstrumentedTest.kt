@@ -121,7 +121,7 @@ class SQLiteBoardProfileInstrumentedTest {
             null,
         ).use { cursor ->
             cursor.moveToFirst()
-            assertEquals("{}", cursor.getString(0))
+            assertEquals("""{"preferredBmsCanId":null}""", cursor.getString(0))
             assertEquals(0, cursor.getInt(1))
             assertEquals(3, cursor.getInt(2))
             cursor.getString(3)
@@ -173,13 +173,29 @@ class SQLiteBoardProfileInstrumentedTest {
         assertEquals(listOf("seriesCount", "parallelCount", "motor"), configured.missingFields)
         assertEquals(null, store.controllerRoutingHint(saved.savedDeviceId))
 
+        assertThrows(ProductStoreException.InvalidProfilePatch::class.java) {
+            store.updateBoardProfile(
+                saved.savedDeviceId,
+                configured.revision,
+                """{"preferredBmsCanId":254}""",
+                Instant.EPOCH,
+            )
+        }
+        val bmsConfigured = store.updateBoardProfile(
+            saved.savedDeviceId,
+            configured.revision,
+            """{"preferredBmsCanId":42}""",
+            Instant.EPOCH,
+        )
+        assertTrue(bmsConfigured.valuesJson.contains("\"preferredBmsCanId\":42"))
+
         store.storeControllerRoutingHint(
             ControllerRoutingHint(saved.savedDeviceId, 42, uuid),
             Instant.EPOCH,
         )
         val editor = store.updateBoardProfile(
             saved.savedDeviceId,
-            configured.revision,
+            bmsConfigured.revision,
             """{"seriesCount":20}""",
             Instant.EPOCH,
         )

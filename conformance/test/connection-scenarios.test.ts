@@ -242,10 +242,9 @@ test('failed retry, replacement interruption, and frontend recovery remain autho
 
   const retry = connectedBackend();
   retry.simulateConnectionFailure('preferred_controller_unavailable', 'Configured controller unavailable');
-  assert.deepEqual(
-    result(handle(retry, 20, 'device.connect', { deviceId: 'mock-board', trackingMode: 'saved' })),
-    { accepted: true }
-  );
+  assert.deepEqual(result(handle(retry, 20, 'device.connect', { deviceId: 'mock-board', trackingMode: 'saved' })), {
+    accepted: true,
+  });
   const recovered = state(retry);
   assertState(recovered);
   assert.equal(recovered.activeConnection?.state, 'ready');

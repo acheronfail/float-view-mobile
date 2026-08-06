@@ -247,6 +247,12 @@ public final class CoreBluetoothAdapter: NSObject, BluetoothPort, @unchecked Sen
 
   private static let maximumWriteChunkBytes = 512
 
+  private static func boundedTransportDiagnostic(_ event: String, error: Error?) -> String {
+    guard let error else { return "\(event):none" }
+    let value = error as NSError
+    return String("\(event):\(value.domain):\(value.code)".prefix(160))
+  }
+
   private static func radioState(_ state: CBManagerState) -> BluetoothRadioState {
     switch state {
     case .unknown: .unknown
@@ -284,17 +290,13 @@ extension CoreBluetoothAdapter: CBCentralManagerDelegate {
     }
     let deviceID = DeviceID(peripheral.identifier.uuidString)
     peripheralsByID[deviceID] = peripheral
-    activeDeviceID = deviceID
-    activePeripheral = peripheral
-    writeCharacteristic = nil
-    notifyCharacteristic = nil
-    pendingWrites.removeAll(keepingCapacity: true)
-    writeInFlight = false
-    peripheral.delegate = self
+    // The application service is constructed after CoreBluetooth restoration.
+    // Cache the binding here, but let an explicit application connect adopt it;
+    // otherwise a restored disconnect can be mistaken for an active-session loss.
     diagnosticHandler(
       peripheral.state == .connected
-        ? "peripheral_binding_restored_connected"
-        : "peripheral_binding_restored_pending"
+        ? "peripheral_binding_cached_connected"
+        : "peripheral_binding_cached_pending"
     )
   }
 
@@ -339,9 +341,10 @@ extension CoreBluetoothAdapter: CBCentralManagerDelegate {
   public func centralManager(
     _: CBCentralManager,
     didFailToConnect peripheral: CBPeripheral,
-    error _: Error?
+    error: Error?
   ) {
     guard let deviceID = activeDeviceID, peripheral == activePeripheral else { return }
+    diagnosticHandler(Self.boundedTransportDiagnostic("connect_failed", error: error))
     eventHandler(.connectionChanged(deviceID, .failed))
     clearConnection()
     eventHandler(.connectionChanged(deviceID, .disconnected))
@@ -350,9 +353,10 @@ extension CoreBluetoothAdapter: CBCentralManagerDelegate {
   public func centralManager(
     _: CBCentralManager,
     didDisconnectPeripheral peripheral: CBPeripheral,
-    error _: Error?
+    error: Error?
   ) {
     guard let deviceID = activeDeviceID, peripheral == activePeripheral else { return }
+    diagnosticHandler(Self.boundedTransportDiagnostic("disconnected", error: error))
     clearConnection()
     eventHandler(.connectionChanged(deviceID, .disconnected))
   }

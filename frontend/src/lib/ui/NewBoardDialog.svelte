@@ -101,16 +101,14 @@
           class="touch-manipulation rounded-lg border border-outline px-4 py-2 text-left"
           disabled={busy}
           onpointerdown={(event) => activateFromPointer(event, guest)}
-          onclick={(event) => activateFromKeyboardOrAssistiveClick(event, guest)}
-          >Connect as guest</button
+          onclick={(event) => activateFromKeyboardOrAssistiveClick(event, guest)}>Connect as guest</button
         >
         <button
           type="button"
           class="touch-manipulation rounded-lg bg-accent px-4 py-2 text-left font-medium text-on-accent"
           disabled={busy}
           onpointerdown={(event) => activateFromPointer(event, save)}
-          onclick={(event) => activateFromKeyboardOrAssistiveClick(event, save)}
-          >Save and connect</button
+          onclick={(event) => activateFromKeyboardOrAssistiveClick(event, save)}>Save and connect</button
         >
       </div>
       {#if busy}<p class="mt-3 text-sm text-muted" role="status">Connecting…</p>{/if}

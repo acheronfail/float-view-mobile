@@ -2742,7 +2742,7 @@ class SQLiteLogStore(
         db.execSQL(
             """
             INSERT OR IGNORE INTO board_profile(saved_device_id, revision, json, updated_at_ms)
-            VALUES (?, 0, '{}', ?)
+            VALUES (?, 0, '{"preferredBmsCanId":null}', ?)
             """.trimIndent(),
             arrayOf(savedDeviceId, at.toEpochMilli()),
         )
@@ -2818,6 +2818,7 @@ class SQLiteLogStore(
         if (!integerInRange("seriesCount", 1..36)) return false
         if (!integerInRange("parallelCount", 1..20)) return false
         if (!integerInRange("preferredCanId", 0..253)) return false
+        if (!integerInRange("preferredBmsCanId", 0..253)) return false
         if (!values.has("motor") || values.isNull("motor")) return true
         val motor = values.get("motor") as? String ?: return false
         return motor.isNotEmpty() && motor.toByteArray().size <= 128

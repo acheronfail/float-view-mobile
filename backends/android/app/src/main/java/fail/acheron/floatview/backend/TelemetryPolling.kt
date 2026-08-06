@@ -1,8 +1,10 @@
 package fail.acheron.floatview.backend
 
 import fail.acheron.floatview.protocol.refloat.RefloatPolling
+import fail.acheron.floatview.protocol.refloat.RefloatCommand
 import fail.acheron.floatview.protocol.refloat.RefloatTelemetryFamily
 import fail.acheron.floatview.protocol.vesc.ControllerRoute
+import fail.acheron.floatview.protocol.vesc.VescCommand
 import java.time.Instant
 
 /**
@@ -13,7 +15,14 @@ class TelemetryPolling(
     private val clock: ClockPort,
     private val scheduler: SchedulerPort?,
     private val protocol: VescProtocolPort?,
-    private val write: (DeviceId, ByteArray) -> Unit,
+    private val submit: (
+        ByteArray,
+        VescExpectedResponse,
+        VescRequestPriority,
+        VescRequestContext,
+        Long,
+        (VescRequestCompletion) -> Unit,
+    ) -> Unit,
     private val onSample: (TelemetrySample) -> Unit,
     private val onFailure: (String) -> Unit,
     private val onDiagnostic: (Any) -> Unit,
@@ -175,12 +184,22 @@ class TelemetryPolling(
     }
 
     private fun sendLayoutRequest() {
-        val target = deviceId ?: return
+        if (deviceId == null) return
         val selectedRoute = route ?: return
         val decoder = protocol ?: return
         try {
             layoutAttempts += 1
-            write(target, RefloatPolling.layoutRequest(decoder, selectedRoute))
+            submit(
+                RefloatPolling.layoutRequest(decoder, selectedRoute),
+                VescExpectedResponse(VescCommand.CUSTOM_APP_DATA.id, RefloatCommand.REALTIME_DATA_INTERNAL_IDS.id),
+                VescRequestPriority.CONTROLLER_WORK,
+                VescRequestContext.RefloatLayout(selectedRoute.toRequestRoute()),
+                REQUEST_TIMEOUT_MS,
+            ) { outcome ->
+                if (outcome == VescRequestCompletion.TimedOut) {
+                    onDiagnostic("refloat_telemetry_layout_request_timeout")
+                }
+            }
         } catch (error: Exception) {
             onDiagnostic(error)
         }
@@ -197,17 +216,11 @@ class TelemetryPolling(
     @Synchronized
     private fun requestSample() {
         if (!active) return
-        val target = deviceId ?: return
+        if (deviceId == null) return
         val selectedRoute = route ?: return
         val decoder = protocol ?: return
         val nowMs = clock.monotonicMillis()
-        if (pendingRequest != null) {
-            val pendingAt = pendingSinceMs ?: nowMs
-            if (nowMs - pendingAt < REQUEST_TIMEOUT_MS) return
-            onDiagnostic("refloat_telemetry_request_timeout")
-            pendingRequest = null
-            pendingSinceMs = null
-        }
+        if (pendingRequest != null) return
         try {
             val bytes: ByteArray
             val request: PendingRequest
@@ -224,7 +237,27 @@ class TelemetryPolling(
             }
             pendingRequest = request
             pendingSinceMs = nowMs
-            write(target, bytes)
+            val command = when (request) {
+                PendingRequest.REALTIME -> RefloatCommand.REALTIME_DATA_INTERNAL.id
+                PendingRequest.COMPACT, PendingRequest.LEGACY -> RefloatCommand.GET_ALL_DATA.id
+            }
+            val ridingPriority = previousRideState == RideState.RIDING ||
+                postRideProbeUntilMs?.let { nowMs <= it } == true
+            submit(
+                bytes,
+                VescExpectedResponse(VescCommand.CUSTOM_APP_DATA.id, command),
+                if (ridingPriority) VescRequestPriority.RIDING_TELEMETRY else VescRequestPriority.CONTROLLER_WORK,
+                VescRequestContext.RefloatTelemetry(selectedRoute.toRequestRoute()),
+                REQUEST_TIMEOUT_MS,
+            ) { outcome ->
+                if (outcome != VescRequestCompletion.TimedOut) return@submit
+                synchronized(this) {
+                    if (pendingRequest != request) return@synchronized
+                    pendingRequest = null
+                    pendingSinceMs = null
+                    onDiagnostic("refloat_telemetry_request_timeout")
+                }
+            }
         } catch (error: Exception) {
             onDiagnostic(error)
         }

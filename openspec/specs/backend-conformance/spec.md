@@ -3,7 +3,9 @@
 ## Purpose
 
 Define the single canonical software and physical acceptance suite required of every supported backend.
+
 ## Requirements
+
 ### Requirement: One canonical suite
 
 The repository SHALL contain one top-level `/conformance` TypeScript black-box suite that imports the hand-written frontend contract and is not copied into Swift or Kotlin implementations.

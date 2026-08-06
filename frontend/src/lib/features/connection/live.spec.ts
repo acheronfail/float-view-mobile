@@ -19,6 +19,7 @@ const connection = (state: ActiveConnection['state']): ActiveConnection => ({
   controllerConnection: null,
   controllerCandidates: [],
   connectionIssue: null,
+  bms: { status: 'discovering', connection: null, candidates: [], latestSnapshot: null },
   activeSession: null,
   latestSample: null,
   latestLocation: null,

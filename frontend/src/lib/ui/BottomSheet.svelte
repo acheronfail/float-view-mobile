@@ -127,7 +127,7 @@
 
 <svelte:window onkeydown={handleKeydown} />
 
-<div class="fixed inset-0 z-40 bg-black/55">
+<div class="fixed inset-0 z-40 h-dvh bg-black/55">
   <button
     type="button"
     class="absolute inset-0 h-full w-full cursor-default touch-none"

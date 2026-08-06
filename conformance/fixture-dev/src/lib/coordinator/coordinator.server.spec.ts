@@ -4,6 +4,7 @@ import { encodeFrame } from '../../../../fixture/frame.ts';
 import type { FixtureControl, FixtureEvent } from '../../../../fixture/serial.ts';
 import { FixtureActionError, FixtureCoordinator } from './coordinator.server.ts';
 import { fixtureCoordinator } from './resolver.server.ts';
+import type { FixtureConfiguration } from '../contract.ts';
 
 test('coordinator attaches, configures atomically, powers, rides, and re-advertises', async () => {
   const fixture = new FakeFixture();
@@ -12,13 +13,28 @@ test('coordinator attaches, configures atomically, powers, rides, and re-adverti
   await coordinator.act({ kind: 'attach', path: '/dev/fixture' });
   const configured = await coordinator.act({
     kind: 'configure',
-    configuration: { topology: 'express', canId: 42, firmware: '6.05', refloat: '1.2.3' },
+    configuration: configuration({
+      topology: 'express',
+      canId: 42,
+      firmware: '6.05',
+      refloat: '1.2.3',
+      bmsTopology: 'can',
+      bmsCanId: 43,
+    }),
   });
   assert.deepEqual(configured.configuration, {
     topology: 'express',
     canId: 42,
     firmware: '6.05',
     refloat: '1.2.3',
+    bmsTopology: 'can',
+    bmsCanId: 43,
+    bmsVariant: 'extended',
+    bmsFailureMode: 'none',
+    bmsCellCount: 15,
+    bmsTemperatureCount: 3,
+    bmsStateOfCharge: 0.75,
+    bmsInputCurrentA: 0,
   });
   await coordinator.act({ kind: 'power-on' });
   await coordinator.act({ kind: 'start-riding' });
@@ -40,6 +56,9 @@ test('coordinator attaches, configures atomically, powers, rides, and re-adverti
     outcome: 'responded',
   });
   assert.ok(logs.includes('request command=14 route=CAN:42'));
+  fixture.emit({ kind: 'WRITE', bytes: encodeFrame(Uint8Array.of(34, 43, 96)) });
+  await eventually(() => coordinator.snapshot().counters.bms === 1);
+  assert.equal(coordinator.snapshot().lastRequest?.kind, 'bms-values');
   fixture.emit({
     kind: 'WRITE',
     bytes: encodeFrame(Uint8Array.of(34, 42, 36, 101, 31)),
@@ -101,7 +120,7 @@ test('configuration save is rejected as a whole while active', async () => {
   await assert.rejects(
     coordinator.act({
       kind: 'configure',
-      configuration: { topology: 'direct', canId: 7, firmware: '6.02', refloat: '1.0.0' },
+      configuration: configuration({ topology: 'direct', canId: 7, firmware: '6.02', refloat: '1.0.0' }),
     }),
     FixtureActionError
   );
@@ -127,9 +146,9 @@ test('serial loss detaches safely and preserves saved configuration', async () =
   const logs: string[] = [];
   const coordinator = coordinatorFor(fixture, (level, message) => logs.push(`${level}:${message}`));
   await coordinator.act({ kind: 'attach', path: '/dev/fixture' });
-  await coordinator.act({
+  const saved = await coordinator.act({
     kind: 'configure',
-    configuration: { topology: 'direct', canId: 9, firmware: '6.02', refloat: '1.1.0' },
+    configuration: configuration({ topology: 'direct', canId: 9, firmware: '6.02', refloat: '1.1.0' }),
   });
   await coordinator.act({ kind: 'power-on' });
   fixture.fail(new Error('USB removed'));
@@ -140,12 +159,7 @@ test('serial loss detaches safely and preserves saved configuration', async () =
   assert.match(state.serial.error ?? '', /USB removed/);
   assert.ok(state.diagnostics.some((value) => value.includes('Serial detached: USB removed')));
   assert.ok(logs.includes('error:serial detached: USB removed'));
-  assert.deepEqual(state.configuration, {
-    topology: 'direct',
-    canId: 9,
-    firmware: '6.02',
-    refloat: '1.1.0',
-  });
+  assert.deepEqual(state.configuration, saved.configuration);
 });
 
 test('unsupported protocol requests are visible and do not detach serial', async () => {
@@ -207,6 +221,24 @@ function coordinatorFor(
     listPorts: async () => [{ path: '/dev/fixture', label: 'Fixture' }],
     log,
   });
+}
+
+function configuration(overrides: Partial<FixtureConfiguration> = {}): FixtureConfiguration {
+  return {
+    topology: 'express',
+    canId: 1,
+    firmware: '6.06',
+    refloat: '1.2.3',
+    bmsTopology: 'none',
+    bmsCanId: 42,
+    bmsVariant: 'extended',
+    bmsFailureMode: 'none',
+    bmsCellCount: 15,
+    bmsTemperatureCount: 3,
+    bmsStateOfCharge: 0.75,
+    bmsInputCurrentA: 0,
+    ...overrides,
+  };
 }
 
 async function eventually(predicate: () => boolean) {

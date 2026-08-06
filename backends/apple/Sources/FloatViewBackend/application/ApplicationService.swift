@@ -1,5 +1,5 @@
-import Foundation
 import CryptoKit
+import Foundation
 
 public final class ApplicationService: @unchecked Sendable {
   private let bluetooth: BluetoothPort
@@ -23,10 +23,13 @@ public final class ApplicationService: @unchecked Sendable {
   private var discoveryExpiryTimer: (any CancellationPort)?
   private var discoveryExpiryGeneration = 0
   private let controllerDiscovery = ControllerDiscovery()
+  private let auxiliaryDiscovery = AuxiliaryNodeDiscovery()
   private var trackingMode: TrackingMode = .saved
   private var currentSavedDevice: SavedDeviceRecord?
   private var identificationTimer: (any CancellationPort)?
   private var canProbeTimer: (any CancellationPort)?
+  private var bmsPollTimer: (any CancellationPort)?
+  private var bmsFailureCount = 0
   private var sessionControllerRoute: ControllerRoute?
   private var sessionControllerUUID: Data?
   private var sessionFirmware: FirmwareRecord?
@@ -37,6 +40,17 @@ public final class ApplicationService: @unchecked Sendable {
   private var locationCaptureBaseElapsedMs: Int64 = 0
   private var locationCaptureActive = false
   private var currentLimits: ControllerCurrentLimits?
+  private var vescGeneration = VescRequestGeneration(rawValue: 0)
+  private lazy var vescRequests =
+    VescRequestScheduler(
+      clock: clock,
+      scheduler: scheduler ?? SystemScheduler(),
+      write: { [weak self] bytes in
+        guard let self, let deviceID = self.activeDeviceID else { return }
+        self.bluetooth.write(bytes, to: deviceID)
+      },
+      diagnostic: { [weak self] message in self?.events.publish(message) }
+    )
   private var reconnectTimer: (any CancellationPort)?
   private var reconnectStartedAtMs: Int64?
   private var reconnectAttempt = 0
@@ -44,8 +58,15 @@ public final class ApplicationService: @unchecked Sendable {
     clock: clock,
     scheduler: scheduler,
     protocolCodec: protocolCodec,
-    write: { [weak self] bytes, deviceID in
-      self?.bluetooth.write(bytes, to: deviceID)
+    submit: { [weak self] payload, expected, priority, context, timeout, completion in
+      self?.submitVescRequest(
+        payload: payload,
+        expected: expected,
+        priority: priority,
+        context: context,
+        timeoutMs: timeout,
+        completion: completion
+      )
     },
     onSample: { [weak self] sample in
       do {
@@ -156,6 +177,8 @@ public final class ApplicationService: @unchecked Sendable {
     expectedRevision: Int,
     patchJSON: String
   ) throws -> BoardProfileRecord {
+    lock.lock()
+    defer { lock.unlock() }
     guard let productStore else { throw ApplicationError.productStoreUnavailable }
     let profile = try productStore.updateBoardProfile(
       savedDeviceID: savedDeviceID,
@@ -164,6 +187,11 @@ public final class ApplicationService: @unchecked Sendable {
       at: clock.now()
     )
     events.publish(profile)
+    if connectionState == .ready, currentSavedDevice?.savedDeviceID == savedDeviceID {
+      bmsPollTimer?.cancel()
+      bmsPollTimer = nil
+      startAuxiliaryDiscovery()
+    }
     return profile
   }
 
@@ -585,13 +613,14 @@ public final class ApplicationService: @unchecked Sendable {
       }
       if state == .failed || state == .disconnected,
          !explicitDisconnect,
-         (trackingMode == .saved || trackingMode == .guest)
+         trackingMode == .saved || trackingMode == .guest
       {
         beginReconnect()
         return
       }
       if state == .failed, trackingMode == .saved || trackingMode == .guest, !explicitDisconnect,
-         logStore.active() == nil {
+         logStore.active() == nil
+      {
         controllerDiscovery.markFailure(
           .transportSetupFailed,
           "The VESC Bluetooth transport could not be prepared."
@@ -619,13 +648,70 @@ public final class ApplicationService: @unchecked Sendable {
       }
       do {
         for message in try protocolCodec.receive(bytes) {
+          let requestContext = vescRequests.inFlightRequest?.context
+          let identity: (UInt8, UInt8?) = switch message {
+          case .firmware: (VescCommand.getFirmwareVersion.rawValue, nil)
+          case .currentLimits: (VescCommand.getMotorConfiguration.rawValue, nil)
+          case .canDevices: (VescCommand.pingCAN.rawValue, nil)
+          case .bmsValuesPayload: (VescCommand.bmsGetValues.rawValue, nil)
+          case .refloatInfo: (VescCommand.customAppData.rawValue, RefloatCommand.info.rawValue)
+          case .refloatTelemetryLayout:
+            (VescCommand.customAppData.rawValue, RefloatCommand.realtimeDataInternalIDs.rawValue)
+          case let .refloatTelemetry(value):
+            (VescCommand.customAppData.rawValue,
+             value.kind == .realtime
+               ? RefloatCommand.realtimeDataInternal.rawValue : RefloatCommand.getAllData.rawValue)
+          }
+          if !vescRequests.receive(
+            payload: bytes,
+            command: identity.0,
+            refloatCommand: identity.1
+          )
+          { continue }
           switch message {
           case let .firmware(value):
-            handleFirmware(value)
+            let attributed = attributedFirmware(value, context: requestContext)
+            if case .some(.auxiliaryFirmware) = requestContext {
+              events.publish(
+                "bms_discovery_identity:\(Self.bmsRouteDiagnostic(attributed.canID)):"
+                  + "type=\(attributed.hardwareType):version=\(attributed.major).\(attributed.minor):"
+                  + "hardware=\(Self.bmsHardwareDiagnostic(attributed.hardwareName))"
+              )
+              performAuxiliaryEffect(auxiliaryDiscovery.acceptFirmware(
+                attributed, generation: auxiliaryDiscovery.generation
+              ))
+            } else {
+              handleFirmware(attributed)
+            }
           case let .currentLimits(value):
             if connectionState == .ready { currentLimits = value }
           case let .canDevices(canIDs):
-            handleCanDevices(canIDs)
+            if requestContext == .auxiliaryCanPing {
+              events.publish("bms_discovery_scan_result:count=\(canIDs.count)")
+              performAuxiliaryEffect(auxiliaryDiscovery.acceptCANIDs(
+                canIDs, generation: auxiliaryDiscovery.generation
+              ))
+            } else {
+              handleCanDevices(canIDs)
+            }
+          case let .bmsValuesPayload(payload):
+            guard case let .bmsValues(route) = requestContext else { continue }
+            let expectedCanID: UInt8? = switch route {
+            case .direct: nil
+            case let .can(canID): canID
+            }
+            do {
+              let snapshot = try VescPayloadDecoder.bmsValues(
+                Array(payload), expectedCanID: expectedCanID, observedAt: clock.now()
+              )
+              bmsFailureCount = 0
+              auxiliaryDiscovery.acceptSnapshot(snapshot)
+              events.publish("bms_values_attached:\(Self.bmsRouteDiagnostic(expectedCanID))")
+              events.publish(snapshot)
+            } catch {
+              events.publish("bms_values_decode_failed:\(Self.bmsRouteDiagnostic(expectedCanID))")
+              recordBmsFailure()
+            }
           case let .refloatInfo(version):
             guard connectionState == .identifying else { continue }
             performDiscoveryEffect(controllerDiscovery.acceptRefloatInfo(version))
@@ -646,6 +732,26 @@ public final class ApplicationService: @unchecked Sendable {
         events.publish(String(describing: error))
       }
     }
+  }
+
+  private func attributedFirmware(
+    _ value: FirmwareRecord,
+    context: VescRequestContext?
+  ) -> FirmwareRecord {
+    let attributedCanID: UInt8? = switch context {
+    case let .controllerFirmware(.can(canID)), let .auxiliaryFirmware(.can(canID)): canID
+    default: nil
+    }
+    return FirmwareRecord(
+      major: value.major,
+      minor: value.minor,
+      testVersion: value.testVersion,
+      hardwareName: value.hardwareName,
+      firmwareName: value.firmwareName,
+      hardwareType: value.hardwareType,
+      canID: attributedCanID ?? value.canID,
+      controllerUUID: value.controllerUUID
+    )
   }
 
   public func disconnect() throws {
@@ -778,7 +884,8 @@ public final class ApplicationService: @unchecked Sendable {
       currentLimits: currentLimits,
       controllerRoute: controllerDiscovery.controllerRoute,
       controllerCandidates: controllerDiscovery.controllerCandidates,
-      connectionIssue: controllerDiscovery.connectionIssue
+      connectionIssue: controllerDiscovery.connectionIssue,
+      bms: auxiliaryDiscovery.state
     )
   }
 
@@ -796,6 +903,7 @@ public final class ApplicationService: @unchecked Sendable {
 
   private func startFirmwareDiscovery(_ deviceID: DeviceID) {
     guard protocolCodec != nil, activeDeviceID == deviceID else { return }
+    vescGeneration = vescRequests.beginGeneration()
     let (generation, effect) = controllerDiscovery.begin()
     guard effect != .none else { return }
     identificationTimer?.cancel()
@@ -805,6 +913,24 @@ public final class ApplicationService: @unchecked Sendable {
       self?.identificationTimedOut(generation: generation)
     }
     performDiscoveryEffect(effect)
+  }
+
+  private func submitVescRequest(
+    payload: Data,
+    expected: VescExpectedResponse,
+    priority: VescRequestPriority,
+    context: VescRequestContext,
+    timeoutMs: Int64,
+    completion: @escaping @Sendable (VescRequestCompletion) -> Void = { _ in }
+  ) {
+    vescRequests.enqueue(
+      payload: payload,
+      expectedResponse: expected,
+      priority: priority,
+      context: context,
+      timeoutMs: timeoutMs,
+      generation: vescGeneration
+    ) { _, outcome in completion(outcome) }
   }
 
   private func handleFirmware(_ value: FirmwareRecord) {
@@ -868,10 +994,16 @@ public final class ApplicationService: @unchecked Sendable {
   private func performDiscoveryEffect(_ effect: ControllerDiscoveryEffect) {
     switch effect {
     case let .probeFirmware(route):
-      guard let activeDeviceID, let protocolCodec else { return }
+      guard activeDeviceID != nil, let protocolCodec else { return }
       if case let .can(canID) = route { scheduleCanProbeTimeout(canID: canID) }
       do {
-        try bluetooth.write(protocolCodec.firmwareRequest(route: route), to: activeDeviceID)
+        try submitVescRequest(
+          payload: protocolCodec.firmwareRequest(route: route),
+          expected: .init(command: VescCommand.getFirmwareVersion.rawValue),
+          priority: .controllerIdentification,
+          context: .controllerFirmware(.init(route)),
+          timeoutMs: route == .direct ? Self.identificationTimeoutMs : Self.canProbeTimeoutMs
+        )
       } catch {
         if route == .direct {
           failIdentification(.transportSetupFailed, "Unable to request VESC firmware.")
@@ -882,9 +1014,15 @@ public final class ApplicationService: @unchecked Sendable {
       }
     case .pingCAN:
       cancelCanProbeTimeout()
-      guard let activeDeviceID, let protocolCodec else { return }
+      guard activeDeviceID != nil, let protocolCodec else { return }
       do {
-        try bluetooth.write(protocolCodec.canPingRequest(), to: activeDeviceID)
+        try submitVescRequest(
+          payload: protocolCodec.canPingRequest(),
+          expected: .init(command: VescCommand.pingCAN.rawValue),
+          priority: .controllerIdentification,
+          context: .canPing,
+          timeoutMs: Self.identificationTimeoutMs
+        )
       } catch {
         failIdentification(.transportSetupFailed, "Unable to discover CAN controllers.")
       }
@@ -908,11 +1046,17 @@ public final class ApplicationService: @unchecked Sendable {
           at: clock.now()
         )
       }
-      guard let activeDeviceID, let protocolCodec else { return }
+      guard activeDeviceID != nil, let protocolCodec else { return }
       do {
-        try bluetooth.write(
-          protocolCodec.refloatInfoRequest(route: route),
-          to: activeDeviceID
+        try submitVescRequest(
+          payload: protocolCodec.refloatInfoRequest(route: route),
+          expected: .init(
+            command: VescCommand.customAppData.rawValue,
+            refloatCommand: RefloatCommand.info.rawValue
+          ),
+          priority: .controllerIdentification,
+          context: .refloatInfo(.init(route)),
+          timeoutMs: Self.identificationTimeoutMs
         )
       } catch {
         events.publish(String(describing: error))
@@ -969,9 +1113,12 @@ public final class ApplicationService: @unchecked Sendable {
     transition(.ready)
     if let protocolCodec {
       do {
-        try bluetooth.write(
-          protocolCodec.motorConfigurationRequest(route: route),
-          to: deviceID
+        try submitVescRequest(
+          payload: protocolCodec.motorConfigurationRequest(route: route),
+          expected: .init(command: VescCommand.getMotorConfiguration.rawValue),
+          priority: .controllerWork,
+          context: .currentLimits(.init(route)),
+          timeoutMs: Self.canProbeTimeoutMs
         )
       } catch {
         events.publish(String(describing: error))
@@ -984,6 +1131,113 @@ public final class ApplicationService: @unchecked Sendable {
       idleIntervalMs: idleProbeIntervalMs,
       postRideTailMs: sampling.settings.postRideTailMs
     )
+    startAuxiliaryDiscovery()
+  }
+
+  private func startAuxiliaryDiscovery() {
+    guard protocolCodec?.supportsBmsTelemetry == true,
+          let localIdentity = controllerDiscovery.transportFirmware else { return }
+    let profile = try? currentSavedDevice.flatMap {
+      try productStore?.boardProfile(savedDeviceID: $0.savedDeviceID)
+    }
+    let preferred = profile.flatMap {
+      ControllerDiscoveryPolicy.preferredBmsCanID($0.valuesJSON)
+    }
+    performAuxiliaryEffect(auxiliaryDiscovery.begin(
+      localIdentity: localIdentity,
+      reusableInventory: controllerDiscovery.inventoryComplete
+        ? controllerDiscovery.classifiedInventory : nil,
+      preferredCanID: preferred
+    ))
+  }
+
+  private func performAuxiliaryEffect(_ effect: AuxiliaryDiscoveryEffect) {
+    guard connectionState == .ready, let protocolCodec else { return }
+    switch effect {
+    case .pingCAN:
+      events.publish("bms_discovery_scan_started")
+      do {
+        try submitVescRequest(
+          payload: protocolCodec.canPingRequest(),
+          expected: .init(command: VescCommand.pingCAN.rawValue),
+          priority: .auxiliary, context: .auxiliaryCanPing,
+          timeoutMs: Self.canScanTimeoutMs,
+          completion: { [weak self] completion in
+            guard case .timedOut = completion else { return }
+            self?.lock.withLock { self?.auxiliaryDiscovery.markUnavailable() }
+          }
+        )
+      } catch { auxiliaryDiscovery.markUnavailable() }
+    case let .probeFirmware(route):
+      events.publish("bms_discovery_probe:\(Self.bmsRouteDiagnostic(route.canID))")
+      let generation = auxiliaryDiscovery.generation
+      let canID: UInt8? = if case let .can(value) = route { value } else { nil }
+      do {
+        try submitVescRequest(
+          payload: protocolCodec.firmwareRequest(route: route),
+          expected: .init(command: VescCommand.getFirmwareVersion.rawValue),
+          priority: .auxiliary, context: .auxiliaryFirmware(.init(route)),
+          timeoutMs: Self.canProbeTimeoutMs,
+          completion: { [weak self] completion in
+            guard case .timedOut = completion, let canID else { return }
+            self?.lock.withLock {
+              guard let self else { return }
+              self.performAuxiliaryEffect(self.auxiliaryDiscovery.probeTimedOut(
+                canID: canID, generation: generation
+              ))
+            }
+          }
+        )
+      } catch { auxiliaryDiscovery.markUnavailable() }
+    case let .requestValues(connection):
+      let canID: UInt8? = if case let .can(value) = connection { value } else { nil }
+      events.publish("bms_values_requested:\(Self.bmsRouteDiagnostic(canID))")
+      requestBmsValues(connection)
+    case .none:
+      events.publish("bms_discovery_complete:\(auxiliaryDiscovery.state.status.rawValue)")
+      events.publish(auxiliaryDiscovery.state)
+    }
+  }
+
+  private func requestBmsValues(_ connection: BmsConnection) {
+    guard connectionState == .ready, let protocolCodec else { return }
+    bmsPollTimer?.cancel()
+    bmsPollTimer = nil
+    let route: VescRequestRoute = switch connection {
+    case .direct: .direct
+    case let .can(canID): .can(canID)
+    }
+    do {
+      try submitVescRequest(
+        payload: protocolCodec.bmsValuesRequest(connection: connection),
+        expected: .init(command: VescCommand.bmsGetValues.rawValue),
+        priority: .auxiliary, context: .bmsValues(route), timeoutMs: 1_000,
+        completion: { [weak self] completion in
+          self?.lock.withLock {
+            guard let self, self.connectionState == .ready else { return }
+            switch completion {
+            case .timedOut, .queueFull: self.recordBmsFailure()
+            case .response: break
+            case .cancelled, .staleGeneration: return
+            }
+            self.bmsPollTimer = self.scheduler?.schedule(afterMilliseconds: 1_000) { [weak self] in
+              self?.lock.withLock {
+                guard let self, let selected = self.auxiliaryDiscovery.selectedConnection else { return }
+                self.requestBmsValues(selected)
+              }
+            }
+          }
+        }
+      )
+    } catch { recordBmsFailure() }
+  }
+
+  private func recordBmsFailure() {
+    bmsFailureCount += 1
+    if bmsFailureCount >= 3 {
+      auxiliaryDiscovery.markUnavailable()
+      events.publish(auxiliaryDiscovery.state)
+    }
   }
 
   /// Production hosts always provide a VESC codec and never take this path.
@@ -1252,9 +1506,14 @@ public final class ApplicationService: @unchecked Sendable {
   }
 
   private func resetFirmwareDiscovery() {
+    vescGeneration = vescRequests.beginGeneration()
     telemetryPolling.cancelLayout()
     telemetryPolling.stop()
     controllerDiscovery.reset()
+    auxiliaryDiscovery.reset()
+    bmsPollTimer?.cancel()
+    bmsPollTimer = nil
+    bmsFailureCount = 0
     currentLimits = nil
     currentSavedDevice = nil
     cancelIdentificationTimeout()
@@ -1266,7 +1525,23 @@ public final class ApplicationService: @unchecked Sendable {
   private static let discoveryExpiryMs: Int64 = 120_000
   private static let maxReconnectBackoffMs: Int64 = 30_000
   private static let identificationTimeoutMs: Int64 = 10_000
+  // COMM_PING_CAN can synchronously probe all 255 CAN IDs at 10 ms per ID.
+  private static let canScanTimeoutMs: Int64 = 10_000
   private static let canProbeTimeoutMs: Int64 = 1_000
+
+  private static func bmsRouteDiagnostic(_ canID: UInt8?) -> String {
+    canID.map { "can=\($0)" } ?? "direct"
+  }
+
+  private static func bmsHardwareDiagnostic(_ value: String?) -> String {
+    guard let value else { return "unknown" }
+    let scalarValues = value.unicodeScalars.prefix(32).map { scalar -> Character in
+      let accepted = scalar.isASCII
+        && (CharacterSet.alphanumerics.contains(scalar) || scalar == "-" || scalar == "_")
+      return accepted ? Character(String(scalar)) : "_"
+    }
+    return scalarValues.isEmpty ? "unknown" : String(scalarValues)
+  }
 
   private static func permissionAllowsUse(_ state: BluetoothPermissionState) -> Bool {
     state == .granted || state == .notRequired

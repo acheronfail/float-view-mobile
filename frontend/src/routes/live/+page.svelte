@@ -7,6 +7,8 @@
   import ControllerSelection from '$lib/features/connection/ControllerSelection.svelte';
   import DetailedView from '$lib/features/connection/DetailedView.svelte';
   import LiveView from '$lib/features/connection/LiveView.svelte';
+  import BmsView from '$lib/features/connection/BmsView.svelte';
+  import { bmsMenuVisible } from '$lib/features/connection/bms';
   import { shouldConfirmDisconnect } from '$lib/features/connection/live';
   import BottomSheet from '$lib/ui/BottomSheet.svelte';
   import ConfirmDialog from '$lib/ui/ConfirmDialog.svelte';
@@ -22,6 +24,7 @@
   // TODO: persist this state
   let view = $state<View>('normal');
   let configureOpen = $state(false);
+  let bmsOpen = $state(false);
   let disconnectConfirmationOpen = $state(false);
   let connectionIssueConfirmationOpen = $state(false);
   let firmwareUnsupportedConfirmationOpen = $state(false);
@@ -137,6 +140,17 @@
               },
             ]
           : []),
+        ...(bmsMenuVisible(connection.bms)
+          ? [
+              {
+                label: 'BMS',
+                onactivate: (closeMenu: () => void) => {
+                  closeMenu();
+                  bmsOpen = true;
+                },
+              },
+            ]
+          : []),
         {
           label: 'Disconnect',
           appearance: 'destructive' as const,
@@ -228,6 +242,12 @@
     await tick();
     appHeader.focusMenu();
   }
+
+  async function closeBms() {
+    bmsOpen = false;
+    await tick();
+    appHeader.focusMenu();
+  }
 </script>
 
 <section aria-labelledby="app-title" class="flex h-full min-h-0 flex-1 flex-col gap-2">
@@ -261,10 +281,7 @@
         <LiveView />
       </div>
     {:else}
-      <div
-        class="min-h-0 flex-1 overflow-y-auto overscroll-y-auto"
-        style="--section-header-top: 0px"
-      >
+      <div class="min-h-0 flex-1 overflow-y-auto overscroll-y-auto" style="--section-header-top: 0px">
         <DetailedView />
       </div>
     {/if}
@@ -297,6 +314,12 @@
     onconfirm={continueWithUnsupportedFirmware}
     oncancel={cancelUnsupportedFirmware}
   />
+{/if}
+
+{#if bmsOpen && connection}
+  <BottomSheet title="Battery management system" titleId="bms-sheet-title" closeLabel="Done" onclose={closeBms}>
+    <BmsView bms={connection.bms} units={backendState.settings?.unitPreference ?? 'metric'} />
+  </BottomSheet>
 {/if}
 
 <ConfirmDialog

@@ -39,4 +39,3 @@ Canonical conformance SHALL cover `refloat.control.set`, `refloat.fatalError.cle
 
 - **WHEN** control responses are truncated, oversized, routed from the wrong CAN ID, delayed past timeout, or delivered after a generation change
 - **THEN** the matching action fails or the response is discarded with bounded diagnostics and no stale state publication
-

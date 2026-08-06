@@ -10,6 +10,12 @@ import {
 } from './boards.ts';
 import { encodeFirmwarePayload, thor300 } from './firmware.ts';
 import type { ConnectionIssueCode } from '../../frontend/src/lib/backend/contract.ts';
+import {
+  encodeBmsFirmwarePayload,
+  encodeVbms32FirmwarePayload,
+  typicalBmsValues,
+  type BmsConfiguration,
+} from './bms.ts';
 
 export type PhysicalScenarioName =
   | 'identity'
@@ -18,6 +24,9 @@ export type PhysicalScenarioName =
   | 'explicit-can'
   | 'generic-gateway'
   | 'ambiguous'
+  | 'bms-direct-controller'
+  | 'bms-express'
+  | 'bms-direct-gateway'
   | 'ride'
   | 'unexpected-disconnect'
   | 'background';
@@ -33,13 +42,39 @@ export interface FixtureScenario {
   requiresMobileLifecycle: boolean;
   preferredCanId?: number | null;
   selectCanId?: number;
+  expectedBmsConnection?: 'direct' | { canId: number };
 }
+
+const physicalCanBms: BmsConfiguration = {
+  canId: 42,
+  firmware: {
+    major: 6,
+    minor: 6,
+    hardwareName: 'VBMS32',
+    hardwareType: 2,
+    payload: encodeVbms32FirmwarePayload(Uint8Array.of(0, 0x11, 0x22, 0x33, 0x44, 0x55)),
+  },
+  values: typicalBmsValues,
+  tail: { kind: 'extended', dataVersion: 1, status: 'OK' },
+};
+
+const physicalDirectBms: BmsConfiguration = {
+  firmware: {
+    major: 6,
+    minor: 0,
+    hardwareName: 'VBMS',
+    hardwareType: 1,
+    payload: encodeBmsFirmwarePayload('VBMS', new Uint8Array(12).fill(0x22)),
+  },
+  values: typicalBmsValues,
+  tail: { kind: 'legacy' },
+};
 
 export const fixtureScenarios: Record<PhysicalScenarioName, FixtureScenario> = {
   identity: {
     name: 'identity',
     board: expressThor,
-    fragmentBytes: 244,
+    fragmentBytes: 20,
     minimumTelemetryResponses: 0,
     preferredCanId: null,
     requiresMobileLifecycle: false,
@@ -85,6 +120,38 @@ export const fixtureScenarios: Record<PhysicalScenarioName, FixtureScenario> = {
     selectCanId: 42,
     requiresMobileLifecycle: false,
   },
+  'bms-direct-controller': {
+    name: 'bms-direct-controller',
+    board: { ...directThor, name: 'Direct controller / CAN VBMS', bmsNodes: [physicalCanBms] },
+    fragmentBytes: 20,
+    minimumTelemetryResponses: 5,
+    preferredCanId: null,
+    expectedBmsConnection: { canId: 42 },
+    requiresMobileLifecycle: false,
+  },
+  'bms-express': {
+    name: 'bms-express',
+    board: { ...expressThor, name: 'Express / controller / CAN VBMS', bmsNodes: [physicalCanBms] },
+    fragmentBytes: 20,
+    minimumTelemetryResponses: 5,
+    preferredCanId: null,
+    expectedBmsConnection: { canId: 42 },
+    requiresMobileLifecycle: false,
+  },
+  'bms-direct-gateway': {
+    name: 'bms-direct-gateway',
+    board: {
+      ...expressThor,
+      name: 'Direct VBMS / CAN controller',
+      transport: physicalDirectBms.firmware,
+      localBms: physicalDirectBms,
+    },
+    fragmentBytes: 20,
+    minimumTelemetryResponses: 5,
+    preferredCanId: null,
+    expectedBmsConnection: 'direct',
+    requiresMobileLifecycle: false,
+  },
   ride: {
     name: 'ride',
     board: expressThor,
@@ -124,6 +191,9 @@ export const physicalScenarioMatrix = {
     'explicit-can',
     'generic-gateway',
     'ambiguous',
+    'bms-direct-controller',
+    'bms-express',
+    'bms-direct-gateway',
     'ride',
     'unexpected-disconnect',
   ],
@@ -134,6 +204,9 @@ export const physicalScenarioMatrix = {
     'explicit-can',
     'generic-gateway',
     'ambiguous',
+    'bms-direct-controller',
+    'bms-express',
+    'bms-direct-gateway',
     'ride',
     'unexpected-disconnect',
     'background',
@@ -145,11 +218,186 @@ export const physicalScenarioMatrix = {
     'explicit-can',
     'generic-gateway',
     'ambiguous',
+    'bms-direct-controller',
+    'bms-express',
+    'bms-direct-gateway',
     'ride',
     'unexpected-disconnect',
     'background',
   ],
 } as const satisfies Record<string, readonly PhysicalScenarioName[]>;
+
+export const canonicalCanBms: BmsConfiguration = physicalCanBms;
+
+export const canonicalDirectBms: BmsConfiguration = physicalDirectBms;
+
+export type SoftwareBmsScenarioName =
+  | 'direct-controller-plus-can-vbms'
+  | 'express-plus-controller-and-vbms'
+  | 'direct-vbms-plus-can-controller'
+  | 'no-bms'
+  | 'unique-automatic-selection'
+  | 'configured-selection-without-ping'
+  | 'wrong-preference'
+  | 'multiple-ambiguity'
+  | 'id-overflow'
+  | 'candidate-overflow'
+  | 'loss'
+  | 'recovery'
+  | 'reconnect'
+  | 'disconnect';
+
+export interface SoftwareBmsScenario {
+  name: SoftwareBmsScenarioName;
+  board: BoardConfiguration;
+  preferredBmsCanId?: number | null;
+  expectedStatus: 'not_found' | 'attached' | 'unavailable' | 'ambiguous';
+  expectedRoute?: 'direct' | { canId: number };
+  lifecycle: 'connect' | 'loss' | 'recovery' | 'reconnect' | 'disconnect';
+}
+
+const directControllerCanBms: BoardConfiguration = {
+  ...directThor,
+  name: 'Direct controller / CAN VBMS',
+  bmsNodes: [canonicalCanBms],
+  requestPolicy: 'interactive',
+};
+
+const expressControllerCanBms: BoardConfiguration = {
+  ...expressThor,
+  name: 'Express / controller / CAN VBMS',
+  bmsNodes: [canonicalCanBms],
+  requestPolicy: 'interactive',
+};
+
+const directBmsCanController: BoardConfiguration = {
+  ...expressThor,
+  name: 'Direct VBMS / CAN controller',
+  transport: canonicalDirectBms.firmware,
+  localBms: canonicalDirectBms,
+  requestPolicy: 'interactive',
+};
+
+const secondCanBms: BmsConfiguration = {
+  ...canonicalCanBms,
+  canId: 43,
+  values: { ...typicalBmsValues, reportedCanId: 43 },
+  firmware: {
+    ...canonicalCanBms.firmware,
+    payload: encodeVbms32FirmwarePayload(new Uint8Array(6).fill(43)),
+  },
+};
+
+const timeoutCanBms: BmsConfiguration = { ...canonicalCanBms, failureMode: 'timeout' };
+
+export const softwareBmsScenarios: Record<SoftwareBmsScenarioName, SoftwareBmsScenario> = {
+  'direct-controller-plus-can-vbms': {
+    name: 'direct-controller-plus-can-vbms',
+    board: directControllerCanBms,
+    expectedStatus: 'attached',
+    expectedRoute: { canId: 42 },
+    lifecycle: 'connect',
+  },
+  'express-plus-controller-and-vbms': {
+    name: 'express-plus-controller-and-vbms',
+    board: expressControllerCanBms,
+    expectedStatus: 'attached',
+    expectedRoute: { canId: 42 },
+    lifecycle: 'connect',
+  },
+  'direct-vbms-plus-can-controller': {
+    name: 'direct-vbms-plus-can-controller',
+    board: directBmsCanController,
+    expectedStatus: 'attached',
+    expectedRoute: 'direct',
+    lifecycle: 'connect',
+  },
+  'no-bms': {
+    name: 'no-bms',
+    board: { ...expressThor, requestPolicy: 'interactive' },
+    expectedStatus: 'not_found',
+    lifecycle: 'connect',
+  },
+  'unique-automatic-selection': {
+    name: 'unique-automatic-selection',
+    board: expressControllerCanBms,
+    preferredBmsCanId: null,
+    expectedStatus: 'attached',
+    expectedRoute: { canId: 42 },
+    lifecycle: 'connect',
+  },
+  'configured-selection-without-ping': {
+    name: 'configured-selection-without-ping',
+    board: { ...expressControllerCanBms, canPingIds: [1] },
+    preferredBmsCanId: 42,
+    expectedStatus: 'attached',
+    expectedRoute: { canId: 42 },
+    lifecycle: 'connect',
+  },
+  'wrong-preference': {
+    name: 'wrong-preference',
+    board: expressControllerCanBms,
+    preferredBmsCanId: 43,
+    expectedStatus: 'not_found',
+    lifecycle: 'connect',
+  },
+  'multiple-ambiguity': {
+    name: 'multiple-ambiguity',
+    board: { ...expressControllerCanBms, bmsNodes: [canonicalCanBms, secondCanBms] },
+    expectedStatus: 'ambiguous',
+    lifecycle: 'connect',
+  },
+  'id-overflow': {
+    name: 'id-overflow',
+    board: {
+      ...expressControllerCanBms,
+      canPingIds: Array.from({ length: 65 }, (_, index) => index),
+    },
+    expectedStatus: 'unavailable',
+    lifecycle: 'connect',
+  },
+  'candidate-overflow': {
+    name: 'candidate-overflow',
+    board: {
+      ...expressControllerCanBms,
+      bmsNodes: Array.from({ length: 17 }, (_, index) => ({
+        ...canonicalCanBms,
+        canId: index + 20,
+        values: { ...typicalBmsValues, reportedCanId: index + 20 },
+      })),
+    },
+    expectedStatus: 'unavailable',
+    lifecycle: 'connect',
+  },
+  loss: {
+    name: 'loss',
+    board: { ...expressControllerCanBms, bmsNodes: [timeoutCanBms] },
+    expectedStatus: 'unavailable',
+    expectedRoute: { canId: 42 },
+    lifecycle: 'loss',
+  },
+  recovery: {
+    name: 'recovery',
+    board: expressControllerCanBms,
+    expectedStatus: 'attached',
+    expectedRoute: { canId: 42 },
+    lifecycle: 'recovery',
+  },
+  reconnect: {
+    name: 'reconnect',
+    board: expressControllerCanBms,
+    expectedStatus: 'attached',
+    expectedRoute: { canId: 42 },
+    lifecycle: 'reconnect',
+  },
+  disconnect: {
+    name: 'disconnect',
+    board: expressControllerCanBms,
+    expectedStatus: 'unavailable',
+    expectedRoute: { canId: 42 },
+    lifecycle: 'disconnect',
+  },
+};
 
 export type SoftwareConnectionScenarioName =
   | 'automatic-can-discovery'

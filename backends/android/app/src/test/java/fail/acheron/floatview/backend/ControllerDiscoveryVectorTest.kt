@@ -103,6 +103,31 @@ class ControllerDiscoveryVectorTest {
             )
         }
     }
+
+    @Test
+    fun publishesCompleteClassifiedInventory() {
+        val discovery = ControllerDiscovery()
+        val continuity = ControllerContinuity(false, null, null)
+        assertEquals(
+            ControllerDiscoveryEffect.PingCan,
+            discovery.acceptTransport(firmware(hardwareType = 2), null, null),
+        )
+        assertEquals(
+            ControllerDiscoveryEffect.ProbeFirmware(ControllerRoute.Can(4)),
+            discovery.acceptCanIds(listOf(7, 4), continuity),
+        )
+        assertEquals(
+            ControllerDiscoveryEffect.ProbeFirmware(ControllerRoute.Can(7)),
+            discovery.acceptCanFirmware(firmware(1, 4, minor = 0), continuity),
+        )
+        assertTrue(
+            discovery.acceptCanFirmware(firmware(0, 7), continuity)
+                is ControllerDiscoveryEffect.RequestRefloatInfo,
+        )
+        assertTrue(discovery.inventoryComplete)
+        assertEquals(listOf(null, 4, 7), discovery.classifiedInventory.map { it.canId })
+        assertEquals(listOf(2, 1, 0), discovery.classifiedInventory.map { it.hardwareType })
+    }
 }
 
 private data class DiscoveryVector(

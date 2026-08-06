@@ -2,9 +2,9 @@
 
 The direct-and-CAN controller change establishes an explicit selected controller route, bounded sequential CAN probing, strict motor-controller firmware identity parsing, route-aware Refloat polling, and complete authoritative connection snapshots. That discovery currently ends as soon as it can select a motor controller: a direct controller skips CAN ping, a configured or privately hinted gateway probes only the selected controller, and automatic enumeration discards every non-motor identity. `TelemetryPolling` serializes only its own Refloat requests rather than arbitrating every request written to the uncorrelated VESC stream.
 
-Upstream assigns hardware types `HW_TYPE_VESC = 0`, `HW_TYPE_VESC_BMS = 1`, and `HW_TYPE_CUSTOM_MODULE = 2`. A VBMS can be the local BLE endpoint or a distinct CAN node. `COMM_BMS_GET_VALUES = 96` is sent directly as `[96]` or routed as `[COMM_FORWARD_CAN, canId, 96]`. A direct VBMS response establishes current liveness; a motor controller can answer the same command from a cache whose age is not exposed, so Float View will not use the cached controller response as attachment evidence or automatic disambiguation.
+Upstream assigns hardware types `HW_TYPE_VESC = 0`, `HW_TYPE_VESC_BMS = 1`, and `HW_TYPE_CUSTOM_MODULE = 2`, but hardware type is not a complete capability taxonomy. Stock `vesc_bms_fw` 6.00 reports type 1. The official VESC Express VBMS32 target reports hardware name `VBMS32`, version 6.06, and type 2 from both `COMM_FW_VERSION` and CAN pong while routing `COMM_BMS_GET_VALUES` to its BMS implementation. A supported BMS can be the local BLE endpoint or a distinct CAN node. Command 96 is sent directly as `[96]` or routed as `[COMM_FORWARD_CAN, canId, 96]`. A direct BMS response establishes current liveness; a motor controller can answer the same command from a cache whose age is not exposed, so Float View will not use the cached controller response as attachment evidence or automatic disambiguation.
 
-The VBMS firmware identity ends after the common firmware prefix, UUID, pairing marker, test version, hardware type, and custom-configuration count. The current strict motor parser expects additional motor flags and a terminated firmware name, so it cannot classify a valid VBMS. The values response contains variable-length cell and temperature arrays and has a legacy form ending after pressure plus an extended form with data version and a bounded status string.
+The stock VESC BMS identity ends after the common firmware prefix, UUID, pairing marker, test version, hardware type, and custom-configuration count. The VBMS32 identity uses the VESC Express custom-module tail with four capability bytes, a terminated firmware name, and a hardware CRC. The strict decoder parses both structures, while auxiliary discovery decides BMS capability from the exact audited identity tuple rather than the enum alone. The values response contains variable-length cell and temperature arrays and has a legacy form ending after pressure plus an extended form with data version and a bounded status string.
 
 This change follows the controller-routing change and must be reconciled against its delta specs before archive. The frontend contract remains the source of truth; Apple and Android implement it by hand; conformance owns simulation and scenario behavior; and the ESP32 remains a byte bridge.
 
@@ -12,7 +12,7 @@ This change follows the controller-routing change and must be reconciled against
 
 **Goals:**
 
-- Discover a local or CAN-routed VBMS independently from the selected motor controller.
+- Discover a local or CAN-routed stock VESC BMS 6.00 or VESC Express VBMS32 6.06 independently from the selected motor controller.
 - Let a unique VBMS be selected automatically and let `preferredBmsCanId` select one exact CAN route without relying on CAN ping.
 - Report multiple unconfigured VBMS nodes as ambiguous and poll none of them.
 - Query the selected VBMS directly, enforce source-derived bounds, and expose complete live values and freshness.
@@ -62,8 +62,8 @@ Firmware classification retains the local identity and at most 64 normalized uni
 
 The local endpoint is handled first:
 
-- A local `HW_TYPE_VESC_BMS` becomes the direct BMS candidate and is selected without CAN ambiguity. Controller discovery still treats that endpoint as a gateway and discovers the motor controller behind it.
-- A local motor controller, Express, or custom module is not a BMS candidate.
+- A local identity matching the audited BMS compatibility catalog becomes the direct BMS candidate and is selected without CAN ambiguity. Controller discovery still treats that endpoint as a gateway and discovers the motor controller behind it.
+- A local motor controller, generic Express target, or arbitrary custom module is not a BMS candidate. VBMS32 is the narrow exception keyed by exact hardware name, type, and wire version.
 
 For CAN candidates:
 
@@ -77,13 +77,14 @@ Changing `preferredBmsCanId` on the active board cancels only the current auxili
 
 ### 3. Split common firmware parsing from hardware-specific identity tails
 
-The VESC firmware decoder will parse a common bounded prefix containing command, version, terminated hardware name, 12-byte UUID, pairing marker, test version, hardware type, and custom-configuration count. It then delegates by hardware type:
+The VESC firmware decoder parses a common bounded prefix containing command, version, terminated hardware name, 12-byte UUID, pairing marker, test version, hardware type, and custom-configuration count. It then delegates by wire layout:
 
 - `HW_TYPE_VESC` requires the audited motor-controller flags, terminated firmware name, and allowed optional CRC tail exactly as today.
-- `HW_TYPE_VESC_BMS` requires the source-defined identity to end after custom-configuration count for the supported VBMS family.
-- Other hardware types retain only the structurally valid common identity needed for gateway classification and are never accepted as a controller or BMS.
+- `HW_TYPE_VESC_BMS` 6.00 requires the source-defined identity to end after custom-configuration count.
+- Custom-module identities require the audited capability bytes, terminated firmware name, and optional CRC tail. Only the exact `VBMS32`, type 2, version 6.06 tuple is entered in the BMS compatibility catalog.
+- Other structurally valid hardware identities remain available for gateway classification but are never accepted as a controller or BMS.
 
-This preserves fail-closed controller compatibility while allowing source-faithful VBMS and gateway identities. A permissive parser that ignored arbitrary remainders was rejected because malformed motor or BMS identities could be misclassified as trustworthy routes.
+This preserves fail-closed controller compatibility while allowing source-faithful stock VBMS, VBMS32, and gateway identities. A permissive parser or generic "custom module with command 96" probe was rejected because malformed or mutable modules could be misclassified as trustworthy battery routes.
 
 Meaningful UUIDs remain native-private. The initial change does not persist a BMS UUID because `preferredBmsCanId` is authoritative and BMS continuity does not own session integrity.
 
@@ -148,13 +149,13 @@ The menu item and sheet controls use native button semantics, `type="button"`, p
 
 Conformance-owned topology types gain zero, one, or multiple source-faithful VBMS nodes, local-direct VBMS transport, independently routed controllers and BMS nodes, legacy/extended values, omitted ping IDs, route timeouts, malformed counts and remainders, mismatched reported IDs, reconnect, and disconnect behavior. The interactive fixture exposes bounded configuration and plausible seeded BMS values, while ESP32 firmware continues to transport only bytes and events.
 
-Physical coverage adds the supported direct-controller-plus-CAN-VBMS, Express-plus-CAN-VBMS, and direct-VBMS-gateway-to-controller topologies where hardware permits. Software conformance remains the required gate; physical BLE remains an explicit checkpoint.
+Physical coverage adds the supported direct-controller-plus-CAN-BMS, Express-plus-CAN-BMS, and direct-BMS-gateway-to-controller topologies where hardware permits. The retained Thor301 capture identifies a Thor301 controller at CAN 3 and VBMS32 6.06 custom module at persisted CAN 10; iOS and Android values polling are verified, while unavailable topologies remain explicitly recorded rather than inferred. Software conformance remains the required gate; physical BLE remains an explicit checkpoint.
 
 ## Risks / Trade-offs
 
 - [Auxiliary discovery can take up to the bounded CAN-probe window] → Run it after controller routing is established, reuse complete inventories, serialize it at low priority, and expose progress without blocking `ready`.
 - [A one-Hz array snapshot increases state-event size and frontend work] → Bound arrays to 50, replace rather than append snapshots, conflate events, and render stable keyed rows without animation churn.
-- [Strict VBMS identity/value variants may reject future firmware] → Tie accepted layouts to pinned upstream fixtures and add a compatibility entry only after auditing changed source.
+- [Strict BMS identity/value variants may reject future firmware] → Tie accepted layouts to pinned upstream fixtures and add a compatibility entry only after auditing changed source. VESC Express 7.00 remains rejected until its identity, command-96 encoder, both native decoders, conformance, and physical hardware are audited together.
 - [A preferred BMS can disappear while another remains present] → Treat the preference as authoritative and report unavailable; never silently switch battery identity.
 - [Retaining stale values can be mistaken for current data] → Keep the observation timestamp, publish explicit unavailable status, and render freshness prominently.
 - [The connection-wide scheduler touches mature controller polling] → Introduce typed scheduler tests first, preserve request priority/cadence assertions, and land the refactor as a verified slice before enabling BMS work.
@@ -168,6 +169,6 @@ Physical coverage adds the supported direct-controller-plus-CAN-VBMS, Express-pl
 4. Run focused frontend/native/conformance tests, `just verify`, strict OpenSpec validation, and the explicit physical VBMS checkpoint.
 5. Roll back by reverting this change; controller routing and Refloat session behavior remain independently functional, and disposable profile storage can be recreated.
 
-## Open Questions
+## Resolved physical evidence
 
-- Which exact physical VBMS firmware version and hardware revision will provide the immutable hardware capture for the physical checkpoint? The vendored encoder defines the initial supported wire family, but implementation must record the tested device identity before declaring physical coverage complete.
+- The 2026-08-06 Thor301 observation records controller CAN 3 (`Thor301`, type 0, 6.06) and BMS CAN 10 (`VBMS32`, type 2, 6.06). iOS and Android discovered and polled the VBMS32 successfully after the exact compatibility entry was added. The CAN ID is device configuration, not product identity; upstream VBMS32 defaults to 3 and persists a unique configured controller ID.

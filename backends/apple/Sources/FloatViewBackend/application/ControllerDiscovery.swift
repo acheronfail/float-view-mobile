@@ -27,6 +27,16 @@ enum ControllerDiscoveryPolicy {
     return UInt8(number.intValue)
   }
 
+  static func preferredBmsCanID(_ valuesJSON: String) -> UInt8? {
+    guard let values = try? JSONSerialization.jsonObject(with: Data(valuesJSON.utf8))
+      as? [String: Any],
+      let number = values["preferredBmsCanId"] as? NSNumber,
+      number.doubleValue.rounded() == number.doubleValue,
+      (0 ... 253).contains(number.intValue)
+    else { return nil }
+    return UInt8(number.intValue)
+  }
+
   static func version(_ value: FirmwareRecord) -> String {
     "\(value.major).\(String(format: "%02d", value.minor))"
   }
@@ -76,6 +86,8 @@ final class ControllerDiscovery {
   private(set) var refloatFamily: RefloatTelemetryFamily?
   private(set) var controllerRoute: ControllerRoute?
   private(set) var controllerCandidates: [ControllerCandidate] = []
+  private(set) var classifiedInventory: [FirmwareRecord] = []
+  private(set) var inventoryComplete = false
   private(set) var connectionIssue: ConnectionIssue?
   private(set) var started = false
   private(set) var identificationGeneration = 0
@@ -83,6 +95,7 @@ final class ControllerDiscovery {
   private(set) var activeCanProbeID: UInt8?
 
   private var probedControllers: [UInt8: FirmwareRecord] = [:]
+  private var probedNodes: [UInt8: FirmwareRecord] = [:]
   private var pendingCanIDs: [UInt8] = []
   private var probeIntent: ControllerProbeIntent?
   private var recoveryControllerUUID: Data?
@@ -105,6 +118,8 @@ final class ControllerDiscovery {
     routingHint: ControllerRoutingHint?
   ) -> ControllerDiscoveryEffect {
     transportFirmware = value
+    classifiedInventory = [value]
+    inventoryComplete = false
     if value.hardwareType == Self.vescHardwareType {
       controllerRoute = .direct
       firmware = value
@@ -167,6 +182,7 @@ final class ControllerDiscovery {
       }
       return .clearHintThen(beginEnumeration())
     case .enumerating:
+      probedNodes[canID] = value
       if value.hardwareType == Self.vescHardwareType {
         probedControllers[canID] = value
         if probedControllers.count > ControllerDiscoveryPolicy.maximumCandidates {
@@ -291,8 +307,11 @@ final class ControllerDiscovery {
     refloatFamily = nil
     pendingCanIDs.removeAll()
     probedControllers.removeAll()
+    probedNodes.removeAll()
     probeIntent = nil
     controllerCandidates.removeAll()
+    classifiedInventory.removeAll()
+    inventoryComplete = false
     controllerRoute = nil
     connectionIssue = nil
     recoveryControllerUUID = nil
@@ -307,6 +326,7 @@ final class ControllerDiscovery {
     probeIntent = .enumerating
     pendingCanIDs.removeAll()
     probedControllers.removeAll()
+    probedNodes.removeAll()
     activeCanProbeID = nil
     return .pingCAN
   }
@@ -323,6 +343,11 @@ final class ControllerDiscovery {
   }
 
   private func finishCandidates() -> ControllerDiscoveryEffect {
+    classifiedInventory = ([transportFirmware].compactMap { $0 } + probedNodes.values)
+      .sorted { Int($0.canID ?? 0) - ($0.canID == nil ? 1 : 0)
+        < Int($1.canID ?? 0) - ($1.canID == nil ? 1 : 0)
+      }
+    inventoryComplete = true
     let records = probedControllers.values.sorted { ($0.canID ?? 255) < ($1.canID ?? 255) }
     controllerCandidates = records.compactMap { value in
       guard let canID = value.canID else { return nil }

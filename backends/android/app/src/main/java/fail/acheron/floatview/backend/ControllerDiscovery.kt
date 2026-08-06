@@ -31,6 +31,14 @@ object ControllerDiscoveryPolicy {
         return value.toInt().takeIf { value.isFinite() && value % 1.0 == 0.0 && it in 0..253 }
     }
 
+    fun preferredBmsCanId(valuesJson: String?): Int? {
+        if (valuesJson == null) return null
+        val raw = Regex("\"preferredBmsCanId\"\\s*:\\s*(-?\\d+(?:\\.\\d+)?)")
+            .find(valuesJson)?.groupValues?.get(1) ?: return null
+        val value = raw.toDoubleOrNull() ?: return null
+        return value.toInt().takeIf { value.isFinite() && value % 1.0 == 0.0 && it in 0..253 }
+    }
+
     fun version(value: FirmwareRecord): String =
         "${value.major}.${value.minor.toString().padStart(2, '0')}"
 
@@ -93,6 +101,10 @@ class ControllerDiscovery {
         private set
     var controllerCandidates: List<ControllerCandidate> = emptyList()
         private set
+    var classifiedInventory: List<FirmwareRecord> = emptyList()
+        private set
+    var inventoryComplete: Boolean = false
+        private set
     var connectionIssue: ConnectionIssue? = null
         private set
     var started: Boolean = false
@@ -105,6 +117,7 @@ class ControllerDiscovery {
         private set
 
     private val probedControllers = linkedMapOf<Int, FirmwareRecord>()
+    private val probedNodes = linkedMapOf<Int, FirmwareRecord>()
     private var pendingCanIds = mutableListOf<Int>()
     private var probeIntent: ControllerProbeIntent? = null
     private var recoveryControllerUuid: ByteArray? = null
@@ -124,6 +137,8 @@ class ControllerDiscovery {
         routingHint: ControllerRoutingHint?,
     ): ControllerDiscoveryEffect {
         transportFirmware = value
+        classifiedInventory = listOf(value)
+        inventoryComplete = false
         if (value.hardwareType == VESC_HARDWARE_TYPE) {
             controllerRoute = ControllerRoute.Direct
             firmware = value
@@ -203,6 +218,7 @@ class ControllerDiscovery {
                 }
             }
             ControllerProbeIntent.Enumerating -> {
+                probedNodes[canId] = value
                 if (value.hardwareType == VESC_HARDWARE_TYPE) {
                     probedControllers[canId] = value
                     if (probedControllers.size > ControllerDiscoveryPolicy.MAXIMUM_CANDIDATES) {
@@ -327,8 +343,11 @@ class ControllerDiscovery {
         refloatFamily = null
         pendingCanIds.clear()
         probedControllers.clear()
+        probedNodes.clear()
         probeIntent = null
         controllerCandidates = emptyList()
+        classifiedInventory = emptyList()
+        inventoryComplete = false
         controllerRoute = null
         connectionIssue = null
         recoveryControllerUuid = null
@@ -343,6 +362,7 @@ class ControllerDiscovery {
         probeIntent = ControllerProbeIntent.Enumerating
         pendingCanIds.clear()
         probedControllers.clear()
+        probedNodes.clear()
         activeCanProbeId = null
         return ControllerDiscoveryEffect.PingCan
     }
@@ -359,6 +379,9 @@ class ControllerDiscovery {
     }
 
     private fun finishCandidates(continuity: ControllerContinuity): ControllerDiscoveryEffect {
+        classifiedInventory = (listOfNotNull(transportFirmware) + probedNodes.values)
+            .sortedBy { it.canId ?: -1 }
+        inventoryComplete = true
         val records = probedControllers.values.sortedBy { it.canId ?: 255 }
         controllerCandidates = records.mapNotNull { value ->
             value.canId?.let { canId ->

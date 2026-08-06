@@ -64,6 +64,10 @@ private struct ByteReader {
   let bytes: [UInt8]
   var offset = 0
 
+  var remaining: Int {
+    bytes.count - offset
+  }
+
   mutating func u8() throws -> UInt8 {
     guard offset < bytes.count else { throw VescProtocolError.truncatedPayload }
     defer { offset += 1 }
@@ -93,12 +97,29 @@ private struct ByteReader {
     guard exponentBits != 0 || significandBits != 0 else { return 0 }
     let significand = Double(significandBits) / 16_777_216.0 + 0.5
     let value = significand * pow(2, Double(exponentBits - 126))
-    return raw & 0x80000000 == 0 ? value : -value
+    let signedValue = raw & 0x80000000 == 0 ? value : -value
+    guard signedValue.isFinite, abs(signedValue) <= Double(Float.greatestFiniteMagnitude) else {
+      throw VescProtocolError.truncatedPayload
+    }
+    return signedValue
   }
 
   mutating func skip(_ count: Int) throws {
     guard offset + count <= bytes.count else { throw VescProtocolError.truncatedPayload }
     offset += count
+  }
+
+  mutating func terminatedUTF8(maxContentBytes: Int) throws -> String {
+    let start = offset
+    let searchEnd = min(bytes.count, start + maxContentBytes + 1)
+    guard let terminator = bytes[start ..< searchEnd].firstIndex(of: 0) else {
+      throw VescProtocolError.truncatedPayload
+    }
+    guard let value = String(bytes: bytes[start ..< terminator], encoding: .utf8) else {
+      throw VescProtocolError.truncatedPayload
+    }
+    offset = terminator + 1
+    return value
   }
 }
 
@@ -143,6 +164,101 @@ public enum VescPayloadDecoder {
     )
   }
 
+  public static func bmsValues(
+    _ payload: [UInt8], expectedCanID: UInt8? = nil, observedAt: Date
+  ) throws -> BmsSnapshot {
+    var reader = ByteReader(bytes: payload)
+    let command = try reader.u8()
+    guard command == VescCommand.bmsGetValues.rawValue else {
+      throw VescProtocolError.unsupportedCommand(command)
+    }
+
+    let totalVoltage = try reader.i32(scale: 1_000_000)
+    let chargeVoltage = try reader.i32(scale: 1_000_000)
+    let inputCurrent = try reader.i32(scale: 1_000_000)
+    let inputICCurrent = try reader.i32(scale: 1_000_000)
+    let sessionAmpHours = try reader.i32(scale: 1_000)
+    let sessionWattHours = try reader.i32(scale: 1_000)
+
+    let cellCount = try Int(reader.u8())
+    guard cellCount <= 50 else { throw VescProtocolError.truncatedPayload }
+    var cellVoltages: [Double] = []
+    cellVoltages.reserveCapacity(cellCount)
+    for _ in 0 ..< cellCount {
+      try cellVoltages.append(reader.i16(scale: 1_000))
+    }
+
+    var balancing: [Bool] = []
+    balancing.reserveCapacity(cellCount)
+    for _ in 0 ..< cellCount {
+      let flag = try reader.u8()
+      guard flag <= 1 else { throw VescProtocolError.truncatedPayload }
+      balancing.append(flag == 1)
+    }
+
+    let temperatureCount = try Int(reader.u8())
+    guard temperatureCount <= 50 else { throw VescProtocolError.truncatedPayload }
+    var temperatures: [Double] = []
+    temperatures.reserveCapacity(temperatureCount)
+    for _ in 0 ..< temperatureCount {
+      try temperatures.append(reader.i16(scale: 100))
+    }
+
+    let icTemperature = try reader.i16(scale: 100)
+    let humiditySensorTemperature = try reader.i16(scale: 100)
+    let humidity = try reader.i16(scale: 100)
+    let highestCellTemperature = try reader.i16(scale: 100)
+    let stateOfCharge = try reader.i16(scale: 1_000)
+    let stateOfHealth = try reader.i16(scale: 1_000)
+    let reportedCanID = try reader.u8()
+    guard reportedCanID <= 253, expectedCanID == nil || reportedCanID == expectedCanID else {
+      throw VescProtocolError.truncatedPayload
+    }
+    let lifetimeChargeAmpHours = try reader.float32Auto()
+    let lifetimeChargeWattHours = try reader.float32Auto()
+    let lifetimeDischargeAmpHours = try reader.float32Auto()
+    let lifetimeDischargeWattHours = try reader.float32Auto()
+    let pressure = try reader.i16(scale: 0.1)
+
+    let dataVersion: UInt8?
+    let status: String?
+    if reader.remaining == 0 {
+      dataVersion = nil
+      status = nil
+    } else {
+      dataVersion = try reader.u8()
+      status = try reader.terminatedUTF8(maxContentBytes: 40)
+      guard reader.remaining == 0 else { throw VescProtocolError.truncatedPayload }
+    }
+
+    let numericValues = [
+      totalVoltage, chargeVoltage, inputCurrent, inputICCurrent,
+      sessionAmpHours, sessionWattHours, icTemperature,
+      humiditySensorTemperature, humidity, highestCellTemperature,
+      stateOfCharge, stateOfHealth, lifetimeChargeAmpHours,
+      lifetimeChargeWattHours, lifetimeDischargeAmpHours,
+      lifetimeDischargeWattHours, pressure,
+    ] + cellVoltages + temperatures
+    guard numericValues.allSatisfy(\.isFinite) else {
+      throw VescProtocolError.truncatedPayload
+    }
+
+    return BmsSnapshot(
+      observedAt: observedAt, totalVoltageV: totalVoltage, chargeVoltageV: chargeVoltage,
+      inputCurrentA: inputCurrent, inputICCurrentA: inputICCurrent,
+      sessionAmpHoursAh: sessionAmpHours, sessionWattHoursWh: sessionWattHours,
+      cellVoltagesV: cellVoltages, balancing: balancing, temperaturesC: temperatures,
+      icTemperatureC: icTemperature, humiditySensorTemperatureC: humiditySensorTemperature,
+      humidityPercent: humidity, highestCellTemperatureC: highestCellTemperature,
+      stateOfCharge: stateOfCharge, stateOfHealth: stateOfHealth,
+      reportedCanID: reportedCanID, lifetimeChargeAmpHoursAh: lifetimeChargeAmpHours,
+      lifetimeChargeWattHoursWh: lifetimeChargeWattHours,
+      lifetimeDischargeAmpHoursAh: lifetimeDischargeAmpHours,
+      lifetimeDischargeWattHoursWh: lifetimeDischargeWattHours, pressurePa: pressure,
+      dataVersion: dataVersion, status: status
+    )
+  }
+
   public static func currentLimits(_ payload: [UInt8]) throws -> ControllerCurrentLimits {
     var reader = ByteReader(bytes: payload)
     let command = try reader.u8()
@@ -176,9 +292,9 @@ public enum VescPayloadDecoder {
 }
 
 public final class VescProtocolService: VescProtocolPort, @unchecked Sendable {
+  public let supportsBmsTelemetry = true
   private let lock = NSLock()
   private var stream = VescFrameStreamDecoder()
-  private var pendingFirmwareCanID: UInt8?
   private var realtimeFields: [String] = []
   private var realtimeRuntimeFields: [String] = []
 
@@ -187,16 +303,12 @@ public final class VescProtocolService: VescProtocolPort, @unchecked Sendable {
   public func reset() {
     lock.lock()
     stream = VescFrameStreamDecoder()
-    pendingFirmwareCanID = nil
     realtimeFields.removeAll()
     realtimeRuntimeFields.removeAll()
     lock.unlock()
   }
 
   public func firmwareRequest(route: ControllerRoute) throws -> Data {
-    lock.lock()
-    pendingFirmwareCanID = route.canID
-    lock.unlock()
     let payload = VescCommandRouter.route([VescCommand.getFirmwareVersion.rawValue], via: route)
     return try Data(VescFrameCodec.encode(payload))
   }
@@ -246,6 +358,16 @@ public final class VescProtocolService: VescProtocolPort, @unchecked Sendable {
     return try Data(VescFrameCodec.encode(VescCommandRouter.route(command, via: route)))
   }
 
+  public func bmsValuesRequest(connection: BmsConnection) throws -> Data {
+    let route: ControllerRoute = switch connection {
+    case .direct: .direct
+    case let .can(canID): .can(canID)
+    }
+    return try Data(VescFrameCodec.encode(
+      VescCommandRouter.route([VescCommand.bmsGetValues.rawValue], via: route)
+    ))
+  }
+
   public func receive(_ bytes: Data) throws -> [VescProtocolMessage] {
     lock.lock()
     defer { lock.unlock() }
@@ -261,7 +383,7 @@ public final class VescProtocolService: VescProtocolPort, @unchecked Sendable {
             hardwareName: info.hardwareName,
             firmwareName: info.firmwareName,
             hardwareType: info.hardwareType,
-            canID: pendingFirmwareCanID,
+            canID: nil,
             controllerUUID: info.controllerUUID
           )
         )
@@ -269,6 +391,8 @@ public final class VescProtocolService: VescProtocolPort, @unchecked Sendable {
         return try .currentLimits(VescPayloadDecoder.currentLimits(payload))
       case VescCommand.pingCAN.rawValue:
         return .canDevices(Array(Set(payload.dropFirst())).sorted())
+      case VescCommand.bmsGetValues.rawValue:
+        return .bmsValuesPayload(Data(payload))
       case VescCommand.customAppData.rawValue:
         guard payload.count >= 4, let command = RefloatWire.command(in: payload) else {
           return nil

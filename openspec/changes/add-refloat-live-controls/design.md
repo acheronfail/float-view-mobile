@@ -38,11 +38,11 @@ Control state is connection-scoped and live-only. Disconnect, board-generation c
 
 Each native backend maps the exact package version discovered by the existing Refloat compatibility classifier to a closed control profile. The profile contains only audited capabilities and codecs:
 
-| Refloat family | Package enable | Flywheel | LEDs/headlights | Fatal clear |
-| --- | --- | --- | --- | --- |
-| 1.0.0–1.0.1 | command 12 | command 22 | command 202, one-byte mask/flags | unavailable |
-| 1.1.0–1.1.2 | command 12 | command 22 | command 202, one-byte mask/flags | unavailable |
-| 1.2.0–1.2.3 | command 12 | command 22 | command 20, uint32 mask plus uint8 flags | command 36 |
+| Refloat family | Package enable | Flywheel   | LEDs/headlights                          | Fatal clear |
+| -------------- | -------------- | ---------- | ---------------------------------------- | ----------- |
+| 1.0.0–1.0.1    | command 12     | command 22 | command 202, one-byte mask/flags         | unavailable |
+| 1.1.0–1.1.2    | command 12     | command 22 | command 202, one-byte mask/flags         | unavailable |
+| 1.2.0–1.2.3    | command 12     | command 22 | command 20, uint32 mask plus uint8 flags | command 36  |
 
 Package command 12 accepts the package's `disabled` value, so the semantic `enabled` input is inverted by the codec. Flywheel command 22 uses the exact audited on/off payloads. Lighting updates use masks so LEDs and headlights remain independently addressable. Fatal clear sends only the audited clear value.
 

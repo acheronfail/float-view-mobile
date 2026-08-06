@@ -2,7 +2,7 @@
 
 ### Requirement: Composable interactive VBMS topology
 
-The fixture development coordinator SHALL extend its existing controller and transport composition with zero, one, or multiple independently routed source-faithful VBMS nodes, including a local direct-VBMS topology where the motor controller is behind CAN. It MUST compose node behavior from typed identities and values rather than introduce a registry of complete board combinations.
+The fixture development coordinator SHALL extend its existing controller and transport composition with zero, one, or multiple independently routed source-faithful VBMS32 6.06 nodes, including a local direct-BMS topology where the motor controller is behind CAN. Canonical fixtures SHALL retain stock VESC BMS 6.00 separately. It MUST compose node behavior from typed identities and values rather than introduce a registry of complete board combinations.
 
 #### Scenario: One CAN VBMS
 

@@ -1,6 +1,33 @@
 import { describe, expect, it } from 'vitest';
 import { MockBackend } from '../../../backend-mock/api-v1';
-import type { AppState } from './contract';
+import type { AppState, BmsSnapshot } from './contract';
+
+const bmsSnapshot: BmsSnapshot = {
+  observedAt: '2026-01-01T00:00:01Z',
+  totalVoltageV: 75.6,
+  chargeVoltageV: 84,
+  inputCurrentA: 4.2,
+  inputIcCurrentA: 4.1,
+  sessionAmpHoursAh: 1.25,
+  sessionWattHoursWh: 94.5,
+  cellVoltagesV: [4.19, 4.2],
+  balancing: [false, true],
+  temperaturesC: [24.5, 25],
+  icTemperatureC: 28,
+  humiditySensorTemperatureC: 24,
+  humidityPercent: 42,
+  highestCellTemperatureC: 25,
+  stateOfCharge: 0.9,
+  stateOfHealth: 0.98,
+  reportedCanId: 42,
+  lifetimeChargeAmpHoursAh: 120,
+  lifetimeChargeWattHoursWh: 9_000,
+  lifetimeDischargeAmpHoursAh: 110,
+  lifetimeDischargeWattHoursWh: 8_250,
+  pressurePa: 101_325,
+  dataVersion: 1,
+  status: 'OK',
+};
 
 describe('deterministic mock backend', () => {
   it('implements state and publishes full monotonic state changes', () => {
@@ -95,9 +122,11 @@ describe('deterministic mock backend', () => {
       .savedDevices[0];
     expect(mergedBoard?.summary.sessionCount).toBe(3);
     expect(
-      (backend.handle({ id: 3, method: 'session.list', params: { savedDeviceId: 'saved-board', limit: 100 } }) as {
-        result: { items: Array<{ sessionId: string }> };
-      }).result.items.some((item) => item.sessionId === mergedSessionId)
+      (
+        backend.handle({ id: 3, method: 'session.list', params: { savedDeviceId: 'saved-board', limit: 100 } }) as {
+          result: { items: Array<{ sessionId: string }> };
+        }
+      ).result.items.some((item) => item.sessionId === mergedSessionId)
     ).toBe(true);
 
     const createdSessionId = backend.importSession(
@@ -107,9 +136,15 @@ describe('deterministic mock backend', () => {
     const importedBoard = afterImport.savedDevices.find((value) => value.deviceHistoryId === 'history-imported');
     expect(importedBoard).toMatchObject({ displayName: 'Imported board', summary: { sessionCount: 1 } });
     expect(
-      (backend.handle({ id: 5, method: 'session.list', params: { savedDeviceId: importedBoard?.savedDeviceId, limit: 100 } }) as {
-        result: { items: Array<{ sessionId: string }> };
-      }).result.items.map((item) => item.sessionId)
+      (
+        backend.handle({
+          id: 5,
+          method: 'session.list',
+          params: { savedDeviceId: importedBoard?.savedDeviceId, limit: 100 },
+        }) as {
+          result: { items: Array<{ sessionId: string }> };
+        }
+      ).result.items.map((item) => item.sessionId)
     ).toContain(createdSessionId);
     expect(() => backend.importSession(new Uint8Array([1, 2, 3]))).toThrow('valid board identity');
   });
@@ -118,14 +153,20 @@ describe('deterministic mock backend', () => {
     const backend = new MockBackend();
     backend.handle({ id: 1, method: 'bluetooth.scan', params: {} });
     backend.handle({ id: 2, method: 'device.connect', params: { deviceId: 'mock-board', trackingMode: 'saved' } });
-    expect(backend.handle({ id: 3, method: 'savedDevice.delete', params: { savedDeviceId: 'saved-board' } })).toMatchObject({
+    expect(
+      backend.handle({ id: 3, method: 'savedDevice.delete', params: { savedDeviceId: 'saved-board' } })
+    ).toMatchObject({
       error: { code: 'invalid_state' },
     });
     backend.handle({ id: 4, method: 'device.disconnect', params: {} });
-    expect(backend.handle({ id: 5, method: 'savedDevice.delete', params: { savedDeviceId: 'saved-board' } })).toMatchObject({
+    expect(
+      backend.handle({ id: 5, method: 'savedDevice.delete', params: { savedDeviceId: 'saved-board' } })
+    ).toMatchObject({
       result: { accepted: true },
     });
-    expect((backend.handle({ id: 6, method: 'state.get', params: {} }) as { result: AppState }).result.savedDevices).toEqual([]);
+    expect(
+      (backend.handle({ id: 6, method: 'state.get', params: {} }) as { result: AppState }).result.savedDevices
+    ).toEqual([]);
     expect(
       backend.handle({ id: 7, method: 'session.list', params: { savedDeviceId: 'saved-board', limit: 100 } })
     ).toMatchObject({ error: { code: 'not_found' } });
@@ -213,7 +254,11 @@ describe('deterministic mock backend', () => {
 
   it('rejects a catalog cursor after a visible mutation', () => {
     const backend = new MockBackend();
-    const first = backend.handle({ id: 1, method: 'session.list', params: { savedDeviceId: 'saved-board', limit: 1 } }) as {
+    const first = backend.handle({
+      id: 1,
+      method: 'session.list',
+      params: { savedDeviceId: 'saved-board', limit: 1 },
+    }) as {
       result: { nextCursor: string | null };
     };
     expect(first.result.nextCursor).not.toBeNull();
@@ -342,5 +387,90 @@ describe('deterministic mock backend', () => {
       state: 'ready',
       controllerCandidates: [],
     });
+  });
+
+  it('publishes complete bounded BMS lifecycle states without durable history', () => {
+    const backend = new MockBackend();
+    backend.handle({ id: 1, method: 'bluetooth.scan', params: {} });
+    backend.handle({ id: 2, method: 'device.connect', params: { deviceId: 'mock-board', trackingMode: 'saved' } });
+    const initial = (backend.handle({ id: 3, method: 'state.get', params: {} }) as { result: AppState }).result;
+    expect(initial.activeConnection?.bms).toEqual({
+      status: 'discovering',
+      connection: null,
+      candidates: [],
+      latestSnapshot: null,
+    });
+
+    backend.simulateBmsState({ status: 'not_found', connection: null, candidates: [], latestSnapshot: null });
+    expect(
+      (backend.handle({ id: 4, method: 'state.get', params: {} }) as { result: AppState }).result.activeConnection?.bms
+        .status
+    ).toBe('not_found');
+
+    backend.simulateBmsAttached(bmsSnapshot, { kind: 'can', canId: 42 });
+    const attached = (backend.handle({ id: 5, method: 'state.get', params: {} }) as { result: AppState }).result;
+    expect(attached.activeConnection?.bms).toMatchObject({
+      status: 'attached',
+      connection: { kind: 'can', canId: 42 },
+      latestSnapshot: bmsSnapshot,
+    });
+
+    backend.simulateBmsState({
+      status: 'unavailable',
+      connection: { kind: 'can', canId: 42 },
+      candidates: [],
+      latestSnapshot: bmsSnapshot,
+    });
+    expect(
+      (backend.handle({ id: 6, method: 'state.get', params: {} }) as { result: AppState }).result.activeConnection?.bms
+    ).toMatchObject({ status: 'unavailable', latestSnapshot: { observedAt: bmsSnapshot.observedAt } });
+
+    backend.simulateBmsAmbiguous([
+      { connection: { kind: 'can', canId: 42 }, hardwareName: 'VBMS', vescVersion: '6.00' },
+      { connection: { kind: 'can', canId: 7 }, hardwareName: 'VBMS', vescVersion: '6.00' },
+    ]);
+    const ambiguous = (backend.handle({ id: 7, method: 'state.get', params: {} }) as { result: AppState }).result;
+    expect(ambiguous.activeConnection?.bms.candidates.map((item) => item.connection)).toEqual([
+      { kind: 'can', canId: 7 },
+      { kind: 'can', canId: 42 },
+    ]);
+    expect(ambiguous.activeConnection?.bms).toMatchObject({
+      status: 'ambiguous',
+      connection: null,
+      latestSnapshot: null,
+    });
+    expect(ambiguous.sessionCatalogRevision).toBe(initial.sessionCatalogRevision);
+  });
+
+  it('revision-checks an independent nullable preferred BMS CAN ID', () => {
+    const backend = new MockBackend();
+    expect(
+      backend.handle({
+        id: 1,
+        method: 'boardProfile.update',
+        params: { savedDeviceId: 'saved-board', expectedRevision: 0, patch: { preferredBmsCanId: 42 } },
+      })
+    ).toMatchObject({ result: { revision: 1, values: { preferredBmsCanId: 42 } } });
+    expect(
+      backend.handle({
+        id: 2,
+        method: 'boardProfile.update',
+        params: { savedDeviceId: 'saved-board', expectedRevision: 0, patch: { preferredBmsCanId: null } },
+      })
+    ).toMatchObject({ error: { code: 'conflict' } });
+    expect(
+      backend.handle({
+        id: 3,
+        method: 'boardProfile.update',
+        params: { savedDeviceId: 'saved-board', expectedRevision: 1, patch: { preferredBmsCanId: 254 } },
+      })
+    ).toMatchObject({ error: { code: 'invalid_request' } });
+    expect(
+      backend.handle({
+        id: 4,
+        method: 'boardProfile.update',
+        params: { savedDeviceId: 'saved-board', expectedRevision: 1, patch: { preferredBmsCanId: null } },
+      })
+    ).toMatchObject({ result: { revision: 2, values: { preferredBmsCanId: null } } });
   });
 });

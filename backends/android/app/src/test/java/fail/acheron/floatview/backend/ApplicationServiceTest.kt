@@ -455,7 +455,7 @@ class ApplicationServiceTest {
         service.onBluetoothEvent(BluetoothEvent.Notification(id, byteArrayOf(2)))
         assertEquals(listOf(0, 7), bluetooth.writes.last().map { it.toInt() and 0xff })
 
-        scheduler.fire(1)
+        scheduler.fireOneShots(1_000)
         assertEquals(listOf(0, 42), bluetooth.writes.last().map { it.toInt() and 0xff })
         service.onBluetoothEvent(BluetoothEvent.Notification(id, byteArrayOf(4)))
         service.onBluetoothEvent(BluetoothEvent.Notification(id, byteArrayOf(5)))
@@ -679,6 +679,35 @@ class ApplicationServiceTest {
     }
 
     @Test
+    fun `auxiliary CAN scan allows for the full firmware scan window`() {
+        val bluetooth = FakeBluetooth()
+        val scheduler = FakeScheduler()
+        val service = ApplicationService(
+            bluetooth,
+            FakeClock(),
+            FakeStore(),
+            protocol = TelemetryProtocol(bmsEnabled = true),
+            scheduler = scheduler,
+        ) {}
+        val id = DeviceId("direct-with-vbms")
+
+        service.onBluetoothEvent(BluetoothEvent.DeviceFound(id, "Thor301", -40))
+        service.connect(id)
+        service.onBluetoothEvent(BluetoothEvent.ConnectionChanged(id, ConnectionState.READY))
+        (1..3).forEach {
+            service.onBluetoothEvent(BluetoothEvent.Notification(id, byteArrayOf(it.toByte())))
+        }
+        val longTimeoutsBeforeScan = scheduler.intervals.count { it == 10_000L }
+        service.onBluetoothEvent(BluetoothEvent.Notification(id, byteArrayOf(4)))
+
+        assertTrue(bluetooth.writes.any { it.contentEquals(byteArrayOf(62)) })
+        assertEquals(
+            longTimeoutsBeforeScan + 1,
+            scheduler.intervals.count { it == 10_000L },
+        )
+    }
+
+    @Test
     fun `refloat telemetry starts idle probe and switches to riding rate`() {
         val bluetooth = FakeBluetooth()
         val scheduler = FakeScheduler()
@@ -697,23 +726,24 @@ class ApplicationServiceTest {
         service.onBluetoothEvent(BluetoothEvent.ConnectionChanged(id, ConnectionState.READY))
         service.onBluetoothEvent(BluetoothEvent.Notification(id, byteArrayOf(1)))
         service.onBluetoothEvent(BluetoothEvent.Notification(id, byteArrayOf(2)))
-        assertEquals(listOf(10_000L, 1_000L), scheduler.intervals)
+        assertEquals(listOf(1_000L), scheduler.repeatingIntervals)
         assertEquals(null, store.active())
         val firstLayoutRequestCount =
             bluetooth.writes.count { it.contentEquals(byteArrayOf(32, 255.toByte())) }
-        scheduler.fire(1)
+        scheduler.fireOneShots(900)
+        scheduler.fireRepeating(0)
         assertEquals(
             firstLayoutRequestCount + 1,
             bluetooth.writes.count { it.contentEquals(byteArrayOf(32, 255.toByte())) },
         )
         service.onBluetoothEvent(BluetoothEvent.Notification(id, byteArrayOf(3)))
-        assertEquals(listOf(10_000L, 1_000L, 500L), scheduler.intervals)
+        assertEquals(listOf(1_000L, 500L), scheduler.repeatingIntervals)
         assertNotNull(store.active())
         assertTrue(bluetooth.writes.any { it.contentEquals(byteArrayOf(31, 255.toByte())) })
 
         service.onBluetoothEvent(BluetoothEvent.Notification(id, byteArrayOf(4)))
 
-        assertEquals(listOf(10_000L, 1_000L, 500L, 100L), scheduler.intervals)
+        assertEquals(listOf(1_000L, 500L, 100L), scheduler.repeatingIntervals)
         assertEquals(1, store.appended.size)
         assertEquals(RideState.RIDING, store.appended.single().rideState)
         assertEquals(PackageState.RUNNING, store.appended.single().packageState)
@@ -747,14 +777,14 @@ class ApplicationServiceTest {
         service.onBluetoothEvent(BluetoothEvent.Notification(id, byteArrayOf(1)))
         service.onBluetoothEvent(BluetoothEvent.Notification(id, byteArrayOf(2)))
         service.onBluetoothEvent(BluetoothEvent.Notification(id, byteArrayOf(3)))
-        assertEquals(listOf(10_000L, 1_000L, 500L), scheduler.intervals)
+        assertEquals(listOf(1_000L, 500L), scheduler.repeatingIntervals)
 
         clock.monotonicMs = 1_000
         clock.instant = Instant.ofEpochSecond(1)
         service.onBluetoothEvent(BluetoothEvent.Notification(id, byteArrayOf(4)))
-        assertEquals(listOf(10_000L, 1_000L, 500L, 100L), scheduler.intervals)
+        assertEquals(listOf(1_000L, 500L, 100L), scheduler.repeatingIntervals)
         service.onBluetoothEvent(BluetoothEvent.Notification(id, byteArrayOf(6)))
-        scheduler.fire(3)
+        scheduler.fireRepeating(2)
 
         clock.monotonicMs = 2_000
         clock.instant = Instant.ofEpochSecond(2)
@@ -764,18 +794,18 @@ class ApplicationServiceTest {
         assertEquals(42.0, store.appended.last().distanceM)
         clock.monotonicMs = 6_999
         clock.instant = Instant.ofEpochMilli(6_999)
-        scheduler.fire(3)
+        scheduler.fireRepeating(2)
         service.onBluetoothEvent(BluetoothEvent.Notification(id, byteArrayOf(6)))
-        scheduler.fire(3)
+        scheduler.fireRepeating(2)
         service.onBluetoothEvent(BluetoothEvent.Notification(id, byteArrayOf(5)))
         assertEquals(7.0, store.appended.last().distanceM)
         assertEquals(Instant.ofEpochMilli(6_999), store.appended.last().slowObservedAt)
-        assertEquals(listOf(10_000L, 1_000L, 500L, 100L), scheduler.intervals)
+        assertEquals(listOf(1_000L, 500L, 100L), scheduler.repeatingIntervals)
 
         clock.monotonicMs = 7_001
-        scheduler.fire(3)
+        scheduler.fireRepeating(2)
         service.onBluetoothEvent(BluetoothEvent.Notification(id, byteArrayOf(5)))
-        assertEquals(listOf(10_000L, 1_000L, 500L, 100L, 500L), scheduler.intervals)
+        assertEquals(listOf(1_000L, 500L, 100L, 500L), scheduler.repeatingIntervals)
     }
 
     @Test
@@ -798,7 +828,10 @@ class ApplicationServiceTest {
         service.onBluetoothEvent(BluetoothEvent.Notification(id, byteArrayOf(1)))
         service.onBluetoothEvent(BluetoothEvent.Notification(id, byteArrayOf(2)))
         assertEquals(null, store.active())
-        repeat(5) { scheduler.fire(1) }
+        repeat(5) {
+            scheduler.fireOneShots(900)
+            scheduler.fireRepeating(0)
+        }
 
         assertEquals(ConnectionState.FAILED, service.connectionState)
         assertEquals(emptyList<DeviceId>(), bluetooth.disconnected)
@@ -1023,11 +1056,18 @@ class ApplicationServiceTest {
             }
     }
 
-    private class TelemetryProtocol : VescProtocolPort {
+    private class TelemetryProtocol(
+        private val bmsEnabled: Boolean = false,
+    ) : VescProtocolPort {
         private var compactCount = 0
+        override val supportsBmsTelemetry = bmsEnabled
         override fun reset() = Unit
         override fun firmwareRequest(route: ControllerRoute) = byteArrayOf(1)
         override fun canPingRequest() = byteArrayOf(62)
+        override fun bmsValuesRequest(connection: BmsConnection) = when (connection) {
+            BmsConnection.Direct -> byteArrayOf(96)
+            is BmsConnection.Can -> byteArrayOf(34, connection.canId.toByte(), 96)
+        }
         override fun refloatInfoRequest(route: ControllerRoute) =
             byteArrayOf(0, (route.canIdOrNull ?: 255).toByte())
         override fun refloatTelemetryIdsRequest(route: ControllerRoute) =
@@ -1205,17 +1245,33 @@ class ApplicationServiceTest {
     private class FakeScheduler : SchedulerPort {
         val intervals = mutableListOf<Long>()
         private val actions = mutableListOf<() -> Unit>()
+        val repeatingIntervals = mutableListOf<Long>()
+        private val repeatingActions = mutableListOf<() -> Unit>()
+        private val oneShotIntervals = mutableListOf<Long>()
+        private val oneShotActions = mutableListOf<() -> Unit>()
         override fun schedule(delayMs: Long, action: () -> Unit): CancellationPort {
+            var cancelled = false
+            val guarded = { if (!cancelled) action() }
             intervals += delayMs
-            actions += action
-            return CancellationPort {}
+            actions += guarded
+            oneShotIntervals += delayMs
+            oneShotActions += guarded
+            return CancellationPort { cancelled = true }
         }
         override fun scheduleRepeating(intervalMs: Long, action: () -> Unit): CancellationPort {
+            var cancelled = false
+            val guarded = { if (!cancelled) action() }
             intervals += intervalMs
-            actions += action
-            return CancellationPort {}
+            repeatingIntervals += intervalMs
+            actions += guarded
+            repeatingActions += guarded
+            return CancellationPort { cancelled = true }
         }
         fun fire(index: Int) = actions[index]()
+        fun fireRepeating(index: Int) = repeatingActions[index]()
+        fun fireOneShots(delayMs: Long) = oneShotIntervals.indices
+            .filter { oneShotIntervals[it] == delayMs }
+            .forEach { oneShotActions[it]() }
     }
 
     private class FakeClock : ClockPort {

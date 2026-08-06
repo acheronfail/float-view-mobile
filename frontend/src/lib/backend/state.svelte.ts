@@ -211,11 +211,21 @@ export class BackendState {
     const profile = this.selectedBoardProfile;
     if (!profile) return;
     await this.run(async (client) => {
-      this.selectedBoardProfile = await client.request('boardProfile.update', {
-        savedDeviceId: profile.savedDeviceId,
-        expectedRevision: profile.revision,
-        patch,
-      });
+      try {
+        this.selectedBoardProfile = await client.request('boardProfile.update', {
+          savedDeviceId: profile.savedDeviceId,
+          expectedRevision: profile.revision,
+          patch,
+        });
+      } catch (error) {
+        if (!(error instanceof ApiRequestError) || error.code !== 'conflict') throw error;
+        const current = await client.request('boardProfile.get', { savedDeviceId: profile.savedDeviceId });
+        this.selectedBoardProfile = await client.request('boardProfile.update', {
+          savedDeviceId: current.savedDeviceId,
+          expectedRevision: current.revision,
+          patch,
+        });
+      }
     });
   }
 
