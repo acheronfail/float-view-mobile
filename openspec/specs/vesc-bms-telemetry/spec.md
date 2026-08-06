@@ -8,17 +8,17 @@ Define bounded, read-only discovery, routing, decoding, polling, and lifecycle b
 
 ### Requirement: Audited auxiliary-node compatibility discovery
 
-The native backend SHALL classify every structurally valid local and probed CAN firmware identity and retain BMS candidates only when they match the exact audited compatibility catalog: stock `HW_TYPE_VESC_BMS` version 6.00, or hardware name `VBMS32`, `HW_TYPE_CUSTOM_MODULE`, version 6.06. Arbitrary custom modules and unaudited versions MUST NOT become BMS candidates. One generation SHALL remain bounded to 64 normalized CAN IDs and 16 BMS candidates. BMS discovery or failure MUST NOT delay controller readiness, prevent session creation, interrupt controller polling, or change controller continuity decisions.
+The native backend SHALL classify every structurally valid local and probed CAN firmware identity and retain BMS candidates only when they match the exact audited compatibility catalog: stock `HW_TYPE_VESC_BMS` version 6.00, or hardware name `VBMS32`, `HW_TYPE_CUSTOM_MODULE`, version 6.06. An exact local BMS SHALL become the primary BMS-only device immediately and MUST NOT enter auxiliary controller discovery. Arbitrary custom modules and unaudited versions MUST NOT become BMS candidates. Auxiliary generations SHALL remain bounded to 64 normalized CAN IDs and 16 BMS candidates, and auxiliary BMS discovery or failure MUST NOT delay controller readiness, prevent session creation, interrupt controller polling, or change controller continuity decisions.
 
 #### Scenario: Direct motor controller with CAN BMS
 
 - **WHEN** the BLE endpoint identifies as `HW_TYPE_VESC` and its CAN network contains one exact supported stock VESC BMS or VBMS32 node
 - **THEN** the controller can become ready directly while a bounded auxiliary pass discovers the CAN-routed VBMS independently
 
-#### Scenario: Direct VBMS gateway
+#### Scenario: Direct standalone VBMS
 
-- **WHEN** the BLE endpoint identifies as an exact supported stock VESC BMS or VBMS32 and its CAN network contains one supported motor controller
-- **THEN** the backend retains a direct BMS candidate and continues controller discovery through CAN without treating the VBMS as the motor controller
+- **WHEN** the BLE endpoint identifies as an exact supported stock VESC BMS or VBMS32
+- **THEN** the backend selects it as the direct BMS-only device without searching CAN for a motor controller
 
 #### Scenario: Reused complete inventory
 
@@ -151,6 +151,25 @@ All discovery and polling commands SHALL use one connection-wide bounded VESC re
 - **WHEN** three consecutive BMS polls time out or return malformed responses and a later poll returns a valid complete response
 - **THEN** status first becomes `unavailable` while retaining the last snapshot and then recovers to `attached` with the newer snapshot
 
+### Requirement: Standalone direct BMS polling lifecycle
+
+A BMS-only connection SHALL select the direct BMS route, request bounded read-only command-96 values after reaching ready, replace its live snapshot on valid responses, and retain the existing bounded unavailable/recovery behavior. It MUST NOT persist BMS values or create, resume, or interrupt a ride session.
+
+#### Scenario: Direct values arrive
+
+- **WHEN** a ready BMS-only device returns a valid direct `COMM_BMS_GET_VALUES` response
+- **THEN** authoritative state becomes attached with the decoded live snapshot and schedules the next bounded direct poll
+
+#### Scenario: Direct values are unavailable
+
+- **WHEN** the standalone BMS misses the configured bounded response threshold while BLE remains connected
+- **THEN** BMS state becomes unavailable while the active BMS connection remains ready and eligible to recover on a later valid response
+
+#### Scenario: Saved BMS-only connection
+
+- **WHEN** an exact direct VBMS is connected with saved tracking intent
+- **THEN** the device association may remain saved but no durable session, location track, controller identity, or historical BMS row is created
+
 ### Requirement: Independent BMS lifecycle and read-only safety
 
 BMS status SHALL be one of `discovering`, `not_found`, `attached`, `unavailable`, or `ambiguous`. A valid direct response in the current connection generation SHALL establish `attached`; identity alone MUST NOT. Reconnect SHALL revalidate BMS identity and liveness without controlling session continuity, and Float View MUST send no BMS mutation command.
@@ -179,4 +198,3 @@ BMS status SHALL be one of `discovering`, `not_found`, `attached`, `unavailable`
 
 - **WHEN** Float View is connected to a VBMS
 - **THEN** it sends only identity, discovery, forwarding, and values-read commands required by this capability and never sends balance, reset, charge-control, configuration, bootloader, or firmware-write commands
-

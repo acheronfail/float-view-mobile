@@ -793,6 +793,30 @@ The `device.connect` method SHALL accept `{ deviceId, trackingMode }`, where `tr
 - **WHEN** `device.connect` omits or changes `trackingMode` to an unsupported value
 - **THEN** the backend returns `invalid_request` before starting a connection generation
 
+### Requirement: Authoritative active device kind
+
+Every non-null active connection snapshot SHALL contain required `deviceKind` equal to `null` while the direct endpoint is not yet classified, `board` when a motor-controller route owns the board experience, or `bms` when an exact directly connected supported VBMS owns a BMS-only experience. The value MUST be generation-scoped and MUST NOT be inferred by the frontend from display names, platform identifiers, firmware labels, nullable controller fields, or BMS status.
+
+#### Scenario: Identification is pending
+
+- **WHEN** a connection exists before direct firmware classification completes
+- **THEN** its complete authoritative snapshot contains `deviceKind: null`
+
+#### Scenario: Direct VBMS is classified
+
+- **WHEN** the direct firmware identity matches the exact supported VBMS catalog
+- **THEN** the same generation publishes `deviceKind: bms` before or with BMS-only readiness
+
+#### Scenario: Controller route is established
+
+- **WHEN** a direct or CAN-routed motor controller becomes the selected board controller
+- **THEN** the active connection publishes `deviceKind: board`
+
+#### Scenario: Stale classification arrives
+
+- **WHEN** firmware or polling work from an old generation completes after disconnect or reconnect
+- **THEN** it cannot change the current active connection's device kind
+
 ### Requirement: Complete live BMS contract state
 
 `ActiveConnection` SHALL contain one mandatory bounded `bms` value with status `discovering`, `not_found`, `attached`, `unavailable`, or `ambiguous`; nullable direct-or-CAN connection; at most 16 display-safe candidates; and nullable complete latest snapshot. The snapshot SHALL contain fixed platform-neutral fields for observation time, voltages, currents, session counters, cell voltages and balancing, temperatures, humidity, state of charge and health, reported CAN ID, lifetime counters, pressure, data version, and status.
