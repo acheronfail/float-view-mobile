@@ -279,6 +279,7 @@ describe('BackendState', () => {
       ...client.state,
       activeConnection: {
         deviceId: 'board',
+        deviceKind: 'board',
         name: 'Board',
         displayName: 'Board',
         state: 'ready',

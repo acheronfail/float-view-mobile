@@ -920,6 +920,45 @@ func auxiliaryCanScanAllowsForTheFullFirmwareScanWindow() throws {
 }
 
 @Test
+func exactDirectVBMSBecomesBMSOnlyWithoutControllerOrSessionWork() throws {
+  let bluetooth = FakeBluetooth()
+  let store = MemoryStore()
+  let service = ApplicationService(
+    bluetooth: bluetooth,
+    clock: FixedClock(),
+    logStore: store,
+    productStore: MemoryProductStore(),
+    protocolCodec: StandaloneBMSProtocol(),
+    scheduler: FakeScheduler(),
+    events: IgnoreEvents()
+  )
+  let id = DeviceID("numeric-vbms")
+
+  try service.receive(.deviceFound(id, name: "42508004", rssi: -40))
+  try service.connect(id)
+  try service.receive(.connectionChanged(id, .ready))
+  try service.receive(.notification(id, Data([1])))
+
+  let active = try #require(service.activeConnectionSnapshot())
+  #expect(service.connectionState == .ready)
+  #expect(active.deviceKind == .bms)
+  #expect(active.controllerRoute == nil)
+  #expect(active.activeSession == nil)
+  #expect(active.bms.connection == .direct)
+  #expect(store.createCount == 0)
+  #expect(bluetooth.writes == [Data([1]), Data([96])])
+
+  try service.receive(.connectionChanged(id, .disconnected))
+  #expect(service.connectionState == .reconnecting)
+  #expect(service.activeConnectionSnapshot()?.deviceKind == nil)
+  try service.receive(.connectionChanged(id, .ready))
+  try service.receive(.notification(id, Data([1])))
+  #expect(service.activeConnectionSnapshot()?.deviceKind == .bms)
+  #expect(store.createCount == 0)
+  #expect(bluetooth.writes.filter { $0 == Data([62]) }.isEmpty)
+}
+
+@Test
 func refloatTelemetryStartsIdleProbeAndSwitchesToRidingRate() throws {
   let bluetooth = FakeBluetooth()
   let scheduler = FakeScheduler()
@@ -1428,6 +1467,45 @@ private final class TelemetryProtocol: VescProtocolPort, @unchecked Sendable {
     default:
       return []
     }
+  }
+}
+
+private final class StandaloneBMSProtocol: VescProtocolPort, @unchecked Sendable {
+  var supportsBmsTelemetry: Bool {
+    true
+  }
+
+  func reset() {}
+  func firmwareRequest(route _: ControllerRoute) throws -> Data {
+    Data([1])
+  }
+
+  func canPingRequest() throws -> Data {
+    Data([62])
+  }
+
+  func bmsValuesRequest(connection _: BmsConnection) throws -> Data {
+    Data([96])
+  }
+
+  func refloatInfoRequest(route _: ControllerRoute) throws -> Data {
+    Data([36, 101, 0])
+  }
+
+  func refloatTelemetryIDsRequest(route _: ControllerRoute) throws -> Data {
+    Data([36, 101, 32])
+  }
+
+  func refloatTelemetryRequest(route _: ControllerRoute) throws -> Data {
+    Data([36, 101, 31])
+  }
+
+  func receive(_ bytes: Data) throws -> [VescProtocolMessage] {
+    guard bytes == Data([1]) else { return [] }
+    return [.firmware(.init(
+      major: 6, minor: 6, hardwareName: "VBMS32", firmwareName: nil,
+      hardwareType: 2, canID: nil
+    ))]
   }
 }
 

@@ -190,12 +190,6 @@
   });
   onDestroy(() => appHeader.clear(headerOwner));
 
-  $effect(() => {
-    if (backendState.status === 'connected' && !connection) {
-      void goto('#/', { replaceState: true });
-    }
-  });
-
   function activateLocation() {
     if (location?.status === 'disabled') {
       void backendState.updateSessionSettings({ locationRecordingEnabled: true });

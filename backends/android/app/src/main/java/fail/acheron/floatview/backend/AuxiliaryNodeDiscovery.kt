@@ -9,6 +9,26 @@ sealed interface AuxiliaryDiscoveryEffect {
     data object None : AuxiliaryDiscoveryEffect
 }
 
+object BmsIdentityPolicy {
+    fun supports(value: FirmwareRecord): Boolean = supportedIdentities.any { it.matches(value) }
+
+    private val supportedIdentities = listOf(
+        SupportedIdentity(hardwareType = 1, major = 6, minor = 0),
+        SupportedIdentity(hardwareType = 2, major = 6, minor = 6, hardwareName = "VBMS32"),
+    )
+
+    private data class SupportedIdentity(
+        val hardwareType: Int,
+        val major: Int,
+        val minor: Int,
+        val hardwareName: String? = null,
+    ) {
+        fun matches(value: FirmwareRecord): Boolean =
+            value.hardwareType == hardwareType && value.major == major && value.minor == minor &&
+                (hardwareName == null || value.hardwareName == hardwareName)
+    }
+}
+
 class AuxiliaryNodeDiscovery {
     var generation: Long = 0
         private set
@@ -139,24 +159,7 @@ class AuxiliaryNodeDiscovery {
     }
 
     private fun isVbms(value: FirmwareRecord): Boolean {
-        return supportedBmsIdentities.any { it.matches(value) }
-    }
-
-    /** Fail-closed compatibility catalog backed by immutable upstream identity fixtures. */
-    private val supportedBmsIdentities = listOf(
-        SupportedBmsIdentity(hardwareType = 1, major = 6, minor = 0),
-        SupportedBmsIdentity(hardwareType = 2, major = 6, minor = 6, hardwareName = "VBMS32"),
-    )
-
-    private data class SupportedBmsIdentity(
-        val hardwareType: Int,
-        val major: Int,
-        val minor: Int,
-        val hardwareName: String? = null,
-    ) {
-        fun matches(value: FirmwareRecord): Boolean =
-            value.hardwareType == hardwareType && value.major == major && value.minor == minor &&
-                (hardwareName == null || value.hardwareName == hardwareName)
+        return BmsIdentityPolicy.supports(value)
     }
 
     private fun sortKey(connection: BmsConnection): Int = when (connection) {

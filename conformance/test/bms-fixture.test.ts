@@ -66,23 +66,25 @@ test('simulator composes independent direct-controller and CAN-VBMS routes', () 
   assert.throws(() => simulator.receive(encodeFrame(Uint8Array.of(34, 42, 97))), /unsupported BMS command/);
 });
 
-test('simulator composes a direct VBMS gateway with a CAN controller', () => {
+test('simulator composes a standalone direct VBMS without a controller', () => {
   const simulator = new VescSimulator({
-    ...expressThor,
+    ...directThor,
     transport: localBms.firmware,
+    controllers: [],
     localBms,
+    canPingIds: [],
     bmsNodes: [],
   });
   assert.equal(hex(payload(simulator, [96])), fixture('vbms-values-legacy-typical'));
-  assert.deepEqual([...payload(simulator, [62])], [62, 1]);
-  assert.equal(payload(simulator, [34, 1, 0])[0], 0);
+  assert.deepEqual([...payload(simulator, [62])], [62]);
+  assert.throws(() => simulator.receive(encodeFrame(Uint8Array.of(34, 1, 0))), /Unknown CAN target 1/);
 });
 
 test('canonical BMS software scenario catalog covers topology, selection, bounds, and lifecycle', () => {
   assert.deepEqual(Object.keys(softwareBmsScenarios), [
     'direct-controller-plus-can-vbms',
     'express-plus-controller-and-vbms',
-    'direct-vbms-plus-can-controller',
+    'standalone-direct-vbms',
     'no-bms',
     'unique-automatic-selection',
     'configured-selection-without-ping',
@@ -110,9 +112,10 @@ test('canonical BMS software scenario catalog covers topology, selection, bounds
   assert.equal(payload(express, [34, 1, 0])[0], 0);
   assert.equal(payload(express, [34, 42, 96])[0], 96);
 
-  const gateway = new VescSimulator(softwareBmsScenarios['direct-vbms-plus-can-controller'].board);
-  assert.equal(payload(gateway, [96])[0], 96);
-  assert.equal(payload(gateway, [34, 1, 0])[0], 0);
+  const standalone = new VescSimulator(softwareBmsScenarios['standalone-direct-vbms'].board);
+  assert.equal(payload(standalone, [96])[0], 96);
+  assert.deepEqual([...payload(standalone, [62])], [62]);
+  assert.equal(standalone.receive(encodeFrame(Uint8Array.of(34, 1, 0))).length, 0);
 
   const omitted = new VescSimulator(softwareBmsScenarios['configured-selection-without-ping'].board);
   assert.deepEqual([...payload(omitted, [62])], [62, 1]);

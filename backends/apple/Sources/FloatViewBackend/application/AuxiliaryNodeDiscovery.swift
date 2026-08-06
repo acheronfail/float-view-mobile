@@ -7,6 +7,37 @@ enum AuxiliaryDiscoveryEffect: Equatable {
   case none
 }
 
+enum BMSIdentityPolicy {
+  static func supports(_ value: FirmwareRecord) -> Bool {
+    supportedIdentities.contains { $0.matches(value) }
+  }
+
+  /// Fail-closed compatibility catalog backed by immutable upstream identity fixtures.
+  private static let supportedIdentities = [
+    SupportedIdentity(hardwareType: 1, major: 6, minor: 0),
+    SupportedIdentity(hardwareType: 2, major: 6, minor: 6, hardwareName: "VBMS32"),
+  ]
+
+  private struct SupportedIdentity {
+    let hardwareType: UInt8
+    let major: UInt8
+    let minor: UInt8
+    var hardwareName: String?
+
+    init(hardwareType: UInt8, major: UInt8, minor: UInt8, hardwareName: String? = nil) {
+      self.hardwareType = hardwareType
+      self.major = major
+      self.minor = minor
+      self.hardwareName = hardwareName
+    }
+
+    func matches(_ value: FirmwareRecord) -> Bool {
+      value.hardwareType == hardwareType && value.major == major && value.minor == minor
+        && (hardwareName == nil || value.hardwareName == hardwareName)
+    }
+  }
+}
+
 /// Generation-owned, controller-independent selection of one read-only VBMS route.
 final class AuxiliaryNodeDiscovery {
   private(set) var generation = 0
@@ -136,32 +167,7 @@ final class AuxiliaryNodeDiscovery {
   }
 
   private static func isVBMS(_ value: FirmwareRecord) -> Bool {
-    supportedBMSIdentities.contains { $0.matches(value) }
-  }
-
-  /// Fail-closed compatibility catalog backed by immutable upstream identity fixtures.
-  private static let supportedBMSIdentities = [
-    SupportedBMSIdentity(hardwareType: 1, major: 6, minor: 0),
-    SupportedBMSIdentity(hardwareType: 2, major: 6, minor: 6, hardwareName: "VBMS32"),
-  ]
-
-  private struct SupportedBMSIdentity {
-    let hardwareType: UInt8
-    let major: UInt8
-    let minor: UInt8
-    var hardwareName: String?
-
-    init(hardwareType: UInt8, major: UInt8, minor: UInt8, hardwareName: String? = nil) {
-      self.hardwareType = hardwareType
-      self.major = major
-      self.minor = minor
-      self.hardwareName = hardwareName
-    }
-
-    func matches(_ value: FirmwareRecord) -> Bool {
-      value.hardwareType == hardwareType && value.major == major && value.minor == minor
-        && (hardwareName == nil || value.hardwareName == hardwareName)
-    }
+    BMSIdentityPolicy.supports(value)
   }
 
   private static func sortKey(_ connection: BmsConnection) -> Int {

@@ -169,6 +169,53 @@ async function runPhysicalScenario(
       });
       afterConnectRevision = selecting.revision;
     }
+    if (name === 'bms-standalone') {
+      const ready = await client.waitForState(
+        (state) =>
+          state.activeConnection?.deviceId === device.deviceId &&
+          state.activeConnection.state === 'ready' &&
+          state.activeConnection.deviceKind === 'bms' &&
+          state.activeConnection.bms.status === 'attached',
+        { afterRevision: afterConnectRevision, timeoutMs: 20_000 }
+      );
+      const connection = ready.activeConnection!;
+      assert.equal(connection.firmware, null);
+      assert.equal(connection.controllerConnection, null);
+      assert.deepEqual(connection.controllerCandidates, []);
+      assert.equal(connection.connectionIssue, null);
+      assert.deepEqual(connection.bms.connection, { kind: 'direct' });
+      assert.equal(connection.bms.latestSnapshot?.reportedCanId, physicalDirectReportedCanId(scenario));
+      assert.equal(connection.refloatControls, null);
+      assert.deepEqual(connection.controllerActions, { shutdownAvailable: false, pendingAction: null });
+      assert.equal(connection.activeSession, null);
+      assert.equal(connection.latestSample, null);
+      assert.equal(connection.latestLocation, null);
+      assert.equal(connection.currentLimits, null);
+
+      await runner.waitForRequests((requests) => requests.some((request) => request.kind === 'bms-values'), 10_000);
+      const requestKinds = runner.simulator.requests.map((request) => request.kind);
+      assert.ok(requestKinds.includes('transport-firmware'));
+      assert.ok(requestKinds.includes('bms-values'));
+      assert.ok(!requestKinds.includes('can-ping'));
+      assert.ok(!requestKinds.includes('controller-firmware'));
+      assert.ok(!requestKinds.includes('motor-configuration'));
+      assert.ok(!requestKinds.includes('refloat-info'));
+      assert.ok(!requestKinds.includes('refloat-layout'));
+      assert.ok(!requestKinds.includes('refloat-control'));
+      assert.ok(!requestKinds.includes('controller-shutdown'));
+      assert.ok(!requestKinds.includes('telemetry'));
+
+      const beforeDisconnect = await client.request('state.get', {});
+      await client.request('device.disconnect', {}, 10_000);
+      await client.waitForState((state) => state.activeConnection === null, {
+        afterRevision: beforeDisconnect.revision,
+        timeoutMs: 15_000,
+      });
+      runner.verify();
+      const finalState = await client.request('state.get', {});
+      passed = true;
+      return { scenario: name, revision: finalState.revision, locationCheckpoint };
+    }
     let ready = await client.waitForState(
       (state) =>
         state.activeConnection?.deviceId === device.deviceId &&
@@ -195,6 +242,7 @@ async function runPhysicalScenario(
       }
     }
     assert.deepEqual(ready.activeConnection!.controllerCandidates, []);
+    assert.equal(ready.activeConnection!.deviceKind, 'board');
     assert.equal(ready.activeConnection!.connectionIssue, null);
     if (scenario.expectedBmsConnection === 'direct') {
       assert.deepEqual(ready.activeConnection!.bms.connection, { kind: 'direct' });

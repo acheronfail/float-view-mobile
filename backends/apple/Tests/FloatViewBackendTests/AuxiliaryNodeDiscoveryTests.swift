@@ -12,6 +12,12 @@ private func auxiliaryFirmware(
 }
 
 @Test func auxiliaryDiscoveryRecognizesOnlyTheObservedVBMS32Identity() {
+  #expect(BMSIdentityPolicy.supports(
+    auxiliaryFirmware(hardwareType: 2, name: "VBMS32", minor: 6)
+  ))
+  #expect(!BMSIdentityPolicy.supports(
+    auxiliaryFirmware(hardwareType: 2, name: "42508004", minor: 6)
+  ))
   let vbms32 = AuxiliaryNodeDiscovery()
   #expect(vbms32.begin(
     localIdentity: auxiliaryFirmware(hardwareType: 0),

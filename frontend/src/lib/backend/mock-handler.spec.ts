@@ -442,6 +442,30 @@ describe('deterministic mock backend', () => {
     expect(ambiguous.sessionCatalogRevision).toBe(initial.sessionCatalogRevision);
   });
 
+  it('models a standalone direct BMS without board-only state or a ride session', () => {
+    const backend = new MockBackend();
+    backend.handle({ id: 1, method: 'bluetooth.scan', params: {} });
+    backend.handle({ id: 2, method: 'device.connect', params: { deviceId: 'mock-board', trackingMode: 'saved' } });
+    backend.simulateStandaloneBms(bmsSnapshot);
+
+    const state = (backend.handle({ id: 3, method: 'state.get', params: {} }) as { result: AppState }).result;
+    expect(state.activeConnection).toMatchObject({
+      state: 'ready',
+      deviceKind: 'bms',
+      firmware: null,
+      controllerConnection: null,
+      controllerCandidates: [],
+      refloatControls: null,
+      controllerActions: { shutdownAvailable: false, pendingAction: null },
+      activeSession: null,
+      latestSample: null,
+      latestLocation: null,
+      currentLimits: null,
+      bms: { status: 'attached', connection: { kind: 'direct' }, latestSnapshot: bmsSnapshot },
+    });
+    expect(state.savedDevices[0]?.summary.sessionCount).toBe(2);
+  });
+
   it('revision-checks an independent nullable preferred BMS CAN ID', () => {
     const backend = new MockBackend();
     expect(

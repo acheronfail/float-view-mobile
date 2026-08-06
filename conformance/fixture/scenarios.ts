@@ -35,7 +35,7 @@ export type PhysicalScenarioName =
   | 'ambiguous'
   | 'bms-direct-controller'
   | 'bms-express'
-  | 'bms-direct-gateway'
+  | 'bms-standalone'
   | 'ride'
   | 'unexpected-disconnect'
   | 'background';
@@ -243,16 +243,18 @@ export const fixtureScenarios: Record<PhysicalScenarioName, FixtureScenario> = {
     expectedBmsConnection: { canId: 42 },
     requiresMobileLifecycle: false,
   },
-  'bms-direct-gateway': {
-    name: 'bms-direct-gateway',
+  'bms-standalone': {
+    name: 'bms-standalone',
     board: {
-      ...expressThor,
-      name: 'Direct VBMS / CAN controller',
+      ...directThor,
+      name: 'Standalone direct VBMS',
       transport: physicalDirectBms.firmware,
+      controllers: [],
       localBms: physicalDirectBms,
+      canPingIds: [],
     },
     fragmentBytes: 20,
-    minimumTelemetryResponses: 5,
+    minimumTelemetryResponses: 0,
     preferredCanId: null,
     expectedBmsConnection: 'direct',
     requiresMobileLifecycle: false,
@@ -303,7 +305,7 @@ export const physicalScenarioMatrix = {
     'ambiguous',
     'bms-direct-controller',
     'bms-express',
-    'bms-direct-gateway',
+    'bms-standalone',
     'ride',
     'unexpected-disconnect',
   ],
@@ -321,7 +323,7 @@ export const physicalScenarioMatrix = {
     'ambiguous',
     'bms-direct-controller',
     'bms-express',
-    'bms-direct-gateway',
+    'bms-standalone',
     'ride',
     'unexpected-disconnect',
     'background',
@@ -340,7 +342,7 @@ export const physicalScenarioMatrix = {
     'ambiguous',
     'bms-direct-controller',
     'bms-express',
-    'bms-direct-gateway',
+    'bms-standalone',
     'ride',
     'unexpected-disconnect',
     'background',
@@ -354,7 +356,7 @@ export const canonicalDirectBms: BmsConfiguration = physicalDirectBms;
 export type SoftwareBmsScenarioName =
   | 'direct-controller-plus-can-vbms'
   | 'express-plus-controller-and-vbms'
-  | 'direct-vbms-plus-can-controller'
+  | 'standalone-direct-vbms'
   | 'no-bms'
   | 'unique-automatic-selection'
   | 'configured-selection-without-ping'
@@ -390,11 +392,13 @@ const expressControllerCanBms: BoardConfiguration = {
   requestPolicy: 'interactive',
 };
 
-const directBmsCanController: BoardConfiguration = {
-  ...expressThor,
-  name: 'Direct VBMS / CAN controller',
+const standaloneDirectBms: BoardConfiguration = {
+  ...directThor,
+  name: 'Standalone direct VBMS',
   transport: canonicalDirectBms.firmware,
+  controllers: [],
   localBms: canonicalDirectBms,
+  canPingIds: [],
   requestPolicy: 'interactive',
 };
 
@@ -425,9 +429,9 @@ export const softwareBmsScenarios: Record<SoftwareBmsScenarioName, SoftwareBmsSc
     expectedRoute: { canId: 42 },
     lifecycle: 'connect',
   },
-  'direct-vbms-plus-can-controller': {
-    name: 'direct-vbms-plus-can-controller',
-    board: directBmsCanController,
+  'standalone-direct-vbms': {
+    name: 'standalone-direct-vbms',
+    board: standaloneDirectBms,
     expectedStatus: 'attached',
     expectedRoute: 'direct',
     lifecycle: 'connect',

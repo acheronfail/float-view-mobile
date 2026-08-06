@@ -46,7 +46,7 @@ workbench never drives that selection or reports a test result.
 
 The shared simulator in `../fixture/` also models zero, one, or multiple VBMS
 nodes independently from the controller route: direct controller plus CAN VBMS,
-Express plus CAN controller/VBMS, and direct VBMS gateway plus CAN controller.
+Express plus CAN controller/VBMS, and a standalone direct VBMS.
 It owns source-faithful legacy/extended values, omitted-ping routing, timeouts,
 malformed responses, request counters, and the command-96 read-only allowlist.
 The ESP32 remains unchanged and has no VBMS scenario logic.

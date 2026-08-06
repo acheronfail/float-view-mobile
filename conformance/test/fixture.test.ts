@@ -164,7 +164,7 @@ test('physical scenario matrix excludes desktop backgrounding', () => {
     'ambiguous',
     'bms-direct-controller',
     'bms-express',
-    'bms-direct-gateway',
+    'bms-standalone',
     'ride',
     'unexpected-disconnect',
   ];

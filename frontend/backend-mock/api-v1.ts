@@ -333,6 +333,7 @@ export class MockBackend {
             activeConnection: {
               ...discoveredBoard,
               state: 'ready',
+              deviceKind: 'board',
               trackingMode,
               savedDeviceId,
               displayName: savedDevice?.displayName ?? discoveredBoard.name,
@@ -779,6 +780,7 @@ export class MockBackend {
         latestSample,
         latestLocation,
         activeSession,
+        refloatControls: active.refloatControls ? { ...active.refloatControls, fatalErrorClearable: false } : null,
         controllerActions: { shutdownAvailable: false, pendingAction: null },
       },
     });
@@ -878,6 +880,36 @@ export class MockBackend {
   simulateBmsAttached(snapshot: BmsSnapshot, connection: BmsState['connection'] = { kind: 'direct' }): void {
     if (!connection) return;
     this.simulateBmsState({ status: 'attached', connection, candidates: [], latestSnapshot: snapshot });
+  }
+
+  simulateStandaloneBms(snapshot: BmsSnapshot): void {
+    const active = this.state.activeConnection;
+    if (!active) return;
+    const activeSessionId = active.activeSession?.sessionId;
+    this.activeSessionId = undefined;
+    if (activeSessionId) this.sessionCatalog = this.sessionCatalog.filter((item) => item.sessionId !== activeSessionId);
+    this.change(
+      {
+        ...this.state,
+        activeConnection: {
+          ...active,
+          state: 'ready',
+          deviceKind: 'bms',
+          firmware: null,
+          controllerConnection: null,
+          controllerCandidates: [],
+          connectionIssue: null,
+          bms: { status: 'attached', connection: { kind: 'direct' }, candidates: [], latestSnapshot: snapshot },
+          refloatControls: null,
+          controllerActions: { shutdownAvailable: false, pendingAction: null },
+          activeSession: null,
+          latestSample: null,
+          latestLocation: null,
+          currentLimits: null,
+        },
+      },
+      Boolean(activeSessionId)
+    );
   }
 
   simulateBmsAmbiguous(candidates: BmsCandidate[]): void {

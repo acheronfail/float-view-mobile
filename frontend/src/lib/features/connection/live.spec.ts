@@ -31,6 +31,7 @@ const refloatControls = {
 
 const connection = (state: ActiveConnection['state']): ActiveConnection => ({
   deviceId: 'board',
+  deviceKind: 'board',
   name: 'Board',
   displayName: 'Board',
   state,

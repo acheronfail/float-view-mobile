@@ -5,6 +5,7 @@ import ControllerSelection from './ControllerSelection.svelte';
 
 const connection: ActiveConnection = {
   deviceId: 'board',
+  deviceKind: 'board',
   name: 'Board',
   displayName: 'Board',
   state: 'selecting_controller',

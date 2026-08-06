@@ -381,6 +381,7 @@ async function createCompletedSession(client: ConformanceClient, deviceId: strin
   }
   assertState(connected);
   assert.ok(connected.activeConnection);
+  assert.equal(connected.activeConnection.deviceKind, 'board');
   const savedDeviceId = connected.activeConnection.savedDeviceId;
   assert.equal(connected.activeConnection.displayName, connected.activeConnection.name);
   assert.ok(connected.activeConnection.savedDeviceId);
@@ -480,9 +481,17 @@ async function createCompletedSession(client: ConformanceClient, deviceId: strin
       assert.deepEqual(idempotent, controls, 'idempotent control request changed authoritative state');
     }
     if (controls.fatalErrorClearable) {
-      const cleared = await client.request('refloat.fatalError.clear', {});
-      assert.equal(cleared.fatalErrorLatched, false);
-      assert.equal(cleared.pendingAction, null);
+      try {
+        const cleared = await client.request('refloat.fatalError.clear', {});
+        assert.equal(cleared.fatalErrorLatched, false);
+        assert.equal(cleared.pendingAction, null);
+      } catch (error) {
+        if (!(error instanceof ConformanceError) || error.error.code !== 'invalid_state') throw error;
+        const changed = await client.request('state.get', {});
+        assert.ok(changed.revision > connected.revision, 'fatal clear failed without an intervening state change');
+        assert.equal(changed.activeConnection?.latestSample?.rideState, 'riding');
+        assert.equal(changed.activeConnection?.refloatControls?.fatalErrorClearable, false);
+      }
     } else {
       await expectError(client.request('refloat.fatalError.clear', {}), 'invalid_state');
     }
@@ -581,6 +590,7 @@ export function assertState(state: AppState) {
 
   const active = state.activeConnection;
   if (!active) return;
+  assert.ok(active.deviceKind === null || active.deviceKind === 'board' || active.deviceKind === 'bms');
   assert.ok(active.trackingMode === 'saved' || active.trackingMode === 'guest');
   if (active.trackingMode === 'guest') {
     assert.equal(active.savedDeviceId, null);

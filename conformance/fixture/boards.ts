@@ -49,7 +49,7 @@ export interface BoardConfiguration {
   advertisedName: string;
   transport: FirmwareIdentity;
   controllers: ControllerConfiguration[];
-  /** Optional direct VBMS endpoint when the transport identity is hardware type 1. */
+  /** Optional standalone direct VBMS endpoint matching the transport identity. */
   localBms?: BmsConfiguration;
   /** Zero or more CAN-routed VBMS nodes, independently selected from controllers. */
   bmsNodes?: BmsConfiguration[];

@@ -47,6 +47,7 @@ class ApplicationService(
     private var discoveryExpiryGeneration = 0L
     private val controllerDiscovery = ControllerDiscovery()
     private val auxiliaryDiscovery = AuxiliaryNodeDiscovery()
+    private var deviceKind: DeviceKind? = null
     private var trackingMode = TrackingMode.SAVED
     private var currentSavedDevice: SavedDeviceRecord? = null
     private var identificationTimer: CancellationPort? = null
@@ -800,6 +801,7 @@ class ApplicationService(
             deviceId = deviceId,
             advertisedName = activeDeviceName,
             state = connectionState,
+            deviceKind = deviceKind,
             trackingMode = trackingMode,
             savedDevice = if (trackingMode == TrackingMode.SAVED) currentSavedDevice ?: savedDevice else null,
             activeSession = activeSession,
@@ -1005,6 +1007,17 @@ class ApplicationService(
                 }.getOrDefault(setOfNotNull(savedDevice.bluetoothIdentifier?.let(::DeviceId)))
                 bluetooth.configureSavedDeviceIds(savedIds)
             }
+            if (BmsIdentityPolicy.supports(value)) {
+                if (trackingMode == TrackingMode.SAVED && logStore.active() != null) {
+                    failIdentification(
+                        ConnectionIssueCode.CONTROLLER_CHANGED,
+                        "The connected device is a BMS, not the controller for the active session.",
+                    )
+                    return
+                }
+                completeBmsReady(value)
+                return
+            }
             val profile = currentSavedDevice?.let {
                 runCatching { productStore?.boardProfile(it.savedDeviceId) }.getOrNull()
             }
@@ -1181,6 +1194,7 @@ class ApplicationService(
             }
         }
         cancelReconnect()
+        deviceKind = DeviceKind.BOARD
         controllerDiscovery.clearIssue()
         clearDiscoveredDevices(publish = false)
         transition(ConnectionState.READY)
@@ -1204,6 +1218,19 @@ class ApplicationService(
             postRideTailMs,
         )
         startAuxiliaryDiscovery()
+    }
+
+    private fun completeBmsReady(localIdentity: FirmwareRecord) {
+        cancelIdentificationTimeout()
+        cancelCanProbeTimeout()
+        cancelReconnect()
+        clearDiscoveredDevices(publish = false)
+        deviceKind = DeviceKind.BMS
+        val effect = auxiliaryDiscovery.begin(localIdentity, null, null)
+        transition(ConnectionState.READY)
+        events.publish("standalone_bms_ready")
+        events.publish(auxiliaryDiscovery.state)
+        performAuxiliaryEffect(effect)
     }
 
     private fun startAuxiliaryDiscovery() {
@@ -1662,6 +1689,7 @@ class ApplicationService(
         telemetryPolling.stop()
         controllerDiscovery.reset()
         auxiliaryDiscovery.reset()
+        deviceKind = null
         bmsPollTimer?.cancel()
         bmsPollTimer = null
         bmsFailureCount = 0

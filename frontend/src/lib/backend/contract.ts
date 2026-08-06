@@ -317,6 +317,7 @@ export interface ControllerActions {
 }
 
 export interface ActiveConnection extends Device {
+  deviceKind: 'board' | 'bms' | null;
   firmware: FirmwareInfo | null;
   trackingMode: 'saved' | 'guest';
   savedDeviceId: string | null;

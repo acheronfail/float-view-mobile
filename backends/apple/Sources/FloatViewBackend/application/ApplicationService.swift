@@ -24,6 +24,7 @@ public final class ApplicationService: @unchecked Sendable {
   private var discoveryExpiryGeneration = 0
   private let controllerDiscovery = ControllerDiscovery()
   private let auxiliaryDiscovery = AuxiliaryNodeDiscovery()
+  private var deviceKind: DeviceKind?
   private var trackingMode: TrackingMode = .saved
   private var currentSavedDevice: SavedDeviceRecord?
   private var identificationTimer: (any CancellationPort)?
@@ -913,6 +914,7 @@ public final class ApplicationService: @unchecked Sendable {
       deviceID: activeDeviceID,
       name: activeDeviceName,
       state: connectionState,
+      deviceKind: deviceKind,
       trackingMode: trackingMode,
       savedDevice: trackingMode == .saved ? currentSavedDevice : nil,
       activeSession: activeSession ?? nil,
@@ -1124,6 +1126,17 @@ public final class ApplicationService: @unchecked Sendable {
           return
         }
       }
+      if BMSIdentityPolicy.supports(value) {
+        if trackingMode == .saved, logStore.active() != nil {
+          failIdentification(
+            .controllerChanged,
+            "The connected device is a BMS, not the controller for the active session."
+          )
+          return
+        }
+        completeBMSReady(localIdentity: value)
+        return
+      }
       let profile = try? currentSavedDevice.flatMap {
         try productStore?.boardProfile(savedDeviceID: $0.savedDeviceID)
       }
@@ -1285,6 +1298,7 @@ public final class ApplicationService: @unchecked Sendable {
       }
     }
     cancelReconnect()
+    deviceKind = .board
     controllerDiscovery.clearIssue()
     clearDiscoveredDevices(publish: false)
     transition(.ready)
@@ -1310,6 +1324,23 @@ public final class ApplicationService: @unchecked Sendable {
       postRideTailMs: sampling.settings.postRideTailMs
     )
     startAuxiliaryDiscovery()
+  }
+
+  private func completeBMSReady(localIdentity: FirmwareRecord) {
+    cancelIdentificationTimeout()
+    cancelCanProbeTimeout()
+    cancelReconnect()
+    clearDiscoveredDevices(publish: false)
+    deviceKind = .bms
+    let effect = auxiliaryDiscovery.begin(
+      localIdentity: localIdentity,
+      reusableInventory: nil,
+      preferredCanID: nil
+    )
+    transition(.ready)
+    events.publish("standalone_bms_ready")
+    events.publish(auxiliaryDiscovery.state)
+    performAuxiliaryEffect(effect)
   }
 
   private func startAuxiliaryDiscovery() {
@@ -1842,6 +1873,7 @@ public final class ApplicationService: @unchecked Sendable {
     telemetryPolling.stop()
     controllerDiscovery.reset()
     auxiliaryDiscovery.reset()
+    deviceKind = nil
     bmsPollTimer?.cancel()
     bmsPollTimer = nil
     bmsFailureCount = 0

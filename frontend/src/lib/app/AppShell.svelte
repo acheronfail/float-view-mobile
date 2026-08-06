@@ -9,6 +9,7 @@
   import { APP_HEADER_CONTEXT, type AppHeaderConfig, type AppHeaderContext, type AppHeaderPatch } from './header';
   import PageHeader from '$lib/ui/PageHeader.svelte';
   import { browserThemeEnvironment, ThemeController } from './theme';
+  import { connectionRedirect } from './connection-navigation';
 
   let { children }: { children: Snippet } = $props();
   let themeController = $state<ThemeController | undefined>(undefined);
@@ -37,6 +38,8 @@
     switch (page.route.id) {
       case '/live':
         return { title: 'Live board', subtitle: 'Recovering connection…' };
+      case '/bms':
+        return { title: 'Battery management system', subtitle: 'Recovering connection…' };
       case '/sessions/[sessionId]':
         return { title: 'Session', backHref: '#/sessions', backLabel: 'Sessions' };
       case '/sessions/boards/[savedDeviceId]':
@@ -100,9 +103,12 @@
   });
 
   $effect(() => {
-    if (backendState.status === 'connected' && backendState.snapshot?.activeConnection && page.route.id === '/') {
-      void goto('#/live', { replaceState: true });
-    }
+    const href = connectionRedirect(
+      page.route.id,
+      backendState.snapshot?.activeConnection,
+      backendState.status === 'connected'
+    );
+    if (href) void goto(href, { replaceState: true });
   });
 </script>
 

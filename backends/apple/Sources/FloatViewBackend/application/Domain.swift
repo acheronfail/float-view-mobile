@@ -325,6 +325,7 @@ public struct ActiveConnectionSnapshot: Sendable, Equatable {
   public let deviceID: DeviceID
   public let name: String?
   public let state: ConnectionState
+  public let deviceKind: DeviceKind?
   public let trackingMode: TrackingMode
   public let savedDevice: SavedDeviceRecord?
   public let activeSession: SessionSummaryRecord?
@@ -342,6 +343,7 @@ public struct ActiveConnectionSnapshot: Sendable, Equatable {
     deviceID: DeviceID,
     name: String?,
     state: ConnectionState,
+    deviceKind: DeviceKind? = nil,
     trackingMode: TrackingMode = .saved,
     savedDevice: SavedDeviceRecord? = nil,
     activeSession: SessionSummaryRecord? = nil,
@@ -358,6 +360,7 @@ public struct ActiveConnectionSnapshot: Sendable, Equatable {
     self.deviceID = deviceID
     self.name = name
     self.state = state
+    self.deviceKind = deviceKind
     self.trackingMode = trackingMode
     self.savedDevice = savedDevice
     self.activeSession = activeSession
@@ -371,6 +374,11 @@ public struct ActiveConnectionSnapshot: Sendable, Equatable {
     self.refloatControls = refloatControls
     self.controllerActions = controllerActions
   }
+}
+
+public enum DeviceKind: String, Sendable, Equatable {
+  case board
+  case bms
 }
 
 public struct ControllerCurrentLimits: Sendable, Equatable {

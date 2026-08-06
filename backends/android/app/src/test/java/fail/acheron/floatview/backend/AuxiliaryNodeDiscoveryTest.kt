@@ -16,6 +16,8 @@ private fun auxiliaryFirmware(
 class AuxiliaryNodeDiscoveryTest {
     @Test
     fun recognizesOnlyTheObservedVbms32Identity() {
+        assertEquals(true, BmsIdentityPolicy.supports(auxiliaryFirmware(2, name = "VBMS32", minor = 6)))
+        assertEquals(false, BmsIdentityPolicy.supports(auxiliaryFirmware(2, name = "42508004", minor = 6)))
         val vbms32 = AuxiliaryNodeDiscovery()
         assertEquals(
             AuxiliaryDiscoveryEffect.RequestValues(BmsConnection.Can(10)),

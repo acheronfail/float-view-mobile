@@ -838,6 +838,7 @@ class LoopbackServer(
 
     private fun connection(value: ActiveConnectionSnapshot) = JSONObject()
         .put("deviceId", value.deviceId.value)
+        .put("deviceKind", value.deviceKind?.name?.lowercase() ?: JSONObject.NULL)
         .put("trackingMode", if (value.trackingMode == TrackingMode.SAVED) "saved" else "guest")
         .put("savedDeviceId", value.savedDevice?.savedDeviceId ?: JSONObject.NULL)
         .put("name", value.savedDevice?.displayName ?: value.advertisedName ?: value.deviceId.value)

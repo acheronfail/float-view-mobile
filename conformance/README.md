@@ -94,7 +94,7 @@ retried; neither the simulator nor contract state asserts confirmed power-off.
 
 The explicit hardware checkpoint remains separate from `just verify`. Run the
 available direct-controller-plus-CAN-VBMS, Express-plus-CAN-VBMS, and
-direct-VBMS-gateway combinations on both Apple and Android targets with the
+standalone-direct-VBMS combinations on both Apple and Android targets with the
 `npm run physical` commands above. Record unavailable hardware combinations as
 unavailable; do not replace them with weaker software assertions. The ESP32
 firmware stays a byte bridge—scenario composition and VBMS interpretation remain

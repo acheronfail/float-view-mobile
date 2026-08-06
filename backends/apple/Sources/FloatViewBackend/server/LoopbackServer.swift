@@ -761,6 +761,7 @@ public final class LoopbackServer: @unchecked Sendable {
   private func connectionPayload(_ value: ActiveConnectionSnapshot) -> [String: Any] {
     [
       "deviceId": value.deviceID.value,
+      "deviceKind": value.deviceKind?.rawValue ?? NSNull(),
       "name": value.savedDevice?.displayName ?? value.name ?? value.deviceID.value,
       "state": deviceState(value.state),
       "trackingMode": value.trackingMode.rawValue,

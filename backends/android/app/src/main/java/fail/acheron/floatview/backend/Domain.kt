@@ -233,6 +233,7 @@ data class ActiveConnectionSnapshot(
     val deviceId: DeviceId,
     val advertisedName: String?,
     val state: ConnectionState,
+    val deviceKind: DeviceKind? = null,
     val trackingMode: TrackingMode = TrackingMode.SAVED,
     val savedDevice: SavedDeviceRecord? = null,
     val activeSession: SessionSummaryRecord? = null,
@@ -246,6 +247,8 @@ data class ActiveConnectionSnapshot(
     val refloatControls: RefloatControls? = null,
     val controllerActions: ControllerActions = ControllerActions(),
 )
+
+enum class DeviceKind { BOARD, BMS }
 
 data class ControllerCurrentLimits(
     val motorCurrentMaxA: Double,

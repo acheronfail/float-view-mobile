@@ -812,6 +812,44 @@ class ApplicationServiceTest {
     }
 
     @Test
+    fun `exact direct VBMS becomes BMS only without controller or session work`() {
+        val bluetooth = FakeBluetooth()
+        val store = FakeStore()
+        val service = ApplicationService(
+            bluetooth,
+            FakeClock(),
+            store,
+            productStore = FakeProductStore(),
+            protocol = StandaloneBmsProtocol(),
+            scheduler = FakeScheduler(),
+        ) {}
+        val id = DeviceId("numeric-vbms")
+
+        service.onBluetoothEvent(BluetoothEvent.DeviceFound(id, "42508004", -40))
+        service.connect(id)
+        service.onBluetoothEvent(BluetoothEvent.ConnectionChanged(id, ConnectionState.READY))
+        service.onBluetoothEvent(BluetoothEvent.Notification(id, byteArrayOf(1)))
+
+        val active = requireNotNull(service.activeConnectionSnapshot())
+        assertEquals(ConnectionState.READY, service.connectionState)
+        assertEquals(DeviceKind.BMS, active.deviceKind)
+        assertEquals(null, active.controllerRoute)
+        assertEquals(null, active.activeSession)
+        assertEquals(BmsConnection.Direct, active.bms.connection)
+        assertEquals(0, store.createCount)
+        assertEquals(listOf(byteArrayOf(1), byteArrayOf(96)).map(ByteArray::toList), bluetooth.writes.map(ByteArray::toList))
+
+        service.onBluetoothEvent(BluetoothEvent.ConnectionChanged(id, ConnectionState.DISCONNECTED))
+        assertEquals(ConnectionState.RECONNECTING, service.connectionState)
+        assertEquals(null, service.activeConnectionSnapshot()?.deviceKind)
+        service.onBluetoothEvent(BluetoothEvent.ConnectionChanged(id, ConnectionState.READY))
+        service.onBluetoothEvent(BluetoothEvent.Notification(id, byteArrayOf(1)))
+        assertEquals(DeviceKind.BMS, service.activeConnectionSnapshot()?.deviceKind)
+        assertEquals(0, store.createCount)
+        assertEquals(0, bluetooth.writes.count { it.contentEquals(byteArrayOf(62)) })
+    }
+
+    @Test
     fun `refloat telemetry starts idle probe and switches to riding rate`() {
         val bluetooth = FakeBluetooth()
         val scheduler = FakeScheduler()
@@ -1283,6 +1321,27 @@ class ApplicationServiceTest {
                     )
                 }
                 else -> emptyList()
+            }
+    }
+
+    private class StandaloneBmsProtocol : VescProtocolPort {
+        override val supportsBmsTelemetry = true
+        override fun reset() = Unit
+        override fun firmwareRequest(route: ControllerRoute) = byteArrayOf(1)
+        override fun canPingRequest() = byteArrayOf(62)
+        override fun bmsValuesRequest(connection: BmsConnection) = byteArrayOf(96)
+        override fun refloatInfoRequest(route: ControllerRoute) = byteArrayOf(36, 101, 0)
+        override fun refloatTelemetryIdsRequest(route: ControllerRoute) = byteArrayOf(36, 101, 32)
+        override fun refloatTelemetryRequest(route: ControllerRoute) = byteArrayOf(36, 101, 31)
+        override fun receive(bytes: ByteArray): List<VescProtocolMessage> =
+            if (bytes.contentEquals(byteArrayOf(1))) {
+                listOf(
+                    VescProtocolMessage.Firmware(
+                        FirmwareRecord(6, 6, "VBMS32", null, hardwareType = 2),
+                    ),
+                )
+            } else {
+                emptyList()
             }
     }
 
