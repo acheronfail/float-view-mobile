@@ -6,7 +6,7 @@ The existing Swift and Kotlin implementations are both extraction references. Ne
 
 The frontend remains disposable and talks only through the authenticated loopback contract. Native application processes continue to own Bluetooth, lifecycle, background work, logging, persistence, permissions, imports/exports, and complete authoritative state. Rust owns the portable implementation of that state and behavior, while Swift and Kotlin retain only OS integration and presentation.
 
-Rust has mature compilation targets for Apple, Android, Linux, and Windows, a single Cargo dependency/build model, bundled SQLite through `rusqlite`, and maintained async HTTP/WebSocket components. A Rust core introduces an FFI boundary on Apple and Android, so that boundary must be smaller and more auditable than a generated object model. Float View can make it small because the core owns the loopback server: complete application snapshots, frontend requests/results, telemetry history, and SQL rows never need to cross FFI.
+Rust has mature compilation targets for Apple and Android, a single Cargo dependency/build model, bundled SQLite through `rusqlite`, and maintained async HTTP/WebSocket components. A Rust core introduces an FFI boundary on both host families, so that boundary must be smaller and more auditable than a generated object model. Float View can make it small because the core owns the loopback server: complete application snapshots, frontend requests/results, telemetry history, and SQL rows never need to cross FFI. Linux and Windows portability remain follow-up work after the shipped hosts share the core.
 
 ## Goals / Non-Goals
 
@@ -17,13 +17,13 @@ Rust has mature compilation targets for Apple, Android, Linux, and Windows, a si
 - Use one explicit C ABI with opaque handles, fixed-width values, bounded caller-owned buffers, and a host-pulled command queue; add only a small Android JNI facade over those semantics.
 - Define resource, document-import, diagnostics, threading, ordering, cancellation, buffer, panic, and process-lifetime boundaries precisely enough that hosts cannot regain application behavior.
 - Preserve all contract behavior, privacy boundaries, bounds, persistence semantics, and physical BLE paths.
-- Prove the core and bridge on Android and Apple, and compile/run portable smoke tests on Linux and Windows before calling the core portable.
+- Prove the core and bridge on Android, iOS, and macOS before selecting it as the shared native backend.
 - Use one Cargo-locked dependency graph, one bundled SQLite engine/configuration, and one Rust loopback implementation on every core target.
 - Delete superseded Swift and Kotlin backend behavior and their obsolete dependencies after each host passes its complete gate.
 
 **Non-Goals:**
 
-- Delivering Linux or Windows application shells, Bluetooth adapters, or installers.
+- Compiling, testing, or delivering Linux or Windows targets; those are deferred to a follow-up change.
 - Replacing the SvelteKit frontend or generating its hand-written backend contract.
 - Exposing Rust domain models or application snapshots through FFI.
 - Using UniFFI, JNA, a permanent C++ compatibility layer, or native-to-host callbacks.
@@ -50,7 +50,7 @@ port model  storage   loopback transport
       bundled SQLite   Tokio + Axum
 ```
 
-Rust was selected over portable Swift because it gives the core one established build/dependency model across all target families, bundled SQLite without a build-critical submodule, maintained cross-platform async/networking components, and a conventional C ABI for future hosts. This accepts a one-time rewrite and an FFI boundary on Apple as well as Android. Existing dual implementations, immutable vectors, canonical conformance, disposable databases, and parallel implementation capacity make that trade preferable to permanently depending on the Swift Android SDK, `swift-java`, and HTTP dependencies with experimental Android/Windows support.
+Rust was selected over portable Swift because it gives the core one established build/dependency model across Apple and Android, bundled SQLite without a build-critical submodule, maintained cross-platform async/networking components, and a conventional C ABI that can support future hosts. This accepts a one-time rewrite and an FFI boundary on Apple as well as Android. Existing dual implementations, immutable vectors, canonical conformance, and disposable databases make that trade preferable to permanently depending on the Swift Android SDK, `swift-java`, and experimental Android support.
 
 Alternatives considered:
 
@@ -85,6 +85,10 @@ Each process owns exactly one Rust runtime and one bounded host-command queue. O
 This pull model prevents Rust runtime threads from calling Swift or Kotlin synchronously, removes callback vtables and retained JVM callback objects, and makes mutable-state reentrancy impossible at the ABI boundary. Shutdown closes the command queue, wakes every blocked waiter, cancels pending operations, and only then permits the opaque runtime handle to be destroyed. A host may replace its Activity, WebView, or presentation adapter without creating another Rust runtime while the process lives.
 
 All mutable application, connection, storage-coordination, and publication state is serialized through one process-owned Rust application actor. Tokio server and storage tasks communicate with it through bounded channels and request identifiers. Blocking SQLite work runs on dedicated bounded storage workers; it does not block the application actor or loopback runtime. The bridge, server, and storage queues each have explicit item and byte bounds plus tested overload behavior.
+
+One production runtime composition owns that complete graph. Runtime start resolves host-provided resources and storage roots, opens and recovers the bundled catalog/session stores, starts the application actor and contract dispatcher, binds the authenticated loopback server, and only then publishes a bounded `runtime.ready` platform command containing the launch endpoint and token required by the host WebView. The token is copied only into host launch state and is never emitted through diagnostics. Stop first prevents new loopback work, closes clients and request queues, cancels platform operations, drains or interrupts storage work, stops the actor, closes the host-command queue, and wakes its waiter before handle destruction.
+
+The standalone Rust conformance executable is a thin launcher for this same production composition with deterministic platform adapters, clocks, randomness, resource lookup, and temporary storage roots. It MUST NOT implement a second JSON fixture state machine, contract dispatcher, persistence model, or loopback lifecycle. Platform hosts and canonical conformance therefore exercise the same actor, stores, dispatcher, server, and shutdown path; only the platform adapters and launch presentation differ.
 
 ### 4. Generate one conservative C header with pinned `cbindgen`
 
@@ -141,13 +145,13 @@ Every direct dependency must replace substantial custom or duplicated code, use 
 
 ### 9. Migrate in verified vertical slices
 
-1. Pin the Rust/NDK/Cargo packaging toolchains and prove a minimal runtime, C header, C harness, Swift import, Android JNI worker, SQLite, HTTP/WebSocket, crypto, compression, XML, and archive surface on the target matrix.
+1. Pin the Rust/NDK/Cargo packaging toolchains and prove a minimal runtime, C header, C harness, Swift import, Android JNI worker, SQLite, HTTP/WebSocket, crypto, compression, XML, and archive surface on the Apple/Android target matrix.
 2. Freeze the ABI invariants and host-command vocabulary before parallel behavioral porting begins. One integration owner controls runtime, bridge, and cross-crate contracts; parallel work owns non-overlapping protocol, storage, server, and fixture modules.
 3. Port protocol/domain code and immutable vectors into focused Rust crates without host behavior changes.
-4. Port storage, loopback, contract dispatch, and application coordination behind the Rust actor and typed internal ports; first run the complete software backend through deterministic adapters without platform FFI.
+4. Port storage, loopback, contract dispatch, and application coordination behind the Rust actor and typed internal ports; compose them into the one production runtime and first run that exact graph through deterministic adapters without platform FFI.
 5. Integrate macOS and iOS through the C ABI while retaining the existing Swift backend as a mutually exclusive build path. Delete the Swift backend behavior only after both Apple hosts pass focused, canonical, lifecycle, and physical gates.
 6. Integrate Android through the JNI facade and Kotlin adapters while retaining the existing Kotlin backend as a mutually exclusive build path. Delete the Kotlin backend behavior only after the Rust-backed Android host passes focused, canonical, lifecycle, and physical gates.
-7. Add Linux and Windows core compile/smoke jobs; no host is advertised as supported by compile-only success.
+7. Run final Apple/Android packaging, conformance, lifecycle, and physical checkpoints and delete every superseded backend owner.
 
 Every slice remains buildable. Legacy and Rust runtimes are never active in the same process, and the frontend does not gain a compatibility branch. Once a legacy backend is deleted, rollback is by reverting the coherent cutover commit rather than maintaining a permanent second implementation.
 
@@ -158,15 +162,13 @@ Every slice remains buildable. Legacy and Rust runtimes are never active in the 
 - **Host adapter tests:** platform permissions, BLE event/command mapping, lifecycle, presentation, resource/document staging, native packaging, and queue teardown are tested per platform.
 - **Canonical conformance:** mock, macOS, iOS, and Rust-backed Android run the existing black-box contract suite; physical checkpoints continue through real OS Bluetooth stacks.
 
-| Target | Required evidence |
-| --- | --- |
-| macOS | Cargo build/core tests, C ABI harness, Rust dependency/server/storage smoke, Swift host tests, canonical conformance |
-| iOS simulator | static-library/package build, C ABI and embedded dependency/server/storage smoke, lifecycle tests, canonical conformance |
+| Target                  | Required evidence                                                                                                          |
+| ----------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| macOS                   | Cargo build/core tests, C ABI harness, Rust dependency/server/storage smoke, Swift host tests, canonical conformance       |
+| iOS simulator           | static-library/package build, C ABI and embedded dependency/server/storage smoke, lifecycle tests, canonical conformance   |
 | Android emulator/device | every packaged ABI build, APK load, JNI worker and dependency/server/storage smoke, lifecycle tests, canonical conformance |
-| Linux reference image | Cargo build/core tests plus C ABI and portable dependency/server/storage smoke; no host support claim |
-| Windows reference image | Cargo build/core tests plus C ABI and portable dependency/server/storage smoke; no host support claim |
 
-`just verify` remains the full software gate and orchestrates or reports all required jobs. A local environment may delegate unavailable reference-image jobs to CI, but the change cannot complete until every required result is successful and attributable to the pinned source/toolchain revision.
+`just verify` remains the full software gate and orchestrates or reports all required jobs. The change cannot complete until every required Apple and Android result is successful and attributable to the pinned source/toolchain revision.
 
 ## Risks / Trade-offs
 
@@ -181,7 +183,6 @@ Every slice remains buildable. Legacy and Rust runtimes are never active in the 
 - **Rust libraries may increase application size or cold-start time** -> record current baselines and acceptance budgets during the initial spike, strip symbols appropriately, and package each required native library once per architecture.
 - **Parallel implementation can create integration churn** -> freeze ABI and crate seams first, assign non-overlapping owners, keep one runtime/bridge integration owner, and merge only independently verified slices.
 - **One implementation can hide platform-specific lifecycle defects** -> retain host-level lifecycle and physical BLE conformance; shared code does not replace platform acceptance.
-- **Linux/Windows compile success may be mistaken for product support** -> specs distinguish portable-core build targets from supported application hosts.
 
 ## Migration Plan
 
@@ -197,4 +198,3 @@ Storage cutover first proves that bundled SQLite opens existing canonical fixtur
 - What exact APK/IPA size and cold-start budgets should gate the runtime spike? The first task records current Swift/Kotlin baselines and proposed thresholds before accepting Rust packaging.
 - Should Android use a pinned `cargo-ndk` invocation or an equally reproducible direct Cargo/NDK configuration? The spike selects the smaller Gradle-owned path and records every packaged artifact per ABI.
 - Should Apple packaging produce one generated XCFramework consumed by a local Swift package or link target-specific static libraries directly? The spike selects the path with deterministic Xcode dependency tracking, simulator/device coverage, and no committed binaries.
-- Which Windows and Linux CI images become compile/smoke references? They are selected from supported Rust environments during toolchain setup and do not imply shipped-host support.

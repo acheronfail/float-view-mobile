@@ -10,65 +10,55 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
-import android.webkit.JavascriptInterface
 import android.webkit.ConsoleMessage
+import android.webkit.JavascriptInterface
 import android.webkit.ValueCallback
-import android.webkit.WebView
 import android.webkit.WebChromeClient
+import android.webkit.WebView
 import android.widget.FrameLayout
 import androidx.core.view.WindowInsetsControllerCompat
-import fail.acheron.floatview.backend.SettingsRecord
-import fail.acheron.floatview.backend.ThemePreference
-import java.io.ByteArrayOutputStream
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.cancel
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
-import org.json.JSONObject
+import fail.acheron.floatview.core.PlatformTheme
 
 class MainActivity : Activity() {
     private var webView: WebView? = null
     private var fileChooserCallback: ValueCallback<Array<Uri>>? = null
-    private var themeSubscription: AutoCloseable? = null
+    private var rustOrigin: String? = null
     private val frontendContainer by lazy { FrameLayout(this) }
     private val handler = Handler(Looper.getMainLooper())
     private val delayedTeardown = Runnable { destroyFrontend() }
-    private val importScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        val app = application as FloatViewApplication
-        app.runtime.permissionBroker.attach(this)
-        app.runtime.locationPermissionBroker.attach(this)
-        app.runtime.exportPresentationBroker.attach(this)
-        applySystemBarTheme(app.runtime.applicationService.settings().themePreference)
-        themeSubscription = app.runtime.events.subscribe { event ->
-            if (event is SettingsRecord) {
-                runOnUiThread { applySystemBarTheme(event.themePreference) }
-            }
-        }
         setContentView(frontendContainer)
+        (application as FloatViewApplication).rustRuntime.attach(
+            this,
+            onReady = { endpoint, token ->
+                val launchUrl = Uri.parse(endpoint).buildUpon()
+                    .appendQueryParameter("token", token)
+                    .build()
+                    .toString()
+                if (rustOrigin != null && rustOrigin != launchUrl) destroyFrontend()
+                rustOrigin = launchUrl
+                createFrontend()
+            },
+            onTheme = ::applySystemBarTheme,
+        )
         createFrontend()
     }
 
     override fun onStart() {
         super.onStart()
+        if (BuildConfig.DEBUG) Log.d("FloatViewCore", "stage=activity_lifecycle code=start")
         handler.removeCallbacks(delayedTeardown)
+        (application as FloatViewApplication).rustRuntime.updateLifecycle(foreground = true)
         createFrontend()
     }
 
-    override fun onResume() {
-        super.onResume()
-        val preference =
-            (application as FloatViewApplication).runtime.applicationService.settings().themePreference
-        applySystemBarTheme(preference)
-    }
-
     override fun onStop() {
+        if (BuildConfig.DEBUG) Log.d("FloatViewCore", "stage=activity_lifecycle code=stop")
         handler.removeCallbacks(delayedTeardown)
         handler.postDelayed(delayedTeardown, FRONTEND_BACKGROUND_GRACE_MS)
+        (application as FloatViewApplication).rustRuntime.updateLifecycle(foreground = false)
         super.onStop()
     }
 
@@ -86,20 +76,19 @@ class MainActivity : Activity() {
     @SuppressLint("SetJavaScriptEnabled")
     private fun createFrontend() {
         if (webView != null || isFinishing || isDestroyed) return
-        val origin = (application as FloatViewApplication).backend.origin
-        webView = WebView(this).also {
-            it.settings.javaScriptEnabled = true
-            it.settings.domStorageEnabled = true
-            it.settings.setSupportZoom(false)
-            it.settings.builtInZoomControls = false
-            it.settings.displayZoomControls = false
-            it.webChromeClient = object : WebChromeClient() {
+        val origin = rustOrigin ?: return
+        webView = WebView(this).also { view ->
+            view.settings.javaScriptEnabled = true
+            view.settings.domStorageEnabled = true
+            view.settings.setSupportZoom(false)
+            view.settings.builtInZoomControls = false
+            view.settings.displayZoomControls = false
+            view.webChromeClient = object : WebChromeClient() {
                 override fun onShowFileChooser(
-                    view: WebView?,
+                    webView: WebView?,
                     filePathCallback: ValueCallback<Array<Uri>>?,
                     fileChooserParams: FileChooserParams?,
                 ): Boolean {
-                    Log.d("FloatViewFileChooser", "show")
                     this@MainActivity.fileChooserCallback?.onReceiveValue(null)
                     this@MainActivity.fileChooserCallback = filePathCallback
                     val intent = fileChooserParams?.createIntent()
@@ -112,7 +101,6 @@ class MainActivity : Activity() {
                         startActivityForResult(intent, FILE_CHOOSER_REQUEST_CODE)
                         true
                     } catch (_: Exception) {
-                        Log.d("FloatViewFileChooser", "launch_failed")
                         this@MainActivity.fileChooserCallback = null
                         filePathCallback?.onReceiveValue(null)
                         false
@@ -127,11 +115,11 @@ class MainActivity : Activity() {
                 }
             }
             if (applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE != 0) {
-                it.addJavascriptInterface(FrontendPerformanceBridge(), "FloatViewPerformance")
+                view.addJavascriptInterface(FrontendPerformanceBridge(), "FloatViewPerformance")
             }
-            it.loadUrl(origin)
+            view.loadUrl(origin)
             frontendContainer.addView(
-                it,
+                view,
                 FrameLayout.LayoutParams(
                     FrameLayout.LayoutParams.MATCH_PARENT,
                     FrameLayout.LayoutParams.MATCH_PARENT,
@@ -153,15 +141,14 @@ class MainActivity : Activity() {
     internal fun frontendIsAttached(): Boolean = webView != null
 
     @Suppress("DEPRECATION")
-    private fun applySystemBarTheme(preference: ThemePreference) {
-        val dark =
-            when (preference) {
-                ThemePreference.DARK -> true
-                ThemePreference.LIGHT -> false
-                ThemePreference.SYSTEM ->
-                    resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK ==
-                        Configuration.UI_MODE_NIGHT_YES
-            }
+    private fun applySystemBarTheme(theme: PlatformTheme) {
+        val dark = when (theme) {
+            PlatformTheme.DARK -> true
+            PlatformTheme.LIGHT -> false
+            PlatformTheme.SYSTEM ->
+                resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK ==
+                    Configuration.UI_MODE_NIGHT_YES
+        }
         val background = Color.parseColor(if (dark) "#020617" else "#F8FAFC")
         window.statusBarColor = background
         window.navigationBarColor = background
@@ -176,80 +163,27 @@ class MainActivity : Activity() {
 
     override fun onDestroy() {
         handler.removeCallbacks(delayedTeardown)
-        val runtime = (application as FloatViewApplication).runtime
-        runtime.permissionBroker.detach(this)
-        runtime.locationPermissionBroker.detach(this)
-        runtime.exportPresentationBroker.detach(this)
-        importScope.cancel()
-        themeSubscription?.close()
-        themeSubscription = null
+        (application as FloatViewApplication).rustRuntime.detach(this)
+        fileChooserCallback?.onReceiveValue(null)
+        fileChooserCallback = null
         destroyFrontend()
         super.onDestroy()
     }
 
     @Deprecated("Android WebView file chooser uses the legacy activity result callback")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: android.content.Intent?) {
+        val runtime = (application as FloatViewApplication).rustRuntime
+        if (runtime.onActivityResult(requestCode, resultCode, data)) {
+            super.onActivityResult(requestCode, resultCode, data)
+            return
+        }
         if (requestCode == FILE_CHOOSER_REQUEST_CODE) {
-            Log.d(
-                "FloatViewFileChooser",
-                "result code=$resultCode hasData=${data?.data != null} clipCount=${data?.clipData?.itemCount ?: 0} callback=${fileChooserCallback != null}",
+            fileChooserCallback?.onReceiveValue(
+                WebChromeClient.FileChooserParams.parseResult(resultCode, data),
             )
-            val result = WebChromeClient.FileChooserParams.parseResult(resultCode, data)
-            // Galaxy S9 WebView 148 returns the URI to the host but does not
-            // populate the DOM FileList. Import the URI natively, then notify
-            // the frontend so the same archive importer is used on-device.
-            fileChooserCallback?.onReceiveValue(null)
             fileChooserCallback = null
-            result?.singleOrNull()?.let(::importSelectedSession)
         }
         super.onActivityResult(requestCode, resultCode, data)
-    }
-
-    private fun importSelectedSession(uri: Uri) {
-        val app = application as FloatViewApplication
-        dispatchFrontendImport("floatview:session-import-started", JSONObject())
-        importScope.launch {
-            try {
-                val sessionId = withContext(Dispatchers.IO) {
-                    app.runtime.applicationService.importSessionArchive(readImportUri(uri))
-                }
-                app.backend.publishSessionCatalogChanged()
-                Log.d("FloatViewImport", "complete")
-                dispatchFrontendImport(
-                    "floatview:session-imported",
-                    JSONObject().put("sessionId", sessionId),
-                )
-            } catch (error: Exception) {
-                Log.e("FloatViewImport", "session import failed: ${error::class.simpleName}")
-                dispatchFrontendImport(
-                    "floatview:session-import-failed",
-                    JSONObject().put("message", "Session import failed"),
-                )
-            }
-        }
-    }
-
-    private fun readImportUri(uri: Uri): ByteArray {
-        val input = contentResolver.openInputStream(uri) ?: error("Selected file cannot be opened")
-        input.use { stream ->
-            val output = ByteArrayOutputStream()
-            val buffer = ByteArray(64 * 1024)
-            var total = 0
-            while (true) {
-                val count = stream.read(buffer)
-                if (count < 0) break
-                total += count
-                check(total <= MAX_SESSION_IMPORT_BYTES) { "Selected file is too large" }
-                output.write(buffer, 0, count)
-            }
-            return output.toByteArray()
-        }
-    }
-
-    private fun dispatchFrontendImport(event: String, detail: JSONObject) {
-        val script =
-            "window.dispatchEvent(new CustomEvent(${JSONObject.quote(event)}, { detail: $detail }));"
-        webView?.post { webView?.evaluateJavascript(script, null) }
     }
 
     override fun onRequestPermissionsResult(
@@ -258,18 +192,12 @@ class MainActivity : Activity() {
         grantResults: IntArray,
     ) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
-        if (requestCode == BluetoothPermissionBroker.BLUETOOTH_PERMISSION_REQUEST) {
-            val runtime = (application as FloatViewApplication).runtime
-            runtime.permissionBroker.recordResult(permissions)
-            runtime.applicationService.onBluetoothEvent(
-                fail.acheron.floatview.backend.BluetoothEvent.StateChanged(
-                    runtime.bluetooth.currentState(),
-                ),
-            )
-        } else if (requestCode == LocationPermissionBroker.LOCATION_PERMISSION_REQUEST) {
-            val runtime = (application as FloatViewApplication).runtime
-            runtime.locationPermissionBroker.recordResult(permissions)
-            runtime.events.publish(runtime.applicationService.locationState())
+        val runtime = (application as FloatViewApplication).rustRuntime
+        when (requestCode) {
+            BluetoothPermissionBroker.BLUETOOTH_PERMISSION_REQUEST ->
+                runtime.onBluetoothPermissionResult(permissions)
+            LocationPermissionBroker.LOCATION_PERMISSION_REQUEST ->
+                runtime.onLocationPermissionResult(permissions)
         }
     }
 

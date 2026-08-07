@@ -1,0 +1,28 @@
+[package]
+name = "float-view-standalone"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[lib]
+path = "src/main.rs"
+
+[[bin]]
+name = "float-view-standalone"
+path = "src/bin/float-view-standalone.rs"
+
+[dependencies]
+float-view-application = { path = "../application" }
+float-view-bms = { path = "../bms" }
+float-view-domain = { path = "../domain" }
+float-view-loopback = { path = "../loopback" }
+float-view-platform-ports = { path = "../platform-ports" }
+float-view-refloat = { path = "../refloat" }
+float-view-storage = { path = "../storage" }
+float-view-vesc = { path = "../vesc" }
+serde_json = "1.0.142"
+tokio = { version = "1.47.1", features = ["io-std", "macros", "rt-multi-thread"] }
+
+[lints]
+workspace = true

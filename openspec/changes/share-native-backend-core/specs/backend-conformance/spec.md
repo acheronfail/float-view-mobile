@@ -21,12 +21,17 @@ Verification SHALL separate Rust backend behavior tests, native-ABI tests, and h
 
 ### Requirement: Portable dependency smoke matrix
 
-The software gate SHALL exercise the Rust backend's HTTP/WebSocket lifecycle, bundled SQLite engine identity and WAL lifecycle, cryptography, compression, XML/archive behavior, Cargo package loading, generated C header, and native ABI on each required target environment. macOS SHALL run native core tests, the C harness, and smoke executables; iOS SHALL run embedded smoke in a simulator application/test bundle; Android SHALL build every packaged ABI and run JNI/instrumentation smoke on an emulator or device; Linux and Windows SHALL run core tests, the C harness, and smoke executables in their pinned reference images. A matrix failure SHALL block portability claims and MUST NOT be converted into a skipped canonical scenario.
+The software gate SHALL exercise the Rust backend's HTTP/WebSocket lifecycle, bundled SQLite engine identity and WAL lifecycle, cryptography, compression, XML/archive behavior, Cargo package loading, generated C header, and native ABI on each required Apple and Android target environment. macOS SHALL run native core tests, the C harness, and smoke executables; iOS SHALL run embedded smoke in a simulator application/test bundle; Android SHALL build every packaged ABI and run JNI/instrumentation smoke on an emulator or device. A matrix failure SHALL block shared-backend acceptance and MUST NOT be converted into a skipped canonical scenario.
 
 #### Scenario: Rust loopback server on a target
 
 - **WHEN** a target runs the loopback smoke fixture
 - **THEN** it proves authenticated bootstrap, bounded HTTP bodies, WebSocket upgrade and fragmented traffic, header/body/message/buffer/connection/client/queue/time bounds, shutdown, and restart using the production Rust server dependencies
+
+#### Scenario: Shared production composition
+
+- **WHEN** focused runtime smoke, standalone canonical conformance, or a shipped host starts the Rust backend
+- **THEN** each path uses the same application actor, bundled stores, contract dispatcher, loopback server, and ordered shutdown composition, with deterministic adapters substituted only for standalone testing
 
 #### Scenario: Bundled SQLite on a target
 
@@ -37,11 +42,6 @@ The software gate SHALL exercise the Rust backend's HTTP/WebSocket lifecycle, bu
 
 - **WHEN** a target runs the C-ABI smoke fixture
 - **THEN** it compiles the checked-in header and verifies layout, version/build identity, caller-buffer ownership, insufficient-capacity behavior, panic containment, stop/wake, and stale-handle rejection
-
-#### Scenario: Future-host compilation
-
-- **WHEN** Linux or Windows fails Cargo compilation, C-header compilation, or portable smoke execution
-- **THEN** `just verify` or its CI matrix reports the failure while existing supported-host conformance remains independently actionable
 
 ### Requirement: Legacy backend cutover gates
 
@@ -90,14 +90,9 @@ The repository SHALL contain one top-level `/conformance` TypeScript black-box s
 
 ### Requirement: Supported-backend gate
 
-Android, iOS, and macOS SHALL NOT be considered supported unless their current host build, Rust backend package, required ABI/adapter/packaging tests, and canonical suite pass. A compile-only Linux or Windows core target SHALL NOT enter the supported-backend set.
+Android, iOS, and macOS SHALL NOT be considered supported unless their current host build, Rust backend package, required ABI/adapter/packaging tests, and canonical suite pass.
 
 #### Scenario: Release verification
 
 - **WHEN** a supported platform build is prepared
 - **THEN** its Rust-core, native-ABI, host-adapter, packaging, and canonical conformance results are successful
-
-#### Scenario: Future portable target
-
-- **WHEN** Linux or Windows compiles and smokes the Rust core without a complete product host
-- **THEN** release verification continues to omit it from supported backend claims and physical matrices

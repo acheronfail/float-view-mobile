@@ -1,0 +1,38 @@
+[workspace]
+resolver = "2"
+members = [
+  "crates/android-jni",
+  "crates/application",
+  "crates/bms",
+  "crates/dependency-smoke",
+  "crates/domain",
+  "crates/loopback",
+  "crates/native-abi",
+  "crates/platform-ports",
+  "crates/refloat",
+  "crates/runtime",
+  "crates/smoke",
+  "crates/software-adapters",
+  "crates/standalone",
+  "crates/storage",
+  "crates/vesc",
+]
+
+[workspace.package]
+edition = "2024"
+license = "GPL-3.0-or-later"
+rust-version = "1.93"
+version = "0.1.0"
+
+[workspace.lints.rust]
+unsafe_op_in_unsafe_fn = "deny"
+
+[workspace.lints.clippy]
+all = "deny"
+pedantic = "deny"
+
+[profile.dev]
+panic = "unwind"
+
+[profile.release]
+panic = "unwind"

@@ -1,0 +1,12 @@
+[package]
+name = "float-view-core-smoke"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+float-view-runtime = { path = "../runtime" }
+
+[lints]
+workspace = true

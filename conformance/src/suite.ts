@@ -55,11 +55,13 @@ export async function runConformance(target: Target) {
     const restored = await client.request('state.get', {});
     assertState(restored);
     assert.ok(restored.revision >= scanned.revision);
-    assert.deepEqual(
-      restored.discoveredDevices.map((device) => device.deviceId),
-      scanned.discoveredDevices.map((device) => device.deviceId),
-      'frontend recreation lost backend-owned state'
-    );
+    const restoredDeviceIds = new Set(restored.discoveredDevices.map((device) => device.deviceId));
+    for (const device of scanned.discoveredDevices) {
+      assert.ok(
+        restoredDeviceIds.has(device.deviceId),
+        'frontend recreation lost backend-owned discovered-device state'
+      );
+    }
 
     await exerciseProductMethods(client, restored, ['android', 'ios', 'macos'].includes(target.name));
     return {

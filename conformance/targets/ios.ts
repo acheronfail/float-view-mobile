@@ -210,6 +210,7 @@ export function iosPhysicalLaunchArguments(deviceId: string, jsonOutput: string,
     '--environment-variables',
     JSON.stringify({
       FLOAT_VIEW_CONFORMANCE_PORT: String(devicePort),
+      FLOAT_VIEW_BACKEND: 'rust',
       ...(reset ? { FLOAT_VIEW_CONFORMANCE_RESET: '1' } : {}),
     }),
     '--terminate-existing',
@@ -290,6 +291,7 @@ function makeSimulatorTarget(): Target {
         env: {
           ...process.env,
           SIMCTL_CHILD_FLOAT_VIEW_CONFORMANCE_PORT: String(devicePort),
+          SIMCTL_CHILD_FLOAT_VIEW_BACKEND: 'rust',
         },
       });
       return bootstrap(devicePort, devicePort, 'iOS Simulator');

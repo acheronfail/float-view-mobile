@@ -1,8 +1,11 @@
 # refloat-live-controls Specification
 
 ## Purpose
+
 TBD - created by archiving change add-refloat-live-controls. Update Purpose after archive.
+
 ## Requirements
+
 ### Requirement: Exact audited Refloat control profiles
 
 The native backends and conformance simulator SHALL implement only the product control commands audited for stable Refloat 1.0.0–1.0.1, 1.1.0–1.1.2, and 1.2.0–1.2.3. Package enablement SHALL use source command 12 with a disabled boolean and SHALL be treated as a persistent package configuration write. Flywheel SHALL use source command 22 with Refloat's default calibration parameters and footpad abort enabled. Refloat 1.0.x and 1.1.x lighting SHALL use command 202 with its one-byte mask and flags, while Refloat 1.2.x lighting SHALL use command 20 with its four-byte mask and one-byte flags. Fatal-error clearing SHALL use command 36 and SHALL be available only for audited Refloat 1.2.x. Every other Refloat mutation, tuning, recording, history, Handtest, remote, RC-move, or motor-control command MUST remain unsupported.

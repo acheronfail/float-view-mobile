@@ -1,0 +1,18 @@
+[package]
+name = "float-view-application"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+float-view-bms = { path = "../bms" }
+float-view-domain = { path = "../domain" }
+float-view-platform-ports = { path = "../platform-ports" }
+float-view-refloat = { path = "../refloat" }
+float-view-storage = { path = "../storage" }
+float-view-vesc = { path = "../vesc" }
+serde_json = "1.0.142"
+
+[lints]
+workspace = true

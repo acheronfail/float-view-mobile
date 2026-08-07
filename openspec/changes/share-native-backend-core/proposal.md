@@ -1,6 +1,6 @@
 ## Why
 
-Apple and Android currently maintain roughly equivalent Bluetooth, VESC/Refloat protocol, application-service, loopback-server, and SQLite behavior in separate Swift and Kotlin implementations. Adding Linux and Windows by copying either backend would multiply feature work and drift risk, so the common behavior needs one portable owner before more hosts are introduced.
+Apple and Android currently maintain roughly equivalent Bluetooth, VESC/Refloat protocol, application-service, loopback-server, and SQLite behavior in separate Swift and Kotlin implementations. Copying either backend for a future host would multiply feature work and drift risk, so the common behavior needs one portable owner.
 
 ## What Changes
 
@@ -11,12 +11,12 @@ Apple and Android currently maintain roughly equivalent Bluetooth, VESC/Refloat 
 - Use Cargo and a checked-in lockfile as the portable build and dependency authority. Use `rusqlite` with bundled SQLite, one recorded compile-option set, and the existing canonical SQL without a system-SQLite dependency or build-critical SQLite git submodule.
 - Use a maintained Rust HTTP/WebSocket stack over Tokio for the bounded loopback surface, and prove the exact Float View authentication, resource, fragmentation, limit, shutdown, and restart behavior on every required target.
 - Keep the existing Swift and Kotlin backends only as mutually exclusive bounded migration variants, then delete each after its Rust-backed host passes its complete cutover gate.
-- Add an explicit compile/runtime matrix for the Rust core, Apple C-ABI integration, Android JNI integration, and future Linux/Windows targets to normal development and verification paths, while retaining canonical black-box conformance for shipped hosts.
+- Add an explicit compile/runtime matrix for the Rust core, Apple C-ABI integration, and Android JNI integration to normal development and verification paths, while retaining canonical black-box conformance for shipped hosts.
 - Preserve the existing hand-written frontend wire contract and complete authoritative state semantics; the contract, specifications, fixtures, canonical conformance, and physical BLE checkpoints remain the behavioral authority throughout the rewrite.
 
 Non-goals:
 
-- Shipping Linux or Windows applications in this change; those become follow-on hosts over the proven core and adapter contract.
+- Compiling, testing, or shipping Linux or Windows targets in this change; portable-core verification for those targets belongs to a follow-up change over the proven core and adapter contract.
 - Exposing Rust application models, complete snapshots, telemetry histories, SQL rows, or frontend contract types through C or JNI.
 - Using UniFFI, a generated frontend/backend contract, a second service process, or a permanent compatibility layer between old and new backends.
 - Moving platform UI, Bluetooth, permission, lifecycle, or background-service ownership into Rust or the frontend.
@@ -36,7 +36,7 @@ Non-goals:
 
 ## Impact
 
-- Affects `backends/apple`, `backends/android`, a new Rust workspace under `backends/core`, shared backend resources and packaging, the root `justfile`, CI/toolchain setup, generated C-header provenance, Android JNI sources, third-party notices, backend documentation, and `conformance` target orchestration.
+- Affects `backends/apple`, `backends/android`, a new Rust workspace under `backends/core`, shared backend resources and packaging, the root `justfile`, Apple/Android CI and toolchain setup, generated C-header provenance, Android JNI sources, third-party notices, backend documentation, and `conformance` target orchestration.
 - Adds a pinned Rust toolchain, Cargo lockfile, `cbindgen` generation tool, `rusqlite` with bundled SQLite, Tokio plus a selected HTTP/WebSocket stack, and a minimal Android-only JNI dependency. Normal application builds consume checked-in headers and wrappers without running generators or resolving mutable developer-local repositories.
 - Removes FlyingFox, Ktor server dependencies, system `sqlite3` and Android `SQLiteDatabase` backend ownership, Swift Android/`swift-java` machinery, duplicated Swift/Kotlin application, protocol, storage, and server implementations, and mirrored behavior tests after parity.
 - Changes repository ownership and native build composition, but does not change the frontend contract, authenticated envelopes, loopback-only security model, canonical database schema/file semantics, or user-visible behavior. Activity/WebView recreation reattaches to the process runtime; process death creates one new runtime and recovers only durable state.

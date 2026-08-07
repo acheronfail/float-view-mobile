@@ -1,0 +1,4 @@
+module CFloatViewCore [system] {
+  header "../../../core/include/float_view_core.h"
+  export *
+}

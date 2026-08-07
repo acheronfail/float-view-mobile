@@ -1,6 +1,7 @@
 import { runConformance } from './suite.ts';
 import { externalTarget } from '../targets/external.ts';
 import { mockTarget } from '../targets/mock.ts';
+import { rustTarget } from '../targets/rust.ts';
 import { macosTarget } from '../targets/macos.ts';
 import { iosTarget } from '../targets/ios.ts';
 import { androidTarget } from '../targets/android.ts';
@@ -32,13 +33,15 @@ if (name === 'physical') {
 const target =
   name === 'mock'
     ? mockTarget
-    : name === 'macos'
-      ? macosTarget
-      : name === 'ios'
-        ? iosTarget
-        : name === 'android'
-          ? androidTarget
-          : externalTarget(name, `FLOAT_VIEW_${name.toUpperCase()}_WS_URL`);
+    : name === 'rust'
+      ? rustTarget
+      : name === 'macos'
+        ? macosTarget
+        : name === 'ios'
+          ? iosTarget
+          : name === 'android'
+            ? androidTarget
+            : externalTarget(name, `FLOAT_VIEW_${name.toUpperCase()}_WS_URL`);
 const result = await runConformance(target);
 console.log(`Conformance passed: ${result.target} revision=${result.revision}`);
 

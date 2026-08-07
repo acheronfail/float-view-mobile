@@ -105,6 +105,8 @@ test('iOS development prefers a booted simulator, forwards logs, and uses same-n
     'launch',
     '--device',
     'physical',
+    '--environment-variables',
+    '{"FLOAT_VIEW_BACKEND":"rust"}',
     '--terminate-existing',
     '--console',
     'fail.acheron.float-view',

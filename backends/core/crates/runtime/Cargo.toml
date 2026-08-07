@@ -1,0 +1,16 @@
+[package]
+name = "float-view-runtime"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+float-view-application = { path = "../application" }
+float-view-domain = { path = "../domain" }
+float-view-platform-ports = { path = "../platform-ports" }
+float-view-standalone = { path = "../standalone" }
+tokio = { version = "1.47.1", features = ["rt-multi-thread", "sync"] }
+
+[lints]
+workspace = true

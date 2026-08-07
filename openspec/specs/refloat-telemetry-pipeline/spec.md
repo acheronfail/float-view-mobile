@@ -1,7 +1,9 @@
 ## Purpose
 
 Define the source-faithful Refloat telemetry protocol, normalization, bounded extensions, polling, and durable lifecycle shared by native backends and the conformance simulator.
+
 ## Requirements
+
 ### Requirement: Supported detailed Refloat read protocol
 
 The backends and conformance simulator SHALL implement source-faithful telemetry plus only the Refloat product-control allowlist defined by `refloat-live-controls` for audited stable Refloat source packages 1.0.0–1.0.1, 1.1.0–1.1.2, and 1.2.0–1.2.3. The independently allowlisted VESC-core shutdown command MUST NOT broaden the Refloat package-command allowlist. The simulator SHALL encode the fixed-layout Refloat 1.0.x command 1 realtime response for retained legacy compatibility; native polling SHALL use command 10 for 1.0.x. Compact command 10 SHALL expose every supported detail level through level 4, including controller state, footpad values, control setpoints, field-weakening current when available, distance, temperatures, odometer, energy totals, battery level, charging values, and active firmware faults. Dynamic commands 31/32 SHALL negotiate and decode the complete always-present and running-only field lists plus package state, mode, flags, stop condition, setpoint adjustment, alert reason, charging tail, and the 1.2.x active-alert and fatal-latch state. Command 35 history and data-recorder commands 41–43 SHALL NOT be requested or simulated by this change.

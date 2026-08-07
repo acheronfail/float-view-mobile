@@ -11,6 +11,7 @@
     "fixture:dev": "cd fixture-dev && vite dev",
     "fixture:check": "cd fixture-dev && svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
     "mock": "node --strip-types src/run.ts mock",
+    "rust": "node --strip-types src/run.ts rust",
     "macos": "node --strip-types src/run.ts macos",
     "ios": "node --strip-types src/run.ts ios",
     "android": "node --strip-types src/run.ts android",

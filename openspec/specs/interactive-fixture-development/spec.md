@@ -3,7 +3,9 @@
 ## Purpose
 
 Define the development-only SvelteKit control surface, serial coordinator, source-faithful VESC/Refloat simulation, and software verification contract for manually exercising Float View against the programmable ESP32 fixture.
+
 ## Requirements
+
 ### Requirement: Development-only fixture entry point
 
 The repository SHALL provide `just fixture dev [port]` as the public entry point for a SvelteKit development server at `http://127.0.0.1:11004` that controls the programmable ESP32 fixture. The application MUST run only through the Vite development loop and MUST NOT introduce a production adapter, build artifact, preview command, separate package, separate lockfile, deployment, or production runtime.

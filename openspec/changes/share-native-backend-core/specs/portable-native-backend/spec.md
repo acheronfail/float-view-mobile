@@ -14,6 +14,16 @@ The repository SHALL provide one shared Rust backend implementation for applicat
 - **WHEN** any host destroys and recreates its WebView while native work continues
 - **THEN** the replacement frontend reconnects to the same process-owned Rust backend state without recreating or translating backend state in the host
 
+#### Scenario: Production runtime composition
+
+- **WHEN** a native host or the standalone conformance launcher starts the Rust backend
+- **THEN** one runtime owns the application actor, bundled catalog and session stores, contract dispatcher, authenticated loopback server, and bounded platform bridge, with only the platform adapters and launch presentation selected by the caller
+
+#### Scenario: Standalone conformance backend
+
+- **WHEN** canonical conformance launches the standalone Rust target
+- **THEN** it uses the production runtime composition with deterministic platform adapters and temporary storage rather than a separate fixture state machine or contract implementation
+
 ### Requirement: Explicit platform adapter boundary
 
 The portable backend SHALL access Bluetooth, location, lifecycle/background eligibility, permission/settings/theme/service presentation, document selection/staging, export presentation, immutable packaged resources, diagnostics, storage roots, available-space reporting, clocks, and secure randomness only through bounded typed internal ports transported by the native bridge. Resource requests MUST contain validated logical names rather than arbitrary traversal paths. Document requests MUST direct the host to a core-provided bounded staging destination without giving the host archive semantics. Platform adapters MUST NOT parse VESC or Refloat payloads, validate/import archives, own authoritative application state, execute SQL, dispatch frontend methods, or retain unbounded event or command queues.
@@ -81,6 +91,11 @@ Each process-owned Rust runtime SHALL provide one bounded host-command queue con
 - **WHEN** the Rust application actor requires Bluetooth, location, resource, document, permission, lifecycle, or presentation work
 - **THEN** it enqueues one bounded command that the dedicated host worker retrieves and dispatches without blocking the application actor or UI thread
 
+#### Scenario: Loopback readiness
+
+- **WHEN** storage recovery, application startup, contract dispatch, and authenticated loopback binding have completed
+- **THEN** the runtime publishes one bounded generation-scoped readiness command containing the loopback launch endpoint and token for host presentation without exposing either through diagnostics
+
 #### Scenario: Command completion
 
 - **WHEN** host work completes, fails, or is cancelled
@@ -98,17 +113,12 @@ Each process-owned Rust runtime SHALL provide one bounded host-command queue con
 
 ### Requirement: Portable core build matrix
 
-The Rust workspace SHALL compile from one Cargo dependency graph and checked-in lockfile for macOS, iOS, Android, Linux, and Windows using pinned supported toolchains. macOS SHALL run native core tests, the C ABI harness, and portable smoke executables; iOS SHALL run embedded smoke through a simulator application/test bundle; Android SHALL build every packaged ABI and run JNI/instrumentation smoke on an emulator or device; Linux and Windows SHALL run core tests, the C ABI harness, and portable smoke executables in documented reference images. Linux and Windows success MUST NOT by itself advertise an application host as supported.
+The Rust workspace SHALL compile from one Cargo dependency graph and checked-in lockfile for macOS, iOS, and Android using pinned supported toolchains. macOS SHALL run native core tests, the C ABI harness, and portable smoke executables; iOS SHALL run embedded smoke through a simulator application/test bundle; Android SHALL build every packaged ABI and run JNI/instrumentation smoke on an emulator or device.
 
 #### Scenario: Portable dependency regression
 
 - **WHEN** core source or a Cargo dependency no longer builds or runs on one matrix target
 - **THEN** the software verification gate fails with the target and first actionable compiler, linker, loader, or runtime diagnostic
-
-#### Scenario: Compile-only future host
-
-- **WHEN** Linux or Windows passes the portable workspace build without a complete host adapter and canonical conformance result
-- **THEN** it remains an unsupported product host
 
 ### Requirement: Portable authenticated loopback transport
 

@@ -1,0 +1,4 @@
+# Repository-owned executable/bootstrap artifacts. Add generated headers and
+# packaged-library manifests in their owning tasks; do not add build outputs.
+e996d452d2645e70c01c11143ca2d3742734a28da2bf61f25c82bdc288c9e637  backends/android/gradle/wrapper/gradle-wrapper.jar
+24e368a286ea4b101ce0e292dc45e895699d43134b36b023daf8757329fce33c  backends/core/include/float_view_core.h

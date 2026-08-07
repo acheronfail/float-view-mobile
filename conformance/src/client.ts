@@ -51,11 +51,7 @@ export class ConformanceClient {
     this.origin = origin;
     socket.on('message', (data) => this.receive(data.toString()));
     socket.on('close', (code, reason) =>
-      this.rejectAll(
-        new Error(
-          `Backend closed the socket (code=${code}, reason=${reason.toString() || 'none'})`
-        )
-      )
+      this.rejectAll(new Error(`Backend closed the socket (code=${code}, reason=${reason.toString() || 'none'})`))
     );
   }
 
@@ -158,6 +154,9 @@ export class ConformanceClient {
     const message = JSON.parse(text) as Record<string, unknown>;
     if (message.event === 'state.changed') {
       const state = message.data as AppState;
+      if (process.env.FLOAT_VIEW_CONFORMANCE_TRACE === '1') {
+        console.error(`state.changed revision=${state.revision}`);
+      }
       if (!this.state || state.revision >= this.state.revision) {
         this.state = state;
         this.resolveStateWaiters(state);
@@ -168,6 +167,9 @@ export class ConformanceClient {
     if (!Number.isSafeInteger(id)) throw new Error('Response has invalid ID');
     const pending = this.pending.get(id as number);
     if (!pending) return;
+    if (process.env.FLOAT_VIEW_CONFORMANCE_TRACE === '1') {
+      console.error(`response method=${pending.method} id=${String(id)}`);
+    }
     this.pending.delete(id as number);
     clearTimeout(pending.timer);
     if (message.error) pending.reject(new ConformanceError(message.error as BackendError));
@@ -191,7 +193,9 @@ export class ConformanceClient {
     this.pending.clear();
     for (const waiter of this.stateWaiters) {
       clearTimeout(waiter.timer);
-      waiter.reject(error);
+      waiter.reject(
+        new Error(`${error.message} while waiting for authoritative state; latest=${JSON.stringify(this.state)}`)
+      );
     }
     this.stateWaiters.clear();
   }

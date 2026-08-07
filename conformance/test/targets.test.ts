@@ -86,7 +86,7 @@ test('physical target command construction uses normal Debug app paths', () => {
     '--device',
     'device',
     '--environment-variables',
-    '{"FLOAT_VIEW_CONFORMANCE_PORT":"11011","FLOAT_VIEW_CONFORMANCE_RESET":"1"}',
+    '{"FLOAT_VIEW_CONFORMANCE_PORT":"11011","FLOAT_VIEW_BACKEND":"rust","FLOAT_VIEW_CONFORMANCE_RESET":"1"}',
     '--terminate-existing',
     '--quiet',
     '--json-output',
@@ -101,7 +101,7 @@ test('physical target command construction uses normal Debug app paths', () => {
     '--device',
     'device',
     '--environment-variables',
-    '{"FLOAT_VIEW_CONFORMANCE_PORT":"11011"}',
+    '{"FLOAT_VIEW_CONFORMANCE_PORT":"11011","FLOAT_VIEW_BACKEND":"rust"}',
     '--terminate-existing',
     '--quiet',
     '--json-output',
@@ -131,7 +131,7 @@ test('physical target command construction uses normal Debug app paths', () => {
     true
   );
   assert.equal(iosDeviceIsPreparingFailure(new Error('Signing certificate is invalid')), false);
-  assert.deepEqual(macosLaunchArguments(), ['--test-host']);
+  assert.deepEqual(macosLaunchArguments(), ['--rust-backend']);
 });
 
 test('Android physical permissions follow the device API level', () => {

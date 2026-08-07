@@ -81,6 +81,8 @@ export function iosPhysicalConsoleLaunchArguments(device: string) {
     'launch',
     '--device',
     device,
+    '--environment-variables',
+    JSON.stringify({ FLOAT_VIEW_BACKEND: 'rust' }),
     '--terminate-existing',
     '--console',
     IOS_BUNDLE,
@@ -123,7 +125,7 @@ export async function runDevelopment(targetPlatform: TargetPlatform, target = ''
     if (targetPlatform === 'macos') {
       const executable = buildMacos(root);
       track(
-        spawn(executable, ['--browser-host'], {
+        spawn(executable, ['--browser-host', '--rust-backend'], {
           cwd: root,
           env: {
             ...environment,
@@ -222,6 +224,7 @@ async function startIOS(
         env: {
           ...environment,
           SIMCTL_CHILD_FLOAT_VIEW_CONFORMANCE_PORT: String(IOS_PORT),
+          SIMCTL_CHILD_FLOAT_VIEW_BACKEND: 'rust',
         },
         stdio: 'inherit',
       }),
@@ -281,6 +284,10 @@ async function startIOS(
 function buildMacos(root: string) {
   const cwd = `${root}/backends/apple`;
   const scratch = '/tmp/float-view-swift-build';
+  execFileSync('sh', [`${root}/backends/apple/prepare-core-macos.sh`, scratch], {
+    cwd: root,
+    stdio: 'inherit',
+  });
   execFileSync('swift', ['build', '--scratch-path', scratch, '--product', 'FloatViewMac'], {
     cwd,
     stdio: 'inherit',

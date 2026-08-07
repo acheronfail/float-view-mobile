@@ -34,13 +34,13 @@ The user completed the manual iOS checkpoint on the supported THOR hardware
 and confirmed every requested behavior:
 
 - [x] Representative Refloat controls and the active-flywheel Disable overlay
-  worked on an idle, safely supported board.
+      worked on an idle, safely supported board.
 - [x] Cancelling the shutdown confirmation caused no command-side effect.
 - [x] Confirmed shutdown powered off the controller and BLE transport, returned
-  from LiveView to home without automatic reconnect, and did not show
-  `Reconnecting`.
+      from LiveView to home without automatic reconnect, and did not show
+      `Reconnecting`.
 - [x] Manual controller power-on restored normal discovery and a fresh manual
-  connection.
+      connection.
 
 This completes actual supported-hardware shutdown, intentional-loss handling,
 and manual recovery validation on both native mobile backends.

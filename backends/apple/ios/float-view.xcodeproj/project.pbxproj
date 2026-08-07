@@ -11,7 +11,6 @@
 		F10A00052F00000000000005 /* sql in Resources */ = {isa = PBXBuildFile; fileRef = F10A00042F00000000000004 /* sql */; };
 		F10A00072F00000000000007 /* schemas in Resources */ = {isa = PBXBuildFile; fileRef = F10A00062F00000000000006 /* schemas */; };
 		F10A00092F00000000000009 /* values in Resources */ = {isa = PBXBuildFile; fileRef = F10A00082F00000000000008 /* values */; };
-		F10D00012F00000000000001 /* FlyingFox in Frameworks */ = {isa = PBXBuildFile; productRef = F10D00042F00000000000004 /* FlyingFox */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -28,6 +27,12 @@
 			isa = PBXFileSystemSynchronizedRootGroup;
 			name = FloatViewBackend;
 			path = ../Sources/FloatViewBackend;
+			sourceTree = "<group>";
+		};
+		F30A00012F00000000000001 /* FloatViewCoreBridge */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			name = FloatViewCoreBridge;
+			path = ../Sources/FloatViewCoreBridge;
 			sourceTree = "<group>";
 		};
 		BA4ABF1E2E5BDF4600B47684 /* float-view */ = {
@@ -47,7 +52,6 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				F10D00012F00000000000001 /* FlyingFox in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -69,6 +73,7 @@
 				F10A00062F00000000000006 /* schemas */,
 				F10A00082F00000000000008 /* values */,
 				F10A00012F00000000000001 /* FloatViewBackend */,
+				F30A00012F00000000000001 /* FloatViewCoreBridge */,
 				BA4ABF1E2E5BDF4600B47684 /* float-view */,
 				F20A00022F00000000000002 /* float-view-lifecycle-tests */,
 				BA4ABF1D2E5BDF4600B47684 /* Products */,
@@ -91,6 +96,7 @@
 			isa = PBXNativeTarget;
 			buildConfigurationList = BA4ABF272E5BDF4900B47684 /* Build configuration list for PBXNativeTarget "float-view" */;
 			buildPhases = (
+				F30A00022F00000000000002 /* Build Rust Core */,
 				BA4ABF182E5BDF4600B47684 /* Sources */,
 				BA4ABF192E5BDF4600B47684 /* Frameworks */,
 				BA4ABF1A2E5BDF4600B47684 /* Resources */,
@@ -102,10 +108,10 @@
 			fileSystemSynchronizedGroups = (
 				BA4ABF1E2E5BDF4600B47684 /* float-view */,
 				F10A00012F00000000000001 /* FloatViewBackend */,
+				F30A00012F00000000000001 /* FloatViewCoreBridge */,
 			);
 			name = "float-view";
 			packageProductDependencies = (
-				F10D00042F00000000000004 /* FlyingFox */,
 			);
 			productName = "float-view";
 			productReference = BA4ABF1C2E5BDF4600B47684 /* float-view.app */;
@@ -175,7 +181,6 @@
 			preferredProjectObjectVersion = 77;
 			productRefGroup = BA4ABF1D2E5BDF4600B47684 /* Products */;
 			packageReferences = (
-				F10D00032F00000000000003 /* XCRemoteSwiftPackageReference "FlyingFox" */,
 			);
 			projectDirPath = "";
 			projectRoot = "";
@@ -206,6 +211,24 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXResourcesBuildPhase section */
+
+/* Begin PBXShellScriptBuildPhase section */
+		F30A00022F00000000000002 /* Build Rust Core */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			name = "Build Rust Core";
+			outputFileListPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "set -eu\nCORE_DIR=\"$SRCROOT/../../core\"\nREPO_DIR=\"$SRCROOT/../../..\"\nmkdir -p \"$DERIVED_FILE_DIR\"\ncd \"$REPO_DIR\"\nshasum -a 256 -c backends/core/checksums.sha256\ncd \"$CORE_DIR\"\nif [ \"$PLATFORM_NAME\" = \"iphonesimulator\" ]; then\n  cargo build --package float-view-native-abi --target aarch64-apple-ios-sim --locked --offline\n  cargo build --package float-view-native-abi --target x86_64-apple-ios --locked --offline\n  xcrun lipo -create \"$CORE_DIR/target/aarch64-apple-ios-sim/debug/libfloat_view_native_abi.a\" \"$CORE_DIR/target/x86_64-apple-ios/debug/libfloat_view_native_abi.a\" -output \"$DERIVED_FILE_DIR/libfloat_view_native_abi.a\"\nelse\n  cargo build --package float-view-native-abi --target aarch64-apple-ios --locked --offline\n  cp \"$CORE_DIR/target/aarch64-apple-ios/debug/libfloat_view_native_abi.a\" \"$DERIVED_FILE_DIR/libfloat_view_native_abi.a\"\nfi\nnm -gU \"$DERIVED_FILE_DIR/libfloat_view_native_abi.a\" | rg -q '_float_view_abi_version$' || { echo 'Rust ABI identity symbol missing' >&2; exit 1; }\n";
+		};
+/* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
 		BA4ABF182E5BDF4600B47684 /* Sources */ = {
@@ -363,15 +386,19 @@
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = 8C86BN6TXL;
 				ENABLE_PREVIEWS = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = "App-Info.plist";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
+				LIBRARY_SEARCH_PATHS = "$(DERIVED_FILE_DIR)";
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = "fail.acheron.float-view";
 				PRODUCT_NAME = "$(TARGET_NAME)";
+				OTHER_LDFLAGS = "$(inherited) -lfloat_view_native_abi";
+				SWIFT_INCLUDE_PATHS = "$(SRCROOT)/../Sources/CFloatViewCore";
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
@@ -387,15 +414,19 @@
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = 8C86BN6TXL;
 				ENABLE_PREVIEWS = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = "App-Info.plist";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
+				LIBRARY_SEARCH_PATHS = "$(DERIVED_FILE_DIR)";
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = "fail.acheron.float-view";
 				PRODUCT_NAME = "$(TARGET_NAME)";
+				OTHER_LDFLAGS = "$(inherited) -lfloat_view_native_abi";
+				SWIFT_INCLUDE_PATHS = "$(SRCROOT)/../Sources/CFloatViewCore";
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
@@ -466,24 +497,6 @@
 		};
 /* End XCConfigurationList section */
 
-/* Begin XCRemoteSwiftPackageReference section */
-		F10D00032F00000000000003 /* XCRemoteSwiftPackageReference "FlyingFox" */ = {
-			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/swhitty/FlyingFox.git";
-			requirement = {
-				kind = upToNextMajorVersion;
-				minimumVersion = 0.27.1;
-			};
-		};
-/* End XCRemoteSwiftPackageReference section */
-
-/* Begin XCSwiftPackageProductDependency section */
-		F10D00042F00000000000004 /* FlyingFox */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = F10D00032F00000000000003 /* XCRemoteSwiftPackageReference "FlyingFox" */;
-			productName = FlyingFox;
-		};
-/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = BA4ABF142E5BDF4600B47684 /* Project object */;
 }

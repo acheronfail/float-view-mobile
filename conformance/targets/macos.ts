@@ -77,12 +77,16 @@ function makeMacosTarget(physical: boolean): Target & Partial<Pick<PhysicalTarge
 }
 
 export function macosLaunchArguments() {
-  return ['--test-host'];
+  return process.env.FLOAT_VIEW_BACKEND === 'legacy' ? ['--test-host'] : ['--rust-backend'];
 }
 
 function buildMacosExecutable(root: string) {
   const cwd = `${root}/backends/apple`;
   const scratch = '/tmp/float-view-swift-build';
+  execFileSync('sh', [`${root}/backends/apple/prepare-core-macos.sh`, scratch], {
+    cwd: root,
+    stdio: 'inherit',
+  });
   execFileSync('swift', ['build', '--scratch-path', scratch, '--product', 'FloatViewMac'], {
     cwd,
     stdio: 'inherit',

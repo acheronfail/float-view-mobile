@@ -9,6 +9,7 @@ import android.location.LocationListener
 import android.location.LocationManager
 import android.net.Uri
 import android.os.Build
+import android.os.CancellationSignal
 import android.os.Looper
 import android.provider.Settings
 import androidx.core.content.ContextCompat
@@ -33,6 +34,7 @@ class AndroidLocationProvider(
     private val preferences =
         applicationContext.getSharedPreferences("location-permission-history", Context.MODE_PRIVATE)
     private var listener: LocationListener? = null
+    private var currentLocationCancellation: CancellationSignal? = null
     private var handler: ((LocationProviderObservation) -> Unit)? = null
 
     @Synchronized
@@ -127,10 +129,31 @@ class AndroidLocationProvider(
                 locationManager.requestLocationUpdates(provider, 1_000L, 5f, next, Looper.getMainLooper())
             }
         }
+        val lastKnown = locationManager.allProviders
+            .mapNotNull { provider -> runCatching { locationManager.getLastKnownLocation(provider) }.getOrNull() }
+            .filter { location -> location.latitude.isFinite() && location.longitude.isFinite() }
+            .maxByOrNull { location -> location.time }
+        if (lastKnown != null) {
+            next.onLocationChanged(lastKnown)
+        } else if (Build.VERSION.SDK_INT >= 30) {
+            providers.firstOrNull()?.let { provider ->
+                val cancellation = CancellationSignal()
+                currentLocationCancellation = cancellation
+                runCatching {
+                    locationManager.getCurrentLocation(
+                        provider,
+                        cancellation,
+                        ContextCompat.getMainExecutor(applicationContext),
+                    ) { location -> location?.let(next::onLocationChanged) }
+                }
+            }
+        }
     }
 
     @Synchronized
     override fun stopUpdates() {
+        currentLocationCancellation?.cancel()
+        currentLocationCancellation = null
         listener?.also { locationManager.removeUpdates(it) }
         listener = null
         handler = null

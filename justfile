@@ -4,6 +4,9 @@ _default:
 setup:
     cd frontend && npm ci
     cd conformance && npm ci
+    cargo fetch --manifest-path backends/core/Cargo.toml --locked
+    shasum -a 256 -c backends/core/checksums.sha256
+    sh backends/core/scripts/validate-toolchains.sh
     pio pkg install -d tools/vesc-test-device
     mkdir -p vendor
     [ -e "vendor/bldc" ] || git clone https://github.com/vedderb/bldc "vendor/bldc"
@@ -17,11 +20,57 @@ lint:
     cd frontend && npm run format:check
     cd conformance && npm run format:check
     swiftformat --config .swiftformat --lint backends/apple
+    cargo fmt --manifest-path backends/core/Cargo.toml --all --check
+    cargo clippy --manifest-path backends/core/Cargo.toml --workspace --all-targets --locked --offline -- -D warnings
 
 fmt:
     cd frontend && npm run format:write
     cd conformance && npm run format:write
     swiftformat --config .swiftformat backends/apple
+
+generate artifact:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    case "{{ artifact }}" in
+      core-header) sh backends/core/scripts/generate-header.sh ;;
+      *) echo 'Usage: just generate core-header' >&2; exit 2 ;;
+    esac
+
+core-header-check:
+    sh backends/core/scripts/verify-header.sh
+    sh backends/core/tests/c/run.sh
+
+core-prerequisites:
+    sh backends/core/scripts/validate-toolchains.sh
+
+core-audit:
+    sh backends/core/scripts/audit.sh
+
+core-matrix platform:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    case "{{ platform }}" in
+      macos)
+        just test core
+        just core-header-check
+        cargo run --manifest-path backends/core/Cargo.toml --package float-view-dependency-smoke --locked --offline
+        cargo run --manifest-path backends/core/Cargo.toml --package float-view-storage --bin float-view-storage-smoke --locked --offline
+        cargo run --manifest-path backends/core/Cargo.toml --package float-view-loopback --bin float-view-loopback-smoke --locked --offline
+        ;;
+      ios)
+        cargo build --manifest-path backends/core/Cargo.toml --workspace \
+          --target aarch64-apple-ios-sim --locked --offline
+        xcodebuild -project backends/apple/ios/float-view.xcodeproj -scheme float-view \
+          -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' \
+          -derivedDataPath /tmp/float-view-ios CODE_SIGNING_ALLOWED=NO build
+        (cd conformance && npm run ios)
+        ;;
+      android)
+        (cd backends/android && ./gradlew assembleDebug connectedDebugAndroidTest)
+        (cd conformance && npm run android)
+        ;;
+      *) echo 'Usage: just core-matrix macos|ios|android' >&2; exit 2 ;;
+    esac
 
 dev platform="mock" target="":
     cd conformance && node --strip-types src/dev.ts "{{ platform }}" "{{ target }}"
@@ -98,7 +147,8 @@ run platform target="": build
             CODE_SIGNING_ALLOWED=NO build
           xcrun simctl install "$target" \
             "$derived/Build/Products/Debug-iphonesimulator/float-view.app"
-          xcrun simctl launch --terminate-running-process "$target" fail.acheron.float-view
+          SIMCTL_CHILD_FLOAT_VIEW_BACKEND=rust \
+            xcrun simctl launch --terminate-running-process "$target" fail.acheron.float-view
         else
           derived='/tmp/float-view-ios-physical'
           xcodebuild -project "$project" -scheme float-view -configuration Debug \
@@ -107,14 +157,16 @@ run platform target="": build
           xcrun devicectl device install app --device "$target" \
             "$derived/Build/Products/Debug-iphoneos/float-view.app"
           xcrun devicectl device process launch --device "$target" \
+            --environment-variables '{"FLOAT_VIEW_BACKEND":"rust"}' \
             --terminate-existing --console fail.acheron.float-view
         fi
         ;;
       macos)
         frontend_html="$PWD/frontend/build/index.html"
+        sh backends/apple/prepare-core-macos.sh /tmp/float-view-swift-build
         (cd backends/apple && \
           FLOAT_VIEW_FRONTEND_HTML="$frontend_html" \
-          swift run --scratch-path /tmp/float-view-swift-build FloatViewMac)
+          swift run --scratch-path /tmp/float-view-swift-build FloatViewMac --rust-backend)
         ;;
       *) echo 'Usage: just run android|ios|macos [target]' >&2; exit 2 ;;
     esac
@@ -125,17 +177,22 @@ test suite="all":
     case "{{ suite }}" in
       frontend) (cd frontend && npm run check && npm test) ;;
       conformance) (cd conformance && npm run check && npm test && npm run mock) ;;
-      apple) (cd backends/apple && swift test --scratch-path /tmp/float-view-swift-build) ;;
+      core) cargo test --manifest-path backends/core/Cargo.toml --workspace --locked --offline ;;
+      apple)
+        sh backends/apple/prepare-core-macos.sh /tmp/float-view-swift-build
+        (cd backends/apple && swift test --scratch-path /tmp/float-view-swift-build)
+        ;;
       android) (cd backends/android && ./gradlew testDebugUnitTest) ;;
       fixture) sh tools/vesc-test-device/test/run.sh ;;
       all)
+        just test core
         just test frontend
         just test conformance
         just test apple
         just test android
         just test fixture
         ;;
-      *) echo 'Usage: just test frontend|conformance|apple|android|fixture|all' >&2; exit 2 ;;
+      *) echo 'Usage: just test core|frontend|conformance|apple|android|fixture|all' >&2; exit 2 ;;
     esac
 
 conformance target:
@@ -199,10 +256,13 @@ audit:
     ! rg -n '\b([3]001|[5]173|[8]765|[8]766)\b' \
       frontend backends conformance justfile \
       -g '!frontend/build/**' -g '!**/Resources/index.html'
+    just core-header-check
+    just core-audit
 
 verify: build
     just test all
     cd backends/android && ./gradlew assembleDebug
+    sh backends/apple/prepare-core-macos.sh /tmp/float-view-swift-build
     cd backends/apple && swift build --scratch-path /tmp/float-view-swift-build --product FloatViewMac
     xcodebuild -project backends/apple/ios/float-view.xcodeproj -scheme float-view \
       -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' \

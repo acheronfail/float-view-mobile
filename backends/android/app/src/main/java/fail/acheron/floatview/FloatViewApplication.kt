@@ -1,36 +1,19 @@
 package fail.acheron.floatview
 
 import android.app.Application
-import android.content.pm.ApplicationInfo
+import fail.acheron.floatview.core.RustBackendRuntime
 
 class FloatViewApplication : Application() {
-    lateinit var runtime: BackendRuntime
-        private set
-    lateinit var backend: LoopbackServer
+    internal lateinit var rustRuntime: RustBackendRuntime
         private set
 
     override fun onCreate() {
         super.onCreate()
-        runtime = BackendRuntime(this)
-        backend = try {
-            LoopbackServer(
-                assets,
-                runtime.applicationService,
-                runtime.exportPresentationBroker::present,
-                runtime.events,
-                requestedPort = ANDROID_BACKEND_PORT,
-                performanceDiagnostics = applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0,
-            ).also { it.start() }
-        } catch (error: Exception) {
-            throw backendStartupFailure(ANDROID_BACKEND_PORT, error)
-        }
+        rustRuntime = RustBackendRuntime(this)
     }
 
     override fun onTerminate() {
-        backend.stop()
+        rustRuntime.close()
         super.onTerminate()
     }
 }
-
-internal fun backendStartupFailure(port: Int, cause: Exception) =
-    IllegalStateException("Failed to bind Float View backend to 127.0.0.1:$port", cause)

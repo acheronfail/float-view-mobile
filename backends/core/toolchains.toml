@@ -1,0 +1,37 @@
+# Machine-readable tool and target policy. Human-facing setup and validation
+# instructions live in TOOLCHAINS.md.
+
+[rust]
+toolchain = "1.93.0"
+profile = "minimal"
+components = ["clippy", "rustfmt"]
+targets = [
+  "aarch64-apple-darwin",
+  "aarch64-apple-ios",
+  "aarch64-apple-ios-sim",
+  "x86_64-apple-ios",
+  "aarch64-linux-android",
+  "armv7-linux-androideabi",
+  "i686-linux-android",
+  "x86_64-linux-android",
+]
+cargo_lock_policy = "committed-v4-locked"
+
+[generation]
+cbindgen = "0.29.2"
+
+[android]
+ndk = "28.2.13676358"
+jdk = "17"
+cargo_ndk = "4.1.2"
+compile_sdk = 36
+min_sdk = 29
+target_sdk = 36
+abis = ["arm64-v8a", "armeabi-v7a", "x86", "x86_64"]
+
+[apple]
+xcode = "26.3"
+swift = "6.2.4"
+macos_deployment_target = "14.0"
+ios_deployment_target = "17.0"
+packaging = "cargo-staticlib-direct-link"

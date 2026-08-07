@@ -9,11 +9,6 @@ iOS, macOS, and Android SHALL use the portable Rust backend under `/backends/cor
 - **WHEN** shared backend behavior changes
 - **THEN** every shipped host receives the same Rust implementation and contract semantics without a corresponding translation
 
-#### Scenario: Future host starts
-
-- **WHEN** a Linux or Windows host is proposed later
-- **THEN** its backend work is limited to host wiring, bridge integration, and required platform adapters plus gaps explicitly approved as core changes
-
 ### Requirement: Thin Android host
 
 The Android application SHALL retain Kotlin only for application entry, Activity/WebView and lifecycle ownership, Android Bluetooth/location/background-service adapters, bounded `AssetManager` resource lookup, content-URI document selection/staging, privacy-safe diagnostics, permission/settings/theme/export presentation, the dedicated host-command worker, and the small JNI wrapper. Kotlin MUST NOT retain archive validation/import semantics, state publication, frontend event dispatch, a second application service, protocol stack, SQLite store, loopback router, frontend contract implementation, or native callback object graph.

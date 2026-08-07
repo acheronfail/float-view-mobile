@@ -11,6 +11,7 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
 import android.os.IBinder
+import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import java.util.concurrent.atomic.AtomicBoolean
@@ -23,15 +24,17 @@ import java.util.concurrent.atomic.AtomicBoolean
 class LoggingForegroundService : Service() {
     override fun onCreate() {
         super.onCreate()
+        if (BuildConfig.DEBUG) Log.d("FloatViewCore", "stage=logging_service code=start")
         ensureChannel()
         enterForeground()
         running.set(true)
+        (application as FloatViewApplication).rustRuntime.updateLoggingService(true)
         if (!desiredRunning.get()) stopSelf()
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_STOP) {
-            (application as FloatViewApplication).runtime.applicationService.disconnect()
+            (application as FloatViewApplication).rustRuntime.updateLoggingService(false)
             stopSelf()
             return START_NOT_STICKY
         }
@@ -40,7 +43,9 @@ class LoggingForegroundService : Service() {
     }
 
     override fun onDestroy() {
+        if (BuildConfig.DEBUG) Log.d("FloatViewCore", "stage=logging_service code=stop")
         running.set(false)
+        (application as FloatViewApplication).rustRuntime.updateLoggingService(false)
         super.onDestroy()
     }
 

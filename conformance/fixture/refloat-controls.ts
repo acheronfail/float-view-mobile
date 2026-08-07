@@ -171,8 +171,7 @@ export class RefloatControlModel {
     const decoded = decodeRefloatProductControl(this.version, payload, context);
     if (!decoded.accepted) return decoded;
     const value = decoded.value;
-    const activeFlywheelDisable =
-      this.state.flywheelEnabled && value.control === 'flywheel' && value.enabled === false;
+    const activeFlywheelDisable = this.state.flywheelEnabled && value.control === 'flywheel' && value.enabled === false;
     if (this.state.flywheelEnabled && !activeFlywheelDisable) {
       return { accepted: false, reason: 'invalid_state' };
     }

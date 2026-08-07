@@ -7,7 +7,7 @@ import Foundation
 #endif
 
 /// Native location ownership for both Apple hosts. The WebView receives only
-/// the mapped status; observations are forwarded directly to ApplicationService.
+/// the mapped status; observations are forwarded directly to the Rust bridge.
 public final class CoreLocationAdapter: NSObject, LocationProviderPort, CLLocationManagerDelegate, @unchecked Sendable {
   private let manager = CLLocationManager()
   private let lock = NSLock()
@@ -94,15 +94,17 @@ public final class CoreLocationAdapter: NSObject, LocationProviderPort, CLLocati
   }
 
   public func openSettings() {
-    performOnMain {
-      #if os(iOS)
+    #if os(iOS)
+      Task { @MainActor in
         guard let url = URL(string: UIApplication.openSettingsURLString) else { return }
         UIApplication.shared.open(url)
-      #elseif os(macOS)
+      }
+    #elseif os(macOS)
+      performOnMain {
         NSWorkspace.shared
           .open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_LocationServices")!)
-      #endif
-    }
+      }
+    #endif
   }
 
   public func startUpdates(_ handler: @escaping @Sendable (LocationProviderObservation) -> Void) {
