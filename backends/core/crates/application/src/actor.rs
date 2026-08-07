@@ -4,10 +4,11 @@
     clippy::too_many_lines
 )]
 
-use std::collections::HashSet;
+use std::collections::{HashSet, VecDeque};
 use std::sync::mpsc::{self, Receiver, SyncSender, TrySendError};
 use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
+use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use float_view_bms::{BmsConnection, BmsSnapshot};
 use float_view_domain::{OperationId, RuntimeGeneration};
@@ -29,6 +30,7 @@ pub const STORAGE_CHANNEL_ITEMS: usize = 32;
 pub const SERVER_CHANNEL_ITEMS: usize = 64;
 pub const MAX_PENDING_OPERATIONS: usize = 64;
 pub const MAX_DISCOVERED_DEVICES: usize = 64;
+pub const COMPLETED_OPERATION_HISTORY: usize = 128;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ActorError {
@@ -50,6 +52,49 @@ pub trait Clock: Send + 'static {
 
 pub trait RandomSource: Send + 'static {
     fn fill(&mut self, output: &mut [u8]);
+}
+
+#[derive(Debug)]
+pub struct SystemClock {
+    started: Instant,
+}
+
+impl SystemClock {
+    #[must_use]
+    pub fn new() -> Self {
+        Self {
+            started: Instant::now(),
+        }
+    }
+}
+
+impl Default for SystemClock {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Clock for SystemClock {
+    fn monotonic_millis(&mut self) -> u64 {
+        u64::try_from(self.started.elapsed().as_millis()).unwrap_or(u64::MAX)
+    }
+
+    fn wall_millis(&mut self) -> i64 {
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .ok()
+            .and_then(|duration| i64::try_from(duration.as_millis()).ok())
+            .unwrap_or_default()
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+pub struct SystemRandom;
+
+impl RandomSource for SystemRandom {
+    fn fill(&mut self, output: &mut [u8]) {
+        getrandom::fill(output).expect("operating-system random source is unavailable");
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -167,6 +212,7 @@ enum ActorInput {
         SyncSender<Result<Vec<RequestCompletion>, ActorError>>,
     ),
     TickVesc(u64, SyncSender<Result<Vec<RequestCompletion>, ActorError>>),
+    TickVescNow(SyncSender<Result<Vec<RequestCompletion>, ActorError>>),
     StartTracking(TrackingMode, SyncSender<Result<(), ActorError>>),
     ObserveTelemetry(Telemetry, u64, SyncSender<Result<bool, ActorError>>),
     SelectBms(BmsConnection, SyncSender<Result<bool, ActorError>>),
@@ -180,7 +226,7 @@ struct ActorState<C> {
     snapshot: ApplicationSnapshot,
     next_operation: u64,
     pending: HashSet<u64>,
-    completed: HashSet<u64>,
+    completed: VecDeque<u64>,
     last_adapter_order: Option<u64>,
     connection: ConnectionCoordinator,
     model: ApplicationModel,
@@ -216,7 +262,7 @@ impl<C: Clock> ActorState<C> {
             },
             next_operation: 1,
             pending: HashSet::new(),
-            completed: HashSet::new(),
+            completed: VecDeque::new(),
             last_adapter_order: None,
             connection: ConnectionCoordinator::default(),
             model: ApplicationModel::default(),
@@ -346,6 +392,10 @@ impl ApplicationActor {
 
     pub fn tick_vesc(&self, now_millis: u64) -> Result<Vec<RequestCompletion>, ActorError> {
         self.request(|reply| ActorInput::TickVesc(now_millis, reply))
+    }
+
+    pub fn tick_vesc_now(&self) -> Result<Vec<RequestCompletion>, ActorError> {
+        self.request(ActorInput::TickVescNow)
     }
 
     pub fn start_tracking(&self, mode: TrackingMode) -> Result<(), ActorError> {
@@ -558,6 +608,23 @@ fn run_actor<C: Clock, R: RandomSource>(
                     });
                 let _ = reply.send(result);
             }
+            ActorInput::TickVescNow(reply) => {
+                state.update_time();
+                let actions = state
+                    .connection
+                    .requests
+                    .tick(state.snapshot.monotonic_millis);
+                let result = apply_connection_actions(&mut state, actions, &host_commands)
+                    .and_then(|completions| {
+                        for completion in &completions {
+                            publications
+                                .try_send(ServerPublication::VescCompleted(completion.clone()))
+                                .map_err(map_send)?;
+                        }
+                        Ok(completions)
+                    });
+                let _ = reply.send(result);
+            }
             ActorInput::StartTracking(mode, reply) => {
                 state.model.connect(mode);
                 let _ = reply.send(Ok(()));
@@ -739,7 +806,10 @@ fn accept_completion<C: Clock>(
     if !state.pending.remove(&operation) {
         return Err(ActorError::StaleOperation);
     }
-    state.completed.insert(operation);
+    if state.completed.len() == COMPLETED_OPERATION_HISTORY {
+        state.completed.pop_front();
+    }
+    state.completed.push_back(operation);
     state.changed();
     Ok(())
 }
@@ -846,6 +916,62 @@ mod tests {
         };
         assert_eq!(second.revision, 2);
         assert_eq!(second.pending_operations, 0);
+        actor.stop().expect("stop");
+    }
+
+    #[test]
+    fn completed_operation_replay_history_is_bounded() {
+        let actor = actor();
+        let mut first = None;
+        for _ in 0..=COMPLETED_OPERATION_HISTORY {
+            let operation = actor
+                .request_host(HostCommand::PresentSettings)
+                .expect("request");
+            first.get_or_insert(operation);
+            actor.try_host_command().expect("channel").expect("command");
+            actor
+                .complete(OperationCompletion {
+                    generation: RuntimeGeneration(7),
+                    operation,
+                    status: CompletionStatus::Success,
+                    payload: Vec::new(),
+                })
+                .expect("complete");
+            while actor
+                .try_publication()
+                .expect("publication channel")
+                .is_some()
+            {}
+        }
+        assert_eq!(
+            actor.complete(OperationCompletion {
+                generation: RuntimeGeneration(7),
+                operation: first.expect("first operation"),
+                status: CompletionStatus::Success,
+                payload: Vec::new(),
+            }),
+            Err(ActorError::StaleOperation)
+        );
+        actor.stop().expect("stop");
+    }
+
+    #[test]
+    fn production_clock_tick_releases_a_timed_out_vesc_request() {
+        let actor = ApplicationActor::start(
+            RuntimeGeneration(7),
+            DeterministicClock::new(0, 1_700_000_000_000, 1_000),
+            DeterministicRandom::new(42),
+        )
+        .expect("actor");
+        let generation = actor.begin_vesc_generation().expect("generation");
+        actor
+            .schedule_vesc(request(VescCommand::GetFirmwareVersion, generation))
+            .expect("schedule");
+        actor.try_host_command().expect("channel").expect("write");
+        assert!(matches!(
+            actor.tick_vesc_now().expect("tick").as_slice(),
+            [RequestCompletion::TimedOut(_)]
+        ));
         actor.stop().expect("stop");
     }
 

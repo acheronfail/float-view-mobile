@@ -502,7 +502,7 @@ fn locations(reader: &SessionReader, request: &SessionDataRequest) -> Result<Val
                 "latitude": point.latitude,
                 "longitude": point.longitude,
                 "accuracyM": point.accuracy_m,
-                "observedAt": iso8601(point.observed_at_millis)?,
+            "observedAt": format_iso8601(point.observed_at_millis)?,
             }))
         })
         .collect::<Result<Vec<_>, StoreError>>()?;
@@ -527,7 +527,7 @@ fn locations(reader: &SessionReader, request: &SessionDataRequest) -> Result<Val
     Ok(Value::Object(output))
 }
 
-fn iso8601(millis: i64) -> Result<String, StoreError> {
+pub fn format_iso8601(millis: i64) -> Result<String, StoreError> {
     if millis < 0 {
         return Err(StoreError::Invalid);
     }
@@ -594,9 +594,9 @@ mod tests {
 
     #[test]
     fn timestamp_format_is_stable() {
-        assert_eq!(iso8601(0).unwrap(), "1970-01-01T00:00:00.000Z");
+        assert_eq!(format_iso8601(0).unwrap(), "1970-01-01T00:00:00.000Z");
         assert_eq!(
-            iso8601(1_704_067_200_123).unwrap(),
+            format_iso8601(1_704_067_200_123).unwrap(),
             "2024-01-01T00:00:00.123Z"
         );
     }

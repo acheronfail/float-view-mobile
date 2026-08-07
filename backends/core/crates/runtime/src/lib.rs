@@ -3,15 +3,13 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::fmt::Write as _;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicU16, Ordering};
-use std::sync::mpsc::{self, SyncSender, TrySendError};
+use std::sync::atomic::{AtomicU16, AtomicU64, Ordering};
+use std::sync::mpsc::{self, SyncSender};
 use std::sync::{Arc, Condvar, Mutex};
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
-use float_view_application::{
-    ActorError, ApplicationActor, DeterministicClock, DeterministicRandom,
-};
+use float_view_application::{ActorError, ApplicationActor, SystemClock, SystemRandom};
 use float_view_domain::{OperationId, RuntimeGeneration};
 use float_view_platform_ports::{
     AdapterEvent, BluetoothNotification, CompletionStatus, HostCommand as PlatformHostCommand,
@@ -31,6 +29,8 @@ pub const COMMAND_QUEUE_ITEMS: usize = 64;
 pub const COMMAND_QUEUE_BYTES: usize = 1024 * 1024;
 /// Maximum serialized actor messages awaiting dispatch.
 pub const ACTOR_QUEUE_ITEMS: usize = 64;
+/// Maximum recent completions retained solely to distinguish duplicate replies.
+pub const COMPLETED_OPERATION_HISTORY: usize = 128;
 /// Command-header kind whose payload is an encoded [`PlatformCommand`].
 pub const HOST_COMMAND_KIND_PLATFORM: u32 = 1;
 /// Event kind whose payload is an encoded [`PlatformEvent`].
@@ -79,7 +79,7 @@ struct CommandState {
     queue: VecDeque<HostCommand>,
     queued_bytes: usize,
     pending: HashSet<u64>,
-    completed: HashSet<u64>,
+    completed: VecDeque<u64>,
     closed: bool,
 }
 
@@ -95,7 +95,7 @@ impl CommandQueue {
                 queue: VecDeque::new(),
                 queued_bytes: 0,
                 pending: HashSet::new(),
-                completed: HashSet::new(),
+                completed: VecDeque::new(),
                 closed: false,
             }),
             changed: Condvar::new(),
@@ -177,23 +177,12 @@ impl CommandQueue {
         if !state.pending.remove(&operation_id) {
             return Err(RuntimeError::StaleGeneration);
         }
-        state.completed.insert(operation_id);
+        if state.completed.len() == COMPLETED_OPERATION_HISTORY {
+            state.completed.pop_front();
+        }
+        state.completed.push_back(operation_id);
         Ok(())
     }
-}
-
-enum ActorMessage {
-    Dispatch {
-        kind: u32,
-        payload: Vec<u8>,
-        result: SyncSender<Result<u64, RuntimeError>>,
-    },
-    Stop,
-}
-
-struct ActorHandle {
-    sender: SyncSender<ActorMessage>,
-    worker: JoinHandle<()>,
 }
 
 #[derive(Clone, Copy)]
@@ -313,7 +302,7 @@ pub struct Runtime {
     generation: Generation,
     lifecycle: Mutex<Lifecycle>,
     commands: Arc<CommandQueue>,
-    actor: Mutex<Option<ActorHandle>>,
+    next_synthetic_operation: AtomicU64,
     application: Mutex<Option<Arc<ApplicationActor>>>,
     bootstrap: Mutex<Option<BootstrapState>>,
     backend: Mutex<Option<BackendWorker>>,
@@ -328,7 +317,7 @@ impl Runtime {
             generation,
             lifecycle: Mutex::new(Lifecycle::Created),
             commands: Arc::new(CommandQueue::new()),
-            actor: Mutex::new(None),
+            next_synthetic_operation: AtomicU64::new(SYNTHETIC_OPERATION_START),
             application: Mutex::new(None),
             bootstrap: Mutex::new(None),
             backend: Mutex::new(None),
@@ -368,48 +357,14 @@ impl Runtime {
         self.requested_port.store(requested_port, Ordering::Release);
         let application = ApplicationActor::start(
             RuntimeGeneration(self.generation),
-            DeterministicClock::new(0, 0, 1),
-            DeterministicRandom::new(self.generation),
+            SystemClock::new(),
+            SystemRandom,
         )
         .map_err(map_actor)?;
         *self
             .application
             .lock()
             .map_err(|_| RuntimeError::Poisoned)? = Some(application);
-        let (sender, receiver) = mpsc::sync_channel(ACTOR_QUEUE_ITEMS);
-        let commands = Arc::clone(&self.commands);
-        let generation = self.generation;
-        let worker = thread::Builder::new()
-            .name("float-view-actor".into())
-            .spawn(move || {
-                let mut next_operation = SYNTHETIC_OPERATION_START;
-                while let Ok(message) = receiver.recv() {
-                    match message {
-                        ActorMessage::Dispatch {
-                            kind,
-                            payload,
-                            result,
-                        } => {
-                            let operation_id = next_operation;
-                            next_operation = next_operation.saturating_add(1);
-                            let dispatched = commands
-                                .enqueue(HostCommand {
-                                    kind,
-                                    flags: 0,
-                                    generation,
-                                    operation_id,
-                                    payload,
-                                })
-                                .map(|()| operation_id);
-                            let _ = result.send(dispatched);
-                        }
-                        ActorMessage::Stop => break,
-                    }
-                }
-            })
-            .map_err(|_| RuntimeError::Internal)?;
-        *self.actor.lock().map_err(|_| RuntimeError::Poisoned)? =
-            Some(ActorHandle { sender, worker });
         *lifecycle = Lifecycle::Started;
         Ok(())
     }
@@ -420,21 +375,20 @@ impl Runtime {
     /// Returns a stable lifecycle, actor-capacity, or command-capacity failure.
     pub fn dispatch(&self, kind: u32, payload: &[u8]) -> Result<u64, RuntimeError> {
         self.require_started()?;
-        let (result_sender, result_receiver) = mpsc::sync_channel(1);
-        let actor = self.actor.lock().map_err(|_| RuntimeError::Poisoned)?;
-        let sender = &actor.as_ref().ok_or(RuntimeError::WrongState)?.sender;
-        sender
-            .try_send(ActorMessage::Dispatch {
-                kind,
-                payload: payload.to_vec(),
-                result: result_sender,
+        let operation_id = self
+            .next_synthetic_operation
+            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |value| {
+                value.checked_add(1)
             })
-            .map_err(|error| match error {
-                TrySendError::Full(_) => RuntimeError::QueueFull,
-                TrySendError::Disconnected(_) => RuntimeError::WrongState,
-            })?;
-        drop(actor);
-        result_receiver.recv().map_err(|_| RuntimeError::Internal)?
+            .map_err(|_| RuntimeError::Internal)?;
+        self.commands.enqueue(HostCommand {
+            kind,
+            flags: 0,
+            generation: self.generation,
+            operation_id,
+            payload: payload.to_vec(),
+        })?;
+        Ok(operation_id)
     }
 
     /// Decodes and submits one bounded platform event to the application actor.
@@ -588,15 +542,6 @@ impl Runtime {
             .launch_token
             .lock()
             .map_err(|_| RuntimeError::Poisoned)? = None;
-        let actor = self
-            .actor
-            .lock()
-            .map_err(|_| RuntimeError::Poisoned)?
-            .take();
-        if let Some(actor) = actor {
-            let _ = actor.sender.send(ActorMessage::Stop);
-            actor.worker.join().map_err(|_| RuntimeError::Poisoned)?;
-        }
         self.commands.close();
         *self.lifecycle.lock().map_err(|_| RuntimeError::Poisoned)? = Lifecycle::Stopped;
         Ok(())
@@ -623,12 +568,6 @@ impl Runtime {
             && let Some(application) = application.take()
         {
             let _ = application.stop();
-        }
-        if let Ok(mut actor) = self.actor.lock()
-            && let Some(actor) = actor.take()
-        {
-            let _ = actor.sender.send(ActorMessage::Stop);
-            let _ = actor.worker.join();
         }
     }
 
@@ -946,6 +885,30 @@ mod tests {
                 payload: vec![0; COMMAND_QUEUE_BYTES + 1],
             }),
             Err(RuntimeError::QueueFull)
+        );
+    }
+
+    #[test]
+    fn completed_command_replay_history_is_bounded() {
+        let queue = CommandQueue::new();
+        queue.open().unwrap();
+        for operation_id in 1..=COMPLETED_OPERATION_HISTORY as u64 + 1 {
+            queue
+                .enqueue(HostCommand {
+                    kind: 1,
+                    flags: 0,
+                    generation: 1,
+                    operation_id,
+                    payload: Vec::new(),
+                })
+                .unwrap();
+            queue.wait(Duration::ZERO, 0).unwrap();
+            queue.complete(operation_id).unwrap();
+        }
+        assert_eq!(queue.complete(1), Err(RuntimeError::StaleGeneration));
+        assert_eq!(
+            queue.complete(COMPLETED_OPERATION_HISTORY as u64 + 1),
+            Err(RuntimeError::DuplicateOperation)
         );
     }
 

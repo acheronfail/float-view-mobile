@@ -95,6 +95,34 @@ pub struct SchemaCacheIdentity {
     pub hardware_configuration_crc: u32,
 }
 
+#[derive(Clone, Debug, PartialEq)]
+pub struct SessionCatalogRecord {
+    pub session_id: String,
+    pub device_history_id: String,
+    pub device_snapshot_json: String,
+    pub started_at_millis: i64,
+    pub ended_at_millis: Option<i64>,
+    pub state: String,
+    pub integrity: String,
+    pub committed_sequence: u64,
+    pub committed_event_sequence: u64,
+    pub sample_count: u64,
+    pub stored_sample_count: u64,
+    pub event_count: u64,
+    pub committed_elapsed_millis: u64,
+    pub history_revision: u64,
+    pub riding_elapsed_millis: u64,
+    pub total_elapsed_millis: u64,
+    pub distance_m: Option<f64>,
+    pub maximum_speed_mps: Option<f64>,
+    pub maximum_duty_cycle: Option<f64>,
+    pub committed_location_sequence: u64,
+    pub committed_location_elapsed_millis: u64,
+    pub recorded_location_count: u64,
+    pub stored_location_count: u64,
+    pub location_status: String,
+}
+
 pub struct CatalogStore {
     pub(crate) root: PathBuf,
     pub(crate) writer: Mutex<Connection>,
@@ -154,6 +182,41 @@ impl CatalogStore {
         Ok(statement
             .query_map([], map_saved_device)?
             .collect::<Result<Vec<_>, _>>()?)
+    }
+
+    pub fn delete_saved_device(&self, saved_device_id: &str) -> Result<(), StoreError> {
+        validate_id(saved_device_id)?;
+        let changed = self.writer()?.execute(
+            "DELETE FROM saved_device WHERE saved_device_id = ?1",
+            [saved_device_id],
+        )?;
+        if changed == 1 {
+            Ok(())
+        } else {
+            Err(StoreError::NotFound)
+        }
+    }
+
+    pub fn session_records(&self) -> Result<Vec<SessionCatalogRecord>, StoreError> {
+        let writer = self.writer()?;
+        let mut statement = writer.prepare(
+            "SELECT session_id, device_history_id, device_snapshot_json, started_at_ms, ended_at_ms, state, integrity, committed_sequence, committed_event_sequence, sample_count, stored_sample_count, event_count, committed_elapsed_ms, history_revision, riding_elapsed_ms, total_elapsed_ms, distance_m, max_speed_mps, max_duty_cycle, committed_location_sequence, committed_location_elapsed_ms, recorded_location_count, stored_location_count, location_status FROM session_catalog WHERE pending_delete = 0 ORDER BY started_at_ms DESC, session_id DESC",
+        )?;
+        Ok(statement
+            .query_map([], map_session_catalog_record)?
+            .collect::<Result<Vec<_>, _>>()?)
+    }
+
+    pub fn session_record(&self, session_id: &str) -> Result<SessionCatalogRecord, StoreError> {
+        validate_id(session_id)?;
+        self.writer()?
+            .query_row(
+                "SELECT session_id, device_history_id, device_snapshot_json, started_at_ms, ended_at_ms, state, integrity, committed_sequence, committed_event_sequence, sample_count, stored_sample_count, event_count, committed_elapsed_ms, history_revision, riding_elapsed_ms, total_elapsed_ms, distance_m, max_speed_mps, max_duty_cycle, committed_location_sequence, committed_location_elapsed_ms, recorded_location_count, stored_location_count, location_status FROM session_catalog WHERE session_id = ?1 AND pending_delete = 0",
+                [session_id],
+                map_session_catalog_record,
+            )
+            .optional()?
+            .ok_or(StoreError::NotFound)
     }
 
     pub fn update_saved_device_name(
@@ -552,6 +615,35 @@ fn map_saved_device(row: &rusqlite::Row<'_>) -> rusqlite::Result<SavedDevice> {
         created_at_millis: row.get(6)?,
         last_seen_at_millis: row.get(7)?,
         last_connected_at_millis: row.get(8)?,
+    })
+}
+
+fn map_session_catalog_record(row: &rusqlite::Row<'_>) -> rusqlite::Result<SessionCatalogRecord> {
+    Ok(SessionCatalogRecord {
+        session_id: row.get(0)?,
+        device_history_id: row.get(1)?,
+        device_snapshot_json: row.get(2)?,
+        started_at_millis: row.get(3)?,
+        ended_at_millis: row.get(4)?,
+        state: row.get(5)?,
+        integrity: row.get(6)?,
+        committed_sequence: row.get(7)?,
+        committed_event_sequence: row.get(8)?,
+        sample_count: row.get(9)?,
+        stored_sample_count: row.get(10)?,
+        event_count: row.get(11)?,
+        committed_elapsed_millis: row.get(12)?,
+        history_revision: row.get(13)?,
+        riding_elapsed_millis: row.get(14)?,
+        total_elapsed_millis: row.get(15)?,
+        distance_m: row.get(16)?,
+        maximum_speed_mps: row.get(17)?,
+        maximum_duty_cycle: row.get(18)?,
+        committed_location_sequence: row.get(19)?,
+        committed_location_elapsed_millis: row.get(20)?,
+        recorded_location_count: row.get(21)?,
+        stored_location_count: row.get(22)?,
+        location_status: row.get(23)?,
     })
 }
 

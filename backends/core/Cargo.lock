@@ -261,6 +261,7 @@ dependencies = [
  "float-view-refloat",
  "float-view-storage",
  "float-view-vesc",
+ "getrandom",
  "serde_json",
 ]
 

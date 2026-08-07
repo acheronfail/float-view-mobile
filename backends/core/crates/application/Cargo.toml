@@ -12,6 +12,7 @@ float-view-platform-ports = { path = "../platform-ports" }
 float-view-refloat = { path = "../refloat" }
 float-view-storage = { path = "../storage" }
 float-view-vesc = { path = "../vesc" }
+getrandom = "0.3.3"
 serde_json = "1.0.142"
 
 [lints]

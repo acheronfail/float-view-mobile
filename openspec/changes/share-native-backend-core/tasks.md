@@ -76,3 +76,12 @@
 - [x] 7.3 Run every packaged Android ABI build plus Android unit/instrumentation, JNI worker/recreation/process-death/reference/buffer stress, native packaging, and canonical conformance checks.
 - [x] 7.4 Run and record the explicit physical BLE checkpoint for macOS, iOS, and Rust-backed Android using the production platform adapters and programmable fixture.
 - [x] 7.5 Run `just verify` and resolve every software build, test, conformance, formatting, audit, generated-header, and generated-resource failure.
+
+## 8. Post-review Runtime Hardening and Simplification
+
+- [ ] 8.1 Replace the standalone fixture-state contract and synthetic session HTTP path with one durable production dispatcher backed by the application actor and bundled stores; prove settings, profiles, sessions, history, import, and export survive restart.
+- [ ] 8.2 Make standalone conformance launch the same production composition through deterministic platform adapters, invert the runtime/standalone dependency, and delete the duplicate fixture state machine.
+- [ ] 8.3 Drive connection scheduling and telemetry deadlines from an injected production clock, remove fabricated production timestamps, and prove a missing response releases the one-write-owner scheduler.
+- [ ] 8.4 Bound completed-operation replay detection at every bridge/actor layer and remove the synthetic secondary runtime actor/event path.
+- [ ] 8.5 Restrict immutable fixture loaders to tests/software adapters, split remaining oversized mixed-responsibility modules, and refresh dependency/source documentation.
+- [ ] 8.6 Run focused persistence, runtime, ABI, host-adapter, canonical conformance, audit, and `just verify` gates and resolve every software failure.
