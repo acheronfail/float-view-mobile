@@ -115,6 +115,8 @@ class TelemetryPolling(
         }
     }
 
+    fun refresh() = requestSample()
+
     @Synchronized
     fun receive(value: RefloatTelemetryRecord) {
         if (!active || !responseMatchesPending(value)) return

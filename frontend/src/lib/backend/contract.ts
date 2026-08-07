@@ -19,6 +19,20 @@ export const MAX_TELEMETRY_FIELD_BYTES = 64;
 export const MAX_TELEMETRY_FIELD_NAME_BYTES = 4_096;
 export const MAX_TELEMETRY_EXTENSIONS = 32;
 export const MAX_TELEMETRY_JSON_BYTES = 16_384;
+export const MAX_REFLOAT_CONFIGURATION_FIELDS = 512;
+export const MAX_REFLOAT_CONFIGURATION_PAGE_FIELDS = 32;
+export const MAX_REFLOAT_CONFIGURATION_GROUPS = 16;
+export const MAX_REFLOAT_CONFIGURATION_SUBGROUPS = 64;
+export const MAX_REFLOAT_CONFIGURATION_ENUM_CHOICES = 128;
+export const MAX_REFLOAT_CONFIGURATION_NAME_BYTES = 128;
+export const MAX_REFLOAT_CONFIGURATION_DESCRIPTION_BYTES = 4_096;
+export const MAX_REFLOAT_CONFIGURATION_STRING_BYTES = 4_096;
+export const MAX_REFLOAT_CONFIGURATION_CURSOR_BYTES = 512;
+export const MAX_REFLOAT_CONFIGURATION_JSON_BYTES = 48 * 1_024;
+export const MAX_REFLOAT_TUNE_NAME_BYTES = 128;
+export const MAX_REFLOAT_TUNE_DESCRIPTION_BYTES = 1_024;
+export const MAX_REFLOAT_TUNE_LIST_PAGE = 50;
+export const MAX_REFLOAT_TUNE_CURSOR_BYTES = 512;
 
 export type BluetoothRadioState = 'unknown' | 'unsupported' | 'powered_off' | 'powered_on' | 'resetting';
 
@@ -316,6 +330,83 @@ export interface ControllerActions {
   pendingAction: 'shutdown' | null;
 }
 
+export type RefloatConfigurationAvailability = 'loading' | 'ready' | 'unavailable';
+export type RefloatConfigurationOperation = 'schema' | 'readCurrent' | 'readDefault' | 'write' | 'applyTune';
+
+export interface RefloatConfigurationSummary {
+  availability: RefloatConfigurationAvailability;
+  writable: boolean;
+  packageVersion: string | null;
+  schemaFingerprint: string | null;
+  wireSignature: number | null;
+  currentLoaded: boolean;
+  defaultLoaded: boolean;
+  pendingOperation: RefloatConfigurationOperation | null;
+}
+
+export interface RefloatConfigurationIdentity {
+  packageName: 'refloat';
+  packageVersion: string;
+  schemaFingerprint: string;
+  wireSignature: number;
+}
+
+export type RefloatConfigurationValue =
+  | { type: 'double'; value: number }
+  | { type: 'integer'; value: number }
+  | { type: 'boolean'; value: boolean }
+  | { type: 'string'; value: string };
+
+export type RefloatConfigurationFieldType = 'double' | 'integer' | 'enum' | 'boolean' | 'string' | 'bitfield';
+
+export interface RefloatConfigurationField {
+  name: string;
+  label: string;
+  type: RefloatConfigurationFieldType;
+  defaultValue: RefloatConfigurationValue;
+  minimum: number | null;
+  maximum: number | null;
+  step: number | null;
+  precision: number | null;
+  suffix: string;
+  choices: string[];
+  description: string;
+}
+
+export interface RefloatConfigurationSchemaPage {
+  identity: RefloatConfigurationIdentity;
+  group: string;
+  subgroup: string;
+  fields: RefloatConfigurationField[];
+  nextCursor: string | null;
+}
+
+export interface RefloatConfigurationValues {
+  identity: RefloatConfigurationIdentity;
+  revision: number;
+  source: 'current' | 'default';
+  values: Record<string, RefloatConfigurationValue>;
+}
+
+export interface RefloatTuneSummary {
+  tuneId: string;
+  revision: number;
+  name: string;
+  description: string | null;
+  identity: RefloatConfigurationIdentity;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface RefloatTune extends RefloatTuneSummary {
+  values: Record<string, RefloatConfigurationValue>;
+}
+
+export interface RefloatTuneListPage {
+  items: RefloatTuneSummary[];
+  nextCursor: string | null;
+}
+
 export interface ActiveConnection extends Device {
   deviceKind: 'board' | 'bms' | null;
   firmware: FirmwareInfo | null;
@@ -328,6 +419,8 @@ export interface ActiveConnection extends Device {
   bms: BmsState;
   /** Null only before Refloat discovery begins. Never persisted. */
   refloatControls: RefloatControls | null;
+  /** Small authoritative status only; schema, values, and Tunes remain request-scoped. */
+  refloatConfiguration: RefloatConfigurationSummary | null;
   /** Live-only VESC controller actions. Never persisted. */
   controllerActions: ControllerActions;
   activeSession: SessionSummary | null;
@@ -573,6 +666,55 @@ export interface BackendMethods {
     result: RefloatControls;
   };
   'refloat.fatalError.clear': { params: EmptyParams; result: RefloatControls };
+  'refloat.configuration.open': { params: EmptyParams; result: RefloatConfigurationSummary };
+  'refloat.configuration.schema': {
+    params: { cursor?: string | null };
+    result: RefloatConfigurationSchemaPage;
+  };
+  'refloat.configuration.read': {
+    params: { source: 'current' | 'default' };
+    result: RefloatConfigurationValues;
+  };
+  'refloat.configuration.write': {
+    params: {
+      packageVersion: string;
+      schemaFingerprint: string;
+      wireSignature: number;
+      baseRevision: number;
+      values: Record<string, RefloatConfigurationValue>;
+    };
+    result: RefloatConfigurationValues;
+  };
+  'refloat.tune.list': {
+    params: { identity: RefloatConfigurationIdentity; limit: number; cursor?: string | null };
+    result: RefloatTuneListPage;
+  };
+  'refloat.tune.get': { params: { tuneId: string }; result: RefloatTune };
+  'refloat.tune.create': {
+    params: {
+      name: string;
+      description: string | null;
+      identity: RefloatConfigurationIdentity;
+      sourceRevision: number;
+      values: Record<string, RefloatConfigurationValue>;
+    };
+    result: RefloatTune;
+  };
+  'refloat.tune.update': {
+    params: {
+      tuneId: string;
+      expectedRevision: number;
+      name: string;
+      description: string | null;
+      values: Record<string, RefloatConfigurationValue>;
+    };
+    result: RefloatTune;
+  };
+  'refloat.tune.delete': { params: { tuneId: string; expectedRevision: number }; result: Accepted };
+  'refloat.tune.apply': {
+    params: { tuneId: string; expectedRevision: number; baseRevision: number };
+    result: RefloatConfigurationValues;
+  };
   'savedDevice.update': {
     params: {
       savedDeviceId: string;

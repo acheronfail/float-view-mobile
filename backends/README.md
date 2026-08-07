@@ -41,6 +41,35 @@ Refloat controls are live-only normalized state. They are never persisted,
 restored, exported, or inferred by the frontend, and bounded diagnostics contain
 no raw payloads or device identity.
 
+## Refloat configuration boundary
+
+Commands 92–95 use the same `VescRequestScheduler` and the same
+`DeviceMutationCoordinator` as semantic controls and shutdown; there is no
+direct or parallel write path. A connection-scoped configuration service
+assembles bounded command-92 chunks, decodes the Qt envelope and strict XML,
+matches the full schema fingerprint and CRC32C wire signature to an audited
+exact Refloat release, and decodes complete command-93/94 values. Private custom
+configuration count, hardware CRC, raw schema, and raw values stay below the
+application boundary and out of logs.
+
+Writes require the latest normal-mode current revision, exact identity, current
+route/generation, stable firmware, idle ride state, disengaged footpad, and no
+competing mutation. Command 95 acknowledgement is not success: a mandatory
+command-93 readback must match the complete expected normalized values. A
+disconnect after acknowledgement is indeterminate, and a mismatch publishes
+fresh current state without claiming success. Flywheel mode rejects every
+configuration write/Tune apply and withholds current reads; exit schedules a
+fresh normal-mode current read before editing resumes. Shared semantic fields
+are refreshed after verified writes rather than projected optimistically.
+
+Tunes are bounded application-wide records in the catalog database, keyed and
+filtered by exact package version, schema fingerprint, and wire signature with
+optimistic revisions. The schema cache lives beside native storage and is keyed
+by private connection identity, custom index, and a nonzero hardware CRC; every
+hit is digest-checked, bounded, decoded, and audited again. Cache identity is
+never public and never authorizes a write by itself. Apple and Android share
+storage marker `11`; incompatible development databases are recreated.
+
 ## Controller shutdown boundary
 
 `controller.shutdown` is a live-only, accepted-for-transmission action owned by

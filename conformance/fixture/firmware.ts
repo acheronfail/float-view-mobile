@@ -61,9 +61,20 @@ export function encodeFirmwarePayload(
   major: number,
   minor: number,
   hardwareCrc?: Uint8Array,
-  testVersion = 0
+  testVersion = 0,
+  customConfigurationCount = 0
 ): Uint8Array {
   const name = new TextEncoder().encode(identity.hardwareName);
   const flags = Uint8Array.of(0, testVersion, identity.hardwareType, 0, 0, 0, 0, 0);
-  return Uint8Array.from([0, major, minor, ...name, 0, ...identity.uuid, ...flags, 0, ...(hardwareCrc ?? [])]);
+  return Uint8Array.from([
+    0,
+    major,
+    minor,
+    ...name,
+    0,
+    ...identity.uuid,
+    ...flags,
+    customConfigurationCount,
+    ...(hardwareCrc ?? []),
+  ]);
 }

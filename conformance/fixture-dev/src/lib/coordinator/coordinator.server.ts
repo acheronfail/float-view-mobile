@@ -89,6 +89,7 @@ export class FixtureCoordinator {
     ble: 'unavailable',
     ride: 'idle',
     counters: { writes: 0, responses: 0, telemetry: 0, bms: 0, dropped: 0 },
+    refloatConfigurations: [],
     diagnostics: [],
   };
 
@@ -96,6 +97,7 @@ export class FixtureCoordinator {
     this.dependencies = dependencies;
     this.logger = dependencies.log ?? terminalLogger;
     this.simulator = this.createSimulator();
+    this.state.refloatConfigurations = this.simulator.configurationSnapshots();
   }
 
   snapshot(): FixtureSnapshot {
@@ -342,9 +344,11 @@ export class FixtureCoordinator {
       lastAttempt: undefined,
       lastRequest: undefined,
       counters: { writes: 0, responses: 0, telemetry: 0, bms: 0, dropped: 0 },
+      refloatConfigurations: [],
       diagnostics: [],
     };
     this.simulator = this.createSimulator();
+    this.update({ refloatConfigurations: this.simulator.configurationSnapshots() });
   }
 
   private async powerOn() {
@@ -364,7 +368,9 @@ export class FixtureCoordinator {
     await ready;
     this.telemetry.stop();
     await fixture.led(led.off).catch(() => undefined);
+    this.simulator.reset();
     this.update({ power: 'off', ble: 'idle', ride: 'idle', telemetry: idleTelemetrySnapshot() });
+    this.update({ refloatConfigurations: this.simulator.configurationSnapshots() });
     this.log('info', 'power off');
   }
 
@@ -434,6 +440,7 @@ export class FixtureCoordinator {
       scenario: structuredClone(validated),
       configuration: configurationFrom(validated),
       availableFields: this.resolvedAvailableFields(validated),
+      refloatConfigurations: this.simulator.configurationSnapshots(),
       ble: active ? 'advertising' : this.state.ble,
     });
   }
@@ -497,6 +504,7 @@ export class FixtureCoordinator {
         let responses;
         try {
           responses = this.simulator.receive(event.bytes, (attempt) => this.beginAttempt(attempt));
+          this.update({ refloatConfigurations: this.simulator.configurationSnapshots() });
         } catch (error) {
           this.failRequest('simulate', error);
           break;

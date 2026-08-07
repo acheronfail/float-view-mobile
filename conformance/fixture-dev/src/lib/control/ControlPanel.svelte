@@ -500,6 +500,22 @@
       {snapshot.counters.writes} writes · {snapshot.counters.responses} responses · {snapshot.counters.telemetry} telemetry
       · {snapshot.counters.bms} BMS · {snapshot.counters.dropped} dropped
     </p>
+    <div class="candidate-list">
+      {#each snapshot.refloatConfigurations as configuration (configuration.route)}
+        <article>
+          <div>
+            <strong>Refloat {configuration.version} · {configuration.route}</strong>
+            <span>{configuration.fingerprint.slice(0, 12)}… · signature {configuration.wireSignature}</span>
+          </div>
+          <span>
+            schema {configuration.schemaBytes} B · values {configuration.currentBytes}/{configuration.defaultBytes} B · operations
+            {configuration.counters.schema}/{configuration.counters.current}/{configuration.counters
+              .default}/{configuration.counters.write}
+            · rejected {configuration.counters.rejected}
+          </span>
+        </article>
+      {/each}
+    </div>
     {#if snapshot.lastAttempt}
       <p
         class:attempt-error={snapshot.lastAttempt.outcome === 'dropped' || snapshot.lastAttempt.outcome === 'failed'}

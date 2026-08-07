@@ -1,5 +1,11 @@
 import {
   MAX_MESSAGE_BYTES,
+  MAX_REFLOAT_CONFIGURATION_CURSOR_BYTES,
+  MAX_REFLOAT_CONFIGURATION_JSON_BYTES,
+  MAX_REFLOAT_TUNE_DESCRIPTION_BYTES,
+  MAX_REFLOAT_TUNE_CURSOR_BYTES,
+  MAX_REFLOAT_TUNE_LIST_PAGE,
+  MAX_REFLOAT_TUNE_NAME_BYTES,
   MAX_SESSION_LIST_CURSOR_BYTES,
   MAX_SESSION_LIST_PAGE,
   type AppState,
@@ -15,6 +21,10 @@ import {
   type Request,
   type RefloatControl,
   type RefloatControls,
+  type RefloatConfigurationField,
+  type RefloatConfigurationIdentity,
+  type RefloatConfigurationValue,
+  type RefloatTune,
   type RefloatPendingAction,
   type Response,
   type SessionMetadata,
@@ -24,6 +34,72 @@ import {
   type SessionSummary,
   type StateChanged,
 } from '../src/lib/backend/contract.ts';
+
+const refloatIdentity: RefloatConfigurationIdentity = {
+  packageName: 'refloat',
+  packageVersion: '1.2.3',
+  schemaFingerprint: 'fa40717969d1d86b429d7c78b59144b8387b4850be83a72fd3c7cf15ffecd01c',
+  wireSignature: 2_427_955_642,
+};
+
+const refloatFields: RefloatConfigurationField[] = [
+  {
+    name: 'tiltback_duty',
+    label: 'Duty Tiltback',
+    type: 'double',
+    defaultValue: { type: 'double', value: 0.8 },
+    minimum: 0.5,
+    maximum: 0.95,
+    step: 0.01,
+    precision: 2,
+    suffix: '',
+    choices: [],
+    description: 'Duty-cycle threshold.',
+  },
+  {
+    name: 'leds.on',
+    label: 'LEDs On',
+    type: 'boolean',
+    defaultValue: { type: 'boolean', value: true },
+    minimum: null,
+    maximum: null,
+    step: null,
+    precision: null,
+    suffix: '',
+    choices: [],
+    description: 'Persistent startup default.',
+  },
+  {
+    name: 'leds.headlights_on',
+    label: 'Headlights On',
+    type: 'boolean',
+    defaultValue: { type: 'boolean', value: true },
+    minimum: null,
+    maximum: null,
+    step: null,
+    precision: null,
+    suffix: '',
+    choices: [],
+    description: 'Persistent startup default.',
+  },
+  {
+    name: 'meta.is_default',
+    label: 'Default Marker',
+    type: 'boolean',
+    defaultValue: { type: 'boolean', value: true },
+    minimum: null,
+    maximum: null,
+    step: null,
+    precision: null,
+    suffix: '',
+    choices: [],
+    description: '',
+  },
+];
+
+const defaultRefloatValues = Object.fromEntries(
+  refloatFields.map((field) => [field.name, field.defaultValue])
+) as Record<string, RefloatConfigurationValue>;
 
 const readyRefloatControls = (overrides: Partial<RefloatControls> = {}): RefloatControls => ({
   status: 'ready',
@@ -188,6 +264,13 @@ export class MockBackend {
   private discoveryExpiryTimer?: ReturnType<typeof setTimeout>;
   private refloatTimeoutOnce = false;
   private shutdownOutcome: 'no-op' | 'disconnect' = 'no-op';
+  private refloatCurrentRevision = 1;
+  private refloatCurrentValues = {
+    ...defaultRefloatValues,
+    'meta.is_default': { type: 'boolean', value: false },
+  } satisfies Record<string, RefloatConfigurationValue>;
+  private nextTune = 1;
+  private readonly tunes = new Map<string, RefloatTune>();
   private state: AppState = {
     revision: 0,
     bluetooth: {
@@ -342,6 +425,16 @@ export class MockBackend {
               connectionIssue: null,
               bms: { status: 'discovering', connection: null, candidates: [], latestSnapshot: null },
               refloatControls: readyRefloatControls(),
+              refloatConfiguration: {
+                availability: 'ready',
+                writable: true,
+                packageVersion: refloatIdentity.packageVersion,
+                schemaFingerprint: refloatIdentity.schemaFingerprint,
+                wireSignature: refloatIdentity.wireSignature,
+                currentLoaded: true,
+                defaultLoaded: false,
+                pendingOperation: null,
+              },
               controllerActions: { shutdownAvailable: false, pendingAction: null },
               activeSession,
               latestSample: null,
@@ -499,6 +592,89 @@ export class MockBackend {
           return failure(id, 'invalid_request', 'Fatal error clear takes no parameters');
         }
         return this.clearRefloatFatalError(id);
+      case 'refloat.configuration.open': {
+        if (Object.keys(params).length !== 0)
+          return failure(id, 'invalid_request', 'Configuration open takes no parameters');
+        const summary = this.state.activeConnection?.refloatConfiguration;
+        return summary ? success(id, summary) : failure(id, 'invalid_state', 'Refloat configuration is unavailable');
+      }
+      case 'refloat.configuration.schema': {
+        if (Object.keys(params).some((key) => key !== 'cursor')) {
+          return failure(id, 'invalid_request', 'Configuration schema parameters are invalid');
+        }
+        const summary = this.state.activeConnection?.refloatConfiguration;
+        if (!summary || summary.availability !== 'ready') return failure(id, 'invalid_state', 'Schema is unavailable');
+        const page = decodeRefloatPageCursor(params.cursor);
+        if (page === null || page > 1) return failure(id, 'invalid_request', 'Schema cursor is invalid');
+        return success(id, {
+          identity: refloatIdentity,
+          group: page === 0 ? 'General' : 'Lighting',
+          subgroup: page === 0 ? 'Balance' : 'Startup defaults',
+          fields: page === 0 ? refloatFields.slice(0, 1) : refloatFields.slice(1),
+          nextCursor: page === 0 ? encodeRefloatPageCursor(1) : null,
+        });
+      }
+      case 'refloat.configuration.read': {
+        if (
+          Object.keys(params).join(',') !== 'source' ||
+          (params.source !== 'current' && params.source !== 'default')
+        ) {
+          return failure(id, 'invalid_request', 'Configuration source must be current or default');
+        }
+        const active = this.state.activeConnection;
+        const summary = active?.refloatConfiguration;
+        if (!active || !summary || summary.availability !== 'ready')
+          return failure(id, 'invalid_state', 'Configuration is unavailable');
+        if (params.source === 'current' && active.refloatControls?.flywheelEnabled) {
+          return failure(id, 'invalid_state', 'Current configuration is unavailable in flywheel mode');
+        }
+        const source = params.source;
+        const values = source === 'current' ? this.refloatCurrentValues : defaultRefloatValues;
+        this.change({
+          ...this.state,
+          activeConnection: {
+            ...active,
+            refloatConfiguration: {
+              ...summary,
+              currentLoaded: source === 'current' || summary.currentLoaded,
+              defaultLoaded: source === 'default' || summary.defaultLoaded,
+              writable: source === 'current' ? active.firmware?.accessMode === 'readWrite' : summary.writable,
+            },
+          },
+        });
+        return success(id, {
+          identity: refloatIdentity,
+          revision: source === 'current' ? this.refloatCurrentRevision : 1,
+          source,
+          values,
+        });
+      }
+      case 'refloat.configuration.write':
+        return this.writeRefloatConfiguration(id, params);
+      case 'refloat.tune.list':
+        return this.listRefloatTunes(id, params);
+      case 'refloat.tune.get': {
+        const tune = string(params.tuneId) ? this.tunes.get(String(params.tuneId)) : undefined;
+        return tune ? success(id, tune) : failure(id, 'not_found', 'Tune was not found');
+      }
+      case 'refloat.tune.create':
+        return this.createRefloatTune(id, params);
+      case 'refloat.tune.update':
+        return this.updateRefloatTune(id, params);
+      case 'refloat.tune.delete':
+        return this.deleteRefloatTune(id, params);
+      case 'refloat.tune.apply': {
+        const tune = string(params.tuneId) ? this.tunes.get(String(params.tuneId)) : undefined;
+        if (!tune) return failure(id, 'not_found', 'Tune was not found');
+        if (integer(params.expectedRevision) !== tune.revision) return failure(id, 'conflict', 'Tune revision changed');
+        return this.writeRefloatConfiguration(id, {
+          packageVersion: tune.identity.packageVersion,
+          schemaFingerprint: tune.identity.schemaFingerprint,
+          wireSignature: tune.identity.wireSignature,
+          baseRevision: params.baseRevision,
+          values: tune.values,
+        });
+      }
       case 'settings.update': {
         const expectedRevision = number(params.expectedRevision);
         const patch = asObject(params.patch);
@@ -852,7 +1028,13 @@ export class MockBackend {
   simulateRideState(rideState: 'idle' | 'riding' | 'unknown'): void {
     const active = this.state.activeConnection;
     if (!active?.latestSample) return;
-    const latestSample = { ...active.latestSample, rideState };
+    const latestSample = {
+      ...active.latestSample,
+      rideState,
+      ...(rideState === 'idle'
+        ? { footpadState: 'none' as const, packageState: 'ready' as const, packageMode: 'normal' as const }
+        : {}),
+    };
     const available = shutdownAvailable({ ...active, latestSample });
     this.change({
       ...this.state,
@@ -901,6 +1083,7 @@ export class MockBackend {
           connectionIssue: null,
           bms: { status: 'attached', connection: { kind: 'direct' }, candidates: [], latestSnapshot: snapshot },
           refloatControls: null,
+          refloatConfiguration: null,
           controllerActions: { shutdownAvailable: false, pendingAction: null },
           activeSession: null,
           latestSample: null,
@@ -1011,6 +1194,146 @@ export class MockBackend {
     return this.sessionCatalog.find((item) => item.sessionId === sessionId);
   }
 
+  private writeRefloatConfiguration(id: number, params: Record<string, unknown>): Response {
+    const active = this.state.activeConnection;
+    const summary = active?.refloatConfiguration;
+    const values = asObject(params.values);
+    if (
+      typeof params.packageVersion !== 'string' ||
+      typeof params.schemaFingerprint !== 'string' ||
+      integer(params.wireSignature) === null ||
+      integer(params.baseRevision) === null ||
+      !values ||
+      !validRefloatValues(values)
+    )
+      return failure(id, 'invalid_request', 'Complete typed configuration values are required');
+    if (
+      !active ||
+      !summary ||
+      !summary.writable ||
+      active.state !== 'ready' ||
+      active.refloatControls?.flywheelEnabled ||
+      active.refloatControls?.pendingAction !== null ||
+      active.controllerActions.pendingAction !== null ||
+      active.latestSample?.rideState !== 'idle' ||
+      active.latestSample.footpadState !== 'none' ||
+      active.latestSample.packageMode !== 'normal'
+    )
+      return failure(id, 'invalid_state', 'Configuration write is unavailable');
+    if (
+      params.packageVersion !== refloatIdentity.packageVersion ||
+      params.schemaFingerprint !== refloatIdentity.schemaFingerprint ||
+      params.wireSignature !== refloatIdentity.wireSignature ||
+      params.baseRevision !== this.refloatCurrentRevision
+    )
+      return failure(id, 'conflict', 'Configuration identity or base revision changed');
+    this.refloatCurrentRevision += 1;
+    this.refloatCurrentValues = {
+      ...(values as Record<string, RefloatConfigurationValue>),
+      'meta.is_default': { type: 'boolean', value: false },
+    };
+    this.change({
+      ...this.state,
+      activeConnection: {
+        ...active,
+        refloatConfiguration: { ...summary, currentLoaded: true, pendingOperation: null },
+      },
+    });
+    return success(id, {
+      identity: refloatIdentity,
+      revision: this.refloatCurrentRevision,
+      source: 'current',
+      values: this.refloatCurrentValues,
+    });
+  }
+
+  private listRefloatTunes(id: number, params: Record<string, unknown>): Response {
+    const identity = validRefloatIdentity(params.identity);
+    const limit = integer(params.limit);
+    const offset = decodeTuneCursor(params.cursor);
+    if (!identity || !limit || limit > MAX_REFLOAT_TUNE_LIST_PAGE || offset === null) {
+      return failure(id, 'invalid_request', 'Tune list parameters are invalid');
+    }
+    const matching = [...this.tunes.values()]
+      .filter((tune) => sameRefloatIdentity(tune.identity, identity))
+      .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt) || left.tuneId.localeCompare(right.tuneId));
+    const items = matching.slice(offset, offset + limit).map((tune) => ({
+      tuneId: tune.tuneId,
+      revision: tune.revision,
+      name: tune.name,
+      description: tune.description,
+      identity: tune.identity,
+      createdAt: tune.createdAt,
+      updatedAt: tune.updatedAt,
+    }));
+    return success(id, {
+      items,
+      nextCursor: offset + limit < matching.length ? encodeTuneCursor(offset + limit) : null,
+    });
+  }
+
+  private createRefloatTune(id: number, params: Record<string, unknown>): Response {
+    const name = boundedText(params.name, MAX_REFLOAT_TUNE_NAME_BYTES, false);
+    const description = boundedText(params.description, MAX_REFLOAT_TUNE_DESCRIPTION_BYTES, true);
+    const identity = validRefloatIdentity(params.identity);
+    const values = asObject(params.values);
+    if (
+      typeof name !== 'string' ||
+      description === undefined ||
+      !identity ||
+      !sameRefloatIdentity(identity, refloatIdentity) ||
+      integer(params.sourceRevision) !== this.refloatCurrentRevision ||
+      !values ||
+      !validRefloatValues(values)
+    )
+      return failure(id, 'invalid_request', 'Tune create parameters are invalid or stale');
+    const now = new Date().toISOString();
+    const tune: RefloatTune = {
+      tuneId: `tune-${this.nextTune++}`,
+      revision: 1,
+      name,
+      description,
+      identity,
+      values: values as Record<string, RefloatConfigurationValue>,
+      createdAt: now,
+      updatedAt: now,
+    };
+    this.tunes.set(tune.tuneId, tune);
+    return success(id, tune);
+  }
+
+  private updateRefloatTune(id: number, params: Record<string, unknown>): Response {
+    const tuneId = string(params.tuneId);
+    const current = tuneId ? this.tunes.get(tuneId) : undefined;
+    if (!current) return failure(id, 'not_found', 'Tune was not found');
+    if (integer(params.expectedRevision) !== current.revision) return failure(id, 'conflict', 'Tune revision changed');
+    const name = boundedText(params.name, MAX_REFLOAT_TUNE_NAME_BYTES, false);
+    const description = boundedText(params.description, MAX_REFLOAT_TUNE_DESCRIPTION_BYTES, true);
+    const values = asObject(params.values);
+    if (typeof name !== 'string' || description === undefined || !values || !validRefloatValues(values)) {
+      return failure(id, 'invalid_request', 'Tune update parameters are invalid');
+    }
+    const updated = {
+      ...current,
+      revision: current.revision + 1,
+      name,
+      description,
+      values: values as Record<string, RefloatConfigurationValue>,
+      updatedAt: new Date().toISOString(),
+    };
+    this.tunes.set(tuneId!, updated);
+    return success(id, updated);
+  }
+
+  private deleteRefloatTune(id: number, params: Record<string, unknown>): Response {
+    const tuneId = string(params.tuneId);
+    const current = tuneId ? this.tunes.get(tuneId) : undefined;
+    if (!current) return accepted(id);
+    if (integer(params.expectedRevision) !== current.revision) return failure(id, 'conflict', 'Tune revision changed');
+    this.tunes.delete(tuneId!);
+    return accepted(id);
+  }
+
   private setRefloatControl(id: number, control: RefloatControl, enabled: boolean): Response {
     const active = this.state.activeConnection;
     const controls = active?.refloatControls;
@@ -1034,7 +1357,31 @@ export class MockBackend {
     const field = refloatControlField(control);
     if (controls[field] === null) return failure(id, 'invalid_state', 'The control state is unavailable');
     if (controls[field] === enabled) return success(id, controls);
-    return this.completeRefloatAction(id, control, { [field]: enabled });
+    const result = this.completeRefloatAction(id, control, { [field]: enabled });
+    if (control === 'flywheel' && 'result' in result) {
+      const completed = this.state.activeConnection;
+      const summary = completed?.refloatConfiguration;
+      if (completed && summary) {
+        if (enabled) {
+          this.change({
+            ...this.state,
+            activeConnection: {
+              ...completed,
+              refloatConfiguration: { ...summary, currentLoaded: false, writable: false, pendingOperation: null },
+            },
+          });
+        } else {
+          this.change({
+            ...this.state,
+            activeConnection: {
+              ...completed,
+              refloatConfiguration: { ...summary, currentLoaded: true, writable: true, pendingOperation: null },
+            },
+          });
+        }
+      }
+    }
+    return result;
   }
 
   private clearRefloatFatalError(id: number): Response {
@@ -1365,6 +1712,104 @@ function number(value: unknown): number | null {
 
 function integer(value: unknown): number | null {
   return typeof value === 'number' && Number.isInteger(value) ? value : null;
+}
+
+function validRefloatIdentity(value: unknown): RefloatConfigurationIdentity | null {
+  const identity = asObject(value);
+  if (
+    !identity ||
+    identity.packageName !== 'refloat' ||
+    typeof identity.packageVersion !== 'string' ||
+    typeof identity.schemaFingerprint !== 'string' ||
+    !/^[0-9a-f]{64}$/.test(identity.schemaFingerprint) ||
+    integer(identity.wireSignature) === null ||
+    Number(identity.wireSignature) < 0 ||
+    Number(identity.wireSignature) > 0xffff_ffff
+  )
+    return null;
+  return identity as unknown as RefloatConfigurationIdentity;
+}
+
+function sameRefloatIdentity(left: RefloatConfigurationIdentity, right: RefloatConfigurationIdentity): boolean {
+  return (
+    left.packageName === right.packageName &&
+    left.packageVersion === right.packageVersion &&
+    left.schemaFingerprint === right.schemaFingerprint &&
+    left.wireSignature === right.wireSignature
+  );
+}
+
+function validRefloatValues(value: Record<string, unknown>): boolean {
+  const expected = refloatFields.map((field) => field.name).sort();
+  if (Object.keys(value).sort().join('\0') !== expected.join('\0')) return false;
+  if (Buffer.byteLength(JSON.stringify(value), 'utf8') > MAX_REFLOAT_CONFIGURATION_JSON_BYTES) return false;
+  return refloatFields.every((field) => {
+    const typed = asObject(value[field.name]);
+    if (!typed || Object.keys(typed).sort().join(',') !== 'type,value') return false;
+    switch (field.type) {
+      case 'double':
+        return (
+          typed.type === 'double' &&
+          typeof typed.value === 'number' &&
+          Number.isFinite(typed.value) &&
+          typed.value >= (field.minimum ?? -Infinity) &&
+          typed.value <= (field.maximum ?? Infinity)
+        );
+      case 'integer':
+      case 'enum':
+      case 'bitfield':
+        return typed.type === 'integer' && Number.isSafeInteger(typed.value);
+      case 'boolean':
+        return typed.type === 'boolean' && typeof typed.value === 'boolean';
+      case 'string':
+        return (
+          typed.type === 'string' && typeof typed.value === 'string' && Buffer.byteLength(typed.value, 'utf8') <= 4_096
+        );
+    }
+  });
+}
+
+function boundedText(value: unknown, maximumBytes: number, nullable: boolean): string | null | undefined {
+  if (nullable && value === null) return null;
+  if (typeof value !== 'string') return undefined;
+  const trimmed = value.trim();
+  if (!trimmed || Buffer.byteLength(trimmed, 'utf8') > maximumBytes) return nullable ? undefined : null;
+  return trimmed;
+}
+
+function encodeRefloatPageCursor(page: number): string {
+  return Buffer.from(JSON.stringify({ page, fingerprint: refloatIdentity.schemaFingerprint }), 'utf8').toString(
+    'base64'
+  );
+}
+
+function decodeRefloatPageCursor(value: unknown): number | null {
+  if (value === undefined || value === null) return 0;
+  if (typeof value !== 'string' || Buffer.byteLength(value, 'utf8') > MAX_REFLOAT_CONFIGURATION_CURSOR_BYTES)
+    return null;
+  try {
+    const decoded = JSON.parse(Buffer.from(value, 'base64').toString('utf8')) as Record<string, unknown>;
+    return decoded.fingerprint === refloatIdentity.schemaFingerprint && Number.isInteger(decoded.page)
+      ? Number(decoded.page)
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+function encodeTuneCursor(offset: number): string {
+  return Buffer.from(JSON.stringify({ offset }), 'utf8').toString('base64');
+}
+
+function decodeTuneCursor(value: unknown): number | null {
+  if (value === undefined || value === null) return 0;
+  if (typeof value !== 'string' || Buffer.byteLength(value, 'utf8') > MAX_REFLOAT_TUNE_CURSOR_BYTES) return null;
+  try {
+    const decoded = JSON.parse(Buffer.from(value, 'base64').toString('utf8')) as Record<string, unknown>;
+    return Number.isInteger(decoded.offset) && Number(decoded.offset) >= 0 ? Number(decoded.offset) : null;
+  } catch {
+    return null;
+  }
 }
 
 function isRefloatControl(value: unknown): value is RefloatControl {

@@ -4,6 +4,7 @@
   import SQLite3
 #endif
 import CoreFoundation
+import CryptoKit
 import Foundation
 
 public enum SQLiteLogStoreError: Error {
@@ -172,6 +173,12 @@ private enum SessionReadCancellationContext {
 }
 
 public final class SQLiteLogStore: LogStorePort, ProductStorePort, SessionStorePort, @unchecked Sendable {
+  private struct RefloatSchemaCacheEnvelope: Codable {
+    let identity: RefloatSchemaCacheIdentity
+    let digest: String
+    let data: Data
+  }
+
   private static let csvLocationToleranceMs: Int64 = 10_000
   private static let initialMissingFields = ["seriesCount", "parallelCount", "motor"]
   private let root: URL
@@ -1748,6 +1755,240 @@ public final class SQLiteLogStore: LogStorePort, ProductStorePort, SessionStoreP
       try? catalog.execute("ROLLBACK")
       throw error
     }
+  }
+
+  public func refloatConfigurations(
+    identity: RefloatConfigurationIdentityRecord, limit: Int, cursor: String?
+  ) throws -> RefloatConfigurationListPage {
+    guard Self.validRefloatIdentity(identity), (1 ... 50).contains(limit) else {
+      throw ProductStoreError.invalidRefloatConfiguration
+    }
+    let cursorValue: (Int64, String)?
+    if let cursor {
+      guard cursor.utf8.count <= 512, let data = Data(base64Encoded: cursor),
+            let value = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+            let updated = value["updatedAtMs"] as? NSNumber,
+            let identifier = value["configurationId"] as? String,
+            value["fingerprint"] as? String == identity.schemaFingerprint
+      else { throw ProductStoreError.invalidRefloatConfiguration }
+      cursorValue = (updated.int64Value, identifier)
+    } else { cursorValue = nil }
+    lock.lock()
+    defer { lock.unlock() }
+    var sql = """
+    SELECT configuration_id, revision, name, description, package_name, package_version,
+           schema_fingerprint, wire_signature, values_json, created_at_ms, updated_at_ms
+    FROM refloat_configuration
+    WHERE package_name = ? AND package_version = ? AND schema_fingerprint = ? AND wire_signature = ?
+    """
+    var values: [SQLiteValue] = [
+      .text(identity.packageName), .text(identity.packageVersion), .text(identity.schemaFingerprint),
+      .integer(Int64(identity.wireSignature)),
+    ]
+    if let cursorValue {
+      sql += " AND (updated_at_ms < ? OR (updated_at_ms = ? AND configuration_id < ?))"
+      values += [.integer(cursorValue.0), .integer(cursorValue.0), .text(cursorValue.1)]
+    }
+    sql += " ORDER BY updated_at_ms DESC, configuration_id DESC LIMIT ?"
+    values.append(.integer(Int64(limit + 1)))
+    var records = try catalog.query(sql, values: values, map: Self.refloatConfigurationRecord)
+    let hasMore = records.count > limit
+    if hasMore { records.removeLast(records.count - limit) }
+    let next = hasMore ? records.last.flatMap { record -> String? in
+      let value: [String: Any] = [
+        "updatedAtMs": Int64(record.updatedAt.timeIntervalSince1970 * 1_000),
+        "configurationId": record.configurationID, "fingerprint": identity.schemaFingerprint,
+      ]
+      return (try? JSONSerialization.data(withJSONObject: value))?.base64EncodedString()
+    } : nil
+    return .init(items: records, nextCursor: next)
+  }
+
+  public func cachedRefloatSchema(identity: RefloatSchemaCacheIdentity) -> Data? {
+    guard identity.hardwareConfigurationCRC != 0 else { return nil }
+    lock.lock()
+    defer { lock.unlock() }
+    let url = refloatSchemaCacheURL(identity)
+    do {
+      let attributes = try FileManager.default.attributesOfItem(atPath: url.path)
+      guard (attributes[.size] as? NSNumber)?.intValue ?? 0 <= 64 * 1024 else { throw CocoaError(.fileReadCorruptFile) }
+      let envelope = try JSONDecoder().decode(
+        RefloatSchemaCacheEnvelope.self, from: Data(contentsOf: url, options: .mappedIfSafe)
+      )
+      guard envelope.identity == identity, envelope.data.count <= RefloatConfigurationLimits.compressedBytes,
+            envelope.digest == Self.sha256Hex(envelope.data)
+      else { throw CocoaError(.fileReadCorruptFile) }
+      return envelope.data
+    } catch {
+      try? FileManager.default.removeItem(at: url)
+      return nil
+    }
+  }
+
+  public func storeRefloatSchema(_ data: Data, identity: RefloatSchemaCacheIdentity) {
+    guard identity.hardwareConfigurationCRC != 0,
+          data.count <= RefloatConfigurationLimits.compressedBytes
+    else { return }
+    lock.lock()
+    defer { lock.unlock() }
+    do {
+      let directory = root.appending(path: "refloat-schema-cache", directoryHint: .isDirectory)
+      try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+      let envelope = RefloatSchemaCacheEnvelope(
+        identity: identity, digest: Self.sha256Hex(data), data: data
+      )
+      try JSONEncoder().encode(envelope).write(to: refloatSchemaCacheURL(identity), options: .atomic)
+      let files = try FileManager.default.contentsOfDirectory(
+        at: directory, includingPropertiesForKeys: [.contentModificationDateKey]
+      ).sorted {
+        (try? $0.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast <
+          ((try? $1.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast)
+      }
+      for url in files.dropLast(8) {
+        try? FileManager.default.removeItem(at: url)
+      }
+    } catch {}
+  }
+
+  public func removeCachedRefloatSchema(identity: RefloatSchemaCacheIdentity) {
+    lock.lock()
+    defer { lock.unlock() }
+    try? FileManager.default.removeItem(at: refloatSchemaCacheURL(identity))
+  }
+
+  private func refloatSchemaCacheURL(_ identity: RefloatSchemaCacheIdentity) -> URL {
+    let key = "\(identity.firmwareVersion)\u{0}\(identity.hardwareName)\u{0}\(identity.packageVersion)\u{0}\(identity.customIndex)\u{0}\(identity.hardwareConfigurationCRC)"
+    return root.appending(path: "refloat-schema-cache/\(Self.sha256Hex(Data(key.utf8))).json")
+  }
+
+  private static func sha256Hex(_ data: Data) -> String {
+    SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+  }
+
+  public func refloatConfiguration(configurationID: String) throws -> RefloatConfigurationRecord {
+    lock.lock()
+    defer { lock.unlock() }
+    return try refloatConfigurationLocked(configurationID: configurationID)
+  }
+
+  public func createRefloatConfiguration(
+    name: String, description: String?, identity: RefloatConfigurationIdentityRecord,
+    valuesJSON: String, at: Date
+  ) throws -> RefloatConfigurationRecord {
+    guard Self.validRefloatConfiguration(
+      name: name,
+      description: description,
+      identity: identity,
+      valuesJSON: valuesJSON
+    )
+    else { throw ProductStoreError.invalidRefloatConfiguration }
+    lock.lock()
+    defer { lock.unlock() }
+    let identifier = UUID().uuidString
+    let timestamp = Int64(at.timeIntervalSince1970 * 1_000)
+    try catalog.statement(
+      """
+      INSERT INTO refloat_configuration(
+        configuration_id, revision, name, description, package_name, package_version,
+        schema_fingerprint, wire_signature, values_json, created_at_ms, updated_at_ms
+      ) VALUES (?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      """,
+      values: [
+        .text(identifier), .text(name), description.map(SQLiteValue.text) ?? .null,
+        .text(identity.packageName), .text(identity.packageVersion), .text(identity.schemaFingerprint),
+        .integer(Int64(identity.wireSignature)), .text(valuesJSON), .integer(timestamp), .integer(timestamp),
+      ]
+    )
+    return try refloatConfigurationLocked(configurationID: identifier)
+  }
+
+  public func updateRefloatConfiguration(
+    configurationID: String, expectedRevision: Int, name: String,
+    description: String?, valuesJSON: String, at: Date
+  ) throws -> RefloatConfigurationRecord {
+    lock.lock()
+    defer { lock.unlock() }
+    let current = try refloatConfigurationLocked(configurationID: configurationID)
+    guard current.revision == expectedRevision else {
+      throw ProductStoreError.refloatConfigurationRevisionConflict(currentRevision: current.revision)
+    }
+    guard Self.validRefloatConfiguration(
+      name: name, description: description, identity: current.identity, valuesJSON: valuesJSON
+    ) else { throw ProductStoreError.invalidRefloatConfiguration }
+    try catalog.statement(
+      """
+      UPDATE refloat_configuration
+      SET revision = revision + 1, name = ?, description = ?, values_json = ?, updated_at_ms = ?
+      WHERE configuration_id = ? AND revision = ?
+      """,
+      values: [
+        .text(name), description.map(SQLiteValue.text) ?? .null, .text(valuesJSON),
+        .integer(Int64(at.timeIntervalSince1970 * 1_000)), .text(configurationID),
+        .integer(Int64(expectedRevision)),
+      ]
+    )
+    guard try catalog.scalarInt("SELECT changes()") == 1 else {
+      throw ProductStoreError.refloatConfigurationRevisionConflict(currentRevision: current.revision)
+    }
+    return try refloatConfigurationLocked(configurationID: configurationID)
+  }
+
+  public func deleteRefloatConfiguration(configurationID: String, expectedRevision: Int) throws {
+    lock.lock()
+    defer { lock.unlock() }
+    let current = try refloatConfigurationLocked(configurationID: configurationID)
+    guard current.revision == expectedRevision else {
+      throw ProductStoreError.refloatConfigurationRevisionConflict(currentRevision: current.revision)
+    }
+    try catalog.statement(
+      "DELETE FROM refloat_configuration WHERE configuration_id = ? AND revision = ?",
+      values: [.text(configurationID), .integer(Int64(expectedRevision))]
+    )
+  }
+
+  private func refloatConfigurationLocked(configurationID: String) throws -> RefloatConfigurationRecord {
+    guard !configurationID.isEmpty, configurationID.utf8.count <= 128,
+          let record = try catalog.query(
+            """
+            SELECT configuration_id, revision, name, description, package_name, package_version,
+                   schema_fingerprint, wire_signature, values_json, created_at_ms, updated_at_ms
+            FROM refloat_configuration WHERE configuration_id = ?
+            """,
+            values: [.text(configurationID)], map: Self.refloatConfigurationRecord
+          ).first
+    else { throw ProductStoreError.refloatConfigurationNotFound }
+    return record
+  }
+
+  private static func refloatConfigurationRecord(_ statement: OpaquePointer) -> RefloatConfigurationRecord {
+    .init(
+      configurationID: columnText(statement, 0)!, revision: Int(sqlite3_column_int64(statement, 1)),
+      name: columnText(statement, 2)!, description: columnText(statement, 3),
+      identity: .init(
+        packageName: columnText(statement, 4)!, packageVersion: columnText(statement, 5)!,
+        schemaFingerprint: columnText(statement, 6)!, wireSignature: UInt32(sqlite3_column_int64(statement, 7))
+      ),
+      valuesJSON: columnText(statement, 8)!,
+      createdAt: Date(timeIntervalSince1970: Double(sqlite3_column_int64(statement, 9)) / 1_000),
+      updatedAt: Date(timeIntervalSince1970: Double(sqlite3_column_int64(statement, 10)) / 1_000)
+    )
+  }
+
+  private static func validRefloatIdentity(_ identity: RefloatConfigurationIdentityRecord) -> Bool {
+    identity.packageName == "refloat" && !identity.packageVersion.isEmpty && identity.packageVersion.utf8
+      .count <= 128 &&
+      identity.schemaFingerprint.range(of: "^[0-9a-f]{64}$", options: .regularExpression) != nil
+  }
+
+  private static func validRefloatConfiguration(
+    name: String, description: String?, identity: RefloatConfigurationIdentityRecord, valuesJSON: String
+  ) -> Bool {
+    guard !name.isEmpty, name.utf8.count <= 128, description?.utf8.count ?? 0 <= 1_024,
+          validRefloatIdentity(identity), valuesJSON.utf8.count <= 48 * 1_024,
+          let object = try? JSONSerialization.jsonObject(with: Data(valuesJSON.utf8)) as? [String: Any],
+          !object.isEmpty, object.count <= RefloatConfigurationLimits.fields
+    else { return false }
+    return true
   }
 
   public func deleteSession(sessionID: String) throws {

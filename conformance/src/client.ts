@@ -50,7 +50,13 @@ export class ConformanceClient {
     this.socket = socket;
     this.origin = origin;
     socket.on('message', (data) => this.receive(data.toString()));
-    socket.on('close', () => this.rejectAll(new Error('Backend closed the socket')));
+    socket.on('close', (code, reason) =>
+      this.rejectAll(
+        new Error(
+          `Backend closed the socket (code=${code}, reason=${reason.toString() || 'none'})`
+        )
+      )
+    );
   }
 
   private dataEndpoint(): { url: string; token: string } {

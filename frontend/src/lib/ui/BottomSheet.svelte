@@ -127,7 +127,7 @@
 
 <svelte:window onkeydown={handleKeydown} />
 
-<div class="fixed inset-0 z-40 h-dvh bg-black/55">
+<div class="fixed inset-0 z-40 h-screen bg-black/55">
   <button
     type="button"
     class="absolute inset-0 h-full w-full cursor-default touch-none"
@@ -140,7 +140,7 @@
     role="dialog"
     aria-modal="true"
     aria-labelledby={titleId}
-    class="absolute inset-x-0 bottom-0 flex max-h-[92dvh] flex-col overflow-hidden rounded-t-3xl border border-outline bg-surface shadow-2xl transition-transform duration-200 ease-out motion-reduce:transition-none"
+    class="absolute inset-x-0 bottom-0 flex max-h-[92%] flex-col overflow-hidden rounded-t-3xl border border-b-0 border-outline bg-surface shadow-2xl transition-transform duration-200 ease-out motion-reduce:transition-none"
     style:transform={`translate3d(0, ${dragOffset}px, 0)`}
     style:transition={dragging ? 'none' : undefined}
   >

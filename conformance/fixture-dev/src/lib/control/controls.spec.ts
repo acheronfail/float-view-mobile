@@ -147,6 +147,7 @@ function baseSnapshot(): FixtureSnapshot {
     ble: 'unavailable',
     ride: 'idle',
     counters: { writes: 0, responses: 0, telemetry: 0, bms: 0, dropped: 0 },
+    refloatConfigurations: [],
     diagnostics: [],
   };
 }

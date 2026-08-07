@@ -46,7 +46,9 @@ class BackendRuntime(application: FloatViewApplication) {
     }
     val bluetooth: BluetoothPort =
         if (isEmulator()) {
-            val peripheral = SoftwareVescPeripheral()
+            val peripheral = SoftwareVescPeripheral { path ->
+                application.assets.open("refloat-configuration/$path").use { it.readBytes() }
+            }
             SoftwareBluetoothAdapter(relay::emit, peripheral::response)
         } else {
             AndroidBluetoothAdapter(

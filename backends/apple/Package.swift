@@ -10,12 +10,17 @@ let package = Package(
   ],
   dependencies: [
     .package(url: "https://github.com/swhitty/FlyingFox.git", from: "0.27.1"),
+    .package(path: "../fixtures/refloat-configuration"),
   ],
   targets: [
     .systemLibrary(name: "CSQLite"),
     .target(
       name: "FloatViewBackend",
-      dependencies: ["CSQLite", .product(name: "FlyingFox", package: "FlyingFox")]
+      dependencies: [
+        "CSQLite",
+        .product(name: "RefloatConfigurationFixtures", package: "refloat-configuration"),
+        .product(name: "FlyingFox", package: "FlyingFox"),
+      ]
     ),
     .executableTarget(
       name: "FloatViewMac",

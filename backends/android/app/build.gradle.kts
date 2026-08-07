@@ -36,6 +36,7 @@ android {
     sourceSets {
         getByName("main").assets.srcDir("../../../frontend/build")
         getByName("main").assets.srcDir("../../sql")
+        getByName("main").assets.srcDir("../../fixtures")
     }
     testOptions {
         unitTests.all {

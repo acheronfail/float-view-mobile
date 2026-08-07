@@ -48,6 +48,10 @@ public enum VescRequestContext: Sendable, Equatable {
   case currentLimits(VescRequestRoute)
   case auxiliaryFirmware(VescRequestRoute)
   case bmsValues(VescRequestRoute)
+  case refloatConfigurationSchema(route: VescRequestRoute, index: UInt8, offset: Int, operation: UInt64)
+  case refloatConfigurationValues(route: VescRequestRoute, index: UInt8, defaults: Bool, operation: UInt64)
+  case refloatConfigurationWrite(route: VescRequestRoute, index: UInt8, operation: UInt64)
+  case refloatConfigurationVerification(route: VescRequestRoute, index: UInt8, operation: UInt64)
 
   public var route: VescRequestRoute? {
     switch self {
@@ -56,7 +60,11 @@ public enum VescRequestContext: Sendable, Equatable {
          let .refloatTelemetry(route), let .refloatControl(route), let .controllerShutdown(route),
          let .refloatLighting(route),
          let .currentLimits(route),
-         let .auxiliaryFirmware(route), let .bmsValues(route): route
+         let .auxiliaryFirmware(route), let .bmsValues(route),
+         let .refloatConfigurationSchema(route, _, _, _),
+         let .refloatConfigurationValues(route, _, _, _),
+         let .refloatConfigurationWrite(route, _, _),
+         let .refloatConfigurationVerification(route, _, _): route
     }
   }
 }
@@ -248,13 +256,16 @@ public final class VescRequestScheduler: @unchecked Sendable {
   public func receive(
     payload: Data,
     command: UInt8,
-    refloatCommand: UInt8? = nil
+    refloatCommand: UInt8? = nil,
+    validContext: @Sendable (VescRequestContext) -> Bool = { _ in true },
+    deferNext: Bool = false
   ) -> Bool {
     let completed: Pending? = lock.withLock {
       guard let current = inFlight,
             current.request.generation == generation,
             current.request.expectedResponse.command == command,
-            current.request.expectedResponse.refloatCommand == refloatCommand
+            current.request.expectedResponse.refloatCommand == refloatCommand,
+            validContext(current.request.context)
       else { return nil }
       deadlineTimer?.cancel()
       deadlineTimer = nil
@@ -266,8 +277,30 @@ public final class VescRequestScheduler: @unchecked Sendable {
       return false
     }
     completed.completion(completed.request, .response(payload))
-    pump()
+    if !deferNext { pump() }
     return true
+  }
+
+  public func resume() {
+    pump()
+  }
+
+  public func cancelMatching(
+    _ predicate: (VescRequestContext) -> Bool, resume: Bool = true
+  ) {
+    let cancelled: [Pending] = lock.withLock {
+      var values = queue.filter { predicate($0.request.context) }
+      queue.removeAll { predicate($0.request.context) }
+      if let current = inFlight, predicate(current.request.context) {
+        deadlineTimer?.cancel()
+        deadlineTimer = nil
+        inFlight = nil
+        values.append(current)
+      }
+      return values
+    }
+    cancelled.forEach { $0.completion($0.request, .cancelled) }
+    if resume { pump() }
   }
 
   public func cancel(generation cancelledGeneration: VescRequestGeneration) {

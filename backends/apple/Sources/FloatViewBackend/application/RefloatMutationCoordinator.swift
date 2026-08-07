@@ -116,6 +116,30 @@ public struct ControllerShutdownContext: Sendable {
   }
 }
 
+public struct RefloatConfigurationMutationContext: Sendable {
+  public let generation: VescRequestGeneration
+  public let connectionReady: Bool
+  public let writable: Bool
+  public let rideState: RideState
+  public let footpadState: FootpadState?
+  public let packageState: PackageState?
+  public let packageMode: PackageMode?
+
+  public init(
+    generation: VescRequestGeneration, connectionReady: Bool, writable: Bool,
+    rideState: RideState, footpadState: FootpadState?, packageState: PackageState?,
+    packageMode: PackageMode?
+  ) {
+    self.generation = generation
+    self.connectionReady = connectionReady
+    self.writable = writable
+    self.rideState = rideState
+    self.footpadState = footpadState
+    self.packageState = packageState
+    self.packageMode = packageMode
+  }
+}
+
 /** The sole connection-scoped authorization and serialization boundary for device mutations. */
 public final class DeviceMutationCoordinator: @unchecked Sendable {
   private let lock = NSLock()
@@ -123,6 +147,7 @@ public final class DeviceMutationCoordinator: @unchecked Sendable {
   private var controls: RefloatControls?
   private var pendingExpected: Bool?
   private var controllerPendingAction: ControllerPendingAction?
+  private var configurationPending = false
 
   public init() {}
 
@@ -135,6 +160,7 @@ public final class DeviceMutationCoordinator: @unchecked Sendable {
       self.generation = generation
       pendingExpected = nil
       controllerPendingAction = nil
+      configurationPending = false
       controls = RefloatControls(
         status: .loading,
         writable: writable,
@@ -155,7 +181,7 @@ public final class DeviceMutationCoordinator: @unchecked Sendable {
   public func controllerActions(shutdownAvailable: Bool) -> ControllerActions {
     lock.withLock {
       ControllerActions(
-        shutdownAvailable: shutdownAvailable && controllerPendingAction == nil,
+        shutdownAvailable: shutdownAvailable && controllerPendingAction == nil && !configurationPending,
         pendingAction: controllerPendingAction
       )
     }
@@ -169,7 +195,8 @@ public final class DeviceMutationCoordinator: @unchecked Sendable {
             context.rideState == .idle,
             context.packageMode != .flywheel,
             controls?.pendingAction == nil,
-            controllerPendingAction == nil
+            controllerPendingAction == nil,
+            !configurationPending
       else { throw RefloatMutationError.invalidState }
       controllerPendingAction = .shutdown
       return ControllerActions(shutdownAvailable: false, pendingAction: .shutdown)
@@ -181,6 +208,32 @@ public final class DeviceMutationCoordinator: @unchecked Sendable {
       guard generation == self.generation, controllerPendingAction == .shutdown else { return nil }
       controllerPendingAction = nil
       return ControllerActions()
+    }
+  }
+
+  public func authorizeConfiguration(
+    context: RefloatConfigurationMutationContext
+  ) throws {
+    try lock.withLock {
+      guard context.generation == generation,
+            context.connectionReady,
+            context.writable,
+            context.rideState == .idle,
+            context.footpadState == FootpadState.none,
+            context.packageState == .ready,
+            context.packageMode == .normal,
+            controls?.pendingAction == nil,
+            controllerPendingAction == nil,
+            !configurationPending
+      else { throw RefloatMutationError.invalidState }
+      configurationPending = true
+    }
+  }
+
+  public func finishConfiguration(generation: VescRequestGeneration) {
+    lock.withLock {
+      guard generation == self.generation else { return }
+      configurationPending = false
     }
   }
 
@@ -225,7 +278,7 @@ public final class DeviceMutationCoordinator: @unchecked Sendable {
     try lock.withLock {
       var current = try validate(context)
       let action = RefloatPendingAction(rawValue: control.rawValue)!
-      if current.pendingAction != nil || controllerPendingAction != nil {
+      if current.pendingAction != nil || controllerPendingAction != nil || configurationPending {
         throw RefloatMutationError.invalidState
       }
       if current.flywheelEnabled == true && !(control == .flywheel && !enabled) {
@@ -297,6 +350,7 @@ public final class DeviceMutationCoordinator: @unchecked Sendable {
       var current = try validate(context)
       guard current.pendingAction == nil,
             controllerPendingAction == nil,
+            !configurationPending,
             current.flywheelEnabled != true,
             context.rideState == .idle,
             current.fatalErrorClearAvailable,
@@ -338,6 +392,7 @@ public final class DeviceMutationCoordinator: @unchecked Sendable {
       }
       pendingExpected = nil
       controllerPendingAction = nil
+      configurationPending = false
       return controls
     }
   }

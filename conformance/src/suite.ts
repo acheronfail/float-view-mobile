@@ -1,5 +1,12 @@
 import assert from 'node:assert/strict';
-import type { AppState, BackendMethod, ConnectionIssueCode } from '../../frontend/src/lib/backend/contract.ts';
+import type {
+  AppState,
+  BackendMethod,
+  ConnectionIssueCode,
+  RefloatConfigurationField,
+  RefloatConfigurationIdentity,
+  RefloatConfigurationSchemaPage,
+} from '../../frontend/src/lib/backend/contract.ts';
 import { ConformanceClient, ConformanceError } from './client.ts';
 
 export interface Target {
@@ -415,6 +422,7 @@ async function createCompletedSession(client: ConformanceClient, deviceId: strin
       assert.ok(Math.abs(value) > 0);
     }
   }
+  await exerciseRefloatConfiguration(client, connected);
   if (connected.activeConnection.latestSample) {
     assert.deepEqual(Object.keys(connected.activeConnection.latestSample).sort(), [
       'alertReason',
@@ -520,6 +528,101 @@ async function createCompletedSession(client: ConformanceClient, deviceId: strin
     page.items.some((item) => item.state === 'completed'),
     'disconnect did not retain the session'
   );
+}
+
+async function exerciseRefloatConfiguration(client: ConformanceClient, connected: AppState) {
+  const opened = await client.request('refloat.configuration.open', {});
+  assert.ok(['loading', 'ready', 'unavailable'].includes(opened.availability));
+  if (opened.availability === 'unavailable') return;
+  let ready = opened;
+  if (ready.availability !== 'ready') {
+    const state = await client.waitForState(
+      (value) => value.activeConnection?.refloatConfiguration?.availability === 'ready',
+      { afterRevision: connected.revision, timeoutMs: 15_000 }
+    );
+    ready = required(state.activeConnection?.refloatConfiguration, 'configuration summary disappeared');
+  }
+  assert.equal(ready.pendingOperation, null);
+  assert.equal(typeof ready.packageVersion, 'string');
+  assert.equal(typeof ready.schemaFingerprint, 'string');
+  assert.equal(typeof ready.wireSignature, 'number');
+
+  const fields: RefloatConfigurationField[] = [];
+  let cursor: string | null = null;
+  let identity: RefloatConfigurationIdentity | undefined;
+  do {
+    const page: RefloatConfigurationSchemaPage = await client.request('refloat.configuration.schema', { cursor });
+    identity ??= page.identity;
+    assert.deepEqual(page.identity, identity);
+    fields.push(...page.fields);
+    cursor = page.nextCursor;
+    assert.ok(fields.length <= 512, 'configuration schema exceeded field bound');
+  } while (cursor);
+  assert.ok(fields.length > 0);
+
+  const current = await client.request('refloat.configuration.read', { source: 'current' });
+  const defaults = await client.request('refloat.configuration.read', { source: 'default' });
+  assert.deepEqual(current.identity, identity);
+  assert.deepEqual(defaults.identity, identity);
+  assert.equal(Object.keys(current.values).length, fields.length);
+  assert.equal(Object.keys(defaults.values).length, fields.length);
+
+  const tune = await client.request('refloat.tune.create', {
+    name: 'Conformance configuration',
+    description: 'Exact-version disposable conformance record',
+    identity: current.identity,
+    sourceRevision: current.revision,
+    values: current.values,
+  });
+  const listed = await client.request('refloat.tune.list', { identity: current.identity, limit: 1, cursor: null });
+  assert.ok(listed.items.some((item) => item.tuneId === tune.tuneId));
+  assert.deepEqual(await client.request('refloat.tune.get', { tuneId: tune.tuneId }), tune);
+  const updated = await client.request('refloat.tune.update', {
+    tuneId: tune.tuneId,
+    expectedRevision: tune.revision,
+    name: 'Conformance configuration updated',
+    description: null,
+    values: tune.values,
+  });
+  await expectError(
+    client.request('refloat.tune.update', {
+      tuneId: tune.tuneId,
+      expectedRevision: tune.revision,
+      name: tune.name,
+      description: tune.description,
+      values: tune.values,
+    }),
+    'conflict'
+  );
+
+  const idle = connected.activeConnection?.latestSample?.rideState === 'idle';
+  if (idle && ready.writable) {
+    const written = await client.request('refloat.configuration.write', {
+      packageVersion: current.identity.packageVersion,
+      schemaFingerprint: current.identity.schemaFingerprint,
+      wireSignature: current.identity.wireSignature,
+      baseRevision: current.revision,
+      values: current.values,
+    });
+    assert.deepEqual(written.identity, current.identity);
+    const applied = await client.request('refloat.tune.apply', {
+      tuneId: updated.tuneId,
+      expectedRevision: updated.revision,
+      baseRevision: written.revision,
+    });
+    assert.deepEqual(applied.identity, current.identity);
+  } else {
+    await expectError(
+      client.request('refloat.tune.apply', {
+        tuneId: updated.tuneId,
+        expectedRevision: updated.revision,
+        baseRevision: current.revision,
+      }),
+      'invalid_state'
+    );
+  }
+  await client.request('refloat.tune.delete', { tuneId: updated.tuneId, expectedRevision: updated.revision });
+  await expectError(client.request('refloat.tune.get', { tuneId: updated.tuneId }), 'not_found');
 }
 
 const stableConnectionIssueCodes = new Set<ConnectionIssueCode>([
@@ -688,6 +791,29 @@ export function assertState(state: AppState) {
       assert.equal(controls.fatalErrorClearable, false);
     }
   }
+  if (active.refloatConfiguration) {
+    const configuration = active.refloatConfiguration;
+    assert.deepEqual(Object.keys(configuration).sort(), [
+      'availability',
+      'currentLoaded',
+      'defaultLoaded',
+      'packageVersion',
+      'pendingOperation',
+      'schemaFingerprint',
+      'wireSignature',
+      'writable',
+    ]);
+    assert.ok(['loading', 'ready', 'unavailable'].includes(configuration.availability));
+    assert.ok(
+      configuration.pendingOperation === null ||
+        ['schema', 'readCurrent', 'readDefault', 'write', 'applyTune'].includes(configuration.pendingOperation)
+    );
+    if (configuration.availability === 'ready') {
+      assert.ok(configuration.packageVersion);
+      assert.equal(configuration.schemaFingerprint?.length, 64);
+      assert.ok(Number.isSafeInteger(configuration.wireSignature));
+    }
+  }
 
   assert.deepEqual(Object.keys(active.controllerActions).sort(), ['pendingAction', 'shutdownAvailable']);
   assert.ok(active.controllerActions.pendingAction === null || active.controllerActions.pendingAction === 'shutdown');
@@ -756,6 +882,17 @@ export const mandatoryMethods: BackendMethod[] = [
   'device.disconnect',
   'refloat.control.set',
   'refloat.fatalError.clear',
+  'controller.shutdown',
+  'refloat.configuration.open',
+  'refloat.configuration.schema',
+  'refloat.configuration.read',
+  'refloat.configuration.write',
+  'refloat.tune.list',
+  'refloat.tune.get',
+  'refloat.tune.create',
+  'refloat.tune.update',
+  'refloat.tune.delete',
+  'refloat.tune.apply',
   'savedDevice.update',
   'savedDevice.delete',
   'settings.update',

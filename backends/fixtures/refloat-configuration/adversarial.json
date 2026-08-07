@@ -1,0 +1,95 @@
+{
+  "schemaVersion": 1,
+  "cases": [
+    {
+      "name": "truncated-qt-envelope",
+      "payloadBase64": "AAA=",
+      "error": "truncatedEnvelope"
+    },
+    {
+      "name": "expansion-excess",
+      "payloadBase64": "AAYAAXg=",
+      "error": "expandedTooLarge"
+    },
+    {
+      "name": "invalid-zlib",
+      "payloadBase64": "AAAACG5vdC16bGli",
+      "error": "decompressionFailed"
+    },
+    {
+      "name": "expanded-length-mismatch",
+      "payloadBase64": "AAAAY3icAwAAAAAB",
+      "error": "expandedLengthMismatch"
+    },
+    {
+      "name": "dtd",
+      "xml": "<?xml version=\"1.0\"?><!DOCTYPE x [<!ENTITY e SYSTEM \"file:///etc/passwd\">]><ConfigParams>&e;</ConfigParams>",
+      "error": "prohibitedXml"
+    },
+    {
+      "name": "excessive-nesting",
+      "xml": "<ConfigParams><x><x><x><x><x><x><x><x><x><x><x><x><x><x><x><x><x><x><x><x><x><x><x><x><x><x><x><x><x><x><x><x><x><x><x><x><x><x><x><x></x></x></x></x></x></x></x></x></x></x></x></x></x></x></x></x></x></x></x></x></x></x></x></x></x></x></x></x></x></x></x></x></x></x></x></x></x></x></x></x></ConfigParams>",
+      "error": "structuralLimit"
+    },
+    {
+      "name": "excessive-field-count",
+      "xmlTemplate": "ConfigParams with 513 distinct Params children",
+      "error": "fieldLimit"
+    },
+    {
+      "name": "excessive-string",
+      "xmlTemplate": "ConfigParams field name or metadata string with 4097 UTF-8 bytes",
+      "error": "stringLimit"
+    },
+    {
+      "name": "duplicate-field",
+      "xml": "<ConfigParams><Params><x/><x/></Params><SerOrder/><Grouping/></ConfigParams>",
+      "error": "duplicateField"
+    },
+    {
+      "name": "duplicate-order",
+      "xml": "<ConfigParams><Params><x><type>5</type></x></Params><SerOrder><ser>x</ser><ser>x</ser></SerOrder><Grouping/></ConfigParams>",
+      "error": "duplicateOrder"
+    },
+    {
+      "name": "missing-reference",
+      "xml": "<ConfigParams><Params/><SerOrder><ser>x</ser></SerOrder><Grouping/></ConfigParams>",
+      "error": "missingReference"
+    },
+    {
+      "name": "unsupported-type",
+      "xml": "<ConfigParams><Params><x><type>99</type></x></Params><SerOrder><ser>x</ser></SerOrder><Grouping/></ConfigParams>",
+      "error": "unsupportedType"
+    },
+    {
+      "name": "unsupported-encoding",
+      "xml": "<ConfigParams><Params><x><type>1</type><vTx>99</vTx></x></Params><SerOrder><ser>x</ser></SerOrder><Grouping/></ConfigParams>",
+      "error": "unsupportedEncoding"
+    },
+    {
+      "name": "invalid-number",
+      "xml": "<ConfigParams><Params><x><type>1</type><valDouble>NaN</valDouble></x></Params><SerOrder><ser>x</ser></SerOrder><Grouping/></ConfigParams>",
+      "error": "invalidNumber"
+    },
+    {
+      "name": "unaudited-fingerprint",
+      "mutation": "change one validated description byte",
+      "error": "unauditedSchema"
+    },
+    {
+      "name": "truncated-values",
+      "payloadHex": "000000",
+      "error": "truncatedValues"
+    },
+    {
+      "name": "signature-mismatch",
+      "payloadHex": "00000000",
+      "error": "signatureMismatch"
+    },
+    {
+      "name": "remainder-byte",
+      "suffixHex": "00",
+      "error": "remainder"
+    }
+  ]
+}

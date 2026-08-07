@@ -15,6 +15,10 @@ export type VescRequestKind =
   | 'refloat-info'
   | 'refloat-layout'
   | 'refloat-control'
+  | 'refloat-configuration-schema'
+  | 'refloat-configuration-current'
+  | 'refloat-configuration-default'
+  | 'refloat-configuration-write'
   | 'controller-shutdown'
   | 'telemetry';
 
@@ -97,6 +101,35 @@ export class VescSimulator {
 
   resetTelemetry() {
     this.telemetryIndex = 0;
+  }
+
+  reset() {
+    this.telemetryIndex = 0;
+    if ('kind' in this.board) this.board.refloatConfiguration.reset();
+    else for (const controller of this.board.controllers) controller.refloatConfiguration?.reset();
+  }
+
+  configurationSnapshots() {
+    if ('kind' in this.board) {
+      return [
+        {
+          route:
+            this.board.topology.kind === 'direct' ? ('direct' as const) : (`CAN:${this.board.topology.canId}` as const),
+          ...this.board.refloatConfiguration.snapshot(),
+        },
+      ];
+    }
+    const board = this.board;
+    return board.controllers.flatMap((controller) =>
+      controller.refloatConfiguration
+        ? [
+            {
+              route: board.transport.hardwareType === 0 ? ('direct' as const) : (`CAN:${controller.canId}` as const),
+              ...controller.refloatConfiguration.snapshot(),
+            },
+          ]
+        : []
+    );
   }
 
   private response(payload: Uint8Array): SimulatedTransaction | undefined {
@@ -197,6 +230,7 @@ export class VescSimulator {
     canId?: number
   ): SimulatedTransaction | undefined {
     const command = payload[0];
+    if (command === undefined) return this.reject('Empty controller request');
     if (!board.shutdown.available) return undefined;
     if (command === 0) {
       return {
@@ -219,6 +253,23 @@ export class VescSimulator {
       });
       if (!shutdown.accepted) return this.reject(`Rejected controller shutdown ${shutdown.reason}`);
       return { request: { at, command, canId, kind: 'controller-shutdown' } };
+    }
+    if (command >= 92 && command <= 95) {
+      if (board.firmware.testVersion !== 0) {
+        return this.reject(`Rejected Refloat configuration on test firmware`);
+      }
+      const safe = !board.refloatControls.state.flywheelEnabled && board.telemetry.phase() === 'idle';
+      const response = board.refloatConfiguration.respond(payload, safe);
+      if (!response) return this.reject(`Rejected Refloat configuration command ${command}`);
+      const kind =
+        command === 92
+          ? 'refloat-configuration-schema'
+          : command === 93
+            ? 'refloat-configuration-current'
+            : command === 94
+              ? 'refloat-configuration-default'
+              : 'refloat-configuration-write';
+      return { response, request: { at, command, canId, kind } };
     }
     if (command !== 36 || payload[1] !== 101) {
       return this.reject(`Unsafe or unsupported controller command ${String(command)}`);
@@ -306,6 +357,21 @@ export class VescSimulator {
       });
       if (!shutdown.accepted) return this.rejectBoard(`Rejected controller shutdown ${shutdown.reason}`);
       return { request: { ...base, kind: 'controller-shutdown' } };
+    }
+    if (command >= 92 && command <= 95 && controller.refloatConfiguration) {
+      const safe =
+        !controller.refloatControls?.state.flywheelEnabled && (controller.telemetry?.phase() ?? 'idle') === 'idle';
+      const response = controller.refloatConfiguration.respond(payload, safe);
+      if (!response) return this.rejectBoard(`Rejected Refloat configuration command ${command}`);
+      const kind =
+        command === 92
+          ? 'refloat-configuration-schema'
+          : command === 93
+            ? 'refloat-configuration-current'
+            : command === 94
+              ? 'refloat-configuration-default'
+              : 'refloat-configuration-write';
+      return { response, request: { ...base, kind } };
     }
     if (command !== 36 || payload[1] !== 101) {
       return this.rejectBoard(`Unsafe or unsupported forwarded command ${command}`);

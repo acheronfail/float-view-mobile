@@ -14,6 +14,10 @@ import fail.acheron.floatview.backend.LogStorePort
 import fail.acheron.floatview.backend.LocationObservation
 import fail.acheron.floatview.backend.ProductStoreException
 import fail.acheron.floatview.backend.ProductStorePort
+import fail.acheron.floatview.backend.RefloatConfigurationIdentityRecord
+import fail.acheron.floatview.backend.RefloatConfigurationListPage
+import fail.acheron.floatview.backend.RefloatConfigurationRecord
+import fail.acheron.floatview.backend.RefloatSchemaCacheIdentity
 import fail.acheron.floatview.backend.SavedDeviceRecord
 import fail.acheron.floatview.backend.SessionId
 import fail.acheron.floatview.backend.SessionEventRecord
@@ -49,6 +53,7 @@ import java.io.BufferedWriter
 import java.io.FileOutputStream
 import java.io.OutputStreamWriter
 import java.time.Instant
+import java.security.MessageDigest
 import java.util.concurrent.Semaphore
 import java.util.UUID
 
@@ -1558,6 +1563,237 @@ class SQLiteLogStore(
         } finally {
             db.endTransaction()
         }
+    }
+
+    @Synchronized
+    override fun refloatConfigurations(
+        identity: RefloatConfigurationIdentityRecord,
+        limit: Int,
+        cursor: String?,
+    ): RefloatConfigurationListPage {
+        if (!validRefloatIdentity(identity) || limit !in 1..50) throw ProductStoreException.InvalidRefloatConfiguration
+        val cursorValue = cursor?.let {
+            if (it.toByteArray().size > 512) throw ProductStoreException.InvalidRefloatConfiguration
+            runCatching { JSONObject(String(android.util.Base64.decode(it, android.util.Base64.DEFAULT))) }
+                .getOrNull()?.takeIf { value -> value.optString("fingerprint") == identity.schemaFingerprint }
+                ?.let { value -> value.optLong("updatedAtMs", -1) to value.optString("configurationId") }
+                ?.takeIf { value -> value.first >= 0 && value.second.isNotEmpty() }
+                ?: throw ProductStoreException.InvalidRefloatConfiguration
+        }
+        var sql = """
+            SELECT configuration_id, revision, name, description, package_name, package_version,
+                   schema_fingerprint, wire_signature, values_json, created_at_ms, updated_at_ms
+            FROM refloat_configuration
+            WHERE package_name = ? AND package_version = ? AND schema_fingerprint = ? AND wire_signature = ?
+        """.trimIndent()
+        val args = mutableListOf(
+            identity.packageName, identity.packageVersion, identity.schemaFingerprint, identity.wireSignature.toString(),
+        )
+        if (cursorValue != null) {
+            sql += " AND (updated_at_ms < ? OR (updated_at_ms = ? AND configuration_id < ?))"
+            args += listOf(cursorValue.first.toString(), cursorValue.first.toString(), cursorValue.second)
+        }
+        sql += " ORDER BY updated_at_ms DESC, configuration_id DESC LIMIT ?"
+        args += (limit + 1).toString()
+        val records = catalog.readableDatabase.rawQuery(sql, args.toTypedArray()).use { cursorResult ->
+            buildList { while (cursorResult.moveToNext()) add(refloatConfiguration(cursorResult)) }
+        }
+        val items = records.take(limit)
+        val next = if (records.size > limit) items.lastOrNull()?.let { record ->
+            android.util.Base64.encodeToString(
+                JSONObject()
+                    .put("updatedAtMs", record.updatedAt.toEpochMilli())
+                    .put("configurationId", record.configurationId)
+                    .put("fingerprint", identity.schemaFingerprint)
+                    .toString().toByteArray(),
+                android.util.Base64.NO_WRAP,
+            )
+        } else null
+        return RefloatConfigurationListPage(items, next)
+    }
+
+    @Synchronized
+    override fun cachedRefloatSchema(identity: RefloatSchemaCacheIdentity): ByteArray? {
+        if (identity.hardwareConfigurationCrc == 0L) return null
+        val file = refloatSchemaCacheFile(identity)
+        return runCatching {
+            if (!file.isFile || file.length() > 64 * 1024) error("invalid cache file")
+            val envelope = JSONObject(file.readText())
+            if (envelope.getJSONObject("identity").toString() != refloatSchemaCacheIdentityJson(identity).toString()) {
+                error("cache identity mismatch")
+            }
+            val data = Base64.decode(envelope.getString("data"), Base64.DEFAULT)
+            if (data.size > 32 * 1024 || envelope.getString("digest") != sha256Hex(data)) error("cache digest mismatch")
+            data
+        }.getOrElse {
+            file.delete()
+            null
+        }
+    }
+
+    @Synchronized
+    override fun storeRefloatSchema(data: ByteArray, identity: RefloatSchemaCacheIdentity) {
+        if (identity.hardwareConfigurationCrc == 0L || data.size > 32 * 1024) return
+        runCatching {
+            val directory = File(root, "refloat-schema-cache")
+            check(directory.mkdirs() || directory.isDirectory)
+            val envelope = JSONObject()
+                .put("identity", refloatSchemaCacheIdentityJson(identity))
+                .put("digest", sha256Hex(data))
+                .put("data", Base64.encodeToString(data, Base64.NO_WRAP))
+            val destination = refloatSchemaCacheFile(identity)
+            val temporary = File(directory, "${destination.name}.tmp")
+            temporary.writeText(envelope.toString())
+            check(temporary.renameTo(destination) || run { destination.delete(); temporary.renameTo(destination) })
+            directory.listFiles()?.filter { it.extension == "json" }
+                ?.sortedBy(File::lastModified)?.dropLast(8)?.forEach(File::delete)
+        }
+    }
+
+    @Synchronized
+    override fun removeCachedRefloatSchema(identity: RefloatSchemaCacheIdentity) {
+        refloatSchemaCacheFile(identity).delete()
+    }
+
+    private fun refloatSchemaCacheFile(identity: RefloatSchemaCacheIdentity): File {
+        val key = listOf(
+            identity.firmwareVersion, identity.hardwareName, identity.packageVersion,
+            identity.customIndex.toString(), identity.hardwareConfigurationCrc.toString(),
+        ).joinToString("\u0000")
+        return File(File(root, "refloat-schema-cache"), "${sha256Hex(key.toByteArray())}.json")
+    }
+
+    private fun refloatSchemaCacheIdentityJson(identity: RefloatSchemaCacheIdentity) = JSONObject()
+        .put("firmwareVersion", identity.firmwareVersion)
+        .put("hardwareName", identity.hardwareName)
+        .put("packageVersion", identity.packageVersion)
+        .put("customIndex", identity.customIndex)
+        .put("hardwareConfigurationCrc", identity.hardwareConfigurationCrc)
+
+    private fun sha256Hex(data: ByteArray): String = MessageDigest.getInstance("SHA-256")
+        .digest(data).joinToString("") { "%02x".format(it) }
+
+    @Synchronized
+    override fun refloatConfiguration(configurationId: String): RefloatConfigurationRecord =
+        refloatConfiguration(catalog.readableDatabase, configurationId)
+
+    @Synchronized
+    override fun createRefloatConfiguration(
+        name: String,
+        description: String?,
+        identity: RefloatConfigurationIdentityRecord,
+        valuesJson: String,
+        at: Instant,
+    ): RefloatConfigurationRecord {
+        if (!validRefloatConfiguration(name, description, identity, valuesJson)) {
+            throw ProductStoreException.InvalidRefloatConfiguration
+        }
+        val configurationId = UUID.randomUUID().toString()
+        val timestamp = at.toEpochMilli()
+        catalog.writableDatabase.execSQL(
+            """
+            INSERT INTO refloat_configuration(
+              configuration_id, revision, name, description, package_name, package_version,
+              schema_fingerprint, wire_signature, values_json, created_at_ms, updated_at_ms
+            ) VALUES (?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """.trimIndent(),
+            arrayOf(
+                configurationId, name, description, identity.packageName, identity.packageVersion,
+                identity.schemaFingerprint, identity.wireSignature, valuesJson, timestamp, timestamp,
+            ),
+        )
+        return refloatConfiguration(catalog.readableDatabase, configurationId)
+    }
+
+    @Synchronized
+    override fun updateRefloatConfiguration(
+        configurationId: String,
+        expectedRevision: Int,
+        name: String,
+        description: String?,
+        valuesJson: String,
+        at: Instant,
+    ): RefloatConfigurationRecord {
+        val current = refloatConfiguration(catalog.readableDatabase, configurationId)
+        if (current.revision != expectedRevision) {
+            throw ProductStoreException.RefloatConfigurationRevisionConflict(current.revision)
+        }
+        if (!validRefloatConfiguration(name, description, current.identity, valuesJson)) {
+            throw ProductStoreException.InvalidRefloatConfiguration
+        }
+        catalog.writableDatabase.execSQL(
+            """
+            UPDATE refloat_configuration
+            SET revision = revision + 1, name = ?, description = ?, values_json = ?, updated_at_ms = ?
+            WHERE configuration_id = ? AND revision = ?
+            """.trimIndent(),
+            arrayOf(name, description, valuesJson, at.toEpochMilli(), configurationId, expectedRevision),
+        )
+        if (DatabaseUtils.longForQuery(catalog.readableDatabase, "SELECT changes()", null) != 1L) {
+            throw ProductStoreException.RefloatConfigurationRevisionConflict(current.revision)
+        }
+        return refloatConfiguration(catalog.readableDatabase, configurationId)
+    }
+
+    @Synchronized
+    override fun deleteRefloatConfiguration(configurationId: String, expectedRevision: Int) {
+        val current = refloatConfiguration(catalog.readableDatabase, configurationId)
+        if (current.revision != expectedRevision) {
+            throw ProductStoreException.RefloatConfigurationRevisionConflict(current.revision)
+        }
+        catalog.writableDatabase.execSQL(
+            "DELETE FROM refloat_configuration WHERE configuration_id = ? AND revision = ?",
+            arrayOf(configurationId, expectedRevision),
+        )
+    }
+
+    private fun refloatConfiguration(db: SQLiteDatabase, configurationId: String): RefloatConfigurationRecord {
+        if (configurationId.isEmpty() || configurationId.toByteArray().size > 128) {
+            throw ProductStoreException.RefloatConfigurationNotFound
+        }
+        return db.rawQuery(
+            """
+            SELECT configuration_id, revision, name, description, package_name, package_version,
+                   schema_fingerprint, wire_signature, values_json, created_at_ms, updated_at_ms
+            FROM refloat_configuration WHERE configuration_id = ?
+            """.trimIndent(),
+            arrayOf(configurationId),
+        ).use { cursor ->
+            if (!cursor.moveToFirst()) throw ProductStoreException.RefloatConfigurationNotFound
+            refloatConfiguration(cursor)
+        }
+    }
+
+    private fun refloatConfiguration(cursor: android.database.Cursor) = RefloatConfigurationRecord(
+        configurationId = cursor.getString(0),
+        revision = cursor.getInt(1),
+        name = cursor.getString(2),
+        description = cursor.optionalString(3),
+        identity = RefloatConfigurationIdentityRecord(
+            cursor.getString(4), cursor.getString(5), cursor.getString(6), cursor.getLong(7),
+        ),
+        valuesJson = cursor.getString(8),
+        createdAt = Instant.ofEpochMilli(cursor.getLong(9)),
+        updatedAt = Instant.ofEpochMilli(cursor.getLong(10)),
+    )
+
+    private fun validRefloatIdentity(identity: RefloatConfigurationIdentityRecord) =
+        identity.packageName == "refloat" && identity.packageVersion.isNotEmpty() &&
+            identity.packageVersion.toByteArray().size <= 128 &&
+            identity.schemaFingerprint.matches(Regex("^[0-9a-f]{64}$")) &&
+            identity.wireSignature in 0..0xffff_ffffL
+
+    private fun validRefloatConfiguration(
+        name: String,
+        description: String?,
+        identity: RefloatConfigurationIdentityRecord,
+        valuesJson: String,
+    ): Boolean {
+        if (name.isEmpty() || name.toByteArray().size > 128 || (description?.toByteArray()?.size ?: 0) > 1_024 ||
+            !validRefloatIdentity(identity) || valuesJson.toByteArray().size !in 2..(48 * 1_024)
+        ) return false
+        val values = runCatching { JSONObject(valuesJson) }.getOrNull() ?: return false
+        return values.length() in 1..512
     }
 
     @Synchronized

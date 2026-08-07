@@ -1,5 +1,5 @@
 public enum LogSchema {
-  public static let storageVersion = "10"
+  public static let storageVersion = "11"
 }
 
 public enum StorageLevel: String, Sendable {

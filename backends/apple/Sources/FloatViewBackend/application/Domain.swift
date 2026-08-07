@@ -413,6 +413,10 @@ public struct FirmwareRecord: Sendable, Codable, Equatable {
   public let canID: UInt8?
   /// Private controller identity. Never serialize this into API or log payloads.
   public let controllerUUID: Data?
+  /// Private controller capability. Never serialize into API or log payloads.
+  public let customConfigurationCount: UInt8
+  /// Private cache hint. Never serialize into API or use alone for compatibility.
+  public let hardwareConfigurationCRC: UInt32?
 
   public init(
     major: UInt8,
@@ -422,7 +426,9 @@ public struct FirmwareRecord: Sendable, Codable, Equatable {
     firmwareName: String?,
     hardwareType: UInt8 = 0,
     canID: UInt8? = nil,
-    controllerUUID: Data? = nil
+    controllerUUID: Data? = nil,
+    customConfigurationCount: UInt8 = 0,
+    hardwareConfigurationCRC: UInt32? = nil
   ) {
     self.major = major
     self.minor = minor
@@ -432,6 +438,8 @@ public struct FirmwareRecord: Sendable, Codable, Equatable {
     self.hardwareType = hardwareType
     self.canID = canID
     self.controllerUUID = controllerUUID
+    self.customConfigurationCount = customConfigurationCount
+    self.hardwareConfigurationCRC = hardwareConfigurationCRC
   }
 }
 
@@ -444,6 +452,7 @@ public enum VescProtocolMessage: Sendable, Equatable {
   case refloatTelemetryLayout(fields: [String], runtimeFields: [String])
   case refloatTelemetry(RefloatTelemetryRecord)
   case refloatLighting(command: RefloatCommand, state: RefloatLightingState)
+  case customConfiguration(VescCustomConfigurationResponse)
 }
 
 public struct RefloatTelemetryRecord: Sendable, Equatable {
@@ -1411,6 +1420,39 @@ public enum ProductStoreError: Error, Equatable {
   case settingsRevisionConflict(currentRevision: Int)
   case invalidSettingsPatch
   case savedDeviceActive
+  case refloatConfigurationNotFound
+  case refloatConfigurationRevisionConflict(currentRevision: Int)
+  case invalidRefloatConfiguration
+}
+
+public struct RefloatConfigurationIdentityRecord: Equatable, Sendable {
+  public let packageName: String
+  public let packageVersion: String
+  public let schemaFingerprint: String
+  public let wireSignature: UInt32
+
+  public init(packageName: String, packageVersion: String, schemaFingerprint: String, wireSignature: UInt32) {
+    self.packageName = packageName
+    self.packageVersion = packageVersion
+    self.schemaFingerprint = schemaFingerprint
+    self.wireSignature = wireSignature
+  }
+}
+
+public struct RefloatConfigurationRecord: Equatable, Sendable {
+  public let configurationID: String
+  public let revision: Int
+  public let name: String
+  public let description: String?
+  public let identity: RefloatConfigurationIdentityRecord
+  public let valuesJSON: String
+  public let createdAt: Date
+  public let updatedAt: Date
+}
+
+public struct RefloatConfigurationListPage: Equatable, Sendable {
+  public let items: [RefloatConfigurationRecord]
+  public let nextCursor: String?
 }
 
 public enum BluetoothEvent: Sendable {
@@ -1448,6 +1490,9 @@ public protocol VescProtocolPort: AnyObject, Sendable {
   func refloatTelemetryRequest(route: ControllerRoute) throws -> Data
   func refloatLegacyTelemetryRequest(route: ControllerRoute) throws -> Data
   func refloatCompactTelemetryRequest(route: ControllerRoute) throws -> Data
+  func customConfigurationSchemaRequest(route: ControllerRoute, length: Int, offset: Int) throws -> Data
+  func customConfigurationValuesRequest(route: ControllerRoute, defaults: Bool) throws -> Data
+  func customConfigurationWriteRequest(route: ControllerRoute, values: Data) throws -> Data
   func bmsValuesRequest(connection: BmsConnection) throws -> Data
   func receive(_ bytes: Data) throws -> [VescProtocolMessage]
 }
@@ -1475,6 +1520,20 @@ public extension VescProtocolPort {
 
   func refloatCompactTelemetryRequest(route: ControllerRoute) throws -> Data {
     try refloatLegacyTelemetryRequest(route: route)
+  }
+
+  func customConfigurationSchemaRequest(route _: ControllerRoute, length _: Int, offset _: Int) throws -> Data {
+    throw VescProtocolError.unsupportedCommand(VescCommand.getCustomConfigurationXML.rawValue)
+  }
+
+  func customConfigurationValuesRequest(route _: ControllerRoute, defaults: Bool) throws -> Data {
+    throw VescProtocolError.unsupportedCommand(
+      defaults ? VescCommand.getCustomConfigurationDefault.rawValue : VescCommand.getCustomConfiguration.rawValue
+    )
+  }
+
+  func customConfigurationWriteRequest(route _: ControllerRoute, values _: Data) throws -> Data {
+    throw VescProtocolError.unsupportedCommand(VescCommand.setCustomConfiguration.rawValue)
   }
 }
 
@@ -1567,7 +1626,7 @@ public extension LogStorePort {
   func appendLocations(jobID _: JobID, observations _: [LocationObservation]) throws {}
 }
 
-public protocol ProductStorePort: AnyObject, Sendable {
+public protocol ProductStorePort: AnyObject, Sendable, RefloatSchemaCachePort {
   func ensureSavedDevice(
     deviceID: DeviceID,
     advertisedName: String?,
@@ -1613,9 +1672,50 @@ public protocol ProductStorePort: AnyObject, Sendable {
     expectedRevision: Int,
     patchJSON: String
   ) throws -> SettingsRecord
+  func refloatConfigurations(
+    identity: RefloatConfigurationIdentityRecord, limit: Int, cursor: String?
+  ) throws -> RefloatConfigurationListPage
+  func refloatConfiguration(configurationID: String) throws -> RefloatConfigurationRecord
+  func createRefloatConfiguration(
+    name: String, description: String?, identity: RefloatConfigurationIdentityRecord,
+    valuesJSON: String, at: Date
+  ) throws -> RefloatConfigurationRecord
+  func updateRefloatConfiguration(
+    configurationID: String, expectedRevision: Int, name: String,
+    description: String?, valuesJSON: String, at: Date
+  ) throws -> RefloatConfigurationRecord
+  func deleteRefloatConfiguration(configurationID: String, expectedRevision: Int) throws
 }
 
 public extension ProductStorePort {
+  func refloatConfigurations(
+    identity _: RefloatConfigurationIdentityRecord, limit _: Int, cursor _: String?
+  ) throws -> RefloatConfigurationListPage {
+    throw ProductStoreError.invalidRefloatConfiguration
+  }
+
+  func refloatConfiguration(configurationID _: String) throws -> RefloatConfigurationRecord {
+    throw ProductStoreError.refloatConfigurationNotFound
+  }
+
+  func createRefloatConfiguration(
+    name _: String, description _: String?, identity _: RefloatConfigurationIdentityRecord,
+    valuesJSON _: String, at _: Date
+  ) throws -> RefloatConfigurationRecord {
+    throw ProductStoreError.invalidRefloatConfiguration
+  }
+
+  func updateRefloatConfiguration(
+    configurationID _: String, expectedRevision _: Int, name _: String,
+    description _: String?, valuesJSON _: String, at _: Date
+  ) throws -> RefloatConfigurationRecord {
+    throw ProductStoreError.invalidRefloatConfiguration
+  }
+
+  func deleteRefloatConfiguration(configurationID _: String, expectedRevision _: Int) throws {
+    throw ProductStoreError.refloatConfigurationNotFound
+  }
+
   func ensureSavedDevice(
     deviceID _: DeviceID,
     advertisedName _: String?,

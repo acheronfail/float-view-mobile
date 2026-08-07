@@ -310,6 +310,7 @@ describe('BackendState', () => {
           fatalErrorClearable: true,
           pendingAction: null,
         },
+        refloatConfiguration: null,
         controllerActions: { shutdownAvailable: true, pendingAction: null },
         activeSession: null,
         latestSample: null,

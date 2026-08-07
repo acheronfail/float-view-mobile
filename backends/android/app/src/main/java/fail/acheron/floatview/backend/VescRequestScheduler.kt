@@ -46,6 +46,18 @@ sealed interface VescRequestContext {
     data class CurrentLimits(override val route: VescRequestRoute) : VescRequestContext
     data class AuxiliaryFirmware(override val route: VescRequestRoute) : VescRequestContext
     data class BmsValues(override val route: VescRequestRoute) : VescRequestContext
+    data class RefloatConfigurationSchema(
+        override val route: VescRequestRoute, val index: Int, val offset: Int, val operation: Long,
+    ) : VescRequestContext
+    data class RefloatConfigurationValues(
+        override val route: VescRequestRoute, val index: Int, val defaults: Boolean, val operation: Long,
+    ) : VescRequestContext
+    data class RefloatConfigurationWrite(
+        override val route: VescRequestRoute, val index: Int, val operation: Long,
+    ) : VescRequestContext
+    data class RefloatConfigurationVerification(
+        override val route: VescRequestRoute, val index: Int, val operation: Long,
+    ) : VescRequestContext
 }
 
 @JvmInline
@@ -198,14 +210,21 @@ class VescRequestScheduler(
         pump()
     }
 
-    fun receive(payload: ByteArray, command: Int, refloatCommand: Int? = null): Boolean {
+    fun receive(
+        payload: ByteArray,
+        command: Int,
+        refloatCommand: Int? = null,
+        validContext: (VescRequestContext) -> Boolean = { true },
+        deferNext: Boolean = false,
+    ): Boolean {
         val completed = synchronized(this) {
             val current = inFlight
             if (
                 current == null ||
                 current.request.generation != generation ||
                 current.request.expectedResponse.command != command ||
-                current.request.expectedResponse.refloatCommand != refloatCommand
+                current.request.expectedResponse.refloatCommand != refloatCommand ||
+                !validContext(current.request.context)
             ) {
                 null
             } else {
@@ -220,8 +239,29 @@ class VescRequestScheduler(
             return false
         }
         completed.completion(completed.request, VescRequestCompletion.Response(payload.copyOf()))
-        pump()
+        if (!deferNext) pump()
         return true
+    }
+
+    fun resume() = pump()
+
+    fun cancelMatching(
+        predicate: (VescRequestContext) -> Boolean,
+        resume: Boolean = true,
+    ) {
+        val cancelled = synchronized(this) {
+            val values = queue.filter { predicate(it.request.context) }.toMutableList()
+            queue.removeAll { predicate(it.request.context) }
+            inFlight?.takeIf { predicate(it.request.context) }?.let {
+                deadlineTimer?.cancel()
+                deadlineTimer = null
+                inFlight = null
+                values += it
+            }
+            values
+        }
+        cancelled.forEach { it.completion(it.request, VescRequestCompletion.Cancelled) }
+        if (resume) pump()
     }
 
     fun cancel(cancelledGeneration: VescRequestGeneration) {

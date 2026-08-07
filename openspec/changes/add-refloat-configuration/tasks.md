@@ -7,89 +7,89 @@
 
 ## 2. Immutable schemas and protocol vectors
 
-- [ ] 2.1 Extract exact source-derived compressed ConfigParams schemas for Refloat 1.0.0–1.0.1, 1.1.0–1.1.2, and 1.2.0–1.2.3 into bounded immutable backend fixtures with tag, source path, and provenance metadata.
-- [ ] 2.2 Generate and review canonical normalized-schema expectations, SHA-256 full-schema fingerprints, VESC Tool-compatible CRC32C wire signatures, defaults, representative current values, serialized payloads, and accepted writes for every audited release.
-- [ ] 2.3 Add adversarial fixtures for Qt envelope/decompression failure, expansion excess, DTD/entity input, excessive nesting/counts/strings, duplicate fields/order, invalid references/types/encodings/numbers, unaudited fingerprints, truncation, signature mismatch, and remainder bytes.
-- [ ] 2.4 Add command 92–95 direct and CAN route vectors for schema chunks, current/default values, valid writes, acknowledgements, wrong index/offset/route, rejection, normalization, matching/mismatching readback, flywheel-time command-93 withholding, and fresh normal-mode read after flywheel exit.
-- [ ] 2.5 Prove fixtures distinguish Refloat 1.0.0 from 1.0.1 by full-schema fingerprint even when INFO and wire signature collide, and prove later patch identities match their reported version and audited fingerprint.
+- [x] 2.1 Extract exact source-derived compressed ConfigParams schemas for Refloat 1.0.0–1.0.1, 1.1.0–1.1.2, and 1.2.0–1.2.3 into bounded immutable backend fixtures with tag, source path, and provenance metadata.
+- [x] 2.2 Generate and review canonical normalized-schema expectations, SHA-256 full-schema fingerprints, VESC Tool-compatible CRC32C wire signatures, defaults, representative current values, serialized payloads, and accepted writes for every audited release.
+- [x] 2.3 Add adversarial fixtures for Qt envelope/decompression failure, expansion excess, DTD/entity input, excessive nesting/counts/strings, duplicate fields/order, invalid references/types/encodings/numbers, unaudited fingerprints, truncation, signature mismatch, and remainder bytes.
+- [x] 2.4 Add command 92–95 direct and CAN route vectors for schema chunks, current/default values, valid writes, acknowledgements, wrong index/offset/route, rejection, normalization, matching/mismatching readback, flywheel-time command-93 withholding, and fresh normal-mode read after flywheel exit.
+- [x] 2.5 Prove fixtures distinguish Refloat 1.0.0 from 1.0.1 by full-schema fingerprint even when INFO and wire signature collide, and prove later patch identities match their reported version and audited fingerprint.
 
 ## 3. Mirrored native schema and value codecs
 
-- [ ] 3.1 Add matching Swift and Kotlin bounded configuration models for schema identity, groups/subgroups, supported field metadata, typed values, pages, value revisions, operations, and stable codec errors.
-- [ ] 3.2 Implement the Apple bounded Qt `qCompress` envelope/zlib decoder and streaming XML parser using platform facilities, explicit vocabulary/structure limits, DTD/entity rejection, canonical fingerprint input, and sanitized descriptions.
-- [ ] 3.3 Implement the matching Android decoder/parser with identical accepted metadata, normalization, sanitization, bounds, fingerprint input, and error classifications.
-- [ ] 3.4 Implement VESC Tool-compatible CRC32C wire-signature construction and exact supported field wire decoding/encoding in Apple, including complete consumption and finite/range/representability validation.
-- [ ] 3.5 Implement the matching signature and value codec in Android with byte-for-byte equivalent results and failures.
-- [ ] 3.6 Add table-driven Swift and Kotlin tests over every immutable valid/adversarial schema, fingerprint, signature, value, and write vector.
-- [ ] 3.7 Delete any temporary or duplicated schema/version-specific codec path after the generic mirrored implementation passes the shared vectors.
+- [x] 3.1 Add matching Swift and Kotlin bounded configuration models for schema identity, groups/subgroups, supported field metadata, typed values, pages, value revisions, operations, and stable codec errors.
+- [x] 3.2 Implement the Apple bounded Qt `qCompress` envelope/zlib decoder and streaming XML parser using platform facilities, explicit vocabulary/structure limits, DTD/entity rejection, canonical fingerprint input, and sanitized descriptions.
+- [x] 3.3 Implement the matching Android decoder/parser with identical accepted metadata, normalization, sanitization, bounds, fingerprint input, and error classifications.
+- [x] 3.4 Implement VESC Tool-compatible CRC32C wire-signature construction and exact supported field wire decoding/encoding in Apple, including complete consumption and finite/range/representability validation.
+- [x] 3.5 Implement the matching signature and value codec in Android with byte-for-byte equivalent results and failures.
+- [x] 3.6 Add table-driven Swift and Kotlin tests over every immutable valid/adversarial schema, fingerprint, signature, value, and write vector.
+- [x] 3.7 Delete any temporary or duplicated schema/version-specific codec path after the generic mirrored implementation passes the shared vectors.
 
 ## 4. VESC identity, commands, and scheduling
 
-- [ ] 4.1 Extend both firmware identity decoders and private firmware records with bounded custom-config count and nullable hardware-configuration CRC while keeping them out of public identity and compatibility broadening.
-- [ ] 4.2 Add VESC commands 92–95 and matching typed request/response decoders on Apple for exact index, total length, offset, chunk bytes, values payload, and write acknowledgement.
-- [ ] 4.3 Add the corresponding Kotlin commands and decoders with equivalent bounds and errors.
-- [ ] 4.4 Extend the source-faithful firmware identity fixtures/tests for version-applicable custom-config count and CRC tails without weakening existing strict remainder handling.
-- [ ] 4.5 Add typed `VescRequestContext` cases and `VescRequestScheduler.enqueue` transactions at `controllerWork`/`CONTROLLER_WORK` priority for schema chunks, mode-eligible current/default reads, full write, and verification read with exact route, index, offset, operation, deadline, and connection-generation context on both platforms; command 93 must not submit or complete while flywheel mode is authoritative.
-- [ ] 4.6 Verify direct and CAN routing wraps every command exactly once, rejects wrong-route/offset/generation responses, bounds chunk retries/queues, and preserves riding telemetry priority over configuration work.
+- [x] 4.1 Extend both firmware identity decoders and private firmware records with bounded custom-config count and nullable hardware-configuration CRC while keeping them out of public identity and compatibility broadening.
+- [x] 4.2 Add VESC commands 92–95 and matching typed request/response decoders on Apple for exact index, total length, offset, chunk bytes, values payload, and write acknowledgement.
+- [x] 4.3 Add the corresponding Kotlin commands and decoders with equivalent bounds and errors.
+- [x] 4.4 Extend the source-faithful firmware identity fixtures/tests for version-applicable custom-config count and CRC tails without weakening existing strict remainder handling.
+- [x] 4.5 Add typed `VescRequestContext` cases and `VescRequestScheduler.enqueue` transactions at `controllerWork`/`CONTROLLER_WORK` priority for schema chunks, mode-eligible current/default reads, full write, and verification read with exact route, index, offset, operation, deadline, and connection-generation context on both platforms; command 93 must not submit or complete while flywheel mode is authoritative.
+- [x] 4.6 Verify direct and CAN routing wraps every command exactly once, rejects wrong-route/offset/generation responses, bounds chunk retries/queues, and preserves riding telemetry priority over configuration work.
 
 ## 5. Native configuration lifecycle and safety
 
-- [ ] 5.1 Implement the Apple connection-scoped `RefloatConfigurationService` for family discovery, exact audited schema resolution, bounded chunk assembly, progress/availability, current/default revisions, cancellation, and reconnect behavior.
-- [ ] 5.2 Implement the matching Android service with equivalent state transitions, deadlines, diagnostics, and lifecycle behavior.
-- [ ] 5.3 Extend the existing shared native `DeviceMutationCoordinator` on Apple so semantic live controls, full configuration writes, Tune apply, and controller shutdown cannot overlap, all preconditions are rechecked immediately before scheduler submission, and every flywheel-mode mutation except eligible flywheel disable is rejected.
-- [ ] 5.4 Extend the matching existing Android mutation coordinator and remove any superseded per-owner exclusivity or direct write paths.
-- [ ] 5.5 Enforce ready read/write access, exact version/fingerprint/signature, latest normal-mode current base, normal package mode, idle ride state, no engaged footpad, fresh current-generation evidence, and complete validation before command 95 on both platforms; entering flywheel invalidates current state and confirmed exit requires a fresh command-93 read.
-- [ ] 5.6 Implement Apple command-95 acknowledgement followed by mandatory command-93 verification, expected firmware normalization, canonical comparison, mismatch/current-state publication, and indeterminate interruption behavior.
-- [ ] 5.7 Implement the equivalent Android write/readback lifecycle and result/error mapping.
-- [ ] 5.8 Invalidate current configuration values after confirmed semantic actions that affect serialized fields, invalidate them immediately on flywheel entry, withhold flywheel-time command 93, and schedule authoritative semantic refresh after verified full writes without deriving live-control state optimistically from drafts.
-- [ ] 5.9 Add mirrored lifecycle tests for read-only access, riding/footpad/mode rejection, every prohibited flywheel-mode mutation, the sole flywheel-disable exception, flywheel current-read withholding and post-exit refresh, competing operations, stale bases, disconnect phases, route replacement, acknowledgement without persistence, matching/mismatching readback, and recovery.
+- [x] 5.1 Implement the Apple connection-scoped `RefloatConfigurationService` for family discovery, exact audited schema resolution, bounded chunk assembly, progress/availability, current/default revisions, cancellation, and reconnect behavior.
+- [x] 5.2 Implement the matching Android service with equivalent state transitions, deadlines, diagnostics, and lifecycle behavior.
+- [x] 5.3 Extend the existing shared native `DeviceMutationCoordinator` on Apple so semantic live controls, full configuration writes, Tune apply, and controller shutdown cannot overlap, all preconditions are rechecked immediately before scheduler submission, and every flywheel-mode mutation except eligible flywheel disable is rejected.
+- [x] 5.4 Extend the matching existing Android mutation coordinator and remove any superseded per-owner exclusivity or direct write paths.
+- [x] 5.5 Enforce ready read/write access, exact version/fingerprint/signature, latest normal-mode current base, normal package mode, idle ride state, no engaged footpad, fresh current-generation evidence, and complete validation before command 95 on both platforms; entering flywheel invalidates current state and confirmed exit requires a fresh command-93 read.
+- [x] 5.6 Implement Apple command-95 acknowledgement followed by mandatory command-93 verification, expected firmware normalization, canonical comparison, mismatch/current-state publication, and indeterminate interruption behavior.
+- [x] 5.7 Implement the equivalent Android write/readback lifecycle and result/error mapping.
+- [x] 5.8 Invalidate current configuration values after confirmed semantic actions that affect serialized fields, invalidate them immediately on flywheel entry, withhold flywheel-time command 93, and schedule authoritative semantic refresh after verified full writes without deriving live-control state optimistically from drafts.
+- [x] 5.9 Add mirrored lifecycle tests for read-only access, riding/footpad/mode rejection, every prohibited flywheel-mode mutation, the sole flywheel-disable exception, flywheel current-read withholding and post-exit refresh, competing operations, stale bases, disconnect phases, route replacement, acknowledgement without persistence, matching/mismatching readback, and recovery.
 
 ## 6. Contract, loopback, and mock
 
-- [ ] 6.1 Add bounded TypeScript schema identity, field/page, typed value/revision, availability/pending operation, Tune record/page, and request/result shapes with fixed field/string/count/cursor/JSON limits.
-- [ ] 6.2 Add mandatory `refloat.configuration.open/schema/read/write` and `refloat.tune.list/get/create/update/delete/apply` methods to the contract and frontend client without raw XML, command, route, or serialized-byte inputs.
-- [ ] 6.3 Add the small `ActiveConnection.refloatConfiguration` summary to complete authoritative state and validators while keeping schema fields, values, and Tunes request-scoped.
-- [ ] 6.4 Implement strict Apple loopback parsing, validation, serialization, one-terminal-result behavior, and stable error mapping for every new method.
-- [ ] 6.5 Implement matching Android loopback handling with identical bounds and semantics.
-- [ ] 6.6 Extend the mock backend with deterministic paged schemas, current/default values, flywheel invalidation and write exclusion, safety/readback outcomes, Tunes persistence, reconnect/version changes, and authoritative summary revisions.
-- [ ] 6.7 Add contract/mock tests for page cursors, encoded-size bounds, malformed typed maps, stale version/fingerprint/signature/base, operation contention, flywheel-time current/write/apply rejection and post-exit refresh, slow frontend snapshots, and every terminal error.
+- [x] 6.1 Add bounded TypeScript schema identity, field/page, typed value/revision, availability/pending operation, Tune record/page, and request/result shapes with fixed field/string/count/cursor/JSON limits.
+- [x] 6.2 Add mandatory `refloat.configuration.open/schema/read/write` and `refloat.tune.list/get/create/update/delete/apply` methods to the contract and frontend client without raw XML, command, route, or serialized-byte inputs.
+- [x] 6.3 Add the small `ActiveConnection.refloatConfiguration` summary to complete authoritative state and validators while keeping schema fields, values, and Tunes request-scoped.
+- [x] 6.4 Implement strict Apple loopback parsing, validation, serialization, one-terminal-result behavior, and stable error mapping for every new method.
+- [x] 6.5 Implement matching Android loopback handling with identical bounds and semantics.
+- [x] 6.6 Extend the mock backend with deterministic paged schemas, current/default values, flywheel invalidation and write exclusion, safety/readback outcomes, Tunes persistence, reconnect/version changes, and authoritative summary revisions.
+- [x] 6.7 Add contract/mock tests for page cursors, encoded-size bounds, malformed typed maps, stale version/fingerprint/signature/base, operation contention, flywheel-time current/write/apply rejection and post-exit refresh, slow frontend snapshots, and every terminal error.
 
 ## 7. Exact-version native persistence and cache
 
-- [ ] 7.1 Add canonical SQL for bounded application-wide `refloat_configuration` records with revisions, names/descriptions, exact package version, schema fingerprint, wire signature, values JSON, timestamps, checks, and useful exact-match indexes.
-- [ ] 7.2 Reconcile the current Apple `10` and Android `9` disposable storage markers to one shared next version and update SQL/schema fixtures so incompatible test databases are recreated rather than migrated.
-- [ ] 7.3 Implement Apple create/get/paged-list/update/delete operations with transactions, bounded JSON validation, optimistic revision conflicts, deterministic ordering/cursors, exact compatibility filtering, and rejection of stale or flywheel-temporary device-current sources.
-- [ ] 7.4 Implement matching Android persistence and query behavior, including the same normal-mode current-source requirement.
-- [ ] 7.5 Implement bounded Apple schema cache storage keyed by audited connection identity/custom index/nonzero hardware CRC with digest revalidation, corruption deletion, and fetch fallback.
-- [ ] 7.6 Implement the equivalent Android cache behavior and ensure cache identity is never exposed publicly or used alone as write authority.
-- [ ] 7.7 Add native storage tests for limits, pagination, conflicts, exact 1.0 patch isolation, later patch isolation, app restart, delete, cache hit/miss/change/corruption, and schema-version recreation.
+- [x] 7.1 Add canonical SQL for bounded application-wide `refloat_configuration` records with revisions, names/descriptions, exact package version, schema fingerprint, wire signature, values JSON, timestamps, checks, and useful exact-match indexes.
+- [x] 7.2 Reconcile the current Apple `10` and Android `9` disposable storage markers to one shared next version and update SQL/schema fixtures so incompatible test databases are recreated rather than migrated.
+- [x] 7.3 Implement Apple create/get/paged-list/update/delete operations with transactions, bounded JSON validation, optimistic revision conflicts, deterministic ordering/cursors, exact compatibility filtering, and rejection of stale or flywheel-temporary device-current sources.
+- [x] 7.4 Implement matching Android persistence and query behavior, including the same normal-mode current-source requirement.
+- [x] 7.5 Implement bounded Apple schema cache storage keyed by audited connection identity/custom index/nonzero hardware CRC with digest revalidation, corruption deletion, and fetch fallback.
+- [x] 7.6 Implement the equivalent Android cache behavior and ensure cache identity is never exposed publicly or used alone as write authority.
+- [x] 7.7 Add native storage tests for limits, pagination, conflicts, exact 1.0 patch isolation, later patch isolation, app restart, delete, cache hit/miss/change/corruption, and schema-version recreation.
 
 ## 8. Generated frontend editor and Tunes
 
-- [ ] 8.1 Add a connection-owned Refloat configuration controller that opens native state, loads deterministic schema pages and current/default values, tracks source/dirty/validation state, and invalidates stale drafts across reconnect or identity change.
-- [ ] 8.2 Build reusable generated field rendering for supported double, integer, enum, boolean, string, and bitfield metadata with native form semantics, schema bounds, steps, precision, suffixes, choices, and sanitized help.
-- [ ] 8.3 Build the full-height responsive Configure Refloat surface with subgroup navigation, search, loading/error/progress states, dirty count, read-current/read-default actions, unsaved-change handling, focus restoration, and explicit persistent-startup-default labels for lighting fields distinct from live runtime lighting.
-- [ ] 8.4 Add bounded current-versus-draft diff presentation and explicit persistent-write confirmation that issues exactly one complete version/fingerprint/signature/base-revision request.
-- [ ] 8.5 Add `Configure Refloat` to the `/live` menu with capability/read-only/reconnect/flywheel states, withholding current/edit/save/write/apply actions during flywheel until a fresh post-exit current read, and the established primary-pointer plus guarded keyboard/assistive activation behavior.
-- [ ] 8.6 Build the Tunes surface for exact-compatible application-wide records, including create from complete draft/current, bounded rename/description, paged list, diff, delete confirmation, revision conflict recovery, and verified apply.
-- [ ] 8.7 Add `Tunes…` to the `/live` menu and explanatory copy that records are complete configurations, not upstream QML curated/migrating Tunes.
-- [ ] 8.8 Add frontend tests for every generated field type, bounds/formatting/search/grouping, default-versus-current source, runtime-versus-persistent lighting labels, dirty and stale state, flywheel entry/exit gating, diff/confirm, read-only/safety gating, Tunes/version filtering/conflicts, reconnect/WebView recovery, non-primary activation, cancellation, keyboard use, and no double activation.
+- [x] 8.1 Add a connection-owned Refloat configuration controller that opens native state, loads deterministic schema pages and current/default values, tracks source/dirty/validation state, and invalidates stale drafts across reconnect or identity change.
+- [x] 8.2 Build reusable generated field rendering for supported double, integer, enum, boolean, string, and bitfield metadata with native form semantics, schema bounds, steps, precision, suffixes, choices, and sanitized help.
+- [x] 8.3 Build the full-height responsive Configure Refloat surface with subgroup navigation, search, loading/error/progress states, dirty count, read-current/read-default actions, unsaved-change handling, focus restoration, and explicit persistent-startup-default labels for lighting fields distinct from live runtime lighting.
+- [x] 8.4 Add bounded current-versus-draft diff presentation and explicit persistent-write confirmation that issues exactly one complete version/fingerprint/signature/base-revision request.
+- [x] 8.5 Add `Configure Refloat` to the `/live` menu with capability/read-only/reconnect/flywheel states, withholding current/edit/save/write/apply actions during flywheel until a fresh post-exit current read, and the established primary-pointer plus guarded keyboard/assistive activation behavior.
+- [x] 8.6 Build the Tunes surface for exact-compatible application-wide records, including create from complete draft/current, bounded rename/description, paged list, diff, delete confirmation, revision conflict recovery, and verified apply.
+- [x] 8.7 Add `Tunes…` to the `/live` menu and explanatory copy that records are complete configurations, not upstream QML curated/migrating Tunes.
+- [x] 8.8 Add frontend tests for every generated field type, bounds/formatting/search/grouping, default-versus-current source, runtime-versus-persistent lighting labels, dirty and stale state, flywheel entry/exit gating, diff/confirm, read-only/safety gating, Tunes/version filtering/conflicts, reconnect/WebView recovery, non-primary activation, cancellation, keyboard use, and no double activation.
 
 ## 9. Fixture and canonical conformance
 
-- [ ] 9.1 Extend the conformance semantic Refloat model with exact versioned schema/default/current configuration state, expected normalization, bounded counters, and reset behavior without duplicating nine board profiles.
-- [ ] 9.2 Implement source-correct commands 92–95 in the software and ESP32-backed fixture paths for direct and CAN routes, exact chunks, complete signed values, accepted disposable writes, and later readback.
-- [ ] 9.3 Preserve strict rejection for test firmware, unknown index, unsafe state, every flywheel-mode mutation except eligible flywheel disable, flywheel-time command-93 current reads, invalid signature/value, arbitrary app-data tuning, firmware/motor configuration, motor/remote/Handtest, recording/history, malformed, and unknown commands.
-- [ ] 9.4 Extend the interactive fixture UI/state with observable configuration identity, operation counters, safe reset, and diagnostics while keeping scenario interpretation in conformance and all motor actuation impossible.
-- [ ] 9.5 Add canonical mock/Apple/Android scenarios for every contract method and summary transition across all exact stable releases, direct/CAN, saved/guest, current/default, paging, caching, semantic-control contention and convergence, runtime-versus-persistent lighting, flywheel mutation/current-read exclusion and post-exit refresh, reconnect, and frontend recreation.
-- [ ] 9.6 Add canonical adversarial schema/value/bound/route/generation/scheduler/write/readback matrices and assert equivalent errors, bytes, revisions, and absence of partial state across native targets.
-- [ ] 9.7 Add exact-version Tune persistence/conformance scenarios including the Refloat 1.0 INFO ambiguity and identical wire-signature collision.
-- [ ] 9.8 Add the explicit physical direct/CAN configuration checkpoint that captures current values, reads defaults, changes one fixture-safe non-actuating field, restores the full original configuration, and fails if restoration is not verified.
+- [x] 9.1 Extend the conformance semantic Refloat model with exact versioned schema/default/current configuration state, expected normalization, bounded counters, and reset behavior without duplicating nine board profiles.
+- [x] 9.2 Implement source-correct commands 92–95 in the software and ESP32-backed fixture paths for direct and CAN routes, exact chunks, complete signed values, accepted disposable writes, and later readback.
+- [x] 9.3 Preserve strict rejection for test firmware, unknown index, unsafe state, every flywheel-mode mutation except eligible flywheel disable, flywheel-time command-93 current reads, invalid signature/value, arbitrary app-data tuning, firmware/motor configuration, motor/remote/Handtest, recording/history, malformed, and unknown commands.
+- [x] 9.4 Extend the interactive fixture UI/state with observable configuration identity, operation counters, safe reset, and diagnostics while keeping scenario interpretation in conformance and all motor actuation impossible.
+- [x] 9.5 Add canonical mock/Apple/Android scenarios for every contract method and summary transition across all exact stable releases, direct/CAN, saved/guest, current/default, paging, caching, semantic-control contention and convergence, runtime-versus-persistent lighting, flywheel mutation/current-read exclusion and post-exit refresh, reconnect, and frontend recreation.
+- [x] 9.6 Add canonical adversarial schema/value/bound/route/generation/scheduler/write/readback matrices and assert equivalent errors, bytes, revisions, and absence of partial state across native targets.
+- [x] 9.7 Add exact-version Tune persistence/conformance scenarios including the Refloat 1.0 INFO ambiguity and identical wire-signature collision.
+- [x] 9.8 Add the explicit physical direct/CAN configuration checkpoint that captures current values, reads defaults, changes one fixture-safe non-actuating field, restores the full original configuration, and fails if restoration is not verified.
 
 ## 10. Documentation and verification
 
-- [ ] 10.1 Update frontend/native/conformance ownership documentation with configuration schema/value flow, trust boundaries, the single mutation coordinator, flywheel write/current-read exclusion, shared-field convergence, runtime-versus-persistent lighting, cache/persistence locations, exact-version policy, and write/readback failure semantics.
-- [ ] 10.2 Update vendor provenance documentation and fixture-generation instructions so audited schemas/fingerprints/signatures can be refreshed deliberately for a newly supported release.
-- [ ] 10.3 Run focused frontend unit/type checks, Swift tests, Android unit/instrumented storage tests, conformance tests, fixture builds/tests, and OpenSpec strict validation; fix all failures.
-- [ ] 10.4 Run `just verify` as the complete software gate and record the explicit physical BLE checkpoint separately where required.
-- [ ] 10.5 Review for raw schema/value/private-identity logging, unbounded collections/messages/retries/cache/files, duplicate scheduler/mutation paths, platform-specific frontend branches, and superseded blanket rejection code; remove any violations before completion.
+- [x] 10.1 Update frontend/native/conformance ownership documentation with configuration schema/value flow, trust boundaries, the single mutation coordinator, flywheel write/current-read exclusion, shared-field convergence, runtime-versus-persistent lighting, cache/persistence locations, exact-version policy, and write/readback failure semantics.
+- [x] 10.2 Update vendor provenance documentation and fixture-generation instructions so audited schemas/fingerprints/signatures can be refreshed deliberately for a newly supported release.
+- [x] 10.3 Run focused frontend unit/type checks, Swift tests, Android unit/instrumented storage tests, conformance tests, fixture builds/tests, and OpenSpec strict validation; fix all failures.
+- [x] 10.4 Run `just verify` as the complete software gate and record the explicit physical BLE checkpoint separately where required.
+- [x] 10.5 Review for raw schema/value/private-identity logging, unbounded collections/messages/retries/cache/files, duplicate scheduler/mutation paths, platform-specific frontend branches, and superseded blanket rejection code; remove any violations before completion.

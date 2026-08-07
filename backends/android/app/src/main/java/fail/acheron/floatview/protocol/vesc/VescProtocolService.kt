@@ -19,6 +19,7 @@ import fail.acheron.floatview.protocol.refloat.RefloatLightingState
 import fail.acheron.floatview.protocol.vesc.ControllerRoute
 import fail.acheron.floatview.protocol.vesc.VescCommand
 import fail.acheron.floatview.protocol.vesc.VescCommandRouter
+import fail.acheron.floatview.protocol.vesc.VescCustomConfigurationCodec
 import fail.acheron.floatview.protocol.vesc.VescFirmwareIdentityDecoder
 import java.nio.ByteBuffer
 import java.nio.charset.CharacterCodingException
@@ -33,6 +34,8 @@ data class FirmwareInfo(
     val hardwareType: Int = 0,
     val controllerUuid: ByteArray? = null,
     val testVersion: Int = 0,
+    val customConfigurationCount: Int = 0,
+    val hardwareConfigurationCrc: Long? = null,
 ) {
     override fun equals(other: Any?): Boolean =
         other is FirmwareInfo &&
@@ -42,6 +45,8 @@ data class FirmwareInfo(
             hardwareName == other.hardwareName &&
             firmwareName == other.firmwareName &&
             hardwareType == other.hardwareType &&
+            customConfigurationCount == other.customConfigurationCount &&
+            hardwareConfigurationCrc == other.hardwareConfigurationCrc &&
             (
                 controllerUuid == null && other.controllerUuid == null ||
                     controllerUuid != null &&
@@ -56,6 +61,8 @@ data class FirmwareInfo(
         result = 31 * result + hardwareName.hashCode()
         result = 31 * result + (firmwareName?.hashCode() ?: 0)
         result = 31 * result + hardwareType
+        result = 31 * result + customConfigurationCount
+        result = 31 * result + (hardwareConfigurationCrc?.hashCode() ?: 0)
         result = 31 * result + (controllerUuid?.contentHashCode() ?: 0)
         return result
     }
@@ -394,6 +401,15 @@ class VescProtocolService : VescProtocolPort {
         )
     }
 
+    override fun customConfigurationSchemaRequest(route: ControllerRoute, length: Int, offset: Int): ByteArray =
+        VescFrameCodec.encode(VescCommandRouter.route(VescCustomConfigurationCodec.schemaRequest(length = length, offset = offset), route))
+
+    override fun customConfigurationValuesRequest(route: ControllerRoute, defaults: Boolean): ByteArray =
+        VescFrameCodec.encode(VescCommandRouter.route(VescCustomConfigurationCodec.valuesRequest(defaults = defaults), route))
+
+    override fun customConfigurationWriteRequest(route: ControllerRoute, values: ByteArray): ByteArray =
+        VescFrameCodec.encode(VescCommandRouter.route(VescCustomConfigurationCodec.writeRequest(values = values), route))
+
     fun refloatPackageControlRequest(route: ControllerRoute, enabled: Boolean): ByteArray =
         routedRefloatControl(RefloatControlCodec.packageRequest(enabled), route)
 
@@ -443,6 +459,8 @@ class VescProtocolService : VescProtocolPort {
                             null,
                             info.controllerUuid,
                             info.testVersion,
+                            info.customConfigurationCount,
+                            info.hardwareConfigurationCrc,
                         ),
                     )
                 }
@@ -452,6 +470,11 @@ class VescProtocolService : VescProtocolPort {
                     payload.drop(1).map { it.toInt() and 0xff }.distinct().sorted(),
                 )
                 VescCommand.BMS_GET_VALUES.id -> VescProtocolMessage.BmsValuesPayload(payload)
+                VescCommand.GET_CUSTOM_CONFIGURATION_XML.id,
+                VescCommand.GET_CUSTOM_CONFIGURATION.id,
+                VescCommand.GET_CUSTOM_CONFIGURATION_DEFAULT.id,
+                VescCommand.SET_CUSTOM_CONFIGURATION.id ->
+                    VescProtocolMessage.CustomConfiguration(VescCustomConfigurationCodec.decode(payload))
                 VescCommand.CUSTOM_APP_DATA.id -> {
                     val command = RefloatWire.command(payload) ?: return@mapNotNull null
                     if (

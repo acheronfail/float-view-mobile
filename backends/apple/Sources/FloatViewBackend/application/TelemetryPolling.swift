@@ -124,6 +124,10 @@ final class TelemetryPolling: @unchecked Sendable {
     }
   }
 
+  func refresh() {
+    requestSample()
+  }
+
   func receive(_ value: RefloatTelemetryRecord) {
     lock.withLock {
       guard active, responseMatchesPending(value) else { return }

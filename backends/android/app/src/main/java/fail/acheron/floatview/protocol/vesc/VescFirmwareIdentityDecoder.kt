@@ -21,14 +21,15 @@ object VescFirmwareIdentityDecoder {
         val commonEnd = uuidStart + 16
         if (commonEnd > payload.size) throw VescProtocolException.TruncatedPayload
         val hardwareType = payload[uuidStart + 14].toInt() and 0xff
-        val firmwareName = when (hardwareType) {
+        val customConfigurationCount = payload[uuidStart + 15].toInt() and 0xff
+        val extended = when (hardwareType) {
             BMS_HARDWARE_TYPE -> {
                 if (
                     (payload[1].toInt() and 0xff) != 6 ||
                     (payload[2].toInt() and 0xff) != 0 ||
                     payload.size != commonEnd
                 ) throw VescProtocolException.TruncatedPayload
-                null
+                null to null
             }
             MOTOR_HARDWARE_TYPE -> extendedFirmwareName(payload, commonEnd)
             else -> extendedFirmwareName(payload, commonEnd)
@@ -37,20 +38,27 @@ object VescFirmwareIdentityDecoder {
             payload[1].toInt() and 0xff,
             payload[2].toInt() and 0xff,
             hardwareNameBytes.decodeToString(),
-            firmwareName,
+            extended.first,
             hardwareType,
             payload.copyOfRange(uuidStart, uuidStart + 12),
             payload[uuidStart + 13].toInt() and 0xff,
+            customConfigurationCount,
+            extended.second,
         )
     }
 
-    private fun extendedFirmwareName(payload: ByteArray, commonEnd: Int): String? {
+    private fun extendedFirmwareName(payload: ByteArray, commonEnd: Int): Pair<String?, Long?> {
         val start = commonEnd + 4
         if (start >= payload.size) throw VescProtocolException.TruncatedPayload
         val bytes = terminatedBytes(payload, start, 64)
         val tailLength = payload.size - (start + bytes.size + 1)
         if (tailLength != 0 && tailLength != 4) throw VescProtocolException.TruncatedPayload
-        return bytes.decodeToString().ifEmpty { null }
+        val crc = if (tailLength == 4) {
+            var value = 0L
+            for (index in payload.size - 4 until payload.size) value = (value shl 8) or (payload[index].toLong() and 0xff)
+            value
+        } else null
+        return bytes.decodeToString().ifEmpty { null } to crc
     }
 
     private fun terminatedBytes(payload: ByteArray, start: Int, maximum: Int): ByteArray {

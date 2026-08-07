@@ -64,3 +64,21 @@ support from a hardware name. Its destructive confirmation warns that some
 controllers safely ignore software shutdown. The result means only that the
 one-way request was accepted for transmission, not that controller power-off
 was observed.
+
+## Refloat configuration and Tunes
+
+`features/connection/` owns the generated editor and its connection-scoped
+controller. The frontend receives only normalized, paged schema fields and
+typed values through `backend/contract.ts`; raw XML, VESC commands, routes,
+private firmware identity, and serialized configuration bytes never cross the
+loopback boundary. Drafts are complete configurations tied to package version,
+full-schema fingerprint, wire signature, value revision, and connection
+generation. Reconnect or any identity change invalidates them.
+
+Native code remains authoritative for schema audit, safety, serialization,
+write acknowledgement, and mandatory readback. Flywheel entry immediately
+invalidates current values and hides current/edit/write/apply actions; confirmed
+normal-mode return requires a fresh current read. Runtime LED/headlight controls
+remain live-only and distinct from similarly named persistent startup defaults
+in the editor. Tunes are application-wide complete configurations filtered by
+exact identity, not upstream QML curated or migrating presets.

@@ -87,6 +87,48 @@ import Testing
   #expect(harness.subject.inFlightRequest?.payload == Data([31]))
 }
 
+@Test func schedulerKeepsConfigurationInFlightUntilItsTypedContextMatches() {
+  let harness = SchedulerHarness()
+  let generation = harness.subject.beginGeneration()
+  harness.enqueue(
+    92, priority: .controllerWork,
+    context: .refloatConfigurationSchema(route: .can(42), index: 0, offset: 400, operation: 7),
+    generation: generation
+  )
+  harness.enqueue(
+    31, priority: .ridingTelemetry, context: .refloatTelemetry(.can(42)), generation: generation
+  )
+
+  #expect(!harness.subject.receive(payload: Data([92]), command: 1) { context in
+    context == .refloatConfigurationSchema(route: .can(42), index: 0, offset: 0, operation: 7)
+  })
+  #expect(harness.writes == [92])
+  #expect(harness.subject.receive(payload: Data([92]), command: 1) { context in
+    context == .refloatConfigurationSchema(route: .can(42), index: 0, offset: 400, operation: 7)
+  })
+  #expect(harness.writes == [92, 31])
+}
+
+@Test func schedulerCanProcessFlywheelTelemetryBeforeAdvancingQueuedConfiguration() {
+  let harness = SchedulerHarness()
+  let generation = harness.subject.beginGeneration()
+  harness.enqueue(31, priority: .ridingTelemetry, context: .refloatTelemetry(.direct), generation: generation)
+  harness.enqueue(
+    93, priority: .controllerWork,
+    context: .refloatConfigurationValues(route: .direct, index: 0, defaults: false, operation: 4),
+    generation: generation
+  )
+  #expect(harness.subject.receive(payload: Data([31]), command: 1, deferNext: true))
+  #expect(harness.writes == [31])
+  harness.subject.cancelMatching({
+    if case let .refloatConfigurationValues(_, _, defaults, _) = $0 { return !defaults }
+    return false
+  }, resume: false)
+  harness.subject.resume()
+  #expect(harness.writes == [31])
+  #expect(harness.completions.map(\.1) == [.response(Data([31])), .cancelled])
+}
+
 private final class SchedulerHarness: @unchecked Sendable {
   let clock = SchedulerTestClock()
   let timers = SchedulerTestTimers()

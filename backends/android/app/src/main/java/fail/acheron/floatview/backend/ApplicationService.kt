@@ -7,14 +7,17 @@ import fail.acheron.floatview.protocol.refloat.RefloatCompatibility
 import fail.acheron.floatview.protocol.refloat.RefloatControlCodec
 import fail.acheron.floatview.protocol.refloat.RefloatControlProfile
 import fail.acheron.floatview.protocol.refloat.RefloatLightingState
+import fail.acheron.floatview.protocol.refloat.RefloatConfigurationValues
 import fail.acheron.floatview.protocol.vesc.ControllerRoute
 import fail.acheron.floatview.protocol.vesc.VescCommandRouter
 import fail.acheron.floatview.protocol.vesc.VescCompatibility
 import fail.acheron.floatview.protocol.VescFrameCodec
 import fail.acheron.floatview.protocol.vesc.VescCommand
+import fail.acheron.floatview.protocol.vesc.VescAccessMode
 import java.security.MessageDigest
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
+import org.json.JSONObject
 
 class ApplicationService(
     private val bluetooth: BluetoothPort,
@@ -101,12 +104,15 @@ class ApplicationService(
     private var locationCaptureActive = false
     private var currentLimits: ControllerCurrentLimits? = null
     private val refloatMutations = DeviceMutationCoordinator()
+    private val refloatConfiguration = RefloatConfigurationService(productStore)
     private var refloatProfile: RefloatControlProfile? = null
     private var latestRefloatTelemetry: RefloatTelemetryRecord? = null
+    private var latestRefloatTelemetryMonotonicMs: Long? = null
     private var refloatRefreshTimer: CancellationPort? = null
     private var refloatMutationTimer: CancellationPort? = null
     private var shutdownIntentTimer: CancellationPort? = null
     private var refloatWaiter: RefloatMutationWaiter? = null
+    private var refloatConfigurationWaiter: RefloatConfigurationRequestWaiter? = null
     private val refloatScheduler: SchedulerPort by lazy { scheduler ?: SystemScheduler() }
     var activeDeviceId: DeviceId? = null
         private set
@@ -584,9 +590,24 @@ class ApplicationService(
                                 }
                             is VescProtocolMessage.RefloatLighting ->
                                 VescCommand.CUSTOM_APP_DATA.id to message.command.id
+                            is VescProtocolMessage.CustomConfiguration -> when (val response = message.value) {
+                                is fail.acheron.floatview.protocol.vesc.VescCustomConfigurationResponse.SchemaChunk ->
+                                    VescCommand.GET_CUSTOM_CONFIGURATION_XML.id to null
+                                is fail.acheron.floatview.protocol.vesc.VescCustomConfigurationResponse.Values -> response.command.id to null
+                                fail.acheron.floatview.protocol.vesc.VescCustomConfigurationResponse.WriteAcknowledgement ->
+                                    VescCommand.SET_CUSTOM_CONFIGURATION.id to null
+                            }
                         }
+                        val deferNext = message is VescProtocolMessage.RefloatTelemetry
+                        var deferredResumed = false
                         if (
-                            !vescRequests.receive(event.bytes, identity.first, identity.second)
+                            !vescRequests.receive(
+                                event.bytes,
+                                identity.first,
+                                identity.second,
+                                validContext = { context -> matchesCustomConfiguration(message, context) },
+                                deferNext = deferNext,
+                            )
                         ) return@forEach
                         when (message) {
                             is VescProtocolMessage.Firmware -> {
@@ -657,18 +678,66 @@ class ApplicationService(
                                 )
                             }
                             is VescProtocolMessage.RefloatTelemetry -> {
-                                telemetryPolling.receive(message.value)
                                 latestRefloatTelemetry = message.value
+                                latestRefloatTelemetryMonotonicMs = clock.monotonicMillis()
+                                message.value.packageMode?.let {
+                                    if (it == PackageMode.FLYWHEEL) {
+                                        cancelFlywheelProhibitedRequests()
+                                        refloatMutations.failPending(vescGeneration)
+                                        refloatMutations.clearShutdown(vescGeneration)
+                                        refloatMutations.finishConfiguration(vescGeneration)
+                                    }
+                                    performRefloatConfigurationEffect(
+                                        refloatConfiguration.setFlywheel(it == PackageMode.FLYWHEEL),
+                                    )
+                                }
+                                vescRequests.resume()
+                                deferredResumed = true
+                                telemetryPolling.receive(message.value)
                                 val pending = refloatMutations.snapshot()?.pendingAction
                                 val updated = refloatMutations.observeTelemetry(message.value)
-                                if (pending != null && updated?.pendingAction == null) finishRefloatMutation(Result.success(updated!!))
+                                if (pending != null && updated?.pendingAction == null) {
+                                    refloatConfiguration.invalidateCurrent()
+                                    finishRefloatMutation(Result.success(updated!!))
+                                }
                             }
                             is VescProtocolMessage.RefloatLighting -> {
                                 val pending = refloatMutations.snapshot()?.pendingAction
                                 val updated = refloatMutations.observeLighting(message.state)
-                                if (pending != null && updated?.pendingAction == null) finishRefloatMutation(Result.success(updated!!))
+                                if (pending != null && updated?.pendingAction == null) {
+                                    refloatConfiguration.invalidateCurrent()
+                                    finishRefloatMutation(Result.success(updated!!))
+                                }
+                            }
+                            is VescProtocolMessage.CustomConfiguration -> {
+                                val context = requestContext ?: return@forEach
+                                runCatching {
+                                    refloatConfiguration.accept(message.value, context, vescGeneration)
+                                }.onSuccess {
+                                    performRefloatConfigurationEffect(it)
+                                    if (context is VescRequestContext.RefloatConfigurationVerification) {
+                                        refloatMutations.finishConfiguration(vescGeneration)
+                                        telemetryPolling.refresh()
+                                        val route = controllerDiscovery.controllerRoute
+                                        val profile = refloatProfile
+                                        if (route != null && profile != null) requestRefloatLighting(route, profile)
+                                    }
+                                    events.publish(refloatConfiguration.summary())
+                                    if (
+                                        context is VescRequestContext.RefloatConfigurationValues ||
+                                        context is VescRequestContext.RefloatConfigurationVerification
+                                    ) finishRefloatConfigurationRequest(Result.success(Unit))
+                                }.onFailure {
+                                    if (
+                                        context is VescRequestContext.RefloatConfigurationWrite ||
+                                        context is VescRequestContext.RefloatConfigurationVerification
+                                    ) refloatMutations.finishConfiguration(vescGeneration)
+                                    finishRefloatConfigurationRequest(Result.failure(it))
+                                    events.publish(it)
+                                }
                             }
                         }
+                        if (deferNext && !deferredResumed) vescRequests.resume()
                         if (message !is VescProtocolMessage.BmsValuesPayload) events.publish(message)
                     }
                 } catch (error: Exception) {
@@ -676,6 +745,48 @@ class ApplicationService(
                 }
             }
         }
+    }
+
+    private fun matchesCustomConfiguration(
+        message: VescProtocolMessage,
+        context: VescRequestContext,
+    ): Boolean {
+        val response = (message as? VescProtocolMessage.CustomConfiguration)?.value ?: return true
+        return when {
+            response is fail.acheron.floatview.protocol.vesc.VescCustomConfigurationResponse.SchemaChunk &&
+                context is VescRequestContext.RefloatConfigurationSchema ->
+                response.index == context.index && response.offset == context.offset
+            response is fail.acheron.floatview.protocol.vesc.VescCustomConfigurationResponse.Values &&
+                context is VescRequestContext.RefloatConfigurationValues ->
+                response.index == context.index && response.command == if (context.defaults) {
+                    VescCommand.GET_CUSTOM_CONFIGURATION_DEFAULT
+                } else {
+                    VescCommand.GET_CUSTOM_CONFIGURATION
+                }
+            response is fail.acheron.floatview.protocol.vesc.VescCustomConfigurationResponse.Values &&
+                context is VescRequestContext.RefloatConfigurationVerification ->
+                response.index == context.index && response.command == VescCommand.GET_CUSTOM_CONFIGURATION
+            response is fail.acheron.floatview.protocol.vesc.VescCustomConfigurationResponse.WriteAcknowledgement &&
+                context is VescRequestContext.RefloatConfigurationWrite -> true
+            else -> false
+        }
+    }
+
+    private fun cancelFlywheelProhibitedRequests() {
+        vescRequests.cancelMatching(
+            predicate = { context ->
+                when (context) {
+                    is VescRequestContext.RefloatControl,
+                    is VescRequestContext.ControllerShutdown,
+                    is VescRequestContext.RefloatConfigurationWrite,
+                    is VescRequestContext.RefloatConfigurationVerification,
+                    -> true
+                    is VescRequestContext.RefloatConfigurationValues -> !context.defaults
+                    else -> false
+                }
+            },
+            resume = false,
+        )
     }
 
     private fun attributedFirmware(value: FirmwareRecord, context: VescRequestContext?): FirmwareRecord {
@@ -860,6 +971,199 @@ class ApplicationService(
 
     @Synchronized
     fun refloatPackageVersionSnapshot(): String? = controllerDiscovery.refloatPackageVersion
+
+    @Synchronized fun refloatConfigurationSummarySnapshot() = refloatConfiguration.summary()
+    @Synchronized fun refloatConfigurationSchemaSnapshot() = refloatConfiguration.loadedSchema()
+    @Synchronized fun refloatConfigurationValuesSnapshot(defaults: Boolean) = refloatConfiguration.loadedValues(defaults)
+
+    fun readRefloatConfiguration(defaults: Boolean): RefloatConfigurationValues {
+        val waiter = synchronized(this) {
+            RefloatConfigurationRequestWaiter().also {
+                refloatConfigurationWaiter = it
+                performRefloatConfigurationEffect(refloatConfiguration.requestValues(defaults))
+                events.publish(refloatConfiguration.summary())
+            }
+        }
+        waiter.await()
+        return requireNotNull(refloatConfiguration.loadedValues(defaults))
+    }
+
+    fun writeRefloatConfiguration(
+        packageVersion: String,
+        fingerprint: String,
+        wireSignature: Long,
+        baseRevision: Long,
+        values: Map<String, fail.acheron.floatview.protocol.refloat.RefloatConfigurationValue>,
+    ): RefloatConfigurationValues {
+        val waiter = synchronized(this) {
+            val telemetry = latestRefloatTelemetry ?: throw RefloatMutationException()
+            val firmware = controllerDiscovery.firmware ?: throw RefloatMutationException()
+            val observed = latestRefloatTelemetryMonotonicMs ?: throw RefloatMutationException()
+            if (clock.monotonicMillis() - observed > maxOf(3_000, idleProbeIntervalMs * 2)) {
+                throw RefloatMutationException()
+            }
+            val context = RefloatConfigurationMutationContext(
+                vescGeneration,
+                connectionState == ConnectionState.READY,
+                VescCompatibility.accessMode(firmware) == VescAccessMode.READ_WRITE,
+                telemetry.rideState,
+                telemetry.footpadState,
+                telemetry.packageState,
+                telemetry.packageMode,
+            )
+            refloatMutations.authorizeConfiguration(context)
+            try {
+                RefloatConfigurationRequestWaiter().also {
+                    refloatConfigurationWaiter = it
+                    performRefloatConfigurationEffect(
+                        refloatConfiguration.requestWrite(
+                            packageVersion, fingerprint, wireSignature, baseRevision, values,
+                        ),
+                    )
+                    events.publish(refloatConfiguration.summary())
+                }
+            } catch (error: Exception) {
+                refloatMutations.finishConfiguration(context.generation)
+                throw error
+            }
+        }
+        waiter.await()
+        return requireNotNull(refloatConfiguration.loadedValues(false))
+    }
+
+    fun refloatTunes(
+        identity: RefloatConfigurationIdentityRecord,
+        limit: Int,
+        cursor: String?,
+    ): RefloatConfigurationListPage = productStore?.refloatConfigurations(identity, limit, cursor)
+        ?: throw IllegalStateException("Product store unavailable")
+
+    fun refloatTune(configurationId: String): RefloatConfigurationRecord =
+        productStore?.refloatConfiguration(configurationId)
+            ?: throw IllegalStateException("Product store unavailable")
+
+    fun createRefloatTune(
+        name: String,
+        description: String?,
+        identity: RefloatConfigurationIdentityRecord,
+        sourceRevision: Long,
+        values: Map<String, fail.acheron.floatview.protocol.refloat.RefloatConfigurationValue>,
+    ): RefloatConfigurationRecord {
+        val store = productStore ?: throw IllegalStateException("Product store unavailable")
+        validateRefloatTuneValues(identity, sourceRevision, values)
+        return store.createRefloatConfiguration(
+            name, description, identity, refloatConfigurationValuesJson(values), clock.now(),
+        )
+    }
+
+    fun updateRefloatTune(
+        configurationId: String,
+        expectedRevision: Int,
+        name: String,
+        description: String?,
+        values: Map<String, fail.acheron.floatview.protocol.refloat.RefloatConfigurationValue>,
+    ): RefloatConfigurationRecord {
+        val store = productStore ?: throw IllegalStateException("Product store unavailable")
+        val record = store.refloatConfiguration(configurationId)
+        validateRefloatTuneValues(record.identity, refloatConfiguration.loadedValues(false)?.revision, values)
+        return store.updateRefloatConfiguration(
+            configurationId, expectedRevision, name, description,
+            refloatConfigurationValuesJson(values), clock.now(),
+        )
+    }
+
+    fun deleteRefloatTune(configurationId: String, expectedRevision: Int) {
+        (productStore ?: throw IllegalStateException("Product store unavailable"))
+            .deleteRefloatConfiguration(configurationId, expectedRevision)
+    }
+
+    fun applyRefloatTune(
+        configurationId: String,
+        expectedRevision: Int,
+        baseRevision: Long,
+    ): RefloatConfigurationValues {
+        val store = productStore ?: throw IllegalStateException("Product store unavailable")
+        val record = store.refloatConfiguration(configurationId)
+        if (record.revision != expectedRevision) {
+            throw ProductStoreException.RefloatConfigurationRevisionConflict(record.revision)
+        }
+        return writeRefloatConfiguration(
+            record.identity.packageVersion, record.identity.schemaFingerprint,
+            record.identity.wireSignature, baseRevision,
+            refloatConfigurationValues(record.valuesJson),
+        )
+    }
+
+    private fun validateRefloatTuneValues(
+        identity: RefloatConfigurationIdentityRecord,
+        sourceRevision: Long?,
+        values: Map<String, fail.acheron.floatview.protocol.refloat.RefloatConfigurationValue>,
+    ) {
+        val summary = refloatConfiguration.summary()
+        val schema = refloatConfiguration.loadedSchema()
+        if (
+            identity.packageName != "refloat" || summary.packageVersion != identity.packageVersion ||
+            summary.schemaFingerprint != identity.schemaFingerprint || summary.wireSignature != identity.wireSignature ||
+            sourceRevision == null || refloatConfiguration.loadedValues(false)?.revision != sourceRevision || schema == null
+        ) throw RefloatConfigurationServiceException(RefloatConfigurationServiceError.INVALID_STATE)
+        fail.acheron.floatview.protocol.refloat.RefloatConfigurationValueCodec.encode(values, schema)
+    }
+
+    private fun refloatConfigurationValuesJson(
+        values: Map<String, fail.acheron.floatview.protocol.refloat.RefloatConfigurationValue>,
+    ) = JSONObject().also { result ->
+        values.toSortedMap().forEach { (name, value) ->
+            result.put(name, when (value) {
+                is fail.acheron.floatview.protocol.refloat.RefloatConfigurationValue.Decimal ->
+                    JSONObject().put("type", "double").put("value", value.value)
+                is fail.acheron.floatview.protocol.refloat.RefloatConfigurationValue.Integer ->
+                    JSONObject().put("type", "integer").put("value", value.value)
+                is fail.acheron.floatview.protocol.refloat.RefloatConfigurationValue.BooleanValue ->
+                    JSONObject().put("type", "boolean").put("value", value.value)
+                is fail.acheron.floatview.protocol.refloat.RefloatConfigurationValue.StringValue ->
+                    JSONObject().put("type", "string").put("value", value.value)
+            })
+        }
+    }.toString()
+
+    private fun refloatConfigurationValues(
+        json: String,
+    ): Map<String, fail.acheron.floatview.protocol.refloat.RefloatConfigurationValue> {
+        val objectValue = runCatching { JSONObject(json) }.getOrElse {
+            throw ProductStoreException.InvalidRefloatConfiguration
+        }
+        val result = linkedMapOf<String, fail.acheron.floatview.protocol.refloat.RefloatConfigurationValue>()
+        objectValue.keys().forEach { name ->
+            val typed = objectValue.optJSONObject(name) ?: throw ProductStoreException.InvalidRefloatConfiguration
+            result[name] = when (typed.optString("type")) {
+                "double" -> {
+                    val value = (typed.opt("value") as? Number)?.toDouble()?.takeIf(Double::isFinite)
+                        ?: throw ProductStoreException.InvalidRefloatConfiguration
+                    fail.acheron.floatview.protocol.refloat.RefloatConfigurationValue.Decimal(value)
+                }
+                "integer" -> {
+                    val value = (typed.opt("value") as? Number)?.toDouble()
+                        ?: throw ProductStoreException.InvalidRefloatConfiguration
+                    if (!value.isFinite() || value % 1.0 != 0.0) throw ProductStoreException.InvalidRefloatConfiguration
+                    fail.acheron.floatview.protocol.refloat.RefloatConfigurationValue.Integer(value.toLong())
+                }
+                "boolean" -> fail.acheron.floatview.protocol.refloat.RefloatConfigurationValue.BooleanValue(
+                    typed.opt("value") as? Boolean ?: throw ProductStoreException.InvalidRefloatConfiguration,
+                )
+                "string" -> fail.acheron.floatview.protocol.refloat.RefloatConfigurationValue.StringValue(
+                    typed.opt("value") as? String ?: throw ProductStoreException.InvalidRefloatConfiguration,
+                )
+                else -> throw ProductStoreException.InvalidRefloatConfiguration
+            }
+        }
+        return result
+    }
+
+    @Synchronized
+    private fun finishRefloatConfigurationRequest(result: Result<Unit>) {
+        refloatConfigurationWaiter?.finish(result)
+        refloatConfigurationWaiter = null
+    }
 
     fun setRefloatControl(control: RefloatBooleanControl, enabled: Boolean): RefloatControls {
         var immediate: RefloatControls? = null
@@ -1199,6 +1503,17 @@ class ApplicationService(
         clearDiscoveredDevices(publish = false)
         transition(ConnectionState.READY)
         configureRefloatControls(selectedFirmware)
+        performRefloatConfigurationEffect(
+            refloatConfiguration.begin(
+                route,
+                vescGeneration,
+                selectedFirmware,
+                controllerDiscovery.refloatPackageVersion ?: "",
+                VescCompatibility.accessMode(selectedFirmware) == VescAccessMode.READ_WRITE,
+                latestRefloatTelemetry?.packageMode == PackageMode.FLYWHEEL,
+            ),
+        )
+        events.publish(refloatConfiguration.summary())
         protocol?.let { decoder ->
             runCatching {
                 submitVescRequest(
@@ -1554,11 +1869,83 @@ class ApplicationService(
         if (profile == null || access == null) { refloatProfile = null; return }
         refloatProfile = profile
         latestRefloatTelemetry = null
+        latestRefloatTelemetryMonotonicMs = null
         events.publish(refloatMutations.configure(
             vescGeneration, profile,
             access == fail.acheron.floatview.protocol.vesc.VescAccessMode.READ_WRITE,
         ))
         scheduleRefloatLightingRefresh()
+    }
+
+    private fun performRefloatConfigurationEffect(effect: RefloatConfigurationEffect) {
+        val protocol = protocol ?: return
+        runCatching {
+            val payload: ByteArray
+            val expected: VescExpectedResponse
+            val context: VescRequestContext
+            when (effect) {
+                RefloatConfigurationEffect.None -> return
+                is RefloatConfigurationEffect.SchemaChunk -> {
+                    payload = protocol.customConfigurationSchemaRequest(effect.route, effect.length, effect.offset)
+                    expected = VescExpectedResponse(VescCommand.GET_CUSTOM_CONFIGURATION_XML.id)
+                    context = VescRequestContext.RefloatConfigurationSchema(
+                        effect.route.toRequestRoute(), RefloatConfigurationService.INDEX,
+                        effect.offset, effect.operation,
+                    )
+                }
+                is RefloatConfigurationEffect.Values -> {
+                    payload = protocol.customConfigurationValuesRequest(effect.route, effect.defaults)
+                    expected = VescExpectedResponse(
+                        if (effect.defaults) VescCommand.GET_CUSTOM_CONFIGURATION_DEFAULT.id
+                        else VescCommand.GET_CUSTOM_CONFIGURATION.id,
+                    )
+                    context = VescRequestContext.RefloatConfigurationValues(
+                        effect.route.toRequestRoute(), RefloatConfigurationService.INDEX,
+                        effect.defaults, effect.operation,
+                    )
+                }
+                is RefloatConfigurationEffect.Write -> {
+                    payload = protocol.customConfigurationWriteRequest(effect.route, effect.payload)
+                    expected = VescExpectedResponse(VescCommand.SET_CUSTOM_CONFIGURATION.id)
+                    context = VescRequestContext.RefloatConfigurationWrite(
+                        effect.route.toRequestRoute(), RefloatConfigurationService.INDEX, effect.operation,
+                    )
+                }
+                is RefloatConfigurationEffect.Verification -> {
+                    payload = protocol.customConfigurationValuesRequest(effect.route, false)
+                    expected = VescExpectedResponse(VescCommand.GET_CUSTOM_CONFIGURATION.id)
+                    context = VescRequestContext.RefloatConfigurationVerification(
+                        effect.route.toRequestRoute(), RefloatConfigurationService.INDEX, effect.operation,
+                    )
+                }
+            }
+            val requestGeneration = vescGeneration
+            submitVescRequest(
+                payload, expected, VescRequestPriority.CONTROLLER_WORK, context,
+                RefloatConfigurationService.REQUEST_TIMEOUT_MS,
+            ) { outcome ->
+                when (outcome) {
+                    is VescRequestCompletion.Response, VescRequestCompletion.Sent -> Unit
+                    else -> {
+                        refloatConfiguration.requestFailed(context, requestGeneration)
+                        finishRefloatConfigurationRequest(Result.failure(
+                            RefloatConfigurationServiceException(RefloatConfigurationServiceError.UNAVAILABLE),
+                        ))
+                        if (
+                            context is VescRequestContext.RefloatConfigurationWrite ||
+                            context is VescRequestContext.RefloatConfigurationVerification
+                        ) refloatMutations.finishConfiguration(requestGeneration)
+                    }
+                }
+            }
+        }.onFailure { error ->
+            refloatConfiguration.abortActiveOperation(vescGeneration)
+            if (
+                effect is RefloatConfigurationEffect.Write ||
+                effect is RefloatConfigurationEffect.Verification
+            ) refloatMutations.finishConfiguration(vescGeneration)
+            events.publish(error)
+        }
     }
 
     private fun requestRefloatLighting(route: ControllerRoute, profile: RefloatControlProfile) {
@@ -1684,6 +2071,10 @@ class ApplicationService(
     }
 
     private fun resetFirmwareDiscovery() {
+        finishRefloatConfigurationRequest(Result.failure(
+            RefloatConfigurationServiceException(RefloatConfigurationServiceError.UNAVAILABLE),
+        ))
+        refloatConfiguration.reset()
         vescGeneration = vescRequests.beginGeneration()
         telemetryPolling.cancelLayout()
         telemetryPolling.stop()
@@ -1791,5 +2182,23 @@ private class RefloatMutationWaiter {
     fun await(): RefloatControls {
         if (!latch.await(3_250, TimeUnit.MILLISECONDS)) throw RefloatMutationException(unavailable = true)
         return result!!.getOrThrow()
+    }
+}
+
+private class RefloatConfigurationRequestWaiter {
+    private val latch = CountDownLatch(1)
+    @Volatile private var result: Result<Unit>? = null
+
+    @Synchronized fun finish(value: Result<Unit>) {
+        if (result != null) return
+        result = value
+        latch.countDown()
+    }
+
+    fun await() {
+        if (!latch.await(3_250, TimeUnit.MILLISECONDS)) {
+            throw RefloatConfigurationServiceException(RefloatConfigurationServiceError.UNAVAILABLE)
+        }
+        result!!.getOrThrow()
     }
 }

@@ -268,6 +268,9 @@ data class FirmwareRecord(
     /** Private controller identity; never serialize into API/log payloads. */
     val controllerUuid: ByteArray? = null,
     val testVersion: Int = 0,
+    /** Private capability and cache hint; never serialize into API/log payloads. */
+    val customConfigurationCount: Int = 0,
+    val hardwareConfigurationCrc: Long? = null,
 )
 
 sealed interface VescProtocolMessage {
@@ -284,6 +287,9 @@ sealed interface VescProtocolMessage {
     data class RefloatLighting(
         val command: RefloatCommand,
         val state: fail.acheron.floatview.protocol.refloat.RefloatLightingState,
+    ) : VescProtocolMessage
+    data class CustomConfiguration(
+        val value: fail.acheron.floatview.protocol.vesc.VescCustomConfigurationResponse,
     ) : VescProtocolMessage
 }
 
@@ -665,6 +671,12 @@ interface VescProtocolPort {
         refloatTelemetryRequest(route)
     fun refloatCompactTelemetryRequest(route: ControllerRoute): ByteArray =
         refloatLegacyTelemetryRequest(route)
+    fun customConfigurationSchemaRequest(route: ControllerRoute, length: Int, offset: Int): ByteArray =
+        throw UnsupportedOperationException("Custom configuration schema reads are unavailable")
+    fun customConfigurationValuesRequest(route: ControllerRoute, defaults: Boolean): ByteArray =
+        throw UnsupportedOperationException("Custom configuration value reads are unavailable")
+    fun customConfigurationWriteRequest(route: ControllerRoute, values: ByteArray): ByteArray =
+        throw UnsupportedOperationException("Custom configuration writes are unavailable")
     fun receive(bytes: ByteArray): List<VescProtocolMessage>
     fun bmsValuesRequest(connection: BmsConnection): ByteArray =
         throw UnsupportedOperationException("BMS values reads are unavailable")
@@ -767,9 +779,36 @@ sealed class ProductStoreException(message: String) : RuntimeException(message) 
         ProductStoreException("Settings revision conflict")
     data object InvalidSettingsPatch : ProductStoreException("Invalid settings patch")
     data object SavedDeviceActive : ProductStoreException("Saved device is active")
+    data object RefloatConfigurationNotFound : ProductStoreException("Refloat configuration not found")
+    data class RefloatConfigurationRevisionConflict(val currentRevision: Int) :
+        ProductStoreException("Refloat configuration revision conflict")
+    data object InvalidRefloatConfiguration : ProductStoreException("Invalid Refloat configuration")
 }
 
-interface ProductStorePort {
+data class RefloatConfigurationIdentityRecord(
+    val packageName: String,
+    val packageVersion: String,
+    val schemaFingerprint: String,
+    val wireSignature: Long,
+)
+
+data class RefloatConfigurationRecord(
+    val configurationId: String,
+    val revision: Int,
+    val name: String,
+    val description: String?,
+    val identity: RefloatConfigurationIdentityRecord,
+    val valuesJson: String,
+    val createdAt: Instant,
+    val updatedAt: Instant,
+)
+
+data class RefloatConfigurationListPage(
+    val items: List<RefloatConfigurationRecord>,
+    val nextCursor: String?,
+)
+
+interface ProductStorePort : RefloatSchemaCachePort {
     fun ensureSavedDevice(
         deviceId: DeviceId,
         advertisedName: String?,
@@ -822,6 +861,30 @@ interface ProductStorePort {
     fun settings(): SettingsRecord = SettingsRecord()
     fun updateSettings(expectedRevision: Int, patchJson: String): SettingsRecord =
         throw ProductStoreException.InvalidSettingsPatch
+    fun refloatConfigurations(
+        identity: RefloatConfigurationIdentityRecord,
+        limit: Int,
+        cursor: String?,
+    ): RefloatConfigurationListPage = throw ProductStoreException.InvalidRefloatConfiguration
+    fun refloatConfiguration(configurationId: String): RefloatConfigurationRecord =
+        throw ProductStoreException.RefloatConfigurationNotFound
+    fun createRefloatConfiguration(
+        name: String,
+        description: String?,
+        identity: RefloatConfigurationIdentityRecord,
+        valuesJson: String,
+        at: Instant,
+    ): RefloatConfigurationRecord = throw ProductStoreException.InvalidRefloatConfiguration
+    fun updateRefloatConfiguration(
+        configurationId: String,
+        expectedRevision: Int,
+        name: String,
+        description: String?,
+        valuesJson: String,
+        at: Instant,
+    ): RefloatConfigurationRecord = throw ProductStoreException.InvalidRefloatConfiguration
+    fun deleteRefloatConfiguration(configurationId: String, expectedRevision: Int): Unit =
+        throw ProductStoreException.RefloatConfigurationNotFound
 }
 
 sealed class SessionStoreException(message: String) : RuntimeException(message) {

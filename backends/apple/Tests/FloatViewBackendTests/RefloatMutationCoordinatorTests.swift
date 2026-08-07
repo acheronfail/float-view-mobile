@@ -149,3 +149,49 @@ func shutdownUsesDeviceMutationCoordinator() throws {
     try competing.authorizeShutdown(context: context)
   }
 }
+
+@Test("configuration writes share the sole mutation gate and enforce idle normal footpad safety")
+func configurationUsesDeviceMutationCoordinator() throws {
+  let valid = RefloatConfigurationMutationContext(
+    generation: .init(rawValue: 1), connectionReady: true, writable: true,
+    rideState: .idle, footpadState: FootpadState.none, packageState: .ready, packageMode: .normal
+  )
+  let owner = readyCoordinator()
+  try owner.authorizeConfiguration(context: valid)
+  #expect(!owner.controllerActions(shutdownAvailable: true).shutdownAvailable)
+  #expect(throws: RefloatMutationError.invalidState) {
+    try owner.authorizeSet(control: .leds, enabled: true, context: mutationContext())
+  }
+  #expect(throws: RefloatMutationError.invalidState) {
+    try owner.authorizeConfiguration(context: valid)
+  }
+  owner.finishConfiguration(generation: .init(rawValue: 2))
+  #expect(throws: RefloatMutationError.invalidState) {
+    try owner.authorizeConfiguration(context: valid)
+  }
+  owner.finishConfiguration(generation: .init(rawValue: 1))
+  try owner.authorizeConfiguration(context: valid)
+
+  for denied in [
+    RefloatConfigurationMutationContext(
+      generation: .init(rawValue: 2), connectionReady: true, writable: true,
+      rideState: .idle, footpadState: FootpadState.none, packageState: .ready, packageMode: .normal
+    ),
+    RefloatConfigurationMutationContext(
+      generation: .init(rawValue: 1), connectionReady: true, writable: true,
+      rideState: .riding, footpadState: FootpadState.none, packageState: .running, packageMode: .normal
+    ),
+    RefloatConfigurationMutationContext(
+      generation: .init(rawValue: 1), connectionReady: true, writable: true,
+      rideState: .idle, footpadState: .left, packageState: .ready, packageMode: .normal
+    ),
+    RefloatConfigurationMutationContext(
+      generation: .init(rawValue: 1), connectionReady: true, writable: true,
+      rideState: .idle, footpadState: FootpadState.none, packageState: .ready, packageMode: .flywheel
+    ),
+  ] {
+    #expect(throws: RefloatMutationError.invalidState) {
+      try readyCoordinator().authorizeConfiguration(context: denied)
+    }
+  }
+}

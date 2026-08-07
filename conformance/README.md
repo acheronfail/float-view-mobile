@@ -82,6 +82,16 @@ fixture reports idle. Record confirmation, timeout/recovery, and reconnect reset
 and explicitly assert that no motor command or movement occurred. Unavailable
 hardware is recorded as unavailable rather than replaced with software evidence.
 
+The Refloat configuration checkpoint is also separate from `just verify`. For
+both native backends and both direct/CAN fixture routes, capture complete current
+and default values, change exactly one fixture-safe non-actuating field, verify
+the full readback, then restore and verify the complete original configuration.
+The run fails on an unverified restore and must record that no motor/remote,
+Handtest, history, arbitrary app-data, or other actuation command was observed.
+Use `physical-checkpoints/refloat-configuration-template.md`; unavailable real
+hardware remains explicitly unavailable rather than being replaced by software
+evidence.
+
 The controller-shutdown matrix accepts only exact VESC-core `[156, 0, 0]` on
 writable stable VESC 6.05, 6.06, and 7.00 routes. It covers direct and one-level
 CAN forwarding, idle-only authorization, flywheel and competing-mutation

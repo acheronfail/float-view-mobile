@@ -367,6 +367,116 @@ public final class LoopbackServer: @unchecked Sendable {
           return failure(id, .invalidRequest, "Fatal-error clear does not accept parameters")
         }
         return try success(refloatControlsPayload(applicationService.clearRefloatFatalError()))
+      case "refloat.configuration.open":
+        guard params.isEmpty else {
+          return failure(id, .invalidRequest, "Configuration open does not accept parameters")
+        }
+        return success(refloatConfigurationSummaryPayload(
+          applicationService.refloatConfigurationSummarySnapshot()
+        ))
+      case "refloat.configuration.schema":
+        guard params.keys.allSatisfy({ $0 == "cursor" }),
+              let page = refloatConfigurationSchemaPage(cursor: params["cursor"])
+        else { return failure(id, .invalidRequest, "Configuration schema cursor is invalid") }
+        return success(page)
+      case "refloat.configuration.read":
+        guard params.count == 1, let source = params["source"] as? String,
+              source == "current" || source == "default"
+        else { return failure(id, .invalidRequest, "Configuration source must be current or default") }
+        return try success(refloatConfigurationValuesPayload(
+          applicationService.readRefloatConfiguration(defaults: source == "default")
+        ))
+      case "refloat.configuration.write":
+        guard params.count == 5,
+              let packageVersion = params["packageVersion"] as? String,
+              !packageVersion.isEmpty, packageVersion.utf8.count <= 128,
+              let fingerprint = params["schemaFingerprint"] as? String,
+              fingerprint.range(of: "^[0-9a-f]{64}$", options: .regularExpression) != nil,
+              let signatureNumber = params["wireSignature"] as? NSNumber,
+              CFGetTypeID(signatureNumber) != CFBooleanGetTypeID(),
+              signatureNumber.doubleValue.rounded() == signatureNumber.doubleValue,
+              (0 ... Double(UInt32.max)).contains(signatureNumber.doubleValue),
+              let baseNumber = params["baseRevision"] as? NSNumber,
+              CFGetTypeID(baseNumber) != CFBooleanGetTypeID(),
+              baseNumber.doubleValue.rounded() == baseNumber.doubleValue,
+              baseNumber.doubleValue >= 0,
+              let rawValues = params["values"] as? [String: Any],
+              let values = refloatConfigurationValues(rawValues)
+        else { return failure(id, .invalidRequest, "Complete typed configuration values are required") }
+        return try success(refloatConfigurationValuesPayload(
+          applicationService.writeRefloatConfiguration(
+            packageVersion: packageVersion, fingerprint: fingerprint,
+            wireSignature: signatureNumber.uint32Value, baseRevision: baseNumber.uint64Value,
+            values: values
+          )
+        ))
+      case "refloat.tune.list":
+        guard params.keys.allSatisfy({ ["identity", "limit", "cursor"].contains($0) }),
+              let identity = refloatConfigurationIdentity(params["identity"]),
+              let limit = params["limit"] as? Int, (1 ... 50).contains(limit),
+              params["cursor"] == nil || params["cursor"] is NSNull ||
+              ((params["cursor"] as? String)?.utf8.count ?? 513) <= 512
+        else { return failure(id, .invalidRequest, "Tune list parameters are invalid") }
+        let page = try applicationService.refloatTunes(
+          identity: identity, limit: limit, cursor: params["cursor"] as? String
+        )
+        return success([
+          "items": page.items.map { refloatTunePayload($0, includeValues: false) },
+          "nextCursor": page.nextCursor.map { $0 as Any } ?? NSNull(),
+        ])
+      case "refloat.tune.get":
+        guard params.count == 1, let tuneID = params["tuneId"] as? String, !tuneID.isEmpty,
+              tuneID.utf8.count <= 128
+        else { return failure(id, .invalidRequest, "Tune ID is invalid") }
+        return try success(refloatTunePayload(
+          applicationService.refloatTune(configurationID: tuneID), includeValues: true
+        ))
+      case "refloat.tune.create":
+        guard params.count == 5,
+              let name = boundedRefloatText(params["name"], maximumBytes: 128),
+              params.keys.contains("description"),
+              params["description"] is NSNull || boundedRefloatText(params["description"], maximumBytes: 1_024) != nil,
+              let identity = refloatConfigurationIdentity(params["identity"]),
+              let source = params["sourceRevision"] as? NSNumber,
+              source.doubleValue >= 0, source.doubleValue.rounded() == source.doubleValue,
+              let rawValues = params["values"] as? [String: Any],
+              let values = refloatConfigurationValues(rawValues)
+        else { return failure(id, .invalidRequest, "Tune create parameters are invalid") }
+        let description = boundedRefloatText(params["description"], maximumBytes: 1_024)
+        return try success(refloatTunePayload(applicationService.createRefloatTune(
+          name: name, description: description, identity: identity,
+          sourceRevision: source.uint64Value, values: values
+        ), includeValues: true))
+      case "refloat.tune.update":
+        guard params.count == 5,
+              let tuneID = params["tuneId"] as? String, !tuneID.isEmpty, tuneID.utf8.count <= 128,
+              let revision = params["expectedRevision"] as? Int, revision >= 1,
+              let name = boundedRefloatText(params["name"], maximumBytes: 128),
+              params.keys.contains("description"),
+              params["description"] is NSNull || boundedRefloatText(params["description"], maximumBytes: 1_024) != nil,
+              let rawValues = params["values"] as? [String: Any],
+              let values = refloatConfigurationValues(rawValues)
+        else { return failure(id, .invalidRequest, "Tune update parameters are invalid") }
+        let description = boundedRefloatText(params["description"], maximumBytes: 1_024)
+        return try success(refloatTunePayload(applicationService.updateRefloatTune(
+          configurationID: tuneID, expectedRevision: revision, name: name,
+          description: description, values: values
+        ), includeValues: true))
+      case "refloat.tune.delete":
+        guard params.count == 2, let tuneID = params["tuneId"] as? String, !tuneID.isEmpty,
+              let revision = params["expectedRevision"] as? Int, revision >= 1
+        else { return failure(id, .invalidRequest, "Tune delete parameters are invalid") }
+        try applicationService.deleteRefloatTune(configurationID: tuneID, expectedRevision: revision)
+        return success(["accepted": true])
+      case "refloat.tune.apply":
+        guard params.count == 3, let tuneID = params["tuneId"] as? String, !tuneID.isEmpty,
+              let revision = params["expectedRevision"] as? Int, revision >= 1,
+              let base = params["baseRevision"] as? NSNumber,
+              base.doubleValue >= 0, base.doubleValue.rounded() == base.doubleValue
+        else { return failure(id, .invalidRequest, "Tune apply parameters are invalid") }
+        return try success(refloatConfigurationValuesPayload(applicationService.applyRefloatTune(
+          configurationID: tuneID, expectedRevision: revision, baseRevision: base.uint64Value
+        )))
       case "savedDevice.update":
         guard let savedID = params["savedDeviceId"] as? String,
               let expected = params["expectedRevision"] as? Int,
@@ -678,6 +788,15 @@ public final class LoopbackServer: @unchecked Sendable {
       return error == .invalidState
         ? failure(id, .invalidState, "Refloat control is not permitted in the current state")
         : failure(id, .unavailable, "Refloat control confirmation was unavailable")
+    } catch let error as RefloatConfigurationServiceError {
+      switch error {
+      case .conflict:
+        return failure(id, .conflict, "Configuration changed or verification did not match")
+      case .unavailable:
+        return failure(id, .unavailable, "Configuration request did not complete")
+      case .invalidState, .staleResponse, .unauditedSchema, .malformedResponse:
+        return failure(id, .invalidState, "Configuration is not available in the current state")
+      }
     } catch {
       return failure(id, .internal, "Backend operation failed")
     }
@@ -722,6 +841,9 @@ public final class LoopbackServer: @unchecked Sendable {
       value["latestSample"] = active.latestSample.map(liveSamplePayload) ?? NSNull()
       value["latestLocation"] = active.latestLocation.map(liveLocationPayload) ?? NSNull()
       value["currentLimits"] = active.currentLimits.map(currentLimitsPayload) ?? NSNull()
+      value["refloatConfiguration"] = packageVersion == nil
+        ? NSNull()
+        : refloatConfigurationSummaryPayload(applicationService.refloatConfigurationSummarySnapshot())
       connection = value
     }
     return [
@@ -745,6 +867,198 @@ public final class LoopbackServer: @unchecked Sendable {
       "connectPermission": value.connectPermission.rawValue,
       "scanning": scanning,
     ]
+  }
+
+  private func refloatConfigurationSummaryPayload(_ value: RefloatConfigurationSummary) -> [String: Any] {
+    [
+      "availability": value.availability.rawValue,
+      "writable": value.writable,
+      "packageVersion": value.packageVersion.map { $0 as Any } ?? NSNull(),
+      "schemaFingerprint": value.schemaFingerprint.map { $0 as Any } ?? NSNull(),
+      "wireSignature": value.wireSignature.map { Int64($0) as Any } ?? NSNull(),
+      "currentLoaded": value.currentLoaded,
+      "defaultLoaded": value.defaultLoaded,
+      "pendingOperation": value.pendingOperation.map { $0.rawValue as Any } ?? NSNull(),
+    ]
+  }
+
+  private func refloatConfigurationIdentityPayload() -> [String: Any]? {
+    let summary = applicationService.refloatConfigurationSummarySnapshot()
+    guard let version = summary.packageVersion,
+          let fingerprint = summary.schemaFingerprint,
+          let signature = summary.wireSignature
+    else { return nil }
+    return [
+      "packageName": "refloat", "packageVersion": version,
+      "schemaFingerprint": fingerprint, "wireSignature": Int64(signature),
+    ]
+  }
+
+  private func refloatConfigurationIdentity(_ raw: Any?) -> RefloatConfigurationIdentityRecord? {
+    guard let value = raw as? [String: Any], value.count == 4,
+          value["packageName"] as? String == "refloat",
+          let version = value["packageVersion"] as? String,
+          !version.isEmpty, version.utf8.count <= 128,
+          let fingerprint = value["schemaFingerprint"] as? String,
+          fingerprint.range(of: "^[0-9a-f]{64}$", options: .regularExpression) != nil,
+          let signature = value["wireSignature"] as? NSNumber,
+          CFGetTypeID(signature) != CFBooleanGetTypeID(),
+          signature.doubleValue.rounded() == signature.doubleValue,
+          (0 ... Double(UInt32.max)).contains(signature.doubleValue)
+    else { return nil }
+    return .init(
+      packageName: "refloat", packageVersion: version,
+      schemaFingerprint: fingerprint, wireSignature: signature.uint32Value
+    )
+  }
+
+  private func boundedRefloatText(_ raw: Any?, maximumBytes: Int) -> String? {
+    guard let value = raw as? String else { return nil }
+    let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !trimmed.isEmpty, trimmed.utf8.count <= maximumBytes else { return nil }
+    return trimmed
+  }
+
+  private func refloatTunePayload(
+    _ record: RefloatConfigurationRecord, includeValues: Bool
+  ) -> [String: Any] {
+    var result: [String: Any] = [
+      "tuneId": record.configurationID, "revision": record.revision,
+      "name": record.name, "description": record.description.map { $0 as Any } ?? NSNull(),
+      "identity": [
+        "packageName": record.identity.packageName,
+        "packageVersion": record.identity.packageVersion,
+        "schemaFingerprint": record.identity.schemaFingerprint,
+        "wireSignature": Int64(record.identity.wireSignature),
+      ],
+      "createdAt": ISO8601DateFormatter().string(from: record.createdAt),
+      "updatedAt": ISO8601DateFormatter().string(from: record.updatedAt),
+    ]
+    if includeValues,
+       let raw = try? JSONSerialization.jsonObject(with: Data(record.valuesJSON.utf8)) as? [String: Any],
+       let values = refloatConfigurationValues(raw)
+    {
+      result["values"] = values.mapValues(refloatConfigurationValuePayload)
+    }
+    return result
+  }
+
+  private func refloatConfigurationSchemaPage(cursor: Any?) -> [String: Any]? {
+    guard let schema = applicationService.refloatConfigurationSchemaSnapshot(),
+          let identity = refloatConfigurationIdentityPayload()
+    else { return nil }
+    let pageIndex: Int
+    if cursor == nil || cursor is NSNull {
+      pageIndex = 0
+    } else {
+      guard let raw = cursor as? String, raw.utf8.count <= 512,
+            let data = Data(base64Encoded: raw), data.count <= 384,
+            let decoded = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+            decoded["fingerprint"] as? String == schema.fingerprint,
+            let page = decoded["page"] as? Int, page >= 0
+      else { return nil }
+      pageIndex = page
+    }
+    let byName = Dictionary(uniqueKeysWithValues: schema.fields.map { ($0.name, $0) })
+    var pages: [(String, String, [RefloatConfigurationField])] = []
+    for group in schema.groups {
+      for subgroup in group.subgroups {
+        let fields = subgroup.fields.compactMap { byName[$0] }
+        for offset in stride(from: 0, to: fields.count, by: 32) {
+          pages.append((group.name, subgroup.name, Array(fields[offset ..< min(offset + 32, fields.count)])))
+        }
+      }
+    }
+    guard pageIndex < pages.count else { return nil }
+    let page = pages[pageIndex]
+    let next = pageIndex + 1 < pages.count
+      ? Self.encodeSessionCatalogCursor(["fingerprint": schema.fingerprint, "page": pageIndex + 1])
+      : nil
+    return [
+      "identity": identity,
+      "group": page.0,
+      "subgroup": page.1,
+      "fields": page.2.map(refloatConfigurationFieldPayload),
+      "nextCursor": next.map { $0 as Any } ?? NSNull(),
+    ]
+  }
+
+  private func refloatConfigurationFieldPayload(_ field: RefloatConfigurationField) -> [String: Any] {
+    let type = switch field.type {
+    case .double: "double"
+    case .integer: "integer"
+    case .string: "string"
+    case .enumeration: "enum"
+    case .boolean: "boolean"
+    case .bitfield: "bitfield"
+    }
+    return [
+      "name": field.name, "label": field.longName, "type": type,
+      "defaultValue": refloatConfigurationValuePayload(field.defaultValue),
+      "minimum": field.minimum.map { $0 as Any } ?? NSNull(),
+      "maximum": field.maximum.map { $0 as Any } ?? NSNull(),
+      "step": field.step.map { $0 as Any } ?? NSNull(),
+      "precision": field.precision.map { $0 as Any } ?? NSNull(),
+      "suffix": field.suffix, "choices": field.choices, "description": field.description,
+    ]
+  }
+
+  private func refloatConfigurationValuePayload(_ value: RefloatConfigurationValue) -> [String: Any] {
+    switch value {
+    case let .double(value): ["type": "double", "value": value]
+    case let .integer(value): ["type": "integer", "value": value]
+    case let .boolean(value): ["type": "boolean", "value": value]
+    case let .string(value): ["type": "string", "value": value]
+    }
+  }
+
+  private func refloatConfigurationValuesPayload(_ value: RefloatConfigurationValues) -> [String: Any] {
+    [
+      "identity": refloatConfigurationIdentityPayload() ?? [:],
+      "revision": value.revision,
+      "source": value.source,
+      "values": value.values.mapValues(refloatConfigurationValuePayload),
+    ]
+  }
+
+  private func refloatConfigurationValues(
+    _ raw: [String: Any]
+  ) -> [String: RefloatConfigurationValue]? {
+    guard raw.count <= RefloatConfigurationLimits.fields,
+          let data = try? JSONSerialization.data(withJSONObject: raw), data.count <= 48 * 1024
+    else { return nil }
+    var result: [String: RefloatConfigurationValue] = [:]
+    for (name, rawValue) in raw {
+      guard !name.isEmpty, name.utf8.count <= RefloatConfigurationLimits.nameBytes,
+            let typed = rawValue as? [String: Any], typed.count == 2,
+            let type = typed["type"] as? String, typed.keys.contains("value")
+      else { return nil }
+      switch type {
+      case "double":
+        guard let number = typed["value"] as? NSNumber,
+              CFGetTypeID(number) != CFBooleanGetTypeID(), number.doubleValue.isFinite
+        else { return nil }
+        result[name] = .double(number.doubleValue)
+      case "integer":
+        guard let number = typed["value"] as? NSNumber,
+              CFGetTypeID(number) != CFBooleanGetTypeID(),
+              number.doubleValue.rounded() == number.doubleValue,
+              abs(number.doubleValue) <= Double(9_007_199_254_740_991 as Int64)
+        else { return nil }
+        result[name] = .integer(number.int64Value)
+      case "boolean":
+        guard let value = typed["value"] as? Bool else { return nil }
+        result[name] = .boolean(value)
+      case "string":
+        guard let value = typed["value"] as? String,
+              value.utf8.count <= RefloatConfigurationLimits.stringValueBytes
+        else { return nil }
+        result[name] = .string(value)
+      default:
+        return nil
+      }
+    }
+    return result
   }
 
   private func devicePayload(_ value: KnownDevice) -> [String: Any] {
@@ -1459,11 +1773,14 @@ public final class LoopbackServer: @unchecked Sendable {
   private func productFailure(_ id: Int, _ error: ProductStoreError) -> Data {
     switch error {
     case .savedDeviceNotFound: failure(id, .notFound, "Saved device was not found")
-    case .savedDeviceRevisionConflict, .profileRevisionConflict, .settingsRevisionConflict:
+    case .refloatConfigurationNotFound: failure(id, .notFound, "Tune was not found")
+    case .savedDeviceRevisionConflict, .profileRevisionConflict, .settingsRevisionConflict,
+         .refloatConfigurationRevisionConflict:
       failure(id, .conflict, "Resource revision changed")
     case .savedDeviceActive:
       failure(id, .invalidState, "Disconnect the board before forgetting it")
-    case .invalidSavedDevicePatch, .invalidProfilePatch, .invalidSettingsPatch:
+    case .invalidSavedDevicePatch, .invalidProfilePatch, .invalidSettingsPatch,
+         .invalidRefloatConfiguration:
       failure(id, .invalidRequest, "Patch is invalid")
     }
   }
@@ -1543,7 +1860,8 @@ private func invalidatesState(_ event: any Sendable) -> Bool {
     switch message {
     case .firmware, .currentLimits, .refloatInfo, .refloatLighting:
       return true
-    case .canDevices, .bmsValuesPayload, .refloatTelemetryLayout, .refloatTelemetry:
+    case .canDevices, .bmsValuesPayload, .refloatTelemetryLayout, .refloatTelemetry,
+         .customConfiguration:
       return false
     }
   }
@@ -1552,7 +1870,7 @@ private func invalidatesState(_ event: any Sendable) -> Bool {
     event is SessionRecord || event is SavedDeviceRecord || event is BoardProfileRecord ||
     event is SettingsRecord || event is LocationProviderState || event is TelemetrySample ||
     event is BmsState || event is BmsSnapshot || event is RefloatControls ||
-    event is LocationUpdated || event is SessionCatalogChanged
+    event is RefloatConfigurationSummary || event is LocationUpdated || event is SessionCatalogChanged
 }
 
 private struct SessionCatalogChanged {}

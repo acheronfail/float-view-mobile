@@ -4,6 +4,7 @@ public final class SoftwareBluetoothAdapter: BluetoothPort, @unchecked Sendable 
   public static let deviceID = DeviceID("software-vesc")
   private let event: @Sendable (BluetoothEvent) -> Void
   private let response: @Sendable (Data) -> Data?
+  private let responseQueue = DispatchQueue(label: "fail.acheron.float-view.software-bluetooth")
 
   public init(
     eventHandler: @escaping @Sendable (BluetoothEvent) -> Void,
@@ -38,7 +39,9 @@ public final class SoftwareBluetoothAdapter: BluetoothPort, @unchecked Sendable 
 
   public func write(_ bytes: Data, to deviceID: DeviceID) {
     guard let bytes = response(bytes) else { return }
-    event(.notification(deviceID, bytes))
+    responseQueue.async { [event] in
+      event(.notification(deviceID, bytes))
+    }
   }
 
   public func disconnect(_ deviceID: DeviceID) {

@@ -8,6 +8,8 @@ public struct FirmwareInfo: Equatable, Sendable {
   public let firmwareName: String?
   public let hardwareType: UInt8
   public let controllerUUID: Data?
+  public let customConfigurationCount: UInt8
+  public let hardwareConfigurationCRC: UInt32?
 
   public init(
     major: UInt8,
@@ -16,7 +18,9 @@ public struct FirmwareInfo: Equatable, Sendable {
     hardwareName: String,
     firmwareName: String? = nil,
     hardwareType: UInt8 = 0,
-    controllerUUID: Data? = nil
+    controllerUUID: Data? = nil,
+    customConfigurationCount: UInt8 = 0,
+    hardwareConfigurationCRC: UInt32? = nil
   ) {
     self.major = major
     self.minor = minor
@@ -25,6 +29,8 @@ public struct FirmwareInfo: Equatable, Sendable {
     self.firmwareName = firmwareName
     self.hardwareType = hardwareType
     self.controllerUUID = controllerUUID
+    self.customConfigurationCount = customConfigurationCount
+    self.hardwareConfigurationCRC = hardwareConfigurationCRC
   }
 }
 
@@ -364,6 +370,26 @@ public final class VescProtocolService: VescProtocolPort, @unchecked Sendable {
     return try Data(VescFrameCodec.encode(VescCommandRouter.route(command, via: route)))
   }
 
+  public func customConfigurationSchemaRequest(
+    route: ControllerRoute, length: Int, offset: Int
+  ) throws -> Data {
+    try Data(VescFrameCodec.encode(VescCommandRouter.route(
+      VescCustomConfigurationCodec.schemaRequest(length: length, offset: offset), via: route
+    )))
+  }
+
+  public func customConfigurationValuesRequest(route: ControllerRoute, defaults: Bool) throws -> Data {
+    try Data(VescFrameCodec.encode(VescCommandRouter.route(
+      VescCustomConfigurationCodec.valuesRequest(defaults: defaults), via: route
+    )))
+  }
+
+  public func customConfigurationWriteRequest(route: ControllerRoute, values: Data) throws -> Data {
+    try Data(VescFrameCodec.encode(VescCommandRouter.route(
+      VescCustomConfigurationCodec.writeRequest(values: values), via: route
+    )))
+  }
+
   public func refloatPackageControlRequest(route: ControllerRoute, enabled: Bool) throws -> Data {
     try routedRefloatControl(RefloatControlCodec.packageRequest(enabled: enabled), route: route)
   }
@@ -423,7 +449,9 @@ public final class VescProtocolService: VescProtocolPort, @unchecked Sendable {
             firmwareName: info.firmwareName,
             hardwareType: info.hardwareType,
             canID: nil,
-            controllerUUID: info.controllerUUID
+            controllerUUID: info.controllerUUID,
+            customConfigurationCount: info.customConfigurationCount,
+            hardwareConfigurationCRC: info.hardwareConfigurationCRC
           )
         )
       case VescCommand.getMotorConfiguration.rawValue:
@@ -432,6 +460,11 @@ public final class VescProtocolService: VescProtocolPort, @unchecked Sendable {
         return .canDevices(Array(Set(payload.dropFirst())).sorted())
       case VescCommand.bmsGetValues.rawValue:
         return .bmsValuesPayload(Data(payload))
+      case VescCommand.getCustomConfigurationXML.rawValue,
+           VescCommand.getCustomConfiguration.rawValue,
+           VescCommand.getCustomConfigurationDefault.rawValue,
+           VescCommand.setCustomConfiguration.rawValue:
+        return try .customConfiguration(VescCustomConfigurationCodec.decode(payload))
       case VescCommand.customAppData.rawValue:
         guard payload.count >= 4, let command = RefloatWire.command(in: payload) else {
           return nil

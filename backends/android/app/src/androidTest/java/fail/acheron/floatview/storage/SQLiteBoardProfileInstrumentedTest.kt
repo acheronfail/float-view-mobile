@@ -7,6 +7,8 @@ import androidx.test.platform.app.InstrumentationRegistry
 import fail.acheron.floatview.backend.DeviceId
 import fail.acheron.floatview.backend.ControllerRoutingHint
 import fail.acheron.floatview.backend.ProductStoreException
+import fail.acheron.floatview.backend.RefloatConfigurationIdentityRecord
+import fail.acheron.floatview.backend.RefloatSchemaCacheIdentity
 import fail.acheron.floatview.backend.RideState
 import fail.acheron.floatview.backend.TelemetrySample
 import java.io.File
@@ -214,6 +216,54 @@ class SQLiteBoardProfileInstrumentedTest {
             Instant.EPOCH,
         )
         assertEquals(null, store.controllerRoutingHint(saved.savedDeviceId))
+    }
+
+    @Test
+    fun refloatConfigurationsAreExactVersionPagedConflictSafeAndDurable() {
+        val store = SQLiteLogStore(context, availableBytes = { 2_000_000_000 })
+        val stable = RefloatConfigurationIdentityRecord("refloat", "1.0.1", "b".repeat(64), 123)
+        val colliding = RefloatConfigurationIdentityRecord("refloat", "1.0.0", "a".repeat(64), 123)
+        val values = """{"kp":{"type":"double","value":20}}"""
+        val first = store.createRefloatConfiguration("Trail", null, stable, values, Instant.ofEpochSecond(1))
+        val second = store.createRefloatConfiguration("Street", "calm", stable, values, Instant.ofEpochSecond(2))
+        store.createRefloatConfiguration("Legacy", null, colliding, values, Instant.ofEpochSecond(3))
+        val page = store.refloatConfigurations(stable, 1, null)
+        assertEquals(listOf(second.configurationId), page.items.map { it.configurationId })
+        assertEquals(
+            listOf(first.configurationId),
+            store.refloatConfigurations(stable, 1, requireNotNull(page.nextCursor)).items.map { it.configurationId },
+        )
+        assertEquals(1, store.refloatConfigurations(colliding, 50, null).items.size)
+        val updated = store.updateRefloatConfiguration(
+            first.configurationId, 1, "Trail 2", null, values, Instant.ofEpochSecond(4),
+        )
+        assertEquals(2, updated.revision)
+        assertThrows(ProductStoreException.RefloatConfigurationRevisionConflict::class.java) {
+            store.updateRefloatConfiguration(first.configurationId, 1, "stale", null, values, Instant.MAX)
+        }
+        val reopened = SQLiteLogStore(context, availableBytes = { 2_000_000_000 })
+        assertEquals("Trail 2", reopened.refloatConfiguration(first.configurationId).name)
+        reopened.deleteRefloatConfiguration(first.configurationId, 2)
+        assertThrows(ProductStoreException.RefloatConfigurationNotFound::class.java) {
+            reopened.refloatConfiguration(first.configurationId)
+        }
+    }
+
+    @Test
+    fun refloatSchemaCacheRequiresExactNonzeroIdentityAndDeletesCorruption() {
+        val store = SQLiteLogStore(context, availableBytes = { 2_000_000_000 })
+        val identity = RefloatSchemaCacheIdentity("6.6", "THOR300", "1.2.3", 0, 123)
+        val data = ByteArray(1_024) { it.toByte() }
+        assertEquals(null, store.cachedRefloatSchema(identity))
+        store.storeRefloatSchema(data, identity)
+        assertTrue(requireNotNull(store.cachedRefloatSchema(identity)).contentEquals(data))
+        assertEquals(null, store.cachedRefloatSchema(identity.copy(hardwareConfigurationCrc = 124)))
+        val reopened = SQLiteLogStore(context, availableBytes = { 2_000_000_000 })
+        assertTrue(requireNotNull(reopened.cachedRefloatSchema(identity)).contentEquals(data))
+        val cacheFile = requireNotNull(File(root, "refloat-schema-cache").listFiles()).single()
+        cacheFile.writeText("corrupt")
+        assertEquals(null, reopened.cachedRefloatSchema(identity))
+        assertFalse(cacheFile.exists())
     }
 
     @Test

@@ -93,6 +93,23 @@ export interface FixtureCounters {
   dropped: number;
 }
 
+export interface FixtureRefloatConfiguration {
+  route: 'direct' | `CAN:${number}`;
+  version: RefloatVersion;
+  fingerprint: string;
+  wireSignature: number;
+  schemaBytes: number;
+  currentBytes: number;
+  defaultBytes: number;
+  counters: {
+    schema: number;
+    current: number;
+    default: number;
+    write: number;
+    rejected: number;
+  };
+}
+
 export interface FixtureSnapshot {
   revision: number;
   serial: {
@@ -112,6 +129,7 @@ export interface FixtureSnapshot {
   lastAttempt?: LastFixtureAttempt;
   lastRequest?: LastFixtureRequest;
   counters: FixtureCounters;
+  refloatConfigurations: readonly FixtureRefloatConfiguration[];
   diagnostics: readonly string[];
 }
 

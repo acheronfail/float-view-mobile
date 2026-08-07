@@ -18,18 +18,21 @@ public enum VescFirmwareIdentityDecoder {
     guard commonEnd <= payload.count else { throw VescProtocolError.truncatedPayload }
 
     let hardwareType = payload[uuidStart + 14]
+    let customConfigurationCount = payload[uuidStart + 15]
     let firmwareName: String?
+    let hardwareConfigurationCRC: UInt32?
     switch hardwareType {
     case bmsHardwareType:
       guard payload[1] == 6, payload[2] == 0, payload.count == commonEnd else {
         throw VescProtocolError.truncatedPayload
       }
       firmwareName = nil
+      hardwareConfigurationCRC = nil
     case motorHardwareType:
-      firmwareName = try extendedFirmwareName(in: payload, from: commonEnd)
+      (firmwareName, hardwareConfigurationCRC) = try extendedFirmwareName(in: payload, from: commonEnd)
     default:
       // Custom modules use the same four capability bytes, name, and optional CRC tail.
-      firmwareName = try extendedFirmwareName(in: payload, from: commonEnd)
+      (firmwareName, hardwareConfigurationCRC) = try extendedFirmwareName(in: payload, from: commonEnd)
     }
 
     return FirmwareInfo(
@@ -39,17 +42,24 @@ public enum VescFirmwareIdentityDecoder {
       hardwareName: String(decoding: hardwareNameBytes, as: UTF8.self),
       firmwareName: firmwareName,
       hardwareType: hardwareType,
-      controllerUUID: Data(payload[uuidStart ..< uuidStart + 12])
+      controllerUUID: Data(payload[uuidStart ..< uuidStart + 12]),
+      customConfigurationCount: customConfigurationCount,
+      hardwareConfigurationCRC: hardwareConfigurationCRC
     )
   }
 
-  private static func extendedFirmwareName(in payload: [UInt8], from commonEnd: Int) throws -> String? {
+  private static func extendedFirmwareName(
+    in payload: [UInt8], from commonEnd: Int
+  ) throws -> (String?, UInt32?) {
     let firmwareNameStart = commonEnd + 4
     guard firmwareNameStart < payload.count else { throw VescProtocolError.truncatedPayload }
     let bytes = try terminatedBytes(in: payload, from: firmwareNameStart, maximum: 64)
     let tailLength = payload.count - (bytes.endIndex + 1)
     guard tailLength == 0 || tailLength == 4 else { throw VescProtocolError.truncatedPayload }
-    return String(decoding: bytes, as: UTF8.self).nilIfEmpty
+    let crc: UInt32? = if tailLength == 4 {
+      payload[(bytes.endIndex + 1)...].reduce(0) { ($0 << 8) | UInt32($1) }
+    } else { nil }
+    return (String(decoding: bytes, as: UTF8.self).nilIfEmpty, crc)
   }
 
   private static func terminatedBytes(

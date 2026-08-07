@@ -36,7 +36,7 @@
 
 <svelte:window onkeydown={containFocus} />
 
-<div class="fixed inset-0 z-50 grid h-dvh place-items-center bg-black/75 p-4">
+<div class="fixed inset-0 z-50 grid h-screen place-items-center bg-black/75 p-4">
   <div
     role="alertdialog"
     aria-modal="true"

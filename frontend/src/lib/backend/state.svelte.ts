@@ -8,6 +8,13 @@ import type {
   SessionSummary,
   Settings,
   RefloatControl,
+  RefloatConfigurationIdentity,
+  RefloatConfigurationSchemaPage,
+  RefloatConfigurationSummary,
+  RefloatConfigurationValue,
+  RefloatConfigurationValues,
+  RefloatTune,
+  RefloatTuneListPage,
 } from '$lib/backend/contract';
 import { connectBootstrap, loadBootstrap, type FrontendPlatform } from './bootstrap';
 import { ApiRequestError, type ApiClient } from './client';
@@ -151,6 +158,96 @@ export class BackendState {
 
   async clearRefloatFatalError(): Promise<boolean> {
     return this.run((client) => client.request('refloat.fatalError.clear', {}).then(() => undefined));
+  }
+
+  openRefloatConfiguration(): Promise<RefloatConfigurationSummary | null> {
+    return this.query((client) => client.request('refloat.configuration.open', {}));
+  }
+
+  refloatConfigurationSchema(cursor: string | null = null): Promise<RefloatConfigurationSchemaPage | null> {
+    return this.query((client) => client.request('refloat.configuration.schema', { cursor }));
+  }
+
+  readRefloatConfiguration(source: 'current' | 'default'): Promise<RefloatConfigurationValues | null> {
+    return this.query((client) => client.request('refloat.configuration.read', { source }));
+  }
+
+  writeRefloatConfiguration(
+    identity: RefloatConfigurationIdentity,
+    baseRevision: number,
+    values: Record<string, RefloatConfigurationValue>
+  ): Promise<RefloatConfigurationValues | null> {
+    return this.query((client) =>
+      client.request('refloat.configuration.write', {
+        packageVersion: identity.packageVersion,
+        schemaFingerprint: identity.schemaFingerprint,
+        wireSignature: identity.wireSignature,
+        baseRevision,
+        values,
+      })
+    );
+  }
+
+  listRefloatTunes(
+    identity: RefloatConfigurationIdentity,
+    limit = 50,
+    cursor: string | null = null
+  ): Promise<RefloatTuneListPage | null> {
+    return this.query((client) => client.request('refloat.tune.list', { identity, limit, cursor }));
+  }
+
+  getRefloatTune(tuneId: string): Promise<RefloatTune | null> {
+    return this.query((client) => client.request('refloat.tune.get', { tuneId }));
+  }
+
+  createRefloatTune(
+    name: string,
+    description: string | null,
+    identity: RefloatConfigurationIdentity,
+    sourceRevision: number,
+    values: Record<string, RefloatConfigurationValue>
+  ): Promise<RefloatTune | null> {
+    return this.query((client) =>
+      client.request('refloat.tune.create', {
+        name,
+        description,
+        identity,
+        sourceRevision,
+        values,
+      })
+    );
+  }
+
+  updateRefloatTune(
+    tuneId: string,
+    expectedRevision: number,
+    name: string,
+    description: string | null,
+    values: Record<string, RefloatConfigurationValue>
+  ): Promise<RefloatTune | null> {
+    return this.query((client) =>
+      client.request('refloat.tune.update', {
+        tuneId,
+        expectedRevision,
+        name,
+        description,
+        values,
+      })
+    );
+  }
+
+  async deleteRefloatTune(tuneId: string, expectedRevision: number): Promise<boolean> {
+    return this.run((client) =>
+      client.request('refloat.tune.delete', { tuneId, expectedRevision }).then(() => undefined)
+    );
+  }
+
+  applyRefloatTune(
+    tuneId: string,
+    expectedRevision: number,
+    baseRevision: number
+  ): Promise<RefloatConfigurationValues | null> {
+    return this.query((client) => client.request('refloat.tune.apply', { tuneId, expectedRevision, baseRevision }));
   }
 
   async selectController(deviceId: string, canId: number): Promise<boolean> {
@@ -391,6 +488,21 @@ export class BackendState {
     } catch (error) {
       this.error = message(error);
       return false;
+    } finally {
+      this.busy = false;
+    }
+  }
+
+  private async query<T>(action: (client: ApiClient) => Promise<T>): Promise<T | null> {
+    if (!this.client?.isOpen) await this.connect();
+    if (!this.client?.isOpen) return null;
+    this.busy = true;
+    this.error = null;
+    try {
+      return await action(this.client);
+    } catch (error) {
+      this.error = message(error);
+      return null;
     } finally {
       this.busy = false;
     }

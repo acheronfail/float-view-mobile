@@ -672,4 +672,139 @@ describe('deterministic mock backend', () => {
     expect(events.at(-1)?.data.activeConnection).toBeNull();
     expect(events.at(-1)?.data.revision).toBe(beforeDisconnect + 2);
   });
+
+  it('models bounded configuration pages, verified writes, flywheel exclusion, and exact-version Tunes', () => {
+    const backend = new MockBackend();
+    backend.handle({ id: 1, method: 'bluetooth.scan', params: {} });
+    backend.handle({ id: 2, method: 'device.connect', params: { deviceId: 'mock-board', trackingMode: 'guest' } });
+    const opened = backend.handle({ id: 3, method: 'refloat.configuration.open', params: {} });
+    expect(opened).toMatchObject({ result: { availability: 'ready', currentLoaded: true } });
+
+    const first = backend.handle({ id: 4, method: 'refloat.configuration.schema', params: {} }) as {
+      result: { identity: Record<string, unknown>; fields: unknown[]; nextCursor: string };
+    };
+    expect(first.result.fields).toHaveLength(1);
+    const second = backend.handle({
+      id: 5,
+      method: 'refloat.configuration.schema',
+      params: { cursor: first.result.nextCursor },
+    });
+    expect(second).toMatchObject({
+      result: { fields: expect.arrayContaining([expect.objectContaining({ name: 'leds.on' })]), nextCursor: null },
+    });
+    expect(
+      backend.handle({
+        id: 6,
+        method: 'refloat.configuration.schema',
+        params: { cursor: 'x'.repeat(513) },
+      })
+    ).toMatchObject({ error: { code: 'invalid_request' } });
+
+    const read = backend.handle({
+      id: 7,
+      method: 'refloat.configuration.read',
+      params: { source: 'current' },
+    }) as { result: { revision: number; values: Record<string, unknown> } };
+    expect(
+      backend.handle({
+        id: 8,
+        method: 'refloat.configuration.write',
+        params: {
+          packageVersion: first.result.identity.packageVersion,
+          schemaFingerprint: first.result.identity.schemaFingerprint,
+          wireSignature: first.result.identity.wireSignature,
+          baseRevision: read.result.revision,
+          values: read.result.values,
+        },
+      })
+    ).toMatchObject({ error: { code: 'invalid_state' } });
+
+    backend.publishTelemetry();
+    backend.simulateRideState('idle');
+    const draft = { ...read.result.values, tiltback_duty: { type: 'double', value: 0.81 } };
+    expect(
+      backend.handle({
+        id: 9,
+        method: 'refloat.configuration.write',
+        params: {
+          packageVersion: first.result.identity.packageVersion,
+          schemaFingerprint: `0${String(first.result.identity.schemaFingerprint).slice(1)}`,
+          wireSignature: first.result.identity.wireSignature,
+          baseRevision: read.result.revision,
+          values: draft,
+        },
+      })
+    ).toMatchObject({ error: { code: 'conflict' } });
+    const written = backend.handle({
+      id: 10,
+      method: 'refloat.configuration.write',
+      params: {
+        packageVersion: first.result.identity.packageVersion,
+        schemaFingerprint: first.result.identity.schemaFingerprint,
+        wireSignature: first.result.identity.wireSignature,
+        baseRevision: read.result.revision,
+        values: draft,
+      },
+    }) as { result: { revision: number; values: Record<string, unknown> } };
+    expect(written.result).toMatchObject({ revision: 2, values: { 'meta.is_default': { value: false } } });
+
+    const created = backend.handle({
+      id: 11,
+      method: 'refloat.tune.create',
+      params: {
+        name: 'Trail',
+        description: null,
+        identity: first.result.identity,
+        sourceRevision: written.result.revision,
+        values: written.result.values,
+      },
+    }) as { result: { tuneId: string; revision: number } };
+    expect(created.result).toMatchObject({ tuneId: 'tune-1', revision: 1 });
+    expect(
+      backend.handle({
+        id: 12,
+        method: 'refloat.tune.list',
+        params: { identity: first.result.identity, limit: 1 },
+      })
+    ).toMatchObject({ result: { items: [expect.objectContaining({ tuneId: 'tune-1' })] } });
+    expect(
+      backend.handle({
+        id: 13,
+        method: 'refloat.tune.update',
+        params: {
+          tuneId: created.result.tuneId,
+          expectedRevision: 0,
+          name: 'Stale',
+          description: null,
+          values: written.result.values,
+        },
+      })
+    ).toMatchObject({ error: { code: 'conflict' } });
+
+    expect(
+      backend.handle({
+        id: 14,
+        method: 'refloat.control.set',
+        params: { control: 'flywheel', enabled: true },
+      })
+    ).toHaveProperty('result');
+    expect(
+      backend.handle({
+        id: 15,
+        method: 'refloat.configuration.read',
+        params: { source: 'current' },
+      })
+    ).toMatchObject({ error: { code: 'invalid_state' } });
+    expect(
+      (backend.handle({ id: 16, method: 'state.get', params: {} }) as { result: AppState }).result.activeConnection
+        ?.refloatConfiguration
+    ).toMatchObject({ currentLoaded: false, writable: false });
+    expect(
+      backend.handle({
+        id: 17,
+        method: 'refloat.control.set',
+        params: { control: 'flywheel', enabled: false },
+      })
+    ).toHaveProperty('result');
+  });
 });

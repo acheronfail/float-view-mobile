@@ -1179,6 +1179,90 @@ private final class ConcurrentResult<Value>: @unchecked Sendable {
   #expect(try reopened.savedDevices().isEmpty)
 }
 
+@Test func refloatConfigurationsAreExactVersionPagedConflictSafeAndDurable() throws {
+  let root = FileManager.default.temporaryDirectory
+    .appending(path: "float-view-refloat-tunes-\(UUID().uuidString)")
+  defer { try? FileManager.default.removeItem(at: root) }
+  let schema = repositoryRoot().appending(path: "sql")
+  let store = try SQLiteLogStore(root: root, schemaDirectory: schema, availableBytes: { 2_000_000_000 })
+  let stable = RefloatConfigurationIdentityRecord(
+    packageName: "refloat", packageVersion: "1.0.1",
+    schemaFingerprint: String(repeating: "b", count: 64), wireSignature: 123
+  )
+  let colliding = RefloatConfigurationIdentityRecord(
+    packageName: "refloat", packageVersion: "1.0.0",
+    schemaFingerprint: String(repeating: "a", count: 64), wireSignature: 123
+  )
+  let values = #"{"kp":{"type":"double","value":20}}"#
+  let first = try store.createRefloatConfiguration(
+    name: "Trail", description: nil, identity: stable, valuesJSON: values,
+    at: Date(timeIntervalSince1970: 1)
+  )
+  let second = try store.createRefloatConfiguration(
+    name: "Street", description: "calm", identity: stable, valuesJSON: values,
+    at: Date(timeIntervalSince1970: 2)
+  )
+  _ = try store.createRefloatConfiguration(
+    name: "Legacy", description: nil, identity: colliding, valuesJSON: values,
+    at: Date(timeIntervalSince1970: 3)
+  )
+  let page = try store.refloatConfigurations(identity: stable, limit: 1, cursor: nil)
+  #expect(page.items.map(\.configurationID) == [second.configurationID])
+  let next = try #require(page.nextCursor)
+  #expect(try store.refloatConfigurations(identity: stable, limit: 1, cursor: next).items
+    .map(\.configurationID) == [first.configurationID])
+  #expect(try store.refloatConfigurations(identity: colliding, limit: 50, cursor: nil).items.count == 1)
+
+  let updated = try store.updateRefloatConfiguration(
+    configurationID: first.configurationID, expectedRevision: 1,
+    name: "Trail 2", description: nil, valuesJSON: values,
+    at: Date(timeIntervalSince1970: 4)
+  )
+  #expect(updated.revision == 2)
+  #expect(throws: ProductStoreError.refloatConfigurationRevisionConflict(currentRevision: 2)) {
+    try store.updateRefloatConfiguration(
+      configurationID: first.configurationID, expectedRevision: 1,
+      name: "stale", description: nil, valuesJSON: values, at: .distantFuture
+    )
+  }
+  let reopened = try SQLiteLogStore(root: root, schemaDirectory: schema, availableBytes: { 2_000_000_000 })
+  #expect(try reopened.refloatConfiguration(configurationID: first.configurationID).name == "Trail 2")
+  try reopened.deleteRefloatConfiguration(configurationID: first.configurationID, expectedRevision: 2)
+  #expect(throws: ProductStoreError.refloatConfigurationNotFound) {
+    try reopened.refloatConfiguration(configurationID: first.configurationID)
+  }
+}
+
+@Test func refloatSchemaCacheRequiresExactNonzeroIdentityAndDeletesCorruption() throws {
+  let root = FileManager.default.temporaryDirectory
+    .appending(path: "float-view-refloat-cache-\(UUID().uuidString)")
+  defer { try? FileManager.default.removeItem(at: root) }
+  let schemaDirectory = repositoryRoot().appending(path: "sql")
+  let data = try Data(contentsOf: repositoryRoot()
+    .appending(path: "fixtures/refloat-configuration/schemas/1.2.3.qcompress"))
+  let identity = RefloatSchemaCacheIdentity(
+    firmwareVersion: "6.6", hardwareName: "THOR300", packageVersion: "1.2.3",
+    customIndex: 0, hardwareConfigurationCRC: 123
+  )
+  let store = try SQLiteLogStore(root: root, schemaDirectory: schemaDirectory, availableBytes: { 2_000_000_000 })
+  #expect(store.cachedRefloatSchema(identity: identity) == nil)
+  store.storeRefloatSchema(data, identity: identity)
+  #expect(store.cachedRefloatSchema(identity: identity) == data)
+  let changed = RefloatSchemaCacheIdentity(
+    firmwareVersion: "6.6", hardwareName: "THOR300", packageVersion: "1.2.3",
+    customIndex: 0, hardwareConfigurationCRC: 124
+  )
+  #expect(store.cachedRefloatSchema(identity: changed) == nil)
+  let reopened = try SQLiteLogStore(root: root, schemaDirectory: schemaDirectory, availableBytes: { 2_000_000_000 })
+  #expect(reopened.cachedRefloatSchema(identity: identity) == data)
+  let cacheFile = try #require(FileManager.default.contentsOfDirectory(
+    at: root.appending(path: "refloat-schema-cache"), includingPropertiesForKeys: nil
+  ).first)
+  try Data("corrupt".utf8).write(to: cacheFile)
+  #expect(reopened.cachedRefloatSchema(identity: identity) == nil)
+  #expect(!FileManager.default.fileExists(atPath: cacheFile.path))
+}
+
 private func sqliteExecute(_ url: URL, _ sql: String) throws {
   var database: OpaquePointer?
   guard sqlite3_open_v2(

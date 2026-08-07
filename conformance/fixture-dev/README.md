@@ -51,6 +51,16 @@ It owns source-faithful legacy/extended values, omitted-ping routing, timeouts,
 malformed responses, request counters, and the command-96 read-only allowlist.
 The ESP32 remains unchanged and has no VBMS scenario logic.
 
+Each semantic controller also owns one exact versioned Refloat configuration
+model backed by the immutable backend fixtures. It serves commands 92–95 over
+direct or once-forwarded CAN routes, retains disposable current/default/write
+state, applies expected firmware normalization, and resets safely without
+duplicating nine board profiles. The request panel exposes only bounded identity,
+byte counts, operation/rejection counters, and sanitized diagnostics. Raw schema
+and value bodies are never rendered. Riding/flywheel current reads and writes,
+test firmware, unknown indexes/routes, malformed requests, and unsafe app-data
+remain rejected; the ESP32 continues to interpret none of them.
+
 Choose a coherent semantic scene, then optionally pin individual bounded values
 while the remaining motion continues, freeze/resume generated motion, or reset
 to the scene baseline. Connection controls can serialize a disconnect around a

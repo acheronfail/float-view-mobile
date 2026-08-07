@@ -15,6 +15,7 @@ import { idleTelemetry, type TelemetrySource } from './telemetry.ts';
 import { directTopology, expressTopology, type FixtureTopology, type TopologyStrategy } from './topology.ts';
 import type { BmsConfiguration } from './bms.ts';
 import { ControllerShutdownModel, type ControllerShutdownBehavior } from './controller-shutdown.ts';
+import { RefloatConfigurationModel, type StableRefloatConfigurationVersion } from './refloat-configuration.ts';
 
 export interface FirmwareIdentity {
   major: number;
@@ -42,6 +43,7 @@ export interface ControllerConfiguration {
   refloatControls?: RefloatControlModel;
   telemetry?: TelemetrySource;
   shutdown?: ControllerShutdownModel;
+  refloatConfiguration?: RefloatConfigurationModel;
 }
 
 export interface BoardConfiguration {
@@ -70,6 +72,7 @@ export interface ComposedBoardConfiguration {
   firmware: FirmwareVariant;
   refloat: RefloatCodec;
   refloatControls: RefloatControlModel;
+  refloatConfiguration: RefloatConfigurationModel;
   topology: TopologyStrategy;
   telemetry: TelemetrySource;
   requestPolicy: 'strict' | 'interactive';
@@ -244,20 +247,18 @@ export const ambiguousThor: BoardConfiguration = {
 export function composeBoard(selection: BoardSelection): ComposedBoardConfiguration {
   const baseFirmware = firmwareVariants[selection.firmware];
   const testVersion = selection.firmwareTestVersion ?? baseFirmware.testVersion;
-  const firmware =
-    testVersion === baseFirmware.testVersion
-      ? baseFirmware
-      : {
-          ...baseFirmware,
-          testVersion,
-          payload: encodeFirmwarePayload(
-            thor300,
-            baseFirmware.major,
-            baseFirmware.minor,
-            baseFirmware.hardwareCrc,
-            testVersion
-          ),
-        };
+  const firmware = {
+    ...baseFirmware,
+    testVersion,
+    payload: encodeFirmwarePayload(
+      thor300,
+      baseFirmware.major,
+      baseFirmware.minor,
+      baseFirmware.hardwareCrc,
+      testVersion,
+      1
+    ),
+  };
   return {
     kind: 'composed',
     name: `${selection.topology === 'express' ? 'Express / ' : ''}THOR300 / Refloat ${selection.refloat}`,
@@ -266,6 +267,7 @@ export function composeBoard(selection: BoardSelection): ComposedBoardConfigurat
     firmware,
     refloat: refloatCodecs[selection.refloat],
     refloatControls: new RefloatControlModel(selection.refloat),
+    refloatConfiguration: new RefloatConfigurationModel(selection.refloat),
     shutdown: new ControllerShutdownModel(selection.shutdownBehavior),
     topology: selection.topology === 'express' ? expressTopology(selection.canId ?? 1) : directTopology,
     telemetry: selection.telemetry ?? {
@@ -298,7 +300,9 @@ export function composeInteractiveBoard(selection: InteractiveBoardSelection): B
           { ...thor300, uuid: item.uuid },
           firmware.major,
           firmware.minor,
-          firmware.hardwareCrc
+          firmware.hardwareCrc,
+          0,
+          1
         ),
       },
       refloatVersion: codec.version,
@@ -307,6 +311,7 @@ export function composeInteractiveBoard(selection: InteractiveBoardSelection): B
       telemetryPhases: [],
       refloat: codec,
       refloatControls: new RefloatControlModel(item.refloat),
+      refloatConfiguration: new RefloatConfigurationModel(item.refloat as StableRefloatConfigurationVersion),
       telemetry: selection.telemetry,
       shutdown: new ControllerShutdownModel(),
     };

@@ -42,12 +42,15 @@ public final class ApplicationService: @unchecked Sendable {
   private var locationCaptureActive = false
   private var currentLimits: ControllerCurrentLimits?
   private let refloatMutations = DeviceMutationCoordinator()
+  private let refloatConfiguration: RefloatConfigurationService
   private var refloatProfile: RefloatControlProfile?
   private var latestRefloatTelemetry: RefloatTelemetryRecord?
+  private var latestRefloatTelemetryMonotonicMs: Int64?
   private var refloatRefreshTimer: (any CancellationPort)?
   private var refloatMutationTimer: (any CancellationPort)?
   private var shutdownIntentTimer: (any CancellationPort)?
   private var refloatWaiter: RefloatMutationWaiter?
+  private var refloatConfigurationWaiter: RefloatConfigurationRequestWaiter?
   private lazy var refloatScheduler: any SchedulerPort = scheduler ?? SystemScheduler()
   private var vescGeneration = VescRequestGeneration(rawValue: 0)
   private lazy var vescRequests =
@@ -129,6 +132,7 @@ public final class ApplicationService: @unchecked Sendable {
     self.clock = clock
     self.logStore = logStore
     self.productStore = productStore
+    refloatConfiguration = RefloatConfigurationService(cache: productStore)
     self.sessionStore = sessionStore
     self.protocolCodec = protocolCodec
     self.scheduler = scheduler
@@ -692,11 +696,24 @@ public final class ApplicationService: @unchecked Sendable {
                ? RefloatCommand.realtimeDataInternal.rawValue : RefloatCommand.getAllData.rawValue)
           case let .refloatLighting(command, _):
             (VescCommand.customAppData.rawValue, command.rawValue)
+          case let .customConfiguration(response):
+            switch response {
+            case .schemaChunk: (VescCommand.getCustomConfigurationXML.rawValue, nil)
+            case let .values(command, _, _): (command.rawValue, nil)
+            case .writeAcknowledgement: (VescCommand.setCustomConfiguration.rawValue, nil)
+            }
           }
+          let deferNext = switch message {
+          case .refloatTelemetry, .customConfiguration: true
+          default: false
+          }
+          var deferredResumed = false
           if !vescRequests.receive(
             payload: bytes,
             command: identity.0,
-            refloatCommand: identity.1
+            refloatCommand: identity.1,
+            validContext: { context in Self.matchesCustomConfiguration(message, context: context) },
+            deferNext: deferNext
           )
           { continue }
           switch message {
@@ -755,22 +772,102 @@ public final class ApplicationService: @unchecked Sendable {
               )
             )
           case let .refloatTelemetry(value):
-            telemetryPolling.receive(value)
             latestRefloatTelemetry = value
+            latestRefloatTelemetryMonotonicMs = clock.monotonicMilliseconds()
+            if let mode = value.packageMode {
+              if mode == .flywheel {
+                cancelFlywheelProhibitedRequests()
+                _ = refloatMutations.failPending(generation: vescGeneration)
+                _ = refloatMutations.clearShutdown(generation: vescGeneration)
+                refloatMutations.finishConfiguration(generation: vescGeneration)
+              }
+              performRefloatConfigurationEffect(
+                refloatConfiguration.setFlywheel(mode == .flywheel)
+              )
+            }
+            vescRequests.resume()
+            deferredResumed = true
+            telemetryPolling.receive(value)
             let wasPending = refloatMutations.snapshot()?.pendingAction
             let updated = refloatMutations.observeTelemetry(value)
-            if wasPending != nil, updated?.pendingAction == nil { finishRefloatMutation(.success(updated!)) }
+            if wasPending != nil, updated?.pendingAction == nil {
+              refloatConfiguration.invalidateCurrent()
+              finishRefloatMutation(.success(updated!))
+            }
           case let .refloatLighting(_, state):
             let wasPending = refloatMutations.snapshot()?.pendingAction
             let updated = refloatMutations.observeLighting(state)
-            if wasPending != nil, updated?.pendingAction == nil { finishRefloatMutation(.success(updated!)) }
+            if wasPending != nil, updated?.pendingAction == nil {
+              refloatConfiguration.invalidateCurrent()
+              finishRefloatMutation(.success(updated!))
+            }
+          case let .customConfiguration(response):
+            guard let requestContext else { continue }
+            do {
+              let effect = try refloatConfiguration.accept(
+                response, context: requestContext, generation: vescGeneration
+              )
+              performRefloatConfigurationEffect(effect)
+              if case .refloatConfigurationVerification = requestContext {
+                refloatMutations.finishConfiguration(generation: vescGeneration)
+                telemetryPolling.refresh()
+                if let route = controllerDiscovery.controllerRoute, let profile = refloatProfile {
+                  requestRefloatLighting(route: route, profile: profile)
+                }
+              }
+              events.publish(refloatConfiguration.summary())
+              switch requestContext {
+              case .refloatConfigurationValues, .refloatConfigurationVerification:
+                finishRefloatConfigurationRequest(.success(()))
+              default:
+                break
+              }
+            } catch {
+              if case .refloatConfigurationWrite = requestContext {
+                refloatMutations.finishConfiguration(generation: vescGeneration)
+              }
+              if case .refloatConfigurationVerification = requestContext {
+                refloatMutations.finishConfiguration(generation: vescGeneration)
+              }
+              finishRefloatConfigurationRequest(.failure(error))
+              events.publish(String(describing: error))
+            }
           }
+          if deferNext, !deferredResumed { vescRequests.resume() }
           events.publish(message)
         }
       } catch {
         events.publish(String(describing: error))
       }
     }
+  }
+
+  private static func matchesCustomConfiguration(
+    _ message: VescProtocolMessage, context: VescRequestContext
+  ) -> Bool {
+    guard case let .customConfiguration(response) = message else { return true }
+    return switch (response, context) {
+    case let (.schemaChunk(index, _, offset, _), .refloatConfigurationSchema(_, expected, expectedOffset, _)):
+      index == expected && offset == expectedOffset
+    case let (.values(command, index, _), .refloatConfigurationValues(_, expected, defaults, _)):
+      index == expected && command == (defaults ? .getCustomConfigurationDefault : .getCustomConfiguration)
+    case let (.values(command, index, _), .refloatConfigurationVerification(_, expected, _)):
+      index == expected && command == .getCustomConfiguration
+    case (.writeAcknowledgement, .refloatConfigurationWrite): true
+    default: false
+    }
+  }
+
+  private func cancelFlywheelProhibitedRequests() {
+    vescRequests.cancelMatching({ context in
+      switch context {
+      case .refloatControl, .controllerShutdown,
+           .refloatConfigurationWrite, .refloatConfigurationVerification:
+        true
+      case let .refloatConfigurationValues(_, _, defaults, _): !defaults
+      default: false
+      }
+    }, resume: false)
   }
 
   private func attributedFirmware(
@@ -789,7 +886,9 @@ public final class ApplicationService: @unchecked Sendable {
       firmwareName: value.firmwareName,
       hardwareType: value.hardwareType,
       canID: attributedCanID ?? value.canID,
-      controllerUUID: value.controllerUUID
+      controllerUUID: value.controllerUUID,
+      customConfigurationCount: value.customConfigurationCount,
+      hardwareConfigurationCRC: value.hardwareConfigurationCRC
     )
   }
 
@@ -1019,6 +1118,204 @@ public final class ApplicationService: @unchecked Sendable {
     lock.lock()
     defer { lock.unlock() }
     return controllerDiscovery.refloatPackageVersion
+  }
+
+  public func refloatConfigurationSummarySnapshot() -> RefloatConfigurationSummary {
+    refloatConfiguration.summary()
+  }
+
+  public func refloatConfigurationSchemaSnapshot() -> RefloatConfigurationSchema? {
+    refloatConfiguration.loadedSchema()
+  }
+
+  public func refloatConfigurationValuesSnapshot(defaults: Bool) -> RefloatConfigurationValues? {
+    refloatConfiguration.loadedValues(defaults: defaults)
+  }
+
+  public func readRefloatConfiguration(defaults: Bool) throws -> RefloatConfigurationValues {
+    let waiter = try lock.withLock { () throws -> RefloatConfigurationRequestWaiter in
+      let waiter = RefloatConfigurationRequestWaiter()
+      refloatConfigurationWaiter = waiter
+      try performRefloatConfigurationEffect(refloatConfiguration.requestValues(defaults: defaults))
+      events.publish(refloatConfiguration.summary())
+      return waiter
+    }
+    try waiter.wait(timeout: 3.25)
+    guard let values = refloatConfiguration.loadedValues(defaults: defaults) else {
+      throw RefloatConfigurationServiceError.invalidState
+    }
+    return values
+  }
+
+  public func writeRefloatConfiguration(
+    packageVersion: String, fingerprint: String, wireSignature: UInt32,
+    baseRevision: UInt64, values: [String: RefloatConfigurationValue]
+  ) throws -> RefloatConfigurationValues {
+    let waiter = try lock.withLock { () throws -> RefloatConfigurationRequestWaiter in
+      guard let telemetry = latestRefloatTelemetry,
+            let firmware = controllerDiscovery.firmware,
+            let observed = latestRefloatTelemetryMonotonicMs,
+            clock.monotonicMilliseconds() - observed <= max(3_000, idleProbeIntervalMs * 2)
+      else { throw RefloatMutationError.invalidState }
+      let context = RefloatConfigurationMutationContext(
+        generation: vescGeneration,
+        connectionReady: connectionState == .ready,
+        writable: VescCompatibility.accessMode(firmware) == .readWrite,
+        rideState: telemetry.rideState,
+        footpadState: telemetry.footpadState,
+        packageState: telemetry.packageState,
+        packageMode: telemetry.packageMode
+      )
+      try refloatMutations.authorizeConfiguration(context: context)
+      do {
+        let waiter = RefloatConfigurationRequestWaiter()
+        refloatConfigurationWaiter = waiter
+        let effect = try refloatConfiguration.requestWrite(
+          packageVersion: packageVersion, fingerprint: fingerprint,
+          wireSignature: wireSignature, baseRevision: baseRevision, values: values
+        )
+        performRefloatConfigurationEffect(effect)
+        events.publish(refloatConfiguration.summary())
+        return waiter
+      } catch {
+        refloatMutations.finishConfiguration(generation: context.generation)
+        throw error
+      }
+    }
+    try waiter.wait(timeout: 3.25)
+    guard let values = refloatConfiguration.loadedValues(defaults: false) else {
+      throw RefloatConfigurationServiceError.invalidState
+    }
+    return values
+  }
+
+  public func refloatTunes(
+    identity: RefloatConfigurationIdentityRecord, limit: Int, cursor: String?
+  ) throws -> RefloatConfigurationListPage {
+    guard let productStore else { throw ApplicationError.productStoreUnavailable }
+    return try productStore.refloatConfigurations(identity: identity, limit: limit, cursor: cursor)
+  }
+
+  public func refloatTune(configurationID: String) throws -> RefloatConfigurationRecord {
+    guard let productStore else { throw ApplicationError.productStoreUnavailable }
+    return try productStore.refloatConfiguration(configurationID: configurationID)
+  }
+
+  public func createRefloatTune(
+    name: String, description: String?, identity: RefloatConfigurationIdentityRecord,
+    sourceRevision: UInt64, values: [String: RefloatConfigurationValue]
+  ) throws -> RefloatConfigurationRecord {
+    guard let productStore else { throw ApplicationError.productStoreUnavailable }
+    try validateRefloatTuneValues(identity: identity, sourceRevision: sourceRevision, values: values)
+    return try productStore.createRefloatConfiguration(
+      name: name, description: description, identity: identity,
+      valuesJSON: Self.refloatConfigurationValuesJSON(values), at: clock.now()
+    )
+  }
+
+  public func updateRefloatTune(
+    configurationID: String, expectedRevision: Int, name: String,
+    description: String?, values: [String: RefloatConfigurationValue]
+  ) throws -> RefloatConfigurationRecord {
+    guard let productStore else { throw ApplicationError.productStoreUnavailable }
+    let record = try productStore.refloatConfiguration(configurationID: configurationID)
+    let currentRevision = refloatConfiguration.loadedValues(defaults: false)?.revision
+    try validateRefloatTuneValues(identity: record.identity, sourceRevision: currentRevision, values: values)
+    return try productStore.updateRefloatConfiguration(
+      configurationID: configurationID, expectedRevision: expectedRevision,
+      name: name, description: description,
+      valuesJSON: Self.refloatConfigurationValuesJSON(values), at: clock.now()
+    )
+  }
+
+  public func deleteRefloatTune(configurationID: String, expectedRevision: Int) throws {
+    guard let productStore else { throw ApplicationError.productStoreUnavailable }
+    try productStore.deleteRefloatConfiguration(
+      configurationID: configurationID, expectedRevision: expectedRevision
+    )
+  }
+
+  public func applyRefloatTune(
+    configurationID: String, expectedRevision: Int, baseRevision: UInt64
+  ) throws -> RefloatConfigurationValues {
+    guard let productStore else { throw ApplicationError.productStoreUnavailable }
+    let record = try productStore.refloatConfiguration(configurationID: configurationID)
+    guard record.revision == expectedRevision else {
+      throw ProductStoreError.refloatConfigurationRevisionConflict(currentRevision: record.revision)
+    }
+    let values = try Self.refloatConfigurationValues(json: record.valuesJSON)
+    return try writeRefloatConfiguration(
+      packageVersion: record.identity.packageVersion,
+      fingerprint: record.identity.schemaFingerprint,
+      wireSignature: record.identity.wireSignature,
+      baseRevision: baseRevision, values: values
+    )
+  }
+
+  private func validateRefloatTuneValues(
+    identity: RefloatConfigurationIdentityRecord, sourceRevision: UInt64?,
+    values: [String: RefloatConfigurationValue]
+  ) throws {
+    let summary = refloatConfiguration.summary()
+    guard identity.packageName == "refloat", summary.packageVersion == identity.packageVersion,
+          summary.schemaFingerprint == identity.schemaFingerprint,
+          summary.wireSignature == identity.wireSignature,
+          sourceRevision != nil,
+          refloatConfiguration.loadedValues(defaults: false)?.revision == sourceRevision,
+          let schema = refloatConfiguration.loadedSchema()
+    else { throw RefloatConfigurationServiceError.invalidState }
+    _ = try RefloatConfigurationValueCodec.encode(values, schema: schema)
+  }
+
+  private static func refloatConfigurationValuesJSON(
+    _ values: [String: RefloatConfigurationValue]
+  ) throws -> String {
+    let object = values.mapValues { value -> [String: Any] in
+      switch value {
+      case let .double(value): ["type": "double", "value": value]
+      case let .integer(value): ["type": "integer", "value": value]
+      case let .boolean(value): ["type": "boolean", "value": value]
+      case let .string(value): ["type": "string", "value": value]
+      }
+    }
+    return try String(decoding: JSONSerialization.data(withJSONObject: object, options: [.sortedKeys]), as: UTF8.self)
+  }
+
+  private static func refloatConfigurationValues(
+    json: String
+  ) throws -> [String: RefloatConfigurationValue] {
+    guard let object = try JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: [String: Any]]
+    else { throw ProductStoreError.invalidRefloatConfiguration }
+    var result: [String: RefloatConfigurationValue] = [:]
+    for (name, typed) in object {
+      switch typed["type"] as? String {
+      case "double":
+        guard let value = typed["value"] as? NSNumber,
+              CFGetTypeID(value) != CFBooleanGetTypeID(), value.doubleValue.isFinite
+        else { throw ProductStoreError.invalidRefloatConfiguration }
+        result[name] = .double(value.doubleValue)
+      case "integer":
+        guard let value = typed["value"] as? NSNumber,
+              CFGetTypeID(value) != CFBooleanGetTypeID(),
+              value.doubleValue.rounded() == value.doubleValue
+        else { throw ProductStoreError.invalidRefloatConfiguration }
+        result[name] = .integer(value.int64Value)
+      case "boolean":
+        guard let value = typed["value"] as? Bool else { throw ProductStoreError.invalidRefloatConfiguration }
+        result[name] = .boolean(value)
+      case "string":
+        guard let value = typed["value"] as? String else { throw ProductStoreError.invalidRefloatConfiguration }
+        result[name] = .string(value)
+      default: throw ProductStoreError.invalidRefloatConfiguration
+      }
+    }
+    return result
+  }
+
+  private func finishRefloatConfigurationRequest(_ result: Result<Void, any Error>) {
+    let waiter = refloatConfigurationWaiter
+    refloatConfigurationWaiter = nil
+    waiter?.finish(result)
   }
 
   private func startFirmwareDiscovery(_ deviceID: DeviceID) {
@@ -1303,6 +1600,15 @@ public final class ApplicationService: @unchecked Sendable {
     clearDiscoveredDevices(publish: false)
     transition(.ready)
     configureRefloatControls(firmware: firmware)
+    performRefloatConfigurationEffect(refloatConfiguration.begin(
+      route: route,
+      generation: vescGeneration,
+      firmware: firmware,
+      reportedVersion: controllerDiscovery.refloatPackageVersion ?? "",
+      writable: VescCompatibility.accessMode(firmware) == .readWrite,
+      flywheel: latestRefloatTelemetry?.packageMode == .flywheel
+    ))
+    events.publish(refloatConfiguration.summary())
     if let protocolCodec {
       do {
         try submitVescRequest(
@@ -1726,10 +2032,88 @@ public final class ApplicationService: @unchecked Sendable {
     }
     refloatProfile = profile
     latestRefloatTelemetry = nil
+    latestRefloatTelemetryMonotonicMs = nil
     events.publish(refloatMutations.configure(
       generation: vescGeneration, profile: profile, writable: access == .readWrite
     ))
     scheduleRefloatLightingRefresh()
+  }
+
+  private func performRefloatConfigurationEffect(_ effect: RefloatConfigurationEffect) {
+    guard let protocolCodec else { return }
+    do {
+      let payload: Data
+      let expected: VescExpectedResponse
+      let context: VescRequestContext
+      switch effect {
+      case .none:
+        return
+      case let .schemaChunk(route, length, offset, operation):
+        payload = try protocolCodec.customConfigurationSchemaRequest(
+          route: route, length: length, offset: offset
+        )
+        expected = .init(command: VescCommand.getCustomConfigurationXML.rawValue)
+        context = .refloatConfigurationSchema(
+          route: .init(route), index: RefloatConfigurationService.index,
+          offset: offset, operation: operation
+        )
+      case let .values(route, defaults, operation):
+        payload = try protocolCodec.customConfigurationValuesRequest(route: route, defaults: defaults)
+        expected = .init(command: defaults
+          ? VescCommand.getCustomConfigurationDefault.rawValue
+          : VescCommand.getCustomConfiguration.rawValue)
+        context = .refloatConfigurationValues(
+          route: .init(route), index: RefloatConfigurationService.index,
+          defaults: defaults, operation: operation
+        )
+      case let .write(route, values, operation):
+        payload = try protocolCodec.customConfigurationWriteRequest(route: route, values: values)
+        expected = .init(command: VescCommand.setCustomConfiguration.rawValue)
+        context = .refloatConfigurationWrite(
+          route: .init(route), index: RefloatConfigurationService.index, operation: operation
+        )
+      case let .verification(route, operation):
+        payload = try protocolCodec.customConfigurationValuesRequest(route: route, defaults: false)
+        expected = .init(command: VescCommand.getCustomConfiguration.rawValue)
+        context = .refloatConfigurationVerification(
+          route: .init(route), index: RefloatConfigurationService.index, operation: operation
+        )
+      }
+      let requestGeneration = vescGeneration
+      submitVescRequest(
+        payload: payload,
+        expected: expected,
+        priority: .controllerWork,
+        context: context,
+        timeoutMs: RefloatConfigurationService.requestTimeoutMs
+      ) { [weak self] outcome in
+        switch outcome {
+        case .response, .sent: return
+        default:
+          self?.refloatConfiguration.requestFailed(
+            context: context, generation: requestGeneration
+          )
+          self?.finishRefloatConfigurationRequest(
+            .failure(RefloatConfigurationServiceError.unavailable)
+          )
+          if case .refloatConfigurationWrite = context {
+            self?.refloatMutations.finishConfiguration(generation: requestGeneration)
+          }
+          if case .refloatConfigurationVerification = context {
+            self?.refloatMutations.finishConfiguration(generation: requestGeneration)
+          }
+        }
+      }
+    } catch {
+      refloatConfiguration.abortActiveOperation(generation: vescGeneration)
+      switch effect {
+      case .write, .verification:
+        refloatMutations.finishConfiguration(generation: vescGeneration)
+      default:
+        break
+      }
+      events.publish(String(describing: error))
+    }
   }
 
   private func requestRefloatLighting(route: ControllerRoute, profile: RefloatControlProfile) {
@@ -1868,6 +2252,8 @@ public final class ApplicationService: @unchecked Sendable {
   }
 
   private func resetFirmwareDiscovery() {
+    finishRefloatConfigurationRequest(.failure(RefloatConfigurationServiceError.unavailable))
+    refloatConfiguration.reset()
     vescGeneration = vescRequests.beginGeneration()
     telemetryPolling.cancelLayout()
     telemetryPolling.stop()
@@ -1985,5 +2371,27 @@ private final class RefloatMutationWaiter: @unchecked Sendable {
           let result = lock.withLock({ result })
     else { throw RefloatMutationError.unavailable }
     return try result.get()
+  }
+}
+
+private final class RefloatConfigurationRequestWaiter: @unchecked Sendable {
+  private let lock = NSLock()
+  private let semaphore = DispatchSemaphore(value: 0)
+  private var result: Result<Void, any Error>?
+
+  func finish(_ result: Result<Void, any Error>) {
+    let shouldSignal = lock.withLock {
+      guard self.result == nil else { return false }
+      self.result = result
+      return true
+    }
+    if shouldSignal { semaphore.signal() }
+  }
+
+  func wait(timeout: TimeInterval) throws {
+    guard semaphore.wait(timeout: .now() + timeout) == .success,
+          let result = lock.withLock({ result })
+    else { throw RefloatConfigurationServiceError.unavailable }
+    try result.get()
   }
 }

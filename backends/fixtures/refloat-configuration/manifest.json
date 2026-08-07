@@ -1,0 +1,356 @@
+{
+  "schemaVersion": 1,
+  "releases": [
+    {
+      "version": "1.0.0",
+      "tag": "v1.0.0",
+      "commit": "4bb2467d9db7a5b19b3f2585889d1b86f8559a6e",
+      "sourcePath": "src/conf/settings.xml",
+      "sourceSha256": "324e7f5ef1ea1b2038478af7e6f43c91d63ec06a6caf2907c5b7e6c812382ad9",
+      "compressedBytes": 22498,
+      "expandedBytes": 304285,
+      "compressedSha256": "c833fe83c02ab17acd4b17e83e2633ec0341dfa82268c13a9d6633c56200fb0d",
+      "schemaFingerprintSha256": "324e7f5ef1ea1b2038478af7e6f43c91d63ec06a6caf2907c5b7e6c812382ad9",
+      "normalizedExpectationSha256": "a8e1664a441a844c9a94ddfa2a4fc34200331f6c485582f710497a67577babe4",
+      "wireSignature": 4090797430,
+      "wireSignatureHex": "f3d49d76",
+      "parameterCount": 146,
+      "serializedFieldCount": 144,
+      "groupCount": 1,
+      "defaultPayloadBytes": 244,
+      "defaultPayloadSha256": "71923cdc829ee18e818f14471c2e4d29b7e305164a08249eb3b9b7955ab5b321",
+      "representativeWrite": {
+        "field": "kp",
+        "value": 21.0
+      },
+      "writeNormalization": [],
+      "files": {
+        "schema": "schemas/1.0.0.qcompress",
+        "values": "values/1.0.0.json",
+        "default": "values/1.0.0-default.bin",
+        "current": "values/1.0.0-current.bin",
+        "acceptedWrite": "values/1.0.0-write.bin",
+        "expectedReadback": "values/1.0.0-readback.bin"
+      }
+    },
+    {
+      "version": "1.0.1",
+      "tag": "v1.0.1",
+      "commit": "6835ac95b651789fdd116212f6f903ca812dc4b9",
+      "sourcePath": "src/conf/settings.xml",
+      "sourceSha256": "887e7b03c03304a2f8455e71b369b89830e8d6446a73aa598ab067ac81944526",
+      "compressedBytes": 22559,
+      "expandedBytes": 304601,
+      "compressedSha256": "c402f909d2361aee8eeb01150d3f45d9e7736d70711ee4686327340b072cca06",
+      "schemaFingerprintSha256": "887e7b03c03304a2f8455e71b369b89830e8d6446a73aa598ab067ac81944526",
+      "normalizedExpectationSha256": "9b5ee72f54ed25973c2788b8a503969b355ddb337a0796fa2478c4b41aa533ce",
+      "wireSignature": 4090797430,
+      "wireSignatureHex": "f3d49d76",
+      "parameterCount": 146,
+      "serializedFieldCount": 144,
+      "groupCount": 1,
+      "defaultPayloadBytes": 244,
+      "defaultPayloadSha256": "71923cdc829ee18e818f14471c2e4d29b7e305164a08249eb3b9b7955ab5b321",
+      "representativeWrite": {
+        "field": "kp",
+        "value": 21.0
+      },
+      "writeNormalization": [],
+      "files": {
+        "schema": "schemas/1.0.1.qcompress",
+        "values": "values/1.0.1.json",
+        "default": "values/1.0.1-default.bin",
+        "current": "values/1.0.1-current.bin",
+        "acceptedWrite": "values/1.0.1-write.bin",
+        "expectedReadback": "values/1.0.1-readback.bin"
+      }
+    },
+    {
+      "version": "1.1.0",
+      "tag": "v1.1.0",
+      "commit": "8cb6dc0f21d8df1d25b0c02a9dd128e21d043170",
+      "sourcePath": "src/conf/settings.xml",
+      "sourceSha256": "b5849e38371a65721bb48182048023d1c707012228554878ce263b1c49ee168f",
+      "compressedBytes": 23889,
+      "expandedBytes": 328097,
+      "compressedSha256": "4ec3161be9ec02d36bbd32a0cd221844622fed47005a8ca40422411049559335",
+      "schemaFingerprintSha256": "b5849e38371a65721bb48182048023d1c707012228554878ce263b1c49ee168f",
+      "normalizedExpectationSha256": "e4a3b72bec139d3a07ce97a5f3569b3d7031a8af5ff5a186d342bae09eb711f8",
+      "wireSignature": 15843867,
+      "wireSignatureHex": "00f1c21b",
+      "parameterCount": 158,
+      "serializedFieldCount": 156,
+      "groupCount": 2,
+      "defaultPayloadBytes": 262,
+      "defaultPayloadSha256": "cb265cf43f28659987a1e8f1de85d6c4acc1b0e38164d041b2cae64e26fb8fd8",
+      "representativeWrite": {
+        "field": "kp",
+        "value": 21.0
+      },
+      "writeNormalization": [
+        {
+          "field": "meta.is_default",
+          "value": 0
+        }
+      ],
+      "files": {
+        "schema": "schemas/1.1.0.qcompress",
+        "values": "values/1.1.0.json",
+        "default": "values/1.1.0-default.bin",
+        "current": "values/1.1.0-current.bin",
+        "acceptedWrite": "values/1.1.0-write.bin",
+        "expectedReadback": "values/1.1.0-readback.bin"
+      }
+    },
+    {
+      "version": "1.1.1",
+      "tag": "v1.1.1",
+      "commit": "e139b83bd4e93b421ad08a9630c9923f447eefdd",
+      "sourcePath": "src/conf/settings.xml",
+      "sourceSha256": "b5849e38371a65721bb48182048023d1c707012228554878ce263b1c49ee168f",
+      "compressedBytes": 23889,
+      "expandedBytes": 328097,
+      "compressedSha256": "4ec3161be9ec02d36bbd32a0cd221844622fed47005a8ca40422411049559335",
+      "schemaFingerprintSha256": "b5849e38371a65721bb48182048023d1c707012228554878ce263b1c49ee168f",
+      "normalizedExpectationSha256": "e4a3b72bec139d3a07ce97a5f3569b3d7031a8af5ff5a186d342bae09eb711f8",
+      "wireSignature": 15843867,
+      "wireSignatureHex": "00f1c21b",
+      "parameterCount": 158,
+      "serializedFieldCount": 156,
+      "groupCount": 2,
+      "defaultPayloadBytes": 262,
+      "defaultPayloadSha256": "cb265cf43f28659987a1e8f1de85d6c4acc1b0e38164d041b2cae64e26fb8fd8",
+      "representativeWrite": {
+        "field": "kp",
+        "value": 21.0
+      },
+      "writeNormalization": [
+        {
+          "field": "meta.is_default",
+          "value": 0
+        }
+      ],
+      "files": {
+        "schema": "schemas/1.1.1.qcompress",
+        "values": "values/1.1.1.json",
+        "default": "values/1.1.1-default.bin",
+        "current": "values/1.1.1-current.bin",
+        "acceptedWrite": "values/1.1.1-write.bin",
+        "expectedReadback": "values/1.1.1-readback.bin"
+      }
+    },
+    {
+      "version": "1.1.2",
+      "tag": "v1.1.2",
+      "commit": "0584080698ffd8d32cbd0c94eab3ca18200594ad",
+      "sourcePath": "src/conf/settings.xml",
+      "sourceSha256": "b5849e38371a65721bb48182048023d1c707012228554878ce263b1c49ee168f",
+      "compressedBytes": 23889,
+      "expandedBytes": 328097,
+      "compressedSha256": "4ec3161be9ec02d36bbd32a0cd221844622fed47005a8ca40422411049559335",
+      "schemaFingerprintSha256": "b5849e38371a65721bb48182048023d1c707012228554878ce263b1c49ee168f",
+      "normalizedExpectationSha256": "e4a3b72bec139d3a07ce97a5f3569b3d7031a8af5ff5a186d342bae09eb711f8",
+      "wireSignature": 15843867,
+      "wireSignatureHex": "00f1c21b",
+      "parameterCount": 158,
+      "serializedFieldCount": 156,
+      "groupCount": 2,
+      "defaultPayloadBytes": 262,
+      "defaultPayloadSha256": "cb265cf43f28659987a1e8f1de85d6c4acc1b0e38164d041b2cae64e26fb8fd8",
+      "representativeWrite": {
+        "field": "kp",
+        "value": 21.0
+      },
+      "writeNormalization": [
+        {
+          "field": "meta.is_default",
+          "value": 0
+        }
+      ],
+      "files": {
+        "schema": "schemas/1.1.2.qcompress",
+        "values": "values/1.1.2.json",
+        "default": "values/1.1.2-default.bin",
+        "current": "values/1.1.2-current.bin",
+        "acceptedWrite": "values/1.1.2-write.bin",
+        "expectedReadback": "values/1.1.2-readback.bin"
+      }
+    },
+    {
+      "version": "1.2.0",
+      "tag": "v1.2.0",
+      "commit": "747a2f4fa27e44f8c4d1f0b90e709c7a1159198e",
+      "sourcePath": "src/conf/settings.xml",
+      "sourceSha256": "2561e00a5b6694de0ac272bae077e06050cfc00cf4ba371bb1d5d9616e137f7e",
+      "compressedBytes": 25723,
+      "expandedBytes": 351389,
+      "compressedSha256": "1673d11859aff8d73ef92c6f0519055df4def5519175f3eb913f6dd8a981c7ee",
+      "schemaFingerprintSha256": "2561e00a5b6694de0ac272bae077e06050cfc00cf4ba371bb1d5d9616e137f7e",
+      "normalizedExpectationSha256": "0cd94636154b1d2a45ccb74441f8054caacc998cf1f1da1aa336abcf0090bfe5",
+      "wireSignature": 2427955642,
+      "wireSignatureHex": "90b7a9ba",
+      "parameterCount": 169,
+      "serializedFieldCount": 167,
+      "groupCount": 2,
+      "defaultPayloadBytes": 276,
+      "defaultPayloadSha256": "13af942eed0aeda88a153fe29fa13d77041f6689d09cfd9123bfa9db93723c4b",
+      "representativeWrite": {
+        "field": "kp",
+        "value": 21.0
+      },
+      "writeNormalization": [
+        {
+          "field": "meta.is_default",
+          "value": 0
+        }
+      ],
+      "files": {
+        "schema": "schemas/1.2.0.qcompress",
+        "values": "values/1.2.0.json",
+        "default": "values/1.2.0-default.bin",
+        "current": "values/1.2.0-current.bin",
+        "acceptedWrite": "values/1.2.0-write.bin",
+        "expectedReadback": "values/1.2.0-readback.bin"
+      }
+    },
+    {
+      "version": "1.2.1",
+      "tag": "v1.2.1",
+      "commit": "0ef6e99d8701886feeb7fe6c07cc4ec53fb3d97a",
+      "sourcePath": "src/conf/settings.xml",
+      "sourceSha256": "9b8979a36759810a7fa9c19d01534ed52ec9ed8ac4a2d3ab3aefc594ba3b93cc",
+      "compressedBytes": 25723,
+      "expandedBytes": 351393,
+      "compressedSha256": "e3547921d466d4d426edfdc7eddcb26c503f4f0bdd63c04141ead68a362fbe5c",
+      "schemaFingerprintSha256": "9b8979a36759810a7fa9c19d01534ed52ec9ed8ac4a2d3ab3aefc594ba3b93cc",
+      "normalizedExpectationSha256": "d4a8d90322663bb57fc2699b5fa2e8b5407ebb765b079c6e6dc6e947b0eb1369",
+      "wireSignature": 2427955642,
+      "wireSignatureHex": "90b7a9ba",
+      "parameterCount": 169,
+      "serializedFieldCount": 167,
+      "groupCount": 2,
+      "defaultPayloadBytes": 276,
+      "defaultPayloadSha256": "13af942eed0aeda88a153fe29fa13d77041f6689d09cfd9123bfa9db93723c4b",
+      "representativeWrite": {
+        "field": "kp",
+        "value": 21.0
+      },
+      "writeNormalization": [
+        {
+          "field": "meta.is_default",
+          "value": 0
+        }
+      ],
+      "files": {
+        "schema": "schemas/1.2.1.qcompress",
+        "values": "values/1.2.1.json",
+        "default": "values/1.2.1-default.bin",
+        "current": "values/1.2.1-current.bin",
+        "acceptedWrite": "values/1.2.1-write.bin",
+        "expectedReadback": "values/1.2.1-readback.bin"
+      }
+    },
+    {
+      "version": "1.2.2",
+      "tag": "v1.2.2",
+      "commit": "c2e59e39a7acc31efec07b70cbfde05c3debf310",
+      "sourcePath": "src/conf/settings.xml",
+      "sourceSha256": "d7ca6a2c06ce5701858eebfaaf224e97e08a212d1dab60b664d268a90763eb39",
+      "compressedBytes": 25630,
+      "expandedBytes": 351019,
+      "compressedSha256": "78fe100bb3d59d45a5b975d4792a72e74a31cea7f15507654ed983099d964932",
+      "schemaFingerprintSha256": "d7ca6a2c06ce5701858eebfaaf224e97e08a212d1dab60b664d268a90763eb39",
+      "normalizedExpectationSha256": "7eeaa94dec4dbd3176c4481c42074097b48ff1d2b2019d5e16f3344863caf82e",
+      "wireSignature": 2427955642,
+      "wireSignatureHex": "90b7a9ba",
+      "parameterCount": 169,
+      "serializedFieldCount": 167,
+      "groupCount": 2,
+      "defaultPayloadBytes": 276,
+      "defaultPayloadSha256": "13af942eed0aeda88a153fe29fa13d77041f6689d09cfd9123bfa9db93723c4b",
+      "representativeWrite": {
+        "field": "kp",
+        "value": 21.0
+      },
+      "writeNormalization": [
+        {
+          "field": "meta.is_default",
+          "value": 0
+        }
+      ],
+      "files": {
+        "schema": "schemas/1.2.2.qcompress",
+        "values": "values/1.2.2.json",
+        "default": "values/1.2.2-default.bin",
+        "current": "values/1.2.2-current.bin",
+        "acceptedWrite": "values/1.2.2-write.bin",
+        "expectedReadback": "values/1.2.2-readback.bin"
+      }
+    },
+    {
+      "version": "1.2.3",
+      "tag": "v1.2.3",
+      "commit": "800a46bf32bb1bcf7ae86361a2316f0f1f0c40c5",
+      "sourcePath": "src/conf/settings.xml",
+      "sourceSha256": "fa40717969d1d86b429d7c78b59144b8387b4850be83a72fd3c7cf15ffecd01c",
+      "compressedBytes": 25796,
+      "expandedBytes": 352892,
+      "compressedSha256": "ea5508fd46e571ef68b404d7dcf560d989e6cfb84f6b6745a02356dc94bd8f11",
+      "schemaFingerprintSha256": "fa40717969d1d86b429d7c78b59144b8387b4850be83a72fd3c7cf15ffecd01c",
+      "normalizedExpectationSha256": "37dc0ed825418e0bd743615e48877f1ecf3532d62f46b4178f08a20bcc94a00d",
+      "wireSignature": 2427955642,
+      "wireSignatureHex": "90b7a9ba",
+      "parameterCount": 169,
+      "serializedFieldCount": 167,
+      "groupCount": 2,
+      "defaultPayloadBytes": 276,
+      "defaultPayloadSha256": "13af942eed0aeda88a153fe29fa13d77041f6689d09cfd9123bfa9db93723c4b",
+      "representativeWrite": {
+        "field": "kp",
+        "value": 21.0
+      },
+      "writeNormalization": [
+        {
+          "field": "meta.is_default",
+          "value": 0
+        }
+      ],
+      "files": {
+        "schema": "schemas/1.2.3.qcompress",
+        "values": "values/1.2.3.json",
+        "default": "values/1.2.3-default.bin",
+        "current": "values/1.2.3-current.bin",
+        "acceptedWrite": "values/1.2.3-write.bin",
+        "expectedReadback": "values/1.2.3-readback.bin"
+      }
+    }
+  ],
+  "identityCases": [
+    {
+      "name": "legacy-info-and-signature-collision",
+      "reportedVersion": "1.0",
+      "versions": [
+        "1.0.0",
+        "1.0.1"
+      ],
+      "wireSignatureHex": "f3d49d76",
+      "distinctSchemaFingerprints": [
+        "324e7f5ef1ea1b2038478af7e6f43c91d63ec06a6caf2907c5b7e6c812382ad9",
+        "887e7b03c03304a2f8455e71b369b89830e8d6446a73aa598ab067ac81944526"
+      ]
+    },
+    {
+      "name": "reported-patch-requires-audited-fingerprint",
+      "versions": [
+        "1.1.0",
+        "1.1.1",
+        "1.1.2",
+        "1.2.0",
+        "1.2.1",
+        "1.2.2",
+        "1.2.3"
+      ],
+      "rule": "reported exact version and its audited schema fingerprint must both match"
+    }
+  ]
+}

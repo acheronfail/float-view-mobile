@@ -133,4 +133,3 @@ Native services SHALL derive and publish complete Refloat control state independ
 
 - **WHEN** the active connection is removed
 - **THEN** its Refloat control state and pending action are removed without persisting them into board or session history
-

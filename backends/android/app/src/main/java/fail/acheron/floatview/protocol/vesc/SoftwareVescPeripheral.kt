@@ -3,9 +3,19 @@ package fail.acheron.floatview.protocol.vesc
 import fail.acheron.floatview.protocol.VescFrameCodec
 import fail.acheron.floatview.protocol.refloat.RefloatCommand
 import fail.acheron.floatview.protocol.refloat.RefloatWire
+import java.io.File
 
 /** Minimal deterministic direct VESC used only by software-host conformance. */
-class SoftwareVescPeripheral {
+class SoftwareVescPeripheral(
+    fixtureLoader: (String) -> ByteArray = ::loadDevelopmentFixture,
+) {
+    private val configurationSchema = fixtureLoader("schemas/1.0.0.qcompress").bounded(32_768)
+    private val defaultConfiguration = fixtureLoader("values/1.0.0-default.bin").bounded(1_024)
+    private val acceptedConfigurationWrite = fixtureLoader("values/1.0.0-write.bin").bounded(1_024)
+    private val expectedConfigurationReadback = fixtureLoader("values/1.0.0-readback.bin").bounded(1_024)
+    private var currentConfiguration = fixtureLoader("values/1.0.0-current.bin").bounded(1_024)
+
+    @Synchronized
     fun response(frame: ByteArray): ByteArray? {
         val request = runCatching { VescFrameCodec.decode(frame) }.getOrNull() ?: return null
         val payload =
@@ -40,9 +50,40 @@ class SoftwareVescPeripheral {
                         RefloatWire.LEGACY_TELEMETRY_DETAIL_LEVEL,
                     ),
                 ) -> telemetry
+                request.firstOrNull()?.toInt()?.and(0xff) in 92..95 -> configurationResponse(request)
                 else -> null
             } ?: return null
         return VescFrameCodec.encode(payload)
+    }
+
+    private fun configurationResponse(request: ByteArray): ByteArray? {
+        return when (request.first().toInt() and 0xff) {
+        VescCommand.GET_CUSTOM_CONFIGURATION_XML.id -> {
+            if (request.size != 10 || request[1].toInt() != 0) return null
+            val length = i32(request, 2) ?: return null
+            val offset = i32(request, 6) ?: return null
+            if (length !in 1..400 || offset !in configurationSchema.indices) return null
+            byteArrayOf(VescCommand.GET_CUSTOM_CONFIGURATION_XML.byte, 0) +
+                i32Bytes(configurationSchema.size) + i32Bytes(offset) +
+                configurationSchema.copyOfRange(offset, minOf(configurationSchema.size, offset + length))
+        }
+        VescCommand.GET_CUSTOM_CONFIGURATION.id -> {
+            if (!request.contentEquals(byteArrayOf(VescCommand.GET_CUSTOM_CONFIGURATION.byte, 0))) return null
+            byteArrayOf(VescCommand.GET_CUSTOM_CONFIGURATION.byte, 0) + currentConfiguration
+        }
+        VescCommand.GET_CUSTOM_CONFIGURATION_DEFAULT.id -> {
+            if (!request.contentEquals(byteArrayOf(VescCommand.GET_CUSTOM_CONFIGURATION_DEFAULT.byte, 0))) return null
+            byteArrayOf(VescCommand.GET_CUSTOM_CONFIGURATION_DEFAULT.byte, 0) + defaultConfiguration
+        }
+        VescCommand.SET_CUSTOM_CONFIGURATION.id -> {
+            if (request.size <= 2 || request[1].toInt() != 0 ||
+                !request.copyOfRange(2, request.size).contentEquals(acceptedConfigurationWrite)
+            ) return null
+            currentConfiguration = expectedConfigurationReadback.copyOf()
+            byteArrayOf(VescCommand.SET_CUSTOM_CONFIGURATION.byte)
+        }
+            else -> null
+        }
     }
 
     private companion object {
@@ -52,7 +93,7 @@ class SoftwareVescPeripheral {
                 "THOR300".encodeToByteArray() +
                 byteArrayOf(0) +
                 ByteArray(12) +
-                byteArrayOf(0, 0, 0, 0, 0, 0, 0, 0) +
+                byteArrayOf(0, 0, 0, 1, 0, 0, 0, 0) +
                 "VESC".encodeToByteArray() + byteArrayOf(0)
         val telemetry =
             ByteArray(55).apply {
@@ -75,3 +116,29 @@ class SoftwareVescPeripheral {
         fun String.hexBytes(): ByteArray = chunked(2).map { it.toInt(16).toByte() }.toByteArray()
     }
 }
+
+private fun loadDevelopmentFixture(path: String): ByteArray {
+    val root = System.getProperty("floatViewFixtureRoot")
+        ?: throw IllegalStateException("Software Refloat configuration fixtures are unavailable")
+    return File(root, "refloat-configuration/$path").readBytes()
+}
+
+private fun ByteArray.bounded(maximum: Int) = also {
+    require(isNotEmpty() && size <= maximum) { "Invalid bounded software Refloat configuration fixture" }
+}
+
+private fun i32(bytes: ByteArray, offset: Int): Int? {
+    if (offset + 4 > bytes.size) return null
+    val value = ((bytes[offset].toLong() and 0xff) shl 24) or
+        ((bytes[offset + 1].toLong() and 0xff) shl 16) or
+        ((bytes[offset + 2].toLong() and 0xff) shl 8) or
+        (bytes[offset + 3].toLong() and 0xff)
+    return value.takeIf { it <= Int.MAX_VALUE }?.toInt()
+}
+
+private fun i32Bytes(value: Int) = byteArrayOf(
+    (value ushr 24).toByte(),
+    (value ushr 16).toByte(),
+    (value ushr 8).toByte(),
+    value.toByte(),
+)

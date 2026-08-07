@@ -109,3 +109,26 @@ CREATE TABLE IF NOT EXISTS session_maintenance_job (
   error TEXT,
   updated_at_ms INTEGER NOT NULL
 );
+
+-- Application-wide, exact-schema complete Refloat configurations. These are
+-- called Tunes in the UI but are never inferred from Refloat's QML Tune subset.
+CREATE TABLE IF NOT EXISTS refloat_configuration (
+  configuration_id TEXT PRIMARY KEY NOT NULL,
+  revision INTEGER NOT NULL DEFAULT 1 CHECK (revision >= 1),
+  name TEXT NOT NULL CHECK (length(name) BETWEEN 1 AND 128),
+  description TEXT CHECK (description IS NULL OR length(description) <= 1024),
+  package_name TEXT NOT NULL CHECK (package_name = 'refloat'),
+  package_version TEXT NOT NULL CHECK (length(package_version) BETWEEN 1 AND 128),
+  schema_fingerprint TEXT NOT NULL CHECK (
+    length(schema_fingerprint) = 64 AND schema_fingerprint NOT GLOB '*[^0-9a-f]*'
+  ),
+  wire_signature INTEGER NOT NULL CHECK (wire_signature BETWEEN 0 AND 4294967295),
+  values_json TEXT NOT NULL CHECK (length(values_json) BETWEEN 2 AND 49152),
+  created_at_ms INTEGER NOT NULL CHECK (created_at_ms >= 0),
+  updated_at_ms INTEGER NOT NULL CHECK (updated_at_ms >= created_at_ms)
+);
+CREATE INDEX IF NOT EXISTS refloat_configuration_compatibility_updated
+  ON refloat_configuration(
+    package_name, package_version, schema_fingerprint, wire_signature,
+    updated_at_ms DESC, configuration_id DESC
+  );

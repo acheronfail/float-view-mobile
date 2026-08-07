@@ -25,6 +25,9 @@ import fail.acheron.floatview.protocol.vesc.SoftwareVescPeripheral
 import fail.acheron.floatview.protocol.vesc.VescAccessMode
 import fail.acheron.floatview.protocol.vesc.VescFirmwareVersion
 import fail.acheron.floatview.protocol.vesc.VescFirmwareIdentityDecoder
+import fail.acheron.floatview.protocol.vesc.VescCustomConfigurationCodec
+import fail.acheron.floatview.protocol.vesc.VescCustomConfigurationResponse
+import fail.acheron.floatview.protocol.vesc.VescCommand
 import fail.acheron.floatview.protocol.vesc.VescOperation
 
 private fun String.hexBytes(): ByteArray =
@@ -34,6 +37,9 @@ private fun fixture(path: String): String {
     val json = String(Files.readAllBytes(Path.of(System.getProperty("floatViewFixtureRoot"), path)))
     return Regex("\"frameHex\"\\s*:\\s*\"([0-9a-f]+)\"").find(json)!!.groupValues[1]
 }
+
+private fun rawFixture(path: String): ByteArray =
+    Files.readAllBytes(Path.of(System.getProperty("floatViewFixtureRoot"), path))
 
 private fun fixtureCases(path: String): List<String> {
     val json = String(Files.readAllBytes(Path.of(System.getProperty("floatViewFixtureRoot"), path)))
@@ -110,13 +116,47 @@ class VescProtocolTest {
             (service.receive(identity).single() as VescProtocolMessage.Firmware).value.hardwareType,
         )
 
-        val values = requireNotNull(
+        val bmsFrame = requireNotNull(
             SoftwareVescPeripheral().response(service.bmsValuesRequest(BmsConnection.Can(42))),
         )
-        val payload = (service.receive(values).single() as VescProtocolMessage.BmsValuesPayload).payload
+        val payload = (service.receive(bmsFrame).single() as VescProtocolMessage.BmsValuesPayload).payload
         val snapshot = VescPayloadDecoder.bmsValues(payload, 42, Instant.EPOCH)
         assertEquals(42, snapshot.reportedCanId)
         assertEquals("OK", snapshot.status)
+
+        val peripheral = SoftwareVescPeripheral()
+        val directIdentity = requireNotNull(peripheral.response(service.firmwareRequest(ControllerRoute.Direct)))
+        assertEquals(
+            1,
+            (service.receive(directIdentity).single() as VescProtocolMessage.Firmware).value.customConfigurationCount,
+        )
+        val schema = rawFixture("refloat-configuration/schemas/1.0.0.qcompress")
+        val schemaResponse = requireNotNull(
+            peripheral.response(service.customConfigurationSchemaRequest(ControllerRoute.Direct, 32, 0)),
+        )
+        val schemaChunk =
+            (service.receive(schemaResponse).single() as VescProtocolMessage.CustomConfiguration).value
+                as VescCustomConfigurationResponse.SchemaChunk
+        assertEquals(schema.size, schemaChunk.totalLength)
+        assertTrue(schema.copyOfRange(0, 32).contentEquals(schemaChunk.bytes))
+
+        val write = rawFixture("refloat-configuration/values/1.0.0-write.bin")
+        val acknowledgement = requireNotNull(
+            peripheral.response(service.customConfigurationWriteRequest(ControllerRoute.Direct, write)),
+        )
+        assertEquals(
+            VescCustomConfigurationResponse.WriteAcknowledgement,
+            (service.receive(acknowledgement).single() as VescProtocolMessage.CustomConfiguration).value,
+        )
+        val current = requireNotNull(
+            peripheral.response(service.customConfigurationValuesRequest(ControllerRoute.Direct, false)),
+        )
+        val configurationValues =
+            (service.receive(current).single() as VescProtocolMessage.CustomConfiguration).value
+                as VescCustomConfigurationResponse.Values
+        assertTrue(
+            rawFixture("refloat-configuration/values/1.0.0-readback.bin").contentEquals(configurationValues.bytes),
+        )
     }
 
     @Test
@@ -188,7 +228,7 @@ class VescProtocolTest {
             stream.append(frame.copyOfRange(offset, offset + size)).also { offset += size }
         }
         assertEquals(
-            FirmwareInfo(6, 6, "THOR300", controllerUuid = ByteArray(12)),
+            FirmwareInfo(6, 6, "THOR300", controllerUuid = ByteArray(12), hardwareConfigurationCrc = 0),
             VescPayloadDecoder.firmware(payloads.single()),
         )
     }
@@ -227,6 +267,7 @@ class VescProtocolTest {
                     "THOR300",
                     hardwareType = 0,
                     controllerUuid = ByteArray(12),
+                    hardwareConfigurationCrc = if (version == "6.02") null else 0,
                 ),
                 VescPayloadDecoder.firmware(payload),
             )
@@ -236,7 +277,10 @@ class VescProtocolTest {
     @Test
     fun strictFirmwareIdentityAllowsReadOnlyTestBuilds() {
         val payload = VescFrameCodec.decode(fixture("vesc/firmware-thor300-7.00.json").hexBytes())
-        assertEquals(0, VescPayloadDecoder.firmware(payload).testVersion)
+        val identity = VescPayloadDecoder.firmware(payload)
+        assertEquals(0, identity.testVersion)
+        assertEquals(0, identity.customConfigurationCount)
+        assertEquals(0L, identity.hardwareConfigurationCrc)
         assertThrows(VescProtocolException.TruncatedPayload::class.java) {
             VescPayloadDecoder.firmware(payload.copyOf(payload.size - 1))
         }
@@ -452,9 +496,65 @@ class VescProtocolTest {
         assertEquals(1, decoded.hardwareType)
         assertEquals(null, decoded.firmwareName)
         assertTrue(requireNotNull(decoded.controllerUuid).contentEquals(ByteArray(12) { 7 }))
+        assertEquals(1, decoded.customConfigurationCount)
+        assertEquals(null, decoded.hardwareConfigurationCrc)
         assertThrows(VescProtocolException::class.java) { VescPayloadDecoder.firmware(vbms + byteArrayOf(0)) }
         assertThrows(VescProtocolException::class.java) {
             VescPayloadDecoder.firmware(vbms.copyOf().also { it[2] = 1 })
+        }
+    }
+
+    @Test
+    fun customConfigurationCommandsUseExactPayloadsAndStrictResponses() {
+        val service = VescProtocolService()
+        assertEquals(
+            listOf(92, 0, 0, 0, 1, 144, 0, 0, 0, 0),
+            VescFrameCodec.decode(service.customConfigurationSchemaRequest(ControllerRoute.Direct, 400, 0))
+                .map { it.toInt() and 0xff },
+        )
+        assertEquals(
+            listOf(34, 42, 92, 0, 0, 0, 0, 16, 0, 0, 1, 144),
+            VescFrameCodec.decode(service.customConfigurationSchemaRequest(ControllerRoute.Can(42), 16, 400))
+                .map { it.toInt() and 0xff },
+        )
+        assertEquals(
+            listOf(93, 0),
+            VescFrameCodec.decode(service.customConfigurationValuesRequest(ControllerRoute.Direct, false))
+                .map { it.toInt() and 0xff },
+        )
+        assertEquals(
+            listOf(34, 42, 94, 0),
+            VescFrameCodec.decode(service.customConfigurationValuesRequest(ControllerRoute.Can(42), true))
+                .map { it.toInt() and 0xff },
+        )
+        assertEquals(
+            listOf(34, 42, 95, 0, 1, 2, 3, 4),
+            VescFrameCodec.decode(
+                service.customConfigurationWriteRequest(ControllerRoute.Can(42), byteArrayOf(1, 2, 3, 4)),
+            ).map { it.toInt() and 0xff },
+        )
+
+        val chunk = VescCustomConfigurationCodec.decode(
+            byteArrayOf(92, 0, 0, 0, 0, 4, 0, 0, 0, 0, 1, 2, 3, 4),
+        ) as VescCustomConfigurationResponse.SchemaChunk
+        assertEquals(0, chunk.index)
+        assertEquals(4, chunk.totalLength)
+        assertEquals(0, chunk.offset)
+        assertTrue(chunk.bytes.contentEquals(byteArrayOf(1, 2, 3, 4)))
+        val values = VescCustomConfigurationCodec.decode(byteArrayOf(93, 0, 0, 0, 0, 1))
+            as VescCustomConfigurationResponse.Values
+        assertEquals(VescCommand.GET_CUSTOM_CONFIGURATION, values.command)
+        assertEquals(0, values.index)
+        assertTrue(values.bytes.contentEquals(byteArrayOf(0, 0, 0, 1)))
+        assertEquals(
+            VescCustomConfigurationResponse.WriteAcknowledgement,
+            VescCustomConfigurationCodec.decode(byteArrayOf(95)),
+        )
+        assertThrows(VescProtocolException::class.java) {
+            VescCustomConfigurationCodec.decode(byteArrayOf(92, 0, 0, 0, 0, 4, 0, 0, 0, 3, 1, 2))
+        }
+        assertThrows(VescProtocolException::class.java) {
+            VescCustomConfigurationCodec.decode(byteArrayOf(95, 0))
         }
     }
 

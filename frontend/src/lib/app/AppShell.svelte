@@ -98,11 +98,6 @@
   });
 
   $effect(() => {
-    document.documentElement.classList.toggle('live-route', liveRoute);
-    return () => document.documentElement.classList.remove('live-route');
-  });
-
-  $effect(() => {
     const href = connectionRedirect(
       page.route.id,
       backendState.snapshot?.activeConnection,
@@ -115,7 +110,7 @@
 <main
   class="bg-canvas text-foreground"
   class:min-h-screen={!liveRoute}
-  class:h-dvh={liveRoute}
+  class:h-screen={liveRoute}
   class:overflow-hidden={liveRoute}
 >
   <div

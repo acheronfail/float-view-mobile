@@ -106,6 +106,49 @@ class VescRequestSchedulerTest {
         assertEquals(31, harness.subject.inFlightRequest()?.payload?.first()?.toInt())
     }
 
+    @Test
+    fun keepsConfigurationInFlightUntilItsTypedContextMatches() {
+        val harness = Harness()
+        val generation = harness.subject.beginGeneration()
+        val expected = VescRequestContext.RefloatConfigurationSchema(
+            VescRequestRoute.Can(42), 0, 400, 7,
+        )
+        harness.enqueue(92, VescRequestPriority.CONTROLLER_WORK, expected, generation)
+        harness.enqueue(
+            31, VescRequestPriority.RIDING_TELEMETRY,
+            VescRequestContext.RefloatTelemetry(VescRequestRoute.Can(42)), generation,
+        )
+
+        assertFalse(harness.subject.receive(byteArrayOf(92), 1, validContext = { it == expected.copy(offset = 0) }))
+        assertEquals(listOf(92), harness.writes)
+        assertTrue(harness.subject.receive(byteArrayOf(92), 1, validContext = { it == expected }))
+        assertEquals(listOf(92, 31), harness.writes)
+    }
+
+    @Test
+    fun processesFlywheelTelemetryBeforeAdvancingQueuedConfiguration() {
+        val harness = Harness()
+        val generation = harness.subject.beginGeneration()
+        harness.enqueue(
+            31, VescRequestPriority.RIDING_TELEMETRY,
+            VescRequestContext.RefloatTelemetry(VescRequestRoute.Direct), generation,
+        )
+        harness.enqueue(
+            93, VescRequestPriority.CONTROLLER_WORK,
+            VescRequestContext.RefloatConfigurationValues(VescRequestRoute.Direct, 0, false, 4), generation,
+        )
+        assertTrue(harness.subject.receive(byteArrayOf(31), 1, deferNext = true))
+        assertEquals(listOf(31), harness.writes)
+        harness.subject.cancelMatching(
+            predicate = { it is VescRequestContext.RefloatConfigurationValues && !it.defaults },
+            resume = false,
+        )
+        harness.subject.resume()
+        assertEquals(listOf(31), harness.writes)
+        assertTrue(harness.completions[0].second is VescRequestCompletion.Response)
+        assertEquals(VescRequestCompletion.Cancelled, harness.completions[1].second)
+    }
+
     private class Harness {
         val clock = TestClock()
         val timers = TestTimers()

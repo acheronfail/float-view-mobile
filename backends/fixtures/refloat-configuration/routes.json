@@ -1,0 +1,106 @@
+{
+  "schemaVersion": 1,
+  "commands": {
+    "schema": 92,
+    "current": 93,
+    "default": 94,
+    "write": 95
+  },
+  "cases": [
+    {
+      "name": "schema-direct",
+      "route": "direct",
+      "requestHex": "5c000000019000000000"
+    },
+    {
+      "name": "schema-can-42",
+      "route": {
+        "canId": 42
+      },
+      "innerRequestHex": "5c000000019000000000"
+    },
+    {
+      "name": "schema-chunk-response",
+      "responseLayout": [
+        "command=92",
+        "index=0",
+        "totalLength:i32",
+        "offset:i32",
+        "chunk<=400"
+      ]
+    },
+    {
+      "name": "current-direct",
+      "route": "direct",
+      "requestHex": "5d00"
+    },
+    {
+      "name": "default-direct",
+      "route": "direct",
+      "requestHex": "5e00"
+    },
+    {
+      "name": "write-prefix",
+      "route": "direct",
+      "requestPrefixHex": "5f0090b7a9ba"
+    },
+    {
+      "name": "acknowledgement",
+      "responseHex": "5f"
+    },
+    {
+      "name": "write-rejected",
+      "acknowledged": true,
+      "readback": "unchanged",
+      "result": "conflict"
+    },
+    {
+      "name": "write-readback-match",
+      "acknowledged": true,
+      "readbackFile": "values/1.2.3-readback.bin",
+      "result": "success"
+    },
+    {
+      "name": "write-readback-mismatch",
+      "acknowledged": true,
+      "readbackFile": "values/1.2.3-current.bin",
+      "result": "conflict"
+    },
+    {
+      "name": "wrong-index",
+      "responsePrefixHex": "5c01",
+      "error": "unexpectedIndex"
+    },
+    {
+      "name": "wrong-offset",
+      "responsePrefixHex": "5c000000000100000001",
+      "error": "unexpectedOffset"
+    },
+    {
+      "name": "wrong-route",
+      "expectedRoute": {
+        "canId": 42
+      },
+      "actualRoute": "direct",
+      "error": "unexpectedRoute"
+    },
+    {
+      "name": "stale-generation",
+      "expectedGeneration": 2,
+      "actualGeneration": 1,
+      "error": "staleGeneration"
+    },
+    {
+      "name": "flywheel-current-withheld",
+      "command": 93,
+      "mode": "flywheel",
+      "submitted": false
+    },
+    {
+      "name": "post-flywheel-current",
+      "command": 93,
+      "mode": "normal",
+      "requiresFreshRevision": true
+    }
+  ]
+}

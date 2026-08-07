@@ -107,4 +107,31 @@ class RefloatMutationCoordinatorTest {
         competing.authorizeSet(RefloatBooleanControl.LEDS, true, context())
         assertThrows(RefloatMutationException::class.java) { competing.authorizeShutdown(context) }
     }
+
+    @Test fun configurationSharesSoleMutationGateAndEnforcesSafety() {
+        val valid = RefloatConfigurationMutationContext(
+            VescRequestGeneration(1), true, true, RideState.IDLE, FootpadState.NONE,
+            PackageState.READY, PackageMode.NORMAL,
+        )
+        val owner = ready()
+        owner.authorizeConfiguration(valid)
+        assertEquals(false, owner.controllerActions(true).shutdownAvailable)
+        assertThrows(RefloatMutationException::class.java) {
+            owner.authorizeSet(RefloatBooleanControl.LEDS, true, context())
+        }
+        assertThrows(RefloatMutationException::class.java) { owner.authorizeConfiguration(valid) }
+        owner.finishConfiguration(VescRequestGeneration(2))
+        assertThrows(RefloatMutationException::class.java) { owner.authorizeConfiguration(valid) }
+        owner.finishConfiguration(VescRequestGeneration(1))
+        owner.authorizeConfiguration(valid)
+
+        listOf(
+            valid.copy(generation = VescRequestGeneration(2)),
+            valid.copy(rideState = RideState.RIDING, packageState = PackageState.RUNNING),
+            valid.copy(footpadState = FootpadState.LEFT),
+            valid.copy(packageMode = PackageMode.FLYWHEEL),
+        ).forEach { denied ->
+            assertThrows(RefloatMutationException::class.java) { ready().authorizeConfiguration(denied) }
+        }
+    }
 }

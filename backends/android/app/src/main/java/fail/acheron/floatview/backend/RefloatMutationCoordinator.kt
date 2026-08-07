@@ -46,11 +46,22 @@ data class ControllerShutdownContext(
     val packageMode: PackageMode?,
 )
 
+data class RefloatConfigurationMutationContext(
+    val generation: VescRequestGeneration,
+    val connectionReady: Boolean,
+    val writable: Boolean,
+    val rideState: RideState,
+    val footpadState: FootpadState?,
+    val packageState: PackageState?,
+    val packageMode: PackageMode?,
+)
+
 class DeviceMutationCoordinator {
     private var generation = VescRequestGeneration(0)
     private var controls: RefloatControls? = null
     private var expected: Boolean? = null
     private var controllerPendingAction: ControllerPendingAction? = null
+    private var configurationPending = false
 
     @Synchronized fun configure(
         generation: VescRequestGeneration,
@@ -60,6 +71,7 @@ class DeviceMutationCoordinator {
         this.generation = generation
         expected = null
         controllerPendingAction = null
+        configurationPending = false
         return RefloatControls(
             writable = writable,
             lightingAvailable = true,
@@ -73,13 +85,13 @@ class DeviceMutationCoordinator {
     @Synchronized fun snapshot(): RefloatControls? = controls
 
     @Synchronized fun controllerActions(shutdownAvailable: Boolean): ControllerActions =
-        ControllerActions(shutdownAvailable && controllerPendingAction == null, controllerPendingAction)
+        ControllerActions(shutdownAvailable && controllerPendingAction == null && !configurationPending, controllerPendingAction)
 
     @Synchronized fun authorizeShutdown(context: ControllerShutdownContext): ControllerActions {
         if (
             context.generation != generation || !context.connectionReady || !context.shutdownSupported ||
             context.rideState != RideState.IDLE || context.packageMode == PackageMode.FLYWHEEL ||
-            controls?.pendingAction != null || controllerPendingAction != null
+            controls?.pendingAction != null || controllerPendingAction != null || configurationPending
         ) throw RefloatMutationException()
         controllerPendingAction = ControllerPendingAction.SHUTDOWN
         return ControllerActions(pendingAction = ControllerPendingAction.SHUTDOWN)
@@ -89,6 +101,20 @@ class DeviceMutationCoordinator {
         if (generation != this.generation || controllerPendingAction != ControllerPendingAction.SHUTDOWN) return null
         controllerPendingAction = null
         return ControllerActions()
+    }
+
+    @Synchronized fun authorizeConfiguration(context: RefloatConfigurationMutationContext) {
+        if (
+            context.generation != generation || !context.connectionReady || !context.writable ||
+            context.rideState != RideState.IDLE || context.footpadState != FootpadState.NONE ||
+            context.packageState != PackageState.READY || context.packageMode != PackageMode.NORMAL ||
+            controls?.pendingAction != null || controllerPendingAction != null || configurationPending
+        ) throw RefloatMutationException()
+        configurationPending = true
+    }
+
+    @Synchronized fun finishConfiguration(generation: VescRequestGeneration) {
+        if (generation == this.generation) configurationPending = false
     }
 
     @Synchronized fun observeTelemetry(value: RefloatTelemetryRecord): RefloatControls? {
@@ -117,7 +143,7 @@ class DeviceMutationCoordinator {
         context: RefloatMutationContext,
     ): RefloatMutationAuthorization {
         var current = validate(context)
-        if (current.pendingAction != null || controllerPendingAction != null) throw RefloatMutationException()
+        if (current.pendingAction != null || controllerPendingAction != null || configurationPending) throw RefloatMutationException()
         if (current.flywheelEnabled == true && !(control == RefloatBooleanControl.FLYWHEEL && !enabled)) throw RefloatMutationException()
         val activeFlywheelDisable = control == RefloatBooleanControl.FLYWHEEL && !enabled && context.packageMode == PackageMode.FLYWHEEL
         if ((control == RefloatBooleanControl.PACKAGE || control == RefloatBooleanControl.FLYWHEEL && !activeFlywheelDisable) && context.rideState != RideState.IDLE) throw RefloatMutationException()
@@ -152,7 +178,7 @@ class DeviceMutationCoordinator {
 
     @Synchronized fun authorizeFatalClear(context: RefloatMutationContext): RefloatMutationAuthorization {
         var current = validate(context)
-        if (current.pendingAction != null || controllerPendingAction != null || current.flywheelEnabled == true || context.rideState != RideState.IDLE ||
+        if (current.pendingAction != null || controllerPendingAction != null || configurationPending || current.flywheelEnabled == true || context.rideState != RideState.IDLE ||
             !current.fatalErrorClearAvailable || current.fatalErrorLatched != true || current.fatalErrorActive != false || current.fatalErrorClearable != true
         ) throw RefloatMutationException()
         val payload = RefloatControlCodec.fatalClearRequest(context.profile)
@@ -173,6 +199,7 @@ class DeviceMutationCoordinator {
         controls = controls?.copy(pendingAction = null)
         expected = null
         controllerPendingAction = null
+        configurationPending = false
         return controls
     }
 

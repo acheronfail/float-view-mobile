@@ -19,6 +19,9 @@ import fail.acheron.floatview.backend.LocationUpdated
 import fail.acheron.floatview.backend.LiveLocation
 import fail.acheron.floatview.backend.ProductStoreException
 import fail.acheron.floatview.backend.RefloatControls
+import fail.acheron.floatview.backend.RefloatConfigurationSummary
+import fail.acheron.floatview.backend.RefloatConfigurationIdentityRecord
+import fail.acheron.floatview.backend.RefloatConfigurationRecord
 import fail.acheron.floatview.backend.RefloatMutationException
 import fail.acheron.floatview.protocol.refloat.RefloatBooleanControl
 import fail.acheron.floatview.backend.SessionExportRecord
@@ -42,6 +45,11 @@ import fail.acheron.floatview.backend.TelemetrySample
 import fail.acheron.floatview.backend.TrackingMode
 import fail.acheron.floatview.backend.VescProtocolMessage
 import fail.acheron.floatview.protocol.refloat.RefloatCompatibility
+import fail.acheron.floatview.protocol.refloat.RefloatConfigurationField
+import fail.acheron.floatview.protocol.refloat.RefloatConfigurationFieldType
+import fail.acheron.floatview.protocol.refloat.RefloatConfigurationLimits
+import fail.acheron.floatview.protocol.refloat.RefloatConfigurationValue
+import fail.acheron.floatview.protocol.refloat.RefloatConfigurationValues
 import fail.acheron.floatview.protocol.vesc.ControllerRoute
 import fail.acheron.floatview.protocol.vesc.VescCompatibility
 import io.ktor.http.ContentType
@@ -461,6 +469,123 @@ class LoopbackServer(
                     if (params.length() != 0) return failure(id.toInt(), "invalid_request", "Fatal-error clear does not accept parameters")
                     success(refloatControls(applicationService.clearRefloatFatalError()))
                 }
+                "refloat.configuration.open" -> {
+                    if (params.length() != 0) return failure(id.toInt(), "invalid_request", "Configuration open does not accept parameters")
+                    success(refloatConfigurationSummary(applicationService.refloatConfigurationSummarySnapshot()))
+                }
+                "refloat.configuration.schema" -> {
+                    if (params.keys().asSequence().any { it != "cursor" }) {
+                        return failure(id.toInt(), "invalid_request", "Configuration schema parameters are invalid")
+                    }
+                    val page = refloatConfigurationSchemaPage(params.opt("cursor"))
+                        ?: return failure(id.toInt(), "invalid_request", "Configuration schema cursor is invalid")
+                    success(page)
+                }
+                "refloat.configuration.read" -> {
+                    if (params.length() != 1 || params.optString("source") !in setOf("current", "default")) {
+                        return failure(id.toInt(), "invalid_request", "Configuration source must be current or default")
+                    }
+                    success(refloatConfigurationValues(
+                        applicationService.readRefloatConfiguration(params.optString("source") == "default"),
+                    ))
+                }
+                "refloat.configuration.write" -> {
+                    if (params.length() != 5) return failure(id.toInt(), "invalid_request", "Configuration write parameters are invalid")
+                    val packageVersion = requiredString("packageVersion")
+                        ?.takeIf { it.toByteArray().size <= 128 }
+                        ?: return failure(id.toInt(), "invalid_request", "Package version is invalid")
+                    val fingerprint = requiredString("schemaFingerprint")
+                        ?.takeIf { it.matches(Regex("^[0-9a-f]{64}$")) }
+                        ?: return failure(id.toInt(), "invalid_request", "Schema fingerprint is invalid")
+                    val signature = params.number("wireSignature")
+                        ?.takeIf { it.toDouble().isFinite() && it.toDouble() % 1.0 == 0.0 && it.toDouble() in 0.0..4_294_967_295.0 }
+                        ?.toLong()
+                        ?: return failure(id.toInt(), "invalid_request", "Wire signature is invalid")
+                    val baseRevision = params.number("baseRevision")
+                        ?.takeIf { it.toDouble().isFinite() && it.toDouble() % 1.0 == 0.0 && it.toDouble() >= 0.0 }
+                        ?.toLong()
+                        ?: return failure(id.toInt(), "invalid_request", "Base revision is invalid")
+                    val values = params.optJSONObject("values")?.let(::parseRefloatConfigurationValues)
+                        ?: return failure(id.toInt(), "invalid_request", "Complete typed configuration values are required")
+                    success(refloatConfigurationValues(applicationService.writeRefloatConfiguration(
+                        packageVersion, fingerprint, signature, baseRevision, values,
+                    )))
+                }
+                "refloat.tune.list" -> {
+                    if (params.keys().asSequence().any { it !in setOf("identity", "limit", "cursor") }) {
+                        return failure(id.toInt(), "invalid_request", "Tune list parameters are invalid")
+                    }
+                    val identity = refloatConfigurationIdentity(params.opt("identity"))
+                        ?: return failure(id.toInt(), "invalid_request", "Tune identity is invalid")
+                    val limit = (params.opt("limit") as? Number)?.toInt()?.takeIf { it in 1..50 }
+                        ?: return failure(id.toInt(), "invalid_request", "Tune page size is invalid")
+                    val cursor = if (!params.has("cursor") || params.isNull("cursor")) null else {
+                        (params.opt("cursor") as? String)?.takeIf { it.toByteArray().size <= 512 }
+                            ?: return failure(id.toInt(), "invalid_request", "Tune cursor is invalid")
+                    }
+                    val page = applicationService.refloatTunes(identity, limit, cursor)
+                    success(JSONObject()
+                        .put("items", JSONArray(page.items.map { refloatTune(it, false) }))
+                        .put("nextCursor", page.nextCursor ?: JSONObject.NULL))
+                }
+                "refloat.tune.get" -> {
+                    val tuneId = requiredString("tuneId")?.takeIf { params.length() == 1 && it.toByteArray().size <= 128 }
+                        ?: return failure(id.toInt(), "invalid_request", "Tune ID is invalid")
+                    success(refloatTune(applicationService.refloatTune(tuneId), true))
+                }
+                "refloat.tune.create" -> {
+                    val name = boundedRefloatText(params.opt("name"), 128)
+                        ?: return failure(id.toInt(), "invalid_request", "Tune name is invalid")
+                    if (params.length() != 5 || !params.has("description")) {
+                        return failure(id.toInt(), "invalid_request", "Tune create parameters are invalid")
+                    }
+                    val description = if (params.isNull("description")) null else boundedRefloatText(params.opt("description"), 1_024)
+                        ?: return failure(id.toInt(), "invalid_request", "Tune description is invalid")
+                    val identity = refloatConfigurationIdentity(params.opt("identity"))
+                        ?: return failure(id.toInt(), "invalid_request", "Tune identity is invalid")
+                    val source = (params.opt("sourceRevision") as? Number)?.toDouble()
+                        ?.takeIf { it >= 0 && it % 1.0 == 0.0 }?.toLong()
+                        ?: return failure(id.toInt(), "invalid_request", "Tune source revision is invalid")
+                    val values = params.optJSONObject("values")?.let(::parseRefloatConfigurationValues)
+                        ?: return failure(id.toInt(), "invalid_request", "Tune values are invalid")
+                    success(refloatTune(applicationService.createRefloatTune(
+                        name, description, identity, source, values,
+                    ), true))
+                }
+                "refloat.tune.update" -> {
+                    val tuneId = requiredString("tuneId")?.takeIf { params.length() == 5 && it.toByteArray().size <= 128 }
+                        ?: return failure(id.toInt(), "invalid_request", "Tune update parameters are invalid")
+                    val revision = (params.opt("expectedRevision") as? Number)?.toInt()?.takeIf { it >= 1 }
+                        ?: return failure(id.toInt(), "invalid_request", "Tune revision is invalid")
+                    val name = boundedRefloatText(params.opt("name"), 128)
+                        ?: return failure(id.toInt(), "invalid_request", "Tune name is invalid")
+                    if (!params.has("description")) return failure(id.toInt(), "invalid_request", "Tune description is required")
+                    val description = if (params.isNull("description")) null else boundedRefloatText(params.opt("description"), 1_024)
+                        ?: return failure(id.toInt(), "invalid_request", "Tune description is invalid")
+                    val values = params.optJSONObject("values")?.let(::parseRefloatConfigurationValues)
+                        ?: return failure(id.toInt(), "invalid_request", "Tune values are invalid")
+                    success(refloatTune(applicationService.updateRefloatTune(
+                        tuneId, revision, name, description, values,
+                    ), true))
+                }
+                "refloat.tune.delete" -> {
+                    val tuneId = requiredString("tuneId")?.takeIf { params.length() == 2 }
+                        ?: return failure(id.toInt(), "invalid_request", "Tune delete parameters are invalid")
+                    val revision = (params.opt("expectedRevision") as? Number)?.toInt()?.takeIf { it >= 1 }
+                        ?: return failure(id.toInt(), "invalid_request", "Tune revision is invalid")
+                    applicationService.deleteRefloatTune(tuneId, revision)
+                    success(accepted())
+                }
+                "refloat.tune.apply" -> {
+                    val tuneId = requiredString("tuneId")?.takeIf { params.length() == 3 }
+                        ?: return failure(id.toInt(), "invalid_request", "Tune apply parameters are invalid")
+                    val revision = (params.opt("expectedRevision") as? Number)?.toInt()?.takeIf { it >= 1 }
+                        ?: return failure(id.toInt(), "invalid_request", "Tune revision is invalid")
+                    val base = (params.opt("baseRevision") as? Number)?.toDouble()
+                        ?.takeIf { it >= 0 && it % 1.0 == 0.0 }?.toLong()
+                        ?: return failure(id.toInt(), "invalid_request", "Tune base revision is invalid")
+                    success(refloatConfigurationValues(applicationService.applyRefloatTune(tuneId, revision, base)))
+                }
                 "settings.update" -> {
                     val expected = params.opt("expectedRevision") as? Number
                         ?: return failure(id.toInt(), "invalid_request", "expectedRevision is required")
@@ -736,6 +861,14 @@ class LoopbackServer(
                 id.toInt(), if (error.unavailable) "unavailable" else "invalid_state",
                 if (error.unavailable) "Refloat control confirmation was unavailable" else "Refloat control is not permitted in the current state",
             )
+        } catch (error: fail.acheron.floatview.backend.RefloatConfigurationServiceException) {
+            when (error.reason) {
+                fail.acheron.floatview.backend.RefloatConfigurationServiceError.CONFLICT ->
+                    failure(id.toInt(), "conflict", "Configuration changed or verification did not match")
+                fail.acheron.floatview.backend.RefloatConfigurationServiceError.UNAVAILABLE ->
+                    failure(id.toInt(), "unavailable", "Configuration request did not complete")
+                else -> failure(id.toInt(), "invalid_state", "Configuration is not available in the current state")
+            }
         } catch (_: IllegalArgumentException) {
             failure(id.toInt(), "not_found", "Requested value was not found")
         } catch (_: IllegalStateException) {
@@ -745,12 +878,16 @@ class LoopbackServer(
                 is ProductStoreException.ProfileRevisionConflict,
                 is ProductStoreException.SavedDeviceRevisionConflict,
                 is ProductStoreException.SettingsRevisionConflict,
+                is ProductStoreException.RefloatConfigurationRevisionConflict,
                 -> failure(id.toInt(), "conflict", "Revision conflict")
                 ProductStoreException.SavedDeviceNotFound ->
                     failure(id.toInt(), "not_found", "Saved device was not found")
+                ProductStoreException.RefloatConfigurationNotFound ->
+                    failure(id.toInt(), "not_found", "Tune was not found")
                 ProductStoreException.InvalidProfilePatch,
                 ProductStoreException.InvalidSavedDevicePatch,
                 ProductStoreException.InvalidSettingsPatch,
+                ProductStoreException.InvalidRefloatConfiguration,
                 -> failure(id.toInt(), "invalid_request", "Patch is invalid")
                 ProductStoreException.SavedDeviceActive ->
                     failure(id.toInt(), "invalid_state", "Disconnect the board before forgetting it")
@@ -804,6 +941,11 @@ class LoopbackServer(
                     JSONObject.NULL
                 },
             )
+            activePayload.put(
+                "refloatConfiguration",
+                if (packageVersion == null) JSONObject.NULL
+                else refloatConfigurationSummary(applicationService.refloatConfigurationSummarySnapshot()),
+            )
         }
         return JSONObject()
             .put("revision", revision.get())
@@ -827,6 +969,178 @@ class LoopbackServer(
         .put("scanPermission", value.scanPermission.name.lowercase())
         .put("connectPermission", value.connectPermission.name.lowercase())
         .put("scanning", scanning)
+
+    private fun refloatConfigurationSummary(value: RefloatConfigurationSummary) = JSONObject()
+        .put("availability", value.availability.name.lowercase())
+        .put("writable", value.writable)
+        .put("packageVersion", value.packageVersion ?: JSONObject.NULL)
+        .put("schemaFingerprint", value.schemaFingerprint ?: JSONObject.NULL)
+        .put("wireSignature", value.wireSignature ?: JSONObject.NULL)
+        .put("currentLoaded", value.currentLoaded)
+        .put("defaultLoaded", value.defaultLoaded)
+        .put("pendingOperation", when (value.pendingOperation) {
+            fail.acheron.floatview.protocol.refloat.RefloatConfigurationOperation.SCHEMA -> "schema"
+            fail.acheron.floatview.protocol.refloat.RefloatConfigurationOperation.READ_CURRENT -> "readCurrent"
+            fail.acheron.floatview.protocol.refloat.RefloatConfigurationOperation.READ_DEFAULT -> "readDefault"
+            fail.acheron.floatview.protocol.refloat.RefloatConfigurationOperation.WRITE -> "write"
+            fail.acheron.floatview.protocol.refloat.RefloatConfigurationOperation.APPLY_TUNE -> "applyTune"
+            null -> JSONObject.NULL
+        })
+
+    private fun refloatConfigurationIdentity(): JSONObject? {
+        val summary = applicationService.refloatConfigurationSummarySnapshot()
+        val version = summary.packageVersion ?: return null
+        val fingerprint = summary.schemaFingerprint ?: return null
+        val signature = summary.wireSignature ?: return null
+        return JSONObject()
+            .put("packageName", "refloat")
+            .put("packageVersion", version)
+            .put("schemaFingerprint", fingerprint)
+            .put("wireSignature", signature)
+    }
+
+    private fun refloatConfigurationIdentity(raw: Any?): RefloatConfigurationIdentityRecord? {
+        val value = raw as? JSONObject ?: return null
+        if (value.length() != 4 || value.optString("packageName") != "refloat") return null
+        val version = value.optString("packageVersion").takeIf { it.isNotEmpty() && it.toByteArray().size <= 128 }
+            ?: return null
+        val fingerprint = value.optString("schemaFingerprint").takeIf { it.matches(Regex("^[0-9a-f]{64}$")) }
+            ?: return null
+        val signature = (value.opt("wireSignature") as? Number)?.toDouble()
+            ?.takeIf { it.isFinite() && it % 1.0 == 0.0 && it in 0.0..4_294_967_295.0 }?.toLong()
+            ?: return null
+        return RefloatConfigurationIdentityRecord("refloat", version, fingerprint, signature)
+    }
+
+    private fun boundedRefloatText(raw: Any?, maximumBytes: Int): String? =
+        (raw as? String)?.trim()?.takeIf { it.isNotEmpty() && it.toByteArray().size <= maximumBytes }
+
+    private fun refloatTune(record: RefloatConfigurationRecord, includeValues: Boolean) = JSONObject()
+        .put("tuneId", record.configurationId)
+        .put("revision", record.revision)
+        .put("name", record.name)
+        .put("description", record.description ?: JSONObject.NULL)
+        .put("identity", JSONObject()
+            .put("packageName", record.identity.packageName)
+            .put("packageVersion", record.identity.packageVersion)
+            .put("schemaFingerprint", record.identity.schemaFingerprint)
+            .put("wireSignature", record.identity.wireSignature))
+        .put("createdAt", record.createdAt.toString())
+        .put("updatedAt", record.updatedAt.toString())
+        .also { result ->
+            if (includeValues) {
+                val values = runCatching { JSONObject(record.valuesJson) }.getOrDefault(JSONObject())
+                result.put("values", values)
+            }
+        }
+
+    private fun refloatConfigurationSchemaPage(rawCursor: Any?): JSONObject? {
+        val schema = applicationService.refloatConfigurationSchemaSnapshot() ?: return null
+        val identity = refloatConfigurationIdentity() ?: return null
+        val pageIndex = when (rawCursor) {
+            null, JSONObject.NULL -> 0
+            is String -> {
+                if (rawCursor.toByteArray().size > 512) return null
+                runCatching {
+                    JSONObject(String(Base64.decode(rawCursor, Base64.DEFAULT), Charsets.UTF_8))
+                }.getOrNull()?.takeIf { it.optString("fingerprint") == schema.fingerprint }
+                    ?.optInt("page", -1)?.takeIf { it >= 0 } ?: return null
+            }
+            else -> return null
+        }
+        val byName = schema.fields.associateBy { it.name }
+        val pages = buildList {
+            schema.groups.forEach { group ->
+                group.subgroups.forEach { subgroup ->
+                    subgroup.fields.mapNotNull(byName::get).chunked(32).forEach { fields ->
+                        add(Triple(group.name, subgroup.name, fields))
+                    }
+                }
+            }
+        }
+        val page = pages.getOrNull(pageIndex) ?: return null
+        val nextCursor = if (pageIndex + 1 < pages.size) {
+            Base64.encodeToString(
+                JSONObject().put("fingerprint", schema.fingerprint).put("page", pageIndex + 1)
+                    .toString().toByteArray(),
+                Base64.NO_WRAP,
+            )
+        } else JSONObject.NULL
+        return JSONObject()
+            .put("identity", identity)
+            .put("group", page.first)
+            .put("subgroup", page.second)
+            .put("fields", JSONArray(page.third.map(::refloatConfigurationField)))
+            .put("nextCursor", nextCursor)
+    }
+
+    private fun refloatConfigurationField(field: RefloatConfigurationField) = JSONObject()
+        .put("name", field.name)
+        .put("label", field.longName)
+        .put("type", when (field.type) {
+            RefloatConfigurationFieldType.DOUBLE -> "double"
+            RefloatConfigurationFieldType.INTEGER -> "integer"
+            RefloatConfigurationFieldType.STRING -> "string"
+            RefloatConfigurationFieldType.ENUMERATION -> "enum"
+            RefloatConfigurationFieldType.BOOLEAN -> "boolean"
+            RefloatConfigurationFieldType.BITFIELD -> "bitfield"
+        })
+        .put("defaultValue", refloatConfigurationValue(field.defaultValue))
+        .put("minimum", field.minimum ?: JSONObject.NULL)
+        .put("maximum", field.maximum ?: JSONObject.NULL)
+        .put("step", field.step ?: JSONObject.NULL)
+        .put("precision", field.precision ?: JSONObject.NULL)
+        .put("suffix", field.suffix)
+        .put("choices", JSONArray(field.choices))
+        .put("description", field.description)
+
+    private fun refloatConfigurationValue(value: RefloatConfigurationValue) = when (value) {
+        is RefloatConfigurationValue.Decimal -> JSONObject().put("type", "double").put("value", value.value)
+        is RefloatConfigurationValue.Integer -> JSONObject().put("type", "integer").put("value", value.value)
+        is RefloatConfigurationValue.BooleanValue -> JSONObject().put("type", "boolean").put("value", value.value)
+        is RefloatConfigurationValue.StringValue -> JSONObject().put("type", "string").put("value", value.value)
+    }
+
+    private fun refloatConfigurationValues(value: RefloatConfigurationValues) = JSONObject()
+        .put("identity", refloatConfigurationIdentity() ?: JSONObject())
+        .put("revision", value.revision)
+        .put("source", value.source)
+        .put("values", JSONObject().also { result ->
+            value.values.forEach { (name, fieldValue) -> result.put(name, refloatConfigurationValue(fieldValue)) }
+        })
+
+    private fun parseRefloatConfigurationValues(raw: JSONObject): Map<String, RefloatConfigurationValue>? {
+        if (raw.length() > RefloatConfigurationLimits.FIELDS || raw.toString().toByteArray().size > 48 * 1024) return null
+        val result = linkedMapOf<String, RefloatConfigurationValue>()
+        raw.keys().forEach { name ->
+            if (name.isEmpty() || name.toByteArray().size > RefloatConfigurationLimits.NAME_BYTES) return null
+            val typed = raw.optJSONObject(name)?.takeIf { it.length() == 2 && it.has("type") && it.has("value") }
+                ?: return null
+            result[name] = when (typed.optString("type")) {
+                "double" -> {
+                    val number = typed.opt("value") as? Number ?: return null
+                    val value = number.toDouble().takeIf(Double::isFinite) ?: return null
+                    RefloatConfigurationValue.Decimal(value)
+                }
+                "integer" -> {
+                    val number = typed.opt("value") as? Number ?: return null
+                    val value = number.toDouble()
+                    if (!value.isFinite() || value % 1.0 != 0.0 || kotlin.math.abs(value) > 9_007_199_254_740_991.0) return null
+                    RefloatConfigurationValue.Integer(value.toLong())
+                }
+                "boolean" -> RefloatConfigurationValue.BooleanValue(
+                    typed.opt("value") as? Boolean ?: return null,
+                )
+                "string" -> {
+                    val value = typed.opt("value") as? String ?: return null
+                    if (value.toByteArray().size > RefloatConfigurationLimits.STRING_VALUE_BYTES) return null
+                    RefloatConfigurationValue.StringValue(value)
+                }
+                else -> return null
+            }
+        }
+        return result
+    }
 
     private fun device(value: DiscoveredDevice) = JSONObject()
         .put("deviceId", value.id.value)

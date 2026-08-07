@@ -8,6 +8,9 @@
   import ControllerSelection from '$lib/features/connection/ControllerSelection.svelte';
   import DetailedView from '$lib/features/connection/DetailedView.svelte';
   import FlywheelModeOverlay from '$lib/features/connection/FlywheelModeOverlay.svelte';
+  import RefloatConfigurationEditor from '$lib/features/connection/RefloatConfigurationEditor.svelte';
+  import RefloatTunes from '$lib/features/connection/RefloatTunes.svelte';
+  import { RefloatConfigurationController } from '$lib/features/connection/refloat-configuration.svelte';
   import LiveView from '$lib/features/connection/LiveView.svelte';
   import BmsView from '$lib/features/connection/BmsView.svelte';
   import { bmsMenuVisible } from '$lib/features/connection/bms';
@@ -36,6 +39,9 @@
   let view = $state<View>('normal');
   let configureOpen = $state(false);
   let bmsOpen = $state(false);
+  let refloatConfigurationOpen = $state(false);
+  let refloatTunesOpen = $state(false);
+  let discardRefloatConfirmationOpen = $state(false);
   let disconnectConfirmationOpen = $state(false);
   let connectionIssueConfirmationOpen = $state(false);
   let firmwareUnsupportedConfirmationOpen = $state(false);
@@ -43,6 +49,8 @@
   let shutdownConfirmationOpen = $state(false);
   let refloatConfirmation = $state<RefloatControlConfirmation | null>(null);
   let editor = $state<BoardEditor>();
+  let refloatEditor = $state<RefloatConfigurationEditor>();
+  const refloatConfiguration = new RefloatConfigurationController(backendState);
   const appHeader = getContext<AppHeaderContext>(APP_HEADER_CONTEXT);
   const headerOwner = '/live';
   const connection = $derived(backendState.snapshot?.activeConnection);
@@ -79,6 +87,10 @@
       connectionIssueConfirmationOpen = true;
       lastConnectionIssueKey = issueKey;
     }
+  });
+
+  $effect(() => {
+    refloatConfiguration.reconcile(connection?.refloatConfiguration ?? null);
   });
 
   $effect(() => {
@@ -150,6 +162,33 @@
           appearance: action.kind === 'clearFatalError' ? ('warning' as const) : ('normal' as const),
           onactivate: (closeMenu: () => void) => activateRefloatAction(action, closeMenu),
         })),
+        ...(connection.refloatConfiguration
+          ? [
+              {
+                label:
+                  connection.refloatConfiguration.availability === 'loading'
+                    ? 'Configure Refloat (loading…)'
+                    : 'Configure Refloat',
+                disabled: connection.refloatConfiguration.availability !== 'ready',
+                onactivate: (closeMenu: () => void) => {
+                  closeMenu();
+                  refloatConfigurationOpen = true;
+                },
+              },
+            ]
+          : []),
+        ...(connection.refloatConfiguration?.packageVersion && connection.refloatConfiguration.schemaFingerprint
+          ? [
+              {
+                label: 'Tunes…',
+                disabled: connection.refloatConfiguration.availability !== 'ready',
+                onactivate: (closeMenu: () => void) => {
+                  closeMenu();
+                  refloatTunesOpen = true;
+                },
+              },
+            ]
+          : []),
         {
           label: 'Shut down controller',
           appearance: 'destructive' as const,
@@ -323,6 +362,27 @@
     await tick();
     appHeader.focusMenu();
   }
+
+  async function requestCloseRefloatConfiguration() {
+    if (refloatEditor?.hasUnsavedChanges()) {
+      discardRefloatConfirmationOpen = true;
+      return;
+    }
+    await closeRefloatConfiguration();
+  }
+
+  async function closeRefloatConfiguration() {
+    refloatConfigurationOpen = false;
+    discardRefloatConfirmationOpen = false;
+    await tick();
+    appHeader.focusMenu();
+  }
+
+  async function closeRefloatTunes() {
+    refloatTunesOpen = false;
+    await tick();
+    appHeader.focusMenu();
+  }
 </script>
 
 <section aria-labelledby="app-title" class="flex h-full min-h-0 flex-1 flex-col gap-2">
@@ -396,6 +456,36 @@
     <BmsView bms={connection.bms} units={backendState.settings?.unitPreference ?? 'metric'} />
   </BottomSheet>
 {/if}
+
+{#if refloatConfigurationOpen && connection?.refloatConfiguration}
+  <BottomSheet
+    title="Configure Refloat"
+    titleId="refloat-configuration-title"
+    closeLabel="Done"
+    onclose={requestCloseRefloatConfiguration}
+  >
+    <RefloatConfigurationEditor bind:this={refloatEditor} controller={refloatConfiguration} />
+  </BottomSheet>
+{/if}
+
+{#if refloatTunesOpen && connection?.refloatConfiguration}
+  <BottomSheet title="Tunes" titleId="refloat-tunes-title" closeLabel="Done" onclose={closeRefloatTunes}>
+    <RefloatTunes controller={refloatConfiguration} />
+  </BottomSheet>
+{/if}
+
+<ConfirmDialog
+  open={discardRefloatConfirmationOpen}
+  titleId="refloat-discard-title"
+  title="Discard unsaved Refloat changes?"
+  description="Your current draft has not been written or saved as a Tune."
+  confirmLabel="Discard"
+  appearance="destructive"
+  onconfirm={closeRefloatConfiguration}
+  oncancel={() => {
+    discardRefloatConfirmationOpen = false;
+  }}
+/>
 
 <ConfirmDialog
   open={disconnectConfirmationOpen}

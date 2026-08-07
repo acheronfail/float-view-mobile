@@ -70,13 +70,6 @@ body {
   background: var(--app-canvas);
 }
 
-html.live-route,
-html.live-route body {
-  height: 100%;
-  overflow: hidden;
-  overscroll-behavior: none;
-}
-
 .app-safe-area {
   --app-header-height: 0px;
   --app-header-bottom: calc(max(1.5rem, env(safe-area-inset-top, 0px)) + var(--app-header-height));

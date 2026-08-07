@@ -53,6 +53,14 @@ private func multiCaseFixture(_ relativePath: String) throws -> MultiCaseFixture
   return try JSONDecoder().decode(MultiCaseFixture.self, from: data)
 }
 
+private func rawFixture(_ relativePath: String) throws -> Data {
+  var root = URL(fileURLWithPath: #filePath)
+  for _ in 0 ..< 4 {
+    root.deleteLastPathComponent()
+  }
+  return try Data(contentsOf: root.appending(path: relativePath))
+}
+
 private func refloatSourcePayload(_ name: String) throws -> [UInt8] {
   var root = URL(fileURLWithPath: #filePath)
   for _ in 0 ..< 4 {
@@ -117,7 +125,8 @@ private func bytes(_ hex: String) -> [UInt8] {
     major: 6,
     minor: 6,
     hardwareName: "THOR300",
-    controllerUUID: Data(repeating: 0, count: 12)
+    controllerUUID: Data(repeating: 0, count: 12),
+    hardwareConfigurationCRC: 0
   ))
 }
 
@@ -152,7 +161,8 @@ private func bytes(_ hex: String) -> [UInt8] {
         minor: UInt8(minor),
         hardwareName: "THOR300",
         hardwareType: 0,
-        controllerUUID: Data(repeating: 0, count: 12)
+        controllerUUID: Data(repeating: 0, count: 12),
+        hardwareConfigurationCRC: version == "6.02" ? nil : 0
       )
     )
   }
@@ -328,7 +338,8 @@ private func bytes(_ hex: String) -> [UInt8] {
           firmwareName: nil,
           hardwareType: 0,
           canID: nil,
-          controllerUUID: Data(repeating: 0, count: 12)
+          controllerUUID: Data(repeating: 0, count: 12),
+          hardwareConfigurationCRC: 0
         )
       )
   )
@@ -355,6 +366,8 @@ private func bytes(_ hex: String) -> [UInt8] {
   #expect(decoded.hardwareType == 1)
   #expect(decoded.firmwareName == nil)
   #expect(decoded.controllerUUID == Data(repeating: 7, count: 12))
+  #expect(decoded.customConfigurationCount == 1)
+  #expect(decoded.hardwareConfigurationCRC == nil)
   #expect(throws: VescProtocolError.self) { try VescPayloadDecoder.firmware(vbms + [0]) }
   var wrongVersion = vbms
   wrongVersion[2] = 1
@@ -499,7 +512,10 @@ private func bytes(_ hex: String) -> [UInt8] {
 
 @Test func strictFirmwareIdentityAllowsReadOnlyTestBuilds() throws {
   let payload = try VescFrameCodec.decode(bytes(fixture("fixtures/vesc/firmware-thor300-7.00.json").frameHex))
-  #expect(try VescPayloadDecoder.firmware(payload).testVersion == 0)
+  let identity = try VescPayloadDecoder.firmware(payload)
+  #expect(identity.testVersion == 0)
+  #expect(identity.customConfigurationCount == 0)
+  #expect(identity.hardwareConfigurationCRC == 0)
   #expect(throws: VescProtocolError.truncatedPayload) {
     try VescPayloadDecoder.firmware(Array(payload.dropLast()))
   }
@@ -520,6 +536,45 @@ private func bytes(_ hex: String) -> [UInt8] {
     hardwareName: "THOR300",
     firmwareName: nil
   )))
+}
+
+@Test func customConfigurationCommandsUseExactPayloadsAndStrictResponses() throws {
+  let service = VescProtocolService()
+  #expect(
+    try VescFrameCodec.decode(Array(service.customConfigurationSchemaRequest(
+      route: .direct, length: 400, offset: 0
+    ))) == [92, 0, 0, 0, 1, 144, 0, 0, 0, 0]
+  )
+  #expect(
+    try VescFrameCodec.decode(Array(service.customConfigurationSchemaRequest(
+      route: .can(42), length: 16, offset: 400
+    ))) == [34, 42, 92, 0, 0, 0, 0, 16, 0, 0, 1, 144]
+  )
+  #expect(try VescFrameCodec.decode(Array(service.customConfigurationValuesRequest(
+    route: .direct, defaults: false
+  ))) == [93, 0])
+  #expect(try VescFrameCodec.decode(Array(service.customConfigurationValuesRequest(
+    route: .can(42), defaults: true
+  ))) == [34, 42, 94, 0])
+  #expect(try VescFrameCodec.decode(Array(service.customConfigurationWriteRequest(
+    route: .can(42), values: Data([1, 2, 3, 4])
+  ))) == [34, 42, 95, 0, 1, 2, 3, 4])
+
+  #expect(
+    try VescCustomConfigurationCodec.decode([92, 0, 0, 0, 0, 4, 0, 0, 0, 0, 1, 2, 3, 4])
+      == .schemaChunk(index: 0, totalLength: 4, offset: 0, bytes: Data([1, 2, 3, 4]))
+  )
+  #expect(
+    try VescCustomConfigurationCodec.decode([93, 0, 0, 0, 0, 1])
+      == .values(command: .getCustomConfiguration, index: 0, bytes: Data([0, 0, 0, 1]))
+  )
+  #expect(try VescCustomConfigurationCodec.decode([95]) == .writeAcknowledgement)
+  #expect(throws: VescProtocolError.self) {
+    try VescCustomConfigurationCodec.decode([92, 0, 0, 0, 0, 4, 0, 0, 0, 3, 1, 2])
+  }
+  #expect(throws: VescProtocolError.self) {
+    try VescCustomConfigurationCodec.decode([95, 0])
+  }
 }
 
 @Test func refloatRealtimeIDsAndDataNormalizeCoreTelemetry() throws {
@@ -614,6 +669,44 @@ private func bytes(_ hex: String) -> [UInt8] {
   let snapshot = try VescPayloadDecoder.bmsValues(Array(payload), expectedCanID: 42, observedAt: .distantPast)
   #expect(snapshot.reportedCanID == 42)
   #expect(snapshot.status == "OK")
+
+  let directIdentityResponse = try #require(peripheral.response(to: service.firmwareRequest(route: .direct)))
+  guard case let .firmware(directIdentity) = try #require(service.receive(directIdentityResponse).first) else {
+    Issue.record("Expected software peripheral controller identity")
+    return
+  }
+  #expect(directIdentity.customConfigurationCount == 1)
+
+  let schemaResponse = try #require(peripheral.response(to: service.customConfigurationSchemaRequest(
+    route: .direct, length: 32, offset: 0
+  )))
+  guard case let .customConfiguration(.schemaChunk(index, total, offset, chunk)) =
+    try #require(service.receive(schemaResponse).first)
+  else {
+    Issue.record("Expected software peripheral schema chunk")
+    return
+  }
+  let schema = try rawFixture("fixtures/refloat-configuration/schemas/1.0.0.qcompress")
+  #expect(index == 0)
+  #expect(total == schema.count)
+  #expect(offset == 0)
+  #expect(chunk == schema.prefix(32))
+
+  let write = try rawFixture("fixtures/refloat-configuration/values/1.0.0-write.bin")
+  let writeResponse = try #require(peripheral.response(to: service.customConfigurationWriteRequest(
+    route: .direct, values: write
+  )))
+  #expect(try service.receive(writeResponse) == [.customConfiguration(.writeAcknowledgement)])
+  let currentResponse = try #require(peripheral.response(to: service.customConfigurationValuesRequest(
+    route: .direct, defaults: false
+  )))
+  guard case let .customConfiguration(.values(_, _, current)) = try #require(service.receive(currentResponse).first)
+  else {
+    Issue.record("Expected software peripheral current configuration")
+    return
+  }
+  let expectedReadback = try rawFixture("fixtures/refloat-configuration/values/1.0.0-readback.bin")
+  #expect(current == expectedReadback)
 }
 
 @Test func androidHardwareRefloatCaptureDecodesAcrossNotificationChunks() throws {
