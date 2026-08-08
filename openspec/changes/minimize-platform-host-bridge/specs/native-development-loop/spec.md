@@ -23,3 +23,13 @@ Simulator, emulator, browser-host, and software-conformance modes SHALL use the 
 
 - **WHEN** equivalent contract scenarios run through software and physical transport modes
 - **THEN** both use the same Rust application actor, dispatcher, persistence, loopback server, and connection semantics, differing only at the byte transport boundary
+
+#### Scenario: Browser and native document development
+
+- **WHEN** the frontend initiates import or export in browser development and on a native host
+- **THEN** one frontend document-operation controller uses authenticated upload/download endpoints in browser mode and Rust-orchestrated native presentation in native mode while producing equivalent Rust archive behavior and contract state
+
+#### Scenario: Software-mode appearance
+
+- **WHEN** appearance behavior is exercised without physical Bluetooth
+- **THEN** the host's declared single appearance source remains testable without introducing a second native theme-policy owner or changing Rust software transport behavior

@@ -45,3 +45,50 @@ The complete software gate SHALL report production Swift and Kotlin counts separ
 
 - **WHEN** a Swift or Kotlin software VESC peripheral, general-purpose reverse bridge codec, random device-token map, or unreachable bridge command is added after cutover
 - **THEN** verification fails with the offending owned path or symbol
+
+#### Scenario: Capability inventory is incomplete
+
+- **WHEN** verification compares iOS, macOS, and Android capability inventories with their required entry files and focused evidence
+- **THEN** it fails for every missing row or file, unexplained unsupported capability, incomplete capability, or entry that does not identify its implementation owner
+
+#### Scenario: Host audit runs on macOS
+
+- **WHEN** `just verify` executes the host-surface audit with the repository-supported macOS shell environment
+- **THEN** the audit completes without relying on unavailable shell builtins and applies the same ownership rules as other development environments
+
+### Requirement: Native document conformance
+
+Canonical and focused host verification SHALL cover native import and export presentation, operation ordering, cancellation, bounded copying, invalid staging paths, oversized input, Activity/window/WebView replacement, and staging cleanup without moving archive semantics into Swift or Kotlin.
+
+#### Scenario: Native document round trip
+
+- **WHEN** each supported native host imports a valid bounded archive and exports the resulting session through its platform surface
+- **THEN** Rust produces equivalent session state and export content while the host performs only native presentation and bounded file access
+
+#### Scenario: Native document cancellation and cleanup
+
+- **WHEN** import or export is cancelled before, during, or after presentation replacement
+- **THEN** the operation terminates exactly once, no partial import is visible, and no expired staging file remains
+
+### Requirement: Background and location conformance
+
+Focused and physical verification SHALL prove effective background execution, BLE continuity or restoration, location authorization propagation, bounded background coordinates, foreground-service or background-mode configuration, and durable Rust-owned logging on every platform that declares support.
+
+#### Scenario: Background ride logging
+
+- **WHEN** a supported mobile host begins a saved ride, backgrounds or replaces its frontend, receives BLE telemetry and location, and later returns to foreground
+- **THEN** one process-owned Rust runtime persists the continuous bounded session and the host reports no fabricated eligibility or duplicated application policy
+
+#### Scenario: Authorization changes without coordinates
+
+- **WHEN** location authorization changes and no location sample follows
+- **THEN** Rust still receives and publishes the new authorization through the production focused entry point
+
+### Requirement: Effective appearance conformance
+
+Each native host SHALL verify initial effective appearance, a live platform appearance change, background/foreground return, and WebView recreation using exactly its declared appearance source.
+
+#### Scenario: Appearance source remains singular
+
+- **WHEN** appearance conformance exercises one host
+- **THEN** the frontend and native-only chrome reach the expected effective light or dark state and verification observes neither a duplicate source nor a persisted-preference feedback loop
