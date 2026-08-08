@@ -1,4 +1,3 @@
-#![allow(clippy::too_many_lines)]
 #![recursion_limit = "256"]
 
 use std::sync::{Arc, Condvar, Mutex};
@@ -879,111 +878,59 @@ impl NativeBackend {
             .inner
             .lock()
             .map_err(|_| ContractError::new("internal", "Backend state failed"))?;
-        let radio = match snapshot.bluetooth_radio {
-            BluetoothRadio::PoweredOn => "powered_on",
-            BluetoothRadio::PoweredOff => "powered_off",
-            BluetoothRadio::Unknown => "unknown",
-        };
-        let permission = match snapshot.bluetooth_authorization {
-            BluetoothAuthorization::Granted => "granted",
-            BluetoothAuthorization::Denied => "denied",
-            BluetoothAuthorization::Unknown => "not_determined",
-        };
-        inner.state["bluetooth"] = json!({
-            "radio": radio,
-            "scanPermission": permission,
-            "connectPermission": permission,
-            "scanning": false
-        });
-        let location_enabled = inner.state["settings"]["locationRecordingEnabled"] == true;
-        inner.state["location"] = if location_enabled {
-            match snapshot.location_authorization {
-                host_ports::LocationAuthorization::Background => {
-                    json!({ "status": "authorized", "permissionAction": null, "backgroundCapture": "available", "reason": null })
-                }
-                host_ports::LocationAuthorization::Foreground => {
-                    json!({ "status": "foregroundOnly", "permissionAction": "openSettings", "backgroundCapture": "foregroundOnly", "reason": null })
-                }
-                host_ports::LocationAuthorization::Denied => {
-                    json!({ "status": "denied", "permissionAction": "openSettings", "backgroundCapture": "unavailable", "reason": null })
-                }
-                host_ports::LocationAuthorization::Unknown => {
-                    json!({ "status": "notDetermined", "permissionAction": "requestPermission", "backgroundCapture": "unavailable", "reason": null })
-                }
-            }
-        } else {
-            json!({ "status": "disabled", "permissionAction": "requestPermission", "backgroundCapture": "unavailable", "reason": null })
-        };
-        inner.state["discoveredDevices"] = Value::Array(
-            snapshot
-                .discovered_devices
-                .iter()
-                .map(|device| {
-                    let device_id = encode_device_token(&device.device_token);
-                    let saved_device_id = inner.state["savedDevices"]
-                        .as_array()
-                        .and_then(|devices| {
-                            devices.iter().find(|saved| {
-                                saved["bluetoothIdentifier"].as_str() == Some(device_id.as_str())
-                            })
-                        })
-                        .and_then(|saved| saved["savedDeviceId"].as_str());
-                    json!({
-                        "deviceId": device_id,
-                        "name": device.name,
-                        "state": "discovered",
-                        "lastSeenAt": iso8601_or_empty(snapshot.wall_millis),
-                        "rssi": device.rssi,
-                        "savedDeviceId": saved_device_id
-                    })
-                })
-                .collect(),
-        );
-        inner.location_count = snapshot.location_sequence;
+        update_platform_state(&mut inner, &snapshot);
         if let Some(summary) = native_summary {
-            if let Some(existing) = inner
-                .sessions
-                .iter_mut()
-                .find(|session| session["sessionId"] == summary["sessionId"])
-            {
-                *existing = summary;
-            } else {
-                let session_id = summary["sessionId"]
-                    .as_str()
-                    .ok_or_else(|| ContractError::new("internal", "Session ID is unavailable"))?;
-                if matches!(
-                    self.contract.catalog.session_record(session_id),
-                    Err(StoreError::NotFound)
-                ) {
-                    let connection = self
-                        .connection
-                        .lock()
-                        .map_err(|_| ContractError::new("internal", "Connection state failed"))?;
-                    let connection = connection.as_ref().ok_or_else(|| {
-                        ContractError::new("internal", "Connection state is unavailable")
-                    })?;
-                    let (saved_device_id, device_history_id) =
-                        connection.ownership.saved().ok_or_else(|| {
-                            ContractError::new("internal", "Saved board is unavailable")
-                        })?;
-                    let profile = load_profile(&self.contract.catalog, saved_device_id)
-                        .map_err(|error| storage_error(&error))?;
-                    let sampling = sampling_settings(&inner.state["settings"])?;
-                    self.contract.create_durable_session(
-                        session_id,
-                        device_history_id,
-                        connection.name.as_deref().unwrap_or("VESC"),
-                        &profile,
-                        connection.started_at_millis,
-                        sampling,
-                    )?;
-                }
-                inner.sessions.insert(0, summary);
-            }
+            self.merge_native_session(&mut inner, summary)?;
         }
         inner.state["activeConnection"] = active_connection;
         self.contract.changed(&mut inner, false);
         *observed = snapshot.revision;
+        Ok(())
+    }
+
+    fn merge_native_session(
+        &self,
+        inner: &mut BackendState,
+        summary: Value,
+    ) -> Result<(), ContractError> {
+        if let Some(existing) = inner
+            .sessions
+            .iter_mut()
+            .find(|session| session["sessionId"] == summary["sessionId"])
+        {
+            *existing = summary;
+            return Ok(());
+        }
+        let session_id = summary["sessionId"]
+            .as_str()
+            .ok_or_else(|| ContractError::new("internal", "Session ID is unavailable"))?;
+        if matches!(
+            self.contract.catalog.session_record(session_id),
+            Err(StoreError::NotFound)
+        ) {
+            let connection = self
+                .connection
+                .lock()
+                .map_err(|_| ContractError::new("internal", "Connection state failed"))?;
+            let connection = connection
+                .as_ref()
+                .ok_or_else(|| ContractError::new("internal", "Connection state is unavailable"))?;
+            let (saved_device_id, device_history_id) = connection
+                .ownership
+                .saved()
+                .ok_or_else(|| ContractError::new("internal", "Saved board is unavailable"))?;
+            let profile = load_profile(&self.contract.catalog, saved_device_id)
+                .map_err(|error| storage_error(&error))?;
+            self.contract.create_durable_session(
+                session_id,
+                device_history_id,
+                connection.name.as_deref().unwrap_or("VESC"),
+                &profile,
+                connection.started_at_millis,
+                sampling_settings(&inner.state["settings"])?,
+            )?;
+        }
+        inner.sessions.insert(0, summary);
         Ok(())
     }
 
@@ -1176,6 +1123,359 @@ impl NativeBackend {
         Ok(())
     }
 
+    fn accept_transport_firmware(
+        &self,
+        connection: &mut NativeConnection,
+        payload: &[u8],
+    ) -> Result<(), ContractError> {
+        let firmware = decode_firmware(payload)
+            .map_err(|_| ContractError::new("invalid_state", "Firmware identity is invalid"))?;
+        connection.transport_firmware = Some(firmware.clone());
+        if protocol_vesc_bms::supports_firmware(&firmware) {
+            self.schedule_bms_values(connection, BmsConnection::Direct)
+        } else if firmware.hardware_type == 0 {
+            connection.firmware = Some(firmware);
+            self.schedule_refloat_info(connection, ControllerRoute::Direct)
+        } else if let Some(can_id) = self.preferred_can_id(connection)? {
+            connection.controller_can_id = Some(can_id);
+            let route =
+                ControllerRoute::Can(domain_types::CanId::new(can_id).map_err(|_| {
+                    ContractError::new("invalid_state", "Preferred CAN ID is invalid")
+                })?);
+            self.schedule(
+                connection,
+                IdentificationStage::ControllerFirmware,
+                &route_command(&[VescCommand::GetFirmwareVersion as u8], route),
+                ExpectedResponse::new(VescCommand::GetFirmwareVersion, None),
+                RequestKind::ControllerFirmware,
+            )
+        } else {
+            self.schedule(
+                connection,
+                IdentificationStage::CanPing,
+                &[VescCommand::PingCan as u8],
+                ExpectedResponse::new(VescCommand::PingCan, None),
+                RequestKind::CanPing,
+            )
+        }
+    }
+
+    fn accept_can_ping(
+        &self,
+        connection: &mut NativeConnection,
+        payload: &[u8],
+    ) -> Result<(), ContractError> {
+        connection.pending_can_ids = payload
+            .get(1..)
+            .unwrap_or_default()
+            .iter()
+            .copied()
+            .filter(|id| *id <= 253)
+            .collect();
+        connection.pending_can_ids.sort_unstable();
+        connection.pending_can_ids.dedup();
+        connection.controller_inventory.clear();
+        self.schedule_next_inventory_probe(connection)
+    }
+
+    fn accept_controller_firmware(
+        &self,
+        connection: &mut NativeConnection,
+        payload: &[u8],
+        inventory: bool,
+    ) -> Result<(), ContractError> {
+        let mut firmware = decode_firmware(payload)
+            .map_err(|_| ContractError::new("invalid_state", "Firmware identity is invalid"))?;
+        let can_id = connection
+            .controller_can_id
+            .and_then(|value| domain_types::CanId::new(value).ok())
+            .ok_or_else(|| ContractError::new("invalid_state", "CAN route is unavailable"))?;
+        firmware.can_id = Some(can_id);
+        if inventory {
+            connection.controller_inventory.push(firmware);
+            self.schedule_next_inventory_probe(connection)
+        } else {
+            connection.firmware = Some(firmware);
+            self.schedule_refloat_info(connection, ControllerRoute::Can(can_id))
+        }
+    }
+
+    fn accept_refloat_info(
+        &self,
+        connection: &mut NativeConnection,
+        payload: &[u8],
+    ) -> Result<(), ContractError> {
+        let version = decode_refloat_version(payload)?;
+        let legacy = version == "1.0";
+        connection.package_version = Some(version);
+        let sampling = self.current_sampling_settings()?;
+        connection.telemetry_polling = Some(TelemetryPollingModel::new(
+            if legacy {
+                TelemetryFamily::Legacy
+            } else {
+                TelemetryFamily::Dynamic
+            },
+            sampling.idle_probe_millis,
+            sampling.post_ride_tail_millis,
+        ));
+        connection.next_telemetry_due_millis = None;
+        connection.controls = Some(protocol_refloat::MutationCoordinator::new(
+            connection.vesc_generation.unwrap_or_default(),
+            connection
+                .firmware
+                .as_ref()
+                .is_some_and(|firmware| firmware.test_version == 0),
+        ));
+        self.begin_configuration(connection)?;
+        if legacy {
+            self.begin_bms_discovery(connection)
+        } else {
+            let route = connection_route(connection)?;
+            self.schedule(
+                connection,
+                IdentificationStage::RefloatLayout,
+                &route_command(
+                    &protocol_refloat::request(
+                        protocol_refloat::RefloatCommand::RealtimeDataInternalIds,
+                        &[],
+                    ),
+                    route,
+                ),
+                ExpectedResponse::new(
+                    VescCommand::CustomAppData,
+                    Some(protocol_refloat::RefloatCommand::RealtimeDataInternalIds as u8),
+                ),
+                RequestKind::RefloatLayout,
+            )
+        }
+    }
+
+    fn accept_refloat_layout(
+        &self,
+        connection: &mut NativeConnection,
+        payload: &[u8],
+    ) -> Result<(), ContractError> {
+        connection.telemetry_layout = Some(
+            protocol_refloat::decode_layout(payload)
+                .map_err(|_| ContractError::new("invalid_state", "Refloat layout is invalid"))?,
+        );
+        let now_millis = self
+            .application
+            .snapshot()
+            .map_err(|_| ContractError::new("internal", "Application state is unavailable"))?
+            .monotonic_millis;
+        if let Some(polling) = connection.telemetry_polling.as_mut() {
+            polling.layout_established(now_millis);
+        }
+        self.begin_bms_discovery(connection)
+    }
+
+    fn accept_bms_ping(
+        &self,
+        connection: &mut NativeConnection,
+        payload: &[u8],
+    ) -> Result<(), ContractError> {
+        conformance_trace(&format!("bms_ping_response bytes={}", payload.len()));
+        connection.bms_pending_can_ids = payload
+            .get(1..)
+            .unwrap_or_default()
+            .iter()
+            .copied()
+            .filter(|id| *id <= 253)
+            .collect();
+        connection.bms_pending_can_ids.sort_unstable();
+        connection.bms_pending_can_ids.dedup();
+        self.schedule_next_bms_probe(connection)
+    }
+
+    fn accept_bms_identity(
+        &self,
+        connection: &mut NativeConnection,
+        payload: &[u8],
+    ) -> Result<(), ContractError> {
+        let mut firmware = decode_firmware(payload)
+            .map_err(|_| ContractError::new("invalid_state", "BMS identity is invalid"))?;
+        conformance_trace(&format!(
+            "bms_identity_response supported={}",
+            protocol_vesc_bms::supports_firmware(&firmware)
+        ));
+        let can_id = connection
+            .bms_probe_can_id
+            .and_then(|value| domain_types::CanId::new(value).ok())
+            .ok_or_else(|| ContractError::new("invalid_state", "BMS route is unavailable"))?;
+        firmware.can_id = Some(can_id);
+        if protocol_vesc_bms::supports_firmware(&firmware) {
+            connection.controller_inventory.push(firmware);
+        }
+        self.schedule_next_bms_probe(connection)
+    }
+
+    fn accept_bms_values(
+        &self,
+        connection: &mut NativeConnection,
+        payload: &[u8],
+    ) -> Result<(), ContractError> {
+        let selected = connection
+            .bms_connection
+            .ok_or_else(|| ContractError::new("invalid_state", "BMS connection is unavailable"))?;
+        let expected_can_id = match selected {
+            BmsConnection::Direct => None,
+            BmsConnection::Can(can_id) => Some(can_id),
+        };
+        let snapshot = protocol_vesc_bms::decode_values(payload, expected_can_id)
+            .map_err(|_| ContractError::new("invalid_state", "BMS values are invalid"))?;
+        let selected_current = self
+            .application
+            .select_bms(selected)
+            .map_err(|_| ContractError::new("invalid_state", "BMS selection is stale"))?;
+        if !selected_current {
+            return Err(ContractError::new(
+                "invalid_state",
+                "BMS selection is stale",
+            ));
+        }
+        let values_current = self
+            .application
+            .accept_bms(snapshot.clone())
+            .map_err(|_| ContractError::new("invalid_state", "BMS values are stale"))?;
+        if !values_current {
+            return Err(ContractError::new("invalid_state", "BMS values are stale"));
+        }
+        connection.bms_snapshot = Some(snapshot);
+        connection.bms_status = DiscoveryStatus::Attached;
+        if connection.firmware.is_some() {
+            self.schedule_telemetry(connection)
+        } else {
+            connection.stage = IdentificationStage::ReadyBms;
+            Ok(())
+        }
+    }
+
+    fn accept_control_response(
+        connection: &mut NativeConnection,
+        payload: &[u8],
+    ) -> Result<(), ContractError> {
+        let version = connection
+            .package_version
+            .as_deref()
+            .ok_or_else(|| ContractError::new("invalid_state", "Refloat version is unavailable"))?;
+        let profile = protocol_refloat::compatibility(version)
+            .map(protocol_refloat::CompatibilityEntry::control_profile)
+            .ok_or_else(|| {
+                ContractError::new("invalid_state", "Refloat controls are unsupported")
+            })?;
+        let lighting = protocol_refloat::decode_lighting(payload, profile).map_err(|_| {
+            ContractError::new("invalid_state", "Refloat control response is invalid")
+        })?;
+        observe_controls(connection, Some(lighting));
+        Ok(())
+    }
+
+    fn accept_telemetry_response(
+        &self,
+        connection: &mut NativeConnection,
+        payload: &[u8],
+    ) -> Result<(), ContractError> {
+        connection.telemetry_in_flight = false;
+        let telemetry = if let Some(layout) = connection.telemetry_layout.as_ref() {
+            protocol_refloat::decode_dynamic(payload, layout)
+        } else {
+            protocol_refloat::decode_legacy(payload)
+        }
+        .map_err(|_| ContractError::new("invalid_state", "Telemetry is invalid"))?;
+        connection.telemetry_sequence = connection.telemetry_sequence.saturating_add(1);
+        let actor_snapshot = self
+            .application
+            .snapshot()
+            .map_err(|_| ContractError::new("internal", "Application state is unavailable"))?;
+        let elapsed_millis =
+            wall_elapsed_millis(connection.started_at_millis, actor_snapshot.wall_millis);
+        let elapsed_delta = connection
+            .last_telemetry_elapsed_millis
+            .map_or(0, |previous| elapsed_millis.saturating_sub(previous));
+        connection.last_telemetry_elapsed_millis = Some(elapsed_millis);
+        if telemetry.ride_state == domain_types::RideState::Riding {
+            connection.riding_elapsed_millis = connection
+                .riding_elapsed_millis
+                .saturating_add(elapsed_delta);
+        }
+        let persist = self
+            .application
+            .observe_telemetry(telemetry.clone(), elapsed_millis)
+            .map_err(|_| ContractError::new("internal", "Telemetry could not be observed"))?;
+        let sample = session_sample(
+            &telemetry,
+            connection.telemetry_sequence,
+            actor_snapshot.wall_millis,
+            elapsed_millis,
+        )?;
+        if persist && connection.ownership.saved().is_some() {
+            self.contract
+                .sessions
+                .append_samples(
+                    &connection.session_id,
+                    &[sample],
+                    actor_snapshot.wall_millis,
+                )
+                .map_err(|error| storage_error(&error))?;
+        }
+        connection.latest_sample = Some(telemetry_value(
+            &telemetry,
+            connection.telemetry_sequence,
+            actor_snapshot.wall_millis,
+            elapsed_millis,
+        ));
+        connection.latest_telemetry = Some(telemetry);
+        let lighting = connection.controls.as_ref().and_then(|controls| {
+            controls
+                .state
+                .lighting
+                .or(Some(protocol_refloat::LightingState {
+                    leds_enabled: true,
+                    headlights_enabled: true,
+                }))
+        });
+        observe_controls(connection, lighting);
+        if !connection.pause_telemetry {
+            let ride_state = connection
+                .latest_telemetry
+                .as_ref()
+                .map_or(domain_types::RideState::Unknown, |value| value.ride_state);
+            let interval = connection
+                .telemetry_polling
+                .as_mut()
+                .map_or(app_coordinator::RIDING_POLL_MILLIS, |polling| {
+                    polling.accept_ride_state(ride_state, actor_snapshot.monotonic_millis)
+                });
+            connection.next_telemetry_due_millis =
+                Some(actor_snapshot.monotonic_millis.saturating_add(interval));
+        }
+        Ok(())
+    }
+
+    fn accept_configuration_response(
+        &self,
+        connection: &mut NativeConnection,
+        generation: u64,
+        payload: Vec<u8>,
+    ) -> Result<(), ContractError> {
+        let operation = connection.configuration_operation.ok_or_else(|| {
+            ContractError::new("invalid_state", "Configuration operation is unavailable")
+        })?;
+        let result = self
+            .application
+            .accept_configuration_response(generation, operation, payload);
+        if let Ok(mut signal) = self.configuration_signal.lock() {
+            *signal = signal.saturating_add(1);
+            self.configuration_changed.notify_all();
+        }
+        let effect = result.map_err(|_| {
+            ContractError::new("invalid_state", "Configuration response is invalid")
+        })?;
+        self.cache_configuration_schema(connection)?;
+        self.schedule_configuration_effect(connection, effect)
+    }
+
     fn schedule(
         &self,
         connection: &mut NativeConnection,
@@ -1252,333 +1552,40 @@ impl NativeBackend {
         ));
         match (connection.stage, request.kind) {
             (IdentificationStage::TransportFirmware, RequestKind::ControllerFirmware) => {
-                let firmware = decode_firmware(&payload).map_err(|_| {
-                    ContractError::new("invalid_state", "Firmware identity is invalid")
-                })?;
-                connection.transport_firmware = Some(firmware.clone());
-                if protocol_vesc_bms::supports_firmware(&firmware) {
-                    self.schedule_bms_values(connection, BmsConnection::Direct)?;
-                } else if firmware.hardware_type == 0 {
-                    connection.firmware = Some(firmware);
-                    self.schedule_refloat_info(connection, ControllerRoute::Direct)?;
-                } else if let Some(can_id) = self.preferred_can_id(connection)? {
-                    connection.controller_can_id = Some(can_id);
-                    let route =
-                        ControllerRoute::Can(domain_types::CanId::new(can_id).map_err(|_| {
-                            ContractError::new("invalid_state", "Preferred CAN ID is invalid")
-                        })?);
-                    self.schedule(
-                        connection,
-                        IdentificationStage::ControllerFirmware,
-                        &route_command(&[VescCommand::GetFirmwareVersion as u8], route),
-                        ExpectedResponse::new(VescCommand::GetFirmwareVersion, None),
-                        RequestKind::ControllerFirmware,
-                    )?;
-                } else {
-                    self.schedule(
-                        connection,
-                        IdentificationStage::CanPing,
-                        &[VescCommand::PingCan as u8],
-                        ExpectedResponse::new(VescCommand::PingCan, None),
-                        RequestKind::CanPing,
-                    )?;
-                }
+                self.accept_transport_firmware(connection, &payload)?;
             }
             (IdentificationStage::CanPing, RequestKind::CanPing) => {
-                connection.pending_can_ids = payload
-                    .get(1..)
-                    .unwrap_or_default()
-                    .iter()
-                    .copied()
-                    .filter(|id| *id <= 253)
-                    .collect();
-                connection.pending_can_ids.sort_unstable();
-                connection.pending_can_ids.dedup();
-                connection.controller_inventory.clear();
-                self.schedule_next_inventory_probe(connection)?;
+                self.accept_can_ping(connection, &payload)?;
             }
             (IdentificationStage::EnumeratingControllers, RequestKind::ControllerFirmware) => {
-                let mut firmware = decode_firmware(&payload).map_err(|_| {
-                    ContractError::new("invalid_state", "Firmware identity is invalid")
-                })?;
-                let can_id = connection
-                    .controller_can_id
-                    .and_then(|value| domain_types::CanId::new(value).ok())
-                    .ok_or_else(|| {
-                        ContractError::new("invalid_state", "CAN route is unavailable")
-                    })?;
-                firmware.can_id = Some(can_id);
-                connection.controller_inventory.push(firmware);
-                self.schedule_next_inventory_probe(connection)?;
+                self.accept_controller_firmware(connection, &payload, true)?;
             }
             (IdentificationStage::ControllerFirmware, RequestKind::ControllerFirmware) => {
-                let mut firmware = decode_firmware(&payload).map_err(|_| {
-                    ContractError::new("invalid_state", "Firmware identity is invalid")
-                })?;
-                let can_id = connection
-                    .controller_can_id
-                    .and_then(|value| domain_types::CanId::new(value).ok())
-                    .ok_or_else(|| {
-                        ContractError::new("invalid_state", "CAN route is unavailable")
-                    })?;
-                firmware.can_id = Some(can_id);
-                connection.firmware = Some(firmware);
-                self.schedule_refloat_info(connection, ControllerRoute::Can(can_id))?;
+                self.accept_controller_firmware(connection, &payload, false)?;
             }
             (IdentificationStage::RefloatInfo, RequestKind::RefloatInfo) => {
-                let version = decode_refloat_version(&payload)?;
-                let legacy = version == "1.0";
-                connection.package_version = Some(version);
-                let sampling = self.current_sampling_settings()?;
-                connection.telemetry_polling = Some(TelemetryPollingModel::new(
-                    if legacy {
-                        TelemetryFamily::Legacy
-                    } else {
-                        TelemetryFamily::Dynamic
-                    },
-                    sampling.idle_probe_millis,
-                    sampling.post_ride_tail_millis,
-                ));
-                connection.next_telemetry_due_millis = None;
-                connection.controls = Some(protocol_refloat::MutationCoordinator::new(
-                    connection.vesc_generation.unwrap_or_default(),
-                    connection
-                        .firmware
-                        .as_ref()
-                        .is_some_and(|firmware| firmware.test_version == 0),
-                ));
-                self.begin_configuration(connection)?;
-                if legacy {
-                    self.begin_bms_discovery(connection)?;
-                } else {
-                    let route = connection_route(connection)?;
-                    self.schedule(
-                        connection,
-                        IdentificationStage::RefloatLayout,
-                        &route_command(
-                            &protocol_refloat::request(
-                                protocol_refloat::RefloatCommand::RealtimeDataInternalIds,
-                                &[],
-                            ),
-                            route,
-                        ),
-                        ExpectedResponse::new(
-                            VescCommand::CustomAppData,
-                            Some(protocol_refloat::RefloatCommand::RealtimeDataInternalIds as u8),
-                        ),
-                        RequestKind::RefloatLayout,
-                    )?;
-                }
+                self.accept_refloat_info(connection, &payload)?;
             }
             (IdentificationStage::RefloatLayout, RequestKind::RefloatLayout) => {
-                connection.telemetry_layout =
-                    Some(protocol_refloat::decode_layout(&payload).map_err(|_| {
-                        ContractError::new("invalid_state", "Refloat layout is invalid")
-                    })?);
-                let now_millis = self
-                    .application
-                    .snapshot()
-                    .map_err(|_| {
-                        ContractError::new("internal", "Application state is unavailable")
-                    })?
-                    .monotonic_millis;
-                if let Some(polling) = connection.telemetry_polling.as_mut() {
-                    polling.layout_established(now_millis);
-                }
-                self.begin_bms_discovery(connection)?;
+                self.accept_refloat_layout(connection, &payload)?;
             }
             (IdentificationStage::BmsCanPing, RequestKind::CanPing) => {
-                conformance_trace(&format!("bms_ping_response bytes={}", payload.len()));
-                connection.bms_pending_can_ids = payload
-                    .get(1..)
-                    .unwrap_or_default()
-                    .iter()
-                    .copied()
-                    .filter(|id| *id <= 253)
-                    .collect();
-                connection.bms_pending_can_ids.sort_unstable();
-                connection.bms_pending_can_ids.dedup();
-                self.schedule_next_bms_probe(connection)?;
+                self.accept_bms_ping(connection, &payload)?;
             }
             (IdentificationStage::EnumeratingBms, RequestKind::ControllerFirmware) => {
-                let mut firmware = decode_firmware(&payload)
-                    .map_err(|_| ContractError::new("invalid_state", "BMS identity is invalid"))?;
-                conformance_trace(&format!(
-                    "bms_identity_response supported={}",
-                    protocol_vesc_bms::supports_firmware(&firmware)
-                ));
-                let can_id = connection
-                    .bms_probe_can_id
-                    .and_then(|value| domain_types::CanId::new(value).ok())
-                    .ok_or_else(|| {
-                        ContractError::new("invalid_state", "BMS route is unavailable")
-                    })?;
-                firmware.can_id = Some(can_id);
-                if protocol_vesc_bms::supports_firmware(&firmware) {
-                    connection.controller_inventory.push(firmware);
-                }
-                self.schedule_next_bms_probe(connection)?;
+                self.accept_bms_identity(connection, &payload)?;
             }
             (IdentificationStage::BmsValues, RequestKind::BmsValues) => {
-                let selected = connection.bms_connection.ok_or_else(|| {
-                    ContractError::new("invalid_state", "BMS connection is unavailable")
-                })?;
-                let expected_can_id = match selected {
-                    BmsConnection::Direct => None,
-                    BmsConnection::Can(can_id) => Some(can_id),
-                };
-                let snapshot = protocol_vesc_bms::decode_values(&payload, expected_can_id)
-                    .map_err(|_| ContractError::new("invalid_state", "BMS values are invalid"))?;
-                self.application
-                    .select_bms(selected)
-                    .and_then(|accepted| {
-                        if accepted {
-                            Ok(())
-                        } else {
-                            Err(app_coordinator::ActorError::StaleGeneration)
-                        }
-                    })
-                    .map_err(|_| ContractError::new("invalid_state", "BMS selection is stale"))?;
-                self.application
-                    .accept_bms(snapshot.clone())
-                    .and_then(|accepted| {
-                        if accepted {
-                            Ok(())
-                        } else {
-                            Err(app_coordinator::ActorError::StaleGeneration)
-                        }
-                    })
-                    .map_err(|_| ContractError::new("invalid_state", "BMS values are stale"))?;
-                connection.bms_snapshot = Some(snapshot);
-                connection.bms_status = DiscoveryStatus::Attached;
-                if connection.firmware.is_some() {
-                    self.schedule_telemetry(connection)?;
-                } else {
-                    connection.stage = IdentificationStage::ReadyBms;
-                }
+                self.accept_bms_values(connection, &payload)?;
             }
             (IdentificationStage::Telemetry, RequestKind::RefloatControl) => {
-                let version = connection.package_version.as_deref().ok_or_else(|| {
-                    ContractError::new("invalid_state", "Refloat version is unavailable")
-                })?;
-                let profile = protocol_refloat::compatibility(version)
-                    .map(protocol_refloat::CompatibilityEntry::control_profile)
-                    .ok_or_else(|| {
-                        ContractError::new("invalid_state", "Refloat controls are unsupported")
-                    })?;
-                let lighting =
-                    protocol_refloat::decode_lighting(&payload, profile).map_err(|_| {
-                        ContractError::new("invalid_state", "Refloat control response is invalid")
-                    })?;
-                observe_controls(connection, Some(lighting));
+                Self::accept_control_response(connection, &payload)?;
             }
             (IdentificationStage::Telemetry, RequestKind::RefloatTelemetry) => {
-                connection.telemetry_in_flight = false;
-                let telemetry = if let Some(layout) = connection.telemetry_layout.as_ref() {
-                    protocol_refloat::decode_dynamic(&payload, layout)
-                } else {
-                    protocol_refloat::decode_legacy(&payload)
-                }
-                .map_err(|_| ContractError::new("invalid_state", "Telemetry is invalid"))?;
-                connection.telemetry_sequence = connection.telemetry_sequence.saturating_add(1);
-                let actor_snapshot = self.application.snapshot().map_err(|_| {
-                    ContractError::new("internal", "Application state is unavailable")
-                })?;
-                let elapsed_millis =
-                    wall_elapsed_millis(connection.started_at_millis, actor_snapshot.wall_millis);
-                let elapsed_delta = connection
-                    .last_telemetry_elapsed_millis
-                    .map_or(0, |previous| elapsed_millis.saturating_sub(previous));
-                connection.last_telemetry_elapsed_millis = Some(elapsed_millis);
-                if telemetry.ride_state == domain_types::RideState::Riding {
-                    connection.riding_elapsed_millis = connection
-                        .riding_elapsed_millis
-                        .saturating_add(elapsed_delta);
-                }
-                let persist = self
-                    .application
-                    .observe_telemetry(telemetry.clone(), elapsed_millis)
-                    .map_err(|_| {
-                        ContractError::new("internal", "Telemetry could not be observed")
-                    })?;
-                let sample = SessionSample {
-                    sequence: connection.telemetry_sequence,
-                    observed_at_millis: actor_snapshot.wall_millis,
-                    slow_observed_at_millis: None,
-                    monotonic_elapsed_millis: elapsed_millis,
-                    ride_state: ride_state_name(telemetry.ride_state).into(),
-                    package_state: Some(package_state_name(telemetry.package_state).into()),
-                    package_mode: Some(package_mode_name(telemetry.package_mode).into()),
-                    raw_pack_voltage_v: telemetry.numeric.get("packVoltageV").copied(),
-                    duty_cycle: telemetry.numeric.get("dutyCycle").copied(),
-                    speed_kph: telemetry.numeric.get("speedKph").copied(),
-                    extension_json: serde_json::to_string(&telemetry.extensions)
-                        .map_err(|_| ContractError::new("internal", "Telemetry encoding failed"))?,
-                };
-                if persist && connection.ownership.saved().is_some() {
-                    self.contract
-                        .sessions
-                        .append_samples(
-                            &connection.session_id,
-                            &[sample],
-                            actor_snapshot.wall_millis,
-                        )
-                        .map_err(|error| storage_error(&error))?;
-                }
-                connection.latest_sample = Some(telemetry_value(
-                    &telemetry,
-                    connection.telemetry_sequence,
-                    actor_snapshot.wall_millis,
-                    elapsed_millis,
-                ));
-                connection.latest_telemetry = Some(telemetry);
-                let lighting = connection.controls.as_ref().and_then(|controls| {
-                    controls
-                        .state
-                        .lighting
-                        .or(Some(protocol_refloat::LightingState {
-                            leds_enabled: true,
-                            headlights_enabled: true,
-                        }))
-                });
-                observe_controls(connection, lighting);
-                if !connection.pause_telemetry {
-                    let interval = connection.telemetry_polling.as_mut().map_or(
-                        app_coordinator::RIDING_POLL_MILLIS,
-                        |polling| {
-                            polling.accept_ride_state(
-                                connection
-                                    .latest_telemetry
-                                    .as_ref()
-                                    .map_or(domain_types::RideState::Unknown, |value| {
-                                        value.ride_state
-                                    }),
-                                actor_snapshot.monotonic_millis,
-                            )
-                        },
-                    );
-                    connection.next_telemetry_due_millis =
-                        Some(actor_snapshot.monotonic_millis.saturating_add(interval));
-                }
+                self.accept_telemetry_response(connection, &payload)?;
             }
             (_, RequestKind::RefloatConfiguration) => {
-                let operation = connection.configuration_operation.ok_or_else(|| {
-                    ContractError::new("invalid_state", "Configuration operation is unavailable")
-                })?;
-                let result = self.application.accept_configuration_response(
-                    request.generation,
-                    operation,
-                    payload,
-                );
-                if let Ok(mut signal) = self.configuration_signal.lock() {
-                    *signal = signal.saturating_add(1);
-                    self.configuration_changed.notify_all();
-                }
-                let effect = result.map_err(|_| {
-                    ContractError::new("invalid_state", "Configuration response is invalid")
-                })?;
-                self.cache_configuration_schema(connection)?;
-                self.schedule_configuration_effect(connection, effect)?;
+                self.accept_configuration_response(connection, request.generation, payload)?;
             }
             _ => {}
         }
@@ -2000,21 +2007,16 @@ impl NativeBackend {
             "shutdownAvailable": shutdown_available,
             "pendingAction": null
         });
-        if connection.stage == IdentificationStage::ReadyBms {
-            value["deviceKind"] = json!("bms");
-            value["controllerConnection"] = Value::Null;
-            value["controllerCandidates"] = json!([]);
-            value["activeSession"] = Value::Null;
-            value["latestSample"] = Value::Null;
-            value["latestLocation"] = Value::Null;
-            value["currentLimits"] = Value::Null;
-            value["refloatControls"] = Value::Null;
-            value["refloatConfiguration"] = Value::Null;
-            value["controllerActions"] = json!({
-                "shutdownAvailable": false,
-                "pendingAction": null
-            });
-        }
+        decorate_bms_connection(&mut value, connection);
+        self.decorate_refloat_capabilities(&mut value, connection)?;
+        Ok(value)
+    }
+
+    fn decorate_refloat_capabilities(
+        &self,
+        value: &mut Value,
+        connection: &NativeConnection,
+    ) -> Result<(), ContractError> {
         if let (Some(controls), Some(version)) = (&connection.controls, &connection.package_version)
         {
             let profile = protocol_refloat::compatibility(version)
@@ -2042,7 +2044,7 @@ impl NativeBackend {
                     |_| ContractError::new("internal", "Configuration state is unavailable"),
                 )?);
         }
-        Ok(value)
+        Ok(())
     }
 
     fn native_session_summary(&self) -> Result<Option<Value>, ContractError> {
@@ -2519,57 +2521,18 @@ impl NativeBackend {
         self.request_host(HostCommand::BluetoothConnect {
             device_token: token.clone(),
         })?;
-        let discovered = snapshot
-            .discovered_devices
-            .iter()
-            .find(|device| encode_device_token(&device.device_token) == id);
+        let connection = new_native_connection(
+            &snapshot,
+            id,
+            token,
+            ownership,
+            sampling.reconnect_duration_millis,
+        );
         *self
             .connection
             .lock()
             .map_err(|_| ContractError::new("internal", "Connection state failed"))? =
-            Some(NativeConnection {
-                session_id: format!(
-                    "native-{}-{}",
-                    snapshot.wall_millis.max(0),
-                    snapshot.connection_generation.saturating_add(1)
-                ),
-                ownership,
-                started_at_millis: snapshot.wall_millis,
-                device_id: id,
-                device_token: token,
-                name: discovered.and_then(|device| device.name.clone()),
-                stage: IdentificationStage::WaitingBluetooth,
-                connect_after_generation: snapshot.connection_generation,
-                vesc_generation: None,
-                controller_can_id: None,
-                pending_can_ids: Vec::new(),
-                controller_inventory: Vec::new(),
-                transport_firmware: None,
-                firmware: None,
-                package_version: None,
-                telemetry_layout: None,
-                latest_sample: None,
-                telemetry_sequence: 0,
-                last_telemetry_elapsed_millis: None,
-                riding_elapsed_millis: 0,
-                latest_telemetry: None,
-                bms_status: DiscoveryStatus::Discovering,
-                bms_connection: None,
-                bms_candidates: Vec::new(),
-                bms_snapshot: None,
-                bms_pending_can_ids: Vec::new(),
-                bms_probe_can_id: None,
-                controls: None,
-                telemetry_in_flight: false,
-                telemetry_polling: None,
-                next_telemetry_due_millis: None,
-                pause_telemetry: false,
-                shutdown_requested: false,
-                reconnect: ReconnectModel::new(sampling.reconnect_duration_millis),
-                reconnect_due_millis: None,
-                handled_failure_generation: None,
-                configuration_operation: None,
-            });
+            Some(connection);
         Ok(accepted())
     }
 
@@ -2673,117 +2636,18 @@ impl NativeBackend {
             ControlParam::Leds => protocol_refloat::BooleanControl::Leds,
             ControlParam::Headlights => protocol_refloat::BooleanControl::Headlights,
         };
-        {
-            let mut connection = self
+        let deadline =
+            self.pause_telemetry_and_wait("Telemetry did not yield for the control request")?;
+        let Some(one_way) = self.schedule_control(control, enabled)? else {
+            let connection = self
                 .connection
                 .lock()
                 .map_err(|_| ContractError::new("internal", "Connection state failed"))?;
-            connection
-                .as_mut()
-                .ok_or_else(|| ContractError::new("invalid_state", "No board is active"))?
-                .pause_telemetry = true;
-        }
-        let deadline = Instant::now() + Duration::from_secs(3);
-        loop {
-            self.process_publications()?;
-            let in_flight = self
-                .connection
-                .lock()
-                .map_err(|_| ContractError::new("internal", "Connection state failed"))?
-                .as_ref()
-                .is_some_and(|connection| connection.telemetry_in_flight);
-            if !in_flight {
-                break;
-            }
-            if Instant::now() >= deadline {
-                return Err(ContractError::new(
-                    "unavailable",
-                    "Telemetry did not yield for the control request",
-                ));
-            }
-            std::thread::sleep(Duration::from_millis(10));
-        }
-        let one_way = {
-            let mut connection = self
-                .connection
-                .lock()
-                .map_err(|_| ContractError::new("internal", "Connection state failed"))?;
-            let connection = connection
-                .as_mut()
-                .ok_or_else(|| ContractError::new("invalid_state", "No board is active"))?;
-            let telemetry = connection
-                .latest_telemetry
-                .as_ref()
-                .ok_or_else(|| ContractError::new("invalid_state", "Telemetry is unavailable"))?;
-            let version = connection.package_version.as_deref().ok_or_else(|| {
-                ContractError::new("invalid_state", "Refloat version is unavailable")
-            })?;
-            let profile = protocol_refloat::compatibility(version)
-                .map(protocol_refloat::CompatibilityEntry::control_profile)
-                .ok_or_else(|| {
-                    ContractError::new("invalid_state", "Refloat controls are unsupported")
-                })?;
-            let context = protocol_refloat::MutationContext {
-                generation: connection.vesc_generation.unwrap_or_default(),
-                profile,
-                connection_ready: true,
-                writable: connection
-                    .firmware
+            return control_state_value(
+                connection
                     .as_ref()
-                    .is_some_and(|firmware| firmware.test_version == 0),
-                ride_state: telemetry.ride_state,
-                package_state: telemetry.package_state,
-                package_mode: telemetry.package_mode,
-            };
-            let authorization = connection
-                .controls
-                .as_mut()
-                .ok_or_else(|| ContractError::new("invalid_state", "Controls are unavailable"))?
-                .authorize_set(control, enabled, context)
-                .map_err(|_| ContractError::new("invalid_state", "Control is unsafe"))?;
-            let protocol_refloat::Authorization::Mutation {
-                payload, one_way, ..
-            } = authorization
-            else {
-                connection.pause_telemetry = false;
-                if !connection.telemetry_in_flight {
-                    self.schedule_telemetry(connection)?;
-                }
-                return control_state_value(connection);
-            };
-            let route = connection_route(connection)?;
-            let command = payload
-                .get(2)
-                .copied()
-                .ok_or_else(|| ContractError::new("internal", "Control request is invalid"))?;
-            let generation = connection.vesc_generation.unwrap_or_default();
-            let completions = self
-                .application
-                .schedule_vesc(RequestSpec {
-                    payload: encode_frame(&route_command(&payload, route)).map_err(|_| {
-                        ContractError::new("internal", "Control request is invalid")
-                    })?,
-                    expected: ExpectedResponse::new(VescCommand::CustomAppData, Some(command)),
-                    priority: RequestPriority::ControllerIdentification,
-                    kind: RequestKind::RefloatControl,
-                    timeout_millis: 2_000,
-                    generation,
-                    expects_response: !one_way,
-                })
-                .map_err(|_| ContractError::new("unavailable", "Control request failed"))?;
-            if one_way {
-                if !completions
-                    .iter()
-                    .any(|completion| matches!(completion, RequestCompletion::Sent(_)))
-                {
-                    return Err(ContractError::new("unavailable", "Control was not sent"));
-                }
-                apply_one_way_control(connection, control, enabled);
-                std::thread::sleep(Duration::from_millis(30));
-            } else if !completions.is_empty() {
-                return Err(ContractError::new("unavailable", "Control was rejected"));
-            }
-            one_way
+                    .ok_or_else(|| ContractError::new("invalid_state", "No board is active"))?,
+            );
         };
         if !one_way {
             loop {
@@ -2814,45 +2678,182 @@ impl NativeBackend {
         let connection = connection
             .as_mut()
             .ok_or_else(|| ContractError::new("invalid_state", "No board is active"))?;
-        connection.pause_telemetry = false;
-        if !connection.telemetry_in_flight {
-            self.schedule_telemetry(connection)?;
-        }
+        self.resume_telemetry(connection)?;
         control_state_value(connection)
+    }
+
+    fn schedule_control(
+        &self,
+        control: protocol_refloat::BooleanControl,
+        enabled: bool,
+    ) -> Result<Option<bool>, ContractError> {
+        let mut connection = self
+            .connection
+            .lock()
+            .map_err(|_| ContractError::new("internal", "Connection state failed"))?;
+        let connection = connection
+            .as_mut()
+            .ok_or_else(|| ContractError::new("invalid_state", "No board is active"))?;
+        let telemetry = connection
+            .latest_telemetry
+            .as_ref()
+            .ok_or_else(|| ContractError::new("invalid_state", "Telemetry is unavailable"))?;
+        let version = connection
+            .package_version
+            .as_deref()
+            .ok_or_else(|| ContractError::new("invalid_state", "Refloat version is unavailable"))?;
+        let profile = protocol_refloat::compatibility(version)
+            .map(protocol_refloat::CompatibilityEntry::control_profile)
+            .ok_or_else(|| {
+                ContractError::new("invalid_state", "Refloat controls are unsupported")
+            })?;
+        let context = protocol_refloat::MutationContext {
+            generation: connection.vesc_generation.unwrap_or_default(),
+            profile,
+            connection_ready: true,
+            writable: connection
+                .firmware
+                .as_ref()
+                .is_some_and(|firmware| firmware.test_version == 0),
+            ride_state: telemetry.ride_state,
+            package_state: telemetry.package_state,
+            package_mode: telemetry.package_mode,
+        };
+        let authorization = connection
+            .controls
+            .as_mut()
+            .ok_or_else(|| ContractError::new("invalid_state", "Controls are unavailable"))?
+            .authorize_set(control, enabled, context)
+            .map_err(|_| ContractError::new("invalid_state", "Control is unsafe"))?;
+        let protocol_refloat::Authorization::Mutation {
+            payload, one_way, ..
+        } = authorization
+        else {
+            self.resume_telemetry(connection)?;
+            return Ok(None);
+        };
+        let route = connection_route(connection)?;
+        let command = payload
+            .get(2)
+            .copied()
+            .ok_or_else(|| ContractError::new("internal", "Control request is invalid"))?;
+        let generation = connection.vesc_generation.unwrap_or_default();
+        let completions = self
+            .application
+            .schedule_vesc(RequestSpec {
+                payload: encode_frame(&route_command(&payload, route))
+                    .map_err(|_| ContractError::new("internal", "Control request is invalid"))?,
+                expected: ExpectedResponse::new(VescCommand::CustomAppData, Some(command)),
+                priority: RequestPriority::ControllerIdentification,
+                kind: RequestKind::RefloatControl,
+                timeout_millis: 2_000,
+                generation,
+                expects_response: !one_way,
+            })
+            .map_err(|_| ContractError::new("unavailable", "Control request failed"))?;
+        if one_way {
+            if !completions
+                .iter()
+                .any(|completion| matches!(completion, RequestCompletion::Sent(_)))
+            {
+                return Err(ContractError::new("unavailable", "Control was not sent"));
+            }
+            apply_one_way_control(connection, control, enabled);
+            std::thread::sleep(Duration::from_millis(30));
+        } else if !completions.is_empty() {
+            return Err(ContractError::new("unavailable", "Control was rejected"));
+        }
+        Ok(Some(one_way))
+    }
+
+    fn dispatch_platform_request(&self, request: &ContractRequest) -> Result<Value, ContractError> {
+        match request.method.as_str() {
+            "bluetooth.requestPermission" => {
+                request_params::<EmptyParams>(request, "Method takes no parameters")?;
+                self.request_host(HostCommand::PresentPermission {
+                    permission: PermissionKind::Bluetooth,
+                })?;
+                self.refresh()?;
+                let inner = self
+                    .contract
+                    .inner
+                    .lock()
+                    .map_err(|_| ContractError::new("internal", "Backend state failed"))?;
+                Ok(inner.state["bluetooth"].clone())
+            }
+            "bluetooth.scan" => {
+                let params: ScanParams = request_params(request, "Scan parameters are invalid")?;
+                if params
+                    .timeout_ms
+                    .is_some_and(|timeout| !(1..=60_000).contains(&timeout))
+                {
+                    return Err(invalid("Scan timeout is invalid"));
+                }
+                self.request_host(HostCommand::BluetoothStartScan)?;
+                Ok(accepted())
+            }
+            "location.requestPermission" => {
+                request_params::<EmptyParams>(request, "Method takes no parameters")?;
+                self.request_host(HostCommand::PresentPermission {
+                    permission: PermissionKind::Location,
+                })?;
+                self.request_host(HostCommand::LocationStart { background: true })?;
+                self.request_host(HostCommand::SetBackgroundLogging { enabled: true })?;
+                self.location_state_after_refresh()
+            }
+            "location.openSettings" => {
+                request_params::<EmptyParams>(request, "Method takes no parameters")?;
+                self.request_host(HostCommand::PresentSettings)?;
+                self.request_host(HostCommand::LocationStart { background: true })?;
+                self.location_state_after_refresh()
+            }
+            "settings.update" => self.update_settings(request),
+            _ => unreachable!("only platform requests are routed here"),
+        }
+    }
+
+    fn location_state_after_refresh(&self) -> Result<Value, ContractError> {
+        self.refresh()?;
+        let inner = self
+            .contract
+            .inner
+            .lock()
+            .map_err(|_| ContractError::new("internal", "Backend state failed"))?;
+        Ok(inner.state["location"].clone())
+    }
+
+    fn update_settings(&self, request: &ContractRequest) -> Result<Value, ContractError> {
+        let location_enabled = request
+            .params
+            .as_object()
+            .and_then(|params| params.get("patch"))
+            .and_then(Value::as_object)
+            .and_then(|patch| patch.get("locationRecordingEnabled"))
+            .and_then(Value::as_bool);
+        let result = self.contract.handle(request)?;
+        let sampling = sampling_settings(&result)?;
+        self.application.configure_sampling(sampling).map_err(|_| {
+            ContractError::new("internal", "Sampling settings could not be applied")
+        })?;
+        let snapshot = self
+            .application
+            .snapshot()
+            .map_err(|_| ContractError::new("internal", "Application state is unavailable"))?;
+        self.configure_connection_sampling(sampling, snapshot.monotonic_millis)?;
+        if let Some(enabled) = location_enabled {
+            self.request_host(if enabled {
+                HostCommand::LocationStart { background: true }
+            } else {
+                HostCommand::LocationStop
+            })?;
+            self.request_host(HostCommand::SetBackgroundLogging { enabled })?;
+        }
+        Ok(result)
     }
 
     fn clear_fatal(&self, request: &ContractRequest) -> Result<Value, ContractError> {
         request_params::<EmptyParams>(request, "Method takes no parameters")?;
-        {
-            let mut connection = self
-                .connection
-                .lock()
-                .map_err(|_| ContractError::new("internal", "Connection state failed"))?;
-            connection
-                .as_mut()
-                .ok_or_else(|| ContractError::new("invalid_state", "No board is active"))?
-                .pause_telemetry = true;
-        }
-        let deadline = Instant::now() + Duration::from_secs(3);
-        loop {
-            self.process_publications()?;
-            let in_flight = self
-                .connection
-                .lock()
-                .map_err(|_| ContractError::new("internal", "Connection state failed"))?
-                .as_ref()
-                .is_some_and(|connection| connection.telemetry_in_flight);
-            if !in_flight {
-                break;
-            }
-            if Instant::now() >= deadline {
-                return Err(ContractError::new(
-                    "unavailable",
-                    "Telemetry did not yield for the control request",
-                ));
-            }
-            std::thread::sleep(Duration::from_millis(10));
-        }
+        self.pause_telemetry_and_wait("Telemetry did not yield for the control request")?;
         let mut connection = self
             .connection
             .lock()
@@ -2924,15 +2925,22 @@ impl NativeBackend {
             .and_then(|controls| controls.state.lighting);
         observe_controls(connection, lighting);
         std::thread::sleep(Duration::from_millis(30));
-        connection.pause_telemetry = false;
-        if !connection.telemetry_in_flight {
-            self.schedule_telemetry(connection)?;
-        }
+        self.resume_telemetry(connection)?;
         control_state_value(connection)
     }
 
     fn shutdown_controller(&self, request: &ContractRequest) -> Result<Value, ContractError> {
         request_params::<EmptyParams>(request, "Method takes no parameters")?;
+        self.pause_telemetry_and_wait("Telemetry did not yield for shutdown")?;
+        let starting_sequence = self.send_shutdown()?;
+        self.wait_for_shutdown_probe(starting_sequence)?;
+        Ok(accepted())
+    }
+
+    fn pause_telemetry_and_wait(
+        &self,
+        timeout_message: &'static str,
+    ) -> Result<Instant, ContractError> {
         {
             let mut connection = self
                 .connection
@@ -2956,60 +2964,70 @@ impl NativeBackend {
                 break;
             }
             if Instant::now() >= deadline {
-                return Err(ContractError::new(
-                    "unavailable",
-                    "Telemetry did not yield for shutdown",
-                ));
+                return Err(ContractError::new("unavailable", timeout_message));
             }
             std::thread::sleep(Duration::from_millis(10));
         }
-        let starting_sequence =
-            {
-                let mut connection = self
-                    .connection
-                    .lock()
-                    .map_err(|_| ContractError::new("internal", "Connection state failed"))?;
-                let connection = connection
-                    .as_mut()
-                    .ok_or_else(|| ContractError::new("invalid_state", "No board is active"))?;
-                let firmware = connection.firmware.as_ref().ok_or_else(|| {
-                    ContractError::new("invalid_state", "Firmware is unavailable")
-                })?;
-                let telemetry = connection.latest_telemetry.as_ref().ok_or_else(|| {
-                    ContractError::new("invalid_state", "Telemetry is unavailable")
-                })?;
-                if !protocol_vesc::supports_shutdown(firmware)
-                    || telemetry.ride_state != domain_types::RideState::Idle
-                    || telemetry.package_mode != protocol_refloat::PackageMode::Normal
-                {
-                    return Err(ContractError::new("invalid_state", "Shutdown is unsafe"));
-                }
-                let route = connection_route(connection)?;
-                let completions = self
-                    .application
-                    .schedule_vesc(RequestSpec {
-                        payload: encode_frame(&protocol_vesc::shutdown_command(route)).map_err(
-                            |_| ContractError::new("internal", "Shutdown request is invalid"),
-                        )?,
-                        expected: ExpectedResponse::new(VescCommand::Shutdown, None),
-                        priority: RequestPriority::ControllerIdentification,
-                        kind: RequestKind::ControllerShutdown,
-                        timeout_millis: 2_000,
-                        generation: connection.vesc_generation.unwrap_or_default(),
-                        expects_response: false,
-                    })
-                    .map_err(|_| ContractError::new("unavailable", "Shutdown request failed"))?;
-                if !completions
-                    .iter()
-                    .any(|completion| matches!(completion, RequestCompletion::Sent(_)))
-                {
-                    return Err(ContractError::new("unavailable", "Shutdown was not sent"));
-                }
-                connection.shutdown_requested = true;
-                let sequence = connection.telemetry_sequence;
-                self.schedule_telemetry(connection)?;
-                sequence
-            };
+        Ok(deadline)
+    }
+
+    fn resume_telemetry(&self, connection: &mut NativeConnection) -> Result<(), ContractError> {
+        connection.pause_telemetry = false;
+        if !connection.telemetry_in_flight {
+            self.schedule_telemetry(connection)?;
+        }
+        Ok(())
+    }
+
+    fn send_shutdown(&self) -> Result<u64, ContractError> {
+        let mut connection = self
+            .connection
+            .lock()
+            .map_err(|_| ContractError::new("internal", "Connection state failed"))?;
+        let connection = connection
+            .as_mut()
+            .ok_or_else(|| ContractError::new("invalid_state", "No board is active"))?;
+        let firmware = connection
+            .firmware
+            .as_ref()
+            .ok_or_else(|| ContractError::new("invalid_state", "Firmware is unavailable"))?;
+        let telemetry = connection
+            .latest_telemetry
+            .as_ref()
+            .ok_or_else(|| ContractError::new("invalid_state", "Telemetry is unavailable"))?;
+        if !protocol_vesc::supports_shutdown(firmware)
+            || telemetry.ride_state != domain_types::RideState::Idle
+            || telemetry.package_mode != protocol_refloat::PackageMode::Normal
+        {
+            return Err(ContractError::new("invalid_state", "Shutdown is unsafe"));
+        }
+        let route = connection_route(connection)?;
+        let completions = self
+            .application
+            .schedule_vesc(RequestSpec {
+                payload: encode_frame(&protocol_vesc::shutdown_command(route))
+                    .map_err(|_| ContractError::new("internal", "Shutdown request is invalid"))?,
+                expected: ExpectedResponse::new(VescCommand::Shutdown, None),
+                priority: RequestPriority::ControllerIdentification,
+                kind: RequestKind::ControllerShutdown,
+                timeout_millis: 2_000,
+                generation: connection.vesc_generation.unwrap_or_default(),
+                expects_response: false,
+            })
+            .map_err(|_| ContractError::new("unavailable", "Shutdown request failed"))?;
+        if !completions
+            .iter()
+            .any(|completion| matches!(completion, RequestCompletion::Sent(_)))
+        {
+            return Err(ContractError::new("unavailable", "Shutdown was not sent"));
+        }
+        connection.shutdown_requested = true;
+        let sequence = connection.telemetry_sequence;
+        self.schedule_telemetry(connection)?;
+        Ok(sequence)
+    }
+
+    fn wait_for_shutdown_probe(&self, starting_sequence: u64) -> Result<(), ContractError> {
         let probe_deadline = Instant::now() + Duration::from_secs(2);
         loop {
             self.process_publications()?;
@@ -3041,8 +3059,151 @@ impl NativeBackend {
                 }
             }
         }
-        Ok(accepted())
+        Ok(())
     }
+}
+
+fn new_native_connection(
+    snapshot: &app_coordinator::ApplicationSnapshot,
+    device_id: String,
+    device_token: Vec<u8>,
+    ownership: ConnectionOwnership,
+    reconnect_duration_millis: u64,
+) -> NativeConnection {
+    let name = snapshot
+        .discovered_devices
+        .iter()
+        .find(|device| encode_device_token(&device.device_token) == device_id)
+        .and_then(|device| device.name.clone());
+    NativeConnection {
+        session_id: format!(
+            "native-{}-{}",
+            snapshot.wall_millis.max(0),
+            snapshot.connection_generation.saturating_add(1)
+        ),
+        ownership,
+        started_at_millis: snapshot.wall_millis,
+        device_id,
+        device_token,
+        name,
+        stage: IdentificationStage::WaitingBluetooth,
+        connect_after_generation: snapshot.connection_generation,
+        vesc_generation: None,
+        controller_can_id: None,
+        pending_can_ids: Vec::new(),
+        controller_inventory: Vec::new(),
+        transport_firmware: None,
+        firmware: None,
+        package_version: None,
+        telemetry_layout: None,
+        latest_sample: None,
+        telemetry_sequence: 0,
+        last_telemetry_elapsed_millis: None,
+        riding_elapsed_millis: 0,
+        latest_telemetry: None,
+        bms_status: DiscoveryStatus::Discovering,
+        bms_connection: None,
+        bms_candidates: Vec::new(),
+        bms_snapshot: None,
+        bms_pending_can_ids: Vec::new(),
+        bms_probe_can_id: None,
+        controls: None,
+        telemetry_in_flight: false,
+        telemetry_polling: None,
+        next_telemetry_due_millis: None,
+        pause_telemetry: false,
+        shutdown_requested: false,
+        reconnect: ReconnectModel::new(reconnect_duration_millis),
+        reconnect_due_millis: None,
+        handled_failure_generation: None,
+        configuration_operation: None,
+    }
+}
+
+fn decorate_bms_connection(value: &mut Value, connection: &NativeConnection) {
+    if connection.stage != IdentificationStage::ReadyBms {
+        return;
+    }
+    value["deviceKind"] = json!("bms");
+    value["controllerConnection"] = Value::Null;
+    value["controllerCandidates"] = json!([]);
+    value["activeSession"] = Value::Null;
+    value["latestSample"] = Value::Null;
+    value["latestLocation"] = Value::Null;
+    value["currentLimits"] = Value::Null;
+    value["refloatControls"] = Value::Null;
+    value["refloatConfiguration"] = Value::Null;
+    value["controllerActions"] = json!({
+        "shutdownAvailable": false,
+        "pendingAction": null
+    });
+}
+
+fn update_platform_state(
+    inner: &mut BackendState,
+    snapshot: &app_coordinator::ApplicationSnapshot,
+) {
+    let radio = match snapshot.bluetooth_radio {
+        BluetoothRadio::PoweredOn => "powered_on",
+        BluetoothRadio::PoweredOff => "powered_off",
+        BluetoothRadio::Unknown => "unknown",
+    };
+    let permission = match snapshot.bluetooth_authorization {
+        BluetoothAuthorization::Granted => "granted",
+        BluetoothAuthorization::Denied => "denied",
+        BluetoothAuthorization::Unknown => "not_determined",
+    };
+    inner.state["bluetooth"] = json!({
+        "radio": radio,
+        "scanPermission": permission,
+        "connectPermission": permission,
+        "scanning": false
+    });
+    let location_enabled = inner.state["settings"]["locationRecordingEnabled"] == true;
+    inner.state["location"] = if location_enabled {
+        match snapshot.location_authorization {
+            host_ports::LocationAuthorization::Background => {
+                json!({ "status": "authorized", "permissionAction": null, "backgroundCapture": "available", "reason": null })
+            }
+            host_ports::LocationAuthorization::Foreground => {
+                json!({ "status": "foregroundOnly", "permissionAction": "openSettings", "backgroundCapture": "foregroundOnly", "reason": null })
+            }
+            host_ports::LocationAuthorization::Denied => {
+                json!({ "status": "denied", "permissionAction": "openSettings", "backgroundCapture": "unavailable", "reason": null })
+            }
+            host_ports::LocationAuthorization::Unknown => {
+                json!({ "status": "notDetermined", "permissionAction": "requestPermission", "backgroundCapture": "unavailable", "reason": null })
+            }
+        }
+    } else {
+        json!({ "status": "disabled", "permissionAction": "requestPermission", "backgroundCapture": "unavailable", "reason": null })
+    };
+    inner.state["discoveredDevices"] = Value::Array(
+        snapshot
+            .discovered_devices
+            .iter()
+            .map(|device| {
+                let device_id = encode_device_token(&device.device_token);
+                let saved_device_id = inner.state["savedDevices"]
+                    .as_array()
+                    .and_then(|devices| {
+                        devices.iter().find(|saved| {
+                            saved["bluetoothIdentifier"].as_str() == Some(device_id.as_str())
+                        })
+                    })
+                    .and_then(|saved| saved["savedDeviceId"].as_str());
+                json!({
+                    "deviceId": device_id,
+                    "name": device.name,
+                    "state": "discovered",
+                    "lastSeenAt": iso8601_or_empty(snapshot.wall_millis),
+                    "rssi": device.rssi,
+                    "savedDeviceId": saved_device_id
+                })
+            })
+            .collect(),
+    );
+    inner.location_count = snapshot.location_sequence;
 }
 
 const fn reconnect_due(decision: ReconnectDecision, now_millis: u64) -> Option<u64> {
@@ -3063,88 +3224,11 @@ impl ContractDispatcher for NativeBackend {
     fn dispatch(&self, request: ContractRequest) -> Result<Value, ContractError> {
         self.refresh()?;
         match request.method.as_str() {
-            "bluetooth.requestPermission" => {
-                request_params::<EmptyParams>(&request, "Method takes no parameters")?;
-                self.request_host(HostCommand::PresentPermission {
-                    permission: PermissionKind::Bluetooth,
-                })?;
-                self.refresh()?;
-                let inner = self
-                    .contract
-                    .inner
-                    .lock()
-                    .map_err(|_| ContractError::new("internal", "Backend state failed"))?;
-                Ok(inner.state["bluetooth"].clone())
-            }
-            "bluetooth.scan" => {
-                let params: ScanParams = request_params(&request, "Scan parameters are invalid")?;
-                if params
-                    .timeout_ms
-                    .is_some_and(|timeout| !(1..=60_000).contains(&timeout))
-                {
-                    return Err(invalid("Scan timeout is invalid"));
-                }
-                self.request_host(HostCommand::BluetoothStartScan)?;
-                Ok(accepted())
-            }
-            "location.requestPermission" => {
-                request_params::<EmptyParams>(&request, "Method takes no parameters")?;
-                self.request_host(HostCommand::PresentPermission {
-                    permission: PermissionKind::Location,
-                })?;
-                self.request_host(HostCommand::LocationStart { background: true })?;
-                self.request_host(HostCommand::SetBackgroundLogging { enabled: true })?;
-                self.refresh()?;
-                let inner = self
-                    .contract
-                    .inner
-                    .lock()
-                    .map_err(|_| ContractError::new("internal", "Backend state failed"))?;
-                Ok(inner.state["location"].clone())
-            }
-            "location.openSettings" => {
-                request_params::<EmptyParams>(&request, "Method takes no parameters")?;
-                self.request_host(HostCommand::PresentSettings)?;
-                self.request_host(HostCommand::LocationStart { background: true })?;
-                self.refresh()?;
-                let inner = self
-                    .contract
-                    .inner
-                    .lock()
-                    .map_err(|_| ContractError::new("internal", "Backend state failed"))?;
-                Ok(inner.state["location"].clone())
-            }
-            "settings.update" => {
-                let location_enabled = request
-                    .params
-                    .as_object()
-                    .and_then(|params| params.get("patch"))
-                    .and_then(Value::as_object)
-                    .and_then(|patch| patch.get("locationRecordingEnabled"))
-                    .and_then(Value::as_bool);
-                let result = self.contract.handle(&request)?;
-                self.application
-                    .configure_sampling(sampling_settings(&result)?)
-                    .map_err(|_| {
-                        ContractError::new("internal", "Sampling settings could not be applied")
-                    })?;
-                let snapshot = self.application.snapshot().map_err(|_| {
-                    ContractError::new("internal", "Application state is unavailable")
-                })?;
-                self.configure_connection_sampling(
-                    sampling_settings(&result)?,
-                    snapshot.monotonic_millis,
-                )?;
-                if let Some(enabled) = location_enabled {
-                    self.request_host(if enabled {
-                        HostCommand::LocationStart { background: true }
-                    } else {
-                        HostCommand::LocationStop
-                    })?;
-                    self.request_host(HostCommand::SetBackgroundLogging { enabled })?;
-                }
-                Ok(result)
-            }
+            "bluetooth.requestPermission"
+            | "bluetooth.scan"
+            | "location.requestPermission"
+            | "location.openSettings"
+            | "settings.update" => self.dispatch_platform_request(&request),
             "device.connect" => self.connect(&request),
             "device.selectController" => self.select_controller(&request),
             "device.disconnect" => self.disconnect(&request),
@@ -3376,6 +3460,28 @@ fn decode_refloat_version(payload: &[u8]) -> Result<String, ContractError> {
         ));
     }
     Ok(format!("{}.{}.{}", payload[25], payload[26], payload[27]))
+}
+
+fn session_sample(
+    telemetry: &protocol_refloat::Telemetry,
+    sequence: u64,
+    observed_at_millis: i64,
+    elapsed_millis: u64,
+) -> Result<SessionSample, ContractError> {
+    Ok(SessionSample {
+        sequence,
+        observed_at_millis,
+        slow_observed_at_millis: None,
+        monotonic_elapsed_millis: elapsed_millis,
+        ride_state: ride_state_name(telemetry.ride_state).into(),
+        package_state: Some(package_state_name(telemetry.package_state).into()),
+        package_mode: Some(package_mode_name(telemetry.package_mode).into()),
+        raw_pack_voltage_v: telemetry.numeric.get("packVoltageV").copied(),
+        duty_cycle: telemetry.numeric.get("dutyCycle").copied(),
+        speed_kph: telemetry.numeric.get("speedKph").copied(),
+        extension_json: serde_json::to_string(&telemetry.extensions)
+            .map_err(|_| ContractError::new("internal", "Telemetry encoding failed"))?,
+    })
 }
 
 fn telemetry_value(

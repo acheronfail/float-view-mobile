@@ -1,9 +1,3 @@
-#![allow(
-    clippy::missing_errors_doc,
-    clippy::needless_pass_by_value,
-    clippy::too_many_lines
-)]
-
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::mpsc::{self, Receiver, SyncSender, TrySendError};
 use std::sync::{Arc, Mutex};
@@ -343,6 +337,8 @@ pub struct ApplicationActor {
 }
 
 impl ApplicationActor {
+    /// # Errors
+    /// Returns an actor error when the bounded actor is stopped, overloaded, or rejects the request.
     pub fn start<C: Clock, R: RandomSource>(
         generation: RuntimeGeneration,
         clock: C,
@@ -366,7 +362,7 @@ impl ApplicationActor {
             .name("app-coordinator".into())
             .spawn(move || {
                 run_actor(
-                    inputs,
+                    &inputs,
                     ActorPorts {
                         host_commands: host_sender,
                         storage_work: storage_sender,
@@ -388,34 +384,50 @@ impl ApplicationActor {
         self.generation
     }
 
+    /// # Errors
+    /// Returns an actor error when the bounded actor is stopped, overloaded, or rejects the request.
     pub fn submit_platform_event(&self, event: PlatformEvent) -> Result<(), ActorError> {
         self.request(|result| ActorInput::PlatformEvent(event, result))
     }
 
+    /// # Errors
+    /// Returns an actor error when the bounded actor is stopped, overloaded, or rejects the request.
     pub fn submit_bluetooth(&self, notification: BluetoothNotification) -> Result<(), ActorError> {
         self.request(|result| ActorInput::Bluetooth(notification, result))
     }
 
+    /// # Errors
+    /// Returns an actor error when the bounded actor is stopped, overloaded, or rejects the request.
     pub fn complete(&self, completion: OperationCompletion) -> Result<(), ActorError> {
         self.request(|result| ActorInput::Completion(completion, result))
     }
 
+    /// # Errors
+    /// Returns an actor error when the bounded actor is stopped, overloaded, or rejects the request.
     pub fn request_host(&self, command: HostCommand) -> Result<OperationId, ActorError> {
         self.request(|result| ActorInput::RequestHost(command, result))
     }
 
+    /// # Errors
+    /// Returns an actor error when the bounded actor is stopped, overloaded, or rejects the request.
     pub fn request_storage(&self, work: StorageWork) -> Result<(), ActorError> {
         self.request(|result| ActorInput::RequestStorage(work, result))
     }
 
+    /// # Errors
+    /// Returns an actor error when the bounded actor is stopped, overloaded, or rejects the request.
     pub fn submit_storage_result(&self, result: StorageResult) -> Result<(), ActorError> {
         self.request(|reply| ActorInput::StorageResult(result, reply))
     }
 
+    /// # Errors
+    /// Returns an actor error when the bounded actor is stopped, overloaded, or rejects the request.
     pub fn begin_vesc_generation(&self) -> Result<u64, ActorError> {
         self.request(ActorInput::BeginVescGeneration)
     }
 
+    /// # Errors
+    /// Returns an actor error when the bounded actor is stopped, overloaded, or rejects the request.
     pub fn schedule_vesc(
         &self,
         request: RequestSpec,
@@ -423,22 +435,32 @@ impl ApplicationActor {
         self.request(|reply| ActorInput::ScheduleVesc(request, reply))
     }
 
+    /// # Errors
+    /// Returns an actor error when the bounded actor is stopped, overloaded, or rejects the request.
     pub fn tick_vesc(&self, now_millis: u64) -> Result<Vec<RequestCompletion>, ActorError> {
         self.request(|reply| ActorInput::TickVesc(now_millis, reply))
     }
 
+    /// # Errors
+    /// Returns an actor error when the bounded actor is stopped, overloaded, or rejects the request.
     pub fn tick_vesc_now(&self) -> Result<Vec<RequestCompletion>, ActorError> {
         self.request(ActorInput::TickVescNow)
     }
 
+    /// # Errors
+    /// Returns an actor error when the bounded actor is stopped, overloaded, or rejects the request.
     pub fn start_tracking(&self, mode: TrackingMode) -> Result<(), ActorError> {
         self.request(|reply| ActorInput::StartTracking(mode, reply))
     }
 
+    /// # Errors
+    /// Returns an actor error when the bounded actor is stopped, overloaded, or rejects the request.
     pub fn configure_sampling(&self, settings: SamplingSettings) -> Result<(), ActorError> {
         self.request(|reply| ActorInput::ConfigureSampling(settings, reply))
     }
 
+    /// # Errors
+    /// Returns an actor error when the bounded actor is stopped, overloaded, or rejects the request.
     pub fn begin_configuration(
         &self,
         context: ConfigurationContext,
@@ -446,18 +468,26 @@ impl ApplicationActor {
         self.request(|reply| ActorInput::BeginConfiguration(context, reply))
     }
 
+    /// # Errors
+    /// Returns an actor error when the bounded actor is stopped, overloaded, or rejects the request.
     pub fn configuration_summary(&self) -> Result<ConfigurationSummary, ActorError> {
         self.request(ActorInput::ConfigurationSummary)
     }
 
+    /// # Errors
+    /// Returns an actor error when the bounded actor is stopped, overloaded, or rejects the request.
     pub fn configuration_schema(&self) -> Result<Option<ConfigurationSchema>, ActorError> {
         self.request(ActorInput::ConfigurationSchema)
     }
 
+    /// # Errors
+    /// Returns an actor error when the bounded actor is stopped, overloaded, or rejects the request.
     pub fn configuration_schema_bytes(&self) -> Result<Option<Vec<u8>>, ActorError> {
         self.request(ActorInput::ConfigurationSchemaBytes)
     }
 
+    /// # Errors
+    /// Returns an actor error when the bounded actor is stopped, overloaded, or rejects the request.
     pub fn configuration_values(
         &self,
         defaults: bool,
@@ -465,6 +495,8 @@ impl ApplicationActor {
         self.request(|reply| ActorInput::ConfigurationValues(defaults, reply))
     }
 
+    /// # Errors
+    /// Returns an actor error when the bounded actor is stopped, overloaded, or rejects the request.
     pub fn request_configuration_values(
         &self,
         defaults: bool,
@@ -472,6 +504,8 @@ impl ApplicationActor {
         self.request(|reply| ActorInput::RequestConfigurationValues(defaults, reply))
     }
 
+    /// # Errors
+    /// Returns an actor error when the bounded actor is stopped, overloaded, or rejects the request.
     pub fn request_configuration_write(
         &self,
         identity: TuneIdentity,
@@ -483,6 +517,8 @@ impl ApplicationActor {
         })
     }
 
+    /// # Errors
+    /// Returns an actor error when the bounded actor is stopped, overloaded, or rejects the request.
     pub fn accept_configuration_response(
         &self,
         generation: u64,
@@ -494,6 +530,8 @@ impl ApplicationActor {
         })
     }
 
+    /// # Errors
+    /// Returns an actor error when the bounded actor is stopped, overloaded, or rejects the request.
     pub fn observe_telemetry(
         &self,
         telemetry: Telemetry,
@@ -502,22 +540,32 @@ impl ApplicationActor {
         self.request(|reply| ActorInput::ObserveTelemetry(telemetry, elapsed_millis, reply))
     }
 
+    /// # Errors
+    /// Returns an actor error when the bounded actor is stopped, overloaded, or rejects the request.
     pub fn select_bms(&self, connection: BmsConnection) -> Result<bool, ActorError> {
         self.request(|reply| ActorInput::SelectBms(connection, reply))
     }
 
+    /// # Errors
+    /// Returns an actor error when the bounded actor is stopped, overloaded, or rejects the request.
     pub fn accept_bms(&self, snapshot: BmsSnapshot) -> Result<bool, ActorError> {
         self.request(|reply| ActorInput::AcceptBms(snapshot, reply))
     }
 
+    /// # Errors
+    /// Returns an actor error when the bounded actor is stopped, overloaded, or rejects the request.
     pub fn domain_snapshot(&self) -> Result<AuthoritativeState, ActorError> {
         self.request(ActorInput::DomainSnapshot)
     }
 
+    /// # Errors
+    /// Returns an actor error when the bounded actor is stopped, overloaded, or rejects the request.
     pub fn snapshot(&self) -> Result<ApplicationSnapshot, ActorError> {
         self.request(ActorInput::Snapshot)
     }
 
+    /// # Errors
+    /// Returns an actor error when the bounded actor is stopped, overloaded, or rejects the request.
     pub fn try_host_command(&self) -> Result<Option<PlatformCommand>, ActorError> {
         self.host_commands
             .lock()
@@ -530,6 +578,8 @@ impl ApplicationActor {
             })
     }
 
+    /// # Errors
+    /// Returns an actor error when the bounded actor is stopped, overloaded, or rejects the request.
     pub fn try_storage_work(&self) -> Result<Option<StorageWork>, ActorError> {
         self.storage_work
             .lock()
@@ -542,6 +592,8 @@ impl ApplicationActor {
             })
     }
 
+    /// # Errors
+    /// Returns an actor error when the bounded actor is stopped, overloaded, or rejects the request.
     pub fn try_publication(&self) -> Result<Option<ServerPublication>, ActorError> {
         self.publications
             .lock()
@@ -554,11 +606,15 @@ impl ApplicationActor {
             })
     }
 
+    /// # Errors
+    /// Returns an actor error when the bounded actor is stopped, overloaded, or rejects the request.
     pub fn register_pump_thread(&self, thread: Thread) -> Result<(), ActorError> {
         *self.pump_waker.lock().map_err(|_| ActorError::Internal)? = Some(thread);
         Ok(())
     }
 
+    /// # Errors
+    /// Returns an actor error when the bounded actor is stopped, overloaded, or rejects the request.
     pub fn stop(&self) -> Result<(), ActorError> {
         self.ingress
             .send(ActorInput::Stop)
@@ -582,8 +638,14 @@ impl ApplicationActor {
 
 fn map_send<T>(error: TrySendError<T>) -> ActorError {
     match error {
-        TrySendError::Full(_) => ActorError::QueueFull,
-        TrySendError::Disconnected(_) => ActorError::Stopped,
+        TrySendError::Full(value) => {
+            drop(value);
+            ActorError::QueueFull
+        }
+        TrySendError::Disconnected(value) => {
+            drop(value);
+            ActorError::Stopped
+        }
     }
 }
 
@@ -603,7 +665,7 @@ struct ActorPorts {
 }
 
 fn run_actor<C: Clock, R: RandomSource>(
-    inputs: Receiver<ActorInput>,
+    inputs: &Receiver<ActorInput>,
     ports: ActorPorts,
     generation: RuntimeGeneration,
     clock: C,
@@ -625,46 +687,17 @@ fn run_actor<C: Clock, R: RandomSource>(
                 wake_pump(&pump_waker);
             }
             ActorInput::Bluetooth(notification, reply) => {
-                let result = notification
-                    .validate()
-                    .map_err(|_| ActorError::InvalidInput)
-                    .and_then(|()| {
-                        state.accept_context(
-                            notification.generation,
-                            notification.connection_generation,
-                            notification.adapter_order,
-                        )
-                    })
-                    .and_then(|()| {
-                        let revision = state.snapshot.revision;
-                        let actions = state
-                            .connection
-                            .receive_notification(
-                                state.snapshot.monotonic_millis,
-                                &notification.bytes,
-                            )
-                            .map_err(|_| ActorError::InvalidInput)?;
-                        let completions =
-                            apply_connection_actions(&mut state, actions, &host_commands)?;
-                        for completion in completions {
-                            publications
-                                .try_send(ServerPublication::VescCompleted(completion))
-                                .map_err(map_send)?;
-                        }
-                        state.snapshot.notification_count =
-                            state.snapshot.notification_count.saturating_add(1);
-                        state.changed();
-                        publish_if_changed(
-                            &state,
-                            state.snapshot.revision != revision,
-                            &publications,
-                        )
-                    });
+                let result = accept_bluetooth_notification(
+                    &mut state,
+                    &notification,
+                    &host_commands,
+                    &publications,
+                );
                 let _ = reply.send(result);
                 wake_pump(&pump_waker);
             }
             ActorInput::Completion(completion, reply) => {
-                let result = accept_completion(&mut state, completion)
+                let result = accept_completion(&mut state, &completion)
                     .and_then(|()| publish_if_changed(&state, true, &publications));
                 let _ = reply.send(result);
                 wake_pump(&pump_waker);
@@ -687,63 +720,11 @@ fn run_actor<C: Clock, R: RandomSource>(
                 let _ = reply.send(published);
                 wake_pump(&pump_waker);
             }
-            ActorInput::BeginVescGeneration(reply) => {
-                let actions = state.connection.begin_generation();
-                let result =
-                    apply_connection_actions(&mut state, actions, &host_commands).map(|_| {
-                        let generation = state.connection.requests.generation();
-                        state.model.begin_generation(generation);
-                        generation
-                    });
-                let _ = reply.send(result);
-            }
-            ActorInput::ScheduleVesc(request, reply) => {
-                let revision = state.snapshot.revision;
-                let actions = state
-                    .connection
-                    .requests
-                    .enqueue(state.snapshot.monotonic_millis, request);
-                let result = apply_connection_actions(&mut state, actions, &host_commands)
-                    .and_then(|completions| {
-                        publish_if_changed(
-                            &state,
-                            state.snapshot.revision != revision,
-                            &publications,
-                        )?;
-                        Ok(completions)
-                    });
-                let _ = reply.send(result);
-            }
-            ActorInput::TickVesc(now_millis, reply) => {
-                let revision = state.snapshot.revision;
-                let actions = state.connection.requests.tick(now_millis);
-                let result = apply_connection_actions(&mut state, actions, &host_commands)
-                    .and_then(|completions| {
-                        publish_if_changed(
-                            &state,
-                            state.snapshot.revision != revision,
-                            &publications,
-                        )?;
-                        Ok(completions)
-                    });
-                let _ = reply.send(result);
-            }
-            ActorInput::TickVescNow(reply) => {
-                state.update_time();
-                let actions = state
-                    .connection
-                    .requests
-                    .tick(state.snapshot.monotonic_millis);
-                let result = apply_connection_actions(&mut state, actions, &host_commands)
-                    .and_then(|completions| {
-                        for completion in &completions {
-                            publications
-                                .try_send(ServerPublication::VescCompleted(completion.clone()))
-                                .map_err(map_send)?;
-                        }
-                        Ok(completions)
-                    });
-                let _ = reply.send(result);
+            input @ (ActorInput::BeginVescGeneration(..)
+            | ActorInput::ScheduleVesc(..)
+            | ActorInput::TickVesc(..)
+            | ActorInput::TickVescNow(..)) => {
+                handle_vesc_input(&mut state, input, &host_commands, &publications);
             }
             ActorInput::StartTracking(mode, reply) => {
                 state.model.connect(mode);
@@ -753,49 +734,15 @@ fn run_actor<C: Clock, R: RandomSource>(
                 state.model.sampling = AdaptiveSamplingPolicy::new(settings);
                 let _ = reply.send(Ok(()));
             }
-            ActorInput::BeginConfiguration(context, reply) => {
-                let effect = state.model.configuration.begin_owned(&context);
-                let _ = reply.send(Ok(effect));
-            }
-            ActorInput::ConfigurationSummary(reply) => {
-                let _ = reply.send(Ok(state.model.configuration.summary()));
-            }
-            ActorInput::ConfigurationSchema(reply) => {
-                let _ = reply.send(Ok(state.model.configuration.schema().cloned()));
-            }
-            ActorInput::ConfigurationSchemaBytes(reply) => {
-                let _ = reply.send(Ok(state
-                    .model
-                    .configuration
-                    .schema_bytes()
-                    .map(<[u8]>::to_vec)));
-            }
-            ActorInput::ConfigurationValues(defaults, reply) => {
-                let _ = reply.send(Ok(state.model.configuration.values(defaults).cloned()));
-            }
-            ActorInput::RequestConfigurationValues(defaults, reply) => {
-                let result = state
-                    .model
-                    .configuration
-                    .request_values(defaults)
-                    .map_err(|_| ActorError::InvalidInput);
-                let _ = reply.send(result);
-            }
-            ActorInput::RequestConfigurationWrite(identity, revision, values, reply) => {
-                let result = state
-                    .model
-                    .configuration
-                    .request_write(&identity, revision, values)
-                    .map_err(|_| ActorError::InvalidInput);
-                let _ = reply.send(result);
-            }
-            ActorInput::AcceptConfigurationResponse(generation, operation, response, reply) => {
-                let result = state
-                    .model
-                    .configuration
-                    .accept_response(generation, operation, &response)
-                    .map_err(|_| ActorError::InvalidInput);
-                let _ = reply.send(result);
+            input @ (ActorInput::BeginConfiguration(..)
+            | ActorInput::ConfigurationSummary(..)
+            | ActorInput::ConfigurationSchema(..)
+            | ActorInput::ConfigurationSchemaBytes(..)
+            | ActorInput::ConfigurationValues(..)
+            | ActorInput::RequestConfigurationValues(..)
+            | ActorInput::RequestConfigurationWrite(..)
+            | ActorInput::AcceptConfigurationResponse(..)) => {
+                handle_configuration_input(&mut state, input);
             }
             ActorInput::ObserveTelemetry(telemetry, elapsed_millis, reply) => {
                 let persisted = state.model.observe_telemetry(&telemetry, elapsed_millis);
@@ -817,6 +764,142 @@ fn run_actor<C: Clock, R: RandomSource>(
             }
             ActorInput::Stop => break,
         }
+    }
+}
+
+fn handle_vesc_input<C: Clock>(
+    state: &mut ActorState<C>,
+    input: ActorInput,
+    host_commands: &SyncSender<PlatformCommand>,
+    publications: &SyncSender<ServerPublication>,
+) {
+    match input {
+        ActorInput::BeginVescGeneration(reply) => {
+            let actions = state.connection.begin_generation();
+            let result = apply_connection_actions(state, actions, host_commands).map(|_| {
+                let generation = state.connection.requests.generation();
+                state.model.begin_generation(generation);
+                generation
+            });
+            let _ = reply.send(result);
+        }
+        ActorInput::ScheduleVesc(request, reply) => {
+            let revision = state.snapshot.revision;
+            let actions = state
+                .connection
+                .requests
+                .enqueue(state.snapshot.monotonic_millis, request);
+            let result =
+                apply_connection_actions(state, actions, host_commands).and_then(|completions| {
+                    publish_if_changed(state, state.snapshot.revision != revision, publications)?;
+                    Ok(completions)
+                });
+            let _ = reply.send(result);
+        }
+        ActorInput::TickVesc(now_millis, reply) => {
+            let revision = state.snapshot.revision;
+            let actions = state.connection.requests.tick(now_millis);
+            let result =
+                apply_connection_actions(state, actions, host_commands).and_then(|completions| {
+                    publish_if_changed(state, state.snapshot.revision != revision, publications)?;
+                    Ok(completions)
+                });
+            let _ = reply.send(result);
+        }
+        ActorInput::TickVescNow(reply) => {
+            state.update_time();
+            let actions = state
+                .connection
+                .requests
+                .tick(state.snapshot.monotonic_millis);
+            let result =
+                apply_connection_actions(state, actions, host_commands).and_then(|completions| {
+                    for completion in &completions {
+                        publications
+                            .try_send(ServerPublication::VescCompleted(completion.clone()))
+                            .map_err(map_send)?;
+                    }
+                    Ok(completions)
+                });
+            let _ = reply.send(result);
+        }
+        _ => unreachable!("only VESC inputs are routed here"),
+    }
+}
+
+fn accept_bluetooth_notification<C: Clock>(
+    state: &mut ActorState<C>,
+    notification: &BluetoothNotification,
+    host_commands: &SyncSender<PlatformCommand>,
+    publications: &SyncSender<ServerPublication>,
+) -> Result<(), ActorError> {
+    notification
+        .validate()
+        .map_err(|_| ActorError::InvalidInput)?;
+    state.accept_context(
+        notification.generation,
+        notification.connection_generation,
+        notification.adapter_order,
+    )?;
+    let revision = state.snapshot.revision;
+    let actions = state
+        .connection
+        .receive_notification(state.snapshot.monotonic_millis, &notification.bytes)
+        .map_err(|_| ActorError::InvalidInput)?;
+    let completions = apply_connection_actions(state, actions, host_commands)?;
+    for completion in completions {
+        publications
+            .try_send(ServerPublication::VescCompleted(completion))
+            .map_err(map_send)?;
+    }
+    state.snapshot.notification_count = state.snapshot.notification_count.saturating_add(1);
+    state.changed();
+    publish_if_changed(state, state.snapshot.revision != revision, publications)
+}
+
+fn handle_configuration_input<C: Clock>(state: &mut ActorState<C>, input: ActorInput) {
+    match input {
+        ActorInput::BeginConfiguration(context, reply) => {
+            let _ = reply.send(Ok(state.model.configuration.begin_owned(&context)));
+        }
+        ActorInput::ConfigurationSummary(reply) => {
+            let _ = reply.send(Ok(state.model.configuration.summary()));
+        }
+        ActorInput::ConfigurationSchema(reply) => {
+            let _ = reply.send(Ok(state.model.configuration.schema().cloned()));
+        }
+        ActorInput::ConfigurationSchemaBytes(reply) => {
+            let bytes = state.model.configuration.schema_bytes().map(<[u8]>::to_vec);
+            let _ = reply.send(Ok(bytes));
+        }
+        ActorInput::ConfigurationValues(defaults, reply) => {
+            let _ = reply.send(Ok(state.model.configuration.values(defaults).cloned()));
+        }
+        ActorInput::RequestConfigurationValues(defaults, reply) => {
+            let result = state
+                .model
+                .configuration
+                .request_values(defaults)
+                .map_err(|_| ActorError::InvalidInput);
+            let _ = reply.send(result);
+        }
+        ActorInput::RequestConfigurationWrite(identity, revision, values, reply) => {
+            let result = state
+                .model
+                .configuration
+                .request_write(&identity, revision, values)
+                .map_err(|_| ActorError::InvalidInput);
+            let _ = reply.send(result);
+        }
+        ActorInput::AcceptConfigurationResponse(generation, operation, response, reply) => {
+            let result = state
+                .model
+                .configuration
+                .accept_response(generation, operation, &response)
+                .map_err(|_| ActorError::InvalidInput);
+            let _ = reply.send(result);
+        }
+        _ => unreachable!("only configuration inputs are routed here"),
     }
 }
 
@@ -870,31 +953,7 @@ fn accept_platform_event<C: Clock>(
             device_token,
             name,
             rssi,
-        } => {
-            if let Some(device) = state
-                .snapshot
-                .discovered_devices
-                .iter_mut()
-                .find(|device| device.device_token == device_token)
-            {
-                let changed = device.name != name || device.rssi != rssi;
-                device.name = name;
-                device.rssi = rssi;
-                changed
-            } else if state.snapshot.discovered_devices.len() < MAX_DISCOVERED_DEVICES {
-                state
-                    .snapshot
-                    .discovered_devices
-                    .push(DiscoveredBluetoothDevice {
-                        device_token,
-                        name,
-                        rssi,
-                    });
-                true
-            } else {
-                false
-            }
-        }
+        } => update_discovered_device(state, device_token, name, rssi),
         AdapterEvent::LocationAuthorization(authorization) => {
             let changed = state.snapshot.location_authorization != authorization;
             state.snapshot.location_authorization = authorization;
@@ -905,14 +964,7 @@ fn accept_platform_event<C: Clock>(
             longitude,
             accuracy_m,
         } => {
-            if !latitude.is_finite()
-                || !longitude.is_finite()
-                || !(-90.0..=90.0).contains(&latitude)
-                || !(-180.0..=180.0).contains(&longitude)
-                || accuracy_m.is_some_and(|accuracy| !accuracy.is_finite() || accuracy < 0.0)
-            {
-                return Err(ActorError::InvalidInput);
-            }
+            validate_location(latitude, longitude, accuracy_m)?;
             state.snapshot.location_sequence = state.snapshot.location_sequence.saturating_add(1);
             state.snapshot.latest_location = Some((
                 latitude.to_bits(),
@@ -960,9 +1012,57 @@ fn accept_platform_event<C: Clock>(
     Ok(changed)
 }
 
+fn update_discovered_device<C: Clock>(
+    state: &mut ActorState<C>,
+    device_token: Vec<u8>,
+    name: Option<String>,
+    rssi: i16,
+) -> bool {
+    if let Some(device) = state
+        .snapshot
+        .discovered_devices
+        .iter_mut()
+        .find(|device| device.device_token == device_token)
+    {
+        let changed = device.name != name || device.rssi != rssi;
+        device.name = name;
+        device.rssi = rssi;
+        changed
+    } else if state.snapshot.discovered_devices.len() < MAX_DISCOVERED_DEVICES {
+        state
+            .snapshot
+            .discovered_devices
+            .push(DiscoveredBluetoothDevice {
+                device_token,
+                name,
+                rssi,
+            });
+        true
+    } else {
+        false
+    }
+}
+
+fn validate_location(
+    latitude: f64,
+    longitude: f64,
+    accuracy_m: Option<f64>,
+) -> Result<(), ActorError> {
+    if !latitude.is_finite()
+        || !longitude.is_finite()
+        || !(-90.0..=90.0).contains(&latitude)
+        || !(-180.0..=180.0).contains(&longitude)
+        || accuracy_m.is_some_and(|accuracy| !accuracy.is_finite() || accuracy < 0.0)
+    {
+        Err(ActorError::InvalidInput)
+    } else {
+        Ok(())
+    }
+}
+
 fn accept_completion<C: Clock>(
     state: &mut ActorState<C>,
-    completion: OperationCompletion,
+    completion: &OperationCompletion,
 ) -> Result<(), ActorError> {
     if completion.generation != state.snapshot.generation {
         return Err(ActorError::StaleGeneration);

@@ -563,7 +563,6 @@ dependencies = [
  "infra-sqlite-storage",
  "serde",
  "serde_json",
- "tempfile",
  "tokio",
  "tokio-tungstenite 0.27.0",
  "tower",

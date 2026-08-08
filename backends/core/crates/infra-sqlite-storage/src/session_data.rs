@@ -1,5 +1,3 @@
-#![allow(clippy::missing_errors_doc, clippy::too_many_lines)]
-
 use std::collections::{BTreeMap, HashSet};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -72,6 +70,8 @@ impl SessionDataService {
         Self { catalog }
     }
 
+    /// # Errors
+    /// Returns `StoreError` when input validation, storage, serialization, or file I/O fails.
     pub fn query_json(
         &self,
         body: &[u8],
@@ -299,14 +299,16 @@ fn series(
         .threshold_seconds;
     let columns = reduce_series(
         &rows,
-        request.fields.clone(),
-        range,
-        request.buckets.ok_or(StoreError::Invalid)?,
-        threshold,
-        1_000,
-        Some(configuration.riding_persistence_millis),
-        Some(configuration.idle_persistence_millis),
-        configuration.retained_resolution_seconds,
+        crate::SeriesReduction {
+            fields: request.fields.clone(),
+            range,
+            buckets: request.buckets.ok_or(StoreError::Invalid)?,
+            threshold_seconds: threshold,
+            expected_persistence_millis: 1_000,
+            expected_riding_persistence_millis: Some(configuration.riding_persistence_millis),
+            expected_idle_persistence_millis: Some(configuration.idle_persistence_millis),
+            retained_resolution_seconds: configuration.retained_resolution_seconds,
+        },
     )?;
     let mut output = base(request);
     output.insert("gapPolicy".into(), json!({ "thresholdSeconds": threshold }));
@@ -527,6 +529,8 @@ fn locations(reader: &SessionReader, request: &SessionDataRequest) -> Result<Val
     Ok(Value::Object(output))
 }
 
+/// # Errors
+/// Returns `StoreError` when input validation, storage, serialization, or file I/O fails.
 pub fn format_iso8601(millis: i64) -> Result<String, StoreError> {
     if millis < 0 {
         return Err(StoreError::Invalid);

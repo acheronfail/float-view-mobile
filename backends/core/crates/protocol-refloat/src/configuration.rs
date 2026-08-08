@@ -1,18 +1,7 @@
 //! Refloat configuration schema, value, transport, and Tune codecs.
-#![allow(
-    clippy::cast_lossless,
-    clippy::cast_possible_truncation,
-    clippy::cast_possible_wrap,
-    clippy::cast_precision_loss,
-    clippy::cast_sign_loss,
-    clippy::float_cmp,
-    clippy::format_collect,
-    clippy::implicit_hasher,
-    clippy::missing_errors_doc,
-    clippy::too_many_lines
-)]
-
 use std::collections::{HashMap, HashSet};
+use std::fmt::Write as _;
+use std::hash::BuildHasher;
 use std::io::Read;
 
 use flate2::read::ZlibDecoder;
@@ -193,6 +182,8 @@ struct ParsedXml {
     groups: Vec<ConfigurationGroup>,
 }
 
+/// # Errors
+/// Returns `ConfigurationError` when configuration input is invalid or cannot be encoded.
 pub fn decode_qt_compressed(input: &[u8]) -> Result<ConfigurationSchema, ConfigurationError> {
     if input.len() < 4 {
         return Err(ConfigurationError::TruncatedEnvelope);
@@ -200,7 +191,8 @@ pub fn decode_qt_compressed(input: &[u8]) -> Result<ConfigurationSchema, Configu
     if input.len() > MAX_COMPRESSED_BYTES {
         return Err(ConfigurationError::CompressedTooLarge);
     }
-    let expected = u32::from_be_bytes([input[0], input[1], input[2], input[3]]) as usize;
+    let expected = usize::try_from(u32::from_be_bytes([input[0], input[1], input[2], input[3]]))
+        .map_err(|_| ConfigurationError::ExpandedTooLarge)?;
     if expected > MAX_EXPANDED_BYTES {
         return Err(ConfigurationError::ExpandedTooLarge);
     }
@@ -215,12 +207,18 @@ pub fn decode_qt_compressed(input: &[u8]) -> Result<ConfigurationSchema, Configu
     if expanded.len() > MAX_EXPANDED_BYTES {
         return Err(ConfigurationError::ExpandedTooLarge);
     }
-    if expanded.len() != expected || decoder.total_in() as usize != input.len() - 4 {
+    if expanded.len() != expected
+        || decoder.total_in()
+            != u64::try_from(input.len() - 4)
+                .map_err(|_| ConfigurationError::ExpandedLengthMismatch)?
+    {
         return Err(ConfigurationError::ExpandedLengthMismatch);
     }
     parse_configuration_xml(&expanded)
 }
 
+/// # Errors
+/// Returns `ConfigurationError` when configuration input is invalid or cannot be encoded.
 pub fn parse_configuration_xml(xml: &[u8]) -> Result<ConfigurationSchema, ConfigurationError> {
     if xml.len() > MAX_EXPANDED_BYTES {
         return Err(ConfigurationError::ExpandedTooLarge);
@@ -262,10 +260,13 @@ pub fn parse_configuration_xml(xml: &[u8]) -> Result<ConfigurationSchema, Config
         fields.push(normalize_field(&name, raw)?);
     }
     let wire_signature = configuration_signature(&fields);
-    let fingerprint = Sha256::digest(xml)
-        .iter()
-        .map(|byte| format!("{byte:02x}"))
-        .collect();
+    let fingerprint =
+        Sha256::digest(xml)
+            .iter()
+            .fold(String::with_capacity(64), |mut fingerprint, byte| {
+                write!(fingerprint, "{byte:02x}").expect("writing to String cannot fail");
+                fingerprint
+            });
     Ok(ConfigurationSchema {
         fingerprint,
         wire_signature,
@@ -539,10 +540,12 @@ impl<'a> ValueReader<'a> {
     fn signed(&mut self, count: usize) -> Result<i64, ConfigurationError> {
         let value = self.unsigned(count)?;
         let shift = 64 - count * 8;
-        Ok(((value << shift) as i64) >> shift)
+        Ok((value << shift).cast_signed() >> shift)
     }
 }
 
+/// # Errors
+/// Returns `ConfigurationError` when configuration input is invalid or cannot be encoded.
 pub fn decode_configuration_values(
     data: &[u8],
     schema: &ConfigurationSchema,
@@ -575,28 +578,37 @@ fn decode_value(
                 .filter(|scale| *scale > 0.0)
                 .ok_or(ConfigurationError::InvalidMetadata)?;
             let raw = match field.wire_type {
-                Some(ConfigurationWireType::Double16) => reader.signed(2)?,
-                Some(ConfigurationWireType::Double32) => reader.signed(4)?,
+                Some(ConfigurationWireType::Double16) => f64::from(
+                    i16::try_from(reader.signed(2)?)
+                        .map_err(|_| ConfigurationError::InvalidValue)?,
+                ),
+                Some(ConfigurationWireType::Double32) => f64::from(
+                    i32::try_from(reader.signed(4)?)
+                        .map_err(|_| ConfigurationError::InvalidValue)?,
+                ),
                 _ => return Err(ConfigurationError::UnsupportedEncoding),
             };
-            Ok(ConfigurationValue::Double(raw as f64 / scale))
+            Ok(ConfigurationValue::Double(raw / scale))
         }
         ConfigurationFieldType::Integer => {
             let raw = match field.wire_type {
-                Some(ConfigurationWireType::Uint8) => reader.unsigned(1)? as i64,
+                Some(ConfigurationWireType::Uint8) => i64::try_from(reader.unsigned(1)?)
+                    .map_err(|_| ConfigurationError::InvalidValue)?,
                 Some(ConfigurationWireType::Int8) => reader.signed(1)?,
-                Some(ConfigurationWireType::Uint16) => reader.unsigned(2)? as i64,
+                Some(ConfigurationWireType::Uint16) => i64::try_from(reader.unsigned(2)?)
+                    .map_err(|_| ConfigurationError::InvalidValue)?,
                 Some(ConfigurationWireType::Int16) => reader.signed(2)?,
-                Some(ConfigurationWireType::Uint32) => reader.unsigned(4)? as i64,
+                Some(ConfigurationWireType::Uint32) => i64::try_from(reader.unsigned(4)?)
+                    .map_err(|_| ConfigurationError::InvalidValue)?,
                 Some(ConfigurationWireType::Int32) => reader.signed(4)?,
                 _ => return Err(ConfigurationError::UnsupportedEncoding),
             };
             Ok(ConfigurationValue::Integer(raw))
         }
         ConfigurationFieldType::Enumeration => Ok(ConfigurationValue::Integer(reader.signed(1)?)),
-        ConfigurationFieldType::Bitfield => {
-            Ok(ConfigurationValue::Integer(reader.unsigned(1)? as i64))
-        }
+        ConfigurationFieldType::Bitfield => Ok(ConfigurationValue::Integer(
+            i64::try_from(reader.unsigned(1)?).map_err(|_| ConfigurationError::InvalidValue)?,
+        )),
         ConfigurationFieldType::Boolean => match reader.signed(1)? {
             0 => Ok(ConfigurationValue::Boolean(false)),
             1 => Ok(ConfigurationValue::Boolean(true)),
@@ -619,8 +631,10 @@ fn decode_value(
     }
 }
 
-pub fn encode_configuration_values(
-    values: &HashMap<String, ConfigurationValue>,
+/// # Errors
+/// Returns `ConfigurationError` when configuration input is invalid or cannot be encoded.
+pub fn encode_configuration_values<S: BuildHasher>(
+    values: &HashMap<String, ConfigurationValue, S>,
     schema: &ConfigurationSchema,
 ) -> Result<Vec<u8>, ConfigurationError> {
     let expected: HashSet<&str> = schema
@@ -662,43 +676,79 @@ fn encode_value(
                 return Err(ConfigurationError::InvalidValue);
             }
             let scaled = number * scale;
-            if scaled.round() != scaled || scaled < i64::MIN as f64 || scaled > i64::MAX as f64 {
+            if scaled.fract().abs() > f64::EPSILON {
                 return Err(ConfigurationError::InvalidValue);
             }
-            let raw = scaled as i64;
-            match field.wire_type {
-                Some(ConfigurationWireType::Double16) if i16::try_from(raw).is_ok() => {
-                    append_signed(raw, 2, output);
-                }
-                Some(ConfigurationWireType::Double32) if i32::try_from(raw).is_ok() => {
-                    append_signed(raw, 4, output);
-                }
+            let raw = scaled
+                .to_string()
+                .parse::<i64>()
+                .map_err(|_| ConfigurationError::InvalidValue)?;
+            let bytes = match field.wire_type {
+                Some(ConfigurationWireType::Double16) if i16::try_from(raw).is_ok() => 2,
+                Some(ConfigurationWireType::Double32) if i32::try_from(raw).is_ok() => 4,
                 _ => return Err(ConfigurationError::InvalidValue),
-            }
+            };
+            append_signed(raw, bytes, output);
         }
         (ConfigurationFieldType::Integer, ConfigurationValue::Integer(number)) => {
-            if !within(*number as f64, field) {
-                return Err(ConfigurationError::InvalidValue);
-            }
-            let (minimum, maximum, bytes) = match field.wire_type {
-                Some(ConfigurationWireType::Uint8) => (0, u8::MAX as i64, 1),
-                Some(ConfigurationWireType::Int8) => (i8::MIN as i64, i8::MAX as i64, 1),
-                Some(ConfigurationWireType::Uint16) => (0, u16::MAX as i64, 2),
-                Some(ConfigurationWireType::Int16) => (i16::MIN as i64, i16::MAX as i64, 2),
-                Some(ConfigurationWireType::Uint32) => (0, u32::MAX as i64, 4),
-                Some(ConfigurationWireType::Int32) => (i32::MIN as i64, i32::MAX as i64, 4),
+            let (minimum, maximum, bytes, comparable) = match field.wire_type {
+                Some(ConfigurationWireType::Uint8) => (
+                    0,
+                    i64::from(u8::MAX),
+                    1,
+                    f64::from(u8::try_from(*number).map_err(|_| ConfigurationError::InvalidValue)?),
+                ),
+                Some(ConfigurationWireType::Int8) => (
+                    i64::from(i8::MIN),
+                    i64::from(i8::MAX),
+                    1,
+                    f64::from(i8::try_from(*number).map_err(|_| ConfigurationError::InvalidValue)?),
+                ),
+                Some(ConfigurationWireType::Uint16) => (
+                    0,
+                    i64::from(u16::MAX),
+                    2,
+                    f64::from(
+                        u16::try_from(*number).map_err(|_| ConfigurationError::InvalidValue)?,
+                    ),
+                ),
+                Some(ConfigurationWireType::Int16) => (
+                    i64::from(i16::MIN),
+                    i64::from(i16::MAX),
+                    2,
+                    f64::from(
+                        i16::try_from(*number).map_err(|_| ConfigurationError::InvalidValue)?,
+                    ),
+                ),
+                Some(ConfigurationWireType::Uint32) => (
+                    0,
+                    i64::from(u32::MAX),
+                    4,
+                    f64::from(
+                        u32::try_from(*number).map_err(|_| ConfigurationError::InvalidValue)?,
+                    ),
+                ),
+                Some(ConfigurationWireType::Int32) => (
+                    i64::from(i32::MIN),
+                    i64::from(i32::MAX),
+                    4,
+                    f64::from(
+                        i32::try_from(*number).map_err(|_| ConfigurationError::InvalidValue)?,
+                    ),
+                ),
                 _ => return Err(ConfigurationError::UnsupportedEncoding),
             };
-            if *number < minimum || *number > maximum {
+            if *number < minimum || *number > maximum || !within(comparable, field) {
                 return Err(ConfigurationError::InvalidValue);
             }
             append_signed(*number, bytes, output);
         }
         (ConfigurationFieldType::Enumeration, ConfigurationValue::Integer(number)) => {
-            if *number < 0 || *number >= field.choices.len() as i64 || *number > i8::MAX as i64 {
+            let index = usize::try_from(*number).map_err(|_| ConfigurationError::InvalidValue)?;
+            if index >= field.choices.len() || *number > i64::from(i8::MAX) {
                 return Err(ConfigurationError::InvalidValue);
             }
-            output.push(*number as u8);
+            output.push(u8::try_from(*number).map_err(|_| ConfigurationError::InvalidValue)?);
         }
         (ConfigurationFieldType::Bitfield, ConfigurationValue::Integer(number)) => {
             output.push(u8::try_from(*number).map_err(|_| ConfigurationError::InvalidValue)?);
@@ -761,6 +811,8 @@ pub struct SchemaChunkAssembler {
 }
 
 impl SchemaChunkAssembler {
+    /// # Errors
+    /// Returns `ConfigurationError` when configuration input is invalid or cannot be encoded.
     pub fn new(total_length: usize) -> Result<Self, ConfigurationError> {
         if total_length > MAX_COMPRESSED_BYTES {
             return Err(ConfigurationError::CompressedTooLarge);
@@ -772,6 +824,8 @@ impl SchemaChunkAssembler {
         })
     }
 
+    /// # Errors
+    /// Returns `ConfigurationError` when configuration input is invalid or cannot be encoded.
     pub fn accept_response(&mut self, response: &[u8]) -> Result<bool, ConfigurationError> {
         if response.len() < 10 {
             return Err(ConfigurationError::TruncatedEnvelope);
@@ -801,6 +855,8 @@ impl SchemaChunkAssembler {
         Ok(self.next_offset == self.total_length)
     }
 
+    /// # Errors
+    /// Returns `ConfigurationError` when configuration input is invalid or cannot be encoded.
     pub fn finish(self) -> Result<Vec<u8>, ConfigurationError> {
         if self.next_offset != self.total_length {
             return Err(ConfigurationError::UnexpectedLength);
@@ -826,6 +882,8 @@ impl TuneIdentity {
         }
     }
 
+    /// # Errors
+    /// Returns `ConfigurationError` when configuration input is invalid or cannot be encoded.
     pub fn validate(
         &self,
         package_version: &str,
@@ -849,6 +907,8 @@ pub struct Tune {
 }
 
 impl Tune {
+    /// # Errors
+    /// Returns `ConfigurationError` when configuration input is invalid or cannot be encoded.
     pub fn encode_for(
         &self,
         package_version: &str,
@@ -866,12 +926,17 @@ pub enum WriteReadbackResult {
 }
 
 #[must_use]
-pub fn verify_write_readback(
+pub fn verify_write_readback<Left: BuildHasher, Right: BuildHasher>(
     acknowledged: bool,
-    intended: &HashMap<String, ConfigurationValue>,
-    readback: &HashMap<String, ConfigurationValue>,
+    intended: &HashMap<String, ConfigurationValue, Left>,
+    readback: &HashMap<String, ConfigurationValue, Right>,
 ) -> WriteReadbackResult {
-    if acknowledged && intended == readback {
+    if acknowledged
+        && intended.len() == readback.len()
+        && intended
+            .iter()
+            .all(|(name, value)| readback.get(name) == Some(value))
+    {
         WriteReadbackResult::Success
     } else {
         WriteReadbackResult::Conflict
@@ -879,7 +944,6 @@ pub fn verify_write_readback(
 }
 
 #[cfg(test)]
-#[allow(clippy::match_same_arms, clippy::needless_raw_string_hashes)]
 mod tests {
     use serde::Deserialize;
 
@@ -901,68 +965,70 @@ mod tests {
         group_count: usize,
     }
 
+    const SCHEMA_100: &[u8] =
+        include_bytes!("../../../../fixtures/refloat-configuration/schemas/1.0.0.qcompress");
+    const SCHEMA_101: &[u8] =
+        include_bytes!("../../../../fixtures/refloat-configuration/schemas/1.0.1.qcompress");
+    const SCHEMA_110: &[u8] =
+        include_bytes!("../../../../fixtures/refloat-configuration/schemas/1.1.0.qcompress");
+    const SCHEMA_111: &[u8] =
+        include_bytes!("../../../../fixtures/refloat-configuration/schemas/1.1.1.qcompress");
+    const SCHEMA_112: &[u8] =
+        include_bytes!("../../../../fixtures/refloat-configuration/schemas/1.1.2.qcompress");
+    const SCHEMA_120: &[u8] =
+        include_bytes!("../../../../fixtures/refloat-configuration/schemas/1.2.0.qcompress");
+    const SCHEMA_121: &[u8] =
+        include_bytes!("../../../../fixtures/refloat-configuration/schemas/1.2.1.qcompress");
+    const SCHEMA_122: &[u8] =
+        include_bytes!("../../../../fixtures/refloat-configuration/schemas/1.2.2.qcompress");
+    const SCHEMA_123: &[u8] =
+        include_bytes!("../../../../fixtures/refloat-configuration/schemas/1.2.3.qcompress");
+
+    const DEFAULT_100: &[u8] =
+        include_bytes!("../../../../fixtures/refloat-configuration/values/1.0.0-default.bin");
+    const DEFAULT_101: &[u8] =
+        include_bytes!("../../../../fixtures/refloat-configuration/values/1.0.1-default.bin");
+    const DEFAULT_110: &[u8] =
+        include_bytes!("../../../../fixtures/refloat-configuration/values/1.1.0-default.bin");
+    const DEFAULT_111: &[u8] =
+        include_bytes!("../../../../fixtures/refloat-configuration/values/1.1.1-default.bin");
+    const DEFAULT_112: &[u8] =
+        include_bytes!("../../../../fixtures/refloat-configuration/values/1.1.2-default.bin");
+    const DEFAULT_120: &[u8] =
+        include_bytes!("../../../../fixtures/refloat-configuration/values/1.2.0-default.bin");
+    const DEFAULT_121: &[u8] =
+        include_bytes!("../../../../fixtures/refloat-configuration/values/1.2.1-default.bin");
+    const DEFAULT_122: &[u8] =
+        include_bytes!("../../../../fixtures/refloat-configuration/values/1.2.2-default.bin");
+    const DEFAULT_123: &[u8] =
+        include_bytes!("../../../../fixtures/refloat-configuration/values/1.2.3-default.bin");
+
     fn schema_fixture(version: &str) -> &'static [u8] {
         match version {
-            "1.0.0" => {
-                include_bytes!("../../../../fixtures/refloat-configuration/schemas/1.0.0.qcompress")
-            }
-            "1.0.1" => {
-                include_bytes!("../../../../fixtures/refloat-configuration/schemas/1.0.1.qcompress")
-            }
-            "1.1.0" => {
-                include_bytes!("../../../../fixtures/refloat-configuration/schemas/1.1.0.qcompress")
-            }
-            "1.1.1" => {
-                include_bytes!("../../../../fixtures/refloat-configuration/schemas/1.1.1.qcompress")
-            }
-            "1.1.2" => {
-                include_bytes!("../../../../fixtures/refloat-configuration/schemas/1.1.2.qcompress")
-            }
-            "1.2.0" => {
-                include_bytes!("../../../../fixtures/refloat-configuration/schemas/1.2.0.qcompress")
-            }
-            "1.2.1" => {
-                include_bytes!("../../../../fixtures/refloat-configuration/schemas/1.2.1.qcompress")
-            }
-            "1.2.2" => {
-                include_bytes!("../../../../fixtures/refloat-configuration/schemas/1.2.2.qcompress")
-            }
-            "1.2.3" => {
-                include_bytes!("../../../../fixtures/refloat-configuration/schemas/1.2.3.qcompress")
-            }
+            "1.0.0" => SCHEMA_100,
+            "1.0.1" => SCHEMA_101,
+            "1.1.0" => SCHEMA_110,
+            "1.1.1" => SCHEMA_111,
+            "1.1.2" => SCHEMA_112,
+            "1.2.0" => SCHEMA_120,
+            "1.2.1" => SCHEMA_121,
+            "1.2.2" => SCHEMA_122,
+            "1.2.3" => SCHEMA_123,
             _ => panic!("unknown fixture version"),
         }
     }
 
     fn default_fixture(version: &str) -> &'static [u8] {
         match version {
-            "1.0.0" => include_bytes!(
-                "../../../../fixtures/refloat-configuration/values/1.0.0-default.bin"
-            ),
-            "1.0.1" => include_bytes!(
-                "../../../../fixtures/refloat-configuration/values/1.0.1-default.bin"
-            ),
-            "1.1.0" => include_bytes!(
-                "../../../../fixtures/refloat-configuration/values/1.1.0-default.bin"
-            ),
-            "1.1.1" => include_bytes!(
-                "../../../../fixtures/refloat-configuration/values/1.1.1-default.bin"
-            ),
-            "1.1.2" => include_bytes!(
-                "../../../../fixtures/refloat-configuration/values/1.1.2-default.bin"
-            ),
-            "1.2.0" => include_bytes!(
-                "../../../../fixtures/refloat-configuration/values/1.2.0-default.bin"
-            ),
-            "1.2.1" => include_bytes!(
-                "../../../../fixtures/refloat-configuration/values/1.2.1-default.bin"
-            ),
-            "1.2.2" => include_bytes!(
-                "../../../../fixtures/refloat-configuration/values/1.2.2-default.bin"
-            ),
-            "1.2.3" => include_bytes!(
-                "../../../../fixtures/refloat-configuration/values/1.2.3-default.bin"
-            ),
+            "1.0.0" => DEFAULT_100,
+            "1.0.1" => DEFAULT_101,
+            "1.1.0" => DEFAULT_110,
+            "1.1.1" => DEFAULT_111,
+            "1.1.2" => DEFAULT_112,
+            "1.2.0" => DEFAULT_120,
+            "1.2.1" => DEFAULT_121,
+            "1.2.2" => DEFAULT_122,
+            "1.2.3" => DEFAULT_123,
             _ => panic!("unknown fixture version"),
         }
     }
@@ -1008,32 +1074,33 @@ mod tests {
             Err(ConfigurationError::ProhibitedXml)
         );
         let duplicate_field =
-            br#"<ConfigParams><Params><x/><x/></Params><SerOrder/><Grouping/></ConfigParams>"#;
+            br"<ConfigParams><Params><x/><x/></Params><SerOrder/><Grouping/></ConfigParams>";
         assert_eq!(
             parse_configuration_xml(duplicate_field),
             Err(ConfigurationError::DuplicateField)
         );
-        let duplicate_order = br#"<ConfigParams><Params><x><type>5</type></x></Params><SerOrder><ser>x</ser><ser>x</ser></SerOrder><Grouping/></ConfigParams>"#;
+        let duplicate_order = br"<ConfigParams><Params><x><type>5</type></x></Params><SerOrder><ser>x</ser><ser>x</ser></SerOrder><Grouping/></ConfigParams>";
         assert_eq!(
             parse_configuration_xml(duplicate_order),
             Err(ConfigurationError::DuplicateOrder)
         );
-        let missing = br#"<ConfigParams><Params/><SerOrder><ser>x</ser></SerOrder><Grouping/></ConfigParams>"#;
+        let missing =
+            br"<ConfigParams><Params/><SerOrder><ser>x</ser></SerOrder><Grouping/></ConfigParams>";
         assert_eq!(
             parse_configuration_xml(missing),
             Err(ConfigurationError::MissingReference)
         );
-        let unsupported_type = br#"<ConfigParams><Params><x><type>99</type></x></Params><SerOrder><ser>x</ser></SerOrder><Grouping/></ConfigParams>"#;
+        let unsupported_type = br"<ConfigParams><Params><x><type>99</type></x></Params><SerOrder><ser>x</ser></SerOrder><Grouping/></ConfigParams>";
         assert_eq!(
             parse_configuration_xml(unsupported_type),
             Err(ConfigurationError::UnsupportedType)
         );
-        let unsupported_encoding = br#"<ConfigParams><Params><x><type>1</type><vTx>99</vTx></x></Params><SerOrder><ser>x</ser></SerOrder><Grouping/></ConfigParams>"#;
+        let unsupported_encoding = br"<ConfigParams><Params><x><type>1</type><vTx>99</vTx></x></Params><SerOrder><ser>x</ser></SerOrder><Grouping/></ConfigParams>";
         assert_eq!(
             parse_configuration_xml(unsupported_encoding),
             Err(ConfigurationError::UnsupportedEncoding)
         );
-        let invalid_number = br#"<ConfigParams><Params><x><type>1</type><vTx>7</vTx><valDouble>NaN</valDouble></x></Params><SerOrder><ser>x</ser></SerOrder><Grouping/></ConfigParams>"#;
+        let invalid_number = br"<ConfigParams><Params><x><type>1</type><vTx>7</vTx><valDouble>NaN</valDouble></x></Params><SerOrder><ser>x</ser></SerOrder><Grouping/></ConfigParams>";
         assert_eq!(
             parse_configuration_xml(invalid_number),
             Err(ConfigurationError::InvalidNumber)
@@ -1082,8 +1149,16 @@ mod tests {
         let mut offset = 0usize;
         for chunk in compressed.chunks(400) {
             let mut response = vec![CONFIG_SCHEMA_COMMAND, 0];
-            response.extend_from_slice(&(compressed.len() as u32).to_be_bytes());
-            response.extend_from_slice(&(offset as u32).to_be_bytes());
+            response.extend_from_slice(
+                &u32::try_from(compressed.len())
+                    .expect("bounded schema length")
+                    .to_be_bytes(),
+            );
+            response.extend_from_slice(
+                &u32::try_from(offset)
+                    .expect("bounded schema offset")
+                    .to_be_bytes(),
+            );
             response.extend_from_slice(chunk);
             offset += chunk.len();
             assert_eq!(

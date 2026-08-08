@@ -1,6 +1,4 @@
 //! Typed, bounded platform-port vocabulary. No OS implementation lives here.
-#![allow(clippy::missing_errors_doc)]
-
 use domain_types::{OperationId, RuntimeGeneration};
 
 pub const BRIDGE_CODEC_VERSION: u8 = 1;
@@ -224,6 +222,8 @@ pub struct BluetoothNotification {
 }
 
 impl BluetoothNotification {
+    /// # Errors
+    /// Returns `PortError` when validation or bounded codec processing fails.
     pub fn validate(&self) -> Result<(), PortError> {
         if self.bytes.is_empty() || self.bytes.len() > MAX_BLUETOOTH_BYTES {
             Err(PortError::PayloadTooLarge)
@@ -234,6 +234,8 @@ impl BluetoothNotification {
 }
 
 impl PlatformCommand {
+    /// # Errors
+    /// Returns `PortError` when validation or bounded codec processing fails.
     pub fn encode(&self) -> Result<Vec<u8>, PortError> {
         validate_command(&self.command)?;
         let mut writer = Writer::new();
@@ -244,6 +246,8 @@ impl PlatformCommand {
         Ok(writer.finish())
     }
 
+    /// # Errors
+    /// Returns `PortError` when validation or bounded codec processing fails.
     pub fn decode(bytes: &[u8]) -> Result<Self, PortError> {
         let mut reader = Reader::new(bytes)?;
         reader.version()?;
@@ -261,6 +265,8 @@ impl PlatformCommand {
 }
 
 impl PlatformEvent {
+    /// # Errors
+    /// Returns `PortError` when validation or bounded codec processing fails.
     pub fn encode(&self) -> Result<Vec<u8>, PortError> {
         validate_event(&self.event)?;
         let mut writer = Writer::new();
@@ -272,6 +278,8 @@ impl PlatformEvent {
         Ok(writer.finish())
     }
 
+    /// # Errors
+    /// Returns `PortError` when validation or bounded codec processing fails.
     pub fn decode(bytes: &[u8]) -> Result<Self, PortError> {
         let mut reader = Reader::new(bytes)?;
         reader.version()?;
@@ -291,6 +299,8 @@ impl PlatformEvent {
 }
 
 impl OperationCompletion {
+    /// # Errors
+    /// Returns `PortError` when validation or bounded codec processing fails.
     pub fn encode(&self) -> Result<Vec<u8>, PortError> {
         if self.payload.len() > MAX_COMPLETION_PAYLOAD_BYTES {
             return Err(PortError::PayloadTooLarge);
@@ -304,6 +314,8 @@ impl OperationCompletion {
         Ok(writer.finish())
     }
 
+    /// # Errors
+    /// Returns `PortError` when validation or bounded codec processing fails.
     pub fn decode(bytes: &[u8]) -> Result<Self, PortError> {
         let mut reader = Reader::new(bytes)?;
         reader.version()?;

@@ -1,5 +1,3 @@
-#![allow(clippy::missing_errors_doc)]
-
 use std::collections::HashMap;
 
 use domain_types::FirmwareRecord;
@@ -277,6 +275,8 @@ impl ConfigurationService {
         self.schema_bytes.as_deref()
     }
 
+    /// # Errors
+    /// Returns a configuration-service error when state or response validation fails.
     pub fn accept_response(
         &mut self,
         generation: u64,
@@ -317,6 +317,8 @@ impl ConfigurationService {
         ConfigurationEffect::None
     }
 
+    /// # Errors
+    /// Returns a configuration-service error when state or response validation fails.
     pub fn request_values(
         &mut self,
         defaults: bool,
@@ -336,6 +338,8 @@ impl ConfigurationService {
         }))
     }
 
+    /// # Errors
+    /// Returns a configuration-service error when state or response validation fails.
     pub fn request_write(
         &mut self,
         identity: &TuneIdentity,
@@ -360,6 +364,8 @@ impl ConfigurationService {
         Ok(self.effect(write_values_request(&encoded)))
     }
 
+    /// # Errors
+    /// Returns a configuration-service error when state or response validation fails.
     pub fn accept_schema_chunk(
         &mut self,
         generation: u64,
@@ -414,6 +420,8 @@ impl ConfigurationService {
         }
     }
 
+    /// # Errors
+    /// Returns a configuration-service error when state or response validation fails.
     pub fn accept_values(
         &mut self,
         generation: u64,
@@ -475,6 +483,8 @@ impl ConfigurationService {
         }
     }
 
+    /// # Errors
+    /// Returns a configuration-service error when state or response validation fails.
     pub fn accept_write(
         &mut self,
         generation: u64,

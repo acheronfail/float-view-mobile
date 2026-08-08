@@ -1,5 +1,3 @@
-#![allow(clippy::missing_errors_doc, clippy::too_many_lines)]
-
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -26,6 +24,8 @@ pub struct ExportRecord {
 }
 
 impl CatalogStore {
+    /// # Errors
+    /// Returns `StoreError` when input validation, storage, serialization, or file I/O fails.
     pub fn staging_path(&self, token: &str) -> Result<PathBuf, StoreError> {
         validate_token(token)?;
         let staging = self.root.join("staging");
@@ -33,6 +33,8 @@ impl CatalogStore {
         Ok(staging.join(format!("import-{token}.floatview.tmp")))
     }
 
+    /// # Errors
+    /// Returns `StoreError` when input validation, storage, serialization, or file I/O fails.
     pub fn export_session(
         &self,
         session_id: &str,
@@ -42,6 +44,8 @@ impl CatalogStore {
         self.export_session_with_policy(session_id, export_id, format, true)
     }
 
+    /// # Errors
+    /// Returns `StoreError` when input validation, storage, serialization, or file I/O fails.
     pub fn export_session_with_policy(
         &self,
         session_id: &str,
@@ -130,6 +134,8 @@ impl CatalogStore {
         })
     }
 
+    /// # Errors
+    /// Returns `StoreError` when input validation, storage, serialization, or file I/O fails.
     pub fn import_staged_archive(
         &self,
         staging_path: &Path,

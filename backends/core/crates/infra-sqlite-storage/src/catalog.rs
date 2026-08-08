@@ -1,5 +1,3 @@
-#![allow(clippy::missing_errors_doc)]
-
 use std::collections::HashMap;
 use std::fmt::Write;
 use std::fs;
@@ -130,6 +128,8 @@ pub struct CatalogStore {
 }
 
 impl CatalogStore {
+    /// # Errors
+    /// Returns `StoreError` when input validation, storage, serialization, or file I/O fails.
     pub fn open(root: &Path) -> Result<Self, StoreError> {
         prepare_storage_root(root)?;
         let connection = Connection::open(root.join("catalog.sqlite"))?;
@@ -144,6 +144,8 @@ impl CatalogStore {
         Ok(store)
     }
 
+    /// # Errors
+    /// Returns `StoreError` when input validation, storage, serialization, or file I/O fails.
     pub fn ensure_saved_device(
         &self,
         saved_device_id: &str,
@@ -174,6 +176,8 @@ impl CatalogStore {
         Ok(value)
     }
 
+    /// # Errors
+    /// Returns `StoreError` when input validation, storage, serialization, or file I/O fails.
     pub fn saved_devices(&self) -> Result<Vec<SavedDevice>, StoreError> {
         let writer = self.writer()?;
         let mut statement = writer.prepare(
@@ -184,6 +188,8 @@ impl CatalogStore {
             .collect::<Result<Vec<_>, _>>()?)
     }
 
+    /// # Errors
+    /// Returns `StoreError` when input validation, storage, serialization, or file I/O fails.
     pub fn delete_saved_device(&self, saved_device_id: &str) -> Result<(), StoreError> {
         validate_id(saved_device_id)?;
         let changed = self.writer()?.execute(
@@ -197,6 +203,8 @@ impl CatalogStore {
         }
     }
 
+    /// # Errors
+    /// Returns `StoreError` when input validation, storage, serialization, or file I/O fails.
     pub fn session_records(&self) -> Result<Vec<SessionCatalogRecord>, StoreError> {
         let writer = self.writer()?;
         let mut statement = writer.prepare(
@@ -207,6 +215,8 @@ impl CatalogStore {
             .collect::<Result<Vec<_>, _>>()?)
     }
 
+    /// # Errors
+    /// Returns `StoreError` when input validation, storage, serialization, or file I/O fails.
     pub fn session_record(&self, session_id: &str) -> Result<SessionCatalogRecord, StoreError> {
         validate_id(session_id)?;
         self.writer()?
@@ -219,6 +229,8 @@ impl CatalogStore {
             .ok_or(StoreError::NotFound)
     }
 
+    /// # Errors
+    /// Returns `StoreError` when input validation, storage, serialization, or file I/O fails.
     pub fn update_saved_device_name(
         &self,
         saved_device_id: &str,
@@ -248,11 +260,15 @@ impl CatalogStore {
         Ok(value)
     }
 
+    /// # Errors
+    /// Returns `StoreError` when input validation, storage, serialization, or file I/O fails.
     pub fn board_profile(&self, saved_device_id: &str) -> Result<BoardProfile, StoreError> {
         let writer = self.writer()?;
         profile(&writer, saved_device_id)
     }
 
+    /// # Errors
+    /// Returns `StoreError` when input validation, storage, serialization, or file I/O fails.
     pub fn update_board_profile(
         &self,
         saved_device_id: &str,
@@ -280,6 +296,8 @@ impl CatalogStore {
         Ok(value)
     }
 
+    /// # Errors
+    /// Returns `StoreError` when input validation, storage, serialization, or file I/O fails.
     pub fn store_route_hint(&self, hint: &ControllerRouteHint) -> Result<(), StoreError> {
         if hint.can_id > 253 || hint.updated_at_millis < 0 {
             return Err(StoreError::Invalid);
@@ -292,6 +310,8 @@ impl CatalogStore {
         Ok(())
     }
 
+    /// # Errors
+    /// Returns `StoreError` when input validation, storage, serialization, or file I/O fails.
     pub fn route_hint(
         &self,
         saved_device_id: &str,
@@ -314,6 +334,8 @@ impl CatalogStore {
             .map_err(StoreError::from)
     }
 
+    /// # Errors
+    /// Returns `StoreError` when input validation, storage, serialization, or file I/O fails.
     pub fn clear_route_hint(&self, saved_device_id: &str) -> Result<(), StoreError> {
         self.writer()?.execute(
             "DELETE FROM controller_route_hint WHERE saved_device_id = ?1",
@@ -322,6 +344,8 @@ impl CatalogStore {
         Ok(())
     }
 
+    /// # Errors
+    /// Returns `StoreError` when input validation, storage, serialization, or file I/O fails.
     pub fn settings(&self, default_json: &str) -> Result<Settings, StoreError> {
         validate_json(default_json, MAX_CATALOG_JSON_BYTES)?;
         let writer = self.writer()?;
@@ -343,6 +367,8 @@ impl CatalogStore {
             .map_err(StoreError::from)
     }
 
+    /// # Errors
+    /// Returns `StoreError` when input validation, storage, serialization, or file I/O fails.
     pub fn update_settings(
         &self,
         expected_revision: u64,
@@ -381,6 +407,8 @@ impl CatalogStore {
             .map_err(StoreError::from)
     }
 
+    /// # Errors
+    /// Returns `StoreError` when input validation, storage, serialization, or file I/O fails.
     pub fn create_tune(&self, tune: &TuneRecord) -> Result<TuneRecord, StoreError> {
         validate_tune(tune)?;
         self.writer()?.execute(
@@ -390,6 +418,8 @@ impl CatalogStore {
         self.tune(&tune.configuration_id)
     }
 
+    /// # Errors
+    /// Returns `StoreError` when input validation, storage, serialization, or file I/O fails.
     pub fn tune(&self, configuration_id: &str) -> Result<TuneRecord, StoreError> {
         self.writer()?
             .query_row(
@@ -401,6 +431,8 @@ impl CatalogStore {
             .ok_or(StoreError::NotFound)
     }
 
+    /// # Errors
+    /// Returns `StoreError` when input validation, storage, serialization, or file I/O fails.
     pub fn tunes(
         &self,
         package_version: &str,
@@ -436,6 +468,8 @@ impl CatalogStore {
             .collect::<Result<Vec<_>, _>>()?)
     }
 
+    /// # Errors
+    /// Returns `StoreError` when input validation, storage, serialization, or file I/O fails.
     pub fn update_tune(
         &self,
         tune: &TuneRecord,
@@ -464,6 +498,8 @@ impl CatalogStore {
         self.tune(&tune.configuration_id)
     }
 
+    /// # Errors
+    /// Returns `StoreError` when input validation, storage, serialization, or file I/O fails.
     pub fn delete_tune(
         &self,
         configuration_id: &str,
@@ -491,6 +527,8 @@ impl CatalogStore {
         })
     }
 
+    /// # Errors
+    /// Returns `StoreError` when input validation, storage, serialization, or file I/O fails.
     pub fn store_schema_cache(
         &self,
         identity: &SchemaCacheIdentity,
@@ -509,6 +547,8 @@ impl CatalogStore {
         Ok(())
     }
 
+    /// # Errors
+    /// Returns `StoreError` when input validation, storage, serialization, or file I/O fails.
     pub fn schema_cache(
         &self,
         identity: &SchemaCacheIdentity,

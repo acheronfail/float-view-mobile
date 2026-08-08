@@ -1,5 +1,3 @@
-#![allow(clippy::missing_errors_doc, clippy::too_many_lines)]
-
 use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
@@ -24,6 +22,8 @@ pub struct SessionReadLease {
 }
 
 impl SessionReadLease {
+    /// # Errors
+    /// Returns `StoreError` when input validation, storage, serialization, or file I/O fails.
     pub fn open(self) -> Result<SessionReader, StoreError> {
         let connection = Connection::open_with_flags(
             &self.path,
@@ -67,6 +67,8 @@ impl SessionReader {
         self.lease.boundary
     }
 
+    /// # Errors
+    /// Returns `StoreError` when input validation, storage, serialization, or file I/O fails.
     pub fn query_series(
         &self,
         range: ElapsedRange,
@@ -122,6 +124,8 @@ impl SessionReader {
         Ok(rows)
     }
 
+    /// # Errors
+    /// Returns `StoreError` when input validation, storage, serialization, or file I/O fails.
     pub fn events(&self, range: ElapsedRange) -> Result<Vec<SessionEvent>, StoreError> {
         if range.start_elapsed_millis > range.end_elapsed_millis {
             return Err(StoreError::Invalid);
@@ -158,6 +162,8 @@ impl SessionReader {
         Ok(rows)
     }
 
+    /// # Errors
+    /// Returns `StoreError` when input validation, storage, serialization, or file I/O fails.
     pub fn locations(
         &self,
         range: ElapsedRange,
@@ -195,6 +201,8 @@ impl SessionReader {
             .collect::<Result<Vec<_>, _>>()?)
     }
 
+    /// # Errors
+    /// Returns `StoreError` when input validation, storage, serialization, or file I/O fails.
     pub fn field_source(&self, field: &str) -> Result<&'static str, StoreError> {
         if stable_column(field).is_some() {
             return Ok("stable");
@@ -203,6 +211,8 @@ impl SessionReader {
         Ok("extension")
     }
 
+    /// # Errors
+    /// Returns `StoreError` when input validation, storage, serialization, or file I/O fails.
     pub fn history_configuration(&self) -> Result<HistoryConfiguration, StoreError> {
         self.connection
             .query_row(
@@ -219,6 +229,8 @@ impl SessionReader {
             .map_err(Into::into)
     }
 
+    /// # Errors
+    /// Returns `StoreError` when input validation, storage, serialization, or file I/O fails.
     pub fn events_page(
         &self,
         range: ElapsedRange,
@@ -264,6 +276,8 @@ impl SessionReader {
         Ok(rows)
     }
 
+    /// # Errors
+    /// Returns `StoreError` when input validation, storage, serialization, or file I/O fails.
     pub fn locations_page(
         &self,
         range: ElapsedRange,
@@ -325,6 +339,8 @@ impl SessionReader {
 }
 
 impl CatalogStore {
+    /// # Errors
+    /// Returns `StoreError` when input validation, storage, serialization, or file I/O fails.
     pub fn acquire_read_lease(&self, session_id: &str) -> Result<SessionReadLease, StoreError> {
         let writer = self.writer.lock().map_err(|_| StoreError::Poisoned)?;
         let row: Option<(String, u64, u64, u64, u64, u64, u64)> = writer
@@ -366,6 +382,8 @@ impl CatalogStore {
         })
     }
 
+    /// # Errors
+    /// Returns `StoreError` when input validation, storage, serialization, or file I/O fails.
     pub fn delete_session(&self, session_id: &str) -> Result<(), StoreError> {
         let mut writer = self.writer.lock().map_err(|_| StoreError::Poisoned)?;
         let transaction = writer.transaction()?;
@@ -406,6 +424,8 @@ impl CatalogStore {
         Ok(())
     }
 
+    /// # Errors
+    /// Returns `StoreError` when input validation, storage, serialization, or file I/O fails.
     pub fn delete_saved_device_history(&self, saved_device_id: &str) -> Result<usize, StoreError> {
         if saved_device_id.is_empty() || saved_device_id.len() > 512 {
             return Err(StoreError::Invalid);
@@ -459,6 +479,8 @@ impl CatalogStore {
         Ok(sessions.len())
     }
 
+    /// # Errors
+    /// Returns `StoreError` when input validation, storage, serialization, or file I/O fails.
     pub fn cleanup_pending_deletes(&self) -> Result<usize, StoreError> {
         let rows = {
             let writer = self.writer.lock().map_err(|_| StoreError::Poisoned)?;

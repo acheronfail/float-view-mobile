@@ -222,8 +222,21 @@ fn decode_field_list(
 /// # Errors
 ///
 /// Rejects invalid command/detail/length shapes.
-#[allow(clippy::too_many_lines)]
 pub fn decode_legacy(payload: &[u8]) -> Result<Telemetry, TelemetryError> {
+    let detail = validate_legacy(payload)?;
+    if detail == 69 {
+        return Ok(base(
+            PackageState::Unknown,
+            RideState::Unknown,
+            FootpadState::Unknown,
+        ));
+    }
+    let mut value = decode_legacy_common(payload);
+    decode_legacy_details(payload, detail, &mut value)?;
+    Ok(value)
+}
+
+fn validate_legacy(payload: &[u8]) -> Result<u8, TelemetryError> {
     if payload.len() < 4 || payload[..3] != [36, PACKAGE_ID, RefloatCommand::GetAllData as u8] {
         return Err(TelemetryError::Truncated);
     }
@@ -231,11 +244,7 @@ pub fn decode_legacy(payload: &[u8]) -> Result<Telemetry, TelemetryError> {
         if payload.len() != 5 {
             return Err(TelemetryError::InvalidFrame);
         }
-        return Ok(base(
-            PackageState::Unknown,
-            RideState::Unknown,
-            FootpadState::Unknown,
-        ));
+        return Ok(69);
     }
     let detail = payload[3];
     if !(1..=4).contains(&detail) {
@@ -253,6 +262,10 @@ pub fn decode_legacy(payload: &[u8]) -> Result<Telemetry, TelemetryError> {
     if payload.len() != required {
         return Err(TelemetryError::Truncated);
     }
+    Ok(detail)
+}
+
+fn decode_legacy_common(payload: &[u8]) -> Telemetry {
     let signed = |index: usize| f64::from(i16::from_be_bytes([payload[index], payload[index + 1]]));
     let state = payload[10] & 0x0f;
     let package_state = match state {
@@ -324,9 +337,18 @@ pub fn decode_legacy(payload: &[u8]) -> Result<Telemetry, TelemetryError> {
     ] {
         insert(&mut value, name, (f64::from(payload[index]) - 128.0) / 5.0);
     }
+    value
+}
+
+fn decode_legacy_details(
+    payload: &[u8],
+    detail: u8,
+    value: &mut Telemetry,
+) -> Result<(), TelemetryError> {
+    let signed = |index: usize| f64::from(i16::from_be_bytes([payload[index], payload[index + 1]]));
     if detail >= 2 {
         insert(
-            &mut value,
+            value,
             "distanceM",
             f64::from(f32::from_bits(u32::from_be_bytes(
                 payload[35..39]
@@ -334,12 +356,12 @@ pub fn decode_legacy(payload: &[u8]) -> Result<Telemetry, TelemetryError> {
                     .map_err(|_| TelemetryError::Truncated)?,
             ))),
         );
-        insert(&mut value, "controllerTempC", f64::from(payload[39]) / 2.0);
-        insert(&mut value, "motorTempC", f64::from(payload[40]) / 2.0);
+        insert(value, "controllerTempC", f64::from(payload[39]) / 2.0);
+        insert(value, "motorTempC", f64::from(payload[40]) / 2.0);
     }
     if detail >= 3 {
         insert(
-            &mut value,
+            value,
             "odometerM",
             f64::from(u32::from_be_bytes(
                 payload[42..46]
@@ -347,17 +369,17 @@ pub fn decode_legacy(payload: &[u8]) -> Result<Telemetry, TelemetryError> {
                     .map_err(|_| TelemetryError::Truncated)?,
             )),
         );
-        insert(&mut value, "ampHoursDrawnAh", signed(46) / 10.0);
-        insert(&mut value, "ampHoursChargedAh", signed(48) / 10.0);
-        insert(&mut value, "wattHoursDrawnWh", signed(50));
-        insert(&mut value, "wattHoursChargedWh", signed(52));
-        insert(&mut value, "batteryLevel", f64::from(payload[54]) / 200.0);
+        insert(value, "ampHoursDrawnAh", signed(46) / 10.0);
+        insert(value, "ampHoursChargedAh", signed(48) / 10.0);
+        insert(value, "wattHoursDrawnWh", signed(50));
+        insert(value, "wattHoursChargedWh", signed(52));
+        insert(value, "batteryLevel", f64::from(payload[54]) / 200.0);
     }
     if detail >= 4 {
-        insert(&mut value, "chargingCurrentA", signed(55) / 10.0);
-        insert(&mut value, "chargingVoltageV", signed(57) / 10.0);
+        insert(value, "chargingCurrentA", signed(55) / 10.0);
+        insert(value, "chargingVoltageV", signed(57) / 10.0);
     }
-    Ok(value)
+    Ok(())
 }
 
 /// Decodes dynamic half-float telemetry with bounded extensions.

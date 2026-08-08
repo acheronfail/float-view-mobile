@@ -1,5 +1,3 @@
-#![allow(clippy::missing_errors_doc)]
-
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, MutexGuard};
 
@@ -63,6 +61,8 @@ impl SessionStore {
         Arc::clone(&self.catalog)
     }
 
+    /// # Errors
+    /// Returns `StoreError` when input validation, storage, serialization, or file I/O fails.
     pub fn create(&self, value: &NewSession<'_>) -> Result<(), StoreError> {
         validate_session(value)?;
         let file_name = format!("session-{}.sqlite", value.session_id);
@@ -112,6 +112,8 @@ impl SessionStore {
         Ok(())
     }
 
+    /// # Errors
+    /// Returns `StoreError` when input validation, storage, serialization, or file I/O fails.
     pub fn append_samples(
         &self,
         session_id: &str,
@@ -150,6 +152,8 @@ impl SessionStore {
         Ok(())
     }
 
+    /// # Errors
+    /// Returns `StoreError` when input validation, storage, serialization, or file I/O fails.
     pub fn flush_catalog(&self, session_id: &str) -> Result<(), StoreError> {
         let writers = self.writers()?;
         let session = writers.get(session_id).ok_or(StoreError::NotFound)?;
@@ -166,6 +170,8 @@ impl SessionStore {
         Ok(())
     }
 
+    /// # Errors
+    /// Returns `StoreError` when input validation, storage, serialization, or file I/O fails.
     pub fn close(
         &self,
         session_id: &str,

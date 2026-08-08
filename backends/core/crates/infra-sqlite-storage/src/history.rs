@@ -1,13 +1,7 @@
-#![allow(
-    clippy::cast_possible_truncation,
-    clippy::cast_sign_loss,
-    clippy::float_cmp,
-    clippy::implicit_hasher,
-    clippy::missing_errors_doc,
-    clippy::too_many_arguments
-)]
-
+use std::cmp::Ordering;
 use std::collections::{BTreeMap, HashMap, HashSet};
+use std::hash::BuildHasher;
+use std::time::Duration;
 
 use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
@@ -54,6 +48,18 @@ pub struct SeriesColumn {
     pub generations: Vec<u32>,
 }
 
+#[derive(Clone, Debug, PartialEq)]
+pub struct SeriesReduction {
+    pub fields: Vec<String>,
+    pub range: ElapsedRange,
+    pub buckets: usize,
+    pub threshold_seconds: Option<f64>,
+    pub expected_persistence_millis: u64,
+    pub expected_riding_persistence_millis: Option<u64>,
+    pub expected_idle_persistence_millis: Option<u64>,
+    pub retained_resolution_seconds: u64,
+}
+
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct HistoryCursor {
@@ -97,16 +103,19 @@ pub struct SeriesAccumulator {
 }
 
 impl SeriesAccumulator {
-    pub fn new(
-        fields: Vec<String>,
-        range: ElapsedRange,
-        buckets: usize,
-        threshold_seconds: Option<f64>,
-        expected_persistence_millis: u64,
-        expected_riding_persistence_millis: Option<u64>,
-        expected_idle_persistence_millis: Option<u64>,
-        retained_resolution_seconds: u64,
-    ) -> Result<Self, StoreError> {
+    /// # Errors
+    /// Returns `StoreError` when input validation, storage, serialization, or file I/O fails.
+    pub fn new(reduction: SeriesReduction) -> Result<Self, StoreError> {
+        let SeriesReduction {
+            fields,
+            range,
+            buckets,
+            threshold_seconds,
+            expected_persistence_millis,
+            expected_riding_persistence_millis,
+            expected_idle_persistence_millis,
+            retained_resolution_seconds,
+        } = reduction;
         if range.start_elapsed_millis > range.end_elapsed_millis
             || fields.is_empty()
             || fields.len() > MAX_SERIES_FIELDS
@@ -119,9 +128,15 @@ impl SeriesAccumulator {
             return Err(StoreError::Invalid);
         }
         let configured_threshold_millis = match threshold_seconds {
-            Some(value) if value.is_finite() && (0.1..=3_600.0).contains(&value) => {
-                Some((value * 1_000.0).round().max(1.0) as u64)
-            }
+            Some(value) if value.is_finite() && (0.1..=3_600.0).contains(&value) => Some(
+                u64::try_from(
+                    Duration::try_from_secs_f64(value)
+                        .map_err(|_| StoreError::Invalid)?
+                        .as_millis(),
+                )
+                .map_err(|_| StoreError::Invalid)?
+                .max(1),
+            ),
             Some(_) => return Err(StoreError::Invalid),
             None => None,
         };
@@ -142,6 +157,8 @@ impl SeriesAccumulator {
         })
     }
 
+    /// # Errors
+    /// Returns `StoreError` when input validation, storage, serialization, or file I/O fails.
     pub fn append(&mut self, point: &SeriesPoint) -> Result<(), StoreError> {
         if point.elapsed_millis < self.range.start_elapsed_millis
             || point.elapsed_millis > self.range.end_elapsed_millis
@@ -202,13 +219,15 @@ impl SeriesAccumulator {
             }
             if candidates.minimum.is_none_or(|current| {
                 candidate.value < current.value
-                    || (candidate.value == current.value && earlier(candidate, current))
+                    || (candidate.value.total_cmp(&current.value) == Ordering::Equal
+                        && earlier(candidate, current))
             }) {
                 candidates.minimum = Some(candidate);
             }
             if candidates.maximum.is_none_or(|current| {
                 candidate.value > current.value
-                    || (candidate.value == current.value && earlier(candidate, current))
+                    || (candidate.value.total_cmp(&current.value) == Ordering::Equal
+                        && earlier(candidate, current))
             }) {
                 candidates.maximum = Some(candidate);
             }
@@ -223,6 +242,8 @@ impl SeriesAccumulator {
         Ok(())
     }
 
+    /// # Errors
+    /// Returns `StoreError` when input validation, storage, serialization, or file I/O fails.
     pub fn finish(self) -> Result<BTreeMap<String, SeriesColumn>, StoreError> {
         let mut output = BTreeMap::new();
         let mut observation_count = 0;
@@ -275,27 +296,14 @@ impl SeriesAccumulator {
     }
 }
 
+/// # Errors
+/// Returns `StoreError` when input validation, storage, serialization, or file I/O fails.
 pub fn reduce_series(
     rows: &[SeriesPoint],
-    fields: Vec<String>,
-    range: ElapsedRange,
-    buckets: usize,
-    threshold_seconds: Option<f64>,
-    expected_persistence_millis: u64,
-    expected_riding_persistence_millis: Option<u64>,
-    expected_idle_persistence_millis: Option<u64>,
-    retained_resolution_seconds: u64,
+    reduction: SeriesReduction,
 ) -> Result<BTreeMap<String, SeriesColumn>, StoreError> {
-    let mut accumulator = SeriesAccumulator::new(
-        fields,
-        range,
-        buckets,
-        threshold_seconds,
-        expected_persistence_millis,
-        expected_riding_persistence_millis,
-        expected_idle_persistence_millis,
-        retained_resolution_seconds,
-    )?;
+    let range = reduction.range;
+    let mut accumulator = SeriesAccumulator::new(reduction)?;
     let mut ordered = rows.to_vec();
     ordered.sort_by_key(key);
     for point in &ordered {
@@ -308,12 +316,14 @@ pub fn reduce_series(
     accumulator.finish()
 }
 
-pub fn select_prune_rows(
+/// # Errors
+/// Returns `StoreError` when input validation, storage, serialization, or file I/O fails.
+pub fn select_prune_rows<Protected: BuildHasher, Events: BuildHasher>(
     rows: &[SeriesPoint],
     fields: &[String],
     target_resolution_seconds: u64,
-    protected_sequences: &HashSet<u64>,
-    event_source_sequences: &HashSet<u64>,
+    protected_sequences: &HashSet<u64, Protected>,
+    event_source_sequences: &HashSet<u64, Events>,
 ) -> Result<Vec<u64>, StoreError> {
     if !(1..=300).contains(&target_resolution_seconds)
         || fields.is_empty()
@@ -326,8 +336,8 @@ pub fn select_prune_rows(
     let Some(first) = ordered.first() else {
         return Ok(Vec::new());
     };
-    let mut keep = protected_sequences.clone();
-    keep.extend(event_source_sequences);
+    let mut keep: HashSet<u64> = protected_sequences.iter().copied().collect();
+    keep.extend(event_source_sequences.iter().copied());
     keep.insert(first.sequence);
     keep.insert(
         ordered
@@ -392,6 +402,8 @@ pub fn select_prune_rows(
         .collect())
 }
 
+/// # Errors
+/// Returns `StoreError` when input validation, storage, serialization, or file I/O fails.
 pub fn encode_history_cursor(cursor: &HistoryCursor) -> Result<String, StoreError> {
     validate_cursor(cursor)?;
     let encoded =
@@ -403,6 +415,8 @@ pub fn encode_history_cursor(cursor: &HistoryCursor) -> Result<String, StoreErro
     }
 }
 
+/// # Errors
+/// Returns `StoreError` when input validation, storage, serialization, or file I/O fails.
 pub fn decode_history_cursor(value: &str) -> Result<HistoryCursor, StoreError> {
     if value.is_empty() || value.len() > MAX_HISTORY_CURSOR_BYTES {
         return Err(StoreError::Invalid);
@@ -415,6 +429,8 @@ pub fn decode_history_cursor(value: &str) -> Result<HistoryCursor, StoreError> {
     Ok(cursor)
 }
 
+/// # Errors
+/// Returns `StoreError` when input validation, storage, serialization, or file I/O fails.
 pub fn page_series(
     rows: &[SeriesPoint],
     limit: usize,
@@ -491,17 +507,19 @@ mod tests {
         ];
         let reduced = reduce_series(
             &rows,
-            vec!["voltage".into()],
-            ElapsedRange {
-                start_elapsed_millis: 0,
-                end_elapsed_millis: 5_000,
+            SeriesReduction {
+                fields: vec!["voltage".into()],
+                range: ElapsedRange {
+                    start_elapsed_millis: 0,
+                    end_elapsed_millis: 5_000,
+                },
+                buckets: 1,
+                threshold_seconds: None,
+                expected_persistence_millis: 1_000,
+                expected_riding_persistence_millis: Some(100),
+                expected_idle_persistence_millis: Some(1_000),
+                retained_resolution_seconds: 0,
             },
-            1,
-            None,
-            1_000,
-            Some(100),
-            Some(1_000),
-            0,
         )
         .expect("reduced");
         let column = &reduced["voltage"];

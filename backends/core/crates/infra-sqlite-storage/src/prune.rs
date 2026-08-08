@@ -1,6 +1,5 @@
-#![allow(clippy::missing_errors_doc, clippy::too_many_lines)]
-
 use std::collections::{HashMap, HashSet};
+use std::path::Path;
 
 use rusqlite::{Connection, OptionalExtension, params};
 
@@ -17,7 +16,16 @@ pub struct PruneResult {
     pub history_revision: u64,
 }
 
+struct PruneSource {
+    session: Connection,
+    rows: Vec<SeriesPoint>,
+    event_sources: HashSet<u64>,
+    protected: HashSet<u64>,
+}
+
 impl CatalogStore {
+    /// # Errors
+    /// Returns `StoreError` when input validation, storage, serialization, or file I/O fails.
     pub fn prune_session(
         &self,
         session_id: &str,
@@ -61,56 +69,15 @@ impl CatalogStore {
         if file_name.contains('/') || file_name.contains('\\') || !file_name.ends_with(".sqlite") {
             return Err(StoreError::Invalid);
         }
-        let mut session = Connection::open(self.root.join(file_name))?;
-        session.execute_batch("PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 1000;")?;
-        let selected = columns
-            .iter()
-            .enumerate()
-            .map(|(index, column)| format!("{column} AS value_{index}"))
-            .collect::<Vec<_>>()
-            .join(", ");
-        let sql = format!(
-            "SELECT sequence, monotonic_elapsed_ms, ride_state, {selected} FROM sample ORDER BY monotonic_elapsed_ms, sequence LIMIT ?1"
-        );
-        let rows = {
-            let mut statement = session.prepare(&sql)?;
-            statement
-                .query_map([MAX_PRUNE_SOURCE_ROWS + 1], |row| {
-                    let mut values = HashMap::with_capacity(fields.len());
-                    for (index, field) in fields.iter().enumerate() {
-                        values.insert(field.clone(), row.get::<_, Option<f64>>(index + 3)?);
-                    }
-                    Ok(SeriesPoint {
-                        sequence: row.get(0)?,
-                        elapsed_millis: row.get(1)?,
-                        ride_state: row.get(2)?,
-                        values,
-                    })
-                })?
-                .collect::<Result<Vec<_>, _>>()?
-        };
+        let PruneSource {
+            mut session,
+            rows,
+            event_sources,
+            protected,
+        } = load_prune_source(&self.root.join(file_name), fields, &columns)?;
         if rows.len() > MAX_PRUNE_SOURCE_ROWS {
             return Err(StoreError::Invalid);
         }
-        let event_sources = {
-            let mut statement = session.prepare(
-                "SELECT DISTINCT source_sample_sequence FROM session_event WHERE source_sample_sequence IS NOT NULL",
-            )?;
-            statement
-                .query_map([], |row| row.get(0))?
-                .collect::<Result<HashSet<u64>, _>>()?
-        };
-        let mut protected = event_sources.clone();
-        {
-            let mut statement =
-                session.prepare("SELECT first_sequence FROM session_numeric_field")?;
-            protected.extend(
-                statement
-                    .query_map([], |row| row.get(0))?
-                    .collect::<Result<HashSet<u64>, _>>()?,
-            );
-        }
-        protect_riding_boundaries(&session, &mut protected)?;
         let retained = select_prune_rows(
             &rows,
             fields,
@@ -120,39 +87,13 @@ impl CatalogStore {
         )?;
         let source_samples = u64::try_from(rows.len()).map_err(|_| StoreError::Invalid)?;
         let retained_samples = u64::try_from(retained.len()).map_err(|_| StoreError::Invalid)?;
-        let transaction = session.transaction()?;
-        transaction.execute_batch(
-            "CREATE TEMP TABLE prune_keep(sequence INTEGER PRIMARY KEY NOT NULL);",
+        let history_revision = apply_prune(
+            &mut session,
+            &retained,
+            retained_samples,
+            target_resolution_seconds,
+            pruned_at_millis,
         )?;
-        {
-            let mut insert = transaction.prepare("INSERT INTO prune_keep(sequence) VALUES (?1)")?;
-            for sequence in &retained {
-                insert.execute([sequence])?;
-            }
-        }
-        transaction.execute(
-            "DELETE FROM sample WHERE sequence NOT IN (SELECT sequence FROM prune_keep)",
-            [],
-        )?;
-        transaction.execute(
-            "DELETE FROM session_numeric_field WHERE first_sequence NOT IN (SELECT sequence FROM sample)",
-            [],
-        )?;
-        transaction.execute(
-            "UPDATE session_metadata SET pruned_at_ms = ?1, retained_resolution_seconds = ?2, prune_policy = 'deterministic_bucket_evidence_v1' WHERE singleton = 1",
-            params![pruned_at_millis, target_resolution_seconds],
-        )?;
-        transaction.execute(
-            "UPDATE commit_marker SET stored_sample_count = ?1, history_revision = history_revision + 1, committed_at_ms = ?2 WHERE singleton = 1",
-            params![retained_samples, pruned_at_millis],
-        )?;
-        transaction.execute_batch("DROP TABLE prune_keep;")?;
-        let history_revision: u64 = transaction.query_row(
-            "SELECT history_revision FROM commit_marker WHERE singleton = 1",
-            [],
-            |row| row.get(0),
-        )?;
-        transaction.commit()?;
         session.execute_batch(&format!(
             "PRAGMA wal_checkpoint(PASSIVE); PRAGMA incremental_vacuum({INCREMENTAL_VACUUM_PAGES});"
         ))?;
@@ -167,6 +108,107 @@ impl CatalogStore {
             history_revision,
         })
     }
+}
+
+fn load_prune_source(
+    path: &Path,
+    fields: &[String],
+    columns: &[&str],
+) -> Result<PruneSource, StoreError> {
+    let session = Connection::open(path)?;
+    session.execute_batch("PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 1000;")?;
+    let selected = columns
+        .iter()
+        .enumerate()
+        .map(|(index, column)| format!("{column} AS value_{index}"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let sql = format!(
+        "SELECT sequence, monotonic_elapsed_ms, ride_state, {selected} FROM sample ORDER BY monotonic_elapsed_ms, sequence LIMIT ?1"
+    );
+    let rows = {
+        let mut statement = session.prepare(&sql)?;
+        statement
+            .query_map([MAX_PRUNE_SOURCE_ROWS + 1], |row| {
+                let mut values = HashMap::with_capacity(fields.len());
+                for (index, field) in fields.iter().enumerate() {
+                    values.insert(field.clone(), row.get::<_, Option<f64>>(index + 3)?);
+                }
+                Ok(SeriesPoint {
+                    sequence: row.get(0)?,
+                    elapsed_millis: row.get(1)?,
+                    ride_state: row.get(2)?,
+                    values,
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?
+    };
+    let event_sources = {
+        let mut statement = session.prepare(
+            "SELECT DISTINCT source_sample_sequence FROM session_event WHERE source_sample_sequence IS NOT NULL",
+        )?;
+        statement
+            .query_map([], |row| row.get(0))?
+            .collect::<Result<HashSet<u64>, _>>()?
+    };
+    let mut protected = event_sources.clone();
+    {
+        let mut statement = session.prepare("SELECT first_sequence FROM session_numeric_field")?;
+        protected.extend(
+            statement
+                .query_map([], |row| row.get(0))?
+                .collect::<Result<HashSet<u64>, _>>()?,
+        );
+    }
+    protect_riding_boundaries(&session, &mut protected)?;
+    Ok(PruneSource {
+        session,
+        rows,
+        event_sources,
+        protected,
+    })
+}
+
+fn apply_prune(
+    session: &mut Connection,
+    retained: &[u64],
+    retained_samples: u64,
+    target_resolution_seconds: u64,
+    pruned_at_millis: i64,
+) -> Result<u64, StoreError> {
+    let transaction = session.transaction()?;
+    transaction
+        .execute_batch("CREATE TEMP TABLE prune_keep(sequence INTEGER PRIMARY KEY NOT NULL);")?;
+    {
+        let mut insert = transaction.prepare("INSERT INTO prune_keep(sequence) VALUES (?1)")?;
+        for sequence in retained {
+            insert.execute([sequence])?;
+        }
+    }
+    transaction.execute(
+        "DELETE FROM sample WHERE sequence NOT IN (SELECT sequence FROM prune_keep)",
+        [],
+    )?;
+    transaction.execute(
+        "DELETE FROM session_numeric_field WHERE first_sequence NOT IN (SELECT sequence FROM sample)",
+        [],
+    )?;
+    transaction.execute(
+        "UPDATE session_metadata SET pruned_at_ms = ?1, retained_resolution_seconds = ?2, prune_policy = 'deterministic_bucket_evidence_v1' WHERE singleton = 1",
+        params![pruned_at_millis, target_resolution_seconds],
+    )?;
+    transaction.execute(
+        "UPDATE commit_marker SET stored_sample_count = ?1, history_revision = history_revision + 1, committed_at_ms = ?2 WHERE singleton = 1",
+        params![retained_samples, pruned_at_millis],
+    )?;
+    transaction.execute_batch("DROP TABLE prune_keep;")?;
+    let history_revision = transaction.query_row(
+        "SELECT history_revision FROM commit_marker WHERE singleton = 1",
+        [],
+        |row| row.get(0),
+    )?;
+    transaction.commit()?;
+    Ok(history_revision)
 }
 
 fn protect_riding_boundaries(

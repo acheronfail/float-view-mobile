@@ -459,7 +459,6 @@ pub mod fixtures {
 }
 
 #[cfg(test)]
-#[allow(clippy::float_cmp)]
 mod tests {
     use serde::Deserialize;
 
@@ -543,6 +542,10 @@ mod tests {
 
     #[test]
     fn legacy_and_extended_values_match_source_derived_expectations() {
+        fn assert_exact_float(actual: f64, expected: f64) {
+            assert_eq!(actual.to_bits(), expected.to_bits());
+        }
+
         let fixture = fixture();
         let values: Vec<_> = fixture
             .cases
@@ -555,45 +558,45 @@ mod tests {
         assert_eq!(values.len(), 2);
         for value in &values {
             let expected = &fixture.expected_values;
-            assert_eq!(value.total_voltage_v, expected.total_voltage_v);
-            assert_eq!(value.charge_voltage_v, expected.charge_voltage_v);
-            assert_eq!(value.input_current_a, expected.input_current_a);
-            assert_eq!(value.input_ic_current_a, expected.input_ic_current_a);
-            assert_eq!(value.session_amp_hours_ah, expected.session_amp_hours_ah);
-            assert_eq!(value.session_watt_hours_wh, expected.session_watt_hours_wh);
+            assert_exact_float(value.total_voltage_v, expected.total_voltage_v);
+            assert_exact_float(value.charge_voltage_v, expected.charge_voltage_v);
+            assert_exact_float(value.input_current_a, expected.input_current_a);
+            assert_exact_float(value.input_ic_current_a, expected.input_ic_current_a);
+            assert_exact_float(value.session_amp_hours_ah, expected.session_amp_hours_ah);
+            assert_exact_float(value.session_watt_hours_wh, expected.session_watt_hours_wh);
             assert_eq!(value.cell_voltages_v, expected.cell_voltages_v);
             assert_eq!(value.balancing, expected.balancing);
             assert_eq!(value.temperatures_c, expected.temperatures_c);
-            assert_eq!(value.ic_temperature_c, expected.ic_temperature_c);
-            assert_eq!(
+            assert_exact_float(value.ic_temperature_c, expected.ic_temperature_c);
+            assert_exact_float(
                 value.humidity_sensor_temperature_c,
-                expected.humidity_sensor_temperature_c
+                expected.humidity_sensor_temperature_c,
             );
-            assert_eq!(value.humidity_percent, expected.humidity_percent);
-            assert_eq!(
+            assert_exact_float(value.humidity_percent, expected.humidity_percent);
+            assert_exact_float(
                 value.highest_cell_temperature_c,
-                expected.highest_cell_temperature_c
+                expected.highest_cell_temperature_c,
             );
-            assert_eq!(value.state_of_charge, expected.state_of_charge);
-            assert_eq!(value.state_of_health, expected.state_of_health);
+            assert_exact_float(value.state_of_charge, expected.state_of_charge);
+            assert_exact_float(value.state_of_health, expected.state_of_health);
             assert_eq!(value.reported_can_id.get(), expected.reported_can_id);
-            assert_eq!(
+            assert_exact_float(
                 value.lifetime_charge_amp_hours_ah,
-                expected.lifetime_charge_amp_hours_ah
+                expected.lifetime_charge_amp_hours_ah,
             );
-            assert_eq!(
+            assert_exact_float(
                 value.lifetime_charge_watt_hours_wh,
-                expected.lifetime_charge_watt_hours_wh
+                expected.lifetime_charge_watt_hours_wh,
             );
-            assert_eq!(
+            assert_exact_float(
                 value.lifetime_discharge_amp_hours_ah,
-                expected.lifetime_discharge_amp_hours_ah
+                expected.lifetime_discharge_amp_hours_ah,
             );
-            assert_eq!(
+            assert_exact_float(
                 value.lifetime_discharge_watt_hours_wh,
-                expected.lifetime_discharge_watt_hours_wh
+                expected.lifetime_discharge_watt_hours_wh,
             );
-            assert_eq!(value.pressure_pa, expected.pressure_pa);
+            assert_exact_float(value.pressure_pa, expected.pressure_pa);
         }
         assert_eq!(values[0].data_version, None);
         assert_eq!(values[0].status, None);
