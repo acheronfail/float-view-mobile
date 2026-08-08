@@ -113,6 +113,22 @@ FloatViewStatus float_view_runtime_destroy(FloatViewRuntime *handle);
 FloatViewStatus float_view_runtime_start(FloatViewRuntime *handle, uint64_t *generation);
 
 /**
+ * Starts the production composition from bounded platform-selected inputs.
+ *
+ * # Safety
+ * The root and frontend pointers must cover their declared byte lengths and
+ * `generation` must point to one writable `u64`.
+ */
+FloatViewStatus float_view_runtime_start_configured(FloatViewRuntime *handle,
+                                                    uint16_t requested_port,
+                                                    uint32_t transport,
+                                                    const uint8_t *storage_root,
+                                                    size_t storage_root_len,
+                                                    const uint8_t *frontend_index,
+                                                    size_t frontend_index_len,
+                                                    uint64_t *generation);
+
+/**
  * Starts the runtime on a requested loopback port and writes its nonzero generation.
  * Port zero selects an ephemeral port.
  *

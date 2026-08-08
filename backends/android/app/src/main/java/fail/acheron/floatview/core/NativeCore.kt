@@ -9,6 +9,14 @@ internal object NativeCore {
     external fun buildIdentity(output: ByteArray): Int
     external fun create(): Long
     external fun start(handle: Long, requestedPort: Int, generation: LongArray): Int
+    external fun startConfigured(
+        handle: Long,
+        requestedPort: Int,
+        transport: Int,
+        storageRoot: ByteArray,
+        frontendIndex: ByteArray,
+        generation: LongArray,
+    ): Int
     external fun submit(handle: Long, generation: Long, kind: Int, payload: ByteArray): Int
     external fun submitBle(
         handle: Long,

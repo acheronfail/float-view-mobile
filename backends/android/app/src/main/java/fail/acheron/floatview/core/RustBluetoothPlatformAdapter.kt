@@ -19,7 +19,6 @@ internal class RustBluetoothPlatformAdapter(
     private var adapterOrder = 0L
     private var connectionGeneration = 0L
     private var activeDevice: DeviceId? = null
-    private var pendingConnect: NativeHostCommand? = null
     private var stopped = false
 
     /** Returns false for non-Bluetooth commands so the composite host can dispatch them. */
@@ -73,14 +72,12 @@ internal class RustBluetoothPlatformAdapter(
         val context = synchronized(lock) {
             if (stopped) return
             stopped = true
-            val value = activeDevice to pendingConnect
+            val value = activeDevice
             activeDevice = null
-            pendingConnect = null
             value
         }
         bluetooth.stopDiscovery()
-        context.first?.let(bluetooth::disconnect)
-        context.second?.let { runtime.complete(it, RESULT_CANCELLED) }
+        context?.let(bluetooth::disconnect)
     }
 
     private fun connect(command: NativeHostCommand, token: ByteArray) {
@@ -94,26 +91,22 @@ internal class RustBluetoothPlatformAdapter(
             runtime.complete(command, RESULT_UNAVAILABLE)
             return
         }
-        val replaced = synchronized(lock) {
-            val previous = pendingConnect
-            pendingConnect = command
+        synchronized(lock) {
             activeDevice = device
             connectionGeneration = Math.addExact(connectionGeneration, 1)
-            previous
         }
-        replaced?.let { runtime.complete(it, RESULT_CANCELLED) }
         bluetooth.connect(device)
+        runtime.complete(command)
     }
 
     private fun disconnect(command: NativeHostCommand, expectedGeneration: Long) {
         val context = synchronized(lock) {
-            Triple(connectionGeneration, activeDevice, pendingConnect).also { pendingConnect = null }
+            connectionGeneration to activeDevice
         }
         if (expectedGeneration != context.first || context.second == null) {
             runtime.complete(command, RESULT_CANCELLED)
             return
         }
-        context.third?.let { runtime.complete(it, RESULT_CANCELLED) }
         bluetooth.disconnect(context.second!!)
         runtime.complete(command)
     }
@@ -166,32 +159,12 @@ internal class RustBluetoothPlatformAdapter(
                     ConnectionState.DISCONNECTED -> BluetoothConnection.DISCONNECTED
                     else -> BluetoothConnection.CONNECTING
                 }
-            val pending =
-                if (
-                    mapped == BluetoothConnection.READY ||
-                    mapped == BluetoothConnection.FAILED ||
-                    mapped == BluetoothConnection.DISCONNECTED
-                ) {
-                    pendingConnect.also { pendingConnect = null }
-                } else {
-                    null
-                }
             if (mapped == BluetoothConnection.FAILED || mapped == BluetoothConnection.DISCONNECTED) {
                 activeDevice = null
             }
-            Triple(connectionGeneration, mapped, pending)
+            connectionGeneration to mapped
         }
         submit(PlatformEvent.BluetoothConnectionChanged(context.first, context.second))
-        context.third?.let {
-            runtime.complete(
-                it,
-                when (context.second) {
-                    BluetoothConnection.READY -> RESULT_SUCCESS
-                    BluetoothConnection.FAILED -> RESULT_FAILED
-                    else -> RESULT_CANCELLED
-                },
-            )
-        }
     }
 
     private fun submitNotification(event: BluetoothEvent.Notification) {

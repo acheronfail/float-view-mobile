@@ -100,9 +100,23 @@ class RustBluetoothPlatformAdapterTest {
             kind = command.kind,
             runtimeGeneration = 11,
             operationId = operation,
-            payload = PlatformCommandEnvelope(11, operation, command).encode(),
+            payload = encodeTestCommand(command),
             presentationGeneration = 0,
         )
+
+    private fun encodeTestCommand(command: PlatformCommand): ByteArray =
+        BridgeWriter().apply {
+            when (command) {
+                PlatformCommand.BluetoothStartScan, PlatformCommand.BluetoothStopScan -> Unit
+                is PlatformCommand.BluetoothConnect -> bytes(command.deviceToken, 256)
+                is PlatformCommand.BluetoothDisconnect -> i64(command.connectionGeneration)
+                is PlatformCommand.BluetoothWrite -> {
+                    i64(command.connectionGeneration)
+                    bytes(command.bytes, MAX_BRIDGE_PAYLOAD)
+                }
+                is PlatformCommand.Host -> raw(command.payload)
+            }
+        }.finish()
 }
 
 private class FakeRuntime : CorePlatformRuntime {

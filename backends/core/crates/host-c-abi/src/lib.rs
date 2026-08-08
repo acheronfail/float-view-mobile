@@ -12,7 +12,7 @@ use host_ports::{
     AdapterEvent, BluetoothAuthorization, BluetoothConnectionState, BluetoothRadio,
     LocationAuthorization, ThemePreference,
 };
-use host_runtime::{Runtime, RuntimeError, WaitCommand};
+use host_runtime::{Runtime, RuntimeError, RuntimeStartupConfig, RuntimeTransport, WaitCommand};
 
 pub type FloatViewStatus = i32;
 
@@ -244,6 +244,69 @@ pub unsafe extern "C" fn float_view_runtime_start_on_port(
     })
 }
 
+/// Starts the production composition from bounded platform-selected inputs.
+///
+/// # Safety
+/// The root and frontend pointers must cover their declared byte lengths and
+/// `generation` must point to one writable `u64`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn float_view_runtime_start_configured(
+    handle: *mut FloatViewRuntime,
+    requested_port: u16,
+    transport: u32,
+    storage_root: *const u8,
+    storage_root_len: usize,
+    frontend_index: *const u8,
+    frontend_index_len: usize,
+    generation: *mut u64,
+) -> FloatViewStatus {
+    ffi_boundary(handle, || {
+        let runtime = match runtime_for(handle) {
+            Ok(runtime) => runtime,
+            Err(status) => return status,
+        };
+        if generation.is_null() {
+            return FLOAT_VIEW_STATUS_INVALID_ARGUMENT;
+        }
+        // SAFETY: This export's caller contract is checked by copy_input.
+        let storage_root = match unsafe { copy_input(storage_root, storage_root_len, 1024) } {
+            Ok(value) => match String::from_utf8(value) {
+                Ok(value) if !value.is_empty() => value,
+                _ => return FLOAT_VIEW_STATUS_INVALID_ARGUMENT,
+            },
+            Err(status) => return status,
+        };
+        // SAFETY: This export's caller contract is checked by copy_input.
+        let frontend_index = match unsafe {
+            copy_input(
+                frontend_index,
+                frontend_index_len,
+                FLOAT_VIEW_MAX_COMPLETION_PAYLOAD,
+            )
+        } {
+            Ok(value) if !value.is_empty() => Arc::<[u8]>::from(value),
+            Ok(_) => return FLOAT_VIEW_STATUS_INVALID_ARGUMENT,
+            Err(status) => return status,
+        };
+        let transport = match transport {
+            0 => RuntimeTransport::Physical,
+            1 => RuntimeTransport::Software,
+            _ => return FLOAT_VIEW_STATUS_INVALID_ARGUMENT,
+        };
+        if let Err(error) = runtime.start_configured(RuntimeStartupConfig {
+            requested_port,
+            transport,
+            storage_root: storage_root.into(),
+            frontend_index,
+        }) {
+            return map_runtime(error);
+        }
+        // SAFETY: Checked non-null and caller promises writable storage.
+        unsafe { generation.write(runtime.generation()) };
+        FLOAT_VIEW_STATUS_OK
+    })
+}
+
 /// Starts a runtime on a requested loopback port for the explicit Android JNI facade.
 /// This Rust-symbol helper is intentionally not part of the exported C ABI.
 pub fn runtime_start_on_port_for_jni(
@@ -405,7 +468,10 @@ pub extern "C" fn float_view_runtime_submit_bluetooth_state(
             generation,
             connection_generation,
             adapter_order,
-            AdapterEvent::BluetoothState { radio, authorization },
+            AdapterEvent::BluetoothState {
+                radio,
+                authorization,
+            },
         )
     })
 }

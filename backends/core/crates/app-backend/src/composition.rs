@@ -2,12 +2,14 @@ use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc::SyncSender;
 use std::thread::JoinHandle;
 use std::time::Duration;
 
 use app_coordinator::{
     ApplicationActor, DeterministicClock, DeterministicRandom, RuntimeGeneration,
 };
+use host_ports::PlatformCommand;
 use infra_loopback_server::{
     ContractDispatcher, LoopbackServer, MemoryResources, ResourceProvider, ServerConfig,
     SessionHttpApi, StaticResource, StorageSessionHttpApi, start_server,
@@ -18,6 +20,12 @@ use super::NativeBackend;
 #[cfg(feature = "software-host")]
 use super::software_host::SoftwareHost;
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum TransportMode {
+    Physical,
+    Software,
+}
+
 /// Inputs selected by either deterministic conformance adapters or a native host bootstrap.
 pub struct BackendRuntimeConfig {
     pub generation: u64,
@@ -27,6 +35,8 @@ pub struct BackendRuntimeConfig {
     pub launch_token: String,
     pub resources: Arc<dyn ResourceProvider>,
     pub application: Option<Arc<ApplicationActor>>,
+    pub transport: TransportMode,
+    pub platform_commands: Option<SyncSender<PlatformCommand>>,
 }
 
 /// One production composition shared by standalone conformance and native hosts.
@@ -52,7 +62,7 @@ impl BackendRuntime {
             CatalogStore::open(&config.storage_root)
                 .map_err(|error| format!("storage startup failed: {error:?}"))?,
         );
-        let software_host = config.application.is_none();
+        let software_host = config.transport == TransportMode::Software;
         if software_host && !cfg!(feature = "software-host") {
             return Err("software host support is not compiled into this runtime".into());
         }
@@ -91,6 +101,7 @@ impl BackendRuntime {
         let worker_stopped = Arc::clone(&stopped);
         let worker_dispatcher = Arc::clone(&dispatcher);
         let worker_application = Arc::clone(&application);
+        let platform_commands = config.platform_commands;
         let worker = std::thread::Builder::new()
             .name(
                 if software_host {
@@ -109,7 +120,7 @@ impl BackendRuntime {
                 while !worker_stopped.load(Ordering::Acquire) {
                     #[cfg(feature = "software-host")]
                     if let Some(software) = software.as_mut() {
-                        software.pump(&worker_application);
+                        software.pump(&worker_application, platform_commands.as_ref());
                     }
                     worker_dispatcher.pump();
                     std::thread::park_timeout(if software_host {

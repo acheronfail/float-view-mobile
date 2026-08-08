@@ -2,7 +2,6 @@
   import FloatViewCoreBridge
 #endif
 import Foundation
-import Security
 
 public enum ApplePlatformHostError: Error, Equatable {
   case invalidPath
@@ -13,35 +12,12 @@ public enum ApplePlatformHostError: Error, Equatable {
 
 public protocol ApplePlatformHost: AnyObject, Sendable {
   func setBackgroundLogging(_ enabled: Bool) -> Bool
-  func readResource(
-    namespace: FloatViewResourceNamespace,
-    logicalName: String,
-    maximumBytes: UInt64
-  ) throws -> Data
-  func stageDocument(
-    destination: URL,
-    maximumBytes: UInt64,
-    completion: @escaping @Sendable (Result<Void, ApplePlatformHostError>) -> Void
-  )
-  func storageRoot(_ kind: FloatViewStorageRootKind) throws -> URL
-  func availableSpace(at root: URL) throws -> UInt64
-  func monotonicMilliseconds() -> UInt64
-  func wallMilliseconds() -> Int64
-  func secureRandom(count: UInt16) throws -> Data
-  func diagnostic(stage: String, code: String)
   func presentNotificationsPermission() -> Bool
-  func presentTheme(_ theme: FloatViewThemePreference) -> Bool
-  func presentServiceState(active: Bool) -> Bool
-  func presentExport(
-    stagedURL: URL,
-    completion: @escaping @Sendable (Result<Void, ApplePlatformHostError>) -> Void
-  )
-  func cancelPendingPresentation()
 }
 
-/// Foundation-owned implementation. Platform app targets inject only the
-/// actual UIKit/AppKit presentation closures; resource and file semantics stay
-/// bounded and shared by the two Apple hosts.
+/// Retains only Apple-owned storage selection, permission presentation, and
+/// security-scoped document copying. Portable storage and resource semantics
+/// live in Rust.
 public final class ApplePlatformHostServices: ApplePlatformHost, @unchecked Sendable {
   public typealias DocumentPresenter = @Sendable (
     _ destination: URL,
@@ -54,199 +30,58 @@ public final class ApplePlatformHostServices: ApplePlatformHost, @unchecked Send
   ) -> Void
 
   private let fileManager: FileManager
-  private let resourceRoots: [FloatViewResourceNamespace: URL]
-  private let storageRoots: [FloatViewStorageRootKind: URL]
+  private let durableRoot: URL
   private let backgroundLogging: @Sendable (Bool) -> Bool
-  private let documentPresenter: DocumentPresenter?
   private let notificationPresenter: @Sendable () -> Bool
-  private let themePresenter: @Sendable (FloatViewThemePreference) -> Bool
-  private let servicePresenter: @Sendable (Bool) -> Bool
-  private let exportPresenter: ExportPresenter?
-  private let presentationCanceller: @Sendable () -> Void
-  private let diagnosticHandler: @Sendable (String, String) -> Void
 
   public init(
-    resourceRoots: [FloatViewResourceNamespace: URL],
-    storageRoots: [FloatViewStorageRootKind: URL],
+    durableRoot: URL,
     fileManager: FileManager = .default,
     backgroundLogging: @escaping @Sendable (Bool) -> Bool = { _ in false },
-    documentPresenter: DocumentPresenter? = nil,
-    notificationPresenter: @escaping @Sendable () -> Bool = { false },
-    themePresenter: @escaping @Sendable (FloatViewThemePreference) -> Bool = { _ in false },
-    servicePresenter: @escaping @Sendable (Bool) -> Bool = { _ in false },
-    exportPresenter: ExportPresenter? = nil,
-    presentationCanceller: @escaping @Sendable () -> Void = {},
-    diagnosticHandler: @escaping @Sendable (String, String) -> Void = { _, _ in }
+    notificationPresenter: @escaping @Sendable () -> Bool = { false }
   ) {
-    self.resourceRoots = resourceRoots
-    self.storageRoots = storageRoots
+    self.durableRoot = durableRoot.standardizedFileURL
     self.fileManager = fileManager
     self.backgroundLogging = backgroundLogging
-    self.documentPresenter = documentPresenter
     self.notificationPresenter = notificationPresenter
-    self.themePresenter = themePresenter
-    self.servicePresenter = servicePresenter
-    self.exportPresenter = exportPresenter
-    self.presentationCanceller = presentationCanceller
-    self.diagnosticHandler = diagnosticHandler
   }
 
   public static func standard(
-    resourceRoots: [FloatViewResourceNamespace: URL],
     fileManager: FileManager = .default,
     presentation: AppleSystemPresentation? = nil
   ) throws -> ApplePlatformHostServices {
-    guard let durable = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first,
-          let cache = fileManager.urls(for: .cachesDirectory, in: .userDomainMask).first
-    else { throw ApplePlatformHostError.unavailable }
-    let roots: [FloatViewStorageRootKind: URL] = [
-      .durable: durable.appending(path: "FloatView", directoryHint: .isDirectory),
-      .cache: cache.appending(path: "FloatView", directoryHint: .isDirectory),
-      .temporary: fileManager.temporaryDirectory.appending(
-        path: "FloatView", directoryHint: .isDirectory
-      ),
-    ]
-    guard let presentation else {
-      return ApplePlatformHostServices(
-        resourceRoots: resourceRoots,
-        storageRoots: roots,
-        fileManager: fileManager
-      )
+    guard let root = fileManager.urls(
+      for: .applicationSupportDirectory,
+      in: .userDomainMask
+    ).first else { throw ApplePlatformHostError.unavailable }
+    let notificationPresenter: @Sendable () -> Bool
+    if let presentation {
+      notificationPresenter = presentation.notificationPresenter
+    } else {
+      notificationPresenter = { false }
     }
     return ApplePlatformHostServices(
-      resourceRoots: resourceRoots,
-      storageRoots: roots,
+      durableRoot: root.appending(path: "FloatView", directoryHint: .isDirectory),
       fileManager: fileManager,
-      documentPresenter: presentation.documentPresenter,
-      notificationPresenter: presentation.notificationPresenter,
-      themePresenter: presentation.themePresenter,
-      exportPresenter: presentation.exportPresenter,
-      presentationCanceller: { presentation.cancel() }
+      notificationPresenter: notificationPresenter
     )
+  }
+
+  public func durableStorageRoot() throws -> URL {
+    do {
+      try fileManager.createDirectory(at: durableRoot, withIntermediateDirectories: true)
+      return durableRoot
+    } catch {
+      throw ApplePlatformHostError.ioFailure
+    }
   }
 
   public func setBackgroundLogging(_ enabled: Bool) -> Bool {
     backgroundLogging(enabled)
   }
 
-  public func readResource(
-    namespace: FloatViewResourceNamespace,
-    logicalName: String,
-    maximumBytes: UInt64
-  ) throws -> Data {
-    guard maximumBytes > 0,
-          maximumBytes <= UInt64(FloatViewCoreRuntime.maximumCompletionPayloadBytes),
-          Self.validLogicalName(logicalName),
-          let root = resourceRoots[namespace]
-    else { throw ApplePlatformHostError.invalidPath }
-    let resource = root.appending(path: logicalName).standardizedFileURL
-    guard Self.isDescendant(resource, of: root),
-          fileManager.isReadableFile(atPath: resource.path)
-    else { throw ApplePlatformHostError.invalidPath }
-    let size = try resource.resourceValues(forKeys: [.fileSizeKey]).fileSize
-    guard size.map({ UInt64($0) <= maximumBytes }) == true else {
-      throw ApplePlatformHostError.payloadTooLarge
-    }
-    let data = try Data(contentsOf: resource, options: .mappedIfSafe)
-    guard UInt64(data.count) <= maximumBytes else {
-      throw ApplePlatformHostError.payloadTooLarge
-    }
-    return Data(data)
-  }
-
-  public func stageDocument(
-    destination: URL,
-    maximumBytes: UInt64,
-    completion: @escaping @Sendable (Result<Void, ApplePlatformHostError>) -> Void
-  ) {
-    guard maximumBytes > 0,
-          maximumBytes <= 512 * 1024 * 1024,
-          storageRoots.values.contains(where: { Self.isDescendant(destination, of: $0) }),
-          let documentPresenter
-    else {
-      completion(.failure(.invalidPath))
-      return
-    }
-    documentPresenter(destination.standardizedFileURL, maximumBytes, completion)
-  }
-
-  public func storageRoot(_ kind: FloatViewStorageRootKind) throws -> URL {
-    guard let root = storageRoots[kind] else { throw ApplePlatformHostError.unavailable }
-    do {
-      try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
-      return root.standardizedFileURL
-    } catch {
-      throw ApplePlatformHostError.ioFailure
-    }
-  }
-
-  public func availableSpace(at root: URL) throws -> UInt64 {
-    let root = root.standardizedFileURL
-    guard storageRoots.values.contains(where: {
-      root == $0.standardizedFileURL || Self.isDescendant(root, of: $0)
-    }) else { throw ApplePlatformHostError.invalidPath }
-    do {
-      let values = try root.resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey])
-      guard let capacity = values.volumeAvailableCapacityForImportantUsage, capacity >= 0 else {
-        throw ApplePlatformHostError.unavailable
-      }
-      return UInt64(capacity)
-    } catch let error as ApplePlatformHostError {
-      throw error
-    } catch {
-      throw ApplePlatformHostError.ioFailure
-    }
-  }
-
-  public func monotonicMilliseconds() -> UInt64 {
-    DispatchTime.now().uptimeNanoseconds / 1_000_000
-  }
-
-  public func wallMilliseconds() -> Int64 {
-    Int64(Date().timeIntervalSince1970 * 1_000)
-  }
-
-  public func secureRandom(count: UInt16) throws -> Data {
-    guard count > 0, count <= 256 else { throw ApplePlatformHostError.payloadTooLarge }
-    var bytes = [UInt8](repeating: 0, count: Int(count))
-    guard SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes) == errSecSuccess else {
-      throw ApplePlatformHostError.unavailable
-    }
-    return Data(bytes)
-  }
-
-  public func diagnostic(stage: String, code: String) {
-    diagnosticHandler(stage, code)
-  }
-
   public func presentNotificationsPermission() -> Bool {
     notificationPresenter()
-  }
-
-  public func presentTheme(_ theme: FloatViewThemePreference) -> Bool {
-    themePresenter(theme)
-  }
-
-  public func presentServiceState(active: Bool) -> Bool {
-    servicePresenter(active)
-  }
-
-  public func presentExport(
-    stagedURL: URL,
-    completion: @escaping @Sendable (Result<Void, ApplePlatformHostError>) -> Void
-  ) {
-    guard storageRoots.values.contains(where: { Self.isDescendant(stagedURL, of: $0) }),
-          fileManager.isReadableFile(atPath: stagedURL.path),
-          let exportPresenter
-    else {
-      completion(.failure(.invalidPath))
-      return
-    }
-    exportPresenter(stagedURL.standardizedFileURL, completion)
-  }
-
-  public func cancelPendingPresentation() {
-    presentationCanceller()
   }
 
   /// Copies security-scoped input in bounded chunks and deletes partial output.
@@ -303,21 +138,5 @@ public final class ApplePlatformHostServices: ApplePlatformHost, @unchecked Send
       try? fileManager.removeItem(at: destination)
       throw ApplePlatformHostError.ioFailure
     }
-  }
-
-  private static func validLogicalName(_ value: String) -> Bool {
-    !value.isEmpty && value.utf8.count <= 128 && !value.hasPrefix("/")
-      && !value.hasPrefix("\\") && !value.contains("..") && !value.contains(":")
-      && value.split(separator: "/").allSatisfy { !$0.isEmpty && $0 != "." }
-      && value.utf8.allSatisfy {
-        ($0 >= 48 && $0 <= 57) || ($0 >= 65 && $0 <= 90) || ($0 >= 97 && $0 <= 122)
-          || $0 == 45 || $0 == 46 || $0 == 47 || $0 == 95
-      }
-  }
-
-  private static func isDescendant(_ candidate: URL, of root: URL) -> Bool {
-    let candidate = candidate.standardizedFileURL.path
-    let root = root.standardizedFileURL.path
-    return candidate == root || candidate.hasPrefix(root.hasSuffix("/") ? root : root + "/")
   }
 }

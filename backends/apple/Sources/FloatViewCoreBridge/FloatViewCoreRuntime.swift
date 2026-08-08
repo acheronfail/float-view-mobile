@@ -131,6 +131,48 @@ public final class FloatViewCoreRuntime: @unchecked Sendable {
     }
   }
 
+  public func startConfigured(
+    requestedPort: UInt16 = 0,
+    softwareTransport: Bool,
+    storageRoot: URL,
+    frontendIndex: Data,
+    handler: @escaping CommandHandler
+  ) throws {
+    guard storageRoot.isFileURL, !frontendIndex.isEmpty,
+          frontendIndex.count <= Self.maximumCompletionPayloadBytes
+    else { throw FloatViewCoreError.invalidCommand }
+    let root = Data(storageRoot.standardizedFileURL.path.utf8)
+    stateLock.lock()
+    defer { stateLock.unlock() }
+    guard let handle, !pumpStarted else {
+      throw FloatViewCoreError.native(.wrongState)
+    }
+    var generation: UInt64 = 0
+    let status = root.withUnsafeBytes { rootBytes in
+      frontendIndex.withUnsafeBytes { frontendBytes in
+        float_view_runtime_start_configured(
+          handle,
+          requestedPort,
+          softwareTransport ? 1 : 0,
+          rootBytes.baseAddress,
+          rootBytes.count,
+          frontendBytes.baseAddress,
+          frontendBytes.count,
+          &generation
+        )
+      }
+    }
+    guard status == FLOAT_VIEW_STATUS_OK else {
+      throw Self.error(status)
+    }
+    runtimeGeneration = generation
+    pumpStarted = true
+    pumpFailure = nil
+    commandQueue.async { [self] in
+      pump(handler: handler)
+    }
+  }
+
   public func replacePresentation(generation: UInt64) {
     stateLock.withLock {
       presentationGeneration = generation

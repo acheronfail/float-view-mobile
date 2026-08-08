@@ -35,7 +35,7 @@ final class RustCorePlatformAdapterTests: XCTestCase {
     )
     adapter.dispatch(connect)
     XCTAssertEqual(bluetooth.connected, [deviceID])
-    XCTAssertTrue(runtime.completions.isEmpty)
+    XCTAssertEqual(runtime.completions.map(\.resultKind), [0])
 
     adapter.receiveBluetooth(.connectionChanged(deviceID, .ready))
     let connection = try XCTUnwrap(runtime.events.last)
@@ -167,40 +167,11 @@ final class RustCorePlatformAdapterTests: XCTestCase {
       path: "float-view-host-tests-\(UUID().uuidString)", directoryHint: .isDirectory
     )
     defer { try? FileManager.default.removeItem(at: root) }
-    let resources = root.appending(path: "resources", directoryHint: .isDirectory)
-    let storage = root.appending(path: "storage", directoryHint: .isDirectory)
-    try FileManager.default.createDirectory(at: resources, withIntermediateDirectories: true)
-    try FileManager.default.createDirectory(at: storage, withIntermediateDirectories: true)
-    let frontend = Data(repeating: 0x5A, count: 475_465)
-    try frontend.write(to: resources.appending(path: "index.html"))
-    let source = resources.appending(path: "import.floatview")
-    try Data([7, 8, 9]).write(to: source)
-    let export = storage.appending(path: "export.floatview")
-    try Data([4, 5, 6]).write(to: export)
     let capture = HostPresentationCapture()
     let host = ApplePlatformHostServices(
-      resourceRoots: [.frontend: resources, .sql: resources, .softwareFixture: resources],
-      storageRoots: [.durable: storage, .cache: storage, .temporary: storage],
+      durableRoot: root,
       backgroundLogging: capture.background,
-      documentPresenter: { destination, maximum, completion in
-        do {
-          try ApplePlatformHostServices.copySecurityScopedDocument(
-            source: source,
-            destination: destination,
-            maximumBytes: maximum
-          )
-          completion(.success(()))
-        } catch let error as ApplePlatformHostError {
-          completion(.failure(error))
-        } catch {
-          completion(.failure(.ioFailure))
-        }
-      },
-      notificationPresenter: { true },
-      themePresenter: capture.theme,
-      servicePresenter: capture.service,
-      exportPresenter: capture.export,
-      diagnosticHandler: capture.diagnostic
+      notificationPresenter: { true }
     )
     let runtime = FakePlatformRuntime(generation: 77)
     let adapter = RustCorePlatformAdapter(
@@ -212,58 +183,8 @@ final class RustCorePlatformAdapterTests: XCTestCase {
     )
 
     try adapter.dispatch(hostCommand(
-      operation: 10,
-      command: .readResource(
-        namespace: .frontend,
-        logicalName: "index.html",
-        maximumBytes: 8 * 1024 * 1024
-      )
-    ))
-    XCTAssertEqual(runtime.completions.last?.payload, frontend)
-    XCTAssertThrowsError(try host.readResource(
-      namespace: .frontend,
-      logicalName: "../secret",
-      maximumBytes: 100
-    ))
-
-    let staged = storage.appending(path: "staging/import.floatview")
-    try adapter.dispatch(hostCommand(
-      operation: 11,
-      command: .stageDocument(destination: staged.path, maximumBytes: 1024)
-    ))
-    XCTAssertEqual(try Data(contentsOf: staged), Data([7, 8, 9]))
-    try adapter.dispatch(hostCommand(
-      operation: 12,
-      command: .resolveStorageRoot(kind: .durable)
-    ))
-    XCTAssertEqual(
-      try String(data: XCTUnwrap(runtime.completions.last?.payload), encoding: .utf8),
-      storage.path
-    )
-    try adapter.dispatch(hostCommand(operation: 13, command: .availableSpace(root: storage.path)))
-    XCTAssertEqual(runtime.completions.last?.payload.count, 8)
-    try adapter.dispatch(hostCommand(operation: 14, command: .monotonicClock))
-    XCTAssertEqual(runtime.completions.last?.payload.count, 8)
-    try adapter.dispatch(hostCommand(operation: 15, command: .wallClock))
-    XCTAssertEqual(runtime.completions.last?.payload.count, 8)
-    try adapter.dispatch(hostCommand(operation: 16, command: .secureRandom(count: 32)))
-    XCTAssertEqual(runtime.completions.last?.payload.count, 32)
-    try adapter.dispatch(hostCommand(
       operation: 17,
       command: .setBackgroundLogging(enabled: true)
-    ))
-    try adapter.dispatch(hostCommand(
-      operation: 18,
-      command: .diagnostic(stage: "storage", code: "open_failed")
-    ))
-    try adapter.dispatch(hostCommand(operation: 19, command: .presentTheme(theme: .dark)))
-    try adapter.dispatch(hostCommand(
-      operation: 20,
-      command: .presentServiceState(active: true)
-    ))
-    try adapter.dispatch(hostCommand(
-      operation: 21,
-      command: .presentExport(stagedPath: export.path)
     ))
     try adapter.dispatch(hostCommand(
       operation: 22,
@@ -273,12 +194,8 @@ final class RustCorePlatformAdapterTests: XCTestCase {
       )
     ))
     XCTAssertEqual(capture.backgroundValues, [true])
-    XCTAssertEqual(capture.themes, [.dark])
-    XCTAssertEqual(capture.serviceValues, [true])
-    XCTAssertEqual(capture.exportURLs, [export])
     XCTAssertEqual(capture.readyEndpoints, try [XCTUnwrap(URL(string: "http://127.0.0.1:41234"))])
     XCTAssertEqual(capture.readyTokens, ["opaque-launch-token"])
-    XCTAssertEqual(capture.diagnostics.count, 1)
 
     adapter.updateLifecycle(foreground: false, backgroundEligible: true)
     adapter.updateLoggingService(active: true)
@@ -292,45 +209,61 @@ final class RustCorePlatformAdapterTests: XCTestCase {
     XCTAssertEqual(events.map(\.adapterOrder), [1, 2, 3])
   }
 
-  func testShutdownCancelsPendingPresentationAndIgnoresLateResult() throws {
-    let runtime = FakePlatformRuntime(generation: 77)
-    let host = FakeApplePlatformHost(holdPresentations: true)
-    let adapter = RustCorePlatformAdapter(
-      runtime: runtime,
-      bluetooth: FakeBluetoothPort(),
-      location: FakeLocationPort(),
-      platformHost: host
-    )
-    try adapter.dispatch(hostCommand(
-      operation: 40,
-      command: .stageDocument(destination: "/tmp/float-view-stage", maximumBytes: 1024)
-    ))
-    XCTAssertTrue(runtime.completions.isEmpty)
-    XCTAssertNotNil(host.pendingCompletion)
-
-    adapter.shutdown()
-    XCTAssertEqual(runtime.completions.map(\.resultKind), [1])
-    XCTAssertEqual(host.cancelCount, 1)
-    host.pendingCompletion?(.success(()))
-    XCTAssertEqual(runtime.completions.map(\.resultKind), [1])
-  }
-
   private func hostCommand(
     generation: UInt64 = 77,
     operation: UInt64,
     command: FloatViewPlatformCommand
   ) throws -> FloatViewHostCommand {
-    let payload = try FloatViewPlatformCommandEnvelope(
-      runtimeGeneration: generation,
-      operationID: operation,
-      command: command
-    ).encode()
+    let payload = try TestCommandEncoder.encode(command)
     return FloatViewHostCommand(
       kind: command.bridgeKind,
       runtimeGeneration: generation,
       operationID: operation,
       payload: payload
     )
+  }
+}
+
+private enum TestCommandEncoder {
+  static func encode(_ command: FloatViewPlatformCommand) throws -> Data {
+    var writer = Writer()
+    switch command {
+    case .bluetoothStartScan, .bluetoothStopScan, .locationStop, .presentSettings:
+      break
+    case let .bluetoothConnect(deviceToken):
+      try writer.bytes(deviceToken, maximum: 256)
+    case let .bluetoothDisconnect(connectionGeneration):
+      writer.u64(connectionGeneration)
+    case let .bluetoothWrite(connectionGeneration, bytes):
+      writer.u64(connectionGeneration)
+      try writer.bytes(bytes, maximum: FloatViewCoreRuntime.maximumPayloadBytes)
+    case let .locationStart(background), let .setBackgroundLogging(background):
+      writer.data.append(background ? 1 : 0)
+    case let .presentPermission(permission):
+      writer.data.append(permission.rawValue)
+    case let .runtimeReady(endpoint, launchToken):
+      try writer.bytes(Data(endpoint.utf8), maximum: 256)
+      try writer.bytes(Data(launchToken.utf8), maximum: 128)
+    }
+    return writer.data
+  }
+
+  private struct Writer {
+    var data = Data()
+
+    mutating func u64(_ value: UInt64) {
+      var encoded = value.bigEndian
+      withUnsafeBytes(of: &encoded) { data.append(contentsOf: $0) }
+    }
+
+    mutating func bytes(_ value: Data, maximum: Int) throws {
+      guard !value.isEmpty, value.count <= maximum, let count = UInt32(exactly: value.count) else {
+        throw FloatViewBridgeCodecError.payloadTooLarge
+      }
+      var encoded = count.bigEndian
+      withUnsafeBytes(of: &encoded) { data.append(contentsOf: $0) }
+      data.append(value)
+    }
   }
 }
 
@@ -482,30 +415,10 @@ private final class DiagnosticCapture: @unchecked Sendable {
 private final class HostPresentationCapture: @unchecked Sendable {
   private let lock = NSLock()
   private var storedBackground: [Bool] = []
-  private var storedThemes: [FloatViewThemePreference] = []
-  private var storedService: [Bool] = []
-  private var storedExports: [URL] = []
-  private var storedDiagnostics: [(String, String)] = []
   private var storedReady: [(URL, String)] = []
 
   var backgroundValues: [Bool] {
     lock.withLock { storedBackground }
-  }
-
-  var themes: [FloatViewThemePreference] {
-    lock.withLock { storedThemes }
-  }
-
-  var serviceValues: [Bool] {
-    lock.withLock { storedService }
-  }
-
-  var exportURLs: [URL] {
-    lock.withLock { storedExports }
-  }
-
-  var diagnostics: [(String, String)] {
-    lock.withLock { storedDiagnostics }
   }
 
   var readyEndpoints: [URL] {
@@ -521,114 +434,16 @@ private final class HostPresentationCapture: @unchecked Sendable {
     return true
   }
 
-  func theme(_ value: FloatViewThemePreference) -> Bool {
-    lock.withLock { storedThemes.append(value) }
-    return true
-  }
-
-  func service(_ value: Bool) -> Bool {
-    lock.withLock { storedService.append(value) }
-    return true
-  }
-
-  func export(
-    _ url: URL,
-    _ completion: @escaping @Sendable (Result<Void, ApplePlatformHostError>) -> Void
-  ) {
-    lock.withLock { storedExports.append(url) }
-    completion(.success(()))
-  }
-
-  func diagnostic(_ stage: String, _ code: String) {
-    lock.withLock { storedDiagnostics.append((stage, code)) }
-  }
-
   func ready(_ endpoint: URL, _ token: String) {
     lock.withLock { storedReady.append((endpoint, token)) }
   }
 }
 
 private final class FakeApplePlatformHost: ApplePlatformHost, @unchecked Sendable {
-  private let holdPresentations: Bool
-  private let lock = NSLock()
-  private var storedPending: (@Sendable (Result<Void, ApplePlatformHostError>) -> Void)?
-  private var storedCancelCount = 0
-
-  init(holdPresentations: Bool = false) {
-    self.holdPresentations = holdPresentations
-  }
-
-  var pendingCompletion: (@Sendable (Result<Void, ApplePlatformHostError>) -> Void)? {
-    lock.withLock { storedPending }
-  }
-
-  var cancelCount: Int {
-    lock.withLock { storedCancelCount }
-  }
-
   func setBackgroundLogging(_: Bool) -> Bool {
     true
   }
-
-  func readResource(
-    namespace _: FloatViewResourceNamespace,
-    logicalName _: String,
-    maximumBytes _: UInt64
-  ) throws -> Data {
-    Data([1])
-  }
-
-  func stageDocument(
-    destination _: URL,
-    maximumBytes _: UInt64,
-    completion: @escaping @Sendable (Result<Void, ApplePlatformHostError>) -> Void
-  ) {
-    if holdPresentations { lock.withLock { storedPending = completion } }
-    else { completion(.success(())) }
-  }
-
-  func storageRoot(_: FloatViewStorageRootKind) throws -> URL {
-    FileManager.default.temporaryDirectory
-  }
-
-  func availableSpace(at _: URL) throws -> UInt64 {
-    1
-  }
-
-  func monotonicMilliseconds() -> UInt64 {
-    2
-  }
-
-  func wallMilliseconds() -> Int64 {
-    3
-  }
-
-  func secureRandom(count: UInt16) throws -> Data {
-    Data(repeating: 4, count: Int(count))
-  }
-
-  func diagnostic(stage _: String, code _: String) {}
   func presentNotificationsPermission() -> Bool {
     true
-  }
-
-  func presentTheme(_: FloatViewThemePreference) -> Bool {
-    true
-  }
-
-  func presentServiceState(active _: Bool) -> Bool {
-    true
-  }
-
-  func presentExport(
-    stagedURL _: URL,
-    completion: @escaping @Sendable (Result<Void, ApplePlatformHostError>) -> Void
-  ) {
-    if holdPresentations { lock.withLock { storedPending = completion } }
-    else { completion(.success(())) }
-  }
-
-  func cancelPendingPresentation() {
-    lock.withLock { storedCancelCount += 1 }
   }
 }

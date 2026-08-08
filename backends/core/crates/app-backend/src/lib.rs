@@ -1199,9 +1199,10 @@ impl NativeBackend {
             && existing.opaque_platform_id.as_deref() != Some(platform_id.as_str())
             && existing.opaque_platform_id.as_deref().is_some_and(|old| {
                 self.application.snapshot().is_ok_and(|snapshot| {
-                    snapshot.discovered_devices.iter().any(|device| {
-                        encode_platform_association(&device.association) == old
-                    })
+                    snapshot
+                        .discovered_devices
+                        .iter()
+                        .any(|device| encode_platform_association(&device.association) == old)
                 })
             })
         {
@@ -2554,16 +2555,9 @@ impl NativeBackend {
         let association = snapshot
             .discovered_devices
             .iter()
-            .find(|device| {
-                public_discovery_id(snapshot.instance_nonce, &device.association) == id
-            })
+            .find(|device| public_discovery_id(snapshot.instance_nonce, &device.association) == id)
             .map(|device| device.association.clone())
-            .ok_or_else(|| {
-                ContractError::new(
-                "not_found",
-                "Device is no longer available",
-                )
-            })?;
+            .ok_or_else(|| ContractError::new("not_found", "Device is no longer available"))?;
         let sampling = self.current_sampling_settings()?;
         let ownership = if tracking_mode == TrackingMode::Saved {
             ConnectionOwnership::PendingSaved
@@ -3354,10 +3348,7 @@ fn encode_platform_association(association: &PlatformAssociation) -> String {
     value
 }
 
-fn public_discovery_id(
-    instance_nonce: [u8; 16],
-    association: &PlatformAssociation,
-) -> String {
+fn public_discovery_id(instance_nonce: [u8; 16], association: &PlatformAssociation) -> String {
     let mut identity = Vec::with_capacity(instance_nonce.len() + association.as_bytes().len());
     identity.extend_from_slice(&instance_nonce);
     identity.extend_from_slice(association.as_bytes());
@@ -4225,7 +4216,10 @@ mod composition_tests {
         let uuid = FirmwareDeviceUuid::new([0xab; 12]).unwrap();
         let repeated = firmware_board_ids(uuid);
         assert_eq!(repeated, firmware_board_ids(uuid));
-        assert_ne!(repeated, firmware_board_ids(FirmwareDeviceUuid::new([0xac; 12]).unwrap()));
+        assert_ne!(
+            repeated,
+            firmware_board_ids(FirmwareDeviceUuid::new([0xac; 12]).unwrap())
+        );
 
         let raw_uuid = "ab".repeat(12);
         assert!(!repeated.0.contains(&raw_uuid));
@@ -4503,6 +4497,8 @@ mod composition_tests {
                 launch_token: format!("composition-token-{generation}"),
                 resources: standalone_resources(),
                 application: None,
+                transport: TransportMode::Software,
+                platform_commands: None,
             })
             .await
             .unwrap();

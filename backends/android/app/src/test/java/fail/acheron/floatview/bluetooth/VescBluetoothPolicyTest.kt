@@ -1,25 +1,11 @@
 package fail.acheron.floatview.bluetooth
 
-import fail.acheron.floatview.backend.DeviceId
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class VescBluetoothPolicyTest {
-    @Test
-    fun `discovery publishes only UART or exact saved identity`() {
-        val saved = DeviceId("saved")
-        assertTrue(VescBluetoothPolicy.shouldPublish(true, DeviceId("unknown"), emptySet()))
-        assertTrue(VescBluetoothPolicy.shouldPublish(false, saved, setOf(saved)))
-        assertFalse(
-            VescBluetoothPolicy.shouldPublish(false, DeviceId("unknown"), setOf(saved)),
-        )
-        // A restarted adapter recovers only identifiers loaded from persistence.
-        assertTrue(VescBluetoothPolicy.shouldPublish(false, saved, setOf(saved)))
-        assertFalse(VescBluetoothPolicy.shouldPublish(false, saved, emptySet()))
-    }
-
     @Test
     fun `writes use default and enlarged payloads within queue bounds`() {
         val bytes = ByteArray(50) { it.toByte() }

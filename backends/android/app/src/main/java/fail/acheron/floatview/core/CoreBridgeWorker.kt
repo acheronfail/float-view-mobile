@@ -1,5 +1,6 @@
 package fail.acheron.floatview.core
 
+import java.io.File
 import java.io.Closeable
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
@@ -26,6 +27,9 @@ internal interface CorePlatformRuntime {
  */
 internal class ProcessCoreBridge(
     requestedPort: Int = 0,
+    softwareTransport: Boolean,
+    storageRoot: File,
+    frontendIndex: ByteArray,
     onCommand: (NativeHostCommand) -> Unit,
 ) :
     CorePlatformRuntime,
@@ -40,7 +44,16 @@ internal class ProcessCoreBridge(
     init {
         NativeCore.requireCompatibleLibrary()
         handle = NativeCore.create().also { check(it > 0) }
-        check(NativeCore.start(handle, requestedPort, generation) == STATUS_OK)
+        check(
+            NativeCore.startConfigured(
+                handle,
+                requestedPort,
+                if (softwareTransport) 1 else 0,
+                storageRoot.canonicalPath.encodeToByteArray(),
+                frontendIndex.copyOf(),
+                generation,
+            ) == STATUS_OK,
+        )
         worker = Thread(::pump, "float-view-core-command-pump").also { it.start() }
     }
 

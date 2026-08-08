@@ -3,8 +3,9 @@ use domain_types::{PlatformAssociation, RuntimeGeneration};
 use host_ports::{
     AdapterEvent, BluetoothAuthorization, BluetoothConnectionState, BluetoothNotification,
     BluetoothRadio, CompletionStatus, HostCommand, LocationAuthorization, OperationCompletion,
-    PermissionKind, PlatformEvent,
+    PermissionKind, PlatformCommand, PlatformEvent,
 };
+use std::sync::mpsc::SyncSender;
 use test_software_adapters::SoftwareVescPeripheral;
 
 #[derive(Default)]
@@ -15,10 +16,18 @@ pub(crate) struct SoftwareHost {
 }
 
 impl SoftwareHost {
-    pub(crate) fn pump(&mut self, application: &ApplicationActor) {
+    pub(crate) fn pump(
+        &mut self,
+        application: &ApplicationActor,
+        platform_commands: Option<&SyncSender<PlatformCommand>>,
+    ) {
         let Ok(Some(command)) = application.try_host_command() else {
             return;
         };
+        if platform_commands.is_some() && !Self::owns(&command.command) {
+            let _ = platform_commands.expect("checked above").try_send(command);
+            return;
+        }
         let generation = command.generation;
         let operation = command.operation;
         let accepted = self
@@ -34,6 +43,20 @@ impl SoftwareHost {
             },
             payload: Vec::new(),
         });
+    }
+
+    fn owns(command: &HostCommand) -> bool {
+        matches!(
+            command,
+            HostCommand::BluetoothStartScan
+                | HostCommand::BluetoothStopScan
+                | HostCommand::BluetoothConnect { .. }
+                | HostCommand::BluetoothDisconnect { .. }
+                | HostCommand::BluetoothWrite { .. }
+                | HostCommand::PresentPermission {
+                    permission: PermissionKind::Bluetooth
+                }
+        )
     }
 
     fn handle(
@@ -133,18 +156,7 @@ impl SoftwareHost {
             ),
             HostCommand::BluetoothStopScan
             | HostCommand::LocationStop
-            | HostCommand::ReadResource { .. }
-            | HostCommand::StageDocument { .. }
-            | HostCommand::ResolveStorageRoot { .. }
-            | HostCommand::AvailableSpace { .. }
-            | HostCommand::MonotonicClock
-            | HostCommand::WallClock
-            | HostCommand::SecureRandom { .. }
-            | HostCommand::Diagnostic { .. }
             | HostCommand::PresentSettings
-            | HostCommand::PresentTheme { .. }
-            | HostCommand::PresentServiceState { .. }
-            | HostCommand::PresentExport { .. }
             | HostCommand::RuntimeReady { .. } => Ok(()),
         }
     }

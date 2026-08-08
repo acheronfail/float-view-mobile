@@ -36,7 +36,6 @@ public final class CoreBluetoothAdapter: NSObject, BluetoothPort, @unchecked Sen
   private var pendingWrites: [Data] = []
   private var pendingWriteBytes = 0
   private var writeInFlight = false
-  private var savedDeviceIDs: Set<DeviceID> = []
   private var setupDeadline: DispatchWorkItem?
   private var connectionGeneration: UInt64 = 0
 
@@ -91,14 +90,13 @@ public final class CoreBluetoothAdapter: NSObject, BluetoothPort, @unchecked Sen
     queue.async { [self] in central.stopScan() }
   }
 
-  public func configureSavedDeviceIDs(_ deviceIDs: Set<DeviceID>) {
-    queue.async { [self] in savedDeviceIDs = deviceIDs }
-  }
-
   public func connect(_ deviceID: DeviceID) {
     queue.async { [self] in
+      let peripheral = peripheralsByID[deviceID] ?? UUID(uuidString: deviceID.value).flatMap {
+        central.retrievePeripherals(withIdentifiers: [$0]).first
+      }
       guard activePeripheral == nil || activeDeviceID == deviceID,
-            let peripheral = peripheralsByID[deviceID]
+            let peripheral
       else {
         eventHandler(.connectionChanged(deviceID, .failed))
         return
@@ -314,13 +312,7 @@ extension CoreBluetoothAdapter: CBCentralManagerDelegate {
     peripheralsByID[deviceID] = peripheral
     let advertisedServices = advertisementData[CBAdvertisementDataServiceUUIDsKey]
       as? [CBUUID] ?? []
-    guard VescBluetoothPolicy.shouldPublish(
-      advertisesUART: advertisedServices.contains(Self.serviceUUID),
-      deviceID: deviceID,
-      savedDeviceIDs: savedDeviceIDs
-    ) else {
-      return
-    }
+    guard advertisedServices.contains(Self.serviceUUID) else { return }
     let advertisedName = advertisementData[CBAdvertisementDataLocalNameKey] as? String
     eventHandler(
       .deviceFound(

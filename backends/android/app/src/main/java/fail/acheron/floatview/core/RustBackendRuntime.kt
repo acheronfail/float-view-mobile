@@ -9,12 +9,11 @@ import fail.acheron.floatview.FloatViewApplication
 import fail.acheron.floatview.LocationPermissionBroker
 import fail.acheron.floatview.LoggingForegroundService
 import fail.acheron.floatview.bluetooth.AndroidBluetoothAdapter
-import fail.acheron.floatview.bluetooth.SoftwareBluetoothAdapter
-import fail.acheron.floatview.bluetooth.SoftwareVescPeripheral
 import fail.acheron.floatview.isEmulator
 import fail.acheron.floatview.location.AndroidLocationProvider
 import fail.acheron.floatview.location.LocationPermissionRequester
 import java.io.Closeable
+import java.util.concurrent.ConcurrentLinkedQueue
 import java.util.concurrent.atomic.AtomicReference
 
 /** Exactly one Rust backend/runtime graph owned by the Android Application process. */
@@ -22,18 +21,19 @@ internal class RustBackendRuntime(private val application: FloatViewApplication)
     val permissionBroker = BluetoothPermissionBroker(application)
     val locationPermissionBroker = LocationPermissionBroker()
     val presentationBroker = AndroidPresentationBroker(application)
-    private val commandRelay = AtomicReference<(NativeHostCommand) -> Unit>({})
+    private val pendingCommands = ConcurrentLinkedQueue<NativeHostCommand>()
+    private val commandRelay = AtomicReference<(NativeHostCommand) -> Unit>({ pendingCommands.add(it) })
     private val bluetoothRelay = AtomicReference<(fail.acheron.floatview.backend.BluetoothEvent) -> Unit>({})
-    private val core = ProcessCoreBridge(ANDROID_BACKEND_PORT) { command -> commandRelay.get().invoke(command) }
+    private val softwareTransport = isEmulator()
+    private val core = ProcessCoreBridge(
+        requestedPort = ANDROID_BACKEND_PORT,
+        softwareTransport = softwareTransport,
+        storageRoot = java.io.File(application.filesDir, "float-view"),
+        frontendIndex = application.assets.open("index.html").use { it.readBytes() },
+    ) { command -> commandRelay.get().invoke(command) }
     private val bluetoothPort =
-        if (isEmulator()) {
-            val peripheral = SoftwareVescPeripheral { path ->
-                application.assets.open("refloat-configuration/$path").use { it.readBytes() }
-            }
-            SoftwareBluetoothAdapter(
-                { event -> bluetoothRelay.get().invoke(event) },
-                peripheral::response,
-            )
+        if (softwareTransport) {
+            InactiveBluetoothPort
         } else {
             AndroidBluetoothAdapter(
                 application,
@@ -53,23 +53,24 @@ internal class RustBackendRuntime(private val application: FloatViewApplication)
             else LoggingForegroundService.stop(application)
             true
         },
-        documentPresenter = presentationBroker::selectDocument,
         notificationPresenter = presentationBroker::presentNotificationsPermission,
-        themePresenter = presentationBroker::presentTheme,
-        servicePresenter = presentationBroker::presentServiceState,
-        exportPresenter = presentationBroker::presentExport,
         readyPresenter = presentationBroker::runtimeReady,
-        presentationCanceller = presentationBroker::cancelPending,
         diagnosticHandler = ::diagnostic,
     )
     private val platform = RustAndroidPlatformAdapter(core, bluetooth, location, host)
 
     init {
         commandRelay.set(platform::dispatch)
+        while (true) {
+            val command = pendingCommands.poll() ?: break
+            platform.dispatch(command)
+        }
         bluetoothRelay.set(bluetooth::receive)
-        bluetooth.receive(
-            fail.acheron.floatview.backend.BluetoothEvent.StateChanged(bluetoothPort.currentState()),
-        )
+        if (!softwareTransport) {
+            bluetooth.receive(
+                fail.acheron.floatview.backend.BluetoothEvent.StateChanged(bluetoothPort.currentState()),
+            )
+        }
     }
 
     fun attach(
@@ -128,4 +129,18 @@ internal class RustBackendRuntime(private val application: FloatViewApplication)
         value.lowercase().map { character ->
             if (character.isLetterOrDigit() || character in "_-." ) character else '_'
         }.take(64).joinToString("")
+}
+
+private object InactiveBluetoothPort : fail.acheron.floatview.backend.BluetoothPort {
+    override fun currentState() = fail.acheron.floatview.backend.BluetoothState(
+        fail.acheron.floatview.backend.BluetoothRadioState.UNKNOWN,
+        fail.acheron.floatview.backend.BluetoothPermissionState.UNKNOWN,
+        fail.acheron.floatview.backend.BluetoothPermissionState.UNKNOWN,
+    )
+    override fun requestPermission() = Unit
+    override fun startDiscovery() = Unit
+    override fun stopDiscovery() = Unit
+    override fun connect(deviceId: fail.acheron.floatview.backend.DeviceId) = Unit
+    override fun write(deviceId: fail.acheron.floatview.backend.DeviceId, bytes: ByteArray) = Unit
+    override fun disconnect(deviceId: fail.acheron.floatview.backend.DeviceId) = Unit
 }

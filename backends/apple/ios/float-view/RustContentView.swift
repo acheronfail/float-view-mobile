@@ -65,12 +65,10 @@ private final class IOSRustRuntimeOwner: @unchecked Sendable {
     let runtime = try FloatViewCoreRuntime()
     let relay = RustBluetoothRelay()
     #if targetEnvironment(simulator)
-      let peripheral = SoftwareVescPeripheral()
-      let bluetooth: any BluetoothPort = SoftwareBluetoothAdapter(
-        eventHandler: { event in relay.emit(event) },
-        responseHandler: { bytes in peripheral.response(to: bytes) }
-      )
+      let softwareTransport = true
+      let bluetooth: any BluetoothPort = InactiveBluetoothPort()
     #else
+      let softwareTransport = false
       let bluetooth: any BluetoothPort = CoreBluetoothAdapter(
         eventHandler: { event in relay.emit(event) },
         diagnosticHandler: { diagnostic in
@@ -81,13 +79,8 @@ private final class IOSRustRuntimeOwner: @unchecked Sendable {
         restorationIdentifier: "fail.acheron.float-view.rust-bluetooth-central"
       )
     #endif
-    let resources = Bundle.main.resourceURL!
     let presentation = AppleSystemPresentation()
-    let host = try ApplePlatformHostServices.standard(resourceRoots: [
-      .frontend: resources,
-      .sql: resources,
-      .softwareFixture: resources,
-    ], presentation: presentation)
+    let host = try ApplePlatformHostServices.standard(presentation: presentation)
     let adapter = RustCorePlatformAdapter(
       runtime: runtime,
       bluetooth: bluetooth,
@@ -101,7 +94,13 @@ private final class IOSRustRuntimeOwner: @unchecked Sendable {
     self.presentation = presentation
     let requestedPort = ProcessInfo.processInfo.environment["FLOAT_VIEW_CONFORMANCE_PORT"]
       .flatMap(UInt16.init) ?? 0
-    try runtime.start(requestedPort: requestedPort) { command in adapter.dispatch(command) }
+    let index = Bundle.main.url(forResource: "index", withExtension: "html")!
+    try runtime.startConfigured(
+      requestedPort: requestedPort,
+      softwareTransport: softwareTransport,
+      storageRoot: host.durableStorageRoot(),
+      frontendIndex: Data(contentsOf: index)
+    ) { command in adapter.dispatch(command) }
     relay.setHandler { event in adapter.receiveBluetooth(event) }
   }
 

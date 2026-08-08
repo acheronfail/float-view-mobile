@@ -10,7 +10,6 @@ import fail.acheron.floatview.backend.LocationProviderBackgroundCapture
 import fail.acheron.floatview.backend.LocationProviderObservation
 import fail.acheron.floatview.backend.LocationProviderPort
 import fail.acheron.floatview.backend.LocationProviderState
-import java.io.File
 import java.time.Instant
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -18,7 +17,7 @@ import org.junit.Test
 
 class RustAndroidPlatformAdapterTest {
     @Test
-    fun dispatchesLocationLifecycleClockAndValidatedRuntimeReadiness() {
+    fun dispatchesLocationLifecycleAndValidatedRuntimeReadiness() {
         val runtime = HostFakeRuntime()
         val bluetooth = RustBluetoothPlatformAdapter(runtime, HostFakeBluetooth())
         val location = HostFakeLocation()
@@ -37,10 +36,7 @@ class RustAndroidPlatformAdapterTest {
             runtime.events.last().event,
         )
 
-        adapter.dispatch(hostCommand(2, 13))
-        assertEquals(8, runtime.completions.single { it.first == 2L }.third.size)
-
-        adapter.dispatch(hostCommand(3, 22) {
+        adapter.dispatch(hostCommand(3, 11) {
             bytes("http://127.0.0.1:32123".encodeToByteArray(), 256)
             bytes("launch-token".encodeToByteArray(), 128)
         })
@@ -48,7 +44,7 @@ class RustAndroidPlatformAdapterTest {
         assertEquals("launch-token", host.token)
         assertEquals(0, runtime.completions.single { it.first == 3L }.second)
 
-        adapter.dispatch(hostCommand(4, 22) {
+        adapter.dispatch(hostCommand(4, 11) {
             bytes("https://example.com".encodeToByteArray(), 256)
             bytes("secret".encodeToByteArray(), 128)
         })
@@ -65,7 +61,7 @@ class RustAndroidPlatformAdapterTest {
             tag,
             17,
             operation,
-            PlatformCommandEnvelope(17, operation, PlatformCommand.Host(tag, writer.finish())).encode(),
+            writer.finish(),
             0,
         )
     }
@@ -125,22 +121,11 @@ private class HostFakePlatformHost : AndroidPlatformHost {
     var endpoint: String? = null
     var token: String? = null
     override fun setBackgroundLogging(enabled: Boolean) = true
-    override fun readResource(namespace: ResourceNamespace, logicalName: String, maximumBytes: Long) = byteArrayOf(1)
-    override fun stageDocument(destination: File, maximumBytes: Long, completion: (AndroidPlatformHostError?) -> Unit) = completion(null)
-    override fun storageRoot(kind: StorageRootKind) = File("/tmp/core")
-    override fun availableSpace(root: File) = 1024L
-    override fun monotonicMilliseconds() = 123L
-    override fun wallMilliseconds() = 456L
-    override fun secureRandom(count: Int) = ByteArray(count) { 7 }
     override fun diagnostic(stage: String, code: String) = Unit
     override fun presentNotificationsPermission() = true
-    override fun presentTheme(theme: PlatformTheme) = true
-    override fun presentServiceState(active: Boolean) = true
-    override fun presentExport(stagedFile: File, completion: (AndroidPlatformHostError?) -> Unit) = completion(null)
     override fun runtimeReady(endpoint: String, launchToken: String): Boolean {
         this.endpoint = endpoint
         token = launchToken
         return true
     }
-    override fun cancelPendingPresentation() = Unit
 }

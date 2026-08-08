@@ -21,7 +21,7 @@
 
 - [x] 3.1 Refactor `host-ports` so the outer command header kind is the actual platform command discriminator and payloads no longer repeat runtime generation, operation identifier, or an inner command tag.
 - [x] 3.2 Implement the selected focused platform-event ABI with fixed-width bounded values and retain the dedicated raw Bluetooth notification submission.
-- [ ] 3.3 Define command completion semantics so host completion reports OS acceptance/failure while ordered transport events drive Rust connection readiness and terminal application state.
+- [x] 3.3 Define command completion semantics so host completion reports OS acceptance/failure while ordered transport events drive Rust connection readiness and terminal application state.
 - [ ] 3.4 Move discovered-device deduplication, pending connect/disconnect intent, connection generation, state normalization, saved/guest policy, and bounded diagnostic normalization into Rust.
 - [ ] 3.5 Delete command kinds, event variants, resource namespaces, and compatibility decoders without reachable production owners; wire required document staging/export commands from their contract paths before retaining them.
 - [ ] 3.6 Add Rust codec/ABI vectors for every retained command payload, event submission, malformed value, maximum value, stale generation, duplicate completion, and ordering case.
@@ -36,26 +36,26 @@
 
 ## 5. Portable startup ownership
 
-- [ ] 5.1 Add a bounded runtime startup configuration for requested port, physical/software transport mode, platform-selected storage roots, and required packaged-resource inputs or access mode.
-- [ ] 5.2 Move launch-token secure randomness and production monotonic/wall clocks to Rust while retaining deterministic Rust clock/random injection for conformance.
-- [ ] 5.3 Move reachable available-space and uniformly portable filesystem checks into Rust using the existing dependency graph, or delete them when the reachability audit proves they are unused.
-- [ ] 5.4 Move canonical SQL and software fixtures to Rust-owned resources and reduce Apple bundle/Android `AssetManager` commands to packaged assets that cannot be supplied safely at startup.
-- [ ] 5.5 Remove storage-root, random, clock, resource-namespace, and other bootstrap command round trips superseded by startup configuration.
+- [x] 5.1 Add a bounded runtime startup configuration for requested port, physical/software transport mode, platform-selected storage roots, and required packaged-resource inputs or access mode.
+- [x] 5.2 Move launch-token secure randomness and production monotonic/wall clocks to Rust while retaining deterministic Rust clock/random injection for conformance.
+- [x] 5.3 Move reachable available-space and uniformly portable filesystem checks into Rust using the existing dependency graph, or delete them when the reachability audit proves they are unused.
+- [x] 5.4 Move canonical SQL and software fixtures to Rust-owned resources and reduce Apple bundle/Android `AssetManager` commands to packaged assets that cannot be supplied safely at startup.
+- [x] 5.5 Remove storage-root, random, clock, resource-namespace, and other bootstrap command round trips superseded by startup configuration.
 - [ ] 5.6 Test invalid roots/resources/modes/ports, cold startup, readiness ordering, suspend/resume, explicit stop, process restart, and absence of Bluetooth work before successful initialization.
 
 ## 6. One Rust software transport
 
-- [ ] 6.1 Extend production runtime composition to select the existing Rust software host internally and ensure software mode emits no native Bluetooth commands.
+- [x] 6.1 Extend production runtime composition to select the existing Rust software host internally and ensure software mode emits no native Bluetooth commands.
 - [ ] 6.2 Route macOS software selection, iOS simulator, Android emulator, browser-host development, and software conformance through the Rust software transport setting.
 - [ ] 6.3 Prove that software and physical modes share the same application actor, dispatcher, stores, loopback server, lifecycle handling, contract state, and shutdown graph.
 - [ ] 6.4 Add canonical software-host parity and bounded request-transcript coverage for discovery, connect, firmware identity, VESC responses, disconnect, restart, saved mode, and guest mode.
-- [ ] 6.5 Delete Swift `SoftwareVescPeripheral`/`SoftwareBluetoothAdapter`, Kotlin `SoftwareVescPeripheral`/`SoftwareBluetoothAdapter`, their native fixture loaders, duplicate tests, and dependencies used only by those paths.
-- [ ] 6.6 Ensure production physical device builds cannot select software transport except through an explicit supported debug/development configuration.
+- [x] 6.5 Delete Swift `SoftwareVescPeripheral`/`SoftwareBluetoothAdapter`, Kotlin `SoftwareVescPeripheral`/`SoftwareBluetoothAdapter`, their native fixture loaders, duplicate tests, and dependencies used only by those paths.
+- [x] 6.6 Ensure production physical device builds cannot select software transport except through an explicit supported debug/development configuration.
 
 ## 7. Apple host minimization
 
 - [x] 7.1 Convert `FloatViewCoreRuntime` to the new command header and focused event/completion calls while preserving one off-main pull worker, presentation replacement, buffer ownership, and shutdown ordering.
-- [ ] 7.2 Replace the general Swift bridge codec with retained command-specific decoders and focused event submissions; delete production command encoders and event decoders.
+- [x] 7.2 Replace the general Swift bridge codec with retained command-specific decoders and focused event submissions; delete production command encoders and event decoders.
 - [ ] 7.3 Update `CoreBluetoothAdapter` to expose only private peripheral association, OS state/GATT readiness, write backpressure, callback order, and raw notification behavior required by Rust.
 - [ ] 7.4 Remove Swift random token maps, pending application connection policy, broad bridge-domain models, unreachable saved-device configuration, and Rust-owned Bluetooth policy tests.
 - [ ] 7.5 Reduce Apple platform host services to reachable bundle/document/presentation/background responsibilities after portable startup work moves to Rust.
@@ -65,10 +65,10 @@
 ## 8. Android host minimization
 
 - [x] 8.1 Convert `ProcessCoreBridge` and `NativeCore` declarations to the new command header and focused event/completion JNI calls while preserving one process runtime and one blocking non-main worker.
-- [ ] 8.2 Replace the general Kotlin bridge codec with retained command-specific decoders and focused event submissions; delete production command encoders and event decoders.
+- [x] 8.2 Replace the general Kotlin bridge codec with retained command-specific decoders and focused event submissions; delete production command encoders and event decoders.
 - [ ] 8.3 Update `AndroidBluetoothAdapter` to expose only private BLE-address association, Android permission/radio/GATT readiness, negotiated writes, callback order, and raw notification behavior required by Rust.
 - [ ] 8.4 Remove Kotlin random token maps, pending application connection policy, broad `backend/Domain.kt` models, unreachable saved-device configuration, and Rust-owned Bluetooth policy tests.
-- [ ] 8.5 Reduce Android platform host services to reachable asset/content-URI/presentation/background responsibilities after portable startup work moves to Rust.
+- [x] 8.5 Reduce Android platform host services to reachable asset/content-URI/presentation/background responsibilities after portable startup work moves to Rust.
 - [ ] 8.6 Preserve Activity recreation, permission-result routing, foreground-service type refresh, WebView replacement, document staging, export sharing, and process shutdown using the minimized runtime owner.
 - [ ] 8.7 Update focused JVM/instrumented tests for Android Bluetooth mapping, location, presentation replacement, command dispatch, event submission, ABI identity, stale generation, and stop/wake without reverse production codecs.
 - [ ] 8.8 Pass Android unit, instrumentation, emulator software-host, lifecycle, browser-host, and canonical focused gates before deleting superseded Kotlin paths.

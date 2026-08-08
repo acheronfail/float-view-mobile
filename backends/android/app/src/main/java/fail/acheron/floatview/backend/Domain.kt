@@ -57,7 +57,6 @@ interface BluetoothPort {
     fun connect(deviceId: DeviceId)
     fun write(deviceId: DeviceId, bytes: ByteArray)
     fun disconnect(deviceId: DeviceId)
-    fun configureSavedDeviceIds(deviceIds: Set<DeviceId>) = Unit
 }
 
 enum class LocationProviderAuthorization {

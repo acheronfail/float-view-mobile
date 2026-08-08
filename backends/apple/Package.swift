@@ -13,9 +13,7 @@ let package = Package(
     .library(name: "FloatViewCoreBridge", targets: ["FloatViewCoreBridge"]),
     .executable(name: "FloatViewMac", targets: ["FloatViewMac"]),
   ],
-  dependencies: [
-    .package(path: "../fixtures/refloat-configuration"),
-  ],
+  dependencies: [],
   targets: [
     .systemLibrary(name: "CFloatViewCore"),
     .target(
@@ -27,10 +25,7 @@ let package = Package(
     ),
     .target(
       name: "FloatViewBackend",
-      dependencies: [
-        "FloatViewCoreBridge",
-        .product(name: "RefloatConfigurationFixtures", package: "refloat-configuration"),
-      ]
+      dependencies: ["FloatViewCoreBridge"]
     ),
     .executableTarget(
       name: "FloatViewMac",

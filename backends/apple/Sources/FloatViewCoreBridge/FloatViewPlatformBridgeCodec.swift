@@ -41,18 +41,6 @@ public enum FloatViewLocationAuthorization: UInt8, Sendable {
   case background = 4
 }
 
-public enum FloatViewResourceNamespace: UInt8, Sendable, Hashable {
-  case frontend = 1
-  case sql = 2
-  case softwareFixture = 3
-}
-
-public enum FloatViewStorageRootKind: UInt8, Sendable, Hashable {
-  case durable = 1
-  case cache = 2
-  case temporary = 3
-}
-
 public enum FloatViewPermissionKind: UInt8, Sendable {
   case bluetooth = 1
   case location = 2
@@ -75,23 +63,8 @@ public enum FloatViewPlatformCommand: Sendable, Equatable {
   case locationStart(background: Bool)
   case locationStop
   case setBackgroundLogging(enabled: Bool)
-  case readResource(
-    namespace: FloatViewResourceNamespace,
-    logicalName: String,
-    maximumBytes: UInt64
-  )
-  case stageDocument(destination: String, maximumBytes: UInt64)
-  case resolveStorageRoot(kind: FloatViewStorageRootKind)
-  case availableSpace(root: String)
-  case monotonicClock
-  case wallClock
-  case secureRandom(count: UInt16)
-  case diagnostic(stage: String, code: String)
   case presentPermission(permission: FloatViewPermissionKind)
   case presentSettings
-  case presentTheme(theme: FloatViewThemePreference)
-  case presentServiceState(active: Bool)
-  case presentExport(stagedPath: String)
   case runtimeReady(endpoint: String, launchToken: String)
 
   public var bridgeKind: UInt32 {
@@ -104,20 +77,9 @@ public enum FloatViewPlatformCommand: Sendable, Equatable {
     case .locationStart: 6
     case .locationStop: 7
     case .setBackgroundLogging: 8
-    case .readResource: 9
-    case .stageDocument: 10
-    case .resolveStorageRoot: 11
-    case .availableSpace: 12
-    case .monotonicClock: 13
-    case .wallClock: 14
-    case .secureRandom: 15
-    case .diagnostic: 16
-    case .presentPermission: 17
-    case .presentSettings: 18
-    case .presentTheme: 19
-    case .presentServiceState: 20
-    case .presentExport: 21
-    case .runtimeReady: 22
+    case .presentPermission: 9
+    case .presentSettings: 10
+    case .runtimeReady: 11
     }
   }
 }
@@ -137,69 +99,6 @@ public struct FloatViewPlatformCommandEnvelope: Sendable, Equatable {
     self.command = command
   }
 
-  public func encode() throws -> Data {
-    var writer = BridgeWriter()
-    switch command {
-    case .bluetoothStartScan:
-      break
-    case .bluetoothStopScan:
-      break
-    case let .bluetoothConnect(deviceToken):
-      guard !deviceToken.isEmpty, deviceToken.count <= 256 else {
-        throw FloatViewBridgeCodecError.payloadTooLarge
-      }
-      try writer.bytes(deviceToken)
-    case let .bluetoothDisconnect(connectionGeneration):
-      try writer.u64(connectionGeneration)
-    case let .bluetoothWrite(connectionGeneration, bytes):
-      guard !bytes.isEmpty, bytes.count <= FloatViewCoreRuntime.maximumPayloadBytes else {
-        throw FloatViewBridgeCodecError.payloadTooLarge
-      }
-      try writer.u64(connectionGeneration)
-      try writer.bytes(bytes)
-    case let .locationStart(background):
-      try writer.boolean(background)
-    case .locationStop:
-      break
-    case let .setBackgroundLogging(enabled):
-      try writer.boolean(enabled)
-    case let .readResource(namespace, logicalName, maximumBytes):
-      try writer.u8(namespace.rawValue)
-      try writer.string(logicalName, maximum: 128)
-      try writer.u64(maximumBytes)
-    case let .stageDocument(destination, maximumBytes):
-      try writer.string(destination, maximum: 1024)
-      try writer.u64(maximumBytes)
-    case let .resolveStorageRoot(kind):
-      try writer.u8(kind.rawValue)
-    case let .availableSpace(root):
-      try writer.string(root, maximum: 1024)
-    case .monotonicClock:
-      break
-    case .wallClock:
-      break
-    case let .secureRandom(count):
-      try writer.u16(count)
-    case let .diagnostic(stage, code):
-      try writer.string(stage, maximum: floatViewMaximumDiagnosticBytes)
-      try writer.string(code, maximum: floatViewMaximumDiagnosticBytes)
-    case let .presentPermission(permission):
-      try writer.u8(permission.rawValue)
-    case .presentSettings:
-      break
-    case let .presentTheme(theme):
-      try writer.u8(theme.rawValue)
-    case let .presentServiceState(active):
-      try writer.boolean(active)
-    case let .presentExport(stagedPath):
-      try writer.string(stagedPath, maximum: 1024)
-    case let .runtimeReady(endpoint, launchToken):
-      try writer.string(endpoint, maximum: 256)
-      try writer.string(launchToken, maximum: 128)
-    }
-    return writer.data
-  }
-
   public static func decode(
     _ hostCommand: FloatViewHostCommand
   ) throws -> FloatViewPlatformCommandEnvelope {
@@ -217,33 +116,9 @@ public struct FloatViewPlatformCommandEnvelope: Sendable, Equatable {
     case 6: try .locationStart(background: reader.boolean())
     case 7: .locationStop
     case 8: try .setBackgroundLogging(enabled: reader.boolean())
-    case 9:
-      try .readResource(
-        namespace: tagged(reader.u8()),
-        logicalName: reader.string(maximum: 128),
-        maximumBytes: reader.u64()
-      )
-    case 10:
-      try .stageDocument(
-        destination: reader.string(maximum: 1024),
-        maximumBytes: reader.u64()
-      )
-    case 11: try .resolveStorageRoot(kind: tagged(reader.u8()))
-    case 12: try .availableSpace(root: reader.string(maximum: 1024))
-    case 13: .monotonicClock
-    case 14: .wallClock
-    case 15: try .secureRandom(count: reader.u16())
-    case 16:
-      try .diagnostic(
-        stage: reader.string(maximum: floatViewMaximumDiagnosticBytes),
-        code: reader.string(maximum: floatViewMaximumDiagnosticBytes)
-      )
-    case 17: try .presentPermission(permission: tagged(reader.u8()))
-    case 18: .presentSettings
-    case 19: try .presentTheme(theme: tagged(reader.u8()))
-    case 20: try .presentServiceState(active: reader.boolean())
-    case 21: try .presentExport(stagedPath: reader.string(maximum: 1024))
-    case 22:
+    case 9: try .presentPermission(permission: tagged(reader.u8()))
+    case 10: .presentSettings
+    case 11:
       try .runtimeReady(
         endpoint: reader.string(maximum: 256),
         launchToken: reader.string(maximum: 128)
@@ -279,81 +154,6 @@ public enum FloatViewPlatformEvent: Sendable, Equatable {
 private func tagged<T: RawRepresentable>(_ value: UInt8) throws -> T where T.RawValue == UInt8 {
   guard let decoded = T(rawValue: value) else { throw FloatViewBridgeCodecError.invalidTag }
   return decoded
-}
-
-private struct BridgeWriter {
-  var data = Data()
-
-  mutating func reserve(_ count: Int) throws {
-    guard count >= 0,
-          data.count <= FloatViewCoreRuntime.maximumPayloadBytes - count
-    else { throw FloatViewBridgeCodecError.payloadTooLarge }
-  }
-
-  mutating func u8(_ value: UInt8) throws {
-    try reserve(1)
-    data.append(value)
-  }
-
-  mutating func u32(_ value: UInt32) throws {
-    try raw(value.bigEndian)
-  }
-
-  mutating func u16(_ value: UInt16) throws {
-    try raw(value.bigEndian)
-  }
-
-  mutating func u64(_ value: UInt64) throws {
-    try raw(value.bigEndian)
-  }
-
-  mutating func i16(_ value: Int16) throws {
-    try raw(UInt16(bitPattern: value).bigEndian)
-  }
-
-  mutating func f64(_ value: Double) throws {
-    try u64(value.bitPattern)
-  }
-
-  mutating func boolean(_ value: Bool) throws {
-    try u8(value ? 1 : 0)
-  }
-
-  mutating func bytes(_ value: Data) throws {
-    guard let count = UInt32(exactly: value.count) else {
-      throw FloatViewBridgeCodecError.payloadTooLarge
-    }
-    try u32(count)
-    try reserve(value.count)
-    data.append(value)
-  }
-
-  mutating func string(_ value: String, maximum: Int) throws {
-    let encoded = Data(value.utf8)
-    guard !encoded.isEmpty, encoded.count <= maximum else {
-      throw FloatViewBridgeCodecError.payloadTooLarge
-    }
-    try bytes(encoded)
-  }
-
-  mutating func optionalString(_ value: String?) throws {
-    try boolean(value != nil)
-    if let value {
-      try bytes(Data(value.utf8))
-    }
-  }
-
-  mutating func optionalF64(_ value: Double?) throws {
-    try boolean(value != nil)
-    if let value { try f64(value) }
-  }
-
-  mutating func raw<T>(_ value: T) throws {
-    try withUnsafeBytes(of: value) { bytes in
-      try reserve(bytes.count)
-      data.append(contentsOf: bytes)
-    }
-  }
 }
 
 private struct BridgeReader {

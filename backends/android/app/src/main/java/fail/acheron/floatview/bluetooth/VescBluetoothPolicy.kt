@@ -18,12 +18,6 @@ internal object VescBluetoothPolicy {
     const val MAXIMUM_PENDING_WRITES = 128
     const val MAXIMUM_PENDING_BYTES = 65_536
 
-    fun shouldPublish(
-        advertisesUart: Boolean,
-        deviceId: DeviceId,
-        savedDeviceIds: Set<DeviceId>,
-    ): Boolean = advertisesUart || deviceId in savedDeviceIds
-
     fun chunks(bytes: ByteArray, maximumPayloadBytes: Int): List<ByteArray> {
         val chunkSize = maximumPayloadBytes.coerceAtLeast(1)
         return bytes.asList().chunked(chunkSize).map { it.toByteArray() }

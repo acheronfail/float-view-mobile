@@ -7,7 +7,7 @@ rust-version.workspace = true
 
 [dependencies]
 app-coordinator = { path = "../app-coordinator" }
-app-backend = { path = "../app-backend" }
+app-backend = { path = "../app-backend", features = ["software-host"] }
 domain-types = { path = "../domain-types" }
 host-ports = { path = "../host-ports" }
 tokio = { version = "1.47.1", features = ["rt-multi-thread", "sync"] }

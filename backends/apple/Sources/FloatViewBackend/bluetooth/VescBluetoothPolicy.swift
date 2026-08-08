@@ -10,14 +10,6 @@ enum VescBluetoothPolicy {
   static let maximumPendingWrites = 128
   static let maximumPendingBytes = 65_536
 
-  static func shouldPublish(
-    advertisesUART: Bool,
-    deviceID: DeviceID,
-    savedDeviceIDs: Set<DeviceID>
-  ) -> Bool {
-    advertisesUART || savedDeviceIDs.contains(deviceID)
-  }
-
   static func chunks(_ bytes: Data, maximumPayloadBytes: Int) -> [Data] {
     let chunkSize = max(1, maximumPayloadBytes)
     return stride(from: 0, to: bytes.count, by: chunkSize).map {

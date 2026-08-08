@@ -6,12 +6,7 @@ pub const MAX_BRIDGE_PAYLOAD_BYTES: usize = 64 * 1024;
 pub const MAX_COMPLETION_PAYLOAD_BYTES: usize = 8 * 1024 * 1024;
 pub const MAX_BLUETOOTH_BYTES: usize = 4096;
 pub const MAX_BLUETOOTH_WRITE_BYTES: usize = MAX_BRIDGE_PAYLOAD_BYTES;
-pub const MAX_RESOURCE_BYTES: u64 = 8 * 1024 * 1024;
-pub const MAX_DOCUMENT_BYTES: u64 = 512 * 1024 * 1024;
-pub const MAX_RANDOM_BYTES: u16 = 256;
 pub const MAX_LOGICAL_NAME_BYTES: usize = 128;
-pub const MAX_PATH_BYTES: usize = 1024;
-pub const MAX_DIAGNOSTIC_BYTES: usize = 64;
 pub const MAX_ENDPOINT_BYTES: usize = 256;
 pub const MAX_LAUNCH_TOKEN_BYTES: usize = 128;
 
@@ -23,20 +18,9 @@ pub const COMMAND_BLUETOOTH_WRITE: u32 = 5;
 pub const COMMAND_LOCATION_START: u32 = 6;
 pub const COMMAND_LOCATION_STOP: u32 = 7;
 pub const COMMAND_SET_BACKGROUND_LOGGING: u32 = 8;
-pub const COMMAND_READ_RESOURCE: u32 = 9;
-pub const COMMAND_STAGE_DOCUMENT: u32 = 10;
-pub const COMMAND_RESOLVE_STORAGE_ROOT: u32 = 11;
-pub const COMMAND_AVAILABLE_SPACE: u32 = 12;
-pub const COMMAND_MONOTONIC_CLOCK: u32 = 13;
-pub const COMMAND_WALL_CLOCK: u32 = 14;
-pub const COMMAND_SECURE_RANDOM: u32 = 15;
-pub const COMMAND_DIAGNOSTIC: u32 = 16;
-pub const COMMAND_PRESENT_PERMISSION: u32 = 17;
-pub const COMMAND_PRESENT_SETTINGS: u32 = 18;
-pub const COMMAND_PRESENT_THEME: u32 = 19;
-pub const COMMAND_PRESENT_SERVICE_STATE: u32 = 20;
-pub const COMMAND_PRESENT_EXPORT: u32 = 21;
-pub const COMMAND_RUNTIME_READY: u32 = 22;
+pub const COMMAND_PRESENT_PERMISSION: u32 = 9;
+pub const COMMAND_PRESENT_SETTINGS: u32 = 10;
+pub const COMMAND_RUNTIME_READY: u32 = 11;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum PortError {
@@ -94,20 +78,6 @@ pub enum PermissionKind {
     Notifications,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum ResourceNamespace {
-    Frontend,
-    Sql,
-    SoftwareFixture,
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum StorageRootKind {
-    Durable,
-    Cache,
-    Temporary,
-}
-
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum HostCommand {
     BluetoothStartScan,
@@ -129,43 +99,10 @@ pub enum HostCommand {
     SetBackgroundLogging {
         enabled: bool,
     },
-    ReadResource {
-        namespace: ResourceNamespace,
-        logical_name: String,
-        maximum_bytes: u64,
-    },
-    StageDocument {
-        destination: String,
-        maximum_bytes: u64,
-    },
-    ResolveStorageRoot {
-        kind: StorageRootKind,
-    },
-    AvailableSpace {
-        root: String,
-    },
-    MonotonicClock,
-    WallClock,
-    SecureRandom {
-        count: u16,
-    },
-    Diagnostic {
-        stage: String,
-        code: String,
-    },
     PresentPermission {
         permission: PermissionKind,
     },
     PresentSettings,
-    PresentTheme {
-        theme: ThemePreference,
-    },
-    PresentServiceState {
-        active: bool,
-    },
-    PresentExport {
-        staged_path: String,
-    },
     RuntimeReady {
         endpoint: String,
         launch_token: String,
@@ -268,19 +205,8 @@ impl HostCommand {
             Self::LocationStart { .. } => COMMAND_LOCATION_START,
             Self::LocationStop => COMMAND_LOCATION_STOP,
             Self::SetBackgroundLogging { .. } => COMMAND_SET_BACKGROUND_LOGGING,
-            Self::ReadResource { .. } => COMMAND_READ_RESOURCE,
-            Self::StageDocument { .. } => COMMAND_STAGE_DOCUMENT,
-            Self::ResolveStorageRoot { .. } => COMMAND_RESOLVE_STORAGE_ROOT,
-            Self::AvailableSpace { .. } => COMMAND_AVAILABLE_SPACE,
-            Self::MonotonicClock => COMMAND_MONOTONIC_CLOCK,
-            Self::WallClock => COMMAND_WALL_CLOCK,
-            Self::SecureRandom { .. } => COMMAND_SECURE_RANDOM,
-            Self::Diagnostic { .. } => COMMAND_DIAGNOSTIC,
             Self::PresentPermission { .. } => COMMAND_PRESENT_PERMISSION,
             Self::PresentSettings => COMMAND_PRESENT_SETTINGS,
-            Self::PresentTheme { .. } => COMMAND_PRESENT_THEME,
-            Self::PresentServiceState { .. } => COMMAND_PRESENT_SERVICE_STATE,
-            Self::PresentExport { .. } => COMMAND_PRESENT_EXPORT,
             Self::RuntimeReady { .. } => COMMAND_RUNTIME_READY,
         }
     }
@@ -384,42 +310,13 @@ impl OperationCompletion {
 
 fn validate_command(command: &HostCommand) -> Result<(), PortError> {
     match command {
-        HostCommand::BluetoothConnect { association } => {
-            bounded_bytes(association.as_bytes(), domain_types::MAX_PLATFORM_ASSOCIATION_BYTES)
-        }
+        HostCommand::BluetoothConnect { association } => bounded_bytes(
+            association.as_bytes(),
+            domain_types::MAX_PLATFORM_ASSOCIATION_BYTES,
+        ),
         HostCommand::BluetoothWrite { bytes, .. } => {
             bounded_bytes(bytes, MAX_BLUETOOTH_WRITE_BYTES)
         }
-        HostCommand::ReadResource {
-            logical_name,
-            maximum_bytes,
-            ..
-        } => {
-            logical_name_valid(logical_name)?;
-            if *maximum_bytes == 0 || *maximum_bytes > MAX_RESOURCE_BYTES {
-                return Err(PortError::InvalidValue);
-            }
-            Ok(())
-        }
-        HostCommand::StageDocument {
-            destination,
-            maximum_bytes,
-        } => {
-            bounded_string(destination, MAX_PATH_BYTES)?;
-            if *maximum_bytes == 0 || *maximum_bytes > MAX_DOCUMENT_BYTES {
-                return Err(PortError::InvalidValue);
-            }
-            Ok(())
-        }
-        HostCommand::AvailableSpace { root } => bounded_string(root, MAX_PATH_BYTES),
-        HostCommand::SecureRandom { count } if *count == 0 || *count > MAX_RANDOM_BYTES => {
-            Err(PortError::InvalidValue)
-        }
-        HostCommand::Diagnostic { stage, code } => {
-            diagnostic_value(stage)?;
-            diagnostic_value(code)
-        }
-        HostCommand::PresentExport { staged_path } => bounded_string(staged_path, MAX_PATH_BYTES),
         HostCommand::RuntimeReady {
             endpoint,
             launch_token,
@@ -464,37 +361,6 @@ fn validate_event(event: &AdapterEvent) -> Result<(), PortError> {
     }
 }
 
-fn logical_name_valid(value: &str) -> Result<(), PortError> {
-    bounded_string(value, MAX_LOGICAL_NAME_BYTES)?;
-    if value.starts_with('/')
-        || value.starts_with('\\')
-        || value.contains("..")
-        || value.contains(':')
-        || value.split('/').any(|part| part.is_empty() || part == ".")
-    {
-        Err(PortError::TraversalPath)
-    } else if value
-        .bytes()
-        .all(|byte| byte.is_ascii_alphanumeric() || b"-_./".contains(&byte))
-    {
-        Ok(())
-    } else {
-        Err(PortError::InvalidValue)
-    }
-}
-
-fn diagnostic_value(value: &str) -> Result<(), PortError> {
-    bounded_string(value, MAX_DIAGNOSTIC_BYTES)?;
-    if value
-        .bytes()
-        .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-' | b'.'))
-    {
-        Ok(())
-    } else {
-        Err(PortError::InvalidValue)
-    }
-}
-
 fn bounded_string(value: &str, maximum: usize) -> Result<(), PortError> {
     if value.is_empty() || value.len() > maximum || value.as_bytes().contains(&0) {
         Err(PortError::InvalidValue)
@@ -516,8 +382,6 @@ fn encode_command_payload(command: &HostCommand, writer: &mut Writer) -> Result<
         HostCommand::BluetoothStartScan
         | HostCommand::BluetoothStopScan
         | HostCommand::LocationStop
-        | HostCommand::MonotonicClock
-        | HostCommand::WallClock
         | HostCommand::PresentSettings => Ok(()),
         HostCommand::BluetoothConnect { association } => writer.bytes(association.as_bytes()),
         HostCommand::BluetoothDisconnect {
@@ -532,33 +396,7 @@ fn encode_command_payload(command: &HostCommand, writer: &mut Writer) -> Result<
         }
         HostCommand::LocationStart { background } => writer.boolean(*background),
         HostCommand::SetBackgroundLogging { enabled } => writer.boolean(*enabled),
-        HostCommand::ReadResource {
-            namespace,
-            logical_name,
-            maximum_bytes,
-        } => {
-            writer.u8(resource_tag(*namespace))?;
-            writer.string(logical_name)?;
-            writer.u64(*maximum_bytes)
-        }
-        HostCommand::StageDocument {
-            destination,
-            maximum_bytes,
-        } => {
-            writer.string(destination)?;
-            writer.u64(*maximum_bytes)
-        }
-        HostCommand::ResolveStorageRoot { kind } => writer.u8(storage_tag(*kind)),
-        HostCommand::AvailableSpace { root } => writer.string(root),
-        HostCommand::SecureRandom { count } => writer.u16(*count),
-        HostCommand::Diagnostic { stage, code } => {
-            writer.string(stage)?;
-            writer.string(code)
-        }
         HostCommand::PresentPermission { permission } => writer.u8(permission_tag(*permission)),
-        HostCommand::PresentTheme { theme } => writer.u8(theme_tag(*theme)),
-        HostCommand::PresentServiceState { active } => writer.boolean(*active),
-        HostCommand::PresentExport { staged_path } => writer.string(staged_path),
         HostCommand::RuntimeReady {
             endpoint,
             launch_token,
@@ -593,43 +431,10 @@ fn decode_command_payload(kind: u32, reader: &mut Reader<'_>) -> Result<HostComm
         COMMAND_SET_BACKGROUND_LOGGING => HostCommand::SetBackgroundLogging {
             enabled: reader.boolean()?,
         },
-        COMMAND_READ_RESOURCE => HostCommand::ReadResource {
-            namespace: decode_resource(reader.u8()?)?,
-            logical_name: reader.string(MAX_LOGICAL_NAME_BYTES)?,
-            maximum_bytes: reader.u64()?,
-        },
-        COMMAND_STAGE_DOCUMENT => HostCommand::StageDocument {
-            destination: reader.string(MAX_PATH_BYTES)?,
-            maximum_bytes: reader.u64()?,
-        },
-        COMMAND_RESOLVE_STORAGE_ROOT => HostCommand::ResolveStorageRoot {
-            kind: decode_storage(reader.u8()?)?,
-        },
-        COMMAND_AVAILABLE_SPACE => HostCommand::AvailableSpace {
-            root: reader.string(MAX_PATH_BYTES)?,
-        },
-        COMMAND_MONOTONIC_CLOCK => HostCommand::MonotonicClock,
-        COMMAND_WALL_CLOCK => HostCommand::WallClock,
-        COMMAND_SECURE_RANDOM => HostCommand::SecureRandom {
-            count: reader.u16()?,
-        },
-        COMMAND_DIAGNOSTIC => HostCommand::Diagnostic {
-            stage: reader.string(MAX_DIAGNOSTIC_BYTES)?,
-            code: reader.string(MAX_DIAGNOSTIC_BYTES)?,
-        },
         COMMAND_PRESENT_PERMISSION => HostCommand::PresentPermission {
             permission: decode_permission(reader.u8()?)?,
         },
         COMMAND_PRESENT_SETTINGS => HostCommand::PresentSettings,
-        COMMAND_PRESENT_THEME => HostCommand::PresentTheme {
-            theme: decode_theme(reader.u8()?)?,
-        },
-        COMMAND_PRESENT_SERVICE_STATE => HostCommand::PresentServiceState {
-            active: reader.boolean()?,
-        },
-        COMMAND_PRESENT_EXPORT => HostCommand::PresentExport {
-            staged_path: reader.string(MAX_PATH_BYTES)?,
-        },
         COMMAND_RUNTIME_READY => HostCommand::RuntimeReady {
             endpoint: reader.string(MAX_ENDPOINT_BYTES)?,
             launch_token: reader.string(MAX_LAUNCH_TOKEN_BYTES)?,
@@ -742,8 +547,6 @@ macro_rules! tagged_enum {
     };
 }
 
-tagged_enum!(resource_tag, decode_resource, ResourceNamespace, {ResourceNamespace::Frontend => 1, ResourceNamespace::Sql => 2, ResourceNamespace::SoftwareFixture => 3});
-tagged_enum!(storage_tag, decode_storage, StorageRootKind, {StorageRootKind::Durable => 1, StorageRootKind::Cache => 2, StorageRootKind::Temporary => 3});
 tagged_enum!(permission_tag, decode_permission, PermissionKind, {PermissionKind::Bluetooth => 1, PermissionKind::Location => 2, PermissionKind::BackgroundLocation => 3, PermissionKind::Notifications => 4});
 tagged_enum!(theme_tag, decode_theme, ThemePreference, {ThemePreference::System => 1, ThemePreference::Light => 2, ThemePreference::Dark => 3});
 tagged_enum!(radio_tag, decode_radio, BluetoothRadio, {BluetoothRadio::Unknown => 1, BluetoothRadio::PoweredOff => 2, BluetoothRadio::PoweredOn => 3});
@@ -771,9 +574,6 @@ impl Writer {
         self.reserve(1)?;
         self.bytes.push(value);
         Ok(())
-    }
-    fn u16(&mut self, value: u16) -> Result<(), PortError> {
-        self.raw(&value.to_be_bytes())
     }
     fn i16(&mut self, value: i16) -> Result<(), PortError> {
         self.raw(&value.to_be_bytes())
@@ -850,10 +650,6 @@ impl<'a> Reader<'a> {
     }
     fn u8(&mut self) -> Result<u8, PortError> {
         Ok(self.take(1)?[0])
-    }
-    fn u16(&mut self) -> Result<u16, PortError> {
-        let value = self.take(2)?;
-        Ok(u16::from_be_bytes([value[0], value[1]]))
     }
     fn i16(&mut self) -> Result<i16, PortError> {
         let value = self.take(2)?;
@@ -934,39 +730,10 @@ mod tests {
             HostCommand::LocationStart { background: true },
             HostCommand::LocationStop,
             HostCommand::SetBackgroundLogging { enabled: true },
-            HostCommand::ReadResource {
-                namespace: ResourceNamespace::Frontend,
-                logical_name: "assets/app.js".into(),
-                maximum_bytes: 1024,
-            },
-            HostCommand::StageDocument {
-                destination: "/staging/import.fv".into(),
-                maximum_bytes: 4096,
-            },
-            HostCommand::ResolveStorageRoot {
-                kind: StorageRootKind::Durable,
-            },
-            HostCommand::AvailableSpace {
-                root: "/durable".into(),
-            },
-            HostCommand::MonotonicClock,
-            HostCommand::WallClock,
-            HostCommand::SecureRandom { count: 32 },
-            HostCommand::Diagnostic {
-                stage: "bluetooth_connect".into(),
-                code: "timeout".into(),
-            },
             HostCommand::PresentPermission {
                 permission: PermissionKind::Bluetooth,
             },
             HostCommand::PresentSettings,
-            HostCommand::PresentTheme {
-                theme: ThemePreference::Dark,
-            },
-            HostCommand::PresentServiceState { active: true },
-            HostCommand::PresentExport {
-                staged_path: "/staging/export.fv".into(),
-            },
             HostCommand::RuntimeReady {
                 endpoint: "http://127.0.0.1:1234".into(),
                 launch_token: "opaque-token".into(),
@@ -975,10 +742,7 @@ mod tests {
         for command in commands {
             let kind = command.kind();
             let payload = command.encode_payload().expect("encode");
-            assert_eq!(
-                HostCommand::decode_payload(kind, &payload),
-                Ok(command)
-            );
+            assert_eq!(HostCommand::decode_payload(kind, &payload), Ok(command));
         }
     }
 
@@ -1046,18 +810,11 @@ mod tests {
     }
 
     #[test]
-    fn bounds_traversal_stale_context_fields_and_malformed_codecs_are_explicit() {
-        let traversal = HostCommand::ReadResource {
-            namespace: ResourceNamespace::Frontend,
-            logical_name: "../secret".into(),
-            maximum_bytes: 10,
-        };
-        assert_eq!(traversal.encode_payload(), Err(PortError::TraversalPath));
-        let too_random = HostCommand::SecureRandom {
-            count: MAX_RANDOM_BYTES + 1,
-        };
-        assert_eq!(too_random.encode_payload(), Err(PortError::InvalidValue));
-        assert_eq!(HostCommand::decode_payload(0, &[]), Err(PortError::InvalidTag));
+    fn bounds_stale_context_fields_and_malformed_codecs_are_explicit() {
+        assert_eq!(
+            HostCommand::decode_payload(0, &[]),
+            Err(PortError::InvalidTag)
+        );
         assert_eq!(
             HostCommand::decode_payload(COMMAND_BLUETOOTH_START_SCAN, &[2]),
             Err(PortError::InvalidValue)

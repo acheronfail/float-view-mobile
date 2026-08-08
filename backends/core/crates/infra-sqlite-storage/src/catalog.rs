@@ -869,7 +869,10 @@ mod tests {
         assert_eq!(saved.firmware_device_uuid, Some([1; 12]));
         assert_eq!(saved.opaque_platform_id.as_deref(), Some("opaque"));
         assert_eq!(
-            store.saved_device("saved").expect("saved lookup").firmware_device_uuid,
+            store
+                .saved_device("saved")
+                .expect("saved lookup")
+                .firmware_device_uuid,
             Some([1; 12])
         );
         let saved = store

@@ -3,37 +3,6 @@ import Foundation
 import Testing
 
 @Test
-func bluetoothDiscoveryPublishesOnlyUARTOrExactSavedIdentity() {
-  let saved = DeviceID("saved")
-  #expect(VescBluetoothPolicy.shouldPublish(
-    advertisesUART: true,
-    deviceID: DeviceID("unknown"),
-    savedDeviceIDs: []
-  ))
-  #expect(VescBluetoothPolicy.shouldPublish(
-    advertisesUART: false,
-    deviceID: saved,
-    savedDeviceIDs: [saved]
-  ))
-  #expect(!VescBluetoothPolicy.shouldPublish(
-    advertisesUART: false,
-    deviceID: DeviceID("unknown"),
-    savedDeviceIDs: [saved]
-  ))
-  // A process restart rebuilds adapter state from persisted exact identifiers.
-  #expect(VescBluetoothPolicy.shouldPublish(
-    advertisesUART: false,
-    deviceID: saved,
-    savedDeviceIDs: Set([saved])
-  ))
-  #expect(!VescBluetoothPolicy.shouldPublish(
-    advertisesUART: false,
-    deviceID: saved,
-    savedDeviceIDs: []
-  ))
-}
-
-@Test
 func bluetoothWritesUseDefaultAndEnlargedPayloadsWithinQueueBounds() {
   let bytes = Data((0 ..< 50).map(UInt8.init))
   #expect(VescBluetoothPolicy.chunks(bytes, maximumPayloadBytes: 20).map(\.count) == [20, 20, 10])

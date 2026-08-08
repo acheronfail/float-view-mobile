@@ -19,9 +19,7 @@ public final class RustCorePlatformAdapter: @unchecked Sendable {
   private var adapterOrder: UInt64 = 0
   private var connectionGeneration: UInt64 = 0
   private var activeDeviceID: DeviceID?
-  private var pendingConnect: FloatViewHostCommand?
   private var locationActive = false
-  private var pendingPresentations: [UInt64: FloatViewHostCommand] = [:]
   private var stopped = false
 
   public init(
@@ -69,25 +67,18 @@ public final class RustCorePlatformAdapter: @unchecked Sendable {
         return
       }
       let deviceID = DeviceID(value)
-      let replaced = lock.withLock { () -> FloatViewHostCommand? in
-        let replaced = pendingConnect
-        pendingConnect = command
+      lock.withLock {
         activeDeviceID = deviceID
         connectionGeneration &+= 1
-        return replaced
       }
       trace("connect generation=\(currentConnectionGeneration)")
-      if let replaced { complete(replaced, resultKind: 1) }
       bluetooth.connect(deviceID)
+      complete(command)
     case let .bluetoothDisconnect(expectedGeneration):
-      let context = lock.withLock { (connectionGeneration, activeDeviceID, pendingConnect) }
+      let context = lock.withLock { (connectionGeneration, activeDeviceID) }
       guard expectedGeneration == context.0, let deviceID = context.1 else {
         complete(command, resultKind: 1)
         return
-      }
-      if let pending = context.2 {
-        lock.withLock { pendingConnect = nil }
-        complete(pending, resultKind: 1)
       }
       bluetooth.disconnect(deviceID)
       complete(command)
@@ -134,55 +125,6 @@ public final class RustCorePlatformAdapter: @unchecked Sendable {
       complete(command)
     case let .setBackgroundLogging(enabled):
       complete(command, resultKind: platformHost.setBackgroundLogging(enabled) ? 0 : 3)
-    case let .readResource(namespace, logicalName, maximumBytes):
-      do {
-        let data = try platformHost.readResource(
-          namespace: namespace,
-          logicalName: logicalName,
-          maximumBytes: maximumBytes
-        )
-        complete(command, payload: data)
-      } catch {
-        complete(command, resultKind: Self.resultKind(error))
-      }
-    case let .stageDocument(destination, maximumBytes):
-      guard let destinationURL = Self.fileURL(destination), beginPresentation(command) else {
-        complete(command, resultKind: 4)
-        return
-      }
-      platformHost.stageDocument(destination: destinationURL, maximumBytes: maximumBytes) {
-        [weak self] result in self?.finishPresentation(command, result: result)
-      }
-    case let .resolveStorageRoot(kind):
-      do {
-        let root = try platformHost.storageRoot(kind)
-        complete(command, payload: Data(root.path.utf8))
-      } catch {
-        complete(command, resultKind: Self.resultKind(error))
-      }
-    case let .availableSpace(root):
-      guard let rootURL = Self.fileURL(root) else {
-        complete(command, resultKind: 4)
-        return
-      }
-      do {
-        try complete(command, payload: Self.u64(platformHost.availableSpace(at: rootURL)))
-      } catch {
-        complete(command, resultKind: Self.resultKind(error))
-      }
-    case .monotonicClock:
-      complete(command, payload: Self.u64(platformHost.monotonicMilliseconds()))
-    case .wallClock:
-      complete(command, payload: Self.i64(platformHost.wallMilliseconds()))
-    case let .secureRandom(count):
-      do {
-        try complete(command, payload: platformHost.secureRandom(count: count))
-      } catch {
-        complete(command, resultKind: Self.resultKind(error))
-      }
-    case let .diagnostic(stage, code):
-      platformHost.diagnostic(stage: Self.safeCode(stage), code: Self.safeCode(code))
-      complete(command)
     case let .presentPermission(permission):
       let presented = switch permission {
       case .bluetooth:
@@ -198,18 +140,6 @@ public final class RustCorePlatformAdapter: @unchecked Sendable {
     case .presentSettings:
       location.openSettings()
       complete(command)
-    case let .presentTheme(theme):
-      complete(command, resultKind: platformHost.presentTheme(theme) ? 0 : 3)
-    case let .presentServiceState(active):
-      complete(command, resultKind: platformHost.presentServiceState(active: active) ? 0 : 3)
-    case let .presentExport(stagedPath):
-      guard let stagedURL = Self.fileURL(stagedPath), beginPresentation(command) else {
-        complete(command, resultKind: 4)
-        return
-      }
-      platformHost.presentExport(stagedURL: stagedURL) { [weak self] result in
-        self?.finishPresentation(command, result: result)
-      }
     case let .runtimeReady(endpoint, launchToken):
       guard let url = URL(string: endpoint),
             url.host == "127.0.0.1" || url.host == "localhost",
@@ -249,15 +179,9 @@ public final class RustCorePlatformAdapter: @unchecked Sendable {
       let mapped = Self.connection(state)
       trace("connection generation=\(currentConnectionGeneration) state=\(mapped.rawValue)")
       submit(.bluetoothConnection(connectionGeneration: currentConnectionGeneration, state: mapped))
-      if mapped == .ready || mapped == .failed || mapped == .disconnected {
-        let pending = lock.withLock { () -> FloatViewHostCommand? in
-          let pending = pendingConnect
-          pendingConnect = nil
+      if mapped == .failed || mapped == .disconnected {
+        lock.withLock {
           if mapped == .failed || mapped == .disconnected { activeDeviceID = nil }
-          return pending
-        }
-        if let pending {
-          complete(pending, resultKind: mapped == .ready ? 0 : (mapped == .failed ? 4 : 1))
         }
       }
     case let .notification(deviceID, bytes):
@@ -299,24 +223,17 @@ public final class RustCorePlatformAdapter: @unchecked Sendable {
   /// Cancels host work before the Rust runtime is stopped and its waiter wakes.
   public func shutdown() {
     let state = lock.withLock {
-      () -> (DeviceID?, FloatViewHostCommand?, [FloatViewHostCommand]) in
-      guard !stopped else { return (nil, nil, []) }
+      () -> DeviceID? in
+      guard !stopped else { return nil }
       stopped = true
       locationActive = false
-      let state = (activeDeviceID, pendingConnect, Array(pendingPresentations.values))
+      let state = activeDeviceID
       activeDeviceID = nil
-      pendingConnect = nil
-      pendingPresentations.removeAll(keepingCapacity: false)
       return state
     }
     bluetooth.stopDiscovery()
-    if let deviceID = state.0 { bluetooth.disconnect(deviceID) }
+    if let deviceID = state { bluetooth.disconnect(deviceID) }
     location.stopUpdates()
-    platformHost.cancelPendingPresentation()
-    if let pending = state.1 { complete(pending, resultKind: 1) }
-    for pending in state.2 {
-      complete(pending, resultKind: 1)
-    }
   }
 
   private var currentConnectionGeneration: UInt64 {
@@ -367,30 +284,6 @@ public final class RustCorePlatformAdapter: @unchecked Sendable {
 
   private func nextContext() -> (connection: UInt64, order: UInt64) {
     nextContext(for: nil) ?? (currentConnectionGeneration, 0)
-  }
-
-  private func beginPresentation(_ command: FloatViewHostCommand) -> Bool {
-    lock.withLock {
-      guard !stopped, pendingPresentations.count < 4,
-            pendingPresentations[command.operationID] == nil
-      else { return false }
-      pendingPresentations[command.operationID] = command
-      return true
-    }
-  }
-
-  private func finishPresentation(
-    _ command: FloatViewHostCommand,
-    result: Result<Void, ApplePlatformHostError>
-  ) {
-    let accepted = lock.withLock {
-      pendingPresentations.removeValue(forKey: command.operationID) != nil && !stopped
-    }
-    guard accepted else { return }
-    switch result {
-    case .success: complete(command)
-    case let .failure(error): complete(command, resultKind: Self.resultKind(error))
-    }
   }
 
   private func complete(
@@ -460,25 +353,4 @@ public final class RustCorePlatformAdapter: @unchecked Sendable {
     return String(safe.prefix(floatViewMaximumDiagnosticBytes))
   }
 
-  private static func resultKind(_ error: Error) -> UInt32 {
-    switch error as? ApplePlatformHostError {
-    case .payloadTooLarge, .invalidPath, .ioFailure: 4
-    case .unavailable: 3
-    case nil: 4
-    }
-  }
-
-  private static func fileURL(_ path: String) -> URL? {
-    guard !path.isEmpty, path.utf8.count <= 1024, path.hasPrefix("/") else { return nil }
-    return URL(fileURLWithPath: path).standardizedFileURL
-  }
-
-  private static func u64(_ value: UInt64) -> Data {
-    var value = value.bigEndian
-    return withUnsafeBytes(of: &value) { Data($0) }
-  }
-
-  private static func i64(_ value: Int64) -> Data {
-    u64(UInt64(bitPattern: value))
-  }
 }

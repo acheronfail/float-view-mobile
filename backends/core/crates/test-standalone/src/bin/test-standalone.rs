@@ -1,6 +1,6 @@
 use app_backend::{
-    BackendRuntime, BackendRuntimeConfig, cleanup_standalone_storage, standalone_resources,
-    standalone_storage_root,
+    BackendRuntime, BackendRuntimeConfig, TransportMode, cleanup_standalone_storage,
+    standalone_resources, standalone_storage_root,
 };
 use tokio::io::AsyncReadExt;
 
@@ -16,6 +16,8 @@ async fn main() {
         launch_token: "standalone-token".into(),
         resources: standalone_resources(),
         application: None,
+        transport: TransportMode::Software,
+        platform_commands: None,
     })
     .await
     .expect("start standalone production runtime");

@@ -9,8 +9,6 @@ internal const val MAX_BRIDGE_PAYLOAD = 64 * 1024
 internal enum class BluetoothRadio(val tag: Int) { UNKNOWN(1), POWERED_OFF(2), POWERED_ON(3) }
 internal enum class BluetoothAuthorization(val tag: Int) { UNKNOWN(1), DENIED(2), GRANTED(3) }
 internal enum class BluetoothConnection(val tag: Int) { CONNECTING(1), READY(2), DISCONNECTED(3), FAILED(4) }
-internal enum class ResourceNamespace(val tag: Int) { FRONTEND(1), SQL(2), SOFTWARE_FIXTURE(3) }
-internal enum class StorageRootKind(val tag: Int) { DURABLE(1), CACHE(2), TEMPORARY(3) }
 internal enum class PermissionKind(val tag: Int) { BLUETOOTH(1), LOCATION(2), BACKGROUND_LOCATION(3), NOTIFICATIONS(4) }
 internal enum class PlatformTheme(val tag: Int) { SYSTEM(1), LIGHT(2), DARK(3) }
 internal enum class LocationAuthorization(val tag: Int) { UNKNOWN(1), DENIED(2), FOREGROUND(3), BACKGROUND(4) }
@@ -39,28 +37,6 @@ internal data class PlatformCommandEnvelope(
     val operationId: Long,
     val command: PlatformCommand,
 ) {
-    fun encode(): ByteArray {
-        val writer = BridgeWriter()
-        when (val value = command) {
-            PlatformCommand.BluetoothStartScan -> Unit
-            PlatformCommand.BluetoothStopScan -> Unit
-            is PlatformCommand.BluetoothConnect -> {
-                writer.bytes(value.deviceToken, 256)
-            }
-            is PlatformCommand.BluetoothDisconnect -> {
-                writer.i64(value.connectionGeneration)
-            }
-            is PlatformCommand.BluetoothWrite -> {
-                writer.i64(value.connectionGeneration)
-                writer.bytes(value.bytes, MAX_BRIDGE_PAYLOAD)
-            }
-            is PlatformCommand.Host -> {
-                writer.raw(value.payload)
-            }
-        }
-        return writer.finish()
-    }
-
     companion object {
         fun decode(command: NativeHostCommand): PlatformCommandEnvelope {
             val reader = BridgeReader(command.payload)
@@ -71,7 +47,7 @@ internal data class PlatformCommandEnvelope(
                     3 -> PlatformCommand.BluetoothConnect(reader.bytes(256))
                     4 -> PlatformCommand.BluetoothDisconnect(reader.i64())
                     5 -> PlatformCommand.BluetoothWrite(reader.i64(), reader.bytes(MAX_BRIDGE_PAYLOAD))
-                    in 6..22 -> PlatformCommand.Host(tag, reader.remaining())
+                    in 6..11 -> PlatformCommand.Host(tag, reader.remaining())
                     else -> error("Unknown platform command tag")
                 }
             reader.finish()
@@ -101,23 +77,8 @@ internal sealed interface AndroidHostCommand {
     data class LocationStart(val background: Boolean) : AndroidHostCommand
     data object LocationStop : AndroidHostCommand
     data class SetBackgroundLogging(val enabled: Boolean) : AndroidHostCommand
-    data class ReadResource(
-        val namespace: ResourceNamespace,
-        val logicalName: String,
-        val maximumBytes: Long,
-    ) : AndroidHostCommand
-    data class StageDocument(val destination: String, val maximumBytes: Long) : AndroidHostCommand
-    data class ResolveStorageRoot(val kind: StorageRootKind) : AndroidHostCommand
-    data class AvailableSpace(val root: String) : AndroidHostCommand
-    data object MonotonicClock : AndroidHostCommand
-    data object WallClock : AndroidHostCommand
-    data class SecureRandom(val count: Int) : AndroidHostCommand
-    data class Diagnostic(val stage: String, val code: String) : AndroidHostCommand
     data class PresentPermission(val permission: PermissionKind) : AndroidHostCommand
     data object PresentSettings : AndroidHostCommand
-    data class PresentTheme(val theme: PlatformTheme) : AndroidHostCommand
-    data class PresentServiceState(val active: Boolean) : AndroidHostCommand
-    data class PresentExport(val stagedPath: String) : AndroidHostCommand
     data class RuntimeReady(val endpoint: String, val launchToken: String) : AndroidHostCommand
 
     companion object {
@@ -128,30 +89,11 @@ internal sealed interface AndroidHostCommand {
                     6 -> LocationStart(reader.boolean())
                     7 -> LocationStop
                     8 -> SetBackgroundLogging(reader.boolean())
-                    9 -> ReadResource(
-                        tagged(reader.u8(), ResourceNamespace.entries) { it.tag },
-                        reader.string(128),
-                        reader.i64(),
-                    )
-                    10 -> StageDocument(reader.string(1024), reader.i64())
-                    11 -> ResolveStorageRoot(
-                        tagged(reader.u8(), StorageRootKind.entries) { it.tag },
-                    )
-                    12 -> AvailableSpace(reader.string(1024))
-                    13 -> MonotonicClock
-                    14 -> WallClock
-                    15 -> SecureRandom(reader.u16())
-                    16 -> Diagnostic(reader.string(64), reader.string(64))
-                    17 -> PresentPermission(
+                    9 -> PresentPermission(
                         tagged(reader.u8(), PermissionKind.entries) { it.tag },
                     )
-                    18 -> PresentSettings
-                    19 -> PresentTheme(
-                        tagged(reader.u8(), PlatformTheme.entries) { it.tag },
-                    )
-                    20 -> PresentServiceState(reader.boolean())
-                    21 -> PresentExport(reader.string(1024))
-                    22 -> RuntimeReady(reader.string(256), reader.string(128))
+                    10 -> PresentSettings
+                    11 -> RuntimeReady(reader.string(256), reader.string(128))
                     else -> error("Unknown Android host command")
                 }
             reader.finish()

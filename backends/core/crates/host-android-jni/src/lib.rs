@@ -22,14 +22,13 @@ mod android {
         FLOAT_VIEW_STATUS_INTERNAL, FLOAT_VIEW_STATUS_INVALID_ARGUMENT, FloatViewCommandHeader,
         FloatViewRuntime, float_view_abi_version, float_view_build_id,
         float_view_runtime_complete_operation, float_view_runtime_create,
-        float_view_runtime_destroy, float_view_runtime_stop, float_view_runtime_submit_ble_bytes,
-        float_view_runtime_submit_bluetooth_connection,
+        float_view_runtime_destroy, float_view_runtime_start_configured, float_view_runtime_stop,
+        float_view_runtime_submit_ble_bytes, float_view_runtime_submit_bluetooth_connection,
         float_view_runtime_submit_bluetooth_device, float_view_runtime_submit_bluetooth_state,
         float_view_runtime_submit_event, float_view_runtime_submit_lifecycle,
         float_view_runtime_submit_location, float_view_runtime_submit_location_authorization,
         float_view_runtime_submit_logging_service, float_view_runtime_submit_theme,
-        float_view_runtime_wait_command,
-        runtime_start_on_port_for_jni,
+        float_view_runtime_wait_command, runtime_start_on_port_for_jni,
     };
     use jni::objects::{JByteArray, JClass, JLongArray};
     use jni::sys::{JNI_ERR, JNI_VERSION_1_6, jboolean, jdouble, jint, jlong};
@@ -138,6 +137,56 @@ mod android {
             let mut generation = 0_u64;
             let status =
                 runtime_start_on_port_for_jni(runtime, requested_port as u16, &mut generation);
+            if status == 0
+                && env
+                    .set_long_array_region(&output, 0, &[generation as jlong])
+                    .is_err()
+            {
+                return FLOAT_VIEW_STATUS_INTERNAL;
+            }
+            status
+        })
+    }
+
+    extern "system" fn start_configured(
+        env: JNIEnv<'_>,
+        _class: JClass<'_>,
+        raw: jlong,
+        requested_port: jint,
+        transport: jint,
+        storage_root: JByteArray<'_>,
+        frontend_index: JByteArray<'_>,
+        output: JLongArray<'_>,
+    ) -> jint {
+        status_boundary(|| {
+            let Ok(runtime) = valid_handle(raw) else {
+                return FLOAT_VIEW_STATUS_INVALID_ARGUMENT;
+            };
+            if !(0..=u16::MAX.into()).contains(&requested_port)
+                || env.get_array_length(&output).ok() != Some(1)
+            {
+                return FLOAT_VIEW_STATUS_INVALID_ARGUMENT;
+            }
+            let Ok(storage_root) = env.convert_byte_array(&storage_root) else {
+                return FLOAT_VIEW_STATUS_INVALID_ARGUMENT;
+            };
+            let Ok(frontend_index) = env.convert_byte_array(&frontend_index) else {
+                return FLOAT_VIEW_STATUS_INVALID_ARGUMENT;
+            };
+            let mut generation = 0_u64;
+            // SAFETY: Array storage remains readable for this copying call.
+            let status = unsafe {
+                float_view_runtime_start_configured(
+                    runtime,
+                    requested_port as u16,
+                    transport as u32,
+                    storage_root.as_ptr(),
+                    storage_root.len(),
+                    frontend_index.as_ptr(),
+                    frontend_index.len(),
+                    &raw mut generation,
+                )
+            };
             if status == 0
                 && env
                     .set_long_array_region(&output, 0, &[generation as jlong])
@@ -583,6 +632,11 @@ mod android {
                     name: "start".into(),
                     sig: "(JI[J)I".into(),
                     fn_ptr: start as *mut c_void,
+                },
+                NativeMethod {
+                    name: "startConfigured".into(),
+                    sig: "(JII[B[B[J)I".into(),
+                    fn_ptr: start_configured as *mut c_void,
                 },
                 NativeMethod {
                     name: "submit".into(),

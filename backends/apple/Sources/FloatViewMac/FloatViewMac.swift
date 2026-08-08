@@ -93,13 +93,10 @@ private final class MacRustRuntime: @unchecked Sendable {
   ) throws {
     let runtime = try FloatViewCoreRuntime()
     let relay = BluetoothEventRelay()
+    let softwareTransport = ProcessInfo.processInfo.environment["FLOAT_VIEW_SOFTWARE_BACKEND"] == "1"
     let bluetooth: any BluetoothPort
-    if ProcessInfo.processInfo.environment["FLOAT_VIEW_SOFTWARE_BACKEND"] == "1" {
-      let peripheral = SoftwareVescPeripheral()
-      bluetooth = SoftwareBluetoothAdapter(
-        eventHandler: relay.emit,
-        responseHandler: peripheral.response
-      )
+    if softwareTransport {
+      bluetooth = InactiveBluetoothPort()
     } else {
       bluetooth = CoreBluetoothAdapter(
         eventHandler: relay.emit,
@@ -107,10 +104,7 @@ private final class MacRustRuntime: @unchecked Sendable {
       )
     }
     let presentation = AppleSystemPresentation()
-    let host = try ApplePlatformHostServices.standard(
-      resourceRoots: resourceRoots(for: htmlURL),
-      presentation: presentation
-    )
+    let host = try ApplePlatformHostServices.standard(presentation: presentation)
     let adapter = RustCorePlatformAdapter(
       runtime: runtime,
       bluetooth: bluetooth,
@@ -127,7 +121,13 @@ private final class MacRustRuntime: @unchecked Sendable {
     self.presentation = presentation
     let requestedPort = ProcessInfo.processInfo.environment["FLOAT_VIEW_CONFORMANCE_PORT"]
       .flatMap(UInt16.init) ?? 0
-    try runtime.start(requestedPort: requestedPort, handler: adapter.dispatch)
+    try runtime.startConfigured(
+      requestedPort: requestedPort,
+      softwareTransport: softwareTransport,
+      storageRoot: host.durableStorageRoot(),
+      frontendIndex: Data(contentsOf: htmlURL),
+      handler: adapter.dispatch
+    )
     relay.setHandler(adapter.receiveBluetooth)
     adapter.updateLifecycle(foreground: true, backgroundEligible: true)
   }
@@ -267,11 +267,6 @@ private final class BluetoothEventRelay: @unchecked Sendable {
   func emit(_ event: BluetoothEvent) {
     lock.withLock { handler }?(event)
   }
-}
-
-private func resourceRoots(for htmlURL: URL) -> [FloatViewResourceNamespace: URL] {
-  let root = htmlURL.deletingLastPathComponent()
-  return [.frontend: root, .sql: root, .softwareFixture: root]
 }
 
 private func authenticatedLaunchURL(endpoint: URL, token: String) -> URL? {

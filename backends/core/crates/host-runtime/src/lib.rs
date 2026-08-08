@@ -1,20 +1,20 @@
 //! Process-owned portable backend bridge and minimal serialized actor.
 
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{HashSet, VecDeque};
 use std::fmt::Write as _;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicU16, AtomicU64, Ordering};
-use std::sync::mpsc::{self, SyncSender};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::mpsc::{self, Receiver, SyncSender};
 use std::sync::{Arc, Condvar, Mutex};
 use std::thread::{self, JoinHandle};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
-use app_backend::{BackendRuntime, BackendRuntimeConfig, resources_with_index};
-use app_coordinator::{ActorError, ApplicationActor, SystemClock, SystemRandom};
+use app_backend::{BackendRuntime, BackendRuntimeConfig, TransportMode, resources_with_index};
+use app_coordinator::{ActorError, ApplicationActor, RandomSource, SystemClock, SystemRandom};
 use domain_types::{OperationId, RuntimeGeneration};
 use host_ports::{
     AdapterEvent, BluetoothNotification, CompletionStatus, HostCommand as PlatformHostCommand,
-    MAX_RESOURCE_BYTES, OperationCompletion, PlatformEvent, ResourceNamespace, StorageRootKind,
+    OperationCompletion, PlatformEvent,
 };
 
 /// Private native ABI version. Hosts and the library are shipped atomically.
@@ -29,6 +29,7 @@ pub const COMMAND_QUEUE_ITEMS: usize = 64;
 pub const COMMAND_QUEUE_BYTES: usize = 1024 * 1024;
 /// Maximum serialized actor messages awaiting dispatch.
 pub const ACTOR_QUEUE_ITEMS: usize = 64;
+pub const MAX_FRONTEND_INDEX_BYTES: usize = 8 * 1024 * 1024;
 /// Maximum recent completions retained solely to distinguish duplicate replies.
 pub const COMPLETED_OPERATION_HISTORY: usize = 128;
 /// Event kind whose payload is an encoded [`PlatformEvent`].
@@ -36,6 +37,19 @@ pub const EVENT_KIND_PLATFORM: u32 = 1;
 const SYNTHETIC_OPERATION_START: u64 = 1 << 63;
 
 pub type Generation = u64;
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum RuntimeTransport {
+    Physical,
+    Software,
+}
+
+pub struct RuntimeStartupConfig {
+    pub requested_port: u16,
+    pub transport: RuntimeTransport,
+    pub storage_root: PathBuf,
+    pub frontend_index: Arc<[u8]>,
+}
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum RuntimeError {
@@ -183,30 +197,6 @@ impl CommandQueue {
     }
 }
 
-#[derive(Clone, Copy)]
-enum BootstrapInput {
-    DurableRoot,
-    FrontendIndex,
-    SecureRandom,
-}
-
-#[derive(Default)]
-struct BootstrapState {
-    pending: HashMap<u64, BootstrapInput>,
-    durable_root: Option<PathBuf>,
-    frontend_index: Option<Arc<[u8]>>,
-    random: Option<Vec<u8>>,
-}
-
-impl BootstrapState {
-    fn ready(&self) -> bool {
-        self.pending.is_empty()
-            && self.durable_root.is_some()
-            && self.frontend_index.is_some()
-            && self.random.is_some()
-    }
-}
-
 struct BackendWorker {
     controls: SyncSender<BackendControl>,
     worker: JoinHandle<Result<(), String>>,
@@ -302,10 +292,10 @@ pub struct Runtime {
     commands: Arc<CommandQueue>,
     next_synthetic_operation: AtomicU64,
     application: Mutex<Option<Arc<ApplicationActor>>>,
-    bootstrap: Mutex<Option<BootstrapState>>,
     backend: Mutex<Option<BackendWorker>>,
     launch_token: Mutex<Option<String>>,
-    requested_port: AtomicU16,
+    software_transport: AtomicBool,
+    forwarded_commands: Mutex<Option<Receiver<host_ports::PlatformCommand>>>,
 }
 
 impl Runtime {
@@ -317,10 +307,10 @@ impl Runtime {
             commands: Arc::new(CommandQueue::new()),
             next_synthetic_operation: AtomicU64::new(SYNTHETIC_OPERATION_START),
             application: Mutex::new(None),
-            bootstrap: Mutex::new(None),
             backend: Mutex::new(None),
             launch_token: Mutex::new(None),
-            requested_port: AtomicU16::new(0),
+            software_transport: AtomicBool::new(false),
+            forwarded_commands: Mutex::new(None),
         }
     }
 
@@ -342,7 +332,7 @@ impl Runtime {
     ///
     /// # Errors
     /// Returns an error unless the runtime is newly created or if synchronization fails.
-    pub fn start_on_port(&self, requested_port: u16) -> Result<(), RuntimeError> {
+    pub fn start_on_port(&self, _requested_port: u16) -> Result<(), RuntimeError> {
         let mut lifecycle = self.lifecycle.lock().map_err(|_| RuntimeError::Poisoned)?;
         if *lifecycle != Lifecycle::Created {
             return Err(if *lifecycle == Lifecycle::Poisoned {
@@ -352,7 +342,6 @@ impl Runtime {
             });
         }
         self.commands.open()?;
-        self.requested_port.store(requested_port, Ordering::Release);
         let application = ApplicationActor::start(
             RuntimeGeneration(self.generation),
             SystemClock::new(),
@@ -364,6 +353,66 @@ impl Runtime {
             .lock()
             .map_err(|_| RuntimeError::Poisoned)? = Some(application);
         *lifecycle = Lifecycle::Started;
+        Ok(())
+    }
+
+    /// Starts the application and loopback composition from bounded startup inputs.
+    ///
+    /// # Errors
+    /// Returns a stable validation, lifecycle, storage, or loopback startup failure.
+    pub fn start_configured(&self, config: RuntimeStartupConfig) -> Result<(), RuntimeError> {
+        if !config.storage_root.is_absolute()
+            || config.frontend_index.is_empty()
+            || config.frontend_index.len() > MAX_FRONTEND_INDEX_BYTES
+        {
+            return Err(RuntimeError::InvalidArgument);
+        }
+        self.start_on_port(config.requested_port)?;
+        self.software_transport.store(
+            config.transport == RuntimeTransport::Software,
+            Ordering::Release,
+        );
+        let mut random = [0_u8; 32];
+        SystemRandom.fill(&mut random);
+        let mut launch_token = String::with_capacity(64);
+        for byte in random {
+            write!(&mut launch_token, "{byte:02x}").map_err(|_| RuntimeError::Internal)?;
+        }
+        let (platform_commands, forwarded_commands) =
+            if config.transport == RuntimeTransport::Software {
+                let (sender, receiver) = mpsc::sync_channel(ACTOR_QUEUE_ITEMS);
+                (Some(sender), Some(receiver))
+            } else {
+                (None, None)
+            };
+        *self
+            .forwarded_commands
+            .lock()
+            .map_err(|_| RuntimeError::Poisoned)? = forwarded_commands;
+        let backend_config = BackendRuntimeConfig {
+            generation: self.generation,
+            requested_port: config.requested_port,
+            storage_root: config.storage_root,
+            platform: platform_name().into(),
+            launch_token: launch_token.clone(),
+            resources: resources_with_index(config.frontend_index),
+            application: Some(self.application()?),
+            transport: match config.transport {
+                RuntimeTransport::Physical => TransportMode::Physical,
+                RuntimeTransport::Software => TransportMode::Software,
+            },
+            platform_commands,
+        };
+        let (worker, endpoint) = BackendWorker::start(backend_config)?;
+        *self.backend.lock().map_err(|_| RuntimeError::Poisoned)? = Some(worker);
+        *self
+            .launch_token
+            .lock()
+            .map_err(|_| RuntimeError::Poisoned)? = Some(launch_token.clone());
+        self.request_host(PlatformHostCommand::RuntimeReady {
+            endpoint,
+            launch_token,
+        })?;
         Ok(())
     }
 
@@ -420,7 +469,9 @@ impl Runtime {
             adapter_order,
             event: adapter_event,
         };
-        event.validate().map_err(|_| RuntimeError::InvalidArgument)?;
+        event
+            .validate()
+            .map_err(|_| RuntimeError::InvalidArgument)?;
         let foreground = match &event.event {
             AdapterEvent::Lifecycle { foreground, .. } => Some(*foreground),
             _ => None,
@@ -431,7 +482,7 @@ impl Runtime {
         if let Some(foreground) = foreground {
             self.update_loopback_lifecycle(foreground)?;
         }
-        self.ensure_bootstrap()
+        Ok(())
     }
 
     /// Copies and submits one ordered Bluetooth notification to the application actor.
@@ -479,10 +530,30 @@ impl Runtime {
         payload_capacity: usize,
     ) -> Result<(WaitCommand, Option<HostCommand>), RuntimeError> {
         self.require_started_or_stopped()?;
-        if self.require_started().is_ok() {
-            self.drain_application_commands()?;
+        if !self.software_transport.load(Ordering::Acquire) {
+            if self.require_started().is_ok() {
+                self.drain_application_commands()?;
+            }
+            return self.commands.wait(timeout, payload_capacity);
         }
-        self.commands.wait(timeout, payload_capacity)
+        let deadline = Instant::now().checked_add(timeout);
+        loop {
+            if self.require_started().is_ok() {
+                self.drain_application_commands()?;
+            }
+            let remaining = deadline
+                .and_then(|deadline| deadline.checked_duration_since(Instant::now()))
+                .unwrap_or_default();
+            let result = self
+                .commands
+                .wait(remaining.min(Duration::from_millis(10)), payload_capacity)?;
+            if !matches!(result.0, WaitCommand::Timeout)
+                || remaining.is_zero()
+                || deadline.is_some_and(|deadline| Instant::now() >= deadline)
+            {
+                return Ok(result);
+            }
+        }
     }
 
     /// Accepts an operation completion at most once.
@@ -522,7 +593,7 @@ impl Runtime {
             })
             .map_err(map_actor)?;
         self.commands.complete(operation_id)?;
-        self.advance_bootstrap(operation_id, status, payload)
+        Ok(())
     }
 
     /// Stops the actor, closes the command queue, and wakes blocked waiters.
@@ -560,7 +631,6 @@ impl Runtime {
         {
             application.stop().map_err(map_actor)?;
         }
-        *self.bootstrap.lock().map_err(|_| RuntimeError::Poisoned)? = None;
         *self
             .launch_token
             .lock()
@@ -622,140 +692,42 @@ impl Runtime {
     }
 
     fn drain_application_commands(&self) -> Result<(), RuntimeError> {
-        let application = self.application()?;
-        while let Some(command) = application.try_host_command().map_err(map_actor)? {
-            let kind = command.command.kind();
-            let payload = command
-                .command
-                .encode_payload()
-                .map_err(|_| RuntimeError::Internal)?;
-            self.commands.enqueue(HostCommand {
-                kind,
-                flags: 0,
-                generation: self.generation,
-                operation_id: command.operation.0,
-                payload,
-            })?;
-        }
-        Ok(())
-    }
-
-    fn ensure_bootstrap(&self) -> Result<(), RuntimeError> {
-        let mut bootstrap = self.bootstrap.lock().map_err(|_| RuntimeError::Poisoned)?;
-        if bootstrap.is_some()
-            || self
-                .backend
+        if self.software_transport.load(Ordering::Acquire) {
+            let commands = self
+                .forwarded_commands
                 .lock()
-                .map_err(|_| RuntimeError::Poisoned)?
-                .is_some()
-        {
+                .map_err(|_| RuntimeError::Poisoned)?;
+            let Some(commands) = commands.as_ref() else {
+                return Ok(());
+            };
+            while let Ok(command) = commands.try_recv() {
+                self.enqueue_platform_command(command)?;
+            }
             return Ok(());
         }
         let application = self.application()?;
-        let requests = [
-            (
-                PlatformHostCommand::ResolveStorageRoot {
-                    kind: StorageRootKind::Durable,
-                },
-                BootstrapInput::DurableRoot,
-            ),
-            (
-                PlatformHostCommand::ReadResource {
-                    namespace: ResourceNamespace::Frontend,
-                    logical_name: "index.html".into(),
-                    maximum_bytes: MAX_RESOURCE_BYTES,
-                },
-                BootstrapInput::FrontendIndex,
-            ),
-            (
-                PlatformHostCommand::SecureRandom { count: 32 },
-                BootstrapInput::SecureRandom,
-            ),
-        ];
-        let mut state = BootstrapState::default();
-        for (command, input) in requests {
-            let operation = application.request_host(command).map_err(map_actor)?;
-            state.pending.insert(operation.0, input);
+        while let Some(command) = application.try_host_command().map_err(map_actor)? {
+            self.enqueue_platform_command(command)?;
         }
-        *bootstrap = Some(state);
-        drop(bootstrap);
-        self.drain_application_commands()
+        Ok(())
     }
 
-    fn advance_bootstrap(
+    fn enqueue_platform_command(
         &self,
-        operation_id: u64,
-        status: CompletionStatus,
-        payload: &[u8],
+        command: host_ports::PlatformCommand,
     ) -> Result<(), RuntimeError> {
-        let config = {
-            let mut bootstrap = self.bootstrap.lock().map_err(|_| RuntimeError::Poisoned)?;
-            let Some(state) = bootstrap.as_mut() else {
-                return Ok(());
-            };
-            let Some(input) = state.pending.remove(&operation_id) else {
-                return Ok(());
-            };
-            if status != CompletionStatus::Success {
-                return Err(RuntimeError::Internal);
-            }
-            match input {
-                BootstrapInput::DurableRoot => {
-                    let value =
-                        std::str::from_utf8(payload).map_err(|_| RuntimeError::InvalidArgument)?;
-                    let path = PathBuf::from(value);
-                    if value.is_empty() || value.len() > 1024 || !path.is_absolute() {
-                        return Err(RuntimeError::InvalidArgument);
-                    }
-                    state.durable_root = Some(path);
-                }
-                BootstrapInput::FrontendIndex => {
-                    if payload.is_empty()
-                        || u64::try_from(payload.len()).unwrap_or(u64::MAX) > MAX_RESOURCE_BYTES
-                    {
-                        return Err(RuntimeError::InvalidArgument);
-                    }
-                    state.frontend_index = Some(Arc::from(payload));
-                }
-                BootstrapInput::SecureRandom => {
-                    if payload.len() != 32 {
-                        return Err(RuntimeError::InvalidArgument);
-                    }
-                    state.random = Some(payload.to_vec());
-                }
-            }
-            if !state.ready() {
-                return Ok(());
-            }
-            let mut token = String::with_capacity(64);
-            for byte in state.random.take().ok_or(RuntimeError::Internal)? {
-                write!(&mut token, "{byte:02x}").map_err(|_| RuntimeError::Internal)?;
-            }
-            BackendRuntimeConfig {
-                generation: self.generation,
-                requested_port: self.requested_port.load(Ordering::Acquire),
-                storage_root: state.durable_root.take().ok_or(RuntimeError::Internal)?,
-                platform: platform_name().into(),
-                launch_token: token,
-                resources: resources_with_index(
-                    state.frontend_index.take().ok_or(RuntimeError::Internal)?,
-                ),
-                application: Some(self.application()?),
-            }
-        };
-        let launch_token = config.launch_token.clone();
-        let (worker, endpoint) = BackendWorker::start(config)?;
-        *self.backend.lock().map_err(|_| RuntimeError::Poisoned)? = Some(worker);
-        *self
-            .launch_token
-            .lock()
-            .map_err(|_| RuntimeError::Poisoned)? = Some(launch_token.clone());
-        *self.bootstrap.lock().map_err(|_| RuntimeError::Poisoned)? = None;
-        self.request_host(PlatformHostCommand::RuntimeReady {
-            endpoint,
-            launch_token,
-        })?;
-        Ok(())
+        let kind = command.command.kind();
+        let payload = command
+            .command
+            .encode_payload()
+            .map_err(|_| RuntimeError::Internal)?;
+        self.commands.enqueue(HostCommand {
+            kind,
+            flags: 0,
+            generation: self.generation,
+            operation_id: command.operation.0,
+            payload,
+        })
     }
 
     fn update_loopback_lifecycle(&self, foreground: bool) -> Result<(), RuntimeError> {
@@ -986,45 +958,22 @@ mod tests {
     }
 
     #[test]
-    fn typed_host_bootstrap_starts_the_shared_production_composition() {
+    fn configured_startup_starts_the_shared_production_composition() {
         let runtime = Runtime::new(12);
-        runtime.start().unwrap();
-        let event = PlatformEvent {
-            generation: RuntimeGeneration(12),
-            connection_generation: 0,
-            adapter_order: 1,
-            event: AdapterEvent::Lifecycle {
-                foreground: true,
-                background_eligible: false,
-            },
-        }
-        .encode()
-        .unwrap();
-        runtime.submit_platform_event(&event).unwrap();
-
         let root = std::env::temp_dir().join(format!(
-            "host-runtime-bootstrap-{}-{}",
+            "host-runtime-configured-{}-{}",
             std::process::id(),
             runtime.generation()
         ));
         let _ = std::fs::remove_dir_all(&root);
-        for _ in 0..3 {
-            let (_, command) = runtime.wait_command(Duration::ZERO, 4096).unwrap();
-            let command = command.unwrap();
-            let decoded =
-                PlatformHostCommand::decode_payload(command.kind, &command.payload).unwrap();
-            let payload = match decoded {
-                PlatformHostCommand::ResolveStorageRoot { .. } => {
-                    root.to_string_lossy().as_bytes().to_vec()
-                }
-                PlatformHostCommand::ReadResource { .. } => b"<!doctype html>".to_vec(),
-                PlatformHostCommand::SecureRandom { count } => vec![7; usize::from(count)],
-                other => panic!("unexpected bootstrap command: {other:?}"),
-            };
-            runtime
-                .complete_platform(command.operation_id, 0, &payload)
-                .unwrap();
-        }
+        runtime
+            .start_configured(RuntimeStartupConfig {
+                requested_port: 0,
+                transport: RuntimeTransport::Physical,
+                storage_root: root.clone(),
+                frontend_index: Arc::from(&b"<!doctype html>"[..]),
+            })
+            .unwrap();
 
         let (_, ready) = runtime.wait_command(Duration::from_secs(1), 4096).unwrap();
         let ready = ready.unwrap();
@@ -1035,7 +984,8 @@ mod tests {
                 launch_token,
             } => {
                 assert!(endpoint.starts_with("http://127.0.0.1:"));
-                assert_eq!(launch_token, "07".repeat(32));
+                assert_eq!(launch_token.len(), 64);
+                assert!(launch_token.bytes().all(|byte| byte.is_ascii_hexdigit()));
             }
             other => panic!("unexpected readiness command: {other:?}"),
         }
@@ -1067,6 +1017,102 @@ mod tests {
         runtime
             .complete_platform(resumed.operation_id, 0, &[])
             .unwrap();
+        runtime.stop().unwrap();
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn configured_startup_rejects_invalid_roots_and_resources_before_starting() {
+        let runtime = Runtime::new(14);
+        let invalid_root = RuntimeStartupConfig {
+            requested_port: 0,
+            transport: RuntimeTransport::Physical,
+            storage_root: PathBuf::from("relative/core"),
+            frontend_index: Arc::from(&b"<!doctype html>"[..]),
+        };
+        assert_eq!(
+            runtime.start_configured(invalid_root),
+            Err(RuntimeError::InvalidArgument)
+        );
+
+        let root = std::env::temp_dir().join(format!(
+            "host-runtime-invalid-{}-{}",
+            std::process::id(),
+            runtime.generation()
+        ));
+        assert_eq!(
+            runtime.start_configured(RuntimeStartupConfig {
+                requested_port: 0,
+                transport: RuntimeTransport::Software,
+                storage_root: root.clone(),
+                frontend_index: Arc::from(&b""[..]),
+            }),
+            Err(RuntimeError::InvalidArgument)
+        );
+        assert_eq!(
+            runtime.start_configured(RuntimeStartupConfig {
+                requested_port: 0,
+                transport: RuntimeTransport::Software,
+                storage_root: root,
+                frontend_index: Arc::from(vec![0_u8; MAX_FRONTEND_INDEX_BYTES + 1]),
+            }),
+            Err(RuntimeError::InvalidArgument)
+        );
+        assert_eq!(
+            runtime.wait_command(Duration::ZERO, 0),
+            Err(RuntimeError::WrongState)
+        );
+    }
+
+    #[test]
+    fn software_transport_keeps_bluetooth_commands_inside_rust() {
+        let runtime = Runtime::new(13);
+        let root = std::env::temp_dir().join(format!(
+            "host-runtime-software-{}-{}",
+            std::process::id(),
+            runtime.generation()
+        ));
+        let _ = std::fs::remove_dir_all(&root);
+        runtime
+            .start_configured(RuntimeStartupConfig {
+                requested_port: 0,
+                transport: RuntimeTransport::Software,
+                storage_root: root.clone(),
+                frontend_index: Arc::from(&b"<!doctype html>"[..]),
+            })
+            .unwrap();
+        let (_, ready) = runtime.wait_command(Duration::from_secs(1), 4096).unwrap();
+        let ready = ready.expect("runtime readiness remains a native presentation command");
+        assert_eq!(ready.kind, host_ports::COMMAND_RUNTIME_READY);
+        runtime
+            .complete_platform(ready.operation_id, 0, &[])
+            .unwrap();
+
+        runtime
+            .application()
+            .unwrap()
+            .request_host(PlatformHostCommand::BluetoothStartScan)
+            .unwrap();
+        let deadline = Instant::now() + Duration::from_secs(1);
+        loop {
+            if !runtime
+                .application()
+                .unwrap()
+                .snapshot()
+                .unwrap()
+                .discovered_devices
+                .is_empty()
+            {
+                break;
+            }
+            assert!(Instant::now() < deadline, "software discovery timed out");
+            std::thread::park_timeout(Duration::from_millis(10));
+        }
+        let (outcome, command) = runtime
+            .wait_command(Duration::from_millis(20), 128)
+            .unwrap();
+        assert_eq!(outcome, WaitCommand::Timeout);
+        assert!(command.is_none());
         runtime.stop().unwrap();
         let _ = std::fs::remove_dir_all(root);
     }

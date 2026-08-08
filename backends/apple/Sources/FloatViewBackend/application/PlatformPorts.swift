@@ -71,11 +71,21 @@ public protocol BluetoothPort: AnyObject, Sendable {
   func connect(_ deviceID: DeviceID)
   func write(_ bytes: Data, to deviceID: DeviceID)
   func disconnect(_ deviceID: DeviceID)
-  func configureSavedDeviceIDs(_ deviceIDs: Set<DeviceID>)
 }
 
-public extension BluetoothPort {
-  func configureSavedDeviceIDs(_: Set<DeviceID>) {}
+public final class InactiveBluetoothPort: BluetoothPort, @unchecked Sendable {
+  public init() {}
+
+  public func currentState() -> BluetoothState {
+    BluetoothState(radio: .unknown, scanPermission: .unknown, connectPermission: .unknown)
+  }
+
+  public func requestPermission() {}
+  public func startDiscovery() {}
+  public func stopDiscovery() {}
+  public func connect(_: DeviceID) {}
+  public func write(_: Data, to _: DeviceID) {}
+  public func disconnect(_: DeviceID) {}
 }
 
 public enum LocationProviderAuthorization: String, Sendable, Codable {

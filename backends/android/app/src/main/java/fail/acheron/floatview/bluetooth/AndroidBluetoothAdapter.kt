@@ -26,8 +26,6 @@ import fail.acheron.floatview.backend.BluetoothRadioState
 import fail.acheron.floatview.backend.BluetoothState
 import fail.acheron.floatview.backend.ConnectionState
 import fail.acheron.floatview.backend.DeviceId
-import java.nio.charset.StandardCharsets
-import java.security.MessageDigest
 import java.util.UUID
 
 fun interface BluetoothPermissionRequester {
@@ -45,8 +43,6 @@ class AndroidBluetoothAdapter(
     private val applicationContext = context.applicationContext
     private val manager = applicationContext.getSystemService(BluetoothManager::class.java)
     private val handler = Handler(Looper.getMainLooper())
-    private val deviceIdentity = AndroidDeviceIdentity.from(applicationContext)
-    private val opaqueIds = mutableMapOf<String, DeviceId>()
     private val devicesById = mutableMapOf<DeviceId, BluetoothDevice>()
     private var activeDeviceId: DeviceId? = null
     private var activeGatt: BluetoothGatt? = null
@@ -56,7 +52,6 @@ class AndroidBluetoothAdapter(
     private var pendingWriteBytes = 0
     private var writeInFlight = false
     private var safeWritePayloadBytes = DEFAULT_WRITE_PAYLOAD_BYTES
-    private var savedDeviceIds = emptySet<DeviceId>()
     private var serviceDiscoveryStarted = false
     private var connectionTimeout: Runnable? = null
     private val radioReceiver = object : BroadcastReceiver() {
@@ -74,10 +69,10 @@ class AndroidBluetoothAdapter(
                 eventHandler(BluetoothEvent.ScanFailed("permission_required"))
                 return
             }
-            val deviceId = opaqueIds.getOrPut(address) { deviceIdentity.idFor(address) }
             val advertisesUart = result.scanRecord?.serviceUuids
                 ?.any { it.uuid == VescGattProfile.service } == true
-            if (!VescBluetoothPolicy.shouldPublish(advertisesUart, deviceId, savedDeviceIds)) return
+            if (!advertisesUart) return
+            val deviceId = DeviceId(address.uppercase())
             devicesById[deviceId] = result.device
             val name = result.scanRecord?.deviceName ?: try {
                 result.device.name
@@ -163,14 +158,16 @@ class AndroidBluetoothAdapter(
         }
     }
 
-    override fun configureSavedDeviceIds(deviceIds: Set<DeviceId>) {
-        synchronized(this) { savedDeviceIds = deviceIds.toSet() }
-    }
-
     override fun connect(deviceId: DeviceId) {
         diagnosticHandler("connect_requested")
         val device = synchronized(this) {
-            if (activeGatt != null && activeDeviceId != deviceId) null else devicesById[deviceId]
+            if (activeGatt != null && activeDeviceId != deviceId) {
+                null
+            } else {
+                devicesById[deviceId] ?: runCatching {
+                    manager.adapter?.getRemoteDevice(deviceId.value)
+                }.getOrNull()
+            }
         }
         if (device == null) {
             eventHandler(BluetoothEvent.ConnectionChanged(deviceId, ConnectionState.FAILED))
@@ -623,29 +620,5 @@ class AndroidBluetoothAdapter(
         private const val DEFAULT_WRITE_PAYLOAD_BYTES = 20
         private val CLIENT_CHARACTERISTIC_CONFIGURATION =
             UUID.fromString("00002902-0000-1000-8000-00805f9b34fb")
-    }
-}
-
-internal class AndroidDeviceIdentity(private val installationSalt: String) {
-    fun idFor(platformAddress: String): DeviceId {
-        val digest = MessageDigest.getInstance("SHA-256").digest(
-            "$installationSalt\u0000${platformAddress.uppercase()}"
-                .toByteArray(StandardCharsets.UTF_8),
-        )
-        return DeviceId("android-" + digest.take(16).joinToString("") { "%02x".format(it) })
-    }
-
-    companion object {
-        private const val PREFERENCES = "float-view-device-identity"
-        private const val INSTALLATION_SALT = "installation-salt"
-
-        fun from(context: Context): AndroidDeviceIdentity {
-            val preferences = context.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE)
-            val salt = preferences.getString(INSTALLATION_SALT, null)
-                ?: UUID.randomUUID().toString().also {
-                    preferences.edit().putString(INSTALLATION_SALT, it).apply()
-                }
-            return AndroidDeviceIdentity(salt)
-        }
     }
 }
