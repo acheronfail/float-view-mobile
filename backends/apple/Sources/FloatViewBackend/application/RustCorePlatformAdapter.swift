@@ -60,7 +60,7 @@ public final class RustCorePlatformAdapter: @unchecked Sendable {
     case .bluetoothStopScan:
       bluetooth.stopDiscovery()
       complete(command)
-    case let .bluetoothConnect(deviceToken):
+    case let .bluetoothConnect(expectedGeneration, deviceToken):
       guard let value = String(data: deviceToken, encoding: .utf8), !value.isEmpty else {
         diagnose(stage: "bluetooth_connect", code: "unknown_token")
         complete(command, resultKind: 3)
@@ -69,7 +69,7 @@ public final class RustCorePlatformAdapter: @unchecked Sendable {
       let deviceID = DeviceID(value)
       lock.withLock {
         activeDeviceID = deviceID
-        connectionGeneration &+= 1
+        connectionGeneration = expectedGeneration
       }
       trace("connect generation=\(currentConnectionGeneration)")
       bluetooth.connect(deviceID)

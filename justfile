@@ -46,6 +46,9 @@ core-prerequisites:
 core-audit:
     sh backends/core/scripts/audit.sh
 
+host-audit:
+    bash backends/core/scripts/audit-host-surface.sh
+
 core-matrix platform:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -258,6 +261,7 @@ audit:
       -g '!frontend/build/**' -g '!**/Resources/index.html'
     just core-header-check
     just core-audit
+    just host-audit
 
 verify: build
     just test all

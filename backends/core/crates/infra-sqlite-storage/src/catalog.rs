@@ -941,6 +941,55 @@ mod tests {
     }
 
     #[test]
+    fn private_identity_uniqueness_rejects_clones_and_zero_uuid() {
+        let root = temporary_root("private-identity");
+        let store = CatalogStore::open(&root).expect("store");
+        store
+            .ensure_saved_device(
+                "saved-a",
+                "history-a",
+                Some([1; 12]),
+                Some("association-a"),
+                None,
+                1,
+            )
+            .expect("first identity");
+        assert!(matches!(
+            store.ensure_saved_device(
+                "saved-b",
+                "history-b",
+                Some([1; 12]),
+                Some("association-b"),
+                None,
+                2,
+            ),
+            Err(StoreError::Sqlite(_))
+        ));
+        assert!(matches!(
+            store.ensure_saved_device(
+                "saved-c",
+                "history-c",
+                Some([2; 12]),
+                Some("association-a"),
+                None,
+                3,
+            ),
+            Err(StoreError::Sqlite(_))
+        ));
+        assert!(matches!(
+            store.ensure_saved_device(
+                "saved-zero",
+                "history-zero",
+                Some([0; 12]),
+                Some("association-zero"),
+                None,
+                4,
+            ),
+            Err(StoreError::Invalid)
+        ));
+    }
+
+    #[test]
     fn tune_pages_updates_and_deletes_are_revision_bound() {
         let root = temporary_root("tunes");
         let store = CatalogStore::open(&root).expect("store");

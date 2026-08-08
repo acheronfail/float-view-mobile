@@ -16,6 +16,20 @@ pub(crate) struct SoftwareHost {
 }
 
 impl SoftwareHost {
+    pub(crate) fn initialize(
+        &mut self,
+        application: &ApplicationActor,
+    ) -> Result<(), app_coordinator::ActorError> {
+        self.event(
+            application,
+            application.generation(),
+            AdapterEvent::BluetoothState {
+                radio: BluetoothRadio::PoweredOn,
+                authorization: BluetoothAuthorization::Granted,
+            },
+        )
+    }
+
     pub(crate) fn pump(
         &mut self,
         application: &ApplicationActor,
@@ -30,6 +44,29 @@ impl SoftwareHost {
         }
         let generation = command.generation;
         let operation = command.operation;
+        if let HostCommand::BluetoothWrite {
+            connection_generation,
+            bytes,
+        } = &command.command
+        {
+            let response = self.peripheral.response(bytes);
+            let _ = application.complete(OperationCompletion {
+                generation,
+                operation,
+                status: CompletionStatus::Success,
+                payload: Vec::new(),
+            });
+            if let Some(bytes) = response {
+                self.adapter_order = self.adapter_order.saturating_add(1);
+                let _ = application.submit_bluetooth(BluetoothNotification {
+                    generation,
+                    connection_generation: *connection_generation,
+                    adapter_order: self.adapter_order,
+                    bytes,
+                });
+            }
+            return;
+        }
         let accepted = self
             .handle(application, generation, command.command)
             .is_ok();
@@ -86,8 +123,11 @@ impl SoftwareHost {
                     },
                 )
             }
-            HostCommand::BluetoothConnect { .. } => {
-                self.connection_generation = self.connection_generation.saturating_add(1);
+            HostCommand::BluetoothConnect {
+                connection_generation,
+                ..
+            } => {
+                self.connection_generation = connection_generation;
                 self.event(
                     application,
                     generation,
@@ -118,21 +158,7 @@ impl SoftwareHost {
                     },
                 )
             }
-            HostCommand::BluetoothWrite {
-                connection_generation,
-                bytes,
-            } => {
-                if let Some(bytes) = self.peripheral.response(&bytes) {
-                    self.adapter_order = self.adapter_order.saturating_add(1);
-                    application.submit_bluetooth(BluetoothNotification {
-                        generation,
-                        connection_generation,
-                        adapter_order: self.adapter_order,
-                        bytes,
-                    })?;
-                }
-                Ok(())
-            }
+            HostCommand::BluetoothWrite { .. } => unreachable!("writes complete before responses"),
             HostCommand::PresentPermission {
                 permission: PermissionKind::Bluetooth,
             } => self.event(

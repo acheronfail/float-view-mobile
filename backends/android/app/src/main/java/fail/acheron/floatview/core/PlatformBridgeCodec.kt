@@ -16,7 +16,7 @@ internal enum class LocationAuthorization(val tag: Int) { UNKNOWN(1), DENIED(2),
 internal sealed interface PlatformCommand {
     data object BluetoothStartScan : PlatformCommand
     data object BluetoothStopScan : PlatformCommand
-    data class BluetoothConnect(val deviceToken: ByteArray) : PlatformCommand
+    data class BluetoothConnect(val connectionGeneration: Long, val deviceToken: ByteArray) : PlatformCommand
     data class BluetoothDisconnect(val connectionGeneration: Long) : PlatformCommand
     data class BluetoothWrite(val connectionGeneration: Long, val bytes: ByteArray) : PlatformCommand
     data class Host(val tag: Int, val payload: ByteArray = byteArrayOf()) : PlatformCommand
@@ -44,7 +44,7 @@ internal data class PlatformCommandEnvelope(
                 when (val tag = command.kind) {
                     1 -> PlatformCommand.BluetoothStartScan
                     2 -> PlatformCommand.BluetoothStopScan
-                    3 -> PlatformCommand.BluetoothConnect(reader.bytes(256))
+                    3 -> PlatformCommand.BluetoothConnect(reader.i64(), reader.bytes(256))
                     4 -> PlatformCommand.BluetoothDisconnect(reader.i64())
                     5 -> PlatformCommand.BluetoothWrite(reader.i64(), reader.bytes(MAX_BRIDGE_PAYLOAD))
                     in 6..11 -> PlatformCommand.Host(tag, reader.remaining())

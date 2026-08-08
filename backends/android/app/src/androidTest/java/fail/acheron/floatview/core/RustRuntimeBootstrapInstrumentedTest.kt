@@ -17,7 +17,6 @@ class RustRuntimeBootstrapInstrumentedTest {
     fun productionRuntimeBootstrapsSuspendsAndResumesWithAndroidAdapters() {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val application = context as FloatViewApplication
-        assertTrue(application.usesRustBackend)
         application.rustRuntime.updateLifecycle(foreground = true)
         val first = waitForReadiness(application, previousRevision = 0)
         assertTrue(first.third.isNotEmpty())

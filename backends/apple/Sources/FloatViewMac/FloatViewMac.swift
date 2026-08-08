@@ -121,10 +121,16 @@ private final class MacRustRuntime: @unchecked Sendable {
     self.presentation = presentation
     let requestedPort = ProcessInfo.processInfo.environment["FLOAT_VIEW_CONFORMANCE_PORT"]
       .flatMap(UInt16.init) ?? 0
+    let storageRoot: URL
+    if let configuredRoot = ProcessInfo.processInfo.environment["FLOAT_VIEW_STORAGE_ROOT"] {
+      storageRoot = URL(fileURLWithPath: configuredRoot, isDirectory: true)
+    } else {
+      storageRoot = try host.durableStorageRoot()
+    }
     try runtime.startConfigured(
       requestedPort: requestedPort,
       softwareTransport: softwareTransport,
-      storageRoot: host.durableStorageRoot(),
+      storageRoot: storageRoot,
       frontendIndex: Data(contentsOf: htmlURL),
       handler: adapter.dispatch
     )

@@ -1116,6 +1116,7 @@ impl NativeBackend {
                     connection.handled_failure_generation = Some(snapshot.connection_generation);
                     connection.connect_after_generation = snapshot.connection_generation;
                     self.request_host(HostCommand::BluetoothConnect {
+                        connection_generation: snapshot.connection_generation.saturating_add(1),
                         association: connection.association.clone(),
                     })?;
                 }
@@ -1626,6 +1627,9 @@ impl NativeBackend {
         let Some(connection) = connection.as_mut() else {
             return Ok(());
         };
+        if connection.vesc_generation != Some(request.generation) {
+            return Ok(());
+        }
         conformance_trace(&format!(
             "vesc_response stage={:?} kind={:?}",
             connection.stage, request.kind
@@ -2569,6 +2573,7 @@ impl NativeBackend {
             .map_err(|_| ContractError::new("invalid_state", "Tracking could not start"))?;
         self.request_host(HostCommand::BluetoothStopScan)?;
         self.request_host(HostCommand::BluetoothConnect {
+            connection_generation: snapshot.connection_generation.saturating_add(1),
             association: association.clone(),
         })?;
         let connection = new_native_connection(

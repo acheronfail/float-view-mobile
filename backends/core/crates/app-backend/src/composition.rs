@@ -117,6 +117,10 @@ impl BackendRuntime {
                 }
                 #[cfg(feature = "software-host")]
                 let mut software = software_host.then(SoftwareHost::default);
+                #[cfg(feature = "software-host")]
+                if let Some(software) = software.as_mut() {
+                    let _ = software.initialize(&worker_application);
+                }
                 while !worker_stopped.load(Ordering::Acquire) {
                     #[cfg(feature = "software-host")]
                     if let Some(software) = software.as_mut() {

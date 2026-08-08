@@ -8,15 +8,10 @@ value class DeviceId(val value: String)
 
 enum class ConnectionState {
     DISCONNECTED,
-    CONNECTING,
     CONNECTED,
     DISCOVERING_SERVICES,
     ENABLING_NOTIFICATIONS,
-    IDENTIFYING,
-    SELECTING_CONTROLLER,
     READY,
-    RECONNECTING,
-    DISCONNECTING,
     FAILED,
 }
 

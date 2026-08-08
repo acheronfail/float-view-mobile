@@ -56,10 +56,53 @@ static void test_identity_and_lifecycle(void) {
   assert(float_view_runtime_create(&runtime) == FLOAT_VIEW_STATUS_OK);
   assert(runtime != NULL);
   uint64_t generation = 0;
+  assert(float_view_runtime_submit_bluetooth_state(runtime, 1, 0, 1, 3, 3) ==
+         FLOAT_VIEW_STATUS_WRONG_STATE);
   assert(float_view_runtime_start(runtime, &generation) == FLOAT_VIEW_STATUS_OK);
   assert(generation != 0);
   assert(float_view_runtime_start(runtime, &generation) ==
          FLOAT_VIEW_STATUS_WRONG_STATE);
+
+  const uint8_t association[] = "AA:BB:CC:DD:EE:FF";
+  const uint8_t name[] = "VESC";
+  const uint8_t notification[] = {2, 3, 4};
+  assert(float_view_runtime_submit_bluetooth_state(runtime, generation, 0, 1,
+                                                   3, 3) ==
+         FLOAT_VIEW_STATUS_OK);
+  assert(float_view_runtime_submit_bluetooth_state(runtime, generation, 0, 2,
+                                                   99, 3) ==
+         FLOAT_VIEW_STATUS_INVALID_ARGUMENT);
+  assert(float_view_runtime_submit_bluetooth_device(
+             runtime, generation, 0, 2, association, sizeof(association) - 1,
+             name, sizeof(name) - 1, -42) == FLOAT_VIEW_STATUS_OK);
+  assert(float_view_runtime_submit_bluetooth_device(
+             runtime, generation, 0, 3, NULL, 0, NULL, 0, 0) ==
+         FLOAT_VIEW_STATUS_INVALID_ARGUMENT);
+  assert(float_view_runtime_submit_bluetooth_connection(runtime, generation, 1,
+                                                        3, 1) ==
+         FLOAT_VIEW_STATUS_OK);
+  assert(float_view_runtime_submit_location_authorization(runtime, generation,
+                                                          1, 4, 4) ==
+         FLOAT_VIEW_STATUS_OK);
+  assert(float_view_runtime_submit_location(runtime, generation, 1, 5, -33.8,
+                                            151.2, 3.0, 1) ==
+         FLOAT_VIEW_STATUS_OK);
+  assert(float_view_runtime_submit_location(runtime, generation, 1, 6, 91.0,
+                                            151.2, 0.0, 0) ==
+         FLOAT_VIEW_STATUS_INVALID_ARGUMENT);
+  assert(float_view_runtime_submit_lifecycle(runtime, generation, 1, 6, 1, 0) ==
+         FLOAT_VIEW_STATUS_OK);
+  assert(float_view_runtime_submit_logging_service(runtime, generation, 1, 7,
+                                                   1) ==
+         FLOAT_VIEW_STATUS_OK);
+  assert(float_view_runtime_submit_theme(runtime, generation, 1, 8, 1) ==
+         FLOAT_VIEW_STATUS_OK);
+  assert(float_view_runtime_submit_ble_bytes(runtime, generation, 1, 9,
+                                             notification,
+                                             sizeof(notification)) ==
+         FLOAT_VIEW_STATUS_OK);
+  assert(float_view_runtime_submit_theme(runtime, generation, 1, 8, 1) ==
+         FLOAT_VIEW_STATUS_STALE_GENERATION);
 
   uint8_t input[] = {1, 2, 3, 4, 5};
   assert(float_view_runtime_submit_event(runtime, generation + 1, 42, input,

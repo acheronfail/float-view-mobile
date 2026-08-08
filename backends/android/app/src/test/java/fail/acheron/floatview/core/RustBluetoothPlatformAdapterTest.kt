@@ -74,7 +74,7 @@ class RustBluetoothPlatformAdapterTest {
         val token = (discovery.event as PlatformEvent.BluetoothDevice).token
         assertArrayEquals(device.value.encodeToByteArray(), token)
 
-        val connect = command(7, PlatformCommand.BluetoothConnect(token))
+        val connect = command(7, PlatformCommand.BluetoothConnect(1, token))
         assertTrue(adapter.dispatch(connect))
         assertEquals(listOf(device), bluetooth.connected)
         adapter.receive(BluetoothEvent.ConnectionChanged(device, ConnectionState.READY))
@@ -108,7 +108,10 @@ class RustBluetoothPlatformAdapterTest {
         BridgeWriter().apply {
             when (command) {
                 PlatformCommand.BluetoothStartScan, PlatformCommand.BluetoothStopScan -> Unit
-                is PlatformCommand.BluetoothConnect -> bytes(command.deviceToken, 256)
+                is PlatformCommand.BluetoothConnect -> {
+                    i64(command.connectionGeneration)
+                    bytes(command.deviceToken, 256)
+                }
                 is PlatformCommand.BluetoothDisconnect -> i64(command.connectionGeneration)
                 is PlatformCommand.BluetoothWrite -> {
                     i64(command.connectionGeneration)

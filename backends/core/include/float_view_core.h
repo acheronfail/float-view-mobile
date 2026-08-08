@@ -17,8 +17,6 @@ typedef struct FloatViewRuntime FloatViewRuntime;
 
 #define FLOAT_VIEW_BUILD_ID_CAPACITY 16
 
-#define FLOAT_VIEW_EVENT_KIND_PLATFORM 1
-
 #define FLOAT_VIEW_MAX_COMMAND_PAYLOAD (64 * 1024)
 
 #define FLOAT_VIEW_MAX_COMPLETION_PAYLOAD ((8 * 1024) * 1024)
@@ -184,7 +182,7 @@ FloatViewStatus float_view_runtime_submit_bluetooth_state(FloatViewRuntime *hand
                                                           uint32_t authorization);
 
 /**
- * Copies and serializes a bounded platform event through the application actor.
+ * Copies one bounded synthetic command used by smoke and ABI tests.
  *
  * # Safety
  *

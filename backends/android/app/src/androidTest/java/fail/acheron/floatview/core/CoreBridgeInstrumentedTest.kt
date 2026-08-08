@@ -1,6 +1,9 @@
 package fail.acheron.floatview.core
 
+import android.content.Context
+import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import java.io.File
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import org.junit.Assert.assertArrayEquals
@@ -20,15 +23,18 @@ class CoreBridgeInstrumentedTest {
     fun workerUsesCopiedBuffersAndReplacementPresentation() {
         val received = CountDownLatch(1)
         lateinit var worker: ProcessCoreBridge
-        worker = ProcessCoreBridge { error("stale presentation handler was invoked") }
+        worker = processBridge { error("stale presentation handler was invoked") }
         worker.use {
             it.replacePresentation(1)
             it.replacePresentation(2) { command ->
-                assertEquals(42, command.kind)
-                assertArrayEquals(byteArrayOf(1, 2, 3), command.payload)
-                assertEquals(2, command.presentationGeneration)
-                worker.complete(command)
-                received.countDown()
+                if (command.kind == 42) {
+                    assertArrayEquals(byteArrayOf(1, 2, 3), command.payload)
+                    assertEquals(2, command.presentationGeneration)
+                    worker.complete(command)
+                    received.countDown()
+                } else {
+                    worker.complete(command)
+                }
             }
             val input = byteArrayOf(1, 2, 3)
             it.submitForSmoke(42, input)
@@ -42,10 +48,13 @@ class CoreBridgeInstrumentedTest {
         val cancelled = CountDownLatch(1)
         lateinit var worker: ProcessCoreBridge
         worker =
-            ProcessCoreBridge { command ->
-                assertEquals(43, command.kind)
-                worker.cancel(command)
-                cancelled.countDown()
+            processBridge { command ->
+                if (command.kind == 43) {
+                    worker.cancel(command)
+                    cancelled.countDown()
+                } else {
+                    worker.complete(command)
+                }
             }
         worker.use {
             it.submitForSmoke(43, byteArrayOf())
@@ -75,5 +84,15 @@ class CoreBridgeInstrumentedTest {
         )
         assertEquals(0, NativeCore.stop(handle))
         assertEquals(0, NativeCore.destroy(handle))
+    }
+
+    private fun processBridge(onCommand: (NativeHostCommand) -> Unit): ProcessCoreBridge {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        return ProcessCoreBridge(
+            softwareTransport = true,
+            storageRoot = File(context.cacheDir, "core-bridge-${System.nanoTime()}"),
+            frontendIndex = "<html></html>".encodeToByteArray(),
+            onCommand = onCommand,
+        )
     }
 }

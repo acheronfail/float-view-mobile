@@ -10,15 +10,10 @@ public struct DeviceID: Hashable, Sendable, Codable {
 
 public enum ConnectionState: String, Sendable, Codable {
   case disconnected
-  case connecting
   case connected
   case discoveringServices
   case enablingNotifications
-  case identifying
-  case selectingController = "selecting_controller"
   case ready
-  case reconnecting
-  case disconnecting
   case failed
 }
 

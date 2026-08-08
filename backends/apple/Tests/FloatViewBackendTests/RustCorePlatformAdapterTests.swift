@@ -31,7 +31,7 @@ final class RustCorePlatformAdapterTests: XCTestCase {
 
     let connect = try hostCommand(
       operation: 1,
-      command: .bluetoothConnect(deviceToken: token)
+      command: .bluetoothConnect(connectionGeneration: 1, deviceToken: token)
     )
     adapter.dispatch(connect)
     XCTAssertEqual(bluetooth.connected, [deviceID])
@@ -83,13 +83,13 @@ final class RustCorePlatformAdapterTests: XCTestCase {
 
     try adapter.dispatch(hostCommand(
       operation: 1,
-      command: .bluetoothConnect(deviceToken: token)
+      command: .bluetoothConnect(connectionGeneration: 1, deviceToken: token)
     ))
     adapter.receiveBluetooth(.connectionChanged(deviceID, .ready))
     adapter.receiveBluetooth(.connectionChanged(deviceID, .disconnected))
     try adapter.dispatch(hostCommand(
       operation: 2,
-      command: .bluetoothConnect(deviceToken: token)
+      command: .bluetoothConnect(connectionGeneration: 2, deviceToken: token)
     ))
     adapter.receiveBluetooth(.connectionChanged(deviceID, .ready))
     try adapter.dispatch(hostCommand(
@@ -230,7 +230,8 @@ private enum TestCommandEncoder {
     switch command {
     case .bluetoothStartScan, .bluetoothStopScan, .locationStop, .presentSettings:
       break
-    case let .bluetoothConnect(deviceToken):
+    case let .bluetoothConnect(connectionGeneration, deviceToken):
+      writer.u64(connectionGeneration)
       try writer.bytes(deviceToken, maximum: 256)
     case let .bluetoothDisconnect(connectionGeneration):
       writer.u64(connectionGeneration)

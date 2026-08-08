@@ -83,6 +83,7 @@ pub enum HostCommand {
     BluetoothStartScan,
     BluetoothStopScan,
     BluetoothConnect {
+        connection_generation: u64,
         association: PlatformAssociation,
     },
     BluetoothDisconnect {
@@ -232,44 +233,12 @@ impl HostCommand {
 }
 
 impl PlatformEvent {
-    /// Validates bounded event fields independently of the legacy event codec.
+    /// Validates bounded fields before a focused event crosses into the actor.
     ///
     /// # Errors
     /// Returns `PortError` when an event field is invalid or exceeds its bound.
     pub fn validate(&self) -> Result<(), PortError> {
         validate_event(&self.event)
-    }
-
-    /// # Errors
-    /// Returns `PortError` when validation or bounded codec processing fails.
-    pub fn encode(&self) -> Result<Vec<u8>, PortError> {
-        self.validate()?;
-        let mut writer = Writer::new();
-        writer.u8(BRIDGE_CODEC_VERSION)?;
-        writer.u64(self.generation.0)?;
-        writer.u64(self.connection_generation)?;
-        writer.u64(self.adapter_order)?;
-        encode_event(&self.event, &mut writer)?;
-        Ok(writer.finish())
-    }
-
-    /// # Errors
-    /// Returns `PortError` when validation or bounded codec processing fails.
-    pub fn decode(bytes: &[u8]) -> Result<Self, PortError> {
-        let mut reader = Reader::new(bytes)?;
-        reader.version()?;
-        let generation = RuntimeGeneration(reader.u64()?);
-        let connection_generation = reader.u64()?;
-        let adapter_order = reader.u64()?;
-        let event = decode_event(&mut reader)?;
-        reader.finish()?;
-        validate_event(&event)?;
-        Ok(Self {
-            generation,
-            connection_generation,
-            adapter_order,
-            event,
-        })
     }
 }
 
@@ -310,7 +279,7 @@ impl OperationCompletion {
 
 fn validate_command(command: &HostCommand) -> Result<(), PortError> {
     match command {
-        HostCommand::BluetoothConnect { association } => bounded_bytes(
+        HostCommand::BluetoothConnect { association, .. } => bounded_bytes(
             association.as_bytes(),
             domain_types::MAX_PLATFORM_ASSOCIATION_BYTES,
         ),
@@ -383,7 +352,13 @@ fn encode_command_payload(command: &HostCommand, writer: &mut Writer) -> Result<
         | HostCommand::BluetoothStopScan
         | HostCommand::LocationStop
         | HostCommand::PresentSettings => Ok(()),
-        HostCommand::BluetoothConnect { association } => writer.bytes(association.as_bytes()),
+        HostCommand::BluetoothConnect {
+            connection_generation,
+            association,
+        } => {
+            writer.u64(*connection_generation)?;
+            writer.bytes(association.as_bytes())
+        }
         HostCommand::BluetoothDisconnect {
             connection_generation,
         } => writer.u64(*connection_generation),
@@ -412,6 +387,7 @@ fn decode_command_payload(kind: u32, reader: &mut Reader<'_>) -> Result<HostComm
         COMMAND_BLUETOOTH_START_SCAN => HostCommand::BluetoothStartScan,
         COMMAND_BLUETOOTH_STOP_SCAN => HostCommand::BluetoothStopScan,
         COMMAND_BLUETOOTH_CONNECT => HostCommand::BluetoothConnect {
+            connection_generation: reader.u64()?,
             association: PlatformAssociation::new(
                 reader.bytes(domain_types::MAX_PLATFORM_ASSOCIATION_BYTES)?,
             )
@@ -443,103 +419,6 @@ fn decode_command_payload(kind: u32, reader: &mut Reader<'_>) -> Result<HostComm
     })
 }
 
-fn encode_event(event: &AdapterEvent, writer: &mut Writer) -> Result<(), PortError> {
-    match event {
-        AdapterEvent::BluetoothState {
-            radio,
-            authorization,
-        } => {
-            writer.u8(1)?;
-            writer.u8(radio_tag(*radio))?;
-            writer.u8(bluetooth_authorization_tag(*authorization))
-        }
-        AdapterEvent::BluetoothDevice {
-            association,
-            name,
-            rssi,
-        } => {
-            writer.u8(2)?;
-            writer.bytes(association.as_bytes())?;
-            writer.optional_string(name.as_deref())?;
-            writer.i16(*rssi)
-        }
-        AdapterEvent::BluetoothConnection {
-            connection_generation,
-            state,
-        } => {
-            writer.u8(3)?;
-            writer.u64(*connection_generation)?;
-            writer.u8(connection_tag(*state))
-        }
-        AdapterEvent::LocationAuthorization(value) => {
-            writer.u8(4)?;
-            writer.u8(location_authorization_tag(*value))
-        }
-        AdapterEvent::Location {
-            latitude,
-            longitude,
-            accuracy_m,
-        } => {
-            writer.u8(5)?;
-            writer.f64(*latitude)?;
-            writer.f64(*longitude)?;
-            writer.optional_f64(*accuracy_m)
-        }
-        AdapterEvent::Lifecycle {
-            foreground,
-            background_eligible,
-        } => {
-            writer.u8(6)?;
-            writer.boolean(*foreground)?;
-            writer.boolean(*background_eligible)
-        }
-        AdapterEvent::LoggingService { active } => {
-            writer.u8(7)?;
-            writer.boolean(*active)
-        }
-        AdapterEvent::Theme(theme) => {
-            writer.u8(8)?;
-            writer.u8(theme_tag(*theme))
-        }
-    }
-}
-
-fn decode_event(reader: &mut Reader<'_>) -> Result<AdapterEvent, PortError> {
-    Ok(match reader.u8()? {
-        1 => AdapterEvent::BluetoothState {
-            radio: decode_radio(reader.u8()?)?,
-            authorization: decode_bluetooth_authorization(reader.u8()?)?,
-        },
-        2 => AdapterEvent::BluetoothDevice {
-            association: PlatformAssociation::new(
-                reader.bytes(domain_types::MAX_PLATFORM_ASSOCIATION_BYTES)?,
-            )
-            .map_err(|_| PortError::InvalidValue)?,
-            name: reader.optional_string(MAX_LOGICAL_NAME_BYTES)?,
-            rssi: reader.i16()?,
-        },
-        3 => AdapterEvent::BluetoothConnection {
-            connection_generation: reader.u64()?,
-            state: decode_connection(reader.u8()?)?,
-        },
-        4 => AdapterEvent::LocationAuthorization(decode_location_authorization(reader.u8()?)?),
-        5 => AdapterEvent::Location {
-            latitude: reader.f64()?,
-            longitude: reader.f64()?,
-            accuracy_m: reader.optional_f64()?,
-        },
-        6 => AdapterEvent::Lifecycle {
-            foreground: reader.boolean()?,
-            background_eligible: reader.boolean()?,
-        },
-        7 => AdapterEvent::LoggingService {
-            active: reader.boolean()?,
-        },
-        8 => AdapterEvent::Theme(decode_theme(reader.u8()?)?),
-        _ => return Err(PortError::InvalidTag),
-    })
-}
-
 macro_rules! tagged_enum {
     ($encode:ident, $decode:ident, $ty:ty, {$($variant:path => $tag:literal),+ $(,)?}) => {
         const fn $encode(value: $ty) -> u8 { match value { $($variant => $tag),+ } }
@@ -548,11 +427,6 @@ macro_rules! tagged_enum {
 }
 
 tagged_enum!(permission_tag, decode_permission, PermissionKind, {PermissionKind::Bluetooth => 1, PermissionKind::Location => 2, PermissionKind::BackgroundLocation => 3, PermissionKind::Notifications => 4});
-tagged_enum!(theme_tag, decode_theme, ThemePreference, {ThemePreference::System => 1, ThemePreference::Light => 2, ThemePreference::Dark => 3});
-tagged_enum!(radio_tag, decode_radio, BluetoothRadio, {BluetoothRadio::Unknown => 1, BluetoothRadio::PoweredOff => 2, BluetoothRadio::PoweredOn => 3});
-tagged_enum!(bluetooth_authorization_tag, decode_bluetooth_authorization, BluetoothAuthorization, {BluetoothAuthorization::Unknown => 1, BluetoothAuthorization::Denied => 2, BluetoothAuthorization::Granted => 3});
-tagged_enum!(connection_tag, decode_connection, BluetoothConnectionState, {BluetoothConnectionState::Connecting => 1, BluetoothConnectionState::Ready => 2, BluetoothConnectionState::Disconnected => 3, BluetoothConnectionState::Failed => 4});
-tagged_enum!(location_authorization_tag, decode_location_authorization, LocationAuthorization, {LocationAuthorization::Unknown => 1, LocationAuthorization::Denied => 2, LocationAuthorization::Foreground => 3, LocationAuthorization::Background => 4});
 tagged_enum!(completion_tag, decode_completion, CompletionStatus, {CompletionStatus::Success => 1, CompletionStatus::Cancelled => 2, CompletionStatus::PermissionDenied => 3, CompletionStatus::Unavailable => 4, CompletionStatus::Failed => 5});
 
 struct Writer {
@@ -575,14 +449,8 @@ impl Writer {
         self.bytes.push(value);
         Ok(())
     }
-    fn i16(&mut self, value: i16) -> Result<(), PortError> {
-        self.raw(&value.to_be_bytes())
-    }
     fn u64(&mut self, value: u64) -> Result<(), PortError> {
         self.raw(&value.to_be_bytes())
-    }
-    fn f64(&mut self, value: f64) -> Result<(), PortError> {
-        self.u64(value.to_bits())
     }
     fn boolean(&mut self, value: bool) -> Result<(), PortError> {
         self.u8(u8::from(value))
@@ -594,20 +462,6 @@ impl Writer {
     }
     fn string(&mut self, value: &str) -> Result<(), PortError> {
         self.bytes(value.as_bytes())
-    }
-    fn optional_string(&mut self, value: Option<&str>) -> Result<(), PortError> {
-        self.boolean(value.is_some())?;
-        if let Some(value) = value {
-            self.string(value)?;
-        }
-        Ok(())
-    }
-    fn optional_f64(&mut self, value: Option<f64>) -> Result<(), PortError> {
-        self.boolean(value.is_some())?;
-        if let Some(value) = value {
-            self.f64(value)?;
-        }
-        Ok(())
     }
     fn raw(&mut self, value: &[u8]) -> Result<(), PortError> {
         self.reserve(value.len())?;
@@ -651,10 +505,6 @@ impl<'a> Reader<'a> {
     fn u8(&mut self) -> Result<u8, PortError> {
         Ok(self.take(1)?[0])
     }
-    fn i16(&mut self) -> Result<i16, PortError> {
-        let value = self.take(2)?;
-        Ok(i16::from_be_bytes([value[0], value[1]]))
-    }
     fn u32(&mut self) -> Result<u32, PortError> {
         let value = self.take(4)?;
         Ok(u32::from_be_bytes([value[0], value[1], value[2], value[3]]))
@@ -664,9 +514,6 @@ impl<'a> Reader<'a> {
         Ok(u64::from_be_bytes([
             value[0], value[1], value[2], value[3], value[4], value[5], value[6], value[7],
         ]))
-    }
-    fn f64(&mut self) -> Result<f64, PortError> {
-        Ok(f64::from_bits(self.u64()?))
     }
     fn boolean(&mut self) -> Result<bool, PortError> {
         match self.u8()? {
@@ -684,20 +531,6 @@ impl<'a> Reader<'a> {
     }
     fn string(&mut self, maximum: usize) -> Result<String, PortError> {
         String::from_utf8(self.bytes(maximum)?).map_err(|_| PortError::InvalidUtf8)
-    }
-    fn optional_string(&mut self, maximum: usize) -> Result<Option<String>, PortError> {
-        if self.boolean()? {
-            Ok(Some(self.string(maximum)?))
-        } else {
-            Ok(None)
-        }
-    }
-    fn optional_f64(&mut self) -> Result<Option<f64>, PortError> {
-        if self.boolean()? {
-            Ok(Some(self.f64()?))
-        } else {
-            Ok(None)
-        }
     }
     fn finish(self) -> Result<(), PortError> {
         if self.offset == self.bytes.len() {
@@ -718,6 +551,7 @@ mod tests {
             HostCommand::BluetoothStartScan,
             HostCommand::BluetoothStopScan,
             HostCommand::BluetoothConnect {
+                connection_generation: 9,
                 association: PlatformAssociation::new(vec![1, 2, 3]).unwrap(),
             },
             HostCommand::BluetoothDisconnect {
@@ -782,10 +616,7 @@ mod tests {
                 adapter_order: 8,
                 event,
             };
-            assert_eq!(
-                PlatformEvent::decode(&value.encode().expect("encode")),
-                Ok(value)
-            );
+            assert_eq!(value.validate(), Ok(()));
         }
         let completion = OperationCompletion {
             generation: RuntimeGeneration(2),

@@ -32,3 +32,11 @@ The dependency smoke checks the standard SHA-256 and CRC32C vectors, obtains
 decodes a zlib stream, parses XML, writes quoted CSV, and round-trips a size-bounded archive
 entry. `flate2` has default features disabled and uses its Rust backend; SQLite
 uses only the Cargo-bundled source described in `SQLITE.md`.
+
+## Private host ABI provenance
+
+ABI version 3 and build identity `float-view-abi03` are generated from
+`host-c-abi` with pinned cbindgen 0.29.2. The checked-in header checksum,
+Apple exported-symbol allowlist, Android JNI registration and packaging
+allowlist are updated atomically. Startup inputs and focused event calls copy
+bounded caller-owned buffers; no native software-transport dependency remains.

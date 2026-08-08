@@ -248,7 +248,11 @@ struct ActorState<C> {
     next_operation: u64,
     pending: HashSet<u64>,
     completed: VecDeque<u64>,
-    last_adapter_order: Option<u64>,
+    last_bluetooth_order: Option<u64>,
+    last_location_order: Option<u64>,
+    last_lifecycle_order: Option<u64>,
+    last_logging_order: Option<u64>,
+    last_theme_order: Option<u64>,
     connection: ConnectionCoordinator,
     model: ApplicationModel,
     clock: C,
@@ -284,7 +288,11 @@ impl<C: Clock> ActorState<C> {
             next_operation: 1,
             pending: HashSet::new(),
             completed: VecDeque::new(),
-            last_adapter_order: None,
+            last_bluetooth_order: None,
+            last_location_order: None,
+            last_lifecycle_order: None,
+            last_logging_order: None,
+            last_theme_order: None,
             connection: ConnectionCoordinator::default(),
             model: ApplicationModel::default(),
             clock,
@@ -302,7 +310,7 @@ impl<C: Clock> ActorState<C> {
         self.snapshot.pending_operations = self.pending.len();
     }
 
-    fn accept_context(
+    fn accept_bluetooth_context(
         &mut self,
         generation: RuntimeGeneration,
         connection_generation: u64,
@@ -315,13 +323,47 @@ impl<C: Clock> ActorState<C> {
             return Err(ActorError::StaleConnection);
         }
         if self
-            .last_adapter_order
+            .last_bluetooth_order
             .is_some_and(|last| adapter_order <= last)
         {
             return Err(ActorError::StaleOrder);
         }
-        self.last_adapter_order = Some(adapter_order);
+        self.last_bluetooth_order = Some(adapter_order);
         self.snapshot.connection_generation = connection_generation;
+        Ok(())
+    }
+
+    fn accept_platform_context(
+        &mut self,
+        generation: RuntimeGeneration,
+        connection_generation: u64,
+        adapter_order: u64,
+        event: &AdapterEvent,
+    ) -> Result<(), ActorError> {
+        if generation != self.snapshot.generation {
+            return Err(ActorError::StaleGeneration);
+        }
+        let last_order = match event {
+            AdapterEvent::BluetoothState { .. }
+            | AdapterEvent::BluetoothDevice { .. }
+            | AdapterEvent::BluetoothConnection { .. } => {
+                return self.accept_bluetooth_context(
+                    generation,
+                    connection_generation,
+                    adapter_order,
+                );
+            }
+            AdapterEvent::LocationAuthorization(_) | AdapterEvent::Location { .. } => {
+                &mut self.last_location_order
+            }
+            AdapterEvent::Lifecycle { .. } => &mut self.last_lifecycle_order,
+            AdapterEvent::LoggingService { .. } => &mut self.last_logging_order,
+            AdapterEvent::Theme { .. } => &mut self.last_theme_order,
+        };
+        if last_order.is_some_and(|last| adapter_order <= last) {
+            return Err(ActorError::StaleOrder);
+        }
+        *last_order = Some(adapter_order);
         Ok(())
     }
 }
@@ -836,7 +878,7 @@ fn accept_bluetooth_notification<C: Clock>(
     notification
         .validate()
         .map_err(|_| ActorError::InvalidInput)?;
-    state.accept_context(
+    state.accept_bluetooth_context(
         notification.generation,
         notification.connection_generation,
         notification.adapter_order,
@@ -933,10 +975,11 @@ fn accept_platform_event<C: Clock>(
     state: &mut ActorState<C>,
     event: PlatformEvent,
 ) -> Result<bool, ActorError> {
-    state.accept_context(
+    state.accept_platform_context(
         event.generation,
         event.connection_generation,
         event.adapter_order,
+        &event.event,
     )?;
     let changed = match event.event {
         AdapterEvent::BluetoothState {
@@ -1285,6 +1328,37 @@ mod tests {
         assert_eq!(domain.connection, crate::DomainConnectionState::Ready);
         assert_eq!(domain.tracking, TrackingMode::Saved);
         assert!(domain.session_active);
+        actor.stop().expect("stop");
+    }
+
+    #[test]
+    fn independent_platform_channels_do_not_compete_for_adapter_order() {
+        let actor = actor();
+        actor
+            .submit_platform_event(PlatformEvent {
+                generation: RuntimeGeneration(7),
+                connection_generation: 1,
+                adapter_order: 1,
+                event: AdapterEvent::BluetoothState {
+                    radio: BluetoothRadio::PoweredOn,
+                    authorization: BluetoothAuthorization::Granted,
+                },
+            })
+            .expect("bluetooth event");
+        actor
+            .submit_platform_event(PlatformEvent {
+                generation: RuntimeGeneration(7),
+                connection_generation: 0,
+                adapter_order: 1,
+                event: AdapterEvent::Lifecycle {
+                    foreground: false,
+                    background_eligible: true,
+                },
+            })
+            .expect("independently ordered lifecycle event");
+        let snapshot = actor.snapshot().expect("snapshot");
+        assert_eq!(snapshot.connection_generation, 1);
+        assert!(!snapshot.foreground);
         actor.stop().expect("stop");
     }
 

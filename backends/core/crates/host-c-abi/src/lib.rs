@@ -34,8 +34,6 @@ const _: () = assert!(FLOAT_VIEW_ABI_VERSION == host_runtime::ABI_VERSION);
 pub const FLOAT_VIEW_BUILD_ID_CAPACITY: usize = 16;
 pub const FLOAT_VIEW_MAX_COMMAND_PAYLOAD: usize = 64 * 1024;
 pub const FLOAT_VIEW_MAX_COMPLETION_PAYLOAD: usize = 8 * 1024 * 1024;
-pub const FLOAT_VIEW_EVENT_KIND_PLATFORM: u32 = 1;
-const _: () = assert!(FLOAT_VIEW_EVENT_KIND_PLATFORM == host_runtime::EVENT_KIND_PLATFORM);
 
 /// Opaque host token. ABI functions never dereference this pointer.
 pub enum FloatViewRuntime {}
@@ -385,7 +383,7 @@ unsafe fn copy_input(
     Ok(unsafe { std::slice::from_raw_parts(data, length) }.to_vec())
 }
 
-/// Copies and serializes a bounded platform event through the application actor.
+/// Copies one bounded synthetic command used by smoke and ABI tests.
 ///
 /// # Safety
 ///
@@ -416,11 +414,7 @@ pub unsafe extern "C" fn float_view_runtime_submit_event(
                 Ok(payload) => payload,
                 Err(status) => return status,
             };
-        let result = if kind == FLOAT_VIEW_EVENT_KIND_PLATFORM {
-            runtime.submit_platform_event(&payload).map(|()| 0)
-        } else {
-            runtime.dispatch(kind, &payload)
-        };
+        let result = runtime.dispatch(kind, &payload);
         result.map_or_else(map_runtime, |_| FLOAT_VIEW_STATUS_OK)
     })
 }
@@ -883,5 +877,52 @@ mod tests {
         );
         assert_eq!(required, FLOAT_VIEW_BUILD_ID_CAPACITY);
         assert_eq!(output, [0xA5; 4]);
+    }
+
+    #[test]
+    fn configured_startup_rejects_invalid_mode_and_relative_root() {
+        let mut handle = ptr::null_mut();
+        // SAFETY: `handle` is writable pointer storage.
+        assert_eq!(
+            unsafe { float_view_runtime_create(&raw mut handle) },
+            FLOAT_VIEW_STATUS_OK
+        );
+        let root = b"/tmp/float-view-invalid-config";
+        let relative = b"relative/core";
+        let frontend = b"<!doctype html>";
+        let mut generation = 0;
+        // SAFETY: Every byte pointer covers its declared input length.
+        assert_eq!(
+            unsafe {
+                float_view_runtime_start_configured(
+                    handle,
+                    0,
+                    99,
+                    root.as_ptr(),
+                    root.len(),
+                    frontend.as_ptr(),
+                    frontend.len(),
+                    &raw mut generation,
+                )
+            },
+            FLOAT_VIEW_STATUS_INVALID_ARGUMENT
+        );
+        // SAFETY: Every byte pointer covers its declared input length.
+        assert_eq!(
+            unsafe {
+                float_view_runtime_start_configured(
+                    handle,
+                    0,
+                    0,
+                    relative.as_ptr(),
+                    relative.len(),
+                    frontend.as_ptr(),
+                    frontend.len(),
+                    &raw mut generation,
+                )
+            },
+            FLOAT_VIEW_STATUS_INVALID_ARGUMENT
+        );
+        assert_eq!(float_view_runtime_destroy(handle), FLOAT_VIEW_STATUS_OK);
     }
 }

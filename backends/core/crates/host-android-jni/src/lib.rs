@@ -725,7 +725,7 @@ mod android {
 mod tests {
     #[test]
     fn facade_links_the_shared_runtime() {
-        assert_eq!(super::linked_abi_version(), 2);
+        assert_eq!(super::linked_abi_version(), 3);
         assert_eq!(super::linked_build_identity(), b"float-view-abi03");
     }
 }

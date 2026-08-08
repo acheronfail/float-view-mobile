@@ -32,8 +32,6 @@ pub const ACTOR_QUEUE_ITEMS: usize = 64;
 pub const MAX_FRONTEND_INDEX_BYTES: usize = 8 * 1024 * 1024;
 /// Maximum recent completions retained solely to distinguish duplicate replies.
 pub const COMPLETED_OPERATION_HISTORY: usize = 128;
-/// Event kind whose payload is an encoded [`PlatformEvent`].
-pub const EVENT_KIND_PLATFORM: u32 = 1;
 const SYNTHETIC_OPERATION_START: u64 = 1 << 63;
 
 pub type Generation = u64;
@@ -436,20 +434,6 @@ impl Runtime {
             payload: payload.to_vec(),
         })?;
         Ok(operation_id)
-    }
-
-    /// Decodes and submits one bounded platform event to the application actor.
-    ///
-    /// # Errors
-    /// Returns stable lifecycle, codec, ordering, generation, or actor-capacity failures.
-    pub fn submit_platform_event(&self, payload: &[u8]) -> Result<(), RuntimeError> {
-        self.require_started()?;
-        let event = PlatformEvent::decode(payload).map_err(|_| RuntimeError::InvalidArgument)?;
-        self.submit_adapter_event(
-            event.connection_generation,
-            event.adapter_order,
-            event.event,
-        )
     }
 
     /// Submits one typed, ordered adapter event without a serialized event envelope.
@@ -911,23 +895,29 @@ mod tests {
     }
 
     #[test]
-    fn platform_events_enforce_generation_and_adapter_order() {
+    fn platform_events_enforce_adapter_order() {
         let runtime = Runtime::new(10);
         runtime.start().unwrap();
-        let event = PlatformEvent {
-            generation: RuntimeGeneration(10),
-            connection_generation: 0,
-            adapter_order: 1,
-            event: AdapterEvent::BluetoothState {
-                radio: BluetoothRadio::PoweredOn,
-                authorization: BluetoothAuthorization::Granted,
-            },
-        }
-        .encode()
-        .unwrap();
-        assert_eq!(runtime.submit_platform_event(&event), Ok(()));
         assert_eq!(
-            runtime.submit_platform_event(&event),
+            runtime.submit_adapter_event(
+                0,
+                1,
+                AdapterEvent::BluetoothState {
+                    radio: BluetoothRadio::PoweredOn,
+                    authorization: BluetoothAuthorization::Granted,
+                },
+            ),
+            Ok(())
+        );
+        assert_eq!(
+            runtime.submit_adapter_event(
+                0,
+                1,
+                AdapterEvent::BluetoothState {
+                    radio: BluetoothRadio::PoweredOn,
+                    authorization: BluetoothAuthorization::Granted,
+                },
+            ),
             Err(RuntimeError::StaleGeneration)
         );
         runtime.stop().unwrap();
@@ -993,18 +983,16 @@ mod tests {
             .complete_platform(ready.operation_id, 0, &[])
             .unwrap();
         for (order, foreground) in [(2, false), (3, true)] {
-            let lifecycle = PlatformEvent {
-                generation: RuntimeGeneration(12),
-                connection_generation: 0,
-                adapter_order: order,
-                event: AdapterEvent::Lifecycle {
-                    foreground,
-                    background_eligible: false,
-                },
-            }
-            .encode()
-            .unwrap();
-            runtime.submit_platform_event(&lifecycle).unwrap();
+            runtime
+                .submit_adapter_event(
+                    0,
+                    order,
+                    AdapterEvent::Lifecycle {
+                        foreground,
+                        background_eligible: false,
+                    },
+                )
+                .unwrap();
         }
         let (_, resumed) = runtime.wait_command(Duration::from_secs(1), 4096).unwrap();
         let resumed = resumed.unwrap();

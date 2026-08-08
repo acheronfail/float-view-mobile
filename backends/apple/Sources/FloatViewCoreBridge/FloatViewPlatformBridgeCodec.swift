@@ -57,7 +57,7 @@ public enum FloatViewThemePreference: UInt8, Sendable {
 public enum FloatViewPlatformCommand: Sendable, Equatable {
   case bluetoothStartScan
   case bluetoothStopScan
-  case bluetoothConnect(deviceToken: Data)
+  case bluetoothConnect(connectionGeneration: UInt64, deviceToken: Data)
   case bluetoothDisconnect(connectionGeneration: UInt64)
   case bluetoothWrite(connectionGeneration: UInt64, bytes: Data)
   case locationStart(background: Bool)
@@ -106,7 +106,11 @@ public struct FloatViewPlatformCommandEnvelope: Sendable, Equatable {
     let command: FloatViewPlatformCommand = switch hostCommand.kind {
     case 1: .bluetoothStartScan
     case 2: .bluetoothStopScan
-    case 3: try .bluetoothConnect(deviceToken: reader.bytes(maximum: 256))
+    case 3:
+      try .bluetoothConnect(
+        connectionGeneration: reader.u64(),
+        deviceToken: reader.bytes(maximum: 256)
+      )
     case 4: try .bluetoothDisconnect(connectionGeneration: reader.u64())
     case 5:
       try .bluetoothWrite(

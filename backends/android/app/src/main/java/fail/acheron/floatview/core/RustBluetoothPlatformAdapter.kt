@@ -45,7 +45,8 @@ internal class RustBluetoothPlatformAdapter(
                 bluetooth.stopDiscovery()
                 runtime.complete(command)
             }
-            is PlatformCommand.BluetoothConnect -> connect(command, value.deviceToken)
+            is PlatformCommand.BluetoothConnect ->
+                connect(command, value.connectionGeneration, value.deviceToken)
             is PlatformCommand.BluetoothDisconnect -> disconnect(command, value.connectionGeneration)
             is PlatformCommand.BluetoothWrite -> write(command, value.connectionGeneration, value.bytes)
             is PlatformCommand.Host -> error("Handled above")
@@ -80,7 +81,7 @@ internal class RustBluetoothPlatformAdapter(
         context?.let(bluetooth::disconnect)
     }
 
-    private fun connect(command: NativeHostCommand, token: ByteArray) {
+    private fun connect(command: NativeHostCommand, expectedGeneration: Long, token: ByteArray) {
         val device = try {
             DeviceId(token.decodeToString(throwOnInvalidSequence = true)).takeIf { it.value.isNotEmpty() }
         } catch (_: CharacterCodingException) {
@@ -93,7 +94,7 @@ internal class RustBluetoothPlatformAdapter(
         }
         synchronized(lock) {
             activeDevice = device
-            connectionGeneration = Math.addExact(connectionGeneration, 1)
+            connectionGeneration = expectedGeneration
         }
         bluetooth.connect(device)
         runtime.complete(command)
