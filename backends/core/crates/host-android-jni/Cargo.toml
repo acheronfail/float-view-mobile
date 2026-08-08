@@ -1,0 +1,19 @@
+[package]
+name = "host-android-jni"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[lib]
+crate-type = ["rlib", "cdylib"]
+
+[dependencies]
+host-c-abi = { path = "../host-c-abi" }
+host-runtime = { path = "../host-runtime" }
+
+[target.'cfg(target_os = "android")'.dependencies]
+jni = "0.21.1"
+
+[lints]
+workspace = true

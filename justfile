@@ -53,9 +53,9 @@ core-matrix platform:
       macos)
         just test core
         just core-header-check
-        cargo run --manifest-path backends/core/Cargo.toml --package float-view-dependency-smoke --locked --offline
-        cargo run --manifest-path backends/core/Cargo.toml --package float-view-storage --bin float-view-storage-smoke --locked --offline
-        cargo run --manifest-path backends/core/Cargo.toml --package float-view-loopback --bin float-view-loopback-smoke --locked --offline
+        cargo run --manifest-path backends/core/Cargo.toml --package test-dependency-smoke --locked --offline
+        cargo run --manifest-path backends/core/Cargo.toml --package infra-sqlite-storage --bin float-view-storage-smoke --locked --offline
+        cargo run --manifest-path backends/core/Cargo.toml --package infra-loopback-server --bin float-view-loopback-smoke --locked --offline
         ;;
       ios)
         cargo build --manifest-path backends/core/Cargo.toml --workspace \

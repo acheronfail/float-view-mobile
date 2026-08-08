@@ -59,14 +59,14 @@ do
     [ ! -e "$removed_file" ] || fail "deleted native behavior owner remains: $removed_file"
 done
 
-rg -q 'rusqlite = .*features = \["bundled"\]' backends/core/crates/storage/Cargo.toml \
+rg -q 'rusqlite = .*features = \["bundled"\]' backends/core/crates/infra-sqlite-storage/Cargo.toml \
     || fail "rusqlite must select the bundled SQLite source"
 cargo tree --manifest-path backends/core/Cargo.toml --locked --offline \
     -e features -i libsqlite3-sys | rg -q 'libsqlite3-sys feature "bundled"' \
     || fail "the resolved SQLite feature graph is not bundled"
 
 for dependency in \
-    axum base64 crc32c flate2 futures-util getrandom jni quick-xml rusqlite \
+    axum base64 crc32c csv flate2 futures-util getrandom jni roxmltree rusqlite \
     serde serde_json sha2 tokio tower zip
 do
     grep -Eq '^\| `'$dependency'`[[:space:]]*\|' backends/core/DEPENDENCIES.md \
@@ -76,7 +76,7 @@ done
 header_abi=$(awk '/^#define FLOAT_VIEW_ABI_VERSION / { print $3; exit }' \
     backends/core/include/float_view_core.h)
 rust_abi=$(awk '/^pub const FLOAT_VIEW_ABI_VERSION:/ { value=$NF; gsub(/[^0-9]/, "", value); print value; exit }' \
-    backends/core/crates/native-abi/src/lib.rs)
+    backends/core/crates/host-c-abi/src/lib.rs)
 [ -n "$header_abi" ] && [ "$header_abi" = "$rust_abi" ] \
     || fail "generated header and Rust ABI versions differ"
 

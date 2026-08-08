@@ -1,7 +1,7 @@
 # Native ABI contract
 
 `include/float_view_core.h` is the only public native boundary. It is generated
-with cbindgen 0.29.2 from `float-view-native-abi` and checked in. Normal Xcode
+with cbindgen 0.29.2 from `host-c-abi` and checked in. Normal Xcode
 and Gradle builds never run the generator.
 
 ## Identity and status
@@ -49,7 +49,7 @@ abort remains fatal if a future target or dependency is explicitly built with
 abort semantics.
 
 Only explicitly named `float_view_*` entry points form the C ABI. Apple final
-links apply `crates/native-abi/apple-exported-symbols.txt`; Android exposes only
+links apply `crates/host-c-abi/apple-exported-symbols.txt`; Android exposes only
 its explicitly registered JNI load facade and hides the C surface from the APK
 dynamic symbol table. Verification compares the generated declarations,
 export list, and linked symbols. No Rust string, slice, collection, trait

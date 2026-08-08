@@ -1,0 +1,12 @@
+[package]
+name = "host-ports"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+domain-types = { path = "../domain-types" }
+
+[lints]
+workspace = true

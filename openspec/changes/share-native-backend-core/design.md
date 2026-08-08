@@ -8,6 +8,8 @@ The frontend remains disposable and talks only through the authenticated loopbac
 
 Rust has mature compilation targets for Apple and Android, a single Cargo dependency/build model, bundled SQLite through `rusqlite`, and maintained async HTTP/WebSocket components. A Rust core introduces an FFI boundary on both host families, so that boundary must be smaller and more auditable than a generated object model. Float View can make it small because the core owns the loopback server: complete application snapshots, frontend requests/results, telemetry history, and SQL rows never need to cross FFI. Linux and Windows portability remain follow-up work after the shipped hosts share the core.
 
+The first cutover implementation proved the bridge, protocol, storage, and server foundations, but a post-implementation review found that production composition remained in the `test-standalone` crate. Its large JSON-oriented dispatcher duplicated connection/configuration/policy models that existed under `app-coordinator`, used one fixed software-board identity, accepted only saved tracking, bypassed adaptive persistence, and retained fixture-shaped session operations. Passing unit and canonical tests did not expose those gaps because several typed models were tested in isolation and the canonical Rust scenario covered only the fixed saved software board. The final consolidation therefore treats production-path reachability and deletion of the parallel owner as acceptance criteria.
+
 ## Goals / Non-Goals
 
 **Goals:**
@@ -170,6 +172,22 @@ Every slice remains buildable. Legacy and Rust runtimes are never active in the 
 
 `just verify` remains the full software gate and orchestrates or reports all required jobs. The change cannot complete until every required Apple and Android result is successful and attributable to the pinned source/toolchain revision.
 
+### 11. Collapse production behavior into one typed service owner
+
+The application/service layer, not `test-standalone`, owns connection identity, saved/guest tracking, controller and BMS discovery, Refloat configuration, telemetry cadence, adaptive persistence, durable board/session operations, and complete contract state. Contract request/result DTOs are hand-written Rust types that validate at the loopback boundary and serialize from typed authoritative snapshots; they are not generated from TypeScript and do not cross C/JNI. Dynamic JSON remains a boundary representation, not the mutable application model.
+
+Production composition moves below both native runtime and standalone launchers. The native runtime and deterministic launcher depend on that composition; production runtime code MUST NOT depend on the standalone package. `test-standalone` retains only its executable, deterministic software host, temporary resource/storage setup, and cleanup. The existing `NativeConnection`/fixture-contract implementation is removed as its behavior moves into the actor/service owner. Existing protocol, storage, loopback, platform-port, ABI/JNI, software-adapter, and target-smoke crates remain focused owners.
+
+One injected clock supplies connection deadlines, telemetry cadence, session timestamps, sample elapsed time, pruning timestamps, and deterministic tests. Telemetry scheduling waits for the typed polling deadline instead of immediately resubmitting after every response. The adaptive policy's persistence decision gates session append/flush, and guest mode prevents every durable side effect before it reaches storage. The service resolves a stable board identity per device, supports multiple saved boards, and scopes profiles, sessions, cursors, deletion, imports, and summaries by that identity. Deleting a saved board removes all owned history atomically or recoverably and never leaves an indexable placeholder.
+
+Settings are parsed into a bounded typed record before persistence and are applied to polling, sampling, reconnect, location, and export behavior. Refloat configuration and Tune contract methods call the existing configuration coordinator and store rather than returning fixture errors. Scan and maintenance requests enqueue bounded work and return without sleeping on the loopback task; actor publications report progress and results. Event/deadline wakeups replace the fixed 10 ms production polling thread.
+
+Alternatives considered:
+
+- **Keep the JSON dispatcher and only split the file:** improves navigation but preserves two behavior owners and makes typed policy tests non-authoritative.
+- **Delete the typed application models and keep the dispatcher:** reduces immediate code size but entrenches unchecked JSON mutation, fixed fixture assumptions, and boundary/application coupling.
+- **Generate Rust contract models:** would reduce mapping boilerplate but violates the small hand-written contract policy and adds a second generation workflow. Hand-written boundary DTOs retain explicit reviewability.
+
 ## Risks / Trade-offs
 
 - **Rewriting working behavior can introduce subtle parity faults** -> port in bounded vertical slices, use both legacy implementations as diagnostic references, and require immutable vectors plus canonical conformance before each cutover.
@@ -183,6 +201,9 @@ Every slice remains buildable. Legacy and Rust runtimes are never active in the 
 - **Rust libraries may increase application size or cold-start time** -> record current baselines and acceptance budgets during the initial spike, strip symbols appropriately, and package each required native library once per architecture.
 - **Parallel implementation can create integration churn** -> freeze ABI and crate seams first, assign non-overlapping owners, keep one runtime/bridge integration owner, and merge only independently verified slices.
 - **One implementation can hide platform-specific lifecycle defects** -> retain host-level lifecycle and physical BLE conformance; shared code does not replace platform acceptance.
+- **Consolidating after host cutover can destabilize working bridge code** -> preserve the ABI, platform-port codecs, stores, protocol crates, and host adapters; move behavior in verified vertical slices with focused production-composition tests after each deletion.
+- **Typed contract mapping adds visible boilerplate** -> keep DTOs at the loopback boundary, share enum/value conversion helpers within the owning module, and delete the much larger mutable JSON state machine it replaces.
+- **Event-driven scheduling can expose latent ordering assumptions** -> make deadlines and wakeups actor-owned, retain one VESC write owner, and test timeout, cancellation, reconnect, suspend/resume, and deterministic clock advancement explicitly.
 
 ## Migration Plan
 

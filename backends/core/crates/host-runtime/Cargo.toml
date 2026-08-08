@@ -1,0 +1,16 @@
+[package]
+name = "host-runtime"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+app-coordinator = { path = "../app-coordinator" }
+app-backend = { path = "../app-backend" }
+domain-types = { path = "../domain-types" }
+host-ports = { path = "../host-ports" }
+tokio = { version = "1.47.1", features = ["rt-multi-thread", "sync"] }
+
+[lints]
+workspace = true

@@ -2,7 +2,7 @@ package fail.acheron.floatview.core
 
 internal object NativeCore {
     init {
-        System.loadLibrary("float_view_android_jni")
+        System.loadLibrary("host_android_jni")
     }
 
     external fun abiVersion(): Int

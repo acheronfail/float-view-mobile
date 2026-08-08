@@ -77,6 +77,25 @@ The Swift and Kotlin backend implementations MUST remain available only as mutua
 - **WHEN** CI regenerates the C header from its recorded clean Cargo inputs
 - **THEN** the generated header and recorded hash match the checked-in output and every host wrapper reports the matching ABI/build identity
 
+### Requirement: Production-composition regression coverage
+
+Canonical and focused Rust verification SHALL exercise behaviors through the same production composition used by native hosts. Coverage MUST include saved and guest connections, at least two saved boards, deletion with owned history, invalid settings values and ranges, clock-driven telemetry/persistence cadence, nonblocking scan dispatch, Refloat configuration and Tune operations, restart recovery, and the absence of fixed fixture identities or fabricated session results.
+
+#### Scenario: Isolated model test is insufficient
+
+- **WHEN** a typed policy, coordinator, protocol, or storage owner passes its unit tests but the production dispatcher bypasses or rejects it
+- **THEN** the migration gate remains incomplete until a production-composition or canonical scenario proves the observable behavior through that owner
+
+#### Scenario: Multi-board and guest matrix
+
+- **WHEN** conformance records equivalent activity for two saved boards and one guest connection
+- **THEN** it verifies distinct board-scoped histories, guest durable isolation, stable restart behavior, and deletion of one board without affecting the other
+
+#### Scenario: Timing and dispatch matrix
+
+- **WHEN** deterministic time advances across scan, telemetry, persistence, timeout, reconnect, suspend, and resume
+- **THEN** conformance observes no blocking loopback request, immediate telemetry spin, fabricated elapsed time, or persistence outside the configured policy
+
 ## MODIFIED Requirements
 
 ### Requirement: One canonical suite

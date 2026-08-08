@@ -104,7 +104,7 @@ val rustAbiBuilds = androidRustAbis.map { abi ->
         description = "Builds the locked Rust JNI library once for Android $abi."
         dependsOn(validateAndroidRustToolchain)
         inputs.files(rustCoreScript, rustCoreInputs)
-        outputs.file(rustJniDirectory.map { it.file("$abi/libfloat_view_android_jni.so") })
+        outputs.file(rustJniDirectory.map { it.file("$abi/libhost_android_jni.so") })
         configureRustCoreCommand(
             "build",
             abi,

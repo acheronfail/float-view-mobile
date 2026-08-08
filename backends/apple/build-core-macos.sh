@@ -15,9 +15,9 @@ fi
 cd "$SCRIPT_DIR/../.."
 shasum -a 256 -c backends/core/checksums.sha256
 cd "$CORE_DIR"
-cargo build --package float-view-native-abi --locked --offline
+cargo build --package host-c-abi --locked --offline
 
-LIBRARY="$CORE_DIR/target/debug/libfloat_view_native_abi.a"
+LIBRARY="$CORE_DIR/target/debug/libhost_c_abi.a"
 if [ ! -f "$LIBRARY" ]; then
   echo "Rust core packaging failed: missing $LIBRARY" >&2
   exit 1

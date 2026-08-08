@@ -9,6 +9,38 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "320119579fcad9c21884f5c4861d16174d0e06250625266f50fe6898340abefa"
 
 [[package]]
+name = "app-backend"
+version = "0.1.0"
+dependencies = [
+ "app-coordinator",
+ "domain-types",
+ "host-ports",
+ "infra-loopback-server",
+ "infra-sqlite-storage",
+ "protocol-refloat",
+ "protocol-vesc",
+ "protocol-vesc-bms",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "test-software-adapters",
+ "tokio",
+]
+
+[[package]]
+name = "app-coordinator"
+version = "0.1.0"
+dependencies = [
+ "domain-types",
+ "getrandom",
+ "host-ports",
+ "protocol-refloat",
+ "protocol-vesc",
+ "protocol-vesc-bms",
+ "serde_json",
+]
+
+[[package]]
 name = "arbitrary"
 version = "1.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -181,6 +213,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "csv"
+version = "1.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "52cd9d68cf7efc6ddfaaee42e7288d3a99d613d4b50f76ce9827ae0c6e14f938"
+dependencies = [
+ "csv-core",
+ "itoa",
+ "ryu",
+ "serde_core",
+]
+
+[[package]]
+name = "csv-core"
+version = "0.1.13"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "704a3c26996a80471189265814dbc2c257598b96b8a7feae2d31ace646bb9782"
+dependencies = [
+ "memchr",
+]
+
+[[package]]
 name = "data-encoding"
 version = "2.11.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -208,10 +261,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "domain-types"
+version = "0.1.0"
+
+[[package]]
 name = "equivalent"
 version = "1.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "877a4ace8713b0bcf2a4e7eec82529c029f1d0619886d18145fea96c3ffe5c0f"
+
+[[package]]
+name = "errno"
+version = "0.3.14"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
+dependencies = [
+ "libc",
+ "windows-sys 0.61.2",
+]
 
 [[package]]
 name = "fallible-iterator"
@@ -224,6 +291,12 @@ name = "fallible-streaming-iterator"
 version = "0.1.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7360491ce676a36bf9bb3c56c1aa791658183a54d2744120f27285738d90465a"
+
+[[package]]
+name = "fastrand"
+version = "2.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "da7c62ceae207dd37ea5b845da6a0696c799f85e97da1ab5b7910be3c1c80223"
 
 [[package]]
 name = "find-msvc-tools"
@@ -240,165 +313,6 @@ dependencies = [
  "crc32fast",
  "miniz_oxide",
  "zlib-rs",
-]
-
-[[package]]
-name = "float-view-android-jni"
-version = "0.1.0"
-dependencies = [
- "float-view-native-abi",
- "float-view-runtime",
- "jni",
-]
-
-[[package]]
-name = "float-view-application"
-version = "0.1.0"
-dependencies = [
- "float-view-bms",
- "float-view-domain",
- "float-view-platform-ports",
- "float-view-refloat",
- "float-view-storage",
- "float-view-vesc",
- "getrandom",
- "serde_json",
-]
-
-[[package]]
-name = "float-view-bms"
-version = "0.1.0"
-dependencies = [
- "float-view-domain",
- "float-view-vesc",
- "serde",
- "serde_json",
-]
-
-[[package]]
-name = "float-view-core-smoke"
-version = "0.1.0"
-dependencies = [
- "float-view-runtime",
-]
-
-[[package]]
-name = "float-view-dependency-smoke"
-version = "0.1.0"
-dependencies = [
- "crc32c",
- "flate2",
- "getrandom",
- "quick-xml",
- "sha2",
- "zip",
-]
-
-[[package]]
-name = "float-view-domain"
-version = "0.1.0"
-
-[[package]]
-name = "float-view-loopback"
-version = "0.1.0"
-dependencies = [
- "axum",
- "flate2",
- "float-view-storage",
- "futures-util",
- "serde",
- "serde_json",
- "tokio",
- "tokio-tungstenite 0.27.0",
- "tower",
-]
-
-[[package]]
-name = "float-view-native-abi"
-version = "0.1.0"
-dependencies = [
- "float-view-platform-ports",
- "float-view-runtime",
-]
-
-[[package]]
-name = "float-view-platform-ports"
-version = "0.1.0"
-dependencies = [
- "float-view-domain",
-]
-
-[[package]]
-name = "float-view-refloat"
-version = "0.1.0"
-dependencies = [
- "crc32c",
- "flate2",
- "float-view-domain",
- "float-view-vesc",
- "quick-xml",
- "serde",
- "serde_json",
- "sha2",
-]
-
-[[package]]
-name = "float-view-runtime"
-version = "0.1.0"
-dependencies = [
- "float-view-application",
- "float-view-domain",
- "float-view-platform-ports",
- "float-view-standalone",
- "tokio",
-]
-
-[[package]]
-name = "float-view-software-adapters"
-version = "0.1.0"
-dependencies = [
- "float-view-bms",
- "float-view-domain",
- "float-view-platform-ports",
- "float-view-refloat",
- "float-view-vesc",
- "serde_json",
-]
-
-[[package]]
-name = "float-view-standalone"
-version = "0.1.0"
-dependencies = [
- "float-view-application",
- "float-view-bms",
- "float-view-domain",
- "float-view-loopback",
- "float-view-platform-ports",
- "float-view-refloat",
- "float-view-storage",
- "float-view-vesc",
- "serde_json",
- "tokio",
-]
-
-[[package]]
-name = "float-view-storage"
-version = "0.1.0"
-dependencies = [
- "base64",
- "rusqlite",
- "serde",
- "serde_json",
- "sha2",
-]
-
-[[package]]
-name = "float-view-vesc"
-version = "0.1.0"
-dependencies = [
- "float-view-domain",
- "serde",
- "serde_json",
 ]
 
 [[package]]
@@ -515,6 +429,41 @@ dependencies = [
 ]
 
 [[package]]
+name = "host-android-jni"
+version = "0.1.0"
+dependencies = [
+ "host-c-abi",
+ "host-runtime",
+ "jni",
+]
+
+[[package]]
+name = "host-c-abi"
+version = "0.1.0"
+dependencies = [
+ "host-ports",
+ "host-runtime",
+]
+
+[[package]]
+name = "host-ports"
+version = "0.1.0"
+dependencies = [
+ "domain-types",
+]
+
+[[package]]
+name = "host-runtime"
+version = "0.1.0"
+dependencies = [
+ "app-backend",
+ "app-coordinator",
+ "domain-types",
+ "host-ports",
+ "tokio",
+]
+
+[[package]]
 name = "http"
 version = "1.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -605,6 +554,35 @@ dependencies = [
 ]
 
 [[package]]
+name = "infra-loopback-server"
+version = "0.1.0"
+dependencies = [
+ "axum",
+ "flate2",
+ "futures-util",
+ "infra-sqlite-storage",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "tokio-tungstenite 0.27.0",
+ "tower",
+]
+
+[[package]]
+name = "infra-sqlite-storage"
+version = "0.1.0"
+dependencies = [
+ "base64",
+ "csv",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tempfile",
+]
+
+[[package]]
 name = "itoa"
 version = "1.0.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -670,6 +648,12 @@ dependencies = [
  "pkg-config",
  "vcpkg",
 ]
+
+[[package]]
+name = "linux-raw-sys"
+version = "0.12.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "32a66949e030da00e8c7d4434b251670a91556f4144941d37452769c25d58a53"
 
 [[package]]
 name = "log"
@@ -759,12 +743,36 @@ dependencies = [
 ]
 
 [[package]]
-name = "quick-xml"
-version = "0.38.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b66c2058c55a409d601666cffe35f04333cf1013010882cec174a7467cd4e21c"
+name = "protocol-refloat"
+version = "0.1.0"
 dependencies = [
- "memchr",
+ "crc32c",
+ "domain-types",
+ "flate2",
+ "protocol-vesc",
+ "roxmltree",
+ "serde",
+ "serde_json",
+ "sha2",
+]
+
+[[package]]
+name = "protocol-vesc"
+version = "0.1.0"
+dependencies = [
+ "domain-types",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "protocol-vesc-bms"
+version = "0.1.0"
+dependencies = [
+ "domain-types",
+ "protocol-vesc",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -812,6 +820,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "roxmltree"
+version = "0.21.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f1964b10c76125c36f8afe190065a4bf9a87bf324842c05701330bba9f1cacbb"
+dependencies = [
+ "memchr",
+]
+
+[[package]]
 name = "rusqlite"
 version = "0.37.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -832,6 +849,19 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cfcb3a22ef46e85b45de6ee7e79d063319ebb6594faafcf1c225ea92ab6e9b92"
 dependencies = [
  "semver",
+]
+
+[[package]]
+name = "rustix"
+version = "1.1.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b6fe4565b9518b83ef4f91bb47ce29620ca828bd32cb7e408f0062e9930ba190"
+dependencies = [
+ "bitflags",
+ "errno",
+ "libc",
+ "linux-raw-sys",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -1004,6 +1034,59 @@ name = "sync_wrapper"
 version = "1.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0bf256ce5efdfa370213c1dabab5935a12e49f2c58d15e9eac2870d3b4f27263"
+
+[[package]]
+name = "tempfile"
+version = "3.27.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "32497e9a4c7b38532efcdebeef879707aa9f794296a4f0244f6f69e9bc8574bd"
+dependencies = [
+ "fastrand",
+ "getrandom",
+ "once_cell",
+ "rustix",
+ "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "test-core-smoke"
+version = "0.1.0"
+dependencies = [
+ "host-runtime",
+]
+
+[[package]]
+name = "test-dependency-smoke"
+version = "0.1.0"
+dependencies = [
+ "crc32c",
+ "csv",
+ "flate2",
+ "getrandom",
+ "roxmltree",
+ "sha2",
+ "zip",
+]
+
+[[package]]
+name = "test-software-adapters"
+version = "0.1.0"
+dependencies = [
+ "domain-types",
+ "host-ports",
+ "protocol-refloat",
+ "protocol-vesc",
+ "protocol-vesc-bms",
+ "serde_json",
+]
+
+[[package]]
+name = "test-standalone"
+version = "0.1.0"
+dependencies = [
+ "app-backend",
+ "tokio",
+]
 
 [[package]]
 name = "thiserror"

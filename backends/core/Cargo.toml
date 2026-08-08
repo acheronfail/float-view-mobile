@@ -1,21 +1,22 @@
 [workspace]
 resolver = "2"
 members = [
-  "crates/android-jni",
-  "crates/application",
-  "crates/bms",
-  "crates/dependency-smoke",
-  "crates/domain",
-  "crates/loopback",
-  "crates/native-abi",
-  "crates/platform-ports",
-  "crates/refloat",
-  "crates/runtime",
-  "crates/smoke",
-  "crates/software-adapters",
-  "crates/standalone",
-  "crates/storage",
-  "crates/vesc",
+  "crates/app-backend",
+  "crates/app-coordinator",
+  "crates/domain-types",
+  "crates/host-android-jni",
+  "crates/host-c-abi",
+  "crates/host-ports",
+  "crates/host-runtime",
+  "crates/infra-loopback-server",
+  "crates/infra-sqlite-storage",
+  "crates/protocol-refloat",
+  "crates/protocol-vesc",
+  "crates/protocol-vesc-bms",
+  "crates/test-core-smoke",
+  "crates/test-dependency-smoke",
+  "crates/test-software-adapters",
+  "crates/test-standalone",
 ]
 
 [workspace.package]

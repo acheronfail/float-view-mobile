@@ -1,0 +1,21 @@
+[package]
+name = "test-standalone"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[features]
+software-host = ["app-backend/software-host"]
+
+[[bin]]
+name = "test-standalone"
+path = "src/bin/test-standalone.rs"
+required-features = ["software-host"]
+
+[dependencies]
+app-backend = { path = "../app-backend" }
+tokio = { version = "1.47.1", features = ["io-std", "macros", "rt-multi-thread"] }
+
+[lints]
+workspace = true

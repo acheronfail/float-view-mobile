@@ -226,7 +226,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "set -eu\nCORE_DIR=\"$SRCROOT/../../core\"\nREPO_DIR=\"$SRCROOT/../../..\"\nmkdir -p \"$DERIVED_FILE_DIR\"\ncd \"$REPO_DIR\"\nshasum -a 256 -c backends/core/checksums.sha256\ncd \"$CORE_DIR\"\nif [ \"$PLATFORM_NAME\" = \"iphonesimulator\" ]; then\n  cargo build --package float-view-native-abi --target aarch64-apple-ios-sim --locked --offline\n  cargo build --package float-view-native-abi --target x86_64-apple-ios --locked --offline\n  xcrun lipo -create \"$CORE_DIR/target/aarch64-apple-ios-sim/debug/libfloat_view_native_abi.a\" \"$CORE_DIR/target/x86_64-apple-ios/debug/libfloat_view_native_abi.a\" -output \"$DERIVED_FILE_DIR/libfloat_view_native_abi.a\"\nelse\n  cargo build --package float-view-native-abi --target aarch64-apple-ios --locked --offline\n  cp \"$CORE_DIR/target/aarch64-apple-ios/debug/libfloat_view_native_abi.a\" \"$DERIVED_FILE_DIR/libfloat_view_native_abi.a\"\nfi\nnm -gU \"$DERIVED_FILE_DIR/libfloat_view_native_abi.a\" | rg -q '_float_view_abi_version$' || { echo 'Rust ABI identity symbol missing' >&2; exit 1; }\n";
+			shellScript = "set -eu\nCORE_DIR=\"$SRCROOT/../../core\"\nREPO_DIR=\"$SRCROOT/../../..\"\nmkdir -p \"$DERIVED_FILE_DIR\"\ncd \"$REPO_DIR\"\nshasum -a 256 -c backends/core/checksums.sha256\ncd \"$CORE_DIR\"\nif [ \"$PLATFORM_NAME\" = \"iphonesimulator\" ]; then\n  cargo build --package host-c-abi --target aarch64-apple-ios-sim --locked --offline\n  cargo build --package host-c-abi --target x86_64-apple-ios --locked --offline\n  xcrun lipo -create \"$CORE_DIR/target/aarch64-apple-ios-sim/debug/libhost_c_abi.a\" \"$CORE_DIR/target/x86_64-apple-ios/debug/libhost_c_abi.a\" -output \"$DERIVED_FILE_DIR/libhost_c_abi.a\"\nelse\n  cargo build --package host-c-abi --target aarch64-apple-ios --locked --offline\n  cp \"$CORE_DIR/target/aarch64-apple-ios/debug/libhost_c_abi.a\" \"$DERIVED_FILE_DIR/libhost_c_abi.a\"\nfi\nnm -gU \"$DERIVED_FILE_DIR/libhost_c_abi.a\" | rg -q '_float_view_abi_version$' || { echo 'Rust ABI identity symbol missing' >&2; exit 1; }\n";
 		};
 /* End PBXShellScriptBuildPhase section */
 
@@ -397,7 +397,7 @@
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = "fail.acheron.float-view";
 				PRODUCT_NAME = "$(TARGET_NAME)";
-				OTHER_LDFLAGS = "$(inherited) -lfloat_view_native_abi";
+				OTHER_LDFLAGS = "$(inherited) -lhost_c_abi";
 				SWIFT_INCLUDE_PATHS = "$(SRCROOT)/../Sources/CFloatViewCore";
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
@@ -425,7 +425,7 @@
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = "fail.acheron.float-view";
 				PRODUCT_NAME = "$(TARGET_NAME)";
-				OTHER_LDFLAGS = "$(inherited) -lfloat_view_native_abi";
+				OTHER_LDFLAGS = "$(inherited) -lhost_c_abi";
 				SWIFT_INCLUDE_PATHS = "$(SRCROOT)/../Sources/CFloatViewCore";
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;

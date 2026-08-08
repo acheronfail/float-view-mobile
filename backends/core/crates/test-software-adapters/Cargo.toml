@@ -1,0 +1,19 @@
+[package]
+name = "test-software-adapters"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+protocol-vesc-bms = { path = "../protocol-vesc-bms", features = ["fixtures"] }
+domain-types = { path = "../domain-types" }
+host-ports = { path = "../host-ports" }
+protocol-refloat = { path = "../protocol-refloat", features = ["fixtures"] }
+protocol-vesc = { path = "../protocol-vesc", features = ["fixtures"] }
+
+[dev-dependencies]
+serde_json = "1.0.142"
+
+[lints]
+workspace = true

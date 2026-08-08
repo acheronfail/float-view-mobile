@@ -13,7 +13,7 @@ export const rustTarget: Target = {
   name: 'rust',
   async start() {
     if (child) throw new Error('Standalone Rust backend is already running');
-    child = spawn('cargo', ['run', '-p', 'float-view-standalone', '--offline'], {
+    child = spawn('cargo', ['run', '-p', 'test-standalone', '--features', 'software-host', '--offline'], {
       cwd: core,
       stdio: ['pipe', 'pipe', 'pipe'],
     });

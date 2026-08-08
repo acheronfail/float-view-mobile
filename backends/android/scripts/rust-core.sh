@@ -6,7 +6,7 @@ EXPECTED_CARGO_NDK="4.1.2"
 EXPECTED_JAVA="17"
 EXPECTED_NDK="28.2.13676358"
 EXPECTED_ABI_VERSION="2"
-LIBRARY_NAME="libfloat_view_android_jni.so"
+LIBRARY_NAME="libhost_android_jni.so"
 
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 REPOSITORY_ROOT=$(CDPATH= cd -- "$SCRIPT_DIR/../../.." && pwd)
@@ -103,7 +103,7 @@ build_abi() {
     ANDROID_NDK_HOME=$(ndk_root)
     export NDK_HOME="$ANDROID_NDK_HOME"
     (cd "$CORE_DIR" && cargo ndk --platform 29 --target "$abi" --output-dir "$output" \
-        build --release --package float-view-android-jni --locked --offline)
+        build --release --package host-android-jni --locked --offline)
     [ -f "$output/$abi/$LIBRARY_NAME" ] \
         || fail "Cargo did not produce $output/$abi/$LIBRARY_NAME"
 }

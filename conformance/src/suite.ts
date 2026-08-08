@@ -45,7 +45,9 @@ export async function runConformance(target: Target) {
     const permission = await client.request('bluetooth.requestPermission', {});
     assert.equal(typeof permission.radio, 'string');
     await client.request('bluetooth.scan', { timeoutMs: 100 });
-    const scanned = await client.request('state.get', {});
+    const scanned = await client.waitForState((value) => value.discoveredDevices.length > 0, {
+      afterRevision: initial.revision,
+    });
     assertState(scanned);
     assert.ok(scanned.revision >= initial.revision);
 
@@ -124,6 +126,22 @@ async function exerciseProductMethods(client: ConformanceClient, state: AppState
     expectedRevision: locationSettings.revision,
     patch: { minimumSessionDistance: 0 },
   });
+
+  const beforeGuest = await client.request('state.get', {});
+  await client.request('device.connect', { deviceId: device.deviceId, trackingMode: 'guest' });
+  const guest = await client.waitForState(
+    (value) => value.activeConnection?.deviceId === device.deviceId && value.activeConnection.state === 'ready',
+    { afterRevision: beforeGuest.revision }
+  );
+  assert.equal(guest.activeConnection?.trackingMode, 'guest');
+  assert.equal(guest.activeConnection?.savedDeviceId, null);
+  assert.equal(guest.activeConnection?.activeSession, null);
+  assert.equal(guest.savedDevices.length, beforeGuest.savedDevices.length);
+  await client.request('device.disconnect', {});
+  const afterGuest = await client.waitForState((value) => value.activeConnection === null, {
+    afterRevision: guest.revision,
+  });
+  assert.equal(afterGuest.savedDevices.length, beforeGuest.savedDevices.length);
 
   await createCompletedSession(client, device.deviceId, expectSoftwareBms);
   await createCompletedSession(client, device.deviceId, expectSoftwareBms);
@@ -368,8 +386,14 @@ async function expectSessionDataFailure(
 }
 
 async function createCompletedSession(client: ConformanceClient, deviceId: string, expectSoftwareBms: boolean) {
+  const beforeScan = await client.request('state.get', {});
   await client.request('bluetooth.scan', { timeoutMs: 100 });
-  const before = await client.request('state.get', {});
+  const before = beforeScan.discoveredDevices.some((device) => device.deviceId === deviceId)
+    ? beforeScan
+    : await client.waitForState(
+        (value) => value.discoveredDevices.some((device) => device.deviceId === deviceId),
+        { afterRevision: beforeScan.revision }
+      );
   assert.ok(
     before.discoveredDevices.some((device) => device.deviceId === deviceId),
     'scan did not rediscover the session device'

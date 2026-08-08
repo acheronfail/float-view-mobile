@@ -22,7 +22,7 @@ let package = Package(
       name: "FloatViewCoreBridge",
       dependencies: ["CFloatViewCore"],
       linkerSettings: [
-        .unsafeFlags(["-L", coreLibraryDirectory, "-lfloat_view_native_abi"]),
+        .unsafeFlags(["-L", coreLibraryDirectory, "-lhost_c_abi"]),
       ]
     ),
     .target(

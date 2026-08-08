@@ -7,7 +7,7 @@ artifacts.
 ## macOS and Apple targets
 
 Native `cargo test --workspace --locked` passed on arm64 macOS and the
-`float-view-core-smoke` executable printed `abi=2 build=0.1.0`.
+`test-core-smoke` executable printed `abi=2 build=0.1.0`.
 
 The complete workspace, including the static ABI library and smoke executable,
 built for:
@@ -32,11 +32,11 @@ With NDK 28.2.13676358 and cargo-ndk 4.1.2, the JNI `cdylib` built for:
 - `x86` (`i686-linux-android`)
 - `x86_64` (`x86_64-linux-android`)
 
-The arm64 `float-view-core-smoke` executable was copied to and executed on an
+The arm64 `test-core-smoke` executable was copied to and executed on an
 API-29-or-newer physical Android device and printed `abi=2 build=0.1.0`.
 
 The Gradle-owned JNI spike packages exactly one
-`libfloat_view_android_jni.so` for each required ABI. Its explicitly registered
+`libhost_android_jni.so` for each required ABI. Its explicitly registered
 native facade and Kotlin command worker passed the focused instrumentation test
 on a physical arm64 Android 10 device, including copied input/output buffers,
 off-main-thread blocking retrieval, presentation replacement, matching
@@ -92,7 +92,7 @@ export NDK_HOME="$ANDROID_NDK_HOME"
 cd backends/core
 cargo ndk --platform 29 \
   --target arm64-v8a --target armeabi-v7a --target x86 --target x86_64 \
-  build --package float-view-android-jni --locked
+  build --package host-android-jni --locked
 cargo ndk --platform 29 --target arm64-v8a \
-  run --package float-view-core-smoke --locked
+  run --package test-core-smoke --locked
 ```

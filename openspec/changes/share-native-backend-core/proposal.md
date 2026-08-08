@@ -13,6 +13,9 @@ Apple and Android currently maintain roughly equivalent Bluetooth, VESC/Refloat 
 - Keep the existing Swift and Kotlin backends only as mutually exclusive bounded migration variants, then delete each after its Rust-backed host passes its complete cutover gate.
 - Add an explicit compile/runtime matrix for the Rust core, Apple C-ABI integration, and Android JNI integration to normal development and verification paths, while retaining canonical black-box conformance for shipped hosts.
 - Preserve the existing hand-written frontend wire contract and complete authoritative state semantics; the contract, specifications, fixtures, canonical conformance, and physical BLE checkpoints remain the behavioral authority throughout the rewrite.
+- Complete the post-cutover consolidation so production hosts and standalone conformance use one typed application/service owner rather than a production dispatcher in the standalone crate plus separately tested policy models.
+- Remove fixed software-board identity, fixture-derived session responses, fabricated telemetry time, synchronous scan waiting, and unconditional sample persistence from the production path. Saved/guest isolation, multi-board ownership, settings validation, configuration/Tune operations, and board-scoped history must be exercised through that same path.
+- Make the standalone crate a thin deterministic launcher/adapter, invert the current production-runtime dependency on it, split oversized mixed-responsibility modules, and remove unused dependencies and channels after their responsibilities are either integrated or deleted.
 
 Non-goals:
 
@@ -40,3 +43,4 @@ Non-goals:
 - Adds a pinned Rust toolchain, Cargo lockfile, `cbindgen` generation tool, `rusqlite` with bundled SQLite, Tokio plus a selected HTTP/WebSocket stack, and a minimal Android-only JNI dependency. Normal application builds consume checked-in headers and wrappers without running generators or resolving mutable developer-local repositories.
 - Removes FlyingFox, Ktor server dependencies, system `sqlite3` and Android `SQLiteDatabase` backend ownership, Swift Android/`swift-java` machinery, duplicated Swift/Kotlin application, protocol, storage, and server implementations, and mirrored behavior tests after parity.
 - Changes repository ownership and native build composition, but does not change the frontend contract, authenticated envelopes, loopback-only security model, canonical database schema/file semantics, or user-visible behavior. Activity/WebView recreation reattaches to the process runtime; process death creates one new runtime and recovers only durable state.
+- Revisits the initial Rust cutover implementation before archival: code that exists only behind isolated tests is not considered migrated until the native and standalone production composition invokes it, and previously checked post-review tasks are reopened where production-path evidence is missing.

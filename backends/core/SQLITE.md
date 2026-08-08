@@ -1,6 +1,6 @@
 # Bundled SQLite identity
 
-`float-view-storage` locks `rusqlite` 0.37.0 and `libsqlite3-sys` 0.35.0 with
+`infra-sqlite-storage` locks `rusqlite` 0.37.0 and `libsqlite3-sys` 0.35.0 with
 the `bundled` feature. It compiles the SQLite amalgamation from the Cargo
 source; no Apple SQLite module, Android `SQLiteDatabase`, `pkg-config`, or
 system library fallback is enabled.

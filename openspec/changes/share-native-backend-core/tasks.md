@@ -79,9 +79,14 @@
 
 ## 8. Post-review Runtime Hardening and Simplification
 
-- [ ] 8.1 Replace the standalone fixture-state contract and synthetic session HTTP path with one durable production dispatcher backed by the application actor and bundled stores; prove settings, profiles, sessions, history, import, and export survive restart.
-- [ ] 8.2 Make standalone conformance launch the same production composition through deterministic platform adapters, invert the runtime/standalone dependency, and delete the duplicate fixture state machine.
-- [ ] 8.3 Drive connection scheduling and telemetry deadlines from an injected production clock, remove fabricated production timestamps, and prove a missing response releases the one-write-owner scheduler.
-- [ ] 8.4 Bound completed-operation replay detection at every bridge/actor layer and remove the synthetic secondary runtime actor/event path.
-- [ ] 8.5 Restrict immutable fixture loaders to tests/software adapters, split remaining oversized mixed-responsibility modules, and refresh dependency/source documentation.
-- [ ] 8.6 Run focused persistence, runtime, ABI, host-adapter, canonical conformance, audit, and `just verify` gates and resolve every software failure.
+- [x] 8.1 Move production contract/state composition out of `test-standalone`, make native runtime and the deterministic launcher depend on the same lower service owner, and delete the parallel mutable JSON/connection state machine after equivalent production-path coverage exists.
+- [x] 8.2 Implement dynamic saved-board/history identity and multi-board scoping, remove startup creation of the fixed software board, make saved-device deletion remove all owned durable history recoverably, and prove restart does not recreate deleted boards.
+- [x] 8.3 Accept saved and guest tracking through the production connection path and gate board/profile/hint/session/sample/location/catalog/export writes at one typed policy boundary; add two-board and guest-isolation production-composition tests.
+- [x] 8.4 Drive polling, request timeouts, session/sample timestamps, adaptive persistence, and reconnect from the injected actor clock; honor the persistence decision, remove sequence-derived elapsed time, and replace the fixed 10 ms production polling loop with deadline/publication wakeups.
+- [x] 8.5 Add bounded typed settings validation and apply accepted settings to polling, persistence, reconnect, location, history, and export policies without mutating or persisting on invalid input.
+- [x] 8.6 Connect Refloat configuration and Tune contract methods to the existing coordinator, scheduler, schema cache, and Tune store; remove production fixture errors and prove eligible, stale, unsafe, and restart cases.
+- [x] 8.7 Replace offset/global session listing and fixture maintenance results with board-scoped snapshot-bound cursors and authoritative delete/prune/import/export operations; make Bluetooth scan acknowledge queued work without blocking the loopback task.
+- [x] 8.8 Split the production composition, contract DTO/mapping, device runtime, and deterministic host into focused modules; restrict fixture loaders to tests/software adapters, remove unused application dependencies/channels and compatibility aliases, and refresh source/dependency documentation.
+- [x] 8.9 Bound completed-operation replay detection at every bridge/actor layer and remove the synthetic secondary runtime actor/event path.
+- [x] 8.10 Add production-composition regression coverage for invalid settings, guest mode, two saved boards, deletion/restart, telemetry cadence/persistence, nonblocking scan, configuration/Tunes, and absence of fixed fixture state.
+- [x] 8.11 Run focused persistence, runtime, ABI, host-adapter, canonical conformance, audit, and `just verify` gates and resolve every software failure.

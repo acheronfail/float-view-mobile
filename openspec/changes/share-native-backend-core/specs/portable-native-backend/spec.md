@@ -24,6 +24,16 @@ The repository SHALL provide one shared Rust backend implementation for applicat
 - **WHEN** canonical conformance launches the standalone Rust target
 - **THEN** it uses the production runtime composition with deterministic platform adapters and temporary storage rather than a separate fixture state machine or contract implementation
 
+#### Scenario: Production behavior reachability
+
+- **WHEN** a policy, coordinator, configuration service, storage operation, or connection state machine is accepted as migrated
+- **THEN** the native and standalone production composition invokes that owner directly and no parallel dispatcher or fixture implementation provides the shipped behavior
+
+#### Scenario: Production and standalone dependency direction
+
+- **WHEN** Cargo resolves the native runtime and standalone launcher
+- **THEN** both depend downward on the shared production composition and the native runtime does not depend on the standalone package
+
 ### Requirement: Explicit platform adapter boundary
 
 The portable backend SHALL access Bluetooth, location, lifecycle/background eligibility, permission/settings/theme/service presentation, document selection/staging, export presentation, immutable packaged resources, diagnostics, storage roots, available-space reporting, clocks, and secure randomness only through bounded typed internal ports transported by the native bridge. Resource requests MUST contain validated logical names rather than arbitrary traversal paths. Document requests MUST direct the host to a core-provided bounded staging destination without giving the host archive semantics. Platform adapters MUST NOT parse VESC or Refloat payloads, validate/import archives, own authoritative application state, execute SQL, dispatch frontend methods, or retain unbounded event or command queues.
@@ -200,3 +210,46 @@ Core dependencies SHALL use a checked-in Cargo lockfile, be documented, and be l
 
 - **WHEN** a platform bridge or portable dependency reports a failure
 - **THEN** the diagnostic contains bounded stage and error information without private identifiers or full payload contents
+
+### Requirement: Typed authoritative contract composition
+
+The production Rust service SHALL validate hand-written typed request parameters before mutation, derive complete contract snapshots from typed authoritative state, and use one injected clock for deadlines, session/sample timestamps, and deterministic execution. Dynamic JSON MUST remain confined to contract serialization, persistence payloads explicitly defined as JSON, and immutable test fixtures. Production behavior MUST NOT rely on a fixed software device, fabricated sample counts or elapsed time, unchecked JSON indexing, or synchronous sleeps in loopback dispatch.
+
+#### Scenario: Invalid settings patch
+
+- **WHEN** a settings patch contains an unknown key, wrong type, unsupported enum, non-finite number, or value outside its defined range
+- **THEN** the service rejects it before persistence or application-policy mutation and retains the previous settings revision and behavior
+
+#### Scenario: Telemetry cadence and persistence
+
+- **WHEN** telemetry responses arrive faster than the configured polling or persistence interval
+- **THEN** the injected clock and polling policy schedule the next eligible request, the adaptive decision gates durable append/flush, and no fabricated sequence-derived time is stored
+
+#### Scenario: Nonblocking scan dispatch
+
+- **WHEN** the frontend starts a bounded Bluetooth scan
+- **THEN** contract dispatch acknowledges the queued work without sleeping for discovery or timeout and later complete state snapshots publish scan and discovery changes
+
+#### Scenario: Refloat configuration production path
+
+- **WHEN** an eligible connection invokes configuration schema/read/write or Tune list/get/create/update/delete/apply
+- **THEN** the production dispatcher uses the shared configuration coordinator, scheduler, schema cache, and Tune store with their authorization, identity, revision, and readback rules
+
+### Requirement: Dynamic board and history ownership
+
+The production Rust service SHALL derive or resolve a stable opaque saved-board identity per meaningful device, support multiple saved boards, and scope profiles, route hints, sessions, summaries, pagination cursors, imports, exports, pruning, and deletion to the owning board history. Guest tracking SHALL retain bounded live state and bypass every durable operation. No production startup SHALL create a fixed software-board record except when the deterministic adapter explicitly presents that software device through the normal saved connection flow.
+
+#### Scenario: Two saved boards
+
+- **WHEN** two distinct devices are connected in saved mode and each records sessions
+- **THEN** each board has a distinct profile and history identity and board-scoped listing, summary, export, prune, and deletion operations never return or mutate the other board's sessions
+
+#### Scenario: Delete saved board with history
+
+- **WHEN** an inactive saved board with profiles, hints, sessions, and session files is deleted
+- **THEN** the service removes all owned durable data through a recoverable bounded operation, publishes the resulting catalog state, and restart does not recreate that board or expose orphaned history
+
+#### Scenario: Guest telemetry
+
+- **WHEN** a guest connection receives the same telemetry and location opportunities as a saved connection
+- **THEN** live state updates while no board, profile, hint, session, sample, location, catalog revision, or exportable ride metadata is persisted

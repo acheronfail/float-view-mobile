@@ -6,7 +6,7 @@ SCRATCH_PATH=${1:-/tmp/float-view-swift-build}
 
 sh "$SCRIPT_DIR/build-core-macos.sh"
 
-CORE_LIBRARY="$SCRIPT_DIR/../core/target/debug/libfloat_view_native_abi.a"
+CORE_LIBRARY="$SCRIPT_DIR/../core/target/debug/libhost_c_abi.a"
 BIN_PATH=$(cd "$SCRIPT_DIR" && swift build --scratch-path "$SCRATCH_PATH" --show-bin-path)
 EXECUTABLE="$BIN_PATH/FloatViewMac"
 

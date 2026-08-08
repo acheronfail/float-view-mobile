@@ -20,7 +20,7 @@ temporary=$(mktemp -d "${TMPDIR:-/tmp}/float-view-core-header-check.XXXXXX")
 trap 'rm -rf "$temporary"' EXIT HUP INT TERM
 
 cd "$CORE_DIR"
-cbindgen --config cbindgen.toml --crate float-view-native-abi \
+cbindgen --config cbindgen.toml --crate host-c-abi \
     --output "$temporary/float_view_core.h"
 
 if ! cmp -s include/float_view_core.h "$temporary/float_view_core.h"; then
