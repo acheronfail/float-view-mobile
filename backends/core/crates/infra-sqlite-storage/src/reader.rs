@@ -668,7 +668,14 @@ mod tests {
         let sessions = SessionStore::new(CatalogStore::open(&root).expect("catalog"));
         sessions
             .catalog()
-            .ensure_saved_device("saved", "history", Some("opaque"), Some("Board"), 0)
+            .ensure_saved_device(
+                "saved",
+                "history",
+                Some([1; 12]),
+                Some("opaque"),
+                Some("Board"),
+                0,
+            )
             .expect("saved device");
         sessions
             .create(&NewSession {

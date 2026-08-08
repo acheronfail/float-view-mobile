@@ -19,8 +19,6 @@ public final class RustCorePlatformAdapter: @unchecked Sendable {
   private var adapterOrder: UInt64 = 0
   private var connectionGeneration: UInt64 = 0
   private var activeDeviceID: DeviceID?
-  private var tokenByDeviceID: [DeviceID: Data] = [:]
-  private var deviceIDByToken: [Data: DeviceID] = [:]
   private var pendingConnect: FloatViewHostCommand?
   private var locationActive = false
   private var pendingPresentations: [UInt64: FloatViewHostCommand] = [:]
@@ -65,11 +63,12 @@ public final class RustCorePlatformAdapter: @unchecked Sendable {
       bluetooth.stopDiscovery()
       complete(command)
     case let .bluetoothConnect(deviceToken):
-      guard let deviceID = lock.withLock({ deviceIDByToken[Data(deviceToken)] }) else {
+      guard let value = String(data: deviceToken, encoding: .utf8), !value.isEmpty else {
         diagnose(stage: "bluetooth_connect", code: "unknown_token")
         complete(command, resultKind: 3)
         return
       }
+      let deviceID = DeviceID(value)
       let replaced = lock.withLock { () -> FloatViewHostCommand? in
         let replaced = pendingConnect
         pendingConnect = command
@@ -236,10 +235,9 @@ public final class RustCorePlatformAdapter: @unchecked Sendable {
         )
       )
     case let .deviceFound(deviceID, name, rssi):
-      let token = opaqueToken(for: deviceID)
       submit(
         .bluetoothDevice(
-          deviceToken: token,
+          deviceToken: Data(deviceID.value.utf8),
           name: Self.boundedName(name),
           rssi: Int16(clamping: rssi ?? 0)
         )
@@ -349,13 +347,11 @@ public final class RustCorePlatformAdapter: @unchecked Sendable {
   private func submit(_ event: FloatViewPlatformEvent) {
     let context = nextContext()
     do {
-      let payload = try FloatViewPlatformEventEnvelope(
-        runtimeGeneration: runtime.generation,
+      try runtime.submitPlatformEvent(
+        event,
         connectionGeneration: context.connection,
-        adapterOrder: context.order,
-        event: event
-      ).encode()
-      try runtime.submitPlatformEvent(payload)
+        adapterOrder: context.order
+      )
     } catch {
       diagnose(stage: "platform_event", code: "submit_failed")
     }
@@ -371,17 +367,6 @@ public final class RustCorePlatformAdapter: @unchecked Sendable {
 
   private func nextContext() -> (connection: UInt64, order: UInt64) {
     nextContext(for: nil) ?? (currentConnectionGeneration, 0)
-  }
-
-  private func opaqueToken(for deviceID: DeviceID) -> Data {
-    lock.withLock {
-      if let token = tokenByDeviceID[deviceID] { return token }
-      var uuid = UUID().uuid
-      let token = withUnsafeBytes(of: &uuid) { Data($0) }
-      tokenByDeviceID[deviceID] = token
-      deviceIDByToken[token] = deviceID
-      return token
-    }
   }
 
   private func beginPresentation(_ command: FloatViewHostCommand) -> Bool {

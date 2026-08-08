@@ -45,7 +45,7 @@ static void test_identity_and_lifecycle(void) {
   uint8_t build_id[FLOAT_VIEW_BUILD_ID_CAPACITY] = {0};
   assert(float_view_build_id(build_id, sizeof(build_id), &required) ==
          FLOAT_VIEW_STATUS_OK);
-  assert(memcmp(build_id, "float-view-0.1.0", sizeof(build_id)) == 0);
+  assert(memcmp(build_id, "float-view-abi03", sizeof(build_id)) == 0);
 
   assert(float_view_runtime_create(NULL) == FLOAT_VIEW_STATUS_INVALID_ARGUMENT);
   assert(float_view_runtime_destroy(NULL) == FLOAT_VIEW_STATUS_INVALID_HANDLE);

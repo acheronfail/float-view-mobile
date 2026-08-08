@@ -6,6 +6,65 @@ pub struct RuntimeGeneration(pub u64);
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub struct OperationId(pub u64);
 
+pub const MAX_PLATFORM_ASSOCIATION_BYTES: usize = 256;
+
+/// Private platform transport association used only to rediscover and connect
+/// before a VESC firmware identity is available.
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+pub struct PlatformAssociation(Vec<u8>);
+
+impl PlatformAssociation {
+    /// Copies a bounded non-empty private platform association.
+    ///
+    /// # Errors
+    ///
+    /// Rejects empty values and values larger than the private bridge bound.
+    pub fn new(value: Vec<u8>) -> Result<Self, DomainError> {
+        if value.is_empty() || value.len() > MAX_PLATFORM_ASSOCIATION_BYTES {
+            Err(DomainError::InvalidPlatformAssociation)
+        } else {
+            Ok(Self(value))
+        }
+    }
+
+    #[must_use]
+    pub fn as_bytes(&self) -> &[u8] {
+        &self.0
+    }
+
+    #[must_use]
+    pub fn into_bytes(self) -> Vec<u8> {
+        self.0
+    }
+}
+
+/// Meaningful private UUID returned in the fixed 12-byte VESC firmware field.
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub struct FirmwareDeviceUuid([u8; 12]);
+
+impl FirmwareDeviceUuid {
+    /// Accepts only meaningful non-zero firmware UUIDs.
+    ///
+    /// # Errors
+    ///
+    /// The all-zero value means the firmware has no usable hardware identity.
+    pub const fn new(value: [u8; 12]) -> Result<Self, DomainError> {
+        let mut index = 0;
+        while index < value.len() {
+            if value[index] != 0 {
+                return Ok(Self(value));
+            }
+            index += 1;
+        }
+        Err(DomainError::UnavailableFirmwareUuid)
+    }
+
+    #[must_use]
+    pub const fn bytes(self) -> [u8; 12] {
+        self.0
+    }
+}
+
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub struct CanId(u8);
 
@@ -32,6 +91,8 @@ impl CanId {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum DomainError {
     InvalidCanId,
+    InvalidPlatformAssociation,
+    UnavailableFirmwareUuid,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -74,5 +135,23 @@ mod tests {
     fn can_id_rejects_reserved_values() {
         assert_eq!(CanId::new(253).unwrap().get(), 253);
         assert_eq!(CanId::new(254), Err(DomainError::InvalidCanId));
+    }
+
+    #[test]
+    fn private_identity_types_enforce_distinct_bounds() {
+        assert_eq!(
+            PlatformAssociation::new(Vec::new()),
+            Err(DomainError::InvalidPlatformAssociation)
+        );
+        assert!(PlatformAssociation::new(vec![7; MAX_PLATFORM_ASSOCIATION_BYTES]).is_ok());
+        assert_eq!(
+            PlatformAssociation::new(vec![7; MAX_PLATFORM_ASSOCIATION_BYTES + 1]),
+            Err(DomainError::InvalidPlatformAssociation)
+        );
+        assert_eq!(
+            FirmwareDeviceUuid::new([0; 12]),
+            Err(DomainError::UnavailableFirmwareUuid)
+        );
+        assert_eq!(FirmwareDeviceUuid::new([9; 12]).unwrap().bytes(), [9; 12]);
     }
 }

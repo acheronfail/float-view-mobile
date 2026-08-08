@@ -5,6 +5,9 @@ PRAGMA synchronous = FULL;
 CREATE TABLE IF NOT EXISTS saved_device (
   saved_device_id TEXT PRIMARY KEY NOT NULL,
   device_history_id TEXT UNIQUE NOT NULL,
+  firmware_device_uuid TEXT UNIQUE CHECK (
+    firmware_device_uuid IS NULL OR length(firmware_device_uuid) = 24
+  ),
   opaque_platform_id TEXT UNIQUE,
   advertised_name TEXT,
   custom_display_name TEXT,

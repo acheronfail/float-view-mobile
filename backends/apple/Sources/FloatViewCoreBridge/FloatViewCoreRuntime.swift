@@ -52,7 +52,11 @@ public struct FloatViewHostCommand: Sendable, Equatable {
 
 public protocol FloatViewPlatformRuntime: AnyObject, Sendable {
   var generation: UInt64 { get }
-  func submitPlatformEvent(_ payload: Data) throws
+  func submitPlatformEvent(
+    _ event: FloatViewPlatformEvent,
+    connectionGeneration: UInt64,
+    adapterOrder: UInt64
+  ) throws
   func submitBluetoothBytes(
     connectionGeneration: UInt64,
     adapterOrder: UInt64,
@@ -89,7 +93,7 @@ public final class FloatViewCoreRuntime: @unchecked Sendable {
       float_view_build_id(bytes.baseAddress, bytes.count, &required)
     }
     guard identityStatus == FLOAT_VIEW_STATUS_OK,
-          identity == Array("float-view-0.1.0".utf8)
+          identity == Array("float-view-abi03".utf8)
     else {
       throw FloatViewCoreError.buildMismatch
     }
@@ -176,14 +180,56 @@ public final class FloatViewCoreRuntime: @unchecked Sendable {
     stateLock.withLock { runtimeGeneration }
   }
 
-  public func submitPlatformEvent(_ payload: Data) throws {
-    guard payload.count <= Self.maximumPayloadBytes else {
-      throw FloatViewCoreError.payloadTooLarge
-    }
+  public func submitPlatformEvent(
+    _ event: FloatViewPlatformEvent,
+    connectionGeneration: UInt64,
+    adapterOrder: UInt64
+  ) throws {
     let (handle, generation) = try activeRuntime()
-    let status = payload.withUnsafeBytes { bytes in
-      float_view_runtime_submit_event(
-        handle, generation, floatViewPlatformEventKind, bytes.baseAddress, bytes.count
+    let status: FloatViewStatus = switch event {
+    case let .bluetoothState(radio, authorization):
+      float_view_runtime_submit_bluetooth_state(
+        handle, generation, connectionGeneration, adapterOrder,
+        UInt32(radio.rawValue), UInt32(authorization.rawValue)
+      )
+    case let .bluetoothDevice(deviceToken, name, rssi):
+      ({
+        let encodedName = name.map { Data($0.utf8) } ?? Data()
+        return deviceToken.withUnsafeBytes { association in
+          encodedName.withUnsafeBytes { nameBytes in
+            float_view_runtime_submit_bluetooth_device(
+              handle, generation, connectionGeneration, adapterOrder,
+              association.baseAddress, association.count,
+              nameBytes.baseAddress, nameBytes.count, rssi
+            )
+          }
+        }
+      })()
+    case let .bluetoothConnection(eventGeneration, state):
+      float_view_runtime_submit_bluetooth_connection(
+        handle, generation, eventGeneration, adapterOrder, UInt32(state.rawValue)
+      )
+    case let .locationAuthorization(authorization):
+      float_view_runtime_submit_location_authorization(
+        handle, generation, connectionGeneration, adapterOrder, UInt32(authorization.rawValue)
+      )
+    case let .location(latitude, longitude, accuracyM):
+      float_view_runtime_submit_location(
+        handle, generation, connectionGeneration, adapterOrder,
+        latitude, longitude, accuracyM ?? 0, accuracyM == nil ? 0 : 1
+      )
+    case let .lifecycle(foreground, backgroundEligible):
+      float_view_runtime_submit_lifecycle(
+        handle, generation, connectionGeneration, adapterOrder,
+        foreground ? 1 : 0, backgroundEligible ? 1 : 0
+      )
+    case let .loggingService(active):
+      float_view_runtime_submit_logging_service(
+        handle, generation, connectionGeneration, adapterOrder, active ? 1 : 0
+      )
+    case let .theme(theme):
+      float_view_runtime_submit_theme(
+        handle, generation, connectionGeneration, adapterOrder, UInt32(theme.rawValue)
       )
     }
     guard status == FLOAT_VIEW_STATUS_OK else {

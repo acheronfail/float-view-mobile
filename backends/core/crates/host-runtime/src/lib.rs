@@ -18,11 +18,11 @@ use host_ports::{
 };
 
 /// Private native ABI version. Hosts and the library are shipped atomically.
-pub const ABI_VERSION: u32 = 2;
+pub const ABI_VERSION: u32 = 3;
 /// Source identity used by initial smoke products.
 pub const BUILD_ID: &str = env!("CARGO_PKG_VERSION");
 /// Fixed build identity copied into caller-owned ABI buffers.
-pub const BUILD_ID_BYTES: &[u8; 16] = b"float-view-0.1.0";
+pub const BUILD_ID_BYTES: &[u8; 16] = b"float-view-abi03";
 /// Maximum queued host commands.
 pub const COMMAND_QUEUE_ITEMS: usize = 64;
 /// Maximum aggregate queued host-command payload bytes.
@@ -31,8 +31,6 @@ pub const COMMAND_QUEUE_BYTES: usize = 1024 * 1024;
 pub const ACTOR_QUEUE_ITEMS: usize = 64;
 /// Maximum recent completions retained solely to distinguish duplicate replies.
 pub const COMPLETED_OPERATION_HISTORY: usize = 128;
-/// Command-header kind whose payload is an encoded [`PlatformCommand`].
-pub const HOST_COMMAND_KIND_PLATFORM: u32 = 1;
 /// Event kind whose payload is an encoded [`PlatformEvent`].
 pub const EVENT_KIND_PLATFORM: u32 = 1;
 const SYNTHETIC_OPERATION_START: u64 = 1 << 63;
@@ -398,6 +396,31 @@ impl Runtime {
     pub fn submit_platform_event(&self, payload: &[u8]) -> Result<(), RuntimeError> {
         self.require_started()?;
         let event = PlatformEvent::decode(payload).map_err(|_| RuntimeError::InvalidArgument)?;
+        self.submit_adapter_event(
+            event.connection_generation,
+            event.adapter_order,
+            event.event,
+        )
+    }
+
+    /// Submits one typed, ordered adapter event without a serialized event envelope.
+    ///
+    /// # Errors
+    /// Returns stable lifecycle, ordering, generation, or actor-capacity failures.
+    pub fn submit_adapter_event(
+        &self,
+        connection_generation: u64,
+        adapter_order: u64,
+        adapter_event: AdapterEvent,
+    ) -> Result<(), RuntimeError> {
+        self.require_started()?;
+        let event = PlatformEvent {
+            generation: RuntimeGeneration(self.generation),
+            connection_generation,
+            adapter_order,
+            event: adapter_event,
+        };
+        event.validate().map_err(|_| RuntimeError::InvalidArgument)?;
         let foreground = match &event.event {
             AdapterEvent::Lifecycle { foreground, .. } => Some(*foreground),
             _ => None,
@@ -601,9 +624,13 @@ impl Runtime {
     fn drain_application_commands(&self) -> Result<(), RuntimeError> {
         let application = self.application()?;
         while let Some(command) = application.try_host_command().map_err(map_actor)? {
-            let payload = command.encode().map_err(|_| RuntimeError::Internal)?;
+            let kind = command.command.kind();
+            let payload = command
+                .command
+                .encode_payload()
+                .map_err(|_| RuntimeError::Internal)?;
             self.commands.enqueue(HostCommand {
-                kind: HOST_COMMAND_KIND_PLATFORM,
+                kind,
                 flags: 0,
                 generation: self.generation,
                 operation_id: command.operation.0,
@@ -794,7 +821,6 @@ mod tests {
     use super::*;
     use host_ports::{
         AdapterEvent, BluetoothAuthorization, BluetoothRadio, HostCommand as PlatformHostCommand,
-        PlatformCommand,
     };
 
     #[test]
@@ -945,10 +971,10 @@ mod tests {
         let (outcome, command) = runtime.wait_command(Duration::ZERO, 128).unwrap();
         assert_eq!(outcome, WaitCommand::Ready);
         let command = command.unwrap();
-        assert_eq!(command.kind, HOST_COMMAND_KIND_PLATFORM);
+        assert_eq!(command.kind, host_ports::COMMAND_BLUETOOTH_START_SCAN);
         assert_eq!(command.operation_id, operation);
         assert_eq!(
-            PlatformCommand::decode(&command.payload).unwrap().command,
+            PlatformHostCommand::decode_payload(command.kind, &command.payload).unwrap(),
             PlatformHostCommand::BluetoothStartScan
         );
         assert_eq!(runtime.complete_platform(operation, 0, &[]), Ok(()));
@@ -985,8 +1011,9 @@ mod tests {
         for _ in 0..3 {
             let (_, command) = runtime.wait_command(Duration::ZERO, 4096).unwrap();
             let command = command.unwrap();
-            let decoded = PlatformCommand::decode(&command.payload).unwrap();
-            let payload = match decoded.command {
+            let decoded =
+                PlatformHostCommand::decode_payload(command.kind, &command.payload).unwrap();
+            let payload = match decoded {
                 PlatformHostCommand::ResolveStorageRoot { .. } => {
                     root.to_string_lossy().as_bytes().to_vec()
                 }
@@ -1001,8 +1028,8 @@ mod tests {
 
         let (_, ready) = runtime.wait_command(Duration::from_secs(1), 4096).unwrap();
         let ready = ready.unwrap();
-        let decoded = PlatformCommand::decode(&ready.payload).unwrap();
-        match decoded.command {
+        let decoded = PlatformHostCommand::decode_payload(ready.kind, &ready.payload).unwrap();
+        match decoded {
             PlatformHostCommand::RuntimeReady {
                 endpoint,
                 launch_token,
@@ -1031,13 +1058,14 @@ mod tests {
         }
         let (_, resumed) = runtime.wait_command(Duration::from_secs(1), 4096).unwrap();
         let resumed = resumed.unwrap();
-        let resumed = PlatformCommand::decode(&resumed.payload).unwrap();
+        let resumed_command =
+            PlatformHostCommand::decode_payload(resumed.kind, &resumed.payload).unwrap();
         assert!(matches!(
-            resumed.command,
+            resumed_command,
             PlatformHostCommand::RuntimeReady { .. }
         ));
         runtime
-            .complete_platform(resumed.operation.0, 0, &[])
+            .complete_platform(resumed.operation_id, 0, &[])
             .unwrap();
         runtime.stop().unwrap();
         let _ = std::fs::remove_dir_all(root);

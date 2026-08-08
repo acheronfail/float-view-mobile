@@ -22,7 +22,7 @@ pub use session_store::*;
 
 pub const CATALOG_SQL: &str = include_str!("../../../../sql/catalog.sql");
 pub const SESSION_SQL: &str = include_str!("../../../../sql/session.sql");
-pub const STORAGE_VERSION: &str = "11";
+pub const STORAGE_VERSION: &str = "12";
 
 #[derive(Debug, Eq, PartialEq)]
 pub struct EngineIdentity {

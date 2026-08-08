@@ -39,6 +39,8 @@ impl From<std::io::Error> for StoreError {
 pub struct SavedDevice {
     pub saved_device_id: String,
     pub device_history_id: String,
+    /// Private 12-byte VESC firmware UUID; never expose through API or logs.
+    pub firmware_device_uuid: Option<[u8; 12]>,
     pub opaque_platform_id: Option<String>,
     pub advertised_name: Option<String>,
     pub custom_display_name: Option<String>,
@@ -150,12 +152,16 @@ impl CatalogStore {
         &self,
         saved_device_id: &str,
         device_history_id: &str,
+        firmware_device_uuid: Option<[u8; 12]>,
         opaque_platform_id: Option<&str>,
         advertised_name: Option<&str>,
         at_millis: i64,
     ) -> Result<SavedDevice, StoreError> {
         validate_id(saved_device_id)?;
         validate_id(device_history_id)?;
+        if firmware_device_uuid == Some([0; 12]) {
+            return Err(StoreError::Invalid);
+        }
         validate_optional_text(opaque_platform_id, 512)?;
         validate_optional_text(advertised_name, 512)?;
         if at_millis < 0 {
@@ -163,9 +169,10 @@ impl CatalogStore {
         }
         let mut writer = self.writer()?;
         let transaction = writer.transaction()?;
+        let firmware_uuid = firmware_device_uuid.map(hex_uuid);
         transaction.execute(
-            "INSERT INTO saved_device(saved_device_id, device_history_id, opaque_platform_id, advertised_name, created_at_ms, last_seen_at_ms, last_connected_at_ms) VALUES (?1, ?2, ?3, ?4, ?5, ?5, ?5) ON CONFLICT(saved_device_id) DO UPDATE SET advertised_name = COALESCE(excluded.advertised_name, advertised_name), last_seen_at_ms = excluded.last_seen_at_ms, last_connected_at_ms = excluded.last_connected_at_ms",
-            params![saved_device_id, device_history_id, opaque_platform_id, advertised_name, at_millis],
+            "INSERT INTO saved_device(saved_device_id, device_history_id, firmware_device_uuid, opaque_platform_id, advertised_name, created_at_ms, last_seen_at_ms, last_connected_at_ms) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?6, ?6) ON CONFLICT(saved_device_id) DO UPDATE SET firmware_device_uuid = COALESCE(excluded.firmware_device_uuid, firmware_device_uuid), opaque_platform_id = COALESCE(excluded.opaque_platform_id, opaque_platform_id), advertised_name = COALESCE(excluded.advertised_name, advertised_name), last_seen_at_ms = excluded.last_seen_at_ms, last_connected_at_ms = excluded.last_connected_at_ms",
+            params![saved_device_id, device_history_id, firmware_uuid, opaque_platform_id, advertised_name, at_millis],
         )?;
         transaction.execute(
             "INSERT OR IGNORE INTO board_profile(saved_device_id, revision, json, updated_at_ms) VALUES (?1, 0, '{}', ?2)",
@@ -181,11 +188,21 @@ impl CatalogStore {
     pub fn saved_devices(&self) -> Result<Vec<SavedDevice>, StoreError> {
         let writer = self.writer()?;
         let mut statement = writer.prepare(
-            "SELECT saved_device_id, device_history_id, opaque_platform_id, advertised_name, custom_display_name, revision, created_at_ms, last_seen_at_ms, last_connected_at_ms FROM saved_device ORDER BY created_at_ms, saved_device_id",
+            "SELECT saved_device_id, device_history_id, firmware_device_uuid, opaque_platform_id, advertised_name, custom_display_name, revision, created_at_ms, last_seen_at_ms, last_connected_at_ms FROM saved_device ORDER BY created_at_ms, saved_device_id",
         )?;
         Ok(statement
             .query_map([], map_saved_device)?
             .collect::<Result<Vec<_>, _>>()?)
+    }
+
+    /// Returns one private saved-device record by its public local key.
+    ///
+    /// # Errors
+    /// Returns `StoreError::NotFound` when no record exists.
+    pub fn saved_device(&self, saved_device_id: &str) -> Result<SavedDevice, StoreError> {
+        validate_id(saved_device_id)?;
+        let writer = self.writer()?;
+        saved_device(&writer, saved_device_id)
     }
 
     /// # Errors
@@ -699,7 +716,7 @@ fn validate_tune(tune: &TuneRecord) -> Result<(), StoreError> {
 fn saved_device(connection: &Connection, id: &str) -> Result<SavedDevice, StoreError> {
     connection
         .query_row(
-            "SELECT saved_device_id, device_history_id, opaque_platform_id, advertised_name, custom_display_name, revision, created_at_ms, last_seen_at_ms, last_connected_at_ms FROM saved_device WHERE saved_device_id = ?1",
+            "SELECT saved_device_id, device_history_id, firmware_device_uuid, opaque_platform_id, advertised_name, custom_display_name, revision, created_at_ms, last_seen_at_ms, last_connected_at_ms FROM saved_device WHERE saved_device_id = ?1",
             [id], map_saved_device,
         )
         .optional()?
@@ -710,13 +727,17 @@ fn map_saved_device(row: &rusqlite::Row<'_>) -> rusqlite::Result<SavedDevice> {
     Ok(SavedDevice {
         saved_device_id: row.get(0)?,
         device_history_id: row.get(1)?,
-        opaque_platform_id: row.get(2)?,
-        advertised_name: row.get(3)?,
-        custom_display_name: row.get(4)?,
-        revision: row.get(5)?,
-        created_at_millis: row.get(6)?,
-        last_seen_at_millis: row.get(7)?,
-        last_connected_at_millis: row.get(8)?,
+        firmware_device_uuid: row
+            .get::<_, Option<String>>(2)?
+            .as_deref()
+            .and_then(decode_uuid),
+        opaque_platform_id: row.get(3)?,
+        advertised_name: row.get(4)?,
+        custom_display_name: row.get(5)?,
+        revision: row.get(6)?,
+        created_at_millis: row.get(7)?,
+        last_seen_at_millis: row.get(8)?,
+        last_connected_at_millis: row.get(9)?,
     })
 }
 
@@ -835,9 +856,22 @@ mod tests {
         let root = temporary_root("catalog");
         let store = CatalogStore::open(&root).expect("store");
         let saved = store
-            .ensure_saved_device("saved", "history", Some("opaque"), Some("Board"), 10)
+            .ensure_saved_device(
+                "saved",
+                "history",
+                Some([1; 12]),
+                Some("opaque"),
+                Some("Board"),
+                10,
+            )
             .expect("saved");
         assert_eq!(saved.revision, 0);
+        assert_eq!(saved.firmware_device_uuid, Some([1; 12]));
+        assert_eq!(saved.opaque_platform_id.as_deref(), Some("opaque"));
+        assert_eq!(
+            store.saved_device("saved").expect("saved lookup").firmware_device_uuid,
+            Some([1; 12])
+        );
         let saved = store
             .update_saved_device_name("saved", 0, Some("Custom"))
             .expect("rename");

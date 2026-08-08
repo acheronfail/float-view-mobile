@@ -4,7 +4,7 @@ import Foundation
 import XCTest
 
 final class RustCorePlatformAdapterTests: XCTestCase {
-  func testBluetoothMappingUsesOpaqueTokensOrderedGenerationsAndCancellation() throws {
+  func testBluetoothMappingUsesPrivateAssociationsOrderedGenerationsAndCancellation() throws {
     let runtime = FakePlatformRuntime(generation: 77)
     let bluetooth = FakeBluetoothPort()
     let location = FakeLocationPort()
@@ -19,14 +19,13 @@ final class RustCorePlatformAdapterTests: XCTestCase {
     let deviceID = DeviceID("platform-identifier-must-not-cross")
 
     adapter.receiveBluetooth(.deviceFound(deviceID, name: "Test Board", rssi: -42))
-    let discovery = try XCTUnwrap(runtime.events.last.map(FloatViewPlatformEventEnvelope.decode))
+    let discovery = try XCTUnwrap(runtime.events.last)
     guard case let .bluetoothDevice(token, name, rssi) = discovery.event else {
       return XCTFail("Expected Bluetooth device event")
     }
     XCTAssertEqual(discovery.runtimeGeneration, 77)
     XCTAssertEqual(discovery.adapterOrder, 1)
-    XCTAssertEqual(token.count, 16)
-    XCTAssertFalse(String(decoding: token, as: UTF8.self).contains(deviceID.value))
+    XCTAssertEqual(token, Data(deviceID.value.utf8))
     XCTAssertEqual(name, "Test Board")
     XCTAssertEqual(rssi, -42)
 
@@ -39,7 +38,7 @@ final class RustCorePlatformAdapterTests: XCTestCase {
     XCTAssertTrue(runtime.completions.isEmpty)
 
     adapter.receiveBluetooth(.connectionChanged(deviceID, .ready))
-    let connection = try XCTUnwrap(runtime.events.last.map(FloatViewPlatformEventEnvelope.decode))
+    let connection = try XCTUnwrap(runtime.events.last)
     XCTAssertEqual(connection.connectionGeneration, 1)
     XCTAssertEqual(connection.adapterOrder, 2)
     XCTAssertEqual(connection.event, .bluetoothConnection(connectionGeneration: 1, state: .ready))
@@ -77,7 +76,7 @@ final class RustCorePlatformAdapterTests: XCTestCase {
     let deviceID = DeviceID("repeat-connection")
 
     adapter.receiveBluetooth(.deviceFound(deviceID, name: "Test Board", rssi: -42))
-    let discovery = try XCTUnwrap(runtime.events.last.map(FloatViewPlatformEventEnvelope.decode))
+    let discovery = try XCTUnwrap(runtime.events.last)
     guard case let .bluetoothDevice(token, _, _) = discovery.event else {
       return XCTFail("Expected Bluetooth device event")
     }
@@ -102,8 +101,7 @@ final class RustCorePlatformAdapterTests: XCTestCase {
     XCTAssertEqual(bluetooth.writes.count, 1)
     XCTAssertEqual(bluetooth.writes.first?.0, Data([9]))
     XCTAssertEqual(bluetooth.writes.first?.1, deviceID)
-    let connectionEvents = try runtime.events
-      .map(FloatViewPlatformEventEnvelope.decode)
+    let connectionEvents = runtime.events
       .filter {
         if case .bluetoothConnection = $0.event { return true }
         return false
@@ -139,7 +137,7 @@ final class RustCorePlatformAdapterTests: XCTestCase {
     XCTAssertEqual(runtime.completions.map(\.resultKind), [0])
     XCTAssertNotNil(location.handler)
     XCTAssertEqual(
-      try FloatViewPlatformEventEnvelope.decode(runtime.events[0]).event,
+      runtime.events[0].event,
       .locationAuthorization(.background)
     )
 
@@ -147,11 +145,11 @@ final class RustCorePlatformAdapterTests: XCTestCase {
       observedAt: Date(), latitude: 1.25, longitude: -2.5, accuracyM: 4
     ))
     XCTAssertEqual(
-      try FloatViewPlatformEventEnvelope.decode(runtime.events[1]).event,
+      runtime.events[1].event,
       .location(latitude: 1.25, longitude: -2.5, accuracyM: 4)
     )
     XCTAssertEqual(
-      try FloatViewPlatformEventEnvelope.decode(runtime.events[1]).adapterOrder,
+      runtime.events[1].adapterOrder,
       2
     )
 
@@ -285,7 +283,7 @@ final class RustCorePlatformAdapterTests: XCTestCase {
     adapter.updateLifecycle(foreground: false, backgroundEligible: true)
     adapter.updateLoggingService(active: true)
     adapter.updateTheme(.dark)
-    let events = try runtime.events.suffix(3).map(FloatViewPlatformEventEnvelope.decode)
+    let events = runtime.events.suffix(3)
     XCTAssertEqual(events.map(\.event), [
       .lifecycle(foreground: false, backgroundEligible: true),
       .loggingService(active: true),
@@ -328,7 +326,7 @@ final class RustCorePlatformAdapterTests: XCTestCase {
       command: command
     ).encode()
     return FloatViewHostCommand(
-      kind: floatViewPlatformCommandKind,
+      kind: command.bridgeKind,
       runtimeGeneration: generation,
       operationID: operation,
       payload: payload
@@ -337,6 +335,13 @@ final class RustCorePlatformAdapterTests: XCTestCase {
 }
 
 private final class FakePlatformRuntime: FloatViewPlatformRuntime, @unchecked Sendable {
+  struct Event: Equatable {
+    let runtimeGeneration: UInt64
+    let connectionGeneration: UInt64
+    let adapterOrder: UInt64
+    let event: FloatViewPlatformEvent
+  }
+
   struct Completion: Equatable {
     let operation: UInt64
     let resultKind: UInt32
@@ -351,7 +356,7 @@ private final class FakePlatformRuntime: FloatViewPlatformRuntime, @unchecked Se
 
   let generation: UInt64
   private let lock = NSLock()
-  private var storedEvents: [Data] = []
+  private var storedEvents: [Event] = []
   private var storedNotifications: [Notification] = []
   private var storedCompletions: [Completion] = []
 
@@ -359,7 +364,7 @@ private final class FakePlatformRuntime: FloatViewPlatformRuntime, @unchecked Se
     self.generation = generation
   }
 
-  var events: [Data] {
+  var events: [Event] {
     lock.withLock { storedEvents }
   }
 
@@ -371,8 +376,18 @@ private final class FakePlatformRuntime: FloatViewPlatformRuntime, @unchecked Se
     lock.withLock { storedCompletions }
   }
 
-  func submitPlatformEvent(_ payload: Data) {
-    lock.withLock { storedEvents.append(Data(payload)) }
+  func submitPlatformEvent(
+    _ event: FloatViewPlatformEvent,
+    connectionGeneration: UInt64,
+    adapterOrder: UInt64
+  ) {
+    let value = Event(
+      runtimeGeneration: generation,
+      connectionGeneration: connectionGeneration,
+      adapterOrder: adapterOrder,
+      event: event
+    )
+    lock.withLock { storedEvents.append(value) }
   }
 
   func submitBluetoothBytes(

@@ -53,7 +53,7 @@ enum FloatViewMac {
   ) throws {
     let result: [String: Any] = [
       "abiVersion": FloatViewCoreRuntime.abiVersion,
-      "buildIdentity": "float-view-0.1.0",
+      "buildIdentity": "float-view-abi03",
       "runtimeGeneration": runtimeGeneration,
       "backendVariant": "rust",
       "origin": ready.endpoint.absoluteString,

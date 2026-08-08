@@ -4,7 +4,7 @@ use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle, Thread};
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
-use domain_types::{OperationId, RuntimeGeneration};
+use domain_types::{OperationId, PlatformAssociation, RuntimeGeneration};
 use host_ports::{
     AdapterEvent, BluetoothAuthorization, BluetoothConnectionState, BluetoothNotification,
     BluetoothRadio, HostCommand, LocationAuthorization, OperationCompletion, PlatformCommand,
@@ -161,7 +161,7 @@ pub struct StorageResult {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct DiscoveredBluetoothDevice {
-    pub device_token: Vec<u8>,
+    pub association: PlatformAssociation,
     pub name: Option<String>,
     pub rssi: i16,
 }
@@ -950,10 +950,10 @@ fn accept_platform_event<C: Clock>(
             changed
         }
         AdapterEvent::BluetoothDevice {
-            device_token,
+            association,
             name,
             rssi,
-        } => update_discovered_device(state, device_token, name, rssi),
+        } => update_discovered_device(state, association, name, rssi),
         AdapterEvent::LocationAuthorization(authorization) => {
             let changed = state.snapshot.location_authorization != authorization;
             state.snapshot.location_authorization = authorization;
@@ -1014,7 +1014,7 @@ fn accept_platform_event<C: Clock>(
 
 fn update_discovered_device<C: Clock>(
     state: &mut ActorState<C>,
-    device_token: Vec<u8>,
+    association: PlatformAssociation,
     name: Option<String>,
     rssi: i16,
 ) -> bool {
@@ -1022,7 +1022,7 @@ fn update_discovered_device<C: Clock>(
         .snapshot
         .discovered_devices
         .iter_mut()
-        .find(|device| device.device_token == device_token)
+        .find(|device| device.association == association)
     {
         let changed = device.name != name || device.rssi != rssi;
         device.name = name;
@@ -1033,7 +1033,7 @@ fn update_discovered_device<C: Clock>(
             .snapshot
             .discovered_devices
             .push(DiscoveredBluetoothDevice {
-                device_token,
+                association,
                 name,
                 rssi,
             });
@@ -1091,12 +1091,14 @@ fn request_host<C: Clock>(
         return Err(ActorError::QueueFull);
     }
     let operation = OperationId(state.next_operation);
+    command
+        .encode_payload()
+        .map_err(|_| ActorError::InvalidInput)?;
     let envelope = PlatformCommand {
         generation: state.snapshot.generation,
         operation,
         command,
     };
-    envelope.encode().map_err(|_| ActorError::InvalidInput)?;
     output.try_send(envelope).map_err(map_send)?;
     state.next_operation = state.next_operation.saturating_add(1);
     state.pending.insert(operation.0);

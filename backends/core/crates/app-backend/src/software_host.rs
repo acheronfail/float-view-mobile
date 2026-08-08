@@ -1,5 +1,5 @@
 use app_coordinator::ApplicationActor;
-use domain_types::RuntimeGeneration;
+use domain_types::{PlatformAssociation, RuntimeGeneration};
 use host_ports::{
     AdapterEvent, BluetoothAuthorization, BluetoothConnectionState, BluetoothNotification,
     BluetoothRadio, CompletionStatus, HostCommand, LocationAuthorization, OperationCompletion,
@@ -56,7 +56,8 @@ impl SoftwareHost {
                     application,
                     generation,
                     AdapterEvent::BluetoothDevice {
-                        device_token: b"software-vesc".to_vec(),
+                        association: PlatformAssociation::new(b"software-vesc".to_vec())
+                            .expect("fixed software association"),
                         name: Some("Floatwheel Software".into()),
                         rssi: -42,
                     },

@@ -1,7 +1,6 @@
 import Foundation
 
 public let floatViewBridgeCodecVersion: UInt8 = 1
-public let floatViewPlatformCommandKind: UInt32 = 1
 public let floatViewPlatformEventKind: UInt32 = 1
 public let floatViewMaximumBluetoothBytes = 4096
 public let floatViewMaximumDiagnosticBytes = 64
@@ -94,6 +93,33 @@ public enum FloatViewPlatformCommand: Sendable, Equatable {
   case presentServiceState(active: Bool)
   case presentExport(stagedPath: String)
   case runtimeReady(endpoint: String, launchToken: String)
+
+  public var bridgeKind: UInt32 {
+    switch self {
+    case .bluetoothStartScan: 1
+    case .bluetoothStopScan: 2
+    case .bluetoothConnect: 3
+    case .bluetoothDisconnect: 4
+    case .bluetoothWrite: 5
+    case .locationStart: 6
+    case .locationStop: 7
+    case .setBackgroundLogging: 8
+    case .readResource: 9
+    case .stageDocument: 10
+    case .resolveStorageRoot: 11
+    case .availableSpace: 12
+    case .monotonicClock: 13
+    case .wallClock: 14
+    case .secureRandom: 15
+    case .diagnostic: 16
+    case .presentPermission: 17
+    case .presentSettings: 18
+    case .presentTheme: 19
+    case .presentServiceState: 20
+    case .presentExport: 21
+    case .runtimeReady: 22
+    }
+  }
 }
 
 public struct FloatViewPlatformCommandEnvelope: Sendable, Equatable {
@@ -113,80 +139,61 @@ public struct FloatViewPlatformCommandEnvelope: Sendable, Equatable {
 
   public func encode() throws -> Data {
     var writer = BridgeWriter()
-    try writer.u8(floatViewBridgeCodecVersion)
-    try writer.u64(runtimeGeneration)
-    try writer.u64(operationID)
     switch command {
     case .bluetoothStartScan:
-      try writer.u8(1)
+      break
     case .bluetoothStopScan:
-      try writer.u8(2)
+      break
     case let .bluetoothConnect(deviceToken):
       guard !deviceToken.isEmpty, deviceToken.count <= 256 else {
         throw FloatViewBridgeCodecError.payloadTooLarge
       }
-      try writer.u8(3)
       try writer.bytes(deviceToken)
     case let .bluetoothDisconnect(connectionGeneration):
-      try writer.u8(4)
       try writer.u64(connectionGeneration)
     case let .bluetoothWrite(connectionGeneration, bytes):
       guard !bytes.isEmpty, bytes.count <= FloatViewCoreRuntime.maximumPayloadBytes else {
         throw FloatViewBridgeCodecError.payloadTooLarge
       }
-      try writer.u8(5)
       try writer.u64(connectionGeneration)
       try writer.bytes(bytes)
     case let .locationStart(background):
-      try writer.u8(6)
       try writer.boolean(background)
     case .locationStop:
-      try writer.u8(7)
+      break
     case let .setBackgroundLogging(enabled):
-      try writer.u8(8)
       try writer.boolean(enabled)
     case let .readResource(namespace, logicalName, maximumBytes):
-      try writer.u8(9)
       try writer.u8(namespace.rawValue)
       try writer.string(logicalName, maximum: 128)
       try writer.u64(maximumBytes)
     case let .stageDocument(destination, maximumBytes):
-      try writer.u8(10)
       try writer.string(destination, maximum: 1024)
       try writer.u64(maximumBytes)
     case let .resolveStorageRoot(kind):
-      try writer.u8(11)
       try writer.u8(kind.rawValue)
     case let .availableSpace(root):
-      try writer.u8(12)
       try writer.string(root, maximum: 1024)
     case .monotonicClock:
-      try writer.u8(13)
+      break
     case .wallClock:
-      try writer.u8(14)
+      break
     case let .secureRandom(count):
-      try writer.u8(15)
       try writer.u16(count)
     case let .diagnostic(stage, code):
-      try writer.u8(16)
       try writer.string(stage, maximum: floatViewMaximumDiagnosticBytes)
       try writer.string(code, maximum: floatViewMaximumDiagnosticBytes)
     case let .presentPermission(permission):
-      try writer.u8(17)
       try writer.u8(permission.rawValue)
     case .presentSettings:
-      try writer.u8(18)
+      break
     case let .presentTheme(theme):
-      try writer.u8(19)
       try writer.u8(theme.rawValue)
     case let .presentServiceState(active):
-      try writer.u8(20)
       try writer.boolean(active)
     case let .presentExport(stagedPath):
-      try writer.u8(21)
       try writer.string(stagedPath, maximum: 1024)
     case let .runtimeReady(endpoint, launchToken):
-      try writer.u8(22)
       try writer.string(endpoint, maximum: 256)
       try writer.string(launchToken, maximum: 128)
     }
@@ -196,16 +203,8 @@ public struct FloatViewPlatformCommandEnvelope: Sendable, Equatable {
   public static func decode(
     _ hostCommand: FloatViewHostCommand
   ) throws -> FloatViewPlatformCommandEnvelope {
-    guard hostCommand.kind == floatViewPlatformCommandKind else {
-      throw FloatViewBridgeCodecError.invalidTag
-    }
     var reader = try BridgeReader(hostCommand.payload)
-    guard try reader.u8() == floatViewBridgeCodecVersion else {
-      throw FloatViewBridgeCodecError.invalidVersion
-    }
-    let generation = try reader.u64()
-    let operation = try reader.u64()
-    let command: FloatViewPlatformCommand = switch try reader.u8() {
+    let command: FloatViewPlatformCommand = switch hostCommand.kind {
     case 1: .bluetoothStartScan
     case 2: .bluetoothStopScan
     case 3: try .bluetoothConnect(deviceToken: reader.bytes(maximum: 256))
@@ -252,14 +251,9 @@ public struct FloatViewPlatformCommandEnvelope: Sendable, Equatable {
     default: throw FloatViewBridgeCodecError.invalidTag
     }
     try reader.finish()
-    guard generation == hostCommand.runtimeGeneration,
-          operation == hostCommand.operationID
-    else {
-      throw FloatViewBridgeCodecError.commandEnvelopeMismatch
-    }
     return FloatViewPlatformCommandEnvelope(
-      runtimeGeneration: generation,
-      operationID: operation,
+      runtimeGeneration: hostCommand.runtimeGeneration,
+      operationID: hostCommand.operationID,
       command: command
     )
   }
@@ -280,124 +274,6 @@ public enum FloatViewPlatformEvent: Sendable, Equatable {
   case lifecycle(foreground: Bool, backgroundEligible: Bool)
   case loggingService(active: Bool)
   case theme(FloatViewThemePreference)
-}
-
-public struct FloatViewPlatformEventEnvelope: Sendable, Equatable {
-  public let runtimeGeneration: UInt64
-  public let connectionGeneration: UInt64
-  public let adapterOrder: UInt64
-  public let event: FloatViewPlatformEvent
-
-  public init(
-    runtimeGeneration: UInt64,
-    connectionGeneration: UInt64,
-    adapterOrder: UInt64,
-    event: FloatViewPlatformEvent
-  ) {
-    self.runtimeGeneration = runtimeGeneration
-    self.connectionGeneration = connectionGeneration
-    self.adapterOrder = adapterOrder
-    self.event = event
-  }
-
-  public func encode() throws -> Data {
-    var writer = BridgeWriter()
-    try writer.u8(floatViewBridgeCodecVersion)
-    try writer.u64(runtimeGeneration)
-    try writer.u64(connectionGeneration)
-    try writer.u64(adapterOrder)
-    switch event {
-    case let .bluetoothState(radio, authorization):
-      try writer.u8(1)
-      try writer.u8(radio.rawValue)
-      try writer.u8(authorization.rawValue)
-    case let .bluetoothDevice(deviceToken, name, rssi):
-      guard !deviceToken.isEmpty, deviceToken.count <= 256,
-            name?.utf8.count ?? 0 <= 128
-      else { throw FloatViewBridgeCodecError.payloadTooLarge }
-      try writer.u8(2)
-      try writer.bytes(deviceToken)
-      try writer.optionalString(name)
-      try writer.i16(rssi)
-    case let .bluetoothConnection(eventGeneration, state):
-      try writer.u8(3)
-      try writer.u64(eventGeneration)
-      try writer.u8(state.rawValue)
-    case let .locationAuthorization(authorization):
-      try writer.u8(4)
-      try writer.u8(authorization.rawValue)
-    case let .location(latitude, longitude, accuracyM):
-      guard latitude.isFinite, longitude.isFinite,
-            (-90 ... 90).contains(latitude), (-180 ... 180).contains(longitude),
-            accuracyM.map({ $0.isFinite && $0 >= 0 }) ?? true
-      else { throw FloatViewBridgeCodecError.invalidValue }
-      try writer.u8(5)
-      try writer.f64(latitude)
-      try writer.f64(longitude)
-      try writer.optionalF64(accuracyM)
-    case let .lifecycle(foreground, backgroundEligible):
-      try writer.u8(6)
-      try writer.boolean(foreground)
-      try writer.boolean(backgroundEligible)
-    case let .loggingService(active):
-      try writer.u8(7)
-      try writer.boolean(active)
-    case let .theme(theme):
-      try writer.u8(8)
-      try writer.u8(theme.rawValue)
-    }
-    return writer.data
-  }
-
-  public static func decode(_ data: Data) throws -> FloatViewPlatformEventEnvelope {
-    var reader = try BridgeReader(data)
-    guard try reader.u8() == floatViewBridgeCodecVersion else {
-      throw FloatViewBridgeCodecError.invalidVersion
-    }
-    let runtimeGeneration = try reader.u64()
-    let connectionGeneration = try reader.u64()
-    let adapterOrder = try reader.u64()
-    let event: FloatViewPlatformEvent = switch try reader.u8() {
-    case 1:
-      try .bluetoothState(
-        radio: tagged(reader.u8()),
-        authorization: tagged(reader.u8())
-      )
-    case 2:
-      try .bluetoothDevice(
-        deviceToken: reader.bytes(maximum: 256),
-        name: reader.optionalString(maximum: 128),
-        rssi: reader.i16()
-      )
-    case 3:
-      try .bluetoothConnection(
-        connectionGeneration: reader.u64(),
-        state: tagged(reader.u8())
-      )
-    case 4: try .locationAuthorization(tagged(reader.u8()))
-    case 5:
-      try .location(
-        latitude: reader.f64(),
-        longitude: reader.f64(),
-        accuracyM: reader.optionalF64()
-      )
-    case 6:
-      try .lifecycle(
-        foreground: reader.boolean(),
-        backgroundEligible: reader.boolean()
-      )
-    case 7: try .loggingService(active: reader.boolean())
-    case 8: try .theme(tagged(reader.u8()))
-    default: throw FloatViewBridgeCodecError.invalidTag
-    }
-    try reader.finish()
-    return FloatViewPlatformEventEnvelope(
-      runtimeGeneration: runtimeGeneration,
-      connectionGeneration: connectionGeneration,
-      adapterOrder: adapterOrder,
-      event: event
-    )
-  }
 }
 
 private func tagged<T: RawRepresentable>(_ value: UInt8) throws -> T where T.RawValue == UInt8 {

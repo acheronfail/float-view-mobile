@@ -7,7 +7,6 @@ import fail.acheron.floatview.backend.BluetoothRadioState
 import fail.acheron.floatview.backend.BluetoothState
 import fail.acheron.floatview.backend.ConnectionState
 import fail.acheron.floatview.backend.DeviceId
-import java.security.SecureRandom
 import java.nio.charset.CharacterCodingException
 
 /** Maps Android Bluetooth APIs to raw, bounded, generation-scoped Rust bridge messages. */
@@ -17,9 +16,6 @@ internal class RustBluetoothPlatformAdapter(
     private val diagnostic: (stage: String, code: String) -> Unit = { _, _ -> },
 ) {
     private val lock = Any()
-    private val random = SecureRandom()
-    private val tokenByDevice = mutableMapOf<DeviceId, ByteArray>()
-    private val deviceByToken = mutableMapOf<String, DeviceId>()
     private var adapterOrder = 0L
     private var connectionGeneration = 0L
     private var activeDevice: DeviceId? = null
@@ -88,7 +84,11 @@ internal class RustBluetoothPlatformAdapter(
     }
 
     private fun connect(command: NativeHostCommand, token: ByteArray) {
-        val device = synchronized(lock) { deviceByToken[token.key()] }
+        val device = try {
+            DeviceId(token.decodeToString(throwOnInvalidSequence = true)).takeIf { it.value.isNotEmpty() }
+        } catch (_: CharacterCodingException) {
+            null
+        }
         if (device == null) {
             diagnose("bluetooth_connect", "unknown_token")
             runtime.complete(command, RESULT_UNAVAILABLE)
@@ -147,14 +147,9 @@ internal class RustBluetoothPlatformAdapter(
     }
 
     private fun submitDevice(event: BluetoothEvent.DeviceFound) {
-        val token = synchronized(lock) {
-            tokenByDevice.getOrPut(event.deviceId) {
-                ByteArray(16).also(random::nextBytes).also { deviceByToken[it.key()] = event.deviceId }
-            }.copyOf()
-        }
         submit(
             PlatformEvent.BluetoothDevice(
-                token,
+                event.deviceId.value.encodeToByteArray(),
                 event.advertisedName?.boundedUtf8(128)?.takeIf(String::isNotEmpty),
                 (event.rssi ?: 0).coerceIn(Short.MIN_VALUE.toInt(), Short.MAX_VALUE.toInt()).toShort(),
             ),
@@ -218,14 +213,7 @@ internal class RustBluetoothPlatformAdapter(
     private fun submit(event: PlatformEvent) {
         synchronized(lock) {
             adapterOrder = Math.addExact(adapterOrder, 1)
-            runtime.submitPlatformEvent(
-                PlatformEventEnvelope(
-                    runtime.runtimeGeneration,
-                    connectionGeneration,
-                    adapterOrder,
-                    event,
-                ).encode(),
-            )
+            runtime.submitPlatformEvent(connectionGeneration, adapterOrder, event)
         }
     }
 
@@ -239,8 +227,6 @@ internal class RustBluetoothPlatformAdapter(
         const val MAX_BLUETOOTH_NOTIFICATION = 4096
     }
 }
-
-private fun ByteArray.key(): String = joinToString("") { byte -> "%02x".format(byte) }
 
 private fun String.boundedUtf8(maximum: Int): String {
     var bytes = encodeToByteArray().take(maximum).toByteArray()

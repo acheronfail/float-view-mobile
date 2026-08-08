@@ -23,11 +23,16 @@ mod android {
         FloatViewRuntime, float_view_abi_version, float_view_build_id,
         float_view_runtime_complete_operation, float_view_runtime_create,
         float_view_runtime_destroy, float_view_runtime_stop, float_view_runtime_submit_ble_bytes,
-        float_view_runtime_submit_event, float_view_runtime_wait_command,
+        float_view_runtime_submit_bluetooth_connection,
+        float_view_runtime_submit_bluetooth_device, float_view_runtime_submit_bluetooth_state,
+        float_view_runtime_submit_event, float_view_runtime_submit_lifecycle,
+        float_view_runtime_submit_location, float_view_runtime_submit_location_authorization,
+        float_view_runtime_submit_logging_service, float_view_runtime_submit_theme,
+        float_view_runtime_wait_command,
         runtime_start_on_port_for_jni,
     };
     use jni::objects::{JByteArray, JClass, JLongArray};
-    use jni::sys::{JNI_ERR, JNI_VERSION_1_6, jint, jlong};
+    use jni::sys::{JNI_ERR, JNI_VERSION_1_6, jboolean, jdouble, jint, jlong};
     use jni::{JNIEnv, JavaVM, NativeMethod};
 
     fn handle(raw: jlong) -> *mut FloatViewRuntime {
@@ -214,6 +219,221 @@ mod android {
         })
     }
 
+    extern "system" fn submit_bluetooth_state(
+        _env: JNIEnv<'_>,
+        _class: JClass<'_>,
+        raw: jlong,
+        generation: jlong,
+        connection_generation: jlong,
+        adapter_order: jlong,
+        radio: jint,
+        authorization: jint,
+    ) -> jint {
+        status_boundary(|| {
+            let Ok(runtime) = valid_handle(raw) else {
+                return FLOAT_VIEW_STATUS_INVALID_ARGUMENT;
+            };
+            if generation <= 0 || connection_generation < 0 || adapter_order < 0 {
+                return FLOAT_VIEW_STATUS_INVALID_ARGUMENT;
+            }
+            float_view_runtime_submit_bluetooth_state(
+                runtime,
+                generation as u64,
+                connection_generation as u64,
+                adapter_order as u64,
+                radio as u32,
+                authorization as u32,
+            )
+        })
+    }
+
+    extern "system" fn submit_bluetooth_device(
+        env: JNIEnv<'_>,
+        _class: JClass<'_>,
+        raw: jlong,
+        generation: jlong,
+        connection_generation: jlong,
+        adapter_order: jlong,
+        association: JByteArray<'_>,
+        name: JByteArray<'_>,
+        rssi: jint,
+    ) -> jint {
+        status_boundary(|| {
+            let Ok(runtime) = valid_handle(raw) else {
+                return FLOAT_VIEW_STATUS_INVALID_ARGUMENT;
+            };
+            let Ok(association) = env.convert_byte_array(&association) else {
+                return FLOAT_VIEW_STATUS_INVALID_ARGUMENT;
+            };
+            let Ok(name) = env.convert_byte_array(&name) else {
+                return FLOAT_VIEW_STATUS_INVALID_ARGUMENT;
+            };
+            if generation <= 0 || connection_generation < 0 || adapter_order < 0 {
+                return FLOAT_VIEW_STATUS_INVALID_ARGUMENT;
+            }
+            // SAFETY: Both arrays remain readable for the duration of this copying call.
+            unsafe {
+                float_view_runtime_submit_bluetooth_device(
+                    runtime,
+                    generation as u64,
+                    connection_generation as u64,
+                    adapter_order as u64,
+                    association.as_ptr(),
+                    association.len(),
+                    name.as_ptr(),
+                    name.len(),
+                    rssi as i16,
+                )
+            }
+        })
+    }
+
+    extern "system" fn submit_bluetooth_connection(
+        _env: JNIEnv<'_>,
+        _class: JClass<'_>,
+        raw: jlong,
+        generation: jlong,
+        connection_generation: jlong,
+        adapter_order: jlong,
+        state: jint,
+    ) -> jint {
+        status_boundary(|| {
+            let Ok(runtime) = valid_handle(raw) else {
+                return FLOAT_VIEW_STATUS_INVALID_ARGUMENT;
+            };
+            float_view_runtime_submit_bluetooth_connection(
+                runtime,
+                generation as u64,
+                connection_generation as u64,
+                adapter_order as u64,
+                state as u32,
+            )
+        })
+    }
+
+    extern "system" fn submit_location_authorization(
+        _env: JNIEnv<'_>,
+        _class: JClass<'_>,
+        raw: jlong,
+        generation: jlong,
+        connection_generation: jlong,
+        adapter_order: jlong,
+        authorization: jint,
+    ) -> jint {
+        status_boundary(|| {
+            let Ok(runtime) = valid_handle(raw) else {
+                return FLOAT_VIEW_STATUS_INVALID_ARGUMENT;
+            };
+            float_view_runtime_submit_location_authorization(
+                runtime,
+                generation as u64,
+                connection_generation as u64,
+                adapter_order as u64,
+                authorization as u32,
+            )
+        })
+    }
+
+    extern "system" fn submit_location(
+        _env: JNIEnv<'_>,
+        _class: JClass<'_>,
+        raw: jlong,
+        generation: jlong,
+        connection_generation: jlong,
+        adapter_order: jlong,
+        latitude: jdouble,
+        longitude: jdouble,
+        accuracy_m: jdouble,
+        has_accuracy: jboolean,
+    ) -> jint {
+        status_boundary(|| {
+            let Ok(runtime) = valid_handle(raw) else {
+                return FLOAT_VIEW_STATUS_INVALID_ARGUMENT;
+            };
+            float_view_runtime_submit_location(
+                runtime,
+                generation as u64,
+                connection_generation as u64,
+                adapter_order as u64,
+                latitude,
+                longitude,
+                accuracy_m,
+                has_accuracy,
+            )
+        })
+    }
+
+    extern "system" fn submit_lifecycle(
+        _env: JNIEnv<'_>,
+        _class: JClass<'_>,
+        raw: jlong,
+        generation: jlong,
+        connection_generation: jlong,
+        adapter_order: jlong,
+        foreground: jboolean,
+        background_eligible: jboolean,
+    ) -> jint {
+        status_boundary(|| {
+            let Ok(runtime) = valid_handle(raw) else {
+                return FLOAT_VIEW_STATUS_INVALID_ARGUMENT;
+            };
+            float_view_runtime_submit_lifecycle(
+                runtime,
+                generation as u64,
+                connection_generation as u64,
+                adapter_order as u64,
+                foreground,
+                background_eligible,
+            )
+        })
+    }
+
+    extern "system" fn submit_logging_service(
+        _env: JNIEnv<'_>,
+        _class: JClass<'_>,
+        raw: jlong,
+        generation: jlong,
+        connection_generation: jlong,
+        adapter_order: jlong,
+        active: jboolean,
+    ) -> jint {
+        status_boundary(|| {
+            let Ok(runtime) = valid_handle(raw) else {
+                return FLOAT_VIEW_STATUS_INVALID_ARGUMENT;
+            };
+            float_view_runtime_submit_logging_service(
+                runtime,
+                generation as u64,
+                connection_generation as u64,
+                adapter_order as u64,
+                active,
+            )
+        })
+    }
+
+    extern "system" fn submit_theme(
+        _env: JNIEnv<'_>,
+        _class: JClass<'_>,
+        raw: jlong,
+        generation: jlong,
+        connection_generation: jlong,
+        adapter_order: jlong,
+        theme: jint,
+    ) -> jint {
+        status_boundary(|| {
+            let Ok(runtime) = valid_handle(raw) else {
+                return FLOAT_VIEW_STATUS_INVALID_ARGUMENT;
+            };
+            float_view_runtime_submit_theme(
+                runtime,
+                generation as u64,
+                connection_generation as u64,
+                adapter_order as u64,
+                theme as u32,
+            )
+        })
+    }
+
     extern "system" fn wait_command(
         env: JNIEnv<'_>,
         _class: JClass<'_>,
@@ -375,6 +595,46 @@ mod android {
                     fn_ptr: submit_ble as *mut c_void,
                 },
                 NativeMethod {
+                    name: "submitBluetoothState".into(),
+                    sig: "(JJJJII)I".into(),
+                    fn_ptr: submit_bluetooth_state as *mut c_void,
+                },
+                NativeMethod {
+                    name: "submitBluetoothDevice".into(),
+                    sig: "(JJJJ[B[BI)I".into(),
+                    fn_ptr: submit_bluetooth_device as *mut c_void,
+                },
+                NativeMethod {
+                    name: "submitBluetoothConnection".into(),
+                    sig: "(JJJJI)I".into(),
+                    fn_ptr: submit_bluetooth_connection as *mut c_void,
+                },
+                NativeMethod {
+                    name: "submitLocationAuthorization".into(),
+                    sig: "(JJJJI)I".into(),
+                    fn_ptr: submit_location_authorization as *mut c_void,
+                },
+                NativeMethod {
+                    name: "submitLocation".into(),
+                    sig: "(JJJJDDDZ)I".into(),
+                    fn_ptr: submit_location as *mut c_void,
+                },
+                NativeMethod {
+                    name: "submitLifecycle".into(),
+                    sig: "(JJJJZZ)I".into(),
+                    fn_ptr: submit_lifecycle as *mut c_void,
+                },
+                NativeMethod {
+                    name: "submitLoggingService".into(),
+                    sig: "(JJJJZ)I".into(),
+                    fn_ptr: submit_logging_service as *mut c_void,
+                },
+                NativeMethod {
+                    name: "submitTheme".into(),
+                    sig: "(JJJJI)I".into(),
+                    fn_ptr: submit_theme as *mut c_void,
+                },
+                NativeMethod {
                     name: "waitCommand".into(),
                     sig: "(JJI[J[B)I".into(),
                     fn_ptr: wait_command as *mut c_void,
@@ -412,6 +672,6 @@ mod tests {
     #[test]
     fn facade_links_the_shared_runtime() {
         assert_eq!(super::linked_abi_version(), 2);
-        assert_eq!(super::linked_build_identity(), b"float-view-0.1.0");
+        assert_eq!(super::linked_build_identity(), b"float-view-abi03");
     }
 }

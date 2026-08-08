@@ -13,11 +13,9 @@
 #include <stdlib.h>
 typedef struct FloatViewRuntime FloatViewRuntime;
 
-#define FLOAT_VIEW_ABI_VERSION 2
+#define FLOAT_VIEW_ABI_VERSION 3
 
 #define FLOAT_VIEW_BUILD_ID_CAPACITY 16
-
-#define FLOAT_VIEW_COMMAND_KIND_PLATFORM 1
 
 #define FLOAT_VIEW_EVENT_KIND_PLATFORM 1
 
@@ -142,6 +140,33 @@ FloatViewStatus float_view_runtime_submit_ble_bytes(FloatViewRuntime *handle,
                                                     const uint8_t *bytes,
                                                     size_t bytes_len);
 
+FloatViewStatus float_view_runtime_submit_bluetooth_connection(FloatViewRuntime *handle,
+                                                               uint64_t generation,
+                                                               uint64_t connection_generation,
+                                                               uint64_t adapter_order,
+                                                               uint32_t state);
+
+/**
+ * # Safety
+ * Association and optional name pointers must cover their declared byte lengths.
+ */
+FloatViewStatus float_view_runtime_submit_bluetooth_device(FloatViewRuntime *handle,
+                                                           uint64_t generation,
+                                                           uint64_t connection_generation,
+                                                           uint64_t adapter_order,
+                                                           const uint8_t *association,
+                                                           size_t association_len,
+                                                           const uint8_t *name,
+                                                           size_t name_len,
+                                                           int16_t rssi);
+
+FloatViewStatus float_view_runtime_submit_bluetooth_state(FloatViewRuntime *handle,
+                                                          uint64_t generation,
+                                                          uint64_t connection_generation,
+                                                          uint64_t adapter_order,
+                                                          uint32_t radio,
+                                                          uint32_t authorization);
+
 /**
  * Copies and serializes a bounded platform event through the application actor.
  *
@@ -159,6 +184,40 @@ FloatViewStatus float_view_runtime_submit_event(FloatViewRuntime *handle,
                                                 uint32_t kind,
                                                 const uint8_t *payload,
                                                 size_t payload_len);
+
+FloatViewStatus float_view_runtime_submit_lifecycle(FloatViewRuntime *handle,
+                                                    uint64_t generation,
+                                                    uint64_t connection_generation,
+                                                    uint64_t adapter_order,
+                                                    uint8_t foreground,
+                                                    uint8_t background_eligible);
+
+FloatViewStatus float_view_runtime_submit_location(FloatViewRuntime *handle,
+                                                   uint64_t generation,
+                                                   uint64_t connection_generation,
+                                                   uint64_t adapter_order,
+                                                   double latitude,
+                                                   double longitude,
+                                                   double accuracy_m,
+                                                   uint8_t has_accuracy);
+
+FloatViewStatus float_view_runtime_submit_location_authorization(FloatViewRuntime *handle,
+                                                                 uint64_t generation,
+                                                                 uint64_t connection_generation,
+                                                                 uint64_t adapter_order,
+                                                                 uint32_t authorization);
+
+FloatViewStatus float_view_runtime_submit_logging_service(FloatViewRuntime *handle,
+                                                          uint64_t generation,
+                                                          uint64_t connection_generation,
+                                                          uint64_t adapter_order,
+                                                          uint8_t active);
+
+FloatViewStatus float_view_runtime_submit_theme(FloatViewRuntime *handle,
+                                                uint64_t generation,
+                                                uint64_t connection_generation,
+                                                uint64_t adapter_order,
+                                                uint32_t theme);
 
 /**
  * Blocks for one command and copies it into caller-owned storage.

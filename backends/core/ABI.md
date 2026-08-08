@@ -6,7 +6,7 @@ and Gradle builds never run the generator.
 
 ## Identity and status
 
-ABI version 2 and the exact 16-byte build identity are validated before a host
+ABI version 3 and the exact 16-byte build identity are validated before a host
 starts platform work. Functions return `FloatViewStatus`, a signed 32-bit
 integer. Zero is success; every nonzero value is a stable named failure. Hosts
 must not infer behavior from unrecognized values beyond treating them as fatal

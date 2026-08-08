@@ -42,12 +42,12 @@ class RustBluetoothPlatformAdapterTest {
         threads.forEach(Thread::join)
         assertEquals(
             listOf(1L, 2L),
-            runtime.events.map { PlatformEventEnvelope.decode(it).adapterOrder }.sorted(),
+            runtime.events.map { it.adapterOrder }.sorted(),
         )
     }
 
     @Test
-    fun mapsOpaqueTokensOrderedGenerationsNotificationsAndStaleCancellation() {
+    fun mapsPrivateAssociationsOrderedGenerationsNotificationsAndStaleCancellation() {
         val runtime = FakeRuntime()
         val bluetooth = FakeBluetooth()
         val diagnostics = mutableListOf<Pair<String, String>>()
@@ -67,12 +67,12 @@ class RustBluetoothPlatformAdapterTest {
         )
         adapter.receive(BluetoothEvent.DeviceFound(device, "Test Board", -42))
 
-        val state = PlatformEventEnvelope.decode(runtime.events[0])
-        val discovery = PlatformEventEnvelope.decode(runtime.events[1])
+        val state = runtime.events[0]
+        val discovery = runtime.events[1]
         assertEquals(1, state.adapterOrder)
         assertEquals(2, discovery.adapterOrder)
         val token = (discovery.event as PlatformEvent.BluetoothDevice).token
-        assertTrue(token.decodeToString().contains(device.value).not())
+        assertArrayEquals(device.value.encodeToByteArray(), token)
 
         val connect = command(7, PlatformCommand.BluetoothConnect(token))
         assertTrue(adapter.dispatch(connect))
@@ -97,7 +97,7 @@ class RustBluetoothPlatformAdapterTest {
 
     private fun command(operation: Long, command: PlatformCommand): NativeHostCommand =
         NativeHostCommand(
-            kind = PLATFORM_COMMAND_KIND,
+            kind = command.kind,
             runtimeGeneration = 11,
             operationId = operation,
             payload = PlatformCommandEnvelope(11, operation, command).encode(),
@@ -106,13 +106,23 @@ class RustBluetoothPlatformAdapterTest {
 }
 
 private class FakeRuntime : CorePlatformRuntime {
+    data class Event(
+        val connectionGeneration: Long,
+        val adapterOrder: Long,
+        val event: PlatformEvent,
+    )
+
     override val runtimeGeneration = 11L
-    val events = mutableListOf<ByteArray>()
+    val events = mutableListOf<Event>()
     val bluetooth = mutableListOf<Triple<Long, Long, ByteArray>>()
     val completions = mutableListOf<Triple<Long, Int, ByteArray>>()
 
-    override fun submitPlatformEvent(payload: ByteArray) {
-        events += payload.copyOf()
+    override fun submitPlatformEvent(
+        connectionGeneration: Long,
+        adapterOrder: Long,
+        event: PlatformEvent,
+    ) {
+        events += Event(connectionGeneration, adapterOrder, event)
     }
 
     override fun submitBluetoothBytes(

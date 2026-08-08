@@ -29,12 +29,12 @@ class RustAndroidPlatformAdapterTest {
         assertEquals(0, runtime.completions.single { it.first == 1L }.second)
         assertTrue(location.started)
         location.emit(LocationProviderObservation(Instant.EPOCH, -33.86, 151.21, 4.0))
-        assertTrue(PlatformEventEnvelope.decode(runtime.events.last()).event is PlatformEvent.Location)
+        assertTrue(runtime.events.last().event is PlatformEvent.Location)
 
         adapter.updateLifecycle(foreground = true, backgroundEligible = false)
         assertEquals(
             PlatformEvent.Lifecycle(true, false),
-            PlatformEventEnvelope.decode(runtime.events.last()).event,
+            runtime.events.last().event,
         )
 
         adapter.dispatch(hostCommand(2, 13))
@@ -62,7 +62,7 @@ class RustAndroidPlatformAdapterTest {
     ): NativeHostCommand {
         val writer = BridgeWriter().apply(payload)
         return NativeHostCommand(
-            PLATFORM_COMMAND_KIND,
+            tag,
             17,
             operation,
             PlatformCommandEnvelope(17, operation, PlatformCommand.Host(tag, writer.finish())).encode(),
@@ -72,10 +72,18 @@ class RustAndroidPlatformAdapterTest {
 }
 
 private class HostFakeRuntime : CorePlatformRuntime {
+    data class Event(val connectionGeneration: Long, val adapterOrder: Long, val event: PlatformEvent)
+
     override val runtimeGeneration = 17L
-    val events = mutableListOf<ByteArray>()
+    val events = mutableListOf<Event>()
     val completions = mutableListOf<Triple<Long, Int, ByteArray>>()
-    override fun submitPlatformEvent(payload: ByteArray) { events += payload.copyOf() }
+    override fun submitPlatformEvent(
+        connectionGeneration: Long,
+        adapterOrder: Long,
+        event: PlatformEvent,
+    ) {
+        events += Event(connectionGeneration, adapterOrder, event)
+    }
     override fun submitBluetoothBytes(connectionGeneration: Long, adapterOrder: Long, payload: ByteArray) = Unit
     override fun complete(command: NativeHostCommand, resultKind: Int, payload: ByteArray) {
         completions += Triple(command.operationId, resultKind, payload.copyOf())

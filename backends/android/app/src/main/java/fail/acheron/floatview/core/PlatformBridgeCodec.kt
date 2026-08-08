@@ -4,7 +4,6 @@ import java.io.ByteArrayOutputStream
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 
-internal const val PLATFORM_COMMAND_KIND = 1
 internal const val MAX_BRIDGE_PAYLOAD = 64 * 1024
 
 internal enum class BluetoothRadio(val tag: Int) { UNKNOWN(1), POWERED_OFF(2), POWERED_ON(3) }
@@ -25,6 +24,16 @@ internal sealed interface PlatformCommand {
     data class Host(val tag: Int, val payload: ByteArray = byteArrayOf()) : PlatformCommand
 }
 
+internal val PlatformCommand.kind: Int
+    get() = when (this) {
+        PlatformCommand.BluetoothStartScan -> 1
+        PlatformCommand.BluetoothStopScan -> 2
+        is PlatformCommand.BluetoothConnect -> 3
+        is PlatformCommand.BluetoothDisconnect -> 4
+        is PlatformCommand.BluetoothWrite -> 5
+        is PlatformCommand.Host -> tag
+    }
+
 internal data class PlatformCommandEnvelope(
     val runtimeGeneration: Long,
     val operationId: Long,
@@ -32,27 +41,20 @@ internal data class PlatformCommandEnvelope(
 ) {
     fun encode(): ByteArray {
         val writer = BridgeWriter()
-        writer.u8(1)
-        writer.i64(runtimeGeneration)
-        writer.i64(operationId)
         when (val value = command) {
-            PlatformCommand.BluetoothStartScan -> writer.u8(1)
-            PlatformCommand.BluetoothStopScan -> writer.u8(2)
+            PlatformCommand.BluetoothStartScan -> Unit
+            PlatformCommand.BluetoothStopScan -> Unit
             is PlatformCommand.BluetoothConnect -> {
-                writer.u8(3)
                 writer.bytes(value.deviceToken, 256)
             }
             is PlatformCommand.BluetoothDisconnect -> {
-                writer.u8(4)
                 writer.i64(value.connectionGeneration)
             }
             is PlatformCommand.BluetoothWrite -> {
-                writer.u8(5)
                 writer.i64(value.connectionGeneration)
                 writer.bytes(value.bytes, MAX_BRIDGE_PAYLOAD)
             }
             is PlatformCommand.Host -> {
-                writer.u8(value.tag)
                 writer.raw(value.payload)
             }
         }
@@ -61,13 +63,9 @@ internal data class PlatformCommandEnvelope(
 
     companion object {
         fun decode(command: NativeHostCommand): PlatformCommandEnvelope {
-            require(command.kind == PLATFORM_COMMAND_KIND)
             val reader = BridgeReader(command.payload)
-            require(reader.u8() == 1)
-            val generation = reader.i64()
-            val operation = reader.i64()
             val decoded =
-                when (val tag = reader.u8()) {
+                when (val tag = command.kind) {
                     1 -> PlatformCommand.BluetoothStartScan
                     2 -> PlatformCommand.BluetoothStopScan
                     3 -> PlatformCommand.BluetoothConnect(reader.bytes(256))
@@ -77,9 +75,7 @@ internal data class PlatformCommandEnvelope(
                     else -> error("Unknown platform command tag")
                 }
             reader.finish()
-            require(generation == command.runtimeGeneration)
-            require(operation == command.operationId)
-            return PlatformCommandEnvelope(generation, operation, decoded)
+            return PlatformCommandEnvelope(command.runtimeGeneration, command.operationId, decoded)
         }
     }
 }
@@ -166,128 +162,6 @@ internal sealed interface AndroidHostCommand {
 
 private fun <T> tagged(value: Int, entries: Iterable<T>, tag: (T) -> Int): T =
     entries.single { tag(it) == value }
-
-internal data class PlatformEventEnvelope(
-    val runtimeGeneration: Long,
-    val connectionGeneration: Long,
-    val adapterOrder: Long,
-    val event: PlatformEvent,
-) {
-    fun encode(): ByteArray {
-        require(runtimeGeneration > 0 && connectionGeneration >= 0 && adapterOrder > 0)
-        val writer = BridgeWriter()
-        writer.u8(1)
-        writer.i64(runtimeGeneration)
-        writer.i64(connectionGeneration)
-        writer.i64(adapterOrder)
-        when (val value = event) {
-            is PlatformEvent.BluetoothState -> {
-                writer.u8(1)
-                writer.u8(value.radio.tag)
-                writer.u8(value.authorization.tag)
-            }
-            is PlatformEvent.BluetoothDevice -> {
-                writer.u8(2)
-                writer.bytes(value.token, 256)
-                writer.optionalString(value.name, 128)
-                writer.i16(value.rssi)
-            }
-            is PlatformEvent.BluetoothConnectionChanged -> {
-                writer.u8(3)
-                writer.i64(value.connectionGeneration)
-                writer.u8(value.state.tag)
-            }
-            is PlatformEvent.LocationAuthorizationChanged -> {
-                writer.u8(4)
-                writer.u8(value.authorization.tag)
-            }
-            is PlatformEvent.Location -> {
-                require(
-                    value.latitude.isFinite() && value.longitude.isFinite() &&
-                        value.latitude in -90.0..90.0 && value.longitude in -180.0..180.0 &&
-                        (value.accuracyM == null || value.accuracyM.isFinite() && value.accuracyM >= 0),
-                )
-                writer.u8(5)
-                writer.f64(value.latitude)
-                writer.f64(value.longitude)
-                writer.optionalF64(value.accuracyM)
-            }
-            is PlatformEvent.Lifecycle -> {
-                writer.u8(6)
-                writer.boolean(value.foreground)
-                writer.boolean(value.backgroundEligible)
-            }
-            is PlatformEvent.LoggingService -> {
-                writer.u8(7)
-                writer.boolean(value.active)
-            }
-            is PlatformEvent.Theme -> {
-                writer.u8(8)
-                writer.u8(value.theme.tag)
-            }
-        }
-        return writer.finish()
-    }
-
-    companion object {
-        fun decode(payload: ByteArray): PlatformEventEnvelope {
-            val reader = BridgeReader(payload)
-            require(reader.u8() == 1)
-            val runtimeGeneration = reader.i64()
-            val connectionGeneration = reader.i64()
-            val adapterOrder = reader.i64()
-            val event =
-                when (reader.u8()) {
-                    1 -> {
-                        val radio = reader.u8()
-                        val authorization = reader.u8()
-                        PlatformEvent.BluetoothState(
-                            BluetoothRadio.entries.single { it.tag == radio },
-                            BluetoothAuthorization.entries.single { it.tag == authorization },
-                        )
-                    }
-                    2 -> PlatformEvent.BluetoothDevice(
-                        reader.bytes(256),
-                        reader.optionalString(128),
-                        reader.i16(),
-                    )
-                    3 -> {
-                        val generation = reader.i64()
-                        val state = reader.u8()
-                        PlatformEvent.BluetoothConnectionChanged(
-                            generation,
-                            BluetoothConnection.entries.single { it.tag == state },
-                        )
-                    }
-                    4 -> {
-                        val authorization = reader.u8()
-                        PlatformEvent.LocationAuthorizationChanged(
-                            LocationAuthorization.entries.single { it.tag == authorization },
-                        )
-                    }
-                    5 -> PlatformEvent.Location(
-                        reader.f64(),
-                        reader.f64(),
-                        reader.optionalF64(),
-                    )
-                    6 -> PlatformEvent.Lifecycle(reader.boolean(), reader.boolean())
-                    7 -> PlatformEvent.LoggingService(reader.boolean())
-                    8 -> {
-                        val theme = reader.u8()
-                        PlatformEvent.Theme(PlatformTheme.entries.single { it.tag == theme })
-                    }
-                    else -> error("Unsupported platform event tag")
-                }
-            reader.finish()
-            return PlatformEventEnvelope(
-                runtimeGeneration,
-                connectionGeneration,
-                adapterOrder,
-                event,
-            )
-        }
-    }
-}
 
 internal class BridgeWriter {
     private val output = ByteArrayOutputStream()

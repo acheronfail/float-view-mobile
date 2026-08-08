@@ -7,6 +7,11 @@ use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 
+use domain_types::PlatformAssociation;
+use host_ports::{
+    AdapterEvent, BluetoothAuthorization, BluetoothConnectionState, BluetoothRadio,
+    LocationAuthorization, ThemePreference,
+};
 use host_runtime::{Runtime, RuntimeError, WaitCommand};
 
 pub type FloatViewStatus = i32;
@@ -24,15 +29,13 @@ pub const FLOAT_VIEW_STATUS_DUPLICATE_OPERATION: FloatViewStatus = 9;
 pub const FLOAT_VIEW_STATUS_PANIC: FloatViewStatus = 10;
 pub const FLOAT_VIEW_STATUS_INTERNAL: FloatViewStatus = 11;
 
-pub const FLOAT_VIEW_ABI_VERSION: u32 = 2;
+pub const FLOAT_VIEW_ABI_VERSION: u32 = 3;
 const _: () = assert!(FLOAT_VIEW_ABI_VERSION == host_runtime::ABI_VERSION);
 pub const FLOAT_VIEW_BUILD_ID_CAPACITY: usize = 16;
 pub const FLOAT_VIEW_MAX_COMMAND_PAYLOAD: usize = 64 * 1024;
 pub const FLOAT_VIEW_MAX_COMPLETION_PAYLOAD: usize = 8 * 1024 * 1024;
 pub const FLOAT_VIEW_EVENT_KIND_PLATFORM: u32 = 1;
-pub const FLOAT_VIEW_COMMAND_KIND_PLATFORM: u32 = 1;
 const _: () = assert!(FLOAT_VIEW_EVENT_KIND_PLATFORM == host_runtime::EVENT_KIND_PLATFORM);
-const _: () = assert!(FLOAT_VIEW_COMMAND_KIND_PLATFORM == host_runtime::HOST_COMMAND_KIND_PLATFORM);
 
 /// Opaque host token. ABI functions never dereference this pointer.
 pub enum FloatViewRuntime {}
@@ -359,6 +362,268 @@ pub unsafe extern "C" fn float_view_runtime_submit_event(
     })
 }
 
+fn submit_adapter_event(
+    handle: *mut FloatViewRuntime,
+    generation: u64,
+    connection_generation: u64,
+    adapter_order: u64,
+    event: AdapterEvent,
+) -> FloatViewStatus {
+    let runtime = match validate_runtime(handle, generation) {
+        Ok(runtime) => runtime,
+        Err(status) => return status,
+    };
+    runtime
+        .submit_adapter_event(connection_generation, adapter_order, event)
+        .map_or_else(map_runtime, |()| FLOAT_VIEW_STATUS_OK)
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn float_view_runtime_submit_bluetooth_state(
+    handle: *mut FloatViewRuntime,
+    generation: u64,
+    connection_generation: u64,
+    adapter_order: u64,
+    radio: u32,
+    authorization: u32,
+) -> FloatViewStatus {
+    ffi_boundary(handle, || {
+        let radio = match radio {
+            1 => BluetoothRadio::Unknown,
+            2 => BluetoothRadio::PoweredOff,
+            3 => BluetoothRadio::PoweredOn,
+            _ => return FLOAT_VIEW_STATUS_INVALID_ARGUMENT,
+        };
+        let authorization = match authorization {
+            1 => BluetoothAuthorization::Unknown,
+            2 => BluetoothAuthorization::Denied,
+            3 => BluetoothAuthorization::Granted,
+            _ => return FLOAT_VIEW_STATUS_INVALID_ARGUMENT,
+        };
+        submit_adapter_event(
+            handle,
+            generation,
+            connection_generation,
+            adapter_order,
+            AdapterEvent::BluetoothState { radio, authorization },
+        )
+    })
+}
+
+/// # Safety
+/// Association and optional name pointers must cover their declared byte lengths.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn float_view_runtime_submit_bluetooth_device(
+    handle: *mut FloatViewRuntime,
+    generation: u64,
+    connection_generation: u64,
+    adapter_order: u64,
+    association: *const u8,
+    association_len: usize,
+    name: *const u8,
+    name_len: usize,
+    rssi: i16,
+) -> FloatViewStatus {
+    ffi_boundary(handle, || {
+        // SAFETY: This export's caller contract is checked by copy_input.
+        let association = match unsafe {
+            copy_input(
+                association,
+                association_len,
+                domain_types::MAX_PLATFORM_ASSOCIATION_BYTES,
+            )
+        } {
+            Ok(value) => match PlatformAssociation::new(value) {
+                Ok(value) => value,
+                Err(_) => return FLOAT_VIEW_STATUS_INVALID_ARGUMENT,
+            },
+            Err(status) => return status,
+        };
+        // SAFETY: This export's caller contract is checked by copy_input.
+        let name = match unsafe { copy_input(name, name_len, host_ports::MAX_LOGICAL_NAME_BYTES) } {
+            Ok(value) if value.is_empty() => None,
+            Ok(value) => match String::from_utf8(value) {
+                Ok(value) => Some(value),
+                Err(_) => return FLOAT_VIEW_STATUS_INVALID_ARGUMENT,
+            },
+            Err(status) => return status,
+        };
+        submit_adapter_event(
+            handle,
+            generation,
+            connection_generation,
+            adapter_order,
+            AdapterEvent::BluetoothDevice {
+                association,
+                name,
+                rssi,
+            },
+        )
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn float_view_runtime_submit_bluetooth_connection(
+    handle: *mut FloatViewRuntime,
+    generation: u64,
+    connection_generation: u64,
+    adapter_order: u64,
+    state: u32,
+) -> FloatViewStatus {
+    ffi_boundary(handle, || {
+        let state = match state {
+            1 => BluetoothConnectionState::Connecting,
+            2 => BluetoothConnectionState::Ready,
+            3 => BluetoothConnectionState::Disconnected,
+            4 => BluetoothConnectionState::Failed,
+            _ => return FLOAT_VIEW_STATUS_INVALID_ARGUMENT,
+        };
+        submit_adapter_event(
+            handle,
+            generation,
+            connection_generation,
+            adapter_order,
+            AdapterEvent::BluetoothConnection {
+                connection_generation,
+                state,
+            },
+        )
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn float_view_runtime_submit_location_authorization(
+    handle: *mut FloatViewRuntime,
+    generation: u64,
+    connection_generation: u64,
+    adapter_order: u64,
+    authorization: u32,
+) -> FloatViewStatus {
+    ffi_boundary(handle, || {
+        let authorization = match authorization {
+            1 => LocationAuthorization::Unknown,
+            2 => LocationAuthorization::Denied,
+            3 => LocationAuthorization::Foreground,
+            4 => LocationAuthorization::Background,
+            _ => return FLOAT_VIEW_STATUS_INVALID_ARGUMENT,
+        };
+        submit_adapter_event(
+            handle,
+            generation,
+            connection_generation,
+            adapter_order,
+            AdapterEvent::LocationAuthorization(authorization),
+        )
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn float_view_runtime_submit_location(
+    handle: *mut FloatViewRuntime,
+    generation: u64,
+    connection_generation: u64,
+    adapter_order: u64,
+    latitude: f64,
+    longitude: f64,
+    accuracy_m: f64,
+    has_accuracy: u8,
+) -> FloatViewStatus {
+    ffi_boundary(handle, || {
+        let accuracy_m = match has_accuracy {
+            0 => None,
+            1 => Some(accuracy_m),
+            _ => return FLOAT_VIEW_STATUS_INVALID_ARGUMENT,
+        };
+        submit_adapter_event(
+            handle,
+            generation,
+            connection_generation,
+            adapter_order,
+            AdapterEvent::Location {
+                latitude,
+                longitude,
+                accuracy_m,
+            },
+        )
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn float_view_runtime_submit_lifecycle(
+    handle: *mut FloatViewRuntime,
+    generation: u64,
+    connection_generation: u64,
+    adapter_order: u64,
+    foreground: u8,
+    background_eligible: u8,
+) -> FloatViewStatus {
+    ffi_boundary(handle, || {
+        let (foreground, background_eligible) = match (foreground, background_eligible) {
+            (foreground @ 0..=1, eligible @ 0..=1) => (foreground != 0, eligible != 0),
+            _ => return FLOAT_VIEW_STATUS_INVALID_ARGUMENT,
+        };
+        submit_adapter_event(
+            handle,
+            generation,
+            connection_generation,
+            adapter_order,
+            AdapterEvent::Lifecycle {
+                foreground,
+                background_eligible,
+            },
+        )
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn float_view_runtime_submit_logging_service(
+    handle: *mut FloatViewRuntime,
+    generation: u64,
+    connection_generation: u64,
+    adapter_order: u64,
+    active: u8,
+) -> FloatViewStatus {
+    ffi_boundary(handle, || {
+        let active = match active {
+            0 => false,
+            1 => true,
+            _ => return FLOAT_VIEW_STATUS_INVALID_ARGUMENT,
+        };
+        submit_adapter_event(
+            handle,
+            generation,
+            connection_generation,
+            adapter_order,
+            AdapterEvent::LoggingService { active },
+        )
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn float_view_runtime_submit_theme(
+    handle: *mut FloatViewRuntime,
+    generation: u64,
+    connection_generation: u64,
+    adapter_order: u64,
+    theme: u32,
+) -> FloatViewStatus {
+    ffi_boundary(handle, || {
+        let theme = match theme {
+            1 => ThemePreference::System,
+            2 => ThemePreference::Light,
+            3 => ThemePreference::Dark,
+            _ => return FLOAT_VIEW_STATUS_INVALID_ARGUMENT,
+        };
+        submit_adapter_event(
+            handle,
+            generation,
+            connection_generation,
+            adapter_order,
+            AdapterEvent::Theme(theme),
+        )
+    })
+}
+
 /// Copies bounded Bluetooth bytes into the serialized actor.
 ///
 /// # Safety
@@ -509,7 +774,7 @@ mod tests {
 
     #[test]
     fn identity_and_lifecycle_are_stable() {
-        assert_eq!(float_view_abi_version(), 2);
+        assert_eq!(float_view_abi_version(), 3);
         let mut build = [0_u8; FLOAT_VIEW_BUILD_ID_CAPACITY];
         let mut required = 0;
         // SAFETY: All pointers reference correctly sized writable values.

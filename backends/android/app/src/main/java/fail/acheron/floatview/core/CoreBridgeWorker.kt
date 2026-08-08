@@ -15,7 +15,7 @@ internal data class NativeHostCommand(
 
 internal interface CorePlatformRuntime {
     val runtimeGeneration: Long
-    fun submitPlatformEvent(payload: ByteArray)
+    fun submitPlatformEvent(connectionGeneration: Long, adapterOrder: Long, event: PlatformEvent)
     fun submitBluetoothBytes(connectionGeneration: Long, adapterOrder: Long, payload: ByteArray)
     fun complete(command: NativeHostCommand, resultKind: Int = 0, payload: ByteArray = byteArrayOf())
 }
@@ -62,8 +62,42 @@ internal class ProcessCoreBridge(
     override val runtimeGeneration: Long
         get() = generation[0]
 
-    override fun submitPlatformEvent(payload: ByteArray) {
-        check(NativeCore.submit(handle, generation[0], PLATFORM_EVENT_KIND, payload.copyOf()) == STATUS_OK)
+    override fun submitPlatformEvent(
+        connectionGeneration: Long,
+        adapterOrder: Long,
+        event: PlatformEvent,
+    ) {
+        val status = when (event) {
+            is PlatformEvent.BluetoothState -> NativeCore.submitBluetoothState(
+                handle, generation[0], connectionGeneration, adapterOrder,
+                event.radio.tag, event.authorization.tag,
+            )
+            is PlatformEvent.BluetoothDevice -> NativeCore.submitBluetoothDevice(
+                handle, generation[0], connectionGeneration, adapterOrder,
+                event.token.copyOf(), event.name?.encodeToByteArray() ?: byteArrayOf(), event.rssi.toInt(),
+            )
+            is PlatformEvent.BluetoothConnectionChanged -> NativeCore.submitBluetoothConnection(
+                handle, generation[0], event.connectionGeneration, adapterOrder, event.state.tag,
+            )
+            is PlatformEvent.LocationAuthorizationChanged -> NativeCore.submitLocationAuthorization(
+                handle, generation[0], connectionGeneration, adapterOrder, event.authorization.tag,
+            )
+            is PlatformEvent.Location -> NativeCore.submitLocation(
+                handle, generation[0], connectionGeneration, adapterOrder,
+                event.latitude, event.longitude, event.accuracyM ?: 0.0, event.accuracyM != null,
+            )
+            is PlatformEvent.Lifecycle -> NativeCore.submitLifecycle(
+                handle, generation[0], connectionGeneration, adapterOrder,
+                event.foreground, event.backgroundEligible,
+            )
+            is PlatformEvent.LoggingService -> NativeCore.submitLoggingService(
+                handle, generation[0], connectionGeneration, adapterOrder, event.active,
+            )
+            is PlatformEvent.Theme -> NativeCore.submitTheme(
+                handle, generation[0], connectionGeneration, adapterOrder, event.theme.tag,
+            )
+        }
+        check(status == STATUS_OK)
     }
 
     override fun submitBluetoothBytes(
@@ -147,8 +181,7 @@ internal class ProcessCoreBridge(
         const val STATUS_STOPPED = 6
         const val RESULT_SUCCESS = 0
         const val RESULT_CANCELLED = 1
-        const val EXPECTED_ABI_VERSION = 2
+        const val EXPECTED_ABI_VERSION = 3
         const val MAX_COMMAND_PAYLOAD = 64 * 1024
-        const val PLATFORM_EVENT_KIND = 1
     }
 }

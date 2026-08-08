@@ -1,5 +1,5 @@
 //! Typed, bounded platform-port vocabulary. No OS implementation lives here.
-use domain_types::{OperationId, RuntimeGeneration};
+use domain_types::{OperationId, PlatformAssociation, RuntimeGeneration};
 
 pub const BRIDGE_CODEC_VERSION: u8 = 1;
 pub const MAX_BRIDGE_PAYLOAD_BYTES: usize = 64 * 1024;
@@ -14,6 +14,29 @@ pub const MAX_PATH_BYTES: usize = 1024;
 pub const MAX_DIAGNOSTIC_BYTES: usize = 64;
 pub const MAX_ENDPOINT_BYTES: usize = 256;
 pub const MAX_LAUNCH_TOKEN_BYTES: usize = 128;
+
+pub const COMMAND_BLUETOOTH_START_SCAN: u32 = 1;
+pub const COMMAND_BLUETOOTH_STOP_SCAN: u32 = 2;
+pub const COMMAND_BLUETOOTH_CONNECT: u32 = 3;
+pub const COMMAND_BLUETOOTH_DISCONNECT: u32 = 4;
+pub const COMMAND_BLUETOOTH_WRITE: u32 = 5;
+pub const COMMAND_LOCATION_START: u32 = 6;
+pub const COMMAND_LOCATION_STOP: u32 = 7;
+pub const COMMAND_SET_BACKGROUND_LOGGING: u32 = 8;
+pub const COMMAND_READ_RESOURCE: u32 = 9;
+pub const COMMAND_STAGE_DOCUMENT: u32 = 10;
+pub const COMMAND_RESOLVE_STORAGE_ROOT: u32 = 11;
+pub const COMMAND_AVAILABLE_SPACE: u32 = 12;
+pub const COMMAND_MONOTONIC_CLOCK: u32 = 13;
+pub const COMMAND_WALL_CLOCK: u32 = 14;
+pub const COMMAND_SECURE_RANDOM: u32 = 15;
+pub const COMMAND_DIAGNOSTIC: u32 = 16;
+pub const COMMAND_PRESENT_PERMISSION: u32 = 17;
+pub const COMMAND_PRESENT_SETTINGS: u32 = 18;
+pub const COMMAND_PRESENT_THEME: u32 = 19;
+pub const COMMAND_PRESENT_SERVICE_STATE: u32 = 20;
+pub const COMMAND_PRESENT_EXPORT: u32 = 21;
+pub const COMMAND_RUNTIME_READY: u32 = 22;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum PortError {
@@ -90,7 +113,7 @@ pub enum HostCommand {
     BluetoothStartScan,
     BluetoothStopScan,
     BluetoothConnect {
-        device_token: Vec<u8>,
+        association: PlatformAssociation,
     },
     BluetoothDisconnect {
         connection_generation: u64,
@@ -163,7 +186,7 @@ pub enum AdapterEvent {
         authorization: BluetoothAuthorization,
     },
     BluetoothDevice {
-        device_token: Vec<u8>,
+        association: PlatformAssociation,
         name: Option<String>,
         rssi: i16,
     },
@@ -233,42 +256,68 @@ impl BluetoothNotification {
     }
 }
 
-impl PlatformCommand {
+impl HostCommand {
+    #[must_use]
+    pub const fn kind(&self) -> u32 {
+        match self {
+            Self::BluetoothStartScan => COMMAND_BLUETOOTH_START_SCAN,
+            Self::BluetoothStopScan => COMMAND_BLUETOOTH_STOP_SCAN,
+            Self::BluetoothConnect { .. } => COMMAND_BLUETOOTH_CONNECT,
+            Self::BluetoothDisconnect { .. } => COMMAND_BLUETOOTH_DISCONNECT,
+            Self::BluetoothWrite { .. } => COMMAND_BLUETOOTH_WRITE,
+            Self::LocationStart { .. } => COMMAND_LOCATION_START,
+            Self::LocationStop => COMMAND_LOCATION_STOP,
+            Self::SetBackgroundLogging { .. } => COMMAND_SET_BACKGROUND_LOGGING,
+            Self::ReadResource { .. } => COMMAND_READ_RESOURCE,
+            Self::StageDocument { .. } => COMMAND_STAGE_DOCUMENT,
+            Self::ResolveStorageRoot { .. } => COMMAND_RESOLVE_STORAGE_ROOT,
+            Self::AvailableSpace { .. } => COMMAND_AVAILABLE_SPACE,
+            Self::MonotonicClock => COMMAND_MONOTONIC_CLOCK,
+            Self::WallClock => COMMAND_WALL_CLOCK,
+            Self::SecureRandom { .. } => COMMAND_SECURE_RANDOM,
+            Self::Diagnostic { .. } => COMMAND_DIAGNOSTIC,
+            Self::PresentPermission { .. } => COMMAND_PRESENT_PERMISSION,
+            Self::PresentSettings => COMMAND_PRESENT_SETTINGS,
+            Self::PresentTheme { .. } => COMMAND_PRESENT_THEME,
+            Self::PresentServiceState { .. } => COMMAND_PRESENT_SERVICE_STATE,
+            Self::PresentExport { .. } => COMMAND_PRESENT_EXPORT,
+            Self::RuntimeReady { .. } => COMMAND_RUNTIME_READY,
+        }
+    }
+
     /// # Errors
     /// Returns `PortError` when validation or bounded codec processing fails.
-    pub fn encode(&self) -> Result<Vec<u8>, PortError> {
-        validate_command(&self.command)?;
+    pub fn encode_payload(&self) -> Result<Vec<u8>, PortError> {
+        validate_command(self)?;
         let mut writer = Writer::new();
-        writer.u8(BRIDGE_CODEC_VERSION)?;
-        writer.u64(self.generation.0)?;
-        writer.u64(self.operation.0)?;
-        encode_command(&self.command, &mut writer)?;
+        encode_command_payload(self, &mut writer)?;
         Ok(writer.finish())
     }
 
     /// # Errors
     /// Returns `PortError` when validation or bounded codec processing fails.
-    pub fn decode(bytes: &[u8]) -> Result<Self, PortError> {
+    pub fn decode_payload(kind: u32, bytes: &[u8]) -> Result<Self, PortError> {
         let mut reader = Reader::new(bytes)?;
-        reader.version()?;
-        let generation = RuntimeGeneration(reader.u64()?);
-        let operation = OperationId(reader.u64()?);
-        let command = decode_command(&mut reader)?;
+        let command = decode_command_payload(kind, &mut reader)?;
         reader.finish()?;
         validate_command(&command)?;
-        Ok(Self {
-            generation,
-            operation,
-            command,
-        })
+        Ok(command)
     }
 }
 
 impl PlatformEvent {
+    /// Validates bounded event fields independently of the legacy event codec.
+    ///
+    /// # Errors
+    /// Returns `PortError` when an event field is invalid or exceeds its bound.
+    pub fn validate(&self) -> Result<(), PortError> {
+        validate_event(&self.event)
+    }
+
     /// # Errors
     /// Returns `PortError` when validation or bounded codec processing fails.
     pub fn encode(&self) -> Result<Vec<u8>, PortError> {
-        validate_event(&self.event)?;
+        self.validate()?;
         let mut writer = Writer::new();
         writer.u8(BRIDGE_CODEC_VERSION)?;
         writer.u64(self.generation.0)?;
@@ -335,7 +384,9 @@ impl OperationCompletion {
 
 fn validate_command(command: &HostCommand) -> Result<(), PortError> {
     match command {
-        HostCommand::BluetoothConnect { device_token } => bounded_bytes(device_token, 256),
+        HostCommand::BluetoothConnect { association } => {
+            bounded_bytes(association.as_bytes(), domain_types::MAX_PLATFORM_ASSOCIATION_BYTES)
+        }
         HostCommand::BluetoothWrite { bytes, .. } => {
             bounded_bytes(bytes, MAX_BLUETOOTH_WRITE_BYTES)
         }
@@ -383,9 +434,12 @@ fn validate_command(command: &HostCommand) -> Result<(), PortError> {
 fn validate_event(event: &AdapterEvent) -> Result<(), PortError> {
     match event {
         AdapterEvent::BluetoothDevice {
-            device_token, name, ..
+            association, name, ..
         } => {
-            bounded_bytes(device_token, 256)?;
+            bounded_bytes(
+                association.as_bytes(),
+                domain_types::MAX_PLATFORM_ASSOCIATION_BYTES,
+            )?;
             if let Some(name) = name {
                 bounded_string(name, MAX_LOGICAL_NAME_BYTES)?;
             }
@@ -457,43 +511,32 @@ fn bounded_bytes(value: &[u8], maximum: usize) -> Result<(), PortError> {
     }
 }
 
-fn encode_command(command: &HostCommand, writer: &mut Writer) -> Result<(), PortError> {
+fn encode_command_payload(command: &HostCommand, writer: &mut Writer) -> Result<(), PortError> {
     match command {
-        HostCommand::BluetoothStartScan => writer.u8(1),
-        HostCommand::BluetoothStopScan => writer.u8(2),
-        HostCommand::BluetoothConnect { device_token } => {
-            writer.u8(3)?;
-            writer.bytes(device_token)
-        }
+        HostCommand::BluetoothStartScan
+        | HostCommand::BluetoothStopScan
+        | HostCommand::LocationStop
+        | HostCommand::MonotonicClock
+        | HostCommand::WallClock
+        | HostCommand::PresentSettings => Ok(()),
+        HostCommand::BluetoothConnect { association } => writer.bytes(association.as_bytes()),
         HostCommand::BluetoothDisconnect {
             connection_generation,
-        } => {
-            writer.u8(4)?;
-            writer.u64(*connection_generation)
-        }
+        } => writer.u64(*connection_generation),
         HostCommand::BluetoothWrite {
             connection_generation,
             bytes,
         } => {
-            writer.u8(5)?;
             writer.u64(*connection_generation)?;
             writer.bytes(bytes)
         }
-        HostCommand::LocationStart { background } => {
-            writer.u8(6)?;
-            writer.boolean(*background)
-        }
-        HostCommand::LocationStop => writer.u8(7),
-        HostCommand::SetBackgroundLogging { enabled } => {
-            writer.u8(8)?;
-            writer.boolean(*enabled)
-        }
+        HostCommand::LocationStart { background } => writer.boolean(*background),
+        HostCommand::SetBackgroundLogging { enabled } => writer.boolean(*enabled),
         HostCommand::ReadResource {
             namespace,
             logical_name,
             maximum_bytes,
         } => {
-            writer.u8(9)?;
             writer.u8(resource_tag(*namespace))?;
             writer.string(logical_name)?;
             writer.u64(*maximum_bytes)
@@ -502,116 +545,92 @@ fn encode_command(command: &HostCommand, writer: &mut Writer) -> Result<(), Port
             destination,
             maximum_bytes,
         } => {
-            writer.u8(10)?;
             writer.string(destination)?;
             writer.u64(*maximum_bytes)
         }
-        HostCommand::ResolveStorageRoot { kind } => {
-            writer.u8(11)?;
-            writer.u8(storage_tag(*kind))
-        }
-        HostCommand::AvailableSpace { root } => {
-            writer.u8(12)?;
-            writer.string(root)
-        }
-        HostCommand::MonotonicClock => writer.u8(13),
-        HostCommand::WallClock => writer.u8(14),
-        HostCommand::SecureRandom { count } => {
-            writer.u8(15)?;
-            writer.u16(*count)
-        }
+        HostCommand::ResolveStorageRoot { kind } => writer.u8(storage_tag(*kind)),
+        HostCommand::AvailableSpace { root } => writer.string(root),
+        HostCommand::SecureRandom { count } => writer.u16(*count),
         HostCommand::Diagnostic { stage, code } => {
-            writer.u8(16)?;
             writer.string(stage)?;
             writer.string(code)
         }
-        HostCommand::PresentPermission { permission } => {
-            writer.u8(17)?;
-            writer.u8(permission_tag(*permission))
-        }
-        HostCommand::PresentSettings => writer.u8(18),
-        HostCommand::PresentTheme { theme } => {
-            writer.u8(19)?;
-            writer.u8(theme_tag(*theme))
-        }
-        HostCommand::PresentServiceState { active } => {
-            writer.u8(20)?;
-            writer.boolean(*active)
-        }
-        HostCommand::PresentExport { staged_path } => {
-            writer.u8(21)?;
-            writer.string(staged_path)
-        }
+        HostCommand::PresentPermission { permission } => writer.u8(permission_tag(*permission)),
+        HostCommand::PresentTheme { theme } => writer.u8(theme_tag(*theme)),
+        HostCommand::PresentServiceState { active } => writer.boolean(*active),
+        HostCommand::PresentExport { staged_path } => writer.string(staged_path),
         HostCommand::RuntimeReady {
             endpoint,
             launch_token,
         } => {
-            writer.u8(22)?;
             writer.string(endpoint)?;
             writer.string(launch_token)
         }
     }
 }
 
-fn decode_command(reader: &mut Reader<'_>) -> Result<HostCommand, PortError> {
-    Ok(match reader.u8()? {
-        1 => HostCommand::BluetoothStartScan,
-        2 => HostCommand::BluetoothStopScan,
-        3 => HostCommand::BluetoothConnect {
-            device_token: reader.bytes(256)?,
+fn decode_command_payload(kind: u32, reader: &mut Reader<'_>) -> Result<HostCommand, PortError> {
+    Ok(match kind {
+        COMMAND_BLUETOOTH_START_SCAN => HostCommand::BluetoothStartScan,
+        COMMAND_BLUETOOTH_STOP_SCAN => HostCommand::BluetoothStopScan,
+        COMMAND_BLUETOOTH_CONNECT => HostCommand::BluetoothConnect {
+            association: PlatformAssociation::new(
+                reader.bytes(domain_types::MAX_PLATFORM_ASSOCIATION_BYTES)?,
+            )
+            .map_err(|_| PortError::InvalidValue)?,
         },
-        4 => HostCommand::BluetoothDisconnect {
+        COMMAND_BLUETOOTH_DISCONNECT => HostCommand::BluetoothDisconnect {
             connection_generation: reader.u64()?,
         },
-        5 => HostCommand::BluetoothWrite {
+        COMMAND_BLUETOOTH_WRITE => HostCommand::BluetoothWrite {
             connection_generation: reader.u64()?,
             bytes: reader.bytes(MAX_BLUETOOTH_WRITE_BYTES)?,
         },
-        6 => HostCommand::LocationStart {
+        COMMAND_LOCATION_START => HostCommand::LocationStart {
             background: reader.boolean()?,
         },
-        7 => HostCommand::LocationStop,
-        8 => HostCommand::SetBackgroundLogging {
+        COMMAND_LOCATION_STOP => HostCommand::LocationStop,
+        COMMAND_SET_BACKGROUND_LOGGING => HostCommand::SetBackgroundLogging {
             enabled: reader.boolean()?,
         },
-        9 => HostCommand::ReadResource {
+        COMMAND_READ_RESOURCE => HostCommand::ReadResource {
             namespace: decode_resource(reader.u8()?)?,
             logical_name: reader.string(MAX_LOGICAL_NAME_BYTES)?,
             maximum_bytes: reader.u64()?,
         },
-        10 => HostCommand::StageDocument {
+        COMMAND_STAGE_DOCUMENT => HostCommand::StageDocument {
             destination: reader.string(MAX_PATH_BYTES)?,
             maximum_bytes: reader.u64()?,
         },
-        11 => HostCommand::ResolveStorageRoot {
+        COMMAND_RESOLVE_STORAGE_ROOT => HostCommand::ResolveStorageRoot {
             kind: decode_storage(reader.u8()?)?,
         },
-        12 => HostCommand::AvailableSpace {
+        COMMAND_AVAILABLE_SPACE => HostCommand::AvailableSpace {
             root: reader.string(MAX_PATH_BYTES)?,
         },
-        13 => HostCommand::MonotonicClock,
-        14 => HostCommand::WallClock,
-        15 => HostCommand::SecureRandom {
+        COMMAND_MONOTONIC_CLOCK => HostCommand::MonotonicClock,
+        COMMAND_WALL_CLOCK => HostCommand::WallClock,
+        COMMAND_SECURE_RANDOM => HostCommand::SecureRandom {
             count: reader.u16()?,
         },
-        16 => HostCommand::Diagnostic {
+        COMMAND_DIAGNOSTIC => HostCommand::Diagnostic {
             stage: reader.string(MAX_DIAGNOSTIC_BYTES)?,
             code: reader.string(MAX_DIAGNOSTIC_BYTES)?,
         },
-        17 => HostCommand::PresentPermission {
+        COMMAND_PRESENT_PERMISSION => HostCommand::PresentPermission {
             permission: decode_permission(reader.u8()?)?,
         },
-        18 => HostCommand::PresentSettings,
-        19 => HostCommand::PresentTheme {
+        COMMAND_PRESENT_SETTINGS => HostCommand::PresentSettings,
+        COMMAND_PRESENT_THEME => HostCommand::PresentTheme {
             theme: decode_theme(reader.u8()?)?,
         },
-        20 => HostCommand::PresentServiceState {
+        COMMAND_PRESENT_SERVICE_STATE => HostCommand::PresentServiceState {
             active: reader.boolean()?,
         },
-        21 => HostCommand::PresentExport {
+        COMMAND_PRESENT_EXPORT => HostCommand::PresentExport {
             staged_path: reader.string(MAX_PATH_BYTES)?,
         },
-        22 => HostCommand::RuntimeReady {
+        COMMAND_RUNTIME_READY => HostCommand::RuntimeReady {
             endpoint: reader.string(MAX_ENDPOINT_BYTES)?,
             launch_token: reader.string(MAX_LAUNCH_TOKEN_BYTES)?,
         },
@@ -630,12 +649,12 @@ fn encode_event(event: &AdapterEvent, writer: &mut Writer) -> Result<(), PortErr
             writer.u8(bluetooth_authorization_tag(*authorization))
         }
         AdapterEvent::BluetoothDevice {
-            device_token,
+            association,
             name,
             rssi,
         } => {
             writer.u8(2)?;
-            writer.bytes(device_token)?;
+            writer.bytes(association.as_bytes())?;
             writer.optional_string(name.as_deref())?;
             writer.i16(*rssi)
         }
@@ -687,7 +706,10 @@ fn decode_event(reader: &mut Reader<'_>) -> Result<AdapterEvent, PortError> {
             authorization: decode_bluetooth_authorization(reader.u8()?)?,
         },
         2 => AdapterEvent::BluetoothDevice {
-            device_token: reader.bytes(256)?,
+            association: PlatformAssociation::new(
+                reader.bytes(domain_types::MAX_PLATFORM_ASSOCIATION_BYTES)?,
+            )
+            .map_err(|_| PortError::InvalidValue)?,
             name: reader.optional_string(MAX_LOGICAL_NAME_BYTES)?,
             rssi: reader.i16()?,
         },
@@ -900,7 +922,7 @@ mod tests {
             HostCommand::BluetoothStartScan,
             HostCommand::BluetoothStopScan,
             HostCommand::BluetoothConnect {
-                device_token: vec![1, 2, 3],
+                association: PlatformAssociation::new(vec![1, 2, 3]).unwrap(),
             },
             HostCommand::BluetoothDisconnect {
                 connection_generation: 9,
@@ -951,14 +973,11 @@ mod tests {
             },
         ];
         for command in commands {
-            let value = PlatformCommand {
-                generation: RuntimeGeneration(7),
-                operation: OperationId(11),
-                command,
-            };
+            let kind = command.kind();
+            let payload = command.encode_payload().expect("encode");
             assert_eq!(
-                PlatformCommand::decode(&value.encode().expect("encode")),
-                Ok(value)
+                HostCommand::decode_payload(kind, &payload),
+                Ok(command)
             );
         }
     }
@@ -971,7 +990,7 @@ mod tests {
                 authorization: BluetoothAuthorization::Granted,
             },
             AdapterEvent::BluetoothDevice {
-                device_token: vec![9],
+                association: PlatformAssociation::new(vec![9]).unwrap(),
                 name: Some("Board".into()),
                 rssi: -42,
             },
@@ -1028,28 +1047,20 @@ mod tests {
 
     #[test]
     fn bounds_traversal_stale_context_fields_and_malformed_codecs_are_explicit() {
-        let traversal = PlatformCommand {
-            generation: RuntimeGeneration(1),
-            operation: OperationId(1),
-            command: HostCommand::ReadResource {
-                namespace: ResourceNamespace::Frontend,
-                logical_name: "../secret".into(),
-                maximum_bytes: 10,
-            },
+        let traversal = HostCommand::ReadResource {
+            namespace: ResourceNamespace::Frontend,
+            logical_name: "../secret".into(),
+            maximum_bytes: 10,
         };
-        assert_eq!(traversal.encode(), Err(PortError::TraversalPath));
-        let too_random = PlatformCommand {
-            generation: RuntimeGeneration(1),
-            operation: OperationId(1),
-            command: HostCommand::SecureRandom {
-                count: MAX_RANDOM_BYTES + 1,
-            },
+        assert_eq!(traversal.encode_payload(), Err(PortError::TraversalPath));
+        let too_random = HostCommand::SecureRandom {
+            count: MAX_RANDOM_BYTES + 1,
         };
-        assert_eq!(too_random.encode(), Err(PortError::InvalidValue));
-        assert_eq!(PlatformCommand::decode(&[]), Err(PortError::Truncated));
+        assert_eq!(too_random.encode_payload(), Err(PortError::InvalidValue));
+        assert_eq!(HostCommand::decode_payload(0, &[]), Err(PortError::InvalidTag));
         assert_eq!(
-            PlatformCommand::decode(&[2]),
-            Err(PortError::InvalidVersion)
+            HostCommand::decode_payload(COMMAND_BLUETOOTH_START_SCAN, &[2]),
+            Err(PortError::InvalidValue)
         );
         assert_eq!(
             BluetoothNotification {

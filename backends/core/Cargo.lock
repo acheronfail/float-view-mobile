@@ -22,6 +22,7 @@ dependencies = [
  "protocol-vesc-bms",
  "serde",
  "serde_json",
+ "sha2",
  "tempfile",
  "test-software-adapters",
  "tokio",
@@ -441,6 +442,7 @@ dependencies = [
 name = "host-c-abi"
 version = "0.1.0"
 dependencies = [
+ "domain-types",
  "host-ports",
  "host-runtime",
 ]

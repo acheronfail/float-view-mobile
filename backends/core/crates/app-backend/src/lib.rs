@@ -8,7 +8,7 @@ use app_coordinator::{
     RequestPriority, RequestSpec, ServerPublication, TelemetryFamily, TelemetryPollingModel,
     TrackingMode,
 };
-use domain_types::FirmwareRecord;
+use domain_types::{FirmwareDeviceUuid, FirmwareRecord, PlatformAssociation};
 use host_ports::{
     BluetoothAuthorization, BluetoothConnectionState, BluetoothRadio, HostCommand, PermissionKind,
 };
@@ -24,6 +24,7 @@ use protocol_vesc_bms::{BmsCandidate, BmsConnection, BmsSnapshot, DiscoveryStatu
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Deserializer};
 use serde_json::{Map, Value, json};
+use sha2::{Digest, Sha256};
 
 mod settings;
 #[cfg(feature = "software-host")]
@@ -740,7 +741,9 @@ struct NativeConnection {
     ownership: ConnectionOwnership,
     started_at_millis: i64,
     device_id: String,
-    device_token: Vec<u8>,
+    association: PlatformAssociation,
+    identity_nonce: [u8; 16],
+    saved_firmware_uuid: Option<FirmwareDeviceUuid>,
     name: Option<String>,
     stage: IdentificationStage,
     connect_after_generation: u64,
@@ -778,6 +781,7 @@ struct NativeConnection {
 #[derive(Clone, Debug, Eq, PartialEq)]
 enum ConnectionOwnership {
     Guest,
+    PendingSaved,
     Saved {
         saved_device_id: String,
         device_history_id: String,
@@ -788,13 +792,13 @@ impl ConnectionOwnership {
     const fn tracking_mode(&self) -> TrackingMode {
         match self {
             Self::Guest => TrackingMode::Guest,
-            Self::Saved { .. } => TrackingMode::Saved,
+            Self::PendingSaved | Self::Saved { .. } => TrackingMode::Saved,
         }
     }
 
     fn saved(&self) -> Option<(&str, &str)> {
         match self {
-            Self::Guest => None,
+            Self::Guest | Self::PendingSaved => None,
             Self::Saved {
                 saved_device_id,
                 device_history_id,
@@ -878,7 +882,8 @@ impl NativeBackend {
             .inner
             .lock()
             .map_err(|_| ContractError::new("internal", "Backend state failed"))?;
-        update_platform_state(&mut inner, &snapshot);
+        update_platform_state(&self.contract.catalog, &mut inner, &snapshot)
+            .map_err(|error| storage_error(&error))?;
         if let Some(summary) = native_summary {
             self.merge_native_session(&mut inner, summary)?;
         }
@@ -1111,7 +1116,7 @@ impl NativeBackend {
                     connection.handled_failure_generation = Some(snapshot.connection_generation);
                     connection.connect_after_generation = snapshot.connection_generation;
                     self.request_host(HostCommand::BluetoothConnect {
-                        device_token: connection.device_token.clone(),
+                        association: connection.association.clone(),
                     })?;
                 }
                 decision => {
@@ -1130,6 +1135,7 @@ impl NativeBackend {
     ) -> Result<(), ContractError> {
         let firmware = decode_firmware(payload)
             .map_err(|_| ContractError::new("invalid_state", "Firmware identity is invalid"))?;
+        self.establish_saved_identity(connection, &firmware)?;
         connection.transport_firmware = Some(firmware.clone());
         if protocol_vesc_bms::supports_firmware(&firmware) {
             self.schedule_bms_values(connection, BmsConnection::Direct)
@@ -1158,6 +1164,79 @@ impl NativeBackend {
                 RequestKind::CanPing,
             )
         }
+    }
+
+    fn establish_saved_identity(
+        &self,
+        connection: &mut NativeConnection,
+        firmware: &FirmwareRecord,
+    ) -> Result<(), ContractError> {
+        let firmware_uuid = firmware
+            .controller_uuid
+            .and_then(|value| FirmwareDeviceUuid::new(value).ok());
+        match &connection.ownership {
+            ConnectionOwnership::Guest => return Ok(()),
+            ConnectionOwnership::Saved { .. } => {
+                if connection.saved_firmware_uuid.is_some()
+                    && connection.saved_firmware_uuid != firmware_uuid
+                {
+                    return Err(ContractError::new(
+                        "conflict",
+                        "VESC firmware identity changed during reconnect",
+                    ));
+                }
+                return Ok(());
+            }
+            ConnectionOwnership::PendingSaved => {}
+        }
+
+        let (saved_device_id, device_history_id) = firmware_uuid.map_or_else(
+            || fallback_board_ids(connection.identity_nonce, &connection.association),
+            firmware_board_ids,
+        );
+        let platform_id = encode_platform_association(&connection.association);
+        if let Ok(existing) = self.contract.catalog.saved_device(&saved_device_id)
+            && existing.opaque_platform_id.as_deref() != Some(platform_id.as_str())
+            && existing.opaque_platform_id.as_deref().is_some_and(|old| {
+                self.application.snapshot().is_ok_and(|snapshot| {
+                    snapshot.discovered_devices.iter().any(|device| {
+                        encode_platform_association(&device.association) == old
+                    })
+                })
+            })
+        {
+            return Err(ContractError::new(
+                "conflict",
+                "VESC firmware identity is already associated with another visible transport",
+            ));
+        }
+        self.contract
+            .catalog
+            .ensure_saved_device(
+                &saved_device_id,
+                &device_history_id,
+                firmware_uuid.map(FirmwareDeviceUuid::bytes),
+                Some(&platform_id),
+                connection.name.as_deref(),
+                connection.started_at_millis,
+            )
+            .map_err(|error| storage_error(&error))?;
+        connection.ownership = ConnectionOwnership::Saved {
+            saved_device_id,
+            device_history_id,
+        };
+        connection.saved_firmware_uuid = firmware_uuid;
+
+        let mut inner = self
+            .contract
+            .inner
+            .lock()
+            .map_err(|_| ContractError::new("internal", "Backend state failed"))?;
+        load_durable_state(&self.contract.catalog, &mut inner.state)
+            .and_then(|()| populate_profile_completeness(&self.contract.catalog, &mut inner.state))
+            .map_err(|error| storage_error(&error))?;
+        self.contract.changed(&mut inner, false);
+        Ok(())
     }
 
     fn accept_can_ping(
@@ -2468,49 +2547,26 @@ impl NativeBackend {
             ));
         }
         let id = params.device_id;
-        let token = decode_device_token(&id)?;
         let snapshot = self
             .application
             .snapshot()
             .map_err(|_| ContractError::new("internal", "Application state is unavailable"))?;
-        if !snapshot
+        let association = snapshot
             .discovered_devices
             .iter()
-            .any(|device| device.device_token == token)
-        {
-            return Err(ContractError::new(
+            .find(|device| {
+                public_discovery_id(snapshot.instance_nonce, &device.association) == id
+            })
+            .map(|device| device.association.clone())
+            .ok_or_else(|| {
+                ContractError::new(
                 "not_found",
                 "Device is no longer available",
-            ));
-        }
+                )
+            })?;
         let sampling = self.current_sampling_settings()?;
         let ownership = if tracking_mode == TrackingMode::Saved {
-            let (saved_device_id, device_history_id) = board_ids(&token);
-            self.contract
-                .catalog
-                .ensure_saved_device(
-                    &saved_device_id,
-                    &device_history_id,
-                    Some(&id),
-                    discovered_name(&snapshot, &token),
-                    snapshot.wall_millis,
-                )
-                .map_err(|error| storage_error(&error))?;
-            let mut inner = self
-                .contract
-                .inner
-                .lock()
-                .map_err(|_| ContractError::new("internal", "Backend state failed"))?;
-            load_durable_state(&self.contract.catalog, &mut inner.state)
-                .and_then(|()| {
-                    populate_profile_completeness(&self.contract.catalog, &mut inner.state)
-                })
-                .map_err(|error| storage_error(&error))?;
-            self.contract.changed(&mut inner, false);
-            ConnectionOwnership::Saved {
-                saved_device_id,
-                device_history_id,
-            }
+            ConnectionOwnership::PendingSaved
         } else {
             ConnectionOwnership::Guest
         };
@@ -2519,12 +2575,12 @@ impl NativeBackend {
             .map_err(|_| ContractError::new("invalid_state", "Tracking could not start"))?;
         self.request_host(HostCommand::BluetoothStopScan)?;
         self.request_host(HostCommand::BluetoothConnect {
-            device_token: token.clone(),
+            association: association.clone(),
         })?;
         let connection = new_native_connection(
             &snapshot,
             id,
-            token,
+            association,
             ownership,
             sampling.reconnect_duration_millis,
         );
@@ -3066,14 +3122,16 @@ impl NativeBackend {
 fn new_native_connection(
     snapshot: &app_coordinator::ApplicationSnapshot,
     device_id: String,
-    device_token: Vec<u8>,
+    association: PlatformAssociation,
     ownership: ConnectionOwnership,
     reconnect_duration_millis: u64,
 ) -> NativeConnection {
     let name = snapshot
         .discovered_devices
         .iter()
-        .find(|device| encode_device_token(&device.device_token) == device_id)
+        .find(|device| {
+            public_discovery_id(snapshot.instance_nonce, &device.association) == device_id
+        })
         .and_then(|device| device.name.clone());
     NativeConnection {
         session_id: format!(
@@ -3084,7 +3142,9 @@ fn new_native_connection(
         ownership,
         started_at_millis: snapshot.wall_millis,
         device_id,
-        device_token,
+        association,
+        identity_nonce: snapshot.instance_nonce,
+        saved_firmware_uuid: None,
         name,
         stage: IdentificationStage::WaitingBluetooth,
         connect_after_generation: snapshot.connection_generation,
@@ -3140,9 +3200,10 @@ fn decorate_bms_connection(value: &mut Value, connection: &NativeConnection) {
 }
 
 fn update_platform_state(
+    catalog: &CatalogStore,
     inner: &mut BackendState,
     snapshot: &app_coordinator::ApplicationSnapshot,
-) {
+) -> Result<(), StoreError> {
     let radio = match snapshot.bluetooth_radio {
         BluetoothRadio::PoweredOn => "powered_on",
         BluetoothRadio::PoweredOff => "powered_off",
@@ -3178,20 +3239,20 @@ fn update_platform_state(
     } else {
         json!({ "status": "disabled", "permissionAction": "requestPermission", "backgroundCapture": "unavailable", "reason": null })
     };
+    let saved_devices = catalog.saved_devices()?;
     inner.state["discoveredDevices"] = Value::Array(
         snapshot
             .discovered_devices
             .iter()
             .map(|device| {
-                let device_id = encode_device_token(&device.device_token);
-                let saved_device_id = inner.state["savedDevices"]
-                    .as_array()
-                    .and_then(|devices| {
-                        devices.iter().find(|saved| {
-                            saved["bluetoothIdentifier"].as_str() == Some(device_id.as_str())
-                        })
+                let device_id = public_discovery_id(snapshot.instance_nonce, &device.association);
+                let private_association = encode_platform_association(&device.association);
+                let saved_device_id = saved_devices
+                    .iter()
+                    .find(|saved| {
+                        saved.opaque_platform_id.as_deref() == Some(private_association.as_str())
                     })
-                    .and_then(|saved| saved["savedDeviceId"].as_str());
+                    .map(|saved| saved.saved_device_id.as_str());
                 json!({
                     "deviceId": device_id,
                     "name": device.name,
@@ -3204,6 +3265,7 @@ fn update_platform_state(
             .collect(),
     );
     inner.location_count = snapshot.location_sequence;
+    Ok(())
 }
 
 const fn reconnect_due(decision: ReconnectDecision, now_millis: u64) -> Option<u64> {
@@ -3283,27 +3345,23 @@ impl ContractDispatcher for NativeBackend {
     }
 }
 
-fn encode_device_token(token: &[u8]) -> String {
-    let mut value = String::with_capacity(token.len() * 2);
-    for byte in token {
+fn encode_platform_association(association: &PlatformAssociation) -> String {
+    let mut value = String::with_capacity(association.as_bytes().len() * 2);
+    for byte in association.as_bytes() {
         use std::fmt::Write as _;
         let _ = write!(&mut value, "{byte:02x}");
     }
     value
 }
 
-fn decode_device_token(value: &str) -> Result<Vec<u8>, ContractError> {
-    if value.is_empty() || value.len() > 512 || !value.len().is_multiple_of(2) {
-        return Err(invalid("Device ID is invalid"));
-    }
-    value
-        .as_bytes()
-        .chunks_exact(2)
-        .map(|pair| {
-            let text = std::str::from_utf8(pair).map_err(|_| invalid("Device ID is invalid"))?;
-            u8::from_str_radix(text, 16).map_err(|_| invalid("Device ID is invalid"))
-        })
-        .collect()
+fn public_discovery_id(
+    instance_nonce: [u8; 16],
+    association: &PlatformAssociation,
+) -> String {
+    let mut identity = Vec::with_capacity(instance_nonce.len() + association.as_bytes().len());
+    identity.extend_from_slice(&instance_nonce);
+    identity.extend_from_slice(association.as_bytes());
+    private_identifier(b"discovered", b"runtime-platform-association", &identity)
 }
 
 fn ready_generation_is_fresh(ready: bool, observed: u64, requested_after: u64) -> bool {
@@ -3811,9 +3869,41 @@ fn populate_profile_completeness(
     Ok(())
 }
 
-fn board_ids(device_token: &[u8]) -> (String, String) {
-    let encoded = encode_device_token(device_token);
-    (format!("saved-{encoded}"), format!("history-{encoded}"))
+fn firmware_board_ids(uuid: FirmwareDeviceUuid) -> (String, String) {
+    private_board_ids(b"vesc-firmware-uuid", &uuid.bytes())
+}
+
+fn fallback_board_ids(
+    identity_nonce: [u8; 16],
+    association: &PlatformAssociation,
+) -> (String, String) {
+    let mut identity = Vec::with_capacity(identity_nonce.len() + association.as_bytes().len());
+    identity.extend_from_slice(&identity_nonce);
+    identity.extend_from_slice(association.as_bytes());
+    private_board_ids(b"vesc-unavailable-uuid", &identity)
+}
+
+fn private_board_ids(domain: &[u8], identity: &[u8]) -> (String, String) {
+    (
+        private_identifier(b"saved", domain, identity),
+        private_identifier(b"history", domain, identity),
+    )
+}
+
+fn private_identifier(kind: &[u8], domain: &[u8], identity: &[u8]) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(b"float-view-private-board-id-v1");
+    hasher.update([0]);
+    hasher.update(kind);
+    hasher.update([0]);
+    hasher.update(domain);
+    hasher.update([0]);
+    hasher.update(identity);
+    format!(
+        "{kind}-{:x}",
+        hasher.finalize(),
+        kind = String::from_utf8_lossy(kind)
+    )
 }
 
 fn configuration_cache_identity(
@@ -3829,17 +3919,6 @@ fn configuration_cache_identity(
     })
 }
 
-fn discovered_name<'a>(
-    snapshot: &'a app_coordinator::ApplicationSnapshot,
-    device_token: &[u8],
-) -> Option<&'a str> {
-    snapshot
-        .discovered_devices
-        .iter()
-        .find(|device| device.device_token == device_token)
-        .and_then(|device| device.name.as_deref())
-}
-
 fn saved_device_value(
     device: &infra_sqlite_storage::SavedDevice,
     sessions: &[SessionCatalogRecord],
@@ -3849,7 +3928,7 @@ fn saved_device_value(
         .filter(|session| session.device_history_id == device.device_history_id)
         .collect::<Vec<_>>();
     let advertised = device.advertised_name.as_deref();
-    let identifier = device.opaque_platform_id.as_deref();
+    let identifier = device.opaque_platform_id.as_ref().map(|_| "Local VESC");
     let display = device
         .custom_display_name
         .as_deref()
@@ -3863,7 +3942,7 @@ fn saved_device_value(
         "displayName": display,
         "customDisplayName": device.custom_display_name,
         "advertisedName": device.advertised_name,
-        "bluetoothIdentifier": device.opaque_platform_id,
+        "bluetoothIdentifier": identifier,
         "lastSeenAt": device.last_seen_at_millis.and_then(|value| infra_sqlite_storage::format_iso8601(value).ok()),
         "lastConnectedAt": device.last_connected_at_millis.and_then(|value| infra_sqlite_storage::format_iso8601(value).ok()),
         "profileComplete": false,
@@ -4126,8 +4205,12 @@ mod composition_tests {
         assert_eq!(guest.tracking_mode(), TrackingMode::Guest);
         assert_eq!(guest.saved(), None);
 
-        let first = board_ids(&[1, 2, 3]);
-        let second = board_ids(&[1, 2, 4]);
+        let pending = ConnectionOwnership::PendingSaved;
+        assert_eq!(pending.tracking_mode(), TrackingMode::Saved);
+        assert_eq!(pending.saved(), None);
+
+        let first = firmware_board_ids(FirmwareDeviceUuid::new([1; 12]).unwrap());
+        let second = firmware_board_ids(FirmwareDeviceUuid::new([2; 12]).unwrap());
         assert_ne!(first, second);
         let saved = ConnectionOwnership::Saved {
             saved_device_id: first.0.clone(),
@@ -4135,6 +4218,28 @@ mod composition_tests {
         };
         assert_eq!(saved.tracking_mode(), TrackingMode::Saved);
         assert_eq!(saved.saved(), Some((first.0.as_str(), first.1.as_str())));
+    }
+
+    #[test]
+    fn private_firmware_identity_is_stable_distinct_and_redacted() {
+        let uuid = FirmwareDeviceUuid::new([0xab; 12]).unwrap();
+        let repeated = firmware_board_ids(uuid);
+        assert_eq!(repeated, firmware_board_ids(uuid));
+        assert_ne!(repeated, firmware_board_ids(FirmwareDeviceUuid::new([0xac; 12]).unwrap()));
+
+        let raw_uuid = "ab".repeat(12);
+        assert!(!repeated.0.contains(&raw_uuid));
+        assert!(!repeated.1.contains(&raw_uuid));
+
+        let association = PlatformAssociation::new(b"AA:BB:CC:DD:EE:FF".to_vec()).unwrap();
+        let discovery = public_discovery_id([7; 16], &association);
+        assert_eq!(discovery, public_discovery_id([7; 16], &association));
+        assert_ne!(discovery, public_discovery_id([8; 16], &association));
+        assert!(!discovery.contains("AA"));
+
+        let fallback = fallback_board_ids([9; 16], &association);
+        assert_ne!(fallback, fallback_board_ids([10; 16], &association));
+        assert!(!fallback.0.contains("41413a"));
     }
 
     #[test]
@@ -4147,7 +4252,9 @@ mod composition_tests {
             },
             started_at_millis: 0,
             device_id: String::new(),
-            device_token: Vec::new(),
+            association: PlatformAssociation::new(vec![1]).unwrap(),
+            identity_nonce: [1; 16],
+            saved_firmware_uuid: Some(FirmwareDeviceUuid::new([1; 12]).unwrap()),
             name: None,
             stage: IdentificationStage::WaitingBluetooth,
             connect_after_generation: 4,
@@ -4222,7 +4329,7 @@ mod composition_tests {
         let catalog = Arc::new(CatalogStore::open(root.path()).expect("catalog"));
         for (saved, history) in [("saved-a", "history-a"), ("saved-b", "history-b")] {
             catalog
-                .ensure_saved_device(saved, history, Some(saved), Some(saved), 1)
+                .ensure_saved_device(saved, history, None, Some(saved), Some(saved), 1)
                 .expect("saved device");
         }
         let sessions = Arc::new(SessionStore::new(Arc::clone(&catalog)));
@@ -4259,7 +4366,7 @@ mod composition_tests {
         let catalog = Arc::new(CatalogStore::open(root.path()).expect("catalog"));
         for (saved, history) in [("saved-a", "history-a"), ("saved-b", "history-b")] {
             catalog
-                .ensure_saved_device(saved, history, Some(saved), Some(saved), 1)
+                .ensure_saved_device(saved, history, None, Some(saved), Some(saved), 1)
                 .expect("saved device");
         }
         let sessions = Arc::new(SessionStore::new(Arc::clone(&catalog)));
@@ -4310,6 +4417,7 @@ mod composition_tests {
             .ensure_saved_device(
                 SAVED_ID,
                 HISTORY_ID,
+                Some([1; 12]),
                 Some("test-device"),
                 Some("Test Board"),
                 1,
