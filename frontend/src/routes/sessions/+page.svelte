@@ -10,6 +10,15 @@
   const appHeader = getContext<AppHeaderContext>(APP_HEADER_CONTEXT);
   let importInput = $state<HTMLInputElement>();
   let pruneOpen = $state(false);
+  let handledImportSessionId = $state<string | null>(null);
+
+  $effect(() => {
+    const operation = backendState.snapshot?.documentOperation;
+    const sessionId = operation?.kind === 'import' && operation.status === 'completed' ? operation.sessionId : null;
+    if (!sessionId || sessionId === handledImportSessionId) return;
+    handledImportSessionId = sessionId;
+    void backendState.sessionHref(sessionId).then((href) => goto(href));
+  });
 
   $effect(() => {
     appHeader.set('/sessions', {
@@ -33,7 +42,8 @@
 
   function chooseImport(closeMenu: () => void) {
     closeMenu();
-    importInput?.click();
+    if (backendState.platform === 'web') importInput?.click();
+    else void backendState.importSession();
   }
 
   function openPrune(closeMenu: () => void) {
@@ -63,13 +73,15 @@
 </script>
 
 <section aria-labelledby="app-title" class="space-y-4">
-  <input
-    bind:this={importInput}
-    class="hidden"
-    type="file"
-    accept=".floatview,application/octet-stream"
-    onchange={importSession}
-  />
+  {#if backendState.platform === 'web'}
+    <input
+      bind:this={importInput}
+      class="hidden"
+      type="file"
+      accept=".floatview,application/octet-stream"
+      onchange={importSession}
+    />
+  {/if}
   {#if backendState.sessionImporting}
     <p class="text-muted" role="status">Importing session…</p>
   {/if}

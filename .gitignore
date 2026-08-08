@@ -16,5 +16,5 @@ backends/android/**/build/
 !backends/android/gradle/wrapper/gradle-wrapper.jar
 
 # Native hosts embed this generated output; it is never source.
-backends/apple/Sources/FloatViewMac/Resources/index.html
-backends/apple/Sources/FloatViewMac/Resources/sql/
+backends/apple/macos/Resources/index.html
+backends/apple/macos/Resources/sql/

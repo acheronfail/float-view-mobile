@@ -48,13 +48,6 @@ internal object NativeCore {
         handle: Long, generation: Long, connectionGeneration: Long, adapterOrder: Long,
         foreground: Boolean, backgroundEligible: Boolean,
     ): Int
-    external fun submitLoggingService(
-        handle: Long, generation: Long, connectionGeneration: Long, adapterOrder: Long,
-        active: Boolean,
-    ): Int
-    external fun submitTheme(
-        handle: Long, generation: Long, connectionGeneration: Long, adapterOrder: Long, theme: Int,
-    ): Int
     external fun waitCommand(
         handle: Long,
         generation: Long,
@@ -82,7 +75,7 @@ internal object NativeCore {
         }
     }
 
-    private const val EXPECTED_ABI_VERSION = 3
+    private const val EXPECTED_ABI_VERSION = 4
     private const val STATUS_OK = 0
-    private val EXPECTED_BUILD_ID = "float-view-abi03".encodeToByteArray()
+    private val EXPECTED_BUILD_ID = "float-view-abi04".encodeToByteArray()
 }

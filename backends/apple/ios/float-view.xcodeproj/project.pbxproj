@@ -26,13 +26,13 @@
 		F10A00012F00000000000001 /* FloatViewBackend */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			name = FloatViewBackend;
-			path = ../Sources/FloatViewBackend;
+			path = ../common/FloatViewBackend;
 			sourceTree = "<group>";
 		};
 		F30A00012F00000000000001 /* FloatViewCoreBridge */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			name = FloatViewCoreBridge;
-			path = ../Sources/FloatViewCoreBridge;
+			path = ../common/FloatViewCoreBridge;
 			sourceTree = "<group>";
 		};
 		BA4ABF1E2E5BDF4600B47684 /* float-view */ = {
@@ -398,7 +398,7 @@
 				PRODUCT_BUNDLE_IDENTIFIER = "fail.acheron.float-view";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				OTHER_LDFLAGS = "$(inherited) -lhost_c_abi";
-				SWIFT_INCLUDE_PATHS = "$(SRCROOT)/../Sources/CFloatViewCore";
+				SWIFT_INCLUDE_PATHS = "$(SRCROOT)/../common/CFloatViewCore";
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
@@ -426,7 +426,7 @@
 				PRODUCT_BUNDLE_IDENTIFIER = "fail.acheron.float-view";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				OTHER_LDFLAGS = "$(inherited) -lhost_c_abi";
-				SWIFT_INCLUDE_PATHS = "$(SRCROOT)/../Sources/CFloatViewCore";
+				SWIFT_INCLUDE_PATHS = "$(SRCROOT)/../common/CFloatViewCore";
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";

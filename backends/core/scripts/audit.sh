@@ -28,17 +28,17 @@ if rg -n -i 'uniffi|\bjna\b|swift-java' \
 fi
 
 if rg -n 'FlyingFox|CSQLite|SQLiteDatabase|io\.ktor|NATIVE_BACKEND|floatViewBackend' \
-    backends/apple/Package.swift backends/apple/Sources backends/apple/ios/float-view.xcodeproj \
+    backends/apple/Package.swift backends/apple/common backends/apple/macos backends/apple/ios/float-view.xcodeproj \
     backends/android/app backends/android/gradle/libs.versions.toml \
     -g '!**/build/**' -g '!**/.build/**' >/dev/null; then
     fail "a deleted backend dependency or compatibility selector remains"
 fi
 
 for removed_owner in \
-    backends/apple/Sources/FloatViewBackend/protocol \
-    backends/apple/Sources/FloatViewBackend/server \
-    backends/apple/Sources/FloatViewBackend/storage \
-    backends/apple/Sources/CSQLite \
+    backends/apple/common/FloatViewBackend/protocol \
+    backends/apple/common/FloatViewBackend/server \
+    backends/apple/common/FloatViewBackend/storage \
+    backends/apple/common/CSQLite \
     backends/android/app/src/main/java/fail/acheron/floatview/protocol \
     backends/android/app/src/main/java/fail/acheron/floatview/storage
 do
@@ -48,9 +48,9 @@ do
 done
 
 for removed_file in \
-    backends/apple/Sources/FloatViewBackend/application/ApplicationService.swift \
-    backends/apple/Sources/FloatViewBackend/server/LoopbackServer.swift \
-    backends/apple/Sources/FloatViewBackend/storage/SQLiteLogStore.swift \
+    backends/apple/common/FloatViewBackend/application/ApplicationService.swift \
+    backends/apple/common/FloatViewBackend/server/LoopbackServer.swift \
+    backends/apple/common/FloatViewBackend/storage/SQLiteLogStore.swift \
     backends/android/app/src/main/java/fail/acheron/floatview/BackendRuntime.kt \
     backends/android/app/src/main/java/fail/acheron/floatview/LoopbackServer.kt \
     backends/android/app/src/main/java/fail/acheron/floatview/backend/ApplicationService.kt \
@@ -82,6 +82,6 @@ rust_abi=$(awk '/^pub const FLOAT_VIEW_ABI_VERSION:/ { value=$NF; gsub(/[^0-9]/,
 
 printf 'Portable backend audit passed: %s Rust, %s Swift, %s Kotlin source files; %s manifests.\n' \
     "$(find backends/core/crates -type f -name '*.rs' | wc -l | tr -d ' ')" \
-    "$(find backends/apple/Sources backends/apple/Tests backends/apple/ios/float-view backends/apple/ios/float-view-lifecycle-tests -type f -name '*.swift' | wc -l | tr -d ' ')" \
+    "$(find backends/apple/common backends/apple/macos backends/apple/Tests backends/apple/ios/float-view backends/apple/ios/float-view-lifecycle-tests -type f -name '*.swift' | wc -l | tr -d ' ')" \
     "$(find backends/android/app/src -type f -name '*.kt' | wc -l | tr -d ' ')" \
     "$(find backends/core -type f -name Cargo.toml | wc -l | tr -d ' ')"

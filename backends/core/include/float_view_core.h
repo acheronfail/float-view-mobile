@@ -13,9 +13,13 @@
 #include <stdlib.h>
 typedef struct FloatViewRuntime FloatViewRuntime;
 
-#define FLOAT_VIEW_ABI_VERSION 3
+#define FLOAT_VIEW_ABI_VERSION 4
 
 #define FLOAT_VIEW_BUILD_ID_CAPACITY 16
+
+#define FLOAT_VIEW_COMMAND_PRESENT_EXPORT 13
+
+#define FLOAT_VIEW_COMMAND_PRESENT_IMPORT 12
 
 #define FLOAT_VIEW_MAX_COMMAND_PAYLOAD (64 * 1024)
 
@@ -220,18 +224,6 @@ FloatViewStatus float_view_runtime_submit_location_authorization(FloatViewRuntim
                                                                  uint64_t connection_generation,
                                                                  uint64_t adapter_order,
                                                                  uint32_t authorization);
-
-FloatViewStatus float_view_runtime_submit_logging_service(FloatViewRuntime *handle,
-                                                          uint64_t generation,
-                                                          uint64_t connection_generation,
-                                                          uint64_t adapter_order,
-                                                          uint8_t active);
-
-FloatViewStatus float_view_runtime_submit_theme(FloatViewRuntime *handle,
-                                                uint64_t generation,
-                                                uint64_t connection_generation,
-                                                uint64_t adapter_order,
-                                                uint32_t theme);
 
 /**
  * Blocks for one command and copies it into caller-owned storage.

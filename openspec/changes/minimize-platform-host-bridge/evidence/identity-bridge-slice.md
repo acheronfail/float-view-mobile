@@ -7,7 +7,7 @@
 - Replaced host-generated random aliases with direct private Apple/Android transport associations; Rust publishes only per-runtime redacted discovery identifiers.
 - Changed the command header kind to the actual command discriminator and removed the duplicated version, generation, operation, and inner tag from command payloads.
 - Added focused C and explicitly registered JNI event entry points while retaining the bounded raw BLE notification entry point.
-- Updated the private ABI to version 3 with build identity `float-view-abi03` and regenerated the pinned C header/checksum.
+- Updated the private ABI to version 4 with build identity `float-view-abi04` and regenerated the pinned C header/checksum.
 - Removed production Swift/Kotlin platform-event envelope encoders and decoders.
 
 ## Focused verification

@@ -158,7 +158,6 @@ internal class RustBluetoothPlatformAdapter(
                     ConnectionState.READY -> BluetoothConnection.READY
                     ConnectionState.FAILED -> BluetoothConnection.FAILED
                     ConnectionState.DISCONNECTED -> BluetoothConnection.DISCONNECTED
-                    else -> BluetoothConnection.CONNECTING
                 }
             if (mapped == BluetoothConnection.FAILED || mapped == BluetoothConnection.DISCONNECTED) {
                 activeDevice = null

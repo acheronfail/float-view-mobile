@@ -304,6 +304,7 @@ export class MockBackend {
       reason: null,
     },
     sessionOperation: null,
+    documentOperation: null,
   };
 
   private operation?: SessionOperationState;
@@ -804,12 +805,31 @@ export class MockBackend {
         return page.error ? failure(id, page.error.code, page.error.message) : success(id, page.value);
       }
       case 'session.export':
-        return this.findSession(params)
-          ? success(id, {
-              fileName: `${string(params.sessionId)}.${params.format === 'csv' ? 'csv' : 'floatview'}`,
-              delivery: 'staged',
-            })
-          : failure(id, 'not_found', 'Session was not found');
+        if (!this.findSession(params)) return failure(id, 'not_found', 'Session was not found');
+        {
+          const operation = {
+            operationId: `document-${id}`,
+            kind: 'export' as const,
+            status: 'completed' as const,
+            error: null,
+            exportDisplayName: `${string(params.sessionId)}.${params.format === 'csv' ? 'csv' : 'floatview'}`,
+            sessionId: null,
+          };
+          this.change({ ...this.state, documentOperation: operation });
+          return success(id, operation);
+        }
+      case 'session.import': {
+        const operation = {
+          operationId: `document-${id}`,
+          kind: 'import' as const,
+          status: 'cancelled' as const,
+          error: null,
+          exportDisplayName: null,
+          sessionId: null,
+        };
+        this.change({ ...this.state, documentOperation: operation });
+        return success(id, operation);
+      }
       case 'session.delete': {
         const found = this.findSession(params);
         if (!found) return accepted(id);

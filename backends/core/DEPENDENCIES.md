@@ -35,7 +35,7 @@ uses only the Cargo-bundled source described in `SQLITE.md`.
 
 ## Private host ABI provenance
 
-ABI version 3 and build identity `float-view-abi03` are generated from
+ABI version 4 and build identity `float-view-abi04` are generated from
 `host-c-abi` with pinned cbindgen 0.29.2. The checked-in header checksum,
 Apple exported-symbol allowlist, Android JNI registration and packaging
 allowlist are updated atomically. Startup inputs and focused event calls copy

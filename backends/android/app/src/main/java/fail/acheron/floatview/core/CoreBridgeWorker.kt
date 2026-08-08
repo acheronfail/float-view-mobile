@@ -1,5 +1,6 @@
 package fail.acheron.floatview.core
 
+import fail.acheron.floatview.BuildConfig
 import java.io.File
 import java.io.Closeable
 import java.util.concurrent.atomic.AtomicBoolean
@@ -64,11 +65,13 @@ internal class ProcessCoreBridge(
     }
 
     fun replacePresentation(generation: Long) {
+        check(BuildConfig.DEBUG) { "test-only presentation injection is unavailable" }
         check(!closed.get())
         presentationGeneration.set(generation)
     }
 
     fun submitForSmoke(kind: Int, payload: ByteArray) {
+        check(BuildConfig.DEBUG) { "test-only command injection is unavailable" }
         check(NativeCore.submit(handle, generation[0], kind, payload.copyOf()) == STATUS_OK)
     }
 
@@ -102,12 +105,6 @@ internal class ProcessCoreBridge(
             is PlatformEvent.Lifecycle -> NativeCore.submitLifecycle(
                 handle, generation[0], connectionGeneration, adapterOrder,
                 event.foreground, event.backgroundEligible,
-            )
-            is PlatformEvent.LoggingService -> NativeCore.submitLoggingService(
-                handle, generation[0], connectionGeneration, adapterOrder, event.active,
-            )
-            is PlatformEvent.Theme -> NativeCore.submitTheme(
-                handle, generation[0], connectionGeneration, adapterOrder, event.theme.tag,
             )
         }
         check(status == STATUS_OK)
@@ -147,7 +144,10 @@ internal class ProcessCoreBridge(
         )
     }
 
-    fun cancel(command: NativeHostCommand) = complete(command, RESULT_CANCELLED)
+    fun cancel(command: NativeHostCommand) {
+        check(BuildConfig.DEBUG) { "test-only cancellation injection is unavailable" }
+        complete(command, RESULT_CANCELLED)
+    }
 
     private fun pump() {
         check(Thread.currentThread() !== android.os.Looper.getMainLooper().thread)
@@ -194,7 +194,7 @@ internal class ProcessCoreBridge(
         const val STATUS_STOPPED = 6
         const val RESULT_SUCCESS = 0
         const val RESULT_CANCELLED = 1
-        const val EXPECTED_ABI_VERSION = 3
+        const val EXPECTED_ABI_VERSION = 4
         const val MAX_COMMAND_PAYLOAD = 64 * 1024
     }
 }

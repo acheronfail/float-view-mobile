@@ -10,7 +10,7 @@ use std::time::Duration;
 use domain_types::PlatformAssociation;
 use host_ports::{
     AdapterEvent, BluetoothAuthorization, BluetoothConnectionState, BluetoothRadio,
-    LocationAuthorization, ThemePreference,
+    LocationAuthorization,
 };
 use host_runtime::{Runtime, RuntimeError, RuntimeStartupConfig, RuntimeTransport, WaitCommand};
 
@@ -29,11 +29,15 @@ pub const FLOAT_VIEW_STATUS_DUPLICATE_OPERATION: FloatViewStatus = 9;
 pub const FLOAT_VIEW_STATUS_PANIC: FloatViewStatus = 10;
 pub const FLOAT_VIEW_STATUS_INTERNAL: FloatViewStatus = 11;
 
-pub const FLOAT_VIEW_ABI_VERSION: u32 = 3;
+pub const FLOAT_VIEW_ABI_VERSION: u32 = 4;
 const _: () = assert!(FLOAT_VIEW_ABI_VERSION == host_runtime::ABI_VERSION);
 pub const FLOAT_VIEW_BUILD_ID_CAPACITY: usize = 16;
 pub const FLOAT_VIEW_MAX_COMMAND_PAYLOAD: usize = 64 * 1024;
 pub const FLOAT_VIEW_MAX_COMPLETION_PAYLOAD: usize = 8 * 1024 * 1024;
+pub const FLOAT_VIEW_COMMAND_PRESENT_IMPORT: u32 = 12;
+pub const FLOAT_VIEW_COMMAND_PRESENT_EXPORT: u32 = 13;
+const _: () = assert!(FLOAT_VIEW_COMMAND_PRESENT_IMPORT == host_ports::COMMAND_PRESENT_IMPORT);
+const _: () = assert!(FLOAT_VIEW_COMMAND_PRESENT_EXPORT == host_ports::COMMAND_PRESENT_EXPORT);
 
 /// Opaque host token. ABI functions never dereference this pointer.
 pub enum FloatViewRuntime {}
@@ -635,55 +639,6 @@ pub extern "C" fn float_view_runtime_submit_lifecycle(
     })
 }
 
-#[unsafe(no_mangle)]
-pub extern "C" fn float_view_runtime_submit_logging_service(
-    handle: *mut FloatViewRuntime,
-    generation: u64,
-    connection_generation: u64,
-    adapter_order: u64,
-    active: u8,
-) -> FloatViewStatus {
-    ffi_boundary(handle, || {
-        let active = match active {
-            0 => false,
-            1 => true,
-            _ => return FLOAT_VIEW_STATUS_INVALID_ARGUMENT,
-        };
-        submit_adapter_event(
-            handle,
-            generation,
-            connection_generation,
-            adapter_order,
-            AdapterEvent::LoggingService { active },
-        )
-    })
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn float_view_runtime_submit_theme(
-    handle: *mut FloatViewRuntime,
-    generation: u64,
-    connection_generation: u64,
-    adapter_order: u64,
-    theme: u32,
-) -> FloatViewStatus {
-    ffi_boundary(handle, || {
-        let theme = match theme {
-            1 => ThemePreference::System,
-            2 => ThemePreference::Light,
-            3 => ThemePreference::Dark,
-            _ => return FLOAT_VIEW_STATUS_INVALID_ARGUMENT,
-        };
-        submit_adapter_event(
-            handle,
-            generation,
-            connection_generation,
-            adapter_order,
-            AdapterEvent::Theme(theme),
-        )
-    })
-}
-
 /// Copies bounded Bluetooth bytes into the serialized actor.
 ///
 /// # Safety
@@ -834,7 +789,7 @@ mod tests {
 
     #[test]
     fn identity_and_lifecycle_are_stable() {
-        assert_eq!(float_view_abi_version(), 3);
+        assert_eq!(float_view_abi_version(), 4);
         let mut build = [0_u8; FLOAT_VIEW_BUILD_ID_CAPACITY];
         let mut required = 0;
         // SAFETY: All pointers reference correctly sized writable values.

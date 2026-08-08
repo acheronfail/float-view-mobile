@@ -45,7 +45,7 @@ static void test_identity_and_lifecycle(void) {
   uint8_t build_id[FLOAT_VIEW_BUILD_ID_CAPACITY] = {0};
   assert(float_view_build_id(build_id, sizeof(build_id), &required) ==
          FLOAT_VIEW_STATUS_OK);
-  assert(memcmp(build_id, "float-view-abi03", sizeof(build_id)) == 0);
+  assert(memcmp(build_id, "float-view-abi04", sizeof(build_id)) == 0);
 
   assert(float_view_runtime_create(NULL) == FLOAT_VIEW_STATUS_INVALID_ARGUMENT);
   assert(float_view_runtime_destroy(NULL) == FLOAT_VIEW_STATUS_INVALID_HANDLE);
@@ -92,16 +92,11 @@ static void test_identity_and_lifecycle(void) {
          FLOAT_VIEW_STATUS_INVALID_ARGUMENT);
   assert(float_view_runtime_submit_lifecycle(runtime, generation, 1, 6, 1, 0) ==
          FLOAT_VIEW_STATUS_OK);
-  assert(float_view_runtime_submit_logging_service(runtime, generation, 1, 7,
-                                                   1) ==
-         FLOAT_VIEW_STATUS_OK);
-  assert(float_view_runtime_submit_theme(runtime, generation, 1, 8, 1) ==
-         FLOAT_VIEW_STATUS_OK);
-  assert(float_view_runtime_submit_ble_bytes(runtime, generation, 1, 9,
+  assert(float_view_runtime_submit_ble_bytes(runtime, generation, 1, 7,
                                              notification,
                                              sizeof(notification)) ==
          FLOAT_VIEW_STATUS_OK);
-  assert(float_view_runtime_submit_theme(runtime, generation, 1, 8, 1) ==
+  assert(float_view_runtime_submit_lifecycle(runtime, generation, 1, 6, 1, 0) ==
          FLOAT_VIEW_STATUS_STALE_GENERATION);
 
   uint8_t input[] = {1, 2, 3, 4, 5};
@@ -142,6 +137,34 @@ static void test_identity_and_lifecycle(void) {
   assert(float_view_runtime_complete_operation(
              runtime, generation, header.operation_id, 0, NULL, 0) ==
          FLOAT_VIEW_STATUS_DUPLICATE_OPERATION);
+
+  const uint8_t document_payload[] = {0, 0, 0, 11, '/', 't', 'm', 'p', '/',
+                                      'i', 'm', 'p', 'o', 'r', 't'};
+  assert(float_view_runtime_submit_event(
+             runtime, generation, FLOAT_VIEW_COMMAND_PRESENT_IMPORT,
+             document_payload, sizeof(document_payload)) ==
+         FLOAT_VIEW_STATUS_OK);
+  uint8_t document_copy[sizeof(document_payload)] = {0};
+  assert(float_view_runtime_wait_command(
+             runtime, generation, 0, &header, document_copy,
+             sizeof(document_copy), &required) == FLOAT_VIEW_STATUS_OK);
+  assert(header.kind == FLOAT_VIEW_COMMAND_PRESENT_IMPORT);
+  assert(memcmp(document_copy, document_payload, sizeof(document_payload)) == 0);
+  assert(float_view_runtime_complete_operation(
+             runtime, generation, header.operation_id, 1, NULL, 0) ==
+         FLOAT_VIEW_STATUS_OK);
+
+  assert(float_view_runtime_submit_event(
+             runtime, generation, FLOAT_VIEW_COMMAND_PRESENT_EXPORT,
+             document_payload, sizeof(document_payload)) ==
+         FLOAT_VIEW_STATUS_OK);
+  assert(float_view_runtime_wait_command(
+             runtime, generation, 0, &header, document_copy,
+             sizeof(document_copy), &required) == FLOAT_VIEW_STATUS_OK);
+  assert(header.kind == FLOAT_VIEW_COMMAND_PRESENT_EXPORT);
+  assert(float_view_runtime_complete_operation(
+             runtime, generation, header.operation_id, 0, NULL, 0) ==
+         FLOAT_VIEW_STATUS_OK);
 
   WaitContext context = {.runtime = runtime,
                          .generation = generation,

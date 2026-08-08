@@ -28,13 +28,12 @@ class LoggingForegroundService : Service() {
         ensureChannel()
         enterForeground()
         running.set(true)
-        (application as FloatViewApplication).rustRuntime.updateLoggingService(true)
+        (application as FloatViewApplication).rustRuntime.refreshBackgroundEligibility()
         if (!desiredRunning.get()) stopSelf()
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_STOP) {
-            (application as FloatViewApplication).rustRuntime.updateLoggingService(false)
             stopSelf()
             return START_NOT_STICKY
         }
@@ -45,7 +44,7 @@ class LoggingForegroundService : Service() {
     override fun onDestroy() {
         if (BuildConfig.DEBUG) Log.d("FloatViewCore", "stage=logging_service code=stop")
         running.set(false)
-        (application as FloatViewApplication).rustRuntime.updateLoggingService(false)
+        (application as FloatViewApplication).rustRuntime.refreshBackgroundEligibility()
         super.onDestroy()
     }
 

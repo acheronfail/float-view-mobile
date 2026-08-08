@@ -18,11 +18,11 @@ use host_ports::{
 };
 
 /// Private native ABI version. Hosts and the library are shipped atomically.
-pub const ABI_VERSION: u32 = 3;
+pub const ABI_VERSION: u32 = 4;
 /// Source identity used by initial smoke products.
 pub const BUILD_ID: &str = env!("CARGO_PKG_VERSION");
 /// Fixed build identity copied into caller-owned ABI buffers.
-pub const BUILD_ID_BYTES: &[u8; 16] = b"float-view-abi03";
+pub const BUILD_ID_BYTES: &[u8; 16] = b"float-view-abi04";
 /// Maximum queued host commands.
 pub const COMMAND_QUEUE_ITEMS: usize = 64;
 /// Maximum aggregate queued host-command payload bytes.
@@ -685,20 +685,20 @@ impl Runtime {
                 return Ok(());
             };
             while let Ok(command) = commands.try_recv() {
-                self.enqueue_platform_command(command)?;
+                self.enqueue_platform_command(&command)?;
             }
             return Ok(());
         }
         let application = self.application()?;
         while let Some(command) = application.try_host_command().map_err(map_actor)? {
-            self.enqueue_platform_command(command)?;
+            self.enqueue_platform_command(&command)?;
         }
         Ok(())
     }
 
     fn enqueue_platform_command(
         &self,
-        command: host_ports::PlatformCommand,
+        command: &host_ports::PlatformCommand,
     ) -> Result<(), RuntimeError> {
         let kind = command.command.kind();
         let payload = command

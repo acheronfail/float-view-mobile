@@ -193,6 +193,7 @@ pub enum ServerPublication {
     StateChanged(ApplicationSnapshot),
     StorageCompleted(StorageResult),
     VescCompleted(RequestCompletion),
+    HostCompleted(OperationCompletion),
 }
 
 enum ActorInput {
@@ -247,12 +248,11 @@ struct ActorState<C> {
     snapshot: ApplicationSnapshot,
     next_operation: u64,
     pending: HashSet<u64>,
+    document_pending: HashSet<u64>,
     completed: VecDeque<u64>,
     last_bluetooth_order: Option<u64>,
     last_location_order: Option<u64>,
     last_lifecycle_order: Option<u64>,
-    last_logging_order: Option<u64>,
-    last_theme_order: Option<u64>,
     connection: ConnectionCoordinator,
     model: ApplicationModel,
     clock: C,
@@ -287,12 +287,11 @@ impl<C: Clock> ActorState<C> {
             },
             next_operation: 1,
             pending: HashSet::new(),
+            document_pending: HashSet::new(),
             completed: VecDeque::new(),
             last_bluetooth_order: None,
             last_location_order: None,
             last_lifecycle_order: None,
-            last_logging_order: None,
-            last_theme_order: None,
             connection: ConnectionCoordinator::default(),
             model: ApplicationModel::default(),
             clock,
@@ -357,8 +356,6 @@ impl<C: Clock> ActorState<C> {
                 &mut self.last_location_order
             }
             AdapterEvent::Lifecycle { .. } => &mut self.last_lifecycle_order,
-            AdapterEvent::LoggingService { .. } => &mut self.last_logging_order,
-            AdapterEvent::Theme { .. } => &mut self.last_theme_order,
         };
         if last_order.is_some_and(|last| adapter_order <= last) {
             return Err(ActorError::StaleOrder);
@@ -739,8 +736,14 @@ fn run_actor<C: Clock, R: RandomSource>(
                 wake_pump(&pump_waker);
             }
             ActorInput::Completion(completion, reply) => {
-                let result = accept_completion(&mut state, &completion)
-                    .and_then(|()| publish_if_changed(&state, true, &publications));
+                let result = accept_completion(&mut state, &completion).and_then(|publish| {
+                    if publish {
+                        publications
+                            .try_send(ServerPublication::HostCompleted(completion))
+                            .map_err(map_send)?;
+                    }
+                    publish_if_changed(&state, true, &publications)
+                });
                 let _ = reply.send(result);
                 wake_pump(&pump_waker);
             }
@@ -1047,7 +1050,6 @@ fn accept_platform_event<C: Clock>(
             }
             changed
         }
-        _ => false,
     };
     if changed {
         state.changed();
@@ -1106,7 +1108,7 @@ fn validate_location(
 fn accept_completion<C: Clock>(
     state: &mut ActorState<C>,
     completion: &OperationCompletion,
-) -> Result<(), ActorError> {
+) -> Result<bool, ActorError> {
     if completion.generation != state.snapshot.generation {
         return Err(ActorError::StaleGeneration);
     }
@@ -1122,7 +1124,7 @@ fn accept_completion<C: Clock>(
     }
     state.completed.push_back(operation);
     state.changed();
-    Ok(())
+    Ok(state.document_pending.remove(&operation))
 }
 
 fn request_host<C: Clock>(
@@ -1137,6 +1139,10 @@ fn request_host<C: Clock>(
     command
         .encode_payload()
         .map_err(|_| ActorError::InvalidInput)?;
+    let publishes_completion = matches!(
+        command,
+        HostCommand::PresentImport { .. } | HostCommand::PresentExport { .. }
+    );
     let envelope = PlatformCommand {
         generation: state.snapshot.generation,
         operation,
@@ -1145,6 +1151,9 @@ fn request_host<C: Clock>(
     output.try_send(envelope).map_err(map_send)?;
     state.next_operation = state.next_operation.saturating_add(1);
     state.pending.insert(operation.0);
+    if publishes_completion {
+        state.document_pending.insert(operation.0);
+    }
     state.changed();
     Ok(operation)
 }
@@ -1194,7 +1203,11 @@ mod tests {
     fn operations_are_generation_owned_completed_once_and_published_monotonically() {
         let actor = actor();
         let operation = actor
-            .request_host(HostCommand::PresentSettings)
+            .request_host(HostCommand::PresentImport {
+                staging_path: "/tmp/float-view/import.tmp".into(),
+                allowed_content_types: vec!["application/octet-stream".into()],
+                maximum_bytes: 1024,
+            })
             .expect("request");
         let command = actor.try_host_command().expect("channel").expect("command");
         assert_eq!(command.operation, operation);
@@ -1220,6 +1233,11 @@ mod tests {
             actor.complete(completion),
             Err(ActorError::DuplicateOperation)
         );
+        let completed = actor
+            .try_publication()
+            .expect("channel")
+            .expect("publication");
+        assert!(matches!(completed, ServerPublication::HostCompleted(_)));
         let second = actor
             .try_publication()
             .expect("channel")

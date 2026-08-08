@@ -3,8 +3,6 @@ package fail.acheron.floatview
 import android.annotation.SuppressLint
 import android.app.Activity
 import android.content.ComponentCallbacks2
-import android.content.res.Configuration
-import android.graphics.Color
 import android.net.Uri
 import android.os.Bundle
 import android.os.Handler
@@ -16,8 +14,7 @@ import android.webkit.ValueCallback
 import android.webkit.WebChromeClient
 import android.webkit.WebView
 import android.widget.FrameLayout
-import androidx.core.view.WindowInsetsControllerCompat
-import fail.acheron.floatview.core.PlatformTheme
+import fail.acheron.floatview.host.FloatViewAppearance
 
 class MainActivity : Activity() {
     private var webView: WebView? = null
@@ -30,6 +27,7 @@ class MainActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(frontendContainer)
+        FloatViewAppearance.applyNativeChrome(this, frontendContainer)
         (application as FloatViewApplication).rustRuntime.attach(
             this,
             onReady = { endpoint, token ->
@@ -41,7 +39,6 @@ class MainActivity : Activity() {
                 rustOrigin = launchUrl
                 createFrontend()
             },
-            onTheme = ::applySystemBarTheme,
         )
         createFrontend()
     }
@@ -139,27 +136,6 @@ class MainActivity : Activity() {
     }
 
     internal fun frontendIsAttached(): Boolean = webView != null
-
-    @Suppress("DEPRECATION")
-    private fun applySystemBarTheme(theme: PlatformTheme) {
-        val dark = when (theme) {
-            PlatformTheme.DARK -> true
-            PlatformTheme.LIGHT -> false
-            PlatformTheme.SYSTEM ->
-                resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK ==
-                    Configuration.UI_MODE_NIGHT_YES
-        }
-        val background = Color.parseColor(if (dark) "#020617" else "#F8FAFC")
-        window.statusBarColor = background
-        window.navigationBarColor = background
-        window.navigationBarDividerColor = background
-        window.isNavigationBarContrastEnforced = false
-        frontendContainer.setBackgroundColor(background)
-        WindowInsetsControllerCompat(window, window.decorView).apply {
-            isAppearanceLightStatusBars = !dark
-            isAppearanceLightNavigationBars = !dark
-        }
-    }
 
     override fun onDestroy() {
         handler.removeCallbacks(delayedTeardown)

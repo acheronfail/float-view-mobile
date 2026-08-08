@@ -608,9 +608,16 @@ export interface Settings {
   includeGpsLocationWhenExporting: boolean;
 }
 
-export interface ExportResult {
-  fileName: string;
-  delivery: 'presented' | 'staged';
+export type DocumentOperationKind = 'import' | 'export';
+export type DocumentOperationStatus = 'presenting' | 'completed' | 'cancelled' | 'failed';
+
+export interface DocumentOperationState {
+  operationId: string;
+  kind: DocumentOperationKind;
+  status: DocumentOperationStatus;
+  error: BackendError | null;
+  exportDisplayName: string | null;
+  sessionId: string | null;
 }
 
 export interface AppState {
@@ -623,6 +630,7 @@ export interface AppState {
   settings: Settings;
   location: LocationState;
   sessionOperation?: SessionOperationState | null;
+  documentOperation?: DocumentOperationState | null;
 }
 
 export type BackendErrorCode =
@@ -740,8 +748,9 @@ export interface BackendMethods {
   'session.get': { params: { sessionId: string }; result: SessionMetadata };
   'session.export': {
     params: { sessionId: string; format: 'float-view-archive' | 'csv' };
-    result: ExportResult;
+    result: DocumentOperationState;
   };
+  'session.import': { params: EmptyParams; result: DocumentOperationState };
   'session.delete': { params: { sessionId: string }; result: Accepted };
   'session.delete.cancel': { params: { operationId: string }; result: SessionOperationState };
   'session.prune.preview': {

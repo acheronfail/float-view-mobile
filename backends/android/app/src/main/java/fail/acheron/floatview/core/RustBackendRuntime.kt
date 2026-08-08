@@ -5,12 +5,14 @@ import android.content.pm.ApplicationInfo
 import android.util.Log
 import fail.acheron.floatview.BluetoothPermissionBroker
 import fail.acheron.floatview.ANDROID_BACKEND_PORT
+import fail.acheron.floatview.BuildConfig
 import fail.acheron.floatview.FloatViewApplication
 import fail.acheron.floatview.LocationPermissionBroker
-import fail.acheron.floatview.LoggingForegroundService
-import fail.acheron.floatview.bluetooth.AndroidBluetoothAdapter
+import fail.acheron.floatview.host.FloatViewBackgroundExecution
+import fail.acheron.floatview.host.FloatViewBluetooth
+import fail.acheron.floatview.host.FloatViewDocuments
+import fail.acheron.floatview.host.FloatViewLocation
 import fail.acheron.floatview.isEmulator
-import fail.acheron.floatview.location.AndroidLocationProvider
 import fail.acheron.floatview.location.LocationPermissionRequester
 import java.io.Closeable
 import java.util.concurrent.ConcurrentLinkedQueue
@@ -20,11 +22,12 @@ import java.util.concurrent.atomic.AtomicReference
 internal class RustBackendRuntime(private val application: FloatViewApplication) : Closeable {
     val permissionBroker = BluetoothPermissionBroker(application)
     val locationPermissionBroker = LocationPermissionBroker()
-    val presentationBroker = AndroidPresentationBroker(application)
+    val presentationBroker = FloatViewDocuments(application)
     private val pendingCommands = ConcurrentLinkedQueue<NativeHostCommand>()
     private val commandRelay = AtomicReference<(NativeHostCommand) -> Unit>({ pendingCommands.add(it) })
     private val bluetoothRelay = AtomicReference<(fail.acheron.floatview.backend.BluetoothEvent) -> Unit>({})
     private val softwareTransport = isEmulator()
+    @Volatile private var foreground = false
     private val core = ProcessCoreBridge(
         requestedPort = ANDROID_BACKEND_PORT,
         softwareTransport = softwareTransport,
@@ -35,29 +38,29 @@ internal class RustBackendRuntime(private val application: FloatViewApplication)
         if (softwareTransport) {
             InactiveBluetoothPort
         } else {
-            AndroidBluetoothAdapter(
+            FloatViewBluetooth(
                 application,
                 permissionBroker,
                 { event -> bluetoothRelay.get().invoke(event) },
             ) { code -> diagnostic("bluetooth_adapter", code) }
         }
     private val bluetooth = RustBluetoothPlatformAdapter(core, bluetoothPort, ::diagnostic)
-    private val location = AndroidLocationProvider(
+    private val location = FloatViewLocation(
         application,
         LocationPermissionRequester(locationPermissionBroker::request),
     )
-    private val host = AndroidPlatformHostServices(
+    private val host = FloatViewRuntimeHost(
         application,
         backgroundLogging = { enabled ->
-            if (enabled) LoggingForegroundService.start(application)
-            else LoggingForegroundService.stop(application)
-            true
+            FloatViewBackgroundExecution.setLoggingEligible(application, enabled)
         },
         notificationPresenter = presentationBroker::presentNotificationsPermission,
         readyPresenter = presentationBroker::runtimeReady,
+        importPresenter = presentationBroker::presentImport,
+        exportPresenter = presentationBroker::presentExport,
         diagnosticHandler = ::diagnostic,
     )
-    private val platform = RustAndroidPlatformAdapter(core, bluetooth, location, host)
+    private val platform = FloatViewRuntimeBridgeAdapter(core, bluetooth, location, host)
 
     init {
         commandRelay.set(platform::dispatch)
@@ -76,11 +79,10 @@ internal class RustBackendRuntime(private val application: FloatViewApplication)
     fun attach(
         activity: Activity,
         onReady: (String, String) -> Unit,
-        onTheme: (PlatformTheme) -> Unit,
     ) {
         permissionBroker.attach(activity)
         locationPermissionBroker.attach(activity)
-        presentationBroker.attach(activity, onReady, onTheme)
+        presentationBroker.attach(activity, onReady)
         core.replacePresentation(System.identityHashCode(activity).toLong(), platform::dispatch)
     }
 
@@ -91,15 +93,19 @@ internal class RustBackendRuntime(private val application: FloatViewApplication)
     }
 
     fun updateLifecycle(foreground: Boolean) {
+        this.foreground = foreground
         platform.updateLifecycle(
             foreground,
-            backgroundEligible = foreground || LoggingForegroundService.running.get(),
+            backgroundEligible = FloatViewBackgroundExecution.effectiveEligibility(foreground),
         )
     }
 
-    fun updateLoggingService(active: Boolean) = platform.updateLoggingService(active)
+    fun refreshBackgroundEligibility() = updateLifecycle(foreground)
 
-    fun readinessForTest(): Triple<Long, String, String>? = presentationBroker.readinessForTest()
+    fun readinessForTest(): Triple<Long, String, String>? {
+        check(BuildConfig.DEBUG) { "test-only readiness inspection is unavailable" }
+        return presentationBroker.readinessForTest()
+    }
 
     fun onActivityResult(requestCode: Int, resultCode: Int, data: android.content.Intent?): Boolean =
         presentationBroker.onActivityResult(requestCode, resultCode, data)
@@ -111,7 +117,7 @@ internal class RustBackendRuntime(private val application: FloatViewApplication)
 
     fun onLocationPermissionResult(permissions: Array<out String>) {
         locationPermissionBroker.recordResult(permissions)
-        platform.refreshLocationAuthorization()
+        location.notifyStateChanged()
     }
 
     override fun close() {

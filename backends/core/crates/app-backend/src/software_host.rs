@@ -38,8 +38,10 @@ impl SoftwareHost {
         let Ok(Some(command)) = application.try_host_command() else {
             return;
         };
-        if platform_commands.is_some() && !Self::owns(&command.command) {
-            let _ = platform_commands.expect("checked above").try_send(command);
+        if !Self::owns(&command.command)
+            && let Some(platform_commands) = platform_commands
+        {
+            let _ = platform_commands.try_send(command);
             return;
         }
         let generation = command.generation;
@@ -68,7 +70,7 @@ impl SoftwareHost {
             return;
         }
         let accepted = self
-            .handle(application, generation, command.command)
+            .handle(application, generation, &command.command)
             .is_ok();
         let _ = application.complete(OperationCompletion {
             generation,
@@ -100,7 +102,7 @@ impl SoftwareHost {
         &mut self,
         application: &ApplicationActor,
         generation: RuntimeGeneration,
-        command: HostCommand,
+        command: &HostCommand,
     ) -> Result<(), app_coordinator::ActorError> {
         match command {
             HostCommand::BluetoothStartScan => {
@@ -127,7 +129,7 @@ impl SoftwareHost {
                 connection_generation,
                 ..
             } => {
-                self.connection_generation = connection_generation;
+                self.connection_generation = *connection_generation;
                 self.event(
                     application,
                     generation,
@@ -148,12 +150,12 @@ impl SoftwareHost {
             HostCommand::BluetoothDisconnect {
                 connection_generation,
             } => {
-                self.connection_generation = connection_generation;
+                self.connection_generation = *connection_generation;
                 self.event(
                     application,
                     generation,
                     AdapterEvent::BluetoothConnection {
-                        connection_generation,
+                        connection_generation: *connection_generation,
                         state: BluetoothConnectionState::Disconnected,
                     },
                 )
@@ -175,15 +177,14 @@ impl SoftwareHost {
                     generation,
                     AdapterEvent::LocationAuthorization(LocationAuthorization::Background),
                 ),
-            HostCommand::SetBackgroundLogging { enabled } => self.event(
-                application,
-                generation,
-                AdapterEvent::LoggingService { active: enabled },
-            ),
             HostCommand::BluetoothStopScan
+            | HostCommand::SetBackgroundLogging { .. }
             | HostCommand::LocationStop
             | HostCommand::PresentSettings
             | HostCommand::RuntimeReady { .. } => Ok(()),
+            HostCommand::PresentImport { .. } | HostCommand::PresentExport { .. } => {
+                Err(app_coordinator::ActorError::InvalidInput)
+            }
         }
     }
 

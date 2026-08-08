@@ -15,21 +15,25 @@ let package = Package(
   ],
   dependencies: [],
   targets: [
-    .systemLibrary(name: "CFloatViewCore"),
+    .systemLibrary(name: "CFloatViewCore", path: "common/CFloatViewCore"),
     .target(
       name: "FloatViewCoreBridge",
       dependencies: ["CFloatViewCore"],
+      path: "common/FloatViewCoreBridge",
       linkerSettings: [
         .unsafeFlags(["-L", coreLibraryDirectory, "-lhost_c_abi"]),
       ]
     ),
     .target(
       name: "FloatViewBackend",
-      dependencies: ["FloatViewCoreBridge"]
+      dependencies: ["FloatViewCoreBridge"],
+      path: "common/FloatViewBackend"
     ),
     .executableTarget(
       name: "FloatViewMac",
       dependencies: ["FloatViewBackend", "FloatViewCoreBridge"],
+      path: "macos",
+      exclude: ["README.md"],
       resources: [.copy("Resources")]
     ),
     .testTarget(

@@ -18,7 +18,6 @@ import fail.acheron.floatview.backend.LocationProviderBackgroundCapture
 import fail.acheron.floatview.backend.LocationProviderObservation
 import fail.acheron.floatview.backend.LocationProviderPort
 import fail.acheron.floatview.backend.LocationProviderState
-import java.time.Instant
 
 fun interface LocationPermissionRequester {
     fun request(permissions: Array<String>)
@@ -36,6 +35,7 @@ class AndroidLocationProvider(
     private var listener: LocationListener? = null
     private var currentLocationCancellation: CancellationSignal? = null
     private var handler: ((LocationProviderObservation) -> Unit)? = null
+    private var stateHandler: ((LocationProviderState) -> Unit)? = null
 
     @Synchronized
     override fun state(): LocationProviderState {
@@ -48,7 +48,6 @@ class AndroidLocationProvider(
             return LocationProviderState(
                 LocationProviderAuthorization.UNAVAILABLE,
                 LocationProviderBackgroundCapture.UNAVAILABLE,
-                "Location services are disabled.",
             )
         }
         if (!hasForegroundPermission()) {
@@ -59,7 +58,6 @@ class AndroidLocationProvider(
                     LocationProviderAuthorization.NOT_DETERMINED
                 },
                 LocationProviderBackgroundCapture.UNAVAILABLE,
-                if (preferences.getBoolean("requested", false)) "Location permission was denied." else "Location permission has not been resolved.",
             )
         }
         val background = if (hasBackgroundPermission()) {
@@ -74,9 +72,6 @@ class AndroidLocationProvider(
                 LocationProviderAuthorization.FOREGROUND_ONLY
             },
             background,
-            if (background == LocationProviderBackgroundCapture.FOREGROUND_ONLY) {
-                "Background location access is not enabled."
-            } else null,
         )
     }
 
@@ -93,6 +88,17 @@ class AndroidLocationProvider(
         } else if (Build.VERSION.SDK_INT >= 29 && !hasBackgroundPermission()) {
             requester.request(arrayOf(Manifest.permission.ACCESS_BACKGROUND_LOCATION))
         }
+    }
+
+    @Synchronized
+    override fun setStateHandler(handler: (LocationProviderState) -> Unit) {
+        stateHandler = handler
+        handler(state())
+    }
+
+    @Synchronized
+    fun notifyStateChanged() {
+        stateHandler?.invoke(state())
     }
 
     override fun openSettings() {
@@ -113,13 +119,16 @@ class AndroidLocationProvider(
                 if (!location.latitude.isFinite() || !location.longitude.isFinite()) return
                 this@AndroidLocationProvider.handler?.invoke(
                     LocationProviderObservation(
-                        observedAt = Instant.ofEpochMilli(location.time),
                         latitude = location.latitude,
                         longitude = location.longitude,
                         accuracyM = location.accuracy.takeIf { it >= 0f }?.toDouble(),
                     ),
                 )
             }
+
+            override fun onProviderEnabled(provider: String) = notifyStateChanged()
+
+            override fun onProviderDisabled(provider: String) = notifyStateChanged()
         }
         listener = next
         val providers = listOf(LocationManager.NETWORK_PROVIDER, LocationManager.GPS_PROVIDER)

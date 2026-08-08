@@ -5,7 +5,7 @@ EXPECTED_RUST="1.93.0"
 EXPECTED_CARGO_NDK="4.1.2"
 EXPECTED_JAVA="17"
 EXPECTED_NDK="28.2.13676358"
-EXPECTED_ABI_VERSION="3"
+EXPECTED_ABI_VERSION="4"
 LIBRARY_NAME="libhost_android_jni.so"
 
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
@@ -153,8 +153,6 @@ float_view_runtime_submit_event
 float_view_runtime_submit_lifecycle
 float_view_runtime_submit_location
 float_view_runtime_submit_location_authorization
-float_view_runtime_submit_logging_service
-float_view_runtime_submit_theme
 float_view_runtime_wait_command'
     actual_exports=$(awk '$5 == "GLOBAL" && $6 == "DEFAULT" && $7 != "UND" { print $NF }' \
         "$symbols" | LC_ALL=C sort)

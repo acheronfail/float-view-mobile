@@ -390,10 +390,9 @@ async function createCompletedSession(client: ConformanceClient, deviceId: strin
   await client.request('bluetooth.scan', { timeoutMs: 100 });
   const before = beforeScan.discoveredDevices.some((device) => device.deviceId === deviceId)
     ? beforeScan
-    : await client.waitForState(
-        (value) => value.discoveredDevices.some((device) => device.deviceId === deviceId),
-        { afterRevision: beforeScan.revision }
-      );
+    : await client.waitForState((value) => value.discoveredDevices.some((device) => device.deviceId === deviceId), {
+        afterRevision: beforeScan.revision,
+      });
   assert.ok(
     before.discoveredDevices.some((device) => device.deviceId === deviceId),
     'scan did not rediscover the session device'
@@ -927,6 +926,7 @@ export const mandatoryMethods: BackendMethod[] = [
   'session.list',
   'session.get',
   'session.export',
+  'session.import',
   'session.delete',
   'session.delete.cancel',
   'session.prune.preview',

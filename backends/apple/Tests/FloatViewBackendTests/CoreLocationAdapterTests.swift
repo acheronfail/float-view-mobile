@@ -26,6 +26,18 @@ func coreLocationObservationDeliveryLeavesTheDelegateThread() {
   adapter.stopUpdates()
 }
 
+@Test
+func coreLocationAuthorizationChangesReachTheFocusedStateSinkWithoutCoordinates() {
+  let adapter = CoreLocationAdapter()
+  let delivery = LocationStateDeliveryCapture()
+  adapter.setStateHandler { state in delivery.record(state) }
+
+  #expect(delivery.wait() == .success)
+  adapter.locationManagerDidChangeAuthorization(CLLocationManager())
+  #expect(delivery.wait() == .success)
+  #expect(delivery.values.count >= 2)
+}
+
 private final class LocationDeliveryCapture: @unchecked Sendable {
   private let lock = NSLock()
   private let semaphore = DispatchSemaphore(value: 0)
@@ -37,6 +49,25 @@ private final class LocationDeliveryCapture: @unchecked Sendable {
 
   func recordCurrentThread() {
     lock.withLock { value = pthread_mach_thread_np(pthread_self()) }
+    semaphore.signal()
+  }
+
+  func wait() -> DispatchTimeoutResult {
+    semaphore.wait(timeout: .now() + 2)
+  }
+}
+
+private final class LocationStateDeliveryCapture: @unchecked Sendable {
+  private let lock = NSLock()
+  private let semaphore = DispatchSemaphore(value: 0)
+  private var stored: [LocationProviderState] = []
+
+  var values: [LocationProviderState] {
+    lock.withLock { stored }
+  }
+
+  func record(_ value: LocationProviderState) {
+    lock.withLock { stored.append(value) }
     semaphore.signal()
   }
 

@@ -6,8 +6,8 @@ Implemented on 2026-08-08.
 
 - Added one bounded Rust runtime startup configuration containing requested port, physical/software mode, an absolute platform-selected durable root, and the packaged frontend index bytes.
 - Rust now creates the launch token and starts the application actor, loopback server, stores, and runtime-ready presentation without bootstrap command round trips.
-- Deleted the resource, document, storage-root, available-space, clock, random, diagnostic, theme, service-state, and export host commands after the reachability audit found no production requester or after portable startup superseded them.
-- Retained exactly eleven command discriminators: five Bluetooth operations, two location operations, background logging, permission/settings presentation, and runtime readiness.
+- Deleted the resource, storage-root, available-space, clock, random, diagnostic, theme, and service-state host commands after the reachability audit found no production requester or portable startup superseded them.
+- Retained exactly thirteen command discriminators: five Bluetooth operations, two location operations, background logging, permission/settings presentation, runtime readiness, and the now-reachable native import/export presentations.
 - Routed macOS development, iOS simulator, and Android emulator software selection into the Rust software host. Native software peripherals and their fixture dependency were deleted.
 - Software mode forwards only the remaining non-Bluetooth OS commands to the native host; discovery, connect, notifications, VESC behavior, and disconnect stay inside the shared Rust composition.
 - Connect command completion now reports immediate OS-adapter acceptance. Ordered connection events independently drive Rust readiness and terminal state.

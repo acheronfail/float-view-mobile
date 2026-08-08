@@ -27,7 +27,6 @@ mod android {
         float_view_runtime_submit_bluetooth_device, float_view_runtime_submit_bluetooth_state,
         float_view_runtime_submit_event, float_view_runtime_submit_lifecycle,
         float_view_runtime_submit_location, float_view_runtime_submit_location_authorization,
-        float_view_runtime_submit_logging_service, float_view_runtime_submit_theme,
         float_view_runtime_wait_command, runtime_start_on_port_for_jni,
     };
     use jni::objects::{JByteArray, JClass, JLongArray};
@@ -437,52 +436,6 @@ mod android {
         })
     }
 
-    extern "system" fn submit_logging_service(
-        _env: JNIEnv<'_>,
-        _class: JClass<'_>,
-        raw: jlong,
-        generation: jlong,
-        connection_generation: jlong,
-        adapter_order: jlong,
-        active: jboolean,
-    ) -> jint {
-        status_boundary(|| {
-            let Ok(runtime) = valid_handle(raw) else {
-                return FLOAT_VIEW_STATUS_INVALID_ARGUMENT;
-            };
-            float_view_runtime_submit_logging_service(
-                runtime,
-                generation as u64,
-                connection_generation as u64,
-                adapter_order as u64,
-                active,
-            )
-        })
-    }
-
-    extern "system" fn submit_theme(
-        _env: JNIEnv<'_>,
-        _class: JClass<'_>,
-        raw: jlong,
-        generation: jlong,
-        connection_generation: jlong,
-        adapter_order: jlong,
-        theme: jint,
-    ) -> jint {
-        status_boundary(|| {
-            let Ok(runtime) = valid_handle(raw) else {
-                return FLOAT_VIEW_STATUS_INVALID_ARGUMENT;
-            };
-            float_view_runtime_submit_theme(
-                runtime,
-                generation as u64,
-                connection_generation as u64,
-                adapter_order as u64,
-                theme as u32,
-            )
-        })
-    }
-
     extern "system" fn wait_command(
         env: JNIEnv<'_>,
         _class: JClass<'_>,
@@ -679,16 +632,6 @@ mod android {
                     fn_ptr: submit_lifecycle as *mut c_void,
                 },
                 NativeMethod {
-                    name: "submitLoggingService".into(),
-                    sig: "(JJJJZ)I".into(),
-                    fn_ptr: submit_logging_service as *mut c_void,
-                },
-                NativeMethod {
-                    name: "submitTheme".into(),
-                    sig: "(JJJJI)I".into(),
-                    fn_ptr: submit_theme as *mut c_void,
-                },
-                NativeMethod {
                     name: "waitCommand".into(),
                     sig: "(JJI[J[B)I".into(),
                     fn_ptr: wait_command as *mut c_void,
@@ -725,7 +668,7 @@ mod android {
 mod tests {
     #[test]
     fn facade_links_the_shared_runtime() {
-        assert_eq!(super::linked_abi_version(), 3);
-        assert_eq!(super::linked_build_identity(), b"float-view-abi03");
+        assert_eq!(super::linked_abi_version(), 4);
+        assert_eq!(super::linked_build_identity(), b"float-view-abi04");
     }
 }

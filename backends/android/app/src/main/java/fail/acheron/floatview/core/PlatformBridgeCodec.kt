@@ -10,7 +10,6 @@ internal enum class BluetoothRadio(val tag: Int) { UNKNOWN(1), POWERED_OFF(2), P
 internal enum class BluetoothAuthorization(val tag: Int) { UNKNOWN(1), DENIED(2), GRANTED(3) }
 internal enum class BluetoothConnection(val tag: Int) { CONNECTING(1), READY(2), DISCONNECTED(3), FAILED(4) }
 internal enum class PermissionKind(val tag: Int) { BLUETOOTH(1), LOCATION(2), BACKGROUND_LOCATION(3), NOTIFICATIONS(4) }
-internal enum class PlatformTheme(val tag: Int) { SYSTEM(1), LIGHT(2), DARK(3) }
 internal enum class LocationAuthorization(val tag: Int) { UNKNOWN(1), DENIED(2), FOREGROUND(3), BACKGROUND(4) }
 
 internal sealed interface PlatformCommand {
@@ -47,7 +46,7 @@ internal data class PlatformCommandEnvelope(
                     3 -> PlatformCommand.BluetoothConnect(reader.i64(), reader.bytes(256))
                     4 -> PlatformCommand.BluetoothDisconnect(reader.i64())
                     5 -> PlatformCommand.BluetoothWrite(reader.i64(), reader.bytes(MAX_BRIDGE_PAYLOAD))
-                    in 6..11 -> PlatformCommand.Host(tag, reader.remaining())
+                    in 6..13 -> PlatformCommand.Host(tag, reader.remaining())
                     else -> error("Unknown platform command tag")
                 }
             reader.finish()
@@ -69,8 +68,6 @@ internal sealed interface PlatformEvent {
     data class LocationAuthorizationChanged(val authorization: LocationAuthorization) : PlatformEvent
     data class Location(val latitude: Double, val longitude: Double, val accuracyM: Double?) : PlatformEvent
     data class Lifecycle(val foreground: Boolean, val backgroundEligible: Boolean) : PlatformEvent
-    data class LoggingService(val active: Boolean) : PlatformEvent
-    data class Theme(val theme: PlatformTheme) : PlatformEvent
 }
 
 internal sealed interface AndroidHostCommand {
@@ -80,6 +77,16 @@ internal sealed interface AndroidHostCommand {
     data class PresentPermission(val permission: PermissionKind) : AndroidHostCommand
     data object PresentSettings : AndroidHostCommand
     data class RuntimeReady(val endpoint: String, val launchToken: String) : AndroidHostCommand
+    data class PresentImport(
+        val stagingPath: String,
+        val allowedContentTypes: List<String>,
+        val maximumBytes: Long,
+    ) : AndroidHostCommand
+    data class PresentExport(
+        val stagingPath: String,
+        val displayName: String,
+        val contentType: String,
+    ) : AndroidHostCommand
 
     companion object {
         fun decode(value: PlatformCommand.Host): AndroidHostCommand {
@@ -94,6 +101,17 @@ internal sealed interface AndroidHostCommand {
                     )
                     10 -> PresentSettings
                     11 -> RuntimeReady(reader.string(256), reader.string(128))
+                    12 -> {
+                        val stagingPath = reader.string(4096)
+                        val count = reader.u8()
+                        require(count in 1..8)
+                        PresentImport(
+                            stagingPath,
+                            List(count) { reader.string(128) },
+                            reader.i64().also { require(it > 0) },
+                        )
+                    }
+                    13 -> PresentExport(reader.string(4096), reader.string(255), reader.string(128))
                     else -> error("Unknown Android host command")
                 }
             reader.finish()

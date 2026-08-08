@@ -9,6 +9,10 @@ pub const MAX_BLUETOOTH_WRITE_BYTES: usize = MAX_BRIDGE_PAYLOAD_BYTES;
 pub const MAX_LOGICAL_NAME_BYTES: usize = 128;
 pub const MAX_ENDPOINT_BYTES: usize = 256;
 pub const MAX_LAUNCH_TOKEN_BYTES: usize = 128;
+pub const MAX_DOCUMENT_PATH_BYTES: usize = 4096;
+pub const MAX_DOCUMENT_NAME_BYTES: usize = 255;
+pub const MAX_CONTENT_TYPE_BYTES: usize = 128;
+pub const MAX_DOCUMENT_CONTENT_TYPES: usize = 8;
 
 pub const COMMAND_BLUETOOTH_START_SCAN: u32 = 1;
 pub const COMMAND_BLUETOOTH_STOP_SCAN: u32 = 2;
@@ -21,6 +25,8 @@ pub const COMMAND_SET_BACKGROUND_LOGGING: u32 = 8;
 pub const COMMAND_PRESENT_PERMISSION: u32 = 9;
 pub const COMMAND_PRESENT_SETTINGS: u32 = 10;
 pub const COMMAND_RUNTIME_READY: u32 = 11;
+pub const COMMAND_PRESENT_IMPORT: u32 = 12;
+pub const COMMAND_PRESENT_EXPORT: u32 = 13;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum PortError {
@@ -64,13 +70,6 @@ pub enum LocationAuthorization {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum ThemePreference {
-    System,
-    Light,
-    Dark,
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum PermissionKind {
     Bluetooth,
     Location,
@@ -108,6 +107,16 @@ pub enum HostCommand {
         endpoint: String,
         launch_token: String,
     },
+    PresentImport {
+        staging_path: String,
+        allowed_content_types: Vec<String>,
+        maximum_bytes: u64,
+    },
+    PresentExport {
+        staging_path: String,
+        display_name: String,
+        content_type: String,
+    },
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -142,10 +151,6 @@ pub enum AdapterEvent {
         foreground: bool,
         background_eligible: bool,
     },
-    LoggingService {
-        active: bool,
-    },
-    Theme(ThemePreference),
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -209,6 +214,8 @@ impl HostCommand {
             Self::PresentPermission { .. } => COMMAND_PRESENT_PERMISSION,
             Self::PresentSettings => COMMAND_PRESENT_SETTINGS,
             Self::RuntimeReady { .. } => COMMAND_RUNTIME_READY,
+            Self::PresentImport { .. } => COMMAND_PRESENT_IMPORT,
+            Self::PresentExport { .. } => COMMAND_PRESENT_EXPORT,
         }
     }
 
@@ -293,7 +300,53 @@ fn validate_command(command: &HostCommand) -> Result<(), PortError> {
             bounded_string(endpoint, MAX_ENDPOINT_BYTES)?;
             bounded_string(launch_token, MAX_LAUNCH_TOKEN_BYTES)
         }
+        HostCommand::PresentImport {
+            staging_path,
+            allowed_content_types,
+            maximum_bytes,
+        } => {
+            validate_document_path(staging_path)?;
+            if *maximum_bytes == 0
+                || allowed_content_types.is_empty()
+                || allowed_content_types.len() > MAX_DOCUMENT_CONTENT_TYPES
+            {
+                return Err(PortError::InvalidValue);
+            }
+            for content_type in allowed_content_types {
+                bounded_string(content_type, MAX_CONTENT_TYPE_BYTES)?;
+            }
+            Ok(())
+        }
+        HostCommand::PresentExport {
+            staging_path,
+            display_name,
+            content_type,
+        } => {
+            validate_document_path(staging_path)?;
+            bounded_string(display_name, MAX_DOCUMENT_NAME_BYTES)?;
+            if display_name.contains('/') || display_name.contains('\\') {
+                return Err(PortError::TraversalPath);
+            }
+            bounded_string(content_type, MAX_CONTENT_TYPE_BYTES)
+        }
         _ => Ok(()),
+    }
+}
+
+fn validate_document_path(value: &str) -> Result<(), PortError> {
+    bounded_string(value, MAX_DOCUMENT_PATH_BYTES)?;
+    let path = std::path::Path::new(value);
+    if !path.is_absolute()
+        || path.components().any(|component| {
+            matches!(
+                component,
+                std::path::Component::ParentDir | std::path::Component::CurDir
+            )
+        })
+    {
+        Err(PortError::TraversalPath)
+    } else {
+        Ok(())
     }
 }
 
@@ -379,6 +432,29 @@ fn encode_command_payload(command: &HostCommand, writer: &mut Writer) -> Result<
             writer.string(endpoint)?;
             writer.string(launch_token)
         }
+        HostCommand::PresentImport {
+            staging_path,
+            allowed_content_types,
+            maximum_bytes,
+        } => {
+            writer.string(staging_path)?;
+            writer
+                .u8(u8::try_from(allowed_content_types.len())
+                    .map_err(|_| PortError::InvalidValue)?)?;
+            for content_type in allowed_content_types {
+                writer.string(content_type)?;
+            }
+            writer.u64(*maximum_bytes)
+        }
+        HostCommand::PresentExport {
+            staging_path,
+            display_name,
+            content_type,
+        } => {
+            writer.string(staging_path)?;
+            writer.string(display_name)?;
+            writer.string(content_type)
+        }
     }
 }
 
@@ -414,6 +490,27 @@ fn decode_command_payload(kind: u32, reader: &mut Reader<'_>) -> Result<HostComm
         COMMAND_RUNTIME_READY => HostCommand::RuntimeReady {
             endpoint: reader.string(MAX_ENDPOINT_BYTES)?,
             launch_token: reader.string(MAX_LAUNCH_TOKEN_BYTES)?,
+        },
+        COMMAND_PRESENT_IMPORT => {
+            let staging_path = reader.string(MAX_DOCUMENT_PATH_BYTES)?;
+            let count = usize::from(reader.u8()?);
+            if count == 0 || count > MAX_DOCUMENT_CONTENT_TYPES {
+                return Err(PortError::InvalidValue);
+            }
+            let mut allowed_content_types = Vec::with_capacity(count);
+            for _ in 0..count {
+                allowed_content_types.push(reader.string(MAX_CONTENT_TYPE_BYTES)?);
+            }
+            HostCommand::PresentImport {
+                staging_path,
+                allowed_content_types,
+                maximum_bytes: reader.u64()?,
+            }
+        }
+        COMMAND_PRESENT_EXPORT => HostCommand::PresentExport {
+            staging_path: reader.string(MAX_DOCUMENT_PATH_BYTES)?,
+            display_name: reader.string(MAX_DOCUMENT_NAME_BYTES)?,
+            content_type: reader.string(MAX_CONTENT_TYPE_BYTES)?,
         },
         _ => return Err(PortError::InvalidTag),
     })
@@ -572,6 +669,16 @@ mod tests {
                 endpoint: "http://127.0.0.1:1234".into(),
                 launch_token: "opaque-token".into(),
             },
+            HostCommand::PresentImport {
+                staging_path: "/tmp/float-view/import.floatview.tmp".into(),
+                allowed_content_types: vec!["application/octet-stream".into()],
+                maximum_bytes: 128 * 1024 * 1024,
+            },
+            HostCommand::PresentExport {
+                staging_path: "/tmp/float-view/export.floatview".into(),
+                display_name: "ride.floatview".into(),
+                content_type: "application/octet-stream".into(),
+            },
         ];
         for command in commands {
             let kind = command.kind();
@@ -606,8 +713,6 @@ mod tests {
                 foreground: false,
                 background_eligible: true,
             },
-            AdapterEvent::LoggingService { active: true },
-            AdapterEvent::Theme(ThemePreference::System),
         ];
         for event in events {
             let value = PlatformEvent {
@@ -659,6 +764,33 @@ mod tests {
             }
             .validate(),
             Err(PortError::PayloadTooLarge)
+        );
+        assert_eq!(
+            HostCommand::PresentImport {
+                staging_path: "../import.floatview".into(),
+                allowed_content_types: vec!["application/octet-stream".into()],
+                maximum_bytes: 1,
+            }
+            .encode_payload(),
+            Err(PortError::TraversalPath)
+        );
+        assert_eq!(
+            HostCommand::PresentExport {
+                staging_path: "/tmp/export.csv".into(),
+                display_name: "../export.csv".into(),
+                content_type: "text/csv".into(),
+            }
+            .encode_payload(),
+            Err(PortError::TraversalPath)
+        );
+        assert_eq!(
+            HostCommand::PresentImport {
+                staging_path: "/tmp/import.floatview".into(),
+                allowed_content_types: Vec::new(),
+                maximum_bytes: 1,
+            }
+            .encode_payload(),
+            Err(PortError::InvalidValue)
         );
     }
 }

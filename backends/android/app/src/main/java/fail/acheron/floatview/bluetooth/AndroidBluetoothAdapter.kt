@@ -309,13 +309,6 @@ class AndroidBluetoothAdapter(
             when {
                 status == BluetoothGatt.GATT_SUCCESS && newState == BluetoothProfile.STATE_CONNECTED -> {
                     diagnosticHandler("connected")
-                    eventHandler(BluetoothEvent.ConnectionChanged(deviceId, ConnectionState.CONNECTED))
-                    eventHandler(
-                        BluetoothEvent.ConnectionChanged(
-                            deviceId,
-                            ConnectionState.DISCOVERING_SERVICES,
-                        ),
-                    )
                     try {
                         // VESC Express' Nordic UART forwarding path drops a
                         // three-byte slice of long notifications on some
@@ -398,12 +391,6 @@ class AndroidBluetoothAdapter(
                 writeCharacteristic = validatedWrite
                 notifyCharacteristic = validatedNotify
             }
-            eventHandler(
-                BluetoothEvent.ConnectionChanged(
-                    deviceId,
-                    ConnectionState.ENABLING_NOTIFICATIONS,
-                ),
-            )
             try {
                 val descriptor =
                     validatedNotify.getDescriptor(CLIENT_CHARACTERISTIC_CONFIGURATION)

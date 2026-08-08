@@ -1,5 +1,7 @@
 #![recursion_limit = "256"]
 
+use std::collections::{HashMap, VecDeque};
+use std::path::PathBuf;
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -10,12 +12,13 @@ use app_coordinator::{
 };
 use domain_types::{FirmwareDeviceUuid, FirmwareRecord, PlatformAssociation};
 use host_ports::{
-    BluetoothAuthorization, BluetoothConnectionState, BluetoothRadio, HostCommand, PermissionKind,
+    BluetoothAuthorization, BluetoothConnectionState, BluetoothRadio, CompletionStatus,
+    HostCommand, OperationCompletion, PermissionKind,
 };
 use infra_loopback_server::{ContractDispatcher, ContractError, ContractRequest};
 use infra_sqlite_storage::{
-    CatalogStore, NewSession, SchemaCacheIdentity, SessionCatalogRecord, SessionSample,
-    SessionStore, StoreError, TuneRecord,
+    CatalogStore, MAX_IMPORT_BYTES, NewSession, SchemaCacheIdentity, SessionCatalogRecord,
+    SessionSample, SessionStore, StoreError, TuneRecord,
 };
 use protocol_vesc::{
     ControllerRoute, ExpectedResponse, VescCommand, decode_firmware, encode_frame, route_command,
@@ -268,34 +271,6 @@ impl ContractBackend {
             "boardProfile.update" => self.update_profile(&mut inner, params),
             "session.list" => Self::session_list(&inner, params),
             "session.get" => self.session_get(params),
-            "session.export" => {
-                let session = find_session(&inner, params)?;
-                let session_id = session["sessionId"]
-                    .as_str()
-                    .ok_or_else(|| ContractError::new("internal", "Session ID is unavailable"))?
-                    .to_owned();
-                let format = params.get("format").and_then(Value::as_str);
-                let format = match format {
-                    Some("csv") => infra_sqlite_storage::ExportFormat::Csv,
-                    Some("float-view-archive") => {
-                        infra_sqlite_storage::ExportFormat::FloatViewArchive
-                    }
-                    _ => return Err(invalid("Export format is invalid")),
-                };
-                let export_id = format!("{}-{}", inner.next_operation, unix_millis()?.max(0));
-                inner.next_operation = inner.next_operation.saturating_add(1);
-                let include_location = inner.state["settings"]["includeGpsLocationWhenExporting"]
-                    .as_bool()
-                    .ok_or_else(|| ContractError::new("internal", "Export settings are invalid"))?;
-                let exported = self
-                    .catalog
-                    .export_session_with_policy(&session_id, &export_id, format, include_location)
-                    .map_err(|error| storage_error(&error))?;
-                Ok(json!({
-                    "fileName": exported.file_name,
-                    "delivery": "staged"
-                }))
-            }
             "session.delete" => {
                 let id = text(params.get("sessionId"), "sessionId")?;
                 self.catalog
@@ -716,6 +691,33 @@ struct NativeBackend {
     connection: Mutex<Option<NativeConnection>>,
     configuration_signal: Mutex<u64>,
     configuration_changed: Condvar,
+    documents: Mutex<DocumentOperations>,
+    document_start: Mutex<()>,
+}
+
+const DOCUMENT_HISTORY_LIMIT: usize = 16;
+const DOCUMENT_OPERATION_EXPIRY_MILLIS: i64 = 10 * 60 * 1_000;
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum DocumentKind {
+    Import,
+    Export,
+}
+
+struct PendingDocument {
+    operation_id: String,
+    kind: DocumentKind,
+    staging_path: PathBuf,
+    display_name: Option<String>,
+    generation: u64,
+    created_at_millis: i64,
+}
+
+#[derive(Default)]
+struct DocumentOperations {
+    pending: HashMap<u64, PendingDocument>,
+    history: VecDeque<Value>,
+    unclaimed_completions: VecDeque<OperationCompletion>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -831,10 +833,13 @@ impl NativeBackend {
             connection: Mutex::new(None),
             configuration_signal: Mutex::new(0),
             configuration_changed: Condvar::new(),
+            documents: Mutex::new(DocumentOperations::default()),
+            document_start: Mutex::new(()),
         })
     }
 
     fn refresh(&self) -> Result<(), ContractError> {
+        self.expire_document_operation()?;
         let connection_changed = self.process_publications()?;
         let snapshot = self
             .application
@@ -939,11 +944,17 @@ impl NativeBackend {
         Ok(())
     }
 
-    fn request_host(&self, command: HostCommand) -> Result<(), ContractError> {
+    fn request_host_operation(
+        &self,
+        command: HostCommand,
+    ) -> Result<domain_types::OperationId, ContractError> {
         self.application
             .request_host(command)
-            .map(|_| ())
             .map_err(|_| ContractError::new("unavailable", "Platform request is unavailable"))
+    }
+
+    fn request_host(&self, command: HostCommand) -> Result<(), ContractError> {
+        self.request_host_operation(command).map(|_| ())
     }
 
     fn schedule_due_telemetry(&self, now_millis: u64) -> Result<bool, ContractError> {
@@ -1017,12 +1028,369 @@ impl NativeBackend {
             .try_publication()
             .map_err(|_| ContractError::new("internal", "Application publication failed"))?
         {
-            if let ServerPublication::VescCompleted(completion) = publication {
-                self.accept_vesc_completion(completion)?;
-                changed = true;
+            match publication {
+                ServerPublication::VescCompleted(completion) => {
+                    self.accept_vesc_completion(completion)?;
+                    changed = true;
+                }
+                ServerPublication::HostCompleted(completion) => {
+                    if self.accept_document_completion(completion)? {
+                        changed = true;
+                    }
+                }
+                ServerPublication::StateChanged(_) | ServerPublication::StorageCompleted(_) => {}
             }
         }
         Ok(changed)
+    }
+
+    fn begin_document_import(&self, request: &ContractRequest) -> Result<Value, ContractError> {
+        request_params::<EmptyParams>(request, "Method takes no parameters")?;
+        let _start = self
+            .document_start
+            .lock()
+            .map_err(|_| ContractError::new("internal", "Document state failed"))?;
+        self.ensure_no_pending_document()?;
+        let token = format!("document-{}", unix_millis()?.max(0));
+        let staging_path = self
+            .contract
+            .catalog
+            .staging_path(&token)
+            .map_err(|error| storage_error(&error))?;
+        let path = document_path(&staging_path)?;
+        let operation = self.request_host_operation(HostCommand::PresentImport {
+            staging_path: path,
+            allowed_content_types: vec!["application/octet-stream".into()],
+            maximum_bytes: MAX_IMPORT_BYTES,
+        })?;
+        let generation = self
+            .application
+            .snapshot()
+            .map_err(|_| ContractError::new("internal", "Application state is unavailable"))?
+            .generation
+            .0;
+        let created_at_millis = unix_millis()?;
+        let operation_id = format!("document-{}", operation.0);
+        let state = document_operation_value(
+            &operation_id,
+            DocumentKind::Import,
+            "presenting",
+            None,
+            None,
+            None,
+        );
+        self.documents
+            .lock()
+            .map_err(|_| ContractError::new("internal", "Document state failed"))?
+            .pending
+            .insert(
+                operation.0,
+                PendingDocument {
+                    operation_id,
+                    kind: DocumentKind::Import,
+                    staging_path,
+                    display_name: None,
+                    generation,
+                    created_at_millis,
+                },
+            );
+        let early = self.take_unclaimed_document_completion(operation.0)?;
+        self.publish_document_state(state.clone(), false)?;
+        if let Some(completion) = early {
+            self.accept_document_completion(completion)?;
+            return self.current_document_state();
+        }
+        Ok(state)
+    }
+
+    fn begin_document_export(&self, request: &ContractRequest) -> Result<Value, ContractError> {
+        let _start = self
+            .document_start
+            .lock()
+            .map_err(|_| ContractError::new("internal", "Document state failed"))?;
+        self.ensure_no_pending_document()?;
+        let params = request
+            .params
+            .as_object()
+            .ok_or_else(|| invalid("Params must be an object"))?;
+        let (session_id, format) = {
+            let inner = self
+                .contract
+                .inner
+                .lock()
+                .map_err(|_| ContractError::new("internal", "Backend state failed"))?;
+            let session = find_session(&inner, params)?;
+            let session_id = session["sessionId"]
+                .as_str()
+                .ok_or_else(|| ContractError::new("internal", "Session ID is unavailable"))?
+                .to_owned();
+            let format = match params.get("format").and_then(Value::as_str) {
+                Some("csv") => infra_sqlite_storage::ExportFormat::Csv,
+                Some("float-view-archive") => infra_sqlite_storage::ExportFormat::FloatViewArchive,
+                _ => return Err(invalid("Export format is invalid")),
+            };
+            (session_id, format)
+        };
+        let export_id = format!("document-{}", unix_millis()?.max(0));
+        let include_location = self
+            .contract
+            .inner
+            .lock()
+            .map_err(|_| ContractError::new("internal", "Backend state failed"))?
+            .state["settings"]["includeGpsLocationWhenExporting"]
+            .as_bool()
+            .ok_or_else(|| ContractError::new("internal", "Export settings are invalid"))?;
+        let exported = self
+            .contract
+            .catalog
+            .export_session_with_policy(&session_id, &export_id, format, include_location)
+            .map_err(|error| storage_error(&error))?;
+        let content_type = if matches!(format, infra_sqlite_storage::ExportFormat::Csv) {
+            "text/csv"
+        } else {
+            "application/octet-stream"
+        };
+        let operation = match self.request_host_operation(HostCommand::PresentExport {
+            staging_path: document_path(&exported.path)?,
+            display_name: exported.file_name.clone(),
+            content_type: content_type.into(),
+        }) {
+            Ok(operation) => operation,
+            Err(error) => {
+                let _ = std::fs::remove_file(&exported.path);
+                return Err(error);
+            }
+        };
+        let generation = self
+            .application
+            .snapshot()
+            .map_err(|_| ContractError::new("internal", "Application state is unavailable"))?
+            .generation
+            .0;
+        let created_at_millis = unix_millis()?;
+        let operation_id = format!("document-{}", operation.0);
+        let state = document_operation_value(
+            &operation_id,
+            DocumentKind::Export,
+            "presenting",
+            None,
+            Some(&exported.file_name),
+            None,
+        );
+        self.documents
+            .lock()
+            .map_err(|_| ContractError::new("internal", "Document state failed"))?
+            .pending
+            .insert(
+                operation.0,
+                PendingDocument {
+                    operation_id,
+                    kind: DocumentKind::Export,
+                    staging_path: exported.path,
+                    display_name: Some(exported.file_name),
+                    generation,
+                    created_at_millis,
+                },
+            );
+        let early = self.take_unclaimed_document_completion(operation.0)?;
+        self.publish_document_state(state.clone(), false)?;
+        if let Some(completion) = early {
+            self.accept_document_completion(completion)?;
+            return self.current_document_state();
+        }
+        Ok(state)
+    }
+
+    fn ensure_no_pending_document(&self) -> Result<(), ContractError> {
+        if self
+            .documents
+            .lock()
+            .map_err(|_| ContractError::new("internal", "Document state failed"))?
+            .pending
+            .is_empty()
+        {
+            Ok(())
+        } else {
+            Err(ContractError::new(
+                "conflict",
+                "Another document operation is presenting",
+            ))
+        }
+    }
+
+    fn expire_document_operation(&self) -> Result<(), ContractError> {
+        let now = unix_millis()?;
+        let expired = {
+            let mut documents = self
+                .documents
+                .lock()
+                .map_err(|_| ContractError::new("internal", "Document state failed"))?;
+            let operation = documents.pending.iter().find_map(|(operation, pending)| {
+                (now.saturating_sub(pending.created_at_millis) >= DOCUMENT_OPERATION_EXPIRY_MILLIS)
+                    .then_some(*operation)
+            });
+            operation.and_then(|operation| {
+                documents
+                    .pending
+                    .remove(&operation)
+                    .map(|pending| (operation, pending))
+            })
+        };
+        let Some((operation, pending)) = expired else {
+            return Ok(());
+        };
+        let _ = std::fs::remove_file(&pending.staging_path);
+        let _ = self.application.complete(OperationCompletion {
+            generation: domain_types::RuntimeGeneration(pending.generation),
+            operation: domain_types::OperationId(operation),
+            status: CompletionStatus::Cancelled,
+            payload: Vec::new(),
+        });
+        let state = document_operation_value(
+            &pending.operation_id,
+            pending.kind,
+            "failed",
+            Some(document_error("unavailable", "Document operation expired")),
+            pending.display_name.as_deref(),
+            None,
+        );
+        self.record_document_history(state.clone())?;
+        self.publish_document_state(state, false)
+    }
+
+    fn accept_document_completion(
+        &self,
+        completion: OperationCompletion,
+    ) -> Result<bool, ContractError> {
+        let pending = self
+            .documents
+            .lock()
+            .map_err(|_| ContractError::new("internal", "Document state failed"))?
+            .pending
+            .remove(&completion.operation.0);
+        let Some(pending) = pending else {
+            let mut documents = self
+                .documents
+                .lock()
+                .map_err(|_| ContractError::new("internal", "Document state failed"))?;
+            if documents.unclaimed_completions.len() == DOCUMENT_HISTORY_LIMIT {
+                documents.unclaimed_completions.pop_front();
+            }
+            documents.unclaimed_completions.push_back(completion);
+            return Ok(false);
+        };
+        let mut session_id = None;
+        let (status, error) = match completion.status {
+            CompletionStatus::Success if pending.kind == DocumentKind::Import => {
+                let imported_id = format!("imported-{}", completion.operation.0);
+                let result = self.contract.catalog.import_staged_archive(
+                    &pending.staging_path,
+                    &imported_id,
+                    &pending.operation_id,
+                    unix_millis()?,
+                );
+                match result {
+                    Ok(value) => {
+                        session_id = Some(value);
+                        ("completed", None)
+                    }
+                    Err(error) => ("failed", Some(storage_error_value(&error))),
+                }
+            }
+            CompletionStatus::Success => ("completed", None),
+            CompletionStatus::Cancelled => ("cancelled", None),
+            CompletionStatus::PermissionDenied => (
+                "failed",
+                Some(document_error(
+                    "permission_required",
+                    "Document access was denied",
+                )),
+            ),
+            CompletionStatus::Unavailable => (
+                "failed",
+                Some(document_error(
+                    "unavailable",
+                    "Document presentation is unavailable",
+                )),
+            ),
+            CompletionStatus::Failed => (
+                "failed",
+                Some(document_error("internal", "Document operation failed")),
+            ),
+        };
+        let _ = std::fs::remove_file(&pending.staging_path);
+        if let Some(session_id) = session_id.as_deref() {
+            let record = self
+                .contract
+                .catalog
+                .session_record(session_id)
+                .map_err(|error| storage_error(&error))?;
+            let mut inner = self
+                .contract
+                .inner
+                .lock()
+                .map_err(|_| ContractError::new("internal", "Backend state failed"))?;
+            inner
+                .sessions
+                .insert(0, session_summary_from_record(&record));
+        }
+        let state = document_operation_value(
+            &pending.operation_id,
+            pending.kind,
+            status,
+            error,
+            pending.display_name.as_deref(),
+            session_id.as_deref(),
+        );
+        self.record_document_history(state.clone())?;
+        self.publish_document_state(state, session_id.is_some())?;
+        Ok(true)
+    }
+
+    fn record_document_history(&self, state: Value) -> Result<(), ContractError> {
+        let mut documents = self
+            .documents
+            .lock()
+            .map_err(|_| ContractError::new("internal", "Document state failed"))?;
+        if documents.history.len() == DOCUMENT_HISTORY_LIMIT {
+            documents.history.pop_front();
+        }
+        documents.history.push_back(state);
+        Ok(())
+    }
+
+    fn take_unclaimed_document_completion(
+        &self,
+        operation: u64,
+    ) -> Result<Option<OperationCompletion>, ContractError> {
+        let mut documents = self
+            .documents
+            .lock()
+            .map_err(|_| ContractError::new("internal", "Document state failed"))?;
+        let position = documents
+            .unclaimed_completions
+            .iter()
+            .position(|completion| completion.operation.0 == operation);
+        Ok(position.and_then(|position| documents.unclaimed_completions.remove(position)))
+    }
+
+    fn current_document_state(&self) -> Result<Value, ContractError> {
+        self.contract
+            .inner
+            .lock()
+            .map(|inner| inner.state["documentOperation"].clone())
+            .map_err(|_| ContractError::new("internal", "Backend state failed"))
+    }
+
+    fn publish_document_state(&self, state: Value, catalog: bool) -> Result<(), ContractError> {
+        let mut inner = self
+            .contract
+            .inner
+            .lock()
+            .map_err(|_| ContractError::new("internal", "Backend state failed"))?;
+        inner.state["documentOperation"] = state;
+        self.contract.changed(&mut inner, catalog);
+        Ok(())
     }
 
     fn begin_identification_if_ready(
@@ -3306,6 +3674,8 @@ impl ContractDispatcher for NativeBackend {
             "refloat.control.set" => self.set_control(&request),
             "refloat.fatalError.clear" => self.clear_fatal(&request),
             "controller.shutdown" => self.shutdown_controller(&request),
+            "session.import" => self.begin_document_import(&request),
+            "session.export" => self.begin_document_export(&request),
             _ => self.contract.handle(&request),
         }
     }
@@ -3341,6 +3711,17 @@ impl ContractDispatcher for NativeBackend {
         due.map_or(Duration::from_millis(25), |due| {
             Duration::from_millis(due.saturating_sub(snapshot.monotonic_millis).clamp(1, 100))
         })
+    }
+}
+
+impl Drop for NativeBackend {
+    fn drop(&mut self) {
+        if let Ok(documents) = self.documents.get_mut() {
+            for pending in documents.pending.values() {
+                let _ = std::fs::remove_file(&pending.staging_path);
+            }
+            documents.pending.clear();
+        }
     }
 }
 
@@ -3764,8 +4145,51 @@ fn initial_state() -> Value {
             "includeGpsLocationWhenExporting": false
         },
         "location": { "status": "disabled", "permissionAction": "requestPermission", "backgroundCapture": "unavailable", "reason": null },
-        "sessionOperation": null
+        "sessionOperation": null,
+        "documentOperation": null
     })
+}
+
+fn document_path(path: &std::path::Path) -> Result<String, ContractError> {
+    let canonical_parent = path
+        .parent()
+        .and_then(|parent| parent.canonicalize().ok())
+        .ok_or_else(|| ContractError::new("internal", "Document staging root is unavailable"))?;
+    let file_name = path
+        .file_name()
+        .ok_or_else(|| ContractError::new("internal", "Document staging path is invalid"))?;
+    canonical_parent
+        .join(file_name)
+        .to_str()
+        .map(str::to_owned)
+        .ok_or_else(|| ContractError::new("internal", "Document staging path is invalid"))
+}
+
+fn document_operation_value(
+    operation_id: &str,
+    kind: DocumentKind,
+    status: &str,
+    error: Option<Value>,
+    export_display_name: Option<&str>,
+    session_id: Option<&str>,
+) -> Value {
+    json!({
+        "operationId": operation_id,
+        "kind": match kind { DocumentKind::Import => "import", DocumentKind::Export => "export" },
+        "status": status,
+        "error": error.unwrap_or(Value::Null),
+        "exportDisplayName": export_display_name,
+        "sessionId": session_id,
+    })
+}
+
+fn document_error(code: &str, message: &str) -> Value {
+    json!({ "code": code, "message": message })
+}
+
+fn storage_error_value(error: &StoreError) -> Value {
+    let mapped = storage_error(error);
+    document_error(mapped.code, &mapped.message)
 }
 
 fn unix_millis() -> Result<i64, ContractError> {
@@ -4173,6 +4597,7 @@ fn invalid(message: &str) -> ContractError {
 #[cfg(test)]
 mod composition_tests {
     use super::*;
+    use app_coordinator::{DeterministicClock, DeterministicRandom, RuntimeGeneration};
 
     fn test_root(name: &str) -> tempfile::TempDir {
         tempfile::Builder::new()
@@ -4320,6 +4745,126 @@ mod composition_tests {
             .expect("state");
         assert_eq!(state["savedDevices"], json!([]));
         drop(backend);
+    }
+
+    #[test]
+    #[allow(clippy::too_many_lines)]
+    fn native_document_import_is_bounded_monotonic_and_cancelled_exactly_once() {
+        let root = test_root("document-import");
+        let catalog = Arc::new(CatalogStore::open(root.path()).expect("catalog"));
+        let sessions = Arc::new(SessionStore::new(Arc::clone(&catalog)));
+        let application = ApplicationActor::start(
+            RuntimeGeneration(9),
+            DeterministicClock::new(0, 100, 1),
+            DeterministicRandom::new(7),
+        )
+        .expect("actor");
+        let backend = NativeBackend::new(Arc::clone(&application), Arc::clone(&catalog), sessions)
+            .expect("backend");
+        let presenting = backend
+            .dispatch(ContractRequest {
+                id: 1,
+                method: "session.import".into(),
+                params: json!({}),
+            })
+            .expect("present import");
+        assert_eq!(presenting["kind"], "import");
+        assert_eq!(presenting["status"], "presenting");
+        let command = application
+            .try_host_command()
+            .expect("host channel")
+            .expect("document command");
+        let staging_path = match &command.command {
+            HostCommand::PresentImport {
+                staging_path,
+                allowed_content_types,
+                maximum_bytes,
+            } => {
+                assert_eq!(allowed_content_types, &["application/octet-stream"]);
+                assert_eq!(*maximum_bytes, MAX_IMPORT_BYTES);
+                PathBuf::from(staging_path)
+            }
+            other => panic!("unexpected command: {other:?}"),
+        };
+        assert!(staging_path.starts_with(root.path().canonicalize().expect("canonical root")));
+        let conflict = backend.dispatch(ContractRequest {
+            id: 2,
+            method: "session.import".into(),
+            params: json!({}),
+        });
+        assert!(matches!(
+            conflict,
+            Err(ContractError {
+                code: "conflict",
+                ..
+            })
+        ));
+        application
+            .complete(OperationCompletion {
+                generation: command.generation,
+                operation: command.operation,
+                status: CompletionStatus::Cancelled,
+                payload: Vec::new(),
+            })
+            .expect("cancel");
+        let state = backend
+            .dispatch(ContractRequest {
+                id: 3,
+                method: "state.get".into(),
+                params: json!({}),
+            })
+            .expect("state");
+        assert_eq!(state["documentOperation"]["status"], "cancelled");
+        assert_eq!(
+            state["documentOperation"]["operationId"],
+            presenting["operationId"]
+        );
+        assert!(!staging_path.exists());
+
+        backend
+            .dispatch(ContractRequest {
+                id: 4,
+                method: "session.import".into(),
+                params: json!({}),
+            })
+            .expect("second import");
+        let expiring = application
+            .try_host_command()
+            .expect("host channel")
+            .expect("expiring command");
+        let expiring_path = match &expiring.command {
+            HostCommand::PresentImport { staging_path, .. } => PathBuf::from(staging_path),
+            other => panic!("unexpected command: {other:?}"),
+        };
+        std::fs::write(&expiring_path, [1, 2, 3]).expect("partial staging file");
+        backend
+            .documents
+            .lock()
+            .expect("documents")
+            .pending
+            .get_mut(&expiring.operation.0)
+            .expect("pending")
+            .created_at_millis = 0;
+        let expired = backend
+            .dispatch(ContractRequest {
+                id: 5,
+                method: "state.get".into(),
+                params: json!({}),
+            })
+            .expect("expired state");
+        assert_eq!(expired["documentOperation"]["status"], "failed");
+        assert_eq!(expired["documentOperation"]["error"]["code"], "unavailable");
+        assert!(!expiring_path.exists());
+        assert_eq!(
+            application.complete(OperationCompletion {
+                generation: expiring.generation,
+                operation: expiring.operation,
+                status: CompletionStatus::Success,
+                payload: Vec::new(),
+            }),
+            Err(app_coordinator::ActorError::DuplicateOperation)
+        );
+        application.stop().expect("stop");
     }
 
     #[test]

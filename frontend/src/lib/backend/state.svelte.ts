@@ -395,18 +395,21 @@ export class BackendState {
         sessionId: session.sessionId,
         format,
       });
-      this.exportStatus =
-        result.delivery === 'presented'
-          ? `${result.fileName} is ready to save or share.`
-          : `${result.fileName} is staged by the test backend.`;
+      this.exportStatus = `${result.exportDisplayName ?? 'Session export'} is ready to save or share.`;
     });
   }
 
-  async importSession(file: Blob): Promise<string | null> {
+  async importSession(file?: Blob): Promise<string | null> {
     let sessionId: string | null = null;
-    const imported = await this.run(async () => {
-      if (!this.sessionImportClient) throw new Error('Session import is not connected');
-      sessionId = (await this.sessionImportClient.upload(file)).sessionId;
+    const imported = await this.run(async (client) => {
+      if (this.platform === 'web') {
+        if (!file) return;
+        if (!this.sessionImportClient) throw new Error('Session import is not connected');
+        sessionId = (await this.sessionImportClient.upload(file)).sessionId;
+        return;
+      }
+      this.sessionImporting = true;
+      await client.request('session.import', {});
     });
     return imported ? sessionId : null;
   }
@@ -475,6 +478,12 @@ export class BackendState {
   private acceptState(state: AppState) {
     if (this.snapshot && state.revision < this.snapshot.revision) return;
     this.snapshot = state;
+    const document = state.documentOperation;
+    this.sessionImporting = document?.kind === 'import' && document.status === 'presenting';
+    if (document?.status === 'failed') this.error = document.error?.message ?? 'Document operation failed';
+    if (document?.kind === 'export' && document.status === 'completed') {
+      this.exportStatus = `${document.exportDisplayName ?? 'Session export'} saved or shared.`;
+    }
   }
 
   private async run(action: (client: ApiClient) => Promise<void>): Promise<boolean> {
