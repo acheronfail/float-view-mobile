@@ -23,9 +23,9 @@
 
 ## 4. Verify the additive production cutover
 
-- [ ] 4.1 Run Rust formatting, warnings-denied linting and tests, the compiled C ABI harness, focused Swift codec/stream tests, and the exact symbol, dependency, artifact, and source-ownership audits.
-- [ ] 4.2 Run the clean macOS and iOS Debug/Release packaging matrix, canonical macOS execution, and an iOS simulator build/launch with both sibling hosts selecting the shared Rust scanner and no production fallback.
-- [ ] 4.3 Run `just verify` with the additive stream cutover selected and resolve every software, canonical, ownership, and packaging regression before the deletion checkpoint.
+- [x] 4.1 Run Rust formatting, warnings-denied linting and tests, the compiled C ABI harness, focused Swift codec/stream tests, and the exact symbol, dependency, artifact, and source-ownership audits.
+- [x] 4.2 Run the clean macOS and iOS Debug/Release packaging matrix, canonical macOS execution, and an iOS simulator build/launch with both sibling hosts selecting the shared Rust scanner and no production fallback.
+- [x] 4.3 Run `just verify` with the additive stream cutover selected and resolve every software, canonical, ownership, and packaging regression before the deletion checkpoint.
 
 ## 5. Complete the physical deletion checkpoint
 
