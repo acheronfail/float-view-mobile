@@ -277,7 +277,9 @@ audit:
     ! git ls-files | rg '\.(a|xcframework|dylib)$'
     [[ "$(find backends/apple/Sources -type f \( -name '*.h' -o -name '*.modulemap' \) | sort)" == $'backends/apple/Sources/CSQLite/module.modulemap\nbackends/apple/Sources/CSQLite/shim.h\nbackends/apple/Sources/CVescFrame/include/CVescFrame.h\nbackends/apple/Sources/CVescFrame/module.modulemap' ]]
     just core-abi-audit
-    ! rg -n -e 'CheckpointSwiftVescFrameReference' -e 'VescCRC' -e '0x1021' \
+    ! rg -n -e 'CheckpointSwiftVescFrameReference' -e 'CheckpointSwiftVescStreamReference' \
+      -e 'VescCRC' -e '0x1021' -e 'first != 2, first != 3' \
+      -e 'header(Bytes|Count) = first == 2' -e 'payloadBytes = first == 2' \
       -e 'frame\.append' -e 'checksum\(' -e 'crc.*UInt16' \
       backends/apple -g '*.swift'
     [[ "$(rg -l 'float_view_vesc_frame_(encode|decode_exact|stream_scan_next)' \

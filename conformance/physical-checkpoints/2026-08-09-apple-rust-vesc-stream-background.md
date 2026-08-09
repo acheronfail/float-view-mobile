@@ -1,7 +1,9 @@
 # Apple Rust VESC stream background checkpoint
 
-Date: 2026-08-09  
-Native target: connected development iPhone running the production iOS backend  
+Date: 2026-08-09
+
+Native target: connected development iPhone running the production iOS backend
+
 BLE fixture: connected canonical ESP32 byte bridge
 
 ## Focused physical result
