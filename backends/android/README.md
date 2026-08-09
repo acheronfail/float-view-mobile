@@ -2,25 +2,25 @@
 
 Android remains one native Kotlin Gradle application module. Package names
 mirror the Apple capability names for navigation. Kotlin remains the
-production protocol owner; `../core/vesc-frame/` is a component-test-only Rust
-candidate with no Android bridge, JNI layer, generated API, native library, or
-Gradle module per capability.
+production protocol owner. Apple selecting `../core/vesc-frame/` does not
+transfer Android ownership: there is no Android bridge, JNI layer, generated
+API, native library, or Gradle module per capability.
 
 Production Kotlin lives under
 `app/src/main/java/fail/acheron/floatview/`:
 
-| Capability | Package |
-| --- | --- |
-| Domain, application coordination, and process runtime | `application/` |
-| BLE adapter, GATT policy, and Bluetooth permission presentation | `bluetooth/` |
-| Native file chooser, bounded import read, and export share sheet | `files/` |
-| Application/process lifetime and foreground background-logging service | `lifecycle/` |
-| Location provider and location permission presentation | `location/` |
-| VESC and Refloat wire protocol | `protocol/vesc/`, `protocol/refloat/` |
-| SQLite, archive validation, and storage policy | `storage/` |
-| Native system-bar and WebView-canvas appearance synchronization | `theme/` |
-| Authenticated loopback server and port/startup policy | `transport/` |
-| Disposable Activity and WebView composition | `ui/` |
+| Capability                                                             | Package                               |
+| ---------------------------------------------------------------------- | ------------------------------------- |
+| Domain, application coordination, and process runtime                  | `application/`                        |
+| BLE adapter, GATT policy, and Bluetooth permission presentation        | `bluetooth/`                          |
+| Native file chooser, bounded import read, and export share sheet       | `files/`                              |
+| Application/process lifetime and foreground background-logging service | `lifecycle/`                          |
+| Location provider and location permission presentation                 | `location/`                           |
+| VESC and Refloat wire protocol                                         | `protocol/vesc/`, `protocol/refloat/` |
+| SQLite, archive validation, and storage policy                         | `storage/`                            |
+| Native system-bar and WebView-canvas appearance synchronization        | `theme/`                              |
+| Authenticated loopback server and port/startup policy                  | `transport/`                          |
+| Disposable Activity and WebView composition                            | `ui/`                                 |
 
 The application ID remains `fail.acheron.floatview`; the deeper packages are
 implementation ownership, not separate applications. Tests mirror the owning

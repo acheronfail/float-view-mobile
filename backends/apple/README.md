@@ -1,9 +1,11 @@
 # Apple backend layout
 
-The Apple backend is native Swift shared by iOS and macOS. The capability
-names below match Android. Swift remains the production protocol owner;
-`../core/vesc-frame/` is a component-test-only Rust candidate with no Apple
-bridge, FFI layer, generated API, or packaged library.
+The Apple backend is native Swift shared by iOS and macOS. The capability names
+below match Android. Rust under `../core/vesc-frame/` is the production owner
+for VESC CRC, outbound framing, and exact frame decoding through the bounded
+`vesc-frame-apple-ffi/` bridge. Swift retains notification stream boundaries,
+VESC payload interpretation/routing, Refloat, application behavior, and every
+OS-owned capability. There is no generated API or Swift framing fallback.
 
 SwiftPM and Xcode use one shared implementation root and two sibling platform
 host roots:
@@ -19,18 +21,18 @@ platform-specific code must not be reintroduced under `Sources/`.
 Each root uses the same capability vocabulary for the responsibilities it
 owns:
 
-| Capability | Shared Apple backend | iOS host | macOS host |
-| --- | --- | --- | --- |
-| Application coordination | `application/` | `application/` | `application/` |
-| Bluetooth and BLE policy | `bluetooth/` | — | — |
-| Native import/export presentation | — | `files/` | `files/` |
-| Process and background lifecycle | — | `lifecycle/` | `lifecycle/` |
-| Location provider | `location/` | — | — |
-| VESC and Refloat wire protocol | `protocol/vesc/`, `protocol/refloat/` | — | — |
-| SQLite and archive validation | `storage/` | — | — |
-| Native appearance synchronization | — | `theme/` | system appearance is consumed by the WebView |
-| Authenticated loopback transport | `transport/` | — | `transport/` for host readiness only |
-| Disposable WebView/window composition | — | `ui/` | `ui/` plus the lifecycle-owned window delegate |
+| Capability                            | Shared Apple backend                                                            | iOS host       | macOS host                                     |
+| ------------------------------------- | ------------------------------------------------------------------------------- | -------------- | ---------------------------------------------- |
+| Application coordination              | `application/`                                                                  | `application/` | `application/`                                 |
+| Bluetooth and BLE policy              | `bluetooth/`                                                                    | —              | —                                              |
+| Native import/export presentation     | —                                                                               | `files/`       | `files/`                                       |
+| Process and background lifecycle      | —                                                                               | `lifecycle/`   | `lifecycle/`                                   |
+| Location provider                     | `location/`                                                                     | —              | —                                              |
+| VESC and Refloat wire protocol        | `protocol/vesc/`, `protocol/refloat/`; exact VESC frames delegate to `../core/` | —              | —                                              |
+| SQLite and archive validation         | `storage/`                                                                      | —              | —                                              |
+| Native appearance synchronization     | —                                                                               | `theme/`       | system appearance is consumed by the WebView   |
+| Authenticated loopback transport      | `transport/`                                                                    | —              | `transport/` for host readiness only           |
+| Disposable WebView/window composition | —                                                                               | `ui/`          | `ui/` plus the lifecycle-owned window delegate |
 
 Session archives are validated and imported by `storage/SQLiteLogStore.swift`.
 Explicit exports are presented by the platform owners under `files/`. Native
@@ -53,7 +55,7 @@ and source-derived fixtures in both native backends. For a new wire family,
 change or add the focused codec below `protocol/vesc` or `protocol/refloat` and
 map exact versions to it; do not fork application coordination or polling.
 
-An Apple cutover requires its own OpenSpec change, audited bridge and
-packaging, complete Apple gate, and required physical checkpoint. Only that
-verified cutover may delete the corresponding Swift implementation; candidate
-parity alone does not transfer ownership.
+The next Rust boundary is intentionally undecided. Moving Swift stream state,
+VESC payload behavior, Refloat, application behavior, SQLite, or the loopback
+server requires a separate incremental OpenSpec change. Android integration is
+also independent of this shared Apple cutover.

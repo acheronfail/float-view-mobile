@@ -1,5 +1,5 @@
 [workspace]
-members = ["vesc-frame"]
+members = ["vesc-frame", "vesc-frame-apple-ffi"]
 resolver = "3"
 
 [workspace.package]

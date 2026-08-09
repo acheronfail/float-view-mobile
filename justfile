@@ -5,7 +5,61 @@ core-lint:
     cd backends/core && cargo fmt --check
     cd backends/core && cargo clippy --locked --workspace --all-targets -- -D warnings
 
-core-test:
+apple-rust-codec configuration="Debug":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    backends/core/vesc-frame-apple-ffi/build-apple.sh \
+      macosx "$(uname -m)" "{{ configuration }}" \
+      "$PWD/backends/core/target/apple/macos"
+
+core-abi-test: apple-rust-codec
+    xcrun clang -std=c17 -Wall -Wextra -Werror \
+      backends/core/vesc-frame-apple-ffi/tests/abi.c \
+      -I backends/apple/Sources/CVescFrame/include \
+      -L backends/core/target/apple/macos \
+      -lfloat_view_vesc_frame_apple_ffi \
+      -o /tmp/float-view-vesc-frame-abi-test
+    /tmp/float-view-vesc-frame-abi-test
+
+core-abi-audit: apple-rust-codec
+    #!/usr/bin/env bash
+    set -euo pipefail
+    archive='backends/core/target/apple/macos/libfloat_view_vesc_frame_apple_ffi.a'
+    actual="$({ nm -gjU "$archive" 2>/dev/null || true; } \
+      | sed 's/^_//' | rg '^float_view_[a-z_]+$' | sort -u)"
+    expected="$(printf '%s\n' \
+      float_view_vesc_frame_abi_version \
+      float_view_vesc_frame_decode_exact \
+      float_view_vesc_frame_encode)"
+    [[ "$actual" == "$expected" ]] || {
+      echo 'Unexpected Float View frame-codec ABI symbols:' >&2
+      printf '%s\n' "$actual" >&2
+      exit 1
+    }
+    rust_abi="$(sed -n 's/^pub const ABI_VERSION: u32 = \([0-9][0-9]*\);$/\1/p' \
+      backends/core/vesc-frame-apple-ffi/src/lib.rs)"
+    header_abi="$(sed -n 's/^#define FLOAT_VIEW_VESC_FRAME_ABI_VERSION UINT32_C(\([0-9][0-9]*\))$/\1/p' \
+      backends/apple/Sources/CVescFrame/include/CVescFrame.h)"
+    [[ -n "$rust_abi" && "$rust_abi" == "$header_abi" ]] || {
+      echo "VESC frame-codec ABI version mismatch: Rust=$rust_abi header=$header_abi" >&2
+      exit 1
+    }
+
+apple-packaging:
+    just apple-rust-codec Release
+    cd backends/apple && swift build -c release \
+      --scratch-path /tmp/float-view-swift-release --product FloatViewMac
+    xcodebuild -quiet -project backends/apple/ios/float-view.xcodeproj \
+      -scheme float-view -configuration Release -sdk iphonesimulator \
+      -destination 'generic/platform=iOS Simulator' \
+      -derivedDataPath /tmp/float-view-ios-release CODE_SIGNING_ALLOWED=NO clean build
+    xcodebuild -quiet -project backends/apple/ios/float-view.xcodeproj \
+      -scheme float-view -configuration Debug -sdk iphoneos \
+      -destination 'generic/platform=iOS' \
+      -derivedDataPath /tmp/float-view-ios-device CODE_SIGNING_ALLOWED=NO clean build
+    just apple-rust-codec Debug
+
+core-test: core-abi-test
     cd backends/core && cargo test --locked
 
 setup:
@@ -121,6 +175,7 @@ run platform target="": build
         ;;
       macos)
         frontend_html="$PWD/frontend/build/index.html"
+        just apple-rust-codec
         (cd backends/apple && \
           FLOAT_VIEW_FRONTEND_HTML="$frontend_html" \
           swift run --scratch-path /tmp/float-view-swift-build FloatViewMac)
@@ -134,7 +189,10 @@ test suite="all":
     case "{{ suite }}" in
       frontend) (cd frontend && npm run check && npm test) ;;
       conformance) (cd conformance && npm run check && npm test && npm run mock) ;;
-      apple) (cd backends/apple && swift test --scratch-path /tmp/float-view-swift-build) ;;
+      apple)
+        just apple-rust-codec
+        (cd backends/apple && swift test --scratch-path /tmp/float-view-swift-build)
+        ;;
       android) (cd backends/android && ./gradlew testDebugUnitTest) ;;
       core) just core-test ;;
       fixture) sh tools/vesc-test-device/test/run.sh ;;
@@ -194,20 +252,36 @@ audit:
     [[ -f rust-toolchain.toml ]]
     [[ -f backends/core/Cargo.lock ]]
     [[ -f backends/core/vesc-frame/Cargo.toml ]]
+    [[ -f backends/core/vesc-frame-apple-ffi/Cargo.toml ]]
+    [[ -f backends/apple/Sources/CVescFrame/include/CVescFrame.h ]]
+    [[ -f backends/apple/Sources/CVescFrame/module.modulemap ]]
     unexpected_core="$(find backends/core -mindepth 1 -maxdepth 1 -type d \
-      ! -name target ! -name vesc-frame -print -quit)"
+      ! -name target ! -name vesc-frame ! -name vesc-frame-apple-ffi -print -quit)"
     [[ -z "$unexpected_core" ]] || {
       echo "Unexpected Rust core workspace member: $unexpected_core" >&2
       exit 1
     }
     [[ "$(find backends/core/vesc-frame -mindepth 1 -maxdepth 1 -type d \
       ! -name src -print -quit)" == "" ]]
+    [[ "$(find backends/core/vesc-frame-apple-ffi -mindepth 1 -maxdepth 1 -type d \
+      ! -name src ! -name tests -print -quit)" == "" ]]
     ! find backends/core -type f \
       \( -name 'build.rs' -o -name '*.h' -o -name '*.hpp' -o -name '*.modulemap' \) \
       | grep -q .
     ! rg -n 'extern[[:space:]]+"C"|no_mangle|cbindgen|uniffi|jni|host_callback' \
-      backends/core
-    [[ "$(cd backends/core && cargo tree --locked --edges normal --prefix none | wc -l | tr -d ' ')" == 1 ]]
+      backends/core/vesc-frame
+    ! rg -n 'cbindgen|uniffi|jni|host_callback' backends/core/vesc-frame-apple-ffi
+    [[ "$(cd backends/core && cargo tree --locked --package float-view-vesc-frame --edges normal --prefix none | wc -l | tr -d ' ')" == 1 ]]
+    [[ "$(cd backends/core && cargo tree --locked --package float-view-vesc-frame-apple-ffi --edges normal --depth 1 --prefix none | wc -l | tr -d ' ')" == 2 ]]
+    ! git ls-files | rg '\.(a|xcframework|dylib)$'
+    [[ "$(find backends/apple/Sources -type f \( -name '*.h' -o -name '*.modulemap' \) | sort)" == $'backends/apple/Sources/CSQLite/module.modulemap\nbackends/apple/Sources/CSQLite/shim.h\nbackends/apple/Sources/CVescFrame/include/CVescFrame.h\nbackends/apple/Sources/CVescFrame/module.modulemap' ]]
+    just core-abi-audit
+    ! rg -n -e 'CheckpointSwiftVescFrameReference' -e 'VescCRC' -e '0x1021' \
+      -e 'frame\.append' -e 'checksum\(' -e 'crc.*UInt16' \
+      backends/apple -g '*.swift'
+    [[ "$(rg -l 'float_view_vesc_frame_(encode|decode_exact)' \
+      backends/apple -g '*.swift')" == \
+      'backends/apple/Sources/FloatViewBackend/protocol/vesc/VescFrameCodec.swift' ]]
     [[ -d backends/apple/ios ]]
     [[ -d backends/apple/macos ]]
     ! find backends/android/app/src/main/java/fail/acheron/floatview \
@@ -272,8 +346,10 @@ audit:
 
 verify: build
     just core-lint
+    just apple-packaging
     just test all
     cd backends/android && ./gradlew assembleDebug
+    just apple-rust-codec
     cd backends/apple && swift build --scratch-path /tmp/float-view-swift-build --product FloatViewMac
     xcodebuild -project backends/apple/ios/float-view.xcodeproj -scheme float-view \
       -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' \

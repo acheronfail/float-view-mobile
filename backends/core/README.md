@@ -1,22 +1,23 @@
-# Portable backend candidates
+# Bounded portable backend components
 
-`backends/core` contains narrowly scoped Rust components being proven before
-platform integration. It is a locked Cargo workspace, not another backend and
-not a production runtime.
+`backends/core` contains narrowly scoped Rust components with explicit host
+ownership. It is a locked Cargo workspace, not another backend and not a
+production runtime.
 
-The workspace currently has one member:
+The workspace currently has two members:
 
-| Component     | Scope                                                            | Integration state                                |
-| ------------- | ---------------------------------------------------------------- | ------------------------------------------------ |
-| `vesc-frame/` | Bounded VESC CRC, frame encoding/decoding, and stream reassembly | Candidate tests only; no Apple or Android bridge |
+| Component               | Scope                                                                 | Integration state                                                                             |
+| ----------------------- | --------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
+| `vesc-frame/`           | Safe bounded VESC CRC, frame encoding/decoding, and stream reassembly | Apple selects CRC/encode/exact-decode; stream state and Android integration remain candidates |
+| `vesc-frame-apple-ffi/` | Caller-owned-buffer C ABI and locked Apple source-build helper        | Selected only by the shared iOS/macOS frame-codec adapter                                     |
 
-Apple and Android remain the production owners of VESC framing. A candidate
-passes only component-parity checks; it does not count as a supported backend
-or production implementation. Separate Apple and Android OpenSpec changes must
-add and verify each narrow host bridge. After a host's complete gate and
-required physical checkpoint pass, that cutover change deletes the host's
-superseded implementation instead of retaining a fallback.
+The shared Apple backend retains Swift stream boundary/reassembly state but
+sends every complete frame through Rust exact decode and uses Rust for outbound
+encoding. Android remains the independent Kotlin production owner. The Rust
+stream decoder is not selected by either host. Any later stream or Android
+cutover requires its own OpenSpec change and complete gate.
 
 Do not add empty future crates, generated bindings, a general runtime, host
-callbacks, mobile build targets, or OS-owned Bluetooth, location, lifecycle,
-permission, native-file, theme, or UI behavior here.
+callbacks, or OS-owned Bluetooth, location, lifecycle, permission, native-file,
+theme, or UI behavior here. Unsafe code belongs only in a named audited bridge;
+the safe algorithm crate continues to forbid it.

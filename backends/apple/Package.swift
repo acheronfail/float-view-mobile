@@ -1,5 +1,9 @@
 // swift-tools-version: 6.0
+import Foundation
 import PackageDescription
+
+let packageRoot = URL(fileURLWithPath: #filePath).deletingLastPathComponent().path
+let rustLibraryPath = "\(packageRoot)/../core/target/apple/macos"
 
 let package = Package(
   name: "FloatViewApple",
@@ -14,12 +18,18 @@ let package = Package(
   ],
   targets: [
     .systemLibrary(name: "CSQLite"),
+    .systemLibrary(name: "CVescFrame"),
     .target(
       name: "FloatViewBackend",
       dependencies: [
         "CSQLite",
+        "CVescFrame",
         .product(name: "RefloatConfigurationFixtures", package: "refloat-configuration"),
         .product(name: "FlyingFox", package: "FlyingFox"),
+      ],
+      linkerSettings: [
+        .unsafeFlags(["-L", rustLibraryPath]),
+        .linkedLibrary("float_view_vesc_frame_apple_ffi"),
       ]
     ),
     .executableTarget(
@@ -30,7 +40,7 @@ let package = Package(
     ),
     .testTarget(
       name: "FloatViewBackendTests",
-      dependencies: ["CSQLite", "FloatViewBackend"]
+      dependencies: ["CSQLite", "CVescFrame", "FloatViewBackend"]
     ),
   ]
 )
