@@ -1,9 +1,9 @@
 ## 1. Define one safe Rust stream scanner
 
-- [ ] 1.1 Add public stateless next-frame result types and a borrowed-input scanner that owns noise disposal, short/long header interpretation, declared-length bounds, incomplete suffix retention, complete-frame extent, malformed progress, and the 8,192-byte aggregate bound without unsafe code or new dependencies.
-- [ ] 1.2 Refactor the existing safe Rust `StreamDecoder` to use the scanner for every boundary decision while retaining its existing owned-buffer API and error/recovery behavior.
-- [ ] 1.3 Add immutable scanner and `StreamDecoder` parity tests for empty and one-byte input, split short/long headers, leading noise, one-byte and fixture fragmentation, multiple frames, incomplete suffixes, 4,096-byte payloads, oversized declarations, bad footer/CRC recovery, exact consumption lengths, and aggregate overflow recovery.
-- [ ] 1.4 Update the safe crate documentation to describe its selected Apple framing role and the still-deferred Android and higher-layer ownership boundaries.
+- [x] 1.1 Add public stateless next-frame result types and a borrowed-input scanner that owns noise disposal, short/long header interpretation, declared-length bounds, incomplete suffix retention, complete-frame extent, malformed progress, and the 8,192-byte aggregate bound without unsafe code or new dependencies.
+- [x] 1.2 Refactor the existing safe Rust `StreamDecoder` to use the scanner for every boundary decision while retaining its existing owned-buffer API and error/recovery behavior.
+- [x] 1.3 Add immutable scanner and `StreamDecoder` parity tests for empty and one-byte input, split short/long headers, leading noise, one-byte and fixture fragmentation, multiple frames, incomplete suffixes, 4,096-byte payloads, oversized declarations, bad footer/CRC recovery, exact consumption lengths, and aggregate overflow recovery.
+- [x] 1.4 Update the safe crate documentation to describe its selected Apple framing role and the still-deferred Android and higher-layer ownership boundaries.
 
 ## 2. Extend the audited Apple ABI
 
