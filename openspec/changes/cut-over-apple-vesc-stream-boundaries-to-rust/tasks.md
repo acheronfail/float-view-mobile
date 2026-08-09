@@ -29,7 +29,7 @@
 
 ## 5. Complete the physical deletion checkpoint
 
-- [ ] 5.1 Run the focused physical iOS CoreBluetooth ride with fixture-supplied notification fragmentation and mobile background/foreground recovery, proving Rust scanning/exact decode preserves the same session and continued samples.
+- [x] 5.1 Run the focused physical iOS CoreBluetooth ride with fixture-supplied notification fragmentation and mobile background/foreground recovery, proving Rust scanning/exact decode preserves the same session and continued samples.
 - [ ] 5.2 Delete the superseded Swift stream header/length/noise parser and any temporary test-only reference, then tighten repository audits so only bounded Swift storage/consumption remains and the parsing algorithm cannot return.
 - [ ] 5.3 Rerun the focused Rust/C/Swift checks, exact symbol and source audits, clean Apple packaging matrix, canonical macOS execution, and iOS simulator build/launch after deletion while confirming Android still uses Kotlin with no JNI/NDK or Rust packaging.
 - [ ] 5.4 Run the final `just verify` software gate and resolve all regressions without changing the frontend contract, database, stored data, OS-capability ownership, or user-visible behavior.
