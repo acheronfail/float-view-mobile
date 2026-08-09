@@ -29,7 +29,7 @@ if [[ ! -f "$source_svg" ]]; then
 fi
 
 ios_icon_dir="$project_root/backends/apple/ios/float-view/Assets.xcassets/AppIcon.appiconset"
-mac_resources_dir="$project_root/backends/apple/Sources/FloatViewMac/Resources"
+mac_resources_dir="$project_root/backends/apple/macos/Resources"
 android_resources_dir="$project_root/backends/android/app/src/main/res"
 master_png="$temporary_dir/FloatView.png"
 transparent_mark_png="$temporary_dir/FloatView-mark.png"

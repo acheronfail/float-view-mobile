@@ -4,11 +4,16 @@ The Apple backend is native Swift shared by iOS and macOS. The capability
 names below match Android, but the implementations and types do not: there is
 no cross-language core, FFI layer, or generated API.
 
-SwiftPM and Xcode require three production source roots:
+SwiftPM and Xcode use one shared implementation root and two sibling platform
+host roots:
 
 - `Sources/FloatViewBackend/` — backend behavior shared by iOS and macOS
 - `ios/float-view/` — iOS application host and disposable WebView
-- `Sources/FloatViewMac/` — macOS application host and disposable WebView
+- `macos/` — macOS application host and disposable WebView
+
+The host roots are deliberately the siblings `ios/` and `macos/`. SwiftPM
+builds the `FloatViewMac` executable from the explicit `macos/` target path;
+platform-specific code must not be reintroduced under `Sources/`.
 
 Each root uses the same capability vocabulary for the responsibilities it
 owns:

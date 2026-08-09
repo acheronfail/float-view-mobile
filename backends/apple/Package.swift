@@ -25,6 +25,7 @@ let package = Package(
     .executableTarget(
       name: "FloatViewMac",
       dependencies: ["FloatViewBackend"],
+      path: "macos",
       resources: [.copy("Resources")]
     ),
     .testTarget(

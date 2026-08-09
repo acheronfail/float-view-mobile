@@ -59,10 +59,10 @@ emulate platform: build
 
 build:
     cd frontend && npm run build
-    cp frontend/build/index.html backends/apple/Sources/FloatViewMac/Resources/index.html
-    mkdir -p backends/apple/Sources/FloatViewMac/Resources/sql
-    cp backends/sql/catalog.sql backends/apple/Sources/FloatViewMac/Resources/sql/catalog.sql
-    cp backends/sql/session.sql backends/apple/Sources/FloatViewMac/Resources/sql/session.sql
+    cp frontend/build/index.html backends/apple/macos/Resources/index.html
+    mkdir -p backends/apple/macos/Resources/sql
+    cp backends/sql/catalog.sql backends/apple/macos/Resources/sql/catalog.sql
+    cp backends/sql/session.sql backends/apple/macos/Resources/sql/session.sql
 
 run platform target="": build
     #!/usr/bin/env bash
@@ -179,10 +179,13 @@ audit:
     [[ ! -d backends/android/api-models ]]
     [[ ! -d backends/android/app/src/main/java/fail/acheron/floatview/backend ]]
     [[ ! -d backends/apple/Sources/FloatViewBackend/server ]]
+    [[ ! -d backends/apple/Sources/FloatViewMac ]]
+    [[ -d backends/apple/ios ]]
+    [[ -d backends/apple/macos ]]
     ! find backends/android/app/src/main/java/fail/acheron/floatview \
       -maxdepth 1 -type f -name '*.kt' | grep -q .
     ! find backends/apple/ios/float-view -maxdepth 1 -type f -name '*.swift' | grep -q .
-    ! find backends/apple/Sources/FloatViewMac -maxdepth 1 -type f -name '*.swift' | grep -q .
+    ! find backends/apple/macos -maxdepth 1 -type f -name '*.swift' | grep -q .
     unexpected_android="$(find backends/android/app/src/main/java/fail/acheron/floatview \
       -mindepth 1 -maxdepth 1 -type d \
       ! -name application ! -name bluetooth ! -name files ! -name lifecycle \
@@ -200,7 +203,7 @@ audit:
       echo "Unexpected shared Apple capability path: $unexpected_apple" >&2
       exit 1
     }
-    unexpected_macos="$(find backends/apple/Sources/FloatViewMac \
+    unexpected_macos="$(find backends/apple/macos \
       -mindepth 1 -maxdepth 1 -type d \
       ! -name application ! -name files ! -name lifecycle ! -name Resources \
       ! -name transport ! -name ui -print -quit)"
@@ -228,11 +231,11 @@ audit:
       conformance/fixture-dev conformance/package.json
     [[ "$(find frontend/build -type f | wc -l | tr -d ' ')" == 1 ]]
     [[ -f frontend/build/index.html ]]
-    cmp -s frontend/build/index.html backends/apple/Sources/FloatViewMac/Resources/index.html
+    cmp -s frontend/build/index.html backends/apple/macos/Resources/index.html
     cmp -s backends/sql/catalog.sql \
-      backends/apple/Sources/FloatViewMac/Resources/sql/catalog.sql
+      backends/apple/macos/Resources/sql/catalog.sql
     cmp -s backends/sql/session.sql \
-      backends/apple/Sources/FloatViewMac/Resources/sql/session.sql
+      backends/apple/macos/Resources/sql/session.sql
     ! rg -n 'system\.hello|system\.getSnapshot|telemetrySubscriptions|loggingJobs' \
       frontend backends conformance
     ! rg -n '\b([3]001|[5]173|[8]765|[8]766)\b' \
