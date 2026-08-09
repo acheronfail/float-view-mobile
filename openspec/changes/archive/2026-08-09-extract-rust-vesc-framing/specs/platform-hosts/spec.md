@@ -1,5 +1,19 @@
 ## MODIFIED Requirements
 
+### Requirement: No generic shared-code directory
+
+Cross-language shared content under `/backends` SHALL be limited to immutable SQL and protocol fixtures plus bounded portable Rust components under `/backends/core` governed by `native-core-migration`. A Rust candidate MUST name one behavioral slice and MUST NOT become a generic shared-code layer, generated API surface, or production owner before an explicit host cutover. Swift and Kotlin implementation code SHALL remain owned by their backend until each host's verified cutover deletes the corresponding superseded implementation.
+
+#### Scenario: Shared backend resource
+
+- **WHEN** both backends consume the same current SQL schema or protocol fixture
+- **THEN** the immutable resource may reside under `/backends` without introducing a cross-language shared-code layer
+
+#### Scenario: Bounded Rust candidate
+
+- **WHEN** an active OpenSpec change extracts one portable component under `/backends/core`
+- **THEN** repository verification permits only that named candidate and preserves native production ownership until separately verified host cutovers
+
 ### Requirement: Mirrored native connection ownership
 
 The Apple and Android backends SHALL use the same capability-oriented source vocabulary for `application`, `bluetooth`, `files`, `lifecycle`, `location`, `protocol`, `storage`, `theme`, `transport`, and `ui` ownership beneath their native build-system source roots. Protocol code SHALL retain matching `protocol/vesc` and `protocol/refloat` subtrees while a platform owns those implementations. Apple MAY divide those capabilities among its shared backend, iOS host, and macOS host targets, while Android SHALL retain one Gradle application module; a target that owns a capability MUST use the canonical capability name rather than an ambiguous root source or platform-specific synonym.
