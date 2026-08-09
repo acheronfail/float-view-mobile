@@ -1,4 +1,4 @@
-// Capability status: incomplete — physical/background evidence remains.
+// Capability status: implemented — physical fixture and background BLE evidence pass.
 // Concrete OS owner: CoreBluetoothAdapter.
 
 import Foundation

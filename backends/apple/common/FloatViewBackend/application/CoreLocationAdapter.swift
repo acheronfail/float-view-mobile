@@ -34,13 +34,23 @@ public final class CoreLocationAdapter: NSObject, LocationProviderPort, CLLocati
     let cached = lock.withLock {
       (servicesEnabled: servicesEnabled, authorization: authorization)
     }
-    guard cached.servicesEnabled else {
+    return Self.mappedState(
+      servicesEnabled: cached.servicesEnabled,
+      authorization: cached.authorization
+    )
+  }
+
+  static func mappedState(
+    servicesEnabled: Bool,
+    authorization: CLAuthorizationStatus
+  ) -> LocationProviderState {
+    guard servicesEnabled else {
       return LocationProviderState(
         authorization: .unavailable,
         backgroundCapture: .unavailable
       )
     }
-    switch cached.authorization {
+    switch authorization {
     case .notDetermined:
       return LocationProviderState(
         authorization: .notDetermined,
@@ -82,7 +92,9 @@ public final class CoreLocationAdapter: NSObject, LocationProviderPort, CLLocati
       #if os(iOS)
         manager.requestWhenInUseAuthorization()
       #else
-        manager.requestAlwaysAuthorization()
+        // macOS has no mobile background suspension mechanism here. Normal
+        // process-lifetime updates need only the narrower when-in-use grant.
+        manager.requestWhenInUseAuthorization()
       #endif
     }
   }

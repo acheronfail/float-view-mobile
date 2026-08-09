@@ -1,0 +1,21 @@
+{
+  "target": "ios-physical",
+  "fixturePath": "/dev/cu.usbmodem1101",
+  "generatedAt": "2026-08-09T06:35:52.050Z",
+  "scenarios": [
+    {
+      "scenario": "background",
+      "revision": 837,
+      "locationCheckpoint": {
+        "authorization": "authorized",
+        "backgroundCapture": "available",
+        "beforeCount": 0,
+        "afterCount": 0,
+        "persistedDelta": 0,
+        "beforeSequence": 0,
+        "afterSequence": 0
+      },
+      "durationMs": 85531.802125
+    }
+  ]
+}

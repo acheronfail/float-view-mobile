@@ -24,6 +24,34 @@ final class FloatViewCoreRuntimeTests: XCTestCase {
     }
   }
 
+  func testPresentationReplacementKeepsTheSameRuntimeAndPump() throws {
+    let runtime = try FloatViewCoreRuntime()
+    let received = expectation(description: "commands use successive presentation generations")
+    received.expectedFulfillmentCount = 2
+    let capture = PresentationGenerationCapture()
+    try runtime.start { command in
+      XCTAssertFalse(Thread.isMainThread)
+      capture.store(
+        runtimeGeneration: command.runtimeGeneration,
+        presentationGeneration: command.presentationGeneration
+      )
+      try? runtime.complete(command)
+      received.fulfill()
+    }
+
+    runtime.replacePresentation(generation: 1)
+    try runtime.submitTestCommand(kind: 42, payload: Data([1]))
+    XCTAssertTrue(capture.waitForCount(1))
+    runtime.replacePresentation(generation: 2)
+    try runtime.submitTestCommand(kind: 43, payload: Data([2]))
+
+    wait(for: [received], timeout: 2)
+    XCTAssertGreaterThan(runtime.generation, 0)
+    XCTAssertEqual(capture.runtimeGenerations, [runtime.generation, runtime.generation])
+    XCTAssertEqual(capture.presentationGenerations, [1, 2])
+    try runtime.stop()
+  }
+
   func testCallerBuffersResizeCopyAndRejectDuplicateCompletion() throws {
     let runtime = try FloatViewCoreRuntime()
     let received = expectation(description: "large copied command")
@@ -100,5 +128,35 @@ private final class CommandCapture: @unchecked Sendable {
 
   func store(_ value: FloatViewHostCommand) {
     lock.withLock { command = value }
+  }
+}
+
+private final class PresentationGenerationCapture: @unchecked Sendable {
+  private let condition = NSCondition()
+  private var stored: [(runtime: UInt64, presentation: UInt64)] = []
+
+  var runtimeGenerations: [UInt64] {
+    condition.withLock { stored.map(\.runtime) }
+  }
+
+  var presentationGenerations: [UInt64] {
+    condition.withLock { stored.map(\.presentation) }
+  }
+
+  func store(runtimeGeneration: UInt64, presentationGeneration: UInt64) {
+    condition.withLock {
+      stored.append((runtimeGeneration, presentationGeneration))
+      condition.broadcast()
+    }
+  }
+
+  func waitForCount(_ count: Int) -> Bool {
+    condition.lock()
+    defer { condition.unlock() }
+    let deadline = Date().addingTimeInterval(2)
+    while stored.count < count {
+      if !condition.wait(until: deadline) { return false }
+    }
+    return true
   }
 }

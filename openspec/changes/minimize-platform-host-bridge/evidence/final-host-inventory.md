@@ -1,13 +1,20 @@
 # Final host inventory and verification
 
-Recorded after implementation on 2026-08-08. `just host-audit` excludes generated sources, dependencies, and build output and reports production and test code separately.
+Updated after the reconciled host implementation on 2026-08-09. `just
+host-audit` excludes generated sources, dependencies, and build output and
+reports production and test files separately. Line counts use the same baseline
+scope and include `Package.swift` in Swift production.
 
 | Host   | Baseline production | Final production |     Removed | Final tests |
 | ------ | ------------------: | ---------------: | ----------: | ----------: |
-| Swift  |               3,703 |            3,098 | 605 (16.3%) |         833 |
-| Kotlin |               3,368 |            2,892 | 476 (14.1%) |         698 |
+| Swift  |               3,703 |            3,250 | 453 (12.2%) |       1,143 |
+| Kotlin |               3,368 |            2,963 | 405 (12.0%) |       1,224 |
 
-The production hosts retain 30 Swift and 27 Kotlin source files, including the predictable per-capability entry files. The audit rejects native software peripherals, reverse bridge codecs, random transport aliases, unused saved-device APIs, obsolete layout paths, and any retained command missing from the 13-kind reachability manifest.
+The production hosts retain 30 Swift and 27 Kotlin source files, plus the Swift
+package declaration, including the predictable per-capability entry files. The
+audit rejects native software peripherals, reverse bridge codecs, random
+transport aliases, unused saved-device APIs, obsolete layout paths, and any
+retained command missing from the 13-kind reachability manifest.
 
 ## Apple ownership
 
@@ -18,6 +25,12 @@ The production hosts retain 30 Swift and 27 Kotlin source files, including the p
 | `CoreBluetoothAdapter.swift`, `FloatViewBluetoothPort.swift`, `FloatViewCoreRuntime.swift`, `FloatViewPlatformBridgeCodec.swift`, `FloatViewRuntimeBridgeAdapter.swift` | OS transport primitives, caller-owned C buffers, the single off-main pull worker, decoding of the 13 Rust commands, focused event submission, and presentation replacement. `FloatViewAppleRuntime` is the one shared iOS/macOS composition owner. No reverse production codec remains. |
 | `FloatViewRuntimeHost.swift`, `AppleSystemPresentation.swift`, per-host `FloatViewDocuments.swift`                                                                      | Canonically contained staging paths, native open/save/picker presentation, security-scoped bounded copies, and permission/settings presentation.                                                                                                                                        |
 | iOS and macOS `FloatView*` capability entries                                                                                                                           | Direct discoverable ownership seams for process/app lifecycle, startup configuration, WebKit ownership, native capabilities, and disposable frontend presentation.                                                                                                                      |
+
+`Package.swift` embeds `FloatViewMac-Info.plist` in the executable so the
+Bluetooth and location usage descriptions belong to the same shipped binary.
+The macOS location entry requests only when-in-use access; normal process
+lifetime, rather than a mobile background launch service, is its eligibility
+mechanism.
 
 ## Android ownership
 
@@ -38,6 +51,16 @@ The bridge/runtime files are larger than simple OS adapters because they contain
 - Rust receives focused Bluetooth, location, and lifecycle inputs; stale order is rejected within each channel and connection generation remains Bluetooth-owned.
 - The retained Swift/Kotlin Bluetooth callback value is now limited to five OS observations and three terminal connection states (`ready`, `failed`, `disconnected`). Replacing that single callback sink with five forwarding protocol methods would add host boilerplate without removing another mapping layer; all portable connection intent and intermediate state remain in Rust.
 - The Rust software host completes writes before delivering notifications, rejects prior VESC-generation responses, and shares the production actor/server/storage/shutdown graph.
-- `just verify` passes the Rust workspace, frontend, pure-C, generated-header, locked dependency, Swift/macOS, iOS simulator, Android emulator, browser/native conformance, and portable host-surface gates. Android's five connected instrumentation tests and debug/release JVM suites also pass after test-only injection and readiness hooks were made unavailable in release builds.
+- The refreshed focused gates pass the Rust workspace, frontend, pure-C,
+  Swift, Kotlin JVM, browser/mock, iOS Simulator, and Android emulator targets.
+  Android's 14 connected instrumentation tests pass on both the API-29 physical
+  device and API-36 emulator. The physical run found and fixed a late completion
+  racing bridge shutdown; completions invalidated by close are now ignored
+  without weakening duplicate/stale rejection while the runtime is active.
+  Full `just verify` remains the final task after the physical matrix closes.
 
-The only hardware-only evidence remains the explicit physical BLE checkpoint; it requires the three real platform targets and flashed fixture and is intentionally not inferred from software transport results.
+The explicit physical BLE, reconnect, background-runtime, frontend-replacement,
+stale-callback, Android/macOS document, and three-host appearance evidence is in
+`physical-checkpoints.md`. The only unresolved physical evidence is the iOS
+picker/share roundtrip and a persisted iPhone coordinate; neither is inferred
+from software transport or authorization alone.

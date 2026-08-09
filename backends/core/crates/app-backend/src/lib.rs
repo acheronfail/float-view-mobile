@@ -5043,6 +5043,150 @@ mod composition_tests {
     }
 
     #[test]
+    #[allow(clippy::too_many_lines)]
+    fn native_document_round_trip_succeeds_and_cleans_staging() {
+        let root = test_root("document-round-trip");
+        let catalog = Arc::new(CatalogStore::open(root.path()).expect("catalog"));
+        let sessions = Arc::new(SessionStore::new(Arc::clone(&catalog)));
+        sessions
+            .create(&NewSession {
+                session_id: "original",
+                job_id: "job-original",
+                device_history_id: "0102030405060708090a0b0c",
+                device_snapshot_json: r#"{"displayName":"Test board","vescUuid":"0102030405060708090a0b0c"}"#,
+                profile_snapshot_json: r#"{"battery":"18s"}"#,
+                profile_revision: 1,
+                started_at_millis: 100,
+                requested_idle_millis: 1_000,
+                effective_idle_millis: 1_000,
+                requested_riding_millis: 100,
+                effective_riding_millis: 100,
+            })
+            .expect("session");
+        sessions
+            .append_samples(
+                "original",
+                &[SessionSample {
+                    sequence: 1,
+                    observed_at_millis: 150,
+                    slow_observed_at_millis: None,
+                    monotonic_elapsed_millis: 50,
+                    ride_state: "riding".into(),
+                    package_state: Some("running".into()),
+                    package_mode: Some("normal".into()),
+                    raw_pack_voltage_v: Some(75.0),
+                    duty_cycle: Some(0.2),
+                    speed_kph: Some(12.0),
+                    extension_json: "{}".into(),
+                }],
+                150,
+            )
+            .expect("sample");
+        sessions.close("original", 200, "complete").expect("close");
+        let archive = catalog
+            .export_session(
+                "original",
+                "round-trip-source",
+                infra_sqlite_storage::ExportFormat::FloatViewArchive,
+            )
+            .expect("source archive");
+        let application = ApplicationActor::start(
+            RuntimeGeneration(10),
+            DeterministicClock::new(0, 100, 1),
+            DeterministicRandom::new(8),
+        )
+        .expect("actor");
+        let backend = NativeBackend::new(Arc::clone(&application), Arc::clone(&catalog), sessions)
+            .expect("backend");
+
+        backend
+            .dispatch(ContractRequest {
+                id: 1,
+                method: "session.import".into(),
+                params: json!({}),
+            })
+            .expect("present import");
+        let import_command = application
+            .try_host_command()
+            .expect("host channel")
+            .expect("import command");
+        let import_path = match &import_command.command {
+            HostCommand::PresentImport { staging_path, .. } => PathBuf::from(staging_path),
+            other => panic!("unexpected command: {other:?}"),
+        };
+        std::fs::copy(&archive.path, &import_path).expect("bounded host copy");
+        application
+            .complete(OperationCompletion {
+                generation: import_command.generation,
+                operation: import_command.operation,
+                status: CompletionStatus::Success,
+                payload: Vec::new(),
+            })
+            .expect("complete import");
+        let imported = backend
+            .dispatch(ContractRequest {
+                id: 2,
+                method: "state.get".into(),
+                params: json!({}),
+            })
+            .expect("imported state");
+        assert_eq!(
+            imported["documentOperation"]["status"], "completed",
+            "{imported}"
+        );
+        assert!(imported["documentOperation"]["sessionId"].is_string());
+        assert!(!import_path.exists());
+
+        backend
+            .dispatch(ContractRequest {
+                id: 3,
+                method: "session.export".into(),
+                params: json!({ "sessionId": "original", "format": "csv" }),
+            })
+            .expect("present export");
+        let export_command = application
+            .try_host_command()
+            .expect("host channel")
+            .expect("export command");
+        let (export_path, export_name) = match &export_command.command {
+            HostCommand::PresentExport {
+                staging_path,
+                display_name,
+                content_type,
+            } => {
+                assert!(display_name.starts_with("float-view-document-"));
+                assert!(display_name.ends_with(".csv"));
+                assert_eq!(content_type, "text/csv");
+                (PathBuf::from(staging_path), display_name.clone())
+            }
+            other => panic!("unexpected command: {other:?}"),
+        };
+        assert!(export_path.is_file());
+        application
+            .complete(OperationCompletion {
+                generation: export_command.generation,
+                operation: export_command.operation,
+                status: CompletionStatus::Success,
+                payload: Vec::new(),
+            })
+            .expect("complete export");
+        let exported = backend
+            .dispatch(ContractRequest {
+                id: 4,
+                method: "state.get".into(),
+                params: json!({}),
+            })
+            .expect("exported state");
+        assert_eq!(exported["documentOperation"]["status"], "completed");
+        assert_eq!(
+            exported["documentOperation"]["exportDisplayName"],
+            export_name
+        );
+        assert!(!export_path.exists());
+        application.stop().expect("stop");
+    }
+
+    #[test]
     fn deleting_one_saved_board_survives_restart_without_touching_another() {
         let root = test_root("multiple-boards");
         let catalog = Arc::new(CatalogStore::open(root.path()).expect("catalog"));

@@ -3,7 +3,7 @@ package fail.acheron.floatview.host
 import android.content.Context
 import fail.acheron.floatview.LoggingForegroundService
 
-// Capability status: incomplete — foreground-service evidence remains.
+// Capability status: implemented — foreground-service and physical background evidence pass.
 // Concrete OS owner: LoggingForegroundService.
 internal object FloatViewBackgroundExecution {
     fun setLoggingEligible(context: Context, enabled: Boolean): Boolean {

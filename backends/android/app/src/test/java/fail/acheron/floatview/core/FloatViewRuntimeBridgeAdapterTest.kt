@@ -83,6 +83,45 @@ class FloatViewRuntimeBridgeAdapterTest {
         assertEquals("ride.csv", host.exportDisplayName)
     }
 
+    @Test
+    fun mapsEveryDocumentTerminalResultAndKeepsAppearanceOutOfTheNativeBridge() {
+        val runtime = HostFakeRuntime()
+        val bluetooth = RustBluetoothPlatformAdapter(runtime, HostFakeBluetooth())
+        val location = HostFakeLocation()
+        val host = ControlledDocumentRuntimeHost()
+        val adapter = FloatViewRuntimeBridgeAdapter(runtime, bluetooth, location, host)
+
+        adapter.dispatch(hostCommand(31, 12) {
+            bytes("/data/user/0/fail.acheron.floatview/files/float-view/staging/import.tmp".encodeToByteArray(), 4096)
+            u8(1)
+            bytes("application/octet-stream".encodeToByteArray(), 128)
+            i64(1024)
+        })
+        host.finishImport(DocumentResult.CANCELLED)
+        adapter.dispatch(hostCommand(32, 13) {
+            bytes("/data/user/0/fail.acheron.floatview/files/float-view/exports/ride.csv".encodeToByteArray(), 4096)
+            bytes("ride.csv".encodeToByteArray(), 255)
+            bytes("text/csv".encodeToByteArray(), 128)
+        })
+        host.finishExport(DocumentResult.UNAVAILABLE)
+        adapter.dispatch(hostCommand(33, 12) {
+            bytes("/data/user/0/fail.acheron.floatview/files/float-view/staging/import-2.tmp".encodeToByteArray(), 4096)
+            u8(1)
+            bytes("application/octet-stream".encodeToByteArray(), 128)
+            i64(1024)
+        })
+        host.finishImport(DocumentResult.FAILED)
+
+        assertEquals(listOf(31L, 32L, 33L), runtime.completions.takeLast(3).map { it.first })
+        assertEquals(listOf(1, 3, 4), runtime.completions.takeLast(3).map { it.second })
+
+        adapter.updateLifecycle(foreground = false, backgroundEligible = true)
+        assertEquals(
+            PlatformEvent.Lifecycle(false, true),
+            runtime.events.last().event,
+        )
+    }
+
     private fun hostCommand(
         operation: Long,
         tag: Int,
@@ -189,5 +228,37 @@ private class HostFakeRuntimeHost : FloatViewRuntimeHostProtocol {
     ) {
         exportDisplayName = displayName
         completion(DocumentResult.SUCCESS)
+    }
+}
+
+private class ControlledDocumentRuntimeHost : FloatViewRuntimeHostProtocol {
+    private var importCompletion: ((DocumentResult) -> Unit)? = null
+    private var exportCompletion: ((DocumentResult) -> Unit)? = null
+
+    override fun setBackgroundLogging(enabled: Boolean) = true
+    override fun diagnostic(stage: String, code: String) = Unit
+    override fun presentNotificationsPermission() = true
+    override fun runtimeReady(endpoint: String, launchToken: String) = true
+    override fun presentImport(
+        stagingPath: String,
+        allowedContentTypes: List<String>,
+        maximumBytes: Long,
+        completion: (DocumentResult) -> Unit,
+    ) {
+        importCompletion = completion
+    }
+    override fun presentExport(
+        stagingPath: String,
+        displayName: String,
+        contentType: String,
+        completion: (DocumentResult) -> Unit,
+    ) {
+        exportCompletion = completion
+    }
+    fun finishImport(result: DocumentResult) {
+        requireNotNull(importCompletion).also { importCompletion = null }.invoke(result)
+    }
+    fun finishExport(result: DocumentResult) {
+        requireNotNull(exportCompletion).also { exportCompletion = null }.invoke(result)
     }
 }

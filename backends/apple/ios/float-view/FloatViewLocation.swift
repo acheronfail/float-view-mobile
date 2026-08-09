@@ -1,4 +1,4 @@
-// Capability status: incomplete — direct authorization-state delivery remains.
+// Capability status: implemented — direct authorization/background state and focused observation evidence pass.
 // Concrete OS owner: CoreLocationAdapter.
 
 enum FloatViewLocation {

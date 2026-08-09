@@ -4,6 +4,10 @@ import PackageDescription
 
 let coreLibraryDirectory = ProcessInfo.processInfo.environment["FLOAT_VIEW_CORE_LIBRARY_DIR"]
   ?? "../core/target/debug"
+let macInfoPlistPath = URL(fileURLWithPath: #filePath)
+  .deletingLastPathComponent()
+  .appendingPathComponent("FloatViewMac-Info.plist")
+  .path
 
 let package = Package(
   name: "FloatViewApple",
@@ -34,7 +38,15 @@ let package = Package(
       dependencies: ["FloatViewBackend", "FloatViewCoreBridge"],
       path: "macos",
       exclude: ["README.md"],
-      resources: [.copy("Resources")]
+      resources: [.copy("Resources")],
+      linkerSettings: [
+        .unsafeFlags([
+          "-Xlinker", "-sectcreate",
+          "-Xlinker", "__TEXT",
+          "-Xlinker", "__info_plist",
+          "-Xlinker", macInfoPlistPath,
+        ]),
+      ]
     ),
     .testTarget(
       name: "FloatViewBackendTests",

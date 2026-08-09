@@ -1,4 +1,4 @@
-// Capability status: incomplete — WebContent replacement evidence remains.
+// Capability status: implemented — physical WebContent replacement evidence passes.
 // Concrete owner: MacAppDelegate's disposable WKWebView presentation.
 
 enum FloatViewWebView {}

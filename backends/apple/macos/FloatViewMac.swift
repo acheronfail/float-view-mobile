@@ -90,15 +90,16 @@ final class MacRustRuntime: @unchecked Sendable {
   ) throws {
     let softwareTransport = ProcessInfo.processInfo.environment["FLOAT_VIEW_SOFTWARE_BACKEND"] == "1"
     let presentation = FloatViewDocuments.makePresenter()
-    let host = try FloatViewRuntimeHost.standard(presentation: presentation)
+    let configuredStorageRoot = ProcessInfo.processInfo.environment["FLOAT_VIEW_STORAGE_ROOT"]
+      .map { URL(fileURLWithPath: $0, isDirectory: true) }
+    let host = try FloatViewRuntimeHost.standard(
+      durableRoot: configuredStorageRoot,
+      backgroundLogging: FloatViewBackgroundExecution.setMobileBackgroundService,
+      presentation: presentation
+    )
     let requestedPort = ProcessInfo.processInfo.environment["FLOAT_VIEW_CONFORMANCE_PORT"]
       .flatMap(UInt16.init) ?? 0
-    let storageRoot: URL
-    if let configuredRoot = ProcessInfo.processInfo.environment["FLOAT_VIEW_STORAGE_ROOT"] {
-      storageRoot = URL(fileURLWithPath: configuredRoot, isDirectory: true)
-    } else {
-      storageRoot = try host.durableStorageRoot()
-    }
+    let storageRoot = try host.durableStorageRoot()
     runtime = try FloatViewAppleRuntime(
       requestedPort: requestedPort,
       softwareTransport: softwareTransport,
@@ -220,11 +221,13 @@ final class MacAppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
   }
 
   private func discardFrontend() {
-    window?.delegate = nil
+    let discardedWindow = window
+    window = nil
+    discardedWindow?.delegate = nil
     webView?.navigationDelegate = nil
     webView?.stopLoading()
     webView = nil
-    window = nil
+    discardedWindow?.close()
     trace("[FloatViewState] frontend state=stopped reason=window_closed")
   }
 }

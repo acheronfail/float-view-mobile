@@ -66,11 +66,22 @@ internal object NativeCore {
     external fun destroy(handle: Long): Int
 
     fun requireCompatibleLibrary() {
-        check(abiVersion() == EXPECTED_ABI_VERSION) {
-            "Rust core ABI mismatch at bounded stage: expected=$EXPECTED_ABI_VERSION actual=${abiVersion()}"
-        }
         val identity = ByteArray(EXPECTED_BUILD_ID.size)
-        check(buildIdentity(identity) == STATUS_OK && identity.contentEquals(EXPECTED_BUILD_ID)) {
+        requireCompatibleIdentity(abiVersion(), buildIdentity(identity), identity)
+    }
+
+    internal fun requireCompatibleIdentity(
+        actualAbiVersion: Int,
+        buildIdentityStatus: Int,
+        actualBuildIdentity: ByteArray,
+    ) {
+        check(actualAbiVersion == EXPECTED_ABI_VERSION) {
+            "Rust core ABI mismatch at bounded stage: expected=$EXPECTED_ABI_VERSION actual=$actualAbiVersion"
+        }
+        check(
+            buildIdentityStatus == STATUS_OK &&
+                actualBuildIdentity.contentEquals(EXPECTED_BUILD_ID),
+        ) {
             "Rust core build identity mismatch at bounded stage"
         }
     }

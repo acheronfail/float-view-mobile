@@ -1,4 +1,4 @@
-// Capability status: incomplete — automated edge cases and physical open/save evidence remain.
+// Capability status: implemented — bounded presenter tests and physical open/save roundtrip pass.
 // Concrete OS owner: shared AppleSystemPresentation's macOS panels.
 
 import FloatViewBackend

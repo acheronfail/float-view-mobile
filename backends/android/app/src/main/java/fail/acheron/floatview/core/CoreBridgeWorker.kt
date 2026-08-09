@@ -131,17 +131,18 @@ internal class ProcessCoreBridge(
         resultKind: Int,
         payload: ByteArray,
     ) {
-        check(!closed.get())
-        check(
-            NativeCore.complete(
-                handle,
-                generation[0],
-                command.operationId,
-                resultKind,
-                payload.copyOf(),
-            ) ==
-                STATUS_OK,
+        // OS presentation and adapter completions can arrive after process
+        // shutdown has invalidated their operation. They are no longer errors
+        // in the current runtime and must not crash the host.
+        if (closed.get()) return
+        val status = NativeCore.complete(
+            handle,
+            generation[0],
+            command.operationId,
+            resultKind,
+            payload.copyOf(),
         )
+        check(status == STATUS_OK || closed.get())
     }
 
     fun cancel(command: NativeHostCommand) {

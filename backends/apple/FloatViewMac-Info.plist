@@ -31,6 +31,8 @@
   <string>Float View uses Bluetooth to connect to and record data from your VESC device.</string>
   <key>NSHighResolutionCapable</key>
   <true/>
+  <key>NSLocationWhenInUseUsageDescription</key>
+  <string>Float View uses location to add an optional route to ride logs.</string>
   <key>NSPrincipalClass</key>
   <string>NSApplication</string>
 </dict>

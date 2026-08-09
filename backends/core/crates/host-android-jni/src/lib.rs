@@ -33,6 +33,14 @@ mod android {
     use jni::sys::{JNI_ERR, JNI_VERSION_1_6, jboolean, jdouble, jint, jlong};
     use jni::{JNIEnv, JavaVM, NativeMethod};
 
+    // These bounds mirror the inputs accepted immediately below the JNI layer
+    // by the private C ABI. Preflighting Java arrays prevents an unbounded JNI
+    // allocation before the shared Rust validation gets a chance to reject it.
+    const MAX_STORAGE_ROOT_BYTES: usize = 1024;
+    const MAX_FRONTEND_INDEX_BYTES: usize = FLOAT_VIEW_MAX_COMPLETION_PAYLOAD;
+    const MAX_PLATFORM_ASSOCIATION_BYTES: usize = 256;
+    const MAX_LOGICAL_NAME_BYTES: usize = 128;
+
     fn handle(raw: jlong) -> *mut FloatViewRuntime {
         ptr::with_exposed_provenance_mut(raw as usize)
     }
@@ -63,6 +71,16 @@ mod android {
         } else {
             Ok(length)
         }
+    }
+
+    fn copy_array(
+        env: &JNIEnv<'_>,
+        array: &JByteArray<'_>,
+        maximum: usize,
+    ) -> Result<Vec<u8>, jint> {
+        array_length(env, array, maximum)?;
+        env.convert_byte_array(array)
+            .map_err(|_| FLOAT_VIEW_STATUS_INVALID_ARGUMENT)
     }
 
     extern "system" fn abi_version(_env: JNIEnv<'_>, _class: JClass<'_>) -> jint {
@@ -166,10 +184,11 @@ mod android {
             {
                 return FLOAT_VIEW_STATUS_INVALID_ARGUMENT;
             }
-            let Ok(storage_root) = env.convert_byte_array(&storage_root) else {
+            let Ok(storage_root) = copy_array(&env, &storage_root, MAX_STORAGE_ROOT_BYTES) else {
                 return FLOAT_VIEW_STATUS_INVALID_ARGUMENT;
             };
-            let Ok(frontend_index) = env.convert_byte_array(&frontend_index) else {
+            let Ok(frontend_index) = copy_array(&env, &frontend_index, MAX_FRONTEND_INDEX_BYTES)
+            else {
                 return FLOAT_VIEW_STATUS_INVALID_ARGUMENT;
             };
             let mut generation = 0_u64;
@@ -212,10 +231,7 @@ mod android {
             if generation <= 0 || kind < 0 {
                 return FLOAT_VIEW_STATUS_INVALID_ARGUMENT;
             }
-            if array_length(&env, &payload, FLOAT_VIEW_MAX_COMMAND_PAYLOAD).is_err() {
-                return FLOAT_VIEW_STATUS_INVALID_ARGUMENT;
-            }
-            let Ok(bytes) = env.convert_byte_array(&payload) else {
+            let Ok(bytes) = copy_array(&env, &payload, FLOAT_VIEW_MAX_COMMAND_PAYLOAD) else {
                 return FLOAT_VIEW_STATUS_INVALID_ARGUMENT;
             };
             // SAFETY: `bytes` remains readable for the call and the ABI copies it.
@@ -247,10 +263,7 @@ mod android {
             if generation <= 0 || connection_generation <= 0 || adapter_order < 0 {
                 return FLOAT_VIEW_STATUS_INVALID_ARGUMENT;
             }
-            if array_length(&env, &payload, FLOAT_VIEW_MAX_COMMAND_PAYLOAD).is_err() {
-                return FLOAT_VIEW_STATUS_INVALID_ARGUMENT;
-            }
-            let Ok(bytes) = env.convert_byte_array(&payload) else {
+            let Ok(bytes) = copy_array(&env, &payload, FLOAT_VIEW_MAX_COMMAND_PAYLOAD) else {
                 return FLOAT_VIEW_STATUS_INVALID_ARGUMENT;
             };
             // SAFETY: `bytes` is call-scoped and the shared ABI copies it.
@@ -310,10 +323,11 @@ mod android {
             let Ok(runtime) = valid_handle(raw) else {
                 return FLOAT_VIEW_STATUS_INVALID_ARGUMENT;
             };
-            let Ok(association) = env.convert_byte_array(&association) else {
+            let Ok(association) = copy_array(&env, &association, MAX_PLATFORM_ASSOCIATION_BYTES)
+            else {
                 return FLOAT_VIEW_STATUS_INVALID_ARGUMENT;
             };
-            let Ok(name) = env.convert_byte_array(&name) else {
+            let Ok(name) = copy_array(&env, &name, MAX_LOGICAL_NAME_BYTES) else {
                 return FLOAT_VIEW_STATUS_INVALID_ARGUMENT;
             };
             if generation <= 0 || connection_generation < 0 || adapter_order < 0 {
@@ -520,10 +534,7 @@ mod android {
             if generation <= 0 || operation_id == 0 || result_kind < 0 {
                 return FLOAT_VIEW_STATUS_INVALID_ARGUMENT;
             }
-            if array_length(&env, &payload, FLOAT_VIEW_MAX_COMPLETION_PAYLOAD).is_err() {
-                return FLOAT_VIEW_STATUS_INVALID_ARGUMENT;
-            }
-            let Ok(bytes) = env.convert_byte_array(&payload) else {
+            let Ok(bytes) = copy_array(&env, &payload, FLOAT_VIEW_MAX_COMPLETION_PAYLOAD) else {
                 return FLOAT_VIEW_STATUS_INVALID_ARGUMENT;
             };
             // SAFETY: `bytes` remains readable for the call and the ABI copies it.

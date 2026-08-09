@@ -87,13 +87,21 @@ public final class FloatViewRuntimeHost: FloatViewRuntimeHostProtocol, @unchecke
   }
 
   public static func standard(
+    durableRoot configuredRoot: URL? = nil,
     fileManager: FileManager = .default,
+    backgroundLogging: @escaping @Sendable (Bool) -> Bool = { _ in false },
     presentation: AppleSystemPresentation? = nil
   ) throws -> FloatViewRuntimeHost {
-    guard let root = fileManager.urls(
-      for: .applicationSupportDirectory,
-      in: .userDomainMask
-    ).first else { throw FloatViewDocumentError.unavailable }
+    let durableRoot: URL
+    if let configuredRoot {
+      durableRoot = configuredRoot
+    } else {
+      guard let root = fileManager.urls(
+        for: .applicationSupportDirectory,
+        in: .userDomainMask
+      ).first else { throw FloatViewDocumentError.unavailable }
+      durableRoot = root.appending(path: "FloatView", directoryHint: .isDirectory)
+    }
     let notificationPresenter: @Sendable () -> Bool
     if let presentation {
       notificationPresenter = presentation.notificationPresenter
@@ -101,8 +109,9 @@ public final class FloatViewRuntimeHost: FloatViewRuntimeHostProtocol, @unchecke
       notificationPresenter = { false }
     }
     return FloatViewRuntimeHost(
-      durableRoot: root.appending(path: "FloatView", directoryHint: .isDirectory),
+      durableRoot: durableRoot,
       fileManager: fileManager,
+      backgroundLogging: backgroundLogging,
       notificationPresenter: notificationPresenter,
       documentPresenter: presentation?.documentPresenter,
       exportPresenter: presentation?.exportPresenter
@@ -220,6 +229,7 @@ public final class FloatViewRuntimeHost: FloatViewRuntimeHostProtocol, @unchecke
           written += count
         }
       }
+      guard total > 0 else { throw FloatViewDocumentError.ioFailure }
     } catch let error as FloatViewDocumentError {
       try? fileManager.removeItem(at: destination)
       throw error

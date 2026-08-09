@@ -11,8 +11,11 @@ import android.util.Log
 import android.webkit.ConsoleMessage
 import android.webkit.JavascriptInterface
 import android.webkit.ValueCallback
+import android.webkit.WebResourceError
+import android.webkit.WebResourceRequest
 import android.webkit.WebChromeClient
 import android.webkit.WebView
+import android.webkit.WebViewClient
 import android.widget.FrameLayout
 import fail.acheron.floatview.host.FloatViewAppearance
 
@@ -20,6 +23,8 @@ class MainActivity : Activity() {
     private var webView: WebView? = null
     private var fileChooserCallback: ValueCallback<Array<Uri>>? = null
     private var rustOrigin: String? = null
+    private var activityStarted = false
+    private var frontendLoadAttempts = 0
     private val frontendContainer by lazy { FrameLayout(this) }
     private val handler = Handler(Looper.getMainLooper())
     private val delayedTeardown = Runnable { destroyFrontend() }
@@ -45,6 +50,7 @@ class MainActivity : Activity() {
 
     override fun onStart() {
         super.onStart()
+        activityStarted = true
         if (BuildConfig.DEBUG) Log.d("FloatViewCore", "stage=activity_lifecycle code=start")
         handler.removeCallbacks(delayedTeardown)
         (application as FloatViewApplication).rustRuntime.updateLifecycle(foreground = true)
@@ -52,6 +58,7 @@ class MainActivity : Activity() {
     }
 
     override fun onStop() {
+        activityStarted = false
         if (BuildConfig.DEBUG) Log.d("FloatViewCore", "stage=activity_lifecycle code=stop")
         handler.removeCallbacks(delayedTeardown)
         handler.postDelayed(delayedTeardown, FRONTEND_BACKGROUND_GRACE_MS)
@@ -72,8 +79,9 @@ class MainActivity : Activity() {
 
     @SuppressLint("SetJavaScriptEnabled")
     private fun createFrontend() {
-        if (webView != null || isFinishing || isDestroyed) return
+        if (!activityStarted || webView != null || isFinishing || isDestroyed) return
         val origin = rustOrigin ?: return
+        frontendLoadAttempts = 1
         webView = WebView(this).also { view ->
             view.settings.javaScriptEnabled = true
             view.settings.domStorageEnabled = true
@@ -111,6 +119,30 @@ class MainActivity : Activity() {
                     return true
                 }
             }
+            view.webViewClient = object : WebViewClient() {
+                override fun onReceivedError(
+                    webView: WebView,
+                    request: WebResourceRequest,
+                    error: WebResourceError,
+                ) {
+                    super.onReceivedError(webView, request, error)
+                    if (
+                        request.isForMainFrame &&
+                        error.errorCode == ERROR_CONNECT &&
+                        frontendLoadAttempts < MAX_FRONTEND_LOAD_ATTEMPTS
+                    ) {
+                        val attempt = ++frontendLoadAttempts
+                        handler.postDelayed(
+                            {
+                                if (activityStarted && this@MainActivity.webView === webView) {
+                                    webView.loadUrl(origin)
+                                }
+                            },
+                            FRONTEND_RETRY_DELAY_MS * attempt,
+                        )
+                    }
+                }
+            }
             if (applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE != 0) {
                 view.addJavascriptInterface(FrontendPerformanceBridge(), "FloatViewPerformance")
             }
@@ -128,6 +160,7 @@ class MainActivity : Activity() {
     private fun destroyFrontend() {
         val current = webView ?: return
         webView = null
+        frontendLoadAttempts = 0
         frontendContainer.removeView(current)
         current.stopLoading()
         current.loadUrl("about:blank")
@@ -179,6 +212,8 @@ class MainActivity : Activity() {
 
     companion object {
         internal const val FRONTEND_BACKGROUND_GRACE_MS = 30_000L
+        private const val FRONTEND_RETRY_DELAY_MS = 250L
+        private const val MAX_FRONTEND_LOAD_ATTEMPTS = 8
         private const val FILE_CHOOSER_REQUEST_CODE = 0xF10A
     }
 

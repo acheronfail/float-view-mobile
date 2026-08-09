@@ -23,6 +23,43 @@ fun interface LocationPermissionRequester {
     fun request(permissions: Array<String>)
 }
 
+internal object AndroidLocationStatePolicy {
+    fun state(
+        providerEnabled: Boolean,
+        permissionRequested: Boolean,
+        foregroundGranted: Boolean,
+        backgroundGranted: Boolean,
+    ): LocationProviderState {
+        if (!providerEnabled) {
+            return LocationProviderState(
+                LocationProviderAuthorization.UNAVAILABLE,
+                LocationProviderBackgroundCapture.UNAVAILABLE,
+            )
+        }
+        if (!foregroundGranted) {
+            return LocationProviderState(
+                if (permissionRequested) {
+                    LocationProviderAuthorization.DENIED
+                } else {
+                    LocationProviderAuthorization.NOT_DETERMINED
+                },
+                LocationProviderBackgroundCapture.UNAVAILABLE,
+            )
+        }
+        return if (backgroundGranted) {
+            LocationProviderState(
+                LocationProviderAuthorization.AUTHORIZED,
+                LocationProviderBackgroundCapture.AVAILABLE,
+            )
+        } else {
+            LocationProviderState(
+                LocationProviderAuthorization.FOREGROUND_ONLY,
+                LocationProviderBackgroundCapture.FOREGROUND_ONLY,
+            )
+        }
+    }
+}
+
 class AndroidLocationProvider(
     context: Context,
     private val requester: LocationPermissionRequester,
@@ -44,34 +81,11 @@ class AndroidLocationProvider(
             else locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER) ||
                 locationManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER)
         }.getOrDefault(false)
-        if (!enabled) {
-            return LocationProviderState(
-                LocationProviderAuthorization.UNAVAILABLE,
-                LocationProviderBackgroundCapture.UNAVAILABLE,
-            )
-        }
-        if (!hasForegroundPermission()) {
-            return LocationProviderState(
-                if (preferences.getBoolean("requested", false)) {
-                    LocationProviderAuthorization.DENIED
-                } else {
-                    LocationProviderAuthorization.NOT_DETERMINED
-                },
-                LocationProviderBackgroundCapture.UNAVAILABLE,
-            )
-        }
-        val background = if (hasBackgroundPermission()) {
-            LocationProviderBackgroundCapture.AVAILABLE
-        } else {
-            LocationProviderBackgroundCapture.FOREGROUND_ONLY
-        }
-        return LocationProviderState(
-            if (background == LocationProviderBackgroundCapture.AVAILABLE) {
-                LocationProviderAuthorization.AUTHORIZED
-            } else {
-                LocationProviderAuthorization.FOREGROUND_ONLY
-            },
-            background,
+        return AndroidLocationStatePolicy.state(
+            providerEnabled = enabled,
+            permissionRequested = preferences.getBoolean("requested", false),
+            foregroundGranted = hasForegroundPermission(),
+            backgroundGranted = hasBackgroundPermission(),
         )
     }
 

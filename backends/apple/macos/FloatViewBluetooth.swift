@@ -1,4 +1,4 @@
-// Capability status: incomplete — physical reconnect evidence remains.
+// Capability status: implemented — the physical 16-scenario fixture matrix passes.
 // Concrete OS owner: shared CoreBluetoothAdapter.
 
 import FloatViewBackend

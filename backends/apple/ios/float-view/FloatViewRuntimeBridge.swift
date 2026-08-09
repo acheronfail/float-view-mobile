@@ -1,4 +1,4 @@
-// Capability status: incomplete — physical process-continuity evidence remains.
+// Capability status: implemented — one-runtime continuity passes simulator and physical gates.
 // Concrete owner: shared FloatViewAppleRuntime and FloatViewCoreRuntime.
 
 import Foundation
@@ -8,7 +8,10 @@ final class FloatViewRuntimeBridge: @unchecked Sendable {
 
   init(readiness: @escaping FloatViewRuntimeBridgeAdapter.RuntimeReadyHandler) throws {
     let presentation = FloatViewDocuments.makePresenter()
-    let host = try FloatViewRuntimeHost.standard(presentation: presentation)
+    let host = try FloatViewRuntimeHost.standard(
+      backgroundLogging: FloatViewBackgroundExecution.setLoggingActive,
+      presentation: presentation
+    )
     #if targetEnvironment(simulator)
       let softwareTransport = true
     #else

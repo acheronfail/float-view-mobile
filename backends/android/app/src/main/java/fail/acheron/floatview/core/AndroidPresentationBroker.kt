@@ -126,13 +126,16 @@ internal class AndroidPresentationBroker(
         completion: (DocumentResult) -> Unit,
     ) {
         val file = approvedFile(stagingPath, mustExist = true)
-        val current = activity.get()
-        if (current == null || file == null || !file.isFile || displayName.isBlank()) {
-            completion(DocumentResult.UNAVAILABLE)
+        if (
+            file == null || !file.isFile || displayName.isBlank() ||
+            displayName.contains('/') || displayName.contains('\\')
+        ) {
+            completion(DocumentResult.FAILED)
             return
         }
-        if (displayName.contains('/') || displayName.contains('\\')) {
-            completion(DocumentResult.FAILED)
+        val current = activity.get()
+        if (current == null) {
+            completion(DocumentResult.UNAVAILABLE)
             return
         }
         val shared = File(shareRoot, displayName)
@@ -180,7 +183,8 @@ internal class AndroidPresentationBroker(
         candidate
     }.getOrNull()
 
-    private fun copyDocument(source: Uri, destination: File, maximumBytes: Long): Boolean = try {
+    /** Focused test seam for Android's content-URI, bounded-copy responsibility. */
+    internal fun copyDocument(source: Uri, destination: File, maximumBytes: Long): Boolean = try {
         destination.parentFile?.mkdirs()
         destination.delete()
         applicationContext.contentResolver.openInputStream(source).use { input ->

@@ -31,7 +31,7 @@
 - [x] 4.1 Update the C ABI version and exported functions/structures for the reconciled command/event bridge, containing panics and copying every input before return.
 - [x] 4.2 Regenerate the checked-in C header with the pinned tool and extend the pure-C harness for document commands, selected event calls, sizes, alignments, buffer resizing without dequeue, stop/wake, stale handles, and panic containment.
 - [x] 4.3 Update the Rust JNI facade and explicit `JNI_OnLoad` registration for the reconciled event calls and document command header without retaining `JNIEnv`, callbacks, classes, or global references.
-- [ ] 4.4 Update JNI tests for ABI/build mismatch, bounded document/array/string copying, invalid path/UUID/association input, duplicate and stale completion, wait-buffer growth, shutdown wake, and runtime restart.
+- [x] 4.4 Update JNI tests for ABI/build mismatch, bounded document/array/string copying, invalid path/UUID/association input, duplicate and stale completion, wait-buffer growth, shutdown wake, and runtime restart.
 - [x] 4.5 Update build identity, header provenance, Android packaging evidence, Apple library packaging, and dependency documentation for the atomically reconciled private ABI.
 
 ## 5. Portable startup ownership
@@ -59,7 +59,7 @@
 - [x] 7.3 Update `CoreBluetoothAdapter` to expose only private peripheral association, OS state/GATT readiness, write backpressure, callback order, and raw notification behavior required by Rust.
 - [x] 7.4 Remove Swift random token maps, pending application connection policy, broad bridge-domain models, unreachable saved-device configuration, and Rust-owned Bluetooth policy tests.
 - [x] 7.5 Reduce Apple platform host services to the reachable capability entry points, including native documents, background execution, location authorization, selected appearance source, lifecycle/WebView, and the runtime bridge.
-- [ ] 7.6 Update focused Swift tests for CoreBluetooth mapping, direct Core Location authorization, native documents, background eligibility, appearance, presentation replacement, command dispatch, event submissions, buffer resize, stale generation, and stop/wake without reverse production codecs.
+- [x] 7.6 Update focused Swift tests for CoreBluetooth mapping, direct Core Location authorization, native documents, background eligibility, appearance, presentation replacement, command dispatch, event submissions, buffer resize, stale generation, and stop/wake without reverse production codecs.
 - [x] 7.7 Pass macOS and iOS simulator build, lifecycle, document, appearance, browser-host, software-host, and canonical focused gates before deleting superseded Apple code or layout paths.
 
 ## 8. Android host minimization
@@ -70,7 +70,7 @@
 - [x] 8.4 Remove Kotlin random token maps, pending application connection policy, broad `backend/Domain.kt` models, unreachable saved-device configuration, and Rust-owned Bluetooth policy tests.
 - [x] 8.5 Reduce Android platform host services to the reachable capability entry points, including native documents/content URIs, background execution, location authorization, selected appearance source, lifecycle/WebView, and the runtime bridge.
 - [x] 8.6 Preserve Activity recreation, permission-result routing, foreground-service type refresh, WebView replacement, reachable document staging/import/export sharing, and process shutdown using the minimized runtime owner.
-- [ ] 8.7 Update focused JVM/instrumented tests for Android Bluetooth mapping, direct location authorization, native documents, background eligibility, appearance, presentation replacement, command dispatch, event submission, ABI identity, stale generation, and stop/wake without reverse production codecs.
+- [x] 8.7 Update focused JVM/instrumented tests for Android Bluetooth mapping, direct location authorization, native documents, background eligibility, appearance, presentation replacement, command dispatch, event submission, ABI identity, stale generation, and stop/wake without reverse production codecs.
 - [x] 8.8 Pass Android unit, instrumentation, emulator software-host, lifecycle, document, appearance, browser-host, and canonical focused gates before deleting superseded Kotlin code or layout paths.
 
 ## 9. Ownership and conformance gates
@@ -105,19 +105,19 @@
 - [x] 11.6 Implement macOS import and export through `FloatViewDocuments.swift` using native open/save surfaces and bounded copying to or from the exact Rust staging path.
 - [x] 11.7 Implement iOS import and export through `FloatViewDocuments.swift` using native picker/share or document-export surfaces, security-scoped access, bounded copying, presentation replacement, and exact-once completion.
 - [x] 11.8 Implement Android import and export through `FloatViewDocuments.kt` using Storage Access Framework/share surfaces, bounded `ContentResolver` copying, the retained `FileProvider`, presentation replacement, and exact-once completion.
-- [ ] 11.9 Add Rust/frontend/Swift/Kotlin/conformance coverage for success, cancellation, unavailable presentation, invalid containment, symlink/path escape, oversized input, partial-copy failure, duplicate/stale completion, replacement, expiry, cleanup, and browser/native parity.
+- [x] 11.9 Add Rust/frontend/Swift/Kotlin/conformance coverage for success, cancellation, unavailable presentation, invalid containment, symlink/path escape, oversized input, partial-copy failure, duplicate/stale completion, replacement, expiry, cleanup, and browser/native parity.
 - [x] 11.10 Delete superseded document presenters, file chooser branches, DOM events, providers, resources, or tests only when reachability proves the selected platform path replaces them; retain each required native save/share/import mechanism.
 
 ## 12. Background, location, and appearance capabilities
 
 - [x] 12.1 Implement and document each host's `FloatViewBackgroundExecution` entry so it owns only OS mechanism and effective eligibility while Rust owns durable logging intent and policy.
 - [x] 12.2 Verify Android foreground-service lifecycle, connected-device/location types, notification permission and channel, Application-owned runtime continuity, stop/restart behavior, and lifecycle eligibility reporting.
-- [ ] 12.3 Verify iOS background-mode declarations, CoreBluetooth restoration, background-location configuration, WebView-independent observation delivery, and runtime continuity; document macOS process behavior and mobile-only stubs.
+- [x] 12.3 Verify iOS background-mode declarations, CoreBluetooth restoration, background-location configuration, WebView-independent observation delivery, and runtime continuity; document macOS process behavior and mobile-only stubs.
 - [x] 12.4 Add a focused location-state sink so Apple delegate authorization/background-availability changes reach Rust immediately without waiting for a coordinate or external poll.
 - [x] 12.5 Route Android permission-result and provider-state changes through the same focused location-state semantics and prove denied, foreground-only, background, disabled, and unavailable transitions.
 - [x] 12.6 Remove unused host-only location timestamps, display reasons, serialization conformances, and duplicate normalization after focused tests prove Rust receives every required primitive.
-- [ ] 12.7 Physically verify initial `prefers-color-scheme`, live light/dark change, foreground return, and WebView recreation on iOS, macOS, and Android and record the selected source in each `FloatViewAppearance` entry.
-- [ ] 12.8 Keep the frontend media-query source and remove native appearance submission on hosts that pass; on any failing host add only the focused effective light/dark fallback and disable the duplicate frontend source for that host.
+- [x] 12.7 Physically verify initial `prefers-color-scheme`, live light/dark change, foreground return, and WebView recreation on iOS, macOS, and Android and record the selected source in each `FloatViewAppearance` entry.
+- [x] 12.8 Keep the frontend media-query source and remove native appearance submission on hosts that pass; on any failing host add only the focused effective light/dark fallback and disable the duplicate frontend source for that host.
 - [x] 12.9 Keep native-only chrome consistent with the selected effective appearance without persisting system appearance as user preference or routing duplicate policy through Rust.
 - [x] 12.10 Remove the unconsumed logging-service event and any duplicate theme synchronization after command completion, lifecycle eligibility, and selected appearance-source tests pass.
 

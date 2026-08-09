@@ -4,6 +4,20 @@ import Foundation
 import XCTest
 
 final class FloatViewRuntimeBridgeAdapterTests: XCTestCase {
+  func testStandardHostUsesConfiguredStartupRootForStorageAndDocumentContainment() throws {
+    let root = FileManager.default.temporaryDirectory.appending(
+      path: "float-view-configured-root-\(UUID().uuidString)", directoryHint: .isDirectory
+    )
+    defer { try? FileManager.default.removeItem(at: root) }
+
+    let host = try FloatViewRuntimeHost.standard(durableRoot: root)
+
+    XCTAssertEqual(
+      try host.durableStorageRoot().standardizedFileURL,
+      root.standardizedFileURL
+    )
+  }
+
   func testBluetoothRelayWaitsForReadinessAndReplaysCurrentStateExactlyOnce() {
     let relay = FloatViewBluetoothEventRelay()
     let events = BluetoothEventCapture()
@@ -314,6 +328,89 @@ final class FloatViewRuntimeBridgeAdapterTests: XCTestCase {
     wait(for: [completed], timeout: 1)
   }
 
+  func testBoundedSecurityScopedCopySucceedsAndCleansFailedPartialFiles() throws {
+    let root = FileManager.default.temporaryDirectory.appending(
+      path: "float-view-document-copy-\(UUID().uuidString)", directoryHint: .isDirectory
+    )
+    defer { try? FileManager.default.removeItem(at: root) }
+    let source = root.appending(path: "selected.floatview")
+    let destination = root.appending(path: "staging/import.tmp")
+    try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+    try Data([1, 2, 3, 4]).write(to: source)
+
+    try FloatViewRuntimeHost.copySecurityScopedDocument(
+      source: source, destination: destination, maximumBytes: 4
+    )
+    XCTAssertEqual(try Data(contentsOf: destination), Data([1, 2, 3, 4]))
+
+    XCTAssertThrowsError(try FloatViewRuntimeHost.copySecurityScopedDocument(
+      source: source, destination: destination, maximumBytes: 3
+    )) { error in
+      XCTAssertEqual(error as? FloatViewDocumentError, .payloadTooLarge)
+    }
+    XCTAssertFalse(FileManager.default.fileExists(atPath: destination.path))
+
+    XCTAssertThrowsError(try FloatViewRuntimeHost.copySecurityScopedDocument(
+      source: root.appending(path: "missing.floatview"),
+      destination: destination,
+      maximumBytes: 4
+    )) { error in
+      XCTAssertEqual(error as? FloatViewDocumentError, .ioFailure)
+    }
+    XCTAssertFalse(FileManager.default.fileExists(atPath: destination.path))
+  }
+
+  func testDocumentTerminalResultsMapExactlyAndAppearanceStaysOutOfTheNativeBridge() throws {
+    let runtime = FakePlatformRuntime(generation: 77)
+    let host = ControlledDocumentHost()
+    let adapter = FloatViewRuntimeBridgeAdapter(
+      runtime: runtime,
+      bluetooth: FakeBluetoothPort(),
+      location: FakeLocationPort(),
+      platformHost: host
+    )
+
+    try adapter.dispatch(hostCommand(
+      operation: 31,
+      command: .presentImport(
+        stagingPath: "/tmp/import.floatview",
+        allowedContentTypes: ["application/octet-stream"],
+        maximumBytes: 1024
+      )
+    ))
+    host.finishImport(.failure(.cancelled))
+    try adapter.dispatch(hostCommand(
+      operation: 32,
+      command: .presentExport(
+        stagingPath: "/tmp/export.floatview",
+        displayName: "ride.floatview",
+        contentType: "application/octet-stream"
+      )
+    ))
+    host.finishExport(.failure(.unavailable))
+    try adapter.dispatch(hostCommand(
+      operation: 33,
+      command: .presentImport(
+        stagingPath: "/tmp/import-2.floatview",
+        allowedContentTypes: ["application/octet-stream"],
+        maximumBytes: 1024
+      )
+    ))
+    host.finishImport(.failure(.payloadTooLarge))
+
+    XCTAssertEqual(runtime.completions.map(\.operation), [31, 32, 33])
+    XCTAssertEqual(runtime.completions.map(\.resultKind), [1, 3, 4])
+
+    // Effective system appearance is intentionally frontend-owned on Apple.
+    // The focused native event vocabulary contains lifecycle eligibility but
+    // no theme/appearance event or duplicate persisted-preference path.
+    adapter.updateLifecycle(foreground: true, backgroundEligible: false)
+    XCTAssertEqual(runtime.events.last?.event, .lifecycle(
+      foreground: true,
+      backgroundEligible: false
+    ))
+  }
+
   private func hostCommand(
     generation: UInt64 = 77,
     operation: UInt64,
@@ -587,5 +684,53 @@ private final class FakeRuntimeHost: FloatViewRuntimeHostProtocol, @unchecked Se
 
   func presentNotificationsPermission() -> Bool {
     true
+  }
+}
+
+private final class ControlledDocumentHost: FloatViewRuntimeHostProtocol, @unchecked Sendable {
+  private let lock = NSLock()
+  private var importCompletion: (@Sendable (Result<Void, FloatViewDocumentError>) -> Void)?
+  private var exportCompletion: (@Sendable (Result<Void, FloatViewDocumentError>) -> Void)?
+
+  func setBackgroundLogging(_: Bool) -> Bool {
+    true
+  }
+
+  func presentNotificationsPermission() -> Bool {
+    true
+  }
+
+  func presentImport(
+    stagingPath _: String,
+    allowedContentTypes _: [String],
+    maximumBytes _: UInt64,
+    completion: @escaping @Sendable (Result<Void, FloatViewDocumentError>) -> Void
+  ) {
+    lock.withLock { importCompletion = completion }
+  }
+
+  func presentExport(
+    stagingPath _: String,
+    displayName _: String,
+    contentType _: String,
+    completion: @escaping @Sendable (Result<Void, FloatViewDocumentError>) -> Void
+  ) {
+    lock.withLock { exportCompletion = completion }
+  }
+
+  func finishImport(_ result: Result<Void, FloatViewDocumentError>) {
+    let completion = lock.withLock {
+      defer { importCompletion = nil }
+      return importCompletion
+    }
+    completion?(result)
+  }
+
+  func finishExport(_ result: Result<Void, FloatViewDocumentError>) {
+    let completion = lock.withLock {
+      defer { exportCompletion = nil }
+      return exportCompletion
+    }
+    completion?(result)
   }
 }

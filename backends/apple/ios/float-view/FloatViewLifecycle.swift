@@ -1,4 +1,4 @@
-// Capability status: incomplete — reconciled lifecycle evidence remains.
+// Capability status: implemented — physical background/foreground and scene replacement evidence pass.
 // Concrete owner: RustAppBackend, retained across disposable SwiftUI views.
 
 import SwiftUI

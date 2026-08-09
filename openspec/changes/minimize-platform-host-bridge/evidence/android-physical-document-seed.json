@@ -1,0 +1,17 @@
+{
+  "target": "android-physical",
+  "fixturePath": "/dev/cu.usbmodem1101",
+  "generatedAt": "2026-08-09T06:18:56.120Z",
+  "scenarios": [
+    {
+      "scenario": "identity",
+      "revision": 84,
+      "durationMs": 10708.276582999999
+    },
+    {
+      "scenario": "ride",
+      "revision": 157,
+      "durationMs": 11999.791875000003
+    }
+  ]
+}

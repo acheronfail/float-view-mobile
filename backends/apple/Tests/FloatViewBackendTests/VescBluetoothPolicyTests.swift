@@ -1,6 +1,22 @@
+import CoreBluetooth
 @testable import FloatViewBackend
 import Foundation
 import Testing
+
+@Test
+func coreBluetoothOsStatesMapWithoutApplicationPolicy() {
+  #expect(CoreBluetoothAdapter.radioState(.unknown) == .unknown)
+  #expect(CoreBluetoothAdapter.radioState(.resetting) == .resetting)
+  #expect(CoreBluetoothAdapter.radioState(.unsupported) == .unsupported)
+  #expect(CoreBluetoothAdapter.radioState(.unauthorized) == .unknown)
+  #expect(CoreBluetoothAdapter.radioState(.poweredOff) == .poweredOff)
+  #expect(CoreBluetoothAdapter.radioState(.poweredOn) == .poweredOn)
+
+  #expect(CoreBluetoothAdapter.permissionState(.notDetermined) == .notDetermined)
+  #expect(CoreBluetoothAdapter.permissionState(.restricted) == .restricted)
+  #expect(CoreBluetoothAdapter.permissionState(.denied) == .denied)
+  #expect(CoreBluetoothAdapter.permissionState(.allowedAlways) == .granted)
+}
 
 @Test
 func bluetoothWritesUseDefaultAndEnlargedPayloadsWithinQueueBounds() {

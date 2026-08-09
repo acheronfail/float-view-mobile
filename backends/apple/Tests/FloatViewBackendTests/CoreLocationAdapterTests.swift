@@ -4,6 +4,54 @@ import Foundation
 import Testing
 
 @Test
+func coreLocationOsAuthorizationMapsDirectlyWithoutWaitingForCoordinates() {
+  #expect(CoreLocationAdapter.mappedState(
+    servicesEnabled: false,
+    authorization: .authorizedAlways
+  ) == LocationProviderState(
+    authorization: .unavailable,
+    backgroundCapture: .unavailable
+  ))
+  #expect(CoreLocationAdapter.mappedState(
+    servicesEnabled: true,
+    authorization: .notDetermined
+  ) == LocationProviderState(
+    authorization: .notDetermined,
+    backgroundCapture: .unavailable
+  ))
+  #expect(CoreLocationAdapter.mappedState(
+    servicesEnabled: true,
+    authorization: .denied
+  ) == LocationProviderState(
+    authorization: .denied,
+    backgroundCapture: .unavailable
+  ))
+  #expect(CoreLocationAdapter.mappedState(
+    servicesEnabled: true,
+    authorization: .restricted
+  ) == LocationProviderState(
+    authorization: .restricted,
+    backgroundCapture: .unavailable
+  ))
+  #expect(CoreLocationAdapter.mappedState(
+    servicesEnabled: true,
+    authorization: .authorizedAlways
+  ) == LocationProviderState(
+    authorization: .authorized,
+    backgroundCapture: .available
+  ))
+  #if os(iOS)
+    #expect(CoreLocationAdapter.mappedState(
+      servicesEnabled: true,
+      authorization: .authorizedWhenInUse
+    ) == LocationProviderState(
+      authorization: .foregroundOnly,
+      backgroundCapture: .foregroundOnly
+    ))
+  #endif
+}
+
+@Test
 func coreLocationObservationDeliveryLeavesTheDelegateThread() {
   let adapter = CoreLocationAdapter()
   let delivery = LocationDeliveryCapture()

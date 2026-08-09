@@ -90,6 +90,9 @@ check_capability_host android \
     backends/android/app/src/main/java/fail/acheron/floatview/host \
     backends/android/app/src/main/java/fail/acheron/floatview/host/README.md kt
 
+rg -q 'NSLocationWhenInUseUsageDescription' backends/apple/FloatViewMac-Info.plist
+rg -q '__info_plist' backends/apple/Package.swift
+
 for capability in \
     'Bluetooth transport' \
     'Background execution' \

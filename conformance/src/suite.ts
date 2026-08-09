@@ -721,6 +721,22 @@ export function assertState(state: AppState) {
   assert.ok(['available', 'foregroundOnly', 'unavailable'].includes(state.location.backgroundCapture));
   assert.ok(['system', 'light', 'dark'].includes(state.settings.themePreference));
   assert.ok(['metric', 'imperial'].includes(state.settings.unitPreference));
+  const document = state.documentOperation;
+  if (document) {
+    assert.ok(document.operationId.length > 0 && document.operationId.length <= 128);
+    assert.ok(document.kind === 'import' || document.kind === 'export');
+    assert.ok(['presenting', 'completed', 'cancelled', 'failed'].includes(document.status));
+    assert.ok(
+      document.error === null || (typeof document.error.code === 'string' && typeof document.error.message === 'string')
+    );
+    assert.ok(document.exportDisplayName === null || typeof document.exportDisplayName === 'string');
+    assert.ok(document.sessionId === null || typeof document.sessionId === 'string');
+    if (document.status === 'failed') assert.ok(document.error);
+    if (document.sessionId !== null) {
+      assert.equal(document.kind, 'import');
+      assert.equal(document.status, 'completed');
+    }
+  }
 
   const active = state.activeConnection;
   if (!active) return;

@@ -56,8 +56,8 @@ public final class CoreBluetoothAdapter: NSObject, BluetoothPort, @unchecked Sen
   public func currentState() -> BluetoothState {
     BluetoothState(
       radio: Self.radioState(central.state),
-      scanPermission: Self.permissionState(),
-      connectPermission: Self.permissionState()
+      scanPermission: Self.permissionState(CBManager.authorization),
+      connectPermission: Self.permissionState(CBManager.authorization)
     )
   }
 
@@ -254,7 +254,7 @@ public final class CoreBluetoothAdapter: NSObject, BluetoothPort, @unchecked Sen
     return String("\(event):\(value.domain):\(value.code)".prefix(160))
   }
 
-  private static func radioState(_ state: CBManagerState) -> BluetoothRadioState {
+  static func radioState(_ state: CBManagerState) -> BluetoothRadioState {
     switch state {
     case .unknown: .unknown
     case .resetting: .resetting
@@ -266,8 +266,8 @@ public final class CoreBluetoothAdapter: NSObject, BluetoothPort, @unchecked Sen
     }
   }
 
-  private static func permissionState() -> BluetoothPermissionState {
-    switch CBManager.authorization {
+  static func permissionState(_ authorization: CBManagerAuthorization) -> BluetoothPermissionState {
+    switch authorization {
     case .notDetermined: .notDetermined
     case .restricted: .restricted
     case .denied: .denied

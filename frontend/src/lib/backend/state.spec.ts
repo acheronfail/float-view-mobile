@@ -68,6 +68,7 @@ class FakeClient {
   isOpen = true;
   state = structuredClone(initial);
   locationRequests: string[] = [];
+  documentRequests: Array<{ method: 'session.import' | 'session.export'; params: unknown }> = [];
   pruneRequests: Array<{ method: string; scope: string; sessionId?: string; targetResolutionSeconds: number }> = [];
   prunedResolution: number | null = null;
   private handler?: (state: AppState) => void;
@@ -186,6 +187,28 @@ class FakeClient {
             committedLocationElapsedMs: 0,
           },
           location: { available: false, count: 0, lastSequence: 0, lastElapsedMs: 0, status: 'disabled' },
+        };
+        break;
+      case 'session.import':
+        this.documentRequests.push({ method, params });
+        result = {
+          operationId: 'document-import-1',
+          kind: 'import',
+          status: 'presenting',
+          error: null,
+          exportDisplayName: null,
+          sessionId: null,
+        };
+        break;
+      case 'session.export':
+        this.documentRequests.push({ method, params });
+        result = {
+          operationId: 'document-export-1',
+          kind: 'export',
+          status: 'presenting',
+          error: null,
+          exportDisplayName: 'ride.csv',
+          sessionId: null,
         };
         break;
       case 'session.prune.preview': {
@@ -412,6 +435,72 @@ describe('BackendState', () => {
     expect(store.sessionMetadata?.recordedSampleCount).toBe(2);
     store.closeSession();
     expect(store.sessionMetadata).toBeNull();
+    store.close();
+  });
+
+  it('routes native documents through Rust state while browser clients own only upload and download', async () => {
+    const client = new FakeClient();
+    const store = new BackendState(
+      async () => ({ webSocketUrl: 'ws://test', platform: 'ios' }),
+      async () => client as unknown as ApiClient
+    );
+    await store.connect();
+    await store.openSession('session-1');
+
+    await store.exportSession('csv');
+    await store.importSession();
+    expect(client.documentRequests).toEqual([
+      { method: 'session.export', params: { sessionId: 'session-1', format: 'csv' } },
+      { method: 'session.import', params: {} },
+    ]);
+    expect(store.exportStatus).toBe('ride.csv is ready to save or share.');
+    expect(store.sessionImporting).toBe(true);
+
+    client.state = {
+      ...client.state,
+      revision: 2,
+      documentOperation: {
+        operationId: 'document-import-1',
+        kind: 'import',
+        status: 'cancelled',
+        error: null,
+        exportDisplayName: null,
+        sessionId: null,
+      },
+    };
+    client.emitState();
+    expect(store.sessionImporting).toBe(false);
+    expect(store.error).toBeNull();
+
+    client.state = {
+      ...client.state,
+      revision: 3,
+      documentOperation: {
+        operationId: 'document-export-2',
+        kind: 'export',
+        status: 'failed',
+        error: { code: 'unavailable', message: 'Document presentation is unavailable' },
+        exportDisplayName: 'ride.csv',
+        sessionId: null,
+      },
+    };
+    client.emitState();
+    expect(store.error).toBe('Document presentation is unavailable');
+
+    client.state = {
+      ...client.state,
+      revision: 4,
+      documentOperation: {
+        operationId: 'document-export-3',
+        kind: 'export',
+        status: 'completed',
+        error: null,
+        exportDisplayName: 'ride.csv',
+        sessionId: null,
+      },
+    };
+    client.emitState();
+    expect(store.exportStatus).toBe('ride.csv saved or shared.');
     store.close();
   });
 });

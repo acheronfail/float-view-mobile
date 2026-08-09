@@ -40,3 +40,10 @@ ABI version 4 and build identity `float-view-abi04` are generated from
 Apple exported-symbol allowlist, Android JNI registration and packaging
 allowlist are updated atomically. Startup inputs and focused event calls copy
 bounded caller-owned buffers; no native software-transport dependency remains.
+
+No dependency was added for native documents, appearance, background, or
+location. The macOS SwiftPM executable embeds
+`backends/apple/FloatViewMac-Info.plist` as `__TEXT,__info_plist`, so its
+Bluetooth and when-in-use location descriptions are part of the executable
+that links ABI 4. The iOS target retains its Xcode `App-Info.plist`, and Android
+continues to package the four audited Rust ABIs through Gradle.
