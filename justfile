@@ -30,7 +30,8 @@ core-abi-audit: apple-rust-codec
     expected="$(printf '%s\n' \
       float_view_vesc_frame_abi_version \
       float_view_vesc_frame_decode_exact \
-      float_view_vesc_frame_encode)"
+      float_view_vesc_frame_encode \
+      float_view_vesc_frame_stream_scan_next)"
     [[ "$actual" == "$expected" ]] || {
       echo 'Unexpected Float View frame-codec ABI symbols:' >&2
       printf '%s\n' "$actual" >&2

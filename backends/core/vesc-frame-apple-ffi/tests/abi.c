@@ -14,8 +14,10 @@ static const uint8_t short_frame[] = {
 int main(void) {
   assert(float_view_vesc_frame_abi_version() ==
          FLOAT_VIEW_VESC_FRAME_ABI_VERSION);
+  assert(FLOAT_VIEW_VESC_FRAME_ABI_VERSION == 2);
   assert(FLOAT_VIEW_VESC_FRAME_STATUS_OK == 0);
   assert(FLOAT_VIEW_VESC_FRAME_STATUS_INTERNAL_FAILURE == 6);
+  assert(FLOAT_VIEW_VESC_FRAME_STATUS_NEED_MORE_INPUT == 7);
 
   uint8_t frame[FLOAT_VIEW_VESC_FRAME_MAX_FRAME_BYTES] = {0};
   size_t frame_length = 0;
@@ -86,6 +88,70 @@ int main(void) {
   assert(float_view_vesc_frame_decode_exact(
              corrupt, sizeof(corrupt), payload, sizeof(payload),
              &payload_length) == FLOAT_VIEW_VESC_FRAME_STATUS_INVALID_FRAME);
+
+  uint8_t stream[2 + sizeof(short_frame) * 2] = {0xff, 0};
+  memcpy(stream + 2, short_frame, sizeof(short_frame));
+  memcpy(stream + 2 + sizeof(short_frame), short_frame, sizeof(short_frame));
+  uint8_t unchanged[sizeof(stream)];
+  memcpy(unchanged, stream, sizeof(stream));
+  size_t scan_offset = SIZE_MAX;
+  size_t scan_length = SIZE_MAX;
+  size_t consumed_length = SIZE_MAX;
+  assert(float_view_vesc_frame_stream_scan_next(
+             stream, sizeof(stream), &scan_offset, &scan_length,
+             &consumed_length) == FLOAT_VIEW_VESC_FRAME_STATUS_OK);
+  assert(scan_offset == 2);
+  assert(scan_length == sizeof(short_frame));
+  assert(consumed_length == 2 + sizeof(short_frame));
+  assert(memcmp(stream, unchanged, sizeof(stream)) == 0);
+
+  const uint8_t split_header[] = {0xff, 3, 0};
+  assert(float_view_vesc_frame_stream_scan_next(
+             split_header, sizeof(split_header), &scan_offset, &scan_length,
+             &consumed_length) ==
+         FLOAT_VIEW_VESC_FRAME_STATUS_NEED_MORE_INPUT);
+  assert(scan_offset == 0 && scan_length == 0 && consumed_length == 1);
+
+  const uint8_t oversized_declaration[] = {0xff, 3, 0x10, 0x01};
+  assert(float_view_vesc_frame_stream_scan_next(
+             oversized_declaration, sizeof(oversized_declaration),
+             &scan_offset, &scan_length, &consumed_length) ==
+         FLOAT_VIEW_VESC_FRAME_STATUS_INPUT_TOO_LARGE);
+  assert(scan_offset == 0 && scan_length == 0 && consumed_length == 2);
+
+  assert(float_view_vesc_frame_stream_scan_next(
+             (const uint8_t *)1, FLOAT_VIEW_VESC_FRAME_MAX_STREAM_BYTES + 1,
+             &scan_offset, &scan_length, &consumed_length) ==
+         FLOAT_VIEW_VESC_FRAME_STATUS_INPUT_TOO_LARGE);
+  assert(scan_offset == 0 && scan_length == 0 &&
+         consumed_length == FLOAT_VIEW_VESC_FRAME_MAX_STREAM_BYTES + 1);
+
+  scan_offset = 11;
+  scan_length = 22;
+  consumed_length = 33;
+  assert(float_view_vesc_frame_stream_scan_next(
+             short_frame, sizeof(short_frame), NULL, &scan_length,
+             &consumed_length) == FLOAT_VIEW_VESC_FRAME_STATUS_INVALID_ARGUMENT);
+  assert(scan_offset == 11 && scan_length == 22 && consumed_length == 33);
+  assert(float_view_vesc_frame_stream_scan_next(
+             short_frame, sizeof(short_frame), &scan_offset, &scan_offset,
+             &consumed_length) == FLOAT_VIEW_VESC_FRAME_STATUS_INVALID_ARGUMENT);
+  assert(scan_offset == 11 && scan_length == 22 && consumed_length == 33);
+  assert(float_view_vesc_frame_stream_scan_next(
+             (const uint8_t *)&scan_offset, sizeof(scan_offset), &scan_offset,
+             &scan_length, &consumed_length) ==
+         FLOAT_VIEW_VESC_FRAME_STATUS_INVALID_ARGUMENT);
+  assert(scan_offset == 11 && scan_length == 22 && consumed_length == 33);
+
+  union {
+    max_align_t alignment;
+    uint8_t bytes[sizeof(size_t) + 1];
+  } misaligned;
+  assert(float_view_vesc_frame_stream_scan_next(
+             short_frame, sizeof(short_frame),
+             (size_t *)(void *)(misaligned.bytes + 1), &scan_length,
+             &consumed_length) == FLOAT_VIEW_VESC_FRAME_STATUS_INVALID_ARGUMENT);
+  assert(scan_offset == 11 && scan_length == 22 && consumed_length == 33);
 
   return 0;
 }

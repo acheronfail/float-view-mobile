@@ -7,11 +7,11 @@
 
 ## 2. Extend the audited Apple ABI
 
-- [ ] 2.1 Bump the fixed ABI version and extend the hand-written C header with one stream-scan operation, an explicit need-more-input status, primitive frame-offset/frame-length/consumed-length outputs, and documented caller ownership and bounds.
-- [ ] 2.2 Implement the scanner export with pre-dereference null, alignment, distinct-region, overlap, and input-bound validation plus fixed status mapping and panic containment; retain no pointer or allocation after the call.
-- [ ] 2.3 Extend Rust bridge tests and the compiled C harness across scanner success/incomplete/error outcomes, immutable inputs, output initialization and bounds, invalid caller regions, exact consumption values, malformed recovery, overflow, and contained internal failure.
-- [ ] 2.4 Change the ABI/version audit to require exactly version, encode, exact-decode, and stream-scan application symbols and to reject a missing, stale, or additional entry point.
-- [ ] 2.5 Prove the versioned four-symbol archive builds from source for clean macOS Debug/Release, iOS simulator, and unsigned iOS device configurations without changing the existing target matrix or committing native artifacts.
+- [x] 2.1 Bump the fixed ABI version and extend the hand-written C header with one stream-scan operation, an explicit need-more-input status, primitive frame-offset/frame-length/consumed-length outputs, and documented caller ownership and bounds.
+- [x] 2.2 Implement the scanner export with pre-dereference null, alignment, distinct-region, overlap, and input-bound validation plus fixed status mapping and panic containment; retain no pointer or allocation after the call.
+- [x] 2.3 Extend Rust bridge tests and the compiled C harness across scanner success/incomplete/error outcomes, immutable inputs, output initialization and bounds, invalid caller regions, exact consumption values, malformed recovery, overflow, and contained internal failure.
+- [x] 2.4 Change the ABI/version audit to require exactly version, encode, exact-decode, and stream-scan application symbols and to reject a missing, stale, or additional entry point.
+- [x] 2.5 Prove the versioned four-symbol archive builds from source for clean macOS Debug/Release, iOS simulator, and unsigned iOS device configurations without changing the existing target matrix or committing native artifacts.
 
 ## 3. Cut over the shared Swift stream adapter
 

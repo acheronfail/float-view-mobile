@@ -5,14 +5,16 @@
 
 #![deny(unsafe_op_in_unsafe_fn)]
 
-use float_view_vesc_frame::{FrameError, MAX_PAYLOAD_BYTES, decode, encode};
+use float_view_vesc_frame::{
+    FrameError, MAX_PAYLOAD_BYTES, MAX_STREAM_BYTES, StreamScan, decode, encode, scan_next,
+};
 use std::mem::{align_of, size_of};
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::ptr;
 use std::slice;
 
 /// Version of the complete hand-written C contract.
-pub const ABI_VERSION: u32 = 1;
+pub const ABI_VERSION: u32 = 2;
 
 /// Successful operation.
 pub const STATUS_OK: u32 = 0;
@@ -28,6 +30,8 @@ pub const STATUS_INVALID_CRC: u32 = 4;
 pub const STATUS_OUTPUT_TOO_SMALL: u32 = 5;
 /// A panic was contained before it could cross the C boundary.
 pub const STATUS_INTERNAL_FAILURE: u32 = 6;
+/// The stream contains no complete candidate; consumption outputs are valid.
+pub const STATUS_NEED_MORE_INPUT: u32 = 7;
 
 /// Largest encoded frame: long header, maximum payload, CRC, and footer.
 pub const MAX_FRAME_BYTES: usize = MAX_PAYLOAD_BYTES + 6;
@@ -112,6 +116,81 @@ pub unsafe extern "C" fn float_view_vesc_frame_decode_exact(
     })
 }
 
+/// Scan one bounded borrowed stream region for the next candidate frame.
+///
+/// # Safety
+///
+/// Non-empty input must be valid for its supplied byte length. Each output
+/// pointer must be valid and aligned for one `usize`. The input and all three
+/// output regions must be pairwise disjoint and remain valid for the duration
+/// of the call. A null input is accepted only when `input_length` is zero.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn float_view_vesc_frame_stream_scan_next(
+    input: *const u8,
+    input_length: usize,
+    frame_offset: *mut usize,
+    frame_length: *mut usize,
+    consumed_length: *mut usize,
+) -> u32 {
+    contain(|| {
+        validate_scan_regions(
+            input,
+            input_length,
+            frame_offset,
+            frame_length,
+            consumed_length,
+        )?;
+
+        if input_length > MAX_STREAM_BYTES {
+            // SAFETY: the scanner-specific validator established disjoint,
+            // aligned, writable output fields.
+            unsafe {
+                write_scan_result(
+                    frame_offset,
+                    frame_length,
+                    consumed_length,
+                    0,
+                    0,
+                    input_length,
+                )
+            };
+            return Err(STATUS_INPUT_TOO_LARGE);
+        }
+
+        // SAFETY: `validate_scan_regions` checked the pointer contract and the
+        // input was bounded before constructing this borrowed slice.
+        let input = unsafe { input_slice(input, input_length) };
+        let (status, offset, length, consumed) = match scan_next(input) {
+            StreamScan::NeedMore { consumed } => (STATUS_NEED_MORE_INPUT, 0, 0, consumed),
+            StreamScan::Frame {
+                frame_offset,
+                frame_length,
+                consumed,
+            } => (STATUS_OK, frame_offset, frame_length, consumed),
+            StreamScan::PayloadTooLarge { consumed } | StreamScan::StreamTooLarge { consumed } => {
+                (STATUS_INPUT_TOO_LARGE, 0, 0, consumed)
+            }
+        };
+        // SAFETY: the scanner-specific validator established disjoint,
+        // aligned, writable output fields.
+        unsafe {
+            write_scan_result(
+                frame_offset,
+                frame_length,
+                consumed_length,
+                offset,
+                length,
+                consumed,
+            )
+        };
+        if status == STATUS_OK {
+            Ok(())
+        } else {
+            Err(status)
+        }
+    })
+}
+
 fn contain(operation: impl FnOnce() -> Result<(), u32>) -> u32 {
     match catch_unwind(AssertUnwindSafe(operation)) {
         Ok(Ok(())) => STATUS_OK,
@@ -161,6 +240,44 @@ fn validate_regions(
     Ok(())
 }
 
+fn validate_scan_regions(
+    input: *const u8,
+    input_length: usize,
+    frame_offset: *mut usize,
+    frame_length: *mut usize,
+    consumed_length: *mut usize,
+) -> Result<(), u32> {
+    let outputs = [frame_offset, frame_length, consumed_length];
+    if (input.is_null() && input_length != 0)
+        || outputs.iter().any(|output| {
+            output.is_null() || !(*output as usize).is_multiple_of(align_of::<usize>())
+        })
+    {
+        return Err(STATUS_INVALID_ARGUMENT);
+    }
+
+    let input_region = address_region(input as usize, input_length)?;
+    let output_regions = outputs.map(|output| address_region(output as usize, size_of::<usize>()));
+    let [
+        frame_offset_region,
+        frame_length_region,
+        consumed_length_region,
+    ] = output_regions;
+    let frame_offset_region = frame_offset_region?;
+    let frame_length_region = frame_length_region?;
+    let consumed_length_region = consumed_length_region?;
+    if regions_overlap(input_region, frame_offset_region)
+        || regions_overlap(input_region, frame_length_region)
+        || regions_overlap(input_region, consumed_length_region)
+        || regions_overlap(frame_offset_region, frame_length_region)
+        || regions_overlap(frame_offset_region, consumed_length_region)
+        || regions_overlap(frame_length_region, consumed_length_region)
+    {
+        return Err(STATUS_INVALID_ARGUMENT);
+    }
+    Ok(())
+}
+
 fn address_region(start: usize, length: usize) -> Result<(usize, usize), u32> {
     if length == 0 {
         return Ok((start, start));
@@ -200,6 +317,23 @@ unsafe fn write_result(
         unsafe { ptr::copy_nonoverlapping(bytes.as_ptr(), output, bytes.len()) };
     }
     Ok(())
+}
+
+unsafe fn write_scan_result(
+    frame_offset: *mut usize,
+    frame_length: *mut usize,
+    consumed_length: *mut usize,
+    offset: usize,
+    length: usize,
+    consumed: usize,
+) {
+    // SAFETY: `validate_scan_regions` established three distinct aligned,
+    // writable fields for the duration of the exported call.
+    unsafe {
+        frame_offset.write(offset);
+        frame_length.write(length);
+        consumed_length.write(consumed);
+    }
 }
 
 #[cfg(test)]
@@ -242,6 +376,150 @@ mod tests {
         };
         assert_eq!(status, STATUS_OK);
         assert_eq!(&payload[..payload_length], &SHORT_PAYLOAD);
+    }
+
+    #[test]
+    fn scanner_reports_borrowed_boundaries_without_mutating_input() {
+        let input = [
+            [0xff, 0].as_slice(),
+            SHORT_FRAME.as_slice(),
+            SHORT_FRAME.as_slice(),
+        ]
+        .concat();
+        let unchanged = input.clone();
+        let mut frame_offset = usize::MAX;
+        let mut frame_length = usize::MAX;
+        let mut consumed_length = usize::MAX;
+        // SAFETY: all supplied regions are valid and disjoint.
+        let status = unsafe {
+            float_view_vesc_frame_stream_scan_next(
+                input.as_ptr(),
+                input.len(),
+                &mut frame_offset,
+                &mut frame_length,
+                &mut consumed_length,
+            )
+        };
+        assert_eq!(status, STATUS_OK);
+        assert_eq!(frame_offset, 2);
+        assert_eq!(frame_length, SHORT_FRAME.len());
+        assert_eq!(consumed_length, 2 + SHORT_FRAME.len());
+        assert_eq!(input, unchanged);
+
+        let incomplete = [0xff, 3, 0];
+        // SAFETY: all supplied regions are valid and disjoint.
+        let status = unsafe {
+            float_view_vesc_frame_stream_scan_next(
+                incomplete.as_ptr(),
+                incomplete.len(),
+                &mut frame_offset,
+                &mut frame_length,
+                &mut consumed_length,
+            )
+        };
+        assert_eq!(status, STATUS_NEED_MORE_INPUT);
+        assert_eq!((frame_offset, frame_length, consumed_length), (0, 0, 1));
+
+        let oversized_declaration = [0xff, 3, 0x10, 0x01];
+        // SAFETY: all supplied regions are valid and disjoint.
+        let status = unsafe {
+            float_view_vesc_frame_stream_scan_next(
+                oversized_declaration.as_ptr(),
+                oversized_declaration.len(),
+                &mut frame_offset,
+                &mut frame_length,
+                &mut consumed_length,
+            )
+        };
+        assert_eq!(status, STATUS_INPUT_TOO_LARGE);
+        assert_eq!((frame_offset, frame_length, consumed_length), (0, 0, 2));
+
+        // SAFETY: the oversized input is rejected before its non-null pointer
+        // is accessed; all output fields are valid and disjoint.
+        let status = unsafe {
+            float_view_vesc_frame_stream_scan_next(
+                NonNull::<u8>::dangling().as_ptr(),
+                MAX_STREAM_BYTES + 1,
+                &mut frame_offset,
+                &mut frame_length,
+                &mut consumed_length,
+            )
+        };
+        assert_eq!(status, STATUS_INPUT_TOO_LARGE);
+        assert_eq!(
+            (frame_offset, frame_length, consumed_length),
+            (0, 0, MAX_STREAM_BYTES + 1)
+        );
+    }
+
+    #[test]
+    fn scanner_rejects_invalid_output_regions_without_writing() {
+        let mut frame_offset = 11_usize;
+        let mut frame_length = 22_usize;
+        let mut consumed_length = 33_usize;
+
+        // SAFETY: the deliberately null output is rejected before any write.
+        assert_eq!(
+            unsafe {
+                float_view_vesc_frame_stream_scan_next(
+                    SHORT_FRAME.as_ptr(),
+                    SHORT_FRAME.len(),
+                    ptr::null_mut(),
+                    &mut frame_length,
+                    &mut consumed_length,
+                )
+            },
+            STATUS_INVALID_ARGUMENT
+        );
+        assert_eq!((frame_offset, frame_length, consumed_length), (11, 22, 33));
+
+        let frame_offset_pointer = &mut frame_offset as *mut usize;
+        // SAFETY: the deliberately aliased output fields are rejected before access.
+        assert_eq!(
+            unsafe {
+                float_view_vesc_frame_stream_scan_next(
+                    SHORT_FRAME.as_ptr(),
+                    SHORT_FRAME.len(),
+                    frame_offset_pointer,
+                    frame_offset_pointer,
+                    &mut consumed_length,
+                )
+            },
+            STATUS_INVALID_ARGUMENT
+        );
+        assert_eq!((frame_offset, frame_length, consumed_length), (11, 22, 33));
+
+        // SAFETY: the output deliberately overlaps the input and is rejected
+        // before either region is accessed.
+        assert_eq!(
+            unsafe {
+                float_view_vesc_frame_stream_scan_next(
+                    frame_offset_pointer.cast_const().cast(),
+                    size_of::<usize>(),
+                    frame_offset_pointer,
+                    &mut frame_length,
+                    &mut consumed_length,
+                )
+            },
+            STATUS_INVALID_ARGUMENT
+        );
+        assert_eq!((frame_offset, frame_length, consumed_length), (11, 22, 33));
+
+        let mut aligned = [0_usize; 2];
+        // SAFETY: the deliberately misaligned output is rejected before access.
+        assert_eq!(
+            unsafe {
+                float_view_vesc_frame_stream_scan_next(
+                    SHORT_FRAME.as_ptr(),
+                    SHORT_FRAME.len(),
+                    aligned.as_mut_ptr().cast::<u8>().add(1).cast(),
+                    &mut frame_length,
+                    &mut consumed_length,
+                )
+            },
+            STATUS_INVALID_ARGUMENT
+        );
+        assert_eq!((frame_offset, frame_length, consumed_length), (11, 22, 33));
     }
 
     #[test]
