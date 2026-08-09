@@ -151,7 +151,7 @@ Every typed detailed numeric field accepted into a durable session SHALL be retr
 
 ### Requirement: Bounded telemetry serialization
 
-Detailed live samples, extension keys and counts, metadata, session-list pages/cursors, session-data requests/results, retained sample pages, event pages, prune previews/jobs, and exports SHALL retain explicit bounds. Authenticated WebSocket messages SHALL remain at most 65,536 bytes. A negotiated field name SHALL be at most 64 UTF-8 bytes, an extension map SHALL contain at most 32 finite values, and serialized extension JSON SHALL be at most 16,384 UTF-8 bytes. A session-list page SHALL contain 1 through 100 summaries and an opaque cursor SHALL be at most 1,024 UTF-8 bytes. A session-data request body SHALL be at most 16,384 UTF-8 bytes; a decoded success body SHALL be at most 4,194,304 bytes; series and sample requests SHALL contain 1 through 16 unique fields; series SHALL contain 1 through 1,024 buckets and at most 65,536 total observations; sample pages SHALL contain at most 2,000 rows; and event pages SHALL contain at most 500 rows. Sequences, revisions, counts, and elapsed values SHALL be non-negative JavaScript-safe integers. Prune target resolution SHALL be a whole 1 through 300 seconds, and complete application state SHALL expose at most one bounded prune operation without embedding a ride-identifier collection. Private controller UUIDs, launch tokens, and full unrequested telemetry MUST NOT appear in state, history, extensions, errors, or default logs.
+Detailed live samples, extension keys and counts, metadata, session-list pages/cursors, session-data requests/results, retained sample pages, event pages, prune previews/jobs, and exports SHALL retain explicit bounds. Authenticated WebSocket messages SHALL remain at most 65,536 bytes. A negotiated field name SHALL be at most 64 UTF-8 bytes, an extension map SHALL contain at most 32 finite values, and serialized extension JSON SHALL be at most 16,384 UTF-8 bytes. A session-list page SHALL contain 1 through 100 summaries and an opaque cursor SHALL be at most 1,024 UTF-8 bytes. A session-data request body SHALL be at most 16,384 UTF-8 bytes; a decoded success body SHALL be at most 4,194,304 bytes; series and sample requests SHALL contain 1 through 16 unique fields; series SHALL contain 1 through 1,024 buckets and at most 65,536 total observations; sample pages SHALL contain at most 2,000 rows; and event pages SHALL contain at most 500 rows. Sequences, revisions, counts, and elapsed values SHALL be non-negative JavaScript-safe integers. Prune target resolution SHALL be a whole 1 through 300 seconds, and complete application state SHALL expose at most one bounded prune operation without embedding a ride-identifier collection. Canonical VESC controller UUIDs MAY appear in bounded state, history, extensions, errors, and default logs. Launch tokens and platform Bluetooth identifiers MUST NOT appear there.
 
 #### Scenario: Oversized extension data
 
@@ -163,14 +163,14 @@ Detailed live samples, extension keys and counts, metadata, session-list pages/c
 - **WHEN** a requested field and bucket combination could exceed 65,536 observations or 4,194,304 decoded bytes
 - **THEN** the backend rejects it before scanning or allocating a response even when each individual field and bucket value is otherwise valid
 
-#### Scenario: Privacy inspection
+#### Scenario: Identifier consistency inspection
 
 - **WHEN** live state, metadata, session-data responses, exports, errors, and logs are inspected
-- **THEN** no private learned or simulated controller UUID or launch token is present
+- **THEN** learned or simulated controller UUIDs use the canonical lowercase-hex representation and no launch token or platform Bluetooth identifier is present
 
 ### Requirement: Authoritative application state
 
-`state.get` SHALL return a bounded `AppState` containing a monotonic revision, a separate monotonic `sessionCatalogRevision`, Bluetooth state, discovered and saved devices with resolved identity, active connection with saved-device identity, connection state, detected direct-or-CAN controller route, bounded controller candidates when selection is required, bounded connection issue when failed, firmware, active-session summary, latest successfully persisted sample when known, and settings. Recent session summaries and session groups SHALL NOT be included; standalone session summaries SHALL be retrieved through `session.list`. Historical series, private controller UUIDs, and diagnostic windows MUST NOT be included.
+`state.get` SHALL return a bounded `AppState` containing a monotonic revision, a separate monotonic `sessionCatalogRevision`, Bluetooth state, discovered and saved devices with resolved identity, active connection with saved-device identity and canonical controller UUIDs where meaningful, connection state, detected direct-or-CAN controller route, bounded controller candidates when selection is required, bounded connection issue when failed, firmware, active-session summary, latest successfully persisted sample when known, and settings. Recent session summaries and session groups SHALL NOT be included; standalone session summaries SHALL be retrieved through `session.list`. Historical series and diagnostic windows MUST NOT be included.
 
 #### Scenario: Initial state
 

@@ -129,6 +129,17 @@ impl SessionStore {
         let mut writers = self.writers()?;
         let connection = writers.get_mut(session_id).ok_or(StoreError::NotFound)?;
         let transaction = connection.transaction()?;
+        let (recorded_sample_count, committed_elapsed, committed_riding_elapsed): (i64, i64, i64) =
+            transaction.query_row(
+                "SELECT recorded_sample_count, committed_elapsed_ms, riding_elapsed_ms FROM commit_marker WHERE singleton = 1",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )?;
+        let mut has_previous_sample = recorded_sample_count > 0;
+        let mut previous_elapsed =
+            u64::try_from(committed_elapsed).map_err(|_| StoreError::Invalid)?;
+        let mut riding_elapsed =
+            u64::try_from(committed_riding_elapsed).map_err(|_| StoreError::Invalid)?;
         let mut last_sequence = 0_u64;
         let mut last_elapsed = 0_u64;
         for sample in samples {
@@ -136,17 +147,27 @@ impl SessionStore {
             if sample.sequence <= last_sequence || sample.monotonic_elapsed_millis < last_elapsed {
                 return Err(StoreError::Invalid);
             }
+            if has_previous_sample && sample.ride_state == "riding" {
+                riding_elapsed = riding_elapsed.saturating_add(
+                    sample
+                        .monotonic_elapsed_millis
+                        .saturating_sub(previous_elapsed),
+                );
+            }
             transaction.execute(
                 "INSERT INTO sample(sequence, observed_at_ms, slow_observed_at_ms, monotonic_elapsed_ms, ride_state, package_state, package_mode, raw_pack_voltage_v, duty_cycle, speed_kph, extension_json) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
                 params![sample.sequence, sample.observed_at_millis, sample.slow_observed_at_millis, sample.monotonic_elapsed_millis, sample.ride_state, sample.package_state, sample.package_mode, sample.raw_pack_voltage_v, sample.duty_cycle, sample.speed_kph, sample.extension_json],
             )?;
+            has_previous_sample = true;
+            previous_elapsed = sample.monotonic_elapsed_millis;
             last_sequence = sample.sequence;
             last_elapsed = sample.monotonic_elapsed_millis;
         }
         let sample_count = i64::try_from(samples.len()).map_err(|_| StoreError::Invalid)?;
+        let riding_elapsed = i64::try_from(riding_elapsed).map_err(|_| StoreError::Invalid)?;
         transaction.execute(
-            "UPDATE commit_marker SET committed_sample_sequence = ?1, recorded_sample_count = recorded_sample_count + ?2, stored_sample_count = stored_sample_count + ?2, committed_elapsed_ms = ?3, history_revision = history_revision + 1, committed_at_ms = ?4, last_speed_kph = ?5, last_ride_state = ?6 WHERE singleton = 1",
-            params![last_sequence, sample_count, last_elapsed, committed_at_millis, samples.last().and_then(|sample| sample.speed_kph), samples.last().map(|sample| &sample.ride_state)],
+            "UPDATE commit_marker SET committed_sample_sequence = ?1, recorded_sample_count = recorded_sample_count + ?2, stored_sample_count = stored_sample_count + ?2, committed_elapsed_ms = ?3, history_revision = history_revision + 1, committed_at_ms = ?4, last_speed_kph = ?5, last_ride_state = ?6, riding_elapsed_ms = ?7 WHERE singleton = 1",
+            params![last_sequence, sample_count, last_elapsed, committed_at_millis, samples.last().and_then(|sample| sample.speed_kph), samples.last().map(|sample| &sample.ride_state), riding_elapsed],
         )?;
         transaction.commit()?;
         Ok(())
@@ -157,15 +178,23 @@ impl SessionStore {
     pub fn flush_catalog(&self, session_id: &str) -> Result<(), StoreError> {
         let writers = self.writers()?;
         let session = writers.get(session_id).ok_or(StoreError::NotFound)?;
-        let marker: (i64, i64, i64, i64) = session.query_row(
-            "SELECT committed_sample_sequence, stored_sample_count, committed_elapsed_ms, history_revision FROM commit_marker WHERE singleton = 1",
+        let marker: (i64, i64, i64, i64, i64) = session.query_row(
+            "SELECT committed_sample_sequence, stored_sample_count, committed_elapsed_ms, history_revision, riding_elapsed_ms FROM commit_marker WHERE singleton = 1",
             [],
-            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+            |row| {
+                Ok((
+                    row.get(0)?,
+                    row.get(1)?,
+                    row.get(2)?,
+                    row.get(3)?,
+                    row.get(4)?,
+                ))
+            },
         )?;
         drop(writers);
         self.catalog.writer.lock().map_err(|_| StoreError::Poisoned)?.execute(
-            "UPDATE session_catalog SET committed_sequence = ?1, sample_count = ?2, stored_sample_count = ?2, committed_elapsed_ms = ?3, total_elapsed_ms = ?3, history_revision = ?4 WHERE session_id = ?5 AND state = 'active'",
-            params![marker.0, marker.1, marker.2, marker.3, session_id],
+            "UPDATE session_catalog SET committed_sequence = ?1, sample_count = ?2, stored_sample_count = ?2, committed_elapsed_ms = ?3, total_elapsed_ms = ?3, history_revision = ?4, riding_elapsed_ms = ?5 WHERE session_id = ?6 AND state = 'active'",
+            params![marker.0, marker.1, marker.2, marker.3, marker.4, session_id],
         )?;
         Ok(())
     }
@@ -218,8 +247,8 @@ fn validate_session(value: &NewSession<'_>) -> Result<(), StoreError> {
         || value.effective_riding_millis == 0
         || value.device_snapshot_json.len() > crate::MAX_CATALOG_JSON_BYTES
         || value.profile_snapshot_json.len() > crate::MAX_CATALOG_JSON_BYTES
-        || serde_json::from_str::<serde_json::Value>(value.device_snapshot_json).is_err()
-        || serde_json::from_str::<serde_json::Value>(value.profile_snapshot_json).is_err()
+        || !crate::archive::valid_device_snapshot_json(value.device_snapshot_json)
+        || !crate::archive::valid_board_profile_snapshot_json(value.profile_snapshot_json)
     {
         Err(StoreError::Invalid)
     } else {
@@ -298,20 +327,39 @@ mod tests {
                 20,
             )
             .expect("append");
+        store
+            .append_samples(
+                "session",
+                &[SessionSample {
+                    sequence: 2,
+                    observed_at_millis: 120,
+                    slow_observed_at_millis: None,
+                    monotonic_elapsed_millis: 110,
+                    ride_state: "riding".into(),
+                    package_state: Some("running".into()),
+                    package_mode: Some("normal".into()),
+                    raw_pack_voltage_v: Some(74.5),
+                    duty_cycle: Some(0.3),
+                    speed_kph: Some(14.0),
+                    extension_json: "{}".into(),
+                }],
+                120,
+            )
+            .expect("append riding continuation");
         store.flush_catalog("session").expect("flush");
-        store.close("session", 30, "explicit").expect("close");
-        let row: (String, i64, i64) = store
+        store.close("session", 130, "explicit").expect("close");
+        let row: (String, i64, i64, i64) = store
             .catalog
             .writer
             .lock()
             .expect("writer")
             .query_row(
-                "SELECT state, committed_sequence, sample_count FROM session_catalog WHERE session_id = 'session'",
+                "SELECT state, committed_sequence, sample_count, riding_elapsed_ms FROM session_catalog WHERE session_id = 'session'",
                 [],
-                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
             )
             .expect("row");
-        assert_eq!(row, ("completed".into(), 1, 1));
+        assert_eq!(row, ("completed".into(), 2, 2, 100));
         drop(store);
     }
 }

@@ -134,7 +134,16 @@ function baseSnapshot(): FixtureSnapshot {
       advertisedName: 'Fixture',
       topology: 'express',
       fragmentBytes: 244,
-      controllers: [{ alias: 'primary', canId: 1, firmware: '6.06', refloat: '1.2.3', pingVisible: true }],
+      controllers: [
+        {
+          alias: 'primary',
+          uuid: '010101010101010101010101',
+          canId: 1,
+          firmware: '6.06',
+          refloat: '1.2.3',
+          pingVisible: true,
+        },
+      ],
       bmsNodes: [],
       discoveredCanIds: [],
       scene: 'idle',

@@ -25,8 +25,8 @@ CREATE TABLE IF NOT EXISTS board_profile (
   updated_at_ms INTEGER NOT NULL
 );
 
--- Private connection hint. controller_uuid is a 12-byte firmware UUID encoded
--- as 24 lowercase hex characters and is never exposed through the API.
+-- Connection hint. controller_uuid is the canonical 12-byte VESC firmware UUID
+-- encoded as 24 lowercase hex characters and may be exposed through the API.
 CREATE TABLE IF NOT EXISTS controller_route_hint (
   saved_device_id TEXT PRIMARY KEY NOT NULL
     REFERENCES saved_device(saved_device_id) ON DELETE CASCADE,

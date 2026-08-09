@@ -21,7 +21,7 @@ After a native backend has successfully prepared BLE UART notifications, it SHAL
 
 ### Requirement: Development connection diagnostics
 
-Native backends SHALL make privacy-safe development diagnostics available for BLE setup and controller identification with stable stage, attempt, outcome, and final issue-code context. These diagnostics MUST remain bounded and MUST NOT contain Bluetooth addresses, Apple peripheral UUIDs, launch tokens, raw packet contents, private controller UUIDs, or telemetry values. Routine connection diagnostics SHALL NOT be emitted to the console by production or non-debuggable application builds.
+Native backends SHALL make bounded development diagnostics available for BLE setup and controller identification with stable stage, attempt, outcome, final issue-code, and optional canonical VESC UUID context. These diagnostics MUST NOT contain Bluetooth addresses, Apple peripheral UUIDs, launch tokens, raw packet contents, or telemetry values. Routine connection diagnostics SHALL NOT be emitted to the console by production or non-debuggable application builds.
 
 #### Scenario: Identification timeout in a development build
 

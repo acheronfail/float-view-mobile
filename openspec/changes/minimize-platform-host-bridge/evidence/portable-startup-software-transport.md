@@ -11,7 +11,7 @@ Implemented on 2026-08-08.
 - Routed macOS development, iOS simulator, and Android emulator software selection into the Rust software host. Native software peripherals and their fixture dependency were deleted.
 - Software mode forwards only the remaining non-Bluetooth OS commands to the native host; discovery, connect, notifications, VESC behavior, and disconnect stay inside the shared Rust composition.
 - Connect command completion now reports immediate OS-adapter acceptance. Ordered connection events independently drive Rust readiness and terminal state.
-- Removed production Swift/Kotlin command encoders, random transport aliases, pending-connect completion policy, and unreachable saved-device configuration. Apple uses the private peripheral UUID and Android uses the normalized private BLE address; Rust exposes only redacted public discovery identifiers.
+- Removed production Swift/Kotlin command encoders, random transport aliases, pending-connect completion policy, and unreachable saved-device configuration. Apple uses the private peripheral UUID and Android uses the normalized private BLE address; Rust exposes the canonical VESC UUID after firmware identification while keeping those platform associations out of application state.
 
 ## Verification
 

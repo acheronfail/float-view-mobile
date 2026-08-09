@@ -22,9 +22,10 @@ const TOP_LEVEL_KEYS = new Set([
   'scene',
   'overrides',
 ]);
-const CONTROLLER_KEYS = new Set(['alias', 'canId', 'firmware', 'refloat', 'pingVisible']);
+const CONTROLLER_KEYS = new Set(['alias', 'uuid', 'canId', 'firmware', 'refloat', 'pingVisible']);
 const BMS_KEYS = new Set([
   'alias',
+  'uuid',
   'route',
   'canId',
   'pingVisible',
@@ -54,7 +55,7 @@ export function scenarioTemplate(template: ScenarioTemplate): FixtureScenarioDoc
       return {
         ...common,
         topology: 'direct',
-        controllers: [{ alias: 'primary', canId: 0, firmware: '6.06', refloat: '1.2.3', pingVisible: false }],
+        controllers: [{ alias: 'primary', uuid: scenarioUuid(common.namespace, 'primary'), canId: 0, firmware: '6.06', refloat: '1.2.3', pingVisible: false }],
         bmsNodes: [],
         discoveredCanIds: [],
       };
@@ -62,7 +63,7 @@ export function scenarioTemplate(template: ScenarioTemplate): FixtureScenarioDoc
       return {
         ...common,
         topology: 'express',
-        controllers: [{ alias: 'primary', canId: 1, firmware: '6.06', refloat: '1.2.3', pingVisible: true }],
+        controllers: [{ alias: 'primary', uuid: scenarioUuid(common.namespace, 'primary'), canId: 1, firmware: '6.06', refloat: '1.2.3', pingVisible: true }],
         bmsNodes: [],
         discoveredCanIds: [],
       };
@@ -72,8 +73,8 @@ export function scenarioTemplate(template: ScenarioTemplate): FixtureScenarioDoc
         namespace: 'reported-multi-controller',
         topology: 'express',
         controllers: [
-          { alias: 'front', canId: 7, firmware: '6.05', refloat: '1.1.0', pingVisible: true },
-          { alias: 'rear', canId: 42, firmware: '6.06', refloat: '1.2.3', pingVisible: false },
+          { alias: 'front', uuid: scenarioUuid('reported-multi-controller', 'front'), canId: 7, firmware: '6.05', refloat: '1.1.0', pingVisible: true },
+          { alias: 'rear', uuid: scenarioUuid('reported-multi-controller', 'rear'), canId: 42, firmware: '6.06', refloat: '1.2.3', pingVisible: false },
         ],
         bmsNodes: [],
         discoveredCanIds: [12],
@@ -83,7 +84,7 @@ export function scenarioTemplate(template: ScenarioTemplate): FixtureScenarioDoc
         ...common,
         namespace: 'direct-vbms-gateway',
         topology: 'express',
-        controllers: [{ alias: 'primary', canId: 1, firmware: '6.06', refloat: '1.2.3', pingVisible: true }],
+        controllers: [{ alias: 'primary', uuid: scenarioUuid('direct-vbms-gateway', 'primary'), canId: 1, firmware: '6.06', refloat: '1.2.3', pingVisible: true }],
         bmsNodes: [defaultBmsNode('direct', 0)],
         discoveredCanIds: [],
       };
@@ -117,6 +118,7 @@ export function parseScenarioDocument(value: unknown): FixtureScenarioDocument {
   }
 
   const aliases = new Set<string>();
+  const uuids = new Set<string>();
   const controllerIds = new Set<number>();
   const controllers = value.controllers.map((candidate) => {
     if (!record(candidate) || !onlyKeys(candidate, CONTROLLER_KEYS)) {
@@ -124,6 +126,9 @@ export function parseScenarioDocument(value: unknown): FixtureScenarioDocument {
     }
     if (!boundedText(candidate.alias, 1, 64) || aliases.has(candidate.alias)) {
       throw new Error('Controller aliases must be unique and at most 64 UTF-8 bytes');
+    }
+    if (!canonicalUuid(candidate.uuid) || uuids.has(candidate.uuid)) {
+      throw new Error('Controller UUIDs must be unique canonical 24-character lowercase hex values');
     }
     if (!integer(candidate.canId, 0, 253) || controllerIds.has(candidate.canId)) {
       throw new Error('Controller CAN IDs must be unique integers from 0 through 253');
@@ -138,9 +143,11 @@ export function parseScenarioDocument(value: unknown): FixtureScenarioDocument {
       throw new Error('Invalid controller source identity');
     }
     aliases.add(candidate.alias);
+    uuids.add(candidate.uuid);
     controllerIds.add(candidate.canId);
     return {
       alias: candidate.alias,
+      uuid: candidate.uuid,
       canId: candidate.canId,
       firmware: candidate.firmware as FixtureScenarioDocument['controllers'][number]['firmware'],
       refloat: candidate.refloat as RefloatVersion,
@@ -165,6 +172,9 @@ export function parseScenarioDocument(value: unknown): FixtureScenarioDocument {
     if (!boundedText(node.alias, 1, 64) || aliases.has(node.alias) || bmsAliases.has(node.alias)) {
       throw new Error('VBMS aliases must be unique and at most 64 UTF-8 bytes');
     }
+    if (!canonicalBmsUuid(node.uuid) || uuids.has(node.uuid)) {
+      throw new Error('VBMS UUIDs must be unique canonical 24-character lowercase hex values with the eFuse suffix');
+    }
     if (node.route !== 'direct' && node.route !== 'can') throw new Error('Invalid VBMS route');
     if (!integer(node.canId, 0, 253)) throw new Error('VBMS CAN IDs must be integers from 0 through 253');
     if (node.route === 'direct') directBmsCount += 1;
@@ -188,9 +198,11 @@ export function parseScenarioDocument(value: unknown): FixtureScenarioDocument {
       throw new Error('Invalid VBMS values');
     }
     bmsAliases.add(node.alias);
+    uuids.add(node.uuid);
     if (node.route === 'can') bmsCanIds.add(node.canId);
     return {
       alias: node.alias,
+      uuid: node.uuid,
       route: node.route,
       canId: node.canId,
       pingVisible: node.pingVisible,
@@ -233,12 +245,21 @@ export function parseScenarioDocument(value: unknown): FixtureScenarioDocument {
   };
 }
 
-export function privateControllerIdentity(document: FixtureScenarioDocument, alias: string): Uint8Array {
-  const digest = createHash('sha256').update(document.namespace).update('\0').update(alias).digest();
-  return Uint8Array.from(digest.subarray(0, 12));
+export function controllerIdentity(document: FixtureScenarioDocument, alias: string): Uint8Array {
+  const uuid = document.controllers.find((controller) => controller.alias === alias)?.uuid;
+  if (!uuid) throw new Error(`Unknown controller alias: ${alias}`);
+  return uuidBytes(uuid);
 }
 
-export const privateBmsIdentity = privateControllerIdentity;
+export function bmsIdentity(document: FixtureScenarioDocument, alias: string): Uint8Array {
+  const uuid = document.bmsNodes.find((node) => node.alias === alias)?.uuid;
+  if (!uuid) throw new Error(`Unknown BMS alias: ${alias}`);
+  return uuidBytes(uuid);
+}
+
+export function replacementUuid(currentUuid: string, sequence: number): string {
+  return createHash('sha256').update(currentUuid).update('\0').update(String(sequence)).digest('hex').slice(0, 24);
+}
 
 export function defaultBmsNode(
   route: 'direct' | 'can' = 'can',
@@ -246,6 +267,7 @@ export function defaultBmsNode(
 ): FixtureScenarioDocument['bmsNodes'][number] {
   return {
     alias: route === 'direct' ? 'local-vbms' : `vbms-${canId}`,
+    uuid: bmsScenarioUuid('float-view-workbench', route === 'direct' ? 'local-vbms' : `vbms-${canId}`),
     route,
     canId,
     pingVisible: route === 'can',
@@ -258,6 +280,26 @@ export function defaultBmsNode(
     stateOfCharge: 0.8,
     inputCurrentA: -4,
   };
+}
+
+function scenarioUuid(namespace: string, alias: string): string {
+  return createHash('sha256').update(namespace).update('\0').update(alias).digest('hex').slice(0, 24);
+}
+
+function canonicalUuid(value: unknown): value is string {
+  return typeof value === 'string' && /^[0-9a-f]{24}$/.test(value);
+}
+
+function canonicalBmsUuid(value: unknown): value is string {
+  return typeof value === 'string' && /^[0-9a-f]{12}0{12}$/.test(value);
+}
+
+function bmsScenarioUuid(namespace: string, alias: string): string {
+  return `${scenarioUuid(namespace, alias).slice(0, 12)}000000000000`;
+}
+
+function uuidBytes(value: string): Uint8Array {
+  return Uint8Array.from({ length: 12 }, (_, index) => Number.parseInt(value.slice(index * 2, index * 2 + 2), 16));
 }
 
 export function availableTelemetryFields(version: RefloatVersion): readonly (keyof TelemetrySample)[] {

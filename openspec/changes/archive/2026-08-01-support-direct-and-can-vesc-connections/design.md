@@ -91,11 +91,11 @@ When more than one motor controller is found, authoritative state contains a CAN
 - VESC version;
 - `vescSupported`, derived from the exact controller compatibility catalog.
 
-The firmware UUID is retained only in native discovery/persistence data. It is neither a candidate field nor logged.
+The firmware UUID is retained in native discovery/persistence data and may also be exposed as a canonical candidate field or used in bounded logs.
 
 Unsupported motor controllers remain visible so discovery does not conceal a physical controller, but the frontend disables them and the backend does not accept them as a route. The mandatory `device.selectController` request carries the active `deviceId` and chosen `canId`. Malformed or out-of-range parameters fail with `invalid_request`. A different device, unsupported or non-candidate ID, stale generation, duplicate/late selection, or connection not awaiting selection fails with `invalid_state`. These outcomes do not change the route or persistence.
 
-A valid choice performs a product-store transaction that reads the latest Board Profile, merges only `preferredCanId`, preserves any concurrent edits to other fields, advances the revision once, records the private learned UUID when meaningful, clears the candidate list, and resumes negotiation. The command is distinct from `boardProfile.update`: discovery can validate current candidates and resume atomically without making the frontend coordinate profile revisions. A concurrently open editor whose expected revision is now stale receives the normal conflict and reloads authoritative profile state.
+A valid choice performs a product-store transaction that reads the latest Board Profile, merges only `preferredCanId`, preserves any concurrent edits to other fields, advances the revision once, records the canonical learned UUID when meaningful, clears the candidate list, and resumes negotiation. The command is distinct from `boardProfile.update`: discovery can validate current candidates and resume atomically without making the frontend coordinate profile revisions. A concurrently open editor whose expected revision is now stale receives the normal conflict and reloads authoritative profile state.
 
 The shared frontend owns one accessible modal prompt for this state. It lists all display-safe fields, keeps disconnect available, handles primary pointer and keyboard activation, and reconstructs itself from `state.get` after WebView recreation.
 
@@ -109,7 +109,7 @@ This favors predictable installations over opportunistic fallback. Silent fallba
 
 ### 5. Retain a private learned controller identity
 
-The VESC firmware parser will require the complete source-defined identity baseline: command and major/minor bytes, a terminated bounded hardware name, 12-byte controller UUID, pairing marker, firmware test-version marker, hardware type, custom-configuration count, phase-filter/QML/NRF flags, and a terminated bounded firmware name. It preserves the UUID, exposes only display-safe names, and tolerates a bounded optional four-byte hardware-CRC suffix. The CRC is build and hardware provenance rather than a compatibility key. A truncated baseline, unterminated name, or unexpected remainder is malformed rather than a supported identity.
+The VESC firmware parser will require the complete source-defined identity baseline: command and major/minor bytes, a terminated bounded hardware name, 12-byte controller UUID, pairing marker, firmware test-version marker, hardware type, custom-configuration count, phase-filter/QML/NRF flags, and a terminated bounded firmware name. It preserves and exposes the canonical UUID and bounded names, and tolerates a bounded optional four-byte hardware-CRC suffix. The CRC is build and hardware provenance rather than a compatibility key. A truncated baseline, unterminated name, or unexpected remainder is malformed rather than a supported identity.
 
 Native persistence associates a meaningful non-zero UUID and CAN ID with the saved BLE transport. When public `preferredCanId` is null and exactly one supported controller was automatically discovered, that pair is a private automatic routing hint. A controller selected by the user instead writes the authoritative public preference; it is not treated as a fallback hint.
 
@@ -117,7 +117,7 @@ On a connection without an active session, a private-hint timeout or UUID mismat
 
 An existing durable session has a stronger continuity rule. Reconnect may append new samples only after confirming the same controller UUID. When a meaningful UUID is unavailable, it requires the same route plus matching supported controller and Refloat identities. A different meaningful UUID, or an ambiguity that cannot establish continuity, closes the existing session as interrupted and enters `failed` with `controller_changed`; it never prompts or silently appends a replacement controller to that session. A new explicit connection may then discover or select another controller and create a new session.
 
-UUIDs are intentionally excluded from frontend state, errors, exports, and default logs. Persisting them in the public Board Profile was rejected because they are stable hardware identifiers and the user only needs the CAN preference.
+UUIDs use one canonical lowercase-hex representation in frontend state, errors, exports, persistence, and bounded logs. They are ordinary VESC application identifiers and may accompany the CAN preference.
 
 ### 6. Represent asynchronous failure and retry in authoritative state
 
@@ -191,7 +191,7 @@ The existing Android `backend` package is the counterpart of Apple `application`
 - `ControllerDiscovery` owns the generation-based state machine and selection validation.
 - `TelemetryPolling` owns layout establishment, cadence, request serialization, and decoded samples.
 - `VescFrame` owns byte-stream framing and bounds.
-- `VescFirmware` owns tolerant identity parsing, including private UUIDs.
+- `VescFirmware` owns tolerant identity parsing, including canonical UUIDs.
 - `VescCommands` owns direct/CAN encoding.
 - `DeviceCompatibility` is the exact version-to-family catalog.
 - Refloat family files own version-specific INFO/layout/data decoding.
@@ -227,7 +227,7 @@ Physical conformance keeps identity, ride, and reconnect on Android, iOS, and ma
 
 - [Candidate firmware probing increases connection time on busy CAN buses] → Probe sequentially with per-request and total deadlines, cap normalized IDs/candidates, and publish meaningful identifying progress.
 - [A large bus exceeds discovery bounds] → Fail without truncation, retain a stable issue, and direct the user to configure the exact CAN ID.
-- [Two controllers can have identical display names and versions] → Always show CAN ID as the stable user-facing differentiator; retain UUID only for private reconnect validation.
+- [Two controllers can have identical display names and versions] → Show CAN ID and the canonical UUID as stable user-facing differentiators and use the UUID for reconnect validation.
 - [A stored preference can become stale after rewiring] → Fail explicitly with guidance to clear/change the CAN ID; never record a different controller silently.
 - [A reconnect reaches a different controller] → Interrupt the old session and require a new explicit connection rather than merging controller histories.
 - [Controller selection races a Board Profile editor] → Merge only the selected CAN ID into the latest profile transaction and let stale editors use existing revision-conflict recovery.

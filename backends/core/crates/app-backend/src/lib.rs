@@ -29,6 +29,7 @@ use serde::{Deserialize, Deserializer};
 use serde_json::{Map, Value, json};
 use sha2::{Digest, Sha256};
 
+mod board_profile;
 mod settings;
 #[cfg(feature = "software-host")]
 mod software_host;
@@ -40,17 +41,110 @@ const HISTORY_ID: &str = "history-test-board";
 
 mod composition;
 mod contract_mapping;
+mod contract_state;
 pub use composition::*;
 use contract_mapping::{
-    configuration_field_value, configuration_schema_pages, configuration_summary_value,
-    configuration_values_value, encode_configuration_values_json, parse_configuration_values,
-    parse_tune_identity, tune_description, tune_identity_value, tune_name, tune_record_identity,
-    tune_summary_value, tune_value,
+    ConfigurationValueDto, TuneIdentityDto, configuration_field_value, configuration_schema_pages,
+    configuration_summary_value, configuration_values_value, encode_configuration_values_json,
+    parse_configuration_values, parse_tune_identity, tune_description, tune_identity_value,
+    tune_name, tune_record_identity, tune_summary_value, tune_value,
+};
+use contract_state::{
+    ActiveConnection, AppState, BluetoothState as ContractBluetoothState, DiscoveredDevice,
+    DocumentError, DocumentOperationState, LiveLocation, LocationState, SavedDevice,
+    SessionOperationState, SessionSummary,
 };
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct EmptyParams {}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct SettingsUpdateParams {
+    expected_revision: u64,
+    patch: settings::SettingsPatch,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct SavedDeviceUpdateParams {
+    saved_device_id: String,
+    expected_revision: u64,
+    #[serde(deserialize_with = "deserialize_present")]
+    custom_display_name: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct SavedDeviceIdParams {
+    saved_device_id: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct BoardProfileUpdateParams {
+    saved_device_id: String,
+    expected_revision: u64,
+    patch: board_profile::BoardProfilePatch,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct SessionListParams {
+    saved_device_id: String,
+    limit: usize,
+    cursor: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct SessionIdParams {
+    session_id: String,
+}
+
+#[derive(Clone, Copy, Deserialize)]
+enum ExportFormatParam {
+    #[serde(rename = "float-view-archive")]
+    FloatViewArchive,
+    #[serde(rename = "csv")]
+    Csv,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct SessionExportParams {
+    session_id: String,
+    format: ExportFormatParam,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SessionDeviceSnapshot {
+    display_name: Option<String>,
+    name: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct OperationIdParams {
+    operation_id: String,
+}
+
+#[derive(Clone, Copy, Deserialize)]
+#[serde(rename_all = "lowercase")]
+enum PruneScope {
+    One,
+    All,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct PruneParams {
+    scope: PruneScope,
+    session_id: Option<String>,
+    target_resolution_seconds: u64,
+}
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -85,7 +179,7 @@ struct ConfigurationWriteParams {
     schema_fingerprint: String,
     wire_signature: u32,
     base_revision: u64,
-    values: Value,
+    values: HashMap<String, ConfigurationValueDto>,
 }
 
 #[derive(Deserialize)]
@@ -99,7 +193,7 @@ struct TuneApplyParams {
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct TuneListParams {
-    identity: Value,
+    identity: TuneIdentityDto,
     limit: usize,
     cursor: Option<String>,
 }
@@ -113,11 +207,12 @@ struct TuneIdParams {
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct TuneCreateParams {
-    identity: Value,
+    identity: TuneIdentityDto,
     source_revision: u64,
-    values: Value,
-    name: Value,
-    description: Value,
+    values: HashMap<String, ConfigurationValueDto>,
+    name: String,
+    #[serde(deserialize_with = "deserialize_present")]
+    description: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -125,9 +220,10 @@ struct TuneCreateParams {
 struct TuneUpdateParams {
     tune_id: String,
     expected_revision: u64,
-    values: Value,
-    name: Value,
-    description: Value,
+    values: HashMap<String, ConfigurationValueDto>,
+    name: String,
+    #[serde(deserialize_with = "deserialize_present")]
+    description: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -181,8 +277,8 @@ struct ContractBackend {
 }
 
 struct BackendState {
-    state: Value,
-    sessions: Vec<Value>,
+    state: AppState,
+    sessions: Vec<SessionSummary>,
     next_operation: u64,
     location_count: u64,
 }
@@ -214,14 +310,13 @@ impl ContractBackend {
     }
 
     fn changed(&self, inner: &mut BackendState, catalog: bool) {
-        let revision = inner.state["revision"].as_u64().unwrap_or(0) + 1;
-        inner.state["revision"] = json!(revision);
+        inner.state.revision = inner.state.revision.saturating_add(1);
         if catalog {
-            let revision = inner.state["sessionCatalogRevision"].as_u64().unwrap_or(0) + 1;
-            inner.state["sessionCatalogRevision"] = json!(revision);
+            inner.state.session_catalog_revision =
+                inner.state.session_catalog_revision.saturating_add(1);
         }
         if let Ok(mut update) = self.update.lock() {
-            *update = Some(inner.state.clone());
+            *update = serde_json::to_value(&inner.state).ok();
         }
     }
 
@@ -234,17 +329,22 @@ impl ContractBackend {
             .inner
             .lock()
             .map_err(|_| ContractError::new("internal", "Backend state failed"))?;
-        let params = request
-            .params
-            .as_object()
-            .ok_or_else(|| invalid("Params must be an object"))?;
         match request.method.as_str() {
-            "state.get" => empty(params).map(|()| inner.state.clone()),
+            "state.get" => request_params::<EmptyParams>(request, "Method takes no parameters")
+                .and_then(|_| {
+                    serde_json::to_value(&inner.state)
+                        .map_err(|_| ContractError::new("internal", "State encoding failed"))
+                }),
             "refloat.configuration.open" => {
-                empty(params)?;
-                inner.state["activeConnection"]["refloatConfiguration"]
-                    .as_object()
-                    .map(|_| inner.state["activeConnection"]["refloatConfiguration"].clone())
+                request_params::<EmptyParams>(request, "Method takes no parameters")?;
+                inner
+                    .state
+                    .active_connection
+                    .as_ref()
+                    .and_then(|connection| connection.refloat_configuration.as_ref())
+                    .map(serde_json::to_value)
+                    .transpose()
+                    .map_err(|_| ContractError::new("internal", "State encoding failed"))?
                     .ok_or_else(|| {
                         ContractError::new("invalid_state", "Configuration is unavailable")
                     })
@@ -261,32 +361,42 @@ impl ContractBackend {
             "refloat.tune.get" | "refloat.tune.update" | "refloat.tune.delete" => {
                 Err(ContractError::new("not_found", "Tune was not found"))
             }
-            "settings.update" => self.update_settings(&mut inner, params),
-            "savedDevice.update" => self.update_saved_device(&mut inner, params),
-            "savedDevice.delete" => self.delete_saved_device(&mut inner, params),
+            "settings.update" => self.update_settings(&mut inner, request),
+            "savedDevice.update" => self.update_saved_device(&mut inner, request),
+            "savedDevice.delete" => self.delete_saved_device(&mut inner, request),
             "boardProfile.get" => {
-                let saved_device_id = require_saved(&inner, params)?;
-                load_profile(&self.catalog, saved_device_id).map_err(|error| storage_error(&error))
+                let params: SavedDeviceIdParams =
+                    request_params(request, "Board Profile parameters are invalid")?;
+                let saved_device_id = require_saved(&inner, &params.saved_device_id)?;
+                let profile = load_profile(&self.catalog, saved_device_id)
+                    .map_err(|error| storage_error(&error))?;
+                serde_json::to_value(profile)
+                    .map_err(|_| ContractError::new("internal", "Board Profile encoding failed"))
             }
-            "boardProfile.update" => self.update_profile(&mut inner, params),
-            "session.list" => Self::session_list(&inner, params),
-            "session.get" => self.session_get(params),
+            "boardProfile.update" => self.update_profile(&mut inner, request),
+            "session.list" => Self::session_list(&inner, request),
+            "session.get" => self.session_get(request),
             "session.delete" => {
-                let id = text(params.get("sessionId"), "sessionId")?;
+                let params: SessionIdParams =
+                    request_params(request, "Session parameters are invalid")?;
+                let id = bounded_identifier(&params.session_id, "Session ID")?;
                 self.catalog
                     .delete_session(id)
                     .map_err(|error| storage_error(&error))?;
-                inner.sessions.retain(|session| session["sessionId"] != id);
+                inner.sessions.retain(|session| session.session_id != id);
                 self.changed(&mut inner, true);
                 Ok(accepted())
             }
-            "session.delete.cancel" => Err(ContractError::new(
-                "not_found",
-                "Deletion operation was not found",
-            )),
-            "session.prune.preview" => self.prune_preview(&mut inner, params),
-            "session.prune.start" => self.prune(&mut inner, params),
-            "session.prune.cancel" => Self::cancel_prune(&inner, params),
+            "session.delete.cancel" => {
+                request_params::<OperationIdParams>(request, "Operation parameters are invalid")?;
+                Err(ContractError::new(
+                    "not_found",
+                    "Deletion operation was not found",
+                ))
+            }
+            "session.prune.preview" => self.prune_preview(&mut inner, request),
+            "session.prune.start" => self.prune(&mut inner, request),
+            "session.prune.cancel" => Self::cancel_prune(&inner, request),
             _ => Err(invalid("Unknown method")),
         }
     }
@@ -294,54 +404,38 @@ impl ContractBackend {
     fn update_settings(
         &self,
         inner: &mut BackendState,
-        params: &Map<String, Value>,
+        request: &ContractRequest,
     ) -> Result<Value, ContractError> {
-        if params.len() != 2
-            || params
-                .keys()
-                .any(|key| !matches!(key.as_str(), "expectedRevision" | "patch"))
-        {
-            return Err(invalid("Settings parameters are invalid"));
-        }
-        let expected = params
-            .get("expectedRevision")
-            .and_then(Value::as_u64)
-            .ok_or_else(|| invalid("Settings revision is required"))?;
-        if inner.state["settings"]["revision"].as_u64() != Some(expected) {
+        let params: SettingsUpdateParams =
+            request_params(request, "Settings parameters are invalid")?;
+        let current = inner.state.settings.clone();
+        if current.revision != params.expected_revision {
             return Err(ContractError::new("conflict", "Settings revision changed"));
         }
-        let patch = params
-            .get("patch")
-            .and_then(Value::as_object)
-            .ok_or_else(|| invalid("Settings patch is required"))?;
-        let mut next_settings = settings::apply_patch(&inner.state["settings"], patch)
+        let location_recording_enabled = params.patch.location_recording_enabled();
+        let mut next_settings = current
+            .apply_patch(params.patch)
             .ok_or_else(|| invalid("Settings patch is invalid"))?;
-        let mut persisted = next_settings.clone();
-        persisted
-            .as_object_mut()
-            .ok_or_else(|| ContractError::new("internal", "Settings state is invalid"))?
-            .remove("revision");
         let stored = self
             .catalog
             .update_settings(
-                expected,
-                &serde_json::to_string(&persisted)
+                params.expected_revision,
+                &next_settings
+                    .stored_json()
                     .map_err(|_| ContractError::new("internal", "Settings encoding failed"))?,
             )
             .map_err(|error| storage_error(&error))?;
-        next_settings["revision"] = json!(stored.revision);
-        inner.state["settings"] = next_settings;
-        if let Some(enabled) = patch
-            .get("locationRecordingEnabled")
-            .and_then(Value::as_bool)
-        {
-            inner.state["location"] = if enabled {
-                json!({ "status": "notDetermined", "permissionAction": "requestPermission", "backgroundCapture": "unavailable", "reason": null })
+        next_settings.revision = stored.revision;
+        inner.state.settings = next_settings.clone();
+        if let Some(enabled) = location_recording_enabled {
+            inner.state.location = if enabled {
+                LocationState::recording_not_determined()
             } else {
-                json!({ "status": "disabled", "permissionAction": "requestPermission", "backgroundCapture": "unavailable", "reason": null })
+                LocationState::disabled()
             };
         }
-        let settings = inner.state["settings"].clone();
+        let settings = serde_json::to_value(next_settings)
+            .map_err(|_| ContractError::new("internal", "Settings encoding failed"))?;
         self.changed(inner, false);
         Ok(settings)
     }
@@ -349,115 +443,101 @@ impl ContractBackend {
     fn update_saved_device(
         &self,
         inner: &mut BackendState,
-        params: &Map<String, Value>,
+        request: &ContractRequest,
     ) -> Result<Value, ContractError> {
-        let saved_device_id = require_saved(inner, params)?;
-        let expected = params
-            .get("expectedRevision")
-            .and_then(Value::as_u64)
-            .ok_or_else(|| invalid("Saved device revision is required"))?;
-        let name = params
-            .get("customDisplayName")
-            .ok_or_else(|| invalid("Name is required"))?;
-        if !name.is_null() && !name.is_string() {
-            return Err(invalid("Name is invalid"));
-        }
-        let custom = name
-            .as_str()
+        let params: SavedDeviceUpdateParams =
+            request_params(request, "Saved device parameters are invalid")?;
+        let saved_device_id = require_saved(inner, &params.saved_device_id)?;
+        let custom = params
+            .custom_display_name
+            .as_deref()
             .map(str::trim)
             .filter(|value| !value.is_empty());
+        if custom.is_some_and(|value| value.len() > 128) {
+            return Err(invalid("Name is invalid"));
+        }
         let stored = self
             .catalog
-            .update_saved_device_name(saved_device_id, expected, custom)
+            .update_saved_device_name(saved_device_id, params.expected_revision, custom)
             .map_err(|error| storage_error(&error))?;
         let records = self
             .catalog
             .session_records()
             .map_err(|error| storage_error(&error))?;
         let result = saved_device_value(&stored, &records);
-        let index = inner.state["savedDevices"]
-            .as_array()
-            .and_then(|items| {
-                items
-                    .iter()
-                    .position(|item| item["savedDeviceId"] == saved_device_id)
-            })
+        let index = inner
+            .state
+            .saved_devices
+            .iter()
+            .position(|item| item.id == saved_device_id)
             .ok_or_else(|| ContractError::new("not_found", "Saved device was not found"))?;
-        inner.state["savedDevices"][index] = result.clone();
+        inner.state.saved_devices[index] = result.clone();
         self.changed(inner, false);
-        Ok(result)
+        serde_json::to_value(result)
+            .map_err(|_| ContractError::new("internal", "Saved device encoding failed"))
     }
 
     fn update_profile(
         &self,
         inner: &mut BackendState,
-        params: &Map<String, Value>,
+        request: &ContractRequest,
     ) -> Result<Value, ContractError> {
-        let saved_device_id = require_saved(inner, params)?;
-        let expected = params
-            .get("expectedRevision")
-            .and_then(Value::as_u64)
-            .ok_or_else(|| invalid("Profile revision is required"))?;
-        let profile =
+        let params: BoardProfileUpdateParams =
+            request_params(request, "Board Profile parameters are invalid")?;
+        let saved_device_id = require_saved(inner, &params.saved_device_id)?;
+        let mut profile =
             load_profile(&self.catalog, saved_device_id).map_err(|error| storage_error(&error))?;
-        if profile["revision"].as_u64() != Some(expected) {
+        if profile.revision != params.expected_revision {
             return Err(ContractError::new(
                 "conflict",
                 "Board Profile revision changed",
             ));
         }
-        let patch = params
-            .get("patch")
-            .and_then(Value::as_object)
-            .ok_or_else(|| invalid("Profile patch is required"))?;
-        if let Some(can_id) = patch.get("preferredCanId")
-            && !can_id.is_null()
-            && can_id.as_u64().is_none_or(|value| value > 253)
-        {
-            return Err(invalid("Preferred CAN ID is invalid"));
+        if !profile.apply_patch(params.patch) {
+            return Err(invalid("Board Profile patch is invalid"));
         }
-        let mut next_profile = profile;
-        for (key, value) in patch {
-            next_profile["values"][key] = value.clone();
-        }
-        let mut missing = next_profile["missingFields"]
-            .as_array()
-            .cloned()
-            .unwrap_or_default();
-        missing.retain(|field| !patch.contains_key(field.as_str().unwrap_or_default()));
-        next_profile["missingFields"] = Value::Array(missing);
-        let values = serde_json::to_string(&next_profile["values"])
+        let values = profile
+            .values_json()
             .map_err(|_| ContractError::new("internal", "Board Profile encoding failed"))?;
         let stored = self
             .catalog
-            .update_board_profile(saved_device_id, expected, &values, unix_millis()?)
+            .update_board_profile(
+                saved_device_id,
+                params.expected_revision,
+                &values,
+                unix_millis()?,
+            )
             .map_err(|error| storage_error(&error))?;
-        next_profile["revision"] = json!(stored.revision);
-        let complete = next_profile["missingFields"]
-            .as_array()
-            .is_some_and(Vec::is_empty);
-        if let Some(saved_device) = inner.state["savedDevices"]
-            .as_array_mut()
-            .and_then(|devices| {
-                devices
-                    .iter_mut()
-                    .find(|device| device["savedDeviceId"] == saved_device_id)
-            })
+        profile.revision = stored.revision;
+        let complete = profile.complete();
+        if let Some(saved_device) = inner
+            .state
+            .saved_devices
+            .iter_mut()
+            .find(|device| device.id == saved_device_id)
         {
-            saved_device["profileComplete"] = json!(complete);
+            saved_device.profile_complete = complete;
         }
-        let profile = next_profile;
         self.changed(inner, false);
-        Ok(profile)
+        serde_json::to_value(profile)
+            .map_err(|_| ContractError::new("internal", "Board Profile encoding failed"))
     }
 
     fn delete_saved_device(
         &self,
         inner: &mut BackendState,
-        params: &Map<String, Value>,
+        request: &ContractRequest,
     ) -> Result<Value, ContractError> {
-        let saved_device_id = require_saved(inner, params)?;
-        if inner.state["activeConnection"]["savedDeviceId"] == saved_device_id {
+        let params: SavedDeviceIdParams =
+            request_params(request, "Saved device parameters are invalid")?;
+        let saved_device_id = require_saved(inner, &params.saved_device_id)?;
+        if inner
+            .state
+            .active_connection
+            .as_ref()
+            .and_then(|connection| connection.saved_device_id.as_deref())
+            == Some(saved_device_id)
+        {
             return Err(ContractError::new(
                 "invalid_state",
                 "An active board cannot be deleted",
@@ -466,23 +546,20 @@ impl ContractBackend {
         self.catalog
             .delete_saved_device_history(saved_device_id)
             .map_err(|error| storage_error(&error))?;
-        let history_id = inner.state["savedDevices"]
-            .as_array()
-            .and_then(|devices| {
-                devices
-                    .iter()
-                    .find(|device| device["savedDeviceId"] == saved_device_id)
-            })
-            .and_then(|device| device["deviceHistoryId"].as_str())
-            .map(str::to_owned);
-        inner.state["savedDevices"]
-            .as_array_mut()
-            .expect("savedDevices is initialized as an array")
-            .retain(|device| device["savedDeviceId"] != saved_device_id);
+        let history_id = inner
+            .state
+            .saved_devices
+            .iter()
+            .find(|device| device.id == saved_device_id)
+            .map(|device| device.device_history_id.clone());
+        inner
+            .state
+            .saved_devices
+            .retain(|device| device.id != saved_device_id);
         if let Some(history_id) = history_id {
             inner
                 .sessions
-                .retain(|session| session["deviceHistoryId"] != history_id);
+                .retain(|session| session.device_history_id.as_deref() != Some(&history_id));
         }
         self.changed(inner, true);
         Ok(accepted())
@@ -493,7 +570,7 @@ impl ContractBackend {
         session_id: &str,
         device_history_id: &str,
         display_name: &str,
-        profile: &Value,
+        profile: &board_profile::BoardProfile,
         started_at: i64,
         sampling: app_coordinator::SamplingSettings,
     ) -> Result<(), ContractError> {
@@ -511,7 +588,7 @@ impl ContractBackend {
                 device_history_id,
                 device_snapshot_json: &device_snapshot_json,
                 profile_snapshot_json: &profile_snapshot_json,
-                profile_revision: profile["revision"].as_u64().unwrap_or_default(),
+                profile_revision: profile.revision,
                 started_at_millis: started_at,
                 requested_idle_millis: sampling.idle_persist_millis,
                 effective_idle_millis: sampling.idle_persist_millis,
@@ -523,32 +600,26 @@ impl ContractBackend {
 
     fn session_list(
         inner: &BackendState,
-        params: &Map<String, Value>,
+        request: &ContractRequest,
     ) -> Result<Value, ContractError> {
-        let saved_device_id = require_saved(inner, params)?;
-        let history_id = inner.state["savedDevices"]
-            .as_array()
-            .and_then(|devices| {
-                devices
-                    .iter()
-                    .find(|device| device["savedDeviceId"] == saved_device_id)
-            })
-            .and_then(|device| device["deviceHistoryId"].as_str())
+        let params: SessionListParams =
+            request_params(request, "Session list parameters are invalid")?;
+        let saved_device_id = require_saved(inner, &params.saved_device_id)?;
+        let history_id = inner
+            .state
+            .saved_devices
+            .iter()
+            .find(|device| device.id == saved_device_id)
+            .map(|device| device.device_history_id.as_str())
             .ok_or_else(|| ContractError::new("not_found", "Saved board was not found"))?;
-        let limit = usize::try_from(
-            params
-                .get("limit")
-                .and_then(Value::as_u64)
-                .filter(|value| (1..=100).contains(value))
-                .ok_or_else(|| invalid("Session page limit is invalid"))?,
-        )
-        .map_err(|_| invalid("Session page limit is invalid"))?;
-        let catalog_revision = inner.state["sessionCatalogRevision"]
-            .as_u64()
-            .ok_or_else(|| ContractError::new("internal", "Session catalog is unavailable"))?;
-        let start = match params.get("cursor") {
-            None | Some(Value::Null) => 0,
-            Some(Value::String(value)) => {
+        if !(1..=100).contains(&params.limit) {
+            return Err(invalid("Session page limit is invalid"));
+        }
+        let limit = params.limit;
+        let catalog_revision = inner.state.session_catalog_revision;
+        let start = match params.cursor.as_deref() {
+            None => 0,
+            Some(value) => {
                 let (revision, offset) = value
                     .split_once(':')
                     .ok_or_else(|| invalid("Cursor is invalid"))?;
@@ -562,12 +633,11 @@ impl ContractBackend {
                     .parse::<usize>()
                     .map_err(|_| invalid("Cursor is invalid"))?
             }
-            _ => return Err(invalid("Cursor is invalid")),
         };
         let items = inner
             .sessions
             .iter()
-            .filter(|session| session["deviceHistoryId"] == history_id)
+            .filter(|session| session.device_history_id.as_deref() == Some(history_id))
             .skip(start)
             .take(limit)
             .cloned()
@@ -575,19 +645,20 @@ impl ContractBackend {
         let owned_count = inner
             .sessions
             .iter()
-            .filter(|session| session["deviceHistoryId"] == history_id)
+            .filter(|session| session.device_history_id.as_deref() == Some(history_id))
             .count();
         let next = (start + items.len() < owned_count)
             .then(|| format!("{catalog_revision}:{}", start + items.len()));
         Ok(json!({
             "items": items,
-            "catalogRevision": inner.state["sessionCatalogRevision"],
+            "catalogRevision": inner.state.session_catalog_revision,
             "nextCursor": next
         }))
     }
 
-    fn session_get(&self, params: &Map<String, Value>) -> Result<Value, ContractError> {
-        let session_id = text(params.get("sessionId"), "sessionId")?;
+    fn session_get(&self, request: &ContractRequest) -> Result<Value, ContractError> {
+        let params: SessionIdParams = request_params(request, "Session parameters are invalid")?;
+        let session_id = bounded_identifier(&params.session_id, "Session ID")?;
         let record = self
             .catalog
             .session_record(session_id)
@@ -598,12 +669,11 @@ impl ContractBackend {
     fn prune_preview(
         &self,
         inner: &mut BackendState,
-        params: &Map<String, Value>,
+        request: &ContractRequest,
     ) -> Result<Value, ContractError> {
-        let session_id = find_session(inner, params)?["sessionId"]
-            .as_str()
-            .map(str::to_owned);
-        let target = prune_target(params)?;
+        let params: PruneParams = request_params(request, "Prune parameters are invalid")?;
+        let session_id = Some(find_session(inner, &params)?.session_id.clone());
+        let target = prune_target(&params)?;
         let record = self
             .catalog
             .session_record(
@@ -614,8 +684,15 @@ impl ContractBackend {
             .map_err(|error| storage_error(&error))?;
         let id = format!("operation-{}", inner.next_operation);
         inner.next_operation += 1;
+        let operation = operation(
+            &id,
+            "prunePreview",
+            "completed",
+            session_id.as_deref(),
+            target,
+        );
         Ok(json!({
-            "operation": operation(&id, "prunePreview", "completed", session_id.as_deref(), target),
+            "operation": operation,
             "recordedSampleCount": record.sample_count,
             "estimatedStoredSampleCount": record.stored_sample_count,
             "estimatedReclaimableBytes": 0,
@@ -627,12 +704,11 @@ impl ContractBackend {
     fn prune(
         &self,
         inner: &mut BackendState,
-        params: &Map<String, Value>,
+        request: &ContractRequest,
     ) -> Result<Value, ContractError> {
-        let session_id = find_session(inner, params)?["sessionId"]
-            .as_str()
-            .map(str::to_owned);
-        let target = prune_target(params)?;
+        let params: PruneParams = request_params(request, "Prune parameters are invalid")?;
+        let session_id = Some(find_session(inner, &params)?.session_id.clone());
+        let target = prune_target(&params)?;
         let id = format!("operation-{}", inner.next_operation);
         inner.next_operation += 1;
         let result = self
@@ -649,7 +725,7 @@ impl ContractBackend {
         if let Some(session) = inner
             .sessions
             .iter_mut()
-            .find(|session| session["sessionId"].as_str() == session_id.as_deref())
+            .find(|session| Some(session.session_id.as_str()) == session_id.as_deref())
             && let Ok(record) = self
                 .catalog
                 .session_record(session_id.as_deref().unwrap_or_default())
@@ -657,22 +733,28 @@ impl ContractBackend {
             *session = session_summary_from_record(&record);
         }
         let mut operation = operation(&id, "prune", "completed", session_id.as_deref(), target);
-        operation["completedSessions"] = json!(1);
-        operation["retainedSamples"] = json!(result.retained_samples);
-        operation["reclaimableBytes"] = json!(0);
-        inner.state["sessionOperation"] = operation.clone();
+        operation.completed_sessions = 1;
+        operation.retained_samples = Some(result.retained_samples);
+        operation.reclaimable_bytes = Some(0);
+        inner.state.session_operation = Some(operation.clone());
         self.changed(inner, true);
-        Ok(operation)
+        serde_json::to_value(operation)
+            .map_err(|_| ContractError::new("internal", "Operation encoding failed"))
     }
 
     fn cancel_prune(
         inner: &BackendState,
-        params: &Map<String, Value>,
+        request: &ContractRequest,
     ) -> Result<Value, ContractError> {
-        let operation_id = text(params.get("operationId"), "operationId")?;
-        let operation = &inner.state["sessionOperation"];
-        if operation["operationId"].as_str() == Some(operation_id) && operation["kind"] == "prune" {
-            Ok(operation.clone())
+        let params: OperationIdParams =
+            request_params(request, "Operation parameters are invalid")?;
+        let operation_id = bounded_identifier(&params.operation_id, "Operation ID")?;
+        let operation = inner.state.session_operation.as_ref();
+        if operation.is_some_and(|operation| {
+            operation.operation_id == operation_id && operation.kind == "prune"
+        }) {
+            serde_json::to_value(operation)
+                .map_err(|_| ContractError::new("internal", "Operation encoding failed"))
         } else {
             Err(ContractError::new(
                 "not_found",
@@ -716,7 +798,7 @@ struct PendingDocument {
 #[derive(Default)]
 struct DocumentOperations {
     pending: HashMap<u64, PendingDocument>,
-    history: VecDeque<Value>,
+    history: VecDeque<DocumentOperationState>,
     unclaimed_completions: VecDeque<OperationCompletion>,
 }
 
@@ -821,7 +903,7 @@ impl NativeBackend {
                 .inner
                 .lock()
                 .map_err(|_| "backend state failed".to_owned())?;
-            sampling_settings(&inner.state["settings"]).map_err(|error| error.message.clone())?
+            inner.state.settings.sampling()
         };
         application
             .configure_sampling(sampling)
@@ -869,17 +951,14 @@ impl NativeBackend {
         self.begin_identification_if_ready(&snapshot)?;
         let mut active_connection = self.native_connection_value(snapshot.wall_millis)?;
         if let (Some(active), Some((latitude, longitude, accuracy))) =
-            (active_connection.as_object_mut(), snapshot.latest_location)
+            (active_connection.as_mut(), snapshot.latest_location)
         {
-            active.insert(
-                "latestLocation".into(),
-                json!({
-                    "observedAt": iso8601_or_empty(snapshot.wall_millis),
-                    "latitude": f64::from_bits(latitude),
-                    "longitude": f64::from_bits(longitude),
-                    "accuracyM": accuracy.map(f64::from_bits)
-                }),
-            );
+            active.latest_location = Some(LiveLocation {
+                observed_at: iso8601_or_empty(snapshot.wall_millis),
+                latitude: f64::from_bits(latitude),
+                longitude: f64::from_bits(longitude),
+                accuracy_m: accuracy.map(f64::from_bits),
+            });
         }
         let native_summary = self.native_session_summary()?;
         let mut inner = self
@@ -892,7 +971,7 @@ impl NativeBackend {
         if let Some(summary) = native_summary {
             self.merge_native_session(&mut inner, summary)?;
         }
-        inner.state["activeConnection"] = active_connection;
+        inner.state.active_connection = active_connection;
         self.contract.changed(&mut inner, false);
         *observed = snapshot.revision;
         Ok(())
@@ -901,19 +980,17 @@ impl NativeBackend {
     fn merge_native_session(
         &self,
         inner: &mut BackendState,
-        summary: Value,
+        summary: SessionSummary,
     ) -> Result<(), ContractError> {
         if let Some(existing) = inner
             .sessions
             .iter_mut()
-            .find(|session| session["sessionId"] == summary["sessionId"])
+            .find(|session| session.session_id == summary.session_id)
         {
             *existing = summary;
             return Ok(());
         }
-        let session_id = summary["sessionId"]
-            .as_str()
-            .ok_or_else(|| ContractError::new("internal", "Session ID is unavailable"))?;
+        let session_id = summary.session_id.as_str();
         if matches!(
             self.contract.catalog.session_record(session_id),
             Err(StoreError::NotFound)
@@ -937,7 +1014,7 @@ impl NativeBackend {
                 connection.name.as_deref().unwrap_or("VESC"),
                 &profile,
                 connection.started_at_millis,
-                sampling_settings(&inner.state["settings"])?,
+                inner.state.settings.sampling(),
             )?;
         }
         inner.sessions.insert(0, summary);
@@ -987,7 +1064,7 @@ impl NativeBackend {
             .inner
             .lock()
             .map_err(|_| ContractError::new("internal", "Backend state failed"))?;
-        sampling_settings(&inner.state["settings"])
+        Ok(inner.state.settings.sampling())
     }
 
     fn configure_connection_sampling(
@@ -1100,7 +1177,8 @@ impl NativeBackend {
             self.accept_document_completion(completion)?;
             return self.current_document_state();
         }
-        Ok(state)
+        serde_json::to_value(state)
+            .map_err(|_| ContractError::new("internal", "Document state encoding failed"))
     }
 
     fn begin_document_export(&self, request: &ContractRequest) -> Result<Value, ContractError> {
@@ -1109,25 +1187,21 @@ impl NativeBackend {
             .lock()
             .map_err(|_| ContractError::new("internal", "Document state failed"))?;
         self.ensure_no_pending_document()?;
-        let params = request
-            .params
-            .as_object()
-            .ok_or_else(|| invalid("Params must be an object"))?;
+        let params: SessionExportParams = request_params(request, "Export parameters are invalid")?;
         let (session_id, format) = {
             let inner = self
                 .contract
                 .inner
                 .lock()
                 .map_err(|_| ContractError::new("internal", "Backend state failed"))?;
-            let session = find_session(&inner, params)?;
-            let session_id = session["sessionId"]
-                .as_str()
-                .ok_or_else(|| ContractError::new("internal", "Session ID is unavailable"))?
-                .to_owned();
-            let format = match params.get("format").and_then(Value::as_str) {
-                Some("csv") => infra_sqlite_storage::ExportFormat::Csv,
-                Some("float-view-archive") => infra_sqlite_storage::ExportFormat::FloatViewArchive,
-                _ => return Err(invalid("Export format is invalid")),
+            let session_id = bounded_identifier(&params.session_id, "Session ID")?;
+            let session = find_session_by_id(&inner, session_id)?;
+            let session_id = session.session_id.clone();
+            let format = match params.format {
+                ExportFormatParam::Csv => infra_sqlite_storage::ExportFormat::Csv,
+                ExportFormatParam::FloatViewArchive => {
+                    infra_sqlite_storage::ExportFormat::FloatViewArchive
+                }
             };
             (session_id, format)
         };
@@ -1137,9 +1211,9 @@ impl NativeBackend {
             .inner
             .lock()
             .map_err(|_| ContractError::new("internal", "Backend state failed"))?
-            .state["settings"]["includeGpsLocationWhenExporting"]
-            .as_bool()
-            .ok_or_else(|| ContractError::new("internal", "Export settings are invalid"))?;
+            .state
+            .settings
+            .include_gps_location_when_exporting();
         let exported = self
             .contract
             .catalog
@@ -1198,7 +1272,8 @@ impl NativeBackend {
             self.accept_document_completion(completion)?;
             return self.current_document_state();
         }
-        Ok(state)
+        serde_json::to_value(state)
+            .map_err(|_| ContractError::new("internal", "Document state encoding failed"))
     }
 
     fn ensure_no_pending_document(&self) -> Result<(), ContractError> {
@@ -1347,7 +1422,7 @@ impl NativeBackend {
         Ok(true)
     }
 
-    fn record_document_history(&self, state: Value) -> Result<(), ContractError> {
+    fn record_document_history(&self, state: DocumentOperationState) -> Result<(), ContractError> {
         let mut documents = self
             .documents
             .lock()
@@ -1378,17 +1453,24 @@ impl NativeBackend {
         self.contract
             .inner
             .lock()
-            .map(|inner| inner.state["documentOperation"].clone())
             .map_err(|_| ContractError::new("internal", "Backend state failed"))
+            .and_then(|inner| {
+                serde_json::to_value(&inner.state.document_operation)
+                    .map_err(|_| ContractError::new("internal", "Document state encoding failed"))
+            })
     }
 
-    fn publish_document_state(&self, state: Value, catalog: bool) -> Result<(), ContractError> {
+    fn publish_document_state(
+        &self,
+        state: DocumentOperationState,
+        catalog: bool,
+    ) -> Result<(), ContractError> {
         let mut inner = self
             .contract
             .inner
             .lock()
             .map_err(|_| ContractError::new("internal", "Backend state failed"))?;
-        inner.state["documentOperation"] = state;
+        inner.state.document_operation = Some(state);
         self.contract.changed(&mut inner, catalog);
         Ok(())
     }
@@ -1450,9 +1532,7 @@ impl NativeBackend {
         let Some(connection) = connection.as_mut() else {
             return Ok(());
         };
-        if connection.shutdown_requested
-            || connection.stage == IdentificationStage::WaitingBluetooth
-        {
+        if connection.shutdown_requested {
             return Ok(());
         }
         if connection.stage != IdentificationStage::Reconnecting {
@@ -1504,11 +1584,12 @@ impl NativeBackend {
     ) -> Result<(), ContractError> {
         let firmware = decode_firmware(payload)
             .map_err(|_| ContractError::new("invalid_state", "Firmware identity is invalid"))?;
-        self.establish_saved_identity(connection, &firmware)?;
         connection.transport_firmware = Some(firmware.clone());
         if protocol_vesc_bms::supports_firmware(&firmware) {
+            self.establish_saved_identity(connection, &firmware)?;
             self.schedule_bms_values(connection, BmsConnection::Direct)
         } else if firmware.hardware_type == 0 {
+            self.establish_saved_identity(connection, &firmware)?;
             connection.firmware = Some(firmware);
             self.schedule_refloat_info(connection, ControllerRoute::Direct)
         } else if let Some(can_id) = self.preferred_can_id(connection)? {
@@ -1644,6 +1725,7 @@ impl NativeBackend {
             connection.controller_inventory.push(firmware);
             self.schedule_next_inventory_probe(connection)
         } else {
+            self.establish_saved_identity(connection, &firmware)?;
             connection.firmware = Some(firmware);
             self.schedule_refloat_info(connection, ControllerRoute::Can(can_id))
         }
@@ -2091,6 +2173,7 @@ impl NativeBackend {
             .collect();
         match controllers.as_slice() {
             [firmware] => {
+                self.establish_saved_identity(connection, firmware)?;
                 connection.controller_can_id = firmware.can_id.map(domain_types::CanId::get);
                 connection.firmware = Some(firmware.clone());
                 self.schedule_refloat_info(connection, connection_route(connection)?)
@@ -2111,10 +2194,7 @@ impl NativeBackend {
         };
         let profile = load_profile(&self.contract.catalog, saved_device_id)
             .map_err(|error| storage_error(&error))?;
-        Ok(profile["values"]["preferredCanId"]
-            .as_u64()
-            .and_then(|value| u8::try_from(value).ok())
-            .filter(|value| *value <= 253))
+        Ok(profile.values.preferred_can_id())
     }
 
     fn begin_bms_discovery(&self, connection: &mut NativeConnection) -> Result<(), ContractError> {
@@ -2370,20 +2450,23 @@ impl NativeBackend {
             .map_err(|error| storage_error(&error))
     }
 
-    fn native_connection_value(&self, observed_at_millis: i64) -> Result<Value, ContractError> {
+    fn native_connection_value(
+        &self,
+        observed_at_millis: i64,
+    ) -> Result<Option<ActiveConnection>, ContractError> {
         let connection = self
             .connection
             .lock()
             .map_err(|_| ContractError::new("internal", "Connection state failed"))?;
         let Some(connection) = connection.as_ref() else {
-            return Ok(Value::Null);
+            return Ok(None);
         };
-        let summary = if connection.ownership.saved().is_some() {
-            native_session_summary(connection)
-        } else {
-            Value::Null
-        };
-        let mut value = active_connection(&summary, &connection.ownership);
+        let summary = connection
+            .ownership
+            .saved()
+            .is_some()
+            .then(|| native_session_summary(connection));
+        let mut value = active_connection(summary.as_ref(), &connection.ownership);
         value["lastSeenAt"] = json!(iso8601_or_empty(observed_at_millis));
         value["deviceId"] = json!(connection.device_id);
         value["name"] = json!(connection.name);
@@ -2416,6 +2499,7 @@ impl NativeBackend {
                     .filter_map(|firmware| {
                         Some(json!({
                             "canId": firmware.can_id?.get(),
+                            "uuid": canonical_firmware_uuid(firmware.controller_uuid),
                             "hardwareName": firmware.hardware_name,
                             "firmwareName": firmware.firmware_name,
                             "vescVersion": format!("{}.{:02}", firmware.major, firmware.minor),
@@ -2432,6 +2516,7 @@ impl NativeBackend {
                 if connection.stage == IdentificationStage::Telemetry =>
             {
                 json!({
+                    "uuid": canonical_firmware_uuid(firmware.controller_uuid),
                     "vescVersion": format!("{}.{:02}", firmware.major, firmware.minor),
                     "packageName": "refloat",
                     "packageVersion": package_version,
@@ -2461,7 +2546,9 @@ impl NativeBackend {
         });
         decorate_bms_connection(&mut value, connection);
         self.decorate_refloat_capabilities(&mut value, connection)?;
-        Ok(value)
+        serde_json::from_value(value)
+            .map(Some)
+            .map_err(|_| ContractError::new("internal", "Active connection mapping is invalid"))
     }
 
     fn decorate_refloat_capabilities(
@@ -2499,7 +2586,7 @@ impl NativeBackend {
         Ok(())
     }
 
-    fn native_session_summary(&self) -> Result<Option<Value>, ContractError> {
+    fn native_session_summary(&self) -> Result<Option<SessionSummary>, ContractError> {
         let connection = self
             .connection
             .lock()
@@ -2591,7 +2678,7 @@ impl NativeBackend {
             schema_fingerprint: params.schema_fingerprint,
             wire_signature: params.wire_signature,
         };
-        let values = parse_configuration_values(Some(&params.values))?;
+        let values = parse_configuration_values(&params.values)?;
         self.write_configuration(&identity, params.base_revision, values)
     }
 
@@ -2612,9 +2699,10 @@ impl NativeBackend {
                 details: Some(json!({ "currentRevision": tune.revision })),
             });
         }
-        let encoded: Value = serde_json::from_str(&tune.values_json)
-            .map_err(|_| ContractError::new("internal", "Stored Tune is invalid"))?;
-        let values = parse_configuration_values(Some(&encoded))?;
+        let encoded: HashMap<String, ConfigurationValueDto> =
+            serde_json::from_str(&tune.values_json)
+                .map_err(|_| ContractError::new("internal", "Stored Tune is invalid"))?;
+        let values = parse_configuration_values(&encoded)?;
         self.write_configuration(&tune_record_identity(&tune), params.base_revision, values)
     }
 
@@ -2736,7 +2824,7 @@ impl NativeBackend {
 
     fn tune_list(&self, request: &ContractRequest) -> Result<Value, ContractError> {
         let params: TuneListParams = request_params(request, "Tune list parameters are invalid")?;
-        let identity = parse_tune_identity(Some(&params.identity))?;
+        let identity = parse_tune_identity(params.identity)?;
         if !(1..=100).contains(&params.limit) {
             return Err(invalid("Tune page limit is invalid"));
         }
@@ -2770,27 +2858,28 @@ impl NativeBackend {
         if params.tune_id.is_empty() {
             return Err(invalid("Tune ID is required"));
         }
-        self.contract
+        let record = self
+            .contract
             .catalog
             .tune(&params.tune_id)
-            .map(|record| tune_value(&record))
-            .map_err(|error| storage_error(&error))
+            .map_err(|error| storage_error(&error))?;
+        tune_value(&record)
     }
 
     fn tune_create(&self, request: &ContractRequest) -> Result<Value, ContractError> {
         let params: TuneCreateParams =
             request_params(request, "Tune create parameters are invalid")?;
-        let identity = parse_tune_identity(Some(&params.identity))?;
+        let identity = parse_tune_identity(params.identity)?;
         self.require_current_configuration(&identity, params.source_revision)?;
-        let values = parse_configuration_values(Some(&params.values))?;
+        let values = parse_configuration_values(&params.values)?;
         self.validate_configuration_values(&identity, &values)?;
         let now = unix_millis()?;
         let tune_id = self.next_tune_id(now)?;
         let record = TuneRecord {
             configuration_id: tune_id,
             revision: 0,
-            name: tune_name(Some(&params.name))?,
-            description: tune_description(Some(&params.description))?,
+            name: tune_name(&params.name)?,
+            description: tune_description(params.description)?,
             package_version: identity.package_version,
             schema_fingerprint: identity.schema_fingerprint,
             wire_signature: identity.wire_signature,
@@ -2798,11 +2887,12 @@ impl NativeBackend {
             created_at_millis: now,
             updated_at_millis: now,
         };
-        self.contract
+        let stored = self
+            .contract
             .catalog
             .create_tune(&record)
-            .map(|stored| tune_value(&stored))
-            .map_err(|error| storage_error(&error))
+            .map_err(|error| storage_error(&error))?;
+        tune_value(&stored)
     }
 
     fn tune_update(&self, request: &ContractRequest) -> Result<Value, ContractError> {
@@ -2817,13 +2907,13 @@ impl NativeBackend {
             .tune(&params.tune_id)
             .map_err(|error| storage_error(&error))?;
         let identity = tune_record_identity(&current);
-        let values = parse_configuration_values(Some(&params.values))?;
+        let values = parse_configuration_values(&params.values)?;
         self.validate_configuration_values(&identity, &values)?;
         let record = TuneRecord {
             configuration_id: params.tune_id,
             revision: current.revision,
-            name: tune_name(Some(&params.name))?,
-            description: tune_description(Some(&params.description))?,
+            name: tune_name(&params.name)?,
+            description: tune_description(params.description)?,
             package_version: current.package_version,
             schema_fingerprint: current.schema_fingerprint,
             wire_signature: current.wire_signature,
@@ -2831,11 +2921,12 @@ impl NativeBackend {
             created_at_millis: current.created_at_millis,
             updated_at_millis: unix_millis()?,
         };
-        self.contract
+        let stored = self
+            .contract
             .catalog
             .update_tune(&record, params.expected_revision)
-            .map(|stored| tune_value(&stored))
-            .map_err(|error| storage_error(&error))
+            .map_err(|error| storage_error(&error))?;
+        tune_value(&stored)
     }
 
     fn tune_delete(&self, request: &ContractRequest) -> Result<Value, ContractError> {
@@ -2931,10 +3022,30 @@ impl NativeBackend {
             .map(|device| device.association.clone())
             .ok_or_else(|| ContractError::new("not_found", "Device is no longer available"))?;
         let sampling = self.current_sampling_settings()?;
-        let ownership = if tracking_mode == TrackingMode::Saved {
-            ConnectionOwnership::PendingSaved
+        let (ownership, saved_firmware_uuid) = if tracking_mode == TrackingMode::Guest {
+            (ConnectionOwnership::Guest, None)
         } else {
-            ConnectionOwnership::Guest
+            let private_association = encode_platform_association(&association);
+            let existing = self
+                .contract
+                .catalog
+                .saved_devices()
+                .map_err(|error| storage_error(&error))?
+                .into_iter()
+                .find(|saved| {
+                    saved.opaque_platform_id.as_deref() == Some(private_association.as_str())
+                });
+            existing.map_or((ConnectionOwnership::PendingSaved, None), |saved| {
+                (
+                    ConnectionOwnership::Saved {
+                        saved_device_id: saved.saved_device_id,
+                        device_history_id: saved.device_history_id,
+                    },
+                    saved
+                        .firmware_device_uuid
+                        .and_then(|uuid| FirmwareDeviceUuid::new(uuid).ok()),
+                )
+            })
         };
         self.application
             .start_tracking(ownership.tracking_mode())
@@ -2949,6 +3060,7 @@ impl NativeBackend {
             id,
             association,
             ownership,
+            saved_firmware_uuid,
             sampling.reconnect_duration_millis,
         );
         *self
@@ -3001,12 +3113,12 @@ impl NativeBackend {
             if let Some(session) = inner
                 .sessions
                 .iter_mut()
-                .find(|session| session["sessionId"] == session_id)
+                .find(|session| session.session_id == session_id)
             {
                 *session = summary;
             }
         }
-        inner.state["activeConnection"] = Value::Null;
+        inner.state.active_connection = None;
         self.contract.changed(&mut inner, true);
         Ok(accepted())
     }
@@ -3040,6 +3152,7 @@ impl NativeBackend {
             })
             .cloned()
             .ok_or_else(|| ContractError::new("not_found", "Controller was not found"))?;
+        self.establish_saved_identity(connection, &firmware)?;
         connection.controller_can_id = Some(params.can_id);
         connection.firmware = Some(firmware);
         let route = ControllerRoute::Can(
@@ -3175,10 +3288,7 @@ impl NativeBackend {
             })
             .map_err(|_| ContractError::new("unavailable", "Control request failed"))?;
         if one_way {
-            if !completions
-                .iter()
-                .any(|completion| matches!(completion, RequestCompletion::Sent(_)))
-            {
+            if !one_way_request_accepted(&completions) {
                 return Err(ContractError::new("unavailable", "Control was not sent"));
             }
             apply_one_way_control(connection, control, enabled);
@@ -3202,7 +3312,8 @@ impl NativeBackend {
                     .inner
                     .lock()
                     .map_err(|_| ContractError::new("internal", "Backend state failed"))?;
-                Ok(inner.state["bluetooth"].clone())
+                serde_json::to_value(&inner.state.bluetooth)
+                    .map_err(|_| ContractError::new("internal", "Bluetooth state encoding failed"))
             }
             "bluetooth.scan" => {
                 let params: ScanParams = request_params(request, "Scan parameters are invalid")?;
@@ -3242,19 +3353,18 @@ impl NativeBackend {
             .inner
             .lock()
             .map_err(|_| ContractError::new("internal", "Backend state failed"))?;
-        Ok(inner.state["location"].clone())
+        serde_json::to_value(&inner.state.location)
+            .map_err(|_| ContractError::new("internal", "Location state encoding failed"))
     }
 
     fn update_settings(&self, request: &ContractRequest) -> Result<Value, ContractError> {
-        let location_enabled = request
-            .params
-            .as_object()
-            .and_then(|params| params.get("patch"))
-            .and_then(Value::as_object)
-            .and_then(|patch| patch.get("locationRecordingEnabled"))
-            .and_then(Value::as_bool);
+        let params: SettingsUpdateParams =
+            request_params(request, "Settings parameters are invalid")?;
+        let location_enabled = params.patch.location_recording_enabled();
         let result = self.contract.handle(request)?;
-        let sampling = sampling_settings(&result)?;
+        let sampling = serde_json::from_value::<settings::Settings>(result.clone())
+            .map_err(|_| ContractError::new("internal", "Settings result is invalid"))?
+            .sampling();
         self.application.configure_sampling(sampling).map_err(|_| {
             ContractError::new("internal", "Sampling settings could not be applied")
         })?;
@@ -3332,10 +3442,7 @@ impl NativeBackend {
                 expects_response: false,
             })
             .map_err(|_| ContractError::new("unavailable", "Control request failed"))?;
-        if !completions
-            .iter()
-            .any(|completion| matches!(completion, RequestCompletion::Sent(_)))
-        {
+        if !one_way_request_accepted(&completions) {
             return Err(ContractError::new("unavailable", "Control was not sent"));
         }
         if let Some(telemetry) = connection.latest_telemetry.as_mut() {
@@ -3438,10 +3545,7 @@ impl NativeBackend {
                 expects_response: false,
             })
             .map_err(|_| ContractError::new("unavailable", "Shutdown request failed"))?;
-        if !completions
-            .iter()
-            .any(|completion| matches!(completion, RequestCompletion::Sent(_)))
-        {
+        if !one_way_request_accepted(&completions) {
             return Err(ContractError::new("unavailable", "Shutdown was not sent"));
         }
         connection.shutdown_requested = true;
@@ -3476,7 +3580,7 @@ impl NativeBackend {
                         .inner
                         .lock()
                         .map_err(|_| ContractError::new("internal", "Backend state failed"))?;
-                    inner.state["activeConnection"] = Value::Null;
+                    inner.state.active_connection = None;
                     self.contract.changed(&mut inner, false);
                     break;
                 }
@@ -3491,6 +3595,7 @@ fn new_native_connection(
     device_id: String,
     association: PlatformAssociation,
     ownership: ConnectionOwnership,
+    saved_firmware_uuid: Option<FirmwareDeviceUuid>,
     reconnect_duration_millis: u64,
 ) -> NativeConnection {
     let name = snapshot
@@ -3511,7 +3616,7 @@ fn new_native_connection(
         device_id,
         association,
         identity_nonce: snapshot.instance_nonce,
-        saved_firmware_uuid: None,
+        saved_firmware_uuid,
         name,
         stage: IdentificationStage::WaitingBluetooth,
         connect_after_generation: snapshot.connection_generation,
@@ -3581,56 +3686,61 @@ fn update_platform_state(
         BluetoothAuthorization::Denied => "denied",
         BluetoothAuthorization::Unknown => "not_determined",
     };
-    inner.state["bluetooth"] = json!({
-        "radio": radio,
-        "scanPermission": permission,
-        "connectPermission": permission,
-        "scanning": false
-    });
-    let location_enabled = inner.state["settings"]["locationRecordingEnabled"] == true;
-    inner.state["location"] = if location_enabled {
+    inner.state.bluetooth = ContractBluetoothState {
+        radio: radio.into(),
+        scan_permission: permission.into(),
+        connect_permission: permission.into(),
+        scanning: false,
+    };
+    let location_enabled = inner.state.settings.location_recording_enabled();
+    inner.state.location = if location_enabled {
         match snapshot.location_authorization {
-            host_ports::LocationAuthorization::Background => {
-                json!({ "status": "authorized", "permissionAction": null, "backgroundCapture": "available", "reason": null })
-            }
-            host_ports::LocationAuthorization::Foreground => {
-                json!({ "status": "foregroundOnly", "permissionAction": "openSettings", "backgroundCapture": "foregroundOnly", "reason": null })
-            }
-            host_ports::LocationAuthorization::Denied => {
-                json!({ "status": "denied", "permissionAction": "openSettings", "backgroundCapture": "unavailable", "reason": null })
-            }
-            host_ports::LocationAuthorization::Unknown => {
-                json!({ "status": "notDetermined", "permissionAction": "requestPermission", "backgroundCapture": "unavailable", "reason": null })
-            }
+            host_ports::LocationAuthorization::Background => LocationState {
+                status: "authorized".into(),
+                permission_action: None,
+                background_capture: "available".into(),
+                reason: None,
+            },
+            host_ports::LocationAuthorization::Foreground => LocationState {
+                status: "foregroundOnly".into(),
+                permission_action: Some("openSettings".into()),
+                background_capture: "foregroundOnly".into(),
+                reason: None,
+            },
+            host_ports::LocationAuthorization::Denied => LocationState {
+                status: "denied".into(),
+                permission_action: Some("openSettings".into()),
+                background_capture: "unavailable".into(),
+                reason: None,
+            },
+            host_ports::LocationAuthorization::Unknown => LocationState::recording_not_determined(),
         }
     } else {
-        json!({ "status": "disabled", "permissionAction": "requestPermission", "backgroundCapture": "unavailable", "reason": null })
+        LocationState::disabled()
     };
     let saved_devices = catalog.saved_devices()?;
-    inner.state["discoveredDevices"] = Value::Array(
-        snapshot
-            .discovered_devices
-            .iter()
-            .map(|device| {
-                let device_id = public_discovery_id(snapshot.instance_nonce, &device.association);
-                let private_association = encode_platform_association(&device.association);
-                let saved_device_id = saved_devices
-                    .iter()
-                    .find(|saved| {
-                        saved.opaque_platform_id.as_deref() == Some(private_association.as_str())
-                    })
-                    .map(|saved| saved.saved_device_id.as_str());
-                json!({
-                    "deviceId": device_id,
-                    "name": device.name,
-                    "state": "discovered",
-                    "lastSeenAt": iso8601_or_empty(snapshot.wall_millis),
-                    "rssi": device.rssi,
-                    "savedDeviceId": saved_device_id
+    inner.state.discovered_devices = snapshot
+        .discovered_devices
+        .iter()
+        .map(|device| {
+            let device_id = public_discovery_id(snapshot.instance_nonce, &device.association);
+            let private_association = encode_platform_association(&device.association);
+            let saved_device_id = saved_devices
+                .iter()
+                .find(|saved| {
+                    saved.opaque_platform_id.as_deref() == Some(private_association.as_str())
                 })
-            })
-            .collect(),
-    );
+                .map(|saved| saved.saved_device_id.clone());
+            DiscoveredDevice {
+                device_id,
+                name: device.name.clone(),
+                state: "discovered".into(),
+                last_seen_at: Some(iso8601_or_empty(snapshot.wall_millis)),
+                rssi: Some(device.rssi),
+                saved_device_id,
+            }
+        })
+        .collect();
     inner.location_count = snapshot.location_sequence;
     Ok(())
 }
@@ -3772,28 +3882,30 @@ fn reset_identification(connection: &mut NativeConnection) {
     connection.configuration_operation = None;
 }
 
-fn native_session_summary(connection: &NativeConnection) -> Value {
-    let mut summary = session_summary(&connection.session_id, "active");
-    summary["deviceHistoryId"] = json!(
-        connection
-            .ownership
-            .saved()
-            .map(|(_, device_history_id)| device_history_id)
-    );
-    summary["displayName"] = json!(connection.name.as_deref().unwrap_or("VESC"));
-    summary["startedAt"] = json!(iso8601_or_empty(connection.started_at_millis));
-    let sample_count = connection.telemetry_sequence;
-    summary["sampleCount"] = json!(sample_count);
-    summary["totalElapsedMs"] = json!(connection.last_telemetry_elapsed_millis.unwrap_or_default());
-    summary["ridingElapsedMs"] = json!(connection.riding_elapsed_millis);
-    if let Some(distance) = connection
+fn native_session_summary(connection: &NativeConnection) -> SessionSummary {
+    let distance = connection
         .latest_sample
         .as_ref()
-        .and_then(|sample| sample["distanceM"].as_f64())
-    {
-        summary["distanceM"] = json!(distance);
+        .and_then(|sample| sample["distanceM"].as_f64());
+    SessionSummary {
+        session_id: connection.session_id.clone(),
+        device_history_id: connection
+            .ownership
+            .saved()
+            .map(|(_, device_history_id)| device_history_id.to_owned()),
+        display_name: connection.name.clone().unwrap_or_else(|| "VESC".into()),
+        started_at: iso8601_or_empty(connection.started_at_millis),
+        ended_at: None,
+        state: "active".into(),
+        integrity: "complete".into(),
+        sample_count: connection.telemetry_sequence,
+        event_count: 0,
+        riding_elapsed_ms: connection.riding_elapsed_millis,
+        total_elapsed_ms: connection.last_telemetry_elapsed_millis.unwrap_or_default(),
+        distance_m: distance,
+        max_speed_mps: None,
+        max_duty_cycle: None,
     }
-    summary
 }
 
 fn bms_state_value(connection: &NativeConnection, observed_at_millis: i64) -> Value {
@@ -3804,11 +3916,26 @@ fn bms_state_value(connection: &NativeConnection, observed_at_millis: i64) -> Va
         DiscoveryStatus::Unavailable => "unavailable",
         DiscoveryStatus::Ambiguous => "ambiguous",
     };
+    let selected_uuid = connection
+        .bms_connection
+        .and_then(|selected| match selected {
+            BmsConnection::Direct => connection
+                .transport_firmware
+                .as_ref()
+                .and_then(|firmware| canonical_firmware_uuid(firmware.controller_uuid)),
+            BmsConnection::Can(can_id) => connection
+                .controller_inventory
+                .iter()
+                .find(|firmware| firmware.can_id == Some(can_id))
+                .and_then(|firmware| canonical_firmware_uuid(firmware.controller_uuid)),
+        });
     json!({
         "status": status,
+        "uuid": selected_uuid,
         "connection": connection.bms_connection.map(bms_connection_value),
         "candidates": connection.bms_candidates.iter().map(|candidate| json!({
             "connection": bms_connection_value(candidate.connection),
+            "uuid": candidate.uuid,
             "hardwareName": candidate.hardware_name,
             "vescVersion": candidate.vesc_version
         })).collect::<Vec<_>>(),
@@ -4129,25 +4256,8 @@ fn pending_action_name(action: protocol_refloat::PendingAction) -> &'static str 
     }
 }
 
-fn initial_state() -> Value {
-    json!({
-        "revision": 0,
-        "bluetooth": { "radio": "powered_on", "scanPermission": "granted", "connectPermission": "granted", "scanning": false },
-        "discoveredDevices": [],
-        "savedDevices": [],
-        "activeConnection": null,
-        "sessionCatalogRevision": 0,
-        "settings": {
-            "revision": 0, "idleProbeIntervalMs": 500, "idlePersistIntervalMs": 1000,
-            "ridingPersistIntervalMs": 100, "postRideTailMs": 5000, "reconnectDurationMs": 30000,
-            "minimumSessionDistance": 10, "themePreference": "system", "unitPreference": "metric",
-            "historyGapThresholdSeconds": null, "locationRecordingEnabled": false,
-            "includeGpsLocationWhenExporting": false
-        },
-        "location": { "status": "disabled", "permissionAction": "requestPermission", "backgroundCapture": "unavailable", "reason": null },
-        "sessionOperation": null,
-        "documentOperation": null
-    })
+fn initial_state() -> AppState {
+    AppState::default()
 }
 
 fn document_path(path: &std::path::Path) -> Result<String, ContractError> {
@@ -4169,25 +4279,32 @@ fn document_operation_value(
     operation_id: &str,
     kind: DocumentKind,
     status: &str,
-    error: Option<Value>,
+    error: Option<DocumentError>,
     export_display_name: Option<&str>,
     session_id: Option<&str>,
-) -> Value {
-    json!({
-        "operationId": operation_id,
-        "kind": match kind { DocumentKind::Import => "import", DocumentKind::Export => "export" },
-        "status": status,
-        "error": error.unwrap_or(Value::Null),
-        "exportDisplayName": export_display_name,
-        "sessionId": session_id,
-    })
+) -> DocumentOperationState {
+    DocumentOperationState {
+        operation_id: operation_id.into(),
+        kind: match kind {
+            DocumentKind::Import => "import",
+            DocumentKind::Export => "export",
+        }
+        .into(),
+        status: status.into(),
+        error,
+        export_display_name: export_display_name.map(str::to_owned),
+        session_id: session_id.map(str::to_owned),
+    }
 }
 
-fn document_error(code: &str, message: &str) -> Value {
-    json!({ "code": code, "message": message })
+fn document_error(code: &str, message: &str) -> DocumentError {
+    DocumentError {
+        code: code.into(),
+        message: message.into(),
+    }
 }
 
-fn storage_error_value(error: &StoreError) -> Value {
+fn storage_error_value(error: &StoreError) -> DocumentError {
     let mapped = storage_error(error);
     document_error(mapped.code, &mapped.message)
 }
@@ -4202,26 +4319,6 @@ fn unix_millis() -> Result<i64, ContractError> {
 
 fn wall_elapsed_millis(started_at_millis: i64, observed_at_millis: i64) -> u64 {
     u64::try_from(observed_at_millis.saturating_sub(started_at_millis)).unwrap_or_default()
-}
-
-fn sampling_settings(settings: &Value) -> Result<app_coordinator::SamplingSettings, ContractError> {
-    Ok(app_coordinator::SamplingSettings {
-        idle_probe_millis: settings["idleProbeIntervalMs"]
-            .as_u64()
-            .ok_or_else(|| invalid("Idle probe interval is invalid"))?,
-        idle_persist_millis: settings["idlePersistIntervalMs"]
-            .as_u64()
-            .ok_or_else(|| invalid("Idle persistence interval is invalid"))?,
-        riding_persist_millis: settings["ridingPersistIntervalMs"]
-            .as_u64()
-            .ok_or_else(|| invalid("Riding persistence interval is invalid"))?,
-        post_ride_tail_millis: settings["postRideTailMs"]
-            .as_u64()
-            .ok_or_else(|| invalid("Post-ride tail is invalid"))?,
-        reconnect_duration_millis: settings["reconnectDurationMs"]
-            .as_u64()
-            .ok_or_else(|| invalid("Reconnect duration is invalid"))?,
-    })
 }
 
 fn iso8601_or_empty(millis: i64) -> String {
@@ -4243,54 +4340,42 @@ fn storage_error(error: &StoreError) -> ContractError {
     }
 }
 
-fn load_durable_state(catalog: &CatalogStore, state: &mut Value) -> Result<(), StoreError> {
-    let mut default_settings = state["settings"].clone();
-    default_settings
-        .as_object_mut()
-        .ok_or(StoreError::Invalid)?
-        .remove("revision");
-    let settings = catalog
-        .settings(&serde_json::to_string(&default_settings).map_err(|_| StoreError::Invalid)?)?;
-    let mut settings_value: Value =
-        serde_json::from_str(&settings.json).map_err(|_| StoreError::Invalid)?;
-    settings_value["revision"] = json!(settings.revision);
-    state["settings"] = settings_value;
+fn load_durable_state(catalog: &CatalogStore, state: &mut AppState) -> Result<(), StoreError> {
+    let defaults = settings::Settings::default();
+    let settings = catalog.settings(&defaults.stored_json().map_err(|_| StoreError::Invalid)?)?;
+    let settings = settings::Settings::from_stored(settings.revision, &settings.json)
+        .ok_or(StoreError::Invalid)?;
+    state.settings = settings;
 
     let records = catalog.session_records()?;
-    state["savedDevices"] = Value::Array(
-        catalog
-            .saved_devices()?
-            .iter()
-            .map(|device| saved_device_value(device, &records))
-            .collect(),
-    );
-    state["sessionCatalogRevision"] = json!(records.len());
+    state.saved_devices = catalog
+        .saved_devices()?
+        .iter()
+        .map(|device| saved_device_value(device, &records))
+        .collect();
+    state.session_catalog_revision = u64::try_from(records.len()).unwrap_or(u64::MAX);
     Ok(())
 }
 
 fn populate_profile_completeness(
     catalog: &CatalogStore,
-    state: &mut Value,
+    state: &mut AppState,
 ) -> Result<(), StoreError> {
-    let devices = state["savedDevices"]
-        .as_array_mut()
-        .ok_or(StoreError::Invalid)?;
-    for device in devices {
-        let saved_device_id = device["savedDeviceId"]
-            .as_str()
-            .ok_or(StoreError::Invalid)?;
-        let profile = load_profile(catalog, saved_device_id)?;
-        device["profileComplete"] = json!(
-            profile["missingFields"]
-                .as_array()
-                .is_some_and(Vec::is_empty)
-        );
+    for device in &mut state.saved_devices {
+        let profile = load_profile(catalog, &device.id)?;
+        device.profile_complete = profile.complete();
     }
     Ok(())
 }
 
 fn firmware_board_ids(uuid: FirmwareDeviceUuid) -> (String, String) {
-    private_board_ids(b"vesc-firmware-uuid", &uuid.bytes())
+    let canonical = uuid.canonical();
+    (canonical.clone(), canonical)
+}
+
+fn canonical_firmware_uuid(uuid: Option<[u8; 12]>) -> Option<String> {
+    uuid.and_then(|value| FirmwareDeviceUuid::new(value).ok())
+        .map(FirmwareDeviceUuid::canonical)
 }
 
 fn fallback_board_ids(
@@ -4342,80 +4427,100 @@ fn configuration_cache_identity(
 fn saved_device_value(
     device: &infra_sqlite_storage::SavedDevice,
     sessions: &[SessionCatalogRecord],
-) -> Value {
+) -> SavedDevice {
     let owned = sessions
         .iter()
         .filter(|session| session.device_history_id == device.device_history_id)
         .collect::<Vec<_>>();
     let advertised = device.advertised_name.as_deref();
-    let identifier = device.opaque_platform_id.as_ref().map(|_| "Local VESC");
+    let identifier = device
+        .opaque_platform_id
+        .as_ref()
+        .map(|_| "Local VESC".to_owned());
     let display = device
         .custom_display_name
         .as_deref()
         .or(advertised)
-        .or(identifier)
+        .or(identifier.as_deref())
         .unwrap_or("VESC");
-    json!({
-        "savedDeviceId": device.saved_device_id,
-        "deviceHistoryId": device.device_history_id,
-        "revision": device.revision,
-        "displayName": display,
-        "customDisplayName": device.custom_display_name,
-        "advertisedName": device.advertised_name,
-        "bluetoothIdentifier": identifier,
-        "lastSeenAt": device.last_seen_at_millis.and_then(|value| infra_sqlite_storage::format_iso8601(value).ok()),
-        "lastConnectedAt": device.last_connected_at_millis.and_then(|value| infra_sqlite_storage::format_iso8601(value).ok()),
-        "profileComplete": false,
-        "summary": {
-            "sessionCount": owned.len(),
-            "mostRecentSessionAt": owned.first().and_then(|session| infra_sqlite_storage::format_iso8601(session.started_at_millis).ok()),
-            "totalRidingElapsedMs": owned.iter().map(|session| session.riding_elapsed_millis).sum::<u64>(),
-            "totalDistanceM": owned.iter().filter_map(|session| session.distance_m).reduce(|left, right| left + right)
-        }
-    })
+    SavedDevice {
+        id: device.saved_device_id.clone(),
+        device_history_id: device.device_history_id.clone(),
+        vesc_uuid: canonical_firmware_uuid(device.firmware_device_uuid),
+        revision: device.revision,
+        display_name: display.into(),
+        custom_display_name: device.custom_display_name.clone(),
+        advertised_name: device.advertised_name.clone(),
+        bluetooth_identifier: identifier,
+        last_seen_at: device
+            .last_seen_at_millis
+            .and_then(|value| infra_sqlite_storage::format_iso8601(value).ok()),
+        last_connected_at: device
+            .last_connected_at_millis
+            .and_then(|value| infra_sqlite_storage::format_iso8601(value).ok()),
+        profile_complete: false,
+        summary: contract_state::BoardHistorySummary {
+            session_count: owned.len(),
+            most_recent_session_at: owned.first().and_then(|session| {
+                infra_sqlite_storage::format_iso8601(session.started_at_millis).ok()
+            }),
+            total_riding_elapsed_ms: owned
+                .iter()
+                .map(|session| session.riding_elapsed_millis)
+                .sum(),
+            total_distance_m: owned
+                .iter()
+                .filter_map(|session| session.distance_m)
+                .reduce(|left, right| left + right),
+        },
+    }
 }
 
-fn load_profile(catalog: &CatalogStore, saved_device_id: &str) -> Result<Value, StoreError> {
+fn load_profile(
+    catalog: &CatalogStore,
+    saved_device_id: &str,
+) -> Result<board_profile::BoardProfile, StoreError> {
     let profile = catalog.board_profile(saved_device_id)?;
-    let values: Value = serde_json::from_str(&profile.json).map_err(|_| StoreError::Invalid)?;
-    let missing_fields = ["seriesCount", "parallelCount", "motor"]
-        .into_iter()
-        .filter(|field| values.get(*field).is_none())
-        .collect::<Vec<_>>();
-    Ok(json!({
-        "savedDeviceId": profile.saved_device_id,
-        "revision": profile.revision,
-        "values": values,
-        "missingFields": missing_fields,
-    }))
+    board_profile::BoardProfile::from_stored(profile).ok_or(StoreError::Invalid)
 }
 
-fn session_summary_from_record(record: &SessionCatalogRecord) -> Value {
-    let device: Value = serde_json::from_str(&record.device_snapshot_json).unwrap_or(Value::Null);
-    json!({
-        "sessionId": record.session_id,
-        "deviceHistoryId": record.device_history_id,
-        "displayName": device.get("displayName").or_else(|| device.get("name")).and_then(Value::as_str).unwrap_or("VESC"),
-        "startedAt": infra_sqlite_storage::format_iso8601(record.started_at_millis).unwrap_or_default(),
-        "endedAt": record.ended_at_millis.and_then(|value| infra_sqlite_storage::format_iso8601(value).ok()),
-        "state": record.state,
-        "integrity": match record.integrity.as_str() {
+fn session_summary_from_record(record: &SessionCatalogRecord) -> SessionSummary {
+    let device: SessionDeviceSnapshot = serde_json::from_str(&record.device_snapshot_json)
+        .unwrap_or(SessionDeviceSnapshot {
+            display_name: None,
+            name: None,
+        });
+    SessionSummary {
+        session_id: record.session_id.clone(),
+        device_history_id: Some(record.device_history_id.clone()),
+        display_name: device
+            .display_name
+            .or(device.name)
+            .unwrap_or_else(|| "VESC".into()),
+        started_at: infra_sqlite_storage::format_iso8601(record.started_at_millis)
+            .unwrap_or_default(),
+        ended_at: record
+            .ended_at_millis
+            .and_then(|value| infra_sqlite_storage::format_iso8601(value).ok()),
+        state: record.state.clone(),
+        integrity: match record.integrity.as_str() {
             "complete" => "complete",
             "recovered" => "recovered",
             "failed" => "corrupt",
             _ => "gaps",
-        },
-        "sampleCount": record.sample_count,
-        "eventCount": record.event_count,
-        "ridingElapsedMs": record.riding_elapsed_millis,
-        "totalElapsedMs": record.total_elapsed_millis,
-        "distanceM": record.distance_m,
-        "maxSpeedMps": record.maximum_speed_mps,
-        "maxDutyCycle": record.maximum_duty_cycle,
-    })
+        }
+        .into(),
+        sample_count: record.sample_count,
+        event_count: record.event_count,
+        riding_elapsed_ms: record.riding_elapsed_millis,
+        total_elapsed_ms: record.total_elapsed_millis,
+        distance_m: record.distance_m,
+        max_speed_mps: record.maximum_speed_mps,
+        max_duty_cycle: record.maximum_duty_cycle,
+    }
 }
 
-fn active_connection(summary: &Value, ownership: &ConnectionOwnership) -> Value {
+fn active_connection(summary: Option<&SessionSummary>, ownership: &ConnectionOwnership) -> Value {
     let saved_device_id = ownership
         .saved()
         .map(|(saved_device_id, _)| saved_device_id);
@@ -4425,7 +4530,7 @@ fn active_connection(summary: &Value, ownership: &ConnectionOwnership) -> Value 
         "trackingMode": if ownership.tracking_mode() == TrackingMode::Saved { "saved" } else { "guest" },
         "savedDeviceId": saved_device_id,
         "controllerConnection": { "kind": "direct" }, "controllerCandidates": [], "connectionIssue": null,
-        "bms": { "status": "not_found", "connection": null, "candidates": [], "latestSnapshot": null },
+        "bms": { "status": "not_found", "uuid": null, "connection": null, "candidates": [], "latestSnapshot": null },
         "refloatControls": {
             "status": "unavailable", "writable": false, "packageEnabled": null, "flywheelEnabled": null,
             "lightingAvailable": false, "ledsEnabled": null, "headlightsEnabled": null,
@@ -4440,7 +4545,7 @@ fn active_connection(summary: &Value, ownership: &ConnectionOwnership) -> Value 
         "controllerActions": { "shutdownAvailable": false, "pendingAction": null },
         "activeSession": summary, "latestSample": null, "latestLocation": null,
         "currentLimits": null,
-        "firmware": { "vescVersion": "6.06", "packageName": "refloat", "packageVersion": "1.2.3", "hardwareName": "Express", "accessMode": "readWrite", "supported": true }
+        "firmware": { "uuid": null, "vescVersion": "6.06", "packageName": "refloat", "packageVersion": "1.2.3", "hardwareName": "Express", "accessMode": "readWrite", "supported": true }
     })
 }
 
@@ -4465,14 +4570,24 @@ fn telemetry_template() -> Value {
     })
 }
 
-fn session_summary(id: &str, state: &str) -> Value {
-    json!({
-        "sessionId": id, "deviceHistoryId": null, "displayName": "VESC",
-        "startedAt": "", "endedAt": null, "state": state,
-        "integrity": "complete", "sampleCount": 3, "eventCount": 0,
-        "ridingElapsedMs": 300, "totalElapsedMs": 300, "distanceM": 2.0,
-        "maxSpeedMps": 6.75, "maxDutyCycle": 0.42
-    })
+#[cfg(test)]
+fn session_summary(id: &str, state: &str) -> SessionSummary {
+    SessionSummary {
+        session_id: id.into(),
+        device_history_id: None,
+        display_name: "VESC".into(),
+        started_at: String::new(),
+        ended_at: None,
+        state: state.into(),
+        integrity: "complete".into(),
+        sample_count: 3,
+        event_count: 0,
+        riding_elapsed_ms: 300,
+        total_elapsed_ms: 300,
+        distance_m: Some(2.0),
+        max_speed_mps: Some(6.75),
+        max_duty_cycle: Some(0.42),
+    }
 }
 
 fn session_metadata_from_record(record: &SessionCatalogRecord) -> Value {
@@ -4502,12 +4617,26 @@ fn session_metadata_from_record(record: &SessionCatalogRecord) -> Value {
     })
 }
 
-fn operation(id: &str, kind: &str, status: &str, session_id: Option<&str>, target: u64) -> Value {
-    json!({
-        "operationId": id, "kind": kind, "status": status, "sessionId": session_id,
-        "scope": if session_id.is_some() { "one" } else { "all" },
-        "targetResolutionSeconds": target, "completedSessions": 1, "eligibleSessions": 1, "error": null
-    })
+fn operation(
+    id: &str,
+    kind: &str,
+    status: &str,
+    session_id: Option<&str>,
+    target: u64,
+) -> SessionOperationState {
+    SessionOperationState {
+        operation_id: id.into(),
+        kind: kind.into(),
+        status: status.into(),
+        session_id: session_id.map(str::to_owned),
+        scope: if session_id.is_some() { "one" } else { "all" }.into(),
+        target_resolution_seconds: Some(target),
+        completed_sessions: 1,
+        eligible_sessions: Some(1),
+        error: None,
+        retained_samples: None,
+        reclaimable_bytes: None,
+    }
 }
 
 fn accepted() -> Value {
@@ -4526,7 +4655,7 @@ where
     D: Deserializer<'de>,
     T: Deserialize<'de>,
 {
-    T::deserialize(deserializer).map(Some)
+    Option::<T>::deserialize(deserializer)
 }
 
 fn parse_cursor(cursor: Option<&str>) -> Result<usize, ContractError> {
@@ -4539,59 +4668,72 @@ fn parse_cursor(cursor: Option<&str>) -> Result<usize, ContractError> {
     }
 }
 
-fn empty(params: &Map<String, Value>) -> Result<(), ContractError> {
-    if params.is_empty() {
-        Ok(())
-    } else {
-        Err(invalid("Method takes no parameters"))
-    }
-}
-
 fn require_saved<'a>(
     inner: &BackendState,
-    params: &'a Map<String, Value>,
+    saved_device_id: &'a str,
 ) -> Result<&'a str, ContractError> {
-    let saved_device_id = text(params.get("savedDeviceId"), "savedDeviceId")?;
-    inner.state["savedDevices"]
-        .as_array()
-        .is_some_and(|devices| {
-            devices
-                .iter()
-                .any(|device| device["savedDeviceId"] == saved_device_id)
-        })
+    let saved_device_id = bounded_identifier(saved_device_id, "Saved device ID")?;
+    inner
+        .state
+        .saved_devices
+        .iter()
+        .any(|device| device.id == saved_device_id)
         .then_some(saved_device_id)
         .ok_or_else(|| ContractError::new("not_found", "Saved board was not found"))
 }
 
 fn find_session<'a>(
     inner: &'a BackendState,
-    params: &Map<String, Value>,
-) -> Result<&'a Value, ContractError> {
-    let id = text(params.get("sessionId"), "sessionId")?;
+    params: &PruneParams,
+) -> Result<&'a SessionSummary, ContractError> {
+    if !matches!(params.scope, PruneScope::One) {
+        return Err(invalid("All-session pruning is unavailable"));
+    }
+    let id = params
+        .session_id
+        .as_deref()
+        .ok_or_else(|| invalid("Session ID is required"))?;
+    let id = bounded_identifier(id, "Session ID")?;
+    find_session_by_id(inner, id)
+}
+
+fn find_session_by_id<'a>(
+    inner: &'a BackendState,
+    session_id: &str,
+) -> Result<&'a SessionSummary, ContractError> {
     inner
         .sessions
         .iter()
-        .find(|session| session["sessionId"] == id)
+        .find(|session| session.session_id == session_id)
         .ok_or_else(|| ContractError::new("not_found", "Session was not found"))
 }
 
-fn prune_target(params: &Map<String, Value>) -> Result<u64, ContractError> {
-    params
-        .get("targetResolutionSeconds")
-        .and_then(Value::as_u64)
-        .filter(|value| (1..=300).contains(value))
+fn prune_target(params: &PruneParams) -> Result<u64, ContractError> {
+    (1..=300)
+        .contains(&params.target_resolution_seconds)
+        .then_some(params.target_resolution_seconds)
         .ok_or_else(|| invalid("Prune resolution is invalid"))
 }
 
-fn text<'a>(value: Option<&'a Value>, name: &str) -> Result<&'a str, ContractError> {
-    value
-        .and_then(Value::as_str)
-        .filter(|value| !value.is_empty())
-        .ok_or_else(|| invalid(&format!("{name} is required")))
+fn bounded_identifier<'a>(value: &'a str, name: &str) -> Result<&'a str, ContractError> {
+    (!value.is_empty() && value.len() <= 128)
+        .then_some(value)
+        .ok_or_else(|| invalid(&format!("{name} is invalid")))
 }
 
 fn invalid(message: &str) -> ContractError {
     ContractError::new("invalid_request", message)
+}
+
+fn one_way_request_accepted(completions: &[RequestCompletion]) -> bool {
+    // The scheduler returns no immediate completion when a request is valid but
+    // queued behind an in-flight response. It publishes `Sent` when that queue
+    // advances. A non-empty result here is therefore accepted only when it is
+    // the immediate `Sent` completion; every other variant is a rejection.
+    completions.is_empty()
+        || completions
+            .iter()
+            .any(|completion| matches!(completion, RequestCompletion::Sent(_)))
 }
 
 #[cfg(test)]
@@ -4607,6 +4749,30 @@ mod composition_tests {
     }
 
     #[test]
+    fn required_nullable_fields_accept_explicit_null_but_reject_absence() {
+        #[derive(Deserialize)]
+        struct RequiredNullable {
+            #[serde(deserialize_with = "deserialize_present")]
+            value: Option<String>,
+        }
+
+        assert_eq!(
+            serde_json::from_value::<RequiredNullable>(json!({ "value": null }))
+                .expect("explicit null")
+                .value,
+            None
+        );
+        assert_eq!(
+            serde_json::from_value::<RequiredNullable>(json!({ "value": "present" }))
+                .expect("present string")
+                .value
+                .as_deref(),
+            Some("present")
+        );
+        assert!(serde_json::from_value::<RequiredNullable>(json!({})).is_err());
+    }
+
+    #[test]
     fn reconnect_deadlines_are_monotonic_and_disable_cleanly() {
         assert_eq!(
             reconnect_due(ReconnectDecision::ScheduleAfter(500), 1_000),
@@ -4618,6 +4784,15 @@ mod composition_tests {
         );
         assert_eq!(reconnect_due(ReconnectDecision::Disabled, 1_000), None);
         assert_eq!(reconnect_due(ReconnectDecision::TimedOut, 1_000), None);
+    }
+
+    #[test]
+    fn one_way_requests_accept_scheduler_queueing_but_reject_failures() {
+        assert!(one_way_request_accepted(&[]));
+        assert!(!one_way_request_accepted(&[RequestCompletion::QueueFull]));
+        assert!(!one_way_request_accepted(&[
+            RequestCompletion::StaleGeneration
+        ]));
     }
 
     #[test]
@@ -4642,7 +4817,7 @@ mod composition_tests {
     }
 
     #[test]
-    fn private_firmware_identity_is_stable_distinct_and_redacted() {
+    fn firmware_identity_is_stable_distinct_and_canonical() {
         let uuid = FirmwareDeviceUuid::new([0xab; 12]).unwrap();
         let repeated = firmware_board_ids(uuid);
         assert_eq!(repeated, firmware_board_ids(uuid));
@@ -4652,8 +4827,8 @@ mod composition_tests {
         );
 
         let raw_uuid = "ab".repeat(12);
-        assert!(!repeated.0.contains(&raw_uuid));
-        assert!(!repeated.1.contains(&raw_uuid));
+        assert_eq!(repeated.0, raw_uuid);
+        assert_eq!(repeated.1, raw_uuid);
 
         let association = PlatformAssociation::new(b"AA:BB:CC:DD:EE:FF".to_vec()).unwrap();
         let discovery = public_discovery_id([7; 16], &association);
@@ -4916,31 +5091,42 @@ mod composition_tests {
         let sessions = Arc::new(SessionStore::new(Arc::clone(&catalog)));
         let backend = ContractBackend::new(catalog, sessions).expect("backend");
         let mut inner = backend.inner.lock().expect("state");
-        inner.sessions = vec![
-            json!({ "sessionId": "a-1", "deviceHistoryId": "history-a" }),
-            json!({ "sessionId": "b-1", "deviceHistoryId": "history-b" }),
-            json!({ "sessionId": "a-2", "deviceHistoryId": "history-a" }),
-        ];
-        inner.state["sessionCatalogRevision"] = json!(7);
+        inner.sessions = [
+            ("a-1", "history-a"),
+            ("b-1", "history-b"),
+            ("a-2", "history-a"),
+        ]
+        .into_iter()
+        .map(|(session_id, history_id)| {
+            let mut summary = session_summary(session_id, "completed");
+            summary.device_history_id = Some(history_id.into());
+            summary
+        })
+        .collect();
+        inner.state.session_catalog_revision = 7;
         let first = ContractBackend::session_list(
             &inner,
-            json!({ "savedDeviceId": "saved-a", "limit": 1 })
-                .as_object()
-                .expect("params"),
+            &ContractRequest {
+                id: 1,
+                method: "session.list".into(),
+                params: json!({ "savedDeviceId": "saved-a", "limit": 1 }),
+            },
         )
         .expect("first page");
         assert_eq!(first["items"][0]["sessionId"], "a-1");
         assert_eq!(first["nextCursor"], "7:1");
-        inner.state["sessionCatalogRevision"] = json!(8);
+        inner.state.session_catalog_revision = 8;
         let stale = ContractBackend::session_list(
             &inner,
-            json!({
-                "savedDeviceId": "saved-a",
-                "limit": 1,
-                "cursor": first["nextCursor"]
-            })
-            .as_object()
-            .expect("params"),
+            &ContractRequest {
+                id: 2,
+                method: "session.list".into(),
+                params: json!({
+                    "savedDeviceId": "saved-a",
+                    "limit": 1,
+                    "cursor": first["nextCursor"]
+                }),
+            },
         );
         assert!(matches!(
             stale,

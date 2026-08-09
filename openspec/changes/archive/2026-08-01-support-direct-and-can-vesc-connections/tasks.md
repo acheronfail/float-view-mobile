@@ -2,7 +2,7 @@
 
 - [x] 1.1 Extend `frontend/src/lib/backend/contract.ts` with identifying and controller-selection states, direct/CAN route, sorted bounded candidate and support fields, stable connection issues, same-device retry semantics, and the mandatory `device.selectController` request.
 - [x] 1.2 Add nullable `preferredCanId` Board Profile handling and validation to the frontend model, mock backend, Apple persistence, Android persistence, and shared current SQL/schema versions without adding migrations.
-- [x] 1.3 Add private automatic learned-controller CAN ID and firmware-UUID persistence on both native backends with public-preference precedence and old-route UUID invalidation when that preference changes, keeping UUIDs outside contract serialization, exports, errors, and default logs.
+- [x] 1.3 Add automatic learned-controller CAN ID and firmware-UUID persistence on both native backends with public-preference precedence and old-route UUID invalidation when that preference changes, using the canonical UUID in contract serialization, exports, errors, and bounded logs where useful.
 - [x] 1.4 Separate saved-device ensure/load from session creation so a valid local VESC transport has saved identity and Board Profile during discovery while arbitrary UART peers remain unsaved and sessions begin only at application `ready`.
 - [x] 1.5 Make controller selection transactionally merge only `preferredCanId` into the latest Board Profile and add concurrent editor/selection revision tests.
 - [x] 1.6 Update contract fixtures and focused frontend/native contract tests for new fields, exact selection error mapping, CAN range validation, connection issues, same-device retry, revision behavior, and 16-candidate bounds.

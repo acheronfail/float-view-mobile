@@ -1,0 +1,82 @@
+{
+  "target": "ios-physical",
+  "fixturePath": "/dev/cu.usbmodem1101",
+  "generatedAt": "2026-08-09T04:40:36.510Z",
+  "scenarios": [
+    {
+      "scenario": "identity",
+      "revision": 78,
+      "durationMs": 6891.083291
+    },
+    {
+      "scenario": "direct",
+      "revision": 77,
+      "durationMs": 5579.902791999999
+    },
+    {
+      "scenario": "direct-legacy",
+      "revision": 53,
+      "durationMs": 4959.963625
+    },
+    {
+      "scenario": "control-direct",
+      "revision": 97,
+      "durationMs": 4400.628416
+    },
+    {
+      "scenario": "control-can",
+      "revision": 98,
+      "durationMs": 4399.557499999999
+    },
+    {
+      "scenario": "shutdown-direct",
+      "revision": 53,
+      "durationMs": 2879.7777080000014
+    },
+    {
+      "scenario": "shutdown-can",
+      "revision": 51,
+      "durationMs": 3080.4630410000027
+    },
+    {
+      "scenario": "shutdown-no-op",
+      "revision": 53,
+      "durationMs": 3079.8153329999986
+    },
+    {
+      "scenario": "explicit-can",
+      "revision": 77,
+      "durationMs": 5540.0220000000045
+    },
+    {
+      "scenario": "generic-gateway",
+      "revision": 82,
+      "durationMs": 7200.1942500000005
+    },
+    {
+      "scenario": "ambiguous",
+      "revision": 84,
+      "durationMs": 5960.165874999999
+    },
+    {
+      "scenario": "bms-direct-controller",
+      "revision": 82,
+      "durationMs": 5879.976416000005
+    },
+    {
+      "scenario": "bms-express",
+      "revision": 84,
+      "durationMs": 6160.195082999999
+    },
+    {
+      "scenario": "bms-standalone",
+      "revision": 28,
+      "durationMs": 2340.1387079999986
+    },
+    {
+      "scenario": "ride",
+      "revision": 151,
+      "durationMs": 8800.044500000004
+    }
+  ]
+}

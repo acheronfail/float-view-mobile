@@ -39,7 +39,7 @@ impl From<std::io::Error> for StoreError {
 pub struct SavedDevice {
     pub saved_device_id: String,
     pub device_history_id: String,
-    /// Private 12-byte VESC firmware UUID; never expose through API or logs.
+    /// Canonical 12-byte VESC firmware UUID used by application identity.
     pub firmware_device_uuid: Option<[u8; 12]>,
     pub opaque_platform_id: Option<String>,
     pub advertised_name: Option<String>,
@@ -941,7 +941,7 @@ mod tests {
     }
 
     #[test]
-    fn private_identity_uniqueness_rejects_clones_and_zero_uuid() {
+    fn firmware_uuid_uniqueness_rejects_clones_and_zero_uuid() {
         let root = temporary_root("private-identity");
         let store = CatalogStore::open(&root).expect("store");
         store

@@ -135,6 +135,7 @@ async function exerciseProductMethods(client: ConformanceClient, state: AppState
   );
   assert.equal(guest.activeConnection?.trackingMode, 'guest');
   assert.equal(guest.activeConnection?.savedDeviceId, null);
+  assert.match(required(guest.activeConnection?.firmware?.uuid, 'guest firmware UUID is absent'), /^[0-9a-f]{24}$/);
   assert.equal(guest.activeConnection?.activeSession, null);
   assert.equal(guest.savedDevices.length, beforeGuest.savedDevices.length);
   await client.request('device.disconnect', {});
@@ -240,7 +241,7 @@ async function exerciseProductMethods(client: ConformanceClient, state: AppState
   assert.ok(detail.fields.length > 0 && detail.fields.length <= 64);
   assert.ok(Number.isSafeInteger(detail.snapshot.historyRevision));
   assert.ok(detail.storedSampleCount <= detail.recordedSampleCount);
-  assert.doesNotMatch(JSON.stringify(detail), /controllerUuid|controllerUUID|launchToken|bluetoothIdentifier/);
+  assert.doesNotMatch(JSON.stringify(detail), /launchToken|bluetoothIdentifier/);
   const historyRange = { startElapsedMs: 0, endElapsedMs: detail.snapshot.committedElapsedMs };
   const field = detail.fields[0]?.name;
   assert.ok(field, 'session metadata did not publish a numeric field');
@@ -683,6 +684,11 @@ export function assertState(state: AppState) {
   }
   for (const board of state.savedDevices) {
     assert.ok(board.bluetoothIdentifier === null || typeof board.bluetoothIdentifier === 'string');
+    assert.ok(board.vescUuid === null || /^[0-9a-f]{24}$/.test(board.vescUuid));
+    if (board.vescUuid) {
+      assert.equal(board.savedDeviceId, board.vescUuid);
+      assert.equal(board.deviceHistoryId, board.vescUuid);
+    }
     assert.deepEqual(Object.keys(board.summary).sort(), [
       'mostRecentSessionAt',
       'sessionCount',
@@ -754,24 +760,23 @@ export function assertState(state: AppState) {
       'canId',
       'firmwareName',
       'hardwareName',
+      'uuid',
       'vescSupported',
       'vescVersion',
     ]);
     assert.ok((candidate.hardwareName?.length ?? 0) <= 80);
     assert.ok((candidate.firmwareName?.length ?? 0) <= 80);
+    assert.ok(candidate.uuid === null || /^[0-9a-f]{24}$/.test(candidate.uuid));
   }
-  assert.ok(
-    !JSON.stringify(active.controllerCandidates).toLowerCase().includes('uuid'),
-    'controller candidates exposed a private UUID'
-  );
 
-  assert.deepEqual(Object.keys(active.bms).sort(), ['candidates', 'connection', 'latestSnapshot', 'status']);
+  assert.deepEqual(Object.keys(active.bms).sort(), ['candidates', 'connection', 'latestSnapshot', 'status', 'uuid']);
   assert.ok(['discovering', 'not_found', 'attached', 'unavailable', 'ambiguous'].includes(active.bms.status));
   assert.ok(active.bms.candidates.length <= 16);
-  assert.ok(!JSON.stringify(active.bms).toLowerCase().includes('uuid'), 'BMS state exposed a private UUID');
+  assert.ok(active.bms.uuid === null || /^[0-9a-f]{24}$/.test(active.bms.uuid));
   for (const candidate of active.bms.candidates) {
-    assert.deepEqual(Object.keys(candidate).sort(), ['connection', 'hardwareName', 'vescVersion']);
+    assert.deepEqual(Object.keys(candidate).sort(), ['connection', 'hardwareName', 'uuid', 'vescVersion']);
     assertBmsConnection(candidate.connection);
+    assert.ok(candidate.uuid === null || /^[0-9a-f]{24}$/.test(candidate.uuid));
     assert.ok((candidate.hardwareName?.length ?? 0) <= 80);
     assert.ok(candidate.vescVersion.length <= 32);
   }

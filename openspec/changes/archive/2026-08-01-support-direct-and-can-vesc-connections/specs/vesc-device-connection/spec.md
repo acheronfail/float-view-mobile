@@ -107,7 +107,7 @@ When a gateway-connected saved board has `preferredCanId`, the backend SHALL pro
 
 ### Requirement: Multiple-controller selection
 
-When discovery finds more than one VESC motor controller, the backend SHALL pause before Refloat negotiation and publish at most 16 candidates sorted by CAN ID. Each candidate SHALL contain CAN ID, hardware/model name when available, firmware name when available, VESC version, and `vescSupported`. It MUST NOT expose firmware UUIDs, hide unsupported motor controllers, or silently select a candidate.
+When discovery finds more than one VESC motor controller, the backend SHALL pause before Refloat negotiation and publish at most 16 candidates sorted by CAN ID. Each candidate SHALL contain CAN ID, canonical firmware UUID when meaningful, hardware/model name when available, firmware name when available, VESC version, and `vescSupported`. It MUST NOT hide unsupported motor controllers or silently select a candidate.
 
 #### Scenario: Ambiguous gateway
 
@@ -211,7 +211,7 @@ The backend SHALL serialize discovery and telemetry requests on the VESC stream,
 
 ### Requirement: Private learned controller identity
 
-The backends SHALL parse and persist a meaningful VESC firmware UUID for reconnect validation. When public `preferredCanId` is null and exactly one supported controller is automatically discovered, the backend SHALL persist its CAN ID and UUID as a private automatic hint. A public preference SHALL always take precedence. The UUID MUST NOT appear in frontend contract state, normal logs, exports, controller-selection labels, or errors.
+The backends SHALL parse and persist a meaningful VESC firmware UUID for reconnect validation. When public `preferredCanId` is null and exactly one supported controller is automatically discovered, the backend SHALL persist its CAN ID and UUID as an automatic hint. A public preference SHALL always take precedence. The canonical UUID MAY appear in frontend contract state, normal logs, exports, controller-selection labels, and errors.
 
 #### Scenario: Remembered controller still matches
 

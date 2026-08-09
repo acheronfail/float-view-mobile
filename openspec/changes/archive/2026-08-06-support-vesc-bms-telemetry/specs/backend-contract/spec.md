@@ -12,7 +12,7 @@
 #### Scenario: Ambiguous BMS
 
 - **WHEN** multiple unconfigured VBMS identities are detected
-- **THEN** authoritative state reports `ambiguous`, a null selected connection and snapshot, and CAN-ID-sorted bounded candidates without private UUIDs
+- **THEN** authoritative state reports `ambiguous`, a null selected connection and snapshot, and CAN-ID-sorted bounded candidates with canonical UUIDs when meaningful
 
 #### Scenario: Unavailable after a prior sample
 

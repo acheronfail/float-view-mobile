@@ -38,7 +38,7 @@ impl PlatformAssociation {
     }
 }
 
-/// Meaningful private UUID returned in the fixed 12-byte VESC firmware field.
+/// Meaningful UUID returned in the fixed 12-byte VESC firmware field.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub struct FirmwareDeviceUuid([u8; 12]);
 
@@ -62,6 +62,17 @@ impl FirmwareDeviceUuid {
     #[must_use]
     pub const fn bytes(self) -> [u8; 12] {
         self.0
+    }
+
+    /// Returns the canonical application representation: 24 lowercase hex characters.
+    #[must_use]
+    pub fn canonical(self) -> String {
+        let mut value = String::with_capacity(24);
+        for byte in self.0 {
+            use std::fmt::Write as _;
+            let _ = write!(&mut value, "{byte:02x}");
+        }
+        value
     }
 }
 
@@ -111,7 +122,7 @@ pub struct FirmwareRecord {
     pub firmware_name: Option<String>,
     pub hardware_type: u8,
     pub can_id: Option<CanId>,
-    /// Private controller identity; never expose it through API or logs.
+    /// Canonical VESC controller identity, available to application surfaces.
     pub controller_uuid: Option<[u8; 12]>,
     pub custom_configuration_count: u8,
     /// Private cache hint; never use it alone for compatibility.
@@ -138,7 +149,7 @@ mod tests {
     }
 
     #[test]
-    fn private_identity_types_enforce_distinct_bounds() {
+    fn identity_types_enforce_distinct_bounds_and_canonical_uuid() {
         assert_eq!(
             PlatformAssociation::new(Vec::new()),
             Err(DomainError::InvalidPlatformAssociation)
@@ -152,6 +163,8 @@ mod tests {
             FirmwareDeviceUuid::new([0; 12]),
             Err(DomainError::UnavailableFirmwareUuid)
         );
-        assert_eq!(FirmwareDeviceUuid::new([9; 12]).unwrap().bytes(), [9; 12]);
+        let uuid = FirmwareDeviceUuid::new([9; 12]).unwrap();
+        assert_eq!(uuid.bytes(), [9; 12]);
+        assert_eq!(uuid.canonical(), "09".repeat(12));
     }
 }

@@ -168,19 +168,19 @@ reject 'PlatformCommandEnvelope[^\n]*encode|FloatViewPlatformCommandEnvelope[^\n
 reject 'ReadResource|StageDocument|ResolveStorageRoot|AvailableSpace|MonotonicClock|WallClock|SecureRandom|PresentTheme|PresentServiceState|ResourceNamespace|StorageRootKind' \
     'unreachable host command or bridge model remains'
 
-if rg -n -i 'firmware(device)?uuid|controlleruuid|opaqueplatformid|bleaddress|peripheraluuid' \
+if rg -n -i 'opaqueplatformid|bleaddress|peripheraluuid' \
     frontend/src/lib/backend/contract.ts frontend/src/lib/backend/client.ts; then
-    echo 'private transport or firmware identity leaked into the frontend contract' >&2
+    echo 'private platform transport identity leaked into the frontend contract' >&2
     exit 1
 fi
-if rg -n -i '(print|println|eprintln|log\.|trace\().*(firmware.*uuid|controller.*uuid|association|deviceid\.value)' \
+if rg -n -i '(print|println|eprintln|log\.|trace\().*(association|deviceid\.value)' \
     backends/core/crates/app-backend/src backends/core/crates/app-coordinator/src "${native_roots[@]}"; then
-    echo 'ordinary diagnostics interpolate a private transport or firmware identity' >&2
+    echo 'ordinary diagnostics interpolate a private platform transport identity' >&2
     exit 1
 fi
-if rg -n 'firmware_device_uuid|opaque_platform_id' \
+if rg -n 'opaque_platform_id' \
     backends/core/crates/infra-sqlite-storage/src/archive.rs; then
-    echo 'private saved identity entered archive/export construction' >&2
+    echo 'private platform transport identity entered archive/export construction' >&2
     exit 1
 fi
 

@@ -4,6 +4,35 @@ import Foundation
 import XCTest
 
 final class FloatViewRuntimeBridgeAdapterTests: XCTestCase {
+  func testBluetoothRelayWaitsForReadinessAndReplaysCurrentStateExactlyOnce() {
+    let relay = FloatViewBluetoothEventRelay()
+    let events = BluetoothEventCapture()
+    relay.setHandler(events.record)
+    relay.emit(.stateChanged(.init(
+      radio: .unknown,
+      scanPermission: .notDetermined,
+      connectPermission: .notDetermined
+    )))
+    XCTAssertTrue(events.states.isEmpty)
+
+    let ready = BluetoothState(
+      radio: .poweredOn,
+      scanPermission: .granted,
+      connectPermission: .granted
+    )
+    relay.activate(initialState: ready)
+    relay.activate(initialState: ready)
+    XCTAssertEqual(events.states, [ready])
+
+    let poweredOff = BluetoothState(
+      radio: .poweredOff,
+      scanPermission: .granted,
+      connectPermission: .granted
+    )
+    relay.emit(.stateChanged(poweredOff))
+    XCTAssertEqual(events.states, [ready, poweredOff])
+  }
+
   func testLocationStateSinkSubmitsAuthorizationWithoutCoordinateOrPoll() {
     let runtime = FakePlatformRuntime(generation: 3)
     let location = FakeLocationPort()
@@ -507,6 +536,20 @@ private final class DiagnosticCapture: @unchecked Sendable {
 
   func record(stage: String, code: String) {
     lock.withLock { stored.append(.init(stage: stage, code: code)) }
+  }
+}
+
+private final class BluetoothEventCapture: @unchecked Sendable {
+  private let lock = NSLock()
+  private var storedStates: [BluetoothState] = []
+
+  var states: [BluetoothState] {
+    lock.withLock { storedStates }
+  }
+
+  func record(_ event: BluetoothEvent) {
+    guard case let .stateChanged(state) = event else { return }
+    lock.withLock { storedStates.append(state) }
   }
 }
 

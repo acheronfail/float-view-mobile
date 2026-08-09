@@ -32,6 +32,7 @@ const snapshot: BmsSnapshot = {
 
 const attached: BmsState = {
   status: 'attached',
+  uuid: '2a2a2a2a2a2a2a2a2a2a2a2a',
   connection: { kind: 'can', canId: 42 },
   candidates: [],
   latestSnapshot: snapshot,
@@ -53,12 +54,13 @@ describe('BMS view', () => {
   it('sorts ambiguous routes and directs configuration without showing value placeholders', () => {
     const bms: BmsState = {
       status: 'ambiguous',
+      uuid: null,
       connection: null,
       latestSnapshot: null,
       candidates: [
-        { connection: { kind: 'can', canId: 42 }, hardwareName: 'VBMS 42', vescVersion: '6.00' },
-        { connection: { kind: 'can', canId: 3 }, hardwareName: 'VBMS 3', vescVersion: '6.00' },
-        { connection: { kind: 'direct' }, hardwareName: 'Local VBMS', vescVersion: '6.00' },
+        { connection: { kind: 'can', canId: 42 }, uuid: '2a2a2a2a2a2a2a2a2a2a2a2a', hardwareName: 'VBMS 42', vescVersion: '6.00' },
+        { connection: { kind: 'can', canId: 3 }, uuid: '030303030303030303030303', hardwareName: 'VBMS 3', vescVersion: '6.00' },
+        { connection: { kind: 'direct' }, uuid: '010101010101010101010101', hardwareName: 'Local VBMS', vescVersion: '6.00' },
       ],
     };
     const { body } = render(BmsView, { props: { bms, units: 'metric' } });

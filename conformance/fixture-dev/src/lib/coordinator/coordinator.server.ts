@@ -26,10 +26,11 @@ import {
 } from '../contract.ts';
 import {
   availableTelemetryFields,
+  bmsIdentity,
+  controllerIdentity,
   defaultBmsNode,
   parseScenarioDocument,
-  privateBmsIdentity,
-  privateControllerIdentity,
+  replacementUuid,
   scenarioTemplate,
 } from './scenario-document.server.ts';
 
@@ -182,7 +183,9 @@ export class FixtureCoordinator {
         case 'replace-controller':
           await this.mutateConnectionScenario((draft) => {
             const controller = this.controller(action.alias, draft);
-            controller.alias = `replacement-${++this.replacementSequence}`;
+            const sequence = ++this.replacementSequence;
+            controller.alias = `replacement-${sequence}`;
+            controller.uuid = replacementUuid(controller.uuid, sequence);
           });
           break;
         case 'set-ping-visible':
@@ -638,7 +641,7 @@ export class FixtureCoordinator {
           hardwareName: 'VBMS32',
           hardwareType: 2,
           payload: encodeVbms32FirmwarePayload(
-            Uint8Array.from(privateBmsIdentity(this.state.scenario, node.alias).slice(0, 6))
+            Uint8Array.from(bmsIdentity(this.state.scenario, node.alias).slice(0, 6))
           ),
         },
         values: { ...typicalBmsValues, reportedCanId: node.canId },
@@ -657,7 +660,7 @@ export class FixtureCoordinator {
         topology: this.state.scenario.topology,
         controllers: this.state.scenario.controllers.map((item) => ({
           ...item,
-          uuid: privateControllerIdentity(this.state.scenario, item.alias),
+          uuid: controllerIdentity(this.state.scenario, item.alias),
         })),
         canPingIds: [
           ...this.state.scenario.discoveredCanIds,

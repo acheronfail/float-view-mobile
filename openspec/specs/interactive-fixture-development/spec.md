@@ -396,7 +396,7 @@ The complete software gate SHALL type-check and test the fixture development ser
 
 ### Requirement: Bounded shareable scenario documents
 
-The workbench SHALL import and export a versioned human-readable scenario document of at most 65,536 UTF-8 bytes containing topology, public simulated identities, discovery behavior, fragmentation, semantic telemetry baseline, coherent scene selection, and explicit overrides. Documents SHALL be strictly validated. Raw controller UUID bytes, serial paths, launch tokens, power state, and real Bluetooth identifiers MUST NOT be imported, exported, or displayed. A scenario-local controller alias of at most 64 UTF-8 bytes SHALL deterministically resolve to a private simulated UUID on the server.
+The workbench SHALL import and export a versioned human-readable scenario document of at most 65,536 UTF-8 bytes containing topology, simulated identities with canonical VESC firmware/controller/BMS UUIDs, discovery behavior, fragmentation, semantic telemetry baseline, coherent scene selection, and explicit overrides. Documents SHALL be strictly validated. Serial paths, launch tokens, power state, and real platform Bluetooth identifiers MUST NOT be imported, exported, or displayed. A scenario-local controller alias of at most 64 UTF-8 bytes MAY remain as a display label but SHALL NOT replace the canonical UUID.
 
 #### Scenario: Share a bug reproduction
 
@@ -434,17 +434,17 @@ The workbench SHALL own one version-independent semantic board-state model and p
 
 ### Requirement: Manual connection and identity events
 
-The workbench SHALL provide explicit bounded controls to disconnect and re-advertise, reconnect unchanged, move the same private controller identity to another valid CAN ID, replace a controller identity, change ping visibility, and select a supported notification-fragment bound. Identity or topology mutations that would make an in-flight response ambiguous SHALL occur only through a serialized disconnect-transition-re-advertise action or while powered off.
+The workbench SHALL provide explicit bounded controls to disconnect and re-advertise, reconnect unchanged, move the same controller UUID to another valid CAN ID, replace a controller UUID, change ping visibility, and select a supported notification-fragment bound. Identity or topology mutations that would make an in-flight response ambiguous SHALL occur only through a serialized disconnect-transition-re-advertise action or while powered off.
 
 #### Scenario: Same controller moves
 
 - **WHEN** a developer invokes the move-controller event during an active connection
-- **THEN** the coordinator disconnects, applies the CAN-ID change while disconnected, and re-advertises with the same private UUID
+- **THEN** the coordinator disconnects, applies the CAN-ID change while disconnected, and re-advertises with the same UUID
 
 #### Scenario: Replacement controller
 
 - **WHEN** a developer invokes the replace-controller event
-- **THEN** the next connection exposes a different private UUID at the configured route without exporting or logging either UUID
+- **THEN** the next connection exposes a different canonical UUID at the configured route and may export or log it
 
 #### Scenario: Fragmented detailed response
 
@@ -515,7 +515,7 @@ The interactive simulator SHALL generate bounded seeded BMS values with coherent
 
 ### Requirement: Observable BMS fixture controls
 
-The fixture control surface SHALL expose bounded atomic BMS topology, CAN-ID, response-variant, values, and failure controls alongside existing controller configuration. It SHALL show BMS request counters and high-level route diagnostics without retaining full telemetry, UUIDs, or unbounded packet data.
+The fixture control surface SHALL expose bounded atomic BMS topology, CAN-ID, UUID, response-variant, values, and failure controls alongside existing controller configuration. It SHALL show BMS request counters, canonical UUIDs, and high-level route diagnostics without retaining full telemetry or unbounded packet data.
 
 #### Scenario: Active configuration lock
 

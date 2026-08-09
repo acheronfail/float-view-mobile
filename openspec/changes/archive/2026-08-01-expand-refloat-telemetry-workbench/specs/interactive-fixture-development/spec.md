@@ -21,7 +21,7 @@
 
 ### Requirement: Bounded shareable scenario documents
 
-The workbench SHALL import and export a versioned human-readable scenario document of at most 65,536 UTF-8 bytes containing topology, public simulated identities, discovery behavior, fragmentation, semantic telemetry baseline, coherent scene selection, and explicit overrides. Documents SHALL be strictly validated. Raw controller UUID bytes, serial paths, launch tokens, power state, and real Bluetooth identifiers MUST NOT be imported, exported, or displayed. A scenario-local controller alias of at most 64 UTF-8 bytes SHALL deterministically resolve to a private simulated UUID on the server.
+The workbench SHALL import and export a versioned human-readable scenario document of at most 65,536 UTF-8 bytes containing topology, canonical simulated controller UUIDs, discovery behavior, fragmentation, semantic telemetry baseline, coherent scene selection, and explicit overrides. Documents SHALL be strictly validated. Serial paths, launch tokens, power state, and real platform Bluetooth identifiers MUST NOT be imported, exported, or displayed. A scenario-local controller alias of at most 64 UTF-8 bytes MAY remain as a display label beside the UUID.
 
 #### Scenario: Share a bug reproduction
 
@@ -64,12 +64,12 @@ The workbench SHALL provide explicit bounded controls to disconnect and re-adver
 #### Scenario: Same controller moves
 
 - **WHEN** a developer invokes the move-controller event during an active connection
-- **THEN** the coordinator disconnects, applies the CAN-ID change while disconnected, and re-advertises with the same private UUID
+- **THEN** the coordinator disconnects, applies the CAN-ID change while disconnected, and re-advertises with the same canonical UUID
 
 #### Scenario: Replacement controller
 
 - **WHEN** a developer invokes the replace-controller event
-- **THEN** the next connection exposes a different private UUID at the configured route without exporting or logging either UUID
+- **THEN** the next connection exposes a different canonical UUID at the configured route and may include it in exports or bounded logs
 
 #### Scenario: Fragmented detailed response
 

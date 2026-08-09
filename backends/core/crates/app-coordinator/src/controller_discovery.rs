@@ -2,6 +2,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use domain_types::{CanId, ControllerCandidate, FirmwareRecord};
 use protocol_vesc::{ControllerRoute, firmware_access};
+use serde::Deserialize;
 
 pub const MAXIMUM_CAN_IDS: usize = 64;
 pub const MAXIMUM_CANDIDATES: usize = 16;
@@ -330,11 +331,22 @@ pub fn meaningful_uuid(value: Option<[u8; 12]>) -> Option<[u8; 12]> {
     })
 }
 
+/// The Board Profile fields consumed by controller discovery.
+///
+/// This is intentionally a partial projection: unrelated profile fields are
+/// owned by other capabilities and are ignored during deserialization.
+#[derive(Deserialize)]
+struct ControllerDiscoveryProfileValues {
+    #[serde(rename = "preferredCanId")]
+    preferred_can_id: Option<u8>,
+}
+
 #[must_use]
-pub fn preferred_can_id(values_json: &str, key: &str) -> Option<CanId> {
-    let value: serde_json::Value = serde_json::from_str(values_json).ok()?;
-    let number = value.get(key)?.as_u64()?;
-    CanId::new(u8::try_from(number).ok()?).ok()
+pub fn preferred_can_id(values_json: &str) -> Option<CanId> {
+    let values: ControllerDiscoveryProfileValues = serde_json::from_str(values_json).ok()?;
+    values
+        .preferred_can_id
+        .and_then(|value| CanId::new(value).ok())
 }
 
 fn bounded(value: &str) -> String {
@@ -500,19 +512,21 @@ mod tests {
     #[test]
     fn preferred_ids_and_private_identity_are_strict() {
         assert_eq!(
-            preferred_can_id(r#"{"preferredCanId":42}"#, "preferredCanId")
+            preferred_can_id(r#"{"preferredCanId":42,"boardName":"ignored"}"#)
                 .unwrap()
                 .get(),
             42
         );
         assert_eq!(
-            preferred_can_id(r#"{"preferredCanId":254}"#, "preferredCanId"),
-            None
+            preferred_can_id(r#"{"preferredCanId":253}"#).unwrap().get(),
+            253
         );
-        assert_eq!(
-            preferred_can_id(r#"{"preferredCanId":1.5}"#, "preferredCanId"),
-            None
-        );
+        assert_eq!(preferred_can_id(r#"{"preferredCanId":254}"#), None);
+        assert_eq!(preferred_can_id(r#"{"preferredCanId":1.5}"#), None);
+        assert_eq!(preferred_can_id(r#"{"preferredCanId":"42"}"#), None);
+        assert_eq!(preferred_can_id(r#"{"preferredCanId":null}"#), None);
+        assert_eq!(preferred_can_id(r#"{"boardName":"Automatic"}"#), None);
+        assert_eq!(preferred_can_id("not-json"), None);
         assert_eq!(meaningful_uuid(Some([0; 12])), None);
         assert_eq!(meaningful_uuid(Some([u8::MAX; 12])), None);
         assert_eq!(meaningful_uuid(Some([42; 12])), Some([42; 12]));

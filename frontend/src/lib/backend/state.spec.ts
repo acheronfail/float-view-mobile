@@ -23,8 +23,9 @@ const initial: AppState = {
   discoveredDevices: [],
   savedDevices: [
     {
-      savedDeviceId: 'saved-board',
-      deviceHistoryId: 'history-board',
+      savedDeviceId: '0102030405060708090a0b0c',
+      deviceHistoryId: '0102030405060708090a0b0c',
+      vescUuid: '0102030405060708090a0b0c',
       revision: 0,
       displayName: 'Advertised',
       customDisplayName: null,
@@ -155,7 +156,7 @@ class FakeClient {
         result = {
           summary: {
             sessionId: 'session-1',
-            deviceHistoryId: 'history-board',
+            deviceHistoryId: '0102030405060708090a0b0c',
             displayName: 'Board',
             startedAt: '2026-07-30T00:00:00Z',
             endedAt: '2026-07-30T00:01:00Z',
@@ -286,6 +287,7 @@ describe('BackendState', () => {
         trackingMode: 'guest',
         savedDeviceId: null,
         firmware: {
+          uuid: '0102030405060708090a0b0c',
           vescVersion: '6.06',
           packageName: 'refloat',
           packageVersion: '1.2.3',
@@ -295,7 +297,7 @@ describe('BackendState', () => {
         controllerConnection: { kind: 'direct' },
         controllerCandidates: [],
         connectionIssue: null,
-        bms: { status: 'not_found', connection: null, candidates: [], latestSnapshot: null },
+        bms: { status: 'not_found', uuid: null, connection: null, candidates: [], latestSnapshot: null },
         refloatControls: {
           status: 'ready',
           writable: true,
@@ -391,9 +393,9 @@ describe('BackendState', () => {
       async () => client as unknown as ApiClient
     );
     await store.connect();
-    await store.updateSavedDeviceName('saved-board', 'Trail board');
+    await store.updateSavedDeviceName('0102030405060708090a0b0c', 'Trail board');
     expect(store.savedDevices[0]).toMatchObject({ displayName: 'Trail board', revision: 1 });
-    await store.updateSavedDeviceName('saved-board', null);
+    await store.updateSavedDeviceName('0102030405060708090a0b0c', null);
     expect(store.savedDevices[0]).toMatchObject({ displayName: 'Advertised', revision: 2 });
     store.close();
   });

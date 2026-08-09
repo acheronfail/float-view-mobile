@@ -51,11 +51,11 @@ Saved-device state SHALL distinguish a nullable custom display-name override, ad
 #### Scenario: Identifier disclosure boundary
 
 - **WHEN** board state is rendered or ordinary diagnostics and exports are produced
-- **THEN** local platform identifiers, raw VESC firmware identifiers, and private controller-route UUIDs are absent from ordinary logs and portable archives; only the stable opaque logical identity is portable board metadata
+- **THEN** canonical VESC firmware/controller/BMS UUIDs may appear in ordinary logs and portable archives while local platform identifiers remain absent
 
 ### Requirement: Authoritative application state
 
-`state.get` SHALL return a bounded `AppState` containing a monotonic revision, a separate monotonic `sessionCatalogRevision`, Bluetooth state, discovered devices with an explicit saved-board match when known, saved devices with a stable opaque logical identity, resolved identity, and optional local platform association, active connection with `trackingMode` (`saved` or `guest`) and nullable saved-device identity, connection state, detected direct-or-CAN controller route, bounded controller candidates when selection is required, bounded connection issue when failed, firmware, saved-mode active-session summary when present, the latest successfully persisted sample for saved mode or bounded ephemeral latest sample for guest mode when known, and settings. Recent session summaries and session groups SHALL NOT be included; standalone or board-filtered session summaries SHALL be retrieved through `session.list`. Historical series, private controller UUIDs, raw VESC firmware identifiers, and diagnostic windows MUST NOT be included.
+`state.get` SHALL return a bounded `AppState` containing a monotonic revision, a separate monotonic `sessionCatalogRevision`, Bluetooth state, discovered devices with an explicit saved-board match when known, saved devices with canonical VESC UUID identity when meaningful, resolved identity, and optional local platform association, active connection with `trackingMode` (`saved` or `guest`) and nullable saved-device identity, connection state, detected direct-or-CAN controller route, bounded controller candidates with canonical UUIDs when selection is required, bounded connection issue when failed, firmware UUID when meaningful, saved-mode active-session summary when present, the latest successfully persisted sample for saved mode or bounded ephemeral latest sample for guest mode when known, and settings. Recent session summaries and session groups SHALL NOT be included; standalone or board-filtered session summaries SHALL be retrieved through `session.list`. Historical series and diagnostic windows MUST NOT be included.
 
 #### Scenario: Initial state
 
@@ -241,7 +241,7 @@ The `savedDevice.delete` method SHALL accept a saved-device identifier and retur
 
 ### Requirement: Portable session archive board ownership
 
-The existing native session archive export/import flow SHALL carry a versioned stable opaque `deviceHistoryId` and the bounded saved-board snapshot needed to reconstruct board ownership. It MUST NOT carry raw VESC firmware identifiers, Apple CoreBluetooth UUIDs, Android Bluetooth addresses, or private controller-route UUIDs. Import SHALL merge into the saved board with the same `deviceHistoryId`, or create that board before inserting sessions when no match exists; the resulting board SHALL have a nullable local platform association.
+The existing native session archive export/import flow SHALL carry the canonical VESC UUID as `deviceHistoryId` when meaningful, canonical controller/BMS UUID metadata where available, and the bounded saved-board snapshot needed to reconstruct board ownership. It MUST NOT carry Apple CoreBluetooth UUIDs or Android Bluetooth addresses. Import SHALL merge into the saved board with the same `deviceHistoryId`, or create that board before inserting sessions when no match exists; the resulting board SHALL have a nullable local platform association.
 
 #### Scenario: Cross-platform archive merge
 

@@ -12,7 +12,7 @@ Float View currently turns every successful board connection into a saved board 
 - When an unknown board is selected, show a New board modal offering cancel, guest connection, or save-and-connect. Guest connections show live telemetry but create no saved board, session, ride history, location track, or durable tracking data.
 - Save a new board only when the user chooses save-and-connect; continue to resolve its identity only after valid VESC identification.
 - Allow guest connections to complete controller selection and reconnect without persisting Board Profile changes or learned routing hints.
-- Use a stable opaque board identity derived from the meaningful local VESC firmware identity for cross-platform session export/import, while retaining platform Bluetooth identifiers only as local discovery associations and keeping raw firmware UUIDs private.
+- Use the meaningful local VESC firmware UUID directly as the canonical board identity for cross-platform session export/import, while retaining platform Bluetooth identifiers only as local discovery associations.
 - Import sessions into the matching saved board by stable identity, or create a configurable saved-board entry when no matching board exists. Boards remain configurable even when they are not currently discovered; connection starts only from a Home scan result.
 - Add `Forget board` to the board-history header menu with destructive confirmation; forgetting removes the board, its profile/routing data, and all saved sessions irreversibly, and is rejected during an active connection.
 - Add bounded per-board summary data without maximum speed or active/in-progress counts and expose only the board-filtered native session-catalog operation needed for board-history pagination.

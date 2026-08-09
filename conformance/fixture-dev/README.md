@@ -74,7 +74,8 @@ command 31/32 layouts and compact command 10 detail 4. Command 35 and commands
 Scenario JSON is a shareable, strictly validated document capped at 65,536 UTF-8
 bytes. It includes public aliases, topology, package identities, discovery
 behavior, fragmentation, scene, and overrides. It excludes serial paths, launch
-tokens, power state, real Bluetooth identifiers, and raw controller UUID bytes.
+tokens, power state, and real platform Bluetooth identifiers. Canonical VESC
+controller and BMS UUIDs are ordinary scenario identity fields.
 Aliases are capped at 64 UTF-8 bytes and deterministically map to private
 simulated identities only inside the server. An invalid import is rejected
 without changing the retained or active scenario.

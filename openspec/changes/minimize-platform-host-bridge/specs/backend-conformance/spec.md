@@ -16,17 +16,17 @@ Verification SHALL cover the exact production bridge direction, command and even
 
 ### Requirement: Stable VESC UUID conformance
 
-Canonical software and host-adapter tests SHALL prove that the same meaningful VESC firmware UUID resolves one saved-board identity across reconnect, WebView or Activity replacement, and process recreation; remains distinct from another firmware UUID; never depends on a runtime discovery handle; and never appears in public or diagnostic outputs.
+Canonical software and host-adapter tests SHALL prove that the same meaningful VESC firmware UUID resolves one saved-board identity across reconnect, WebView or Activity replacement, and process recreation; remains distinct from another firmware UUID; never depends on a runtime discovery handle; and uses the same canonical value in application and portable-data outputs.
 
 #### Scenario: Saved-board process restart
 
 - **WHEN** conformance saves and connects a VESC, recreates the native process, reconnects through its private platform association, and receives the same firmware UUID
 - **THEN** the backend resolves the existing board, preserves saved tracking semantics, and creates neither a duplicate board nor a new random identity
 
-#### Scenario: UUID privacy sweep
+#### Scenario: UUID consistency sweep
 
 - **WHEN** conformance captures state, results, errors, diagnostics, logs, archives, and exports after UUID-bearing operations
-- **THEN** none contains the UUID bytes or textual representation
+- **THEN** every included VESC firmware/controller/BMS UUID uses the expected 24-character lowercase hexadecimal representation while platform transport identifiers remain absent
 
 ### Requirement: Rust software-host parity
 

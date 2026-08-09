@@ -27,7 +27,7 @@ use infra_sqlite_storage::{
     CatalogStore, ExportFormat, MAX_EXPORT_BYTES, MAX_IMPORT_BYTES, SessionDataCancellation,
     SessionDataService, StoreError,
 };
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use tokio::net::TcpListener;
 use tokio::sync::{OwnedSemaphorePermit, Semaphore, mpsc, oneshot, watch};
@@ -85,11 +85,17 @@ impl ResourceProvider for MemoryResources {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ContractRequest {
     pub id: u64,
     pub method: String,
     pub params: Value,
+}
+
+#[derive(Deserialize)]
+struct EnvelopeId {
+    id: Option<u64>,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -138,6 +144,21 @@ pub struct ExportPayload {
     pub file_name: String,
     pub content_type: &'static str,
     pub path: PathBuf,
+}
+
+#[derive(Clone, Copy, Deserialize)]
+enum HttpExportFormat {
+    #[serde(rename = "csv")]
+    Csv,
+    #[serde(rename = "float-view-archive")]
+    FloatViewArchive,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct HttpExportRequest {
+    session_id: String,
+    format: HttpExportFormat,
 }
 
 pub trait SessionHttpApi: Send + Sync + 'static {
@@ -229,22 +250,21 @@ impl SessionHttpApi for StorageSessionHttpApi {
     }
 
     fn export(&self, body: &[u8]) -> Result<ExportPayload, ContractError> {
-        let request: Value = serde_json::from_slice(body)
+        let request: HttpExportRequest = serde_json::from_slice(body)
             .map_err(|_| ContractError::new("invalid_request", "Invalid export request"))?;
-        let session_id = bounded_text(request.get("sessionId"), 128)?;
-        let format = match request.get("format").and_then(Value::as_str) {
-            Some("csv") => ExportFormat::Csv,
-            Some("float-view-archive") => ExportFormat::FloatViewArchive,
-            _ => {
-                return Err(ContractError::new(
-                    "invalid_request",
-                    "Invalid export format",
-                ));
-            }
+        if request.session_id.is_empty() || request.session_id.len() > 128 {
+            return Err(ContractError::new(
+                "invalid_request",
+                "Invalid session identifier",
+            ));
+        }
+        let format = match request.format {
+            HttpExportFormat::Csv => ExportFormat::Csv,
+            HttpExportFormat::FloatViewArchive => ExportFormat::FloatViewArchive,
         };
         let record = self
             .catalog
-            .export_session(session_id, &self.identifier("http-export"), format)
+            .export_session(&request.session_id, &self.identifier("http-export"), format)
             .map_err(|error| storage_error(&error))?;
         Ok(ExportPayload {
             file_name: record.file_name,
@@ -276,13 +296,6 @@ impl SessionHttpApi for StorageSessionHttpApi {
             .map_err(|error| storage_error(&error))?;
         Ok(json!({ "sessionId": imported }))
     }
-}
-
-fn bounded_text(value: Option<&Value>, maximum: usize) -> Result<&str, ContractError> {
-    value
-        .and_then(Value::as_str)
-        .filter(|value| !value.is_empty() && value.len() <= maximum)
-        .ok_or_else(|| ContractError::new("invalid_request", "Required text is invalid"))
 }
 
 fn unix_millis() -> Result<i64, ContractError> {
@@ -907,8 +920,9 @@ async fn websocket(socket: WebSocket, state: ServerState, _permit: OwnedSemaphor
 }
 
 fn dispatch_message(state: &ServerState, text: &str) -> String {
-    let parsed = serde_json::from_str::<Value>(text);
-    let request = parsed.as_ref().ok().and_then(parse_request);
+    let request = serde_json::from_str::<ContractRequest>(text)
+        .ok()
+        .and_then(validate_request);
     let (id, response) = match request {
         Some(request) => {
             let id = request.id;
@@ -921,9 +935,9 @@ fn dispatch_message(state: &ServerState, text: &str) -> String {
             (id, response)
         }
         None => (
-            parsed
+            serde_json::from_str::<EnvelopeId>(text)
                 .ok()
-                .and_then(|value| value.get("id").and_then(Value::as_u64))
+                .and_then(|value| value.id)
                 .filter(|id| *id <= MAX_SAFE_INTEGER)
                 .unwrap_or(0),
             Err(ContractError::new(
@@ -949,22 +963,16 @@ fn dispatch_message(state: &ServerState, text: &str) -> String {
     }
 }
 
-fn parse_request(value: &Value) -> Option<ContractRequest> {
-    let object = value.as_object()?;
-    let id = object
-        .get("id")?
-        .as_u64()
-        .filter(|id| *id <= MAX_SAFE_INTEGER)?;
-    let method = object.get("method")?.as_str()?;
-    let params = object.get("params")?.clone();
-    if id == 0 || method.is_empty() || method.len() > 128 || !params.is_object() {
+fn validate_request(request: ContractRequest) -> Option<ContractRequest> {
+    if request.id == 0
+        || request.id > MAX_SAFE_INTEGER
+        || request.method.is_empty()
+        || request.method.len() > 128
+        || !request.params.is_object()
+    {
         return None;
     }
-    Some(ContractRequest {
-        id,
-        method: method.to_owned(),
-        params,
-    })
+    Some(request)
 }
 
 #[cfg(test)]

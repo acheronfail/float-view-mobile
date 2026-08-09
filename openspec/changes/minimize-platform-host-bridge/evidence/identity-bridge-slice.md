@@ -3,7 +3,7 @@
 ## Implemented
 
 - Added distinct bounded Rust types for private platform associations and meaningful nonzero 12-byte VESC firmware UUIDs.
-- Persisted meaningful firmware UUIDs only for saved boards, retained the existing private fallback for unavailable identity, and revalidated UUID identity on reconnect.
+- Used meaningful firmware UUIDs directly across saved-board persistence and application identity surfaces, retained the existing random fallback for unavailable identity, and revalidated UUID identity on reconnect.
 - Replaced host-generated random aliases with direct private Apple/Android transport associations; Rust publishes only per-runtime redacted discovery identifiers.
 - Changed the command header kind to the actual command discriminator and removed the duplicated version, generation, operation, and inner tag from command payloads.
 - Added focused C and explicitly registered JNI event entry points while retaining the bounded raw BLE notification entry point.

@@ -93,10 +93,10 @@ The firmware decoder SHALL parse one bounded common identity prefix and apply ex
 - **WHEN** a purported VBMS identity contains a truncated common prefix or unexpected trailing bytes
 - **THEN** it is not retained as a BMS candidate and a bounded diagnostic is recorded
 
-#### Scenario: Private UUID boundary
+#### Scenario: UUID identity boundary
 
 - **WHEN** the backend decodes a VBMS UUID
-- **THEN** the UUID remains native-private and is absent from frontend state, ordinary logs, errors, diagnostics, and exports
+- **THEN** the canonical 24-character lowercase UUID may be used in frontend state, ordinary logs, errors, diagnostics, persistence, and exports
 
 ### Requirement: Bounded direct BMS values decoding
 

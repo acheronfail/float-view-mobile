@@ -108,8 +108,8 @@ type alone:
 
 VESC Express intentionally emits type `2` from both `COMM_FW_VERSION` and CAN
 pong for VBMS32 even though its command dispatcher implements BMS command 96.
-Firmware identity parsing preserves the private 12-byte UUID for in-memory
-generation deduplication, but UUIDs are never serialized or logged.
+Firmware identity parsing preserves the 12-byte UUID as canonical VESC/BMS
+identity for in-memory correlation, application state, persistence, and logs.
 `COMM_BMS_GET_VALUES` (96) is read-only and is routed as exact direct `[96]` or
 CAN `[34, id, 96]` payloads. Decoders accept only the source-defined exact
 legacy body or the exact data-version plus bounded, NUL-terminated UTF-8 status
@@ -120,8 +120,9 @@ BMS values are live-only. They appear in authoritative state and conflated
 `state.changed` snapshots, but never enter telemetry samples, SQLite telemetry
 tables, session counts or aggregates, diagnostics, review data, or exports.
 Unavailable state may retain a stale snapshot with its original observation
-time. Normal diagnostics contain only bounded route/status codes—not UUIDs,
-raw packets, full cell arrays, tokens, or Bluetooth addresses.
+time. Normal diagnostics may contain canonical VESC/BMS UUIDs alongside bounded
+route/status codes, but not raw packets, full cell arrays, tokens, Apple
+peripheral UUIDs, or Android Bluetooth addresses.
 
 ## Auditing another VBMS wire version
 

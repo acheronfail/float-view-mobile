@@ -2,7 +2,7 @@
 
 ### Requirement: Saved identity precedes application readiness
 
-After UART setup, the backend SHALL establish saved-device identity only for a connection explicitly chosen in saved mode, and only after a valid local VESC firmware response. In saved mode it SHALL derive or resolve the stable opaque `deviceHistoryId` from the meaningful board-level VESC identity when available, attach the local platform association to an existing matching imported board when possible, and load the Board Profile before choosing a controller route. Raw firmware identifiers SHALL remain native-private. It MUST NOT create a durable session until route, supported controller identity, Refloat compatibility, and telemetry setup reach application `ready`. A guest connection MAY reach `ready` without creating saved identity or loading a durable Board Profile, provided the same bounded identity and compatibility checks succeed.
+After UART setup, the backend SHALL establish saved-device identity only for a connection explicitly chosen in saved mode, and only after a valid local VESC firmware response. In saved mode it SHALL use the meaningful board-level VESC UUID directly as canonical `savedDeviceId` and `deviceHistoryId` when available, attach the local platform association to an existing matching imported board when possible, and load the Board Profile before choosing a controller route. The canonical UUID MAY be used throughout application surfaces. It MUST NOT create a durable session until route, supported controller identity, Refloat compatibility, and telemetry setup reach application `ready`. A guest connection MAY reach `ready` without creating saved identity or loading a durable Board Profile, provided the same bounded identity and compatibility checks succeed.
 
 #### Scenario: First valid saved VESC transport
 
@@ -41,7 +41,7 @@ After UART setup, the backend SHALL establish saved-device identity only for a c
 
 ### Requirement: Multiple-controller selection
 
-When discovery finds more than one VESC motor controller, the backend SHALL pause before Refloat negotiation and publish at most 16 candidates sorted by CAN ID. Each candidate SHALL contain CAN ID, hardware/model name when available, firmware name when available, VESC version, and `vescSupported`. It MUST NOT expose firmware UUIDs, hide unsupported motor controllers, or silently select a candidate. In saved mode, an accepted choice SHALL update the Board Profile; in guest mode, it SHALL update only the active in-memory route.
+When discovery finds more than one VESC motor controller, the backend SHALL pause before Refloat negotiation and publish at most 16 candidates sorted by CAN ID. Each candidate SHALL contain CAN ID, canonical firmware UUID when meaningful, hardware/model name when available, firmware name when available, VESC version, and `vescSupported`. It MUST NOT hide unsupported motor controllers or silently select a candidate. In saved mode, an accepted choice SHALL update the Board Profile; in guest mode, it SHALL update only the active in-memory route.
 
 #### Scenario: Ambiguous gateway
 
@@ -119,7 +119,7 @@ The backend SHALL serialize discovery and telemetry requests on the VESC stream,
 
 ### Requirement: Private learned controller identity
 
-The backends SHALL parse and persist a meaningful VESC firmware UUID for reconnect validation only for saved connections. When public `preferredCanId` is null and exactly one supported controller is automatically discovered in saved mode, the backend SHALL persist its CAN ID and UUID as a private automatic hint. A public preference SHALL always take precedence. The UUID MUST NOT appear in frontend contract state, normal logs, exports, portable archives, controller-selection labels, or errors. A meaningful board-level firmware identity may feed the versioned one-way digest used for stable `deviceHistoryId`, but the raw value remains native-private and is never the archive identity. Guest connections SHALL never persist or update a learned hint or stable board identity.
+The backends SHALL parse and persist a meaningful VESC firmware UUID for reconnect validation and canonical application identity. When public `preferredCanId` is null and exactly one supported controller is automatically discovered in saved mode, the backend SHALL persist its CAN ID and UUID as an automatic hint. A public preference SHALL always take precedence. The UUID MAY appear in frontend contract state, normal logs, exports, portable archives, controller-selection labels, and errors. A meaningful board-level firmware UUID SHALL be used directly as stable `savedDeviceId` and `deviceHistoryId` and archive identity. Guest connections MAY expose and use UUIDs throughout the application but do not create or mutate saved-board records or their learned route hints.
 
 #### Scenario: Remembered saved controller still matches
 

@@ -2,7 +2,7 @@
 
 use std::collections::{HashMap, VecDeque};
 
-use domain_types::{CanId, FirmwareRecord};
+use domain_types::{CanId, FirmwareDeviceUuid, FirmwareRecord};
 use protocol_vesc::{ByteReader, ControllerRoute, ProtocolError, VescCommand, route_command};
 
 pub const MAX_CELLS: usize = 50;
@@ -239,17 +239,21 @@ impl BmsPollModel {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct BmsCandidate {
     pub connection: BmsConnection,
+    pub uuid: Option<String>,
     pub hardware_name: Option<String>,
     pub vesc_version: String,
 }
 
 impl BmsCandidate {
-    /// Produces only public discovery data. UUID and hardware CRC never cross
-    /// this privacy boundary.
+    /// Produces bounded application discovery data with canonical VESC identity.
     #[must_use]
     pub fn from_firmware(connection: BmsConnection, firmware: &FirmwareRecord) -> Self {
         Self {
             connection,
+            uuid: firmware
+                .controller_uuid
+                .and_then(|value| FirmwareDeviceUuid::new(value).ok())
+                .map(FirmwareDeviceUuid::canonical),
             hardware_name: firmware.hardware_name.as_deref().map(bounded_display),
             vesc_version: format!("{}.{}", firmware.major, firmware.minor),
         }
@@ -639,7 +643,7 @@ mod tests {
     }
 
     #[test]
-    fn discovery_is_generation_owned_and_candidates_are_privacy_safe() {
+    fn discovery_is_generation_owned_and_candidates_expose_canonical_uuid() {
         let fixture = fixture();
         let mut bms =
             protocol_vesc::decode_firmware(&hex(&fixture.cases[0].payload_hex)).expect("BMS");
@@ -679,6 +683,12 @@ mod tests {
         assert_eq!(
             discovery.candidates[0].hardware_name.as_deref(),
             Some("VBMS")
+        );
+        let uuid = discovery.candidates[0].uuid.as_deref().expect("BMS UUID");
+        assert_eq!(uuid.len(), 24);
+        assert!(
+            uuid.bytes()
+                .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
         );
     }
 }

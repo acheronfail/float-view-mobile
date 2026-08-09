@@ -1,6 +1,6 @@
 ## Why
 
-The shared Rust backend has removed the former protocol, storage, application, and loopback duplication, but the remaining native hosts still mix required OS capabilities with bridge coordination and do not make their supported capability set easy to discover. The bridge minimization also left required document presentation, location-authorization propagation, background capability reporting, and appearance behavior unreachable or ambiguous. A smaller one-way bridge, stable VESC identity boundary, and explicit capability-oriented host layout will keep shared behavior in Rust while making every retained native responsibility visible and testable.
+The shared Rust backend has removed the former protocol, storage, application, and loopback duplication, but the remaining native hosts still mix required OS capabilities with bridge coordination and do not make their supported capability set easy to discover. The bridge minimization also left required document presentation, location-authorization propagation, background capability reporting, and appearance behavior unreachable or ambiguous. A smaller one-way bridge, direct stable VESC identity, and explicit capability-oriented host layout will keep shared behavior in Rust while making every retained native responsibility visible and testable.
 
 ## What Changes
 
@@ -9,7 +9,7 @@ The shared Rust backend has removed the former protocol, storage, application, a
 - Add focused bounded platform-event submissions so Swift and Kotlin no longer maintain mirrored general-purpose event codecs or test-only reverse codecs.
 - Move portable bootstrap work—secure randomness, clocks, runtime coordination, and filesystem operations available uniformly in Rust—into the core; pass genuinely platform-selected roots and packaged resources as bounded startup inputs.
 - Collapse host-side Bluetooth tokenization, connection-operation policy, public state normalization, and saved-device policy into Rust while retaining OS GATT discovery, permission handling, write backpressure, callback ordering, and raw byte transport in the native adapters.
-- Use the meaningful VESC firmware device UUID itself as the stable saved-board identity for now. Remove the per-process random device-token layer; Apple peripheral UUIDs and Android BLE addresses remain only private local transport associations used to rediscover and connect before the firmware UUID is available, and none of these identifiers may be logged or exported.
+- **BREAKING** use the meaningful VESC firmware device UUID itself as `savedDeviceId`, `deviceHistoryId`, and the stable board identity for now. Permit that UUID throughout frontend state, diagnostics, logs, persistence, archives, exports, fixtures, and conformance. Remove the per-process random device-token and derived board-identity layers; Apple peripheral UUIDs and Android BLE addresses remain private local transport associations used only to rediscover and connect before the firmware UUID is available.
 - Define one explicit native capability model for Bluetooth transport, background execution, location, native import/export, system appearance, lifecycle/WebView ownership, and the minimal Rust bridge. Give iOS, macOS, and Android predictable capability-oriented entry files and per-host support inventories so each capability is easy to locate and audit.
 - Require every supported host to retain an entry file for every native capability. A host that cannot support a capability provides a small documented stub with a stable unavailable result rather than omitting the capability or scattering conditional behavior through unrelated files.
 - Move the macOS host into a `backends/apple/macos/` tree that is a sibling of `backends/apple/ios/`; place genuinely shared Apple implementation in an explicit common area used by both hosts.
@@ -22,9 +22,9 @@ The shared Rust backend has removed the former protocol, storage, application, a
 ### Non-goals
 
 - Reimplementing CoreBluetooth, Android Bluetooth/GATT, Core Location, Android location, foreground services, permissions, WebViews, lifecycle, document URI/security-scoped access, or native presentation in Rust.
-- Exposing platform Bluetooth addresses, Apple peripheral UUIDs other than the selected VESC device UUID identity, launch tokens, coordinates, or telemetry through logs, diagnostics, portable archives, or frontend state.
+- Exposing Apple peripheral UUIDs, Android Bluetooth addresses, launch tokens, coordinates, or unrequested telemetry through logs, diagnostics, portable archives, or frontend state. This restriction does not apply to VESC firmware/controller/BMS UUIDs.
 - Introducing generated Swift/Kotlin API models, UniFFI, native-to-host callbacks, a second runtime, or long-term ABI compatibility shims.
-- Changing saved-versus-guest tracking semantics, VESC wire protocols, or durable session formats. Narrow frontend contract changes required to initiate and report native document presentation remain in scope; unrelated contract expansion does not.
+- Changing saved-versus-guest tracking semantics or VESC wire protocols. Frontend and durable formats may change incompatibly before release to use the raw VESC UUID consistently.
 
 ## Capabilities
 
@@ -34,15 +34,19 @@ The shared Rust backend has removed the former protocol, storage, application, a
 
 ### Modified Capabilities
 
-- `platform-hosts`: Tightens Apple and Android ownership to OS adapters and presentation seams; defines the cross-platform capability inventory, naming and file-layout conventions, supported/unsupported stubs, and sibling iOS/macOS organization; and requires removal of duplicated software peripherals, portable bootstrap services, and intermediate coordination models.
-- `vesc-device-connection`: Uses the VESC device UUID as the stable local device identifier across scans, reconnects, WebView recreation, and process recreation, without per-process randomized aliases.
+- `platform-hosts`: Tightens Apple and Android ownership to OS adapters and presentation seams; defines the cross-platform capability inventory, naming and file-layout conventions, supported/unsupported stubs, and sibling iOS/macOS organization; removes VESC UUID privacy restrictions; and requires removal of duplicated software peripherals, portable bootstrap services, and intermediate coordination models.
+- `vesc-device-connection`: Uses the raw VESC device UUID as saved/history identity across scans, reconnects, WebView recreation, process recreation, and application surfaces, without randomized or derived aliases.
 - `native-development-loop`: Routes simulator, emulator, browser-host, and software development through the Rust software host rather than native software-Bluetooth implementations.
-- `backend-conformance`: Adds bridge-direction, stable-UUID, process-restart, software-host parity, bounds, shutdown, capability-matrix, native document presentation, appearance-change, background-operation, and host-surface audit coverage.
+- `backend-conformance`: Adds bridge-direction, stable-UUID, process-restart, UUID consistency and portability, software-host parity, bounds, shutdown, capability-matrix, native document presentation, appearance-change, background-operation, and host-surface audit coverage.
+- `backend-contract`: Replaces derived saved/history board identifiers with the canonical raw VESC UUID and permits UUID fields across the hand-written wire contract.
+- `saved-board-session-history`: Uses the canonical VESC UUID in portable session ownership and archive metadata.
+- `vesc-bms-telemetry`: Permits VESC BMS UUIDs in state, persistence, diagnostics, and exports where useful.
+- `interactive-fixture-development`: Permits explicit VESC UUIDs in workbench state and scenario documents.
 
 ## Impact
 
 - Affects `backends/core` host ports/runtime/C ABI/JNI, the generated checked-in C header, targeted frontend document-flow contract and presentation code, Apple bridge/runtime and capability layout, Android JNI/worker and capability layout, native packaging, and canonical conformance.
 - Deletes the Swift and Kotlin software VESC peripheral/adapter implementations, duplicated bridge encode/decode paths, random token maps, unused saved-device configuration APIs, unreachable command variants, and superseded tests/dependencies.
 - Changes the private native ABI and JNI method set atomically across Rust, iOS, macOS, and Android; the ABI version and checked-in header provenance must be updated together.
-- Changes saved-board logical identity from a process-random discovery token to the meaningful VESC firmware device UUID while retaining private platform transport associations. Test-stage storage may be recreated if existing random-token development data cannot be identified safely; no migration or heuristic merge is introduced.
-- Keeps the frontend contract hand-written and keeps canonical persistence formats unchanged; any contract delta is limited to initiating and reporting required native document presentation.
+- Changes saved-board logical identity from randomized and derived identifiers to the meaningful VESC firmware device UUID while retaining private platform transport associations. Test-stage storage is recreated without migration or heuristic merge.
+- Changes the hand-written frontend contract, SQLite catalog, session/archive ownership, fixtures, exports, diagnostics, and conformance expectations to carry canonical VESC UUIDs directly.

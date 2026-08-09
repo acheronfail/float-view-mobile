@@ -51,7 +51,7 @@ Canonical conformance SHALL verify that both backends commit, recover, serialize
 #### Scenario: Privacy and bounds
 
 - **WHEN** detailed telemetry, scenario aliases, learned identities, oversized fields, and extension limits are exercised
-- **THEN** conformance observes the specified 65,536-byte message/document, 64-field layout, 64-byte key, 4,096-byte aggregate-name, 32-extension, 16,384-byte JSON, 50-diagnostic, and 2,000-point/event response bounds and no private controller UUID in contract state, logs, errors, diagnostics, or exports
+- **THEN** conformance observes the specified 65,536-byte message/document, 64-field layout, 64-byte key, 4,096-byte aggregate-name, 32-extension, 16,384-byte JSON, 50-diagnostic, and 2,000-point/event response bounds and canonical controller UUIDs where identity is present
 
 ### Requirement: Workbench software verification
 
@@ -60,7 +60,7 @@ The software gate SHALL test scenario-document validation and round trips, deter
 #### Scenario: Scenario document round trip
 
 - **WHEN** a valid complex scenario is exported and imported
-- **THEN** software verification observes equivalent public configuration and wire behavior but no exported private UUID
+- **THEN** software verification observes equivalent public configuration, canonical UUIDs, and wire behavior
 
 #### Scenario: Scene projection matrix
 

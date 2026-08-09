@@ -87,7 +87,7 @@ Software conformance SHALL cover the Cartesian product of direct and Express top
 #### Scenario: VESC identity profile fixtures
 
 - **WHEN** conformance supplies complete VESC 6.02 identity without a CRC and complete 6.05, 6.06, and 7.00 identities with their bounded source-defined CRC suffix
-- **THEN** both native backends derive the same stable version, hardware type, names, and private UUID and select the same `vescCoreReadOnly` profile
+- **THEN** both native backends derive the same stable version, hardware type, names, and canonical UUID and select the same `vescCoreReadOnly` profile
 
 #### Scenario: Audited test-version access
 

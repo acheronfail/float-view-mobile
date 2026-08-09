@@ -365,8 +365,8 @@
       />
     </div>
     <p class="hint">
-      Documents contain public aliases only—never serial paths, launch tokens, Bluetooth IDs, or private controller
-      UUIDs.
+      Documents include canonical VESC controller and BMS UUIDs, but never serial paths, launch tokens, or platform
+      Bluetooth identifiers.
     </p>
   </section>
 

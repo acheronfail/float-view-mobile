@@ -59,7 +59,8 @@ The manual workbench and automated runner deliberately have different jobs.
 The workbench retains an editable scenario and reports requests without driving
 Float View or judging outcomes. The runner owns deterministic assertions and
 physical checkpoints. Shareable workbench documents contain only bounded public
-simulation inputs; controller UUID bytes stay private to the simulator server.
+simulation inputs, including canonical controller and BMS UUIDs; serial paths,
+launch tokens, and real platform Bluetooth identifiers stay server-local.
 
 The telemetry matrix covers Refloat 1.0.0 command 1 plus command 10 detail
 levels 1–4, and Refloat 1.1.0/1.2.3 command 31/32 plus periodic command 10

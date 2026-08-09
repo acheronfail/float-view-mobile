@@ -18,7 +18,10 @@ type LocationCheckpoint = {
   beforeSequence: number;
   afterSequence: number;
 };
-const LOCATION_BACKGROUND_DWELL_MS = 10_000;
+// Physical devices may have no cached location and need a full cold GNSS fix.
+// Keep the app backgrounded beyond the observed 40-second Android TTFF rather
+// than treating a short indoor/no-fix interval as an integration failure.
+const LOCATION_BACKGROUND_DWELL_MS = 60_000;
 // Native shutdown intent remains active for 30 seconds so delayed BLE
 // link-supervision loss can still be classified as user initiated.
 export const SHUTDOWN_NO_OP_WAIT_MS = 35_000;
@@ -98,7 +101,14 @@ async function runPhysicalScenario(
 ) {
   const scenario = fixtureScenarios[name];
   const fixture = await FixtureClient.open(fixturePath);
-  const runner = new FixtureRunner(scenario, fixture, undefined, 1_000, (message) => report(`  ${message}`));
+  const runner = new FixtureRunner(
+    scenario,
+    fixture,
+    undefined,
+    1_000,
+    (message) => report(`  ${message}`),
+    1_000
+  );
   let client: ConformanceClient | undefined;
   let passed = false;
   let locationCheckpoint: LocationCheckpoint | undefined;
@@ -606,7 +616,13 @@ async function pollLocationState(
   while (performance.now() < deadline) {
     if (predicate(latest)) return latest;
     await new Promise((resolve) => setTimeout(resolve, 250));
-    latest = (await client.request('state.get', {})).location;
+    try {
+      latest = (await client.request('state.get', {})).location;
+    } catch {
+      // Opening platform settings temporarily backgrounds the app and may
+      // suspend loopback requests. Keep polling until the user returns or the
+      // outer authorization deadline expires.
+    }
   }
   throw new Error(
     `Timed out resolving location state; latest=${latest.status}/${latest.backgroundCapture} reason=${latest.reason ?? 'none'}`
@@ -623,6 +639,7 @@ function errorMessage(error: unknown) {
 
 async function completeSession(client: ConformanceClient, deviceId: string, sessionId: string, exerciseReview = false) {
   const before = await client.request('state.get', {});
+  const savedDeviceId = before.activeConnection?.savedDeviceId;
   await client.request('device.disconnect', {}, 10_000);
   const disconnected = await client.waitForState((state) => state.activeConnection === null, {
     afterRevision: before.revision,
@@ -631,8 +648,9 @@ async function completeSession(client: ConformanceClient, deviceId: string, sess
   assert.ok(!disconnected.activeConnection || disconnected.activeConnection.deviceId !== deviceId);
   if (!exerciseReview) return;
   const completed = await client.request('state.get', {});
-  const savedDevice = completed.savedDevices.find((item) => item.bluetoothIdentifier === deviceId);
-  assert.ok(savedDevice);
+  assert.ok(savedDeviceId, 'Saved connection did not expose its durable device identity');
+  const savedDevice = completed.savedDevices.find((item) => item.savedDeviceId === savedDeviceId);
+  assert.ok(savedDevice, 'Completed connection is absent from the saved-device catalog');
   const page = await client.request('session.list', { savedDeviceId: savedDevice.savedDeviceId, limit: 100 });
   const session = page.items.find((item) => item.sessionId === sessionId);
   assert.ok(session, 'Completed durable session is absent');

@@ -444,14 +444,9 @@ fn events(reader: &SessionReader, request: &SessionDataRequest) -> Result<Value,
     let values = rows
         .iter()
         .map(|event| {
-            serde_json::from_str::<Value>(&event.details_json)
+            serde_json::from_str::<EventDetails>(&event.details_json)
                 .ok()
-                .and_then(|value| {
-                    value
-                        .get("value")
-                        .and_then(Value::as_str)
-                        .map(str::to_owned)
-                })
+                .and_then(|details| details.value)
                 .unwrap_or_default()
         })
         .collect::<Vec<_>>();
@@ -474,6 +469,11 @@ fn events(reader: &SessionReader, request: &SessionDataRequest) -> Result<Value,
             .map_or(Value::Null, Value::String),
     );
     Ok(Value::Object(output))
+}
+
+#[derive(Deserialize)]
+struct EventDetails {
+    value: Option<String>,
 }
 
 fn locations(reader: &SessionReader, request: &SessionDataRequest) -> Result<Value, StoreError> {

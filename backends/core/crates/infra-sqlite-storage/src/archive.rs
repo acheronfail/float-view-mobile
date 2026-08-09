@@ -2,7 +2,8 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use rusqlite::{Connection, OptionalExtension, params, types::ValueRef};
-use serde_json::{Value, json};
+use serde::{Deserialize, Serialize};
+use serde_json::{Map, Value};
 
 use crate::{CatalogStore, StoreError, recover_session};
 
@@ -21,6 +22,80 @@ pub struct ExportRecord {
     pub export_id: String,
     pub file_name: String,
     pub path: PathBuf,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct DeviceSnapshot {
+    display_name: Option<String>,
+    name: Option<String>,
+    #[serde(flatten)]
+    extensions: Map<String, Value>,
+}
+
+impl DeviceSnapshot {
+    fn display_name(&self) -> Option<&str> {
+        self.display_name
+            .as_deref()
+            .or(self.name.as_deref())
+            .filter(|value| !value.is_empty() && value.len() <= 128)
+    }
+}
+
+pub(crate) fn valid_device_snapshot_json(value: &str) -> bool {
+    serde_json::from_str::<DeviceSnapshot>(value).is_ok()
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct BoardProfileSnapshot {
+    saved_device_id: Option<String>,
+    revision: Option<u64>,
+    values: Option<Map<String, Value>>,
+    missing_fields: Option<Vec<String>>,
+    #[serde(flatten)]
+    extensions: Map<String, Value>,
+}
+
+pub(crate) fn valid_board_profile_snapshot_json(value: &str) -> bool {
+    serde_json::from_str::<BoardProfileSnapshot>(value).is_ok()
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct ArchiveProvenance {
+    format: String,
+    format_version: u32,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct ArchiveManifestV1 {
+    session_id: Option<String>,
+    device_history_id: String,
+    #[serde(default)]
+    device_snapshot: DeviceSnapshot,
+    #[serde(default)]
+    board_profile_snapshot: BoardProfileSnapshot,
+    board_profile_revision: Option<i64>,
+    started_at_ms: Option<i64>,
+    ended_at_ms: Option<i64>,
+    state: Option<String>,
+    integrity: Option<String>,
+    committed_sequence: Option<i64>,
+    sample_count: Option<i64>,
+    event_count: Option<i64>,
+    requested_idle_ms: Option<i64>,
+    effective_idle_ms: Option<i64>,
+    requested_riding_ms: Option<i64>,
+    effective_riding_ms: Option<i64>,
+    close_reason: Option<String>,
+    riding_elapsed_ms: Option<i64>,
+    total_elapsed_ms: Option<i64>,
+    distance_m: Option<f64>,
+    max_speed_mps: Option<f64>,
+    max_duty_cycle: Option<f64>,
+    provenance: Option<ArchiveProvenance>,
 }
 
 impl CatalogStore {
@@ -212,36 +287,24 @@ impl CatalogStore {
         {
             return Err(StoreError::Invalid);
         }
-        let manifest: Value =
+        let manifest: ArchiveManifestV1 =
             serde_json::from_str(manifest_text.as_deref().ok_or(StoreError::Invalid)?)
                 .map_err(|_| StoreError::Invalid)?;
-        let object = manifest.as_object().ok_or(StoreError::Invalid)?;
-        let device_history_id = required_text(object.get("deviceHistoryId"), 128)?;
-        let device_snapshot = object
-            .get("deviceSnapshot")
-            .cloned()
-            .unwrap_or_else(|| json!({}));
-        let profile_snapshot = object
-            .get("boardProfileSnapshot")
-            .cloned()
-            .unwrap_or_else(|| json!({}));
-        if !device_snapshot.is_object() || !profile_snapshot.is_object() {
+        let device_history_id = manifest.device_history_id.as_str();
+        if device_history_id.is_empty() || device_history_id.len() > 128 {
             return Err(StoreError::Invalid);
         }
-        let started_at = integer(object.get("startedAtMs")).unwrap_or(imported_at_millis);
-        let ended_at = integer(object.get("endedAtMs"));
-        let requested_idle = positive(object.get("requestedIdleMs"), 1_000);
-        let effective_idle = positive(object.get("effectiveIdleMs"), requested_idle);
-        let requested_riding = positive(object.get("requestedRidingMs"), 1_000);
-        let effective_riding = positive(object.get("effectiveRidingMs"), requested_riding);
-        let profile_revision = integer(object.get("boardProfileRevision"))
-            .unwrap_or(0)
-            .max(0);
-        let close_reason = object.get("closeReason").and_then(Value::as_str);
-        let display_name = device_snapshot
-            .get("displayName")
-            .and_then(Value::as_str)
-            .filter(|value| !value.is_empty() && value.len() <= 128);
+        let started_at = manifest.started_at_ms.unwrap_or(imported_at_millis);
+        let ended_at = manifest.ended_at_ms;
+        let requested_idle = positive(manifest.requested_idle_ms, 1_000);
+        let effective_idle = positive(manifest.effective_idle_ms, requested_idle);
+        let requested_riding = positive(manifest.requested_riding_ms, 1_000);
+        let effective_riding = positive(manifest.effective_riding_ms, requested_riding);
+        let profile_revision = manifest.board_profile_revision.unwrap_or(0).max(0);
+        let close_reason = manifest.close_reason.as_deref();
+        let display_name = manifest.device_snapshot.display_name().map(str::to_owned);
+        let device_snapshot = manifest.device_snapshot;
+        let profile_snapshot = manifest.board_profile_snapshot;
         archive.execute_batch("PRAGMA wal_checkpoint(TRUNCATE)")?;
         drop(archive);
         remove_sidecars(staging_path);
@@ -281,7 +344,10 @@ impl CatalogStore {
     }
 }
 
-fn session_manifest(connection: &Connection, session_id: &str) -> Result<Value, StoreError> {
+fn session_manifest(
+    connection: &Connection,
+    session_id: &str,
+) -> Result<ArchiveManifestV1, StoreError> {
     connection
         .query_row(
             "SELECT device_history_id, device_snapshot_json, profile_snapshot_json, profile_revision, started_at_ms, ended_at_ms, state, integrity, committed_sequence, sample_count, event_count, requested_idle_ms, effective_idle_ms, requested_riding_ms, effective_riding_ms, close_reason, riding_elapsed_ms, total_elapsed_ms, distance_m, max_speed_mps, max_duty_cycle FROM session_catalog WHERE session_id = ?1 AND pending_delete = 0",
@@ -289,31 +355,34 @@ fn session_manifest(connection: &Connection, session_id: &str) -> Result<Value, 
             |row| {
                 let device: String = row.get(1)?;
                 let profile: String = row.get(2)?;
-                Ok(json!({
-                    "sessionId": session_id,
-                    "deviceHistoryId": row.get::<_, String>(0)?,
-                    "deviceSnapshot": serde_json::from_str::<Value>(&device).unwrap_or_else(|_| json!({})),
-                    "boardProfileSnapshot": serde_json::from_str::<Value>(&profile).unwrap_or_else(|_| json!({})),
-                    "boardProfileRevision": row.get::<_, i64>(3)?,
-                    "startedAtMs": row.get::<_, i64>(4)?,
-                    "endedAtMs": row.get::<_, Option<i64>>(5)?,
-                    "state": row.get::<_, String>(6)?,
-                    "integrity": row.get::<_, String>(7)?,
-                    "committedSequence": row.get::<_, i64>(8)?,
-                    "sampleCount": row.get::<_, i64>(9)?,
-                    "eventCount": row.get::<_, i64>(10)?,
-                    "requestedIdleMs": row.get::<_, i64>(11)?,
-                    "effectiveIdleMs": row.get::<_, i64>(12)?,
-                    "requestedRidingMs": row.get::<_, i64>(13)?,
-                    "effectiveRidingMs": row.get::<_, i64>(14)?,
-                    "closeReason": row.get::<_, Option<String>>(15)?,
-                    "ridingElapsedMs": row.get::<_, i64>(16)?,
-                    "totalElapsedMs": row.get::<_, i64>(17)?,
-                    "distanceM": row.get::<_, Option<f64>>(18)?,
-                    "maxSpeedMps": row.get::<_, Option<f64>>(19)?,
-                    "maxDutyCycle": row.get::<_, Option<f64>>(20)?,
-                    "provenance": { "format": "float-view-archive", "formatVersion": 1 }
-                }))
+                Ok(ArchiveManifestV1 {
+                    session_id: Some(session_id.to_owned()),
+                    device_history_id: row.get(0)?,
+                    device_snapshot: serde_json::from_str(&device).unwrap_or_default(),
+                    board_profile_snapshot: serde_json::from_str(&profile).unwrap_or_default(),
+                    board_profile_revision: Some(row.get(3)?),
+                    started_at_ms: Some(row.get(4)?),
+                    ended_at_ms: row.get(5)?,
+                    state: Some(row.get(6)?),
+                    integrity: Some(row.get(7)?),
+                    committed_sequence: Some(row.get(8)?),
+                    sample_count: Some(row.get(9)?),
+                    event_count: Some(row.get(10)?),
+                    requested_idle_ms: Some(row.get(11)?),
+                    effective_idle_ms: Some(row.get(12)?),
+                    requested_riding_ms: Some(row.get(13)?),
+                    effective_riding_ms: Some(row.get(14)?),
+                    close_reason: row.get(15)?,
+                    riding_elapsed_ms: Some(row.get(16)?),
+                    total_elapsed_ms: Some(row.get(17)?),
+                    distance_m: row.get(18)?,
+                    max_speed_mps: row.get(19)?,
+                    max_duty_cycle: row.get(20)?,
+                    provenance: Some(ArchiveProvenance {
+                        format: "float-view-archive".into(),
+                        format_version: 1,
+                    }),
+                })
             },
         )
         .map_err(StoreError::from)
@@ -408,19 +477,8 @@ fn validate_file_name(value: &str) -> Result<(), StoreError> {
     }
 }
 
-fn required_text(value: Option<&Value>, maximum: usize) -> Result<&str, StoreError> {
-    value
-        .and_then(Value::as_str)
-        .filter(|value| !value.is_empty() && value.len() <= maximum)
-        .ok_or(StoreError::Invalid)
-}
-
-fn integer(value: Option<&Value>) -> Option<i64> {
-    value.and_then(Value::as_i64)
-}
-
-fn positive(value: Option<&Value>, fallback: i64) -> i64 {
-    integer(value).unwrap_or(fallback).max(1)
+fn positive(value: Option<i64>, fallback: i64) -> i64 {
+    value.unwrap_or(fallback).max(1)
 }
 
 fn remove_sidecars(path: &Path) {
@@ -449,8 +507,8 @@ mod tests {
             .create(&NewSession {
                 session_id: "original",
                 job_id: "job-original",
-                device_history_id: "portable-history",
-                device_snapshot_json: r#"{"displayName":"Imported board"}"#,
+                device_history_id: "0102030405060708090a0b0c",
+                device_snapshot_json: r#"{"displayName":"Imported board","vescUuid":"0102030405060708090a0b0c"}"#,
                 profile_snapshot_json: r#"{"battery":"18s"}"#,
                 profile_revision: 2,
                 started_at_millis: 100,
@@ -502,6 +560,21 @@ mod tests {
                 .expect("version"),
             ARCHIVE_FORMAT_VERSION
         );
+        let manifest: ArchiveManifestV1 = serde_json::from_str(
+            &archive_db
+                .query_row(
+                    "SELECT value FROM float_view_archive_metadata WHERE key = 'session'",
+                    [],
+                    |row| row.get::<_, String>(0),
+                )
+                .expect("manifest"),
+        )
+        .expect("typed manifest");
+        assert_eq!(manifest.device_history_id, "0102030405060708090a0b0c");
+        assert_eq!(
+            manifest.device_snapshot.extensions.get("vescUuid"),
+            Some(&Value::String("0102030405060708090a0b0c".into()))
+        );
         drop(archive_db);
         let csv = sessions
             .catalog()
@@ -525,7 +598,7 @@ mod tests {
         assert_eq!(
             writer
                 .query_row(
-                    "SELECT count(*) FROM session_catalog WHERE device_history_id = 'portable-history'",
+                    "SELECT count(*) FROM session_catalog WHERE device_history_id = '0102030405060708090a0b0c'",
                     [],
                     |row| row.get::<_, u64>(0),
                 )

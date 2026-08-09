@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { BmsState } from '$lib/backend/contract';
 import { bmsFreshness, bmsMenuVisible, bmsRouteLabel } from './bms';
 
-const base: BmsState = { status: 'discovering', connection: null, candidates: [], latestSnapshot: null };
+const base: BmsState = { status: 'discovering', uuid: null, connection: null, candidates: [], latestSnapshot: null };
 
 describe('BMS presentation policy', () => {
   it('shows the action only after an identity is known', () => {
@@ -14,7 +14,7 @@ describe('BMS presentation policy', () => {
       bmsMenuVisible({
         ...base,
         status: 'ambiguous',
-        candidates: [{ connection: { kind: 'can', canId: 3 }, hardwareName: 'VBMS', vescVersion: '6.00' }],
+        candidates: [{ connection: { kind: 'can', canId: 3 }, uuid: '030303030303030303030303', hardwareName: 'VBMS', vescVersion: '6.00' }],
       })
     ).toBe(true);
   });

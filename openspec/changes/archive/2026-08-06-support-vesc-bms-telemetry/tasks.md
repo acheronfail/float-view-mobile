@@ -19,7 +19,7 @@
 ## 3. VBMS protocol identity and values codecs
 
 - [x] 3.1 Add `COMM_BMS_GET_VALUES(96)` to the Swift and Kotlin VESC command enums and use the generic direct/CAN command router for exact `[96]` and `[34, id, 96]` payloads.
-- [x] 3.2 Refactor the Apple firmware decoder into a bounded common prefix plus strict motor, VBMS 6.00, and other-hardware tails while preserving current motor compatibility and private UUID behavior.
+- [x] 3.2 Refactor the Apple firmware decoder into a bounded common prefix plus strict motor, VBMS 6.00, and other-hardware tails while preserving current motor compatibility and canonical UUID behavior.
 - [x] 3.3 Implement the matching Kotlin hardware-specific firmware decoder and keep every accepted/rejected identity fixture equivalent to Swift.
 - [x] 3.4 Implement the Apple BMS values decoder for the exact legacy and extended variants, 50-cell/50-temperature bounds, boolean balancing, finite values, route-ID validation, 40-byte status, and no partial results.
 - [x] 3.5 Implement the matching Kotlin BMS values decoder with identical scales, bounds, tail handling, error classification, and output fields.

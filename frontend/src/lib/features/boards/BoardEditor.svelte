@@ -156,6 +156,10 @@
           >{device.bluetoothIdentifier ?? 'Not locally associated'}</code
         >
       </div>
+      <div class="rounded-md border border-outline bg-elevated px-3 py-2 text-sm sm:col-span-2">
+        <span class="block text-muted">VESC UUID</span>
+        <code class="mt-1 block break-all text-foreground">{device.vescUuid ?? 'Unavailable'}</code>
+      </div>
       <label class="text-sm">
         <span class="mb-1 block text-muted">Battery series cells (S)</span>
         <input

@@ -62,7 +62,7 @@
 
 - [x] 6.1 Add the six-combination direct/CAN and Refloat-package matrix with exact command 1 fixture compatibility, command 10 and command 31/32 requests, routing, layouts, tails, normalization, nullability, and deferred/unsupported-command assertions.
 - [x] 6.2 Add end-to-end Apple and Android conformance for atomic persistence, latest compact timing, decreasing counters, frontend recreation, typed transition events, diagnostics, exports, unknown bounded extensions, failures, reconnect, and controller-change session separation.
-- [x] 6.3 Add conformance privacy and every concrete resource-bound assertion for scenario aliases, private UUIDs, field layouts, extensions, state snapshots, storage JSON, diagnostics, session responses, logs, and exports.
+- [x] 6.3 Add conformance UUID-consistency and every concrete resource-bound assertion for scenario aliases, canonical UUIDs, field layouts, extensions, state snapshots, storage JSON, diagnostics, session responses, logs, and exports.
 - [x] 6.4 Delete the reduced eight-field simulator layout, incorrect command 1 compact-shaped response, partial legacy encoding/decoding branches, discarded known-field paths, and duplicated telemetry serialization after all callers use the normalized pipeline.
 - [x] 6.5 Update backend, conformance, fixture, and developer documentation with the supported catalog, commands, units, version differences, simple periodic compact polling, workbench operation, deferred commands, and raw-current-only presentation.
 - [x] 6.6 Expand canonical conformance across every audited stable release and both routes, including required-layout acceptance/rejection and exact speed-unit regression coverage.

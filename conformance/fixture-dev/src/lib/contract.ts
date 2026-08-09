@@ -26,6 +26,7 @@ export type BmsTopology = 'none' | 'can' | 'direct';
 
 export interface ScenarioBmsNode {
   alias: string;
+  uuid: string;
   route: 'direct' | 'can';
   canId: number;
   pingVisible: boolean;
@@ -41,6 +42,7 @@ export interface ScenarioBmsNode {
 
 export interface ScenarioController {
   alias: string;
+  uuid: string;
   canId: number;
   firmware: FirmwareVersion;
   refloat: RefloatVersion;

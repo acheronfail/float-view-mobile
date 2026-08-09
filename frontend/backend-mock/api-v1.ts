@@ -123,12 +123,16 @@ const discoveredBoard = {
   state: 'discovered' as const,
   rssi: -48,
   lastSeenAt: '2026-01-01T00:00:00Z',
-  savedDeviceId: 'saved-board' as string | null,
+  savedDeviceId: '0102030405060708090a0b0c' as string | null,
 };
 
+const mockVescUuid = '0102030405060708090a0b0c';
+const mockBmsUuid = '0d0e0f101112131415161718';
+
 const savedBoard = {
-  savedDeviceId: 'saved-board',
-  deviceHistoryId: 'history-board',
+  savedDeviceId: mockVescUuid,
+  deviceHistoryId: mockVescUuid,
+  vescUuid: mockVescUuid,
   revision: 0,
   displayName: 'Float View Test VESC',
   customDisplayName: null,
@@ -147,7 +151,7 @@ const savedBoard = {
 
 const session: SessionSummary = {
   sessionId: 'session-1',
-  deviceHistoryId: 'history-board',
+  deviceHistoryId: mockVescUuid,
   displayName: 'Float View Test VESC',
   startedAt: '2026-01-01T00:00:00Z',
   endedAt: '2026-01-01T00:01:00Z',
@@ -424,7 +428,7 @@ export class MockBackend {
               controllerConnection: { kind: 'direct' },
               controllerCandidates: [],
               connectionIssue: null,
-              bms: { status: 'discovering', connection: null, candidates: [], latestSnapshot: null },
+              bms: { status: 'discovering', uuid: null, connection: null, candidates: [], latestSnapshot: null },
               refloatControls: readyRefloatControls(),
               refloatConfiguration: {
                 availability: 'ready',
@@ -448,6 +452,7 @@ export class MockBackend {
                 batterySeriesCells: 18,
               },
               firmware: {
+                uuid: mockVescUuid,
                 vescVersion: '6.06',
                 packageName: 'refloat',
                 packageVersion: '1.2.3',
@@ -1081,7 +1086,7 @@ export class MockBackend {
 
   simulateBmsAttached(snapshot: BmsSnapshot, connection: BmsState['connection'] = { kind: 'direct' }): void {
     if (!connection) return;
-    this.simulateBmsState({ status: 'attached', connection, candidates: [], latestSnapshot: snapshot });
+    this.simulateBmsState({ status: 'attached', uuid: mockBmsUuid, connection, candidates: [], latestSnapshot: snapshot });
   }
 
   simulateStandaloneBms(snapshot: BmsSnapshot): void {
@@ -1101,7 +1106,13 @@ export class MockBackend {
           controllerConnection: null,
           controllerCandidates: [],
           connectionIssue: null,
-          bms: { status: 'attached', connection: { kind: 'direct' }, candidates: [], latestSnapshot: snapshot },
+          bms: {
+            status: 'attached',
+            uuid: mockBmsUuid,
+            connection: { kind: 'direct' },
+            candidates: [],
+            latestSnapshot: snapshot,
+          },
           refloatControls: null,
           refloatConfiguration: null,
           controllerActions: { shutdownAvailable: false, pendingAction: null },
@@ -1118,6 +1129,7 @@ export class MockBackend {
   simulateBmsAmbiguous(candidates: BmsCandidate[]): void {
     this.simulateBmsState({
       status: 'ambiguous',
+      uuid: null,
       connection: null,
       candidates: [...candidates].sort(compareBmsCandidates),
       latestSnapshot: null,
@@ -1165,7 +1177,13 @@ export class MockBackend {
 
   simulateControllerSelection(candidates: ControllerCandidate[]): void {
     const active = this.state.activeConnection;
-    if (!active || candidates.length < 2 || candidates.length > 16) return;
+    if (
+      !active ||
+      candidates.length < 2 ||
+      candidates.length > 16 ||
+      candidates.some((candidate) => !canonicalUuid(candidate.uuid))
+    )
+      return;
     this.pendingCandidates = [...candidates].sort((left, right) => left.canId - right.canId);
     this.change({
       ...this.state,
@@ -1510,8 +1528,9 @@ export class MockBackend {
     let importedBoard = this.state.savedDevices.find((value) => value.deviceHistoryId === imported.deviceHistoryId);
     if (!importedBoard) {
       importedBoard = {
-        savedDeviceId: `saved-${imported.deviceHistoryId}`,
+        savedDeviceId: imported.deviceHistoryId,
         deviceHistoryId: imported.deviceHistoryId,
+        vescUuid: /^[0-9a-f]{24}$/.test(imported.deviceHistoryId) ? imported.deviceHistoryId : null,
         revision: 0,
         displayName: imported.displayName,
         customDisplayName: null,
@@ -1878,8 +1897,13 @@ function compareBmsCandidates(left: BmsCandidate, right: BmsCandidate): number {
 }
 
 function validBmsState(value: BmsState): boolean {
-  if (!validBmsConnection(value.connection) || value.candidates.length > 16) return false;
-  if (value.candidates.some((candidate) => !validBmsConnection(candidate.connection))) return false;
+  if (!validBmsConnection(value.connection) || !canonicalUuid(value.uuid) || value.candidates.length > 16) return false;
+  if (
+    value.candidates.some(
+      (candidate) => !validBmsConnection(candidate.connection) || !canonicalUuid(candidate.uuid)
+    )
+  )
+    return false;
   const snapshot = value.latestSnapshot;
   if (snapshot) {
     if (
@@ -1908,6 +1932,10 @@ function validBmsState(value: BmsState): boolean {
     case 'unavailable':
       return true;
   }
+}
+
+function canonicalUuid(value: string | null): boolean {
+  return value === null || /^[0-9a-f]{24}$/.test(value);
 }
 
 function compareSessions(left: SessionSummary, right: SessionSummary): number {

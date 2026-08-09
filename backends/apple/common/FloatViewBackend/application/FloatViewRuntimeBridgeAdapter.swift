@@ -74,6 +74,7 @@ public final class FloatViewRuntimeBridgeAdapter: @unchecked Sendable {
         activeDeviceID = deviceID
         connectionGeneration = expectedGeneration
       }
+      diagnose(stage: "bluetooth_connect", code: "dispatched")
       trace("connect generation=\(currentConnectionGeneration)")
       bluetooth.connect(deviceID)
       complete(command)
@@ -416,13 +417,19 @@ public final class FloatViewAppleRuntime: @unchecked Sendable {
       location: location,
       platformHost: platformHost,
       diagnosticHandler: diagnosticHandler,
-      runtimeReadyHandler: runtimeReadyHandler
+      runtimeReadyHandler: { endpoint, launchToken in
+        relay.activate(
+          initialState: softwareTransport ? nil : bluetooth.currentState()
+        )
+        runtimeReadyHandler(endpoint, launchToken)
+      }
     )
     self.runtime = runtime
     self.adapter = adapter
     self.relay = relay
     self.retainedPresentation = retainedPresentation
     self.backgroundEligibility = backgroundEligibility
+    relay.setHandler(adapter.receiveBluetooth)
     try runtime.startConfigured(
       requestedPort: requestedPort,
       softwareTransport: softwareTransport,
@@ -430,7 +437,6 @@ public final class FloatViewAppleRuntime: @unchecked Sendable {
       frontendIndex: frontendIndex,
       handler: adapter.dispatch
     )
-    relay.setHandler(adapter.receiveBluetooth)
   }
 
   public func updateLifecycle(foreground: Bool) {
@@ -446,15 +452,48 @@ public final class FloatViewAppleRuntime: @unchecked Sendable {
   }
 }
 
-private final class FloatViewBluetoothEventRelay: @unchecked Sendable {
-  private let lock = NSLock()
-  private var handler: (@Sendable (BluetoothEvent) -> Void)?
+final class FloatViewBluetoothEventRelay: @unchecked Sendable {
+  typealias Handler = @Sendable (BluetoothEvent) -> Void
 
-  func setHandler(_ value: @escaping @Sendable (BluetoothEvent) -> Void) {
-    lock.withLock { handler = value }
+  private let lock = NSLock()
+  private var handler: Handler?
+  private var pendingState: BluetoothState?
+  private var active = false
+
+  func setHandler(_ value: @escaping Handler) {
+    let pending: BluetoothState? = lock.withLock {
+      handler = value
+      guard active else { return nil }
+      defer { pendingState = nil }
+      return pendingState
+    }
+    if let pending { value(.stateChanged(pending)) }
+  }
+
+  func activate(initialState: BluetoothState?) {
+    let delivery: (Handler, BluetoothState)? = lock.withLock {
+      guard !active else { return nil }
+      active = true
+      pendingState = initialState ?? pendingState
+      guard let handler, let pendingState else { return nil }
+      self.pendingState = nil
+      return (handler, pendingState)
+    }
+    if let (handler, state) = delivery { handler(.stateChanged(state)) }
   }
 
   func emit(_ event: BluetoothEvent) {
-    lock.withLock { handler }?(event)
+    let delivery: Handler? = lock.withLock {
+      guard active else {
+        if case let .stateChanged(state) = event { pendingState = state }
+        return nil
+      }
+      guard let handler else {
+        if case let .stateChanged(state) = event { pendingState = state }
+        return nil
+      }
+      return handler
+    }
+    delivery?(event)
   }
 }

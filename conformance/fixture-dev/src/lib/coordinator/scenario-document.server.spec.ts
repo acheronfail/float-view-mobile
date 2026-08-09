@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
+  bmsIdentity,
+  controllerIdentity,
   parseScenarioDocument,
-  privateBmsIdentity,
-  privateControllerIdentity,
   scenarioTemplate,
 } from './scenario-document.server.ts';
 
@@ -16,23 +16,28 @@ test('scenario templates default to ATT-safe notification fragments', () => {
   assert.equal(directVbms.topology, 'express');
 });
 
-test('scenario documents round trip with deterministic private identities and no UUID field', () => {
+test('scenario documents round trip with explicit canonical UUID identities', () => {
   const document = scenarioTemplate('reportedMultiController');
   const parsed = parseScenarioDocument(JSON.parse(JSON.stringify(document)));
   assert.deepEqual(parsed, document);
   assert.deepEqual(
-    privateControllerIdentity(parsed, 'front'),
-    privateControllerIdentity({ ...parsed, controllers: [{ ...parsed.controllers[0]!, canId: 99 }] }, 'front')
+    controllerIdentity(parsed, 'front'),
+    controllerIdentity({ ...parsed, controllers: [{ ...parsed.controllers[0]!, canId: 99 }] }, 'front')
   );
-  assert.notDeepEqual(privateControllerIdentity(parsed, 'front'), privateControllerIdentity(parsed, 'rear'));
+  assert.notDeepEqual(controllerIdentity(parsed, 'front'), controllerIdentity(parsed, 'rear'));
   const withBms = scenarioTemplate('directVbms');
-  assert.deepEqual(privateBmsIdentity(withBms, 'vbms'), privateBmsIdentity(withBms, 'vbms'));
-  assert.equal(JSON.stringify(parsed).toLowerCase().includes('uuid'), false);
+  const bmsAlias = withBms.bmsNodes[0]!.alias;
+  assert.deepEqual(bmsIdentity(withBms, bmsAlias), bmsIdentity(withBms, bmsAlias));
+  assert.match(parsed.controllers[0]!.uuid, /^[0-9a-f]{24}$/);
+  assert.equal(JSON.stringify(parsed).includes(parsed.controllers[0]!.uuid), true);
 });
 
 test('scenario validation rejects privileged, duplicate, non-finite, oversized, and excessive input', () => {
   const base = scenarioTemplate('reportedMultiController');
-  assert.throws(() => parseScenarioDocument({ ...base, controllerUuid: 'private' }), /Invalid scenario/);
+  assert.throws(
+    () => parseScenarioDocument({ ...base, controllers: [{ ...base.controllers[0]!, uuid: 'not-a-uuid' }, base.controllers[1]!] }),
+    /canonical/
+  );
   assert.throws(() => parseScenarioDocument({ ...base, schemaVersion: 2 }), /Unsupported/);
   assert.throws(
     () =>
@@ -56,6 +61,7 @@ test('scenario validation rejects privileged, duplicate, non-finite, oversized, 
         controllers: Array.from({ length: 17 }, (_, index) => ({
           ...base.controllers[0]!,
           alias: `controller-${index}`,
+          uuid: index.toString(16).padStart(24, '0'),
           canId: index,
         })),
       }),
@@ -69,7 +75,11 @@ test('scenario validation rejects privileged, duplicate, non-finite, oversized, 
   );
   assert.throws(() => parseScenarioDocument({ ...base, bmsNodes: [{ ...bms, cellCount: 51 }] }), /array counts/);
   assert.throws(
-    () => parseScenarioDocument({ ...base, bmsNodes: [{ ...bms }, { ...bms, alias: 'second', canId: 43 }] }),
+    () =>
+      parseScenarioDocument({
+        ...base,
+        bmsNodes: [{ ...bms }, { ...bms, alias: 'second', uuid: 'abcdefabcdef000000000000', canId: 43 }],
+      }),
     /one direct VBMS/
   );
 });

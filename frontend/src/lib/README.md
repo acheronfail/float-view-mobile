@@ -70,7 +70,7 @@ was observed.
 `features/connection/` owns the generated editor and its connection-scoped
 controller. The frontend receives only normalized, paged schema fields and
 typed values through `backend/contract.ts`; raw XML, VESC commands, routes,
-private firmware identity, and serialized configuration bytes never cross the
+platform transport identity and serialized configuration bytes never cross the
 loopback boundary. Drafts are complete configurations tied to package version,
 full-schema fingerprint, wire signature, value revision, and connection
 generation. Reconnect or any identity change invalidates them.

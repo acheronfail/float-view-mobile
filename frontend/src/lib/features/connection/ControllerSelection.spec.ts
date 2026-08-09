@@ -10,11 +10,12 @@ const connection: ActiveConnection = {
   displayName: 'Board',
   state: 'selecting_controller',
   trackingMode: 'saved',
-  savedDeviceId: 'saved-board',
+  savedDeviceId: '0102030405060708090a0b0c',
   controllerConnection: null,
   controllerCandidates: [
     {
       canId: 42,
+      uuid: '2a2a2a2a2a2a2a2a2a2a2a2a',
       hardwareName: 'THOR300',
       firmwareName: 'Refloat',
       vescVersion: '6.06',
@@ -22,6 +23,7 @@ const connection: ActiveConnection = {
     },
     {
       canId: 7,
+      uuid: '070707070707070707070707',
       hardwareName: 'Old VESC',
       firmwareName: null,
       vescVersion: '5.03',
@@ -29,7 +31,7 @@ const connection: ActiveConnection = {
     },
   ],
   connectionIssue: null,
-  bms: { status: 'discovering', connection: null, candidates: [], latestSnapshot: null },
+  bms: { status: 'discovering', uuid: null, connection: null, candidates: [], latestSnapshot: null },
   refloatControls: null,
   refloatConfiguration: null,
   controllerActions: { shutdownAvailable: false, pendingAction: null },

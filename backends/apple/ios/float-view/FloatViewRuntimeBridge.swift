@@ -29,7 +29,7 @@ final class FloatViewRuntimeBridge: @unchecked Sendable {
           eventHandler: handler,
           diagnosticHandler: { diagnostic in
             #if DEBUG
-              print("[FloatViewCore] adapter \(diagnostic)")
+              NSLog("[FloatViewCore] adapter %@", diagnostic)
             #endif
           }
         ).port
@@ -38,6 +38,11 @@ final class FloatViewRuntimeBridge: @unchecked Sendable {
       platformHost: host,
       retainedPresentation: presentation,
       backgroundEligibility: { FloatViewBackgroundExecution.effectiveEligibility },
+      diagnosticHandler: { stage, code in
+        #if DEBUG
+          NSLog("[FloatViewApple] stage=%@ code=%@", stage, code)
+        #endif
+      },
       runtimeReadyHandler: readiness
     )
   }

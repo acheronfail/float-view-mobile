@@ -30,6 +30,7 @@
       <span class="block text-muted">Status</span><strong class="capitalize">{bms.status.replace('_', ' ')}</strong>
     </div>
     <div><span class="block text-muted">Route</span><strong>{bmsRouteLabel(bms.connection)}</strong></div>
+    <div class="col-span-2"><span class="block text-muted">UUID</span><code>{bms.uuid ?? 'Unavailable'}</code></div>
     <div class="col-span-2">
       <span class="block text-muted">Freshness</span>
       <strong>{snapshot ? bmsFreshness(snapshot.observedAt, now) : 'No values received'}</strong>
@@ -44,7 +45,10 @@
       </p>
       <ul class="mt-2 grid gap-1">
         {#each candidates as candidate (bmsRouteLabel(candidate.connection))}
-          <li>{bmsRouteLabel(candidate.connection)} · {candidate.hardwareName ?? 'VBMS'} · {candidate.vescVersion}</li>
+          <li>
+            {bmsRouteLabel(candidate.connection)} · {candidate.hardwareName ?? 'VBMS'} · {candidate.vescVersion} ·
+            <code>{candidate.uuid ?? 'UUID unavailable'}</code>
+          </li>
         {/each}
       </ul>
     </section>

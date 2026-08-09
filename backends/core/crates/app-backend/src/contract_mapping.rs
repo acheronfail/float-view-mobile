@@ -1,23 +1,23 @@
 use super::{ContractError, Map, TuneRecord, Value, invalid, iso8601_or_empty, json};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-struct TuneIdentityDto {
+pub(super) struct TuneIdentityDto {
     package_name: String,
     package_version: String,
     schema_fingerprint: String,
     wire_signature: u32,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Serialize)]
 #[serde(
     tag = "type",
     content = "value",
     rename_all = "lowercase",
     deny_unknown_fields
 )]
-enum ConfigurationValueDto {
+pub(super) enum ConfigurationValueDto {
     Double(f64),
     Integer(i64),
     Boolean(bool),
@@ -60,10 +60,8 @@ pub(super) fn tune_identity_value(identity: &protocol_refloat::TuneIdentity) -> 
 }
 
 pub(super) fn parse_tune_identity(
-    value: Option<&Value>,
+    identity: TuneIdentityDto,
 ) -> Result<protocol_refloat::TuneIdentity, ContractError> {
-    let identity: TuneIdentityDto = serde_json::from_value(value.cloned().unwrap_or(Value::Null))
-        .map_err(|_| invalid("Configuration identity is invalid"))?;
     if identity.package_name != "refloat"
         || identity.package_version.is_empty()
         || identity.schema_fingerprint.len() != 64
@@ -153,12 +151,9 @@ pub(super) fn configuration_value(value: &protocol_refloat::ConfigurationValue) 
 }
 
 pub(super) fn parse_configuration_values(
-    value: Option<&Value>,
+    values: &std::collections::HashMap<String, ConfigurationValueDto>,
 ) -> Result<std::collections::HashMap<String, protocol_refloat::ConfigurationValue>, ContractError>
 {
-    let values: std::collections::HashMap<String, ConfigurationValueDto> =
-        serde_json::from_value(value.cloned().unwrap_or(Value::Null))
-            .map_err(|_| invalid("Configuration values are invalid"))?;
     if values.len() > protocol_refloat::MAX_CONFIGURATION_FIELDS {
         return Err(invalid("Configuration values are invalid"));
     }
@@ -235,25 +230,29 @@ pub(super) fn tune_summary_value(record: &TuneRecord) -> Value {
     })
 }
 
-pub(super) fn tune_value(record: &TuneRecord) -> Value {
+pub(super) fn tune_value(record: &TuneRecord) -> Result<Value, ContractError> {
     let mut value = tune_summary_value(record);
-    value["values"] = serde_json::from_str(&record.values_json).unwrap_or_else(|_| json!({}));
-    value
+    let values: std::collections::HashMap<String, ConfigurationValueDto> =
+        serde_json::from_str(&record.values_json)
+            .map_err(|_| ContractError::new("internal", "Stored Tune is invalid"))?;
+    value["values"] = serde_json::to_value(values)
+        .map_err(|_| ContractError::new("internal", "Stored Tune encoding failed"))?;
+    Ok(value)
 }
 
-pub(super) fn tune_name(value: Option<&Value>) -> Result<String, ContractError> {
-    value
-        .and_then(Value::as_str)
-        .map(str::trim)
-        .filter(|value| !value.is_empty() && value.len() <= 128)
-        .map(str::to_owned)
-        .ok_or_else(|| invalid("Tune name is invalid"))
+pub(super) fn tune_name(value: &str) -> Result<String, ContractError> {
+    let value = value.trim();
+    if value.is_empty() || value.len() > 128 {
+        Err(invalid("Tune name is invalid"))
+    } else {
+        Ok(value.to_owned())
+    }
 }
 
-pub(super) fn tune_description(value: Option<&Value>) -> Result<Option<String>, ContractError> {
+pub(super) fn tune_description(value: Option<String>) -> Result<Option<String>, ContractError> {
     match value {
-        Some(Value::Null) => Ok(None),
-        Some(Value::String(value)) if value.len() <= 1024 => Ok(Some(value.clone())),
+        None => Ok(None),
+        Some(value) if value.len() <= 1024 => Ok(Some(value)),
         _ => Err(invalid("Tune description is invalid")),
     }
 }

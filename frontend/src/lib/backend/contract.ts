@@ -80,6 +80,8 @@ export interface DiscoveredDevice extends Device {
 }
 
 export interface FirmwareInfo {
+  /** Canonical 24-character lowercase VESC firmware UUID when meaningful. */
+  uuid: string | null;
   vescVersion: string;
   packageName: string;
   packageVersion: string;
@@ -93,6 +95,7 @@ export type ControllerConnection = { kind: 'direct' } | { kind: 'can'; canId: nu
 
 export interface ControllerCandidate {
   canId: number;
+  uuid: string | null;
   hardwareName: string | null;
   firmwareName: string | null;
   vescVersion: string;
@@ -266,6 +269,7 @@ export type BmsConnection = { kind: 'direct' } | { kind: 'can'; canId: number };
 
 export interface BmsCandidate {
   connection: BmsConnection;
+  uuid: string | null;
   hardwareName: string | null;
   vescVersion: string;
 }
@@ -300,6 +304,7 @@ export interface BmsSnapshot {
 
 export interface BmsState {
   status: BmsStatus;
+  uuid: string | null;
   connection: BmsConnection | null;
   candidates: BmsCandidate[];
   latestSnapshot: BmsSnapshot | null;
@@ -440,6 +445,8 @@ export interface ControllerCurrentLimits {
 export interface SavedDevice {
   savedDeviceId: string;
   deviceHistoryId: string;
+  /** Equals saved/history identity when meaningful firmware UUID is available. */
+  vescUuid: string | null;
   revision: number;
   displayName: string;
   customDisplayName?: string | null;

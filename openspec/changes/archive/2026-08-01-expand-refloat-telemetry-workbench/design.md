@@ -83,7 +83,7 @@ Accepting every semver above 1.1 was rejected because command 32 does not descri
 
 ### 3. Make fixture-development a workbench, not a runner
 
-The browser contract will select either a common custom configuration or a versioned scenario document. The server resolves public aliases into private deterministic controller UUIDs, owns the full `BoardConfiguration`, and exposes only bounded display-safe summaries. Presets are editable starting templates, not named expectations.
+The browser contract will select either a common custom configuration or a versioned scenario document. Scenario documents carry canonical deterministic controller UUIDs, the server owns the full `BoardConfiguration`, and the UI exposes bounded summaries. Presets are editable starting templates, not named expectations.
 
 The workbench will provide:
 

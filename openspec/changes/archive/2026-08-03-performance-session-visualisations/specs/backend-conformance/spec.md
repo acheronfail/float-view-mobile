@@ -41,7 +41,7 @@ Canonical conformance SHALL verify that both backends commit, recover, publish, 
 #### Scenario: Privacy and composed bounds
 
 - **WHEN** detailed telemetry, scenario aliases, learned identities, oversized fields, extension limits, series field/bucket products, sample pages, event pages, and decoded HTTP bodies are exercised
-- **THEN** conformance observes the 65,536-byte WebSocket, 64-field layout, 64-byte key, 4,096-byte aggregate-name, 32-extension, 16,384-byte request/extension JSON, 16-request-field, 1,024-bucket, 65,536-observation, 2,000-sample-page, 500-event-page, and 4,194,304-decoded-byte bounds with no private controller UUID or token in state, history, logs, or errors
+- **THEN** conformance observes the 65,536-byte WebSocket, 64-field layout, 64-byte key, 4,096-byte aggregate-name, 32-extension, 16,384-byte request/extension JSON, 16-request-field, 1,024-bucket, 65,536-observation, 2,000-sample-page, 500-event-page, and 4,194,304-decoded-byte bounds with canonical controller UUIDs where identity is present and no launch token or platform Bluetooth identifier in state, history, logs, or errors
 
 #### Scenario: Interrupted publication
 

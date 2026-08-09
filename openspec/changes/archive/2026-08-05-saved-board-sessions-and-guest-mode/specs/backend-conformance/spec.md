@@ -50,7 +50,7 @@ The canonical suite SHALL verify the required saved-device filter on `session.li
 
 ### Requirement: Archive identity and board lifecycle conformance
 
-The canonical suite SHALL verify stable opaque board identity, archive import association, configurable undiscovered boards, Home-only connection initiation, and irreversible board forgetting across the mock and native targets. It SHALL verify that portable archives omit raw VESC firmware identifiers, Apple UUIDs, Android addresses, and private controller-route UUIDs.
+The canonical suite SHALL verify canonical VESC UUID board identity, archive import association, configurable undiscovered boards, Home-only connection initiation, and irreversible board forgetting across the mock and native targets. It SHALL verify that portable archives retain canonical VESC firmware/controller/BMS UUIDs where available while omitting Apple UUIDs and Android addresses.
 
 #### Scenario: Archive merges into existing board
 

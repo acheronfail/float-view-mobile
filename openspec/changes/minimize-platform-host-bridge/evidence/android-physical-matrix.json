@@ -1,0 +1,87 @@
+{
+  "target": "android-physical",
+  "fixturePath": "/dev/cu.usbmodem1101",
+  "generatedAt": "2026-08-09T05:22:38.930Z",
+  "scenarios": [
+    {
+      "scenario": "identity",
+      "revision": 83,
+      "durationMs": 9550.130791000001
+    },
+    {
+      "scenario": "direct",
+      "revision": 76,
+      "durationMs": 8200.015208
+    },
+    {
+      "scenario": "direct-legacy",
+      "revision": 62,
+      "durationMs": 7080.033500000001
+    },
+    {
+      "scenario": "control-direct",
+      "revision": 98,
+      "durationMs": 8420.253917000002
+    },
+    {
+      "scenario": "control-can",
+      "revision": 103,
+      "durationMs": 7480.092791000003
+    },
+    {
+      "scenario": "shutdown-direct",
+      "revision": 63,
+      "durationMs": 6980.028874999996
+    },
+    {
+      "scenario": "shutdown-can",
+      "revision": 61,
+      "durationMs": 7719.820166999998
+    },
+    {
+      "scenario": "shutdown-no-op",
+      "revision": 63,
+      "durationMs": 5340.487582999995
+    },
+    {
+      "scenario": "explicit-can",
+      "revision": 86,
+      "durationMs": 18440.321041000003
+    },
+    {
+      "scenario": "generic-gateway",
+      "revision": 83,
+      "durationMs": 7521.063750000001
+    },
+    {
+      "scenario": "ambiguous",
+      "revision": 83,
+      "durationMs": 8919.202040999997
+    },
+    {
+      "scenario": "bms-direct-controller",
+      "revision": 87,
+      "durationMs": 7880.416582999998
+    },
+    {
+      "scenario": "bms-express",
+      "revision": 89,
+      "durationMs": 8020.189499999993
+    },
+    {
+      "scenario": "bms-standalone",
+      "revision": 31,
+      "durationMs": 3919.6974999999948
+    },
+    {
+      "scenario": "ride",
+      "revision": 155,
+      "durationMs": 21940.675915999993
+    },
+    {
+      "scenario": "unexpected-disconnect",
+      "revision": 121,
+      "durationMs": 12020.296541999996
+    }
+  ]
+}

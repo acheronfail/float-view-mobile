@@ -92,9 +92,14 @@ public final class CoreBluetoothAdapter: NSObject, BluetoothPort, @unchecked Sen
 
   public func connect(_ deviceID: DeviceID) {
     queue.async { [self] in
-      let peripheral = peripheralsByID[deviceID] ?? UUID(uuidString: deviceID.value).flatMap {
+      let discoveredPeripheral = peripheralsByID[deviceID]
+      let peripheral = discoveredPeripheral ?? UUID(uuidString: deviceID.value).flatMap {
         central.retrievePeripherals(withIdentifiers: [$0]).first
       }
+      diagnosticHandler(
+        "connect_lookup source=\(discoveredPeripheral == nil ? "restored" : "discovered") "
+          + "found=\(peripheral != nil)"
+      )
       guard activePeripheral == nil || activeDeviceID == deviceID,
             let peripheral
       else {

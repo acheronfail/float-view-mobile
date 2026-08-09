@@ -74,7 +74,7 @@ The contract SHALL use only `invalid_request`, `invalid_state`, `permission_requ
 
 ### Requirement: Authoritative application state
 
-`state.get` SHALL return a bounded `AppState` containing a monotonic revision, a separate monotonic `sessionCatalogRevision`, Bluetooth state, discovered devices with an explicit saved-board match when known, saved devices with a stable opaque logical identity, resolved identity, and optional local platform association, active connection with `trackingMode` (`saved` or `guest`) and nullable saved-device identity, connection state, detected direct-or-CAN controller route, bounded controller candidates when selection is required, bounded connection issue when failed, firmware, complete live-only Refloat control state when protocol discovery has begun, complete bounded controller-action state, saved-mode active-session summary when present, the latest successfully persisted sample for saved mode or bounded ephemeral latest sample for guest mode when known, and settings. Recent session summaries and session groups SHALL NOT be included; standalone or board-filtered session summaries SHALL be retrieved through `session.list`. Historical series, private controller UUIDs, raw VESC firmware identifiers, and diagnostic windows MUST NOT be included.
+`state.get` SHALL return a bounded `AppState` containing a monotonic revision, a separate monotonic `sessionCatalogRevision`, Bluetooth state, discovered devices with an explicit saved-board match when known, saved devices with canonical VESC UUID identity when meaningful, resolved identity, and optional local platform association, active connection with `trackingMode` (`saved` or `guest`) and nullable saved-device identity, connection state, detected direct-or-CAN controller route, bounded controller candidates with canonical UUIDs when selection is required, bounded connection issue when failed, firmware including canonical UUID when meaningful, complete live-only Refloat control state when protocol discovery has begun, complete bounded controller-action state, BMS identity and state, saved-mode active-session summary when present, the latest successfully persisted sample for saved mode or bounded ephemeral latest sample for guest mode when known, and settings. Recent session summaries and session groups SHALL NOT be included; standalone or board-filtered session summaries SHALL be retrieved through `session.list`. Historical series and diagnostic windows MUST NOT be included.
 
 #### Scenario: Initial state
 
@@ -321,7 +321,7 @@ The contract SHALL define one bounded latest live sample with sequence, elapsed 
 
 ### Requirement: Consistent saved-board identity
 
-Saved-device state SHALL distinguish a nullable custom display-name override, advertised Bluetooth name, optional local platform Bluetooth identifier, stable opaque logical board identity (`deviceHistoryId`), resolved display name, and mutation revision. `savedDeviceId` remains a local record identifier; `deviceHistoryId` SHALL remain stable in session archives and SHALL be used to associate imported sessions with a board. For a meaningful local VESC endpoint firmware identity, native code SHALL derive `deviceHistoryId` with a versioned deterministic one-way digest; when no such identity exists, it SHALL use an opaque random value and SHALL not claim an automatic cross-installation match. The resolved display name SHALL use the first non-empty value from custom name, advertised name, local platform identifier, and stable logical identity in that order. Apple platform identifiers SHALL use the CoreBluetooth peripheral UUID and Android SHALL use the Bluetooth address, matching VESC Tool semantics without frontend platform branching. Imported boards MAY have no local platform identifier and SHALL remain valid saved-board records.
+Saved-device state SHALL distinguish a nullable custom display-name override, advertised Bluetooth name, optional local platform Bluetooth identifier, canonical VESC UUID identity when meaningful, resolved display name, and mutation revision. For a meaningful local VESC endpoint firmware identity, `savedDeviceId` and `deviceHistoryId` SHALL both equal its 24-character lowercase hexadecimal UUID; `deviceHistoryId` SHALL remain stable in session archives and SHALL associate imported sessions with a board. When no meaningful UUID exists, native code SHALL use bounded random identifiers and SHALL not claim an automatic cross-installation match. The resolved display name SHALL use the first non-empty value from custom name, advertised name, local platform identifier, and stable logical identity in that order. Apple platform identifiers SHALL use the CoreBluetooth peripheral UUID and Android SHALL use the Bluetooth address, matching VESC Tool semantics without frontend platform branching. Imported boards MAY have no local platform identifier and SHALL remain valid saved-board records.
 
 #### Scenario: Custom board name
 
@@ -356,7 +356,7 @@ Saved-device state SHALL distinguish a nullable custom display-name override, ad
 #### Scenario: Identifier disclosure boundary
 
 - **WHEN** board state is rendered or ordinary diagnostics and exports are produced
-- **THEN** local platform identifiers, raw VESC firmware identifiers, and private controller-route UUIDs are absent from ordinary logs and portable archives; only the stable opaque logical identity is portable board metadata
+- **THEN** local platform identifiers are absent from ordinary logs and portable archives while canonical VESC firmware/controller/BMS UUIDs may be retained as application and portable board metadata
 
 ### Requirement: Controller connection state shape
 
@@ -511,7 +511,7 @@ Live telemetry, transition events, durable samples, summaries, diagnostics, and 
 
 ### Requirement: Bounded telemetry serialization
 
-Detailed live samples, extension keys and counts, metadata, session-list pages/cursors, session-data requests/results, retained sample pages, event pages, prune previews/jobs, and exports SHALL retain explicit bounds. Authenticated WebSocket messages SHALL remain at most 65,536 bytes. A negotiated field name SHALL be at most 64 UTF-8 bytes, an extension map SHALL contain at most 32 finite values, and serialized extension JSON SHALL be at most 16,384 UTF-8 bytes. A session-list page SHALL contain 1 through 100 summaries and an opaque cursor SHALL be at most 1,024 UTF-8 bytes. A session-data request body SHALL be at most 16,384 UTF-8 bytes; a decoded success body SHALL be at most 4,194,304 bytes; series and sample requests SHALL contain 1 through 16 unique fields; series SHALL contain 1 through 1,024 buckets and at most 65,536 total observations; sample pages SHALL contain at most 2,000 rows; and event pages SHALL contain at most 500 rows. Sequences, revisions, counts, and elapsed values SHALL be non-negative JavaScript-safe integers. Prune target resolution SHALL be a whole 1 through 300 seconds, and complete application state SHALL expose at most one bounded prune operation without embedding a ride-identifier collection. Private controller UUIDs, launch tokens, and full unrequested telemetry MUST NOT appear in state, history, extensions, errors, or default logs.
+Detailed live samples, extension keys and counts, metadata, session-list pages/cursors, session-data requests/results, retained sample pages, event pages, prune previews/jobs, and exports SHALL retain explicit bounds. Authenticated WebSocket messages SHALL remain at most 65,536 bytes. A negotiated field name SHALL be at most 64 UTF-8 bytes, an extension map SHALL contain at most 32 finite values, and serialized extension JSON SHALL be at most 16,384 UTF-8 bytes. A session-list page SHALL contain 1 through 100 summaries and an opaque cursor SHALL be at most 1,024 UTF-8 bytes. A session-data request body SHALL be at most 16,384 UTF-8 bytes; a decoded success body SHALL be at most 4,194,304 bytes; series and sample requests SHALL contain 1 through 16 unique fields; series SHALL contain 1 through 1,024 buckets and at most 65,536 total observations; sample pages SHALL contain at most 2,000 rows; and event pages SHALL contain at most 500 rows. Sequences, revisions, counts, and elapsed values SHALL be non-negative JavaScript-safe integers. Prune target resolution SHALL be a whole 1 through 300 seconds, and complete application state SHALL expose at most one bounded prune operation without embedding a ride-identifier collection. Launch tokens, platform transport identifiers, and full unrequested telemetry MUST NOT appear in state, history, extensions, errors, or default logs.
 
 #### Scenario: Oversized extension data
 
@@ -526,7 +526,7 @@ Detailed live samples, extension keys and counts, metadata, session-list pages/c
 #### Scenario: Privacy inspection
 
 - **WHEN** live state, metadata, session-data responses, exports, errors, and logs are inspected
-- **THEN** no private learned or simulated controller UUID or launch token is present
+- **THEN** canonical learned or simulated VESC UUIDs may be present but no launch token or platform transport identifier is present
 
 ### Requirement: Bounded pageable standalone session catalog
 
@@ -754,7 +754,7 @@ The `savedDevice.delete` method SHALL accept a saved-device identifier and retur
 
 ### Requirement: Portable session archive board ownership
 
-The existing native session archive export/import flow SHALL carry a versioned stable opaque `deviceHistoryId` and the bounded saved-board snapshot needed to reconstruct board ownership. It MUST NOT carry raw VESC firmware identifiers, Apple CoreBluetooth UUIDs, Android Bluetooth addresses, or private controller-route UUIDs. Import SHALL merge into the saved board with the same `deviceHistoryId`, or create that board before inserting sessions when no match exists; the resulting board SHALL have a nullable local platform association.
+The existing native session archive export/import flow SHALL carry the canonical VESC UUID as `deviceHistoryId` when meaningful, canonical controller/BMS UUID metadata where available, and the bounded saved-board snapshot needed to reconstruct board ownership. It MUST NOT carry Apple CoreBluetooth UUIDs or Android Bluetooth addresses. Import SHALL merge into the saved board with the same `deviceHistoryId`, or create that board before inserting sessions when no match exists; the resulting board SHALL have a nullable local platform association.
 
 #### Scenario: Cross-platform archive merge
 
@@ -831,7 +831,7 @@ Every non-null active connection snapshot SHALL contain required `deviceKind` eq
 #### Scenario: Ambiguous BMS
 
 - **WHEN** multiple unconfigured VBMS identities are detected
-- **THEN** authoritative state reports `ambiguous`, a null selected connection and snapshot, and CAN-ID-sorted bounded candidates without private UUIDs
+- **THEN** authoritative state reports `ambiguous`, a null selected connection and snapshot, and CAN-ID-sorted bounded candidates with canonical UUIDs when meaningful
 
 #### Scenario: Unavailable after a prior sample
 
@@ -970,7 +970,7 @@ Every supported backend SHALL implement mandatory `refloat.configuration.open`, 
 
 ### Requirement: Small authoritative configuration availability
 
-`ActiveConnection.refloatConfiguration` SHALL be null before Refloat discovery begins and otherwise contain only bounded status from `loading`, `ready`, or `unavailable`; writability; nullable exact package version until legacy schema identity resolves; nullable schema fingerprint and wire signature; current/default-loaded flags; and nullable pending operation from `schema`, `readCurrent`, `readDefault`, `write`, or `applyTune`. It MUST NOT contain schema fields, raw XML, raw values, saved configurations, private controller identity, or cache keys. Entry into flywheel mode SHALL clear the current-loaded flag and writability without discarding validated schema/default availability; confirmed exit SHALL not restore them until a fresh current read succeeds. Availability and pending-operation changes SHALL publish newer complete authoritative snapshots, while bulk schema/value results remain request-scoped.
+`ActiveConnection.refloatConfiguration` SHALL be null before Refloat discovery begins and otherwise contain only bounded status from `loading`, `ready`, or `unavailable`; writability; nullable exact package version until legacy schema identity resolves; nullable schema fingerprint and wire signature; current/default-loaded flags; and nullable pending operation from `schema`, `readCurrent`, `readDefault`, `write`, or `applyTune`. It MUST NOT contain schema fields, raw XML, raw values, saved configurations, or cache keys. Entry into flywheel mode SHALL clear the current-loaded flag and writability without discarding validated schema/default availability; confirmed exit SHALL not restore them until a fresh current read succeeds. Availability and pending-operation changes SHALL publish newer complete authoritative snapshots, while bulk schema/value results remain request-scoped.
 
 #### Scenario: Ready configuration
 

@@ -46,6 +46,7 @@
             {candidate.hardwareName ?? 'Unknown hardware'} ·
             {candidate.firmwareName ?? 'Unknown firmware'} · VESC {candidate.vescVersion}
           </span>
+          <code class="mt-1 block text-xs text-muted">{candidate.uuid ?? 'UUID unavailable'}</code>
         </button>
       </li>
     {/each}

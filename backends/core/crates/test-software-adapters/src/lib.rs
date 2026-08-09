@@ -273,8 +273,8 @@ const EXPECTED_CONFIGURATION_READBACK: &[u8] =
     include_bytes!("../../../../fixtures/refloat-configuration/values/1.0.0-readback.bin");
 
 const FIRMWARE: &[u8] = &[
-    0, 6, 6, b'T', b'H', b'O', b'R', b'3', b'0', b'0', 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-    0, 1, 0, 0, 0, 0, b'V', b'E', b'S', b'C', 0,
+    0, 6, 6, b'T', b'H', b'O', b'R', b'3', b'0', b'0', 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 0,
+    0, 0, 1, 0, 0, 0, 0, b'V', b'E', b'S', b'C', 0,
 ];
 const BMS_FIRMWARE: &[u8] = &[
     0x00, 0x06, 0x00, 0x56, 0x42, 0x4d, 0x53, 0x00, 0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77,

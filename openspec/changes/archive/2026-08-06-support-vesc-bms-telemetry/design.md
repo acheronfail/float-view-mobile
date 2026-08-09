@@ -86,7 +86,7 @@ The VESC firmware decoder parses a common bounded prefix containing command, ver
 
 This preserves fail-closed controller compatibility while allowing source-faithful stock VBMS, VBMS32, and gateway identities. A permissive parser or generic "custom module with command 96" probe was rejected because malformed or mutable modules could be misclassified as trustworthy battery routes.
 
-Meaningful UUIDs remain native-private. The initial change does not persist a BMS UUID because `preferredBmsCanId` is authoritative and BMS continuity does not own session integrity.
+Meaningful BMS UUIDs use the canonical lowercase-hex representation and may be exposed or persisted wherever application identity is useful. `preferredBmsCanId` remains authoritative for route selection.
 
 ### 4. Decode exactly bounded legacy and extended BMS value variants
 
@@ -129,7 +129,7 @@ candidates: bounded display-safe BMS candidates
 latestSnapshot: null | complete BmsSnapshot
 ```
 
-Candidates contain route, display-safe hardware name, and firmware version, but not UUID. `connection` is non-null only after a unique or preferred identity is verified. `latestSnapshot` is replaced atomically after a complete successful decode. It is retained with its original timestamp across bounded poll failures and an active-connection reconnect, but cleared when the active device is removed or replaced.
+Candidates contain route, canonical BMS UUID when meaningful, bounded hardware name, and firmware version. `connection` is non-null only after a unique or preferred identity is verified. `latestSnapshot` is replaced atomically after a complete successful decode. It is retained with its original timestamp across bounded poll failures and an active-connection reconnect, but cleared when the active device is removed or replaced.
 
 BMS state changes increment the authoritative state revision and use the existing conflated `state.changed` delivery. Unlike controller samples, BMS samples are not gated on or appended to session persistence. They do not change active-session counts, aggregates, integrity, diagnostics, exports, or SQLite telemetry tables. A one-Hz complete snapshot with arrays bounded to 50 is within the existing state-message bounds; conformance will enforce the resulting encoded size.
 

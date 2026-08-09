@@ -176,6 +176,7 @@
       items={[
         ['Connection', routeDescription],
         ['Hardware', connection.firmware?.hardwareName ?? '—'],
+        ['VESC UUID', connection.firmware?.uuid ?? '—'],
         ['VESC', connection.firmware?.vescVersion ?? '—'],
         [
           'Package',

@@ -103,10 +103,12 @@ test('active move and replacement events serialize disconnect, mutation, and re-
   await coordinator.act({ kind: 'power-on' });
   await coordinator.act({ kind: 'move-controller', alias: 'primary', canId: 42 });
   assert.equal(coordinator.snapshot().scenario.controllers[0]?.canId, 42);
+  const movedUuid = coordinator.snapshot().scenario.controllers[0]!.uuid;
   assert.deepEqual(fixture.commands.slice(-2), ['DISCONNECT', 'ADVERTISE']);
   await coordinator.act({ kind: 'replace-controller', alias: 'primary' });
   assert.match(coordinator.snapshot().scenario.controllers[0]?.alias ?? '', /^replacement-/);
-  assert.equal(JSON.stringify(coordinator.snapshot()).toLowerCase().includes('uuid'), false);
+  assert.notEqual(coordinator.snapshot().scenario.controllers[0]?.uuid, movedUuid);
+  assert.match(coordinator.snapshot().scenario.controllers[0]!.uuid, /^[0-9a-f]{24}$/);
   assert.deepEqual(fixture.commands.slice(-2), ['DISCONNECT', 'ADVERTISE']);
   await coordinator.cleanup();
 });

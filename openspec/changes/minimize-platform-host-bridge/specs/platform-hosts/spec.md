@@ -115,3 +115,24 @@ After Apple and Android pass their respective bridge, lifecycle, software-host, 
 
 - **WHEN** all software gates and the explicit physical BLE checkpoint pass for a host family
 - **THEN** only the minimized host path remains selectable in its production and development builds
+
+## MODIFIED Requirements
+
+### Requirement: Native lifecycle and privacy boundary
+
+Native services SHALL continue auxiliary discovery and BMS polling while the frontend is disposable and while background execution is permitted, cancel every BMS generation and queued request on connection replacement, and exclude full BMS telemetry from default logs and durable files. VESC firmware/controller/BMS UUIDs MAY be used in state, persistence, diagnostics, logs, archives, and exports. Apple peripheral UUIDs and Android BLE addresses SHALL remain private transport associations and MUST NOT enter those surfaces.
+
+#### Scenario: WebView disposal
+
+- **WHEN** the frontend is destroyed while a selected BMS remains attached
+- **THEN** native polling continues where the OS permits and a replacement frontend recovers the latest authoritative BMS state
+
+#### Scenario: Connection generation changes
+
+- **WHEN** disconnect, reconnect, preference change, or device replacement invalidates auxiliary work
+- **THEN** late callbacks and queued work from the older generation cannot select a route or publish a snapshot
+
+#### Scenario: Default diagnostics
+
+- **WHEN** BMS discovery, polling, timeout, or malformed input is diagnosed normally
+- **THEN** logs may contain canonical VESC BMS UUIDs but contain only bounded telemetry context and no full cell arrays, complete raw telemetry frames, Apple peripheral UUIDs, or Android BLE addresses

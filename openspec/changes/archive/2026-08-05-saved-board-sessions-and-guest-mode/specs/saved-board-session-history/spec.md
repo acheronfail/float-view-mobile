@@ -108,7 +108,7 @@ The board-history header menu SHALL provide a `Forget board` item for an inactiv
 
 ### Requirement: Session archive import preserves board ownership
 
-Session archive export SHALL include the stable opaque board identity and the bounded board snapshot required for cross-platform import, but MUST NOT include raw VESC firmware identifiers, Apple or Android platform identifiers, or private controller-route UUIDs. Import SHALL associate every session with the board represented by that identity. When a matching saved board exists, imported sessions SHALL be added to that board's history; otherwise import SHALL create a saved-board entry with the imported board snapshot and no local platform association before adding the sessions.
+Session archive export SHALL include the canonical VESC UUID as board identity when meaningful, canonical controller/BMS UUID metadata where available, and the bounded board snapshot required for cross-platform import, but MUST NOT include Apple or Android platform identifiers. Import SHALL associate every session with the board represented by that identity. When a matching saved board exists, imported sessions SHALL be added to that board's history; otherwise import SHALL create a saved-board entry with the imported board snapshot and no local platform association before adding the sessions.
 
 #### Scenario: Import into an existing board
 

@@ -51,8 +51,10 @@ policy are recorded in `backends/core/DEPENDENCIES.md`; toolchains and generated
 header provenance are recorded beside it. Normal builds use locked, offline
 Cargo inputs and the checked-in header. Bind only to loopback, validate origin
 and launch token, and bound messages, queues, collections, retries, and files.
-Never log addresses, identifiers, coordinates, tokens, full telemetry, SQL
-rows, or unbounded bridge payloads by default.
+Never log platform Bluetooth addresses or associations, coordinates, tokens,
+full telemetry, SQL rows, or unbounded bridge payloads by default. Canonical
+VESC firmware/controller/BMS UUIDs are ordinary application identifiers and
+may be used in bounded logs and diagnostics.
 
 ## Frontend interaction
 

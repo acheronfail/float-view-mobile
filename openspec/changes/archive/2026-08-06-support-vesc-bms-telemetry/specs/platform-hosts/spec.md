@@ -21,7 +21,7 @@ Apple and Android SHALL implement matching owners for connection-wide VESC reque
 
 ### Requirement: Native lifecycle and privacy boundary
 
-Native services SHALL continue auxiliary discovery and BMS polling while the frontend is disposable and while background execution is permitted, cancel every BMS generation and queued request on connection replacement, and exclude BMS UUIDs and full BMS telemetry from default logs and durable files.
+Native services SHALL continue auxiliary discovery and BMS polling while the frontend is disposable and while background execution is permitted, cancel every BMS generation and queued request on connection replacement, permit canonical BMS UUIDs in default logs and durable files, and exclude full BMS telemetry from those surfaces.
 
 #### Scenario: WebView disposal
 
@@ -36,4 +36,4 @@ Native services SHALL continue auxiliary discovery and BMS polling while the fro
 #### Scenario: Default diagnostics
 
 - **WHEN** BMS discovery, polling, timeout, or malformed input is diagnosed normally
-- **THEN** logs retain only bounded high-level route/status codes and do not contain UUIDs, full cell arrays, or complete raw telemetry frames
+- **THEN** logs may retain canonical BMS UUIDs and bounded high-level route/status codes but do not contain full cell arrays, complete raw telemetry frames, Apple peripheral UUIDs, or Android Bluetooth addresses

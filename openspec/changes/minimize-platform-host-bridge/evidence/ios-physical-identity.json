@@ -1,0 +1,12 @@
+{
+  "target": "ios-physical",
+  "fixturePath": "/dev/cu.usbmodem1101",
+  "generatedAt": "2026-08-09T04:17:53.896Z",
+  "scenarios": [
+    {
+      "scenario": "identity",
+      "revision": 76,
+      "durationMs": 6828.854875
+    }
+  ]
+}

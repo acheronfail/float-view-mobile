@@ -6,16 +6,16 @@
 - [x] 1.4 Confirm from retained firmware source and supported fixtures that the meaningful VESC device UUID is the existing fixed 12-byte `protocol-vesc` firmware field, including the all-zero unavailable case.
 - [x] 1.5 Compare a fixed-layout platform-event header with focused event exports and select the smaller audited C/JNI/Swift/Kotlin surface while preserving caller-owned buffers and no callbacks.
 
-## 2. Stable private identity
+## 2. Stable VESC identity
 
 - [x] 2.1 Add Rust domain types and validation that distinguish a bounded private platform transport association from the meaningful 12-byte VESC firmware UUID saved-board key.
 - [x] 2.2 Update discovery and connect coordination to carry the private Apple peripheral UUID or Android BLE address without creating a process-random device-token alias.
-- [x] 2.3 Update saved-mode identification to use exact meaningful firmware UUID bytes as the private stable board key and retain the existing private random fallback only when firmware identity is unavailable.
+- [x] 2.3 Update saved-mode identification to use exact meaningful firmware UUID bytes as the stable board key and retain the existing random fallback only when firmware identity is unavailable.
 - [x] 2.4 Revalidate the firmware UUID on reconnect before accepting a stored platform association as the same saved board; reject conflicting or stale associations without merging boards.
-- [x] 2.5 Keep guest-mode UUID and platform associations in bounded live state only and prove that neither becomes durable saved identity.
-- [x] 2.6 Update private catalog/storage representation and disposable schema identity as required; recreate incompatible development data without migration or heuristic matching.
+- [x] 2.5 Permit guest-mode UUID use in application state and bounded diagnostics while proving that guest mode does not create a saved-board record; keep platform associations within the native transport boundary.
+- [x] 2.6 Update catalog/storage representation and disposable schema identity as required; recreate incompatible development data without migration or heuristic matching.
 - [x] 2.7 Add Rust tests for repeated identity, process restart, reconnect generation, two distinct UUIDs, unavailable/all-zero UUID fallback, cloned/conflicting UUID handling, guest isolation, and forget-board cleanup.
-- [x] 2.8 Add privacy tests proving firmware UUIDs, Apple peripheral UUIDs, and Android BLE addresses are absent from frontend state, results, errors, diagnostics, ordinary logs, archives, exports, and public `deviceHistoryId` values.
+- [x] 2.8 Replace UUID privacy tests with consistency tests proving firmware/controller/BMS UUIDs use one canonical lowercase-hex value across frontend state, results, diagnostics, logs, archives, exports, and `savedDeviceId`/`deviceHistoryId`, while Apple peripheral UUIDs and Android BLE addresses remain absent.
 
 ## 3. Minimal Rust bridge model
 
@@ -77,7 +77,7 @@
 
 - [x] 9.1 Reconcile the portable host-surface audit so it reports production/test counts, validates capability inventories and entry files, and rejects deleted software peripherals, reverse codecs, random token maps, unused APIs, incomplete capabilities, and unreachable commands without banning required native document support.
 - [x] 9.2 Reconcile reachability checks so every retained Bluetooth, location, background, document, appearance-fallback, and readiness command/event maps to a production requester or observer, host dispatcher, bounded completion path, and conformance case.
-- [x] 9.3 Run canonical saved/guest, process-restart, WebView/Activity recreation, UUID identity, privacy, software-host parity, native/browser import/export, location authorization, appearance, lifecycle/background, overload, and shutdown scenarios across applicable targets.
+- [x] 9.3 Run canonical saved/guest, process-restart, WebView/Activity recreation, UUID identity/portability, software-host parity, native/browser import/export, location authorization, appearance, lifecycle/background, overload, and shutdown scenarios across applicable targets.
 - [x] 9.4 Verify the reconciled generated header diff, pure-C harness, Rust workspace tests/lints, Swift tests/builds, Android JVM/instrumented tests/builds, frontend checks, and locked offline dependency checks.
 - [x] 9.5 Record the final production Swift/Kotlin inventory and explain every remaining capability entry, support stub, OS API adapter, lifecycle/presentation owner, and bridge wrapper.
 - [ ] 9.6 Run explicit physical checkpoints on macOS, iOS, and Android for default-MTU BLE writes, notification setup, saved-device reconnect, background BLE/GPS logging, frontend replacement, stale callback rejection, native documents, and live appearance changes.
@@ -111,7 +111,7 @@
 ## 12. Background, location, and appearance capabilities
 
 - [x] 12.1 Implement and document each host's `FloatViewBackgroundExecution` entry so it owns only OS mechanism and effective eligibility while Rust owns durable logging intent and policy.
-- [ ] 12.2 Verify Android foreground-service lifecycle, connected-device/location types, notification permission and channel, Application-owned runtime continuity, stop/restart behavior, and lifecycle eligibility reporting.
+- [x] 12.2 Verify Android foreground-service lifecycle, connected-device/location types, notification permission and channel, Application-owned runtime continuity, stop/restart behavior, and lifecycle eligibility reporting.
 - [ ] 12.3 Verify iOS background-mode declarations, CoreBluetooth restoration, background-location configuration, WebView-independent observation delivery, and runtime continuity; document macOS process behavior and mobile-only stubs.
 - [x] 12.4 Add a focused location-state sink so Apple delegate authorization/background-availability changes reach Rust immediately without waiting for a coordinate or external poll.
 - [x] 12.5 Route Android permission-result and provider-state changes through the same focused location-state semantics and prove denied, foreground-only, background, disabled, and unavailable transitions.
@@ -132,8 +132,27 @@
 
 ## 14. Reconciled completion gates
 
-- [ ] 14.1 Run the capability-matrix, predictable-entry, support-stub, reachability, ownership, privacy, and portable-shell audits with no `incomplete` capability remaining.
-- [ ] 14.2 Run focused document, location-authorization, appearance, lifecycle/background, bridge-ordering, and presentation-replacement conformance on browser, simulator, emulator, iOS, macOS, and Android as applicable.
+- [x] 14.1 Run the capability-matrix, predictable-entry, support-stub, reachability, ownership, UUID-consistency, and portable-shell audits with no `incomplete` capability remaining.
+- [x] 14.2 Run focused document, location-authorization, appearance, lifecycle/background, bridge-ordering, and presentation-replacement conformance on browser, simulator, emulator, iOS, macOS, and Android as applicable.
 - [ ] 14.3 Run focused Rust, pure-C, Swift, Kotlin, frontend, simulator, emulator, and browser gates followed by the explicit physical checkpoints in 9.6.
 - [ ] 14.4 Record the final production host inventory and capability evidence, update retained dependency/build provenance, and remove every superseded code and layout path whose replacement has passed its host gate.
 - [ ] 14.5 Run `just verify`, resolve every failure without weakening the requirements, then sync and archive the change only after all reopened and added tasks are complete.
+
+## 15. Typed Rust application and persistence models
+
+- [x] 15.1 Replace dynamic settings objects and patches with typed Rust settings, enums, nullable patch fields, and explicit bounds validation while preserving the hand-written frontend contract.
+- [x] 15.2 Replace dynamic archive-manifest and fixed session-snapshot parsing with versioned typed Rust DTOs without changing the portable archive format or accepting unbounded data.
+- [x] 15.3 Convert the remaining legacy contract handlers and loopback export request to typed parameter DTOs with unknown-field rejection and existing semantic bounds.
+- [x] 15.4 Type the board-profile fields understood by Rust while preserving explicitly bounded extension fields and patch absence-versus-null semantics.
+- [x] 15.5 Remove nested `serde_json::Value` fields from Tune and Refloat configuration requests by deserializing directly into typed identities, values, names, and required-nullable descriptions.
+- [x] 15.6 Replace JSON-owned backend state and fixed session summaries with typed Rust state components, retaining `serde_json::Value` only at deliberate wire, error-detail, and open-extension boundaries; add focused regression coverage.
+- [x] 15.7 Pass `just verify` after unrelated in-flight conformance command expectations have been reconciled with their implementation.
+
+## 16. Canonical raw VESC UUID identity
+
+- [x] 16.1 Reconcile canonical and delta requirements so VESC firmware/controller/BMS UUIDs are ordinary application identifiers while Apple peripheral UUIDs, Android BLE addresses, and launch tokens retain their existing protections.
+- [x] 16.2 Replace derived saved/history identifiers with the canonical 24-character lowercase VESC UUID in the frontend contract, Rust state, catalog, session ownership, archives, exports, mock, and UI; retain a bounded random fallback only when firmware supplies no meaningful UUID.
+- [x] 16.3 Remove VESC UUID redaction, exclusion, privacy wording, audit bans, and negative fixture/conformance assertions without weakening platform-association or token checks.
+- [x] 16.4 Permit direct and auxiliary BMS UUID use and persistence, and update BMS state/fixture/document coverage to use the same canonical representation where identity is present.
+- [x] 16.5 Add positive saved/guest/reconnect/process-restart/archive/import/export/diagnostic tests for exact UUID consistency and distinct UUID separation.
+- [x] 16.6 Run strict OpenSpec validation, focused frontend/Rust/conformance checks, and `just verify` after the breaking disposable-storage format update.

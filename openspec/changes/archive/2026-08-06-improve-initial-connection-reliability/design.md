@@ -34,7 +34,7 @@ The retry uses the current VESC request generation and is scheduled only from th
 
 ### Emit structured bounded diagnostics through existing sinks
 
-The application state machine will emit stable key-value diagnostic strings for identification stages and outcomes, including route, attempt, and failure code. BLE adapters will report setup callback outcomes and bounded platform error domain/code or numeric status. Diagnostics will exclude device IDs, addresses, launch tokens, raw packets, firmware UUIDs, and telemetry values.
+The application state machine will emit stable key-value diagnostic strings for identification stages and outcomes, including route, attempt, failure code, and canonical VESC firmware UUID when useful. BLE adapters will report setup callback outcomes and bounded platform error domain/code or numeric status. Diagnostics will exclude platform device IDs and addresses, launch tokens, raw packets, and telemetry values.
 
 Apple hosts will print these events only under `#if DEBUG`. Android will route adapter and application diagnostic strings only when the installed application is debuggable, replacing unconditional warnings for expected BLE setup failures. Unexpected throwable reporting remains separate.
 

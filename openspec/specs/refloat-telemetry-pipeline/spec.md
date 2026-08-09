@@ -137,7 +137,7 @@ For a dynamic package, each accepted compact response SHALL replace the latest c
 #### Scenario: Detailed export
 
 - **WHEN** a session containing detailed and extension telemetry is exported
-- **THEN** the export contains stable typed names, bounded extension values, nulls for unavailable fields, and no private Bluetooth or controller identifier
+- **THEN** the export contains stable typed names, bounded extension values, nulls for unavailable fields, and no platform Bluetooth identifier; canonical VESC controller UUIDs MAY be included
 
 ### Requirement: Raw load and active fault semantics
 

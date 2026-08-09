@@ -22,6 +22,7 @@ export const iosTarget: Target = makeSimulatorTarget();
 
 export function iosPhysicalTarget(deviceId: string): PhysicalTarget {
   if (!deviceId) throw new Error('iOS device ID is required');
+  const reuseInstalledApp = process.env.FLOAT_VIEW_IOS_REUSE_INSTALLED_APP === '1';
   let appPid: number | undefined;
   let proxy: ChildProcess | undefined;
   let proxyFailure: Error | undefined;
@@ -59,34 +60,38 @@ export function iosPhysicalTarget(deviceId: string): PhysicalTarget {
     );
   const prepareSuite = async (report: (message: string) => void = () => undefined) => {
     if (prepared) return;
-    report('iOS: building application...');
-    await retryWhileDevicePrepares(
-      () =>
-        runBuffered(
-          'xcodebuild',
-          iosPhysicalBuildArguments(project, destination, derived),
-          'iOS application build',
-          BUILD_TIMEOUT_MS
-        ),
-      report
-    );
-    report('iOS: application built');
-    report('iOS: installing application...');
-    await runBuffered(
-      'xcrun',
-      [
-        'devicectl',
-        'device',
-        'install',
-        'app',
-        '--device',
-        deviceId,
-        `${derived}/Build/Products/Debug-iphoneos/float-view.app`,
-      ],
-      'iOS application install',
-      DEVICE_TIMEOUT_MS
-    );
-    report('iOS: application installed');
+    if (reuseInstalledApp) {
+      report('iOS: reusing explicitly selected installed application');
+    } else {
+      report('iOS: building application...');
+      await retryWhileDevicePrepares(
+        () =>
+          runBuffered(
+            'xcodebuild',
+            iosPhysicalBuildArguments(project, destination, derived),
+            'iOS application build',
+            BUILD_TIMEOUT_MS
+          ),
+        report
+      );
+      report('iOS: application built');
+      report('iOS: installing application...');
+      await runBuffered(
+        'xcrun',
+        [
+          'devicectl',
+          'device',
+          'install',
+          'app',
+          '--device',
+          deviceId,
+          `${derived}/Build/Products/Debug-iphoneos/float-view.app`,
+        ],
+        'iOS application install',
+        DEVICE_TIMEOUT_MS
+      );
+      report('iOS: application installed');
+    }
     report('iOS: starting loopback proxy...');
     scratch = mkdtempSync(join(tmpdir(), 'float-view-ios-physical-'));
     proxy = spawn('iproxy', ['--udid', deviceId, `${hostPort}:${devicePort}`], {
@@ -211,6 +216,7 @@ export function iosPhysicalLaunchArguments(deviceId: string, jsonOutput: string,
     JSON.stringify({
       FLOAT_VIEW_CONFORMANCE_PORT: String(devicePort),
       FLOAT_VIEW_BACKEND: 'rust',
+      FLOAT_VIEW_CONFORMANCE_TRACE: '1',
       ...(reset ? { FLOAT_VIEW_CONFORMANCE_RESET: '1' } : {}),
     }),
     '--terminate-existing',

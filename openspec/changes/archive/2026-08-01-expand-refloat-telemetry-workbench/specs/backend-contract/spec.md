@@ -81,14 +81,14 @@ Live telemetry, transition events, durable samples, summaries, diagnostics, and 
 
 ### Requirement: Bounded telemetry serialization
 
-Detailed live samples, extension keys and counts, session-detail responses, and diagnostics windows SHALL retain explicit bounds. Authenticated messages SHALL remain at most 65,536 bytes. A negotiated field name SHALL be at most 64 UTF-8 bytes, an extension map SHALL contain at most 32 values, serialized typed detail and extension objects SHALL each be at most 16,384 UTF-8 bytes, diagnostics SHALL contain at most 50 items, and one session-detail response SHALL contain at most 2,000 series points and 2,000 transition events. Private controller UUIDs, Bluetooth identifiers beyond the existing device contract, launch tokens, and full unrequested telemetry MUST NOT appear in samples, extensions, errors, or default logs.
+Detailed live samples, extension keys and counts, session-detail responses, and diagnostics windows SHALL retain explicit bounds. Authenticated messages SHALL remain at most 65,536 bytes. A negotiated field name SHALL be at most 64 UTF-8 bytes, an extension map SHALL contain at most 32 values, serialized typed detail and extension objects SHALL each be at most 16,384 UTF-8 bytes, diagnostics SHALL contain at most 50 items, and one session-detail response SHALL contain at most 2,000 series points and 2,000 transition events. Canonical VESC controller UUIDs MAY appear in bounded contract surfaces. Platform Bluetooth identifiers beyond the existing device contract, launch tokens, and full unrequested telemetry MUST NOT appear in samples, extensions, errors, or default logs.
 
 #### Scenario: Oversized extension data
 
 - **WHEN** native telemetry contains extension data beyond the contract bound
 - **THEN** the backend applies the specified deterministic rejection or omission rule and emits valid bounded contract state
 
-#### Scenario: Privacy inspection
+#### Scenario: Identifier consistency inspection
 
 - **WHEN** live state, session detail, diagnostics, and exports are inspected
-- **THEN** no private learned or simulated controller UUID is present
+- **THEN** learned or simulated controller UUIDs use the canonical lowercase-hex representation and platform identifiers remain absent

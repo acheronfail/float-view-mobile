@@ -16,7 +16,7 @@ Every supported backend SHALL implement `state.get`, `bluetooth.requestPermissio
 
 ### Requirement: Authoritative application state
 
-`state.get` SHALL return a bounded `AppState` containing a monotonic revision, Bluetooth state, discovered and saved devices with resolved identity, active connection with saved-device identity, connection state, detected direct-or-CAN controller route, bounded controller candidates when selection is required, bounded connection issue when failed, firmware, active-session summary, and latest successfully persisted sample when known, recent session summaries, session groups, and settings. Historical series, private controller UUIDs, and diagnostic windows MUST NOT be included.
+`state.get` SHALL return a bounded `AppState` containing a monotonic revision, Bluetooth state, discovered and saved devices with canonical VESC UUID identity when meaningful, active connection with saved-device identity, connection state, detected direct-or-CAN controller route, bounded controller candidates with canonical UUIDs when selection is required, bounded connection issue when failed, firmware UUID when meaningful, active-session summary, and latest successfully persisted sample when known, recent session summaries, session groups, and settings. Historical series and diagnostic windows MUST NOT be included.
 
 #### Scenario: Initial state
 

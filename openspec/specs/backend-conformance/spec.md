@@ -279,7 +279,7 @@ Software conformance SHALL cover the Cartesian product of direct and Express top
 #### Scenario: VESC identity profile fixtures
 
 - **WHEN** conformance supplies complete VESC 6.02 identity without a CRC and complete 6.05, 6.06, and 7.00 identities with their bounded source-defined CRC suffix
-- **THEN** both native backends derive the same stable version, hardware type, names, and private UUID and select the same `vescCoreReadOnly` profile
+- **THEN** both native backends derive the same stable version, hardware type, names, and canonical UUID and select the same `vescCoreReadOnly` profile
 
 #### Scenario: Audited test-version access
 
@@ -411,7 +411,7 @@ Canonical conformance SHALL verify that both backends commit, recover, publish, 
 #### Scenario: Privacy and composed bounds
 
 - **WHEN** detailed telemetry, scenario aliases, learned identities, oversized fields, extension limits, series field/bucket products, sample pages, event pages, and decoded HTTP bodies are exercised
-- **THEN** conformance observes the 65,536-byte WebSocket, 64-field layout, 64-byte key, 4,096-byte aggregate-name, 32-extension, 16,384-byte request/extension JSON, 16-request-field, 1,024-bucket, 65,536-observation, 2,000-sample-page, 500-event-page, and 4,194,304-decoded-byte bounds with no private controller UUID or token in state, history, logs, or errors
+- **THEN** conformance observes the 65,536-byte WebSocket, 64-field layout, 64-byte key, 4,096-byte aggregate-name, 32-extension, 16,384-byte request/extension JSON, 16-request-field, 1,024-bucket, 65,536-observation, 2,000-sample-page, 500-event-page, and 4,194,304-decoded-byte bounds with canonical VESC UUIDs where applicable and no launch token or platform transport identifier in state, history, logs, or errors
 
 #### Scenario: Interrupted publication
 
@@ -430,7 +430,7 @@ The software gate SHALL test scenario-document validation and round trips, deter
 #### Scenario: Scenario document round trip
 
 - **WHEN** a valid complex scenario is exported and imported
-- **THEN** software verification observes equivalent public configuration and wire behavior but no exported private UUID
+- **THEN** software verification observes equivalent public configuration, wire behavior, and canonical exported VESC UUIDs
 
 #### Scenario: Scene projection matrix
 
@@ -720,7 +720,7 @@ The canonical suite SHALL verify the required saved-device filter on `session.li
 
 ### Requirement: Archive identity and board lifecycle conformance
 
-The canonical suite SHALL verify stable opaque board identity, archive import association, configurable undiscovered boards, Home-only connection initiation, and irreversible board forgetting across the mock and native targets. It SHALL verify that portable archives omit raw VESC firmware identifiers, Apple UUIDs, Android addresses, and private controller-route UUIDs.
+The canonical suite SHALL verify stable canonical VESC UUID board identity, archive import association, configurable undiscovered boards, Home-only connection initiation, and irreversible board forgetting across the mock and native targets. It SHALL verify that portable archives retain canonical VESC firmware/controller/BMS UUIDs where available while omitting Apple UUIDs and Android addresses.
 
 #### Scenario: Archive merges into existing board
 
@@ -838,10 +838,10 @@ Conformance SHALL cover maximum and excessive cell and temperature counts, inval
 - **WHEN** multiple BMS snapshots occur during a ride followed by review, diagnostics, export, and deletion
 - **THEN** conformance verifies state revisions and latest live replacement while session sample shapes, counts, aggregates, stored rows, diagnostics, and export contents contain no BMS additions
 
-#### Scenario: Privacy verification
+#### Scenario: UUID consistency verification
 
 - **WHEN** a VBMS identity contains a meaningful UUID
-- **THEN** canonical state, errors, bounded diagnostics, ordinary logs, and exports contain no UUID bytes or textual encoding
+- **THEN** canonical state, errors, bounded diagnostics, ordinary logs, and exports may contain the same 24-character lowercase UUID encoding
 
 ### Requirement: Canonical Refloat control coverage
 

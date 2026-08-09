@@ -16,6 +16,35 @@ setup:
     [ -e "vendor/vesc_express" ] || git clone https://github.com/vedderb/vesc_express "vendor/vesc_express"
     [ -e "vendor/float-view" ] || git clone https://github.com/acheronfail/float-view "vendor/float-view"
 
+clean:
+    #!/usr/bin/env bash
+    set -euo pipefail
+
+    # Clean the entire Rust workspace, including artifacts for cross-compiled targets.
+    cargo clean --manifest-path backends/core/Cargo.toml
+
+    rm -rf \
+      frontend/build \
+      frontend/.svelte-kit \
+      conformance/generated \
+      conformance/fixture-dev/.svelte-kit \
+      backends/apple/.build \
+      backends/apple/ios/.build \
+      backends/apple/macos/Resources/index.html \
+      backends/apple/macos/Resources/sql \
+      backends/android/.gradle \
+      backends/android/.kotlin \
+      backends/android/build \
+      backends/android/app/build \
+      tools/vesc-test-device/.pio/build \
+      /tmp/float-view-swift-build \
+      /tmp/float-view-ios \
+      /tmp/float-view-ios-physical \
+      /tmp/float-view-ios-dev \
+      /tmp/float-view-ios-physical-dev \
+      /tmp/float-view-ios-conformance \
+      /tmp/float-view-ios-physical-conformance
+
 lint:
     cd frontend && npm run format:check
     cd conformance && npm run format:check

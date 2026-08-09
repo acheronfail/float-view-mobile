@@ -11,13 +11,13 @@ BLE discovery                    Valid VESC firmware response
       |                                      |
       v                                      v
 private platform association       meaningful 12-byte VESC UUID
-(Apple peripheral UUID /           (stable saved-board identity)
+(Apple peripheral UUID /           (canonical application identity)
  Android BLE address)
       |                                      |
       +---- connect and identify ------------+
 ```
 
-The platform association is required to address a peer before firmware bytes can be read. It is not board identity. Once Rust parses a meaningful VESC firmware UUID, those exact UUID bytes become the stable private saved-board key selected by this change. Existing privacy-preserving public identities remain separate.
+The platform association is required to address a peer before firmware bytes can be read. It is not board identity. Once Rust parses a meaningful VESC firmware UUID, those exact UUID bytes become the stable board key selected by this change and their canonical lowercase 24-hex encoding becomes the application-facing saved/history identity.
 
 The first implementation pass minimized the bridge before all required platform capabilities were reachable. Rust currently stages session exports but no production host command presents them; native document presenters and Android content-URI support remain disconnected. Apple caches location authorization changes without submitting them to Rust. Logging-service and theme observations cross the private bridge even though the coordinator does not consume them, while the frontend already observes system appearance through `prefers-color-scheme`. The host trees also mix capability entry points, shared Apple implementation, application shells, and bridge coordination in ways that make support status difficult to discover.
 
@@ -31,7 +31,7 @@ This follow-up assumes `share-native-backend-core` is synced and archived, or th
 - Make the bridge production-directional: Rust commands flow out through the pull queue; focused native observations and completions flow in.
 - Represent command metadata once and delete unreachable command/event/model surface.
 - Move secure randomness, clocks, application coordination, and uniformly portable bootstrap/filesystem behavior into Rust.
-- Use the meaningful VESC firmware UUID bytes themselves as stable private saved-board identity while preserving a separate native-private platform transport association.
+- Use the meaningful VESC firmware UUID bytes themselves as stable saved-board, history, routing, diagnostic, and portable identity while preserving a separate native-private platform transport association.
 - Keep Bluetooth application policy, pending connection state, saved/guest ownership, public state normalization, and diagnostic normalization in Rust.
 - Preserve OS-specific GATT, permission, lifecycle, background service, location, document, resource, WebView, and presentation responsibilities in Swift/Kotlin.
 - Define an explicit, discoverable capability model and consistent entry-file convention for iOS, macOS, and Android, including documented stubs for unsupported capabilities.
@@ -43,7 +43,7 @@ This follow-up assumes `share-native-backend-core` is synced and archived, or th
 **Non-Goals:**
 
 - Moving CoreBluetooth, Android Bluetooth/GATT, Core Location, Android location, foreground services, permissions, or native presentation into Rust.
-- Making the VESC firmware UUID, Apple peripheral UUID, or Android BLE address a frontend, archive, export, or diagnostic identifier.
+- Making the Apple peripheral UUID or Android BLE address a frontend, archive, export, or diagnostic identifier. VESC firmware/controller/BMS UUIDs are ordinary application identifiers.
 - Changing VESC framing, Refloat/BMS protocols, session storage formats, or saved/guest semantics. A narrow hand-written frontend contract delta for native document operations is in scope.
 - Adding generated host bindings, UniFFI, callbacks from Rust runtime threads, long-lived JNI references, or a second runtime.
 - Requiring a particular final line count. Counts expose trends; ownership and reachability determine acceptance.
@@ -88,9 +88,9 @@ Secure randomness and clocks move to existing Rust owners. Storage roots become 
 
 No new dependency is planned. If portable available-space reporting later requires a crate, that dependency needs a separate documented decision and must replace more code than it adds.
 
-### 3. Use the VESC firmware UUID bytes as private stable board identity
+### 3. Use the VESC firmware UUID as canonical application identity
 
-Rust's existing VESC firmware parser owns the fixed-width controller/device UUID. For a valid, meaningful non-zero UUID, the exact 12 bytes become the canonical private saved-board logical key. Storage may serialize those bytes canonically for indexing, but public `savedDeviceId` and `deviceHistoryId` remain privacy-preserving derived identifiers; the raw UUID does not cross the frontend contract or archive boundary.
+Rust's existing VESC firmware parser owns the fixed-width controller/device UUID. For a valid, meaningful non-zero UUID, the exact 12 bytes become the canonical saved-board logical key. The canonical external representation is 24 lowercase hexadecimal characters with no punctuation. `savedDeviceId` and `deviceHistoryId` both use that representation, and contract state, persistence, archives, exports, diagnostics, fixtures, and conformance may carry it directly. No hash, salt, random alias, or redaction layer is required for VESC UUIDs.
 
 Before identification, discovery and connect commands use a separate private platform association:
 
@@ -99,13 +99,13 @@ Before identification, discovery and connect commands use a separate private pla
 
 The association is copied and bounded by the bridge, retained only in private native/core metadata, and never logged. It replaces the current process-random bridge token, so the same peer can be addressed after process recreation. Rust attaches the association to a saved board only after saved-mode firmware identification. On every reconnect it revalidates the firmware UUID before accepting the association as the same board.
 
-An all-zero, absent, or invalid firmware UUID follows the existing no-meaningful-identity fallback: saved mode creates a private random logical identity from the Rust random owner and makes no automatic cross-device match. Guest mode persists neither identity nor association.
+An all-zero, absent, or invalid firmware UUID follows the existing no-meaningful-identity fallback: saved mode creates a random logical identity from the Rust random owner and makes no automatic cross-device match. Guest mode may expose and use a meaningful UUID while connected but persists neither identity nor platform association.
 
-This is deliberately not a portable archive identity. Imported boards continue to use the public privacy-preserving `deviceHistoryId`; matching an imported entry to a physical VESC occurs inside Rust after firmware identification according to the existing saved-identity rules.
+The UUID is the portable archive identity. Imported boards use the same canonical UUID as `deviceHistoryId`; matching an imported entry to a physical VESC is an exact canonical UUID comparison after firmware identification.
 
 Alternatives considered:
 
-- Hash the firmware UUID before private storage: adds indirection without protecting any additional public surface because raw firmware identity is already required transiently in Rust; public and diagnostic boundaries remain redacted.
+- Hash the firmware UUID for public identifiers: rejected because the UUID is already the community-standard device identity, the application requires it across several features, and the derived alias creates unnecessary identity translation.
 - Use Apple/Android transport identifiers as board identity: they differ across platforms and can change independently of the VESC controller.
 - Retain process-random discovery tokens: prevents stable saved-device lookup and incorrectly makes runtime transport state determine durable identity.
 
@@ -113,7 +113,7 @@ Alternatives considered:
 
 Native Bluetooth adapters expose the smallest transport vocabulary possible. They own OS callback serialization, service/characteristic validation, notification enablement, negotiated write chunking, platform write backpressure, permissions, and resolution of the private platform association to an OS object. They report transport observations and raw bytes.
 
-Rust owns discovered-device deduplication, pending application connect/disconnect intent, connection generations, saved/guest mode, firmware UUID validation, state normalization, operation correlation, bounded diagnostic codes, reconnect policy, and durable association. Command completion means the host accepted or rejected the requested OS operation; readiness and failure are driven by subsequent ordered transport events, not host-side application state.
+Rust owns discovered-device deduplication, pending application connect/disconnect intent, connection generations, saved/guest mode, firmware UUID validation, state normalization, operation correlation, bounded diagnostics, reconnect policy, and durable association. Command completion means the host accepted or rejected the requested OS operation; readiness and failure are driven by subsequent ordered transport events, not host-side application state.
 
 The current broad Swift/Kotlin `BluetoothEvent`, `ConnectionState`, device-token maps, and duplicate policy helpers are reduced to types required to express OS callbacks. Transport-specific choices such as Android CCCD compatibility, CoreBluetooth restoration, write-with/without-response behavior, MTU/chunk size, and queue draining remain native.
 
@@ -181,7 +181,7 @@ Native-only chrome such as Android system bars may observe and apply platform ap
 - **[Firmware UUID is available only after connection]** → Keep platform transport association explicitly separate, attach it only after valid saved-mode identification, and revalidate UUID on reconnect.
 - **[A VESC reports an all-zero or cloned UUID]** → Treat all-zero as unavailable, preserve the existing random private fallback, test duplicate UUID behavior, and never silently merge two concurrently observed transport associations without an explicit conflict result.
 - **[Android addresses can rotate for privacy-enabled peripherals]** → Treat the address as a replaceable private association rather than logical identity; the firmware UUID remains authoritative after connection and a later verified association can replace the old one.
-- **[Raw private identifiers leak during diagnostics]** → Centralize redaction in Rust, keep adapter diagnostics to bounded stage/code values, and add byte/text privacy sweeps for firmware UUIDs and platform associations.
+- **[Platform transport identifiers leak during diagnostics]** → Keep adapter diagnostics bounded and redact Apple peripheral UUIDs and Android BLE addresses. VESC firmware/controller/BMS UUIDs require no redaction.
 - **[A larger set of focused ABI calls broadens the symbol table]** → Compare fixed event-header and focused-function variants using the C/JNI harness and select the smallest auditable representation; every symbol must have one production caller.
 - **[Removing reverse codecs makes host tests less convenient]** → Drive bridge messages from Rust fixtures/harnesses and assert OS adapter effects; keep only immutable boundary vectors needed to verify host decoding.
 - **[Atomic ABI conversion temporarily breaks one host]** → Land the Rust header/JNI and both host conversions as one coherent verified implementation phase; no compatibility path ships or remains afterward.
@@ -197,11 +197,11 @@ Native-only chrome such as Android system bars may observe and apply platform ap
 ## Migration Plan
 
 1. Sync/archive or otherwise reconcile `share-native-backend-core`, then capture the current production host inventory, bridge reachability table, ABI layouts, and saved-device behavior as evidence.
-2. Add Rust tests for the selected command header/event ABI, production-direction calls, startup configuration, UUID identity, private platform association, redaction, software transport selection, and shutdown.
+2. Add Rust tests for the selected command header/event ABI, production-direction calls, startup configuration, canonical UUID identity, private platform association, software transport selection, and shutdown.
 3. Update the C ABI, pinned generated header, C harness, JNI registration, and build identity atomically; convert the Swift runtime and Android worker while keeping physical Bluetooth behavior unchanged.
 4. Move clocks/random/startup inputs and reachable resources into Rust, prune unused command kinds, and prove cold start, suspend/resume, restart, and readiness behavior.
 5. Route simulator/emulator/software modes through the Rust software host, pass canonical software scenarios, and delete both native software peripheral/adapter pairs and their fixtures/dependencies.
-6. Replace randomized discovery tokens with bounded private platform associations, resolve saved identity from the VESC firmware UUID, recreate incompatible test data, and pass saved/guest/restart/privacy conformance.
+6. Replace randomized discovery tokens and derived board identifiers with bounded private platform associations plus canonical VESC UUID identity, recreate incompatible test data, and pass saved/guest/restart/portability conformance.
 7. Define the capability matrix and stable entry files; move macOS beside iOS, introduce the Apple common area, update build/resource paths atomically, and delete old layout paths after both Apple hosts build.
 8. Add Rust document-operation state and reachable import/export commands, connect Apple and Android presentation/copying, update the targeted frontend contract, and pass native and browser import/export conformance before removing superseded document paths.
 9. Deliver location authorization changes directly, select and verify one appearance source per host, and remove unconsumed logging/theme event paths.

@@ -134,7 +134,7 @@ test('authoritative snapshots enforce pre-ready identity, route, ordering, bound
   const identifying = state(backend);
   assertState(identifying);
   assert.equal(identifying.activeConnection?.state, 'identifying');
-  assert.equal(identifying.activeConnection?.savedDeviceId, 'saved-board');
+  assert.equal(identifying.activeConnection?.savedDeviceId, '0102030405060708090a0b0c');
   assert.equal(identifying.activeConnection?.activeSession, null);
   assert.equal(identifying.activeConnection?.controllerConnection, null);
 
@@ -165,10 +165,11 @@ test('authoritative snapshots enforce pre-ready identity, route, ordering, bound
     'canId',
     'firmwareName',
     'hardwareName',
+    'uuid',
     'vescSupported',
     'vescVersion',
   ]);
-  assert.ok(!JSON.stringify(selecting.activeConnection?.controllerCandidates).toLowerCase().includes('uuid'));
+  assert.match(selecting.activeConnection!.controllerCandidates[0]!.uuid!, /^[0-9a-f]{24}$/);
 });
 
 test('selection errors are exact and accepted selection atomically merges the current profile', () => {
@@ -196,7 +197,7 @@ test('selection errors are exact and accepted selection atomically merges the cu
   const before = profile(backend);
   const edited = result(
     handle(backend, id++, 'boardProfile.update', {
-      savedDeviceId: 'saved-board',
+      savedDeviceId: '0102030405060708090a0b0c',
       expectedRevision: before.revision,
       patch: { motor: 'hypercore_xr' },
     })
@@ -244,7 +245,7 @@ test('failed retry, replacement interruption, and frontend recovery remain autho
     assert.equal(failed.activeConnection?.connectionIssue?.code, code);
     assert.equal(failed.activeConnection?.connectionIssue?.message.length, 1_024);
     if (code === 'controller_changed') {
-      const sessions = result(handle(backend, 3_000, 'session.list', { savedDeviceId: 'saved-board', limit: 100 })) as {
+      const sessions = result(handle(backend, 3_000, 'session.list', { savedDeviceId: '0102030405060708090a0b0c', limit: 100 })) as {
         items: Array<{ state: string }>;
       };
       assert.ok(sessions.items.some((item) => item.state === 'interrupted'));
@@ -276,6 +277,7 @@ test('failed retry, replacement interruption, and frontend recovery remain autho
 const controllerCandidates: ControllerCandidate[] = [
   {
     canId: 42,
+    uuid: '0102030405060708090a0b0c',
     hardwareName: 'THOR300',
     firmwareName: 'Refloat',
     vescVersion: '6.06',
@@ -283,6 +285,7 @@ const controllerCandidates: ControllerCandidate[] = [
   },
   {
     canId: 7,
+    uuid: '0d0e0f101112131415161718',
     hardwareName: 'Unsupported VESC',
     firmwareName: null,
     vescVersion: '5.03',
@@ -326,7 +329,7 @@ function state(backend: MockBackend): AppState {
 function profile(backend: MockBackend) {
   return result(
     handle(backend, 1_001, 'boardProfile.get', {
-      savedDeviceId: 'saved-board',
+      savedDeviceId: '0102030405060708090a0b0c',
     })
   ) as {
     revision: number;

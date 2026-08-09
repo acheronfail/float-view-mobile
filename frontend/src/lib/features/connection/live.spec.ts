@@ -41,7 +41,7 @@ const connection = (state: ActiveConnection['state']): ActiveConnection => ({
   controllerConnection: null,
   controllerCandidates: [],
   connectionIssue: null,
-  bms: { status: 'discovering', connection: null, candidates: [], latestSnapshot: null },
+  bms: { status: 'discovering', uuid: null, connection: null, candidates: [], latestSnapshot: null },
   refloatControls: null,
   refloatConfiguration: null,
   controllerActions: { shutdownAvailable: false, pendingAction: null },
@@ -65,7 +65,7 @@ describe('live board behavior', () => {
     expect(shouldConfirmDisconnect(undefined)).toBe(true);
   });
 
-  it('describes direct and CAN routes without exposing private identity', () => {
+  it('describes direct and CAN routes independently from canonical UUID identity', () => {
     expect(controllerRouteDescription({ kind: 'direct' })).toBe('Direct Bluetooth');
     expect(controllerRouteDescription({ kind: 'can', canId: 42 })).toBe('CAN 42');
     expect(controllerRouteDescription(null)).toBe('Detecting…');
@@ -74,6 +74,7 @@ describe('live board behavior', () => {
   it('labels audited test firmware as read-only', () => {
     expect(
       firmwareAccessDescription({
+        uuid: '0102030405060708090a0b0c',
         vescVersion: '7.00',
         packageName: 'refloat',
         packageVersion: '1.2.3',
@@ -88,6 +89,7 @@ describe('live board behavior', () => {
     const candidates = sortedControllerCandidates([
       {
         canId: 42,
+        uuid: '2a2a2a2a2a2a2a2a2a2a2a2a',
         hardwareName: 'THOR300',
         firmwareName: 'Refloat',
         vescVersion: '6.06',
@@ -95,6 +97,7 @@ describe('live board behavior', () => {
       },
       {
         canId: 7,
+        uuid: '070707070707070707070707',
         hardwareName: 'Older controller',
         firmwareName: null,
         vescVersion: '5.03',

@@ -86,8 +86,8 @@ describe('deterministic mock backend', () => {
 
     backend.publishTelemetry();
     backend.simulateControllerSelection([
-      { canId: 7, hardwareName: 'VESC 7', firmwareName: 'Refloat', vescVersion: '6.06', vescSupported: true },
-      { canId: 42, hardwareName: 'VESC 42', firmwareName: 'Refloat', vescVersion: '6.06', vescSupported: true },
+      { canId: 7, uuid: '070707070707070707070707', hardwareName: 'VESC 7', firmwareName: 'Refloat', vescVersion: '6.06', vescSupported: true },
+      { canId: 42, uuid: '2a2a2a2a2a2a2a2a2a2a2a2a', hardwareName: 'VESC 42', firmwareName: 'Refloat', vescVersion: '6.06', vescSupported: true },
     ]);
     expect(
       backend.handle({
@@ -106,7 +106,7 @@ describe('deterministic mock backend', () => {
     });
     expect(live.sessionCatalogRevision).toBe(before.sessionCatalogRevision);
     expect(live.savedDevices[0]?.summary).toEqual(before.savedDevices[0]?.summary);
-    expect(backend.profiles.get('saved-board')?.revision).toBe(0);
+    expect(backend.profiles.get('0102030405060708090a0b0c')?.revision).toBe(0);
   });
 
   it('requires board scope, merges imported identities, and creates empty configurable boards', () => {
@@ -116,14 +116,14 @@ describe('deterministic mock backend', () => {
     });
 
     const mergedSessionId = backend.importSession(
-      new TextEncoder().encode(JSON.stringify({ deviceHistoryId: 'history-board', displayName: 'Renamed board' }))
+      new TextEncoder().encode(JSON.stringify({ deviceHistoryId: '0102030405060708090a0b0c', displayName: 'Renamed board' }))
     );
     const mergedBoard = (backend.handle({ id: 2, method: 'state.get', params: {} }) as { result: AppState }).result
       .savedDevices[0];
     expect(mergedBoard?.summary.sessionCount).toBe(3);
     expect(
       (
-        backend.handle({ id: 3, method: 'session.list', params: { savedDeviceId: 'saved-board', limit: 100 } }) as {
+        backend.handle({ id: 3, method: 'session.list', params: { savedDeviceId: '0102030405060708090a0b0c', limit: 100 } }) as {
           result: { items: Array<{ sessionId: string }> };
         }
       ).result.items.some((item) => item.sessionId === mergedSessionId)
@@ -154,13 +154,13 @@ describe('deterministic mock backend', () => {
     backend.handle({ id: 1, method: 'bluetooth.scan', params: {} });
     backend.handle({ id: 2, method: 'device.connect', params: { deviceId: 'mock-board', trackingMode: 'saved' } });
     expect(
-      backend.handle({ id: 3, method: 'savedDevice.delete', params: { savedDeviceId: 'saved-board' } })
+      backend.handle({ id: 3, method: 'savedDevice.delete', params: { savedDeviceId: '0102030405060708090a0b0c' } })
     ).toMatchObject({
       error: { code: 'invalid_state' },
     });
     backend.handle({ id: 4, method: 'device.disconnect', params: {} });
     expect(
-      backend.handle({ id: 5, method: 'savedDevice.delete', params: { savedDeviceId: 'saved-board' } })
+      backend.handle({ id: 5, method: 'savedDevice.delete', params: { savedDeviceId: '0102030405060708090a0b0c' } })
     ).toMatchObject({
       result: { accepted: true },
     });
@@ -168,7 +168,7 @@ describe('deterministic mock backend', () => {
       (backend.handle({ id: 6, method: 'state.get', params: {} }) as { result: AppState }).result.savedDevices
     ).toEqual([]);
     expect(
-      backend.handle({ id: 7, method: 'session.list', params: { savedDeviceId: 'saved-board', limit: 100 } })
+      backend.handle({ id: 7, method: 'session.list', params: { savedDeviceId: '0102030405060708090a0b0c', limit: 100 } })
     ).toMatchObject({ error: { code: 'not_found' } });
   });
 
@@ -179,7 +179,7 @@ describe('deterministic mock backend', () => {
     request(1, 'bluetooth.scan');
     request(2, 'device.connect', { deviceId: 'mock-board', trackingMode: 'saved' });
     expect(request(3, 'device.disconnect')).toMatchObject({ result: { accepted: true } });
-    expect(request(4, 'boardProfile.get', { savedDeviceId: 'saved-board' })).toHaveProperty('result');
+    expect(request(4, 'boardProfile.get', { savedDeviceId: '0102030405060708090a0b0c' })).toHaveProperty('result');
     expect(request(5, 'session.get', { sessionId: 'session-1' })).toHaveProperty('result');
     expect(
       request(6, 'session.prune.preview', { scope: 'one', sessionId: 'session-1', targetResolutionSeconds: 10 })
@@ -194,12 +194,12 @@ describe('deterministic mock backend', () => {
     expect(request(9, 'session.export', { sessionId: 'session-1', format: 'csv' })).toHaveProperty('result');
     expect(
       request(10, 'savedDevice.update', {
-        savedDeviceId: 'saved-board',
+        savedDeviceId: '0102030405060708090a0b0c',
         expectedRevision: 0,
         customDisplayName: 'My board',
       })
     ).toMatchObject({ result: { displayName: 'My board', revision: 1 } });
-    expect(request(11, 'session.list', { savedDeviceId: 'saved-board', limit: 1 })).toMatchObject({
+    expect(request(11, 'session.list', { savedDeviceId: '0102030405060708090a0b0c', limit: 1 })).toMatchObject({
       result: { items: expect.any(Array), catalogRevision: expect.any(Number) },
     });
     expect(request(12, 'sessionGroup.unlink', { sessionGroupId: 'group-1' })).toMatchObject({
@@ -225,7 +225,7 @@ describe('deterministic mock backend', () => {
       const response = backend.handle({
         id: items.length + 100,
         method: 'session.list',
-        params: { savedDeviceId: 'saved-board', limit: 25, cursor },
+        params: { savedDeviceId: '0102030405060708090a0b0c', limit: 25, cursor },
       }) as {
         result: { items: Array<{ sessionId: string }>; catalogRevision: number; nextCursor: string | null };
       };
@@ -257,7 +257,7 @@ describe('deterministic mock backend', () => {
     const first = backend.handle({
       id: 1,
       method: 'session.list',
-      params: { savedDeviceId: 'saved-board', limit: 1 },
+      params: { savedDeviceId: '0102030405060708090a0b0c', limit: 1 },
     }) as {
       result: { nextCursor: string | null };
     };
@@ -267,7 +267,7 @@ describe('deterministic mock backend', () => {
       backend.handle({
         id: 3,
         method: 'session.list',
-        params: { savedDeviceId: 'saved-board', limit: 1, cursor: first.result.nextCursor },
+        params: { savedDeviceId: '0102030405060708090a0b0c', limit: 1, cursor: first.result.nextCursor },
       })
     ).toMatchObject({ error: { code: 'conflict' } });
   });
@@ -319,6 +319,7 @@ describe('deterministic mock backend', () => {
     backend.simulateControllerSelection([
       {
         canId: 42,
+        uuid: '2a2a2a2a2a2a2a2a2a2a2a2a',
         hardwareName: 'THOR300',
         firmwareName: 'Refloat',
         vescVersion: '6.06',
@@ -326,6 +327,7 @@ describe('deterministic mock backend', () => {
       },
       {
         canId: 7,
+        uuid: '070707070707070707070707',
         hardwareName: 'Other VESC',
         firmwareName: null,
         vescVersion: '5.03',
@@ -374,6 +376,7 @@ describe('deterministic mock backend', () => {
     backend.simulateControllerSelection(
       Array.from({ length: 17 }, (_, canId) => ({
         canId,
+        uuid: canId === 0 ? null : canId.toString(16).padStart(2, '0').repeat(12),
         hardwareName: `Controller ${canId}`,
         firmwareName: 'Refloat',
         vescVersion: '6.06',
@@ -396,12 +399,13 @@ describe('deterministic mock backend', () => {
     const initial = (backend.handle({ id: 3, method: 'state.get', params: {} }) as { result: AppState }).result;
     expect(initial.activeConnection?.bms).toEqual({
       status: 'discovering',
+      uuid: null,
       connection: null,
       candidates: [],
       latestSnapshot: null,
     });
 
-    backend.simulateBmsState({ status: 'not_found', connection: null, candidates: [], latestSnapshot: null });
+    backend.simulateBmsState({ status: 'not_found', uuid: null, connection: null, candidates: [], latestSnapshot: null });
     expect(
       (backend.handle({ id: 4, method: 'state.get', params: {} }) as { result: AppState }).result.activeConnection?.bms
         .status
@@ -417,6 +421,7 @@ describe('deterministic mock backend', () => {
 
     backend.simulateBmsState({
       status: 'unavailable',
+      uuid: '2a2a2a2a2a2a2a2a2a2a2a2a',
       connection: { kind: 'can', canId: 42 },
       candidates: [],
       latestSnapshot: bmsSnapshot,
@@ -426,8 +431,8 @@ describe('deterministic mock backend', () => {
     ).toMatchObject({ status: 'unavailable', latestSnapshot: { observedAt: bmsSnapshot.observedAt } });
 
     backend.simulateBmsAmbiguous([
-      { connection: { kind: 'can', canId: 42 }, hardwareName: 'VBMS', vescVersion: '6.00' },
-      { connection: { kind: 'can', canId: 7 }, hardwareName: 'VBMS', vescVersion: '6.00' },
+      { connection: { kind: 'can', canId: 42 }, uuid: '2a2a2a2a2a2a2a2a2a2a2a2a', hardwareName: 'VBMS', vescVersion: '6.00' },
+      { connection: { kind: 'can', canId: 7 }, uuid: '070707070707070707070707', hardwareName: 'VBMS', vescVersion: '6.00' },
     ]);
     const ambiguous = (backend.handle({ id: 7, method: 'state.get', params: {} }) as { result: AppState }).result;
     expect(ambiguous.activeConnection?.bms.candidates.map((item) => item.connection)).toEqual([
@@ -472,28 +477,28 @@ describe('deterministic mock backend', () => {
       backend.handle({
         id: 1,
         method: 'boardProfile.update',
-        params: { savedDeviceId: 'saved-board', expectedRevision: 0, patch: { preferredBmsCanId: 42 } },
+        params: { savedDeviceId: '0102030405060708090a0b0c', expectedRevision: 0, patch: { preferredBmsCanId: 42 } },
       })
     ).toMatchObject({ result: { revision: 1, values: { preferredBmsCanId: 42 } } });
     expect(
       backend.handle({
         id: 2,
         method: 'boardProfile.update',
-        params: { savedDeviceId: 'saved-board', expectedRevision: 0, patch: { preferredBmsCanId: null } },
+        params: { savedDeviceId: '0102030405060708090a0b0c', expectedRevision: 0, patch: { preferredBmsCanId: null } },
       })
     ).toMatchObject({ error: { code: 'conflict' } });
     expect(
       backend.handle({
         id: 3,
         method: 'boardProfile.update',
-        params: { savedDeviceId: 'saved-board', expectedRevision: 1, patch: { preferredBmsCanId: 254 } },
+        params: { savedDeviceId: '0102030405060708090a0b0c', expectedRevision: 1, patch: { preferredBmsCanId: 254 } },
       })
     ).toMatchObject({ error: { code: 'invalid_request' } });
     expect(
       backend.handle({
         id: 4,
         method: 'boardProfile.update',
-        params: { savedDeviceId: 'saved-board', expectedRevision: 1, patch: { preferredBmsCanId: null } },
+        params: { savedDeviceId: '0102030405060708090a0b0c', expectedRevision: 1, patch: { preferredBmsCanId: null } },
       })
     ).toMatchObject({ result: { revision: 2, values: { preferredBmsCanId: null } } });
   });

@@ -38,6 +38,7 @@ dependencies = [
  "protocol-refloat",
  "protocol-vesc",
  "protocol-vesc-bms",
+ "serde",
  "serde_json",
 ]
 

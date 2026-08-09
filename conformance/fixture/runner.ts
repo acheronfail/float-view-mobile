@@ -11,6 +11,7 @@ export class FixtureRunner {
   private readonly fixture: FixtureControl;
   private readonly readyRetryMs: number;
   private readonly report: FixtureProgress;
+  private readonly resetSettleMs: number;
   private running = false;
   private loop?: Promise<void>;
   private firstFailure?: Error;
@@ -37,18 +38,27 @@ export class FixtureRunner {
     fixture: FixtureControl,
     now?: () => number,
     readyRetryMs = 1_000,
-    report: FixtureProgress = () => undefined
+    report: FixtureProgress = () => undefined,
+    resetSettleMs = 0
   ) {
     this.scenario = scenario;
     this.fixture = fixture;
     this.readyRetryMs = readyRetryMs;
     this.report = report;
+    this.resetSettleMs = resetSettleMs;
     this.simulator = new VescSimulator(scenario.board, now);
   }
 
   async start() {
     if (this.running) throw new Error('Fixture runner is already active');
     await this.resetAndWaitReady();
+    // RESET acknowledges as soon as NimBLE accepts link termination. A real
+    // phone may not deliver DISCONNECTED until shortly afterwards, and an
+    // immediate advertising start can otherwise fail while teardown is still
+    // active. Physical runs allow that bounded teardown window to settle.
+    if (this.resetSettleMs > 0) {
+      await new Promise((resolve) => setTimeout(resolve, this.resetSettleMs));
+    }
     await this.setLed(led.initializing, 'initializing');
     await this.setLed(led.advertising, 'advertising');
     await this.sendCommand('ADVERTISE');
