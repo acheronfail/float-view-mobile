@@ -1,6 +1,13 @@
 _default:
     @just --list
 
+core-lint:
+    cd backends/core && cargo fmt --check
+    cd backends/core && cargo clippy --locked --workspace --all-targets -- -D warnings
+
+core-test:
+    cd backends/core && cargo test --locked
+
 setup:
     cd frontend && npm ci
     cd conformance && npm ci
@@ -14,6 +21,7 @@ setup:
     [ -e "vendor/float-view" ] || git clone https://github.com/acheronfail/float-view "vendor/float-view"
 
 lint:
+    just core-lint
     cd frontend && npm run format:check
     cd conformance && npm run format:check
     swiftformat --config .swiftformat --lint backends/apple
@@ -22,6 +30,7 @@ fmt:
     cd frontend && npm run format:write
     cd conformance && npm run format:write
     swiftformat --config .swiftformat backends/apple
+    cd backends/core && cargo fmt
 
 dev platform="mock" target="":
     cd conformance && node --strip-types src/dev.ts "{{ platform }}" "{{ target }}"
@@ -127,15 +136,17 @@ test suite="all":
       conformance) (cd conformance && npm run check && npm test && npm run mock) ;;
       apple) (cd backends/apple && swift test --scratch-path /tmp/float-view-swift-build) ;;
       android) (cd backends/android && ./gradlew testDebugUnitTest) ;;
+      core) just core-test ;;
       fixture) sh tools/vesc-test-device/test/run.sh ;;
       all)
         just test frontend
         just test conformance
         just test apple
         just test android
+        just test core
         just test fixture
         ;;
-      *) echo 'Usage: just test frontend|conformance|apple|android|fixture|all' >&2; exit 2 ;;
+      *) echo 'Usage: just test frontend|conformance|apple|android|core|fixture|all' >&2; exit 2 ;;
     esac
 
 conformance target:
@@ -180,6 +191,23 @@ audit:
     [[ ! -d backends/android/app/src/main/java/fail/acheron/floatview/backend ]]
     [[ ! -d backends/apple/Sources/FloatViewBackend/server ]]
     [[ ! -d backends/apple/Sources/FloatViewMac ]]
+    [[ -f rust-toolchain.toml ]]
+    [[ -f backends/core/Cargo.lock ]]
+    [[ -f backends/core/vesc-frame/Cargo.toml ]]
+    unexpected_core="$(find backends/core -mindepth 1 -maxdepth 1 -type d \
+      ! -name target ! -name vesc-frame -print -quit)"
+    [[ -z "$unexpected_core" ]] || {
+      echo "Unexpected Rust core workspace member: $unexpected_core" >&2
+      exit 1
+    }
+    [[ "$(find backends/core/vesc-frame -mindepth 1 -maxdepth 1 -type d \
+      ! -name src -print -quit)" == "" ]]
+    ! find backends/core -type f \
+      \( -name 'build.rs' -o -name '*.h' -o -name '*.hpp' -o -name '*.modulemap' \) \
+      | grep -q .
+    ! rg -n 'extern[[:space:]]+"C"|no_mangle|cbindgen|uniffi|jni|host_callback' \
+      backends/core
+    [[ "$(cd backends/core && cargo tree --locked --edges normal --prefix none | wc -l | tr -d ' ')" == 1 ]]
     [[ -d backends/apple/ios ]]
     [[ -d backends/apple/macos ]]
     ! find backends/android/app/src/main/java/fail/acheron/floatview \
@@ -243,6 +271,7 @@ audit:
       -g '!frontend/build/**' -g '!**/Resources/index.html'
 
 verify: build
+    just core-lint
     just test all
     cd backends/android && ./gradlew assembleDebug
     cd backends/apple && swift build --scratch-path /tmp/float-view-swift-build --product FloatViewMac

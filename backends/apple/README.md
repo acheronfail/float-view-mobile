@@ -1,8 +1,9 @@
 # Apple backend layout
 
 The Apple backend is native Swift shared by iOS and macOS. The capability
-names below match Android, but the implementations and types do not: there is
-no cross-language core, FFI layer, or generated API.
+names below match Android. Swift remains the production protocol owner;
+`../core/vesc-frame/` is a component-test-only Rust candidate with no Apple
+bridge, FFI layer, generated API, or packaged library.
 
 SwiftPM and Xcode use one shared implementation root and two sibling platform
 host roots:
@@ -51,3 +52,8 @@ For a compatible VESC or Refloat version, extend the exact compatibility entry
 and source-derived fixtures in both native backends. For a new wire family,
 change or add the focused codec below `protocol/vesc` or `protocol/refloat` and
 map exact versions to it; do not fork application coordination or polling.
+
+An Apple cutover requires its own OpenSpec change, audited bridge and
+packaging, complete Apple gate, and required physical checkpoint. Only that
+verified cutover may delete the corresponding Swift implementation; candidate
+parity alone does not transfer ownership.

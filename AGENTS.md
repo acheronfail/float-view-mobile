@@ -41,6 +41,14 @@ service; OS Bluetooth adapter; VESC protocol; persistence/background work.
 Bluetooth and protocol code emit typed events and do not know about WebSockets
 or views.
 
+`backends/core/` contains bounded Rust candidate components, not a supported
+backend or production runtime. A candidate may coexist with Swift and Kotlin
+only for the slice named by its active OpenSpec change. Apple and Android keep
+production ownership until separate host-cutover changes pass their complete
+gates; each cutover then deletes that host's superseded implementation. Keep OS
+Bluetooth, location, lifecycle, permissions, native file presentation, theme,
+and UI integration in the platform backend.
+
 ## Frontend interaction
 
 Every interactive control must work through the same frontend on desktop and
@@ -58,6 +66,7 @@ activation behavior.
 - `frontend/`
 - `backends/apple/`
 - `backends/android/`
+- `backends/core/`
 - `backends/sql/`
 - `backends/fixtures/`
 - `conformance/`

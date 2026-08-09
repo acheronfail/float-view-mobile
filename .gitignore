@@ -14,6 +14,7 @@ backends/android/.idea/
 backends/android/.kotlin/
 backends/android/**/build/
 !backends/android/gradle/wrapper/gradle-wrapper.jar
+backends/core/target/
 
 # Native hosts embed this generated output; it is never source.
 backends/apple/Sources/FloatViewMac/Resources/index.html
