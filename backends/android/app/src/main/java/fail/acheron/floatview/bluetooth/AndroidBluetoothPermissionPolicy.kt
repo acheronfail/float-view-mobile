@@ -1,6 +1,6 @@
 package fail.acheron.floatview.bluetooth
 
-import fail.acheron.floatview.backend.BluetoothPermissionState
+import fail.acheron.floatview.application.BluetoothPermissionState
 
 /**
  * Runtime permission requirements only. Manifest-only permissions are declared

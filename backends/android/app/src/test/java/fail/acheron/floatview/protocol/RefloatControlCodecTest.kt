@@ -1,7 +1,7 @@
 package fail.acheron.floatview.protocol
 
-import fail.acheron.floatview.backend.FirmwareFault
-import fail.acheron.floatview.backend.VescProtocolMessage
+import fail.acheron.floatview.application.FirmwareFault
+import fail.acheron.floatview.application.VescProtocolMessage
 import fail.acheron.floatview.protocol.refloat.RefloatBooleanControl
 import fail.acheron.floatview.protocol.refloat.RefloatCompatibility
 import fail.acheron.floatview.protocol.refloat.RefloatControlCodec
@@ -176,7 +176,7 @@ class RefloatControlCodecTest {
     }
 
     private fun firmware(major: Int, minor: Int, testVersion: Int = 0) =
-        fail.acheron.floatview.backend.FirmwareRecord(
+        fail.acheron.floatview.application.FirmwareRecord(
             major, minor, "Any", "Refloat", testVersion = testVersion,
         )
 }

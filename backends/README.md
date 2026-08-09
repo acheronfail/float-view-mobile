@@ -4,6 +4,13 @@ Apple and Android implement the authenticated loopback contract by hand. The
 frontend is disposable; native application services own Bluetooth, protocol
 requests, lifecycle, persistence, background work, and authoritative state.
 
+Both native source trees use the capability names `application`, `bluetooth`,
+`files`, `lifecycle`, `location`, `protocol`, `storage`, `theme`, `transport`,
+and `ui` wherever they own that responsibility. See
+[`apple/README.md`](apple/README.md) and [`android/README.md`](android/README.md)
+for the build-system-specific source roots and exact mappings. Matching names
+are navigation and ownership boundaries, not shared implementation layers.
+
 ## VESC request ownership
 
 Each active Bluetooth connection has one bounded `VescRequestScheduler`. It is

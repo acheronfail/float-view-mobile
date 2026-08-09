@@ -1,6 +1,6 @@
 package fail.acheron.floatview.bluetooth
 
-import fail.acheron.floatview.backend.BluetoothPermissionState
+import fail.acheron.floatview.application.BluetoothPermissionState
 import org.junit.Assert.assertEquals
 import org.junit.Test
 

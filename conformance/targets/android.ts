@@ -6,7 +6,7 @@ export const ANDROID_BACKEND_PORT = 11012;
 const hostPort = ANDROID_BACKEND_PORT;
 const devicePort = ANDROID_BACKEND_PORT;
 const applicationId = 'fail.acheron.floatview';
-const activity = `${applicationId}/${applicationId}.MainActivity`;
+const activity = `${applicationId}/${applicationId}.ui.MainActivity`;
 
 export const androidTarget: Target = makeAndroidTarget();
 

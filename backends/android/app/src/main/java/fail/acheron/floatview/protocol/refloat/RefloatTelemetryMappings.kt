@@ -1,12 +1,12 @@
 package fail.acheron.floatview.protocol.refloat
 
-import fail.acheron.floatview.backend.AlertReason
-import fail.acheron.floatview.backend.FirmwareFault
-import fail.acheron.floatview.backend.FootpadState
-import fail.acheron.floatview.backend.PackageMode
-import fail.acheron.floatview.backend.PackageState
-import fail.acheron.floatview.backend.SetpointAdjustment
-import fail.acheron.floatview.backend.StopCondition
+import fail.acheron.floatview.application.AlertReason
+import fail.acheron.floatview.application.FirmwareFault
+import fail.acheron.floatview.application.FootpadState
+import fail.acheron.floatview.application.PackageMode
+import fail.acheron.floatview.application.PackageState
+import fail.acheron.floatview.application.SetpointAdjustment
+import fail.acheron.floatview.application.StopCondition
 
 internal object RefloatTelemetryMappings {
     fun packageState(code: Int) =

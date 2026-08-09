@@ -1,12 +1,12 @@
 package fail.acheron.floatview.bluetooth
 
-import fail.acheron.floatview.backend.BluetoothEvent
-import fail.acheron.floatview.backend.BluetoothPermissionState
-import fail.acheron.floatview.backend.BluetoothPort
-import fail.acheron.floatview.backend.BluetoothRadioState
-import fail.acheron.floatview.backend.BluetoothState
-import fail.acheron.floatview.backend.ConnectionState
-import fail.acheron.floatview.backend.DeviceId
+import fail.acheron.floatview.application.BluetoothEvent
+import fail.acheron.floatview.application.BluetoothPermissionState
+import fail.acheron.floatview.application.BluetoothPort
+import fail.acheron.floatview.application.BluetoothRadioState
+import fail.acheron.floatview.application.BluetoothState
+import fail.acheron.floatview.application.ConnectionState
+import fail.acheron.floatview.application.DeviceId
 
 /**
  * Deterministic emulator adapter. It exercises the same application service and

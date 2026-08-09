@@ -1,6 +1,6 @@
 package fail.acheron.floatview.protocol.vesc
 
-import fail.acheron.floatview.backend.VescScheduledRequest
+import fail.acheron.floatview.application.VescScheduledRequest
 import fail.acheron.floatview.protocol.VescProtocolException
 
 sealed interface VescCustomConfigurationResponse {

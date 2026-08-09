@@ -1,7 +1,7 @@
 package fail.acheron.floatview.protocol.refloat
 
 import fail.acheron.floatview.protocol.vesc.ControllerRoute
-import fail.acheron.floatview.backend.VescProtocolPort
+import fail.acheron.floatview.application.VescProtocolPort
 
 object RefloatPolling {
     fun layoutRequest(protocol: VescProtocolPort, route: ControllerRoute): ByteArray =

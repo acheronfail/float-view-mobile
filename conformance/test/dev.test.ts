@@ -57,7 +57,7 @@ test('Android development preserves app data and requires explicit ambiguous sel
     'start',
     '-W',
     '-n',
-    'fail.acheron.floatview/fail.acheron.floatview.MainActivity',
+    'fail.acheron.floatview/fail.acheron.floatview.ui.MainActivity',
   ]);
   assert.deepEqual(androidLogcatArguments('1234'), ['logcat', '--pid', '1234', '-v', 'color']);
   const multiple = 'List of devices attached\none\tdevice\ntwo\tdevice\n';

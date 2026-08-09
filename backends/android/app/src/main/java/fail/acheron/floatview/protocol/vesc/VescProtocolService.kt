@@ -1,11 +1,11 @@
 package fail.acheron.floatview.protocol
 
-import fail.acheron.floatview.backend.FirmwareRecord
-import fail.acheron.floatview.backend.BmsConnection
-import fail.acheron.floatview.backend.BmsSnapshot
-import fail.acheron.floatview.backend.ControllerCurrentLimits
-import fail.acheron.floatview.backend.VescProtocolMessage
-import fail.acheron.floatview.backend.VescProtocolPort
+import fail.acheron.floatview.application.FirmwareRecord
+import fail.acheron.floatview.application.BmsConnection
+import fail.acheron.floatview.application.BmsSnapshot
+import fail.acheron.floatview.application.ControllerCurrentLimits
+import fail.acheron.floatview.application.VescProtocolMessage
+import fail.acheron.floatview.application.VescProtocolPort
 import fail.acheron.floatview.protocol.refloat.RefloatDynamicTelemetryDecoder
 import fail.acheron.floatview.protocol.refloat.RefloatInfoDecoder
 import fail.acheron.floatview.protocol.refloat.RefloatLegacyTelemetryDecoder

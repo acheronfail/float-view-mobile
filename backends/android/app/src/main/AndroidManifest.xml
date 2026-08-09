@@ -19,7 +19,7 @@
         android:required="true" />
 
     <application
-        android:name=".FloatViewApplication"
+        android:name=".lifecycle.FloatViewApplication"
         android:networkSecurityConfig="@xml/network_security_config"
         android:allowBackup="false"
         android:dataExtractionRules="@xml/data_extraction_rules"
@@ -31,7 +31,7 @@
         android:theme="@style/Theme.FloatView">
 
         <activity
-            android:name=".MainActivity"
+            android:name=".ui.MainActivity"
             android:exported="true"
             android:screenOrientation="portrait"
             android:theme="@style/Theme.FloatView"
@@ -43,7 +43,7 @@
         </activity>
 
         <service
-            android:name=".LoggingForegroundService"
+            android:name=".lifecycle.LoggingForegroundService"
             android:exported="false"
             android:foregroundServiceType="connectedDevice|location"
             android:stopWithTask="false" />

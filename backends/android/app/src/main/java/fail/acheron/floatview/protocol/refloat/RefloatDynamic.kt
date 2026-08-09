@@ -1,8 +1,8 @@
 package fail.acheron.floatview.protocol.refloat
 
-import fail.acheron.floatview.backend.RefloatTelemetryKind
-import fail.acheron.floatview.backend.RefloatTelemetryRecord
-import fail.acheron.floatview.backend.RideState
+import fail.acheron.floatview.application.RefloatTelemetryKind
+import fail.acheron.floatview.application.RefloatTelemetryRecord
+import fail.acheron.floatview.application.RideState
 import java.nio.ByteBuffer
 import java.nio.charset.CodingErrorAction
 import kotlin.math.pow
@@ -78,7 +78,7 @@ class RefloatDynamicTelemetryDecoder {
             chargingVoltage = decodeFloat16(payload, index + 2)
             index += 4
         }
-        var firmwareFault = null as fail.acheron.floatview.backend.FirmwareFault?
+        var firmwareFault = null as fail.acheron.floatview.application.FirmwareFault?
         var fatalErrorLatched: Boolean? = null
         if (mask and 0x4 != 0) {
             val activeAlerts =

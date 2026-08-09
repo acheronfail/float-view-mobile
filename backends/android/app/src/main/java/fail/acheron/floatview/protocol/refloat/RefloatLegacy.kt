@@ -1,14 +1,14 @@
 package fail.acheron.floatview.protocol.refloat
 
-import fail.acheron.floatview.backend.AlertReason
-import fail.acheron.floatview.backend.FootpadState
-import fail.acheron.floatview.backend.PackageMode
-import fail.acheron.floatview.backend.PackageState
-import fail.acheron.floatview.backend.RefloatTelemetryKind
-import fail.acheron.floatview.backend.RefloatTelemetryRecord
-import fail.acheron.floatview.backend.RideState
-import fail.acheron.floatview.backend.SetpointAdjustment
-import fail.acheron.floatview.backend.StopCondition
+import fail.acheron.floatview.application.AlertReason
+import fail.acheron.floatview.application.FootpadState
+import fail.acheron.floatview.application.PackageMode
+import fail.acheron.floatview.application.PackageState
+import fail.acheron.floatview.application.RefloatTelemetryKind
+import fail.acheron.floatview.application.RefloatTelemetryRecord
+import fail.acheron.floatview.application.RideState
+import fail.acheron.floatview.application.SetpointAdjustment
+import fail.acheron.floatview.application.StopCondition
 
 object RefloatLegacyTelemetryDecoder {
     fun decode(payload: ByteArray): RefloatTelemetryRecord {

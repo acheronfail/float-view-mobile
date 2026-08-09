@@ -1,6 +1,6 @@
 package fail.acheron.floatview.bluetooth
 
-import fail.acheron.floatview.backend.DeviceId
+import fail.acheron.floatview.application.DeviceId
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue

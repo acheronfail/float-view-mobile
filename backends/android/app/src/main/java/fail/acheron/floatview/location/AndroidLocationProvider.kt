@@ -12,11 +12,11 @@ import android.os.Build
 import android.os.Looper
 import android.provider.Settings
 import androidx.core.content.ContextCompat
-import fail.acheron.floatview.backend.LocationProviderAuthorization
-import fail.acheron.floatview.backend.LocationProviderBackgroundCapture
-import fail.acheron.floatview.backend.LocationProviderObservation
-import fail.acheron.floatview.backend.LocationProviderPort
-import fail.acheron.floatview.backend.LocationProviderState
+import fail.acheron.floatview.application.LocationProviderAuthorization
+import fail.acheron.floatview.application.LocationProviderBackgroundCapture
+import fail.acheron.floatview.application.LocationProviderObservation
+import fail.acheron.floatview.application.LocationProviderPort
+import fail.acheron.floatview.application.LocationProviderState
 import java.time.Instant
 
 fun interface LocationPermissionRequester {

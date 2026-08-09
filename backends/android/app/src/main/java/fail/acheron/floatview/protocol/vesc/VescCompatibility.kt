@@ -1,6 +1,6 @@
 package fail.acheron.floatview.protocol.vesc
 
-import fail.acheron.floatview.backend.FirmwareRecord
+import fail.acheron.floatview.application.FirmwareRecord
 
 data class VescFirmwareVersion(val major: Int, val minor: Int)
 

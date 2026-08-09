@@ -52,7 +52,7 @@ test('physical target command construction uses normal Debug app paths', () => {
     '-c',
     'android.intent.category.LAUNCHER',
     '-n',
-    'fail.acheron.floatview/fail.acheron.floatview.MainActivity',
+    'fail.acheron.floatview/fail.acheron.floatview.ui.MainActivity',
   ]);
   assert.deepEqual(androidStorageResetArguments(), [
     'shell',

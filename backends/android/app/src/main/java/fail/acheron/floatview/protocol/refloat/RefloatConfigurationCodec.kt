@@ -178,7 +178,7 @@ private class ConfigParamsHandler : DefaultHandler() {
             stack.takeLast(2) == listOf("Grouping", "group") ->
                 groups += RefloatConfigurationGroup(currentGroupName ?: "", currentSubgroups.toList())
         }
-        stack.removeLast()
+        stack.removeAt(stack.lastIndex)
         contents = StringBuilder()
     }
 

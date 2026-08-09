@@ -1,6 +1,6 @@
 package fail.acheron.floatview.bluetooth
 
-import fail.acheron.floatview.backend.DeviceId
+import fail.acheron.floatview.application.DeviceId
 
 internal object VescBluetoothPolicy {
     enum class WriteMode {

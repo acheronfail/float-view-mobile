@@ -8,12 +8,12 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
-import fail.acheron.floatview.backend.BmsConnection
-import fail.acheron.floatview.backend.VescProtocolMessage
-import fail.acheron.floatview.backend.ControllerCurrentLimits
-import fail.acheron.floatview.backend.FirmwareRecord
-import fail.acheron.floatview.backend.FootpadState
-import fail.acheron.floatview.backend.RideState
+import fail.acheron.floatview.application.BmsConnection
+import fail.acheron.floatview.application.VescProtocolMessage
+import fail.acheron.floatview.application.ControllerCurrentLimits
+import fail.acheron.floatview.application.FirmwareRecord
+import fail.acheron.floatview.application.FootpadState
+import fail.acheron.floatview.application.RideState
 import fail.acheron.floatview.protocol.refloat.RefloatCompatibility
 import fail.acheron.floatview.protocol.refloat.RefloatDynamicTelemetryDecoder
 import fail.acheron.floatview.protocol.refloat.RefloatLegacyTelemetryDecoder
@@ -478,12 +478,12 @@ class VescProtocolTest {
         val service = VescProtocolService()
         assertEquals(
             listOf(96),
-            VescFrameCodec.decode(service.bmsValuesRequest(fail.acheron.floatview.backend.BmsConnection.Direct))
+            VescFrameCodec.decode(service.bmsValuesRequest(fail.acheron.floatview.application.BmsConnection.Direct))
                 .map { it.toInt() and 0xff },
         )
         assertEquals(
             listOf(34, 42, 96),
-            VescFrameCodec.decode(service.bmsValuesRequest(fail.acheron.floatview.backend.BmsConnection.Can(42)))
+            VescFrameCodec.decode(service.bmsValuesRequest(fail.acheron.floatview.application.BmsConnection.Can(42)))
                 .map { it.toInt() and 0xff },
         )
     }

@@ -76,7 +76,7 @@ run platform target="": build
         adb "${adb_args[@]}" install -r backends/android/app/build/outputs/apk/debug/app-debug.apk
         adb "${adb_args[@]}" logcat -c || true
         adb "${adb_args[@]}" shell am start -W \
-          -n fail.acheron.floatview/fail.acheron.floatview.MainActivity
+          -n fail.acheron.floatview/fail.acheron.floatview.ui.MainActivity
         process_id="$(adb "${adb_args[@]}" shell pidof -s fail.acheron.floatview | tr -d '\r')"
         [[ "$process_id" =~ ^[0-9]+$ ]] || { echo 'Float View did not start' >&2; exit 1; }
         echo "Streaming Float View logs from Android process $process_id; press Ctrl-C to stop."
@@ -177,6 +177,45 @@ audit:
       [[ ! -e "$removed" ]] || { echo "Obsolete path remains: $removed" >&2; exit 1; }
     done
     [[ ! -d backends/android/api-models ]]
+    [[ ! -d backends/android/app/src/main/java/fail/acheron/floatview/backend ]]
+    [[ ! -d backends/apple/Sources/FloatViewBackend/server ]]
+    ! find backends/android/app/src/main/java/fail/acheron/floatview \
+      -maxdepth 1 -type f -name '*.kt' | grep -q .
+    ! find backends/apple/ios/float-view -maxdepth 1 -type f -name '*.swift' | grep -q .
+    ! find backends/apple/Sources/FloatViewMac -maxdepth 1 -type f -name '*.swift' | grep -q .
+    unexpected_android="$(find backends/android/app/src/main/java/fail/acheron/floatview \
+      -mindepth 1 -maxdepth 1 -type d \
+      ! -name application ! -name bluetooth ! -name files ! -name lifecycle \
+      ! -name location ! -name protocol ! -name storage ! -name theme \
+      ! -name transport ! -name ui -print -quit)"
+    [[ -z "$unexpected_android" ]] || {
+      echo "Unexpected Android capability path: $unexpected_android" >&2
+      exit 1
+    }
+    unexpected_apple="$(find backends/apple/Sources/FloatViewBackend \
+      -mindepth 1 -maxdepth 1 -type d \
+      ! -name application ! -name bluetooth ! -name location ! -name protocol \
+      ! -name storage ! -name transport -print -quit)"
+    [[ -z "$unexpected_apple" ]] || {
+      echo "Unexpected shared Apple capability path: $unexpected_apple" >&2
+      exit 1
+    }
+    unexpected_macos="$(find backends/apple/Sources/FloatViewMac \
+      -mindepth 1 -maxdepth 1 -type d \
+      ! -name application ! -name files ! -name lifecycle ! -name Resources \
+      ! -name transport ! -name ui -print -quit)"
+    [[ -z "$unexpected_macos" ]] || {
+      echo "Unexpected macOS capability path: $unexpected_macos" >&2
+      exit 1
+    }
+    unexpected_ios="$(find backends/apple/ios/float-view \
+      -mindepth 1 -maxdepth 1 -type d \
+      ! -name application ! -name files ! -name lifecycle ! -name theme \
+      ! -name ui ! -name Assets.xcassets -print -quit)"
+    [[ -z "$unexpected_ios" ]] || {
+      echo "Unexpected iOS capability path: $unexpected_ios" >&2
+      exit 1
+    }
     [[ ! -d tools/vesc-test-device/host ]]
     ! find tools/vesc-test-device -type f \( -name '*.ts' -o -name '*.js' \) | grep -q .
     ! rg -n "from ['\"]svelte" conformance/fixture

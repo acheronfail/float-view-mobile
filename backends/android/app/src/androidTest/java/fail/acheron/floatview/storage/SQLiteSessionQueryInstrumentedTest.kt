@@ -5,18 +5,18 @@ import android.database.sqlite.SQLiteDatabase
 import android.os.OperationCanceledException
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
-import fail.acheron.floatview.backend.DeviceId
-import fail.acheron.floatview.backend.LocationObservation
-import fail.acheron.floatview.backend.PackageState
-import fail.acheron.floatview.backend.RideState
-import fail.acheron.floatview.backend.ProductStoreException
-import fail.acheron.floatview.backend.SessionListQuery
-import fail.acheron.floatview.backend.SessionMaintenanceJobRecord
-import fail.acheron.floatview.backend.SessionReadCancellation
-import fail.acheron.floatview.backend.SessionStoreException
-import fail.acheron.floatview.backend.SetpointAdjustment
-import fail.acheron.floatview.backend.TelemetrySample
-import fail.acheron.floatview.backend.ThemePreference
+import fail.acheron.floatview.application.DeviceId
+import fail.acheron.floatview.application.LocationObservation
+import fail.acheron.floatview.application.PackageState
+import fail.acheron.floatview.application.RideState
+import fail.acheron.floatview.application.ProductStoreException
+import fail.acheron.floatview.application.SessionListQuery
+import fail.acheron.floatview.application.SessionMaintenanceJobRecord
+import fail.acheron.floatview.application.SessionReadCancellation
+import fail.acheron.floatview.application.SessionStoreException
+import fail.acheron.floatview.application.SetpointAdjustment
+import fail.acheron.floatview.application.TelemetrySample
+import fail.acheron.floatview.application.ThemePreference
 import java.io.File
 import java.time.Instant
 import java.util.concurrent.CountDownLatch
@@ -220,7 +220,7 @@ class SQLiteSessionQueryInstrumentedTest {
 
         val executor = Executors.newFixedThreadPool(2)
         try {
-            val first = executor.submit<List<fail.acheron.floatview.backend.SessionSeriesPoint>> {
+            val first = executor.submit<List<fail.acheron.floatview.application.SessionSeriesPoint>> {
                 store.withSessionReadCancellation(firstCancellation) {
                     store.querySeries(
                         record.sessionId.value,
@@ -233,7 +233,7 @@ class SQLiteSessionQueryInstrumentedTest {
             }
             assertTrue(firstRegistered.await(5, TimeUnit.SECONDS))
 
-            val second = executor.submit<List<fail.acheron.floatview.backend.SessionEventRecord>> {
+            val second = executor.submit<List<fail.acheron.floatview.application.SessionEventRecord>> {
                 store.withSessionReadCancellation(secondCancellation) {
                     store.sessionEvents(record.sessionId.value, 0, 99_000)
                 }
