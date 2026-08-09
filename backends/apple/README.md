@@ -2,10 +2,12 @@
 
 The Apple backend is native Swift shared by iOS and macOS. The capability names
 below match Android. Rust under `../core/vesc-frame/` is the production owner
-for VESC CRC, outbound framing, and exact frame decoding through the bounded
-`vesc-frame-apple-ffi/` bridge. Swift retains notification stream boundaries,
-VESC payload interpretation/routing, Refloat, application behavior, and every
-OS-owned capability. There is no generated API or Swift framing fallback.
+for VESC CRC, outbound framing, exact frame decoding, and notification-stream
+boundary interpretation through the bounded `vesc-frame-apple-ffi/` bridge.
+Swift retains only bounded caller-owned stream bytes and mechanical consumption
+of Rust-returned regions alongside VESC payload interpretation/routing,
+Refloat, application behavior, and every OS-owned capability. There is no
+generated API, Rust stream handle, or Swift production framing fallback.
 
 SwiftPM and Xcode use one shared implementation root and two sibling platform
 host roots:
@@ -55,7 +57,7 @@ and source-derived fixtures in both native backends. For a new wire family,
 change or add the focused codec below `protocol/vesc` or `protocol/refloat` and
 map exact versions to it; do not fork application coordination or polling.
 
-The next Rust boundary is intentionally undecided. Moving Swift stream state,
-VESC payload behavior, Refloat, application behavior, SQLite, or the loopback
-server requires a separate incremental OpenSpec change. Android integration is
-also independent of this shared Apple cutover.
+Moving Swift-owned stream storage, VESC payload behavior, Refloat, application
+behavior, SQLite, or the loopback server requires a separate incremental
+OpenSpec change. Android integration is also independent of this shared Apple
+cutover.

@@ -280,7 +280,7 @@ audit:
     ! rg -n -e 'CheckpointSwiftVescFrameReference' -e 'VescCRC' -e '0x1021' \
       -e 'frame\.append' -e 'checksum\(' -e 'crc.*UInt16' \
       backends/apple -g '*.swift'
-    [[ "$(rg -l 'float_view_vesc_frame_(encode|decode_exact)' \
+    [[ "$(rg -l 'float_view_vesc_frame_(encode|decode_exact|stream_scan_next)' \
       backends/apple -g '*.swift')" == \
       'backends/apple/Sources/FloatViewBackend/protocol/vesc/VescFrameCodec.swift' ]]
     [[ -d backends/apple/ios ]]

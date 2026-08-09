@@ -15,11 +15,11 @@
 
 ## 3. Cut over the shared Swift stream adapter
 
-- [ ] 3.1 Add the thin Swift scanner bridge call, validate Rust-returned offsets/lengths before slicing, and map the fixed incomplete and failure statuses onto the established Swift stream behavior.
-- [ ] 3.2 Replace Swift header, length, noise, incomplete-suffix, and overflow decisions in `VescFrameStreamDecoder` with a bounded storage/scan/exact-decode/consume loop that consumes Rust's reported prefix even when exact decoding rejects a complete candidate.
-- [ ] 3.3 Preserve the public stream API, connection-generation reset, locking, error propagation, and iOS/macOS shared call sites while ensuring reset only clears Swift-owned bytes and no Rust lifetime crosses FFI.
-- [ ] 3.4 Extend focused Swift tests to prove fragmented/noisy/multiple input, split long headers, incomplete suffix retention, maximum payload, malformed complete-frame recovery, oversized declarations, aggregate overflow, ABI mismatch, and stable error mappings through linked Rust scanning.
-- [ ] 3.5 Update Apple/core ownership documentation to identify Rust as the Apple CRC, encode, exact-decode, and stream-boundary owner; Swift as bounded storage only; and Android as the unchanged Kotlin owner.
+- [x] 3.1 Add the thin Swift scanner bridge call, validate Rust-returned offsets/lengths before slicing, and map the fixed incomplete and failure statuses onto the established Swift stream behavior.
+- [x] 3.2 Replace Swift header, length, noise, incomplete-suffix, and overflow decisions in `VescFrameStreamDecoder` with a bounded storage/scan/exact-decode/consume loop that consumes Rust's reported prefix even when exact decoding rejects a complete candidate.
+- [x] 3.3 Preserve the public stream API, connection-generation reset, locking, error propagation, and iOS/macOS shared call sites while ensuring reset only clears Swift-owned bytes and no Rust lifetime crosses FFI.
+- [x] 3.4 Extend focused Swift tests to prove fragmented/noisy/multiple input, split long headers, incomplete suffix retention, maximum payload, malformed complete-frame recovery, oversized declarations, aggregate overflow, ABI mismatch, and stable error mappings through linked Rust scanning.
+- [x] 3.5 Update Apple/core ownership documentation to identify Rust as the Apple CRC, encode, exact-decode, and stream-boundary owner; Swift as bounded storage only; and Android as the unchanged Kotlin owner.
 
 ## 4. Verify the additive production cutover
 
