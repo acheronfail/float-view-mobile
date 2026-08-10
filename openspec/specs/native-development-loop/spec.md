@@ -95,12 +95,12 @@ The development browser SHALL remain a disposable client. Bluetooth, application
 
 The repository SHALL build the Apple Rust frame-codec static library from the committed workspace and lockfile with the pinned toolchain, locked dependency resolution, and offline mode. It SHALL support the current macOS host architecture, iOS device architecture, and active Intel or Apple Silicon iOS simulator architecture without committing native archives, generating bindings, or downloading tools during an Apple build.
 
-Root `just` build, test, verification, run, and development paths that compile the Apple backend SHALL build the matching Rust target and configuration before Swift linkage. The iOS Xcode build SHALL invoke the same target/configuration mapping for its active SDK and architectures. Missing Rust targets, mismatched ABI versions, absent archives, unsupported architecture sets, and link failures SHALL stop with actionable diagnostics rather than silently selecting Swift behavior or a stale binary.
+Root `just` build, test, verification, run, and development paths that compile the Apple backend SHALL build the matching Rust target and configuration before Swift linkage. The iOS Xcode build SHALL invoke the same target/configuration mapping for its active SDK and architectures. The hand-written ABI version and symbol audit SHALL cover only version, encode, exact decode, and stream scan. Missing Rust targets, mismatched ABI versions, absent archives, unsupported architecture sets, scanner-symbol drift, and link failures SHALL stop with actionable diagnostics rather than silently selecting Swift behavior or a stale binary.
 
 #### Scenario: Clean macOS development build
 
 - **WHEN** a developer builds, tests, runs, or starts browser development for macOS from a clean ignored-artifact state
-- **THEN** the pinned locked Rust host archive is built first and the shared Apple backend links and executes it
+- **THEN** the pinned locked Rust host archive containing the scanner ABI is built first and the shared Apple backend links and executes it
 
 #### Scenario: Clean iOS simulator build
 
@@ -120,4 +120,4 @@ Root `just` build, test, verification, run, and development paths that compile t
 #### Scenario: Audit repository artifacts
 
 - **WHEN** repository verification inspects tracked files and the linked archive
-- **THEN** no generated header or native binary is tracked and the application ABI exports only its approved version, encode, and exact-decode entry points
+- **THEN** no generated header or native binary is tracked and the application ABI exports exactly its approved version, encode, exact-decode, and stream-scan entry points
