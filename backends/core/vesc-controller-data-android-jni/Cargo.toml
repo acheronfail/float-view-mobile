@@ -1,0 +1,13 @@
+[package]
+name = "float-view-vesc-controller-data-android-jni"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+float-view-vesc-controller-data = { path = "../vesc-controller-data" }
+jni-sys = "=0.4.1"

@@ -20,6 +20,7 @@ import fail.acheron.floatview.protocol.vesc.ControllerRoute
 import fail.acheron.floatview.protocol.vesc.VescCommand
 import fail.acheron.floatview.protocol.vesc.VescBmsValuesDecoder
 import fail.acheron.floatview.protocol.vesc.VescCommandRouter
+import fail.acheron.floatview.protocol.vesc.VescControllerDataDecoder
 import fail.acheron.floatview.protocol.vesc.VescCustomConfigurationCodec
 import fail.acheron.floatview.protocol.vesc.VescFirmwareIdentityDecoder
 import java.time.Instant
@@ -75,7 +76,7 @@ data class RealtimeValues(
     val erpm: Int,
     val packVoltageV: Double,
     val faultCode: Int,
-    val fault: VescFault = VescFault.fromCode(faultCode),
+    val fault: VescFault,
 )
 
 data class VescFault(val code: Int, val kind: Kind) {
@@ -85,86 +86,14 @@ data class VescFault(val code: Int, val kind: Kind) {
         UNKNOWN("unknown"),
     }
 
-    companion object {
-        fun fromCode(code: Int): VescFault =
-            VescFault(
-                code,
-                when (code) {
-                    0 -> Kind.NONE
-                    1 -> Kind.OVER_VOLTAGE
-                    else -> Kind.UNKNOWN
-                },
-            )
-    }
-}
-
-private class ByteReader(private val bytes: ByteArray) {
-    private var offset = 0
-    fun u8(): Int {
-        if (offset >= bytes.size) throw VescProtocolException.TruncatedPayload
-        return bytes[offset++].toInt() and 0xff
-    }
-    fun i16(scale: Double): Double {
-        val value = ((u8() shl 8) or u8()).toShort()
-        return value / scale
-    }
-    fun i32(scale: Double = 1.0): Double {
-        var value = 0
-        repeat(4) { value = (value shl 8) or u8() }
-        return value / scale
-    }
-    fun float32Auto(): Double {
-        var raw = 0L
-        repeat(4) { raw = (raw shl 8) or u8().toLong() }
-        val exponentBits = ((raw shr 23) and 0xff).toInt()
-        val significandBits = raw and 0x7fffff
-        if (exponentBits == 0 && significandBits == 0L) return 0.0
-        val significand = significandBits.toDouble() / 16_777_216.0 + 0.5
-        val value = Math.scalb(significand, exponentBits - 126)
-        val signedValue = if (raw and 0x80000000L == 0L) value else -value
-        if (!signedValue.isFinite() || kotlin.math.abs(signedValue) > Float.MAX_VALUE.toDouble()) {
-            throw VescProtocolException.TruncatedPayload
-        }
-        return signedValue
-    }
-    fun skip(count: Int) {
-        if (offset + count > bytes.size) throw VescProtocolException.TruncatedPayload
-        offset += count
-    }
 }
 
 object VescPayloadDecoder {
-    private val batterySeriesCellOffsets = mapOf(
-        0x2e43a161L to 462, // 6.02
-        0x3f829cf7L to 452, // 6.05
-        0x2efd0142L to 458, // 6.06
-        0x57ad8f53L to 463, // 7.00
-        0x9307410dL to 463, // 7.01
-    )
-
     fun firmware(payload: ByteArray): FirmwareInfo {
         return VescFirmwareIdentityDecoder.decode(payload)
     }
 
-    fun realtime(payload: ByteArray): RealtimeValues {
-        val reader = ByteReader(payload)
-        val command = reader.u8()
-        if (command != VescCommand.GET_REALTIME_VALUES.id) {
-            throw VescProtocolException.UnsupportedCommand(command)
-        }
-        val controllerTemp = reader.i16(10.0)
-        val motorTemp = reader.i16(10.0)
-        val motorCurrent = reader.i32(100.0)
-        val batteryCurrent = reader.i32(100.0)
-        reader.skip(8)
-        val duty = reader.i16(1000.0)
-        val erpm = reader.i32().toInt()
-        val voltage = reader.i16(10.0)
-        val fault = reader.u8()
-        return RealtimeValues(
-            controllerTemp, motorTemp, motorCurrent, batteryCurrent, duty, erpm, voltage, fault,
-        )
-    }
+    fun realtime(payload: ByteArray): RealtimeValues = VescControllerDataDecoder.realtime(payload)
 
     fun bmsValues(
         payload: ByteArray,
@@ -172,36 +101,8 @@ object VescPayloadDecoder {
         observedAt: Instant,
     ): BmsSnapshot = VescBmsValuesDecoder.decode(payload, expectedCanId, observedAt)
 
-    fun currentLimits(payload: ByteArray): ControllerCurrentLimits {
-        val reader = ByteReader(payload)
-        val command = reader.u8()
-        if (command != VescCommand.GET_MOTOR_CONFIGURATION.id) {
-            throw VescProtocolException.UnsupportedCommand(command)
-        }
-        var signature = 0L
-        repeat(4) { signature = (signature shl 8) or reader.u8().toLong() }
-        reader.skip(4) // Four enum fields.
-        val batterySeriesCells = batterySeriesCellOffsets[signature]?.let { offset ->
-            payload.getOrNull(offset)?.toInt()?.and(0xff)?.takeIf { it > 0 }
-        }
-        val value = ControllerCurrentLimits(
-            reader.float32Auto(),
-            reader.float32Auto(),
-            reader.float32Auto(),
-            reader.float32Auto(),
-            batterySeriesCells,
-        )
-        val limits = listOf(
-            value.motorCurrentMaxA,
-            value.motorCurrentMinA,
-            value.batteryCurrentMaxA,
-            value.batteryCurrentMinA,
-        )
-        if (limits.any { !it.isFinite() || kotlin.math.abs(it) <= 0.0 }) {
-            throw VescProtocolException.TruncatedPayload
-        }
-        return value
-    }
+    fun currentLimits(payload: ByteArray): ControllerCurrentLimits =
+        VescControllerDataDecoder.currentLimits(payload)
 
 }
 

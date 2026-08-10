@@ -27,6 +27,7 @@ import fail.acheron.floatview.protocol.vesc.VescFirmwareVersion
 import fail.acheron.floatview.protocol.vesc.VescFirmwareIdentityDecoder
 import fail.acheron.floatview.protocol.vesc.VescCustomConfigurationCodec
 import fail.acheron.floatview.protocol.vesc.VescCustomConfigurationResponse
+import fail.acheron.floatview.protocol.vesc.VescControllerDataDecoder
 import fail.acheron.floatview.protocol.vesc.VescCommand
 import fail.acheron.floatview.protocol.vesc.VescOperation
 
@@ -305,16 +306,24 @@ class VescProtocolTest {
         assertEquals(10_000, values.erpm)
         assertEquals(51.6, values.packVoltageV, 0.0)
         assertEquals(0, values.faultCode)
-        assertEquals(VescFault.fromCode(0), values.fault)
+        assertEquals(VescFault(0, VescFault.Kind.NONE), values.fault)
 
         val faultValues = VescPayloadDecoder.realtime(
             VescFrameCodec.decode(fixture("vesc/realtime-values-over-voltage.json").hexBytes()),
         )
         assertEquals(1, faultValues.faultCode)
-        assertEquals(VescFault.fromCode(1), faultValues.fault)
+        assertEquals(VescFault(1, VescFault.Kind.OVER_VOLTAGE), faultValues.fault)
         assertEquals("over_voltage", faultValues.fault.kind.stableName)
-        assertEquals(VescFault.Kind.UNKNOWN, VescFault.fromCode(255).kind)
-        assertEquals(255, VescFault.fromCode(255).code)
+        val unknownFault = VescControllerDataDecoder.realtimeRecord(
+            ByteArray(60).also { record ->
+                record[0] = 1
+                record[1] = 1
+                record[3] = 2
+                record[4] = 255.toByte()
+            },
+        ).fault
+        assertEquals(VescFault.Kind.UNKNOWN, unknownFault.kind)
+        assertEquals(255, unknownFault.code)
 
     }
 

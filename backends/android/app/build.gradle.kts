@@ -18,6 +18,10 @@ val rustBmsValuesAndroidOutputs =
     rustCoreDirectory.resolve("target/android/bmsValuesJniLibs")
 val rustBmsValuesHostOutputs =
     rustCoreDirectory.resolve("target/android/bms-values-host/debug")
+val rustControllerDataAndroidOutputs =
+    rustCoreDirectory.resolve("target/android/controllerDataJniLibs")
+val rustControllerDataHostOutputs =
+    rustCoreDirectory.resolve("target/android/controller-data-host/debug")
 val rustRefloatControlAndroidOutputs =
     rustCoreDirectory.resolve("target/android/refloatControlJniLibs")
 val rustRefloatControlHostOutputs =
@@ -48,6 +52,13 @@ val rustBmsValuesHostLibrary = rustBmsValuesHostOutputs.resolve(
         "libfloat_view_vesc_bms_values_android_jni.dylib"
     } else {
         "libfloat_view_vesc_bms_values_android_jni.so"
+    }
+)
+val rustControllerDataHostLibrary = rustControllerDataHostOutputs.resolve(
+    if (System.getProperty("os.name").lowercase().contains("mac")) {
+        "libfloat_view_vesc_controller_data_android_jni.dylib"
+    } else {
+        "libfloat_view_vesc_controller_data_android_jni.so"
     }
 )
 val rustRefloatControlHostLibrary = rustRefloatControlHostOutputs.resolve(
@@ -180,6 +191,36 @@ fun registerAndroidRustBmsValuesBuild(profile: String) = tasks.register<Exec>(
 val buildAndroidRustBmsValuesDebug = registerAndroidRustBmsValuesBuild("debug")
 val buildAndroidRustBmsValuesRelease = registerAndroidRustBmsValuesBuild("release")
 
+fun registerAndroidRustControllerDataBuild(profile: String) = tasks.register<Exec>(
+    "buildAndroidRustControllerData${profile.replaceFirstChar(Char::uppercase)}"
+) {
+    group = "build"
+    description = "Builds the source-owned Android Rust controller-data JNI libraries for $profile."
+    workingDir(rootProject.projectDir)
+    commandLine(
+        rustAndroidHelper.absolutePath,
+        "controller-data",
+        "android-all",
+        profile,
+        rustControllerDataAndroidOutputs.resolve(profile).absolutePath,
+    )
+    inputs.files(
+        rustCoreDirectory.resolve("Cargo.toml"),
+        rustCoreDirectory.resolve("Cargo.lock"),
+        rustCoreDirectory.resolve("rust-toolchain.toml"),
+        rustCoreDirectory.resolve("vesc-controller-data/Cargo.toml"),
+        rustCoreDirectory.resolve("vesc-controller-data-android-jni/Cargo.toml"),
+        fileTree(rustCoreDirectory.resolve("vesc-controller-data/src")),
+        fileTree(rustCoreDirectory.resolve("vesc-controller-data-android-jni/src")),
+        rustAndroidHelper,
+        rustBridgeCatalog,
+    )
+    outputs.dir(rustControllerDataAndroidOutputs.resolve(profile))
+}
+
+val buildAndroidRustControllerDataDebug = registerAndroidRustControllerDataBuild("debug")
+val buildAndroidRustControllerDataRelease = registerAndroidRustControllerDataBuild("release")
+
 fun registerAndroidRustRefloatControlBuild(profile: String) = tasks.register<Exec>(
     "buildAndroidRustRefloatControl${profile.replaceFirstChar(Char::uppercase)}"
 ) {
@@ -305,6 +346,30 @@ val buildAndroidRustBmsValuesHost by tasks.registering(Exec::class) {
     )
     outputs.file(rustBmsValuesHostLibrary)
 }
+val buildAndroidRustControllerDataHost by tasks.registering(Exec::class) {
+    group = "verification"
+    description = "Builds the exact source-owned host controller-data JNI library used by JVM tests."
+    workingDir(rootProject.projectDir)
+    commandLine(
+        rustAndroidHelper.absolutePath,
+        "controller-data",
+        "host",
+        "debug",
+        rustControllerDataHostOutputs.absolutePath,
+    )
+    inputs.files(
+        rustCoreDirectory.resolve("Cargo.toml"),
+        rustCoreDirectory.resolve("Cargo.lock"),
+        rustCoreDirectory.resolve("rust-toolchain.toml"),
+        rustCoreDirectory.resolve("vesc-controller-data/Cargo.toml"),
+        rustCoreDirectory.resolve("vesc-controller-data-android-jni/Cargo.toml"),
+        fileTree(rustCoreDirectory.resolve("vesc-controller-data/src")),
+        fileTree(rustCoreDirectory.resolve("vesc-controller-data-android-jni/src")),
+        rustAndroidHelper,
+        rustBridgeCatalog,
+    )
+    outputs.file(rustControllerDataHostLibrary)
+}
 val buildAndroidRustRefloatControlHost by tasks.registering(Exec::class) {
     group = "verification"
     description = "Builds the exact source-owned host Refloat-control JNI library used by JVM tests."
@@ -350,6 +415,9 @@ buildAndroidRustCustomConfigurationHost.configure { mustRunAfter(tasks.named("cl
 buildAndroidRustBmsValuesDebug.configure { mustRunAfter(tasks.named("clean")) }
 buildAndroidRustBmsValuesRelease.configure { mustRunAfter(tasks.named("clean")) }
 buildAndroidRustBmsValuesHost.configure { mustRunAfter(tasks.named("clean")) }
+buildAndroidRustControllerDataDebug.configure { mustRunAfter(tasks.named("clean")) }
+buildAndroidRustControllerDataRelease.configure { mustRunAfter(tasks.named("clean")) }
+buildAndroidRustControllerDataHost.configure { mustRunAfter(tasks.named("clean")) }
 buildAndroidRustRefloatControlDebug.configure { mustRunAfter(tasks.named("clean")) }
 buildAndroidRustRefloatControlRelease.configure { mustRunAfter(tasks.named("clean")) }
 buildAndroidRustRefloatControlHost.configure { mustRunAfter(tasks.named("clean")) }
@@ -400,6 +468,8 @@ android {
         getByName("release").jniLibs.srcDir(rustCustomConfigurationAndroidOutputs.resolve("release"))
         getByName("debug").jniLibs.srcDir(rustBmsValuesAndroidOutputs.resolve("debug"))
         getByName("release").jniLibs.srcDir(rustBmsValuesAndroidOutputs.resolve("release"))
+        getByName("debug").jniLibs.srcDir(rustControllerDataAndroidOutputs.resolve("debug"))
+        getByName("release").jniLibs.srcDir(rustControllerDataAndroidOutputs.resolve("release"))
         getByName("debug").jniLibs.srcDir(rustRefloatControlAndroidOutputs.resolve("debug"))
         getByName("release").jniLibs.srcDir(rustRefloatControlAndroidOutputs.resolve("release"))
     }
@@ -410,6 +480,7 @@ android {
                 buildAndroidRustIdentityHost,
                 buildAndroidRustCustomConfigurationHost,
                 buildAndroidRustBmsValuesHost,
+                buildAndroidRustControllerDataHost,
                 buildAndroidRustRefloatControlHost,
             )
             it.systemProperty("floatViewVescFrameJniLibrary", rustHostLibrary.absolutePath)
@@ -424,6 +495,10 @@ android {
             it.systemProperty(
                 "floatViewVescBmsValuesJniLibrary",
                 rustBmsValuesHostLibrary.absolutePath,
+            )
+            it.systemProperty(
+                "floatViewVescControllerDataJniLibrary",
+                rustControllerDataHostLibrary.absolutePath,
             )
             it.systemProperty(
                 "floatViewRefloatControlJniLibrary",
@@ -444,6 +519,7 @@ tasks.configureEach {
             buildAndroidRustIdentityDebug,
             buildAndroidRustCustomConfigurationDebug,
             buildAndroidRustBmsValuesDebug,
+            buildAndroidRustControllerDataDebug,
             buildAndroidRustRefloatControlDebug,
         )
         "mergeReleaseJniLibFolders" -> dependsOn(
@@ -451,6 +527,7 @@ tasks.configureEach {
             buildAndroidRustIdentityRelease,
             buildAndroidRustCustomConfigurationRelease,
             buildAndroidRustBmsValuesRelease,
+            buildAndroidRustControllerDataRelease,
             buildAndroidRustRefloatControlRelease,
         )
     }

@@ -45,6 +45,14 @@ name = "float-view-vesc-controller-data"
 version = "0.1.0"
 
 [[package]]
+name = "float-view-vesc-controller-data-android-jni"
+version = "0.1.0"
+dependencies = [
+ "float-view-vesc-controller-data",
+ "jni-sys",
+]
+
+[[package]]
 name = "float-view-vesc-controller-data-apple-ffi"
 version = "0.1.0"
 dependencies = [

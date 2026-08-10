@@ -81,6 +81,13 @@ float_view_select_bridge() {
       bridge_diagnostic='VESC controller data'
       bridge_apple_package='float-view-vesc-controller-data-apple-ffi'
       bridge_apple_archive='libfloat_view_vesc_controller_data_apple_ffi.a'
+      bridge_android_package='float-view-vesc-controller-data-android-jni'
+      bridge_android_library_stem='float_view_vesc_controller_data_android_jni'
+      bridge_android_jni_prefix='Java_fail_acheron_floatview_protocol_RustVescControllerDataBridge'
+      bridge_android_symbols=(
+        Java_fail_acheron_floatview_protocol_RustVescControllerDataBridge_abiVersion
+        Java_fail_acheron_floatview_protocol_RustVescControllerDataBridge_decode
+      )
       ;;
     refloat-control)
       bridge_identifier='refloat-control'

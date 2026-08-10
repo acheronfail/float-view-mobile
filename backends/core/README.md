@@ -4,7 +4,7 @@
 ownership. It is a locked Cargo workspace, not another backend and not a
 production runtime.
 
-The workspace currently has seventeen members:
+The workspace currently has eighteen members:
 
 | Component               | Scope                                                                 | Integration state                                                                             |
 | ----------------------- | --------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
@@ -14,7 +14,8 @@ The workspace currently has seventeen members:
 | `vesc-bms-values/`       | Safe bounded VESC command-96 BMS values decoding                     | Selected by Apple and Android through separate host bridges                                    |
 | `vesc-bms-values-android-jni/` | Two-symbol primitive-array JNI ABI for BMS values              | Selected only by Android                                                                       |
 | `vesc-bms-values-apple-ffi/` | Two-symbol caller-owned-buffer C ABI for BMS values              | Selected only by the shared iOS/macOS adapter                                                  |
-| `vesc-controller-data/`  | Safe bounded VESC command-4 realtime and command-14 current-limit decoding | Selected by Apple; Kotlin remains Android's production owner                     |
+| `vesc-controller-data/`  | Safe bounded VESC command-4 realtime and command-14 current-limit decoding | Selected by Apple and Android through separate host bridges                      |
+| `vesc-controller-data-android-jni/` | Two-symbol primitive-array JNI ABI for controller data | Selected only by Android                                                           |
 | `vesc-controller-data-apple-ffi/` | Two-symbol tagged-record C ABI for controller data | Selected only by the shared iOS/macOS adapter                                                |
 | `vesc-custom-configuration/` | Safe bounded VESC commands 92–95 envelope encoding and decoding  | Selected by Apple and Android through separate host bridges                                   |
 | `vesc-custom-configuration-apple-ffi/` | Three-symbol caller-owned-buffer C ABI for commands 92–95 | Selected only by the shared iOS/macOS adapter                                                  |
@@ -26,12 +27,12 @@ The workspace currently has seventeen members:
 | `vesc-frame-apple-ffi/`   | Caller-owned-buffer C ABI                                             | Selected only by the shared iOS/macOS frame-codec adapter                       |
 | `vesc-frame-android-jni/` | Primitive-array JNI ABI                                              | Selected by Android for CRC, encoding, exact decoding, and stream-boundary scans |
 
-The seventeen crates remain independent components and artifacts. Their repeated
+The eighteen crates remain independent components and artifacts. Their repeated
 source-build mechanics are centralized in `build-apple-bridge.sh` and
 `build-android-bridge.sh`, driven by the closed six-entry
 `bridge-build-catalog.sh` allowlist. Callers pass only `frame`,
-`firmware-identity`, `custom-configuration`, `bms-values`, or the Apple-only
-`controller-data` and `refloat-control`; package names,
+`firmware-identity`, `custom-configuration`, `bms-values`, `controller-data`,
+or `refloat-control`; package names,
 archive/library names, diagnostics, and exact JNI symbols come from the
 catalog. The catalog is deliberately non-executable, while the two builders
 retain the pinned offline toolchain, Apple target, Android NDK/API/ABI,
@@ -70,8 +71,8 @@ Android adapter use independent focused three-symbol bridges.
 
 The controller-data component decodes only the consumed prefix of standard
 VESC realtime values and the current-limit subset of motor configuration.
-Apple selects it through one tagged caller-owned-record bridge; Kotlin remains
-Android's production decoder. Both hosts retain request construction,
+Apple and Android select it through separate tagged caller-owned-record bridges.
+Both hosts retain request construction,
 direct/CAN routing, scheduling, and model mapping until later cutovers.
 
 Do not add empty future crates, generated bindings, a general runtime, host
