@@ -18,8 +18,18 @@ The workspace currently has twelve members:
 | `vesc-firmware-identity-apple-ffi/` | Two-symbol caller-owned-buffer C ABI for firmware identity | Selected only by the shared iOS/macOS identity adapter                                        |
 | `vesc-firmware-identity-android-jni/` | Two-symbol primitive-array JNI ABI for firmware identity | Selected only by Android                                                                      |
 | `vesc-frame/`             | Safe bounded VESC CRC, frame encoding/decoding, and stream scanning | Apple and Android select every framing decision                                 |
-| `vesc-frame-apple-ffi/`   | Caller-owned-buffer C ABI and locked Apple source-build helper      | Selected only by the shared iOS/macOS frame-codec adapter                       |
-| `vesc-frame-android-jni/` | Primitive-array JNI ABI and locked host/Android source builds       | Selected by Android for CRC, encoding, exact decoding, and stream-boundary scans |
+| `vesc-frame-apple-ffi/`   | Caller-owned-buffer C ABI                                             | Selected only by the shared iOS/macOS frame-codec adapter                       |
+| `vesc-frame-android-jni/` | Primitive-array JNI ABI                                              | Selected by Android for CRC, encoding, exact decoding, and stream-boundary scans |
+
+The twelve crates remain independent components and artifacts. Their repeated
+source-build mechanics are centralized in `build-apple-bridge.sh` and
+`build-android-bridge.sh`, driven by the closed four-entry
+`bridge-build-catalog.sh` allowlist. Callers pass only `frame`,
+`firmware-identity`, `custom-configuration`, or `bms-values`; package names,
+archive/library names, diagnostics, and exact JNI symbols come from the
+catalog. The catalog is deliberately non-executable, while the two builders
+retain the pinned offline toolchain, Apple target, Android NDK/API/ABI,
+architecture, and symbol checks.
 
 The shared Apple backend retains only bounded Swift stream storage. Rust scans
 each borrowed region, reports exact consumption boundaries, validates every

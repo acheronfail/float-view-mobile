@@ -5,31 +5,88 @@ core-lint:
     cd backends/core && cargo fmt --check
     cd backends/core && cargo clippy --locked --offline --workspace --all-targets -- -D warnings
 
+rust-bridge-build-tooling-audit:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    catalog='backends/core/bridge-build-catalog.sh'
+    apple_helper='backends/core/build-apple-bridge.sh'
+    android_helper='backends/core/build-android-bridge.sh'
+    bash -n "$catalog" "$apple_helper" "$android_helper"
+    [[ ! -x "$catalog" && -x "$apple_helper" && -x "$android_helper" ]]
+    [[ "$(find backends/core -type f \( -name 'build-apple*.sh' -o -name 'build-android*.sh' \) | sort)" == \
+      $'backends/core/build-android-bridge.sh\nbackends/core/build-apple-bridge.sh' ]]
+    ! find backends/core -mindepth 2 -type f \
+      \( -name 'build-apple.sh' -o -name 'build-android.sh' \) | grep -q .
+    ! rg -n 'backends/core/vesc-[^[:space:]]+/(build-apple|build-android)\.sh' \
+      justfile backends conformance
+    expected=$'frame|float-view-vesc-frame-apple-ffi|libfloat_view_vesc_frame_apple_ffi.a|float-view-vesc-frame-android-jni|float_view_vesc_frame_android_jni|Java_fail_acheron_floatview_protocol_RustVescFrameBridge|Java_fail_acheron_floatview_protocol_RustVescFrameBridge_abiVersion Java_fail_acheron_floatview_protocol_RustVescFrameBridge_decodeExact Java_fail_acheron_floatview_protocol_RustVescFrameBridge_encode Java_fail_acheron_floatview_protocol_RustVescFrameBridge_scanNext\nfirmware-identity|float-view-vesc-firmware-identity-apple-ffi|libfloat_view_vesc_firmware_identity_apple_ffi.a|float-view-vesc-firmware-identity-android-jni|float_view_vesc_firmware_identity_android_jni|Java_fail_acheron_floatview_protocol_RustVescFirmwareIdentityBridge|Java_fail_acheron_floatview_protocol_RustVescFirmwareIdentityBridge_abiVersion Java_fail_acheron_floatview_protocol_RustVescFirmwareIdentityBridge_decode\ncustom-configuration|float-view-vesc-custom-configuration-apple-ffi|libfloat_view_vesc_custom_configuration_apple_ffi.a|float-view-vesc-custom-configuration-android-jni|float_view_vesc_custom_configuration_android_jni|Java_fail_acheron_floatview_protocol_RustVescCustomConfigurationBridge|Java_fail_acheron_floatview_protocol_RustVescCustomConfigurationBridge_abiVersion Java_fail_acheron_floatview_protocol_RustVescCustomConfigurationBridge_decode Java_fail_acheron_floatview_protocol_RustVescCustomConfigurationBridge_encode\nbms-values|float-view-vesc-bms-values-apple-ffi|libfloat_view_vesc_bms_values_apple_ffi.a|float-view-vesc-bms-values-android-jni|float_view_vesc_bms_values_android_jni|Java_fail_acheron_floatview_protocol_RustVescBmsValuesBridge|Java_fail_acheron_floatview_protocol_RustVescBmsValuesBridge_abiVersion Java_fail_acheron_floatview_protocol_RustVescBmsValuesBridge_decode'
+    source "$catalog"
+    actual="$(for bridge in frame firmware-identity custom-configuration bms-values; do
+      float_view_select_bridge "$bridge"
+      printf '%s|%s|%s|%s|%s|%s|%s\n' \
+        "$bridge_identifier" "$bridge_apple_package" "$bridge_apple_archive" \
+        "$bridge_android_package" "$bridge_android_library_stem" \
+        "$bridge_android_jni_prefix" "${bridge_android_symbols[*]}"
+    done)"
+    [[ "$actual" == "$expected" ]]
+    audit_root="$(mktemp -d /private/tmp/float-view-bridge-tooling-audit.XXXXXX)"
+    for command in \
+      "$apple_helper unknown macosx arm64 Debug $audit_root/apple-unknown" \
+      "$apple_helper frame invalid arm64 Debug $audit_root/apple-sdk" \
+      "$apple_helper frame macosx '' Debug $audit_root/apple-arch" \
+      "$apple_helper frame macosx arm64 Invalid $audit_root/apple-profile" \
+      "$android_helper unknown host debug $audit_root/android-unknown" \
+      "$android_helper frame invalid debug $audit_root/android-mode" \
+      "$android_helper frame host invalid $audit_root/android-profile" \
+      "$android_helper frame android invalid debug $audit_root/android-abi"; do
+      if eval "$command" >/dev/null 2>&1; then
+        echo "Rust bridge helper accepted invalid input: $command" >&2
+        exit 1
+      fi
+    done
+    [[ -z "$(find "$audit_root" -mindepth 1 -print -quit)" ]]
+    for helper_command in \
+      "$apple_helper frame macosx arm64 Debug $audit_root/apple-toolchain" \
+      "$android_helper frame host debug $audit_root/android-toolchain"; do
+      if env PATH=/usr/bin:/bin $helper_command >/dev/null 2>&1; then
+        echo "Rust bridge helper accepted a missing pinned toolchain: $helper_command" >&2
+        exit 1
+      fi
+    done
+    [[ -z "$(find "$audit_root" -mindepth 1 -print -quit)" ]]
+    if ANDROID_NDK_HOME="$audit_root/missing-ndk" \
+      "$android_helper" frame android arm64-v8a debug "$audit_root/android-ndk" \
+      >/dev/null 2>&1; then
+      echo 'Shared Android Rust helper accepted a missing pinned NDK.' >&2
+      exit 1
+    fi
+    [[ ! -e "$audit_root/android-ndk" ]]
+
 apple-rust-codec configuration="Debug":
     #!/usr/bin/env bash
     set -euo pipefail
-    backends/core/vesc-frame-apple-ffi/build-apple.sh \
+    backends/core/build-apple-bridge.sh frame \
       macosx "$(uname -m)" "{{ configuration }}" \
       "$PWD/backends/core/target/apple/macos"
 
 apple-rust-firmware-identity configuration="Debug":
     #!/usr/bin/env bash
     set -euo pipefail
-    backends/core/vesc-firmware-identity-apple-ffi/build-apple.sh \
+    backends/core/build-apple-bridge.sh firmware-identity \
       macosx "$(uname -m)" "{{ configuration }}" \
       "$PWD/backends/core/target/apple/macos"
 
 apple-rust-custom-configuration configuration="Debug":
     #!/usr/bin/env bash
     set -euo pipefail
-    backends/core/vesc-custom-configuration-apple-ffi/build-apple.sh \
+    backends/core/build-apple-bridge.sh custom-configuration \
       macosx "$(uname -m)" "{{ configuration }}" \
       "$PWD/backends/core/target/apple/macos"
 
 apple-rust-bms-values configuration="Debug":
     #!/usr/bin/env bash
     set -euo pipefail
-    backends/core/vesc-bms-values-apple-ffi/build-apple.sh \
+    backends/core/build-apple-bridge.sh bms-values \
       macosx "$(uname -m)" "{{ configuration }}" \
       "$PWD/backends/core/target/apple/macos"
 
@@ -194,13 +251,13 @@ core-test: core-abi-test core-identity-abi-test core-custom-configuration-abi-te
     cd backends/core && cargo test --locked --offline
 
 android-rust-host:
-    backends/core/vesc-frame-android-jni/build-android.sh host debug \
+    backends/core/build-android-bridge.sh frame host debug \
       "$PWD/backends/core/target/android/host/debug"
-    backends/core/vesc-firmware-identity-android-jni/build-android.sh host debug \
+    backends/core/build-android-bridge.sh firmware-identity host debug \
       "$PWD/backends/core/target/android/identity-host/debug"
-    backends/core/vesc-custom-configuration-android-jni/build-android.sh host debug \
+    backends/core/build-android-bridge.sh custom-configuration host debug \
       "$PWD/backends/core/target/android/custom-configuration-host/debug"
-    backends/core/vesc-bms-values-android-jni/build-android.sh host debug \
+    backends/core/build-android-bridge.sh bms-values host debug \
       "$PWD/backends/core/target/android/bms-values-host/debug"
 
 android-rust-codec-test:
@@ -360,25 +417,25 @@ android-rust-audit: android-rust-host
     [[ "$(rg -c 'functions\.ExceptionCheck' \
       backends/core/vesc-bms-values-android-jni/src/lib.rs)" -ge 8 ]]
     if ANDROID_NDK_HOME=/private/tmp/float-view-missing-ndk \
-      backends/core/vesc-frame-android-jni/build-android.sh \
+      backends/core/build-android-bridge.sh frame \
       android arm64-v8a debug /private/tmp/float-view-unreachable-output >/dev/null 2>&1; then
       echo 'Android Rust helper accepted a missing pinned NDK.' >&2
       exit 1
     fi
     if ANDROID_NDK_HOME=/private/tmp/float-view-missing-ndk \
-      backends/core/vesc-custom-configuration-android-jni/build-android.sh \
+      backends/core/build-android-bridge.sh custom-configuration \
       android arm64-v8a debug /private/tmp/float-view-unreachable-custom-configuration-output >/dev/null 2>&1; then
       echo 'Android Rust custom-configuration helper accepted a missing pinned NDK.' >&2
       exit 1
     fi
     if ANDROID_NDK_HOME=/private/tmp/float-view-missing-ndk \
-      backends/core/vesc-firmware-identity-android-jni/build-android.sh \
+      backends/core/build-android-bridge.sh firmware-identity \
       android arm64-v8a debug /private/tmp/float-view-unreachable-identity-output >/dev/null 2>&1; then
       echo 'Android Rust identity helper accepted a missing pinned NDK.' >&2
       exit 1
     fi
     if ANDROID_NDK_HOME=/private/tmp/float-view-missing-ndk \
-      backends/core/vesc-bms-values-android-jni/build-android.sh \
+      backends/core/build-android-bridge.sh bms-values \
       android arm64-v8a debug /private/tmp/float-view-unreachable-bms-values-output >/dev/null 2>&1; then
       echo 'Android Rust BMS-values helper accepted a missing pinned NDK.' >&2
       exit 1
@@ -573,6 +630,9 @@ audit:
     [[ ! -d backends/apple/Sources/FloatViewMac ]]
     [[ -f rust-toolchain.toml ]]
     [[ -f backends/core/Cargo.lock ]]
+    [[ -f backends/core/bridge-build-catalog.sh ]]
+    [[ -f backends/core/build-apple-bridge.sh ]]
+    [[ -f backends/core/build-android-bridge.sh ]]
     [[ -f backends/core/vesc-bms-values/Cargo.toml ]]
     [[ -f backends/core/vesc-bms-values-android-jni/Cargo.toml ]]
     [[ -f backends/core/vesc-bms-values-apple-ffi/Cargo.toml ]]
@@ -670,6 +730,7 @@ audit:
     [[ "$(cd backends/core && cargo tree --locked --package float-view-vesc-firmware-identity-android-jni --edges normal --depth 1 --prefix none | wc -l | tr -d ' ')" == 3 ]]
     ! git ls-files | rg '\.(a|so|xcframework|dylib)$'
     [[ "$(find backends/apple/Sources -type f \( -name '*.h' -o -name '*.modulemap' \) | sort)" == $'backends/apple/Sources/CSQLite/module.modulemap\nbackends/apple/Sources/CSQLite/shim.h\nbackends/apple/Sources/CVescBmsValues/include/CVescBmsValues.h\nbackends/apple/Sources/CVescBmsValues/module.modulemap\nbackends/apple/Sources/CVescCustomConfiguration/include/CVescCustomConfiguration.h\nbackends/apple/Sources/CVescCustomConfiguration/module.modulemap\nbackends/apple/Sources/CVescFirmwareIdentity/include/CVescFirmwareIdentity.h\nbackends/apple/Sources/CVescFirmwareIdentity/module.modulemap\nbackends/apple/Sources/CVescFrame/include/CVescFrame.h\nbackends/apple/Sources/CVescFrame/module.modulemap' ]]
+    just rust-bridge-build-tooling-audit
     just core-abi-audit
     just core-identity-abi-audit
     just core-custom-configuration-abi-audit

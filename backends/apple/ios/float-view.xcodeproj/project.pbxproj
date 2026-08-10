@@ -225,7 +225,8 @@
 				"$(PROJECT_DIR)/../../core/vesc-frame/Cargo.toml",
 				"$(PROJECT_DIR)/../../core/vesc-frame/src/lib.rs",
 				"$(PROJECT_DIR)/../../core/vesc-frame-apple-ffi/Cargo.toml",
-				"$(PROJECT_DIR)/../../core/vesc-frame-apple-ffi/build-apple.sh",
+				"$(PROJECT_DIR)/../../core/bridge-build-catalog.sh",
+				"$(PROJECT_DIR)/../../core/build-apple-bridge.sh",
 				"$(PROJECT_DIR)/../../core/vesc-frame-apple-ffi/src/lib.rs",
 			);
 			name = "Build Rust VESC frame codec";
@@ -236,7 +237,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/bash;
-			shellScript = "\"${PROJECT_DIR}/../../core/vesc-frame-apple-ffi/build-apple.sh\" \"${PLATFORM_NAME}\" \"${ARCHS}\" \"${CONFIGURATION}\" \"${DERIVED_FILE_DIR}\"\n";
+			shellScript = "\"${PROJECT_DIR}/../../core/build-apple-bridge.sh\" \"frame\" \"${PLATFORM_NAME}\" \"${ARCHS}\" \"${CONFIGURATION}\" \"${DERIVED_FILE_DIR}\"\n";
 		};
 		F30A00022F00000000000002 /* Build Rust VESC firmware identity */ = {
 			isa = PBXShellScriptBuildPhase;
@@ -251,7 +252,8 @@
 				"$(PROJECT_DIR)/../../core/vesc-firmware-identity/Cargo.toml",
 				"$(PROJECT_DIR)/../../core/vesc-firmware-identity/src/lib.rs",
 				"$(PROJECT_DIR)/../../core/vesc-firmware-identity-apple-ffi/Cargo.toml",
-				"$(PROJECT_DIR)/../../core/vesc-firmware-identity-apple-ffi/build-apple.sh",
+				"$(PROJECT_DIR)/../../core/bridge-build-catalog.sh",
+				"$(PROJECT_DIR)/../../core/build-apple-bridge.sh",
 				"$(PROJECT_DIR)/../../core/vesc-firmware-identity-apple-ffi/src/lib.rs",
 			);
 			name = "Build Rust VESC firmware identity";
@@ -262,7 +264,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/bash;
-			shellScript = "\"${PROJECT_DIR}/../../core/vesc-firmware-identity-apple-ffi/build-apple.sh\" \"${PLATFORM_NAME}\" \"${ARCHS}\" \"${CONFIGURATION}\" \"${DERIVED_FILE_DIR}\"\n";
+			shellScript = "\"${PROJECT_DIR}/../../core/build-apple-bridge.sh\" \"firmware-identity\" \"${PLATFORM_NAME}\" \"${ARCHS}\" \"${CONFIGURATION}\" \"${DERIVED_FILE_DIR}\"\n";
 		};
 		F30A00032F00000000000003 /* Build Rust VESC custom configuration */ = {
 			isa = PBXShellScriptBuildPhase;
@@ -277,7 +279,8 @@
 				"$(PROJECT_DIR)/../../core/vesc-custom-configuration/Cargo.toml",
 				"$(PROJECT_DIR)/../../core/vesc-custom-configuration/src/lib.rs",
 				"$(PROJECT_DIR)/../../core/vesc-custom-configuration-apple-ffi/Cargo.toml",
-				"$(PROJECT_DIR)/../../core/vesc-custom-configuration-apple-ffi/build-apple.sh",
+				"$(PROJECT_DIR)/../../core/bridge-build-catalog.sh",
+				"$(PROJECT_DIR)/../../core/build-apple-bridge.sh",
 				"$(PROJECT_DIR)/../../core/vesc-custom-configuration-apple-ffi/src/lib.rs",
 			);
 			name = "Build Rust VESC custom configuration";
@@ -288,7 +291,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/bash;
-			shellScript = "\"${PROJECT_DIR}/../../core/vesc-custom-configuration-apple-ffi/build-apple.sh\" \"${PLATFORM_NAME}\" \"${ARCHS}\" \"${CONFIGURATION}\" \"${DERIVED_FILE_DIR}\"\n";
+			shellScript = "\"${PROJECT_DIR}/../../core/build-apple-bridge.sh\" \"custom-configuration\" \"${PLATFORM_NAME}\" \"${ARCHS}\" \"${CONFIGURATION}\" \"${DERIVED_FILE_DIR}\"\n";
 		};
 		F30A00042F00000000000004 /* Build Rust VESC BMS values */ = {
 			isa = PBXShellScriptBuildPhase;
@@ -303,7 +306,8 @@
 				"$(PROJECT_DIR)/../../core/vesc-bms-values/Cargo.toml",
 				"$(PROJECT_DIR)/../../core/vesc-bms-values/src/lib.rs",
 				"$(PROJECT_DIR)/../../core/vesc-bms-values-apple-ffi/Cargo.toml",
-				"$(PROJECT_DIR)/../../core/vesc-bms-values-apple-ffi/build-apple.sh",
+				"$(PROJECT_DIR)/../../core/bridge-build-catalog.sh",
+				"$(PROJECT_DIR)/../../core/build-apple-bridge.sh",
 				"$(PROJECT_DIR)/../../core/vesc-bms-values-apple-ffi/src/lib.rs",
 			);
 			name = "Build Rust VESC BMS values";
@@ -314,7 +318,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/bash;
-			shellScript = "\"${PROJECT_DIR}/../../core/vesc-bms-values-apple-ffi/build-apple.sh\" \"${PLATFORM_NAME}\" \"${ARCHS}\" \"${CONFIGURATION}\" \"${DERIVED_FILE_DIR}\"\n";
+			shellScript = "\"${PROJECT_DIR}/../../core/build-apple-bridge.sh\" \"bms-values\" \"${PLATFORM_NAME}\" \"${ARCHS}\" \"${CONFIGURATION}\" \"${DERIVED_FILE_DIR}\"\n";
 		};
 /* End PBXShellScriptBuildPhase section */
 

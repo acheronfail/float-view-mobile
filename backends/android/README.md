@@ -10,6 +10,9 @@ bounded caller-owned storage, primitive-result validation, error mapping,
 observation-time attachment, and the remaining VESC, BMS application, and
 Refloat semantics. Apple integration is unchanged; there is no generated API
 or Gradle module per capability.
+All four JNI crates remain separate. Gradle selects each one by stable bridge
+identifier through the shared allowlisted Android builder in `../core/`, while
+retaining bridge-specific inputs, outputs, libraries, and task names.
 
 Production Kotlin lives under
 `app/src/main/java/fail/acheron/floatview/`:

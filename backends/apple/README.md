@@ -8,6 +8,10 @@ Swift retains only bounded caller-owned stream bytes and mechanical consumption
 of Rust-returned regions alongside VESC payload interpretation/routing,
 Refloat, application behavior, and every OS-owned capability. There is no
 generated API, Rust stream handle, or Swift production framing fallback.
+All four focused Rust bridge crates remain separate. SwiftPM recipes and the
+four Xcode phases select them through the shared allowlisted Apple builder in
+`../core/`, so bridge-specific ABI code is not coupled to duplicated build
+scripts.
 
 SwiftPM and Xcode use one shared implementation root and two sibling platform
 host roots:

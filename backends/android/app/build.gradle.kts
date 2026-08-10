@@ -4,21 +4,16 @@ plugins {
 }
 
 val rustCoreDirectory = rootProject.file("../core")
-val rustAndroidHelper = rustCoreDirectory.resolve("vesc-frame-android-jni/build-android.sh")
+val rustAndroidHelper = rustCoreDirectory.resolve("build-android-bridge.sh")
+val rustBridgeCatalog = rustCoreDirectory.resolve("bridge-build-catalog.sh")
 val rustAndroidOutputs = rustCoreDirectory.resolve("target/android/jniLibs")
 val rustHostOutputs = rustCoreDirectory.resolve("target/android/host/debug")
-val rustIdentityAndroidHelper =
-    rustCoreDirectory.resolve("vesc-firmware-identity-android-jni/build-android.sh")
 val rustIdentityAndroidOutputs = rustCoreDirectory.resolve("target/android/identityJniLibs")
 val rustIdentityHostOutputs = rustCoreDirectory.resolve("target/android/identity-host/debug")
-val rustCustomConfigurationAndroidHelper =
-    rustCoreDirectory.resolve("vesc-custom-configuration-android-jni/build-android.sh")
 val rustCustomConfigurationAndroidOutputs =
     rustCoreDirectory.resolve("target/android/customConfigurationJniLibs")
 val rustCustomConfigurationHostOutputs =
     rustCoreDirectory.resolve("target/android/custom-configuration-host/debug")
-val rustBmsValuesAndroidHelper =
-    rustCoreDirectory.resolve("vesc-bms-values-android-jni/build-android.sh")
 val rustBmsValuesAndroidOutputs =
     rustCoreDirectory.resolve("target/android/bmsValuesJniLibs")
 val rustBmsValuesHostOutputs =
@@ -60,6 +55,7 @@ fun registerAndroidRustBuild(profile: String) = tasks.register<Exec>(
     workingDir(rootProject.projectDir)
     commandLine(
         rustAndroidHelper.absolutePath,
+        "frame",
         "android-all",
         profile,
         rustAndroidOutputs.resolve(profile).absolutePath,
@@ -73,6 +69,7 @@ fun registerAndroidRustBuild(profile: String) = tasks.register<Exec>(
         fileTree(rustCoreDirectory.resolve("vesc-frame/src")),
         fileTree(rustCoreDirectory.resolve("vesc-frame-android-jni/src")),
         rustAndroidHelper,
+        rustBridgeCatalog,
     )
     outputs.dir(rustAndroidOutputs.resolve(profile))
 }
@@ -87,7 +84,8 @@ fun registerAndroidRustIdentityBuild(profile: String) = tasks.register<Exec>(
     description = "Builds the four source-owned Android Rust identity JNI libraries for $profile."
     workingDir(rootProject.projectDir)
     commandLine(
-        rustIdentityAndroidHelper.absolutePath,
+        rustAndroidHelper.absolutePath,
+        "firmware-identity",
         "android-all",
         profile,
         rustIdentityAndroidOutputs.resolve(profile).absolutePath,
@@ -100,7 +98,8 @@ fun registerAndroidRustIdentityBuild(profile: String) = tasks.register<Exec>(
         rustCoreDirectory.resolve("vesc-firmware-identity-android-jni/Cargo.toml"),
         fileTree(rustCoreDirectory.resolve("vesc-firmware-identity/src")),
         fileTree(rustCoreDirectory.resolve("vesc-firmware-identity-android-jni/src")),
-        rustIdentityAndroidHelper,
+        rustAndroidHelper,
+        rustBridgeCatalog,
     )
     outputs.dir(rustIdentityAndroidOutputs.resolve(profile))
 }
@@ -115,7 +114,8 @@ fun registerAndroidRustCustomConfigurationBuild(profile: String) = tasks.registe
     description = "Builds the four source-owned Android Rust custom-configuration JNI libraries for $profile."
     workingDir(rootProject.projectDir)
     commandLine(
-        rustCustomConfigurationAndroidHelper.absolutePath,
+        rustAndroidHelper.absolutePath,
+        "custom-configuration",
         "android-all",
         profile,
         rustCustomConfigurationAndroidOutputs.resolve(profile).absolutePath,
@@ -128,7 +128,8 @@ fun registerAndroidRustCustomConfigurationBuild(profile: String) = tasks.registe
         rustCoreDirectory.resolve("vesc-custom-configuration-android-jni/Cargo.toml"),
         fileTree(rustCoreDirectory.resolve("vesc-custom-configuration/src")),
         fileTree(rustCoreDirectory.resolve("vesc-custom-configuration-android-jni/src")),
-        rustCustomConfigurationAndroidHelper,
+        rustAndroidHelper,
+        rustBridgeCatalog,
     )
     outputs.dir(rustCustomConfigurationAndroidOutputs.resolve(profile))
 }
@@ -145,7 +146,8 @@ fun registerAndroidRustBmsValuesBuild(profile: String) = tasks.register<Exec>(
     description = "Builds the four source-owned Android Rust BMS-values JNI libraries for $profile."
     workingDir(rootProject.projectDir)
     commandLine(
-        rustBmsValuesAndroidHelper.absolutePath,
+        rustAndroidHelper.absolutePath,
+        "bms-values",
         "android-all",
         profile,
         rustBmsValuesAndroidOutputs.resolve(profile).absolutePath,
@@ -158,7 +160,8 @@ fun registerAndroidRustBmsValuesBuild(profile: String) = tasks.register<Exec>(
         rustCoreDirectory.resolve("vesc-bms-values-android-jni/Cargo.toml"),
         fileTree(rustCoreDirectory.resolve("vesc-bms-values/src")),
         fileTree(rustCoreDirectory.resolve("vesc-bms-values-android-jni/src")),
-        rustBmsValuesAndroidHelper,
+        rustAndroidHelper,
+        rustBridgeCatalog,
     )
     outputs.dir(rustBmsValuesAndroidOutputs.resolve(profile))
 }
@@ -171,6 +174,7 @@ val buildAndroidRustHost by tasks.registering(Exec::class) {
     workingDir(rootProject.projectDir)
     commandLine(
         rustAndroidHelper.absolutePath,
+        "frame",
         "host",
         "debug",
         rustHostOutputs.absolutePath,
@@ -184,6 +188,7 @@ val buildAndroidRustHost by tasks.registering(Exec::class) {
         fileTree(rustCoreDirectory.resolve("vesc-frame/src")),
         fileTree(rustCoreDirectory.resolve("vesc-frame-android-jni/src")),
         rustAndroidHelper,
+        rustBridgeCatalog,
     )
     outputs.file(rustHostLibrary)
 }
@@ -192,7 +197,8 @@ val buildAndroidRustIdentityHost by tasks.registering(Exec::class) {
     description = "Builds the exact source-owned host identity JNI library used by JVM tests."
     workingDir(rootProject.projectDir)
     commandLine(
-        rustIdentityAndroidHelper.absolutePath,
+        rustAndroidHelper.absolutePath,
+        "firmware-identity",
         "host",
         "debug",
         rustIdentityHostOutputs.absolutePath,
@@ -205,7 +211,8 @@ val buildAndroidRustIdentityHost by tasks.registering(Exec::class) {
         rustCoreDirectory.resolve("vesc-firmware-identity-android-jni/Cargo.toml"),
         fileTree(rustCoreDirectory.resolve("vesc-firmware-identity/src")),
         fileTree(rustCoreDirectory.resolve("vesc-firmware-identity-android-jni/src")),
-        rustIdentityAndroidHelper,
+        rustAndroidHelper,
+        rustBridgeCatalog,
     )
     outputs.file(rustIdentityHostLibrary)
 }
@@ -214,7 +221,8 @@ val buildAndroidRustCustomConfigurationHost by tasks.registering(Exec::class) {
     description = "Builds the exact source-owned host custom-configuration JNI library used by JVM tests."
     workingDir(rootProject.projectDir)
     commandLine(
-        rustCustomConfigurationAndroidHelper.absolutePath,
+        rustAndroidHelper.absolutePath,
+        "custom-configuration",
         "host",
         "debug",
         rustCustomConfigurationHostOutputs.absolutePath,
@@ -227,7 +235,8 @@ val buildAndroidRustCustomConfigurationHost by tasks.registering(Exec::class) {
         rustCoreDirectory.resolve("vesc-custom-configuration-android-jni/Cargo.toml"),
         fileTree(rustCoreDirectory.resolve("vesc-custom-configuration/src")),
         fileTree(rustCoreDirectory.resolve("vesc-custom-configuration-android-jni/src")),
-        rustCustomConfigurationAndroidHelper,
+        rustAndroidHelper,
+        rustBridgeCatalog,
     )
     outputs.file(rustCustomConfigurationHostLibrary)
 }
@@ -236,7 +245,8 @@ val buildAndroidRustBmsValuesHost by tasks.registering(Exec::class) {
     description = "Builds the exact source-owned host BMS-values JNI library used by JVM tests."
     workingDir(rootProject.projectDir)
     commandLine(
-        rustBmsValuesAndroidHelper.absolutePath,
+        rustAndroidHelper.absolutePath,
+        "bms-values",
         "host",
         "debug",
         rustBmsValuesHostOutputs.absolutePath,
@@ -249,7 +259,8 @@ val buildAndroidRustBmsValuesHost by tasks.registering(Exec::class) {
         rustCoreDirectory.resolve("vesc-bms-values-android-jni/Cargo.toml"),
         fileTree(rustCoreDirectory.resolve("vesc-bms-values/src")),
         fileTree(rustCoreDirectory.resolve("vesc-bms-values-android-jni/src")),
-        rustBmsValuesAndroidHelper,
+        rustAndroidHelper,
+        rustBridgeCatalog,
     )
     outputs.file(rustBmsValuesHostLibrary)
 }
