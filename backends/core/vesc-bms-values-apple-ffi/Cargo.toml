@@ -1,0 +1,13 @@
+[package]
+name = "float-view-vesc-bms-values-apple-ffi"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+
+[lib]
+crate-type = ["staticlib", "rlib"]
+path = "src/lib.rs"
+
+[dependencies]
+float-view-vesc-bms-values = { path = "../vesc-bms-values" }

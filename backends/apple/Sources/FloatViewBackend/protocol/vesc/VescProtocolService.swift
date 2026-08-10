@@ -70,10 +70,6 @@ private struct ByteReader {
   let bytes: [UInt8]
   var offset = 0
 
-  var remaining: Int {
-    bytes.count - offset
-  }
-
   mutating func u8() throws -> UInt8 {
     guard offset < bytes.count else { throw VescProtocolError.truncatedPayload }
     defer { offset += 1 }
@@ -115,18 +111,6 @@ private struct ByteReader {
     offset += count
   }
 
-  mutating func terminatedUTF8(maxContentBytes: Int) throws -> String {
-    let start = offset
-    let searchEnd = min(bytes.count, start + maxContentBytes + 1)
-    guard let terminator = bytes[start ..< searchEnd].firstIndex(of: 0) else {
-      throw VescProtocolError.truncatedPayload
-    }
-    guard let value = String(bytes: bytes[start ..< terminator], encoding: .utf8) else {
-      throw VescProtocolError.truncatedPayload
-    }
-    offset = terminator + 1
-    return value
-  }
 }
 
 public enum VescPayloadDecoder {
@@ -173,95 +157,8 @@ public enum VescPayloadDecoder {
   public static func bmsValues(
     _ payload: [UInt8], expectedCanID: UInt8? = nil, observedAt: Date
   ) throws -> BmsSnapshot {
-    var reader = ByteReader(bytes: payload)
-    let command = try reader.u8()
-    guard command == VescCommand.bmsGetValues.rawValue else {
-      throw VescProtocolError.unsupportedCommand(command)
-    }
-
-    let totalVoltage = try reader.i32(scale: 1_000_000)
-    let chargeVoltage = try reader.i32(scale: 1_000_000)
-    let inputCurrent = try reader.i32(scale: 1_000_000)
-    let inputICCurrent = try reader.i32(scale: 1_000_000)
-    let sessionAmpHours = try reader.i32(scale: 1_000)
-    let sessionWattHours = try reader.i32(scale: 1_000)
-
-    let cellCount = try Int(reader.u8())
-    guard cellCount <= 50 else { throw VescProtocolError.truncatedPayload }
-    var cellVoltages: [Double] = []
-    cellVoltages.reserveCapacity(cellCount)
-    for _ in 0 ..< cellCount {
-      try cellVoltages.append(reader.i16(scale: 1_000))
-    }
-
-    var balancing: [Bool] = []
-    balancing.reserveCapacity(cellCount)
-    for _ in 0 ..< cellCount {
-      let flag = try reader.u8()
-      guard flag <= 1 else { throw VescProtocolError.truncatedPayload }
-      balancing.append(flag == 1)
-    }
-
-    let temperatureCount = try Int(reader.u8())
-    guard temperatureCount <= 50 else { throw VescProtocolError.truncatedPayload }
-    var temperatures: [Double] = []
-    temperatures.reserveCapacity(temperatureCount)
-    for _ in 0 ..< temperatureCount {
-      try temperatures.append(reader.i16(scale: 100))
-    }
-
-    let icTemperature = try reader.i16(scale: 100)
-    let humiditySensorTemperature = try reader.i16(scale: 100)
-    let humidity = try reader.i16(scale: 100)
-    let highestCellTemperature = try reader.i16(scale: 100)
-    let stateOfCharge = try reader.i16(scale: 1_000)
-    let stateOfHealth = try reader.i16(scale: 1_000)
-    let reportedCanID = try reader.u8()
-    guard reportedCanID <= 253, expectedCanID == nil || reportedCanID == expectedCanID else {
-      throw VescProtocolError.truncatedPayload
-    }
-    let lifetimeChargeAmpHours = try reader.float32Auto()
-    let lifetimeChargeWattHours = try reader.float32Auto()
-    let lifetimeDischargeAmpHours = try reader.float32Auto()
-    let lifetimeDischargeWattHours = try reader.float32Auto()
-    let pressure = try reader.i16(scale: 0.1)
-
-    let dataVersion: UInt8?
-    let status: String?
-    if reader.remaining == 0 {
-      dataVersion = nil
-      status = nil
-    } else {
-      dataVersion = try reader.u8()
-      status = try reader.terminatedUTF8(maxContentBytes: 40)
-      guard reader.remaining == 0 else { throw VescProtocolError.truncatedPayload }
-    }
-
-    let numericValues = [
-      totalVoltage, chargeVoltage, inputCurrent, inputICCurrent,
-      sessionAmpHours, sessionWattHours, icTemperature,
-      humiditySensorTemperature, humidity, highestCellTemperature,
-      stateOfCharge, stateOfHealth, lifetimeChargeAmpHours,
-      lifetimeChargeWattHours, lifetimeDischargeAmpHours,
-      lifetimeDischargeWattHours, pressure,
-    ] + cellVoltages + temperatures
-    guard numericValues.allSatisfy(\.isFinite) else {
-      throw VescProtocolError.truncatedPayload
-    }
-
-    return BmsSnapshot(
-      observedAt: observedAt, totalVoltageV: totalVoltage, chargeVoltageV: chargeVoltage,
-      inputCurrentA: inputCurrent, inputICCurrentA: inputICCurrent,
-      sessionAmpHoursAh: sessionAmpHours, sessionWattHoursWh: sessionWattHours,
-      cellVoltagesV: cellVoltages, balancing: balancing, temperaturesC: temperatures,
-      icTemperatureC: icTemperature, humiditySensorTemperatureC: humiditySensorTemperature,
-      humidityPercent: humidity, highestCellTemperatureC: highestCellTemperature,
-      stateOfCharge: stateOfCharge, stateOfHealth: stateOfHealth,
-      reportedCanID: reportedCanID, lifetimeChargeAmpHoursAh: lifetimeChargeAmpHours,
-      lifetimeChargeWattHoursWh: lifetimeChargeWattHours,
-      lifetimeDischargeAmpHoursAh: lifetimeDischargeAmpHours,
-      lifetimeDischargeWattHoursWh: lifetimeDischargeWattHours, pressurePa: pressure,
-      dataVersion: dataVersion, status: status
+    try VescBmsValuesDecoder.decode(
+      payload, expectedCanID: expectedCanID, observedAt: observedAt
     )
   }
 

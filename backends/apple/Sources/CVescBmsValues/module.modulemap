@@ -1,0 +1,4 @@
+module CVescBmsValues [system] {
+  header "include/CVescBmsValues.h"
+  export *
+}

@@ -4,11 +4,12 @@
 ownership. It is a locked Cargo workspace, not another backend and not a
 production runtime.
 
-The workspace currently has ten members:
+The workspace currently has eleven members:
 
 | Component               | Scope                                                                 | Integration state                                                                             |
 | ----------------------- | --------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
-| `vesc-bms-values/`       | Safe bounded VESC command-96 BMS values decoding                     | Candidate only; Swift and Kotlin remain the selected production decoders                      |
+| `vesc-bms-values/`       | Safe bounded VESC command-96 BMS values decoding                     | Selected by the shared Apple backend; Kotlin remains Android's production decoder             |
+| `vesc-bms-values-apple-ffi/` | Two-symbol caller-owned-buffer C ABI for BMS values              | Selected only by the shared iOS/macOS adapter                                                  |
 | `vesc-custom-configuration/` | Safe bounded VESC commands 92–95 envelope encoding and decoding  | Selected by Apple and Android through separate host bridges                                   |
 | `vesc-custom-configuration-apple-ffi/` | Three-symbol caller-owned-buffer C ABI for commands 92–95 | Selected only by the shared iOS/macOS adapter                                                  |
 | `vesc-custom-configuration-android-jni/` | Three-symbol primitive-array JNI ABI for commands 92–95 | Selected only by Android                                                                       |
@@ -38,10 +39,11 @@ values as opaque caller-owned bytes. Separate Apple and Android bridges expose
 only fixed metadata and caller-owned regions; schema and typed-value semantics
 remain native.
 
-The BMS values candidate decodes only the bounded command-96 payload into a
-platform-neutral fixed-capacity model. It has no host bridge or production call
-site; BMS compatibility, discovery, routing, scheduling, polling, observation
-time, application state, and live-only policy remain native.
+The BMS values component decodes only the bounded command-96 payload into a
+platform-neutral fixed-capacity model. The shared Apple adapter selects it
+through a separate caller-owned-record bridge; Android remains on Kotlin. BMS
+compatibility, discovery, routing, scheduling, polling, observation time,
+application state, and live-only policy remain native.
 
 Do not add empty future crates, generated bindings, a general runtime, host
 callbacks, or OS-owned Bluetooth, location, lifecycle, permission, native-file,

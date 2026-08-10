@@ -103,6 +103,30 @@ private func boundedBmsPayload(
   return payload
 }
 
+private func bmsBridgeRecord(
+  cells: [Double] = [], balancing: [UInt8] = [], temperatures: [Double] = [],
+  extended: (UInt8, [UInt8])? = nil
+) -> [UInt8] {
+  precondition(cells.count == balancing.count)
+  var record: [UInt8] = [
+    1, extended == nil ? 0 : 1, UInt8(cells.count), UInt8(temperatures.count),
+    42, extended?.0 ?? 0, UInt8(extended?.1.count ?? 0), 0,
+  ]
+  for value in Array(repeating: 0.0, count: 17) + cells {
+    record += u64Bytes(value.bitPattern)
+  }
+  record += balancing
+  for value in temperatures {
+    record += u64Bytes(value.bitPattern)
+  }
+  record += extended?.1 ?? []
+  return record
+}
+
+private func u64Bytes(_ value: UInt64) -> [UInt8] {
+  (0 ..< 8).map { shift in UInt8(truncatingIfNeeded: value >> UInt64((7 - shift) * 8)) }
+}
+
 private func bytes(_ hex: String) -> [UInt8] {
   stride(from: 0, to: hex.count, by: 2).map {
     let start = hex.index(hex.startIndex, offsetBy: $0)
@@ -436,6 +460,65 @@ private func bytes(_ hex: String) -> [UInt8] {
   #expect(maximum.balancing.count == 50)
   #expect(maximum.temperaturesC.count == 50)
   #expect(maximum.status?.utf8.count == 40)
+}
+
+@Test func bmsRustBridgeRejectsInvalidABIAndResultRecords() throws {
+  #expect(throws: VescProtocolError.self) {
+    try VescBmsValuesDecoder.requireCompatibleABI(2)
+  }
+
+  let observedAt = Date(timeIntervalSince1970: 123)
+  let valid = bmsBridgeRecord()
+  #expect(try VescBmsValuesDecoder.snapshot(from: valid, observedAt: observedAt).observedAt == observedAt)
+
+  var invalidRecords: [[UInt8]] = []
+  var invalid = valid
+  invalid[0] = 2
+  invalidRecords.append(invalid)
+  invalid = valid
+  invalid[1] = 2
+  invalidRecords.append(invalid)
+  invalid = valid
+  invalid[2] = 51
+  invalidRecords.append(invalid)
+  invalid = valid
+  invalid[3] = 51
+  invalidRecords.append(invalid)
+  invalid = valid
+  invalid[4] = 254
+  invalidRecords.append(invalid)
+  invalid = valid
+  invalid[5] = 1
+  invalidRecords.append(invalid)
+  invalid = valid
+  invalid[6] = 1
+  invalidRecords.append(invalid)
+  invalid = valid
+  invalid[7] = 1
+  invalidRecords.append(invalid)
+  invalid = valid + [0]
+  invalidRecords.append(invalid)
+  invalid = valid
+  invalid.replaceSubrange(8 ..< 16, with: u64Bytes(Double.infinity.bitPattern))
+  invalidRecords.append(invalid)
+
+  var invalidBoolean = bmsBridgeRecord(cells: [4.2], balancing: [2])
+  #expect(throws: VescProtocolError.self) {
+    try VescBmsValuesDecoder.snapshot(from: invalidBoolean, observedAt: observedAt)
+  }
+  invalidBoolean = bmsBridgeRecord(extended: (7, [0xFF]))
+  invalidRecords.append(invalidBoolean)
+
+  for record in invalidRecords {
+    #expect(throws: VescProtocolError.self) {
+      try VescBmsValuesDecoder.snapshot(from: record, observedAt: observedAt)
+    }
+  }
+
+  let extended = bmsBridgeRecord(extended: (7, []))
+  let snapshot = try VescBmsValuesDecoder.snapshot(from: extended, observedAt: observedAt)
+  #expect(snapshot.dataVersion == 7)
+  #expect(snapshot.status == "")
 }
 
 @Test func malformedBmsValuesNeverPublishPartialSnapshots() throws {

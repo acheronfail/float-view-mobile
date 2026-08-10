@@ -7,6 +7,13 @@ name = "float-view-vesc-bms-values"
 version = "0.1.0"
 
 [[package]]
+name = "float-view-vesc-bms-values-apple-ffi"
+version = "0.1.0"
+dependencies = [
+ "float-view-vesc-bms-values",
+]
+
+[[package]]
 name = "float-view-vesc-custom-configuration"
 version = "0.1.0"
 
