@@ -3,6 +3,10 @@
 version = 4
 
 [[package]]
+name = "float-view-vesc-bms-values"
+version = "0.1.0"
+
+[[package]]
 name = "float-view-vesc-custom-configuration"
 version = "0.1.0"
 
