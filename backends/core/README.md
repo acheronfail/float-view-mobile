@@ -4,13 +4,14 @@
 ownership. It is a locked Cargo workspace, not another backend and not a
 production runtime.
 
-The workspace currently has eighteen members:
+The workspace currently has nineteen members:
 
 | Component               | Scope                                                                 | Integration state                                                                             |
 | ----------------------- | --------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
 | `refloat-control/`       | Safe bounded Refloat live-control payload encoding and lighting response decoding | Selected by Apple and Android through separate host bridges                         |
 | `refloat-control-apple-ffi/` | Three-symbol caller-owned-buffer C ABI for Refloat controls              | Selected only by the shared iOS/macOS adapter                                       |
 | `refloat-control-android-jni/` | Three-symbol primitive-array JNI ABI for Refloat controls             | Selected only by Android                                                            |
+| `refloat-legacy-telemetry/` | Safe bounded Refloat command-10 compact telemetry decoding | Unselected candidate; Swift and Kotlin remain production owners |
 | `vesc-bms-values/`       | Safe bounded VESC command-96 BMS values decoding                     | Selected by Apple and Android through separate host bridges                                    |
 | `vesc-bms-values-android-jni/` | Two-symbol primitive-array JNI ABI for BMS values              | Selected only by Android                                                                       |
 | `vesc-bms-values-apple-ffi/` | Two-symbol caller-owned-buffer C ABI for BMS values              | Selected only by the shared iOS/macOS adapter                                                  |
@@ -27,7 +28,8 @@ The workspace currently has eighteen members:
 | `vesc-frame-apple-ffi/`   | Caller-owned-buffer C ABI                                             | Selected only by the shared iOS/macOS frame-codec adapter                       |
 | `vesc-frame-android-jni/` | Primitive-array JNI ABI                                              | Selected by Android for CRC, encoding, exact decoding, and stream-boundary scans |
 
-The eighteen crates remain independent components and artifacts. Their repeated
+The nineteen crates remain independent components and artifacts. The six
+selected component families' repeated
 source-build mechanics are centralized in `build-apple-bridge.sh` and
 `build-android-bridge.sh`, driven by the closed six-entry
 `bridge-build-catalog.sh` allowlist. Callers pass only `frame`,
@@ -74,6 +76,12 @@ VESC realtime values and the current-limit subset of motor configuration.
 Apple and Android select it through separate tagged caller-owned-record bridges.
 Both hosts retain request construction,
 direct/CAN routing, scheduling, and model mapping until later cutovers.
+
+The Refloat legacy telemetry candidate decodes complete fixed-layout command-10
+detail levels and active-fault responses into allocation-free values. It has no
+bridge or packaged artifact, and both hosts retain compatibility, polling,
+cache merging, application mapping, persistence, and the selected native
+decoder until separate cutovers.
 
 Do not add empty future crates, generated bindings, a general runtime, host
 callbacks, or OS-owned Bluetooth, location, lifecycle, permission, native-file,

@@ -797,6 +797,7 @@ audit:
     [[ -f backends/core/refloat-control/Cargo.toml ]]
     [[ -f backends/core/refloat-control-android-jni/Cargo.toml ]]
     [[ -f backends/core/refloat-control-apple-ffi/Cargo.toml ]]
+    [[ -f backends/core/refloat-legacy-telemetry/Cargo.toml ]]
     [[ -f backends/core/vesc-bms-values/Cargo.toml ]]
     [[ -f backends/core/vesc-bms-values-android-jni/Cargo.toml ]]
     [[ -f backends/core/vesc-bms-values-apple-ffi/Cargo.toml ]]
@@ -823,7 +824,7 @@ audit:
     [[ -f backends/apple/Sources/CVescRefloatControl/module.modulemap ]]
     unexpected_core="$(find backends/core -mindepth 1 -maxdepth 1 -type d \
       ! -name target ! -name refloat-control ! -name refloat-control-android-jni \
-      ! -name refloat-control-apple-ffi \
+      ! -name refloat-control-apple-ffi ! -name refloat-legacy-telemetry \
       ! -name vesc-bms-values ! -name vesc-bms-values-android-jni \
       ! -name vesc-bms-values-apple-ffi \
       ! -name vesc-controller-data ! -name vesc-controller-data-android-jni \
@@ -844,6 +845,8 @@ audit:
       ! -name src -print -quit)" == "" ]]
     [[ "$(find backends/core/refloat-control-apple-ffi -mindepth 1 -maxdepth 1 -type d \
       ! -name src ! -name tests -print -quit)" == "" ]]
+    [[ "$(find backends/core/refloat-legacy-telemetry -mindepth 1 -maxdepth 1 -type d \
+      ! -name src -print -quit)" == "" ]]
     [[ "$(find backends/core/vesc-bms-values -mindepth 1 -maxdepth 1 -type d \
       ! -name src -print -quit)" == "" ]]
     [[ "$(find backends/core/vesc-bms-values-android-jni -mindepth 1 -maxdepth 1 -type d \
@@ -882,6 +885,16 @@ audit:
       backends/android
     ! rg -n 'refloat-control-android-jni|RustRefloatControlBridge|float_view_refloat_control_android_jni' \
       backends/apple
+    rg -q '^#!\[forbid\(unsafe_code\)\]$' \
+      backends/core/refloat-legacy-telemetry/src/lib.rs
+    ! rg -n 'extern[[:space:]]+"C"|no_mangle|cbindgen|uniffi|jni|host_callback' \
+      backends/core/refloat-legacy-telemetry
+    ! rg -n 'refloat-legacy-telemetry|RustRefloatLegacyTelemetry|CVescRefloatLegacyTelemetry' \
+      backends/apple backends/android
+    [[ "$(rg -c 'RefloatLegacyTelemetryDecoder\.decode' \
+      backends/apple/Sources/FloatViewBackend/protocol/vesc/VescProtocolService.swift)" == 1 ]]
+    [[ "$(rg -c 'RefloatLegacyTelemetryDecoder\.decode' \
+      backends/android/app/src/main/java/fail/acheron/floatview/protocol/vesc/VescProtocolService.kt)" == 1 ]]
     ! rg -n 'extern[[:space:]]+"C"|no_mangle|cbindgen|uniffi|jni|host_callback' \
       backends/core/vesc-frame
     rg -q '^#!\[forbid\(unsafe_code\)\]$' \
@@ -931,6 +944,7 @@ audit:
     [[ "$(cd backends/core && cargo tree --locked --package float-view-refloat-control --edges normal --prefix none | wc -l | tr -d ' ')" == 1 ]]
     [[ "$(cd backends/core && cargo tree --locked --package float-view-refloat-control-apple-ffi --edges normal --depth 1 --prefix none | wc -l | tr -d ' ')" == 2 ]]
     [[ "$(cd backends/core && cargo tree --locked --package float-view-refloat-control-android-jni --edges normal --depth 1 --prefix none | wc -l | tr -d ' ')" == 3 ]]
+    [[ "$(cd backends/core && cargo tree --locked --package float-view-refloat-legacy-telemetry --edges normal --prefix none | wc -l | tr -d ' ')" == 1 ]]
     [[ "$(cd backends/core && cargo tree --locked --package float-view-vesc-firmware-identity --edges normal --prefix none | wc -l | tr -d ' ')" == 1 ]]
     [[ "$(cd backends/core && cargo tree --locked --package float-view-vesc-bms-values --edges normal --prefix none | wc -l | tr -d ' ')" == 1 ]]
     [[ "$(cd backends/core && cargo tree --locked --package float-view-vesc-bms-values-apple-ffi --edges normal --depth 1 --prefix none | wc -l | tr -d ' ')" == 2 ]]
