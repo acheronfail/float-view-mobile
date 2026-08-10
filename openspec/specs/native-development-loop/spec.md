@@ -126,12 +126,12 @@ Root `just` build, test, verification, run, and development paths that compile t
 
 The repository SHALL build the Android Rust frame-codec JNI library from the committed workspace and lockfile with the pinned Rust toolchain, locked dependency resolution, and the pinned Android NDK. It SHALL support the host JVM architecture used by Android local unit tests plus every Android ABI packaged by the application, without committing native libraries, generating bindings, adding a native Gradle module, or downloading toolchains during an Android build.
 
-Root `just` and Gradle build, test, verification, run, and development paths that compile or execute the Android backend SHALL build the matching Rust target and configuration before Kotlin compilation, local JVM test execution, application packaging, or launch. Missing Rust targets, NDK/linker mismatches, stale or absent libraries, ABI-version drift, unexpected JNI symbols, unsupported architecture sets, and load/link failures SHALL stop with actionable diagnostics rather than selecting Kotlin behavior or an older artifact.
+Root `just` and Gradle build, test, verification, run, and development paths that compile or execute the Android backend SHALL build the matching Rust target and configuration before Kotlin compilation, local JVM test execution, application packaging, or launch. Missing Rust targets, NDK/linker mismatches, stale or absent libraries, ABI-version drift, unexpected JNI symbols, unsupported architecture sets, and load/link failures SHALL stop with actionable diagnostics rather than selecting Kotlin behavior or an older artifact. The source and symbol audits SHALL require the version, encode, exact-decode, and stream-scan entry points and SHALL reject a Kotlin framing algorithm or unapproved JNI application symbol.
 
 #### Scenario: Run Android local unit tests
 
 - **WHEN** Gradle runs the Android host-JVM unit-test suite from a clean ignored-artifact state
-- **THEN** it first builds and loads the matching host Rust JNI library and every Kotlin codec-dependent test executes the selected Rust encode and exact-decode path
+- **THEN** it first builds and loads the matching host Rust JNI library and every Kotlin codec-dependent test executes the selected Rust encode, exact-decode, and stream-scan paths
 
 #### Scenario: Build Android Debug and Release applications
 
@@ -145,5 +145,5 @@ Root `just` and Gradle build, test, verification, run, and development paths tha
 
 #### Scenario: Audit Android native artifacts
 
-- **WHEN** repository verification inspects tracked files, generated libraries, and packaged APK contents
-- **THEN** no native binary or generated binding is tracked and the JNI library exports exactly its approved ABI-version, encode, and exact-decode application entry points for each architecture
+- **WHEN** repository verification inspects tracked files, generated libraries, source ownership, and packaged APK contents
+- **THEN** no native binary or generated binding is tracked, Kotlin contains no framing decision algorithm, and the JNI library exports exactly its approved ABI-version, encode, exact-decode, and stream-scan application entry points for each architecture
