@@ -1,7 +1,6 @@
 //! Strict, bounded decoding for VESC `COMM_FW_VERSION` identity payloads.
 //!
-//! This crate is an isolated candidate. Native Apple and Android decoders
-//! remain the selected production owners until separate host cutovers.
+//! Native hosts select this component through their separate audited bridges.
 
 #![forbid(unsafe_code)]
 

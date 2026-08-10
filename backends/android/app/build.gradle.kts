@@ -7,11 +7,22 @@ val rustCoreDirectory = rootProject.file("../core")
 val rustAndroidHelper = rustCoreDirectory.resolve("vesc-frame-android-jni/build-android.sh")
 val rustAndroidOutputs = rustCoreDirectory.resolve("target/android/jniLibs")
 val rustHostOutputs = rustCoreDirectory.resolve("target/android/host/debug")
+val rustIdentityAndroidHelper =
+    rustCoreDirectory.resolve("vesc-firmware-identity-android-jni/build-android.sh")
+val rustIdentityAndroidOutputs = rustCoreDirectory.resolve("target/android/identityJniLibs")
+val rustIdentityHostOutputs = rustCoreDirectory.resolve("target/android/identity-host/debug")
 val rustHostLibrary = rustHostOutputs.resolve(
     if (System.getProperty("os.name").lowercase().contains("mac")) {
         "libfloat_view_vesc_frame_android_jni.dylib"
     } else {
         "libfloat_view_vesc_frame_android_jni.so"
+    }
+)
+val rustIdentityHostLibrary = rustIdentityHostOutputs.resolve(
+    if (System.getProperty("os.name").lowercase().contains("mac")) {
+        "libfloat_view_vesc_firmware_identity_android_jni.dylib"
+    } else {
+        "libfloat_view_vesc_firmware_identity_android_jni.so"
     }
 )
 
@@ -42,6 +53,34 @@ fun registerAndroidRustBuild(profile: String) = tasks.register<Exec>(
 
 val buildAndroidRustDebug = registerAndroidRustBuild("debug")
 val buildAndroidRustRelease = registerAndroidRustBuild("release")
+
+fun registerAndroidRustIdentityBuild(profile: String) = tasks.register<Exec>(
+    "buildAndroidRustIdentity${profile.replaceFirstChar(Char::uppercase)}"
+) {
+    group = "build"
+    description = "Builds the four source-owned Android Rust identity JNI libraries for $profile."
+    workingDir(rootProject.projectDir)
+    commandLine(
+        rustIdentityAndroidHelper.absolutePath,
+        "android-all",
+        profile,
+        rustIdentityAndroidOutputs.resolve(profile).absolutePath,
+    )
+    inputs.files(
+        rustCoreDirectory.resolve("Cargo.toml"),
+        rustCoreDirectory.resolve("Cargo.lock"),
+        rustCoreDirectory.resolve("rust-toolchain.toml"),
+        rustCoreDirectory.resolve("vesc-firmware-identity/Cargo.toml"),
+        rustCoreDirectory.resolve("vesc-firmware-identity-android-jni/Cargo.toml"),
+        fileTree(rustCoreDirectory.resolve("vesc-firmware-identity/src")),
+        fileTree(rustCoreDirectory.resolve("vesc-firmware-identity-android-jni/src")),
+        rustIdentityAndroidHelper,
+    )
+    outputs.dir(rustIdentityAndroidOutputs.resolve(profile))
+}
+
+val buildAndroidRustIdentityDebug = registerAndroidRustIdentityBuild("debug")
+val buildAndroidRustIdentityRelease = registerAndroidRustIdentityBuild("release")
 val buildAndroidRustHost by tasks.registering(Exec::class) {
     group = "verification"
     description = "Builds the exact source-owned host JNI library used by JVM tests."
@@ -64,6 +103,28 @@ val buildAndroidRustHost by tasks.registering(Exec::class) {
     )
     outputs.file(rustHostLibrary)
 }
+val buildAndroidRustIdentityHost by tasks.registering(Exec::class) {
+    group = "verification"
+    description = "Builds the exact source-owned host identity JNI library used by JVM tests."
+    workingDir(rootProject.projectDir)
+    commandLine(
+        rustIdentityAndroidHelper.absolutePath,
+        "host",
+        "debug",
+        rustIdentityHostOutputs.absolutePath,
+    )
+    inputs.files(
+        rustCoreDirectory.resolve("Cargo.toml"),
+        rustCoreDirectory.resolve("Cargo.lock"),
+        rustCoreDirectory.resolve("rust-toolchain.toml"),
+        rustCoreDirectory.resolve("vesc-firmware-identity/Cargo.toml"),
+        rustCoreDirectory.resolve("vesc-firmware-identity-android-jni/Cargo.toml"),
+        fileTree(rustCoreDirectory.resolve("vesc-firmware-identity/src")),
+        fileTree(rustCoreDirectory.resolve("vesc-firmware-identity-android-jni/src")),
+        rustIdentityAndroidHelper,
+    )
+    outputs.file(rustIdentityHostLibrary)
+}
 val cleanAndroidRust by tasks.registering(Delete::class) {
     group = "build"
     description = "Deletes generated host and Android Rust JNI outputs."
@@ -76,6 +137,9 @@ tasks.named("clean") {
 buildAndroidRustDebug.configure { mustRunAfter(tasks.named("clean")) }
 buildAndroidRustRelease.configure { mustRunAfter(tasks.named("clean")) }
 buildAndroidRustHost.configure { mustRunAfter(tasks.named("clean")) }
+buildAndroidRustIdentityDebug.configure { mustRunAfter(tasks.named("clean")) }
+buildAndroidRustIdentityRelease.configure { mustRunAfter(tasks.named("clean")) }
+buildAndroidRustIdentityHost.configure { mustRunAfter(tasks.named("clean")) }
 
 android {
     namespace = "fail.acheron.floatview"
@@ -117,11 +181,17 @@ android {
         getByName("main").assets.srcDir("../../fixtures")
         getByName("debug").jniLibs.srcDir(rustAndroidOutputs.resolve("debug"))
         getByName("release").jniLibs.srcDir(rustAndroidOutputs.resolve("release"))
+        getByName("debug").jniLibs.srcDir(rustIdentityAndroidOutputs.resolve("debug"))
+        getByName("release").jniLibs.srcDir(rustIdentityAndroidOutputs.resolve("release"))
     }
     testOptions {
         unitTests.all {
-            it.dependsOn(buildAndroidRustHost)
+            it.dependsOn(buildAndroidRustHost, buildAndroidRustIdentityHost)
             it.systemProperty("floatViewVescFrameJniLibrary", rustHostLibrary.absolutePath)
+            it.systemProperty(
+                "floatViewVescFirmwareIdentityJniLibrary",
+                rustIdentityHostLibrary.absolutePath,
+            )
             it.systemProperty(
                 "floatViewFixtureRoot",
                 rootProject.file("../fixtures").absolutePath,
@@ -132,8 +202,8 @@ android {
 
 tasks.configureEach {
     when (name) {
-        "mergeDebugJniLibFolders" -> dependsOn(buildAndroidRustDebug)
-        "mergeReleaseJniLibFolders" -> dependsOn(buildAndroidRustRelease)
+        "mergeDebugJniLibFolders" -> dependsOn(buildAndroidRustDebug, buildAndroidRustIdentityDebug)
+        "mergeReleaseJniLibFolders" -> dependsOn(buildAndroidRustRelease, buildAndroidRustIdentityRelease)
     }
 }
 
