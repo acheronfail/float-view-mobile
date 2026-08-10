@@ -10,6 +10,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "float-view-vesc-firmware-identity-apple-ffi"
+version = "0.1.0"
+dependencies = [
+ "float-view-vesc-firmware-identity",
+]
+
+[[package]]
 name = "float-view-vesc-frame"
 version = "0.1.0"
 

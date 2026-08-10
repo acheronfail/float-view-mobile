@@ -1,80 +1,106 @@
+import CVescFirmwareIdentity
 import Foundation
 
-/// Strict owner for the bounded common COMM_FW_VERSION prefix and hardware-specific tails.
+/// Apple adapter for the Rust-owned COMM_FW_VERSION structural decoder.
 public enum VescFirmwareIdentityDecoder {
   public static let motorHardwareType: UInt8 = 0
   public static let bmsHardwareType: UInt8 = 1
 
+  private static let expectedABI: UInt32 = 1
+  private static let recordHeaderBytes = 26
+  private static let maximumEncodedNameBytes = 192
+  private static let maximumRecordBytes = 410
+  private static let firmwareNamePresent: UInt8 = 1
+  private static let hardwareCRCPresent: UInt8 = 2
+  private static let knownFlags = firmwareNamePresent | hardwareCRCPresent
+
   public static func decode(_ payload: [UInt8]) throws -> FirmwareInfo {
-    guard let command = payload.first else { throw VescProtocolError.truncatedPayload }
-    guard command == VescCommand.getFirmwareVersion.rawValue else {
-      throw VescProtocolError.unsupportedCommand(command)
+    try requireCompatibleABI(float_view_vesc_firmware_identity_abi_version())
+
+    var record = [UInt8](repeating: 0, count: maximumRecordBytes)
+    let recordCapacity = record.count
+    var recordLength = 0
+    var unsupportedCommand: UInt8 = 0
+    let status = payload.withUnsafeBytes { payloadBytes in
+      record.withUnsafeMutableBytes { recordBytes in
+        float_view_vesc_firmware_identity_decode(
+          payloadBytes.bindMemory(to: UInt8.self).baseAddress,
+          payload.count,
+          recordBytes.bindMemory(to: UInt8.self).baseAddress,
+          recordCapacity,
+          &recordLength,
+          &unsupportedCommand
+        )
+      }
     }
-    guard payload.count >= 3 else { throw VescProtocolError.truncatedPayload }
 
-    let hardwareNameBytes = try terminatedBytes(in: payload, from: 3, maximum: 64)
-    let uuidStart = hardwareNameBytes.endIndex + 1
-    let commonEnd = uuidStart + 16 // UUID, pairing marker, test version, hardware type, config count.
-    guard commonEnd <= payload.count else { throw VescProtocolError.truncatedPayload }
-
-    let hardwareType = payload[uuidStart + 14]
-    let customConfigurationCount = payload[uuidStart + 15]
-    let firmwareName: String?
-    let hardwareConfigurationCRC: UInt32?
-    switch hardwareType {
-    case bmsHardwareType:
-      guard payload[1] == 6, payload[2] == 0, payload.count == commonEnd else {
+    switch status {
+    case UInt32(FLOAT_VIEW_VESC_FIRMWARE_IDENTITY_STATUS_OK):
+      guard recordLength <= record.count else {
+        report("invalid result length")
         throw VescProtocolError.truncatedPayload
       }
-      firmwareName = nil
-      hardwareConfigurationCRC = nil
-    case motorHardwareType:
-      (firmwareName, hardwareConfigurationCRC) = try extendedFirmwareName(in: payload, from: commonEnd)
+      return try firmwareInfo(from: Array(record.prefix(recordLength)))
+    case UInt32(FLOAT_VIEW_VESC_FIRMWARE_IDENTITY_STATUS_UNSUPPORTED_COMMAND):
+      throw VescProtocolError.unsupportedCommand(unsupportedCommand)
+    case UInt32(FLOAT_VIEW_VESC_FIRMWARE_IDENTITY_STATUS_TRUNCATED_PAYLOAD):
+      throw VescProtocolError.truncatedPayload
     default:
-      // Custom modules use the same four capability bytes, name, and optional CRC tail.
-      (firmwareName, hardwareConfigurationCRC) = try extendedFirmwareName(in: payload, from: commonEnd)
+      report("bridge status \(status)")
+      throw VescProtocolError.truncatedPayload
     }
+  }
+
+  static func requireCompatibleABI(_ actual: UInt32) throws {
+    guard actual == expectedABI else {
+      report("ABI mismatch")
+      throw VescProtocolError.truncatedPayload
+    }
+  }
+
+  static func firmwareInfo(from record: [UInt8]) throws -> FirmwareInfo {
+    guard record.count >= recordHeaderBytes,
+          record.count <= maximumRecordBytes
+    else { throw VescProtocolError.truncatedPayload }
+
+    let flags = record[5]
+    guard flags & ~knownFlags == 0 else { throw VescProtocolError.truncatedPayload }
+    let hardwareNameLength = Int(record[6]) << 8 | Int(record[7])
+    let firmwareNameLength = Int(record[8]) << 8 | Int(record[9])
+    guard hardwareNameLength <= maximumEncodedNameBytes,
+          firmwareNameLength <= maximumEncodedNameBytes,
+          recordHeaderBytes + hardwareNameLength + firmwareNameLength == record.count,
+          (flags & firmwareNamePresent != 0) == (firmwareNameLength > 0)
+    else { throw VescProtocolError.truncatedPayload }
+
+    let crcBytes = record[22 ..< 26]
+    let hasCRC = flags & hardwareCRCPresent != 0
+    guard hasCRC || crcBytes.allSatisfy({ $0 == 0 }) else {
+      throw VescProtocolError.truncatedPayload
+    }
+    let hardwareNameEnd = recordHeaderBytes + hardwareNameLength
+    let hardwareName = String(decoding: record[recordHeaderBytes ..< hardwareNameEnd], as: UTF8.self)
+    let firmwareName = firmwareNameLength == 0
+      ? nil
+      : String(decoding: record[hardwareNameEnd ..< record.count], as: UTF8.self)
+    let crc = hasCRC
+      ? crcBytes.reduce(UInt32(0)) { ($0 << 8) | UInt32($1) }
+      : nil
 
     return FirmwareInfo(
-      major: payload[1],
-      minor: payload[2],
-      testVersion: payload[uuidStart + 13],
-      hardwareName: String(decoding: hardwareNameBytes, as: UTF8.self),
+      major: record[0],
+      minor: record[1],
+      testVersion: record[2],
+      hardwareName: hardwareName,
       firmwareName: firmwareName,
-      hardwareType: hardwareType,
-      controllerUUID: Data(payload[uuidStart ..< uuidStart + 12]),
-      customConfigurationCount: customConfigurationCount,
-      hardwareConfigurationCRC: hardwareConfigurationCRC
+      hardwareType: record[3],
+      controllerUUID: Data(record[10 ..< 22]),
+      customConfigurationCount: record[4],
+      hardwareConfigurationCRC: crc
     )
   }
 
-  private static func extendedFirmwareName(
-    in payload: [UInt8], from commonEnd: Int
-  ) throws -> (String?, UInt32?) {
-    let firmwareNameStart = commonEnd + 4
-    guard firmwareNameStart < payload.count else { throw VescProtocolError.truncatedPayload }
-    let bytes = try terminatedBytes(in: payload, from: firmwareNameStart, maximum: 64)
-    let tailLength = payload.count - (bytes.endIndex + 1)
-    guard tailLength == 0 || tailLength == 4 else { throw VescProtocolError.truncatedPayload }
-    let crc: UInt32? = if tailLength == 4 {
-      payload[(bytes.endIndex + 1)...].reduce(0) { ($0 << 8) | UInt32($1) }
-    } else { nil }
-    return (String(decoding: bytes, as: UTF8.self).nilIfEmpty, crc)
-  }
-
-  private static func terminatedBytes(
-    in payload: [UInt8], from start: Int, maximum: Int
-  ) throws -> ArraySlice<UInt8> {
-    guard start < payload.count,
-          let end = payload[start...].firstIndex(of: 0),
-          end - start <= maximum
-    else { throw VescProtocolError.truncatedPayload }
-    return payload[start ..< end]
-  }
-}
-
-private extension String {
-  var nilIfEmpty: String? {
-    isEmpty ? nil : self
+  private static func report(_ reason: String) {
+    print("[FloatView] Rust firmware identity decode failed (\(reason))")
   }
 }

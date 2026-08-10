@@ -4,11 +4,12 @@
 ownership. It is a locked Cargo workspace, not another backend and not a
 production runtime.
 
-The workspace currently has four members:
+The workspace currently has five members:
 
 | Component               | Scope                                                                 | Integration state                                                                             |
 | ----------------------- | --------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
 | `vesc-firmware-identity/` | Safe bounded `COMM_FW_VERSION` payload decoding                      | Isolated candidate; Swift and Kotlin remain the selected production decoders                  |
+| `vesc-firmware-identity-apple-ffi/` | Two-symbol caller-owned-buffer C ABI for firmware identity | Selected by the shared iOS/macOS identity adapter; Android remains Kotlin-owned                |
 | `vesc-frame/`             | Safe bounded VESC CRC, frame encoding/decoding, and stream scanning | Apple and Android select every framing decision                                 |
 | `vesc-frame-apple-ffi/`   | Caller-owned-buffer C ABI and locked Apple source-build helper      | Selected only by the shared iOS/macOS frame-codec adapter                       |
 | `vesc-frame-android-jni/` | Primitive-array JNI ABI and locked host/Android source builds       | Selected by Android for CRC, encoding, exact decoding, and stream-boundary scans |
@@ -21,10 +22,11 @@ separate four-function JNI bridge. Rust selects Android stream boundaries;
 Kotlin retains only caller-owned bounded byte storage, mechanical consumption,
 and error mapping without transferring allocator or object lifetime.
 
-The firmware identity candidate has an empty production dependency graph. Its
+The firmware identity component has an empty production dependency graph. Its
 tests use only the existing safe framing crate to unwrap committed framed
-fixtures. It adds no Apple C ABI, Android JNI ABI, packaged library, or native
-call path; host cutovers remain separate changes.
+fixtures. A separate Apple bridge depends only on it and the standard library;
+the bridge exposes no Rust allocation or layout. Android remains an independent
+later cutover.
 
 Do not add empty future crates, generated bindings, a general runtime, host
 callbacks, or OS-owned Bluetooth, location, lifecycle, permission, native-file,

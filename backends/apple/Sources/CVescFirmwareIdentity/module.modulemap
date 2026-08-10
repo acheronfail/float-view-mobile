@@ -1,0 +1,4 @@
+module CVescFirmwareIdentity [system] {
+  header "include/CVescFirmwareIdentity.h"
+  export *
+}

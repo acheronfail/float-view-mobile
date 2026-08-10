@@ -12,6 +12,17 @@ apple-rust-codec configuration="Debug":
       macosx "$(uname -m)" "{{ configuration }}" \
       "$PWD/backends/core/target/apple/macos"
 
+apple-rust-firmware-identity configuration="Debug":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    backends/core/vesc-firmware-identity-apple-ffi/build-apple.sh \
+      macosx "$(uname -m)" "{{ configuration }}" \
+      "$PWD/backends/core/target/apple/macos"
+
+apple-rust-bridges configuration="Debug":
+    just apple-rust-codec "{{ configuration }}"
+    just apple-rust-firmware-identity "{{ configuration }}"
+
 core-abi-test: apple-rust-codec
     xcrun clang -std=c17 -Wall -Wextra -Werror \
       backends/core/vesc-frame-apple-ffi/tests/abi.c \
@@ -46,8 +57,42 @@ core-abi-audit: apple-rust-codec
       exit 1
     }
 
+core-identity-abi-test: apple-rust-firmware-identity
+    xcrun clang -std=c17 -Wall -Wextra -Werror \
+      backends/core/vesc-firmware-identity-apple-ffi/tests/abi.c \
+      -I backends/apple/Sources/CVescFirmwareIdentity/include \
+      -L backends/core/target/apple/macos \
+      -lfloat_view_vesc_firmware_identity_apple_ffi \
+      -o /tmp/float-view-vesc-firmware-identity-abi-test
+    /tmp/float-view-vesc-firmware-identity-abi-test
+
+core-identity-abi-audit: apple-rust-firmware-identity
+    #!/usr/bin/env bash
+    set -euo pipefail
+    archive='backends/core/target/apple/macos/libfloat_view_vesc_firmware_identity_apple_ffi.a'
+    actual="$({ nm -gjU "$archive" 2>/dev/null || true; } \
+      | sed 's/^_//' | rg '^float_view_[a-z_]+$' | sort -u)"
+    expected="$(printf '%s\n' \
+      float_view_vesc_firmware_identity_abi_version \
+      float_view_vesc_firmware_identity_decode)"
+    [[ "$actual" == "$expected" ]] || {
+      echo 'Unexpected Float View firmware-identity ABI symbols:' >&2
+      printf '%s\n' "$actual" >&2
+      exit 1
+    }
+    rust_abi="$(sed -n 's/^pub const ABI_VERSION: u32 = \([0-9][0-9]*\);$/\1/p' \
+      backends/core/vesc-firmware-identity-apple-ffi/src/lib.rs)"
+    header_abi="$(sed -n 's/^#define FLOAT_VIEW_VESC_FIRMWARE_IDENTITY_ABI_VERSION UINT32_C(\([0-9][0-9]*\))$/\1/p' \
+      backends/apple/Sources/CVescFirmwareIdentity/include/CVescFirmwareIdentity.h)"
+    swift_abi="$(sed -n 's/^[[:space:]]*private static let expectedABI: UInt32 = \([0-9][0-9]*\)$/\1/p' \
+      backends/apple/Sources/FloatViewBackend/protocol/vesc/VescFirmwareIdentityDecoder.swift)"
+    [[ -n "$rust_abi" && "$rust_abi" == "$header_abi" && "$rust_abi" == "$swift_abi" ]] || {
+      echo "VESC firmware-identity ABI version mismatch: Rust=$rust_abi header=$header_abi Swift=$swift_abi" >&2
+      exit 1
+    }
+
 apple-packaging:
-    just apple-rust-codec Release
+    just apple-rust-bridges Release
     cd backends/apple && swift build -c release \
       --scratch-path /tmp/float-view-swift-release --product FloatViewMac
     xcodebuild -quiet -project backends/apple/ios/float-view.xcodeproj \
@@ -58,9 +103,9 @@ apple-packaging:
       -scheme float-view -configuration Debug -sdk iphoneos \
       -destination 'generic/platform=iOS' \
       -derivedDataPath /tmp/float-view-ios-device CODE_SIGNING_ALLOWED=NO clean build
-    just apple-rust-codec Debug
+    just apple-rust-bridges Debug
 
-core-test: core-abi-test
+core-test: core-abi-test core-identity-abi-test
     cd backends/core && cargo test --locked --offline
 
 android-rust-host:
@@ -257,7 +302,7 @@ run platform target="": build
         ;;
       macos)
         frontend_html="$PWD/frontend/build/index.html"
-        just apple-rust-codec
+        just apple-rust-bridges
         (cd backends/apple && \
           FLOAT_VIEW_FRONTEND_HTML="$frontend_html" \
           swift run --scratch-path /tmp/float-view-swift-build FloatViewMac)
@@ -272,7 +317,7 @@ test suite="all":
       frontend) (cd frontend && npm run check && npm test) ;;
       conformance) (cd conformance && npm run check && npm test && npm run mock) ;;
       apple)
-        just apple-rust-codec
+        just apple-rust-bridges
         (cd backends/apple && swift test --scratch-path /tmp/float-view-swift-build)
         ;;
       android) (cd backends/android && ./gradlew testDebugUnitTest) ;;
@@ -334,13 +379,17 @@ audit:
     [[ -f rust-toolchain.toml ]]
     [[ -f backends/core/Cargo.lock ]]
     [[ -f backends/core/vesc-firmware-identity/Cargo.toml ]]
+    [[ -f backends/core/vesc-firmware-identity-apple-ffi/Cargo.toml ]]
     [[ -f backends/core/vesc-frame/Cargo.toml ]]
     [[ -f backends/core/vesc-frame-apple-ffi/Cargo.toml ]]
     [[ -f backends/core/vesc-frame-android-jni/Cargo.toml ]]
     [[ -f backends/apple/Sources/CVescFrame/include/CVescFrame.h ]]
     [[ -f backends/apple/Sources/CVescFrame/module.modulemap ]]
+    [[ -f backends/apple/Sources/CVescFirmwareIdentity/include/CVescFirmwareIdentity.h ]]
+    [[ -f backends/apple/Sources/CVescFirmwareIdentity/module.modulemap ]]
     unexpected_core="$(find backends/core -mindepth 1 -maxdepth 1 -type d \
-      ! -name target ! -name vesc-firmware-identity ! -name vesc-frame ! -name vesc-frame-apple-ffi \
+      ! -name target ! -name vesc-firmware-identity ! -name vesc-firmware-identity-apple-ffi \
+      ! -name vesc-frame ! -name vesc-frame-apple-ffi \
       ! -name vesc-frame-android-jni -print -quit)"
     [[ -z "$unexpected_core" ]] || {
       echo "Unexpected Rust core workspace member: $unexpected_core" >&2
@@ -352,6 +401,8 @@ audit:
       ! -name src -print -quit)" == "" ]]
     [[ "$(find backends/core/vesc-frame-apple-ffi -mindepth 1 -maxdepth 1 -type d \
       ! -name src ! -name tests -print -quit)" == "" ]]
+    [[ "$(find backends/core/vesc-firmware-identity-apple-ffi -mindepth 1 -maxdepth 1 -type d \
+      ! -name src ! -name tests -print -quit)" == "" ]]
     [[ "$(find backends/core/vesc-frame-android-jni -mindepth 1 -maxdepth 1 -type d \
       ! -name src -print -quit)" == "" ]]
     ! find backends/core -type f \
@@ -362,15 +413,19 @@ audit:
     rg -q '^#!\[forbid\(unsafe_code\)\]$' backends/core/vesc-firmware-identity/src/lib.rs
     ! rg -n 'extern[[:space:]]+"C"|no_mangle|cbindgen|uniffi|jni|host_callback' \
       backends/core/vesc-firmware-identity
-    ! rg -n 'float-view-vesc-firmware-identity|vesc-firmware-identity' \
-      backends/apple backends/android
+    ! rg -n 'vesc-firmware-identity-apple-ffi|CVescFirmwareIdentity|float_view_vesc_firmware_identity' \
+      backends/android
     ! rg -n 'cbindgen|uniffi|jni|host_callback' backends/core/vesc-frame-apple-ffi
+    ! rg -n 'cbindgen|uniffi|jni|host_callback' \
+      backends/core/vesc-firmware-identity-apple-ffi
     [[ "$(cd backends/core && cargo tree --locked --package float-view-vesc-firmware-identity --edges normal --prefix none | wc -l | tr -d ' ')" == 1 ]]
     [[ "$(cd backends/core && cargo tree --locked --package float-view-vesc-frame --edges normal --prefix none | wc -l | tr -d ' ')" == 1 ]]
     [[ "$(cd backends/core && cargo tree --locked --package float-view-vesc-frame-apple-ffi --edges normal --depth 1 --prefix none | wc -l | tr -d ' ')" == 2 ]]
+    [[ "$(cd backends/core && cargo tree --locked --package float-view-vesc-firmware-identity-apple-ffi --edges normal --depth 1 --prefix none | wc -l | tr -d ' ')" == 2 ]]
     ! git ls-files | rg '\.(a|so|xcframework|dylib)$'
-    [[ "$(find backends/apple/Sources -type f \( -name '*.h' -o -name '*.modulemap' \) | sort)" == $'backends/apple/Sources/CSQLite/module.modulemap\nbackends/apple/Sources/CSQLite/shim.h\nbackends/apple/Sources/CVescFrame/include/CVescFrame.h\nbackends/apple/Sources/CVescFrame/module.modulemap' ]]
+    [[ "$(find backends/apple/Sources -type f \( -name '*.h' -o -name '*.modulemap' \) | sort)" == $'backends/apple/Sources/CSQLite/module.modulemap\nbackends/apple/Sources/CSQLite/shim.h\nbackends/apple/Sources/CVescFirmwareIdentity/include/CVescFirmwareIdentity.h\nbackends/apple/Sources/CVescFirmwareIdentity/module.modulemap\nbackends/apple/Sources/CVescFrame/include/CVescFrame.h\nbackends/apple/Sources/CVescFrame/module.modulemap' ]]
     just core-abi-audit
+    just core-identity-abi-audit
     just android-rust-audit
     ! rg -n -e 'CheckpointSwiftVescFrameReference' -e 'CheckpointSwiftVescStreamReference' \
       -e 'VescCRC' -e '0x1021' -e 'first != 2, first != 3' \
@@ -380,6 +435,17 @@ audit:
     [[ "$(rg -l 'float_view_vesc_frame_(encode|decode_exact|stream_scan_next)' \
       backends/apple -g '*.swift')" == \
       'backends/apple/Sources/FloatViewBackend/protocol/vesc/VescFrameCodec.swift' ]]
+    identity_source='backends/apple/Sources/FloatViewBackend/protocol/vesc/VescFirmwareIdentityDecoder.swift'
+    ! rg -n -e 'terminatedBytes' -e 'extendedFirmwareName' -e 'uuidStart' \
+      -e 'commonEnd' -e 'firstIndex\(of: 0\)' -e 'tailLength' \
+      "$identity_source"
+    [[ "$(rg -c 'float_view_vesc_firmware_identity_decode\(' "$identity_source")" == 1 ]]
+    [[ "$(rg -l 'float_view_vesc_firmware_identity_decode\(' \
+      backends/apple/Sources -g '*.swift')" == "$identity_source" ]]
+    [[ "$(rg -l '^import CVescFirmwareIdentity$' \
+      backends/apple/Sources -g '*.swift')" == "$identity_source" ]]
+    ! rg -n -e 'SwiftFirmwareIdentityReference' -e 'CheckpointSwiftFirmwareIdentity' \
+      -e 'FLOAT_VIEW_SWIFT_FIRMWARE_IDENTITY' backends/apple -g '*.swift'
     [[ -d backends/apple/ios ]]
     [[ -d backends/apple/macos ]]
     ! find backends/android/app/src/main/java/fail/acheron/floatview \
@@ -447,7 +513,7 @@ verify: build
     just apple-packaging
     just test all
     just android-rust-packaging
-    just apple-rust-codec
+    just apple-rust-bridges
     cd backends/apple && swift build --scratch-path /tmp/float-view-swift-build --product FloatViewMac
     xcodebuild -project backends/apple/ios/float-view.xcodeproj -scheme float-view \
       -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' \

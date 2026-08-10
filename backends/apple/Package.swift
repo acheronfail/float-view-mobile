@@ -19,17 +19,20 @@ let package = Package(
   targets: [
     .systemLibrary(name: "CSQLite"),
     .systemLibrary(name: "CVescFrame"),
+    .systemLibrary(name: "CVescFirmwareIdentity"),
     .target(
       name: "FloatViewBackend",
       dependencies: [
         "CSQLite",
         "CVescFrame",
+        "CVescFirmwareIdentity",
         .product(name: "RefloatConfigurationFixtures", package: "refloat-configuration"),
         .product(name: "FlyingFox", package: "FlyingFox"),
       ],
       linkerSettings: [
         .unsafeFlags(["-L", rustLibraryPath]),
         .linkedLibrary("float_view_vesc_frame_apple_ffi"),
+        .linkedLibrary("float_view_vesc_firmware_identity_apple_ffi"),
       ]
     ),
     .executableTarget(
@@ -40,7 +43,7 @@ let package = Package(
     ),
     .testTarget(
       name: "FloatViewBackendTests",
-      dependencies: ["CSQLite", "CVescFrame", "FloatViewBackend"]
+      dependencies: ["CSQLite", "CVescFrame", "CVescFirmwareIdentity", "FloatViewBackend"]
     ),
   ]
 )
