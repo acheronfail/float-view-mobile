@@ -15,6 +15,6 @@
 
 ## 4. Verify physical control regression
 
-- [ ] 4.1 Run focused `control-direct` and `control-can` scenarios on the connected Android device against the ESP32 fixture.
-- [ ] 4.2 Run the same focused scenarios on the connected iOS device against the ESP32 fixture.
-- [ ] 4.3 Run the same focused scenarios on the macOS host against the ESP32 fixture.
+- [x] 4.1 Run focused `control-direct` and `control-can` scenarios on the connected Android device against the ESP32 fixture.
+- [x] 4.2 Run the same focused scenarios on the connected iOS device against the ESP32 fixture.
+- [x] 4.3 Run the same focused scenarios on the macOS host against the ESP32 fixture.
