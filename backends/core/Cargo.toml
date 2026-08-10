@@ -1,6 +1,7 @@
 [workspace]
 members = [
     "refloat-control",
+    "refloat-control-android-jni",
     "refloat-control-apple-ffi",
     "vesc-bms-values",
     "vesc-bms-values-android-jni",

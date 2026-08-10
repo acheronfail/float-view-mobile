@@ -7,6 +7,14 @@ name = "float-view-refloat-control"
 version = "0.1.0"
 
 [[package]]
+name = "float-view-refloat-control-android-jni"
+version = "0.1.0"
+dependencies = [
+ "float-view-refloat-control",
+ "jni-sys",
+]
+
+[[package]]
 name = "float-view-refloat-control-apple-ffi"
 version = "0.1.0"
 dependencies = [

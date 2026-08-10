@@ -19,7 +19,7 @@ rust-bridge-build-tooling-audit:
       \( -name 'build-apple.sh' -o -name 'build-android.sh' \) | grep -q .
     ! rg -n 'backends/core/vesc-[^[:space:]]+/(build-apple|build-android)\.sh' \
       justfile backends conformance
-    expected=$'frame|float-view-vesc-frame-apple-ffi|libfloat_view_vesc_frame_apple_ffi.a|float-view-vesc-frame-android-jni|float_view_vesc_frame_android_jni|Java_fail_acheron_floatview_protocol_RustVescFrameBridge|Java_fail_acheron_floatview_protocol_RustVescFrameBridge_abiVersion Java_fail_acheron_floatview_protocol_RustVescFrameBridge_decodeExact Java_fail_acheron_floatview_protocol_RustVescFrameBridge_encode Java_fail_acheron_floatview_protocol_RustVescFrameBridge_scanNext\nfirmware-identity|float-view-vesc-firmware-identity-apple-ffi|libfloat_view_vesc_firmware_identity_apple_ffi.a|float-view-vesc-firmware-identity-android-jni|float_view_vesc_firmware_identity_android_jni|Java_fail_acheron_floatview_protocol_RustVescFirmwareIdentityBridge|Java_fail_acheron_floatview_protocol_RustVescFirmwareIdentityBridge_abiVersion Java_fail_acheron_floatview_protocol_RustVescFirmwareIdentityBridge_decode\ncustom-configuration|float-view-vesc-custom-configuration-apple-ffi|libfloat_view_vesc_custom_configuration_apple_ffi.a|float-view-vesc-custom-configuration-android-jni|float_view_vesc_custom_configuration_android_jni|Java_fail_acheron_floatview_protocol_RustVescCustomConfigurationBridge|Java_fail_acheron_floatview_protocol_RustVescCustomConfigurationBridge_abiVersion Java_fail_acheron_floatview_protocol_RustVescCustomConfigurationBridge_decode Java_fail_acheron_floatview_protocol_RustVescCustomConfigurationBridge_encode\nbms-values|float-view-vesc-bms-values-apple-ffi|libfloat_view_vesc_bms_values_apple_ffi.a|float-view-vesc-bms-values-android-jni|float_view_vesc_bms_values_android_jni|Java_fail_acheron_floatview_protocol_RustVescBmsValuesBridge|Java_fail_acheron_floatview_protocol_RustVescBmsValuesBridge_abiVersion Java_fail_acheron_floatview_protocol_RustVescBmsValuesBridge_decode\nrefloat-control|float-view-refloat-control-apple-ffi|libfloat_view_refloat_control_apple_ffi.a||||'
+    expected=$'frame|float-view-vesc-frame-apple-ffi|libfloat_view_vesc_frame_apple_ffi.a|float-view-vesc-frame-android-jni|float_view_vesc_frame_android_jni|Java_fail_acheron_floatview_protocol_RustVescFrameBridge|Java_fail_acheron_floatview_protocol_RustVescFrameBridge_abiVersion Java_fail_acheron_floatview_protocol_RustVescFrameBridge_decodeExact Java_fail_acheron_floatview_protocol_RustVescFrameBridge_encode Java_fail_acheron_floatview_protocol_RustVescFrameBridge_scanNext\nfirmware-identity|float-view-vesc-firmware-identity-apple-ffi|libfloat_view_vesc_firmware_identity_apple_ffi.a|float-view-vesc-firmware-identity-android-jni|float_view_vesc_firmware_identity_android_jni|Java_fail_acheron_floatview_protocol_RustVescFirmwareIdentityBridge|Java_fail_acheron_floatview_protocol_RustVescFirmwareIdentityBridge_abiVersion Java_fail_acheron_floatview_protocol_RustVescFirmwareIdentityBridge_decode\ncustom-configuration|float-view-vesc-custom-configuration-apple-ffi|libfloat_view_vesc_custom_configuration_apple_ffi.a|float-view-vesc-custom-configuration-android-jni|float_view_vesc_custom_configuration_android_jni|Java_fail_acheron_floatview_protocol_RustVescCustomConfigurationBridge|Java_fail_acheron_floatview_protocol_RustVescCustomConfigurationBridge_abiVersion Java_fail_acheron_floatview_protocol_RustVescCustomConfigurationBridge_decode Java_fail_acheron_floatview_protocol_RustVescCustomConfigurationBridge_encode\nbms-values|float-view-vesc-bms-values-apple-ffi|libfloat_view_vesc_bms_values_apple_ffi.a|float-view-vesc-bms-values-android-jni|float_view_vesc_bms_values_android_jni|Java_fail_acheron_floatview_protocol_RustVescBmsValuesBridge|Java_fail_acheron_floatview_protocol_RustVescBmsValuesBridge_abiVersion Java_fail_acheron_floatview_protocol_RustVescBmsValuesBridge_decode\nrefloat-control|float-view-refloat-control-apple-ffi|libfloat_view_refloat_control_apple_ffi.a|float-view-refloat-control-android-jni|float_view_refloat_control_android_jni|Java_fail_acheron_floatview_protocol_RustRefloatControlBridge|Java_fail_acheron_floatview_protocol_RustRefloatControlBridge_abiVersion Java_fail_acheron_floatview_protocol_RustRefloatControlBridge_decodeLighting Java_fail_acheron_floatview_protocol_RustRefloatControlBridge_encode'
     source "$catalog"
     actual="$(for bridge in frame firmware-identity custom-configuration bms-values refloat-control; do
       float_view_select_bridge "$bridge"
@@ -303,6 +303,8 @@ android-rust-host:
       "$PWD/backends/core/target/android/custom-configuration-host/debug"
     backends/core/build-android-bridge.sh bms-values host debug \
       "$PWD/backends/core/target/android/bms-values-host/debug"
+    backends/core/build-android-bridge.sh refloat-control host debug \
+      "$PWD/backends/core/target/android/refloat-control-host/debug"
 
 android-rust-codec-test:
     cd backends/android && ./gradlew testDebugUnitTest \
@@ -310,6 +312,8 @@ android-rust-codec-test:
       --tests fail.acheron.floatview.protocol.RustVescFirmwareIdentityBridgeTest \
       --tests fail.acheron.floatview.protocol.RustVescCustomConfigurationBridgeTest \
       --tests fail.acheron.floatview.protocol.RustVescBmsValuesBridgeTest \
+      --tests fail.acheron.floatview.protocol.RustRefloatControlBridgeTest \
+      --tests fail.acheron.floatview.protocol.RefloatControlCodecTest \
       --tests fail.acheron.floatview.protocol.VescProtocolTest
 
 android-rust-packaging:
@@ -320,7 +324,8 @@ android-rust-packaging:
       libfloat_view_vesc_frame_android_jni.so \
       libfloat_view_vesc_firmware_identity_android_jni.so \
       libfloat_view_vesc_custom_configuration_android_jni.so \
-      libfloat_view_vesc_bms_values_android_jni.so; do
+      libfloat_view_vesc_bms_values_android_jni.so \
+      libfloat_view_refloat_control_android_jni.so; do
         printf '%s\n' \
           "lib/arm64-v8a/$library" \
           "lib/armeabi-v7a/$library" \
@@ -333,7 +338,7 @@ android-rust-packaging:
       [[ -f "$apk" ]] || { echo "Missing Android package: $apk" >&2; exit 1; }
       unzip -tq "$apk" >/dev/null
       actual="$(unzip -Z1 "$apk" \
-        | rg '(^|/)libfloat_view_vesc_(frame|firmware_identity|custom_configuration|bms_values)_android_jni\.so$' \
+        | rg '(^|/)libfloat_view_(vesc_(frame|firmware_identity|custom_configuration|bms_values)|refloat_control)_android_jni\.so$' \
         | sort)"
       [[ "$actual" == "$expected" ]] || {
         echo "Unexpected Rust JNI library set in $apk:" >&2
@@ -357,11 +362,14 @@ android-rust-audit: android-rust-host
       --package float-view-vesc-custom-configuration-android-jni --edges normal --depth 1 --prefix none | wc -l | tr -d ' ')" == 3 ]]
     [[ "$(cd backends/core && cargo tree --locked --offline \
       --package float-view-vesc-bms-values-android-jni --edges normal --depth 1 --prefix none | wc -l | tr -d ' ')" == 3 ]]
+    [[ "$(cd backends/core && cargo tree --locked --offline \
+      --package float-view-refloat-control-android-jni --edges normal --depth 1 --prefix none | wc -l | tr -d ' ')" == 3 ]]
     for manifest in \
       backends/core/vesc-frame-android-jni/Cargo.toml \
       backends/core/vesc-firmware-identity-android-jni/Cargo.toml \
       backends/core/vesc-custom-configuration-android-jni/Cargo.toml \
-      backends/core/vesc-bms-values-android-jni/Cargo.toml; do
+      backends/core/vesc-bms-values-android-jni/Cargo.toml \
+      backends/core/refloat-control-android-jni/Cargo.toml; do
       rg -q '^jni-sys = "=0\.4\.1"$' "$manifest"
     done
     ! rg -n '^jni[[:space:]]*=' backends/core -g Cargo.toml
@@ -395,6 +403,14 @@ android-rust-audit: android-rust-host
       backends/android/app/src/main/java/fail/acheron/floatview/protocol/vesc/RustVescBmsValuesBridge.kt)"
     [[ -n "$bms_rust_abi" && "$bms_rust_abi" == "$bms_kotlin_abi" ]] || {
       echo "Android BMS-values JNI ABI mismatch: Rust=$bms_rust_abi Kotlin=$bms_kotlin_abi" >&2
+      exit 1
+    }
+    refloat_rust_abi="$(sed -n 's/^pub const ABI_VERSION: jint = \([0-9][0-9]*\);$/\1/p' \
+      backends/core/refloat-control-android-jni/src/lib.rs)"
+    refloat_kotlin_abi="$(sed -n 's/^internal const val REFLOAT_CONTROL_ABI_VERSION = \([0-9][0-9]*\)$/\1/p' \
+      backends/android/app/src/main/java/fail/acheron/floatview/protocol/vesc/RustRefloatControlBridge.kt)"
+    [[ -n "$refloat_rust_abi" && "$refloat_rust_abi" == "$refloat_kotlin_abi" ]] || {
+      echo "Android Refloat-control JNI ABI mismatch: Rust=$refloat_rust_abi Kotlin=$refloat_kotlin_abi" >&2
       exit 1
     }
     ! git ls-files | rg '\.(a|so|dylib|xcframework)$'
@@ -460,6 +476,19 @@ android-rust-audit: android-rust-host
       "$bms_bridge_source" ]]
     [[ "$(rg -c 'functions\.ExceptionCheck' \
       backends/core/vesc-bms-values-android-jni/src/lib.rs)" -ge 8 ]]
+    refloat_source="$android_main/protocol/refloat/RefloatControlCodec.kt"
+    refloat_bridge_source="$android_main/protocol/vesc/RustRefloatControlBridge.kt"
+    ! rg -n -e 'RefloatWire\.request\(' -e 'val mask = when' \
+      -e 'payload\[2\].*RefloatCommand' -e 'payload\[3\].*0xfc' \
+      "$refloat_source"
+    [[ "$(rg -c 'RustRefloatControlBridge\.encode\(' "$refloat_source")" == 1 ]]
+    [[ "$(rg -c 'RustRefloatControlBridge\.decodeLighting\(' "$refloat_source")" == 1 ]]
+    [[ "$(rg -l 'RustRefloatControlBridge\.(encode|decodeLighting)' "$android_main" -g '*.kt')" == \
+      "$refloat_source" ]]
+    [[ "$(rg -l 'external fun (abiVersion|encode|decodeLighting)' "$refloat_bridge_source")" == \
+      "$refloat_bridge_source" ]]
+    [[ "$(rg -c 'functions\.ExceptionCheck' \
+      backends/core/refloat-control-android-jni/src/lib.rs)" -ge 8 ]]
     if ANDROID_NDK_HOME=/private/tmp/float-view-missing-ndk \
       backends/core/build-android-bridge.sh frame \
       android arm64-v8a debug /private/tmp/float-view-unreachable-output >/dev/null 2>&1; then
@@ -482,6 +511,12 @@ android-rust-audit: android-rust-host
       backends/core/build-android-bridge.sh bms-values \
       android arm64-v8a debug /private/tmp/float-view-unreachable-bms-values-output >/dev/null 2>&1; then
       echo 'Android Rust BMS-values helper accepted a missing pinned NDK.' >&2
+      exit 1
+    fi
+    if ANDROID_NDK_HOME=/private/tmp/float-view-missing-ndk \
+      backends/core/build-android-bridge.sh refloat-control \
+      android arm64-v8a debug /private/tmp/float-view-unreachable-refloat-control-output >/dev/null 2>&1; then
+      echo 'Android Rust Refloat-control helper accepted a missing pinned NDK.' >&2
       exit 1
     fi
 
@@ -678,6 +713,7 @@ audit:
     [[ -f backends/core/build-apple-bridge.sh ]]
     [[ -f backends/core/build-android-bridge.sh ]]
     [[ -f backends/core/refloat-control/Cargo.toml ]]
+    [[ -f backends/core/refloat-control-android-jni/Cargo.toml ]]
     [[ -f backends/core/refloat-control-apple-ffi/Cargo.toml ]]
     [[ -f backends/core/vesc-bms-values/Cargo.toml ]]
     [[ -f backends/core/vesc-bms-values-android-jni/Cargo.toml ]]
@@ -702,7 +738,8 @@ audit:
     [[ -f backends/apple/Sources/CVescRefloatControl/include/CVescRefloatControl.h ]]
     [[ -f backends/apple/Sources/CVescRefloatControl/module.modulemap ]]
     unexpected_core="$(find backends/core -mindepth 1 -maxdepth 1 -type d \
-      ! -name target ! -name refloat-control ! -name refloat-control-apple-ffi \
+      ! -name target ! -name refloat-control ! -name refloat-control-android-jni \
+      ! -name refloat-control-apple-ffi \
       ! -name vesc-bms-values ! -name vesc-bms-values-android-jni \
       ! -name vesc-bms-values-apple-ffi \
       ! -name vesc-custom-configuration ! -name vesc-firmware-identity \
@@ -716,6 +753,8 @@ audit:
       exit 1
     }
     [[ "$(find backends/core/refloat-control -mindepth 1 -maxdepth 1 -type d \
+      ! -name src -print -quit)" == "" ]]
+    [[ "$(find backends/core/refloat-control-android-jni -mindepth 1 -maxdepth 1 -type d \
       ! -name src -print -quit)" == "" ]]
     [[ "$(find backends/core/refloat-control-apple-ffi -mindepth 1 -maxdepth 1 -type d \
       ! -name src ! -name tests -print -quit)" == "" ]]
@@ -747,8 +786,10 @@ audit:
     rg -q '^#!\[forbid\(unsafe_code\)\]$' backends/core/refloat-control/src/lib.rs
     ! rg -n 'extern[[:space:]]+"C"|no_mangle|cbindgen|uniffi|jni|host_callback' \
       backends/core/refloat-control
-    ! rg -n 'refloat-control-apple-ffi|CVescRefloatControl|float_view_refloat_control' \
+    ! rg -n 'refloat-control-apple-ffi|CVescRefloatControl|float_view_refloat_control_(abi_version|encode|decode_lighting)' \
       backends/android
+    ! rg -n 'refloat-control-android-jni|RustRefloatControlBridge|float_view_refloat_control_android_jni' \
+      backends/apple
     ! rg -n 'extern[[:space:]]+"C"|no_mangle|cbindgen|uniffi|jni|host_callback' \
       backends/core/vesc-frame
     rg -q '^#!\[forbid\(unsafe_code\)\]$' \
@@ -780,6 +821,7 @@ audit:
       backends/core/refloat-control-apple-ffi
     [[ "$(cd backends/core && cargo tree --locked --package float-view-refloat-control --edges normal --prefix none | wc -l | tr -d ' ')" == 1 ]]
     [[ "$(cd backends/core && cargo tree --locked --package float-view-refloat-control-apple-ffi --edges normal --depth 1 --prefix none | wc -l | tr -d ' ')" == 2 ]]
+    [[ "$(cd backends/core && cargo tree --locked --package float-view-refloat-control-android-jni --edges normal --depth 1 --prefix none | wc -l | tr -d ' ')" == 3 ]]
     [[ "$(cd backends/core && cargo tree --locked --package float-view-vesc-firmware-identity --edges normal --prefix none | wc -l | tr -d ' ')" == 1 ]]
     [[ "$(cd backends/core && cargo tree --locked --package float-view-vesc-bms-values --edges normal --prefix none | wc -l | tr -d ' ')" == 1 ]]
     [[ "$(cd backends/core && cargo tree --locked --package float-view-vesc-bms-values-apple-ffi --edges normal --depth 1 --prefix none | wc -l | tr -d ' ')" == 2 ]]

@@ -81,6 +81,14 @@ float_view_select_bridge() {
       bridge_diagnostic='Refloat control codec'
       bridge_apple_package='float-view-refloat-control-apple-ffi'
       bridge_apple_archive='libfloat_view_refloat_control_apple_ffi.a'
+      bridge_android_package='float-view-refloat-control-android-jni'
+      bridge_android_library_stem='float_view_refloat_control_android_jni'
+      bridge_android_jni_prefix='Java_fail_acheron_floatview_protocol_RustRefloatControlBridge'
+      bridge_android_symbols=(
+        Java_fail_acheron_floatview_protocol_RustRefloatControlBridge_abiVersion
+        Java_fail_acheron_floatview_protocol_RustRefloatControlBridge_decodeLighting
+        Java_fail_acheron_floatview_protocol_RustRefloatControlBridge_encode
+      )
       ;;
     *)
       echo "Unknown Rust host bridge: ${requested_bridge:-<empty>}" >&2

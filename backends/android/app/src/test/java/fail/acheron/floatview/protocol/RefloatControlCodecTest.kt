@@ -119,6 +119,43 @@ class RefloatControlCodecTest {
     }
 
     @Test
+    fun everyLightingCombinationAndDefinedResponseUsesRust() {
+        val profiles = listOf(
+            RefloatControlProfile(RefloatLightingProfile.LEGACY_COMMAND_202, false),
+            RefloatControlProfile(RefloatLightingProfile.STABLE_COMMAND_20, true),
+        )
+        profiles.forEach { profile ->
+            for (flags in 0..3) {
+                val current = RefloatLightingState(flags and 1 != 0, flags and 2 != 0)
+                listOf(null, RefloatBooleanControl.LEDS, RefloatBooleanControl.HEADLIGHTS).forEach { target ->
+                    listOf(false, true).forEach { enabled ->
+                        if (target == null && enabled) return@forEach
+                        val payload = RefloatControlCodec.lightingRequest(profile, target, enabled, current)
+                        assertEquals(36, payload[0].toInt() and 0xff)
+                        assertEquals(101, payload[1].toInt() and 0xff)
+                    }
+                }
+                val command = if (profile.lighting == RefloatLightingProfile.LEGACY_COMMAND_202) 202 else 20
+                assertEquals(
+                    current,
+                    RefloatControlCodec.decodeLightingResponse(
+                        byteArrayOf(36, 101, command.toByte(), flags.toByte()), profile,
+                    ),
+                )
+            }
+        }
+        val legacy = profiles.first()
+        assertThrows(IllegalArgumentException::class.java) {
+            RefloatControlCodec.lightingRequest(
+                legacy, RefloatBooleanControl.PACKAGE, false, RefloatLightingState(false, false),
+            )
+        }
+        assertThrows(VescProtocolException.UnsupportedCommand::class.java) {
+            RefloatControlCodec.fatalClearRequest(legacy)
+        }
+    }
+
+    @Test
     fun fatalLatchAndActiveFaultDecodeIndependently() {
         val decoder = RefloatDynamicTelemetryDecoder()
         decoder.decodeFields(

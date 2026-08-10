@@ -1,6 +1,8 @@
 package fail.acheron.floatview.protocol.refloat
 
+import fail.acheron.floatview.protocol.RustRefloatControlBridge
 import fail.acheron.floatview.protocol.VescProtocolException
+import fail.acheron.floatview.protocol.verifyRefloatControlAbiVersion
 
 enum class RefloatBooleanControl(val wireValue: String) {
     PACKAGE("package"), FLYWHEEL("flywheel"), LEDS("leds"), HEADLIGHTS("headlights")
@@ -12,19 +14,26 @@ data class RefloatLightingState(
 )
 
 object RefloatControlCodec {
+    private const val OPERATION_PACKAGE = 1
+    private const val OPERATION_FLYWHEEL = 2
+    private const val OPERATION_LIGHTING = 3
+    private const val OPERATION_FATAL_CLEAR = 4
+    private const val PROFILE_NONE = 0
+    private const val PROFILE_LEGACY = 1
+    private const val PROFILE_STABLE = 2
+    private const val TARGET_NONE = 0
+    private const val TARGET_LEDS = 1
+    private const val TARGET_HEADLIGHTS = 2
+    private const val STATUS_OK = 0
+    private const val STATUS_UNSUPPORTED_COMMAND = 3
+    private const val MAXIMUM_PAYLOAD_BYTES = 9
+    private val linkedAbiVersion = RustRefloatControlBridge.abiVersion()
+
     fun packageRequest(enabled: Boolean): ByteArray =
-        RefloatWire.request(RefloatCommand.PACKAGE_LOCK, if (enabled) 0 else 1)
+        encode(OPERATION_PACKAGE, PROFILE_NONE, false, TARGET_NONE, enabled, 0)
 
     fun flywheelRequest(enabled: Boolean): ByteArray =
-        RefloatWire.request(
-            RefloatCommand.FLYWHEEL,
-            if (enabled) 0x81 else 0x80,
-            0,
-            0,
-            0,
-            0,
-            1,
-        )
+        encode(OPERATION_FLYWHEEL, PROFILE_NONE, false, TARGET_NONE, enabled, 0)
 
     fun lightingRequest(
         profile: RefloatControlProfile,
@@ -33,44 +42,77 @@ object RefloatControlCodec {
         current: RefloatLightingState,
     ): ByteArray {
         require(control == null || control == RefloatBooleanControl.LEDS || control == RefloatBooleanControl.HEADLIGHTS)
-        val mask = when (control) {
-            RefloatBooleanControl.LEDS -> 1
-            RefloatBooleanControl.HEADLIGHTS -> 2
-            else -> 0
-        }
-        var flags = (if (current.ledsEnabled) 1 else 0) or (if (current.headlightsEnabled) 2 else 0)
-        if (control != null) {
-            val bit = if (control == RefloatBooleanControl.LEDS) 1 else 2
-            flags = if (enabled) flags or bit else flags and bit.inv()
-        }
-        return when (profile.lighting) {
-            RefloatLightingProfile.LEGACY_COMMAND_202 ->
-                RefloatWire.request(RefloatCommand.LEGACY_LIGHTS, mask, flags)
-            RefloatLightingProfile.STABLE_COMMAND_20 ->
-                RefloatWire.request(RefloatCommand.STABLE_LIGHTS, 0, 0, 0, mask, flags)
-        }
+        return encode(
+            OPERATION_LIGHTING,
+            profileValue(profile),
+            false,
+            when (control) {
+                RefloatBooleanControl.LEDS -> TARGET_LEDS
+                RefloatBooleanControl.HEADLIGHTS -> TARGET_HEADLIGHTS
+                else -> TARGET_NONE
+            },
+            enabled,
+            flags(current),
+        )
     }
 
-    fun fatalClearRequest(profile: RefloatControlProfile): ByteArray {
-        if (!profile.fatalClearAvailable) throw VescProtocolException.UnsupportedCommand(36)
-        return RefloatWire.request(RefloatCommand.ALERTS_CONTROL, 1)
-    }
+    fun fatalClearRequest(profile: RefloatControlProfile): ByteArray =
+        encode(OPERATION_FATAL_CLEAR, PROFILE_NONE, profile.fatalClearAvailable, TARGET_NONE, false, 0)
 
     fun decodeLightingResponse(payload: ByteArray, profile: RefloatControlProfile): RefloatLightingState {
-        val command = when (profile.lighting) {
-            RefloatLightingProfile.LEGACY_COMMAND_202 -> RefloatCommand.LEGACY_LIGHTS
-            RefloatLightingProfile.STABLE_COMMAND_20 -> RefloatCommand.STABLE_LIGHTS
-        }
-        if (
-            payload.size != 4 ||
-            payload[0].toInt() and 0xff != 36 ||
-            payload[1].toInt() and 0xff != RefloatWire.PACKAGE_ID ||
-            payload[2].toInt() and 0xff != command.id ||
-            payload[3].toInt() and 0xfc != 0
-        ) {
-            throw VescProtocolException.InvalidFrame
-        }
-        val flags = payload[3].toInt() and 0xff
-        return RefloatLightingState(flags and 1 != 0, flags and 2 != 0)
+        verifyRefloatControlAbiVersion(linkedAbiVersion)
+        val result = IntArray(1)
+        val status = RustRefloatControlBridge.decodeLighting(payload, profileValue(profile), result)
+        return decodeBridgeResult(status, result)
     }
+
+    internal fun decodeBridgeResult(status: Int, result: IntArray): RefloatLightingState {
+        if (status != STATUS_OK || result.size != 1 || result[0] !in 0..3) fail()
+        return RefloatLightingState(result[0] and 1 != 0, result[0] and 2 != 0)
+    }
+
+    @Suppress("LongParameterList")
+    private fun encode(
+        operation: Int,
+        profile: Int,
+        fatalClearAvailable: Boolean,
+        target: Int,
+        enabled: Boolean,
+        currentFlags: Int,
+    ): ByteArray {
+        verifyRefloatControlAbiVersion(linkedAbiVersion)
+        val output = ByteArray(MAXIMUM_PAYLOAD_BYTES)
+        val result = IntArray(2)
+        val status = RustRefloatControlBridge.encode(
+            operation,
+            profile,
+            if (fatalClearAvailable) 1 else 0,
+            target,
+            if (enabled) 1 else 0,
+            currentFlags,
+            output,
+            result,
+        )
+        return encodeBridgeResult(status, output, result)
+    }
+
+    internal fun encodeBridgeResult(status: Int, output: ByteArray, result: IntArray): ByteArray {
+        if (result.size != 2) fail()
+        if (status == STATUS_UNSUPPORTED_COMMAND) {
+            if (result[0] != 0 || result[1] !in 0..255) fail()
+            throw VescProtocolException.UnsupportedCommand(result[1])
+        }
+        if (status != STATUS_OK || result[0] !in 1..output.size || result[1] != 0) fail()
+        return output.copyOf(result[0])
+    }
+
+    private fun profileValue(profile: RefloatControlProfile): Int = when (profile.lighting) {
+        RefloatLightingProfile.LEGACY_COMMAND_202 -> PROFILE_LEGACY
+        RefloatLightingProfile.STABLE_COMMAND_20 -> PROFILE_STABLE
+    }
+
+    private fun flags(state: RefloatLightingState): Int =
+        (if (state.ledsEnabled) 1 else 0) or (if (state.headlightsEnabled) 2 else 0)
+
+    private fun fail(): Nothing = throw VescProtocolException.InvalidFrame
 }
