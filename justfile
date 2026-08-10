@@ -413,6 +413,8 @@ android-rust-audit: android-rust-host
       --package float-view-vesc-controller-data-android-jni --edges normal --depth 1 --prefix none | wc -l | tr -d ' ')" == 3 ]]
     [[ "$(cd backends/core && cargo tree --locked --offline \
       --package float-view-refloat-control-android-jni --edges normal --depth 1 --prefix none | wc -l | tr -d ' ')" == 3 ]]
+    [[ "$(cd backends/core && cargo tree --locked --offline \
+      --package float-view-android-jni-support --edges normal --depth 1 --prefix none | wc -l | tr -d ' ')" == 2 ]]
     for manifest in \
       backends/core/vesc-frame-android-jni/Cargo.toml \
       backends/core/vesc-firmware-identity-android-jni/Cargo.toml \
@@ -420,9 +422,24 @@ android-rust-audit: android-rust-host
       backends/core/vesc-bms-values-android-jni/Cargo.toml \
       backends/core/vesc-controller-data-android-jni/Cargo.toml \
       backends/core/refloat-control-android-jni/Cargo.toml; do
-      rg -q '^jni-sys = "=0\.4\.1"$' "$manifest"
+      rg -q '^float-view-android-jni-support = \{ path = "\.\./android-jni-support" \}$' "$manifest"
+      ! rg -n '^jni-sys[[:space:]]*=' "$manifest"
     done
+    [[ "$(rg -l '^jni-sys = "=0\.4\.1"$' backends/core -g Cargo.toml)" == \
+      'backends/core/android-jni-support/Cargo.toml' ]]
     ! rg -n '^jni[[:space:]]*=' backends/core -g Cargo.toml
+    [[ "$(rg -c 'rustAndroidJniSupportInputs' backends/android/app/build.gradle.kts)" == 13 ]]
+    ! rg -n 'jni_sys|JNINativeInterface|functions\.(ExceptionCheck|GetArrayLength|IsSameObject|GetByteArrayRegion|SetByteArrayRegion|SetIntArrayRegion)|AssertUnwindSafe|catch_unwind|unsafe fn environment|fn (references_alias|any_alias|copy_bytes_from_java|copy_bytes_to_java|write_ints|write_metadata|write_length|write_scan_fields)' \
+      backends/core/*-android-jni/src/lib.rs
+    rg -q 'functions\.ExceptionCheck' backends/core/android-jni-support/src/lib.rs
+    rg -q 'functions\.GetArrayLength' backends/core/android-jni-support/src/lib.rs
+    rg -q 'functions\.IsSameObject' backends/core/android-jni-support/src/lib.rs
+    rg -q 'functions\.GetByteArrayRegion' backends/core/android-jni-support/src/lib.rs
+    rg -q 'functions\.SetByteArrayRegion' backends/core/android-jni-support/src/lib.rs
+    rg -q 'functions\.SetIntArrayRegion' backends/core/android-jni-support/src/lib.rs
+    rg -q 'catch_unwind' backends/core/android-jni-support/src/lib.rs
+    ! rg -n 'unsafe\(no_mangle\)|extern[[:space:]]+"system"|Java_' \
+      backends/core/android-jni-support
     rust_abi="$(sed -n 's/^pub const ABI_VERSION: jint = \([0-9][0-9]*\);$/\1/p' \
       backends/core/vesc-frame-android-jni/src/lib.rs)"
     kotlin_abi="$(sed -n 's/^[[:space:]]*private const val ABI_VERSION = \([0-9][0-9]*\)$/\1/p' \
@@ -503,8 +520,6 @@ android-rust-audit: android-rust-host
       "$identity_source" ]]
     [[ "$(rg -l 'external fun (abiVersion|decode)' "$identity_bridge_source")" == \
       "$identity_bridge_source" ]]
-    [[ "$(rg -c 'functions\.ExceptionCheck' \
-      backends/core/vesc-firmware-identity-android-jni/src/lib.rs)" -ge 8 ]]
     configuration_source="$android_main/protocol/vesc/VescCustomConfigurationCodec.kt"
     configuration_bridge_source="$android_main/protocol/vesc/RustVescCustomConfigurationBridge.kt"
     ! rg -n -e 'positiveI32' -e 'nonnegativeI32' -e 'private fun i32' \
@@ -517,8 +532,6 @@ android-rust-audit: android-rust-host
       "$configuration_source" ]]
     [[ "$(rg -l 'external fun (abiVersion|encode|decode)' "$configuration_bridge_source")" == \
       "$configuration_bridge_source" ]]
-    [[ "$(rg -c 'functions\.ExceptionCheck' \
-      backends/core/vesc-custom-configuration-android-jni/src/lib.rs)" -ge 8 ]]
     bms_source="$android_main/protocol/vesc/VescBmsValuesDecoder.kt"
     bms_protocol_source="$android_main/protocol/vesc/VescProtocolService.kt"
     bms_bridge_source="$android_main/protocol/vesc/RustVescBmsValuesBridge.kt"
@@ -532,8 +545,6 @@ android-rust-audit: android-rust-host
       "$bms_source" ]]
     [[ "$(rg -l 'external fun (abiVersion|decode)' "$bms_bridge_source")" == \
       "$bms_bridge_source" ]]
-    [[ "$(rg -c 'functions\.ExceptionCheck' \
-      backends/core/vesc-bms-values-android-jni/src/lib.rs)" -ge 8 ]]
     controller_data_source="$android_main/protocol/vesc/VescControllerDataDecoder.kt"
     controller_data_protocol_source="$android_main/protocol/vesc/VescProtocolService.kt"
     controller_data_bridge_source="$android_main/protocol/vesc/RustVescControllerDataBridge.kt"
@@ -547,8 +558,6 @@ android-rust-audit: android-rust-host
       "$controller_data_source" ]]
     [[ "$(rg -l 'external fun (abiVersion|decode)' "$controller_data_bridge_source")" == \
       "$controller_data_bridge_source" ]]
-    [[ "$(rg -c 'functions\.ExceptionCheck' \
-      backends/core/vesc-controller-data-android-jni/src/lib.rs)" -ge 8 ]]
     refloat_source="$android_main/protocol/refloat/RefloatControlCodec.kt"
     refloat_bridge_source="$android_main/protocol/vesc/RustRefloatControlBridge.kt"
     ! rg -n -e 'RefloatWire\.request\(' -e 'val mask = when' \
@@ -560,8 +569,6 @@ android-rust-audit: android-rust-host
       "$refloat_source" ]]
     [[ "$(rg -l 'external fun (abiVersion|encode|decodeLighting)' "$refloat_bridge_source")" == \
       "$refloat_bridge_source" ]]
-    [[ "$(rg -c 'functions\.ExceptionCheck' \
-      backends/core/refloat-control-android-jni/src/lib.rs)" -ge 8 ]]
     if ANDROID_NDK_HOME=/private/tmp/float-view-missing-ndk \
       backends/core/build-android-bridge.sh frame \
       android arm64-v8a debug /private/tmp/float-view-unreachable-output >/dev/null 2>&1; then
@@ -788,6 +795,8 @@ audit:
     [[ ! -d backends/apple/Sources/FloatViewMac ]]
     [[ -f rust-toolchain.toml ]]
     [[ -f backends/core/Cargo.lock ]]
+    [[ -f backends/core/android-jni-support/Cargo.toml ]]
+    [[ -f backends/core/android-jni-support/src/lib.rs ]]
     [[ -f backends/core/apple-ffi-support/Cargo.toml ]]
     [[ -f backends/core/apple-ffi-support/src/lib.rs ]]
     [[ -f backends/core/bridge-build-catalog.sh ]]
@@ -825,7 +834,7 @@ audit:
     [[ -f backends/apple/Sources/CVescRefloatControl/include/CVescRefloatControl.h ]]
     [[ -f backends/apple/Sources/CVescRefloatControl/module.modulemap ]]
     unexpected_core="$(find backends/core -mindepth 1 -maxdepth 1 -type d \
-      ! -name target ! -name apple-ffi-support \
+      ! -name target ! -name android-jni-support ! -name apple-ffi-support \
       ! -name refloat-control ! -name refloat-control-android-jni \
       ! -name refloat-control-apple-ffi ! -name refloat-legacy-telemetry \
       ! -name vesc-bms-values ! -name vesc-bms-values-android-jni \
@@ -843,6 +852,8 @@ audit:
       exit 1
     }
     [[ "$(find backends/core/apple-ffi-support -mindepth 1 -maxdepth 1 -type d \
+      ! -name src -print -quit)" == "" ]]
+    [[ "$(find backends/core/android-jni-support -mindepth 1 -maxdepth 1 -type d \
       ! -name src -print -quit)" == "" ]]
     [[ "$(find backends/core/refloat-control -mindepth 1 -maxdepth 1 -type d \
       ! -name src -print -quit)" == "" ]]
@@ -885,6 +896,8 @@ audit:
       | grep -q .
     ! rg -n 'extern[[:space:]]+"C"|no_mangle|cbindgen|bindgen|uniffi|jni|host_callback' \
       backends/core/apple-ffi-support
+    ! rg -n 'unsafe\(no_mangle\)|extern[[:space:]]+"system"|Java_|cbindgen|bindgen|uniffi|host_callback' \
+      backends/core/android-jni-support
     [[ "$(cd backends/core && cargo tree --locked --package float-view-apple-ffi-support \
       --edges normal --prefix none | wc -l | tr -d ' ')" == 1 ]]
     [[ "$(rg -c 'core/apple-ffi-support/Cargo.toml' \

@@ -1,5 +1,6 @@
 [workspace]
 members = [
+    "android-jni-support",
     "apple-ffi-support",
     "refloat-control",
     "refloat-control-android-jni",

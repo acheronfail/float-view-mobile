@@ -6,6 +6,10 @@ plugins {
 val rustCoreDirectory = rootProject.file("../core")
 val rustAndroidHelper = rustCoreDirectory.resolve("build-android-bridge.sh")
 val rustBridgeCatalog = rustCoreDirectory.resolve("bridge-build-catalog.sh")
+val rustAndroidJniSupportInputs = files(
+    rustCoreDirectory.resolve("android-jni-support/Cargo.toml"),
+    fileTree(rustCoreDirectory.resolve("android-jni-support/src")),
+)
 val rustAndroidOutputs = rustCoreDirectory.resolve("target/android/jniLibs")
 val rustHostOutputs = rustCoreDirectory.resolve("target/android/host/debug")
 val rustIdentityAndroidOutputs = rustCoreDirectory.resolve("target/android/identityJniLibs")
@@ -83,6 +87,7 @@ fun registerAndroidRustBuild(profile: String) = tasks.register<Exec>(
         rustAndroidOutputs.resolve(profile).absolutePath,
     )
     inputs.files(
+        rustAndroidJniSupportInputs,
         rustCoreDirectory.resolve("Cargo.toml"),
         rustCoreDirectory.resolve("Cargo.lock"),
         rustCoreDirectory.resolve("rust-toolchain.toml"),
@@ -113,6 +118,7 @@ fun registerAndroidRustIdentityBuild(profile: String) = tasks.register<Exec>(
         rustIdentityAndroidOutputs.resolve(profile).absolutePath,
     )
     inputs.files(
+        rustAndroidJniSupportInputs,
         rustCoreDirectory.resolve("Cargo.toml"),
         rustCoreDirectory.resolve("Cargo.lock"),
         rustCoreDirectory.resolve("rust-toolchain.toml"),
@@ -143,6 +149,7 @@ fun registerAndroidRustCustomConfigurationBuild(profile: String) = tasks.registe
         rustCustomConfigurationAndroidOutputs.resolve(profile).absolutePath,
     )
     inputs.files(
+        rustAndroidJniSupportInputs,
         rustCoreDirectory.resolve("Cargo.toml"),
         rustCoreDirectory.resolve("Cargo.lock"),
         rustCoreDirectory.resolve("rust-toolchain.toml"),
@@ -175,6 +182,7 @@ fun registerAndroidRustBmsValuesBuild(profile: String) = tasks.register<Exec>(
         rustBmsValuesAndroidOutputs.resolve(profile).absolutePath,
     )
     inputs.files(
+        rustAndroidJniSupportInputs,
         rustCoreDirectory.resolve("Cargo.toml"),
         rustCoreDirectory.resolve("Cargo.lock"),
         rustCoreDirectory.resolve("rust-toolchain.toml"),
@@ -205,6 +213,7 @@ fun registerAndroidRustControllerDataBuild(profile: String) = tasks.register<Exe
         rustControllerDataAndroidOutputs.resolve(profile).absolutePath,
     )
     inputs.files(
+        rustAndroidJniSupportInputs,
         rustCoreDirectory.resolve("Cargo.toml"),
         rustCoreDirectory.resolve("Cargo.lock"),
         rustCoreDirectory.resolve("rust-toolchain.toml"),
@@ -235,6 +244,7 @@ fun registerAndroidRustRefloatControlBuild(profile: String) = tasks.register<Exe
         rustRefloatControlAndroidOutputs.resolve(profile).absolutePath,
     )
     inputs.files(
+        rustAndroidJniSupportInputs,
         rustCoreDirectory.resolve("Cargo.toml"),
         rustCoreDirectory.resolve("Cargo.lock"),
         rustCoreDirectory.resolve("rust-toolchain.toml"),
@@ -262,6 +272,7 @@ val buildAndroidRustHost by tasks.registering(Exec::class) {
         rustHostOutputs.absolutePath,
     )
     inputs.files(
+        rustAndroidJniSupportInputs,
         rustCoreDirectory.resolve("Cargo.toml"),
         rustCoreDirectory.resolve("Cargo.lock"),
         rustCoreDirectory.resolve("rust-toolchain.toml"),
@@ -286,6 +297,7 @@ val buildAndroidRustIdentityHost by tasks.registering(Exec::class) {
         rustIdentityHostOutputs.absolutePath,
     )
     inputs.files(
+        rustAndroidJniSupportInputs,
         rustCoreDirectory.resolve("Cargo.toml"),
         rustCoreDirectory.resolve("Cargo.lock"),
         rustCoreDirectory.resolve("rust-toolchain.toml"),
@@ -310,6 +322,7 @@ val buildAndroidRustCustomConfigurationHost by tasks.registering(Exec::class) {
         rustCustomConfigurationHostOutputs.absolutePath,
     )
     inputs.files(
+        rustAndroidJniSupportInputs,
         rustCoreDirectory.resolve("Cargo.toml"),
         rustCoreDirectory.resolve("Cargo.lock"),
         rustCoreDirectory.resolve("rust-toolchain.toml"),
@@ -334,6 +347,7 @@ val buildAndroidRustBmsValuesHost by tasks.registering(Exec::class) {
         rustBmsValuesHostOutputs.absolutePath,
     )
     inputs.files(
+        rustAndroidJniSupportInputs,
         rustCoreDirectory.resolve("Cargo.toml"),
         rustCoreDirectory.resolve("Cargo.lock"),
         rustCoreDirectory.resolve("rust-toolchain.toml"),
@@ -358,6 +372,7 @@ val buildAndroidRustControllerDataHost by tasks.registering(Exec::class) {
         rustControllerDataHostOutputs.absolutePath,
     )
     inputs.files(
+        rustAndroidJniSupportInputs,
         rustCoreDirectory.resolve("Cargo.toml"),
         rustCoreDirectory.resolve("Cargo.lock"),
         rustCoreDirectory.resolve("rust-toolchain.toml"),
@@ -382,6 +397,7 @@ val buildAndroidRustRefloatControlHost by tasks.registering(Exec::class) {
         rustRefloatControlHostOutputs.absolutePath,
     )
     inputs.files(
+        rustAndroidJniSupportInputs,
         rustCoreDirectory.resolve("Cargo.toml"),
         rustCoreDirectory.resolve("Cargo.lock"),
         rustCoreDirectory.resolve("rust-toolchain.toml"),

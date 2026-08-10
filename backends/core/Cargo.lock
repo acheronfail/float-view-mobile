@@ -3,6 +3,13 @@
 version = 4
 
 [[package]]
+name = "float-view-android-jni-support"
+version = "0.1.0"
+dependencies = [
+ "jni-sys",
+]
+
+[[package]]
 name = "float-view-apple-ffi-support"
 version = "0.1.0"
 
@@ -14,8 +21,8 @@ version = "0.1.0"
 name = "float-view-refloat-control-android-jni"
 version = "0.1.0"
 dependencies = [
+ "float-view-android-jni-support",
  "float-view-refloat-control",
- "jni-sys",
 ]
 
 [[package]]
@@ -38,8 +45,8 @@ version = "0.1.0"
 name = "float-view-vesc-bms-values-android-jni"
 version = "0.1.0"
 dependencies = [
+ "float-view-android-jni-support",
  "float-view-vesc-bms-values",
- "jni-sys",
 ]
 
 [[package]]
@@ -58,8 +65,8 @@ version = "0.1.0"
 name = "float-view-vesc-controller-data-android-jni"
 version = "0.1.0"
 dependencies = [
+ "float-view-android-jni-support",
  "float-view-vesc-controller-data",
- "jni-sys",
 ]
 
 [[package]]
@@ -78,8 +85,8 @@ version = "0.1.0"
 name = "float-view-vesc-custom-configuration-android-jni"
 version = "0.1.0"
 dependencies = [
+ "float-view-android-jni-support",
  "float-view-vesc-custom-configuration",
- "jni-sys",
 ]
 
 [[package]]
@@ -101,8 +108,8 @@ dependencies = [
 name = "float-view-vesc-firmware-identity-android-jni"
 version = "0.1.0"
 dependencies = [
+ "float-view-android-jni-support",
  "float-view-vesc-firmware-identity",
- "jni-sys",
 ]
 
 [[package]]
@@ -121,8 +128,8 @@ version = "0.1.0"
 name = "float-view-vesc-frame-android-jni"
 version = "0.1.0"
 dependencies = [
+ "float-view-android-jni-support",
  "float-view-vesc-frame",
- "jni-sys",
 ]
 
 [[package]]

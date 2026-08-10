@@ -5,12 +5,14 @@
 
 #![deny(unsafe_op_in_unsafe_fn)]
 
+use float_view_android_jni_support::{
+    Environment, JNIEnv, contain, jbyteArray, jint, jintArray, jlong, jobject, jsize,
+    with_environment,
+};
 use float_view_vesc_custom_configuration::{
     CustomConfigurationError, CustomConfigurationResponse, MAX_SCHEDULED_PAYLOAD_BYTES,
     ValuesCommand, decode_response, schema_request, values_request, write_request,
 };
-use jni_sys::{JNIEnv, jbyte, jbyteArray, jint, jintArray, jlong, jobject, jsize};
-use std::panic::{AssertUnwindSafe, catch_unwind};
 
 pub const ABI_VERSION: jint = 1;
 
@@ -76,14 +78,15 @@ pub unsafe extern "system" fn Java_fail_acheron_floatview_protocol_RustVescCusto
     env: *mut JNIEnv,
     _receiver: jobject,
 ) -> jint {
-    contain_abi(|| {
-        let Some(functions) = (unsafe { environment(env) }) else {
-            return 0;
-        };
-        if unsafe { (functions.ExceptionCheck)(env) } {
-            return 0;
-        }
-        ABI_VERSION
+    contain(0, || unsafe {
+        with_environment(env, |environment| {
+            if environment.ensure_no_exception().is_ok() {
+                ABI_VERSION
+            } else {
+                0
+            }
+        })
+        .unwrap_or(0)
     })
 }
 
@@ -107,10 +110,20 @@ pub unsafe extern "system" fn Java_fail_acheron_floatview_protocol_RustVescCusto
     output: jbyteArray,
     result: jintArray,
 ) -> jint {
-    contain_status(|| unsafe {
-        invoke_encode(
-            env, operation, index, length, offset, values, output, result,
-        )
+    contain(STATUS_INTERNAL_FAILURE, || unsafe {
+        with_environment(env, |environment| {
+            invoke_encode(
+                environment,
+                operation,
+                index,
+                length,
+                offset,
+                values,
+                output,
+                result,
+            )
+        })
+        .unwrap_or(STATUS_INVALID_ARGUMENT)
     })
 }
 
@@ -130,12 +143,15 @@ pub unsafe extern "system" fn Java_fail_acheron_floatview_protocol_RustVescCusto
     input: jbyteArray,
     result: jintArray,
 ) -> jint {
-    contain_status(|| unsafe { invoke_decode(env, input, result) })
+    contain(STATUS_INTERNAL_FAILURE, || unsafe {
+        with_environment(env, |environment| invoke_decode(environment, input, result))
+            .unwrap_or(STATUS_INVALID_ARGUMENT)
+    })
 }
 
 #[allow(clippy::too_many_arguments)]
-unsafe fn invoke_encode(
-    env: *mut JNIEnv,
+fn invoke_encode(
+    environment: &Environment<'_>,
     operation: jint,
     index: jint,
     length: jlong,
@@ -144,49 +160,41 @@ unsafe fn invoke_encode(
     output: jbyteArray,
     result: jintArray,
 ) -> jint {
-    let Some(functions) = (unsafe { environment(env) }) else {
-        return STATUS_INVALID_ARGUMENT;
-    };
-    if unsafe { (functions.ExceptionCheck)(env) }
-        || values.is_null()
-        || output.is_null()
-        || result.is_null()
+    if environment.ensure_no_exception().is_err()
+        || environment
+            .require_references(&[values.cast(), output.cast(), result.cast()])
+            .is_err()
     {
         return STATUS_INVALID_ARGUMENT;
     }
-    let Some(values_length) = (unsafe { array_length(env, functions, values.cast()) }) else {
+    let Ok(values_length) = environment.array_length(values.cast()) else {
         return STATUS_INVALID_ARGUMENT;
     };
-    let Some(output_capacity) = (unsafe { array_length(env, functions, output.cast()) }) else {
+    let Ok(output_capacity) = environment.array_length(output.cast()) else {
         return STATUS_INVALID_ARGUMENT;
     };
-    let Some(result_length) = (unsafe { array_length(env, functions, result.cast()) }) else {
-        return STATUS_INVALID_ARGUMENT;
-    };
-    if result_length != ENCODE_RESULT_INTS as usize
+    if environment
+        .require_array_length(result.cast(), ENCODE_RESULT_INTS as usize)
+        .is_err()
         || values_length > MAX_SCHEDULED_PAYLOAD_BYTES
         || output_capacity > MAX_SCHEDULED_PAYLOAD_BYTES
-        || unsafe {
-            any_alias(
-                env,
-                functions,
-                &[values.cast(), output.cast(), result.cast()],
-            )
-        }
-        || unsafe { (functions.ExceptionCheck)(env) }
+        || environment
+            .require_distinct(&[values.cast(), output.cast(), result.cast()])
+            .is_err()
     {
         return STATUS_INVALID_ARGUMENT;
     }
-    if write_ints(env, functions, result, &[0]).is_err() {
+    if environment.write_ints_exact(result, 1, &[0]).is_err() {
         return STATUS_INTERNAL_FAILURE;
     }
     let Ok(index) = u8::try_from(index) else {
         return STATUS_INVALID_ARGUMENT;
     };
-    let mut copied_values = vec![0_u8; values_length];
-    if copy_bytes_from_java(env, functions, values, &mut copied_values).is_err() {
+    let Ok(copied_values) =
+        environment.read_bytes(values, values_length, MAX_SCHEDULED_PAYLOAD_BYTES)
+    else {
         return STATUS_INTERNAL_FAILURE;
-    }
+    };
     let encoded = run_encode(
         operation,
         index,
@@ -196,50 +204,66 @@ unsafe fn invoke_encode(
         output_capacity,
     );
     if encoded.status == STATUS_OK
-        && copy_bytes_to_java(env, functions, output, &encoded.output).is_err()
+        && environment
+            .write_bytes(output, output_capacity, &encoded.output)
+            .is_err()
     {
         return STATUS_INTERNAL_FAILURE;
     }
     let Ok(required) = jint::try_from(encoded.output_length) else {
         return STATUS_INTERNAL_FAILURE;
     };
-    if write_ints(env, functions, result, &[required]).is_err() {
+    if environment
+        .write_ints_exact(result, 1, &[required])
+        .is_err()
+    {
         return STATUS_INTERNAL_FAILURE;
     }
     encoded.status
 }
 
-unsafe fn invoke_decode(env: *mut JNIEnv, input: jbyteArray, result: jintArray) -> jint {
-    let Some(functions) = (unsafe { environment(env) }) else {
-        return STATUS_INVALID_ARGUMENT;
-    };
-    if unsafe { (functions.ExceptionCheck)(env) } || input.is_null() || result.is_null() {
-        return STATUS_INVALID_ARGUMENT;
-    }
-    let Some(input_length) = (unsafe { array_length(env, functions, input.cast()) }) else {
-        return STATUS_INVALID_ARGUMENT;
-    };
-    let Some(result_length) = (unsafe { array_length(env, functions, result.cast()) }) else {
-        return STATUS_INVALID_ARGUMENT;
-    };
-    if result_length != DECODE_RESULT_INTS as usize
-        || unsafe { any_alias(env, functions, &[input.cast(), result.cast()]) }
-        || unsafe { (functions.ExceptionCheck)(env) }
+fn invoke_decode(environment: &Environment<'_>, input: jbyteArray, result: jintArray) -> jint {
+    if environment.ensure_no_exception().is_err()
+        || environment
+            .require_references(&[input.cast(), result.cast()])
+            .is_err()
     {
         return STATUS_INVALID_ARGUMENT;
     }
-    if write_ints(env, functions, result, &[0; DECODE_RESULT_INTS as usize]).is_err() {
+    let Ok(input_length) = environment.array_length(input.cast()) else {
+        return STATUS_INVALID_ARGUMENT;
+    };
+    if environment
+        .require_array_length(result.cast(), DECODE_RESULT_INTS as usize)
+        .is_err()
+        || environment
+            .require_distinct(&[input.cast(), result.cast()])
+            .is_err()
+    {
+        return STATUS_INVALID_ARGUMENT;
+    }
+    if environment
+        .write_ints_exact(
+            result,
+            DECODE_RESULT_INTS as usize,
+            &[0; DECODE_RESULT_INTS as usize],
+        )
+        .is_err()
+    {
         return STATUS_INTERNAL_FAILURE;
     }
     if input_length > MAX_SCHEDULED_PAYLOAD_BYTES {
         return STATUS_INVALID_PAYLOAD;
     }
-    let mut copied_input = vec![0_u8; input_length];
-    if copy_bytes_from_java(env, functions, input, &mut copied_input).is_err() {
+    let Ok(copied_input) = environment.read_bytes(input, input_length, MAX_SCHEDULED_PAYLOAD_BYTES)
+    else {
         return STATUS_INTERNAL_FAILURE;
-    }
+    };
     let decoded = run_decode(&copied_input);
-    if write_ints(env, functions, result, &decoded.fields).is_err() {
+    if environment
+        .write_ints_exact(result, DECODE_RESULT_INTS as usize, &decoded.fields)
+        .is_err()
+    {
         return STATUS_INTERNAL_FAILURE;
     }
     decoded.status
@@ -253,7 +277,7 @@ fn run_encode(
     values: &[u8],
     output_capacity: usize,
 ) -> EncodeResult {
-    contain_encode(|| {
+    let result = contain(Err(STATUS_INTERNAL_FAILURE), || {
         let request = match operation {
             OPERATION_SCHEMA if values.is_empty() => schema_request(index, length, offset)
                 .map(|request| request.to_vec())
@@ -282,11 +306,12 @@ fn run_encode(
             output: request,
             output_length,
         })
-    })
+    });
+    result.unwrap_or_else(EncodeResult::failure)
 }
 
 fn run_decode(input: &[u8]) -> DecodeResult {
-    contain_decode(|| {
+    let result = contain(Err(STATUS_INTERNAL_FAILURE), || {
         let response = match decode_response(input) {
             Ok(response) => response,
             Err(CustomConfigurationError::UnsupportedCommand(command)) => {
@@ -347,140 +372,14 @@ fn run_decode(input: &[u8]) -> DecodeResult {
             status: STATUS_OK,
             fields,
         })
-    })
+    });
+    result.unwrap_or_else(DecodeResult::failure)
 }
 
 fn map_codec_error(error: CustomConfigurationError) -> jint {
     match error {
         CustomConfigurationError::InvalidPayload => STATUS_INVALID_PAYLOAD,
         CustomConfigurationError::UnsupportedCommand(_) => STATUS_INTERNAL_FAILURE,
-    }
-}
-
-fn contain_encode(operation: impl FnOnce() -> Result<EncodeResult, jint>) -> EncodeResult {
-    match catch_unwind(AssertUnwindSafe(operation)) {
-        Ok(Ok(result)) => result,
-        Ok(Err(status)) => EncodeResult::failure(status),
-        Err(_) => EncodeResult::failure(STATUS_INTERNAL_FAILURE),
-    }
-}
-
-fn contain_decode(operation: impl FnOnce() -> Result<DecodeResult, jint>) -> DecodeResult {
-    match catch_unwind(AssertUnwindSafe(operation)) {
-        Ok(Ok(result)) => result,
-        Ok(Err(status)) => DecodeResult::failure(status),
-        Err(_) => DecodeResult::failure(STATUS_INTERNAL_FAILURE),
-    }
-}
-
-fn contain_status(operation: impl FnOnce() -> jint) -> jint {
-    catch_unwind(AssertUnwindSafe(operation)).unwrap_or(STATUS_INTERNAL_FAILURE)
-}
-
-fn contain_abi(operation: impl FnOnce() -> jint) -> jint {
-    catch_unwind(AssertUnwindSafe(operation)).unwrap_or(0)
-}
-
-unsafe fn environment<'a>(env: *mut JNIEnv) -> Option<&'a jni_sys::JNINativeInterface__1_2> {
-    if env.is_null() {
-        return None;
-    }
-    let functions = unsafe { *env };
-    if functions.is_null() {
-        return None;
-    }
-    Some(unsafe { &(*functions).v1_2 })
-}
-
-unsafe fn array_length(
-    env: *mut JNIEnv,
-    functions: &jni_sys::JNINativeInterface__1_2,
-    array: jni_sys::jarray,
-) -> Option<usize> {
-    let length = unsafe { (functions.GetArrayLength)(env, array) };
-    if unsafe { (functions.ExceptionCheck)(env) } || length < 0 {
-        None
-    } else {
-        Some(length as usize)
-    }
-}
-
-unsafe fn any_alias(
-    env: *mut JNIEnv,
-    functions: &jni_sys::JNINativeInterface__1_2,
-    references: &[jobject],
-) -> bool {
-    for left in 0..references.len() {
-        for right in left + 1..references.len() {
-            if unsafe { (functions.IsSameObject)(env, references[left], references[right]) } {
-                return true;
-            }
-        }
-    }
-    false
-}
-
-fn copy_bytes_from_java(
-    env: *mut JNIEnv,
-    functions: &jni_sys::JNINativeInterface__1_2,
-    input: jbyteArray,
-    output: &mut [u8],
-) -> Result<(), ()> {
-    if !output.is_empty() {
-        unsafe {
-            (functions.GetByteArrayRegion)(
-                env,
-                input,
-                0,
-                output.len() as jsize,
-                output.as_mut_ptr().cast::<jbyte>(),
-            )
-        };
-    }
-    if unsafe { (functions.ExceptionCheck)(env) } {
-        Err(())
-    } else {
-        Ok(())
-    }
-}
-
-fn copy_bytes_to_java(
-    env: *mut JNIEnv,
-    functions: &jni_sys::JNINativeInterface__1_2,
-    output: jbyteArray,
-    input: &[u8],
-) -> Result<(), ()> {
-    if !input.is_empty() {
-        unsafe {
-            (functions.SetByteArrayRegion)(
-                env,
-                output,
-                0,
-                input.len() as jsize,
-                input.as_ptr().cast::<jbyte>(),
-            )
-        };
-    }
-    if unsafe { (functions.ExceptionCheck)(env) } {
-        Err(())
-    } else {
-        Ok(())
-    }
-}
-
-fn write_ints(
-    env: *mut JNIEnv,
-    functions: &jni_sys::JNINativeInterface__1_2,
-    output: jintArray,
-    values: &[jint],
-) -> Result<(), ()> {
-    unsafe {
-        (functions.SetIntArrayRegion)(env, output, 0, values.len() as jsize, values.as_ptr())
-    };
-    if unsafe { (functions.ExceptionCheck)(env) } {
-        Err(())
-    } else {
-        Ok(())
     }
 }
 
@@ -656,19 +555,7 @@ mod tests {
 
     #[test]
     fn contains_panics_and_keeps_numbers_stable() {
-        assert_eq!(
-            contain_encode(|| -> Result<EncodeResult, jint> { panic!("contained") }),
-            EncodeResult::failure(STATUS_INTERNAL_FAILURE)
-        );
-        assert_eq!(
-            contain_decode(|| -> Result<DecodeResult, jint> { panic!("contained") }),
-            DecodeResult::failure(STATUS_INTERNAL_FAILURE)
-        );
-        assert_eq!(
-            contain_status(|| panic!("contained")),
-            STATUS_INTERNAL_FAILURE
-        );
-        assert_eq!(contain_abi(|| panic!("contained")), 0);
+        assert_eq!(contain(5, || panic!("contained")), 5);
         assert_eq!(ABI_VERSION, 1);
         assert_eq!(
             [

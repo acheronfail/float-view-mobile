@@ -10,7 +10,11 @@ bounded caller-owned storage, primitive-result validation, error mapping,
 observation-time attachment, and the remaining VESC, BMS application, and
 Refloat semantics. Apple integration is unchanged; there is no generated API
 or Gradle module per capability.
-All four JNI crates remain separate. Gradle selects each one by stable bridge
+All six JNI crates remain separate. Each depends on its domain crate and the
+protocol-neutral `../core/android-jni-support/` crate for call-scoped JVM
+exception, array, alias, copy, publication, and panic safety. The support owns
+no JNI export or protocol behavior and is the only direct `jni-sys` consumer.
+Gradle selects each bridge by stable bridge
 identifier through the shared allowlisted Android builder in `../core/`, while
 retaining bridge-specific inputs, outputs, libraries, and task names.
 

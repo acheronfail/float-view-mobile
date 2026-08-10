@@ -5,13 +5,14 @@
 
 #![deny(unsafe_op_in_unsafe_fn)]
 
+use float_view_android_jni_support::{
+    Environment, JNIEnv, contain, jbyteArray, jint, jintArray, jobject, with_environment,
+};
 use float_view_refloat_control::{
     ControlError, ControlProfile, LightingProfile, LightingState, LightingTarget,
     MAX_CONTROL_PAYLOAD_BYTES, decode_lighting_response, fatal_clear_request, flywheel_request,
     lighting_request, package_request,
 };
-use jni_sys::{JNIEnv, jbyte, jbyteArray, jint, jintArray, jobject, jsize};
-use std::panic::{AssertUnwindSafe, catch_unwind};
 
 pub const ABI_VERSION: jint = 1;
 pub const STATUS_OK: jint = 0;
@@ -62,15 +63,15 @@ pub unsafe extern "system" fn Java_fail_acheron_floatview_protocol_RustRefloatCo
     env: *mut JNIEnv,
     _receiver: jobject,
 ) -> jint {
-    contain_abi(|| {
-        let Some(functions) = (unsafe { environment(env) }) else {
-            return 0;
-        };
-        if unsafe { (functions.ExceptionCheck)(env) } {
-            0
-        } else {
-            ABI_VERSION
-        }
+    contain(0, || unsafe {
+        with_environment(env, |environment| {
+            if environment.ensure_no_exception().is_ok() {
+                ABI_VERSION
+            } else {
+                0
+            }
+        })
+        .unwrap_or(0)
     })
 }
 
@@ -92,18 +93,21 @@ pub unsafe extern "system" fn Java_fail_acheron_floatview_protocol_RustRefloatCo
     output: jbyteArray,
     result: jintArray,
 ) -> jint {
-    contain_status(|| unsafe {
-        invoke_encode(
-            env,
-            operation,
-            lighting_profile,
-            fatal_clear_available,
-            target,
-            enabled,
-            current_flags,
-            output,
-            result,
-        )
+    contain(STATUS_INTERNAL_FAILURE, || unsafe {
+        with_environment(env, |environment| {
+            invoke_encode(
+                environment,
+                operation,
+                lighting_profile,
+                fatal_clear_available,
+                target,
+                enabled,
+                current_flags,
+                output,
+                result,
+            )
+        })
+        .unwrap_or(STATUS_INVALID_ARGUMENT)
     })
 }
 
@@ -120,12 +124,17 @@ pub unsafe extern "system" fn Java_fail_acheron_floatview_protocol_RustRefloatCo
     lighting_profile: jint,
     result: jintArray,
 ) -> jint {
-    contain_status(|| unsafe { invoke_decode(env, input, lighting_profile, result) })
+    contain(STATUS_INTERNAL_FAILURE, || unsafe {
+        with_environment(env, |environment| {
+            invoke_decode(environment, input, lighting_profile, result)
+        })
+        .unwrap_or(STATUS_INVALID_ARGUMENT)
+    })
 }
 
 #[allow(clippy::too_many_arguments)]
-unsafe fn invoke_encode(
-    env: *mut JNIEnv,
+fn invoke_encode(
+    environment: &Environment<'_>,
     operation: jint,
     lighting_profile: jint,
     fatal_clear_available: jint,
@@ -135,24 +144,25 @@ unsafe fn invoke_encode(
     output: jbyteArray,
     result: jintArray,
 ) -> jint {
-    let Some(functions) = (unsafe { environment(env) }) else {
-        return STATUS_INVALID_ARGUMENT;
-    };
-    if unsafe { (functions.ExceptionCheck)(env) } || output.is_null() || result.is_null() {
-        return STATUS_INVALID_ARGUMENT;
-    }
-    let output_capacity = unsafe { (functions.GetArrayLength)(env, output.cast()) };
-    let result_length = unsafe { (functions.GetArrayLength)(env, result.cast()) };
-    if unsafe { (functions.ExceptionCheck)(env) }
-        || output_capacity < 0
-        || output_capacity as usize > MAX_CONTROL_PAYLOAD_BYTES
-        || result_length != 2
-        || unsafe { references_alias(env, functions, output.cast(), result.cast()) }
-        || unsafe { (functions.ExceptionCheck)(env) }
+    if environment.ensure_no_exception().is_err()
+        || environment
+            .require_references(&[output.cast(), result.cast()])
+            .is_err()
     {
         return STATUS_INVALID_ARGUMENT;
     }
-    if write_ints(env, functions, result, &[0, 0]).is_err() {
+    let Ok(output_capacity) = environment.array_length(output.cast()) else {
+        return STATUS_INVALID_ARGUMENT;
+    };
+    if output_capacity > MAX_CONTROL_PAYLOAD_BYTES
+        || environment.require_array_length(result.cast(), 2).is_err()
+        || environment
+            .require_distinct(&[output.cast(), result.cast()])
+            .is_err()
+    {
+        return STATUS_INVALID_ARGUMENT;
+    }
+    if environment.write_ints_exact(result, 2, &[0, 0]).is_err() {
         return STATUS_INTERNAL_FAILURE;
     }
 
@@ -163,81 +173,65 @@ unsafe fn invoke_encode(
         target,
         enabled,
         current_flags,
-        output_capacity as usize,
+        output_capacity,
     );
-    if encoded.status == STATUS_OK {
-        unsafe {
-            (functions.SetByteArrayRegion)(
-                env,
-                output,
-                0,
-                encoded.payload.len() as jsize,
-                encoded.payload.as_ptr().cast::<jbyte>(),
-            )
-        };
-        if unsafe { (functions.ExceptionCheck)(env) } {
-            return STATUS_INTERNAL_FAILURE;
-        }
+    if encoded.status == STATUS_OK
+        && environment
+            .write_bytes(output, output_capacity, &encoded.payload)
+            .is_err()
+    {
+        return STATUS_INTERNAL_FAILURE;
     }
-    if write_ints(
-        env,
-        functions,
-        result,
-        &[
-            encoded.required_length as jint,
-            jint::from(encoded.unsupported_command),
-        ],
-    )
-    .is_err()
+    if environment
+        .write_ints_exact(
+            result,
+            2,
+            &[
+                encoded.required_length as jint,
+                jint::from(encoded.unsupported_command),
+            ],
+        )
+        .is_err()
     {
         return STATUS_INTERNAL_FAILURE;
     }
     encoded.status
 }
 
-unsafe fn invoke_decode(
-    env: *mut JNIEnv,
+fn invoke_decode(
+    environment: &Environment<'_>,
     input: jbyteArray,
     lighting_profile: jint,
     result: jintArray,
 ) -> jint {
-    let Some(functions) = (unsafe { environment(env) }) else {
-        return STATUS_INVALID_ARGUMENT;
-    };
-    if unsafe { (functions.ExceptionCheck)(env) } || input.is_null() || result.is_null() {
-        return STATUS_INVALID_ARGUMENT;
-    }
-    let input_length = unsafe { (functions.GetArrayLength)(env, input.cast()) };
-    let result_length = unsafe { (functions.GetArrayLength)(env, result.cast()) };
-    if unsafe { (functions.ExceptionCheck)(env) }
-        || input_length < 0
-        || result_length != 1
-        || unsafe { references_alias(env, functions, input.cast(), result.cast()) }
-        || unsafe { (functions.ExceptionCheck)(env) }
+    if environment.ensure_no_exception().is_err()
+        || environment
+            .require_references(&[input.cast(), result.cast()])
+            .is_err()
     {
         return STATUS_INVALID_ARGUMENT;
     }
-    if write_ints(env, functions, result, &[0]).is_err() {
+    let Ok(input_length) = environment.array_length(input.cast()) else {
+        return STATUS_INVALID_ARGUMENT;
+    };
+    if environment.require_array_length(result.cast(), 1).is_err()
+        || environment
+            .require_distinct(&[input.cast(), result.cast()])
+            .is_err()
+    {
+        return STATUS_INVALID_ARGUMENT;
+    }
+    if environment.write_ints_exact(result, 1, &[0]).is_err() {
         return STATUS_INTERNAL_FAILURE;
     }
     if input_length > 4 {
         return STATUS_INVALID_PAYLOAD;
     }
-    let mut copied_input = vec![0_u8; input_length as usize];
-    unsafe {
-        (functions.GetByteArrayRegion)(
-            env,
-            input,
-            0,
-            input_length,
-            copied_input.as_mut_ptr().cast::<jbyte>(),
-        )
-    };
-    if unsafe { (functions.ExceptionCheck)(env) } {
+    let Ok(copied_input) = environment.read_bytes(input, input_length, 4) else {
         return STATUS_INTERNAL_FAILURE;
-    }
+    };
     let (status, flags) = run_decode(&copied_input, lighting_profile);
-    if status == STATUS_OK && write_ints(env, functions, result, &[flags]).is_err() {
+    if status == STATUS_OK && environment.write_ints_exact(result, 1, &[flags]).is_err() {
         return STATUS_INTERNAL_FAILURE;
     }
     status
@@ -253,7 +247,7 @@ fn run_encode(
     current_flags: jint,
     output_capacity: usize,
 ) -> EncodeResult {
-    contain_encode(|| {
+    let result = contain(Err(STATUS_INTERNAL_FAILURE), || {
         let payload = match operation {
             OPERATION_PACKAGE
                 if canonical_common(
@@ -328,18 +322,23 @@ fn run_encode(
             required_length,
             unsupported_command: 0,
         })
-    })
+    });
+    result.unwrap_or_else(EncodeResult::failure)
 }
 
 fn run_decode(input: &[u8], lighting_profile: jint) -> (jint, jint) {
-    contain_decode(|| {
+    let result = contain(Err(STATUS_INTERNAL_FAILURE), || {
         if input.len() > 4 {
             return Err(STATUS_INVALID_PAYLOAD);
         }
         let state = decode_lighting_response(input, parse_profile(lighting_profile)?)
             .map_err(|_| STATUS_INVALID_PAYLOAD)?;
         Ok(jint::from(state.leds_enabled) | (jint::from(state.headlights_enabled) << 1))
-    })
+    });
+    match result {
+        Ok(flags) => (STATUS_OK, flags),
+        Err(status) => (status, 0),
+    }
 }
 
 fn canonical_common(profile: jint, fatal: jint, target: jint, current: jint) -> bool {
@@ -371,66 +370,6 @@ fn state(flags: jint) -> LightingState {
     LightingState {
         leds_enabled: flags & 1 != 0,
         headlights_enabled: flags & 2 != 0,
-    }
-}
-
-fn contain_encode(operation: impl FnOnce() -> Result<EncodeResult, jint>) -> EncodeResult {
-    match catch_unwind(AssertUnwindSafe(operation)) {
-        Ok(Ok(result)) => result,
-        Ok(Err(status)) => EncodeResult::failure(status),
-        Err(_) => EncodeResult::failure(STATUS_INTERNAL_FAILURE),
-    }
-}
-
-fn contain_decode(operation: impl FnOnce() -> Result<jint, jint>) -> (jint, jint) {
-    match catch_unwind(AssertUnwindSafe(operation)) {
-        Ok(Ok(flags)) => (STATUS_OK, flags),
-        Ok(Err(status)) => (status, 0),
-        Err(_) => (STATUS_INTERNAL_FAILURE, 0),
-    }
-}
-
-fn contain_status(operation: impl FnOnce() -> jint) -> jint {
-    catch_unwind(AssertUnwindSafe(operation)).unwrap_or(STATUS_INTERNAL_FAILURE)
-}
-
-fn contain_abi(operation: impl FnOnce() -> jint) -> jint {
-    catch_unwind(AssertUnwindSafe(operation)).unwrap_or(0)
-}
-
-unsafe fn environment<'a>(env: *mut JNIEnv) -> Option<&'a jni_sys::JNINativeInterface__1_2> {
-    if env.is_null() {
-        return None;
-    }
-    let functions = unsafe { *env };
-    if functions.is_null() {
-        return None;
-    }
-    Some(unsafe { &(*functions).v1_2 })
-}
-
-unsafe fn references_alias(
-    env: *mut JNIEnv,
-    functions: &jni_sys::JNINativeInterface__1_2,
-    left: jobject,
-    right: jobject,
-) -> bool {
-    unsafe { (functions.IsSameObject)(env, left, right) }
-}
-
-fn write_ints(
-    env: *mut JNIEnv,
-    functions: &jni_sys::JNINativeInterface__1_2,
-    result: jintArray,
-    values: &[jint],
-) -> Result<(), ()> {
-    unsafe {
-        (functions.SetIntArrayRegion)(env, result, 0, values.len() as jsize, values.as_ptr())
-    };
-    if unsafe { (functions.ExceptionCheck)(env) } {
-        Err(())
-    } else {
-        Ok(())
     }
 }
 
@@ -581,19 +520,7 @@ mod tests {
 
     #[test]
     fn contains_panics_and_keeps_contract_numbers_stable() {
-        assert_eq!(
-            contain_encode(|| panic!("contained")),
-            EncodeResult::failure(STATUS_INTERNAL_FAILURE)
-        );
-        assert_eq!(
-            contain_decode(|| panic!("contained")),
-            (STATUS_INTERNAL_FAILURE, 0)
-        );
-        assert_eq!(
-            contain_status(|| panic!("contained")),
-            STATUS_INTERNAL_FAILURE
-        );
-        assert_eq!(contain_abi(|| panic!("contained")), 0);
+        assert_eq!(contain(5, || panic!("contained")), 5);
         assert_eq!(
             [
                 ABI_VERSION,

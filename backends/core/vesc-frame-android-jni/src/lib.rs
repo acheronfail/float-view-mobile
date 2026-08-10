@@ -5,11 +5,12 @@
 
 #![deny(unsafe_op_in_unsafe_fn)]
 
+use float_view_android_jni_support::{
+    Environment, JNIEnv, contain, jbyteArray, jint, jintArray, jobject, with_environment,
+};
 use float_view_vesc_frame::{
     FrameError, MAX_PAYLOAD_BYTES, MAX_STREAM_BYTES, StreamScan, decode, encode, scan_next,
 };
-use jni_sys::{JNIEnv, jbyte, jbyteArray, jint, jintArray, jobject, jsize};
-use std::panic::{AssertUnwindSafe, catch_unwind};
 
 /// Version of the complete hand-written Android JNI contract.
 pub const ABI_VERSION: jint = 2;
@@ -82,14 +83,15 @@ pub unsafe extern "system" fn Java_fail_acheron_floatview_protocol_RustVescFrame
     env: *mut JNIEnv,
     _receiver: jobject,
 ) -> jint {
-    contain_abi(|| {
-        let Some(functions) = (unsafe { environment(env) }) else {
-            return 0;
-        };
-        if unsafe { (functions.ExceptionCheck)(env) } {
-            return 0;
-        }
-        ABI_VERSION
+    contain(0, || unsafe {
+        with_environment(env, |environment| {
+            if environment.ensure_no_exception().is_ok() {
+                ABI_VERSION
+            } else {
+                0
+            }
+        })
+        .unwrap_or(0)
     })
 }
 
@@ -108,7 +110,12 @@ pub unsafe extern "system" fn Java_fail_acheron_floatview_protocol_RustVescFrame
     output: jbyteArray,
     output_length: jintArray,
 ) -> jint {
-    contain_status(|| unsafe { invoke(env, input, output, output_length, Operation::Encode) })
+    contain(STATUS_INTERNAL_FAILURE, || unsafe {
+        with_environment(env, |environment| {
+            invoke(environment, input, output, output_length, Operation::Encode)
+        })
+        .unwrap_or(STATUS_INVALID_ARGUMENT)
+    })
 }
 
 /// Decode exactly one bounded frame into a caller-owned Java byte array.
@@ -126,7 +133,18 @@ pub unsafe extern "system" fn Java_fail_acheron_floatview_protocol_RustVescFrame
     output: jbyteArray,
     output_length: jintArray,
 ) -> jint {
-    contain_status(|| unsafe { invoke(env, input, output, output_length, Operation::DecodeExact) })
+    contain(STATUS_INTERNAL_FAILURE, || unsafe {
+        with_environment(env, |environment| {
+            invoke(
+                environment,
+                input,
+                output,
+                output_length,
+                Operation::DecodeExact,
+            )
+        })
+        .unwrap_or(STATUS_INVALID_ARGUMENT)
+    })
 }
 
 /// Scan one borrowed bounded stream region for the next candidate frame.
@@ -144,52 +162,45 @@ pub unsafe extern "system" fn Java_fail_acheron_floatview_protocol_RustVescFrame
     input: jbyteArray,
     scan_result: jintArray,
 ) -> jint {
-    contain_status(|| unsafe { invoke_scan(env, input, scan_result) })
+    contain(STATUS_INTERNAL_FAILURE, || unsafe {
+        with_environment(env, |environment| {
+            invoke_scan(environment, input, scan_result)
+        })
+        .unwrap_or(STATUS_INVALID_ARGUMENT)
+    })
 }
 
-unsafe fn invoke(
-    env: *mut JNIEnv,
+fn invoke(
+    environment: &Environment<'_>,
     input: jbyteArray,
     output: jbyteArray,
     output_length: jintArray,
     operation: Operation,
 ) -> jint {
-    let Some(functions) = (unsafe { environment(env) }) else {
+    if environment.ensure_no_exception().is_err()
+        || environment
+            .require_references(&[input.cast(), output.cast(), output_length.cast()])
+            .is_err()
+    {
+        return STATUS_INVALID_ARGUMENT;
+    }
+
+    let Ok(input_length) = environment.array_length(input.cast()) else {
         return STATUS_INVALID_ARGUMENT;
     };
-    if unsafe { (functions.ExceptionCheck)(env) }
-        || input.is_null()
-        || output.is_null()
-        || output_length.is_null()
+    let Ok(output_capacity) = environment.array_length(output.cast()) else {
+        return STATUS_INVALID_ARGUMENT;
+    };
+    if environment
+        .require_array_length(output_length.cast(), 1)
+        .is_err()
+        || environment
+            .require_distinct(&[input.cast(), output.cast(), output_length.cast()])
+            .is_err()
     {
         return STATUS_INVALID_ARGUMENT;
     }
 
-    let input_length = unsafe { (functions.GetArrayLength)(env, input.cast()) };
-    if unsafe { (functions.ExceptionCheck)(env) } || input_length < 0 {
-        return STATUS_INVALID_ARGUMENT;
-    }
-    let output_capacity = unsafe { (functions.GetArrayLength)(env, output.cast()) };
-    if unsafe { (functions.ExceptionCheck)(env) } || output_capacity < 0 {
-        return STATUS_INVALID_ARGUMENT;
-    }
-    let output_length_count = unsafe { (functions.GetArrayLength)(env, output_length.cast()) };
-    if unsafe { (functions.ExceptionCheck)(env) } || output_length_count != 1 {
-        return STATUS_INVALID_ARGUMENT;
-    }
-
-    if unsafe { references_alias(env, functions, input.cast(), output.cast()) }
-        || unsafe { references_alias(env, functions, input.cast(), output_length.cast()) }
-        || unsafe { references_alias(env, functions, output.cast(), output_length.cast()) }
-    {
-        return STATUS_INVALID_ARGUMENT;
-    }
-    if unsafe { (functions.ExceptionCheck)(env) } {
-        return STATUS_INVALID_ARGUMENT;
-    }
-
-    let input_length = input_length as usize;
-    let output_capacity = output_capacity as usize;
     let (maximum_input, maximum_output) = match operation {
         Operation::Encode => (MAX_PAYLOAD_BYTES, MAX_FRAME_BYTES),
         Operation::DecodeExact => (MAX_FRAME_BYTES, MAX_PAYLOAD_BYTES),
@@ -197,95 +208,79 @@ unsafe fn invoke(
     if output_capacity > maximum_output {
         return STATUS_INVALID_ARGUMENT;
     }
-    if write_length(env, functions, output_length, 0).is_err() {
+    if environment
+        .write_ints_exact(output_length, 1, &[0])
+        .is_err()
+    {
         return STATUS_INTERNAL_FAILURE;
     }
     if input_length > maximum_input {
         return STATUS_INPUT_TOO_LARGE;
     }
 
-    let mut copied_input = vec![0_u8; input_length];
-    unsafe {
-        (functions.GetByteArrayRegion)(
-            env,
-            input,
-            0,
-            input_length as jsize,
-            copied_input.as_mut_ptr().cast::<jbyte>(),
-        )
-    };
-    if unsafe { (functions.ExceptionCheck)(env) } {
+    let Ok(copied_input) = environment.read_bytes(input, input_length, maximum_input) else {
         return STATUS_INTERNAL_FAILURE;
-    }
+    };
 
     let result = run_operation(operation, &copied_input, output_capacity);
-    if result.status == STATUS_OK {
-        unsafe {
-            (functions.SetByteArrayRegion)(
-                env,
-                output,
-                0,
-                result.output_length as jsize,
-                result.output.as_ptr().cast::<jbyte>(),
-            )
-        };
-        if unsafe { (functions.ExceptionCheck)(env) } {
-            return STATUS_INTERNAL_FAILURE;
-        }
+    if result.status == STATUS_OK
+        && environment
+            .write_bytes(output, output_capacity, &result.output)
+            .is_err()
+    {
+        return STATUS_INTERNAL_FAILURE;
     }
-    if write_length(env, functions, output_length, result.output_length as jint).is_err() {
+    if environment
+        .write_ints_exact(output_length, 1, &[result.output_length as jint])
+        .is_err()
+    {
         return STATUS_INTERNAL_FAILURE;
     }
     result.status
 }
 
-unsafe fn invoke_scan(env: *mut JNIEnv, input: jbyteArray, scan_result: jintArray) -> jint {
-    let Some(functions) = (unsafe { environment(env) }) else {
-        return STATUS_INVALID_ARGUMENT;
-    };
-    if unsafe { (functions.ExceptionCheck)(env) } || input.is_null() || scan_result.is_null() {
-        return STATUS_INVALID_ARGUMENT;
-    }
-
-    let input_length = unsafe { (functions.GetArrayLength)(env, input.cast()) };
-    if unsafe { (functions.ExceptionCheck)(env) } || input_length < 0 {
-        return STATUS_INVALID_ARGUMENT;
-    }
-    let result_length = unsafe { (functions.GetArrayLength)(env, scan_result.cast()) };
-    if unsafe { (functions.ExceptionCheck)(env) } || result_length != 3 {
-        return STATUS_INVALID_ARGUMENT;
-    }
-    if unsafe { references_alias(env, functions, input.cast(), scan_result.cast()) }
-        || unsafe { (functions.ExceptionCheck)(env) }
+fn invoke_scan(environment: &Environment<'_>, input: jbyteArray, scan_result: jintArray) -> jint {
+    if environment.ensure_no_exception().is_err()
+        || environment
+            .require_references(&[input.cast(), scan_result.cast()])
+            .is_err()
     {
         return STATUS_INVALID_ARGUMENT;
     }
 
-    if write_scan_fields(env, functions, scan_result, [0; 3]).is_err() {
+    let Ok(input_length) = environment.array_length(input.cast()) else {
+        return STATUS_INVALID_ARGUMENT;
+    };
+    if environment
+        .require_array_length(scan_result.cast(), 3)
+        .is_err()
+        || environment
+            .require_distinct(&[input.cast(), scan_result.cast()])
+            .is_err()
+    {
+        return STATUS_INVALID_ARGUMENT;
+    }
+
+    if environment
+        .write_ints_exact(scan_result, 3, &[0; 3])
+        .is_err()
+    {
         return STATUS_INTERNAL_FAILURE;
     }
-    let input_length = input_length as usize;
     if input_length > MAX_STREAM_BYTES {
         let fields = [0, 0, input_length as jint];
-        if write_scan_fields(env, functions, scan_result, fields).is_err() {
+        if environment
+            .write_ints_exact(scan_result, 3, &fields)
+            .is_err()
+        {
             return STATUS_INTERNAL_FAILURE;
         }
         return STATUS_INPUT_TOO_LARGE;
     }
 
-    let mut copied_input = vec![0_u8; input_length];
-    unsafe {
-        (functions.GetByteArrayRegion)(
-            env,
-            input,
-            0,
-            input_length as jsize,
-            copied_input.as_mut_ptr().cast::<jbyte>(),
-        )
-    };
-    if unsafe { (functions.ExceptionCheck)(env) } {
+    let Ok(copied_input) = environment.read_bytes(input, input_length, MAX_STREAM_BYTES) else {
         return STATUS_INTERNAL_FAILURE;
-    }
+    };
 
     let result = run_scan(&copied_input);
     if !valid_scan_result(input_length, result) {
@@ -294,7 +289,9 @@ unsafe fn invoke_scan(env: *mut JNIEnv, input: jbyteArray, scan_result: jintArra
     if matches!(
         result.status,
         STATUS_OK | STATUS_NEED_MORE_INPUT | STATUS_INPUT_TOO_LARGE
-    ) && write_scan_fields(env, functions, scan_result, result.fields).is_err()
+    ) && environment
+        .write_ints_exact(scan_result, 3, &result.fields)
+        .is_err()
     {
         return STATUS_INTERNAL_FAILURE;
     }
@@ -302,7 +299,7 @@ unsafe fn invoke_scan(env: *mut JNIEnv, input: jbyteArray, scan_result: jintArra
 }
 
 fn run_operation(operation: Operation, input: &[u8], output_capacity: usize) -> OperationResult {
-    contain(|| {
+    let result = contain(Err(STATUS_INTERNAL_FAILURE), || {
         let result = match operation {
             Operation::Encode => encode(input),
             Operation::DecodeExact => decode(input),
@@ -321,31 +318,34 @@ fn run_operation(operation: Operation, input: &[u8], output_capacity: usize) -> 
             output: result,
             output_length,
         })
-    })
+    });
+    result.unwrap_or_else(OperationResult::failure)
 }
 
 fn run_scan(input: &[u8]) -> ScanOperationResult {
-    catch_unwind(AssertUnwindSafe(|| match scan_next(input) {
-        StreamScan::NeedMore { consumed } => ScanOperationResult {
-            status: STATUS_NEED_MORE_INPUT,
-            fields: [0, 0, consumed as jint],
-        },
-        StreamScan::Frame {
-            frame_offset,
-            frame_length,
-            consumed,
-        } => ScanOperationResult {
-            status: STATUS_OK,
-            fields: [frame_offset as jint, frame_length as jint, consumed as jint],
-        },
-        StreamScan::PayloadTooLarge { consumed } | StreamScan::StreamTooLarge { consumed } => {
-            ScanOperationResult {
-                status: STATUS_INPUT_TOO_LARGE,
+    contain(
+        ScanOperationResult::failure(STATUS_INTERNAL_FAILURE),
+        || match scan_next(input) {
+            StreamScan::NeedMore { consumed } => ScanOperationResult {
+                status: STATUS_NEED_MORE_INPUT,
                 fields: [0, 0, consumed as jint],
+            },
+            StreamScan::Frame {
+                frame_offset,
+                frame_length,
+                consumed,
+            } => ScanOperationResult {
+                status: STATUS_OK,
+                fields: [frame_offset as jint, frame_length as jint, consumed as jint],
+            },
+            StreamScan::PayloadTooLarge { consumed } | StreamScan::StreamTooLarge { consumed } => {
+                ScanOperationResult {
+                    status: STATUS_INPUT_TOO_LARGE,
+                    fields: [0, 0, consumed as jint],
+                }
             }
-        }
-    }))
-    .unwrap_or_else(|_| ScanOperationResult::failure(STATUS_INTERNAL_FAILURE))
+        },
+    )
 }
 
 fn valid_scan_result(input_length: usize, result: ScanOperationResult) -> bool {
@@ -377,75 +377,11 @@ fn valid_scan_result(input_length: usize, result: ScanOperationResult) -> bool {
     }
 }
 
-fn contain(operation: impl FnOnce() -> Result<OperationResult, jint>) -> OperationResult {
-    match catch_unwind(AssertUnwindSafe(operation)) {
-        Ok(Ok(result)) => result,
-        Ok(Err(status)) => OperationResult::failure(status),
-        Err(_) => OperationResult::failure(STATUS_INTERNAL_FAILURE),
-    }
-}
-
-fn contain_status(operation: impl FnOnce() -> jint) -> jint {
-    catch_unwind(AssertUnwindSafe(operation)).unwrap_or(STATUS_INTERNAL_FAILURE)
-}
-
-fn contain_abi(operation: impl FnOnce() -> jint) -> jint {
-    catch_unwind(AssertUnwindSafe(operation)).unwrap_or(0)
-}
-
 fn frame_status(error: FrameError) -> jint {
     match error {
         FrameError::InvalidFrame => STATUS_INVALID_FRAME,
         FrameError::InvalidCrc => STATUS_INVALID_CRC,
         FrameError::PayloadTooLarge => STATUS_INPUT_TOO_LARGE,
-    }
-}
-
-unsafe fn environment<'a>(env: *mut JNIEnv) -> Option<&'a jni_sys::JNINativeInterface__1_2> {
-    if env.is_null() {
-        return None;
-    }
-    let functions = unsafe { *env };
-    if functions.is_null() {
-        return None;
-    }
-    Some(unsafe { &(*functions).v1_2 })
-}
-
-unsafe fn references_alias(
-    env: *mut JNIEnv,
-    functions: &jni_sys::JNINativeInterface__1_2,
-    left: jobject,
-    right: jobject,
-) -> bool {
-    unsafe { (functions.IsSameObject)(env, left, right) }
-}
-
-fn write_length(
-    env: *mut JNIEnv,
-    functions: &jni_sys::JNINativeInterface__1_2,
-    output_length: jintArray,
-    value: jint,
-) -> Result<(), ()> {
-    unsafe { (functions.SetIntArrayRegion)(env, output_length, 0, 1, &value) };
-    if unsafe { (functions.ExceptionCheck)(env) } {
-        Err(())
-    } else {
-        Ok(())
-    }
-}
-
-fn write_scan_fields(
-    env: *mut JNIEnv,
-    functions: &jni_sys::JNINativeInterface__1_2,
-    scan_result: jintArray,
-    values: [jint; 3],
-) -> Result<(), ()> {
-    unsafe { (functions.SetIntArrayRegion)(env, scan_result, 0, 3, values.as_ptr()) };
-    if unsafe { (functions.ExceptionCheck)(env) } {
-        Err(())
-    } else {
-        Ok(())
     }
 }
 
@@ -588,15 +524,7 @@ mod tests {
 
     #[test]
     fn contains_panics() {
-        let result = contain(|| -> Result<OperationResult, jint> { panic!("contained") });
-        assert_eq!(result.status, STATUS_INTERNAL_FAILURE);
-        assert_eq!(result.output_length, 0);
-        assert!(result.output.is_empty());
-        assert_eq!(
-            contain_status(|| panic!("contained status")),
-            STATUS_INTERNAL_FAILURE
-        );
-        assert_eq!(contain_abi(|| panic!("contained ABI")), 0);
+        assert_eq!(contain(5, || panic!("contained")), 5);
     }
 
     #[test]

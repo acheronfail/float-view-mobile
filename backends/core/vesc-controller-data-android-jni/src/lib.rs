@@ -5,12 +5,13 @@
 
 #![deny(unsafe_op_in_unsafe_fn)]
 
+use float_view_android_jni_support::{
+    Environment, JNIEnv, contain, jbyteArray, jint, jintArray, jobject, with_environment,
+};
 use float_view_vesc_controller_data::{
     ControllerDataError, CurrentLimits, FaultKind, RealtimeValues, decode_current_limits,
     decode_realtime_values,
 };
-use jni_sys::{JNIEnv, jbyte, jbyteArray, jint, jintArray, jobject, jsize};
-use std::panic::{AssertUnwindSafe, catch_unwind};
 
 pub const ABI_VERSION: jint = 1;
 pub const OPERATION_REALTIME: jint = 1;
@@ -61,15 +62,15 @@ pub unsafe extern "system" fn Java_fail_acheron_floatview_protocol_RustVescContr
     env: *mut JNIEnv,
     _receiver: jobject,
 ) -> jint {
-    contain_abi(|| {
-        let Some(functions) = (unsafe { environment(env) }) else {
-            return 0;
-        };
-        if unsafe { (functions.ExceptionCheck)(env) } {
-            0
-        } else {
-            ABI_VERSION
-        }
+    contain(0, || unsafe {
+        with_environment(env, |environment| {
+            if environment.ensure_no_exception().is_ok() {
+                ABI_VERSION
+            } else {
+                0
+            }
+        })
+        .unwrap_or(0)
     })
 }
 
@@ -91,99 +92,76 @@ pub unsafe extern "system" fn Java_fail_acheron_floatview_protocol_RustVescContr
     output: jbyteArray,
     result: jintArray,
 ) -> jint {
-    contain_status(|| unsafe { invoke(env, operation, input, output, result) })
+    contain(STATUS_INTERNAL_FAILURE, || unsafe {
+        with_environment(env, |environment| {
+            invoke(environment, operation, input, output, result)
+        })
+        .unwrap_or(STATUS_INVALID_ARGUMENT)
+    })
 }
 
-unsafe fn invoke(
-    env: *mut JNIEnv,
+fn invoke(
+    environment: &Environment<'_>,
     operation: jint,
     input: jbyteArray,
     output: jbyteArray,
     result: jintArray,
 ) -> jint {
-    let Some(functions) = (unsafe { environment(env) }) else {
+    if !matches!(operation, OPERATION_REALTIME | OPERATION_CURRENT_LIMITS)
+        || environment.ensure_no_exception().is_err()
+        || environment
+            .require_references(&[input.cast(), output.cast(), result.cast()])
+            .is_err()
+    {
+        return STATUS_INVALID_ARGUMENT;
+    }
+
+    let Ok(input_length) = environment.array_length(input.cast()) else {
         return STATUS_INVALID_ARGUMENT;
     };
-    if !matches!(operation, OPERATION_REALTIME | OPERATION_CURRENT_LIMITS)
-        || unsafe { (functions.ExceptionCheck)(env) }
-        || input.is_null()
-        || output.is_null()
-        || result.is_null()
+    let Ok(output_capacity) = environment.array_length(output.cast()) else {
+        return STATUS_INVALID_ARGUMENT;
+    };
+    if environment.require_array_length(result.cast(), 2).is_err()
+        || environment
+            .require_distinct(&[input.cast(), output.cast(), result.cast()])
+            .is_err()
     {
         return STATUS_INVALID_ARGUMENT;
     }
 
-    let input_length = unsafe { (functions.GetArrayLength)(env, input.cast()) };
-    if unsafe { (functions.ExceptionCheck)(env) } || input_length < 0 {
-        return STATUS_INVALID_ARGUMENT;
-    }
-    let output_capacity = unsafe { (functions.GetArrayLength)(env, output.cast()) };
-    if unsafe { (functions.ExceptionCheck)(env) } || output_capacity < 0 {
-        return STATUS_INVALID_ARGUMENT;
-    }
-    let result_length = unsafe { (functions.GetArrayLength)(env, result.cast()) };
-    if unsafe { (functions.ExceptionCheck)(env) } || result_length != 2 {
-        return STATUS_INVALID_ARGUMENT;
-    }
-    if unsafe { references_alias(env, functions, input.cast(), output.cast()) }
-        || unsafe { references_alias(env, functions, input.cast(), result.cast()) }
-        || unsafe { references_alias(env, functions, output.cast(), result.cast()) }
-        || unsafe { (functions.ExceptionCheck)(env) }
-    {
-        return STATUS_INVALID_ARGUMENT;
-    }
-
-    let input_length = input_length as usize;
-    let output_capacity = output_capacity as usize;
     if output_capacity > MAX_RECORD_BYTES {
         return STATUS_INVALID_ARGUMENT;
     }
-    if write_metadata(env, functions, result, [0, 0]).is_err() {
+    if environment.write_ints_exact(result, 2, &[0, 0]).is_err() {
         return STATUS_INTERNAL_FAILURE;
     }
     if input_length > MAX_PAYLOAD_BYTES {
         return STATUS_TRUNCATED_PAYLOAD;
     }
 
-    let mut copied_input = vec![0_u8; input_length];
-    unsafe {
-        (functions.GetByteArrayRegion)(
-            env,
-            input,
-            0,
-            input_length as jsize,
-            copied_input.as_mut_ptr().cast::<jbyte>(),
-        )
-    };
-    if unsafe { (functions.ExceptionCheck)(env) } {
+    let Ok(copied_input) = environment.read_bytes(input, input_length, MAX_PAYLOAD_BYTES) else {
         return STATUS_INTERNAL_FAILURE;
-    }
+    };
 
     let decoded = run_decode(operation, &copied_input, output_capacity);
-    if decoded.status == STATUS_OK {
-        unsafe {
-            (functions.SetByteArrayRegion)(
-                env,
-                output,
-                0,
-                decoded.record_length as jsize,
-                decoded.record.as_ptr().cast::<jbyte>(),
-            )
-        };
-        if unsafe { (functions.ExceptionCheck)(env) } {
-            return STATUS_INTERNAL_FAILURE;
-        }
+    if decoded.status == STATUS_OK
+        && environment
+            .write_bytes(output, output_capacity, &decoded.record)
+            .is_err()
+    {
+        return STATUS_INTERNAL_FAILURE;
     }
-    if write_metadata(
-        env,
-        functions,
-        result,
-        [
-            decoded.record_length as jint,
-            jint::from(decoded.unsupported_command),
-        ],
-    )
-    .is_err()
+    if environment
+        .write_ints_exact(
+            result,
+            2,
+            &[
+                decoded.record_length as jint,
+                jint::from(decoded.unsupported_command),
+            ],
+        )
+        .is_err()
     {
         return STATUS_INTERNAL_FAILURE;
     }
@@ -191,7 +169,7 @@ unsafe fn invoke(
 }
 
 fn run_decode(operation: jint, input: &[u8], output_capacity: usize) -> DecodeResult {
-    contain(|| {
+    let result = contain(Err(STATUS_INTERNAL_FAILURE), || {
         let record = match operation {
             OPERATION_REALTIME => match decode_realtime_values(input) {
                 Ok(values) => encode_realtime(values)?,
@@ -218,7 +196,8 @@ fn run_decode(operation: jint, input: &[u8], output_capacity: usize) -> DecodeRe
             record_length,
             unsupported_command: 0,
         })
-    })
+    });
+    result.unwrap_or_else(DecodeResult::failure)
 }
 
 fn map_decode_error(error: ControllerDataError) -> DecodeResult {
@@ -309,56 +288,6 @@ const fn fault_code(fault: FaultKind) -> u8 {
     }
 }
 
-fn contain(operation: impl FnOnce() -> Result<DecodeResult, jint>) -> DecodeResult {
-    match catch_unwind(AssertUnwindSafe(operation)) {
-        Ok(Ok(result)) => result,
-        Ok(Err(status)) => DecodeResult::failure(status),
-        Err(_) => DecodeResult::failure(STATUS_INTERNAL_FAILURE),
-    }
-}
-
-fn contain_status(operation: impl FnOnce() -> jint) -> jint {
-    catch_unwind(AssertUnwindSafe(operation)).unwrap_or(STATUS_INTERNAL_FAILURE)
-}
-
-fn contain_abi(operation: impl FnOnce() -> jint) -> jint {
-    catch_unwind(AssertUnwindSafe(operation)).unwrap_or(0)
-}
-
-unsafe fn environment<'a>(env: *mut JNIEnv) -> Option<&'a jni_sys::JNINativeInterface__1_2> {
-    if env.is_null() {
-        return None;
-    }
-    let functions = unsafe { *env };
-    if functions.is_null() {
-        return None;
-    }
-    Some(unsafe { &(*functions).v1_2 })
-}
-
-unsafe fn references_alias(
-    env: *mut JNIEnv,
-    functions: &jni_sys::JNINativeInterface__1_2,
-    left: jobject,
-    right: jobject,
-) -> bool {
-    unsafe { (functions.IsSameObject)(env, left, right) }
-}
-
-fn write_metadata(
-    env: *mut JNIEnv,
-    functions: &jni_sys::JNINativeInterface__1_2,
-    result: jintArray,
-    values: [jint; 2],
-) -> Result<(), ()> {
-    unsafe { (functions.SetIntArrayRegion)(env, result, 0, 2, values.as_ptr()) };
-    if unsafe { (functions.ExceptionCheck)(env) } {
-        Err(())
-    } else {
-        Ok(())
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -438,13 +367,7 @@ mod tests {
 
     #[test]
     fn contains_panics_and_keeps_contract_numbers_stable() {
-        let contained = contain(|| -> Result<DecodeResult, jint> { panic!("contained") });
-        assert_eq!(contained, DecodeResult::failure(STATUS_INTERNAL_FAILURE));
-        assert_eq!(
-            contain_status(|| panic!("contained status")),
-            STATUS_INTERNAL_FAILURE
-        );
-        assert_eq!(contain_abi(|| panic!("contained ABI")), 0);
+        assert_eq!(contain(5, || panic!("contained")), 5);
         assert_eq!(ABI_VERSION, 1);
         assert_eq!(STATUS_OK, 0);
         assert_eq!(STATUS_INVALID_ARGUMENT, 1);

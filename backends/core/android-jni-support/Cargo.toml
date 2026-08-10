@@ -1,0 +1,8 @@
+[package]
+name = "float-view-android-jni-support"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+jni-sys = "=0.4.1"

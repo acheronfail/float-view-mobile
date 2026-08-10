@@ -4,10 +4,11 @@
 ownership. It is a locked Cargo workspace, not another backend and not a
 production runtime.
 
-The workspace currently has twenty members:
+The workspace currently has twenty-one members:
 
 | Component               | Scope                                                                 | Integration state                                                                             |
 | ----------------------- | --------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
+| `android-jni-support/`   | Checked call-local JNI environments, primitive-array copies, alias validation, and panic containment | Shared internally by the six Android bridges; exports no JNI symbol and owns no protocol behavior |
 | `apple-ffi-support/`     | Dependency-free checked regions, panic containment, and bounded C output publication | Shared internally by the six Apple bridges; exports no C symbol and owns no protocol behavior |
 | `refloat-control/`       | Safe bounded Refloat live-control payload encoding and lighting response decoding | Selected by Apple and Android through separate host bridges                         |
 | `refloat-control-apple-ffi/` | Three-symbol caller-owned-buffer C ABI for Refloat controls              | Selected only by the shared iOS/macOS adapter                                       |
@@ -29,7 +30,7 @@ The workspace currently has twenty members:
 | `vesc-frame-apple-ffi/`   | Caller-owned-buffer C ABI                                             | Selected only by the shared iOS/macOS frame-codec adapter                       |
 | `vesc-frame-android-jni/` | Primitive-array JNI ABI                                              | Selected by Android for CRC, encoding, exact decoding, and stream-boundary scans |
 
-The twenty crates remain independent components and artifacts. The six
+The twenty-one crates remain independent components and artifacts. The six
 selected component families' repeated
 source-build mechanics are centralized in `build-apple-bridge.sh` and
 `build-android-bridge.sh`, driven by the closed six-entry
@@ -49,11 +50,21 @@ archives, domain dependencies, and Swift adapters remain explicit in each
 bridge. Header generation and export macros are intentionally absent because
 they would add tooling while obscuring the small reviewed public ABIs.
 
+The six Android bridges similarly share only protocol-agnostic JNI safety in
+`android-jni-support/`: call-scoped environment and exception checks, primitive
+array lengths and copies, local-reference alias checks, exact integer
+publication, and panic containment. The support crate is the workspace's only
+direct `jni-sys` consumer. Export names, statuses, validation order, result
+records, domain dependencies, Kotlin loaders, and six independent libraries
+remain explicit. JNI export macros, binding generation, and higher-level JNI
+wrappers stay out of scope because the small bridge ABIs differ and the shared
+mechanics do not need another dependency or generated source tree.
+
 The shared Apple backend retains only bounded Swift stream storage. Rust scans
 each borrowed region, reports exact consumption boundaries, validates every
 complete frame, and owns outbound encoding without transferring allocator or
 object lifetime across the bridge. Android uses the same safe crate through a
-separate four-function JNI bridge. Rust selects Android stream boundaries;
+separate four-function JNI bridge over the shared support. Rust selects Android stream boundaries;
 Kotlin retains only caller-owned bounded byte storage, mechanical consumption,
 and error mapping without transferring allocator or object lifetime.
 
@@ -95,6 +106,6 @@ decoder until separate cutovers.
 Do not add empty future crates, generated bindings, a general runtime, host
 callbacks, or OS-owned Bluetooth, location, lifecycle, permission, native-file,
 theme, or UI behavior here. Unsafe code belongs only in named audited host
-boundary crates: exported operations remain in each bridge, shared Apple
-primitives remain in the support component, and every safe algorithm crate
-continues to forbid unsafe code.
+boundary crates: exported operations remain in each bridge, shared Apple and
+Android primitives remain in their support components, and every safe
+algorithm crate continues to forbid unsafe code.

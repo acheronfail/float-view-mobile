@@ -8,5 +8,5 @@ rust-version.workspace = true
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
+float-view-android-jni-support = { path = "../android-jni-support" }
 float-view-vesc-bms-values = { path = "../vesc-bms-values" }
-jni-sys = "=0.4.1"
