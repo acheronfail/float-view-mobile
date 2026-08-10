@@ -4,12 +4,14 @@
 ownership. It is a locked Cargo workspace, not another backend and not a
 production runtime.
 
-The workspace currently has five members:
+The workspace currently has seven members:
 
 | Component               | Scope                                                                 | Integration state                                                                             |
 | ----------------------- | --------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
-| `vesc-firmware-identity/` | Safe bounded `COMM_FW_VERSION` payload decoding                      | Isolated candidate; Swift and Kotlin remain the selected production decoders                  |
-| `vesc-firmware-identity-apple-ffi/` | Two-symbol caller-owned-buffer C ABI for firmware identity | Selected by the shared iOS/macOS identity adapter; Android remains Kotlin-owned                |
+| `vesc-custom-configuration/` | Safe bounded VESC commands 92–95 envelope encoding and decoding  | Isolated candidate; Swift and Kotlin remain the selected production codecs                    |
+| `vesc-firmware-identity/` | Safe bounded `COMM_FW_VERSION` payload decoding                      | Selected by Apple and Android through separate host bridges                                   |
+| `vesc-firmware-identity-apple-ffi/` | Two-symbol caller-owned-buffer C ABI for firmware identity | Selected only by the shared iOS/macOS identity adapter                                        |
+| `vesc-firmware-identity-android-jni/` | Two-symbol primitive-array JNI ABI for firmware identity | Selected only by Android                                                                      |
 | `vesc-frame/`             | Safe bounded VESC CRC, frame encoding/decoding, and stream scanning | Apple and Android select every framing decision                                 |
 | `vesc-frame-apple-ffi/`   | Caller-owned-buffer C ABI and locked Apple source-build helper      | Selected only by the shared iOS/macOS frame-codec adapter                       |
 | `vesc-frame-android-jni/` | Primitive-array JNI ABI and locked host/Android source builds       | Selected by Android for CRC, encoding, exact decoding, and stream-boundary scans |
@@ -24,9 +26,13 @@ and error mapping without transferring allocator or object lifetime.
 
 The firmware identity component has an empty production dependency graph. Its
 tests use only the existing safe framing crate to unwrap committed framed
-fixtures. A separate Apple bridge depends only on it and the standard library;
-the bridge exposes no Rust allocation or layout. Android remains an independent
-later cutover.
+fixtures. Separate Apple and Android bridges depend only on it and their
+minimal host ABI support; neither bridge exposes Rust allocation or layout.
+
+The custom-configuration component is a candidate only. It encodes and decodes
+the bounded VESC commands 92–95 envelope while treating compressed schemas and
+serialized values as opaque caller-owned bytes. Swift and Kotlin remain the
+selected production codecs until separate host cutovers prove their bridges.
 
 Do not add empty future crates, generated bindings, a general runtime, host
 callbacks, or OS-owned Bluetooth, location, lifecycle, permission, native-file,
