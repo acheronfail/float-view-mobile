@@ -76,6 +76,12 @@ float_view_select_bridge() {
         Java_fail_acheron_floatview_protocol_RustVescBmsValuesBridge_decode
       )
       ;;
+    refloat-control)
+      bridge_identifier='refloat-control'
+      bridge_diagnostic='Refloat control codec'
+      bridge_apple_package='float-view-refloat-control-apple-ffi'
+      bridge_apple_archive='libfloat_view_refloat_control_apple_ffi.a'
+      ;;
     *)
       echo "Unknown Rust host bridge: ${requested_bridge:-<empty>}" >&2
       return 2

@@ -110,7 +110,6 @@ private struct ByteReader {
     guard offset + count <= bytes.count else { throw VescProtocolError.truncatedPayload }
     offset += count
   }
-
 }
 
 public enum VescPayloadDecoder {
@@ -277,7 +276,7 @@ public final class VescProtocolService: VescProtocolPort, @unchecked Sendable {
 
   public func customConfigurationValuesRequest(route: ControllerRoute, defaults: Bool) throws -> Data {
     try Data(VescFrameCodec.encode(VescCommandRouter.route(
-      try VescCustomConfigurationCodec.valuesRequest(defaults: defaults), via: route
+      VescCustomConfigurationCodec.valuesRequest(defaults: defaults), via: route
     )))
   }
 

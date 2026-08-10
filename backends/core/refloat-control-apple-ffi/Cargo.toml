@@ -1,0 +1,13 @@
+[package]
+name = "float-view-refloat-control-apple-ffi"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+
+[lib]
+crate-type = ["staticlib", "rlib"]
+path = "src/lib.rs"
+
+[dependencies]
+float-view-refloat-control = { path = "../refloat-control" }

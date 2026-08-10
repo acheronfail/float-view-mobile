@@ -70,7 +70,8 @@ func flywheelModeHasSoleDisableException() throws {
         context: mutationContext(rideState: .riding, packageState: .running, packageMode: .flywheel)
       )
       guard case let .mutation(value, _) = result else { Issue.record("expected disable"); return }
-      #expect(value.payload == RefloatControlCodec.flywheelRequest(enabled: false))
+      let expected = try RefloatControlCodec.flywheelRequest(enabled: false)
+      #expect(value.payload == expected)
     } else {
       #expect(throws: RefloatMutationError.invalidState) {
         try owner.authorizeSet(

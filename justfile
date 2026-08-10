@@ -19,9 +19,9 @@ rust-bridge-build-tooling-audit:
       \( -name 'build-apple.sh' -o -name 'build-android.sh' \) | grep -q .
     ! rg -n 'backends/core/vesc-[^[:space:]]+/(build-apple|build-android)\.sh' \
       justfile backends conformance
-    expected=$'frame|float-view-vesc-frame-apple-ffi|libfloat_view_vesc_frame_apple_ffi.a|float-view-vesc-frame-android-jni|float_view_vesc_frame_android_jni|Java_fail_acheron_floatview_protocol_RustVescFrameBridge|Java_fail_acheron_floatview_protocol_RustVescFrameBridge_abiVersion Java_fail_acheron_floatview_protocol_RustVescFrameBridge_decodeExact Java_fail_acheron_floatview_protocol_RustVescFrameBridge_encode Java_fail_acheron_floatview_protocol_RustVescFrameBridge_scanNext\nfirmware-identity|float-view-vesc-firmware-identity-apple-ffi|libfloat_view_vesc_firmware_identity_apple_ffi.a|float-view-vesc-firmware-identity-android-jni|float_view_vesc_firmware_identity_android_jni|Java_fail_acheron_floatview_protocol_RustVescFirmwareIdentityBridge|Java_fail_acheron_floatview_protocol_RustVescFirmwareIdentityBridge_abiVersion Java_fail_acheron_floatview_protocol_RustVescFirmwareIdentityBridge_decode\ncustom-configuration|float-view-vesc-custom-configuration-apple-ffi|libfloat_view_vesc_custom_configuration_apple_ffi.a|float-view-vesc-custom-configuration-android-jni|float_view_vesc_custom_configuration_android_jni|Java_fail_acheron_floatview_protocol_RustVescCustomConfigurationBridge|Java_fail_acheron_floatview_protocol_RustVescCustomConfigurationBridge_abiVersion Java_fail_acheron_floatview_protocol_RustVescCustomConfigurationBridge_decode Java_fail_acheron_floatview_protocol_RustVescCustomConfigurationBridge_encode\nbms-values|float-view-vesc-bms-values-apple-ffi|libfloat_view_vesc_bms_values_apple_ffi.a|float-view-vesc-bms-values-android-jni|float_view_vesc_bms_values_android_jni|Java_fail_acheron_floatview_protocol_RustVescBmsValuesBridge|Java_fail_acheron_floatview_protocol_RustVescBmsValuesBridge_abiVersion Java_fail_acheron_floatview_protocol_RustVescBmsValuesBridge_decode'
+    expected=$'frame|float-view-vesc-frame-apple-ffi|libfloat_view_vesc_frame_apple_ffi.a|float-view-vesc-frame-android-jni|float_view_vesc_frame_android_jni|Java_fail_acheron_floatview_protocol_RustVescFrameBridge|Java_fail_acheron_floatview_protocol_RustVescFrameBridge_abiVersion Java_fail_acheron_floatview_protocol_RustVescFrameBridge_decodeExact Java_fail_acheron_floatview_protocol_RustVescFrameBridge_encode Java_fail_acheron_floatview_protocol_RustVescFrameBridge_scanNext\nfirmware-identity|float-view-vesc-firmware-identity-apple-ffi|libfloat_view_vesc_firmware_identity_apple_ffi.a|float-view-vesc-firmware-identity-android-jni|float_view_vesc_firmware_identity_android_jni|Java_fail_acheron_floatview_protocol_RustVescFirmwareIdentityBridge|Java_fail_acheron_floatview_protocol_RustVescFirmwareIdentityBridge_abiVersion Java_fail_acheron_floatview_protocol_RustVescFirmwareIdentityBridge_decode\ncustom-configuration|float-view-vesc-custom-configuration-apple-ffi|libfloat_view_vesc_custom_configuration_apple_ffi.a|float-view-vesc-custom-configuration-android-jni|float_view_vesc_custom_configuration_android_jni|Java_fail_acheron_floatview_protocol_RustVescCustomConfigurationBridge|Java_fail_acheron_floatview_protocol_RustVescCustomConfigurationBridge_abiVersion Java_fail_acheron_floatview_protocol_RustVescCustomConfigurationBridge_decode Java_fail_acheron_floatview_protocol_RustVescCustomConfigurationBridge_encode\nbms-values|float-view-vesc-bms-values-apple-ffi|libfloat_view_vesc_bms_values_apple_ffi.a|float-view-vesc-bms-values-android-jni|float_view_vesc_bms_values_android_jni|Java_fail_acheron_floatview_protocol_RustVescBmsValuesBridge|Java_fail_acheron_floatview_protocol_RustVescBmsValuesBridge_abiVersion Java_fail_acheron_floatview_protocol_RustVescBmsValuesBridge_decode\nrefloat-control|float-view-refloat-control-apple-ffi|libfloat_view_refloat_control_apple_ffi.a||||'
     source "$catalog"
-    actual="$(for bridge in frame firmware-identity custom-configuration bms-values; do
+    actual="$(for bridge in frame firmware-identity custom-configuration bms-values refloat-control; do
       float_view_select_bridge "$bridge"
       printf '%s|%s|%s|%s|%s|%s|%s\n' \
         "$bridge_identifier" "$bridge_apple_package" "$bridge_apple_archive" \
@@ -90,11 +90,19 @@ apple-rust-bms-values configuration="Debug":
       macosx "$(uname -m)" "{{ configuration }}" \
       "$PWD/backends/core/target/apple/macos"
 
+apple-rust-refloat-control configuration="Debug":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    backends/core/build-apple-bridge.sh refloat-control \
+      macosx "$(uname -m)" "{{ configuration }}" \
+      "$PWD/backends/core/target/apple/macos"
+
 apple-rust-bridges configuration="Debug":
     just apple-rust-codec "{{ configuration }}"
     just apple-rust-firmware-identity "{{ configuration }}"
     just apple-rust-custom-configuration "{{ configuration }}"
     just apple-rust-bms-values "{{ configuration }}"
+    just apple-rust-refloat-control "{{ configuration }}"
 
 core-abi-test: apple-rust-codec
     xcrun clang -std=c17 -Wall -Wextra -Werror \
@@ -233,6 +241,42 @@ core-bms-values-abi-audit: apple-rust-bms-values
       exit 1
     }
     [[ "$(xcrun lipo -archs "$archive")" == "$(uname -m)" ]]
+
+core-refloat-control-abi-test: apple-rust-refloat-control
+    xcrun clang -std=c17 -Wall -Wextra -Werror \
+      backends/core/refloat-control-apple-ffi/tests/abi.c \
+      -I backends/apple/Sources/CVescRefloatControl/include \
+      -L backends/core/target/apple/macos \
+      -lfloat_view_refloat_control_apple_ffi \
+      -o /tmp/float-view-refloat-control-abi-test
+    /tmp/float-view-refloat-control-abi-test
+
+core-refloat-control-abi-audit: apple-rust-refloat-control
+    #!/usr/bin/env bash
+    set -euo pipefail
+    archive='backends/core/target/apple/macos/libfloat_view_refloat_control_apple_ffi.a'
+    actual="$({ nm -gjU "$archive" 2>/dev/null || true; } \
+      | sed 's/^_//' | rg '^float_view_[a-z_]+$' | sort -u)"
+    expected="$(printf '%s\n' \
+      float_view_refloat_control_abi_version \
+      float_view_refloat_control_decode_lighting \
+      float_view_refloat_control_encode)"
+    [[ "$actual" == "$expected" ]] || {
+      echo 'Unexpected Float View Refloat-control ABI symbols:' >&2
+      printf '%s\n' "$actual" >&2
+      exit 1
+    }
+    rust_abi="$(sed -n 's/^pub const ABI_VERSION: u32 = \([0-9][0-9]*\);$/\1/p' \
+      backends/core/refloat-control-apple-ffi/src/lib.rs)"
+    header_abi="$(sed -n 's/^#define FLOAT_VIEW_REFLOAT_CONTROL_ABI_VERSION UINT32_C(\([0-9][0-9]*\))$/\1/p' \
+      backends/apple/Sources/CVescRefloatControl/include/CVescRefloatControl.h)"
+    swift_abi="$(sed -n 's/^[[:space:]]*private static let expectedABI: UInt32 = \([0-9][0-9]*\)$/\1/p' \
+      backends/apple/Sources/FloatViewBackend/protocol/refloat/RefloatControlCodec.swift)"
+    [[ -n "$rust_abi" && "$rust_abi" == "$header_abi" && "$rust_abi" == "$swift_abi" ]] || {
+      echo "Refloat control ABI mismatch: Rust=$rust_abi header=$header_abi Swift=$swift_abi" >&2
+      exit 1
+    }
+    [[ "$(xcrun lipo -archs "$archive")" == "$(uname -m)" ]]
 apple-packaging:
     just apple-rust-bridges Release
     cd backends/apple && swift build -c release \
@@ -247,7 +291,7 @@ apple-packaging:
       -derivedDataPath /tmp/float-view-ios-device CODE_SIGNING_ALLOWED=NO clean build
     just apple-rust-bridges Debug
 
-core-test: core-abi-test core-identity-abi-test core-custom-configuration-abi-test core-bms-values-abi-test
+core-test: core-abi-test core-identity-abi-test core-custom-configuration-abi-test core-bms-values-abi-test core-refloat-control-abi-test
     cd backends/core && cargo test --locked --offline
 
 android-rust-host:
@@ -634,6 +678,7 @@ audit:
     [[ -f backends/core/build-apple-bridge.sh ]]
     [[ -f backends/core/build-android-bridge.sh ]]
     [[ -f backends/core/refloat-control/Cargo.toml ]]
+    [[ -f backends/core/refloat-control-apple-ffi/Cargo.toml ]]
     [[ -f backends/core/vesc-bms-values/Cargo.toml ]]
     [[ -f backends/core/vesc-bms-values-android-jni/Cargo.toml ]]
     [[ -f backends/core/vesc-bms-values-apple-ffi/Cargo.toml ]]
@@ -654,8 +699,10 @@ audit:
     [[ -f backends/apple/Sources/CVescBmsValues/module.modulemap ]]
     [[ -f backends/apple/Sources/CVescFirmwareIdentity/include/CVescFirmwareIdentity.h ]]
     [[ -f backends/apple/Sources/CVescFirmwareIdentity/module.modulemap ]]
+    [[ -f backends/apple/Sources/CVescRefloatControl/include/CVescRefloatControl.h ]]
+    [[ -f backends/apple/Sources/CVescRefloatControl/module.modulemap ]]
     unexpected_core="$(find backends/core -mindepth 1 -maxdepth 1 -type d \
-      ! -name target ! -name refloat-control \
+      ! -name target ! -name refloat-control ! -name refloat-control-apple-ffi \
       ! -name vesc-bms-values ! -name vesc-bms-values-android-jni \
       ! -name vesc-bms-values-apple-ffi \
       ! -name vesc-custom-configuration ! -name vesc-firmware-identity \
@@ -670,6 +717,8 @@ audit:
     }
     [[ "$(find backends/core/refloat-control -mindepth 1 -maxdepth 1 -type d \
       ! -name src -print -quit)" == "" ]]
+    [[ "$(find backends/core/refloat-control-apple-ffi -mindepth 1 -maxdepth 1 -type d \
+      ! -name src ! -name tests -print -quit)" == "" ]]
     [[ "$(find backends/core/vesc-bms-values -mindepth 1 -maxdepth 1 -type d \
       ! -name src -print -quit)" == "" ]]
     [[ "$(find backends/core/vesc-bms-values-android-jni -mindepth 1 -maxdepth 1 -type d \
@@ -698,8 +747,8 @@ audit:
     rg -q '^#!\[forbid\(unsafe_code\)\]$' backends/core/refloat-control/src/lib.rs
     ! rg -n 'extern[[:space:]]+"C"|no_mangle|cbindgen|uniffi|jni|host_callback' \
       backends/core/refloat-control
-    ! rg -n 'float-view-refloat-control|CVescRefloatControl|RustRefloatControlBridge' \
-      backends/apple backends/android
+    ! rg -n 'refloat-control-apple-ffi|CVescRefloatControl|float_view_refloat_control' \
+      backends/android
     ! rg -n 'extern[[:space:]]+"C"|no_mangle|cbindgen|uniffi|jni|host_callback' \
       backends/core/vesc-frame
     rg -q '^#!\[forbid\(unsafe_code\)\]$' \
@@ -727,7 +776,10 @@ audit:
       backends/core/vesc-custom-configuration-apple-ffi
     ! rg -n 'cbindgen|uniffi|jni|host_callback' \
       backends/core/vesc-bms-values-apple-ffi
+    ! rg -n 'cbindgen|uniffi|jni|host_callback' \
+      backends/core/refloat-control-apple-ffi
     [[ "$(cd backends/core && cargo tree --locked --package float-view-refloat-control --edges normal --prefix none | wc -l | tr -d ' ')" == 1 ]]
+    [[ "$(cd backends/core && cargo tree --locked --package float-view-refloat-control-apple-ffi --edges normal --depth 1 --prefix none | wc -l | tr -d ' ')" == 2 ]]
     [[ "$(cd backends/core && cargo tree --locked --package float-view-vesc-firmware-identity --edges normal --prefix none | wc -l | tr -d ' ')" == 1 ]]
     [[ "$(cd backends/core && cargo tree --locked --package float-view-vesc-bms-values --edges normal --prefix none | wc -l | tr -d ' ')" == 1 ]]
     [[ "$(cd backends/core && cargo tree --locked --package float-view-vesc-bms-values-apple-ffi --edges normal --depth 1 --prefix none | wc -l | tr -d ' ')" == 2 ]]
@@ -739,12 +791,13 @@ audit:
     [[ "$(cd backends/core && cargo tree --locked --package float-view-vesc-firmware-identity-apple-ffi --edges normal --depth 1 --prefix none | wc -l | tr -d ' ')" == 2 ]]
     [[ "$(cd backends/core && cargo tree --locked --package float-view-vesc-firmware-identity-android-jni --edges normal --depth 1 --prefix none | wc -l | tr -d ' ')" == 3 ]]
     ! git ls-files | rg '\.(a|so|xcframework|dylib)$'
-    [[ "$(find backends/apple/Sources -type f \( -name '*.h' -o -name '*.modulemap' \) | sort)" == $'backends/apple/Sources/CSQLite/module.modulemap\nbackends/apple/Sources/CSQLite/shim.h\nbackends/apple/Sources/CVescBmsValues/include/CVescBmsValues.h\nbackends/apple/Sources/CVescBmsValues/module.modulemap\nbackends/apple/Sources/CVescCustomConfiguration/include/CVescCustomConfiguration.h\nbackends/apple/Sources/CVescCustomConfiguration/module.modulemap\nbackends/apple/Sources/CVescFirmwareIdentity/include/CVescFirmwareIdentity.h\nbackends/apple/Sources/CVescFirmwareIdentity/module.modulemap\nbackends/apple/Sources/CVescFrame/include/CVescFrame.h\nbackends/apple/Sources/CVescFrame/module.modulemap' ]]
+    [[ "$(find backends/apple/Sources -type f \( -name '*.h' -o -name '*.modulemap' \) | sort)" == $'backends/apple/Sources/CSQLite/module.modulemap\nbackends/apple/Sources/CSQLite/shim.h\nbackends/apple/Sources/CVescBmsValues/include/CVescBmsValues.h\nbackends/apple/Sources/CVescBmsValues/module.modulemap\nbackends/apple/Sources/CVescCustomConfiguration/include/CVescCustomConfiguration.h\nbackends/apple/Sources/CVescCustomConfiguration/module.modulemap\nbackends/apple/Sources/CVescFirmwareIdentity/include/CVescFirmwareIdentity.h\nbackends/apple/Sources/CVescFirmwareIdentity/module.modulemap\nbackends/apple/Sources/CVescFrame/include/CVescFrame.h\nbackends/apple/Sources/CVescFrame/module.modulemap\nbackends/apple/Sources/CVescRefloatControl/include/CVescRefloatControl.h\nbackends/apple/Sources/CVescRefloatControl/module.modulemap' ]]
     just rust-bridge-build-tooling-audit
     just core-abi-audit
     just core-identity-abi-audit
     just core-custom-configuration-abi-audit
     just core-bms-values-abi-audit
+    just core-refloat-control-abi-audit
     just android-rust-audit
     ! rg -n -e 'CheckpointSwiftVescFrameReference' -e 'CheckpointSwiftVescStreamReference' \
       -e 'VescCRC' -e '0x1021' -e 'first != 2, first != 3' \
@@ -788,6 +841,17 @@ audit:
       backends/apple/Sources -g '*.swift')" == "$bms_source" ]]
     ! rg -n -e 'SwiftBmsValuesReference' -e 'CheckpointSwiftBmsValues' \
       -e 'FLOAT_VIEW_SWIFT_BMS_VALUES' backends/apple -g '*.swift'
+    control_source='backends/apple/Sources/FloatViewBackend/protocol/refloat/RefloatControlCodec.swift'
+    ! rg -n -e 'RefloatWire\.request\(' -e 'mask: UInt8' -e 'flags = enabled \?' \
+      -e 'payload\[0\].*customAppData' -e 'payload\[1\].*packageID' \
+      -e 'payload\[2\].*command' \
+      "$control_source"
+    [[ "$(rg -c 'float_view_refloat_control_encode\(' "$control_source")" == 1 ]]
+    [[ "$(rg -c 'float_view_refloat_control_decode_lighting\(' "$control_source")" == 1 ]]
+    [[ "$(rg -l 'float_view_refloat_control_(encode|decode_lighting)\(' \
+      backends/apple/Sources -g '*.swift')" == "$control_source" ]]
+    [[ "$(rg -l '^import CVescRefloatControl$' \
+      backends/apple/Sources -g '*.swift')" == "$control_source" ]]
     [[ -d backends/apple/ios ]]
     [[ -d backends/apple/macos ]]
     ! find backends/android/app/src/main/java/fail/acheron/floatview \

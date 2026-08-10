@@ -7,6 +7,13 @@ name = "float-view-refloat-control"
 version = "0.1.0"
 
 [[package]]
+name = "float-view-refloat-control-apple-ffi"
+version = "0.1.0"
+dependencies = [
+ "float-view-refloat-control",
+]
+
+[[package]]
 name = "float-view-vesc-bms-values"
 version = "0.1.0"
 

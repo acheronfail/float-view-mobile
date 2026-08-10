@@ -22,6 +22,7 @@ let package = Package(
     .systemLibrary(name: "CVescCustomConfiguration"),
     .systemLibrary(name: "CVescFrame"),
     .systemLibrary(name: "CVescFirmwareIdentity"),
+    .systemLibrary(name: "CVescRefloatControl"),
     .target(
       name: "FloatViewBackend",
       dependencies: [
@@ -30,6 +31,7 @@ let package = Package(
         "CVescCustomConfiguration",
         "CVescFrame",
         "CVescFirmwareIdentity",
+        "CVescRefloatControl",
         .product(name: "RefloatConfigurationFixtures", package: "refloat-configuration"),
         .product(name: "FlyingFox", package: "FlyingFox"),
       ],
@@ -39,6 +41,7 @@ let package = Package(
         .linkedLibrary("float_view_vesc_firmware_identity_apple_ffi"),
         .linkedLibrary("float_view_vesc_custom_configuration_apple_ffi"),
         .linkedLibrary("float_view_vesc_bms_values_apple_ffi"),
+        .linkedLibrary("float_view_refloat_control_apple_ffi"),
       ]
     ),
     .executableTarget(
@@ -52,6 +55,7 @@ let package = Package(
       dependencies: [
         "CSQLite", "CVescBmsValues", "CVescCustomConfiguration", "CVescFrame",
         "CVescFirmwareIdentity",
+        "CVescRefloatControl",
         "FloatViewBackend",
       ]
     ),

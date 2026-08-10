@@ -310,10 +310,10 @@ public final class DeviceMutationCoordinator: @unchecked Sendable {
       let oneWay: Bool
       switch control {
       case .package:
-        payload = RefloatControlCodec.packageRequest(enabled: enabled)
+        payload = try RefloatControlCodec.packageRequest(enabled: enabled)
         oneWay = true
       case .flywheel:
-        payload = RefloatControlCodec.flywheelRequest(enabled: enabled)
+        payload = try RefloatControlCodec.flywheelRequest(enabled: enabled)
         oneWay = true
       case .leds, .headlights:
         guard let leds = current.ledsEnabled, let headlights = current.headlightsEnabled else {

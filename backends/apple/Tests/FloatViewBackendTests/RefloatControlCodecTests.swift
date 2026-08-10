@@ -134,6 +134,51 @@ private func shutdownFixture() throws -> ShutdownFixture {
   }
 }
 
+@Test func rustRefloatControlAdapterExhaustsLightingAndRejectsInvalidBridgeResults() throws {
+  let profiles: [RefloatControlProfile] = [
+    .init(lighting: .legacyCommand202, fatalClearAvailable: false),
+    .init(lighting: .stableCommand20, fatalClearAvailable: true),
+  ]
+  for profile in profiles {
+    for currentFlags: UInt8 in 0 ... 3 {
+      let current = RefloatLightingState(
+        ledsEnabled: currentFlags & 1 != 0,
+        headlightsEnabled: currentFlags & 2 != 0
+      )
+      let query = try RefloatControlCodec.lightingRequest(
+        profile: profile, control: nil, current: current
+      )
+      #expect(query.last == currentFlags)
+      for control in [RefloatBooleanControl.leds, .headlights] {
+        for enabled in [false, true] {
+          let request = try RefloatControlCodec.lightingRequest(
+            profile: profile, control: control, enabled: enabled, current: current
+          )
+          let bit: UInt8 = control == .leds ? 1 : 2
+          #expect(request.last == (enabled ? currentFlags | bit : currentFlags & ~bit))
+        }
+      }
+      let command: UInt8 = profile.lighting == .legacyCommand202 ? 202 : 20
+      #expect(try RefloatControlCodec.decodeLightingResponse(
+        [36, 101, command, currentFlags], profile: profile
+      ) == current)
+    }
+  }
+
+  #expect(throws: VescProtocolError.self) {
+    try RefloatControlCodec.requireCompatibleABI(2)
+  }
+  #expect(throws: VescProtocolError.self) {
+    try RefloatControlCodec.lightingState(flags: 4)
+  }
+  let legacy = RefloatControlProfile(
+    lighting: .legacyCommand202, fatalClearAvailable: false
+  )
+  #expect(throws: VescProtocolError.self) {
+    try RefloatControlCodec.fatalClearRequest(profile: legacy)
+  }
+}
+
 @Test func fatalLatchAndActiveFirmwareFaultDecodeIndependently() throws {
   let latchedPayload: [UInt8] = [
     36, 101, 31, 4, 8, 0, 0, 0, 0, 2, 0, 0, 0,

@@ -1,0 +1,4 @@
+module CVescRefloatControl [system] {
+  header "include/CVescRefloatControl.h"
+  export *
+}
