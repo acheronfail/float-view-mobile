@@ -17,6 +17,6 @@
 ## 4. Verify repository and physical regression
 
 - [x] 4.1 Run locked Rust formatting, warnings-denied linting, and candidate tests followed by the complete `just verify` software gate.
-- [ ] 4.2 Run focused identity and direct/CAN Refloat physical scenarios against the ESP32 fixture on the connected Android device and record production-path regression evidence.
-- [ ] 4.3 Run the same focused physical scenarios on the connected iOS device and record production-path regression evidence.
-- [ ] 4.4 Run the same focused physical scenarios on the macOS host and record production-path regression evidence; defer only a missing bounded location sample.
+- [x] 4.2 Run focused identity and direct/CAN Refloat physical scenarios against the ESP32 fixture on the connected Android device and record production-path regression evidence.
+- [x] 4.3 Run the same focused physical scenarios on the connected iOS device and record production-path regression evidence.
+- [x] 4.4 Run the same focused physical scenarios on the macOS host and record production-path regression evidence; defer only a missing bounded location sample.
