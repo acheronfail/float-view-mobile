@@ -380,7 +380,7 @@ public final class VescProtocolService: VescProtocolPort, @unchecked Sendable {
 
   public func customConfigurationValuesRequest(route: ControllerRoute, defaults: Bool) throws -> Data {
     try Data(VescFrameCodec.encode(VescCommandRouter.route(
-      VescCustomConfigurationCodec.valuesRequest(defaults: defaults), via: route
+      try VescCustomConfigurationCodec.valuesRequest(defaults: defaults), via: route
     )))
   }
 

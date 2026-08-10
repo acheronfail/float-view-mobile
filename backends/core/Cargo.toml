@@ -1,6 +1,7 @@
 [workspace]
 members = [
     "vesc-custom-configuration",
+    "vesc-custom-configuration-apple-ffi",
     "vesc-firmware-identity",
     "vesc-firmware-identity-android-jni",
     "vesc-firmware-identity-apple-ffi",

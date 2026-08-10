@@ -575,6 +575,34 @@ private func bytes(_ hex: String) -> [UInt8] {
   #expect(throws: VescProtocolError.self) {
     try VescCustomConfigurationCodec.decode([95, 0])
   }
+  #expect(throws: VescProtocolError.self) {
+    try VescCustomConfigurationCodec.decode([36])
+  }
+}
+
+@Test func rustCustomConfigurationAdapterRejectsInvalidABIAndPrivateRecords() throws {
+  #expect(throws: VescProtocolError.self) {
+    try VescCustomConfigurationCodec.requireCompatibleABI(2)
+  }
+  var record = [UInt8](repeating: 0, count: 28)
+  record[0] = 1
+  record[1] = 2
+  record[2] = 93
+  record[20 ..< 24] = [0, 0, 0, 2]
+  record[24 ..< 28] = [0, 0, 0, 4]
+  #expect(
+    try VescCustomConfigurationCodec.response(from: record, payload: [93, 9, 0, 0, 0, 1])
+      == .values(command: .getCustomConfiguration, index: 0, bytes: Data([0, 0, 0, 1]))
+  )
+  record[0] = 2
+  #expect(throws: VescProtocolError.self) {
+    try VescCustomConfigurationCodec.response(from: record, payload: [93, 9, 0, 0, 0, 1])
+  }
+  record[0] = 1
+  record[24 ..< 28] = [0, 0, 0, 5]
+  #expect(throws: VescProtocolError.self) {
+    try VescCustomConfigurationCodec.response(from: record, payload: [93, 9, 0, 0, 0, 1])
+  }
 }
 
 @Test func refloatRealtimeIDsAndDataNormalizeCoreTelemetry() throws {

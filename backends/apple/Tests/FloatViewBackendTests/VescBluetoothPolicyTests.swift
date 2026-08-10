@@ -36,6 +36,7 @@ func bluetoothDiscoveryPublishesOnlyUARTOrExactSavedIdentity() {
 @Test
 func bluetoothWritesUseDefaultAndEnlargedPayloadsWithinQueueBounds() {
   let bytes = Data((0 ..< 50).map(UInt8.init))
+  #expect(VescBluetoothPolicy.maximumWritePayloadBytes == 244)
   #expect(VescBluetoothPolicy.chunks(bytes, maximumPayloadBytes: 20).map(\.count) == [20, 20, 10])
   #expect(VescBluetoothPolicy.chunks(bytes, maximumPayloadBytes: 244).map(\.count) == [50])
   #expect(VescBluetoothPolicy.acceptsQueuedWrite(

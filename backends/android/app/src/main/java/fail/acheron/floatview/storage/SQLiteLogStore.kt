@@ -1,5 +1,6 @@
 package fail.acheron.floatview.storage
 
+import android.content.ContentValues
 import android.content.Context
 import android.database.sqlite.SQLiteDatabase
 import android.database.sqlite.SQLiteOpenHelper
@@ -1721,15 +1722,20 @@ class SQLiteLogStore(
         if (!validRefloatConfiguration(name, description, current.identity, valuesJson)) {
             throw ProductStoreException.InvalidRefloatConfiguration
         }
-        catalog.writableDatabase.execSQL(
-            """
-            UPDATE refloat_configuration
-            SET revision = revision + 1, name = ?, description = ?, values_json = ?, updated_at_ms = ?
-            WHERE configuration_id = ? AND revision = ?
-            """.trimIndent(),
-            arrayOf(name, description, valuesJson, at.toEpochMilli(), configurationId, expectedRevision),
+        val values = ContentValues().apply {
+            put("revision", expectedRevision + 1)
+            put("name", name)
+            if (description == null) putNull("description") else put("description", description)
+            put("values_json", valuesJson)
+            put("updated_at_ms", at.toEpochMilli())
+        }
+        val changed = catalog.writableDatabase.update(
+            "refloat_configuration",
+            values,
+            "configuration_id = ? AND revision = ?",
+            arrayOf(configurationId, expectedRevision.toString()),
         )
-        if (DatabaseUtils.longForQuery(catalog.readableDatabase, "SELECT changes()", null) != 1L) {
+        if (changed != 1) {
             throw ProductStoreException.RefloatConfigurationRevisionConflict(current.revision)
         }
         return refloatConfiguration(catalog.readableDatabase, configurationId)

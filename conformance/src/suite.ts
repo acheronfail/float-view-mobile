@@ -530,15 +530,33 @@ async function createCompletedSession(client: ConformanceClient, deviceId: strin
   );
 }
 
-async function exerciseRefloatConfiguration(client: ConformanceClient, connected: AppState) {
+export async function exerciseRefloatConfiguration(
+  client: ConformanceClient,
+  connected: AppState,
+  requireAvailable = false
+) {
   const opened = await client.request('refloat.configuration.open', {});
   assert.ok(['loading', 'ready', 'unavailable'].includes(opened.availability));
-  if (opened.availability === 'unavailable') return;
   let ready = opened;
-  if (ready.availability !== 'ready') {
+  if (opened.availability === 'unavailable') {
+    if (!requireAvailable) return;
     const state = await client.waitForState(
-      (value) => value.activeConnection?.refloatConfiguration?.availability === 'ready',
+      (value) => value.activeConnection?.refloatConfiguration?.availability !== 'unavailable',
       { afterRevision: connected.revision, timeoutMs: 15_000 }
+    );
+    ready = required(state.activeConnection?.refloatConfiguration, 'configuration summary disappeared');
+  }
+  if (ready.availability !== 'ready' || ready.pendingOperation !== null || !ready.currentLoaded) {
+    const state = await client.waitForState(
+      (value) => {
+        const configuration = value.activeConnection?.refloatConfiguration;
+        return (
+          configuration?.availability === 'ready' &&
+          configuration.pendingOperation === null &&
+          configuration.currentLoaded
+        );
+      },
+      { afterRevision: connected.revision, timeoutMs: requireAvailable ? 120_000 : 15_000 }
     );
     ready = required(state.activeConnection?.refloatConfiguration, 'configuration summary disappeared');
   }
@@ -566,13 +584,24 @@ async function exerciseRefloatConfiguration(client: ConformanceClient, connected
   assert.deepEqual(defaults.identity, identity);
   assert.equal(Object.keys(current.values).length, fields.length);
   assert.equal(Object.keys(defaults.values).length, fields.length);
+  const currentKp = current.values.kp;
+  assert.ok(
+    !requireAvailable || currentKp?.type === 'double',
+    'physical configuration fixture requires a numeric kp field'
+  );
+  const draftValues = currentKp?.type === 'double'
+    ? {
+        ...current.values,
+        kp: { type: 'double' as const, value: currentKp.value + 1 },
+      }
+    : current.values;
 
   const tune = await client.request('refloat.tune.create', {
     name: 'Conformance configuration',
     description: 'Exact-version disposable conformance record',
     identity: current.identity,
     sourceRevision: current.revision,
-    values: current.values,
+    values: draftValues,
   });
   const listed = await client.request('refloat.tune.list', { identity: current.identity, limit: 1, cursor: null });
   assert.ok(listed.items.some((item) => item.tuneId === tune.tuneId));
@@ -595,14 +624,14 @@ async function exerciseRefloatConfiguration(client: ConformanceClient, connected
     'conflict'
   );
 
-  const idle = connected.activeConnection?.latestSample?.rideState === 'idle';
+  const idle = client.currentState()?.activeConnection?.latestSample?.rideState === 'idle';
   if (idle && ready.writable) {
     const written = await client.request('refloat.configuration.write', {
       packageVersion: current.identity.packageVersion,
       schemaFingerprint: current.identity.schemaFingerprint,
       wireSignature: current.identity.wireSignature,
       baseRevision: current.revision,
-      values: current.values,
+      values: draftValues,
     });
     assert.deepEqual(written.identity, current.identity);
     const applied = await client.request('refloat.tune.apply', {

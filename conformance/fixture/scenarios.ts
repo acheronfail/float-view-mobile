@@ -12,6 +12,7 @@ import { encodeFirmwarePayload, thor300 } from './firmware.ts';
 import type { ConnectionIssueCode } from '../../frontend/src/lib/backend/contract.ts';
 import { ControllerShutdownModel } from './controller-shutdown.ts';
 import { RefloatControlModel } from './refloat-controls.ts';
+import { RefloatConfigurationModel } from './refloat-configuration.ts';
 import { refloatCodecs } from './refloat.ts';
 import { idleTelemetry, type TelemetrySource } from './telemetry.ts';
 import {
@@ -54,15 +55,23 @@ export interface FixtureScenario {
   expectedBmsConnection?: 'direct' | { canId: number };
 }
 
+const controlDirectControllers = directThor.controllers.map((controller) => ({
+  ...controller,
+  firmware: {
+    ...controller.firmware,
+    payload: encodeFirmwarePayload(thor300, 6, 6, Uint8Array.of(0, 0, 0, 0), 0, 1),
+  },
+  refloat: refloatCodecs['1.2.3'],
+  refloatControls: new RefloatControlModel('1.2.3'),
+  refloatConfiguration: new RefloatConfigurationModel('1.2.3'),
+  telemetry: idleControlTelemetry(),
+}));
+
 const controlDirectBoard: BoardConfiguration = {
   ...directThor,
   name: 'Direct / Refloat product controls',
-  controllers: directThor.controllers.map((controller) => ({
-    ...controller,
-    refloat: refloatCodecs['1.2.3'],
-    refloatControls: new RefloatControlModel('1.2.3'),
-    telemetry: idleControlTelemetry(),
-  })),
+  transport: controlDirectControllers[0]!.firmware,
+  controllers: controlDirectControllers,
 };
 
 const controlCanBoard: BoardConfiguration = {
@@ -70,8 +79,13 @@ const controlCanBoard: BoardConfiguration = {
   name: 'Express CAN / Refloat product controls',
   controllers: expressExplicitThor.controllers.map((controller) => ({
     ...controller,
+    firmware: {
+      ...controller.firmware,
+      payload: encodeFirmwarePayload(thor300, 6, 6, Uint8Array.of(0, 0, 0, 0), 0, 1),
+    },
     refloat: refloatCodecs['1.2.3'],
     refloatControls: new RefloatControlModel('1.2.3'),
+    refloatConfiguration: new RefloatConfigurationModel('1.2.3'),
     telemetry: idleControlTelemetry(),
   })),
 };

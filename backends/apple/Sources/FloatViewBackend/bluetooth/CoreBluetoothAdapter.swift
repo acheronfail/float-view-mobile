@@ -143,7 +143,7 @@ public final class CoreBluetoothAdapter: NSObject, BluetoothPort, @unchecked Sen
       let writeType: CBCharacteristicWriteType =
         writeMode == .withResponse ? .withResponse : .withoutResponse
       let negotiated = activePeripheral?.maximumWriteValueLength(for: writeType) ?? 20
-      let chunkSize = max(1, min(negotiated, Self.maximumWriteChunkBytes))
+      let chunkSize = max(1, min(negotiated, VescBluetoothPolicy.maximumWritePayloadBytes))
       let chunks = VescBluetoothPolicy.chunks(bytes, maximumPayloadBytes: chunkSize)
       guard VescBluetoothPolicy.acceptsQueuedWrite(
         pendingWrites: pendingWrites.count,
@@ -244,8 +244,6 @@ public final class CoreBluetoothAdapter: NSObject, BluetoothPort, @unchecked Sen
     setupDeadline = deadline
     queue.asyncAfter(deadline: .now() + .seconds(10), execute: deadline)
   }
-
-  private static let maximumWriteChunkBytes = 512
 
   private static func boundedTransportDiagnostic(_ event: String, error: Error?) -> String {
     guard let error else { return "\(event):none" }

@@ -93,6 +93,7 @@
 			buildPhases = (
 				F30A00012F00000000000001 /* Build Rust VESC frame codec */,
 				F30A00022F00000000000002 /* Build Rust VESC firmware identity */,
+				F30A00032F00000000000003 /* Build Rust VESC custom configuration */,
 				BA4ABF182E5BDF4600B47684 /* Sources */,
 				BA4ABF192E5BDF4600B47684 /* Frameworks */,
 				BA4ABF1A2E5BDF4600B47684 /* Resources */,
@@ -261,6 +262,32 @@
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/bash;
 			shellScript = "\"${PROJECT_DIR}/../../core/vesc-firmware-identity-apple-ffi/build-apple.sh\" \"${PLATFORM_NAME}\" \"${ARCHS}\" \"${CONFIGURATION}\" \"${DERIVED_FILE_DIR}\"\n";
+		};
+		F30A00032F00000000000003 /* Build Rust VESC custom configuration */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+				"$(PROJECT_DIR)/../../core/Cargo.lock",
+				"$(PROJECT_DIR)/../../core/Cargo.toml",
+				"$(PROJECT_DIR)/../../core/vesc-custom-configuration/Cargo.toml",
+				"$(PROJECT_DIR)/../../core/vesc-custom-configuration/src/lib.rs",
+				"$(PROJECT_DIR)/../../core/vesc-custom-configuration-apple-ffi/Cargo.toml",
+				"$(PROJECT_DIR)/../../core/vesc-custom-configuration-apple-ffi/build-apple.sh",
+				"$(PROJECT_DIR)/../../core/vesc-custom-configuration-apple-ffi/src/lib.rs",
+			);
+			name = "Build Rust VESC custom configuration";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+				"$(DERIVED_FILE_DIR)/libfloat_view_vesc_custom_configuration_apple_ffi.a",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/bash;
+			shellScript = "\"${PROJECT_DIR}/../../core/vesc-custom-configuration-apple-ffi/build-apple.sh\" \"${PLATFORM_NAME}\" \"${ARCHS}\" \"${CONFIGURATION}\" \"${DERIVED_FILE_DIR}\"\n";
 		};
 /* End PBXShellScriptBuildPhase section */
 
@@ -435,11 +462,13 @@
 					"$(inherited)",
 					"-lfloat_view_vesc_frame_apple_ffi",
 					"-lfloat_view_vesc_firmware_identity_apple_ffi",
+					"-lfloat_view_vesc_custom_configuration_apple_ffi",
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = "fail.acheron.float-view";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_INCLUDE_PATHS = (
+					"$(PROJECT_DIR)/../Sources/CVescCustomConfiguration",
 					"$(PROJECT_DIR)/../Sources/CVescFrame",
 					"$(PROJECT_DIR)/../Sources/CVescFirmwareIdentity",
 				);
@@ -472,11 +501,13 @@
 					"$(inherited)",
 					"-lfloat_view_vesc_frame_apple_ffi",
 					"-lfloat_view_vesc_firmware_identity_apple_ffi",
+					"-lfloat_view_vesc_custom_configuration_apple_ffi",
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = "fail.acheron.float-view";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_INCLUDE_PATHS = (
+					"$(PROJECT_DIR)/../Sources/CVescCustomConfiguration",
 					"$(PROJECT_DIR)/../Sources/CVescFrame",
 					"$(PROJECT_DIR)/../Sources/CVescFirmwareIdentity",
 				);

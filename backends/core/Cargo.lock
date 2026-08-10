@@ -7,6 +7,13 @@ name = "float-view-vesc-custom-configuration"
 version = "0.1.0"
 
 [[package]]
+name = "float-view-vesc-custom-configuration-apple-ffi"
+version = "0.1.0"
+dependencies = [
+ "float-view-vesc-custom-configuration",
+]
+
+[[package]]
 name = "float-view-vesc-firmware-identity"
 version = "0.1.0"
 dependencies = [

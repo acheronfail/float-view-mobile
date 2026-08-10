@@ -5,6 +5,7 @@ import { composeBoard } from '../fixture/boards.ts';
 import { encodeFrame, FrameAssembler } from '../fixture/frame.ts';
 import { RefloatConfigurationModel, type StableRefloatConfigurationVersion } from '../fixture/refloat-configuration.ts';
 import { VescSimulator } from '../fixture/simulator.ts';
+import { fixtureScenarios } from '../fixture/scenarios.ts';
 
 const versions: readonly StableRefloatConfigurationVersion[] = [
   '1.0.0',
@@ -65,6 +66,29 @@ test('commands 92–95 preserve exact bytes over direct and once-forwarded CAN r
     );
     assert.deepEqual(decode(simulator, route(Uint8Array.of(93, 0))), response(93, 'values/1.2.3-readback.bin'));
     assert.ok(simulator.requests.every((request) => request.canId === (topology === 'direct' ? undefined : 42)));
+    assert.deepEqual(
+      simulator.requests.map((request) => request.kind),
+      [
+        'refloat-configuration-schema',
+        'refloat-configuration-schema',
+        'refloat-configuration-current',
+        'refloat-configuration-default',
+        'refloat-configuration-write',
+        'refloat-configuration-current',
+      ]
+    );
+  }
+});
+
+test('physical control boards advertise and serve the required configuration owner', () => {
+  for (const name of ['control-direct', 'control-can'] as const) {
+    const controller = fixtureScenarios[name].board.controllers[0]!;
+    assert.equal(controller.firmware.payload[26], 1, `${name} firmware configuration count`);
+    assert.ok(controller.refloatConfiguration, `${name} configuration model`);
+    assert.deepEqual(
+      controller.refloatConfiguration.respond(Uint8Array.of(93, 0), true),
+      response(93, 'values/1.2.3-current.bin')
+    );
   }
 });
 

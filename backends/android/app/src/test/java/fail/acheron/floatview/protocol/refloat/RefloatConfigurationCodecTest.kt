@@ -61,6 +61,7 @@ class RefloatConfigurationCodecTest {
     @Test fun rejectsAdversarialSchemasWithoutPartialState() {
         val cases = listOf(
             "<?xml version=\"1.0\"?><!DOCTYPE x [<!ENTITY e SYSTEM \"file:///etc/passwd\">]><ConfigParams>&e;</ConfigParams>" to RefloatConfigurationCodecError.PROHIBITED_XML,
+            "<?xml version=\"1.0\"?><!doctype x SYSTEM \"file:///etc/passwd\"><ConfigParams/>" to RefloatConfigurationCodecError.PROHIBITED_XML,
             "<ConfigParams><Params><x/><x/></Params><SerOrder/><Grouping/></ConfigParams>" to RefloatConfigurationCodecError.DUPLICATE_FIELD,
             "<ConfigParams><Params><x><type>5</type></x></Params><SerOrder><ser>x</ser><ser>x</ser></SerOrder><Grouping/></ConfigParams>" to RefloatConfigurationCodecError.DUPLICATE_ORDER,
             "<ConfigParams><Params/><SerOrder><ser>x</ser></SerOrder><Grouping/></ConfigParams>" to RefloatConfigurationCodecError.MISSING_REFERENCE,

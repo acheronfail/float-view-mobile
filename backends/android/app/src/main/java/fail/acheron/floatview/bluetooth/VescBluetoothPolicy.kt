@@ -34,8 +34,8 @@ internal object VescBluetoothPolicy {
         supportsWriteWithoutResponse: Boolean,
     ): WriteMode =
         when {
-            supportsWriteWithoutResponse -> WriteMode.WITHOUT_RESPONSE
             supportsWriteWithResponse -> WriteMode.WITH_RESPONSE
+            supportsWriteWithoutResponse -> WriteMode.WITHOUT_RESPONSE
             else -> WriteMode.UNSUPPORTED
         }
 

@@ -6,7 +6,7 @@ import { fixtureScenarios, physicalScenarioMatrix, type PhysicalScenarioName } f
 import { FixtureClient } from '../fixture/serial.ts';
 import { ConformanceClient } from './client.ts';
 import type { AppState, LocationState } from '../../frontend/src/lib/backend/contract.ts';
-import type { PhysicalTarget } from './suite.ts';
+import { exerciseRefloatConfiguration, type PhysicalTarget } from './suite.ts';
 
 type Progress = (message: string) => void;
 type LocationCheckpoint = {
@@ -265,6 +265,7 @@ async function runPhysicalScenario(
     assert.ok(activeSession, 'Ready connection did not create an active provisional session');
 
     if (name === 'control-direct' || name === 'control-can') {
+      await exerciseRefloatConfiguration(client, ready, true);
       await runRefloatControlCheckpoint(client, runner, ready);
       const beforeDisconnect = await client.request('state.get', {});
       await client.request('device.disconnect', {}, 10_000);
@@ -377,8 +378,13 @@ async function runRefloatControlCheckpoint(client: ConformanceClient, runner: Fi
   const controlRequests = runner.simulator.requests.slice(requestOffset);
   assert.ok(controlRequests.filter((request) => request.kind === 'refloat-control').length >= 6);
   assert.ok(
-    controlRequests.every((request) => request.kind === 'refloat-control' || request.kind === 'telemetry'),
-    'control checkpoint emitted a non-control/non-telemetry request; motor movement is forbidden'
+    controlRequests.every(
+      (request) =>
+        request.kind === 'refloat-control' ||
+        request.kind === 'telemetry' ||
+        request.kind === 'refloat-configuration-current'
+    ),
+    'control checkpoint emitted a request other than control, telemetry, or the safe post-flywheel configuration refresh'
   );
 }
 

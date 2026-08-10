@@ -19,7 +19,7 @@ Android SHALL pass the same focused physical configuration regression through it
 #### Scenario: Verify physical Apple configuration selection
 
 - **WHEN** focused direct and CAN physical control conformance runs on the connected iOS device and macOS host against the ESP32 fixture
-- **THEN** both shared Apple hosts open schema, read current and default values, write the safe current values, verify readback, complete established no-motor-movement controls, and clean up through the production Rust envelope codec
+- **THEN** both shared Apple hosts open schema, read current and default values, write the audited disposable configuration mutation, verify readback, complete established no-motor-movement controls, and clean up through the production Rust envelope codec
 
 #### Scenario: Preserve Android configuration regression
 

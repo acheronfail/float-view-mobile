@@ -50,7 +50,7 @@ This follows the already-proven framing and identity integration rather than int
 
 ### Add an explicit physical configuration checkpoint
 
-The existing direct/CAN physical control scenario will first open the Refloat configuration, read current and default values, write the same safe current values to the disposable fixture, and read them back before performing the established no-motor-movement controls. The same scenario will run on iOS and macOS through the new Rust bridge and on Android through the unchanged Kotlin codec.
+The existing direct/CAN physical control scenario will first open the Refloat configuration, read current and default values, apply the fixture's audited disposable `kp` mutation, and verify readback before performing the established no-motor-movement controls. The same scenario will run on iOS and macOS through the new Rust bridge and on Android through the unchanged Kotlin codec.
 
 Reusing the existing focused scenario keeps fixture setup and route coverage bounded while proving commands 92–95 across production BLE. A separate broad ride scenario would be slower and still would not guarantee configuration writes. A missing location sample during a bounded dwell remains deferred manual coverage, but no BLE, configuration, route, control, session, capability, monotonic-boundary, or cleanup failure is waived.
 

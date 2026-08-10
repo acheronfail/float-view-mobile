@@ -1,0 +1,4 @@
+module CVescCustomConfiguration [system] {
+  header "include/CVescCustomConfiguration.h"
+  export *
+}

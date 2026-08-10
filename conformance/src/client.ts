@@ -19,8 +19,8 @@ import {
 export class ConformanceError extends Error {
   readonly error: BackendError;
 
-  constructor(error: BackendError) {
-    super(error.message);
+  constructor(error: BackendError, method?: string) {
+    super(method ? `${method}: ${error.message}` : error.message);
     this.error = error;
   }
 }
@@ -170,7 +170,7 @@ export class ConformanceClient {
     if (!pending) return;
     this.pending.delete(id as number);
     clearTimeout(pending.timer);
-    if (message.error) pending.reject(new ConformanceError(message.error as BackendError));
+    if (message.error) pending.reject(new ConformanceError(message.error as BackendError, pending.method));
     else if ('result' in message) {
       if (pending.method === 'state.get') {
         const state = message.result as AppState;

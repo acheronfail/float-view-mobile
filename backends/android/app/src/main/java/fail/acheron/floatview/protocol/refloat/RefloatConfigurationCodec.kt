@@ -215,9 +215,14 @@ object RefloatConfigurationSchemaCodec {
         try {
             val factory = SAXParserFactory.newInstance()
             factory.isNamespaceAware = false
-            factory.setFeature("http://apache.org/xml/features/disallow-doctype-decl", true)
-            factory.setFeature("http://xml.org/sax/features/external-general-entities", false)
-            factory.setFeature("http://xml.org/sax/features/external-parameter-entities", false)
+            // Android SAX providers do not all recognize the same hardening
+            // features. DTD/entity declarations are rejected above before any
+            // parser sees the bytes; retain these flags as defense in depth on
+            // providers that support them without rejecting valid schemas on
+            // older devices.
+            runCatching { factory.setFeature("http://apache.org/xml/features/disallow-doctype-decl", true) }
+            runCatching { factory.setFeature("http://xml.org/sax/features/external-general-entities", false) }
+            runCatching { factory.setFeature("http://xml.org/sax/features/external-parameter-entities", false) }
             factory.newSAXParser().parse(ByteArrayInputStream(xml), handler)
         } catch (error: RefloatConfigurationCodecException) {
             throw error

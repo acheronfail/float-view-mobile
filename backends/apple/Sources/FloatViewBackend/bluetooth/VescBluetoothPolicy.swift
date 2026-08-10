@@ -1,6 +1,8 @@
 import Foundation
 
 enum VescBluetoothPolicy {
+  static let maximumWritePayloadBytes = 244
+
   enum WriteMode: Equatable {
     case withResponse
     case withoutResponse
