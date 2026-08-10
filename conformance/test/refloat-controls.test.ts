@@ -55,6 +55,27 @@ test('source-derived product-control golden requests match the closed decoder', 
   }
 });
 
+test('legacy and stable zero-mask lighting requests query without changing state', () => {
+  for (const [version, request, command] of [
+    ['1.0.0', Uint8Array.of(36, 101, 202, 0, 1), 202],
+    ['1.2.3', Uint8Array.of(36, 101, 20, 0, 0, 0, 0, 1), 20],
+  ] as const) {
+    const decoded = decodeRefloatProductControl(version, request);
+    assert.deepEqual(decoded, {
+      accepted: true,
+      value: { control: 'lightingQuery', lightingMask: 0, lightingFlags: 1 },
+    });
+
+    const model = new RefloatControlModel(version, { ledsEnabled: false, headlightsEnabled: true });
+    const before = { ...model.state };
+    assert.deepEqual(model.apply(request, { rideState: 'riding' }), {
+      accepted: true,
+      response: Uint8Array.of(36, 101, command, 2),
+    });
+    assert.deepEqual(model.state, before, `${version} query changed disposable state`);
+  }
+});
+
 test('malformed, oversized, wrong-route, test-version, and unsupported requests fail closed', () => {
   for (const item of fixture.rejections) {
     const result = decodeRefloatProductControl(item.version, Uint8Array.from(item.request), {
@@ -112,6 +133,43 @@ test('legacy lighting is exact and flywheel mode rejects every mutation except d
   assert.match(simulator.diagnostics.join('\n'), /Rejected Refloat control|Unsupported Refloat request/);
   assert.deepEqual(simulator.receive(encodeFrame(Uint8Array.of(36, 101, 22, 0x80, 0, 0, 0, 0, 1))), []);
   assert.equal(simulator.requests.filter((item) => item.kind === 'refloat-control').length, 2);
+});
+
+test('direct and CAN flywheel mode permits lighting queries but rejects lighting mutations', () => {
+  for (const [refloat, topology, command] of [
+    ['1.0.0', 'direct', 202],
+    ['1.0.0', 'express', 202],
+    ['1.2.3', 'direct', 20],
+    ['1.2.3', 'express', 20],
+  ] as const) {
+    const prefix = topology === 'express' ? [34, 42] : [];
+    const simulator = new VescSimulator(
+      composeBoard({
+        firmware: refloat === '1.0.0' ? '6.02' : '6.06',
+        refloat,
+        topology,
+        canId: 42,
+        requestPolicy: 'interactive',
+      })
+    );
+    const send = (payload: number[]) => simulator.receive(encodeFrame(Uint8Array.of(...prefix, ...payload)));
+
+    assert.deepEqual(send([36, 101, 22, 0x81, 0, 0, 0, 0, 1]), []);
+    const query = command === 202 ? [36, 101, 202, 0, 3] : [36, 101, 20, 0, 0, 0, 0, 3];
+    const queryResponses = send(query);
+    assert.deepEqual([...decode(queryResponses[0]!.frame)], [36, 101, command, 3]);
+
+    const mutation = command === 202 ? [36, 101, 202, 1, 2] : [36, 101, 20, 0, 0, 0, 1, 2];
+    assert.deepEqual(send(mutation), []);
+    assert.match(simulator.diagnostics.at(-1) ?? '', /Rejected Refloat control invalid_state/);
+
+    assert.deepEqual(send([36, 101, 22, 0x80, 0, 0, 0, 0, 1]), []);
+    assert.equal(
+      simulator.requests.filter((item) => item.kind === 'refloat-control').length,
+      3,
+      `${refloat}-${topology}`
+    );
+  }
 });
 
 test('active flywheel telemetry is riding while exact disable remains authorized', () => {

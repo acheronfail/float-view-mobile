@@ -2,7 +2,7 @@ import type { RefloatVersion } from './refloat.ts';
 import type { TelemetrySample } from './telemetry.ts';
 
 export type RefloatBooleanControl = 'package' | 'flywheel' | 'leds' | 'headlights';
-export type RefloatProductControl = RefloatBooleanControl | 'clearFatalError';
+export type RefloatProductControl = RefloatBooleanControl | 'lightingQuery' | 'clearFatalError';
 export type RefloatControlFamily = 'legacy' | 'stable';
 
 export interface RefloatControlProfile {
@@ -110,6 +110,12 @@ function validLighting(mask: number | undefined, flags: number | undefined): boo
 }
 
 function lighting(mask: number, flags: number): RefloatControlDecodeResult {
+  if (mask === 0) {
+    return {
+      accepted: true,
+      value: { control: 'lightingQuery', lightingMask: mask, lightingFlags: flags },
+    };
+  }
   const control: RefloatBooleanControl = (mask & 0x02) !== 0 ? 'headlights' : 'leds';
   return {
     accepted: true,
@@ -171,6 +177,18 @@ export class RefloatControlModel {
     const decoded = decodeRefloatProductControl(this.version, payload, context);
     if (!decoded.accepted) return decoded;
     const value = decoded.value;
+    if (value.control === 'lightingQuery') {
+      const command = refloatControlProfile(this.version).family === 'legacy' ? 202 : 20;
+      return {
+        accepted: true,
+        response: Uint8Array.of(
+          36,
+          101,
+          command,
+          (this.state.headlightsEnabled ? 2 : 0) | (this.state.ledsEnabled ? 1 : 0)
+        ),
+      };
+    }
     const activeFlywheelDisable =
       this.state.flywheelEnabled && value.control === 'flywheel' && value.enabled === false;
     if (this.state.flywheelEnabled && !activeFlywheelDisable) {
