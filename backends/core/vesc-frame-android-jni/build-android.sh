@@ -38,7 +38,8 @@ audit_symbols() {
   expected="$(printf '%s\n' \
     Java_fail_acheron_floatview_protocol_RustVescFrameBridge_abiVersion \
     Java_fail_acheron_floatview_protocol_RustVescFrameBridge_decodeExact \
-    Java_fail_acheron_floatview_protocol_RustVescFrameBridge_encode)"
+    Java_fail_acheron_floatview_protocol_RustVescFrameBridge_encode \
+    Java_fail_acheron_floatview_protocol_RustVescFrameBridge_scanNext)"
   [[ "$actual" == "$expected" ]] || {
     echo "Unexpected Android VESC JNI symbols in $artifact:" >&2
     printf '%s\n' "$actual" >&2

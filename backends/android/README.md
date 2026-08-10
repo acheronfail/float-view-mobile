@@ -2,11 +2,11 @@
 
 Android remains one native Kotlin Gradle application module. Package names
 mirror the Apple capability names for navigation. Rust owns VESC CRC, frame
-encoding, and exact frame decoding through the three-function
-`../core/vesc-frame-android-jni/` bridge. Kotlin retains VESC stream storage,
-boundary parsing, fragmentation, noise disposal, recovery, and the remaining
-VESC, BMS, and Refloat protocols. Apple integration is unchanged; there is no
-generated API or Gradle module per capability.
+encoding, exact frame decoding, and stream-boundary decisions through the
+four-function `../core/vesc-frame-android-jni/` bridge. Kotlin retains bounded
+VESC stream storage, mechanical slicing and consumption, error mapping, and the
+remaining VESC, BMS, and Refloat protocols. Apple integration is unchanged;
+there is no generated API or Gradle module per capability.
 
 Production Kotlin lives under
 `app/src/main/java/fail/acheron/floatview/`:
@@ -53,6 +53,6 @@ fail when the pinned Rust toolchain, targets, NDK, or linkers are absent.
 
 Use `just test android` for the complete linked JVM suite and
 `just android-rust-packaging` for clean Debug/Release four-ABI package
-inspection. Moving Android stream scanning into Rust is the next independent
-OpenSpec change and must preserve the retained Kotlin stream behavior before
-that code is deleted.
+inspection. The scanner JNI call is stateless and retains no JVM reference or
+Rust-owned stream lifetime; broader protocol and application migration remains
+separately scoped.

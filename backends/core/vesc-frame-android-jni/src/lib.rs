@@ -1,16 +1,18 @@
-//! Narrow Android JNI ABI for the bounded VESC frame codec.
+//! Narrow Android JNI ABI for bounded VESC framing.
 //!
 //! Framing behavior remains in the safe `float-view-vesc-frame` crate. This
 //! crate owns only bounded JNI representation validation and call-local copies.
 
 #![deny(unsafe_op_in_unsafe_fn)]
 
-use float_view_vesc_frame::{FrameError, MAX_PAYLOAD_BYTES, decode, encode};
+use float_view_vesc_frame::{
+    FrameError, MAX_PAYLOAD_BYTES, MAX_STREAM_BYTES, StreamScan, decode, encode, scan_next,
+};
 use jni_sys::{JNIEnv, jbyte, jbyteArray, jint, jintArray, jobject, jsize};
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
 /// Version of the complete hand-written Android JNI contract.
-pub const ABI_VERSION: jint = 1;
+pub const ABI_VERSION: jint = 2;
 
 /// Successful operation.
 pub const STATUS_OK: jint = 0;
@@ -26,6 +28,8 @@ pub const STATUS_INVALID_CRC: jint = 4;
 pub const STATUS_OUTPUT_TOO_SMALL: jint = 5;
 /// A panic or unexpected JNI failure was contained at the boundary.
 pub const STATUS_INTERNAL_FAILURE: jint = 6;
+/// The stream contains no complete candidate; consumption outputs are valid.
+pub const STATUS_NEED_MORE_INPUT: jint = 7;
 
 /// Largest encoded frame: long header, maximum payload, CRC, and footer.
 pub const MAX_FRAME_BYTES: usize = MAX_PAYLOAD_BYTES + 6;
@@ -48,6 +52,21 @@ impl OperationResult {
             status,
             output: Vec::new(),
             output_length: 0,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct ScanOperationResult {
+    status: jint,
+    fields: [jint; 3],
+}
+
+impl ScanOperationResult {
+    const fn failure(status: jint) -> Self {
+        Self {
+            status,
+            fields: [0; 3],
         }
     }
 }
@@ -108,6 +127,24 @@ pub unsafe extern "system" fn Java_fail_acheron_floatview_protocol_RustVescFrame
     output_length: jintArray,
 ) -> jint {
     contain_status(|| unsafe { invoke(env, input, output, output_length, Operation::DecodeExact) })
+}
+
+/// Scan one borrowed bounded stream region for the next candidate frame.
+///
+/// # Safety
+///
+/// Every non-null JNI reference must be valid for the supplied `env` and the
+/// duration of this call. `scan_result` must be an exact three-element integer
+/// array receiving frame offset, frame length, and consumed length. The JVM
+/// must invoke this through the declared Kotlin native method.
+#[unsafe(no_mangle)]
+pub unsafe extern "system" fn Java_fail_acheron_floatview_protocol_RustVescFrameBridge_scanNext(
+    env: *mut JNIEnv,
+    _receiver: jobject,
+    input: jbyteArray,
+    scan_result: jintArray,
+) -> jint {
+    contain_status(|| unsafe { invoke_scan(env, input, scan_result) })
 }
 
 unsafe fn invoke(
@@ -202,6 +239,68 @@ unsafe fn invoke(
     result.status
 }
 
+unsafe fn invoke_scan(env: *mut JNIEnv, input: jbyteArray, scan_result: jintArray) -> jint {
+    let Some(functions) = (unsafe { environment(env) }) else {
+        return STATUS_INVALID_ARGUMENT;
+    };
+    if unsafe { (functions.ExceptionCheck)(env) } || input.is_null() || scan_result.is_null() {
+        return STATUS_INVALID_ARGUMENT;
+    }
+
+    let input_length = unsafe { (functions.GetArrayLength)(env, input.cast()) };
+    if unsafe { (functions.ExceptionCheck)(env) } || input_length < 0 {
+        return STATUS_INVALID_ARGUMENT;
+    }
+    let result_length = unsafe { (functions.GetArrayLength)(env, scan_result.cast()) };
+    if unsafe { (functions.ExceptionCheck)(env) } || result_length != 3 {
+        return STATUS_INVALID_ARGUMENT;
+    }
+    if unsafe { references_alias(env, functions, input.cast(), scan_result.cast()) }
+        || unsafe { (functions.ExceptionCheck)(env) }
+    {
+        return STATUS_INVALID_ARGUMENT;
+    }
+
+    if write_scan_fields(env, functions, scan_result, [0; 3]).is_err() {
+        return STATUS_INTERNAL_FAILURE;
+    }
+    let input_length = input_length as usize;
+    if input_length > MAX_STREAM_BYTES {
+        let fields = [0, 0, input_length as jint];
+        if write_scan_fields(env, functions, scan_result, fields).is_err() {
+            return STATUS_INTERNAL_FAILURE;
+        }
+        return STATUS_INPUT_TOO_LARGE;
+    }
+
+    let mut copied_input = vec![0_u8; input_length];
+    unsafe {
+        (functions.GetByteArrayRegion)(
+            env,
+            input,
+            0,
+            input_length as jsize,
+            copied_input.as_mut_ptr().cast::<jbyte>(),
+        )
+    };
+    if unsafe { (functions.ExceptionCheck)(env) } {
+        return STATUS_INTERNAL_FAILURE;
+    }
+
+    let result = run_scan(&copied_input);
+    if !valid_scan_result(input_length, result) {
+        return STATUS_INTERNAL_FAILURE;
+    }
+    if matches!(
+        result.status,
+        STATUS_OK | STATUS_NEED_MORE_INPUT | STATUS_INPUT_TOO_LARGE
+    ) && write_scan_fields(env, functions, scan_result, result.fields).is_err()
+    {
+        return STATUS_INTERNAL_FAILURE;
+    }
+    result.status
+}
+
 fn run_operation(operation: Operation, input: &[u8], output_capacity: usize) -> OperationResult {
     contain(|| {
         let result = match operation {
@@ -223,6 +322,59 @@ fn run_operation(operation: Operation, input: &[u8], output_capacity: usize) -> 
             output_length,
         })
     })
+}
+
+fn run_scan(input: &[u8]) -> ScanOperationResult {
+    catch_unwind(AssertUnwindSafe(|| match scan_next(input) {
+        StreamScan::NeedMore { consumed } => ScanOperationResult {
+            status: STATUS_NEED_MORE_INPUT,
+            fields: [0, 0, consumed as jint],
+        },
+        StreamScan::Frame {
+            frame_offset,
+            frame_length,
+            consumed,
+        } => ScanOperationResult {
+            status: STATUS_OK,
+            fields: [frame_offset as jint, frame_length as jint, consumed as jint],
+        },
+        StreamScan::PayloadTooLarge { consumed } | StreamScan::StreamTooLarge { consumed } => {
+            ScanOperationResult {
+                status: STATUS_INPUT_TOO_LARGE,
+                fields: [0, 0, consumed as jint],
+            }
+        }
+    }))
+    .unwrap_or_else(|_| ScanOperationResult::failure(STATUS_INTERNAL_FAILURE))
+}
+
+fn valid_scan_result(input_length: usize, result: ScanOperationResult) -> bool {
+    let [frame_offset, frame_length, consumed] = result.fields;
+    let Ok(frame_offset) = usize::try_from(frame_offset) else {
+        return false;
+    };
+    let Ok(frame_length) = usize::try_from(frame_length) else {
+        return false;
+    };
+    let Ok(consumed) = usize::try_from(consumed) else {
+        return false;
+    };
+    match result.status {
+        STATUS_OK => {
+            frame_length > 0
+                && frame_offset
+                    .checked_add(frame_length)
+                    .is_some_and(|end| end == consumed && end <= input_length)
+        }
+        STATUS_NEED_MORE_INPUT => {
+            frame_offset == 0 && frame_length == 0 && consumed <= input_length
+        }
+        STATUS_INPUT_TOO_LARGE => {
+            frame_offset == 0 && frame_length == 0 && consumed > 0 && consumed <= input_length
+        }
+        STATUS_INTERNAL_FAILURE => result.fields == [0; 3],
+        _ => false,
+    }
 }
 
 fn contain(operation: impl FnOnce() -> Result<OperationResult, jint>) -> OperationResult {
@@ -283,6 +435,20 @@ fn write_length(
     }
 }
 
+fn write_scan_fields(
+    env: *mut JNIEnv,
+    functions: &jni_sys::JNINativeInterface__1_2,
+    scan_result: jintArray,
+    values: [jint; 3],
+) -> Result<(), ()> {
+    unsafe { (functions.SetIntArrayRegion)(env, scan_result, 0, 3, values.as_ptr()) };
+    if unsafe { (functions.ExceptionCheck)(env) } {
+        Err(())
+    } else {
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -317,6 +483,110 @@ mod tests {
     }
 
     #[test]
+    fn stream_scanning_uses_safe_rust_boundaries() {
+        assert_eq!(
+            run_scan(&[]),
+            ScanOperationResult {
+                status: STATUS_NEED_MORE_INPUT,
+                fields: [0, 0, 0],
+            }
+        );
+        assert_eq!(
+            run_scan(&[2]),
+            ScanOperationResult {
+                status: STATUS_NEED_MORE_INPUT,
+                fields: [0, 0, 0],
+            }
+        );
+        assert_eq!(
+            run_scan(&[0xff, 0, 3, 0]),
+            ScanOperationResult {
+                status: STATUS_NEED_MORE_INPUT,
+                fields: [0, 0, 2],
+            }
+        );
+
+        let frame = encode(&[0x11, 0x22]).expect("short frame");
+        let mut noisy_multiple = vec![0xff, 1];
+        noisy_multiple.extend_from_slice(&frame);
+        noisy_multiple.extend_from_slice(&frame);
+        assert_eq!(
+            run_scan(&noisy_multiple),
+            ScanOperationResult {
+                status: STATUS_OK,
+                fields: [2, frame.len() as jint, (2 + frame.len()) as jint],
+            }
+        );
+
+        let mut malformed = frame.clone();
+        *malformed.last_mut().expect("footer") = 0;
+        assert_eq!(
+            run_scan(&malformed),
+            ScanOperationResult {
+                status: STATUS_OK,
+                fields: [0, malformed.len() as jint, malformed.len() as jint],
+            }
+        );
+    }
+
+    #[test]
+    fn stream_scanning_maps_declared_and_aggregate_bounds() {
+        assert_eq!(
+            run_scan(&[3, 0x10, 0x01]),
+            ScanOperationResult {
+                status: STATUS_INPUT_TOO_LARGE,
+                fields: [0, 0, 1],
+            }
+        );
+        assert_eq!(
+            run_scan(&vec![0xff; MAX_STREAM_BYTES]),
+            ScanOperationResult {
+                status: STATUS_NEED_MORE_INPUT,
+                fields: [0, 0, MAX_STREAM_BYTES as jint],
+            }
+        );
+        assert_eq!(
+            run_scan(&vec![0xff; MAX_STREAM_BYTES + 1]),
+            ScanOperationResult {
+                status: STATUS_INPUT_TOO_LARGE,
+                fields: [0, 0, (MAX_STREAM_BYTES + 1) as jint],
+            }
+        );
+    }
+
+    #[test]
+    fn scanner_result_validation_rejects_untrusted_ranges() {
+        assert!(valid_scan_result(
+            8,
+            ScanOperationResult {
+                status: STATUS_OK,
+                fields: [1, 7, 8],
+            }
+        ));
+        assert!(!valid_scan_result(
+            8,
+            ScanOperationResult {
+                status: STATUS_OK,
+                fields: [1, 8, 9],
+            }
+        ));
+        assert!(!valid_scan_result(
+            8,
+            ScanOperationResult {
+                status: STATUS_NEED_MORE_INPUT,
+                fields: [1, 0, 1],
+            }
+        ));
+        assert!(!valid_scan_result(
+            8,
+            ScanOperationResult {
+                status: STATUS_INPUT_TOO_LARGE,
+                fields: [0, 0, 0],
+            }
+        ));
+    }
+
+    #[test]
     fn contains_panics() {
         let result = contain(|| -> Result<OperationResult, jint> { panic!("contained") });
         assert_eq!(result.status, STATUS_INTERNAL_FAILURE);
@@ -331,7 +601,7 @@ mod tests {
 
     #[test]
     fn abi_and_status_numbers_are_stable() {
-        assert_eq!(ABI_VERSION, 1);
+        assert_eq!(ABI_VERSION, 2);
         assert_eq!(STATUS_OK, 0);
         assert_eq!(STATUS_INVALID_ARGUMENT, 1);
         assert_eq!(STATUS_INPUT_TOO_LARGE, 2);
@@ -339,5 +609,6 @@ mod tests {
         assert_eq!(STATUS_INVALID_CRC, 4);
         assert_eq!(STATUS_OUTPUT_TOO_SMALL, 5);
         assert_eq!(STATUS_INTERNAL_FAILURE, 6);
+        assert_eq!(STATUS_NEED_MORE_INPUT, 7);
     }
 }

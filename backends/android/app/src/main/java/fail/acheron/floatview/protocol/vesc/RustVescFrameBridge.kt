@@ -30,8 +30,13 @@ internal object RustVescFrameBridge {
         output: ByteArray?,
         outputLength: IntArray?,
     ): Int
+
+    external fun scanNext(
+        input: ByteArray?,
+        scanResult: IntArray?,
+    ): Int
 }
 
 internal fun verifyVescFrameAbiVersion(actual: Int) {
-    if (actual != 1) throw VescProtocolException.InvalidFrame
+    if (actual != 2) throw VescProtocolException.InvalidFrame
 }

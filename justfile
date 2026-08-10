@@ -119,6 +119,9 @@ android-rust-audit: android-rust-host
     bridge_source="$android_main/protocol/vesc/RustVescFrameBridge.kt"
     ! rg -n -e 'object VescCrc' -e 'VescCrc\.checksum' -e '0x1021' \
       -e 'fun checksum\(' -e 'VescFrameReference' -e 'CheckpointKotlinVesc' \
+      -e 'PreCutoverKotlinStreamReference' -e 'buffer\.first\(\)' \
+      -e 'headerSize' -e 'frameSize[[:space:]]*=' -e 'setOf\(2, 3\)' \
+      -e 'buffer\[[12]\]\.toInt\(\)' \
       -e 'payload\.size <= 255' -e 'header \+ payload' \
       -e 'frame\.last\(\)\.toInt\(\) != 3' \
       -e 'frame\.copyOfRange\(headerSize' \
@@ -127,8 +130,9 @@ android-rust-audit: android-rust-host
     [[ "$(rg -l 'class VescFrameStreamDecoder' "$android_main" -g '*.kt')" == "$codec_source" ]]
     [[ "$(rg -c 'RustVescFrameBridge\.encode\(' "$codec_source")" == 1 ]]
     [[ "$(rg -c 'RustVescFrameBridge\.decodeExact\(' "$codec_source")" == 1 ]]
-    [[ "$(rg -l 'RustVescFrameBridge\.(encode|decodeExact)' "$android_main" -g '*.kt')" == "$codec_source" ]]
-    [[ "$(rg -l 'external fun (abiVersion|encode|decodeExact)' \
+    [[ "$(rg -c 'RustVescFrameBridge\.scanNext\(' "$codec_source")" == 1 ]]
+    [[ "$(rg -l 'RustVescFrameBridge\.(encode|decodeExact|scanNext)' "$android_main" -g '*.kt')" == "$codec_source" ]]
+    [[ "$(rg -l 'external fun (abiVersion|encode|decodeExact|scanNext)' \
       backends/android/app/src/main -g '*.kt')" == \
       "$bridge_source" ]]
     if ANDROID_NDK_HOME=/private/tmp/float-view-missing-ndk \

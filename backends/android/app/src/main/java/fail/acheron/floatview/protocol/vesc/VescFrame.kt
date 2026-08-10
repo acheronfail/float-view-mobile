@@ -11,7 +11,7 @@ sealed class VescProtocolException(message: String) : Exception(message) {
 object VescFrameCodec {
     const val MAXIMUM_PAYLOAD_BYTES = 4096
     private const val MAXIMUM_FRAME_BYTES = MAXIMUM_PAYLOAD_BYTES + 6
-    private const val ABI_VERSION = 1
+    private const val ABI_VERSION = 2
     private const val STATUS_OK = 0
     private const val STATUS_INVALID_ARGUMENT = 1
     private const val STATUS_INPUT_TOO_LARGE = 2
@@ -19,6 +19,7 @@ object VescFrameCodec {
     private const val STATUS_INVALID_CRC = 4
     private const val STATUS_OUTPUT_TOO_SMALL = 5
     private const val STATUS_INTERNAL_FAILURE = 6
+    private const val STATUS_NEED_MORE_INPUT = 7
 
     private val linkedAbiVersion = RustVescFrameBridge.abiVersion()
 
@@ -34,6 +35,55 @@ object VescFrameCodec {
         val output = ByteArray(MAXIMUM_PAYLOAD_BYTES)
         val outputLength = IntArray(1)
         return result(RustVescFrameBridge.decodeExact(frame, output, outputLength), output, outputLength)
+    }
+
+    internal fun scanStream(bytes: ByteArray): VescFrameStreamScan {
+        if (linkedAbiVersion != ABI_VERSION) throw VescProtocolException.InvalidFrame
+        val scanResult = IntArray(3)
+        val status = RustVescFrameBridge.scanNext(bytes, scanResult)
+        return decodeStreamScan(status, scanResult, bytes.size)
+    }
+
+    internal fun decodeStreamScan(
+        status: Int,
+        scanResult: IntArray,
+        inputSize: Int,
+    ): VescFrameStreamScan {
+        if (scanResult.size != 3 || inputSize < 0) throw VescProtocolException.InvalidFrame
+        val (frameOffset, frameLength, consumed) = scanResult
+        return when (status) {
+            STATUS_OK -> {
+                val frameEnd = frameOffset.toLong() + frameLength.toLong()
+                if (
+                    frameOffset < 0 ||
+                    frameLength <= 0 ||
+                    frameEnd != consumed.toLong() ||
+                    frameEnd > inputSize.toLong()
+                ) {
+                    throw VescProtocolException.InvalidFrame
+                }
+                VescFrameStreamScan.Frame(frameOffset, frameLength, consumed)
+            }
+            STATUS_NEED_MORE_INPUT -> {
+                if (frameOffset != 0 || frameLength != 0 || consumed !in 0..inputSize) {
+                    throw VescProtocolException.InvalidFrame
+                }
+                VescFrameStreamScan.NeedMore(consumed)
+            }
+            STATUS_INPUT_TOO_LARGE -> {
+                if (frameOffset != 0 || frameLength != 0 || consumed !in 1..inputSize) {
+                    throw VescProtocolException.InvalidFrame
+                }
+                VescFrameStreamScan.Failure(VescProtocolException.PayloadTooLarge, consumed)
+            }
+            STATUS_INVALID_ARGUMENT,
+            STATUS_INVALID_FRAME,
+            STATUS_INVALID_CRC,
+            STATUS_OUTPUT_TOO_SMALL,
+            STATUS_INTERNAL_FAILURE,
+            -> throw VescProtocolException.InvalidFrame
+            else -> throw VescProtocolException.InvalidFrame
+        }
     }
 
     private fun result(status: Int, output: ByteArray, outputLength: IntArray): ByteArray {
@@ -55,35 +105,47 @@ object VescFrameCodec {
     }
 }
 
+internal sealed interface VescFrameStreamScan {
+    data class NeedMore(val consumed: Int) : VescFrameStreamScan
+
+    data class Frame(
+        val offset: Int,
+        val length: Int,
+        val consumed: Int,
+    ) : VescFrameStreamScan
+
+    data class Failure(
+        val error: VescProtocolException,
+        val consumed: Int,
+    ) : VescFrameStreamScan
+}
+
 class VescFrameStreamDecoder {
     private val buffer = ArrayList<Byte>()
 
     fun append(bytes: ByteArray): List<ByteArray> {
         buffer.addAll(bytes.toList())
-        if (buffer.size > VescFrameCodec.MAXIMUM_PAYLOAD_BYTES * 2) {
-            buffer.clear()
-            throw VescProtocolException.PayloadTooLarge
-        }
         val results = mutableListOf<ByteArray>()
         while (true) {
-            while (buffer.isNotEmpty() && buffer.first().toInt() !in setOf(2, 3)) {
-                buffer.removeAt(0)
+            when (val scan = VescFrameCodec.scanStream(buffer.toByteArray())) {
+                is VescFrameStreamScan.NeedMore -> {
+                    removePrefix(scan.consumed)
+                    return results
+                }
+                is VescFrameStreamScan.Frame -> {
+                    val frame = buffer.subList(scan.offset, scan.offset + scan.length).toByteArray()
+                    removePrefix(scan.consumed)
+                    results += VescFrameCodec.decode(frame)
+                }
+                is VescFrameStreamScan.Failure -> {
+                    removePrefix(scan.consumed)
+                    throw scan.error
+                }
             }
-            if (buffer.isEmpty()) return results
-            val headerSize = if (buffer.first().toInt() == 2) 2 else 3
-            if (buffer.size < headerSize) return results
-            val size =
-                if (headerSize == 2) buffer[1].toInt() and 0xff
-                else ((buffer[1].toInt() and 0xff) shl 8) or (buffer[2].toInt() and 0xff)
-            if (size > VescFrameCodec.MAXIMUM_PAYLOAD_BYTES) {
-                buffer.removeAt(0)
-                throw VescProtocolException.PayloadTooLarge
-            }
-            val frameSize = headerSize + size + 3
-            if (buffer.size < frameSize) return results
-            val frame = buffer.subList(0, frameSize).toByteArray()
-            repeat(frameSize) { buffer.removeAt(0) }
-            results += VescFrameCodec.decode(frame)
         }
+    }
+
+    private fun removePrefix(consumed: Int) {
+        if (consumed == buffer.size) buffer.clear() else repeat(consumed) { buffer.removeAt(0) }
     }
 }

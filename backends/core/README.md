@@ -8,17 +8,17 @@ The workspace currently has three members:
 
 | Component               | Scope                                                                 | Integration state                                                                             |
 | ----------------------- | --------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
-| `vesc-frame/`               | Safe bounded VESC CRC, frame encoding/decoding, and stream scanning | Apple selects every framing decision; Android selects stateless framing only                |
-| `vesc-frame-apple-ffi/`     | Caller-owned-buffer C ABI and locked Apple source-build helper      | Selected only by the shared iOS/macOS frame-codec adapter                                   |
-| `vesc-frame-android-jni/`   | Primitive-array JNI ABI and locked host/Android source builds       | Selected by Android for CRC, frame encoding, and exact decoding; Kotlin retains stream state |
+| `vesc-frame/`             | Safe bounded VESC CRC, frame encoding/decoding, and stream scanning | Apple and Android select every framing decision                                 |
+| `vesc-frame-apple-ffi/`   | Caller-owned-buffer C ABI and locked Apple source-build helper      | Selected only by the shared iOS/macOS frame-codec adapter                       |
+| `vesc-frame-android-jni/` | Primitive-array JNI ABI and locked host/Android source builds       | Selected by Android for CRC, encoding, exact decoding, and stream-boundary scans |
 
 The shared Apple backend retains only bounded Swift stream storage. Rust scans
 each borrowed region, reports exact consumption boundaries, validates every
 complete frame, and owns outbound encoding without transferring allocator or
 object lifetime across the bridge. Android uses the same safe crate through a
-separate three-function JNI bridge for stateless framing. Kotlin continues to
-own stream accumulation, boundary parsing, and recovery; moving that ownership
-is the next independent OpenSpec change.
+separate four-function JNI bridge. Rust selects Android stream boundaries;
+Kotlin retains only caller-owned bounded byte storage, mechanical consumption,
+and error mapping without transferring allocator or object lifetime.
 
 Do not add empty future crates, generated bindings, a general runtime, host
 callbacks, or OS-owned Bluetooth, location, lifecycle, permission, native-file,

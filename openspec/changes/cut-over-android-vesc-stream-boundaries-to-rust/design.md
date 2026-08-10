@@ -52,7 +52,7 @@ The current storage representation will remain unless a mechanical change is nee
 
 Implementation will first add and verify the JNI operation without selecting it. Production Kotlin will then select Rust scanning with no fallback while the previous parser may exist only as a private test-source parity reference. Focused software, clean packaging, canonical Android, unchanged Apple, and `just verify` gates run through the selected path before the physical checkpoint.
 
-The required physical checkpoint is the production Android BLE fragmented-notification ride with background/foreground recovery. Only after it passes will the temporary reference and superseded Kotlin parsing code be removed and repository audits tightened to reject header/length/noise/extent/overflow decisions outside Rust. The complete software and packaging gates run again after deletion.
+The required physical checkpoint is the production Android BLE fragmented-notification ride with background/foreground recovery. Location permission and background-capability validation remain part of the checkpoint, but a device that produces no location sample during the fixed automated dwell reports that persistence coverage as deferred to manual end-to-end verification rather than failing this framing migration. Only after the BLE/session checkpoint passes will the temporary reference and superseded Kotlin parsing code be removed and repository audits tightened to reject header/length/noise/extent/overflow decisions outside Rust. The complete software and packaging gates run again after deletion.
 
 ## Risks / Trade-offs
 
