@@ -18,12 +18,10 @@ import fail.acheron.floatview.protocol.refloat.RefloatLightingProfile
 import fail.acheron.floatview.protocol.refloat.RefloatLightingState
 import fail.acheron.floatview.protocol.vesc.ControllerRoute
 import fail.acheron.floatview.protocol.vesc.VescCommand
+import fail.acheron.floatview.protocol.vesc.VescBmsValuesDecoder
 import fail.acheron.floatview.protocol.vesc.VescCommandRouter
 import fail.acheron.floatview.protocol.vesc.VescCustomConfigurationCodec
 import fail.acheron.floatview.protocol.vesc.VescFirmwareIdentityDecoder
-import java.nio.ByteBuffer
-import java.nio.charset.CharacterCodingException
-import java.nio.charset.CodingErrorAction
 import java.time.Instant
 
 data class FirmwareInfo(
@@ -102,7 +100,6 @@ data class VescFault(val code: Int, val kind: Kind) {
 
 private class ByteReader(private val bytes: ByteArray) {
     private var offset = 0
-    val remaining: Int get() = bytes.size - offset
     fun u8(): Int {
         if (offset >= bytes.size) throw VescProtocolException.TruncatedPayload
         return bytes[offset++].toInt() and 0xff
@@ -133,23 +130,6 @@ private class ByteReader(private val bytes: ByteArray) {
     fun skip(count: Int) {
         if (offset + count > bytes.size) throw VescProtocolException.TruncatedPayload
         offset += count
-    }
-    fun terminatedUtf8(maxContentBytes: Int): String {
-        val start = offset
-        val searchEnd = minOf(bytes.size, start + maxContentBytes + 1)
-        var terminator = start
-        while (terminator < searchEnd && bytes[terminator] != 0.toByte()) terminator++
-        if (terminator == searchEnd) throw VescProtocolException.TruncatedPayload
-        val decoder = Charsets.UTF_8.newDecoder()
-            .onMalformedInput(CodingErrorAction.REPORT)
-            .onUnmappableCharacter(CodingErrorAction.REPORT)
-        val value = try {
-            decoder.decode(ByteBuffer.wrap(bytes, start, terminator - start)).toString()
-        } catch (_: CharacterCodingException) {
-            throw VescProtocolException.TruncatedPayload
-        }
-        offset = terminator + 1
-        return value
     }
 }
 
@@ -190,98 +170,7 @@ object VescPayloadDecoder {
         payload: ByteArray,
         expectedCanId: Int? = null,
         observedAt: Instant,
-    ): BmsSnapshot {
-        val reader = ByteReader(payload)
-        val command = reader.u8()
-        if (command != VescCommand.BMS_GET_VALUES.id) {
-            throw VescProtocolException.UnsupportedCommand(command)
-        }
-
-        val totalVoltage = reader.i32(1_000_000.0)
-        val chargeVoltage = reader.i32(1_000_000.0)
-        val inputCurrent = reader.i32(1_000_000.0)
-        val inputIcCurrent = reader.i32(1_000_000.0)
-        val sessionAmpHours = reader.i32(1_000.0)
-        val sessionWattHours = reader.i32(1_000.0)
-
-        val cellCount = reader.u8()
-        if (cellCount > 50) throw VescProtocolException.TruncatedPayload
-        val cellVoltages = List(cellCount) { reader.i16(1_000.0) }
-        val balancing = List(cellCount) {
-            when (reader.u8()) {
-                0 -> false
-                1 -> true
-                else -> throw VescProtocolException.TruncatedPayload
-            }
-        }
-
-        val temperatureCount = reader.u8()
-        if (temperatureCount > 50) throw VescProtocolException.TruncatedPayload
-        val temperatures = List(temperatureCount) { reader.i16(100.0) }
-        val icTemperature = reader.i16(100.0)
-        val humiditySensorTemperature = reader.i16(100.0)
-        val humidity = reader.i16(100.0)
-        val highestCellTemperature = reader.i16(100.0)
-        val stateOfCharge = reader.i16(1_000.0)
-        val stateOfHealth = reader.i16(1_000.0)
-        val reportedCanId = reader.u8()
-        if (reportedCanId > 253 || expectedCanId != null && reportedCanId != expectedCanId) {
-            throw VescProtocolException.TruncatedPayload
-        }
-        val lifetimeChargeAmpHours = reader.float32Auto()
-        val lifetimeChargeWattHours = reader.float32Auto()
-        val lifetimeDischargeAmpHours = reader.float32Auto()
-        val lifetimeDischargeWattHours = reader.float32Auto()
-        val pressure = reader.i16(0.1)
-
-        val dataVersion: Int?
-        val status: String?
-        if (reader.remaining == 0) {
-            dataVersion = null
-            status = null
-        } else {
-            dataVersion = reader.u8()
-            status = reader.terminatedUtf8(40)
-            if (reader.remaining != 0) throw VescProtocolException.TruncatedPayload
-        }
-
-        val numericValues = listOf(
-            totalVoltage, chargeVoltage, inputCurrent, inputIcCurrent,
-            sessionAmpHours, sessionWattHours, icTemperature,
-            humiditySensorTemperature, humidity, highestCellTemperature,
-            stateOfCharge, stateOfHealth, lifetimeChargeAmpHours,
-            lifetimeChargeWattHours, lifetimeDischargeAmpHours,
-            lifetimeDischargeWattHours, pressure,
-        ) + cellVoltages + temperatures
-        if (numericValues.any { !it.isFinite() }) throw VescProtocolException.TruncatedPayload
-
-        return BmsSnapshot(
-            observedAt = observedAt,
-            totalVoltageV = totalVoltage,
-            chargeVoltageV = chargeVoltage,
-            inputCurrentA = inputCurrent,
-            inputIcCurrentA = inputIcCurrent,
-            sessionAmpHoursAh = sessionAmpHours,
-            sessionWattHoursWh = sessionWattHours,
-            cellVoltagesV = cellVoltages,
-            balancing = balancing,
-            temperaturesC = temperatures,
-            icTemperatureC = icTemperature,
-            humiditySensorTemperatureC = humiditySensorTemperature,
-            humidityPercent = humidity,
-            highestCellTemperatureC = highestCellTemperature,
-            stateOfCharge = stateOfCharge,
-            stateOfHealth = stateOfHealth,
-            reportedCanId = reportedCanId,
-            lifetimeChargeAmpHoursAh = lifetimeChargeAmpHours,
-            lifetimeChargeWattHoursWh = lifetimeChargeWattHours,
-            lifetimeDischargeAmpHoursAh = lifetimeDischargeAmpHours,
-            lifetimeDischargeWattHoursWh = lifetimeDischargeWattHours,
-            pressurePa = pressure,
-            dataVersion = dataVersion,
-            status = status,
-        )
-    }
+    ): BmsSnapshot = VescBmsValuesDecoder.decode(payload, expectedCanId, observedAt)
 
     fun currentLimits(payload: ByteArray): ControllerCurrentLimits {
         val reader = ByteReader(payload)

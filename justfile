@@ -200,12 +200,15 @@ android-rust-host:
       "$PWD/backends/core/target/android/identity-host/debug"
     backends/core/vesc-custom-configuration-android-jni/build-android.sh host debug \
       "$PWD/backends/core/target/android/custom-configuration-host/debug"
+    backends/core/vesc-bms-values-android-jni/build-android.sh host debug \
+      "$PWD/backends/core/target/android/bms-values-host/debug"
 
 android-rust-codec-test:
     cd backends/android && ./gradlew testDebugUnitTest \
       --tests fail.acheron.floatview.protocol.RustVescFrameBridgeTest \
       --tests fail.acheron.floatview.protocol.RustVescFirmwareIdentityBridgeTest \
       --tests fail.acheron.floatview.protocol.RustVescCustomConfigurationBridgeTest \
+      --tests fail.acheron.floatview.protocol.RustVescBmsValuesBridgeTest \
       --tests fail.acheron.floatview.protocol.VescProtocolTest
 
 android-rust-packaging:
@@ -215,7 +218,8 @@ android-rust-packaging:
     expected="$(for library in \
       libfloat_view_vesc_frame_android_jni.so \
       libfloat_view_vesc_firmware_identity_android_jni.so \
-      libfloat_view_vesc_custom_configuration_android_jni.so; do
+      libfloat_view_vesc_custom_configuration_android_jni.so \
+      libfloat_view_vesc_bms_values_android_jni.so; do
         printf '%s\n' \
           "lib/arm64-v8a/$library" \
           "lib/armeabi-v7a/$library" \
@@ -228,7 +232,7 @@ android-rust-packaging:
       [[ -f "$apk" ]] || { echo "Missing Android package: $apk" >&2; exit 1; }
       unzip -tq "$apk" >/dev/null
       actual="$(unzip -Z1 "$apk" \
-        | rg '(^|/)libfloat_view_vesc_(frame|firmware_identity|custom_configuration)_android_jni\.so$' \
+        | rg '(^|/)libfloat_view_vesc_(frame|firmware_identity|custom_configuration|bms_values)_android_jni\.so$' \
         | sort)"
       [[ "$actual" == "$expected" ]] || {
         echo "Unexpected Rust JNI library set in $apk:" >&2
@@ -250,10 +254,13 @@ android-rust-audit: android-rust-host
       --package float-view-vesc-firmware-identity-android-jni --edges normal --depth 1 --prefix none | wc -l | tr -d ' ')" == 3 ]]
     [[ "$(cd backends/core && cargo tree --locked --offline \
       --package float-view-vesc-custom-configuration-android-jni --edges normal --depth 1 --prefix none | wc -l | tr -d ' ')" == 3 ]]
+    [[ "$(cd backends/core && cargo tree --locked --offline \
+      --package float-view-vesc-bms-values-android-jni --edges normal --depth 1 --prefix none | wc -l | tr -d ' ')" == 3 ]]
     for manifest in \
       backends/core/vesc-frame-android-jni/Cargo.toml \
       backends/core/vesc-firmware-identity-android-jni/Cargo.toml \
-      backends/core/vesc-custom-configuration-android-jni/Cargo.toml; do
+      backends/core/vesc-custom-configuration-android-jni/Cargo.toml \
+      backends/core/vesc-bms-values-android-jni/Cargo.toml; do
       rg -q '^jni-sys = "=0\.4\.1"$' "$manifest"
     done
     ! rg -n '^jni[[:space:]]*=' backends/core -g Cargo.toml
@@ -279,6 +286,14 @@ android-rust-audit: android-rust-host
       backends/android/app/src/main/java/fail/acheron/floatview/protocol/vesc/RustVescCustomConfigurationBridge.kt)"
     [[ -n "$configuration_rust_abi" && "$configuration_rust_abi" == "$configuration_kotlin_abi" ]] || {
       echo "Android custom-configuration JNI ABI mismatch: Rust=$configuration_rust_abi Kotlin=$configuration_kotlin_abi" >&2
+      exit 1
+    }
+    bms_rust_abi="$(sed -n 's/^pub const ABI_VERSION: jint = \([0-9][0-9]*\);$/\1/p' \
+      backends/core/vesc-bms-values-android-jni/src/lib.rs)"
+    bms_kotlin_abi="$(sed -n 's/^internal const val VESC_BMS_VALUES_ABI_VERSION = \([0-9][0-9]*\)$/\1/p' \
+      backends/android/app/src/main/java/fail/acheron/floatview/protocol/vesc/RustVescBmsValuesBridge.kt)"
+    [[ -n "$bms_rust_abi" && "$bms_rust_abi" == "$bms_kotlin_abi" ]] || {
+      echo "Android BMS-values JNI ABI mismatch: Rust=$bms_rust_abi Kotlin=$bms_kotlin_abi" >&2
       exit 1
     }
     ! git ls-files | rg '\.(a|so|dylib|xcframework)$'
@@ -329,6 +344,21 @@ android-rust-audit: android-rust-host
       "$configuration_bridge_source" ]]
     [[ "$(rg -c 'functions\.ExceptionCheck' \
       backends/core/vesc-custom-configuration-android-jni/src/lib.rs)" -ge 8 ]]
+    bms_source="$android_main/protocol/vesc/VescBmsValuesDecoder.kt"
+    bms_protocol_source="$android_main/protocol/vesc/VescProtocolService.kt"
+    bms_bridge_source="$android_main/protocol/vesc/RustVescBmsValuesBridge.kt"
+    ! rg -n -e 'cellCount[[:space:]]*= reader' -e 'temperatureCount[[:space:]]*= reader' \
+      -e 'terminatedUtf8' -e 'maxContentBytes' -e 'lifetimeChargeAmpHours[[:space:]]*= reader' \
+      -e 'reportedCanId[[:space:]]*= reader' \
+      "$bms_protocol_source"
+    [[ "$(rg -c 'VescBmsValuesDecoder\.decode\(' "$bms_protocol_source")" == 1 ]]
+    [[ "$(rg -c 'RustVescBmsValuesBridge\.decode\(' "$bms_source")" == 1 ]]
+    [[ "$(rg -l 'RustVescBmsValuesBridge\.decode\(' "$android_main" -g '*.kt')" == \
+      "$bms_source" ]]
+    [[ "$(rg -l 'external fun (abiVersion|decode)' "$bms_bridge_source")" == \
+      "$bms_bridge_source" ]]
+    [[ "$(rg -c 'functions\.ExceptionCheck' \
+      backends/core/vesc-bms-values-android-jni/src/lib.rs)" -ge 8 ]]
     if ANDROID_NDK_HOME=/private/tmp/float-view-missing-ndk \
       backends/core/vesc-frame-android-jni/build-android.sh \
       android arm64-v8a debug /private/tmp/float-view-unreachable-output >/dev/null 2>&1; then
@@ -345,6 +375,12 @@ android-rust-audit: android-rust-host
       backends/core/vesc-firmware-identity-android-jni/build-android.sh \
       android arm64-v8a debug /private/tmp/float-view-unreachable-identity-output >/dev/null 2>&1; then
       echo 'Android Rust identity helper accepted a missing pinned NDK.' >&2
+      exit 1
+    fi
+    if ANDROID_NDK_HOME=/private/tmp/float-view-missing-ndk \
+      backends/core/vesc-bms-values-android-jni/build-android.sh \
+      android arm64-v8a debug /private/tmp/float-view-unreachable-bms-values-output >/dev/null 2>&1; then
+      echo 'Android Rust BMS-values helper accepted a missing pinned NDK.' >&2
       exit 1
     fi
 
@@ -538,6 +574,7 @@ audit:
     [[ -f rust-toolchain.toml ]]
     [[ -f backends/core/Cargo.lock ]]
     [[ -f backends/core/vesc-bms-values/Cargo.toml ]]
+    [[ -f backends/core/vesc-bms-values-android-jni/Cargo.toml ]]
     [[ -f backends/core/vesc-bms-values-apple-ffi/Cargo.toml ]]
     [[ -f backends/core/vesc-custom-configuration/Cargo.toml ]]
     [[ -f backends/core/vesc-custom-configuration-android-jni/Cargo.toml ]]
@@ -557,7 +594,8 @@ audit:
     [[ -f backends/apple/Sources/CVescFirmwareIdentity/include/CVescFirmwareIdentity.h ]]
     [[ -f backends/apple/Sources/CVescFirmwareIdentity/module.modulemap ]]
     unexpected_core="$(find backends/core -mindepth 1 -maxdepth 1 -type d \
-      ! -name target ! -name vesc-bms-values ! -name vesc-bms-values-apple-ffi \
+      ! -name target ! -name vesc-bms-values ! -name vesc-bms-values-android-jni \
+      ! -name vesc-bms-values-apple-ffi \
       ! -name vesc-custom-configuration ! -name vesc-firmware-identity \
       ! -name vesc-custom-configuration-android-jni \
       ! -name vesc-custom-configuration-apple-ffi \
@@ -569,6 +607,8 @@ audit:
       exit 1
     }
     [[ "$(find backends/core/vesc-bms-values -mindepth 1 -maxdepth 1 -type d \
+      ! -name src -print -quit)" == "" ]]
+    [[ "$(find backends/core/vesc-bms-values-android-jni -mindepth 1 -maxdepth 1 -type d \
       ! -name src -print -quit)" == "" ]]
     [[ "$(find backends/core/vesc-bms-values-apple-ffi -mindepth 1 -maxdepth 1 -type d \
       ! -name src ! -name tests -print -quit)" == "" ]]
@@ -600,8 +640,10 @@ audit:
     rg -q '^#!\[forbid\(unsafe_code\)\]$' backends/core/vesc-bms-values/src/lib.rs
     ! rg -n 'extern[[:space:]]+"C"|no_mangle|cbindgen|uniffi|jni|host_callback' \
       backends/core/vesc-bms-values
-    ! rg -n 'vesc-bms-values-apple-ffi|CVescBmsValues|float_view_vesc_bms_values' \
+    ! rg -n 'vesc-bms-values-apple-ffi|CVescBmsValues|float_view_vesc_bms_values_(abi_version|decode)' \
       backends/android
+    ! rg -n 'vesc-bms-values-android-jni|RustVescBmsValuesBridge|float_view_vesc_bms_values_android_jni' \
+      backends/apple
     rg -q '^#!\[forbid\(unsafe_code\)\]$' backends/core/vesc-firmware-identity/src/lib.rs
     ! rg -n 'extern[[:space:]]+"C"|no_mangle|cbindgen|uniffi|jni|host_callback' \
       backends/core/vesc-firmware-identity
@@ -619,6 +661,7 @@ audit:
     [[ "$(cd backends/core && cargo tree --locked --package float-view-vesc-firmware-identity --edges normal --prefix none | wc -l | tr -d ' ')" == 1 ]]
     [[ "$(cd backends/core && cargo tree --locked --package float-view-vesc-bms-values --edges normal --prefix none | wc -l | tr -d ' ')" == 1 ]]
     [[ "$(cd backends/core && cargo tree --locked --package float-view-vesc-bms-values-apple-ffi --edges normal --depth 1 --prefix none | wc -l | tr -d ' ')" == 2 ]]
+    [[ "$(cd backends/core && cargo tree --locked --package float-view-vesc-bms-values-android-jni --edges normal --depth 1 --prefix none | wc -l | tr -d ' ')" == 3 ]]
     [[ "$(cd backends/core && cargo tree --locked --package float-view-vesc-custom-configuration --edges normal --prefix none | wc -l | tr -d ' ')" == 1 ]]
     [[ "$(cd backends/core && cargo tree --locked --package float-view-vesc-custom-configuration-apple-ffi --edges normal --depth 1 --prefix none | wc -l | tr -d ' ')" == 2 ]]
     [[ "$(cd backends/core && cargo tree --locked --package float-view-vesc-frame --edges normal --prefix none | wc -l | tr -d ' ')" == 1 ]]

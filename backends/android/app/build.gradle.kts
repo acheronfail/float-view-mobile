@@ -17,6 +17,12 @@ val rustCustomConfigurationAndroidOutputs =
     rustCoreDirectory.resolve("target/android/customConfigurationJniLibs")
 val rustCustomConfigurationHostOutputs =
     rustCoreDirectory.resolve("target/android/custom-configuration-host/debug")
+val rustBmsValuesAndroidHelper =
+    rustCoreDirectory.resolve("vesc-bms-values-android-jni/build-android.sh")
+val rustBmsValuesAndroidOutputs =
+    rustCoreDirectory.resolve("target/android/bmsValuesJniLibs")
+val rustBmsValuesHostOutputs =
+    rustCoreDirectory.resolve("target/android/bms-values-host/debug")
 val rustHostLibrary = rustHostOutputs.resolve(
     if (System.getProperty("os.name").lowercase().contains("mac")) {
         "libfloat_view_vesc_frame_android_jni.dylib"
@@ -36,6 +42,13 @@ val rustCustomConfigurationHostLibrary = rustCustomConfigurationHostOutputs.reso
         "libfloat_view_vesc_custom_configuration_android_jni.dylib"
     } else {
         "libfloat_view_vesc_custom_configuration_android_jni.so"
+    }
+)
+val rustBmsValuesHostLibrary = rustBmsValuesHostOutputs.resolve(
+    if (System.getProperty("os.name").lowercase().contains("mac")) {
+        "libfloat_view_vesc_bms_values_android_jni.dylib"
+    } else {
+        "libfloat_view_vesc_bms_values_android_jni.so"
     }
 )
 
@@ -124,6 +137,34 @@ val buildAndroidRustCustomConfigurationDebug =
     registerAndroidRustCustomConfigurationBuild("debug")
 val buildAndroidRustCustomConfigurationRelease =
     registerAndroidRustCustomConfigurationBuild("release")
+
+fun registerAndroidRustBmsValuesBuild(profile: String) = tasks.register<Exec>(
+    "buildAndroidRustBmsValues${profile.replaceFirstChar(Char::uppercase)}"
+) {
+    group = "build"
+    description = "Builds the four source-owned Android Rust BMS-values JNI libraries for $profile."
+    workingDir(rootProject.projectDir)
+    commandLine(
+        rustBmsValuesAndroidHelper.absolutePath,
+        "android-all",
+        profile,
+        rustBmsValuesAndroidOutputs.resolve(profile).absolutePath,
+    )
+    inputs.files(
+        rustCoreDirectory.resolve("Cargo.toml"),
+        rustCoreDirectory.resolve("Cargo.lock"),
+        rustCoreDirectory.resolve("rust-toolchain.toml"),
+        rustCoreDirectory.resolve("vesc-bms-values/Cargo.toml"),
+        rustCoreDirectory.resolve("vesc-bms-values-android-jni/Cargo.toml"),
+        fileTree(rustCoreDirectory.resolve("vesc-bms-values/src")),
+        fileTree(rustCoreDirectory.resolve("vesc-bms-values-android-jni/src")),
+        rustBmsValuesAndroidHelper,
+    )
+    outputs.dir(rustBmsValuesAndroidOutputs.resolve(profile))
+}
+
+val buildAndroidRustBmsValuesDebug = registerAndroidRustBmsValuesBuild("debug")
+val buildAndroidRustBmsValuesRelease = registerAndroidRustBmsValuesBuild("release")
 val buildAndroidRustHost by tasks.registering(Exec::class) {
     group = "verification"
     description = "Builds the exact source-owned host JNI library used by JVM tests."
@@ -190,6 +231,28 @@ val buildAndroidRustCustomConfigurationHost by tasks.registering(Exec::class) {
     )
     outputs.file(rustCustomConfigurationHostLibrary)
 }
+val buildAndroidRustBmsValuesHost by tasks.registering(Exec::class) {
+    group = "verification"
+    description = "Builds the exact source-owned host BMS-values JNI library used by JVM tests."
+    workingDir(rootProject.projectDir)
+    commandLine(
+        rustBmsValuesAndroidHelper.absolutePath,
+        "host",
+        "debug",
+        rustBmsValuesHostOutputs.absolutePath,
+    )
+    inputs.files(
+        rustCoreDirectory.resolve("Cargo.toml"),
+        rustCoreDirectory.resolve("Cargo.lock"),
+        rustCoreDirectory.resolve("rust-toolchain.toml"),
+        rustCoreDirectory.resolve("vesc-bms-values/Cargo.toml"),
+        rustCoreDirectory.resolve("vesc-bms-values-android-jni/Cargo.toml"),
+        fileTree(rustCoreDirectory.resolve("vesc-bms-values/src")),
+        fileTree(rustCoreDirectory.resolve("vesc-bms-values-android-jni/src")),
+        rustBmsValuesAndroidHelper,
+    )
+    outputs.file(rustBmsValuesHostLibrary)
+}
 val cleanAndroidRust by tasks.registering(Delete::class) {
     group = "build"
     description = "Deletes generated host and Android Rust JNI outputs."
@@ -208,6 +271,9 @@ buildAndroidRustIdentityHost.configure { mustRunAfter(tasks.named("clean")) }
 buildAndroidRustCustomConfigurationDebug.configure { mustRunAfter(tasks.named("clean")) }
 buildAndroidRustCustomConfigurationRelease.configure { mustRunAfter(tasks.named("clean")) }
 buildAndroidRustCustomConfigurationHost.configure { mustRunAfter(tasks.named("clean")) }
+buildAndroidRustBmsValuesDebug.configure { mustRunAfter(tasks.named("clean")) }
+buildAndroidRustBmsValuesRelease.configure { mustRunAfter(tasks.named("clean")) }
+buildAndroidRustBmsValuesHost.configure { mustRunAfter(tasks.named("clean")) }
 
 android {
     namespace = "fail.acheron.floatview"
@@ -253,6 +319,8 @@ android {
         getByName("release").jniLibs.srcDir(rustIdentityAndroidOutputs.resolve("release"))
         getByName("debug").jniLibs.srcDir(rustCustomConfigurationAndroidOutputs.resolve("debug"))
         getByName("release").jniLibs.srcDir(rustCustomConfigurationAndroidOutputs.resolve("release"))
+        getByName("debug").jniLibs.srcDir(rustBmsValuesAndroidOutputs.resolve("debug"))
+        getByName("release").jniLibs.srcDir(rustBmsValuesAndroidOutputs.resolve("release"))
     }
     testOptions {
         unitTests.all {
@@ -260,6 +328,7 @@ android {
                 buildAndroidRustHost,
                 buildAndroidRustIdentityHost,
                 buildAndroidRustCustomConfigurationHost,
+                buildAndroidRustBmsValuesHost,
             )
             it.systemProperty("floatViewVescFrameJniLibrary", rustHostLibrary.absolutePath)
             it.systemProperty(
@@ -269,6 +338,10 @@ android {
             it.systemProperty(
                 "floatViewVescCustomConfigurationJniLibrary",
                 rustCustomConfigurationHostLibrary.absolutePath,
+            )
+            it.systemProperty(
+                "floatViewVescBmsValuesJniLibrary",
+                rustBmsValuesHostLibrary.absolutePath,
             )
             it.systemProperty(
                 "floatViewFixtureRoot",
@@ -284,11 +357,13 @@ tasks.configureEach {
             buildAndroidRustDebug,
             buildAndroidRustIdentityDebug,
             buildAndroidRustCustomConfigurationDebug,
+            buildAndroidRustBmsValuesDebug,
         )
         "mergeReleaseJniLibFolders" -> dependsOn(
             buildAndroidRustRelease,
             buildAndroidRustIdentityRelease,
             buildAndroidRustCustomConfigurationRelease,
+            buildAndroidRustBmsValuesRelease,
         )
     }
 }

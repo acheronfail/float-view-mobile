@@ -1,6 +1,7 @@
 [workspace]
 members = [
     "vesc-bms-values",
+    "vesc-bms-values-android-jni",
     "vesc-bms-values-apple-ffi",
     "vesc-custom-configuration",
     "vesc-custom-configuration-android-jni",
