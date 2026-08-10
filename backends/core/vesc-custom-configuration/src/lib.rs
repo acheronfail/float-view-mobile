@@ -1,8 +1,8 @@
 //! Strict, bounded VESC custom-configuration command envelopes.
 //!
-//! Swift and Kotlin remain the selected production owners. This safe crate is
-//! an isolated candidate and deliberately knows nothing about host bridges,
-//! Refloat schema/value semantics, routing, scheduling, or application state.
+//! Apple and Android select this safe component through separate audited host
+//! bridges. It deliberately knows nothing about those bridges, Refloat
+//! schema/value semantics, routing, scheduling, or application state.
 
 #![forbid(unsafe_code)]
 

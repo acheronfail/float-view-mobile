@@ -4,11 +4,13 @@
 ownership. It is a locked Cargo workspace, not another backend and not a
 production runtime.
 
-The workspace currently has seven members:
+The workspace currently has nine members:
 
 | Component               | Scope                                                                 | Integration state                                                                             |
 | ----------------------- | --------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
-| `vesc-custom-configuration/` | Safe bounded VESC commands 92–95 envelope encoding and decoding  | Isolated candidate; Swift and Kotlin remain the selected production codecs                    |
+| `vesc-custom-configuration/` | Safe bounded VESC commands 92–95 envelope encoding and decoding  | Selected by Apple and Android through separate host bridges                                   |
+| `vesc-custom-configuration-apple-ffi/` | Three-symbol caller-owned-buffer C ABI for commands 92–95 | Selected only by the shared iOS/macOS adapter                                                  |
+| `vesc-custom-configuration-android-jni/` | Three-symbol primitive-array JNI ABI for commands 92–95 | Selected only by Android                                                                       |
 | `vesc-firmware-identity/` | Safe bounded `COMM_FW_VERSION` payload decoding                      | Selected by Apple and Android through separate host bridges                                   |
 | `vesc-firmware-identity-apple-ffi/` | Two-symbol caller-owned-buffer C ABI for firmware identity | Selected only by the shared iOS/macOS identity adapter                                        |
 | `vesc-firmware-identity-android-jni/` | Two-symbol primitive-array JNI ABI for firmware identity | Selected only by Android                                                                      |
@@ -29,10 +31,11 @@ tests use only the existing safe framing crate to unwrap committed framed
 fixtures. Separate Apple and Android bridges depend only on it and their
 minimal host ABI support; neither bridge exposes Rust allocation or layout.
 
-The custom-configuration component is a candidate only. It encodes and decodes
-the bounded VESC commands 92–95 envelope while treating compressed schemas and
-serialized values as opaque caller-owned bytes. Swift and Kotlin remain the
-selected production codecs until separate host cutovers prove their bridges.
+The custom-configuration component encodes and decodes the bounded VESC
+commands 92–95 envelope while treating compressed schemas and serialized
+values as opaque caller-owned bytes. Separate Apple and Android bridges expose
+only fixed metadata and caller-owned regions; schema and typed-value semantics
+remain native.
 
 Do not add empty future crates, generated bindings, a general runtime, host
 callbacks, or OS-owned Bluetooth, location, lifecycle, permission, native-file,

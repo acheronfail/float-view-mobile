@@ -155,11 +155,14 @@ android-rust-host:
       "$PWD/backends/core/target/android/host/debug"
     backends/core/vesc-firmware-identity-android-jni/build-android.sh host debug \
       "$PWD/backends/core/target/android/identity-host/debug"
+    backends/core/vesc-custom-configuration-android-jni/build-android.sh host debug \
+      "$PWD/backends/core/target/android/custom-configuration-host/debug"
 
 android-rust-codec-test:
     cd backends/android && ./gradlew testDebugUnitTest \
       --tests fail.acheron.floatview.protocol.RustVescFrameBridgeTest \
       --tests fail.acheron.floatview.protocol.RustVescFirmwareIdentityBridgeTest \
+      --tests fail.acheron.floatview.protocol.RustVescCustomConfigurationBridgeTest \
       --tests fail.acheron.floatview.protocol.VescProtocolTest
 
 android-rust-packaging:
@@ -168,7 +171,8 @@ android-rust-packaging:
     (cd backends/android && ./gradlew clean assembleDebug assembleRelease)
     expected="$(for library in \
       libfloat_view_vesc_frame_android_jni.so \
-      libfloat_view_vesc_firmware_identity_android_jni.so; do
+      libfloat_view_vesc_firmware_identity_android_jni.so \
+      libfloat_view_vesc_custom_configuration_android_jni.so; do
         printf '%s\n' \
           "lib/arm64-v8a/$library" \
           "lib/armeabi-v7a/$library" \
@@ -181,7 +185,7 @@ android-rust-packaging:
       [[ -f "$apk" ]] || { echo "Missing Android package: $apk" >&2; exit 1; }
       unzip -tq "$apk" >/dev/null
       actual="$(unzip -Z1 "$apk" \
-        | rg '(^|/)libfloat_view_vesc_(frame|firmware_identity)_android_jni\.so$' \
+        | rg '(^|/)libfloat_view_vesc_(frame|firmware_identity|custom_configuration)_android_jni\.so$' \
         | sort)"
       [[ "$actual" == "$expected" ]] || {
         echo "Unexpected Rust JNI library set in $apk:" >&2
@@ -201,9 +205,12 @@ android-rust-audit: android-rust-host
       --package float-view-vesc-frame-apple-ffi --edges normal --depth 1 --prefix none | wc -l | tr -d ' ')" == 2 ]]
     [[ "$(cd backends/core && cargo tree --locked --offline \
       --package float-view-vesc-firmware-identity-android-jni --edges normal --depth 1 --prefix none | wc -l | tr -d ' ')" == 3 ]]
+    [[ "$(cd backends/core && cargo tree --locked --offline \
+      --package float-view-vesc-custom-configuration-android-jni --edges normal --depth 1 --prefix none | wc -l | tr -d ' ')" == 3 ]]
     for manifest in \
       backends/core/vesc-frame-android-jni/Cargo.toml \
-      backends/core/vesc-firmware-identity-android-jni/Cargo.toml; do
+      backends/core/vesc-firmware-identity-android-jni/Cargo.toml \
+      backends/core/vesc-custom-configuration-android-jni/Cargo.toml; do
       rg -q '^jni-sys = "=0\.4\.1"$' "$manifest"
     done
     ! rg -n '^jni[[:space:]]*=' backends/core -g Cargo.toml
@@ -221,6 +228,14 @@ android-rust-audit: android-rust-host
       backends/android/app/src/main/java/fail/acheron/floatview/protocol/vesc/RustVescFirmwareIdentityBridge.kt)"
     [[ -n "$identity_rust_abi" && "$identity_rust_abi" == "$identity_kotlin_abi" ]] || {
       echo "Android firmware-identity JNI ABI mismatch: Rust=$identity_rust_abi Kotlin=$identity_kotlin_abi" >&2
+      exit 1
+    }
+    configuration_rust_abi="$(sed -n 's/^pub const ABI_VERSION: jint = \([0-9][0-9]*\);$/\1/p' \
+      backends/core/vesc-custom-configuration-android-jni/src/lib.rs)"
+    configuration_kotlin_abi="$(sed -n 's/^internal const val VESC_CUSTOM_CONFIGURATION_ABI_VERSION = \([0-9][0-9]*\)$/\1/p' \
+      backends/android/app/src/main/java/fail/acheron/floatview/protocol/vesc/RustVescCustomConfigurationBridge.kt)"
+    [[ -n "$configuration_rust_abi" && "$configuration_rust_abi" == "$configuration_kotlin_abi" ]] || {
+      echo "Android custom-configuration JNI ABI mismatch: Rust=$configuration_rust_abi Kotlin=$configuration_kotlin_abi" >&2
       exit 1
     }
     ! git ls-files | rg '\.(a|so|dylib|xcframework)$'
@@ -243,7 +258,7 @@ android-rust-audit: android-rust-host
     [[ "$(rg -c 'RustVescFrameBridge\.scanNext\(' "$codec_source")" == 1 ]]
     [[ "$(rg -l 'RustVescFrameBridge\.(encode|decodeExact|scanNext)' "$android_main" -g '*.kt')" == "$codec_source" ]]
     [[ "$(rg -l 'external fun (encode|decodeExact|scanNext)' \
-      backends/android/app/src/main -g '*.kt')" == \
+      "$bridge_source")" == \
       "$bridge_source" ]]
     identity_source="$android_main/protocol/vesc/VescFirmwareIdentityDecoder.kt"
     identity_bridge_source="$android_main/protocol/vesc/RustVescFirmwareIdentityBridge.kt"
@@ -257,10 +272,30 @@ android-rust-audit: android-rust-host
       "$identity_bridge_source" ]]
     [[ "$(rg -c 'functions\.ExceptionCheck' \
       backends/core/vesc-firmware-identity-android-jni/src/lib.rs)" -ge 8 ]]
+    configuration_source="$android_main/protocol/vesc/VescCustomConfigurationCodec.kt"
+    configuration_bridge_source="$android_main/protocol/vesc/RustVescCustomConfigurationBridge.kt"
+    ! rg -n -e 'positiveI32' -e 'nonnegativeI32' -e 'private fun i32' \
+      -e 'payload\.firstOrNull' -e 'payload\.copyOfRange\(10' \
+      -e 'bytes\.size > MAXIMUM_CHUNK_BYTES' \
+      "$configuration_source"
+    [[ "$(rg -c 'RustVescCustomConfigurationBridge\.encode\(' "$configuration_source")" == 1 ]]
+    [[ "$(rg -c 'RustVescCustomConfigurationBridge\.decode\(' "$configuration_source")" == 1 ]]
+    [[ "$(rg -l 'RustVescCustomConfigurationBridge\.(encode|decode)' "$android_main" -g '*.kt')" == \
+      "$configuration_source" ]]
+    [[ "$(rg -l 'external fun (abiVersion|encode|decode)' "$configuration_bridge_source")" == \
+      "$configuration_bridge_source" ]]
+    [[ "$(rg -c 'functions\.ExceptionCheck' \
+      backends/core/vesc-custom-configuration-android-jni/src/lib.rs)" -ge 8 ]]
     if ANDROID_NDK_HOME=/private/tmp/float-view-missing-ndk \
       backends/core/vesc-frame-android-jni/build-android.sh \
       android arm64-v8a debug /private/tmp/float-view-unreachable-output >/dev/null 2>&1; then
       echo 'Android Rust helper accepted a missing pinned NDK.' >&2
+      exit 1
+    fi
+    if ANDROID_NDK_HOME=/private/tmp/float-view-missing-ndk \
+      backends/core/vesc-custom-configuration-android-jni/build-android.sh \
+      android arm64-v8a debug /private/tmp/float-view-unreachable-custom-configuration-output >/dev/null 2>&1; then
+      echo 'Android Rust custom-configuration helper accepted a missing pinned NDK.' >&2
       exit 1
     fi
     if ANDROID_NDK_HOME=/private/tmp/float-view-missing-ndk \
@@ -460,6 +495,7 @@ audit:
     [[ -f rust-toolchain.toml ]]
     [[ -f backends/core/Cargo.lock ]]
     [[ -f backends/core/vesc-custom-configuration/Cargo.toml ]]
+    [[ -f backends/core/vesc-custom-configuration-android-jni/Cargo.toml ]]
     [[ -f backends/core/vesc-custom-configuration-apple-ffi/Cargo.toml ]]
     [[ -f backends/core/vesc-firmware-identity/Cargo.toml ]]
     [[ -f backends/core/vesc-firmware-identity-android-jni/Cargo.toml ]]
@@ -475,6 +511,7 @@ audit:
     [[ -f backends/apple/Sources/CVescFirmwareIdentity/module.modulemap ]]
     unexpected_core="$(find backends/core -mindepth 1 -maxdepth 1 -type d \
       ! -name target ! -name vesc-custom-configuration ! -name vesc-firmware-identity \
+      ! -name vesc-custom-configuration-android-jni \
       ! -name vesc-custom-configuration-apple-ffi \
       ! -name vesc-firmware-identity-android-jni ! -name vesc-firmware-identity-apple-ffi \
       ! -name vesc-frame ! -name vesc-frame-apple-ffi \

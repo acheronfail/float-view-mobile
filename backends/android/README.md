@@ -3,10 +3,12 @@
 Android remains one native Kotlin Gradle application module. Package names
 mirror the Apple capability names for navigation. Rust owns VESC CRC, frame
 encoding, exact frame decoding, and stream-boundary decisions through the
-four-function `../core/vesc-frame-android-jni/` bridge. Kotlin retains bounded
-VESC stream storage, mechanical slicing and consumption, error mapping, and the
-remaining VESC, BMS, and Refloat protocols. Apple integration is unchanged;
-there is no generated API or Gradle module per capability.
+four-function `../core/vesc-frame-android-jni/` bridge. Rust also owns
+firmware-identity structure and commands 92–95 custom-configuration envelopes
+through separate focused JNI bridges. Kotlin retains bounded caller-owned
+storage, primitive-result validation, error mapping, and the remaining VESC,
+BMS, and Refloat semantics. Apple integration is unchanged; there is no
+generated API or Gradle module per capability.
 
 Production Kotlin lives under
 `app/src/main/java/fail/acheron/floatview/`:
