@@ -3,6 +3,13 @@
 version = 4
 
 [[package]]
+name = "float-view-vesc-firmware-identity"
+version = "0.1.0"
+dependencies = [
+ "float-view-vesc-frame",
+]
+
+[[package]]
 name = "float-view-vesc-frame"
 version = "0.1.0"
 

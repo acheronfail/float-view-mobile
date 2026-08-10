@@ -4,10 +4,11 @@
 ownership. It is a locked Cargo workspace, not another backend and not a
 production runtime.
 
-The workspace currently has three members:
+The workspace currently has four members:
 
 | Component               | Scope                                                                 | Integration state                                                                             |
 | ----------------------- | --------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
+| `vesc-firmware-identity/` | Safe bounded `COMM_FW_VERSION` payload decoding                      | Isolated candidate; Swift and Kotlin remain the selected production decoders                  |
 | `vesc-frame/`             | Safe bounded VESC CRC, frame encoding/decoding, and stream scanning | Apple and Android select every framing decision                                 |
 | `vesc-frame-apple-ffi/`   | Caller-owned-buffer C ABI and locked Apple source-build helper      | Selected only by the shared iOS/macOS frame-codec adapter                       |
 | `vesc-frame-android-jni/` | Primitive-array JNI ABI and locked host/Android source builds       | Selected by Android for CRC, encoding, exact decoding, and stream-boundary scans |
@@ -19,6 +20,11 @@ object lifetime across the bridge. Android uses the same safe crate through a
 separate four-function JNI bridge. Rust selects Android stream boundaries;
 Kotlin retains only caller-owned bounded byte storage, mechanical consumption,
 and error mapping without transferring allocator or object lifetime.
+
+The firmware identity candidate has an empty production dependency graph. Its
+tests use only the existing safe framing crate to unwrap committed framed
+fixtures. It adds no Apple C ABI, Android JNI ABI, packaged library, or native
+call path; host cutovers remain separate changes.
 
 Do not add empty future crates, generated bindings, a general runtime, host
 callbacks, or OS-owned Bluetooth, location, lifecycle, permission, native-file,

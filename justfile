@@ -101,6 +101,8 @@ android-rust-audit: android-rust-host
     [[ "$(cd backends/core && cargo tree --locked --offline \
       --package float-view-vesc-frame --edges normal --prefix none | wc -l | tr -d ' ')" == 1 ]]
     [[ "$(cd backends/core && cargo tree --locked --offline \
+      --package float-view-vesc-firmware-identity --edges normal --prefix none | wc -l | tr -d ' ')" == 1 ]]
+    [[ "$(cd backends/core && cargo tree --locked --offline \
       --package float-view-vesc-frame-apple-ffi --edges normal --depth 1 --prefix none | wc -l | tr -d ' ')" == 2 ]]
     rg -q '^jni-sys = "=0\.4\.1"$' \
       backends/core/vesc-frame-android-jni/Cargo.toml
@@ -331,18 +333,21 @@ audit:
     [[ ! -d backends/apple/Sources/FloatViewMac ]]
     [[ -f rust-toolchain.toml ]]
     [[ -f backends/core/Cargo.lock ]]
+    [[ -f backends/core/vesc-firmware-identity/Cargo.toml ]]
     [[ -f backends/core/vesc-frame/Cargo.toml ]]
     [[ -f backends/core/vesc-frame-apple-ffi/Cargo.toml ]]
     [[ -f backends/core/vesc-frame-android-jni/Cargo.toml ]]
     [[ -f backends/apple/Sources/CVescFrame/include/CVescFrame.h ]]
     [[ -f backends/apple/Sources/CVescFrame/module.modulemap ]]
     unexpected_core="$(find backends/core -mindepth 1 -maxdepth 1 -type d \
-      ! -name target ! -name vesc-frame ! -name vesc-frame-apple-ffi \
+      ! -name target ! -name vesc-firmware-identity ! -name vesc-frame ! -name vesc-frame-apple-ffi \
       ! -name vesc-frame-android-jni -print -quit)"
     [[ -z "$unexpected_core" ]] || {
       echo "Unexpected Rust core workspace member: $unexpected_core" >&2
       exit 1
     }
+    [[ "$(find backends/core/vesc-firmware-identity -mindepth 1 -maxdepth 1 -type d \
+      ! -name src -print -quit)" == "" ]]
     [[ "$(find backends/core/vesc-frame -mindepth 1 -maxdepth 1 -type d \
       ! -name src -print -quit)" == "" ]]
     [[ "$(find backends/core/vesc-frame-apple-ffi -mindepth 1 -maxdepth 1 -type d \
@@ -354,7 +359,13 @@ audit:
       | grep -q .
     ! rg -n 'extern[[:space:]]+"C"|no_mangle|cbindgen|uniffi|jni|host_callback' \
       backends/core/vesc-frame
+    rg -q '^#!\[forbid\(unsafe_code\)\]$' backends/core/vesc-firmware-identity/src/lib.rs
+    ! rg -n 'extern[[:space:]]+"C"|no_mangle|cbindgen|uniffi|jni|host_callback' \
+      backends/core/vesc-firmware-identity
+    ! rg -n 'float-view-vesc-firmware-identity|vesc-firmware-identity' \
+      backends/apple backends/android
     ! rg -n 'cbindgen|uniffi|jni|host_callback' backends/core/vesc-frame-apple-ffi
+    [[ "$(cd backends/core && cargo tree --locked --package float-view-vesc-firmware-identity --edges normal --prefix none | wc -l | tr -d ' ')" == 1 ]]
     [[ "$(cd backends/core && cargo tree --locked --package float-view-vesc-frame --edges normal --prefix none | wc -l | tr -d ' ')" == 1 ]]
     [[ "$(cd backends/core && cargo tree --locked --package float-view-vesc-frame-apple-ffi --edges normal --depth 1 --prefix none | wc -l | tr -d ' ')" == 2 ]]
     ! git ls-files | rg '\.(a|so|xcframework|dylib)$'
