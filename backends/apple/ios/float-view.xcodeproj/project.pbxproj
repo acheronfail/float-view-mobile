@@ -95,6 +95,7 @@
 				F30A00022F00000000000002 /* Build Rust VESC firmware identity */,
 				F30A00032F00000000000003 /* Build Rust VESC custom configuration */,
 				F30A00042F00000000000004 /* Build Rust VESC BMS values */,
+				F30A00062F00000000000006 /* Build Rust VESC controller data */,
 				F30A00052F00000000000005 /* Build Rust Refloat control codec */,
 				BA4ABF182E5BDF4600B47684 /* Sources */,
 				BA4ABF192E5BDF4600B47684 /* Frameworks */,
@@ -321,6 +322,33 @@
 			shellPath = /bin/bash;
 			shellScript = "\"${PROJECT_DIR}/../../core/build-apple-bridge.sh\" \"bms-values\" \"${PLATFORM_NAME}\" \"${ARCHS}\" \"${CONFIGURATION}\" \"${DERIVED_FILE_DIR}\"\n";
 		};
+		F30A00062F00000000000006 /* Build Rust VESC controller data */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+				"$(PROJECT_DIR)/../../core/Cargo.lock",
+				"$(PROJECT_DIR)/../../core/Cargo.toml",
+				"$(PROJECT_DIR)/../../core/vesc-controller-data/Cargo.toml",
+				"$(PROJECT_DIR)/../../core/vesc-controller-data/src/lib.rs",
+				"$(PROJECT_DIR)/../../core/vesc-controller-data-apple-ffi/Cargo.toml",
+				"$(PROJECT_DIR)/../../core/bridge-build-catalog.sh",
+				"$(PROJECT_DIR)/../../core/build-apple-bridge.sh",
+				"$(PROJECT_DIR)/../../core/vesc-controller-data-apple-ffi/src/lib.rs",
+			);
+			name = "Build Rust VESC controller data";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+				"$(DERIVED_FILE_DIR)/libfloat_view_vesc_controller_data_apple_ffi.a",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/bash;
+			shellScript = "\"${PROJECT_DIR}/../../core/build-apple-bridge.sh\" \"controller-data\" \"${PLATFORM_NAME}\" \"${ARCHS}\" \"${CONFIGURATION}\" \"${DERIVED_FILE_DIR}\"\n";
+		};
 		F30A00052F00000000000005 /* Build Rust Refloat control codec */ = {
 			isa = PBXShellScriptBuildPhase;
 			buildActionMask = 2147483647;
@@ -520,6 +548,7 @@
 				OTHER_LDFLAGS = (
 					"$(inherited)",
 					"-lfloat_view_vesc_bms_values_apple_ffi",
+					"-lfloat_view_vesc_controller_data_apple_ffi",
 					"-lfloat_view_vesc_frame_apple_ffi",
 					"-lfloat_view_vesc_firmware_identity_apple_ffi",
 					"-lfloat_view_vesc_custom_configuration_apple_ffi",
@@ -530,6 +559,7 @@
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_INCLUDE_PATHS = (
 					"$(PROJECT_DIR)/../Sources/CVescBmsValues",
+					"$(PROJECT_DIR)/../Sources/CVescControllerData",
 					"$(PROJECT_DIR)/../Sources/CVescCustomConfiguration",
 					"$(PROJECT_DIR)/../Sources/CVescFrame",
 					"$(PROJECT_DIR)/../Sources/CVescFirmwareIdentity",
@@ -563,6 +593,7 @@
 				OTHER_LDFLAGS = (
 					"$(inherited)",
 					"-lfloat_view_vesc_bms_values_apple_ffi",
+					"-lfloat_view_vesc_controller_data_apple_ffi",
 					"-lfloat_view_vesc_frame_apple_ffi",
 					"-lfloat_view_vesc_firmware_identity_apple_ffi",
 					"-lfloat_view_vesc_custom_configuration_apple_ffi",
@@ -573,6 +604,7 @@
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_INCLUDE_PATHS = (
 					"$(PROJECT_DIR)/../Sources/CVescBmsValues",
+					"$(PROJECT_DIR)/../Sources/CVescControllerData",
 					"$(PROJECT_DIR)/../Sources/CVescCustomConfiguration",
 					"$(PROJECT_DIR)/../Sources/CVescFrame",
 					"$(PROJECT_DIR)/../Sources/CVescFirmwareIdentity",

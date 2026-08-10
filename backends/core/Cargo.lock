@@ -45,6 +45,13 @@ name = "float-view-vesc-controller-data"
 version = "0.1.0"
 
 [[package]]
+name = "float-view-vesc-controller-data-apple-ffi"
+version = "0.1.0"
+dependencies = [
+ "float-view-vesc-controller-data",
+]
+
+[[package]]
 name = "float-view-vesc-custom-configuration"
 version = "0.1.0"
 

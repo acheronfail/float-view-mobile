@@ -56,101 +56,19 @@ public struct VescFault: Equatable, Sendable {
   public let code: UInt8
   public let kind: Kind
 
-  public init(code: UInt8) {
+  public init(code: UInt8, kind: Kind) {
     self.code = code
-    kind = switch code {
-    case 0: .none
-    case 1: .overVoltage
-    default: .unknown
-    }
-  }
-}
-
-private struct ByteReader {
-  let bytes: [UInt8]
-  var offset = 0
-
-  mutating func u8() throws -> UInt8 {
-    guard offset < bytes.count else { throw VescProtocolError.truncatedPayload }
-    defer { offset += 1 }
-    return bytes[offset]
-  }
-
-  mutating func i16(scale: Double) throws -> Double {
-    let raw = try Int16(bitPattern: UInt16(u8()) << 8 | UInt16(u8()))
-    return Double(raw) / scale
-  }
-
-  mutating func i32(scale: Double = 1) throws -> Double {
-    var value: UInt32 = 0
-    for _ in 0 ..< 4 {
-      value = try value << 8 | UInt32(u8())
-    }
-    return Double(Int32(bitPattern: value)) / scale
-  }
-
-  mutating func float32Auto() throws -> Double {
-    var raw: UInt32 = 0
-    for _ in 0 ..< 4 {
-      raw = try raw << 8 | UInt32(u8())
-    }
-    let exponentBits = Int((raw >> 23) & 0xFF)
-    let significandBits = raw & 0x7FFFFF
-    guard exponentBits != 0 || significandBits != 0 else { return 0 }
-    let significand = Double(significandBits) / 16_777_216.0 + 0.5
-    let value = significand * pow(2, Double(exponentBits - 126))
-    let signedValue = raw & 0x80000000 == 0 ? value : -value
-    guard signedValue.isFinite, abs(signedValue) <= Double(Float.greatestFiniteMagnitude) else {
-      throw VescProtocolError.truncatedPayload
-    }
-    return signedValue
-  }
-
-  mutating func skip(_ count: Int) throws {
-    guard offset + count <= bytes.count else { throw VescProtocolError.truncatedPayload }
-    offset += count
+    self.kind = kind
   }
 }
 
 public enum VescPayloadDecoder {
-  private static let batterySeriesCellOffsets: [UInt32: Int] = [
-    0x2E43A161: 462, // 6.02
-    0x3F829CF7: 452, // 6.05
-    0x2EFD0142: 458, // 6.06
-    0x57AD8F53: 463, // 7.00
-    0x9307410D: 463, // 7.01
-  ]
-
   public static func firmware(_ payload: [UInt8]) throws -> FirmwareInfo {
     try VescFirmwareIdentityDecoder.decode(payload)
   }
 
   public static func realtime(_ payload: [UInt8]) throws -> RealtimeValues {
-    var reader = ByteReader(bytes: payload)
-    let command = try reader.u8()
-    guard command == VescCommand.getRealtimeValues.rawValue else {
-      throw VescProtocolError.unsupportedCommand(command)
-    }
-    let controllerTemp = try reader.i16(scale: 10)
-    let motorTemp = try reader.i16(scale: 10)
-    let motorCurrent = try reader.i32(scale: 100)
-    let batteryCurrent = try reader.i32(scale: 100)
-    try reader.skip(8)
-    let duty = try reader.i16(scale: 1000)
-    let erpm = try Int32(reader.i32())
-    let packVoltage = try reader.i16(scale: 10)
-    let fault = try reader.u8()
-    return RealtimeValues(
-      controllerTempC: controllerTemp,
-      motorTempC: motorTemp,
-      motorCurrentA: motorCurrent,
-      batteryCurrentA: batteryCurrent,
-      dutyCycle: duty,
-      erpm: erpm,
-      packVoltageV: packVoltage,
-      faultCode: fault,
-      fault: VescFault(code: fault)
-    )
+    try VescControllerDataDecoder.realtime(payload)
   }
 
   public static func bmsValues(
@@ -162,34 +80,7 @@ public enum VescPayloadDecoder {
   }
 
   public static func currentLimits(_ payload: [UInt8]) throws -> ControllerCurrentLimits {
-    var reader = ByteReader(bytes: payload)
-    let command = try reader.u8()
-    guard command == VescCommand.getMotorConfiguration.rawValue else {
-      throw VescProtocolError.unsupportedCommand(command)
-    }
-    var signature: UInt32 = 0
-    for _ in 0 ..< 4 {
-      signature = try signature << 8 | UInt32(reader.u8())
-    }
-    try reader.skip(4) // Four enum fields.
-    let value = try ControllerCurrentLimits(
-      motorCurrentMaxA: reader.float32Auto(),
-      motorCurrentMinA: reader.float32Auto(),
-      batteryCurrentMaxA: reader.float32Auto(),
-      batteryCurrentMinA: reader.float32Auto(),
-      batterySeriesCells: batterySeriesCellOffsets[signature].flatMap { offset in
-        guard payload.indices.contains(offset), payload[offset] > 0 else { return nil }
-        return payload[offset]
-      }
-    )
-    let limits = [
-      value.motorCurrentMaxA, value.motorCurrentMinA,
-      value.batteryCurrentMaxA, value.batteryCurrentMinA,
-    ]
-    guard limits.allSatisfy({ $0.isFinite && abs($0) > 0 }) else {
-      throw VescProtocolError.truncatedPayload
-    }
-    return value
+    try VescControllerDataDecoder.currentLimits(payload)
   }
 }
 

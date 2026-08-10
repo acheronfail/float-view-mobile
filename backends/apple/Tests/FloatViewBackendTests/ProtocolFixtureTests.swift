@@ -203,17 +203,17 @@ private func bytes(_ hex: String) -> [UInt8] {
   #expect(values.erpm == 10_000)
   #expect(values.packVoltageV == 51.6)
   #expect(values.faultCode == 0)
-  #expect(values.fault == VescFault(code: 0))
+  #expect(values.fault == VescFault(code: 0, kind: .none))
 
   let faultFrame = try VescFrameCodec.decode(
     bytes(fixture("fixtures/vesc/realtime-values-over-voltage.json").frameHex)
   )
   let faultValues = try VescPayloadDecoder.realtime(faultFrame)
   #expect(faultValues.faultCode == 1)
-  #expect(faultValues.fault == VescFault(code: 1))
+  #expect(faultValues.fault == VescFault(code: 1, kind: .overVoltage))
   #expect(faultValues.fault.kind.rawValue == "over_voltage")
-  #expect(VescFault(code: 255).kind == .unknown)
-  #expect(VescFault(code: 255).code == 255)
+  #expect(VescFault(code: 255, kind: .unknown).kind == .unknown)
+  #expect(VescFault(code: 255, kind: .unknown).code == 255)
 }
 
 @Test func motorConfigurationCurrentLimitsDecodeAndRoute() throws {
@@ -243,6 +243,64 @@ private func bytes(_ hex: String) -> [UInt8] {
   #expect(
     try service.receive(Data(VescFrameCodec.encode(payload))) == [.currentLimits(limits)]
   )
+}
+
+@Test func controllerDataAdapterRejectsInvalidABIAndRecords() throws {
+  #expect(throws: VescProtocolError.self) {
+    try VescControllerDataDecoder.requireCompatibleABI(2)
+  }
+
+  let realtime = controllerDataRecord(
+    kind: 1, faultKind: 0, faultCode: 0,
+    values: [25, 23, 12.34, -5, 0.5, 51.6], erpm: 10_000
+  )
+  #expect(try VescControllerDataDecoder.realtime(from: realtime).erpm == 10_000)
+  for mutation in [
+    { (bytes: inout [UInt8]) in bytes[0] = 2 },
+    { (bytes: inout [UInt8]) in bytes[1] = 2 },
+    { (bytes: inout [UInt8]) in bytes[2] = 1 },
+    { (bytes: inout [UInt8]) in bytes[3] = 1 },
+    { (bytes: inout [UInt8]) in bytes[6] = 1 },
+  ] {
+    var invalid = realtime
+    mutation(&invalid)
+    #expect(throws: VescProtocolError.self) {
+      try VescControllerDataDecoder.realtime(from: invalid)
+    }
+  }
+  var nonfinite = realtime
+  nonfinite.replaceSubrange(8 ..< 16, with: UInt64.max.bigEndianBytes)
+  #expect(throws: VescProtocolError.self) {
+    try VescControllerDataDecoder.realtime(from: nonfinite)
+  }
+
+  let limits = controllerDataRecord(kind: 2, flags: 1, cells: 18, values: [100, -100, 50, -20])
+  #expect(try VescControllerDataDecoder.currentLimits(from: limits).batterySeriesCells == 18)
+  var inconsistentCells = limits
+  inconsistentCells[5] = 0
+  #expect(throws: VescProtocolError.self) {
+    try VescControllerDataDecoder.currentLimits(from: inconsistentCells)
+  }
+  var unknownFlags = limits
+  unknownFlags[2] = 2
+  #expect(throws: VescProtocolError.self) {
+    try VescControllerDataDecoder.currentLimits(from: unknownFlags)
+  }
+}
+
+@Test func controllerDataAdapterMapsStructuralErrorsWithoutPayloadDiagnostics() throws {
+  do {
+    _ = try VescPayloadDecoder.realtime([14])
+    Issue.record("Expected unsupported command")
+  } catch let VescProtocolError.unsupportedCommand(command) {
+    #expect(command == 14)
+  }
+  #expect(throws: VescProtocolError.self) {
+    try VescPayloadDecoder.realtime([4])
+  }
+  #expect(throws: VescProtocolError.self) {
+    try VescPayloadDecoder.currentLimits([14])
+  }
 }
 
 @Test func detailedSourceFixturesDecodeEveryKnownLegacyAndDynamicField() throws {
@@ -855,4 +913,29 @@ private func bytes(_ hex: String) -> [UInt8] {
   #expect(value.motorCurrentA == 0)
   #expect(value.batteryCurrentA == 0)
   #expect(abs((value.erpm ?? 0) - -0.07818603515625) < 0.000_001)
+}
+
+private func controllerDataRecord(
+  kind: UInt8,
+  flags: UInt8 = 0,
+  faultKind: UInt8 = 0,
+  faultCode: UInt8 = 0,
+  cells: UInt8 = 0,
+  values: [Double],
+  erpm: Int32? = nil
+) -> [UInt8] {
+  var record: [UInt8] = [1, kind, flags, faultKind, faultCode, cells, 0, 0]
+  for value in values {
+    record += value.bitPattern.bigEndianBytes
+  }
+  if let erpm {
+    record += UInt32(bitPattern: erpm).bigEndianBytes
+  }
+  return record
+}
+
+private extension FixedWidthInteger {
+  var bigEndianBytes: [UInt8] {
+    withUnsafeBytes(of: bigEndian) { Array($0) }
+  }
 }

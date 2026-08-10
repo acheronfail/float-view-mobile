@@ -76,6 +76,12 @@ float_view_select_bridge() {
         Java_fail_acheron_floatview_protocol_RustVescBmsValuesBridge_decode
       )
       ;;
+    controller-data)
+      bridge_identifier='controller-data'
+      bridge_diagnostic='VESC controller data'
+      bridge_apple_package='float-view-vesc-controller-data-apple-ffi'
+      bridge_apple_archive='libfloat_view_vesc_controller_data_apple_ffi.a'
+      ;;
     refloat-control)
       bridge_identifier='refloat-control'
       bridge_diagnostic='Refloat control codec'
