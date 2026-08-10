@@ -4,10 +4,11 @@
 ownership. It is a locked Cargo workspace, not another backend and not a
 production runtime.
 
-The workspace currently has twelve members:
+The workspace currently has thirteen members:
 
 | Component               | Scope                                                                 | Integration state                                                                             |
 | ----------------------- | --------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
+| `refloat-control/`       | Safe bounded Refloat live-control payload encoding and lighting response decoding | Unselected parity candidate; Swift and Kotlin remain production owners             |
 | `vesc-bms-values/`       | Safe bounded VESC command-96 BMS values decoding                     | Selected by Apple and Android through separate host bridges                                    |
 | `vesc-bms-values-android-jni/` | Two-symbol primitive-array JNI ABI for BMS values              | Selected only by Android                                                                       |
 | `vesc-bms-values-apple-ffi/` | Two-symbol caller-owned-buffer C ABI for BMS values              | Selected only by the shared iOS/macOS adapter                                                  |
@@ -55,6 +56,13 @@ platform-neutral fixed-capacity model. Apple and Android select it through
 separate caller-owned-record bridges. BMS compatibility, discovery, routing,
 scheduling, polling, observation time, application state, and live-only policy
 remain native.
+
+The Refloat control component is an unselected safe candidate for exact
+package, flywheel, legacy/stable lighting, and fatal-clear wire payloads. It
+owns no compatibility lookup, routing, framing, authorization, scheduling,
+confirmation, telemetry, or application state. Swift and Kotlin remain the
+production codecs until separate host cutovers introduce and verify focused
+bridges.
 
 Do not add empty future crates, generated bindings, a general runtime, host
 callbacks, or OS-owned Bluetooth, location, lifecycle, permission, native-file,

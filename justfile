@@ -633,6 +633,7 @@ audit:
     [[ -f backends/core/bridge-build-catalog.sh ]]
     [[ -f backends/core/build-apple-bridge.sh ]]
     [[ -f backends/core/build-android-bridge.sh ]]
+    [[ -f backends/core/refloat-control/Cargo.toml ]]
     [[ -f backends/core/vesc-bms-values/Cargo.toml ]]
     [[ -f backends/core/vesc-bms-values-android-jni/Cargo.toml ]]
     [[ -f backends/core/vesc-bms-values-apple-ffi/Cargo.toml ]]
@@ -654,7 +655,8 @@ audit:
     [[ -f backends/apple/Sources/CVescFirmwareIdentity/include/CVescFirmwareIdentity.h ]]
     [[ -f backends/apple/Sources/CVescFirmwareIdentity/module.modulemap ]]
     unexpected_core="$(find backends/core -mindepth 1 -maxdepth 1 -type d \
-      ! -name target ! -name vesc-bms-values ! -name vesc-bms-values-android-jni \
+      ! -name target ! -name refloat-control \
+      ! -name vesc-bms-values ! -name vesc-bms-values-android-jni \
       ! -name vesc-bms-values-apple-ffi \
       ! -name vesc-custom-configuration ! -name vesc-firmware-identity \
       ! -name vesc-custom-configuration-android-jni \
@@ -666,6 +668,8 @@ audit:
       echo "Unexpected Rust core workspace member: $unexpected_core" >&2
       exit 1
     }
+    [[ "$(find backends/core/refloat-control -mindepth 1 -maxdepth 1 -type d \
+      ! -name src -print -quit)" == "" ]]
     [[ "$(find backends/core/vesc-bms-values -mindepth 1 -maxdepth 1 -type d \
       ! -name src -print -quit)" == "" ]]
     [[ "$(find backends/core/vesc-bms-values-android-jni -mindepth 1 -maxdepth 1 -type d \
@@ -691,6 +695,11 @@ audit:
     ! find backends/core -type f \
       \( -name 'build.rs' -o -name '*.h' -o -name '*.hpp' -o -name '*.modulemap' \) \
       | grep -q .
+    rg -q '^#!\[forbid\(unsafe_code\)\]$' backends/core/refloat-control/src/lib.rs
+    ! rg -n 'extern[[:space:]]+"C"|no_mangle|cbindgen|uniffi|jni|host_callback' \
+      backends/core/refloat-control
+    ! rg -n 'float-view-refloat-control|CVescRefloatControl|RustRefloatControlBridge' \
+      backends/apple backends/android
     ! rg -n 'extern[[:space:]]+"C"|no_mangle|cbindgen|uniffi|jni|host_callback' \
       backends/core/vesc-frame
     rg -q '^#!\[forbid\(unsafe_code\)\]$' \
@@ -718,6 +727,7 @@ audit:
       backends/core/vesc-custom-configuration-apple-ffi
     ! rg -n 'cbindgen|uniffi|jni|host_callback' \
       backends/core/vesc-bms-values-apple-ffi
+    [[ "$(cd backends/core && cargo tree --locked --package float-view-refloat-control --edges normal --prefix none | wc -l | tr -d ' ')" == 1 ]]
     [[ "$(cd backends/core && cargo tree --locked --package float-view-vesc-firmware-identity --edges normal --prefix none | wc -l | tr -d ' ')" == 1 ]]
     [[ "$(cd backends/core && cargo tree --locked --package float-view-vesc-bms-values --edges normal --prefix none | wc -l | tr -d ' ')" == 1 ]]
     [[ "$(cd backends/core && cargo tree --locked --package float-view-vesc-bms-values-apple-ffi --edges normal --depth 1 --prefix none | wc -l | tr -d ' ')" == 2 ]]
