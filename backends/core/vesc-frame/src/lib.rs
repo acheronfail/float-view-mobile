@@ -1,9 +1,9 @@
 //! Safe bounded VESC framing implementation.
 //!
 //! The shared iOS/macOS backend selects this crate for CRC, encoding, exact
-//! decoding, and stream-boundary interpretation through a narrow Apple bridge.
-//! Android retains its independent Kotlin implementation. VESC payload
-//! protocols and application-owned stream lifetime remain outside this crate.
+//! decoding, and stream-boundary interpretation through narrow native bridges.
+//! VESC payload protocols and application-owned stream lifetime remain outside
+//! this crate.
 
 #![forbid(unsafe_code)]
 

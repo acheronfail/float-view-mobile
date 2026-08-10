@@ -3,7 +3,7 @@ _default:
 
 core-lint:
     cd backends/core && cargo fmt --check
-    cd backends/core && cargo clippy --locked --workspace --all-targets -- -D warnings
+    cd backends/core && cargo clippy --locked --offline --workspace --all-targets -- -D warnings
 
 apple-rust-codec configuration="Debug":
     #!/usr/bin/env bash
@@ -61,7 +61,82 @@ apple-packaging:
     just apple-rust-codec Debug
 
 core-test: core-abi-test
-    cd backends/core && cargo test --locked
+    cd backends/core && cargo test --locked --offline
+
+android-rust-host:
+    backends/core/vesc-frame-android-jni/build-android.sh host debug \
+      "$PWD/backends/core/target/android/host/debug"
+
+android-rust-codec-test:
+    cd backends/android && ./gradlew testDebugUnitTest \
+      --tests fail.acheron.floatview.protocol.RustVescFrameBridgeTest \
+      --tests fail.acheron.floatview.protocol.VescProtocolTest
+
+android-rust-packaging:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    (cd backends/android && ./gradlew clean assembleDebug assembleRelease)
+    library='libfloat_view_vesc_frame_android_jni.so'
+    expected="$(printf '%s\n' \
+      "lib/arm64-v8a/$library" \
+      "lib/armeabi-v7a/$library" \
+      "lib/x86/$library" \
+      "lib/x86_64/$library" | sort)"
+    for apk in \
+      backends/android/app/build/outputs/apk/debug/app-debug.apk \
+      backends/android/app/build/outputs/apk/release/app-release-unsigned.apk; do
+      [[ -f "$apk" ]] || { echo "Missing Android package: $apk" >&2; exit 1; }
+      unzip -tq "$apk" >/dev/null
+      actual="$(unzip -Z1 "$apk" | rg "(^|/)$library$" | sort)"
+      [[ "$actual" == "$expected" ]] || {
+        echo "Unexpected Rust JNI library set in $apk:" >&2
+        printf '%s\n' "$actual" >&2
+        exit 1
+      }
+    done
+
+android-rust-audit: android-rust-host
+    #!/usr/bin/env bash
+    set -euo pipefail
+    [[ "$(cd backends/core && cargo tree --locked --offline \
+      --package float-view-vesc-frame --edges normal --prefix none | wc -l | tr -d ' ')" == 1 ]]
+    [[ "$(cd backends/core && cargo tree --locked --offline \
+      --package float-view-vesc-frame-apple-ffi --edges normal --depth 1 --prefix none | wc -l | tr -d ' ')" == 2 ]]
+    rg -q '^jni-sys = "=0\.4\.1"$' \
+      backends/core/vesc-frame-android-jni/Cargo.toml
+    ! rg -n '^jni[[:space:]]*=' backends/core -g Cargo.toml
+    rust_abi="$(sed -n 's/^pub const ABI_VERSION: jint = \([0-9][0-9]*\);$/\1/p' \
+      backends/core/vesc-frame-android-jni/src/lib.rs)"
+    kotlin_abi="$(sed -n 's/^[[:space:]]*private const val ABI_VERSION = \([0-9][0-9]*\)$/\1/p' \
+      backends/android/app/src/main/java/fail/acheron/floatview/protocol/vesc/VescFrame.kt)"
+    [[ -n "$rust_abi" && "$rust_abi" == "$kotlin_abi" ]] || {
+      echo "Android VESC JNI ABI mismatch: Rust=$rust_abi Kotlin=$kotlin_abi" >&2
+      exit 1
+    }
+    ! git ls-files | rg '\.(a|so|dylib|xcframework)$'
+    android_main='backends/android/app/src/main/java/fail/acheron/floatview'
+    codec_source="$android_main/protocol/vesc/VescFrame.kt"
+    bridge_source="$android_main/protocol/vesc/RustVescFrameBridge.kt"
+    ! rg -n -e 'object VescCrc' -e 'VescCrc\.checksum' -e '0x1021' \
+      -e 'fun checksum\(' -e 'VescFrameReference' -e 'CheckpointKotlinVesc' \
+      -e 'payload\.size <= 255' -e 'header \+ payload' \
+      -e 'frame\.last\(\)\.toInt\(\) != 3' \
+      -e 'frame\.copyOfRange\(headerSize' \
+      backends/android/app/src/main backends/android/app/src/test -g '*.kt'
+    [[ "$(rg -l 'object VescFrameCodec' "$android_main" -g '*.kt')" == "$codec_source" ]]
+    [[ "$(rg -l 'class VescFrameStreamDecoder' "$android_main" -g '*.kt')" == "$codec_source" ]]
+    [[ "$(rg -c 'RustVescFrameBridge\.encode\(' "$codec_source")" == 1 ]]
+    [[ "$(rg -c 'RustVescFrameBridge\.decodeExact\(' "$codec_source")" == 1 ]]
+    [[ "$(rg -l 'RustVescFrameBridge\.(encode|decodeExact)' "$android_main" -g '*.kt')" == "$codec_source" ]]
+    [[ "$(rg -l 'external fun (abiVersion|encode|decodeExact)' \
+      backends/android/app/src/main -g '*.kt')" == \
+      "$bridge_source" ]]
+    if ANDROID_NDK_HOME=/private/tmp/float-view-missing-ndk \
+      backends/core/vesc-frame-android-jni/build-android.sh \
+      android arm64-v8a debug /private/tmp/float-view-unreachable-output >/dev/null 2>&1; then
+      echo 'Android Rust helper accepted a missing pinned NDK.' >&2
+      exit 1
+    fi
 
 setup:
     cd frontend && npm ci
@@ -254,10 +329,12 @@ audit:
     [[ -f backends/core/Cargo.lock ]]
     [[ -f backends/core/vesc-frame/Cargo.toml ]]
     [[ -f backends/core/vesc-frame-apple-ffi/Cargo.toml ]]
+    [[ -f backends/core/vesc-frame-android-jni/Cargo.toml ]]
     [[ -f backends/apple/Sources/CVescFrame/include/CVescFrame.h ]]
     [[ -f backends/apple/Sources/CVescFrame/module.modulemap ]]
     unexpected_core="$(find backends/core -mindepth 1 -maxdepth 1 -type d \
-      ! -name target ! -name vesc-frame ! -name vesc-frame-apple-ffi -print -quit)"
+      ! -name target ! -name vesc-frame ! -name vesc-frame-apple-ffi \
+      ! -name vesc-frame-android-jni -print -quit)"
     [[ -z "$unexpected_core" ]] || {
       echo "Unexpected Rust core workspace member: $unexpected_core" >&2
       exit 1
@@ -266,6 +343,8 @@ audit:
       ! -name src -print -quit)" == "" ]]
     [[ "$(find backends/core/vesc-frame-apple-ffi -mindepth 1 -maxdepth 1 -type d \
       ! -name src ! -name tests -print -quit)" == "" ]]
+    [[ "$(find backends/core/vesc-frame-android-jni -mindepth 1 -maxdepth 1 -type d \
+      ! -name src -print -quit)" == "" ]]
     ! find backends/core -type f \
       \( -name 'build.rs' -o -name '*.h' -o -name '*.hpp' -o -name '*.modulemap' \) \
       | grep -q .
@@ -274,9 +353,10 @@ audit:
     ! rg -n 'cbindgen|uniffi|jni|host_callback' backends/core/vesc-frame-apple-ffi
     [[ "$(cd backends/core && cargo tree --locked --package float-view-vesc-frame --edges normal --prefix none | wc -l | tr -d ' ')" == 1 ]]
     [[ "$(cd backends/core && cargo tree --locked --package float-view-vesc-frame-apple-ffi --edges normal --depth 1 --prefix none | wc -l | tr -d ' ')" == 2 ]]
-    ! git ls-files | rg '\.(a|xcframework|dylib)$'
+    ! git ls-files | rg '\.(a|so|xcframework|dylib)$'
     [[ "$(find backends/apple/Sources -type f \( -name '*.h' -o -name '*.modulemap' \) | sort)" == $'backends/apple/Sources/CSQLite/module.modulemap\nbackends/apple/Sources/CSQLite/shim.h\nbackends/apple/Sources/CVescFrame/include/CVescFrame.h\nbackends/apple/Sources/CVescFrame/module.modulemap' ]]
     just core-abi-audit
+    just android-rust-audit
     ! rg -n -e 'CheckpointSwiftVescFrameReference' -e 'CheckpointSwiftVescStreamReference' \
       -e 'VescCRC' -e '0x1021' -e 'first != 2, first != 3' \
       -e 'header(Bytes|Count) = first == 2' -e 'payloadBytes = first == 2' \
@@ -351,7 +431,7 @@ verify: build
     just core-lint
     just apple-packaging
     just test all
-    cd backends/android && ./gradlew assembleDebug
+    just android-rust-packaging
     just apple-rust-codec
     cd backends/apple && swift build --scratch-path /tmp/float-view-swift-build --product FloatViewMac
     xcodebuild -project backends/apple/ios/float-view.xcodeproj -scheme float-view \

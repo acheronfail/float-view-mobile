@@ -1,10 +1,12 @@
 # Android backend layout
 
 Android remains one native Kotlin Gradle application module. Package names
-mirror the Apple capability names for navigation. Kotlin remains the
-production protocol owner. Apple selecting `../core/vesc-frame/` does not
-transfer Android ownership: there is no Android bridge, JNI layer, generated
-API, native library, or Gradle module per capability.
+mirror the Apple capability names for navigation. Rust owns VESC CRC, frame
+encoding, and exact frame decoding through the three-function
+`../core/vesc-frame-android-jni/` bridge. Kotlin retains VESC stream storage,
+boundary parsing, fragmentation, noise disposal, recovery, and the remaining
+VESC, BMS, and Refloat protocols. Apple integration is unchanged; there is no
+generated API or Gradle module per capability.
 
 Production Kotlin lives under
 `app/src/main/java/fail/acheron/floatview/`:
@@ -43,7 +45,14 @@ and source-derived fixtures in both native backends. For a new wire family,
 change or add the focused codec below `protocol/vesc` or `protocol/refloat` and
 map exact versions to it; do not fork application coordination or polling.
 
-An Android cutover requires its own OpenSpec change, audited bridge and
-packaging, complete Android gate, and required physical checkpoint. Only that
-verified cutover may delete the corresponding Kotlin implementation; candidate
-parity alone does not transfer ownership.
+Gradle pins NDK `28.2.13676358`. Local JVM tests build the host JNI library from
+the locked Rust workspace and load its exact absolute path; application builds
+source-build and package `arm64-v8a`, `armeabi-v7a`, `x86`, and `x86_64` from
+ignored outputs below `../core/target/android`. These builds are offline and
+fail when the pinned Rust toolchain, targets, NDK, or linkers are absent.
+
+Use `just test android` for the complete linked JVM suite and
+`just android-rust-packaging` for clean Debug/Release four-ABI package
+inspection. Moving Android stream scanning into Rust is the next independent
+OpenSpec change and must preserve the retained Kotlin stream behavior before
+that code is deleted.

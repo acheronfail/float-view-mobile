@@ -8,59 +8,50 @@ sealed class VescProtocolException(message: String) : Exception(message) {
     data object TruncatedPayload : VescProtocolException("Truncated VESC payload")
 }
 
-object VescCrc {
-    fun checksum(bytes: ByteArray): Int {
-        var crc = 0
-        for (byte in bytes) {
-            crc = crc xor ((byte.toInt() and 0xff) shl 8)
-            repeat(8) {
-                crc = if ((crc and 0x8000) != 0) ((crc shl 1) xor 0x1021) else crc shl 1
-                crc = crc and 0xffff
-            }
-        }
-        return crc
-    }
-}
-
 object VescFrameCodec {
     const val MAXIMUM_PAYLOAD_BYTES = 4096
+    private const val MAXIMUM_FRAME_BYTES = MAXIMUM_PAYLOAD_BYTES + 6
+    private const val ABI_VERSION = 1
+    private const val STATUS_OK = 0
+    private const val STATUS_INVALID_ARGUMENT = 1
+    private const val STATUS_INPUT_TOO_LARGE = 2
+    private const val STATUS_INVALID_FRAME = 3
+    private const val STATUS_INVALID_CRC = 4
+    private const val STATUS_OUTPUT_TOO_SMALL = 5
+    private const val STATUS_INTERNAL_FAILURE = 6
+
+    private val linkedAbiVersion = RustVescFrameBridge.abiVersion()
 
     fun encode(payload: ByteArray): ByteArray {
-        if (payload.size > MAXIMUM_PAYLOAD_BYTES) throw VescProtocolException.PayloadTooLarge
-        val header =
-            if (payload.size <= 255) byteArrayOf(2, payload.size.toByte())
-            else byteArrayOf(3, (payload.size shr 8).toByte(), payload.size.toByte())
-        val crc = VescCrc.checksum(payload)
-        return header + payload + byteArrayOf((crc shr 8).toByte(), crc.toByte(), 3)
+        if (linkedAbiVersion != ABI_VERSION) throw VescProtocolException.InvalidFrame
+        val output = ByteArray(MAXIMUM_FRAME_BYTES)
+        val outputLength = IntArray(1)
+        return result(RustVescFrameBridge.encode(payload, output, outputLength), output, outputLength)
     }
 
     fun decode(frame: ByteArray): ByteArray {
-        if (frame.isEmpty()) throw VescProtocolException.InvalidFrame
-        val headerSize: Int
-        val payloadSize: Int
-        when (frame[0].toInt() and 0xff) {
-            2 -> {
-                if (frame.size < 5) throw VescProtocolException.InvalidFrame
-                headerSize = 2
-                payloadSize = frame[1].toInt() and 0xff
+        if (linkedAbiVersion != ABI_VERSION) throw VescProtocolException.InvalidFrame
+        val output = ByteArray(MAXIMUM_PAYLOAD_BYTES)
+        val outputLength = IntArray(1)
+        return result(RustVescFrameBridge.decodeExact(frame, output, outputLength), output, outputLength)
+    }
+
+    private fun result(status: Int, output: ByteArray, outputLength: IntArray): ByteArray {
+        val produced = outputLength.single()
+        return when (status) {
+            STATUS_OK -> {
+                if (produced !in 0..output.size) throw VescProtocolException.InvalidFrame
+                output.copyOf(produced)
             }
-            3 -> {
-                if (frame.size < 6) throw VescProtocolException.InvalidFrame
-                headerSize = 3
-                payloadSize = ((frame[1].toInt() and 0xff) shl 8) or
-                    (frame[2].toInt() and 0xff)
-            }
+            STATUS_INPUT_TOO_LARGE -> throw VescProtocolException.PayloadTooLarge
+            STATUS_INVALID_FRAME -> throw VescProtocolException.InvalidFrame
+            STATUS_INVALID_CRC -> throw VescProtocolException.InvalidCrc
+            STATUS_INVALID_ARGUMENT,
+            STATUS_OUTPUT_TOO_SMALL,
+            STATUS_INTERNAL_FAILURE,
+            -> throw VescProtocolException.InvalidFrame
             else -> throw VescProtocolException.InvalidFrame
         }
-        if (payloadSize > MAXIMUM_PAYLOAD_BYTES) throw VescProtocolException.PayloadTooLarge
-        if (frame.size != headerSize + payloadSize + 3 || frame.last().toInt() != 3) {
-            throw VescProtocolException.InvalidFrame
-        }
-        val payload = frame.copyOfRange(headerSize, headerSize + payloadSize)
-        val received = ((frame[headerSize + payloadSize].toInt() and 0xff) shl 8) or
-            (frame[headerSize + payloadSize + 1].toInt() and 0xff)
-        if (VescCrc.checksum(payload) != received) throw VescProtocolException.InvalidCrc
-        return payload
     }
 }
 
