@@ -712,6 +712,7 @@ audit:
     [[ -f backends/core/bridge-build-catalog.sh ]]
     [[ -f backends/core/build-apple-bridge.sh ]]
     [[ -f backends/core/build-android-bridge.sh ]]
+    [[ -f backends/core/vesc-controller-data/Cargo.toml ]]
     [[ -f backends/core/refloat-control/Cargo.toml ]]
     [[ -f backends/core/refloat-control-android-jni/Cargo.toml ]]
     [[ -f backends/core/refloat-control-apple-ffi/Cargo.toml ]]
@@ -742,6 +743,7 @@ audit:
       ! -name refloat-control-apple-ffi \
       ! -name vesc-bms-values ! -name vesc-bms-values-android-jni \
       ! -name vesc-bms-values-apple-ffi \
+      ! -name vesc-controller-data \
       ! -name vesc-custom-configuration ! -name vesc-firmware-identity \
       ! -name vesc-custom-configuration-android-jni \
       ! -name vesc-custom-configuration-apple-ffi \
@@ -764,6 +766,8 @@ audit:
       ! -name src -print -quit)" == "" ]]
     [[ "$(find backends/core/vesc-bms-values-apple-ffi -mindepth 1 -maxdepth 1 -type d \
       ! -name src ! -name tests -print -quit)" == "" ]]
+    [[ "$(find backends/core/vesc-controller-data -mindepth 1 -maxdepth 1 -type d \
+      ! -name src -print -quit)" == "" ]]
     [[ "$(find backends/core/vesc-custom-configuration -mindepth 1 -maxdepth 1 -type d \
       ! -name src -print -quit)" == "" ]]
     [[ "$(find backends/core/vesc-custom-configuration-apple-ffi -mindepth 1 -maxdepth 1 -type d \
@@ -803,6 +807,20 @@ audit:
       backends/android
     ! rg -n 'vesc-bms-values-android-jni|RustVescBmsValuesBridge|float_view_vesc_bms_values_android_jni' \
       backends/apple
+    rg -q '^#!\[forbid\(unsafe_code\)\]$' backends/core/vesc-controller-data/src/lib.rs
+    ! rg -n 'extern[[:space:]]+"C"|no_mangle|cbindgen|uniffi|jni|host_callback' \
+      backends/core/vesc-controller-data
+    ! rg -n 'vesc-controller-data|float-view-vesc-controller-data|VescControllerData' \
+      backends/apple backends/android backends/core/bridge-build-catalog.sh \
+      backends/core/build-apple-bridge.sh backends/core/build-android-bridge.sh
+    rg -q 'public static func realtime\(' \
+      backends/apple/Sources/FloatViewBackend/protocol/vesc/VescProtocolService.swift
+    rg -q 'public static func currentLimits\(' \
+      backends/apple/Sources/FloatViewBackend/protocol/vesc/VescProtocolService.swift
+    rg -q 'fun realtime\(' \
+      backends/android/app/src/main/java/fail/acheron/floatview/protocol/vesc/VescProtocolService.kt
+    rg -q 'fun currentLimits\(' \
+      backends/android/app/src/main/java/fail/acheron/floatview/protocol/vesc/VescProtocolService.kt
     rg -q '^#!\[forbid\(unsafe_code\)\]$' backends/core/vesc-firmware-identity/src/lib.rs
     ! rg -n 'extern[[:space:]]+"C"|no_mangle|cbindgen|uniffi|jni|host_callback' \
       backends/core/vesc-firmware-identity
@@ -826,6 +844,7 @@ audit:
     [[ "$(cd backends/core && cargo tree --locked --package float-view-vesc-bms-values --edges normal --prefix none | wc -l | tr -d ' ')" == 1 ]]
     [[ "$(cd backends/core && cargo tree --locked --package float-view-vesc-bms-values-apple-ffi --edges normal --depth 1 --prefix none | wc -l | tr -d ' ')" == 2 ]]
     [[ "$(cd backends/core && cargo tree --locked --package float-view-vesc-bms-values-android-jni --edges normal --depth 1 --prefix none | wc -l | tr -d ' ')" == 3 ]]
+    [[ "$(cd backends/core && cargo tree --locked --package float-view-vesc-controller-data --edges normal --prefix none | wc -l | tr -d ' ')" == 1 ]]
     [[ "$(cd backends/core && cargo tree --locked --package float-view-vesc-custom-configuration --edges normal --prefix none | wc -l | tr -d ' ')" == 1 ]]
     [[ "$(cd backends/core && cargo tree --locked --package float-view-vesc-custom-configuration-apple-ffi --edges normal --depth 1 --prefix none | wc -l | tr -d ' ')" == 2 ]]
     [[ "$(cd backends/core && cargo tree --locked --package float-view-vesc-frame --edges normal --prefix none | wc -l | tr -d ' ')" == 1 ]]

@@ -4,15 +4,17 @@
 ownership. It is a locked Cargo workspace, not another backend and not a
 production runtime.
 
-The workspace currently has fourteen members:
+The workspace currently has sixteen members:
 
 | Component               | Scope                                                                 | Integration state                                                                             |
 | ----------------------- | --------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
-| `refloat-control/`       | Safe bounded Refloat live-control payload encoding and lighting response decoding | Selected by Apple; Android retains its Kotlin production owner                      |
+| `refloat-control/`       | Safe bounded Refloat live-control payload encoding and lighting response decoding | Selected by Apple and Android through separate host bridges                         |
 | `refloat-control-apple-ffi/` | Three-symbol caller-owned-buffer C ABI for Refloat controls              | Selected only by the shared iOS/macOS adapter                                       |
+| `refloat-control-android-jni/` | Three-symbol primitive-array JNI ABI for Refloat controls             | Selected only by Android                                                            |
 | `vesc-bms-values/`       | Safe bounded VESC command-96 BMS values decoding                     | Selected by Apple and Android through separate host bridges                                    |
 | `vesc-bms-values-android-jni/` | Two-symbol primitive-array JNI ABI for BMS values              | Selected only by Android                                                                       |
 | `vesc-bms-values-apple-ffi/` | Two-symbol caller-owned-buffer C ABI for BMS values              | Selected only by the shared iOS/macOS adapter                                                  |
+| `vesc-controller-data/`  | Safe bounded VESC command-4 realtime and command-14 current-limit decoding | Unselected candidate; Swift and Kotlin remain production owners                  |
 | `vesc-custom-configuration/` | Safe bounded VESC commands 92–95 envelope encoding and decoding  | Selected by Apple and Android through separate host bridges                                   |
 | `vesc-custom-configuration-apple-ffi/` | Three-symbol caller-owned-buffer C ABI for commands 92–95 | Selected only by the shared iOS/macOS adapter                                                  |
 | `vesc-custom-configuration-android-jni/` | Three-symbol primitive-array JNI ABI for commands 92–95 | Selected only by Android                                                                       |
@@ -59,12 +61,17 @@ separate caller-owned-record bridges. BMS compatibility, discovery, routing,
 scheduling, polling, observation time, application state, and live-only policy
 remain native.
 
-The Refloat control component owns Apple's exact
+The Refloat control component owns each host's exact
 package, flywheel, legacy/stable lighting, and fatal-clear wire payloads. It
 owns no compatibility lookup, routing, framing, authorization, scheduling,
-confirmation, telemetry, or application state. The shared Apple adapter uses
-one focused three-symbol bridge; Kotlin remains Android's production codec
-until its separate host cutover introduces and verifies a focused JNI bridge.
+confirmation, telemetry, or application state. The shared Apple adapter and
+Android adapter use independent focused three-symbol bridges.
+
+The controller-data candidate decodes only the consumed prefix of standard
+VESC realtime values and the current-limit subset of motor configuration. It
+has no host bridge or production call path. Swift and Kotlin continue to own
+request construction, direct/CAN routing, scheduling, model mapping, and the
+selected production decoders until later host-specific cutovers.
 
 Do not add empty future crates, generated bindings, a general runtime, host
 callbacks, or OS-owned Bluetooth, location, lifecycle, permission, native-file,
