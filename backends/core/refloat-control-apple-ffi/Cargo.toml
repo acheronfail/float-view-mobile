@@ -10,4 +10,5 @@ crate-type = ["staticlib", "rlib"]
 path = "src/lib.rs"
 
 [dependencies]
+float-view-apple-ffi-support = { path = "../apple-ffi-support" }
 float-view-refloat-control = { path = "../refloat-control" }

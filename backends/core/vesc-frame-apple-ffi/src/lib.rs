@@ -5,13 +5,12 @@
 
 #![deny(unsafe_op_in_unsafe_fn)]
 
+use float_view_apple_ffi_support::{
+    Region, contain_status, input_bytes, publish_bytes, validate_disjoint, write_scalar,
+};
 use float_view_vesc_frame::{
     FrameError, MAX_PAYLOAD_BYTES, MAX_STREAM_BYTES, StreamScan, decode, encode, scan_next,
 };
-use std::mem::{align_of, size_of};
-use std::panic::{AssertUnwindSafe, catch_unwind};
-use std::ptr;
-use std::slice;
 
 /// Version of the complete hand-written C contract.
 pub const ABI_VERSION: u32 = 2;
@@ -59,7 +58,7 @@ pub unsafe extern "C" fn float_view_vesc_frame_encode(
     output_capacity: usize,
     output_length: *mut usize,
 ) -> u32 {
-    contain(|| {
+    contain_status(STATUS_OK, STATUS_INTERNAL_FAILURE, || {
         if payload_length > MAX_PAYLOAD_BYTES {
             return Err(STATUS_INPUT_TOO_LARGE);
         }
@@ -72,10 +71,11 @@ pub unsafe extern "C" fn float_view_vesc_frame_encode(
             output_length,
         )?;
         // SAFETY: `validate_regions` checked the pointer contract and bound.
-        let payload = unsafe { input_slice(payload, payload_length) };
+        let payload = unsafe { input_bytes(payload, payload_length) };
         let frame = encode(payload).map_err(frame_status)?;
         // SAFETY: all writable regions were checked above and the frame is bounded.
-        unsafe { write_result(&frame, output, output_capacity, output_length) }
+        unsafe { publish_bytes(&frame, output, output_capacity, output_length) }
+            .map_err(|_| STATUS_OUTPUT_TOO_SMALL)
     })
 }
 
@@ -96,7 +96,7 @@ pub unsafe extern "C" fn float_view_vesc_frame_decode_exact(
     output_capacity: usize,
     output_length: *mut usize,
 ) -> u32 {
-    contain(|| {
+    contain_status(STATUS_OK, STATUS_INTERNAL_FAILURE, || {
         if frame_length > MAX_FRAME_BYTES {
             return Err(STATUS_INPUT_TOO_LARGE);
         }
@@ -109,10 +109,11 @@ pub unsafe extern "C" fn float_view_vesc_frame_decode_exact(
             output_length,
         )?;
         // SAFETY: `validate_regions` checked the pointer contract and bound.
-        let frame = unsafe { input_slice(frame, frame_length) };
+        let frame = unsafe { input_bytes(frame, frame_length) };
         let payload = decode(frame).map_err(frame_status)?;
         // SAFETY: all writable regions were checked above and the payload is bounded.
-        unsafe { write_result(&payload, output, output_capacity, output_length) }
+        unsafe { publish_bytes(&payload, output, output_capacity, output_length) }
+            .map_err(|_| STATUS_OUTPUT_TOO_SMALL)
     })
 }
 
@@ -132,7 +133,7 @@ pub unsafe extern "C" fn float_view_vesc_frame_stream_scan_next(
     frame_length: *mut usize,
     consumed_length: *mut usize,
 ) -> u32 {
-    contain(|| {
+    contain_status(STATUS_OK, STATUS_INTERNAL_FAILURE, || {
         validate_scan_regions(
             input,
             input_length,
@@ -159,7 +160,7 @@ pub unsafe extern "C" fn float_view_vesc_frame_stream_scan_next(
 
         // SAFETY: `validate_scan_regions` checked the pointer contract and the
         // input was bounded before constructing this borrowed slice.
-        let input = unsafe { input_slice(input, input_length) };
+        let input = unsafe { input_bytes(input, input_length) };
         let (status, offset, length, consumed) = match scan_next(input) {
             StreamScan::NeedMore { consumed } => (STATUS_NEED_MORE_INPUT, 0, 0, consumed),
             StreamScan::Frame {
@@ -191,14 +192,6 @@ pub unsafe extern "C" fn float_view_vesc_frame_stream_scan_next(
     })
 }
 
-fn contain(operation: impl FnOnce() -> Result<(), u32>) -> u32 {
-    match catch_unwind(AssertUnwindSafe(operation)) {
-        Ok(Ok(())) => STATUS_OK,
-        Ok(Err(status)) => status,
-        Err(_) => STATUS_INTERNAL_FAILURE,
-    }
-}
-
 fn frame_status(error: FrameError) -> u32 {
     match error {
         FrameError::InvalidFrame => STATUS_INVALID_FRAME,
@@ -215,28 +208,21 @@ fn validate_regions(
     maximum_output_capacity: usize,
     output_length: *mut usize,
 ) -> Result<(), u32> {
-    if output_length.is_null()
-        || !(output_length as usize).is_multiple_of(align_of::<usize>())
-        || (input.is_null() && input_length != 0)
-        || (output.is_null() && output_capacity != 0)
-        || output_capacity > maximum_output_capacity
-    {
+    if output_capacity > maximum_output_capacity {
         return Err(STATUS_INVALID_ARGUMENT);
     }
 
-    let input_region = address_region(input as usize, input_length)?;
-    let output_region = address_region(output as usize, output_capacity)?;
-    let length_region = address_region(output_length as usize, size_of::<usize>())?;
-    if regions_overlap(input_region, output_region)
-        || regions_overlap(input_region, length_region)
-        || regions_overlap(output_region, length_region)
-    {
-        return Err(STATUS_INVALID_ARGUMENT);
-    }
+    let regions = [
+        Region::optional(input, input_length).map_err(|_| STATUS_INVALID_ARGUMENT)?,
+        Region::optional(output.cast_const(), output_capacity)
+            .map_err(|_| STATUS_INVALID_ARGUMENT)?,
+        Region::required(output_length.cast_const()).map_err(|_| STATUS_INVALID_ARGUMENT)?,
+    ];
+    validate_disjoint(&regions).map_err(|_| STATUS_INVALID_ARGUMENT)?;
 
     // SAFETY: the caller guarantees a valid aligned `output_length`; null,
     // alignment, integer range, and declared-region overlap were checked above.
-    unsafe { output_length.write(0) };
+    unsafe { write_scalar(output_length, 0) };
     Ok(())
 }
 
@@ -247,76 +233,13 @@ fn validate_scan_regions(
     frame_length: *mut usize,
     consumed_length: *mut usize,
 ) -> Result<(), u32> {
-    let outputs = [frame_offset, frame_length, consumed_length];
-    if (input.is_null() && input_length != 0)
-        || outputs.iter().any(|output| {
-            output.is_null() || !(*output as usize).is_multiple_of(align_of::<usize>())
-        })
-    {
-        return Err(STATUS_INVALID_ARGUMENT);
-    }
-
-    let input_region = address_region(input as usize, input_length)?;
-    let output_regions = outputs.map(|output| address_region(output as usize, size_of::<usize>()));
-    let [
-        frame_offset_region,
-        frame_length_region,
-        consumed_length_region,
-    ] = output_regions;
-    let frame_offset_region = frame_offset_region?;
-    let frame_length_region = frame_length_region?;
-    let consumed_length_region = consumed_length_region?;
-    if regions_overlap(input_region, frame_offset_region)
-        || regions_overlap(input_region, frame_length_region)
-        || regions_overlap(input_region, consumed_length_region)
-        || regions_overlap(frame_offset_region, frame_length_region)
-        || regions_overlap(frame_offset_region, consumed_length_region)
-        || regions_overlap(frame_length_region, consumed_length_region)
-    {
-        return Err(STATUS_INVALID_ARGUMENT);
-    }
-    Ok(())
-}
-
-fn address_region(start: usize, length: usize) -> Result<(usize, usize), u32> {
-    if length == 0 {
-        return Ok((start, start));
-    }
-    let end = start.checked_add(length).ok_or(STATUS_INVALID_ARGUMENT)?;
-    Ok((start, end))
-}
-
-fn regions_overlap(left: (usize, usize), right: (usize, usize)) -> bool {
-    left.0 != left.1 && right.0 != right.1 && left.0 < right.1 && right.0 < left.1
-}
-
-unsafe fn input_slice<'a>(input: *const u8, input_length: usize) -> &'a [u8] {
-    if input_length == 0 {
-        &[]
-    } else {
-        // SAFETY: the exported function's documented caller contract and
-        // `validate_regions` establish a non-null bounded readable region.
-        unsafe { slice::from_raw_parts(input, input_length) }
-    }
-}
-
-unsafe fn write_result(
-    bytes: &[u8],
-    output: *mut u8,
-    output_capacity: usize,
-    output_length: *mut usize,
-) -> Result<(), u32> {
-    // SAFETY: `validate_regions` established a writable aligned length field.
-    unsafe { output_length.write(bytes.len()) };
-    if output_capacity < bytes.len() {
-        return Err(STATUS_OUTPUT_TOO_SMALL);
-    }
-    if !bytes.is_empty() {
-        // SAFETY: `validate_regions` established a disjoint caller-owned output
-        // region and the capacity check above proves it can hold every byte.
-        unsafe { ptr::copy_nonoverlapping(bytes.as_ptr(), output, bytes.len()) };
-    }
-    Ok(())
+    let regions = [
+        Region::optional(input, input_length).map_err(|_| STATUS_INVALID_ARGUMENT)?,
+        Region::required(frame_offset.cast_const()).map_err(|_| STATUS_INVALID_ARGUMENT)?,
+        Region::required(frame_length.cast_const()).map_err(|_| STATUS_INVALID_ARGUMENT)?,
+        Region::required(consumed_length.cast_const()).map_err(|_| STATUS_INVALID_ARGUMENT)?,
+    ];
+    validate_disjoint(&regions).map_err(|_| STATUS_INVALID_ARGUMENT)
 }
 
 unsafe fn write_scan_result(
@@ -330,16 +253,16 @@ unsafe fn write_scan_result(
     // SAFETY: `validate_scan_regions` established three distinct aligned,
     // writable fields for the duration of the exported call.
     unsafe {
-        frame_offset.write(offset);
-        frame_length.write(length);
-        consumed_length.write(consumed);
+        write_scalar(frame_offset, offset);
+        write_scalar(frame_length, length);
+        write_scalar(consumed_length, consumed);
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::ptr::NonNull;
+    use std::ptr::{self, NonNull};
 
     const SHORT_PAYLOAD: [u8; 11] = [0, 6, 6, 84, 72, 79, 82, 51, 48, 48, 0];
     const SHORT_FRAME: [u8; 16] = [2, 11, 0, 6, 6, 84, 72, 79, 82, 51, 48, 48, 0, 42, 216, 3];
@@ -632,14 +555,6 @@ mod tests {
                 )
             },
             STATUS_INVALID_FRAME
-        );
-    }
-
-    #[test]
-    fn panic_is_contained_as_internal_failure() {
-        assert_eq!(
-            contain(|| -> Result<(), u32> { panic!("test-only contained panic") }),
-            STATUS_INTERNAL_FAILURE
         );
     }
 }

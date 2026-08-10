@@ -224,6 +224,8 @@
 			inputPaths = (
 				"$(PROJECT_DIR)/../../core/Cargo.lock",
 				"$(PROJECT_DIR)/../../core/Cargo.toml",
+				"$(PROJECT_DIR)/../../core/apple-ffi-support/Cargo.toml",
+				"$(PROJECT_DIR)/../../core/apple-ffi-support/src/lib.rs",
 				"$(PROJECT_DIR)/../../core/vesc-frame/Cargo.toml",
 				"$(PROJECT_DIR)/../../core/vesc-frame/src/lib.rs",
 				"$(PROJECT_DIR)/../../core/vesc-frame-apple-ffi/Cargo.toml",
@@ -251,6 +253,8 @@
 			inputPaths = (
 				"$(PROJECT_DIR)/../../core/Cargo.lock",
 				"$(PROJECT_DIR)/../../core/Cargo.toml",
+				"$(PROJECT_DIR)/../../core/apple-ffi-support/Cargo.toml",
+				"$(PROJECT_DIR)/../../core/apple-ffi-support/src/lib.rs",
 				"$(PROJECT_DIR)/../../core/vesc-firmware-identity/Cargo.toml",
 				"$(PROJECT_DIR)/../../core/vesc-firmware-identity/src/lib.rs",
 				"$(PROJECT_DIR)/../../core/vesc-firmware-identity-apple-ffi/Cargo.toml",
@@ -278,6 +282,8 @@
 			inputPaths = (
 				"$(PROJECT_DIR)/../../core/Cargo.lock",
 				"$(PROJECT_DIR)/../../core/Cargo.toml",
+				"$(PROJECT_DIR)/../../core/apple-ffi-support/Cargo.toml",
+				"$(PROJECT_DIR)/../../core/apple-ffi-support/src/lib.rs",
 				"$(PROJECT_DIR)/../../core/vesc-custom-configuration/Cargo.toml",
 				"$(PROJECT_DIR)/../../core/vesc-custom-configuration/src/lib.rs",
 				"$(PROJECT_DIR)/../../core/vesc-custom-configuration-apple-ffi/Cargo.toml",
@@ -305,6 +311,8 @@
 			inputPaths = (
 				"$(PROJECT_DIR)/../../core/Cargo.lock",
 				"$(PROJECT_DIR)/../../core/Cargo.toml",
+				"$(PROJECT_DIR)/../../core/apple-ffi-support/Cargo.toml",
+				"$(PROJECT_DIR)/../../core/apple-ffi-support/src/lib.rs",
 				"$(PROJECT_DIR)/../../core/vesc-bms-values/Cargo.toml",
 				"$(PROJECT_DIR)/../../core/vesc-bms-values/src/lib.rs",
 				"$(PROJECT_DIR)/../../core/vesc-bms-values-apple-ffi/Cargo.toml",
@@ -332,6 +340,8 @@
 			inputPaths = (
 				"$(PROJECT_DIR)/../../core/Cargo.lock",
 				"$(PROJECT_DIR)/../../core/Cargo.toml",
+				"$(PROJECT_DIR)/../../core/apple-ffi-support/Cargo.toml",
+				"$(PROJECT_DIR)/../../core/apple-ffi-support/src/lib.rs",
 				"$(PROJECT_DIR)/../../core/vesc-controller-data/Cargo.toml",
 				"$(PROJECT_DIR)/../../core/vesc-controller-data/src/lib.rs",
 				"$(PROJECT_DIR)/../../core/vesc-controller-data-apple-ffi/Cargo.toml",
@@ -359,6 +369,8 @@
 			inputPaths = (
 				"$(PROJECT_DIR)/../../core/Cargo.lock",
 				"$(PROJECT_DIR)/../../core/Cargo.toml",
+				"$(PROJECT_DIR)/../../core/apple-ffi-support/Cargo.toml",
+				"$(PROJECT_DIR)/../../core/apple-ffi-support/src/lib.rs",
 				"$(PROJECT_DIR)/../../core/refloat-control/Cargo.toml",
 				"$(PROJECT_DIR)/../../core/refloat-control/src/lib.rs",
 				"$(PROJECT_DIR)/../../core/refloat-control-apple-ffi/Cargo.toml",

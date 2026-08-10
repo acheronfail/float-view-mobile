@@ -2,13 +2,13 @@
 
 #![deny(unsafe_op_in_unsafe_fn)]
 
+use float_view_apple_ffi_support::{
+    Region, contain_status, input_bytes, publish_bytes, validate_disjoint, write_scalar,
+};
 use float_view_vesc_custom_configuration::{
     CustomConfigurationError, CustomConfigurationResponse, MAX_SCHEDULED_PAYLOAD_BYTES,
     ValuesCommand, decode_response, schema_request, values_request, write_request,
 };
-use std::mem::{align_of, size_of};
-use std::panic::{AssertUnwindSafe, catch_unwind};
-use std::{ptr, slice};
 
 pub const ABI_VERSION: u32 = 1;
 pub const STATUS_OK: u32 = 0;
@@ -54,7 +54,7 @@ pub unsafe extern "C" fn float_view_vesc_custom_configuration_encode(
     output_capacity: usize,
     output_length: *mut usize,
 ) -> u32 {
-    contain(|| {
+    contain_status(STATUS_OK, STATUS_INTERNAL_FAILURE, || {
         validate_byte_regions(
             values,
             values_length,
@@ -64,9 +64,9 @@ pub unsafe extern "C" fn float_view_vesc_custom_configuration_encode(
             MAX_SCHEDULED_PAYLOAD_BYTES,
         )?;
         // SAFETY: validation established a writable aligned scalar.
-        unsafe { output_length.write(0) };
+        unsafe { write_scalar(output_length, 0) };
         // SAFETY: validation established a bounded readable region.
-        let values = unsafe { input_slice(values, values_length) };
+        let values = unsafe { input_bytes(values, values_length) };
         let request = match operation {
             OPERATION_SCHEMA if values.is_empty() => schema_request(index, length, offset)
                 .map(|request| request.to_vec())
@@ -83,7 +83,8 @@ pub unsafe extern "C" fn float_view_vesc_custom_configuration_encode(
             _ => return Err(STATUS_INVALID_ARGUMENT),
         };
         // SAFETY: validation established a bounded caller-owned output.
-        unsafe { write_result(&request, output, output_capacity, output_length) }
+        unsafe { publish_bytes(&request, output, output_capacity, output_length) }
+            .map_err(|_| STATUS_OUTPUT_TOO_SMALL)
     })
 }
 
@@ -108,7 +109,7 @@ pub unsafe extern "C" fn float_view_vesc_custom_configuration_decode(
     output_length: *mut usize,
     unsupported_command: *mut u8,
 ) -> u32 {
-    contain(|| {
+    contain_status(STATUS_OK, STATUS_INTERNAL_FAILURE, || {
         if payload_length > MAX_SCHEDULED_PAYLOAD_BYTES {
             return Err(STATUS_INVALID_PAYLOAD);
         }
@@ -122,23 +123,24 @@ pub unsafe extern "C" fn float_view_vesc_custom_configuration_decode(
         )?;
         // SAFETY: validation established distinct writable scalar outputs.
         unsafe {
-            output_length.write(0);
-            unsupported_command.write(0);
+            write_scalar(output_length, 0);
+            write_scalar(unsupported_command, 0);
         }
         // SAFETY: validation established a bounded readable region.
-        let payload = unsafe { input_slice(payload, payload_length) };
+        let payload = unsafe { input_bytes(payload, payload_length) };
         let response = match decode_response(payload) {
             Ok(response) => response,
             Err(CustomConfigurationError::UnsupportedCommand(command)) => {
                 // SAFETY: validation established a writable byte output.
-                unsafe { unsupported_command.write(command) };
+                unsafe { write_scalar(unsupported_command, command) };
                 return Err(STATUS_UNSUPPORTED_COMMAND);
             }
             Err(CustomConfigurationError::InvalidPayload) => return Err(STATUS_INVALID_PAYLOAD),
         };
         let record = result_record(response)?;
         // SAFETY: validation established the bounded caller-owned output.
-        unsafe { write_result(&record, output, output_capacity, output_length) }
+        unsafe { publish_bytes(&record, output, output_capacity, output_length) }
+            .map_err(|_| STATUS_OUTPUT_TOO_SMALL)
     })
 }
 
@@ -200,14 +202,6 @@ fn map_codec_error(error: CustomConfigurationError) -> u32 {
     }
 }
 
-fn contain(operation: impl FnOnce() -> Result<(), u32>) -> u32 {
-    match catch_unwind(AssertUnwindSafe(operation)) {
-        Ok(Ok(())) => STATUS_OK,
-        Ok(Err(status)) => status,
-        Err(_) => STATUS_INTERNAL_FAILURE,
-    }
-}
-
 fn validate_byte_regions(
     input: *const u8,
     input_length: usize,
@@ -216,20 +210,16 @@ fn validate_byte_regions(
     output_length: *mut usize,
     maximum_output: usize,
 ) -> Result<(), u32> {
-    if output_length.is_null()
-        || !(output_length as usize).is_multiple_of(align_of::<usize>())
-        || (input.is_null() && input_length != 0)
-        || (output.is_null() && output_capacity != 0)
-        || input_length > MAX_SCHEDULED_PAYLOAD_BYTES
-        || output_capacity > maximum_output
-    {
+    if input_length > MAX_SCHEDULED_PAYLOAD_BYTES || output_capacity > maximum_output {
         return Err(STATUS_INVALID_ARGUMENT);
     }
-    validate_disjoint(&[
-        address_region(input as usize, input_length)?,
-        address_region(output as usize, output_capacity)?,
-        address_region(output_length as usize, size_of::<usize>())?,
-    ])
+    let regions = [
+        Region::optional(input, input_length).map_err(|_| STATUS_INVALID_ARGUMENT)?,
+        Region::optional(output.cast_const(), output_capacity)
+            .map_err(|_| STATUS_INVALID_ARGUMENT)?,
+        Region::required(output_length.cast_const()).map_err(|_| STATUS_INVALID_ARGUMENT)?,
+    ];
+    validate_disjoint(&regions).map_err(|_| STATUS_INVALID_ARGUMENT)
 }
 
 fn validate_decode_regions(
@@ -240,81 +230,23 @@ fn validate_decode_regions(
     output_length: *mut usize,
     unsupported_command: *mut u8,
 ) -> Result<(), u32> {
-    if unsupported_command.is_null() || output_capacity > RESULT_RECORD_BYTES {
+    if input_length > MAX_SCHEDULED_PAYLOAD_BYTES || output_capacity > RESULT_RECORD_BYTES {
         return Err(STATUS_INVALID_ARGUMENT);
     }
-    validate_byte_regions(
-        input,
-        input_length,
-        output,
-        output_capacity,
-        output_length,
-        RESULT_RECORD_BYTES,
-    )?;
-    validate_disjoint(&[
-        address_region(input as usize, input_length)?,
-        address_region(output as usize, output_capacity)?,
-        address_region(output_length as usize, size_of::<usize>())?,
-        address_region(unsupported_command as usize, size_of::<u8>())?,
-    ])
-}
-
-fn validate_disjoint(regions: &[(usize, usize)]) -> Result<(), u32> {
-    for left in 0..regions.len() {
-        for right in left + 1..regions.len() {
-            if regions_overlap(regions[left], regions[right]) {
-                return Err(STATUS_INVALID_ARGUMENT);
-            }
-        }
-    }
-    Ok(())
-}
-
-fn address_region(start: usize, length: usize) -> Result<(usize, usize), u32> {
-    if length == 0 {
-        return Ok((start, start));
-    }
-    Ok((
-        start,
-        start.checked_add(length).ok_or(STATUS_INVALID_ARGUMENT)?,
-    ))
-}
-
-fn regions_overlap(left: (usize, usize), right: (usize, usize)) -> bool {
-    left.0 != left.1 && right.0 != right.1 && left.0 < right.1 && right.0 < left.1
-}
-
-unsafe fn input_slice<'a>(input: *const u8, input_length: usize) -> &'a [u8] {
-    if input_length == 0 {
-        &[]
-    } else {
-        // SAFETY: the exported caller contract and validation establish this region.
-        unsafe { slice::from_raw_parts(input, input_length) }
-    }
-}
-
-unsafe fn write_result(
-    bytes: &[u8],
-    output: *mut u8,
-    output_capacity: usize,
-    output_length: *mut usize,
-) -> Result<(), u32> {
-    // SAFETY: validation established a writable aligned length field.
-    unsafe { output_length.write(bytes.len()) };
-    if output_capacity < bytes.len() {
-        return Err(STATUS_OUTPUT_TOO_SMALL);
-    }
-    if !bytes.is_empty() {
-        // SAFETY: validation and the capacity check establish the output region.
-        unsafe { ptr::copy_nonoverlapping(bytes.as_ptr(), output, bytes.len()) };
-    }
-    Ok(())
+    let regions = [
+        Region::optional(input, input_length).map_err(|_| STATUS_INVALID_ARGUMENT)?,
+        Region::optional(output.cast_const(), output_capacity)
+            .map_err(|_| STATUS_INVALID_ARGUMENT)?,
+        Region::required(output_length.cast_const()).map_err(|_| STATUS_INVALID_ARGUMENT)?,
+        Region::required(unsupported_command.cast_const()).map_err(|_| STATUS_INVALID_ARGUMENT)?,
+    ];
+    validate_disjoint(&regions).map_err(|_| STATUS_INVALID_ARGUMENT)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::ptr::NonNull;
+    use std::ptr::{self, NonNull};
 
     unsafe fn encode(
         operation: u8,
@@ -577,9 +509,5 @@ mod tests {
             STATUS_OUTPUT_TOO_SMALL
         );
         assert_eq!(length, 6);
-        assert_eq!(
-            contain(|| -> Result<(), u32> { panic!("contained test panic") }),
-            STATUS_INTERNAL_FAILURE
-        );
     }
 }

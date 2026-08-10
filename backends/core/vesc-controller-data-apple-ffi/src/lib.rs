@@ -2,13 +2,14 @@
 
 #![deny(unsafe_op_in_unsafe_fn)]
 
+use float_view_apple_ffi_support::{
+    Region, contain_status, input_bytes, publish_bytes, validate_disjoint, write_scalar,
+};
 use float_view_vesc_controller_data::{
     ControllerDataError, CurrentLimits, FaultKind, RealtimeValues, decode_current_limits,
     decode_realtime_values,
 };
-use std::mem::{align_of, size_of};
-use std::panic::{AssertUnwindSafe, catch_unwind};
-use std::{ptr, slice};
+use std::mem::size_of;
 
 pub const ABI_VERSION: u32 = 1;
 pub const OPERATION_REALTIME: u32 = 1;
@@ -54,7 +55,7 @@ pub unsafe extern "C" fn float_view_vesc_controller_data_decode(
     output_length: *mut usize,
     unsupported_command: *mut u8,
 ) -> u32 {
-    contain(|| {
+    contain_status(STATUS_OK, STATUS_INTERNAL_FAILURE, || {
         if !matches!(operation, OPERATION_REALTIME | OPERATION_CURRENT_LIMITS) {
             return Err(STATUS_INVALID_ARGUMENT);
         }
@@ -71,11 +72,11 @@ pub unsafe extern "C" fn float_view_vesc_controller_data_decode(
         )?;
         // SAFETY: validation established distinct writable scalar outputs.
         unsafe {
-            output_length.write(0);
-            unsupported_command.write(0);
+            write_scalar(output_length, 0);
+            write_scalar(unsupported_command, 0);
         }
         // SAFETY: validation established a bounded readable region.
-        let payload = unsafe { input_slice(payload, payload_length) };
+        let payload = unsafe { input_bytes(payload, payload_length) };
         let (record, length) = match operation {
             OPERATION_REALTIME => match decode_realtime_values(payload) {
                 Ok(values) => encode_realtime(values)?,
@@ -88,7 +89,8 @@ pub unsafe extern "C" fn float_view_vesc_controller_data_decode(
             _ => unreachable!(),
         };
         // SAFETY: validation established the bounded caller-owned output.
-        unsafe { write_result(&record[..length], output, output_capacity, output_length) }
+        unsafe { publish_bytes(&record[..length], output, output_capacity, output_length) }
+            .map_err(|_| STATUS_OUTPUT_TOO_SMALL)
     })
 }
 
@@ -96,7 +98,7 @@ fn map_decode_error(error: ControllerDataError, unsupported_command: *mut u8) ->
     match error {
         ControllerDataError::UnsupportedCommand(command) => {
             // SAFETY: the exported function validates this writable byte first.
-            unsafe { unsupported_command.write(command) };
+            unsafe { write_scalar(unsupported_command, command) };
             Err(STATUS_UNSUPPORTED_COMMAND)
         }
         ControllerDataError::TruncatedPayload => Err(STATUS_TRUNCATED_PAYLOAD),
@@ -188,14 +190,6 @@ fn write_f64(record: &mut [u8], cursor: &mut usize, value: f64) {
     *cursor = end;
 }
 
-fn contain(operation: impl FnOnce() -> Result<(), u32>) -> u32 {
-    match catch_unwind(AssertUnwindSafe(operation)) {
-        Ok(Ok(())) => STATUS_OK,
-        Ok(Err(status)) => status,
-        Err(_) => STATUS_INTERNAL_FAILURE,
-    }
-}
-
 fn validate_regions(
     input: *const u8,
     input_length: usize,
@@ -204,75 +198,23 @@ fn validate_regions(
     output_length: *mut usize,
     unsupported_command: *mut u8,
 ) -> Result<(), u32> {
-    if output_length.is_null()
-        || unsupported_command.is_null()
-        || !(output_length as usize).is_multiple_of(align_of::<usize>())
-        || (input.is_null() && input_length != 0)
-        || (output.is_null() && output_capacity != 0)
-        || output_capacity > MAX_RECORD_BYTES
-    {
+    if output_capacity > MAX_RECORD_BYTES {
         return Err(STATUS_INVALID_ARGUMENT);
     }
     let regions = [
-        address_region(input as usize, input_length)?,
-        address_region(output as usize, output_capacity)?,
-        address_region(output_length as usize, size_of::<usize>())?,
-        address_region(unsupported_command as usize, size_of::<u8>())?,
+        Region::optional(input, input_length).map_err(|_| STATUS_INVALID_ARGUMENT)?,
+        Region::optional(output.cast_const(), output_capacity)
+            .map_err(|_| STATUS_INVALID_ARGUMENT)?,
+        Region::required(output_length.cast_const()).map_err(|_| STATUS_INVALID_ARGUMENT)?,
+        Region::required(unsupported_command.cast_const()).map_err(|_| STATUS_INVALID_ARGUMENT)?,
     ];
-    for left in 0..regions.len() {
-        for right in left + 1..regions.len() {
-            if regions_overlap(regions[left], regions[right]) {
-                return Err(STATUS_INVALID_ARGUMENT);
-            }
-        }
-    }
-    Ok(())
-}
-
-fn address_region(start: usize, length: usize) -> Result<(usize, usize), u32> {
-    if length == 0 {
-        return Ok((start, start));
-    }
-    Ok((
-        start,
-        start.checked_add(length).ok_or(STATUS_INVALID_ARGUMENT)?,
-    ))
-}
-
-fn regions_overlap(left: (usize, usize), right: (usize, usize)) -> bool {
-    left.0 != left.1 && right.0 != right.1 && left.0 < right.1 && right.0 < left.1
-}
-
-unsafe fn input_slice<'a>(input: *const u8, input_length: usize) -> &'a [u8] {
-    if input_length == 0 {
-        &[]
-    } else {
-        // SAFETY: the exported caller contract and validation establish this region.
-        unsafe { slice::from_raw_parts(input, input_length) }
-    }
-}
-
-unsafe fn write_result(
-    bytes: &[u8],
-    output: *mut u8,
-    output_capacity: usize,
-    output_length: *mut usize,
-) -> Result<(), u32> {
-    // SAFETY: validation established a writable aligned length field.
-    unsafe { output_length.write(bytes.len()) };
-    if output_capacity < bytes.len() {
-        return Err(STATUS_OUTPUT_TOO_SMALL);
-    }
-    if !bytes.is_empty() {
-        // SAFETY: validation and the capacity check establish the output region.
-        unsafe { ptr::copy_nonoverlapping(bytes.as_ptr(), output, bytes.len()) };
-    }
-    Ok(())
+    validate_disjoint(&regions).map_err(|_| STATUS_INVALID_ARGUMENT)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::ptr;
 
     const LIMITS: [[u8; 4]; 4] = [
         0x42C8_0000_u32.to_be_bytes(),
@@ -428,14 +370,6 @@ mod tests {
                 STATUS_INVALID_ARGUMENT
             );
         }
-    }
-
-    #[test]
-    fn contains_panics() {
-        assert_eq!(
-            contain(|| -> Result<(), u32> { panic!("contained") }),
-            STATUS_INTERNAL_FAILURE
-        );
     }
 
     fn decode_record(operation: u32, payload: &[u8]) -> Result<Vec<u8>, u32> {

@@ -2,14 +2,14 @@
 
 #![deny(unsafe_op_in_unsafe_fn)]
 
+use float_view_apple_ffi_support::{
+    Region, contain_status, input_bytes, publish_bytes, validate_disjoint, write_scalar,
+};
 use float_view_refloat_control::{
     ControlError, ControlProfile, LightingProfile, LightingState, LightingTarget,
     MAX_CONTROL_PAYLOAD_BYTES, decode_lighting_response, fatal_clear_request, flywheel_request,
     lighting_request, package_request,
 };
-use std::mem::{align_of, size_of};
-use std::panic::{AssertUnwindSafe, catch_unwind};
-use std::{ptr, slice};
 
 pub const ABI_VERSION: u32 = 1;
 pub const STATUS_OK: u32 = 0;
@@ -56,12 +56,12 @@ pub unsafe extern "C" fn float_view_refloat_control_encode(
     output_length: *mut usize,
     unsupported_command: *mut u8,
 ) -> u32 {
-    contain(|| {
+    contain_status(STATUS_OK, STATUS_INTERNAL_FAILURE, || {
         validate_encode_regions(output, output_capacity, output_length, unsupported_command)?;
         // SAFETY: validation established two distinct writable scalar regions.
         unsafe {
-            output_length.write(0);
-            unsupported_command.write(0);
+            write_scalar(output_length, 0);
+            write_scalar(unsupported_command, 0);
         }
 
         let payload = match operation {
@@ -109,7 +109,7 @@ pub unsafe extern "C" fn float_view_refloat_control_encode(
                     Ok(payload) => payload,
                     Err(ControlError::UnsupportedCommand(command)) => {
                         // SAFETY: validation established a writable byte output.
-                        unsafe { unsupported_command.write(command) };
+                        unsafe { write_scalar(unsupported_command, command) };
                         return Err(STATUS_UNSUPPORTED_COMMAND);
                     }
                     Err(ControlError::InvalidPayload) => return Err(STATUS_INTERNAL_FAILURE),
@@ -119,7 +119,8 @@ pub unsafe extern "C" fn float_view_refloat_control_encode(
         };
 
         // SAFETY: validation established the bounded caller-owned regions.
-        unsafe { write_payload(payload.as_slice(), output, output_capacity, output_length) }
+        unsafe { publish_bytes(payload.as_slice(), output, output_capacity, output_length) }
+            .map_err(|_| STATUS_OUTPUT_TOO_SMALL)
     })
 }
 
@@ -136,23 +137,23 @@ pub unsafe extern "C" fn float_view_refloat_control_decode_lighting(
     lighting_profile: u8,
     lighting_flags: *mut u8,
 ) -> u32 {
-    contain(|| {
+    contain_status(STATUS_OK, STATUS_INTERNAL_FAILURE, || {
         validate_decode_regions(payload, payload_length, lighting_flags)?;
         // SAFETY: validation established a writable result byte.
-        unsafe { lighting_flags.write(0) };
+        unsafe { write_scalar(lighting_flags, 0) };
         if payload_length > 4 {
             return Err(STATUS_INVALID_PAYLOAD);
         }
         let profile = parse_lighting_profile(lighting_profile)?;
         // SAFETY: validation established a bounded readable input region.
-        let payload = unsafe { input_slice(payload, payload_length) };
+        let payload = unsafe { input_bytes(payload, payload_length) };
         let decoded = decode_lighting_response(payload, profile).map_err(|error| match error {
             ControlError::InvalidPayload => STATUS_INVALID_PAYLOAD,
             ControlError::UnsupportedCommand(_) => STATUS_INTERNAL_FAILURE,
         })?;
         let flags = (decoded.leds_enabled as u8) | ((decoded.headlights_enabled as u8) << 1);
         // SAFETY: validation established a writable result byte.
-        unsafe { lighting_flags.write(flags) };
+        unsafe { write_scalar(lighting_flags, flags) };
         Ok(())
     })
 }
@@ -189,37 +190,22 @@ fn state(flags: u8) -> LightingState {
     }
 }
 
-fn contain(operation: impl FnOnce() -> Result<(), u32>) -> u32 {
-    match catch_unwind(AssertUnwindSafe(operation)) {
-        Ok(Ok(())) => STATUS_OK,
-        Ok(Err(status)) => status,
-        Err(_) => STATUS_INTERNAL_FAILURE,
-    }
-}
-
 fn validate_encode_regions(
     output: *mut u8,
     output_capacity: usize,
     output_length: *mut usize,
     unsupported_command: *mut u8,
 ) -> Result<(), u32> {
-    if output_capacity > MAX_CONTROL_PAYLOAD_BYTES
-        || output_length.is_null()
-        || !(output_length as usize).is_multiple_of(align_of::<usize>())
-        || unsupported_command.is_null()
-    {
+    if output_capacity > MAX_CONTROL_PAYLOAD_BYTES {
         return Err(STATUS_INVALID_ARGUMENT);
     }
-    let output_region = region(output.cast_const(), output_capacity)?;
-    let length_region = region(output_length.cast(), size_of::<usize>())?;
-    let unsupported_region = region(unsupported_command.cast_const(), 1)?;
-    if !disjoint(output_region, length_region)
-        || !disjoint(output_region, unsupported_region)
-        || !disjoint(length_region, unsupported_region)
-    {
-        return Err(STATUS_INVALID_ARGUMENT);
-    }
-    Ok(())
+    let regions = [
+        Region::optional(output.cast_const(), output_capacity)
+            .map_err(|_| STATUS_INVALID_ARGUMENT)?,
+        Region::required(output_length.cast_const()).map_err(|_| STATUS_INVALID_ARGUMENT)?,
+        Region::required(unsupported_command.cast_const()).map_err(|_| STATUS_INVALID_ARGUMENT)?,
+    ];
+    validate_disjoint(&regions).map_err(|_| STATUS_INVALID_ARGUMENT)
 }
 
 fn validate_decode_regions(
@@ -227,66 +213,17 @@ fn validate_decode_regions(
     input_length: usize,
     lighting_flags: *mut u8,
 ) -> Result<(), u32> {
-    if lighting_flags.is_null() {
-        return Err(STATUS_INVALID_ARGUMENT);
-    }
-    let input_region = region(input, input_length)?;
-    let output_region = region(lighting_flags.cast_const(), 1)?;
-    if !disjoint(input_region, output_region) {
-        return Err(STATUS_INVALID_ARGUMENT);
-    }
-    Ok(())
-}
-
-fn region(pointer: *const u8, length: usize) -> Result<Option<(usize, usize)>, u32> {
-    if length == 0 {
-        return Ok(None);
-    }
-    if pointer.is_null() {
-        return Err(STATUS_INVALID_ARGUMENT);
-    }
-    let start = pointer as usize;
-    let end = start.checked_add(length).ok_or(STATUS_INVALID_ARGUMENT)?;
-    Ok(Some((start, end)))
-}
-
-fn disjoint(left: Option<(usize, usize)>, right: Option<(usize, usize)>) -> bool {
-    match (left, right) {
-        (Some((left_start, left_end)), Some((right_start, right_end))) => {
-            left_end <= right_start || right_end <= left_start
-        }
-        _ => true,
-    }
-}
-
-unsafe fn input_slice<'a>(pointer: *const u8, length: usize) -> &'a [u8] {
-    if length == 0 {
-        &[]
-    } else {
-        // SAFETY: caller performed region validation before this helper.
-        unsafe { slice::from_raw_parts(pointer, length) }
-    }
-}
-
-unsafe fn write_payload(
-    payload: &[u8],
-    output: *mut u8,
-    output_capacity: usize,
-    output_length: *mut usize,
-) -> Result<(), u32> {
-    // SAFETY: caller validated the scalar output.
-    unsafe { output_length.write(payload.len()) };
-    if output_capacity < payload.len() {
-        return Err(STATUS_OUTPUT_TOO_SMALL);
-    }
-    // SAFETY: caller validated a sufficiently large disjoint output region.
-    unsafe { ptr::copy_nonoverlapping(payload.as_ptr(), output, payload.len()) };
-    Ok(())
+    let regions = [
+        Region::optional(input, input_length).map_err(|_| STATUS_INVALID_ARGUMENT)?,
+        Region::required(lighting_flags.cast_const()).map_err(|_| STATUS_INVALID_ARGUMENT)?,
+    ];
+    validate_disjoint(&regions).map_err(|_| STATUS_INVALID_ARGUMENT)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::ptr;
 
     #[test]
     fn exact_operations_and_all_lighting_states_cross_the_abi() {
@@ -526,10 +463,6 @@ mod tests {
                 )
             },
             STATUS_INVALID_ARGUMENT
-        );
-        assert_eq!(
-            contain(|| -> Result<(), u32> { panic!("contained") }),
-            STATUS_INTERNAL_FAILURE
         );
     }
 

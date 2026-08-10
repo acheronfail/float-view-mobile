@@ -10,4 +10,5 @@ crate-type = ["staticlib", "rlib"]
 path = "src/lib.rs"
 
 [dependencies]
+float-view-apple-ffi-support = { path = "../apple-ffi-support" }
 float-view-vesc-controller-data = { path = "../vesc-controller-data" }

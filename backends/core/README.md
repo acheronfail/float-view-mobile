@@ -4,10 +4,11 @@
 ownership. It is a locked Cargo workspace, not another backend and not a
 production runtime.
 
-The workspace currently has nineteen members:
+The workspace currently has twenty members:
 
 | Component               | Scope                                                                 | Integration state                                                                             |
 | ----------------------- | --------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
+| `apple-ffi-support/`     | Dependency-free checked regions, panic containment, and bounded C output publication | Shared internally by the six Apple bridges; exports no C symbol and owns no protocol behavior |
 | `refloat-control/`       | Safe bounded Refloat live-control payload encoding and lighting response decoding | Selected by Apple and Android through separate host bridges                         |
 | `refloat-control-apple-ffi/` | Three-symbol caller-owned-buffer C ABI for Refloat controls              | Selected only by the shared iOS/macOS adapter                                       |
 | `refloat-control-android-jni/` | Three-symbol primitive-array JNI ABI for Refloat controls             | Selected only by Android                                                            |
@@ -28,7 +29,7 @@ The workspace currently has nineteen members:
 | `vesc-frame-apple-ffi/`   | Caller-owned-buffer C ABI                                             | Selected only by the shared iOS/macOS frame-codec adapter                       |
 | `vesc-frame-android-jni/` | Primitive-array JNI ABI                                              | Selected by Android for CRC, encoding, exact decoding, and stream-boundary scans |
 
-The nineteen crates remain independent components and artifacts. The six
+The twenty crates remain independent components and artifacts. The six
 selected component families' repeated
 source-build mechanics are centralized in `build-apple-bridge.sh` and
 `build-android-bridge.sh`, driven by the closed six-entry
@@ -39,6 +40,14 @@ archive/library names, diagnostics, and exact JNI symbols come from the
 catalog. The catalog is deliberately non-executable, while the two builders
 retain the pinned offline toolchain, Apple target, Android NDK/API/ABI,
 architecture, and symbol checks.
+
+The six Apple bridges also share the protocol-agnostic memory-boundary
+mechanics in `apple-ffi-support/`: checked pointer regions, disjointness,
+panic containment, borrowed input construction, and bounded byte/scalar
+publication. Exported functions, status mapping, result records, headers,
+archives, domain dependencies, and Swift adapters remain explicit in each
+bridge. Header generation and export macros are intentionally absent because
+they would add tooling while obscuring the small reviewed public ABIs.
 
 The shared Apple backend retains only bounded Swift stream storage. Rust scans
 each borrowed region, reports exact consumption boundaries, validates every
@@ -85,5 +94,7 @@ decoder until separate cutovers.
 
 Do not add empty future crates, generated bindings, a general runtime, host
 callbacks, or OS-owned Bluetooth, location, lifecycle, permission, native-file,
-theme, or UI behavior here. Unsafe code belongs only in a named audited bridge;
-the safe algorithm crate continues to forbid it.
+theme, or UI behavior here. Unsafe code belongs only in named audited host
+boundary crates: exported operations remain in each bridge, shared Apple
+primitives remain in the support component, and every safe algorithm crate
+continues to forbid unsafe code.

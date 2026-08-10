@@ -402,7 +402,7 @@ android-rust-audit: android-rust-host
     [[ "$(cd backends/core && cargo tree --locked --offline \
       --package float-view-vesc-firmware-identity --edges normal --prefix none | wc -l | tr -d ' ')" == 1 ]]
     [[ "$(cd backends/core && cargo tree --locked --offline \
-      --package float-view-vesc-frame-apple-ffi --edges normal --depth 1 --prefix none | wc -l | tr -d ' ')" == 2 ]]
+      --package float-view-vesc-frame-apple-ffi --edges normal --depth 1 --prefix none | wc -l | tr -d ' ')" == 3 ]]
     [[ "$(cd backends/core && cargo tree --locked --offline \
       --package float-view-vesc-firmware-identity-android-jni --edges normal --depth 1 --prefix none | wc -l | tr -d ' ')" == 3 ]]
     [[ "$(cd backends/core && cargo tree --locked --offline \
@@ -788,6 +788,8 @@ audit:
     [[ ! -d backends/apple/Sources/FloatViewMac ]]
     [[ -f rust-toolchain.toml ]]
     [[ -f backends/core/Cargo.lock ]]
+    [[ -f backends/core/apple-ffi-support/Cargo.toml ]]
+    [[ -f backends/core/apple-ffi-support/src/lib.rs ]]
     [[ -f backends/core/bridge-build-catalog.sh ]]
     [[ -f backends/core/build-apple-bridge.sh ]]
     [[ -f backends/core/build-android-bridge.sh ]]
@@ -823,7 +825,8 @@ audit:
     [[ -f backends/apple/Sources/CVescRefloatControl/include/CVescRefloatControl.h ]]
     [[ -f backends/apple/Sources/CVescRefloatControl/module.modulemap ]]
     unexpected_core="$(find backends/core -mindepth 1 -maxdepth 1 -type d \
-      ! -name target ! -name refloat-control ! -name refloat-control-android-jni \
+      ! -name target ! -name apple-ffi-support \
+      ! -name refloat-control ! -name refloat-control-android-jni \
       ! -name refloat-control-apple-ffi ! -name refloat-legacy-telemetry \
       ! -name vesc-bms-values ! -name vesc-bms-values-android-jni \
       ! -name vesc-bms-values-apple-ffi \
@@ -839,6 +842,8 @@ audit:
       echo "Unexpected Rust core workspace member: $unexpected_core" >&2
       exit 1
     }
+    [[ "$(find backends/core/apple-ffi-support -mindepth 1 -maxdepth 1 -type d \
+      ! -name src -print -quit)" == "" ]]
     [[ "$(find backends/core/refloat-control -mindepth 1 -maxdepth 1 -type d \
       ! -name src -print -quit)" == "" ]]
     [[ "$(find backends/core/refloat-control-android-jni -mindepth 1 -maxdepth 1 -type d \
@@ -878,6 +883,19 @@ audit:
     ! find backends/core -type f \
       \( -name 'build.rs' -o -name '*.h' -o -name '*.hpp' -o -name '*.modulemap' \) \
       | grep -q .
+    ! rg -n 'extern[[:space:]]+"C"|no_mangle|cbindgen|bindgen|uniffi|jni|host_callback' \
+      backends/core/apple-ffi-support
+    [[ "$(cd backends/core && cargo tree --locked --package float-view-apple-ffi-support \
+      --edges normal --prefix none | wc -l | tr -d ' ')" == 1 ]]
+    [[ "$(rg -c 'core/apple-ffi-support/Cargo.toml' \
+      backends/apple/ios/float-view.xcodeproj/project.pbxproj)" == 6 ]]
+    [[ "$(rg -c 'core/apple-ffi-support/src/lib.rs' \
+      backends/apple/ios/float-view.xcodeproj/project.pbxproj)" == 6 ]]
+    ! rg -n 'slice::from_raw_parts|ptr::copy_nonoverlapping|catch_unwind|AssertUnwindSafe|fn address_region|fn regions_overlap' \
+      backends/core/*-apple-ffi/src/lib.rs
+    rg -q 'slice::from_raw_parts' backends/core/apple-ffi-support/src/lib.rs
+    rg -q 'ptr::copy_nonoverlapping' backends/core/apple-ffi-support/src/lib.rs
+    rg -q 'catch_unwind' backends/core/apple-ffi-support/src/lib.rs
     rg -q '^#!\[forbid\(unsafe_code\)\]$' backends/core/refloat-control/src/lib.rs
     ! rg -n 'extern[[:space:]]+"C"|no_mangle|cbindgen|uniffi|jni|host_callback' \
       backends/core/refloat-control
@@ -942,21 +960,21 @@ audit:
     ! rg -n 'cbindgen|uniffi|jni|host_callback' \
       backends/core/refloat-control-apple-ffi
     [[ "$(cd backends/core && cargo tree --locked --package float-view-refloat-control --edges normal --prefix none | wc -l | tr -d ' ')" == 1 ]]
-    [[ "$(cd backends/core && cargo tree --locked --package float-view-refloat-control-apple-ffi --edges normal --depth 1 --prefix none | wc -l | tr -d ' ')" == 2 ]]
+    [[ "$(cd backends/core && cargo tree --locked --package float-view-refloat-control-apple-ffi --edges normal --depth 1 --prefix none | wc -l | tr -d ' ')" == 3 ]]
     [[ "$(cd backends/core && cargo tree --locked --package float-view-refloat-control-android-jni --edges normal --depth 1 --prefix none | wc -l | tr -d ' ')" == 3 ]]
     [[ "$(cd backends/core && cargo tree --locked --package float-view-refloat-legacy-telemetry --edges normal --prefix none | wc -l | tr -d ' ')" == 1 ]]
     [[ "$(cd backends/core && cargo tree --locked --package float-view-vesc-firmware-identity --edges normal --prefix none | wc -l | tr -d ' ')" == 1 ]]
     [[ "$(cd backends/core && cargo tree --locked --package float-view-vesc-bms-values --edges normal --prefix none | wc -l | tr -d ' ')" == 1 ]]
-    [[ "$(cd backends/core && cargo tree --locked --package float-view-vesc-bms-values-apple-ffi --edges normal --depth 1 --prefix none | wc -l | tr -d ' ')" == 2 ]]
+    [[ "$(cd backends/core && cargo tree --locked --package float-view-vesc-bms-values-apple-ffi --edges normal --depth 1 --prefix none | wc -l | tr -d ' ')" == 3 ]]
     [[ "$(cd backends/core && cargo tree --locked --package float-view-vesc-bms-values-android-jni --edges normal --depth 1 --prefix none | wc -l | tr -d ' ')" == 3 ]]
     [[ "$(cd backends/core && cargo tree --locked --package float-view-vesc-controller-data --edges normal --prefix none | wc -l | tr -d ' ')" == 1 ]]
-    [[ "$(cd backends/core && cargo tree --locked --package float-view-vesc-controller-data-apple-ffi --edges normal --depth 1 --prefix none | wc -l | tr -d ' ')" == 2 ]]
+    [[ "$(cd backends/core && cargo tree --locked --package float-view-vesc-controller-data-apple-ffi --edges normal --depth 1 --prefix none | wc -l | tr -d ' ')" == 3 ]]
     [[ "$(cd backends/core && cargo tree --locked --package float-view-vesc-controller-data-android-jni --edges normal --depth 1 --prefix none | wc -l | tr -d ' ')" == 3 ]]
     [[ "$(cd backends/core && cargo tree --locked --package float-view-vesc-custom-configuration --edges normal --prefix none | wc -l | tr -d ' ')" == 1 ]]
-    [[ "$(cd backends/core && cargo tree --locked --package float-view-vesc-custom-configuration-apple-ffi --edges normal --depth 1 --prefix none | wc -l | tr -d ' ')" == 2 ]]
+    [[ "$(cd backends/core && cargo tree --locked --package float-view-vesc-custom-configuration-apple-ffi --edges normal --depth 1 --prefix none | wc -l | tr -d ' ')" == 3 ]]
     [[ "$(cd backends/core && cargo tree --locked --package float-view-vesc-frame --edges normal --prefix none | wc -l | tr -d ' ')" == 1 ]]
-    [[ "$(cd backends/core && cargo tree --locked --package float-view-vesc-frame-apple-ffi --edges normal --depth 1 --prefix none | wc -l | tr -d ' ')" == 2 ]]
-    [[ "$(cd backends/core && cargo tree --locked --package float-view-vesc-firmware-identity-apple-ffi --edges normal --depth 1 --prefix none | wc -l | tr -d ' ')" == 2 ]]
+    [[ "$(cd backends/core && cargo tree --locked --package float-view-vesc-frame-apple-ffi --edges normal --depth 1 --prefix none | wc -l | tr -d ' ')" == 3 ]]
+    [[ "$(cd backends/core && cargo tree --locked --package float-view-vesc-firmware-identity-apple-ffi --edges normal --depth 1 --prefix none | wc -l | tr -d ' ')" == 3 ]]
     [[ "$(cd backends/core && cargo tree --locked --package float-view-vesc-firmware-identity-android-jni --edges normal --depth 1 --prefix none | wc -l | tr -d ' ')" == 3 ]]
     ! git ls-files | rg '\.(a|so|xcframework|dylib)$'
     [[ "$(find backends/apple/Sources -type f \( -name '*.h' -o -name '*.modulemap' \) | sort)" == $'backends/apple/Sources/CSQLite/module.modulemap\nbackends/apple/Sources/CSQLite/shim.h\nbackends/apple/Sources/CVescBmsValues/include/CVescBmsValues.h\nbackends/apple/Sources/CVescBmsValues/module.modulemap\nbackends/apple/Sources/CVescControllerData/include/CVescControllerData.h\nbackends/apple/Sources/CVescControllerData/module.modulemap\nbackends/apple/Sources/CVescCustomConfiguration/include/CVescCustomConfiguration.h\nbackends/apple/Sources/CVescCustomConfiguration/module.modulemap\nbackends/apple/Sources/CVescFirmwareIdentity/include/CVescFirmwareIdentity.h\nbackends/apple/Sources/CVescFirmwareIdentity/module.modulemap\nbackends/apple/Sources/CVescFrame/include/CVescFrame.h\nbackends/apple/Sources/CVescFrame/module.modulemap\nbackends/apple/Sources/CVescRefloatControl/include/CVescRefloatControl.h\nbackends/apple/Sources/CVescRefloatControl/module.modulemap' ]]

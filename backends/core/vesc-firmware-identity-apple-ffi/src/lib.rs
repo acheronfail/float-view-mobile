@@ -2,10 +2,10 @@
 
 #![deny(unsafe_op_in_unsafe_fn)]
 
+use float_view_apple_ffi_support::{
+    Region, contain_status, input_bytes, publish_bytes, validate_disjoint, write_scalar,
+};
 use float_view_vesc_firmware_identity::{FirmwareIdentity, FirmwareIdentityError, decode};
-use std::mem::{align_of, size_of};
-use std::panic::{AssertUnwindSafe, catch_unwind};
-use std::{ptr, slice};
 
 /// Version of the hand-written identity ABI and byte-record layout.
 pub const ABI_VERSION: u32 = 1;
@@ -58,7 +58,7 @@ pub unsafe extern "C" fn float_view_vesc_firmware_identity_decode(
     output_length: *mut usize,
     unsupported_command: *mut u8,
 ) -> u32 {
-    contain(|| {
+    contain_status(STATUS_OK, STATUS_INTERNAL_FAILURE, || {
         if payload_length > MAX_PAYLOAD_BYTES {
             return Err(STATUS_TRUNCATED_PAYLOAD);
         }
@@ -72,16 +72,16 @@ pub unsafe extern "C" fn float_view_vesc_firmware_identity_decode(
         )?;
         // SAFETY: validation established distinct writable scalar outputs.
         unsafe {
-            output_length.write(0);
-            unsupported_command.write(0);
+            write_scalar(output_length, 0);
+            write_scalar(unsupported_command, 0);
         }
         // SAFETY: validation established a bounded readable region.
-        let payload = unsafe { input_slice(payload, payload_length) };
+        let payload = unsafe { input_bytes(payload, payload_length) };
         let identity = match decode(payload) {
             Ok(identity) => identity,
             Err(FirmwareIdentityError::UnsupportedCommand(command)) => {
                 // SAFETY: validation established a writable byte output.
-                unsafe { unsupported_command.write(command) };
+                unsafe { write_scalar(unsupported_command, command) };
                 return Err(STATUS_UNSUPPORTED_COMMAND);
             }
             Err(FirmwareIdentityError::TruncatedPayload) => {
@@ -90,7 +90,8 @@ pub unsafe extern "C" fn float_view_vesc_firmware_identity_decode(
         };
         let record = encode_record(&identity)?;
         // SAFETY: validation established the bounded caller-owned output.
-        unsafe { write_result(&record, output, output_capacity, output_length) }
+        unsafe { publish_bytes(&record, output, output_capacity, output_length) }
+            .map_err(|_| STATUS_OUTPUT_TOO_SMALL)
     })
 }
 
@@ -142,14 +143,6 @@ fn encode_record(identity: &FirmwareIdentity) -> Result<Vec<u8>, u32> {
     Ok(record)
 }
 
-fn contain(operation: impl FnOnce() -> Result<(), u32>) -> u32 {
-    match catch_unwind(AssertUnwindSafe(operation)) {
-        Ok(Ok(())) => STATUS_OK,
-        Ok(Err(status)) => status,
-        Err(_) => STATUS_INTERNAL_FAILURE,
-    }
-}
-
 fn validate_regions(
     input: *const u8,
     input_length: usize,
@@ -158,76 +151,23 @@ fn validate_regions(
     output_length: *mut usize,
     unsupported_command: *mut u8,
 ) -> Result<(), u32> {
-    if output_length.is_null()
-        || unsupported_command.is_null()
-        || !(output_length as usize).is_multiple_of(align_of::<usize>())
-        || (input.is_null() && input_length != 0)
-        || (output.is_null() && output_capacity != 0)
-        || output_capacity > MAX_RECORD_BYTES
-    {
+    if output_capacity > MAX_RECORD_BYTES {
         return Err(STATUS_INVALID_ARGUMENT);
     }
     let regions = [
-        address_region(input as usize, input_length)?,
-        address_region(output as usize, output_capacity)?,
-        address_region(output_length as usize, size_of::<usize>())?,
-        address_region(unsupported_command as usize, size_of::<u8>())?,
+        Region::optional(input, input_length).map_err(|_| STATUS_INVALID_ARGUMENT)?,
+        Region::optional(output.cast_const(), output_capacity)
+            .map_err(|_| STATUS_INVALID_ARGUMENT)?,
+        Region::required(output_length.cast_const()).map_err(|_| STATUS_INVALID_ARGUMENT)?,
+        Region::required(unsupported_command.cast_const()).map_err(|_| STATUS_INVALID_ARGUMENT)?,
     ];
-    for left in 0..regions.len() {
-        for right in left + 1..regions.len() {
-            if regions_overlap(regions[left], regions[right]) {
-                return Err(STATUS_INVALID_ARGUMENT);
-            }
-        }
-    }
-    Ok(())
-}
-
-fn address_region(start: usize, length: usize) -> Result<(usize, usize), u32> {
-    if length == 0 {
-        return Ok((start, start));
-    }
-    Ok((
-        start,
-        start.checked_add(length).ok_or(STATUS_INVALID_ARGUMENT)?,
-    ))
-}
-
-fn regions_overlap(left: (usize, usize), right: (usize, usize)) -> bool {
-    left.0 != left.1 && right.0 != right.1 && left.0 < right.1 && right.0 < left.1
-}
-
-unsafe fn input_slice<'a>(input: *const u8, input_length: usize) -> &'a [u8] {
-    if input_length == 0 {
-        &[]
-    } else {
-        // SAFETY: the exported caller contract and validation establish this region.
-        unsafe { slice::from_raw_parts(input, input_length) }
-    }
-}
-
-unsafe fn write_result(
-    bytes: &[u8],
-    output: *mut u8,
-    output_capacity: usize,
-    output_length: *mut usize,
-) -> Result<(), u32> {
-    // SAFETY: validation established a writable aligned length field.
-    unsafe { output_length.write(bytes.len()) };
-    if output_capacity < bytes.len() {
-        return Err(STATUS_OUTPUT_TOO_SMALL);
-    }
-    if !bytes.is_empty() {
-        // SAFETY: validation and the capacity check establish the output region.
-        unsafe { ptr::copy_nonoverlapping(bytes.as_ptr(), output, bytes.len()) };
-    }
-    Ok(())
+    validate_disjoint(&regions).map_err(|_| STATUS_INVALID_ARGUMENT)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::ptr::NonNull;
+    use std::ptr::{self, NonNull};
 
     const STOCK_BMS: [u8; 24] = [
         0, 6, 0, b'V', b'B', b'M', b'S', 0, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 0, 0, 1, 1,
@@ -362,14 +302,6 @@ mod tests {
                 )
             },
             STATUS_TRUNCATED_PAYLOAD
-        );
-    }
-
-    #[test]
-    fn contains_panics() {
-        assert_eq!(
-            contain(|| -> Result<(), u32> { panic!("test-only contained panic") }),
-            STATUS_INTERNAL_FAILURE
         );
     }
 }
