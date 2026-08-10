@@ -191,7 +191,8 @@ class DeviceMutationCoordinator {
 
     @Synchronized fun failPending(generation: VescRequestGeneration): RefloatControls? {
         if (generation != this.generation) return controls
-        controls = controls?.copy(pendingAction = null); expected = null
+        val current = controls?.takeIf { it.pendingAction != null } ?: return null
+        controls = current.copy(pendingAction = null); expected = null
         return controls
     }
 

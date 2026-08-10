@@ -520,6 +520,57 @@ func controllerShutdownExpiresOrClassifiesDelayedBLELossAsIntentional() throws {
 }
 
 @Test
+func flywheelTransitionsConfirmBeforeModeCleanup() async throws {
+  let bluetooth = FakeBluetooth()
+  let events = CollectingEvents()
+  let scheduler = FakeScheduler()
+  let service = ApplicationService(
+    bluetooth: bluetooth, clock: FixedClock(), logStore: MemoryStore(),
+    protocolCodec: TelemetryProtocol(), scheduler: scheduler, events: events
+  )
+  let id = DeviceID("flywheel-fixture")
+  try service.receive(.deviceFound(id, name: "THOR300", rssi: -40))
+  try service.connect(id)
+  try service.receive(.connectionChanged(id, .ready))
+  for marker in [UInt8(1), 2, 3, 5] {
+    try service.receive(.notification(id, Data([marker])))
+  }
+  scheduler.fireOneShots(afterMilliseconds: 1_000)
+  try service.receive(.notification(id, Data([7])))
+  #expect(service.activeConnectionSnapshot()?.refloatControls?.status == .ready)
+
+  let enableSent = DispatchSemaphore(value: 0)
+  bluetooth.onWrite = { _ in enableSent.signal() }
+  let enable = Task.detached { try service.setRefloatControl(.flywheel, enabled: true) }
+  #expect(await waitForSignal(enableSent))
+  bluetooth.onWrite = nil
+  scheduler.fireRepeating(scheduler.repeatingIntervals.indices.last!)
+  try service.receive(.notification(id, Data([8])))
+  #expect(service.activeConnectionSnapshot()?.refloatControls?.flywheelEnabled == true)
+  #expect(service.activeConnectionSnapshot()?.refloatControls?.pendingAction == nil)
+  let enabled = try await enable.value
+  #expect(enabled.flywheelEnabled == true)
+  #expect(enabled.pendingAction == nil)
+
+  let disableSent = DispatchSemaphore(value: 0)
+  bluetooth.onWrite = { _ in disableSent.signal() }
+  let disable = Task.detached { try service.setRefloatControl(.flywheel, enabled: false) }
+  #expect(await waitForCondition {
+    service.activeConnectionSnapshot()?.refloatControls?.pendingAction == .flywheel
+  })
+  try service.receive(.notification(id, Data([8])))
+  #expect(service.activeConnectionSnapshot()?.refloatControls?.pendingAction == .flywheel)
+  #expect(await waitForSignal(disableSent))
+  bluetooth.onWrite = nil
+  scheduler.fireRepeating(scheduler.repeatingIntervals.indices.last!)
+  try service.receive(.notification(id, Data([9])))
+  let disabled = try await disable.value
+  #expect(disabled.flywheelEnabled == false)
+  #expect(disabled.pendingAction == nil)
+  #expect(!events.values.compactMap { $0 as? String }.contains("refloat_control_confirmation_timeout"))
+}
+
+@Test
 func customTransportDiscoversPrimaryThenRefloatPackageInOrder() throws {
   let bluetooth = FakeBluetooth()
   let service = ApplicationService(
@@ -1234,6 +1285,7 @@ private final class FakeBluetooth: BluetoothPort, @unchecked Sendable {
   var connected: [DeviceID] = []
   var disconnected: [DeviceID] = []
   var writes: [Data] = []
+  var onWrite: (@Sendable (Data) -> Void)?
 
   init(
     state: BluetoothState = .init(
@@ -1264,6 +1316,7 @@ private final class FakeBluetooth: BluetoothPort, @unchecked Sendable {
 
   func write(_ bytes: Data, to _: DeviceID) {
     writes.append(bytes)
+    onWrite?(bytes)
   }
 
   func disconnect(_ deviceID: DeviceID) {
@@ -1457,13 +1510,29 @@ private final class TelemetryProtocol: VescProtocolPort, @unchecked Sendable {
       return [
         .refloatTelemetry(
           .init(
-            rideState: .idle, packageState: .ready, footpadState: FootpadState.none,
+            rideState: .idle, packageState: .ready, packageMode: .normal,
+            footpadState: FootpadState.none, fatalErrorLatched: false,
             packVoltageV: 64, dutyCycle: 0, controllerTempC: 30,
             motorTempC: 25, motorCurrentA: 0, batteryCurrentA: 0,
             erpm: 0, speedKph: 0
           )
         ),
       ]
+    case 7:
+      return [.refloatLighting(
+        command: .stableLights,
+        state: .init(ledsEnabled: true, headlightsEnabled: true)
+      )]
+    case 8:
+      return [.refloatTelemetry(.init(
+        rideState: .riding, packageState: .running, packageMode: .flywheel,
+        fatalErrorLatched: false
+      ))]
+    case 9:
+      return [.refloatTelemetry(.init(
+        rideState: .idle, packageState: .ready, packageMode: .normal,
+        fatalErrorLatched: false
+      ))]
     default:
       return []
     }
@@ -1953,6 +2022,22 @@ private enum TestError: Error {
 
 private struct IgnoreEvents: EventSink {
   func publish(_: any Sendable) {}
+}
+
+private func waitForSignal(_ semaphore: DispatchSemaphore) async -> Bool {
+  await withCheckedContinuation { continuation in
+    DispatchQueue.global().async {
+      continuation.resume(returning: semaphore.wait(timeout: .now() + 1) == .success)
+    }
+  }
+}
+
+private func waitForCondition(_ condition: @escaping @Sendable () -> Bool) async -> Bool {
+  for _ in 0 ..< 100 {
+    if condition() { return true }
+    try? await Task.sleep(for: .milliseconds(10))
+  }
+  return false
 }
 
 private final class CollectingEvents: EventSink, @unchecked Sendable {

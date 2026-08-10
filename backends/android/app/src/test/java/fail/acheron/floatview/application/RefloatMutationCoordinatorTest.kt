@@ -79,6 +79,7 @@ class RefloatMutationCoordinatorTest {
         assertArrayEquals(byteArrayOf(36, 101, 36, 1), clear.mutation.payload)
         assertEquals(RefloatPendingAction.CLEAR_FATAL_ERROR, clearable.failPending(VescRequestGeneration(2))?.pendingAction)
         assertNull(clearable.failPending(VescRequestGeneration(1))?.pendingAction)
+        assertNull(clearable.failPending(VescRequestGeneration(1)))
     }
 
     @Test fun shutdownSharesIdleFlywheelGenerationAndPendingMutationGates() {

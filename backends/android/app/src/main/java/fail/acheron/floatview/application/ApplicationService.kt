@@ -680,10 +680,20 @@ class ApplicationService(
                             is VescProtocolMessage.RefloatTelemetry -> {
                                 latestRefloatTelemetry = message.value
                                 latestRefloatTelemetryMonotonicMs = clock.monotonicMillis()
+                                val pending = refloatMutations.snapshot()?.pendingAction
+                                val updated = refloatMutations.observeTelemetry(message.value)
+                                if (pending != null && updated?.pendingAction == null) {
+                                    refloatConfiguration.invalidateCurrent()
+                                    finishRefloatMutation(Result.success(updated!!))
+                                }
                                 message.value.packageMode?.let {
                                     if (it == PackageMode.FLYWHEEL) {
-                                        cancelFlywheelProhibitedRequests()
-                                        refloatMutations.failPending(vescGeneration)
+                                        cancelFlywheelProhibitedRequests(
+                                            updated?.pendingAction == RefloatPendingAction.FLYWHEEL,
+                                        )
+                                        if (updated?.pendingAction != null && updated.pendingAction != RefloatPendingAction.FLYWHEEL) {
+                                            failRefloatMutation(vescGeneration)
+                                        }
                                         refloatMutations.clearShutdown(vescGeneration)
                                         refloatMutations.finishConfiguration(vescGeneration)
                                     }
@@ -694,12 +704,6 @@ class ApplicationService(
                                 vescRequests.resume()
                                 deferredResumed = true
                                 telemetryPolling.receive(message.value)
-                                val pending = refloatMutations.snapshot()?.pendingAction
-                                val updated = refloatMutations.observeTelemetry(message.value)
-                                if (pending != null && updated?.pendingAction == null) {
-                                    refloatConfiguration.invalidateCurrent()
-                                    finishRefloatMutation(Result.success(updated!!))
-                                }
                             }
                             is VescProtocolMessage.RefloatLighting -> {
                                 val pending = refloatMutations.snapshot()?.pendingAction
@@ -772,11 +776,11 @@ class ApplicationService(
         }
     }
 
-    private fun cancelFlywheelProhibitedRequests() {
+    private fun cancelFlywheelProhibitedRequests(preservingRefloatControl: Boolean) {
         vescRequests.cancelMatching(
             predicate = { context ->
                 when (context) {
-                    is VescRequestContext.RefloatControl,
+                    is VescRequestContext.RefloatControl -> !preservingRefloatControl
                     is VescRequestContext.ControllerShutdown,
                     is VescRequestContext.RefloatConfigurationWrite,
                     is VescRequestContext.RefloatConfigurationVerification,

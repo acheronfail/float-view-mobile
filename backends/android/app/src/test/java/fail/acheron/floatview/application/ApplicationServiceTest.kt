@@ -1,8 +1,13 @@
 package fail.acheron.floatview.application
 
 import fail.acheron.floatview.protocol.refloat.RefloatCompatibility
+import fail.acheron.floatview.protocol.refloat.RefloatBooleanControl
 import fail.acheron.floatview.protocol.vesc.ControllerRoute
 import java.time.Instant
+import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -941,6 +946,68 @@ class ApplicationServiceTest {
     }
 
     @Test
+    fun `flywheel transitions confirm before mode cleanup`() {
+        val bluetooth = FakeBluetooth()
+        val events = CopyOnWriteArrayList<Any>()
+        val scheduler = FakeScheduler()
+        val service = ApplicationService(
+            bluetooth, FakeClock(), FakeStore(), protocol = TelemetryProtocol(), scheduler = scheduler,
+        ) { events += it }
+        val id = DeviceId("flywheel-fixture")
+        service.onBluetoothEvent(BluetoothEvent.DeviceFound(id, "THOR300", -40))
+        service.connect(id)
+        service.onBluetoothEvent(BluetoothEvent.ConnectionChanged(id, ConnectionState.READY))
+        listOf(1, 2, 3, 5).forEach {
+            service.onBluetoothEvent(BluetoothEvent.Notification(id, byteArrayOf(it.toByte())))
+        }
+        scheduler.fireOneShots(1_000)
+        service.onBluetoothEvent(BluetoothEvent.Notification(id, byteArrayOf(7)))
+        assertEquals(
+            "writes=${bluetooth.writes.map(ByteArray::toList)} controls=${service.activeConnectionSnapshot()?.refloatControls}",
+            RefloatControlStatus.READY,
+            service.activeConnectionSnapshot()?.refloatControls?.status,
+        )
+
+        val executor = Executors.newSingleThreadExecutor()
+        try {
+            val enableSent = CountDownLatch(1)
+            bluetooth.onWrite = { enableSent.countDown() }
+            val enable = executor.submit<RefloatControls> {
+                service.setRefloatControl(RefloatBooleanControl.FLYWHEEL, true)
+            }
+            assertTrue(enableSent.await(1, TimeUnit.SECONDS))
+            bluetooth.onWrite = null
+            scheduler.fireRepeating(scheduler.repeatingIntervals.lastIndex)
+            service.onBluetoothEvent(BluetoothEvent.Notification(id, byteArrayOf(8)))
+            assertEquals(true, service.activeConnectionSnapshot()?.refloatControls?.flywheelEnabled)
+            assertNull(service.activeConnectionSnapshot()?.refloatControls?.pendingAction)
+            assertEquals(true, enable.get(1, TimeUnit.SECONDS).flywheelEnabled)
+
+            val disableSent = CountDownLatch(1)
+            bluetooth.onWrite = { disableSent.countDown() }
+            val disable = executor.submit<RefloatControls> {
+                service.setRefloatControl(RefloatBooleanControl.FLYWHEEL, false)
+            }
+            assertTrue(waitForCondition {
+                service.activeConnectionSnapshot()?.refloatControls?.pendingAction == RefloatPendingAction.FLYWHEEL
+            })
+            service.onBluetoothEvent(BluetoothEvent.Notification(id, byteArrayOf(8)))
+            assertEquals(RefloatPendingAction.FLYWHEEL, service.activeConnectionSnapshot()?.refloatControls?.pendingAction)
+            assertTrue(disableSent.await(1, TimeUnit.SECONDS))
+            bluetooth.onWrite = null
+            assertFalse(disable.isDone)
+            scheduler.fireRepeating(scheduler.repeatingIntervals.lastIndex)
+            service.onBluetoothEvent(BluetoothEvent.Notification(id, byteArrayOf(9)))
+            val disabled = disable.get(1, TimeUnit.SECONDS)
+            assertEquals(false, disabled.flywheelEnabled)
+            assertNull(disabled.pendingAction)
+            assertFalse(events.filterIsInstance<String>().contains("refloat_control_confirmation_timeout"))
+        } finally {
+            executor.shutdownNow()
+        }
+    }
+
+    @Test
     fun `refloat telemetry keeps riding probe rate through post ride tail`() {
         val bluetooth = FakeBluetooth()
         val scheduler = FakeScheduler()
@@ -1181,6 +1248,7 @@ class ApplicationServiceTest {
         val connected = mutableListOf<DeviceId>()
         val disconnected = mutableListOf<DeviceId>()
         val writes = mutableListOf<ByteArray>()
+        var onWrite: ((ByteArray) -> Unit)? = null
         override fun currentState() = BluetoothState(
             BluetoothRadioState.POWERED_ON,
             BluetoothPermissionState.GRANTED,
@@ -1190,7 +1258,7 @@ class ApplicationServiceTest {
         override fun startDiscovery() { startCount++ }
         override fun stopDiscovery() { stopCount++ }
         override fun connect(deviceId: DeviceId) { connected += deviceId }
-        override fun write(deviceId: DeviceId, bytes: ByteArray) { writes += bytes }
+        override fun write(deviceId: DeviceId, bytes: ByteArray) { writes += bytes; onWrite?.invoke(bytes) }
         override fun disconnect(deviceId: DeviceId) { disconnected += deviceId }
     }
 
@@ -1295,6 +1363,8 @@ class ApplicationServiceTest {
                         RefloatTelemetryRecord(
                             rideState = RideState.IDLE,
                             packageState = PackageState.READY,
+                            packageMode = PackageMode.NORMAL,
+                            fatalErrorLatched = false,
                             footpadState = FootpadState.NONE,
                             packVoltageV = 64.0,
                             dutyCycle = 0.0,
@@ -1304,6 +1374,32 @@ class ApplicationServiceTest {
                             batteryCurrentA = 0.0,
                             erpm = 0.0,
                             speedKph = 0.0,
+                        ),
+                    ),
+                )
+                7 -> listOf(
+                    VescProtocolMessage.RefloatLighting(
+                        fail.acheron.floatview.protocol.refloat.RefloatCommand.STABLE_LIGHTS,
+                        fail.acheron.floatview.protocol.refloat.RefloatLightingState(true, true),
+                    ),
+                )
+                8 -> listOf(
+                    VescProtocolMessage.RefloatTelemetry(
+                        RefloatTelemetryRecord(
+                            rideState = RideState.RIDING,
+                            packageState = PackageState.RUNNING,
+                            packageMode = PackageMode.FLYWHEEL,
+                            fatalErrorLatched = false,
+                        ),
+                    ),
+                )
+                9 -> listOf(
+                    VescProtocolMessage.RefloatTelemetry(
+                        RefloatTelemetryRecord(
+                            rideState = RideState.IDLE,
+                            packageState = PackageState.READY,
+                            packageMode = PackageMode.NORMAL,
+                            fatalErrorLatched = false,
                         ),
                     ),
                 )
@@ -1446,6 +1542,14 @@ class ApplicationServiceTest {
                 )
                 else -> emptyList()
             }
+    }
+
+    private fun waitForCondition(condition: () -> Boolean): Boolean {
+        repeat(100) {
+            if (condition()) return true
+            Thread.sleep(10)
+        }
+        return false
     }
 
     private class FakeScheduler : SchedulerPort {

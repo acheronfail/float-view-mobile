@@ -377,7 +377,8 @@ public final class DeviceMutationCoordinator: @unchecked Sendable {
 
   public func failPending(generation: VescRequestGeneration) -> RefloatControls? {
     lock.withLock {
-      guard generation == self.generation, var current = controls else { return controls }
+      guard generation == self.generation else { return controls }
+      guard var current = controls, current.pendingAction != nil else { return nil }
       current.pendingAction = nil
       pendingExpected = nil
       controls = current

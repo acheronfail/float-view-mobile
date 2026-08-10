@@ -103,6 +103,7 @@ func controlOwnerFailsClosed() throws {
   #expect(clear.payload == [36, 101, 36, 1])
   #expect(clearable.failPending(generation: .init(rawValue: 2))?.pendingAction == .clearFatalError)
   #expect(clearable.failPending(generation: .init(rawValue: 1))?.pendingAction == nil)
+  #expect(clearable.failPending(generation: .init(rawValue: 1)) == nil)
 }
 
 @Test("shutdown shares idle, flywheel, generation, and one-pending-mutation gates")

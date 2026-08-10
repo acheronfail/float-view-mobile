@@ -774,10 +774,20 @@ public final class ApplicationService: @unchecked Sendable {
           case let .refloatTelemetry(value):
             latestRefloatTelemetry = value
             latestRefloatTelemetryMonotonicMs = clock.monotonicMilliseconds()
+            let wasPending = refloatMutations.snapshot()?.pendingAction
+            let updated = refloatMutations.observeTelemetry(value)
+            if wasPending != nil, updated?.pendingAction == nil {
+              refloatConfiguration.invalidateCurrent()
+              finishRefloatMutation(.success(updated!))
+            }
             if let mode = value.packageMode {
               if mode == .flywheel {
-                cancelFlywheelProhibitedRequests()
-                _ = refloatMutations.failPending(generation: vescGeneration)
+                cancelFlywheelProhibitedRequests(
+                  preservingRefloatControl: updated?.pendingAction == .flywheel
+                )
+                if let pending = updated?.pendingAction, pending != .flywheel {
+                  failRefloatMutation(generation: vescGeneration)
+                }
                 _ = refloatMutations.clearShutdown(generation: vescGeneration)
                 refloatMutations.finishConfiguration(generation: vescGeneration)
               }
@@ -788,12 +798,6 @@ public final class ApplicationService: @unchecked Sendable {
             vescRequests.resume()
             deferredResumed = true
             telemetryPolling.receive(value)
-            let wasPending = refloatMutations.snapshot()?.pendingAction
-            let updated = refloatMutations.observeTelemetry(value)
-            if wasPending != nil, updated?.pendingAction == nil {
-              refloatConfiguration.invalidateCurrent()
-              finishRefloatMutation(.success(updated!))
-            }
           case let .refloatLighting(_, state):
             let wasPending = refloatMutations.snapshot()?.pendingAction
             let updated = refloatMutations.observeLighting(state)
@@ -858,11 +862,12 @@ public final class ApplicationService: @unchecked Sendable {
     }
   }
 
-  private func cancelFlywheelProhibitedRequests() {
+  private func cancelFlywheelProhibitedRequests(preservingRefloatControl: Bool) {
     vescRequests.cancelMatching({ context in
       switch context {
-      case .refloatControl, .controllerShutdown,
-           .refloatConfigurationWrite, .refloatConfigurationVerification:
+      case .refloatControl:
+        !preservingRefloatControl
+      case .controllerShutdown, .refloatConfigurationWrite, .refloatConfigurationVerification:
         true
       case let .refloatConfigurationValues(_, _, defaults, _): !defaults
       default: false
