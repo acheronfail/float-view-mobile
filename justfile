@@ -11,6 +11,7 @@ rust-bridge-build-tooling-audit:
     catalog='backends/core/bridge-build-catalog.sh'
     apple_helper='backends/core/build-apple-bridge.sh'
     android_helper='backends/core/build-android-bridge.sh'
+    android_gradle='backends/android/app/build.gradle.kts'
     bash -n "$catalog" "$apple_helper" "$android_helper"
     [[ ! -x "$catalog" && -x "$apple_helper" && -x "$android_helper" ]]
     [[ "$(find backends/core -type f \( -name 'build-apple*.sh' -o -name 'build-android*.sh' \) | sort)" == \
@@ -29,6 +30,23 @@ rust-bridge-build-tooling-audit:
         "$bridge_android_jni_prefix" "${bridge_android_symbols[*]}"
     done)"
     [[ "$actual" == "$expected" ]]
+    catalog_identifiers="$(for bridge in frame firmware-identity custom-configuration bms-values controller-data refloat-control; do
+      float_view_select_bridge "$bridge"
+      printf '%s\n' "$bridge_identifier"
+    done)"
+    gradle_identifiers="$(sed -n 's/^        identifier = "\([^"]*\)",$/\1/p' "$android_gradle")"
+    [[ "$gradle_identifiers" == "$catalog_identifiers" ]]
+    [[ "$(rg -c '^data class RustAndroidBridgeSpec\(' "$android_gradle")" == 1 ]]
+    [[ "$(rg -c '^    RustAndroidBridgeSpec\(' "$android_gradle")" == 6 ]]
+    [[ "$(rg -c '^fun registerAndroidRust(Package|Host)Build\(' "$android_gradle")" == 2 ]]
+    [[ "$(rg -c '^fun Exec\.registerRustBridgeInputs\(' "$android_gradle")" == 1 ]]
+    [[ "$(rg -c 'inputs\.files\(' "$android_gradle")" == 1 ]]
+    [[ "$(rg -c 'jniLibs\.srcDir\(' "$android_gradle")" == 2 ]]
+    [[ "$(rg -c 'systemProperty\(spec\.testLibraryProperty' "$android_gradle")" == 1 ]]
+    ! rg -n 'registerAndroidRust(Identity|CustomConfiguration|BmsValues|ControllerData|RefloatControl)Build|val buildAndroidRust[A-Z]' \
+      "$android_gradle"
+    backends/android/gradlew -p backends/android --offline \
+      :app:auditAndroidRustBridgeTasks
     audit_root="$(mktemp -d /private/tmp/float-view-bridge-tooling-audit.XXXXXX)"
     for command in \
       "$apple_helper unknown macosx arm64 Debug $audit_root/apple-unknown" \
@@ -428,7 +446,7 @@ android-rust-audit: android-rust-host
     [[ "$(rg -l '^jni-sys = "=0\.4\.1"$' backends/core -g Cargo.toml)" == \
       'backends/core/android-jni-support/Cargo.toml' ]]
     ! rg -n '^jni[[:space:]]*=' backends/core -g Cargo.toml
-    [[ "$(rg -c 'rustAndroidJniSupportInputs' backends/android/app/build.gradle.kts)" == 13 ]]
+    [[ "$(rg -c 'rustAndroidJniSupportInputs' backends/android/app/build.gradle.kts)" == 2 ]]
     ! rg -n 'jni_sys|JNINativeInterface|functions\.(ExceptionCheck|GetArrayLength|IsSameObject|GetByteArrayRegion|SetByteArrayRegion|SetIntArrayRegion)|AssertUnwindSafe|catch_unwind|unsafe fn environment|fn (references_alias|any_alias|copy_bytes_from_java|copy_bytes_to_java|write_ints|write_metadata|write_length|write_scan_fields)' \
       backends/core/*-android-jni/src/lib.rs
     rg -q 'functions\.ExceptionCheck' backends/core/android-jni-support/src/lib.rs

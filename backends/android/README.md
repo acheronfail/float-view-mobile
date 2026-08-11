@@ -14,9 +14,16 @@ All six JNI crates remain separate. Each depends on its domain crate and the
 protocol-neutral `../core/android-jni-support/` crate for call-scoped JVM
 exception, array, alias, copy, publication, and panic safety. The support owns
 no JNI export or protocol behavior and is the only direct `jni-sys` consumer.
-Gradle selects each bridge by stable bridge
-identifier through the shared allowlisted Android builder in `../core/`, while
-retaining bridge-specific inputs, outputs, libraries, and task names.
+Gradle has one closed typed six-entry integration catalog beside the application
+build. Each entry supplies the stable shell-builder identifier plus the existing
+task suffix, domain/JNI source roots, generated directories, host library, and
+JVM test property. Two generic factories register the twelve Android package
+tasks and six host-test tasks, and the same entries drive JNI source sets, test
+dependencies, runtime properties, merge dependencies, and clean ordering. This
+catalog intentionally remains separate from the shell build catalog: Gradle owns
+task integration metadata, while the shell catalog owns Cargo packages,
+artifacts, and JNI symbols. Adding a later selected bridge requires one entry in
+each relevant catalog rather than another task-registration block.
 
 Production Kotlin lives under
 `app/src/main/java/fail/acheron/floatview/`:

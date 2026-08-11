@@ -60,6 +60,16 @@ remain explicit. JNI export macros, binding generation, and higher-level JNI
 wrappers stay out of scope because the small bridge ABIs differ and the shared
 mechanics do not need another dependency or generated source tree.
 
+Android's application build consumes these six artifacts through one typed
+Gradle integration catalog and two generic task factories. That catalog holds
+only Gradle-owned task suffixes, source inputs, generated directories, host
+library stems, and JVM properties; `bridge-build-catalog.sh` remains the closed
+owner of Cargo packages, native artifact names, diagnostics, and JNI symbols.
+Keeping the two small catalogs explicit avoids generated metadata or shell
+parsing while audits require the same ordered identifier set and the exact
+eighteen public Gradle task names. A later selected bridge adds one entry rather
+than copying package, host, source-set, test, merge, and clean-order blocks.
+
 The shared Apple backend retains only bounded Swift stream storage. Rust scans
 each borrowed region, reports exact consumption boundaries, validates every
 complete frame, and owns outbound encoding without transferring allocator or

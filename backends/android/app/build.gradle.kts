@@ -10,406 +10,203 @@ val rustAndroidJniSupportInputs = files(
     rustCoreDirectory.resolve("android-jni-support/Cargo.toml"),
     fileTree(rustCoreDirectory.resolve("android-jni-support/src")),
 )
-val rustAndroidOutputs = rustCoreDirectory.resolve("target/android/jniLibs")
-val rustHostOutputs = rustCoreDirectory.resolve("target/android/host/debug")
-val rustIdentityAndroidOutputs = rustCoreDirectory.resolve("target/android/identityJniLibs")
-val rustIdentityHostOutputs = rustCoreDirectory.resolve("target/android/identity-host/debug")
-val rustCustomConfigurationAndroidOutputs =
-    rustCoreDirectory.resolve("target/android/customConfigurationJniLibs")
-val rustCustomConfigurationHostOutputs =
-    rustCoreDirectory.resolve("target/android/custom-configuration-host/debug")
-val rustBmsValuesAndroidOutputs =
-    rustCoreDirectory.resolve("target/android/bmsValuesJniLibs")
-val rustBmsValuesHostOutputs =
-    rustCoreDirectory.resolve("target/android/bms-values-host/debug")
-val rustControllerDataAndroidOutputs =
-    rustCoreDirectory.resolve("target/android/controllerDataJniLibs")
-val rustControllerDataHostOutputs =
-    rustCoreDirectory.resolve("target/android/controller-data-host/debug")
-val rustRefloatControlAndroidOutputs =
-    rustCoreDirectory.resolve("target/android/refloatControlJniLibs")
-val rustRefloatControlHostOutputs =
-    rustCoreDirectory.resolve("target/android/refloat-control-host/debug")
-val rustHostLibrary = rustHostOutputs.resolve(
-    if (System.getProperty("os.name").lowercase().contains("mac")) {
-        "libfloat_view_vesc_frame_android_jni.dylib"
-    } else {
-        "libfloat_view_vesc_frame_android_jni.so"
-    }
-)
-val rustIdentityHostLibrary = rustIdentityHostOutputs.resolve(
-    if (System.getProperty("os.name").lowercase().contains("mac")) {
-        "libfloat_view_vesc_firmware_identity_android_jni.dylib"
-    } else {
-        "libfloat_view_vesc_firmware_identity_android_jni.so"
-    }
-)
-val rustCustomConfigurationHostLibrary = rustCustomConfigurationHostOutputs.resolve(
-    if (System.getProperty("os.name").lowercase().contains("mac")) {
-        "libfloat_view_vesc_custom_configuration_android_jni.dylib"
-    } else {
-        "libfloat_view_vesc_custom_configuration_android_jni.so"
-    }
-)
-val rustBmsValuesHostLibrary = rustBmsValuesHostOutputs.resolve(
-    if (System.getProperty("os.name").lowercase().contains("mac")) {
-        "libfloat_view_vesc_bms_values_android_jni.dylib"
-    } else {
-        "libfloat_view_vesc_bms_values_android_jni.so"
-    }
-)
-val rustControllerDataHostLibrary = rustControllerDataHostOutputs.resolve(
-    if (System.getProperty("os.name").lowercase().contains("mac")) {
-        "libfloat_view_vesc_controller_data_android_jni.dylib"
-    } else {
-        "libfloat_view_vesc_controller_data_android_jni.so"
-    }
-)
-val rustRefloatControlHostLibrary = rustRefloatControlHostOutputs.resolve(
-    if (System.getProperty("os.name").lowercase().contains("mac")) {
-        "libfloat_view_refloat_control_android_jni.dylib"
-    } else {
-        "libfloat_view_refloat_control_android_jni.so"
-    }
+
+data class RustAndroidBridgeSpec(
+    val identifier: String,
+    val taskSuffix: String,
+    val packageDescription: String,
+    val hostDescription: String,
+    val crateDirectory: String,
+    val androidOutputDirectory: String,
+    val hostOutputDirectory: String,
+    val libraryStem: String,
+    val testLibraryProperty: String,
+) {
+    val jniCrateDirectory = "$crateDirectory-android-jni"
+
+    fun packageTaskName(profile: String) =
+        "buildAndroidRust$taskSuffix${profile.replaceFirstChar(Char::uppercase)}"
+
+    val hostTaskName = "buildAndroidRust${taskSuffix}Host"
+}
+
+val rustAndroidBridges = listOf(
+    RustAndroidBridgeSpec(
+        identifier = "frame",
+        taskSuffix = "",
+        packageDescription = "Builds the four source-owned Android Rust JNI libraries for {profile}.",
+        hostDescription = "Builds the exact source-owned host JNI library used by JVM tests.",
+        crateDirectory = "vesc-frame",
+        androidOutputDirectory = "jniLibs",
+        hostOutputDirectory = "host/debug",
+        libraryStem = "float_view_vesc_frame_android_jni",
+        testLibraryProperty = "floatViewVescFrameJniLibrary",
+    ),
+    RustAndroidBridgeSpec(
+        identifier = "firmware-identity",
+        taskSuffix = "Identity",
+        packageDescription = "Builds the four source-owned Android Rust identity JNI libraries for {profile}.",
+        hostDescription = "Builds the exact source-owned host identity JNI library used by JVM tests.",
+        crateDirectory = "vesc-firmware-identity",
+        androidOutputDirectory = "identityJniLibs",
+        hostOutputDirectory = "identity-host/debug",
+        libraryStem = "float_view_vesc_firmware_identity_android_jni",
+        testLibraryProperty = "floatViewVescFirmwareIdentityJniLibrary",
+    ),
+    RustAndroidBridgeSpec(
+        identifier = "custom-configuration",
+        taskSuffix = "CustomConfiguration",
+        packageDescription = "Builds the four source-owned Android Rust custom-configuration JNI libraries for {profile}.",
+        hostDescription = "Builds the exact source-owned host custom-configuration JNI library used by JVM tests.",
+        crateDirectory = "vesc-custom-configuration",
+        androidOutputDirectory = "customConfigurationJniLibs",
+        hostOutputDirectory = "custom-configuration-host/debug",
+        libraryStem = "float_view_vesc_custom_configuration_android_jni",
+        testLibraryProperty = "floatViewVescCustomConfigurationJniLibrary",
+    ),
+    RustAndroidBridgeSpec(
+        identifier = "bms-values",
+        taskSuffix = "BmsValues",
+        packageDescription = "Builds the four source-owned Android Rust BMS-values JNI libraries for {profile}.",
+        hostDescription = "Builds the exact source-owned host BMS-values JNI library used by JVM tests.",
+        crateDirectory = "vesc-bms-values",
+        androidOutputDirectory = "bmsValuesJniLibs",
+        hostOutputDirectory = "bms-values-host/debug",
+        libraryStem = "float_view_vesc_bms_values_android_jni",
+        testLibraryProperty = "floatViewVescBmsValuesJniLibrary",
+    ),
+    RustAndroidBridgeSpec(
+        identifier = "controller-data",
+        taskSuffix = "ControllerData",
+        packageDescription = "Builds the source-owned Android Rust controller-data JNI libraries for {profile}.",
+        hostDescription = "Builds the exact source-owned host controller-data JNI library used by JVM tests.",
+        crateDirectory = "vesc-controller-data",
+        androidOutputDirectory = "controllerDataJniLibs",
+        hostOutputDirectory = "controller-data-host/debug",
+        libraryStem = "float_view_vesc_controller_data_android_jni",
+        testLibraryProperty = "floatViewVescControllerDataJniLibrary",
+    ),
+    RustAndroidBridgeSpec(
+        identifier = "refloat-control",
+        taskSuffix = "RefloatControl",
+        packageDescription = "Builds the four source-owned Android Rust Refloat-control JNI libraries for {profile}.",
+        hostDescription = "Builds the exact source-owned host Refloat-control JNI library used by JVM tests.",
+        crateDirectory = "refloat-control",
+        androidOutputDirectory = "refloatControlJniLibs",
+        hostOutputDirectory = "refloat-control-host/debug",
+        libraryStem = "float_view_refloat_control_android_jni",
+        testLibraryProperty = "floatViewRefloatControlJniLibrary",
+    ),
 )
 
-fun registerAndroidRustBuild(profile: String) = tasks.register<Exec>(
-    "buildAndroidRust${profile.replaceFirstChar(Char::uppercase)}"
-) {
-    group = "build"
-    description = "Builds the four source-owned Android Rust JNI libraries for $profile."
-    workingDir(rootProject.projectDir)
-    commandLine(
-        rustAndroidHelper.absolutePath,
+fun requireUniqueRustBridgeField(name: String, values: List<String>) {
+    require(values.distinct().size == values.size) {
+        "Android Rust bridge $name values must be unique: $values"
+    }
+}
+
+require(rustAndroidBridges.size == 6) { "Expected exactly six Android Rust bridges." }
+require(
+    rustAndroidBridges.map { it.identifier }.toSet() == setOf(
         "frame",
-        "android-all",
-        profile,
-        rustAndroidOutputs.resolve(profile).absolutePath,
-    )
-    inputs.files(
-        rustAndroidJniSupportInputs,
-        rustCoreDirectory.resolve("Cargo.toml"),
-        rustCoreDirectory.resolve("Cargo.lock"),
-        rustCoreDirectory.resolve("rust-toolchain.toml"),
-        rustCoreDirectory.resolve("vesc-frame/Cargo.toml"),
-        rustCoreDirectory.resolve("vesc-frame-android-jni/Cargo.toml"),
-        fileTree(rustCoreDirectory.resolve("vesc-frame/src")),
-        fileTree(rustCoreDirectory.resolve("vesc-frame-android-jni/src")),
-        rustAndroidHelper,
-        rustBridgeCatalog,
-    )
-    outputs.dir(rustAndroidOutputs.resolve(profile))
-}
-
-val buildAndroidRustDebug = registerAndroidRustBuild("debug")
-val buildAndroidRustRelease = registerAndroidRustBuild("release")
-
-fun registerAndroidRustIdentityBuild(profile: String) = tasks.register<Exec>(
-    "buildAndroidRustIdentity${profile.replaceFirstChar(Char::uppercase)}"
-) {
-    group = "build"
-    description = "Builds the four source-owned Android Rust identity JNI libraries for $profile."
-    workingDir(rootProject.projectDir)
-    commandLine(
-        rustAndroidHelper.absolutePath,
         "firmware-identity",
-        "android-all",
-        profile,
-        rustIdentityAndroidOutputs.resolve(profile).absolutePath,
-    )
-    inputs.files(
-        rustAndroidJniSupportInputs,
-        rustCoreDirectory.resolve("Cargo.toml"),
-        rustCoreDirectory.resolve("Cargo.lock"),
-        rustCoreDirectory.resolve("rust-toolchain.toml"),
-        rustCoreDirectory.resolve("vesc-firmware-identity/Cargo.toml"),
-        rustCoreDirectory.resolve("vesc-firmware-identity-android-jni/Cargo.toml"),
-        fileTree(rustCoreDirectory.resolve("vesc-firmware-identity/src")),
-        fileTree(rustCoreDirectory.resolve("vesc-firmware-identity-android-jni/src")),
-        rustAndroidHelper,
-        rustBridgeCatalog,
-    )
-    outputs.dir(rustIdentityAndroidOutputs.resolve(profile))
-}
-
-val buildAndroidRustIdentityDebug = registerAndroidRustIdentityBuild("debug")
-val buildAndroidRustIdentityRelease = registerAndroidRustIdentityBuild("release")
-
-fun registerAndroidRustCustomConfigurationBuild(profile: String) = tasks.register<Exec>(
-    "buildAndroidRustCustomConfiguration${profile.replaceFirstChar(Char::uppercase)}"
-) {
-    group = "build"
-    description = "Builds the four source-owned Android Rust custom-configuration JNI libraries for $profile."
-    workingDir(rootProject.projectDir)
-    commandLine(
-        rustAndroidHelper.absolutePath,
         "custom-configuration",
-        "android-all",
-        profile,
-        rustCustomConfigurationAndroidOutputs.resolve(profile).absolutePath,
-    )
-    inputs.files(
-        rustAndroidJniSupportInputs,
-        rustCoreDirectory.resolve("Cargo.toml"),
-        rustCoreDirectory.resolve("Cargo.lock"),
-        rustCoreDirectory.resolve("rust-toolchain.toml"),
-        rustCoreDirectory.resolve("vesc-custom-configuration/Cargo.toml"),
-        rustCoreDirectory.resolve("vesc-custom-configuration-android-jni/Cargo.toml"),
-        fileTree(rustCoreDirectory.resolve("vesc-custom-configuration/src")),
-        fileTree(rustCoreDirectory.resolve("vesc-custom-configuration-android-jni/src")),
-        rustAndroidHelper,
-        rustBridgeCatalog,
-    )
-    outputs.dir(rustCustomConfigurationAndroidOutputs.resolve(profile))
-}
-
-val buildAndroidRustCustomConfigurationDebug =
-    registerAndroidRustCustomConfigurationBuild("debug")
-val buildAndroidRustCustomConfigurationRelease =
-    registerAndroidRustCustomConfigurationBuild("release")
-
-fun registerAndroidRustBmsValuesBuild(profile: String) = tasks.register<Exec>(
-    "buildAndroidRustBmsValues${profile.replaceFirstChar(Char::uppercase)}"
-) {
-    group = "build"
-    description = "Builds the four source-owned Android Rust BMS-values JNI libraries for $profile."
-    workingDir(rootProject.projectDir)
-    commandLine(
-        rustAndroidHelper.absolutePath,
         "bms-values",
-        "android-all",
-        profile,
-        rustBmsValuesAndroidOutputs.resolve(profile).absolutePath,
-    )
-    inputs.files(
-        rustAndroidJniSupportInputs,
-        rustCoreDirectory.resolve("Cargo.toml"),
-        rustCoreDirectory.resolve("Cargo.lock"),
-        rustCoreDirectory.resolve("rust-toolchain.toml"),
-        rustCoreDirectory.resolve("vesc-bms-values/Cargo.toml"),
-        rustCoreDirectory.resolve("vesc-bms-values-android-jni/Cargo.toml"),
-        fileTree(rustCoreDirectory.resolve("vesc-bms-values/src")),
-        fileTree(rustCoreDirectory.resolve("vesc-bms-values-android-jni/src")),
-        rustAndroidHelper,
-        rustBridgeCatalog,
-    )
-    outputs.dir(rustBmsValuesAndroidOutputs.resolve(profile))
-}
-
-val buildAndroidRustBmsValuesDebug = registerAndroidRustBmsValuesBuild("debug")
-val buildAndroidRustBmsValuesRelease = registerAndroidRustBmsValuesBuild("release")
-
-fun registerAndroidRustControllerDataBuild(profile: String) = tasks.register<Exec>(
-    "buildAndroidRustControllerData${profile.replaceFirstChar(Char::uppercase)}"
-) {
-    group = "build"
-    description = "Builds the source-owned Android Rust controller-data JNI libraries for $profile."
-    workingDir(rootProject.projectDir)
-    commandLine(
-        rustAndroidHelper.absolutePath,
         "controller-data",
-        "android-all",
-        profile,
-        rustControllerDataAndroidOutputs.resolve(profile).absolutePath,
-    )
-    inputs.files(
-        rustAndroidJniSupportInputs,
-        rustCoreDirectory.resolve("Cargo.toml"),
-        rustCoreDirectory.resolve("Cargo.lock"),
-        rustCoreDirectory.resolve("rust-toolchain.toml"),
-        rustCoreDirectory.resolve("vesc-controller-data/Cargo.toml"),
-        rustCoreDirectory.resolve("vesc-controller-data-android-jni/Cargo.toml"),
-        fileTree(rustCoreDirectory.resolve("vesc-controller-data/src")),
-        fileTree(rustCoreDirectory.resolve("vesc-controller-data-android-jni/src")),
-        rustAndroidHelper,
-        rustBridgeCatalog,
-    )
-    outputs.dir(rustControllerDataAndroidOutputs.resolve(profile))
-}
-
-val buildAndroidRustControllerDataDebug = registerAndroidRustControllerDataBuild("debug")
-val buildAndroidRustControllerDataRelease = registerAndroidRustControllerDataBuild("release")
-
-fun registerAndroidRustRefloatControlBuild(profile: String) = tasks.register<Exec>(
-    "buildAndroidRustRefloatControl${profile.replaceFirstChar(Char::uppercase)}"
-) {
-    group = "build"
-    description = "Builds the four source-owned Android Rust Refloat-control JNI libraries for $profile."
-    workingDir(rootProject.projectDir)
-    commandLine(
-        rustAndroidHelper.absolutePath,
         "refloat-control",
-        "android-all",
-        profile,
-        rustRefloatControlAndroidOutputs.resolve(profile).absolutePath,
     )
-    inputs.files(
+) { "Android Rust bridge identifiers must match the shared shell catalog." }
+requireUniqueRustBridgeField("task suffix", rustAndroidBridges.map { it.taskSuffix })
+requireUniqueRustBridgeField("crate directory", rustAndroidBridges.map { it.crateDirectory })
+requireUniqueRustBridgeField("Android output", rustAndroidBridges.map { it.androidOutputDirectory })
+requireUniqueRustBridgeField("host output", rustAndroidBridges.map { it.hostOutputDirectory })
+requireUniqueRustBridgeField("library stem", rustAndroidBridges.map { it.libraryStem })
+requireUniqueRustBridgeField("test property", rustAndroidBridges.map { it.testLibraryProperty })
+requireUniqueRustBridgeField(
+    "generated output",
+    rustAndroidBridges.flatMap { listOf(it.androidOutputDirectory, it.hostOutputDirectory) },
+)
+
+val rustHostLibraryExtension =
+    if (System.getProperty("os.name").lowercase().contains("mac")) "dylib" else "so"
+
+fun RustAndroidBridgeSpec.androidOutputs() =
+    rustCoreDirectory.resolve("target/android/$androidOutputDirectory")
+
+fun RustAndroidBridgeSpec.hostOutputs() =
+    rustCoreDirectory.resolve("target/android/$hostOutputDirectory")
+
+fun RustAndroidBridgeSpec.hostLibrary() =
+    hostOutputs().resolve("lib$libraryStem.$rustHostLibraryExtension")
+
+fun RustAndroidBridgeSpec.inputFiles() =
+    files(
         rustAndroidJniSupportInputs,
         rustCoreDirectory.resolve("Cargo.toml"),
         rustCoreDirectory.resolve("Cargo.lock"),
         rustCoreDirectory.resolve("rust-toolchain.toml"),
-        rustCoreDirectory.resolve("refloat-control/Cargo.toml"),
-        rustCoreDirectory.resolve("refloat-control-android-jni/Cargo.toml"),
-        fileTree(rustCoreDirectory.resolve("refloat-control/src")),
-        fileTree(rustCoreDirectory.resolve("refloat-control-android-jni/src")),
+        rustCoreDirectory.resolve("$crateDirectory/Cargo.toml"),
+        rustCoreDirectory.resolve("$jniCrateDirectory/Cargo.toml"),
+        fileTree(rustCoreDirectory.resolve("$crateDirectory/src")),
+        fileTree(rustCoreDirectory.resolve("$jniCrateDirectory/src")),
         rustAndroidHelper,
         rustBridgeCatalog,
     )
-    outputs.dir(rustRefloatControlAndroidOutputs.resolve(profile))
+
+fun Exec.registerRustBridgeInputs(spec: RustAndroidBridgeSpec) {
+    inputs.files(spec.inputFiles())
 }
 
-val buildAndroidRustRefloatControlDebug = registerAndroidRustRefloatControlBuild("debug")
-val buildAndroidRustRefloatControlRelease = registerAndroidRustRefloatControlBuild("release")
-val buildAndroidRustHost by tasks.registering(Exec::class) {
-    group = "verification"
-    description = "Builds the exact source-owned host JNI library used by JVM tests."
-    workingDir(rootProject.projectDir)
-    commandLine(
-        rustAndroidHelper.absolutePath,
-        "frame",
-        "host",
-        "debug",
-        rustHostOutputs.absolutePath,
-    )
-    inputs.files(
-        rustAndroidJniSupportInputs,
-        rustCoreDirectory.resolve("Cargo.toml"),
-        rustCoreDirectory.resolve("Cargo.lock"),
-        rustCoreDirectory.resolve("rust-toolchain.toml"),
-        rustCoreDirectory.resolve("vesc-frame/Cargo.toml"),
-        rustCoreDirectory.resolve("vesc-frame-android-jni/Cargo.toml"),
-        fileTree(rustCoreDirectory.resolve("vesc-frame/src")),
-        fileTree(rustCoreDirectory.resolve("vesc-frame-android-jni/src")),
-        rustAndroidHelper,
-        rustBridgeCatalog,
-    )
-    outputs.file(rustHostLibrary)
+fun registerAndroidRustPackageBuild(spec: RustAndroidBridgeSpec, profile: String) =
+    tasks.register<Exec>(spec.packageTaskName(profile)) {
+        group = "build"
+        description = spec.packageDescription.replace("{profile}", profile)
+        workingDir(rootProject.projectDir)
+        commandLine(
+            rustAndroidHelper.absolutePath,
+            spec.identifier,
+            "android-all",
+            profile,
+            spec.androidOutputs().resolve(profile).absolutePath,
+        )
+        registerRustBridgeInputs(spec)
+        outputs.dir(spec.androidOutputs().resolve(profile))
+    }
+
+fun registerAndroidRustHostBuild(spec: RustAndroidBridgeSpec) =
+    tasks.register<Exec>(spec.hostTaskName) {
+        group = "verification"
+        description = spec.hostDescription
+        workingDir(rootProject.projectDir)
+        commandLine(
+            rustAndroidHelper.absolutePath,
+            spec.identifier,
+            "host",
+            "debug",
+            spec.hostOutputs().absolutePath,
+        )
+        registerRustBridgeInputs(spec)
+        outputs.file(spec.hostLibrary())
+    }
+
+val rustAndroidBuildTasks = listOf("debug", "release").associateWith { profile ->
+    rustAndroidBridges.associate { spec ->
+        spec.identifier to registerAndroidRustPackageBuild(spec, profile)
+    }
 }
-val buildAndroidRustIdentityHost by tasks.registering(Exec::class) {
-    group = "verification"
-    description = "Builds the exact source-owned host identity JNI library used by JVM tests."
-    workingDir(rootProject.projectDir)
-    commandLine(
-        rustAndroidHelper.absolutePath,
-        "firmware-identity",
-        "host",
-        "debug",
-        rustIdentityHostOutputs.absolutePath,
-    )
-    inputs.files(
-        rustAndroidJniSupportInputs,
-        rustCoreDirectory.resolve("Cargo.toml"),
-        rustCoreDirectory.resolve("Cargo.lock"),
-        rustCoreDirectory.resolve("rust-toolchain.toml"),
-        rustCoreDirectory.resolve("vesc-firmware-identity/Cargo.toml"),
-        rustCoreDirectory.resolve("vesc-firmware-identity-android-jni/Cargo.toml"),
-        fileTree(rustCoreDirectory.resolve("vesc-firmware-identity/src")),
-        fileTree(rustCoreDirectory.resolve("vesc-firmware-identity-android-jni/src")),
-        rustAndroidHelper,
-        rustBridgeCatalog,
-    )
-    outputs.file(rustIdentityHostLibrary)
+val rustHostBuildTasks = rustAndroidBridges.associate { spec ->
+    spec.identifier to registerAndroidRustHostBuild(spec)
 }
-val buildAndroidRustCustomConfigurationHost by tasks.registering(Exec::class) {
-    group = "verification"
-    description = "Builds the exact source-owned host custom-configuration JNI library used by JVM tests."
-    workingDir(rootProject.projectDir)
-    commandLine(
-        rustAndroidHelper.absolutePath,
-        "custom-configuration",
-        "host",
-        "debug",
-        rustCustomConfigurationHostOutputs.absolutePath,
-    )
-    inputs.files(
-        rustAndroidJniSupportInputs,
-        rustCoreDirectory.resolve("Cargo.toml"),
-        rustCoreDirectory.resolve("Cargo.lock"),
-        rustCoreDirectory.resolve("rust-toolchain.toml"),
-        rustCoreDirectory.resolve("vesc-custom-configuration/Cargo.toml"),
-        rustCoreDirectory.resolve("vesc-custom-configuration-android-jni/Cargo.toml"),
-        fileTree(rustCoreDirectory.resolve("vesc-custom-configuration/src")),
-        fileTree(rustCoreDirectory.resolve("vesc-custom-configuration-android-jni/src")),
-        rustAndroidHelper,
-        rustBridgeCatalog,
-    )
-    outputs.file(rustCustomConfigurationHostLibrary)
+val rustBuildTaskProviders =
+    rustAndroidBuildTasks.values.flatMap { it.values } + rustHostBuildTasks.values
+val expectedRustBuildTaskNames = rustAndroidBridges.flatMap { spec ->
+    listOf(spec.packageTaskName("debug"), spec.packageTaskName("release"), spec.hostTaskName)
+}.toSet()
+
+require(expectedRustBuildTaskNames.size == 18) {
+    "Expected exactly eighteen unique Android Rust bridge task names."
 }
-val buildAndroidRustBmsValuesHost by tasks.registering(Exec::class) {
-    group = "verification"
-    description = "Builds the exact source-owned host BMS-values JNI library used by JVM tests."
-    workingDir(rootProject.projectDir)
-    commandLine(
-        rustAndroidHelper.absolutePath,
-        "bms-values",
-        "host",
-        "debug",
-        rustBmsValuesHostOutputs.absolutePath,
-    )
-    inputs.files(
-        rustAndroidJniSupportInputs,
-        rustCoreDirectory.resolve("Cargo.toml"),
-        rustCoreDirectory.resolve("Cargo.lock"),
-        rustCoreDirectory.resolve("rust-toolchain.toml"),
-        rustCoreDirectory.resolve("vesc-bms-values/Cargo.toml"),
-        rustCoreDirectory.resolve("vesc-bms-values-android-jni/Cargo.toml"),
-        fileTree(rustCoreDirectory.resolve("vesc-bms-values/src")),
-        fileTree(rustCoreDirectory.resolve("vesc-bms-values-android-jni/src")),
-        rustAndroidHelper,
-        rustBridgeCatalog,
-    )
-    outputs.file(rustBmsValuesHostLibrary)
-}
-val buildAndroidRustControllerDataHost by tasks.registering(Exec::class) {
-    group = "verification"
-    description = "Builds the exact source-owned host controller-data JNI library used by JVM tests."
-    workingDir(rootProject.projectDir)
-    commandLine(
-        rustAndroidHelper.absolutePath,
-        "controller-data",
-        "host",
-        "debug",
-        rustControllerDataHostOutputs.absolutePath,
-    )
-    inputs.files(
-        rustAndroidJniSupportInputs,
-        rustCoreDirectory.resolve("Cargo.toml"),
-        rustCoreDirectory.resolve("Cargo.lock"),
-        rustCoreDirectory.resolve("rust-toolchain.toml"),
-        rustCoreDirectory.resolve("vesc-controller-data/Cargo.toml"),
-        rustCoreDirectory.resolve("vesc-controller-data-android-jni/Cargo.toml"),
-        fileTree(rustCoreDirectory.resolve("vesc-controller-data/src")),
-        fileTree(rustCoreDirectory.resolve("vesc-controller-data-android-jni/src")),
-        rustAndroidHelper,
-        rustBridgeCatalog,
-    )
-    outputs.file(rustControllerDataHostLibrary)
-}
-val buildAndroidRustRefloatControlHost by tasks.registering(Exec::class) {
-    group = "verification"
-    description = "Builds the exact source-owned host Refloat-control JNI library used by JVM tests."
-    workingDir(rootProject.projectDir)
-    commandLine(
-        rustAndroidHelper.absolutePath,
-        "refloat-control",
-        "host",
-        "debug",
-        rustRefloatControlHostOutputs.absolutePath,
-    )
-    inputs.files(
-        rustAndroidJniSupportInputs,
-        rustCoreDirectory.resolve("Cargo.toml"),
-        rustCoreDirectory.resolve("Cargo.lock"),
-        rustCoreDirectory.resolve("rust-toolchain.toml"),
-        rustCoreDirectory.resolve("refloat-control/Cargo.toml"),
-        rustCoreDirectory.resolve("refloat-control-android-jni/Cargo.toml"),
-        fileTree(rustCoreDirectory.resolve("refloat-control/src")),
-        fileTree(rustCoreDirectory.resolve("refloat-control-android-jni/src")),
-        rustAndroidHelper,
-        rustBridgeCatalog,
-    )
-    outputs.file(rustRefloatControlHostLibrary)
-}
+
 val cleanAndroidRust by tasks.registering(Delete::class) {
     group = "build"
     description = "Deletes generated host and Android Rust JNI outputs."
@@ -419,24 +216,60 @@ val cleanAndroidRust by tasks.registering(Delete::class) {
 tasks.named("clean") {
     dependsOn(cleanAndroidRust)
 }
-buildAndroidRustDebug.configure { mustRunAfter(tasks.named("clean")) }
-buildAndroidRustRelease.configure { mustRunAfter(tasks.named("clean")) }
-buildAndroidRustHost.configure { mustRunAfter(tasks.named("clean")) }
-buildAndroidRustIdentityDebug.configure { mustRunAfter(tasks.named("clean")) }
-buildAndroidRustIdentityRelease.configure { mustRunAfter(tasks.named("clean")) }
-buildAndroidRustIdentityHost.configure { mustRunAfter(tasks.named("clean")) }
-buildAndroidRustCustomConfigurationDebug.configure { mustRunAfter(tasks.named("clean")) }
-buildAndroidRustCustomConfigurationRelease.configure { mustRunAfter(tasks.named("clean")) }
-buildAndroidRustCustomConfigurationHost.configure { mustRunAfter(tasks.named("clean")) }
-buildAndroidRustBmsValuesDebug.configure { mustRunAfter(tasks.named("clean")) }
-buildAndroidRustBmsValuesRelease.configure { mustRunAfter(tasks.named("clean")) }
-buildAndroidRustBmsValuesHost.configure { mustRunAfter(tasks.named("clean")) }
-buildAndroidRustControllerDataDebug.configure { mustRunAfter(tasks.named("clean")) }
-buildAndroidRustControllerDataRelease.configure { mustRunAfter(tasks.named("clean")) }
-buildAndroidRustControllerDataHost.configure { mustRunAfter(tasks.named("clean")) }
-buildAndroidRustRefloatControlDebug.configure { mustRunAfter(tasks.named("clean")) }
-buildAndroidRustRefloatControlRelease.configure { mustRunAfter(tasks.named("clean")) }
-buildAndroidRustRefloatControlHost.configure { mustRunAfter(tasks.named("clean")) }
+rustBuildTaskProviders.forEach { provider ->
+    provider.configure { mustRunAfter(tasks.named("clean")) }
+}
+
+val auditAndroidRustBridgeTasks by tasks.registering {
+    group = "verification"
+    description = "Audits the closed Android Rust Gradle bridge task catalog."
+    doLast {
+        val actualTaskNames = tasks.names.filter { it.startsWith("buildAndroidRust") }.toSet()
+        require(actualTaskNames == expectedRustBuildTaskNames) {
+            "Android Rust task surface drifted: expected=$expectedRustBuildTaskNames actual=$actualTaskNames"
+        }
+        rustAndroidBridges.forEach { spec ->
+            listOf("debug", "release").forEach { profile ->
+                val task = rustAndroidBuildTasks.getValue(profile).getValue(spec.identifier).get()
+                require(task.group == "build")
+                require(task.description == spec.packageDescription.replace("{profile}", profile))
+                require(
+                    task.commandLine == listOf(
+                        rustAndroidHelper.absolutePath,
+                        spec.identifier,
+                        "android-all",
+                        profile,
+                        spec.androidOutputs().resolve(profile).absolutePath,
+                    )
+                ) { "Android Rust ${spec.identifier} $profile command drifted." }
+                require(task.inputs.files.files == spec.inputFiles().files) {
+                    "Android Rust ${spec.identifier} $profile inputs drifted."
+                }
+                require(task.outputs.files.files == setOf(spec.androidOutputs().resolve(profile))) {
+                    "Android Rust ${spec.identifier} $profile outputs drifted."
+                }
+            }
+            val hostTask = rustHostBuildTasks.getValue(spec.identifier).get()
+            require(hostTask.group == "verification")
+            require(hostTask.description == spec.hostDescription)
+            require(
+                hostTask.commandLine == listOf(
+                    rustAndroidHelper.absolutePath,
+                    spec.identifier,
+                    "host",
+                    "debug",
+                    spec.hostOutputs().absolutePath,
+                )
+            ) { "Android Rust ${spec.identifier} host command drifted." }
+            require(hostTask.inputs.files.files == spec.inputFiles().files) {
+                "Android Rust ${spec.identifier} host inputs drifted."
+            }
+            require(hostTask.outputs.files.files == setOf(spec.hostLibrary())) {
+                "Android Rust ${spec.identifier} host output drifted."
+            }
+        }
+    }
+}
 
 android {
     namespace = "fail.acheron.floatview"
@@ -476,50 +309,17 @@ android {
         getByName("main").assets.srcDir("../../../frontend/build")
         getByName("main").assets.srcDir("../../sql")
         getByName("main").assets.srcDir("../../fixtures")
-        getByName("debug").jniLibs.srcDir(rustAndroidOutputs.resolve("debug"))
-        getByName("release").jniLibs.srcDir(rustAndroidOutputs.resolve("release"))
-        getByName("debug").jniLibs.srcDir(rustIdentityAndroidOutputs.resolve("debug"))
-        getByName("release").jniLibs.srcDir(rustIdentityAndroidOutputs.resolve("release"))
-        getByName("debug").jniLibs.srcDir(rustCustomConfigurationAndroidOutputs.resolve("debug"))
-        getByName("release").jniLibs.srcDir(rustCustomConfigurationAndroidOutputs.resolve("release"))
-        getByName("debug").jniLibs.srcDir(rustBmsValuesAndroidOutputs.resolve("debug"))
-        getByName("release").jniLibs.srcDir(rustBmsValuesAndroidOutputs.resolve("release"))
-        getByName("debug").jniLibs.srcDir(rustControllerDataAndroidOutputs.resolve("debug"))
-        getByName("release").jniLibs.srcDir(rustControllerDataAndroidOutputs.resolve("release"))
-        getByName("debug").jniLibs.srcDir(rustRefloatControlAndroidOutputs.resolve("debug"))
-        getByName("release").jniLibs.srcDir(rustRefloatControlAndroidOutputs.resolve("release"))
+        rustAndroidBridges.forEach { spec ->
+            getByName("debug").jniLibs.srcDir(spec.androidOutputs().resolve("debug"))
+            getByName("release").jniLibs.srcDir(spec.androidOutputs().resolve("release"))
+        }
     }
     testOptions {
         unitTests.all {
-            it.dependsOn(
-                buildAndroidRustHost,
-                buildAndroidRustIdentityHost,
-                buildAndroidRustCustomConfigurationHost,
-                buildAndroidRustBmsValuesHost,
-                buildAndroidRustControllerDataHost,
-                buildAndroidRustRefloatControlHost,
-            )
-            it.systemProperty("floatViewVescFrameJniLibrary", rustHostLibrary.absolutePath)
-            it.systemProperty(
-                "floatViewVescFirmwareIdentityJniLibrary",
-                rustIdentityHostLibrary.absolutePath,
-            )
-            it.systemProperty(
-                "floatViewVescCustomConfigurationJniLibrary",
-                rustCustomConfigurationHostLibrary.absolutePath,
-            )
-            it.systemProperty(
-                "floatViewVescBmsValuesJniLibrary",
-                rustBmsValuesHostLibrary.absolutePath,
-            )
-            it.systemProperty(
-                "floatViewVescControllerDataJniLibrary",
-                rustControllerDataHostLibrary.absolutePath,
-            )
-            it.systemProperty(
-                "floatViewRefloatControlJniLibrary",
-                rustRefloatControlHostLibrary.absolutePath,
-            )
+            it.dependsOn(rustHostBuildTasks.values)
+            rustAndroidBridges.forEach { spec ->
+                it.systemProperty(spec.testLibraryProperty, spec.hostLibrary().absolutePath)
+            }
             it.systemProperty(
                 "floatViewFixtureRoot",
                 rootProject.file("../fixtures").absolutePath,
@@ -530,22 +330,8 @@ android {
 
 tasks.configureEach {
     when (name) {
-        "mergeDebugJniLibFolders" -> dependsOn(
-            buildAndroidRustDebug,
-            buildAndroidRustIdentityDebug,
-            buildAndroidRustCustomConfigurationDebug,
-            buildAndroidRustBmsValuesDebug,
-            buildAndroidRustControllerDataDebug,
-            buildAndroidRustRefloatControlDebug,
-        )
-        "mergeReleaseJniLibFolders" -> dependsOn(
-            buildAndroidRustRelease,
-            buildAndroidRustIdentityRelease,
-            buildAndroidRustCustomConfigurationRelease,
-            buildAndroidRustBmsValuesRelease,
-            buildAndroidRustControllerDataRelease,
-            buildAndroidRustRefloatControlRelease,
-        )
+        "mergeDebugJniLibFolders" -> dependsOn(rustAndroidBuildTasks.getValue("debug").values)
+        "mergeReleaseJniLibFolders" -> dependsOn(rustAndroidBuildTasks.getValue("release").values)
     }
 }
 
