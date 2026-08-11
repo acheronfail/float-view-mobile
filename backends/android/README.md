@@ -10,6 +10,11 @@ bounded caller-owned storage, primitive-result validation, error mapping,
 observation-time attachment, and the remaining VESC, BMS application, and
 Refloat semantics. Apple integration is unchanged; there is no generated API
 or Gradle module per capability.
+The firmware-identity domain crate also owns the single platform-neutral
+version-1 record layout and serialization used by both host families. Its JNI
+crate retains only the independent two-symbol boundary, call-local array
+validation and copies, fixed status/metadata mapping, and caller-owned
+publication; Kotlin loading and model validation remain explicit here.
 All six JNI crates remain separate. Each depends on its domain crate and the
 protocol-neutral `../core/android-jni-support/` crate for call-scoped JVM
 exception, array, alias, copy, publication, and panic safety. The support owns

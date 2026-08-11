@@ -187,8 +187,10 @@ core-identity-abi-audit: apple-rust-firmware-identity
       printf '%s\n' "$actual" >&2
       exit 1
     }
-    rust_abi="$(sed -n 's/^pub const ABI_VERSION: u32 = \([0-9][0-9]*\);$/\1/p' \
-      backends/core/vesc-firmware-identity-apple-ffi/src/lib.rs)"
+    rust_abi="$(sed -n 's/^pub const RECORD_VERSION: u32 = \([0-9][0-9]*\);$/\1/p' \
+      backends/core/vesc-firmware-identity/src/lib.rs)"
+    rg -q '^pub const ABI_VERSION: u32 = RECORD_VERSION;$' \
+      backends/core/vesc-firmware-identity-apple-ffi/src/lib.rs
     header_abi="$(sed -n 's/^#define FLOAT_VIEW_VESC_FIRMWARE_IDENTITY_ABI_VERSION UINT32_C(\([0-9][0-9]*\))$/\1/p' \
       backends/apple/Sources/CVescFirmwareIdentity/include/CVescFirmwareIdentity.h)"
     swift_abi="$(sed -n 's/^[[:space:]]*private static let expectedABI: UInt32 = \([0-9][0-9]*\)$/\1/p' \
@@ -466,8 +468,10 @@ android-rust-audit: android-rust-host
       echo "Android VESC JNI ABI mismatch: Rust=$rust_abi Kotlin=$kotlin_abi" >&2
       exit 1
     }
-    identity_rust_abi="$(sed -n 's/^pub const ABI_VERSION: jint = \([0-9][0-9]*\);$/\1/p' \
-      backends/core/vesc-firmware-identity-android-jni/src/lib.rs)"
+    identity_rust_abi="$(sed -n 's/^pub const RECORD_VERSION: u32 = \([0-9][0-9]*\);$/\1/p' \
+      backends/core/vesc-firmware-identity/src/lib.rs)"
+    rg -q '^pub const ABI_VERSION: jint = RECORD_VERSION as jint;$' \
+      backends/core/vesc-firmware-identity-android-jni/src/lib.rs
     identity_kotlin_abi="$(sed -n 's/^internal const val VESC_FIRMWARE_IDENTITY_ABI_VERSION = \([0-9][0-9]*\)$/\1/p' \
       backends/android/app/src/main/java/fail/acheron/floatview/protocol/vesc/RustVescFirmwareIdentityBridge.kt)"
     [[ -n "$identity_rust_abi" && "$identity_rust_abi" == "$identity_kotlin_abi" ]] || {
@@ -975,6 +979,26 @@ audit:
     rg -q '^#!\[forbid\(unsafe_code\)\]$' backends/core/vesc-firmware-identity/src/lib.rs
     ! rg -n 'extern[[:space:]]+"C"|no_mangle|cbindgen|uniffi|jni|host_callback' \
       backends/core/vesc-firmware-identity
+    [[ "$(rg -c '^fn encode_record\(' \
+      backends/core/vesc-firmware-identity/src/lib.rs)" == 1 ]]
+    [[ "$(rg -c '^pub fn decode_record\(' \
+      backends/core/vesc-firmware-identity/src/lib.rs)" == 1 ]]
+    ! rg -n 'fn encode_record|struct DecodeResult|FLAG_FIRMWARE_NAME_PRESENT|FLAG_HARDWARE_CRC_PRESENT|pub const (MAX_PAYLOAD_BYTES|RECORD_HEADER_BYTES|MAX_ENCODED_NAME_BYTES|MAX_RECORD_BYTES):' \
+      backends/core/vesc-firmware-identity-apple-ffi/src/lib.rs \
+      backends/core/vesc-firmware-identity-android-jni/src/lib.rs
+    [[ "$(rg -l 'FirmwareIdentityRecordOutcome' \
+      backends/core/vesc-firmware-identity-{apple-ffi,android-jni}/src/lib.rs | wc -l | tr -d ' ')" == 2 ]]
+    [[ "$(rg -l 'decode_record' \
+      backends/core/vesc-firmware-identity-{apple-ffi,android-jni}/src/lib.rs | wc -l | tr -d ' ')" == 2 ]]
+    apple_identity_lines="$(sed '/^#\[cfg(test)\]/,$d' \
+      backends/core/vesc-firmware-identity-apple-ffi/src/lib.rs | wc -l | tr -d ' ')"
+    android_identity_lines="$(sed '/^#\[cfg(test)\]/,$d' \
+      backends/core/vesc-firmware-identity-android-jni/src/lib.rs | wc -l | tr -d ' ')"
+    (( apple_identity_lines + android_identity_lines <= 300 ))
+    [[ "$(rg -c 'core/vesc-firmware-identity/src/lib.rs' \
+      backends/apple/ios/float-view.xcodeproj/project.pbxproj)" == 1 ]]
+    rg -q 'fileTree\(rustCoreDirectory.resolve\("\$crateDirectory/src"\)\)' \
+      backends/android/app/build.gradle.kts
     ! rg -n 'vesc-firmware-identity-apple-ffi|CVescFirmwareIdentity|float_view_vesc_firmware_identity_(abi_version|decode)' \
       backends/android
     ! rg -n 'vesc-custom-configuration-apple-ffi|CVescCustomConfiguration|float_view_vesc_custom_configuration' \

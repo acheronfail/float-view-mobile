@@ -19,9 +19,26 @@ pub const BMS_HARDWARE_TYPE: u8 = 1;
 /// Maximum accepted byte length for either terminated identity name.
 pub const MAX_NAME_BYTES: usize = 64;
 
+/// Version of the platform-neutral firmware-identity bridge record.
+pub const RECORD_VERSION: u32 = 1;
+
+/// Largest structurally valid `COMM_FW_VERSION` payload.
+pub const MAX_PAYLOAD_BYTES: usize = 157;
+
+/// Fixed bytes before the two replacement-decoded UTF-8 names.
+pub const RECORD_HEADER_BYTES: usize = 26;
+
+/// Worst-case UTF-8 bytes after replacement decoding one 64-byte name.
+pub const MAX_ENCODED_NAME_BYTES: usize = MAX_NAME_BYTES * 3;
+
+/// Largest version-1 identity record.
+pub const MAX_RECORD_BYTES: usize = RECORD_HEADER_BYTES + MAX_ENCODED_NAME_BYTES * 2;
+
 const UUID_BYTES: usize = 12;
 const COMMON_BYTES_AFTER_UUID: usize = 4;
 const CAPABILITY_BYTES: usize = 4;
+const FLAG_FIRMWARE_NAME_PRESENT: u8 = 1;
+const FLAG_HARDWARE_CRC_PRESENT: u8 = 2;
 
 /// Structurally decoded firmware identity.
 ///
@@ -95,6 +112,118 @@ impl Display for FirmwareIdentityError {
 }
 
 impl Error for FirmwareIdentityError {}
+
+/// Bounded version-1 byte record consumed by the independent host bridges.
+///
+/// Its diagnostic exposes only the public extent, never identity bytes.
+#[derive(Clone, Eq, PartialEq)]
+pub struct FirmwareIdentityRecord {
+    bytes: Vec<u8>,
+}
+
+impl FirmwareIdentityRecord {
+    /// Borrow the complete canonical byte record.
+    pub fn as_bytes(&self) -> &[u8] {
+        &self.bytes
+    }
+
+    /// Return the complete canonical byte-record extent.
+    pub fn len(&self) -> usize {
+        self.bytes.len()
+    }
+
+    /// The record is never empty, but this completes the ordinary collection API.
+    pub fn is_empty(&self) -> bool {
+        self.bytes.is_empty()
+    }
+}
+
+impl Debug for FirmwareIdentityRecord {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("FirmwareIdentityRecord")
+            .field("length", &self.bytes.len())
+            .finish_non_exhaustive()
+    }
+}
+
+/// Closed platform-neutral result of decoding one payload into a bridge record.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum FirmwareIdentityRecordOutcome {
+    /// The exact bounded version-1 record.
+    Record(FirmwareIdentityRecord),
+    /// The payload contains a command other than `COMM_FW_VERSION`.
+    UnsupportedCommand(u8),
+    /// The payload is missing bytes or violates the strict established layout.
+    StructuralFailure,
+    /// A decoded identity could not fit the fixed record representation.
+    InternalFailure,
+}
+
+/// Decode and serialize exactly one bounded firmware-identity bridge record.
+pub fn decode_record(payload: &[u8]) -> FirmwareIdentityRecordOutcome {
+    match decode(payload) {
+        Ok(identity) => encode_record(&identity),
+        Err(FirmwareIdentityError::UnsupportedCommand(command)) => {
+            FirmwareIdentityRecordOutcome::UnsupportedCommand(command)
+        }
+        Err(FirmwareIdentityError::TruncatedPayload) => {
+            FirmwareIdentityRecordOutcome::StructuralFailure
+        }
+    }
+}
+
+fn encode_record(identity: &FirmwareIdentity) -> FirmwareIdentityRecordOutcome {
+    let hardware_name = identity.hardware_name.as_bytes();
+    let firmware_name = identity
+        .firmware_name
+        .as_deref()
+        .unwrap_or_default()
+        .as_bytes();
+    if hardware_name.len() > MAX_ENCODED_NAME_BYTES || firmware_name.len() > MAX_ENCODED_NAME_BYTES
+    {
+        return FirmwareIdentityRecordOutcome::InternalFailure;
+    }
+    let Ok(hardware_length) = u16::try_from(hardware_name.len()) else {
+        return FirmwareIdentityRecordOutcome::InternalFailure;
+    };
+    let Ok(firmware_length) = u16::try_from(firmware_name.len()) else {
+        return FirmwareIdentityRecordOutcome::InternalFailure;
+    };
+    let mut flags = 0;
+    if identity.firmware_name.is_some() {
+        flags |= FLAG_FIRMWARE_NAME_PRESENT;
+    }
+    if identity.hardware_configuration_crc.is_some() {
+        flags |= FLAG_HARDWARE_CRC_PRESENT;
+    }
+
+    let mut bytes =
+        Vec::with_capacity(RECORD_HEADER_BYTES + hardware_name.len() + firmware_name.len());
+    bytes.extend_from_slice(&[
+        identity.major,
+        identity.minor,
+        identity.test_version,
+        identity.hardware_type,
+        identity.custom_configuration_count,
+        flags,
+    ]);
+    bytes.extend_from_slice(&hardware_length.to_be_bytes());
+    bytes.extend_from_slice(&firmware_length.to_be_bytes());
+    bytes.extend_from_slice(&identity.controller_uuid);
+    bytes.extend_from_slice(
+        &identity
+            .hardware_configuration_crc
+            .unwrap_or_default()
+            .to_be_bytes(),
+    );
+    bytes.extend_from_slice(hardware_name);
+    bytes.extend_from_slice(firmware_name);
+    if bytes.len() > MAX_RECORD_BYTES {
+        return FirmwareIdentityRecordOutcome::InternalFailure;
+    }
+    FirmwareIdentityRecordOutcome::Record(FirmwareIdentityRecord { bytes })
+}
 
 /// Decode exactly one strict `COMM_FW_VERSION` payload.
 ///
@@ -282,6 +411,99 @@ mod tests {
     }
 
     #[test]
+    fn emits_the_existing_stock_and_optional_bridge_records() {
+        let stock = record_bytes(&stock_bms_payload());
+        assert_eq!(stock.len(), RECORD_HEADER_BYTES + 4);
+        assert_eq!(&stock[..10], &[6, 0, 2, 1, 3, 0, 0, 4, 0, 0]);
+        assert_eq!(&stock[10..22], &[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]);
+        assert_eq!(&stock[22..26], &[0, 0, 0, 0]);
+        assert_eq!(&stock[26..], b"VBMS");
+
+        let payload = custom_payload(
+            b"HW",
+            b"FW",
+            [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
+            9,
+            2,
+            7,
+            Some([0x12, 0x34, 0x56, 0x78]),
+        );
+        let optional = record_bytes(&payload);
+        assert_eq!(&optional[..10], &[7, 0, 9, 2, 7, 3, 0, 2, 0, 2]);
+        assert_eq!(&optional[10..22], &[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
+        assert_eq!(&optional[22..26], &[0x12, 0x34, 0x56, 0x78]);
+        assert_eq!(&optional[26..], b"HWFW");
+    }
+
+    #[test]
+    fn emits_exact_replacement_utf8_and_maximum_bounded_record() {
+        let replacement = record_bytes(&custom_payload(
+            &[b'H', 0xff],
+            &[b'F', 0xfe],
+            [0; UUID_BYTES],
+            0,
+            0,
+            0,
+            None,
+        ));
+        assert_eq!(&replacement[..10], &[7, 0, 0, 0, 0, 1, 0, 4, 0, 4]);
+        assert_eq!(&replacement[22..26], &[0, 0, 0, 0]);
+        assert_eq!(&replacement[26..30], "H�".as_bytes());
+        assert_eq!(&replacement[30..34], "F�".as_bytes());
+
+        let maximum = record_bytes(&custom_payload(
+            &[0xff; MAX_NAME_BYTES],
+            &[0xfe; MAX_NAME_BYTES],
+            [0; UUID_BYTES],
+            0,
+            0,
+            0,
+            Some([1, 2, 3, 4]),
+        ));
+        assert_eq!(maximum.len(), MAX_RECORD_BYTES);
+        assert_eq!(&maximum[..10], &[7, 0, 0, 0, 0, 3, 0, 192, 0, 192]);
+        assert_eq!(&maximum[22..26], &[1, 2, 3, 4]);
+        assert_eq!(&maximum[26..29], "�".as_bytes());
+        assert_eq!(&maximum[MAX_RECORD_BYTES - 3..], "�".as_bytes());
+    }
+
+    #[test]
+    fn classifies_record_failures_without_partial_or_private_output() {
+        assert_eq!(
+            decode_record(&[37]),
+            FirmwareIdentityRecordOutcome::UnsupportedCommand(37)
+        );
+        assert_eq!(
+            decode_record(&[COMM_FW_VERSION]),
+            FirmwareIdentityRecordOutcome::StructuralFailure
+        );
+
+        let impossible = FirmwareIdentity {
+            major: 7,
+            minor: 0,
+            hardware_name: "�".repeat(MAX_NAME_BYTES + 1),
+            firmware_name: None,
+            controller_uuid: [0xde; UUID_BYTES],
+            test_version: 0,
+            hardware_type: MOTOR_HARDWARE_TYPE,
+            custom_configuration_count: 0,
+            hardware_configuration_crc: None,
+        };
+        assert_eq!(
+            encode_record(&impossible),
+            FirmwareIdentityRecordOutcome::InternalFailure
+        );
+
+        let diagnostic = format!("{:?}", decode_record(&stock_bms_payload()));
+        assert_eq!(
+            diagnostic,
+            "Record(FirmwareIdentityRecord { length: 30, .. })"
+        );
+        assert!(!diagnostic.contains("VBMS"));
+        assert!(!diagnostic.contains("222"));
+    }
+
+    #[test]
     fn replaces_invalid_utf8_without_relaxing_name_bounds() {
         let identity = decode(&custom_payload(
             &[b'H', 0xff],
@@ -445,6 +667,13 @@ mod tests {
             payload.extend_from_slice(&crc);
         }
         payload
+    }
+
+    fn record_bytes(payload: &[u8]) -> Vec<u8> {
+        let FirmwareIdentityRecordOutcome::Record(record) = decode_record(payload) else {
+            panic!("expected canonical identity record")
+        };
+        record.as_bytes().to_vec()
     }
 
     fn stock_bms_payload() -> Vec<u8> {

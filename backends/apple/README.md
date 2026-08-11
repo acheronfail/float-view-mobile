@@ -15,6 +15,12 @@ scripts. Their protocol-neutral pointer validation, panic containment, and
 bounded output publication come from `../core/apple-ffi-support/`; exported
 symbols, records, headers, archives, domain mappings, and Swift call sites
 remain explicit per bridge, without generated bindings or export macros.
+Firmware-identity record layout and serialization are the exception to record
+ownership: `../core/vesc-firmware-identity/` owns the one platform-neutral
+version-1 record consumed by both host families. Its Apple bridge retains only
+the independent two-symbol C boundary, pointer-region validation, fixed status
+mapping, and caller-owned publication; the header and Swift model mapping stay
+explicit here.
 
 SwiftPM and Xcode use one shared implementation root and two sibling platform
 host roots:

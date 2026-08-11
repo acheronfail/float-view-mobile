@@ -23,7 +23,7 @@ The workspace currently has twenty-one members:
 | `vesc-custom-configuration/` | Safe bounded VESC commands 92–95 envelope encoding and decoding  | Selected by Apple and Android through separate host bridges                                   |
 | `vesc-custom-configuration-apple-ffi/` | Three-symbol caller-owned-buffer C ABI for commands 92–95 | Selected only by the shared iOS/macOS adapter                                                  |
 | `vesc-custom-configuration-android-jni/` | Three-symbol primitive-array JNI ABI for commands 92–95 | Selected only by Android                                                                       |
-| `vesc-firmware-identity/` | Safe bounded `COMM_FW_VERSION` payload decoding                      | Selected by Apple and Android through separate host bridges                                   |
+| `vesc-firmware-identity/` | Safe bounded `COMM_FW_VERSION` decoding and canonical version-1 identity record serialization | Selected by Apple and Android through separate host bridges                                   |
 | `vesc-firmware-identity-apple-ffi/` | Two-symbol caller-owned-buffer C ABI for firmware identity | Selected only by the shared iOS/macOS identity adapter                                        |
 | `vesc-firmware-identity-android-jni/` | Two-symbol primitive-array JNI ABI for firmware identity | Selected only by Android                                                                      |
 | `vesc-frame/`             | Safe bounded VESC CRC, frame encoding/decoding, and stream scanning | Apple and Android select every framing decision                                 |
@@ -78,10 +78,17 @@ separate four-function JNI bridge over the shared support. Rust selects Android 
 Kotlin retains only caller-owned bounded byte storage, mechanical consumption,
 and error mapping without transferring allocator or object lifetime.
 
-The firmware identity component has an empty production dependency graph. Its
-tests use only the existing safe framing crate to unwrap committed framed
-fixtures. Separate Apple and Android bridges depend only on it and their
-minimal host ABI support; neither bridge exposes Rust allocation or layout.
+The firmware identity component has an empty production dependency graph. It
+owns the one bounded platform-neutral identity record, including version,
+layout, flags, bounds, replacement-decoded names, optional CRC, serialization,
+and closed semantic outcome. Its tests use only the existing safe framing crate
+to unwrap committed framed fixtures. Separate Apple and Android bridges depend
+only on it and their minimal host ABI support; neither bridge exposes Rust
+allocation or layout. The bridges retain only explicit C-pointer or call-local
+JNI validation, fixed host status mapping, and caller-owned publication. This
+ordinary shared API reduced their combined production source from 418 to 264
+lines without code generation or export macros; later record families should
+follow this pattern only through their own incremental changes.
 
 The custom-configuration component encodes and decodes the bounded VESC
 commands 92–95 envelope while treating compressed schemas and serialized
