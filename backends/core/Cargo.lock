@@ -38,6 +38,14 @@ name = "float-view-refloat-legacy-telemetry"
 version = "0.1.0"
 
 [[package]]
+name = "float-view-refloat-legacy-telemetry-apple-ffi"
+version = "0.1.0"
+dependencies = [
+ "float-view-apple-ffi-support",
+ "float-view-refloat-legacy-telemetry",
+]
+
+[[package]]
 name = "float-view-vesc-bms-values"
 version = "0.1.0"
 

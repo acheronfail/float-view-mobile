@@ -17,6 +17,12 @@ usage() {
 float_view_select_bridge "$1"
 shift
 
+[[ -n "$bridge_android_package" && -n "$bridge_android_library_stem" &&
+   -n "$bridge_android_jni_prefix" && ${#bridge_android_symbols[@]} -gt 0 ]] || {
+  echo "Rust host bridge $bridge_identifier is unavailable for Android." >&2
+  exit 2
+}
+
 profile_arguments() {
   case "$1" in
     debug) profile='debug'; cargo_release='' ;;

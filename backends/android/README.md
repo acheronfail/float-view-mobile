@@ -8,8 +8,10 @@ firmware-identity structure, commands 92–95 custom-configuration envelopes,
 and command-96 BMS values through separate focused JNI bridges. Kotlin retains
 bounded caller-owned storage, primitive-result validation, error mapping,
 observation-time attachment, and the remaining VESC, BMS application, and
-Refloat semantics. Apple integration is unchanged; there is no generated API
-or Gradle module per capability.
+Refloat semantics, including the selected command-10 legacy telemetry decoder.
+Apple's independent Rust legacy-telemetry selection adds no JNI crate, Gradle
+task, or packaged library here; there is no generated API or Gradle module per
+capability.
 The firmware-identity domain crate also owns the single platform-neutral
 version-1 record layout and serialization used by both host families. Its JNI
 crate retains only the independent two-symbol boundary, call-local array

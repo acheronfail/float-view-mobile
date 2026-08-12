@@ -1,119 +1,229 @@
+import CVescRefloatLegacyTelemetry
 import Foundation
 
+/// Shared Apple adapter for the Rust-owned Refloat command-10 decoder.
 enum RefloatLegacyTelemetryDecoder {
+  private static let expectedABI: UInt32 = 1
+  private static let recordVersion: UInt8 = 1
+  private static let headerBytes = 16
+  private static let sampleBytes = 264
+  private static let activeFaultBytes = 16
+  private static let valueCount = 31
+  private static let knownBehaviorFlags: UInt8 = 0b111
+  private static let knownOptionFlags: UInt16 = 0x0FFF
+
   static func decode(_ payload: [UInt8]) throws -> RefloatTelemetryRecord {
-    guard payload.count >= 4 else { throw VescProtocolError.truncatedPayload }
-    if payload[3] == 69 {
-      guard payload.count == 5 else { throw VescProtocolError.invalidFrame }
-      return RefloatTelemetryRecord(
-        kind: .compact,
-        rideState: .unknown,
-        alertReason: .firmwareFault,
-        firmwareFault: RefloatTelemetryMappings.firmwareFault(payload[4])
-      )
+    try requireCompatibleABI(float_view_refloat_legacy_telemetry_abi_version())
+    var record = [UInt8](repeating: 0, count: sampleBytes)
+    let capacity = record.count
+    var recordLength = 0
+    var unsupportedCommand: UInt8 = 0
+    let status = payload.withUnsafeBytes { payloadBytes in
+      record.withUnsafeMutableBytes { recordBytes in
+        float_view_refloat_legacy_telemetry_decode(
+          payloadBytes.bindMemory(to: UInt8.self).baseAddress,
+          payload.count,
+          recordBytes.bindMemory(to: UInt8.self).baseAddress,
+          capacity,
+          &recordLength,
+          &unsupportedCommand
+        )
+      }
     }
-    let detailLevel = payload[3]
-    guard (1 ... 4).contains(detailLevel) else { throw VescProtocolError.invalidFrame }
-    let required = detailLevel >= 4 ? 59 : (detailLevel >= 3 ? 55 : (detailLevel >= 2 ? 42 : 35))
-    guard payload.count == required else { throw VescProtocolError.truncatedPayload }
-    let signed16: (Int) -> Int = { index in
-      Int(Int16(bitPattern: UInt16(payload[index]) << 8 | UInt16(payload[index + 1])))
+    switch status {
+    case UInt32(FLOAT_VIEW_REFLOAT_LEGACY_TELEMETRY_STATUS_OK):
+      guard recordLength <= record.count else {
+        report("invalid result length")
+        throw VescProtocolError.truncatedPayload
+      }
+      return try telemetry(from: Array(record.prefix(recordLength)))
+    case UInt32(FLOAT_VIEW_REFLOAT_LEGACY_TELEMETRY_STATUS_UNSUPPORTED_ENVELOPE):
+      throw VescProtocolError.unsupportedCommand(unsupportedCommand)
+    case UInt32(FLOAT_VIEW_REFLOAT_LEGACY_TELEMETRY_STATUS_TRUNCATED_PAYLOAD):
+      throw VescProtocolError.truncatedPayload
+    case UInt32(FLOAT_VIEW_REFLOAT_LEGACY_TELEMETRY_STATUS_INVALID_PAYLOAD):
+      throw VescProtocolError.invalidFrame
+    default:
+      report("bridge status \(status)")
+      throw VescProtocolError.truncatedPayload
     }
-    let unsigned32: (Int) -> UInt32 = { index in
-      UInt32(payload[index]) << 24 | UInt32(payload[index + 1]) << 16
-        | UInt32(payload[index + 2]) << 8 | UInt32(payload[index + 3])
+  }
+
+  static func requireCompatibleABI(_ actual: UInt32) throws {
+    guard actual == expectedABI else {
+      report("ABI mismatch")
+      throw VescProtocolError.truncatedPayload
     }
-    let legacyState = payload[10] & 0x0F
-    let switchBits = payload[11] & 0x07
-    let adc1 = Double(payload[12]) / 50
-    let adc2 = Double(payload[13]) / 50
-    let footpad: FootpadState = switch switchBits {
-    case 2: .both
-    case 1: adc1 > adc2 ? .left : .right
-    default: .none
+  }
+
+  static func telemetry(from record: [UInt8]) throws -> RefloatTelemetryRecord {
+    guard record.count >= headerBytes,
+      record[0] == recordVersion,
+      record[14] == 0,
+      record[15] == 0
+    else { throw VescProtocolError.truncatedPayload }
+    switch record[1] {
+    case UInt8(FLOAT_VIEW_REFLOAT_LEGACY_TELEMETRY_RESULT_SAMPLE):
+      return try sample(from: record)
+    case UInt8(FLOAT_VIEW_REFLOAT_LEGACY_TELEMETRY_RESULT_ACTIVE_FIRMWARE_FAULT):
+      return try activeFault(from: record)
+    default:
+      throw VescProtocolError.truncatedPayload
     }
-    let semantic = legacySemanticState(legacyState)
+  }
+
+  private static func sample(from record: [UInt8]) throws -> RefloatTelemetryRecord {
+    guard record.count == sampleBytes,
+      (1...4).contains(record[2]),
+      record[8] & ~knownBehaviorFlags == 0,
+      record[10] == 0,
+      record[11] == 0
+    else { throw VescProtocolError.truncatedPayload }
+    let options = UInt16(record[12]) << 8 | UInt16(record[13])
+    guard options & ~knownOptionFlags == 0 else { throw VescProtocolError.truncatedPayload }
+
+    let packageState: PackageState = try closed(
+      record[3],
+      [
+        1: .startup, 2: .running, 3: .ready, 4: .disabled,
+      ])
+    let packageMode: PackageMode = try closed(
+      record[4],
+      [
+        1: .normal, 2: .handTest, 3: .flywheel,
+      ])
+    let footpadState: FootpadState = try closed(
+      record[5],
+      [
+        1: .none, 2: .left, 3: .right, 4: .both,
+      ])
+    let stopCondition: StopCondition = try closed(
+      record[6],
+      [
+        1: .none, 2: .pitch, 3: .roll, 4: .switchHalf, 5: .switchFull,
+        6: .reverseStop, 7: .quickStop,
+      ])
+    let adjustment: SetpointAdjustment = try closed(
+      record[7],
+      [
+        1: .centering, 2: .reverseStop, 3: .none, 4: .duty,
+        5: .highVoltage, 6: .lowVoltage, 7: .temperature, 8: .unknown,
+      ])
+    let alert: AlertReason = try closed(
+      record[9],
+      [
+        1: .none, 2: .lowVoltage, 3: .highVoltage, 4: .controllerTemperature,
+        5: .motorTemperature, 6: .current, 7: .duty, 8: .sensors,
+        9: .lowBattery, 10: .idle, 11: .error, 12: .speed,
+        13: .cellUnderTemperature, 14: .cellOverTemperature,
+        15: .cellLowVoltage, 16: .cellHighVoltage, 17: .unknown,
+      ])
+
+    var cursor = headerBytes
+    var values: [Double] = []
+    values.reserveCapacity(valueCount)
+    for _ in 0..<valueCount { values.append(try double(from: record, cursor: &cursor)) }
+    guard cursor == record.count else { throw VescProtocolError.truncatedPayload }
+
+    let optionFlags: [UInt16] = [
+      0x001, 0x002, 0x004, 0x008, 0x010, 0x020,
+      0x040, 0x080, 0x100, 0x200, 0x400, 0x800,
+    ]
+    let optionIndexes = [2, 3, 13, 22, 23, 24, 25, 26, 27, 28, 29, 30]
+    for (flag, index) in zip(optionFlags, optionIndexes) {
+      if options & flag == 0, values[index].bitPattern != 0 {
+        throw VescProtocolError.truncatedPayload
+      }
+    }
+    let detail = record[2]
+    let required: UInt16 = detail == 1 ? 0 : detail == 2 ? 0x00B : detail == 3 ? 0x3FB : 0xFFB
+    guard options & required == required,
+      detail >= 2 || options & 0xFFB == 0,
+      detail >= 3 || options & 0xFF0 == 0,
+      detail >= 4 || options & 0xC00 == 0
+    else { throw VescProtocolError.truncatedPayload }
+    func optional(_ index: Int, _ flag: UInt16) -> Double? {
+      options & flag == 0 ? nil : values[index]
+    }
+
     return RefloatTelemetryRecord(
       kind: .compact,
-      rideState: semantic.packageState == .running ? .riding : .idle,
-      packageState: semantic.packageState,
-      packageMode: payload[11] & 0x08 != 0 ? .handTest : (legacyState == 5 ? .flywheel : .normal),
-      footpadState: footpad,
-      stopCondition: semantic.stopCondition,
-      setpointAdjustment: legacySetpointAdjustment(payload[10] >> 4),
-      wheelslip: legacyState == 3,
-      darkride: legacyState == 4,
-      charging: legacyState == 14,
-      alertReason: RefloatTelemetryMappings.alertReason(payload[11] >> 4),
-      packVoltageV: Double(signed16(23)) / 10,
-      dutyCycle: Double(Int(payload[33]) - 128) / 100,
-      controllerTempC: detailLevel >= 2 ? Double(payload[39]) / 2 : nil,
-      motorTempC: detailLevel >= 2 ? Double(payload[40]) / 2 : nil,
-      motorCurrentA: Double(signed16(29)) / 10,
-      batteryCurrentA: Double(signed16(31)) / 10,
-      erpm: Double(signed16(25)),
-      speedKph: Double(signed16(27)) / 10 * 3.6,
-      pitchDeg: Double(signed16(20)) / 10,
-      balancePitchDeg: Double(signed16(6)) / 10,
-      rollDeg: Double(signed16(8)) / 10,
-      requestedBalanceCurrentA: Double(signed16(4)) / 10,
-      boosterCurrentA: Double(Int(payload[22]) - 128),
-      fieldWeakeningCurrentA: Double(payload[34]) / 3,
-      footpadAdc1V: adc1,
-      footpadAdc2V: adc2,
-      setpointDeg: Double(Int(payload[14]) - 128) / 5,
-      atrSetpointDeg: Double(Int(payload[15]) - 128) / 5,
-      brakeTiltSetpointDeg: Double(Int(payload[16]) - 128) / 5,
-      torqueTiltSetpointDeg: Double(Int(payload[17]) - 128) / 5,
-      turnTiltSetpointDeg: Double(Int(payload[18]) - 128) / 5,
-      remoteSetpointDeg: Double(Int(payload[19]) - 128) / 5,
-      distanceM: detailLevel >= 2 ? decodeFloat32(payload, 35) : nil,
-      odometerM: detailLevel >= 3 ? Double(unsigned32(42)) : nil,
-      ampHoursDrawnAh: detailLevel >= 3 ? Double(signed16(46)) / 10 : nil,
-      ampHoursChargedAh: detailLevel >= 3 ? Double(signed16(48)) / 10 : nil,
-      wattHoursDrawnWh: detailLevel >= 3 ? Double(signed16(50)) : nil,
-      wattHoursChargedWh: detailLevel >= 3 ? Double(signed16(52)) : nil,
-      batteryLevel: detailLevel >= 3 ? Double(payload[54]) / 200 : nil,
-      chargingCurrentA: detailLevel >= 4 ? Double(signed16(55)) / 10 : nil,
-      chargingVoltageV: detailLevel >= 4 ? Double(signed16(57)) / 10 : nil
+      rideState: packageState == .running ? .riding : .idle,
+      packageState: packageState,
+      packageMode: packageMode,
+      footpadState: footpadState,
+      stopCondition: stopCondition,
+      setpointAdjustment: adjustment,
+      wheelslip: record[8] & 0x01 != 0,
+      darkride: record[8] & 0x02 != 0,
+      charging: record[8] & 0x04 != 0,
+      alertReason: alert,
+      packVoltageV: values[0], dutyCycle: values[1],
+      controllerTempC: optional(2, 0x001), motorTempC: optional(3, 0x002),
+      motorCurrentA: values[4], batteryCurrentA: values[5], erpm: values[6],
+      speedKph: values[7], pitchDeg: values[8], balancePitchDeg: values[9],
+      rollDeg: values[10], requestedBalanceCurrentA: values[11],
+      boosterCurrentA: values[12], fieldWeakeningCurrentA: optional(13, 0x004),
+      footpadAdc1V: values[14], footpadAdc2V: values[15],
+      setpointDeg: values[16], atrSetpointDeg: values[17],
+      brakeTiltSetpointDeg: values[18], torqueTiltSetpointDeg: values[19],
+      turnTiltSetpointDeg: values[20], remoteSetpointDeg: values[21],
+      distanceM: optional(22, 0x008), odometerM: optional(23, 0x010),
+      ampHoursDrawnAh: optional(24, 0x020), ampHoursChargedAh: optional(25, 0x040),
+      wattHoursDrawnWh: optional(26, 0x080), wattHoursChargedWh: optional(27, 0x100),
+      batteryLevel: optional(28, 0x200), chargingCurrentA: optional(29, 0x400),
+      chargingVoltageV: optional(30, 0x800)
     )
   }
 
-  private static func decodeFloat32(_ payload: [UInt8], _ index: Int) -> Double {
-    let bits =
-      UInt32(payload[index]) << 24 | UInt32(payload[index + 1]) << 16
-        | UInt32(payload[index + 2]) << 8 | UInt32(payload[index + 3])
-    return Double(Float(bitPattern: bits))
+  private static func activeFault(from record: [UInt8]) throws -> RefloatTelemetryRecord {
+    guard record.count == activeFaultBytes,
+      record[2..<10].allSatisfy({ $0 == 0 }),
+      record[11] != 0,
+      record[12] == 0,
+      record[13] == 0
+    else { throw VescProtocolError.truncatedPayload }
+    let faults: [UInt8: FirmwareFault] = [
+      1: .overVoltage, 2: .underVoltage, 3: .driver, 4: .absoluteOverCurrent,
+      5: .controllerOverTemperature, 6: .motorOverTemperature,
+      7: .gateDriverOverVoltage, 8: .gateDriverUnderVoltage, 9: .mcuUnderVoltage,
+      10: .watchdogReset, 11: .encoderSpi, 12: .encoderSinCosBelowMinimum,
+      13: .encoderSinCosAboveMaximum, 14: .flashCorruption, 15: .currentSensorOffset1,
+      16: .currentSensorOffset2, 17: .currentSensorOffset3, 18: .unbalancedCurrents,
+      19: .brake, 20: .resolverLossOfTracking, 21: .resolverDegradationOfSignal,
+      22: .resolverLossOfSignal, 23: .appConfigFlashCorruption,
+      24: .motorConfigFlashCorruption, 25: .encoderNoMagnet,
+      26: .encoderMagnetTooStrong, 27: .phaseFilter, 28: .unknown,
+    ]
+    guard let fault = faults[record[10]],
+      (record[10] == 28) == (record[11] > 27)
+    else { throw VescProtocolError.truncatedPayload }
+    return RefloatTelemetryRecord(
+      kind: .compact, rideState: .unknown, alertReason: .firmwareFault,
+      firmwareFault: fault
+    )
   }
 
-  private static func legacySetpointAdjustment(_ value: UInt8) -> SetpointAdjustment {
-    switch value {
-    case 0: .centering
-    case 1: .reverseStop
-    case 2: .none
-    case 3: .duty
-    case 4: .highVoltage
-    case 5: .lowVoltage
-    case 6: .temperature
-    default: .unknown
-    }
+  private static func closed<T>(_ code: UInt8, _ values: [UInt8: T]) throws -> T {
+    guard let value = values[code] else { throw VescProtocolError.truncatedPayload }
+    return value
   }
 
-  private static func legacySemanticState(
-    _ value: UInt8
-  ) -> (packageState: PackageState, stopCondition: StopCondition) {
-    switch value {
-    case 0: (.startup, .none)
-    case 1 ... 5: (.running, .none)
-    case 6: (.ready, .pitch)
-    case 7: (.ready, .roll)
-    case 8: (.ready, .switchHalf)
-    case 9: (.ready, .switchFull)
-    case 12: (.ready, .reverseStop)
-    case 13: (.ready, .quickStop)
-    case 14: (.ready, .none)
-    case 15: (.disabled, .none)
-    default: (.ready, .none)
+  private static func double(from record: [UInt8], cursor: inout Int) throws -> Double {
+    guard cursor <= record.count - MemoryLayout<UInt64>.size else {
+      throw VescProtocolError.truncatedPayload
     }
+    var bits: UInt64 = 0
+    for byte in record[cursor..<cursor + MemoryLayout<UInt64>.size] {
+      bits = bits << 8 | UInt64(byte)
+    }
+    cursor += MemoryLayout<UInt64>.size
+    let value = Double(bitPattern: bits)
+    guard value.isFinite else { throw VescProtocolError.truncatedPayload }
+    return value
+  }
+
+  private static func report(_ reason: String) {
+    print("[FloatView] Rust Refloat legacy telemetry decode failed (\(reason))")
   }
 }

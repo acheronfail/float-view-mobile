@@ -14,8 +14,44 @@ pub const REFLOAT_PACKAGE_ID: u8 = 101;
 pub const GET_ALL_DATA_COMMAND: u8 = 10;
 pub const ACTIVE_FIRMWARE_FAULT_FORM: u8 = 69;
 
+/// Version of the platform-neutral legacy telemetry bridge record.
+pub const RECORD_VERSION: u32 = 1;
+/// Maximum accepted unframed command-10 payload extent.
+pub const MAX_PAYLOAD_BYTES: usize = 59;
+/// Fixed header shared by sample and active-fault records.
+pub const RECORD_HEADER_BYTES: usize = 16;
+/// Exact extent of a successful sample record.
+pub const SAMPLE_RECORD_BYTES: usize = RECORD_HEADER_BYTES + 31 * size_of::<f64>();
+/// Exact extent of a successful active-fault record.
+pub const ACTIVE_FAULT_RECORD_BYTES: usize = RECORD_HEADER_BYTES;
+/// Maximum extent of any version-1 record.
+pub const MAX_RECORD_BYTES: usize = SAMPLE_RECORD_BYTES;
+
+pub const RESULT_SAMPLE: u8 = 1;
+pub const RESULT_ACTIVE_FIRMWARE_FAULT: u8 = 2;
+
+pub const FLAG_WHEELSLIP: u8 = 1 << 0;
+pub const FLAG_DARKRIDE: u8 = 1 << 1;
+pub const FLAG_CHARGING: u8 = 1 << 2;
+
+pub const OPTION_CONTROLLER_TEMP: u16 = 1 << 0;
+pub const OPTION_MOTOR_TEMP: u16 = 1 << 1;
+pub const OPTION_FIELD_WEAKENING: u16 = 1 << 2;
+pub const OPTION_DISTANCE: u16 = 1 << 3;
+pub const OPTION_ODOMETER: u16 = 1 << 4;
+pub const OPTION_AMP_HOURS_DRAWN: u16 = 1 << 5;
+pub const OPTION_AMP_HOURS_CHARGED: u16 = 1 << 6;
+pub const OPTION_WATT_HOURS_DRAWN: u16 = 1 << 7;
+pub const OPTION_WATT_HOURS_CHARGED: u16 = 1 << 8;
+pub const OPTION_BATTERY_LEVEL: u16 = 1 << 9;
+pub const OPTION_CHARGING_CURRENT: u16 = 1 << 10;
+pub const OPTION_CHARGING_VOLTAGE: u16 = 1 << 11;
+pub const ALL_OPTION_FLAGS: u16 = (1 << 12) - 1;
+
 const DETAIL_LENGTHS: [usize; 4] = [35, 42, 55, 59];
 const FIELD_WEAKENING_UNAVAILABLE: u8 = 222;
+
+use std::mem::size_of;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum PackageState {
@@ -195,6 +231,49 @@ pub enum LegacyTelemetryError {
     InvalidPayload,
 }
 
+/// One bounded canonical record whose storage never crosses a host boundary.
+#[derive(Clone, Copy, PartialEq)]
+pub struct LegacyTelemetryRecord {
+    bytes: [u8; MAX_RECORD_BYTES],
+    length: usize,
+}
+
+impl LegacyTelemetryRecord {
+    pub fn as_bytes(&self) -> &[u8] {
+        &self.bytes[..self.length]
+    }
+
+    pub fn len(&self) -> usize {
+        self.length
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.length == 0
+    }
+}
+
+impl Debug for LegacyTelemetryRecord {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("LegacyTelemetryRecord")
+            .field("length", &self.length)
+            .finish_non_exhaustive()
+    }
+}
+
+/// Closed result used by independent host-boundary adapters.
+#[derive(Clone, Copy, Debug, PartialEq)]
+// Boxing the fixed record would add allocation ownership to a temporary host
+// boundary; the complete enum remains below the audited 512-byte limit.
+#[allow(clippy::large_enum_variant)]
+pub enum LegacyTelemetryRecordOutcome {
+    Record(LegacyTelemetryRecord),
+    UnsupportedEnvelope(u8),
+    TruncatedPayload,
+    InvalidPayload,
+    InternalFailure,
+}
+
 impl Display for LegacyTelemetryError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
         match self {
@@ -312,6 +391,235 @@ pub fn decode(payload: &[u8]) -> Result<LegacyTelemetry, LegacyTelemetryError> {
         charging_current_a: (form >= 4).then(|| f64::from(read_i16(payload, 55)) / 10.0),
         charging_voltage_v: (form >= 4).then(|| f64::from(read_i16(payload, 57)) / 10.0),
     }))
+}
+
+/// Decode and serialize one canonical platform-neutral bridge record.
+pub fn decode_record(payload: &[u8]) -> LegacyTelemetryRecordOutcome {
+    match decode(payload) {
+        Ok(telemetry) => encode_record(telemetry),
+        Err(LegacyTelemetryError::UnsupportedEnvelope) => {
+            LegacyTelemetryRecordOutcome::UnsupportedEnvelope(
+                payload.first().copied().unwrap_or_default(),
+            )
+        }
+        Err(LegacyTelemetryError::TruncatedPayload) => {
+            LegacyTelemetryRecordOutcome::TruncatedPayload
+        }
+        Err(LegacyTelemetryError::InvalidPayload) => LegacyTelemetryRecordOutcome::InvalidPayload,
+    }
+}
+
+fn encode_record(telemetry: LegacyTelemetry) -> LegacyTelemetryRecordOutcome {
+    let mut bytes = [0_u8; MAX_RECORD_BYTES];
+    bytes[0] = RECORD_VERSION as u8;
+    match telemetry {
+        LegacyTelemetry::ActiveFirmwareFault(value) => {
+            if value.raw_code == 0 {
+                return LegacyTelemetryRecordOutcome::InternalFailure;
+            }
+            bytes[1] = RESULT_ACTIVE_FIRMWARE_FAULT;
+            bytes[10] = firmware_fault_record_code(value.fault);
+            bytes[11] = value.raw_code;
+            LegacyTelemetryRecordOutcome::Record(LegacyTelemetryRecord {
+                bytes,
+                length: ACTIVE_FAULT_RECORD_BYTES,
+            })
+        }
+        LegacyTelemetry::Sample(value) => encode_sample_record(value, bytes),
+    }
+}
+
+fn encode_sample_record(
+    value: LegacySample,
+    mut bytes: [u8; MAX_RECORD_BYTES],
+) -> LegacyTelemetryRecordOutcome {
+    if !(1..=4).contains(&value.detail_level) {
+        return LegacyTelemetryRecordOutcome::InternalFailure;
+    }
+    bytes[1] = RESULT_SAMPLE;
+    bytes[2] = value.detail_level;
+    bytes[3] = package_state_code(value.package_state);
+    bytes[4] = package_mode_code(value.package_mode);
+    bytes[5] = footpad_state_code(value.footpad_state);
+    bytes[6] = stop_condition_code(value.stop_condition);
+    bytes[7] = setpoint_adjustment_code(value.setpoint_adjustment);
+    bytes[8] = (u8::from(value.wheelslip) * FLAG_WHEELSLIP)
+        | (u8::from(value.darkride) * FLAG_DARKRIDE)
+        | (u8::from(value.charging) * FLAG_CHARGING);
+    bytes[9] = alert_reason_code(value.alert_reason);
+
+    let optional_values = [
+        (OPTION_CONTROLLER_TEMP, value.controller_temp_c),
+        (OPTION_MOTOR_TEMP, value.motor_temp_c),
+        (OPTION_FIELD_WEAKENING, value.field_weakening_current_a),
+        (OPTION_DISTANCE, value.distance_m),
+        (OPTION_ODOMETER, value.odometer_m),
+        (OPTION_AMP_HOURS_DRAWN, value.amp_hours_drawn_ah),
+        (OPTION_AMP_HOURS_CHARGED, value.amp_hours_charged_ah),
+        (OPTION_WATT_HOURS_DRAWN, value.watt_hours_drawn_wh),
+        (OPTION_WATT_HOURS_CHARGED, value.watt_hours_charged_wh),
+        (OPTION_BATTERY_LEVEL, value.battery_level),
+        (OPTION_CHARGING_CURRENT, value.charging_current_a),
+        (OPTION_CHARGING_VOLTAGE, value.charging_voltage_v),
+    ];
+    let option_flags = optional_values.iter().fold(0_u16, |flags, (flag, value)| {
+        flags | value.map_or(0, |_| *flag)
+    });
+    bytes[12..14].copy_from_slice(&option_flags.to_be_bytes());
+
+    let values = [
+        Some(value.pack_voltage_v),
+        Some(value.duty_cycle),
+        value.controller_temp_c,
+        value.motor_temp_c,
+        Some(value.motor_current_a),
+        Some(value.battery_current_a),
+        Some(value.erpm),
+        Some(value.speed_kph),
+        Some(value.pitch_deg),
+        Some(value.balance_pitch_deg),
+        Some(value.roll_deg),
+        Some(value.requested_balance_current_a),
+        Some(value.booster_current_a),
+        value.field_weakening_current_a,
+        Some(value.footpad_adc1_v),
+        Some(value.footpad_adc2_v),
+        Some(value.setpoint_deg),
+        Some(value.atr_setpoint_deg),
+        Some(value.brake_tilt_setpoint_deg),
+        Some(value.torque_tilt_setpoint_deg),
+        Some(value.turn_tilt_setpoint_deg),
+        Some(value.remote_setpoint_deg),
+        value.distance_m,
+        value.odometer_m,
+        value.amp_hours_drawn_ah,
+        value.amp_hours_charged_ah,
+        value.watt_hours_drawn_wh,
+        value.watt_hours_charged_wh,
+        value.battery_level,
+        value.charging_current_a,
+        value.charging_voltage_v,
+    ];
+    if values.iter().flatten().any(|value| !value.is_finite()) {
+        return LegacyTelemetryRecordOutcome::InternalFailure;
+    }
+    let mut cursor = RECORD_HEADER_BYTES;
+    for value in values {
+        let bits = value.unwrap_or(0.0).to_bits().to_be_bytes();
+        bytes[cursor..cursor + bits.len()].copy_from_slice(&bits);
+        cursor += bits.len();
+    }
+    debug_assert_eq!(cursor, SAMPLE_RECORD_BYTES);
+    LegacyTelemetryRecordOutcome::Record(LegacyTelemetryRecord {
+        bytes,
+        length: cursor,
+    })
+}
+
+const fn package_state_code(value: PackageState) -> u8 {
+    match value {
+        PackageState::Startup => 1,
+        PackageState::Running => 2,
+        PackageState::Ready => 3,
+        PackageState::Disabled => 4,
+    }
+}
+
+const fn package_mode_code(value: PackageMode) -> u8 {
+    match value {
+        PackageMode::Normal => 1,
+        PackageMode::HandTest => 2,
+        PackageMode::Flywheel => 3,
+    }
+}
+
+const fn footpad_state_code(value: FootpadState) -> u8 {
+    match value {
+        FootpadState::None => 1,
+        FootpadState::Left => 2,
+        FootpadState::Right => 3,
+        FootpadState::Both => 4,
+    }
+}
+
+const fn stop_condition_code(value: StopCondition) -> u8 {
+    match value {
+        StopCondition::None => 1,
+        StopCondition::Pitch => 2,
+        StopCondition::Roll => 3,
+        StopCondition::SwitchHalf => 4,
+        StopCondition::SwitchFull => 5,
+        StopCondition::ReverseStop => 6,
+        StopCondition::QuickStop => 7,
+    }
+}
+
+const fn setpoint_adjustment_code(value: SetpointAdjustment) -> u8 {
+    match value {
+        SetpointAdjustment::Centering => 1,
+        SetpointAdjustment::ReverseStop => 2,
+        SetpointAdjustment::None => 3,
+        SetpointAdjustment::Duty => 4,
+        SetpointAdjustment::HighVoltage => 5,
+        SetpointAdjustment::LowVoltage => 6,
+        SetpointAdjustment::Temperature => 7,
+        SetpointAdjustment::Unknown => 8,
+    }
+}
+
+const fn alert_reason_code(value: AlertReason) -> u8 {
+    match value {
+        AlertReason::None => 1,
+        AlertReason::LowVoltage => 2,
+        AlertReason::HighVoltage => 3,
+        AlertReason::ControllerTemperature => 4,
+        AlertReason::MotorTemperature => 5,
+        AlertReason::Current => 6,
+        AlertReason::Duty => 7,
+        AlertReason::Sensors => 8,
+        AlertReason::LowBattery => 9,
+        AlertReason::Idle => 10,
+        AlertReason::Error => 11,
+        AlertReason::Speed => 12,
+        AlertReason::CellUnderTemperature => 13,
+        AlertReason::CellOverTemperature => 14,
+        AlertReason::CellLowVoltage => 15,
+        AlertReason::CellHighVoltage => 16,
+        AlertReason::Unknown => 17,
+    }
+}
+
+const fn firmware_fault_record_code(value: FirmwareFault) -> u8 {
+    match value {
+        FirmwareFault::OverVoltage => 1,
+        FirmwareFault::UnderVoltage => 2,
+        FirmwareFault::Driver => 3,
+        FirmwareFault::AbsoluteOverCurrent => 4,
+        FirmwareFault::ControllerOverTemperature => 5,
+        FirmwareFault::MotorOverTemperature => 6,
+        FirmwareFault::GateDriverOverVoltage => 7,
+        FirmwareFault::GateDriverUnderVoltage => 8,
+        FirmwareFault::McuUnderVoltage => 9,
+        FirmwareFault::WatchdogReset => 10,
+        FirmwareFault::EncoderSpi => 11,
+        FirmwareFault::EncoderSinCosBelowMinimum => 12,
+        FirmwareFault::EncoderSinCosAboveMaximum => 13,
+        FirmwareFault::FlashCorruption => 14,
+        FirmwareFault::CurrentSensorOffset1 => 15,
+        FirmwareFault::CurrentSensorOffset2 => 16,
+        FirmwareFault::CurrentSensorOffset3 => 17,
+        FirmwareFault::UnbalancedCurrents => 18,
+        FirmwareFault::Brake => 19,
+        FirmwareFault::ResolverLossOfTracking => 20,
+        FirmwareFault::ResolverDegradationOfSignal => 21,
+        FirmwareFault::ResolverLossOfSignal => 22,
+        FirmwareFault::AppConfigFlashCorruption => 23,
+        FirmwareFault::MotorConfigFlashCorruption => 24,
+        FirmwareFault::EncoderNoMagnet => 25,
+        FirmwareFault::EncoderMagnetTooStrong => 26,
+        FirmwareFault::PhaseFilter => 27,
+        FirmwareFault::Unknown => 28,
+    }
 }
 
 fn decode_active_fault(payload: &[u8]) -> Result<LegacyTelemetry, LegacyTelemetryError> {
@@ -759,6 +1067,146 @@ mod tests {
     }
 
     #[test]
+    fn serializes_exact_canonical_sample_records() {
+        let expected_options = [
+            OPTION_FIELD_WEAKENING,
+            OPTION_CONTROLLER_TEMP | OPTION_MOTOR_TEMP | OPTION_FIELD_WEAKENING | OPTION_DISTANCE,
+            OPTION_CONTROLLER_TEMP
+                | OPTION_MOTOR_TEMP
+                | OPTION_FIELD_WEAKENING
+                | OPTION_DISTANCE
+                | OPTION_ODOMETER
+                | OPTION_AMP_HOURS_DRAWN
+                | OPTION_AMP_HOURS_CHARGED
+                | OPTION_WATT_HOURS_DRAWN
+                | OPTION_WATT_HOURS_CHARGED
+                | OPTION_BATTERY_LEVEL,
+            ALL_OPTION_FLAGS,
+        ];
+        for level in 1..=4 {
+            let payload = fixture_payload(&format!("1.0.0-command-10-detail-{level}"));
+            let LegacyTelemetryRecordOutcome::Record(record) = decode_record(&payload) else {
+                panic!("expected record")
+            };
+            assert_eq!(record.len(), SAMPLE_RECORD_BYTES);
+            assert_eq!(
+                record.as_bytes()[..12],
+                [1, 1, level, 2, 1, 4, 1, 3, 0, 1, 0, 0]
+            );
+            assert_eq!(
+                u16::from_be_bytes([record.as_bytes()[12], record.as_bytes()[13]]),
+                expected_options[usize::from(level - 1)]
+            );
+            assert_eq!(&record.as_bytes()[14..16], &[0, 0]);
+            assert_eq!(record_f64(record.as_bytes(), 0), 60.7);
+            assert_eq!(record_f64(record.as_bytes(), 1), 0.64);
+            assert_eq!(record_f64(record.as_bytes(), 4), 48.0);
+            assert_eq!(record_f64(record.as_bytes(), 6), 5_633.0);
+            assert_eq!(record_f64(record.as_bytes(), 13), 0.0);
+            assert_eq!(record_f64(record.as_bytes(), 22), 0.0);
+            assert_eq!(record_f64(record.as_bytes(), 30), 0.0);
+        }
+
+        let mut unavailable = fixture_payload("1.0.0-command-10-detail-2");
+        unavailable[34] = FIELD_WEAKENING_UNAVAILABLE;
+        let LegacyTelemetryRecordOutcome::Record(record) = decode_record(&unavailable) else {
+            panic!("expected record")
+        };
+        let options = u16::from_be_bytes([record.as_bytes()[12], record.as_bytes()[13]]);
+        assert_eq!(options & OPTION_FIELD_WEAKENING, 0);
+        assert_eq!(
+            record_f64(record.as_bytes(), 13).to_bits(),
+            0.0_f64.to_bits()
+        );
+    }
+
+    #[test]
+    fn serializes_exact_active_fault_and_closed_failures() {
+        let payload = fixture_payload("1.2.3-command-10-active-firmware-fault");
+        let LegacyTelemetryRecordOutcome::Record(record) = decode_record(&payload) else {
+            panic!("expected record")
+        };
+        assert_eq!(record.len(), ACTIVE_FAULT_RECORD_BYTES);
+        assert_eq!(
+            record.as_bytes(),
+            &[1, 2, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0]
+        );
+
+        assert_eq!(
+            decode_record(&[35, 101, 10, 1]),
+            LegacyTelemetryRecordOutcome::UnsupportedEnvelope(35)
+        );
+        assert_eq!(
+            decode_record(&[36, 101, 10]),
+            LegacyTelemetryRecordOutcome::TruncatedPayload
+        );
+        assert_eq!(
+            decode_record(&[36, 101, 10, 69, 0]),
+            LegacyTelemetryRecordOutcome::InvalidPayload
+        );
+    }
+
+    #[test]
+    fn record_encoding_rejects_impossible_internal_values_and_redacts() {
+        let payload = fixture_payload("1.0.0-command-10-detail-4");
+        let mut value = sample(decode(&payload).unwrap());
+        value.pack_voltage_v = f64::NAN;
+        assert_eq!(
+            encode_record(LegacyTelemetry::Sample(value)),
+            LegacyTelemetryRecordOutcome::InternalFailure
+        );
+        value.pack_voltage_v = 1.0;
+        value.detail_level = 0;
+        assert_eq!(
+            encode_record(LegacyTelemetry::Sample(value)),
+            LegacyTelemetryRecordOutcome::InternalFailure
+        );
+        assert_eq!(
+            encode_record(LegacyTelemetry::ActiveFirmwareFault(ActiveFirmwareFault {
+                raw_code: 0,
+                fault: FirmwareFault::Unknown,
+            })),
+            LegacyTelemetryRecordOutcome::InternalFailure
+        );
+
+        let diagnostic = format!("{:?}", decode_record(&payload));
+        assert_eq!(
+            diagnostic,
+            "Record(LegacyTelemetryRecord { length: 264, .. })"
+        );
+        assert!(!diagnostic.contains("60.7"));
+    }
+
+    #[test]
+    fn record_codes_cover_every_closed_semantic() {
+        assert_eq!(
+            [
+                package_state_code(PackageState::Startup),
+                package_state_code(PackageState::Running),
+                package_state_code(PackageState::Ready),
+                package_state_code(PackageState::Disabled),
+            ],
+            [1, 2, 3, 4]
+        );
+        assert_eq!(
+            [
+                package_mode_code(PackageMode::Normal),
+                package_mode_code(PackageMode::HandTest),
+                package_mode_code(PackageMode::Flywheel),
+            ],
+            [1, 2, 3]
+        );
+        assert_eq!(firmware_fault_record_code(FirmwareFault::OverVoltage), 1);
+        assert_eq!(firmware_fault_record_code(FirmwareFault::PhaseFilter), 27);
+        assert_eq!(firmware_fault_record_code(FirmwareFault::Unknown), 28);
+        assert_eq!(alert_reason_code(AlertReason::None), 1);
+        assert_eq!(alert_reason_code(AlertReason::Unknown), 17);
+        assert_eq!(setpoint_adjustment_code(SetpointAdjustment::Unknown), 8);
+        assert_eq!(stop_condition_code(StopCondition::QuickStop), 7);
+        assert_eq!(footpad_state_code(FootpadState::Both), 4);
+    }
+
+    #[test]
     fn output_is_fixed_size_deterministic_and_redacted() {
         let payload = fixture_payload("1.0.0-command-10-detail-4");
         let first = decode(&payload).unwrap();
@@ -771,6 +1219,12 @@ mod tests {
             "invalid Refloat legacy telemetry"
         );
         assert!(!format!("{:?}", LegacyTelemetryError::InvalidPayload).contains("2465"));
+    }
+
+    fn record_f64(record: &[u8], index: usize) -> f64 {
+        let start = RECORD_HEADER_BYTES + index * size_of::<f64>();
+        let bits = u64::from_be_bytes(record[start..start + size_of::<u64>()].try_into().unwrap());
+        f64::from_bits(bits)
     }
 
     fn assert_base_fixture(sample: LegacySample) {
