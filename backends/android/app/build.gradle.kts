@@ -132,6 +132,17 @@ val rustAndroidBridges = listOf(
         libraryStem = "float_view_refloat_legacy_telemetry_android_jni",
         testLibraryProperty = "floatViewRefloatLegacyTelemetryJniLibrary",
     ),
+    RustAndroidBridgeSpec(
+        identifier = "refloat-configuration-codec",
+        taskSuffix = "RefloatConfigurationCodec",
+        packageDescription = "Builds the four source-owned Android Rust Refloat configuration-codec JNI libraries for {profile}.",
+        hostDescription = "Builds the exact source-owned host Refloat configuration-codec JNI library used by JVM tests.",
+        crateDirectory = "refloat-configuration-codec",
+        androidOutputDirectory = "refloatConfigurationCodecJniLibs",
+        hostOutputDirectory = "refloat-configuration-codec-host/debug",
+        libraryStem = "float_view_refloat_configuration_codec_android_jni",
+        testLibraryProperty = "floatViewRefloatConfigurationCodecJniLibrary",
+    ),
 )
 
 fun requireUniqueRustBridgeField(name: String, values: List<String>) {
@@ -140,7 +151,7 @@ fun requireUniqueRustBridgeField(name: String, values: List<String>) {
     }
 }
 
-require(rustAndroidBridges.size == 9) { "Expected exactly nine Android Rust bridges." }
+require(rustAndroidBridges.size == 10) { "Expected exactly ten Android Rust bridges." }
 require(
     rustAndroidBridges.map { it.identifier }.toSet() == setOf(
         "frame",
@@ -152,6 +163,7 @@ require(
         "refloat-compatibility",
         "refloat-dynamic-telemetry",
         "refloat-legacy-telemetry",
+        "refloat-configuration-codec",
     )
 ) { "Android Rust bridge identifiers must match the shared shell catalog." }
 requireUniqueRustBridgeField("task suffix", rustAndroidBridges.map { it.taskSuffix })
@@ -247,8 +259,8 @@ val expectedRustBuildTaskNames = rustAndroidBridges.flatMap { spec ->
     listOf(spec.packageTaskName("debug"), spec.packageTaskName("release"), spec.hostTaskName)
 }.toSet()
 
-require(expectedRustBuildTaskNames.size == 27) {
-    "Expected exactly twenty-seven unique Android Rust bridge task names."
+require(expectedRustBuildTaskNames.size == 30) {
+    "Expected exactly thirty unique Android Rust bridge task names."
 }
 
 val cleanAndroidRust by tasks.registering(Delete::class) {

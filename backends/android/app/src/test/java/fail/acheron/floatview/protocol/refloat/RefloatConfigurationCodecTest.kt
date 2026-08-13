@@ -3,6 +3,7 @@ package fail.acheron.floatview.protocol.refloat
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertTrue
 import org.junit.Assert.assertThrows
 import org.junit.Test
 import java.io.File
@@ -29,6 +30,7 @@ class RefloatConfigurationCodecTest {
             assertEquals(release.fingerprint, schema.fingerprint)
             assertEquals(release.signature, schema.wireSignature)
             assertEquals(release.fields, schema.fields.size)
+            assertTrue(schema.canonicalRecord?.isNotEmpty() == true)
             val defaults = File(root, "values/${release.version}-default.bin").readBytes()
             val decoded = RefloatConfigurationValueCodec.decode(defaults, schema)
             assertEquals(release.fields, decoded.size)
@@ -58,31 +60,69 @@ class RefloatConfigurationCodecTest {
         )
     }
 
-    @Test fun rejectsAdversarialSchemasWithoutPartialState() {
-        val cases = listOf(
-            "<?xml version=\"1.0\"?><!DOCTYPE x [<!ENTITY e SYSTEM \"file:///etc/passwd\">]><ConfigParams>&e;</ConfigParams>" to RefloatConfigurationCodecError.PROHIBITED_XML,
-            "<?xml version=\"1.0\"?><!doctype x SYSTEM \"file:///etc/passwd\"><ConfigParams/>" to RefloatConfigurationCodecError.PROHIBITED_XML,
-            "<ConfigParams><Params><x/><x/></Params><SerOrder/><Grouping/></ConfigParams>" to RefloatConfigurationCodecError.DUPLICATE_FIELD,
-            "<ConfigParams><Params><x><type>5</type></x></Params><SerOrder><ser>x</ser><ser>x</ser></SerOrder><Grouping/></ConfigParams>" to RefloatConfigurationCodecError.DUPLICATE_ORDER,
-            "<ConfigParams><Params/><SerOrder><ser>x</ser></SerOrder><Grouping/></ConfigParams>" to RefloatConfigurationCodecError.MISSING_REFERENCE,
-            "<ConfigParams><Params><x><type>99</type></x></Params><SerOrder><ser>x</ser></SerOrder><Grouping/></ConfigParams>" to RefloatConfigurationCodecError.UNSUPPORTED_TYPE,
-            "<ConfigParams><Params><x><type>1</type><vTx>99</vTx></x></Params><SerOrder><ser>x</ser></SerOrder><Grouping/></ConfigParams>" to RefloatConfigurationCodecError.UNSUPPORTED_ENCODING,
-            "<ConfigParams><Params><x><type>1</type><vTx>7</vTx><valDouble>NaN</valDouble></x></Params><SerOrder><ser>x</ser></SerOrder><Grouping/></ConfigParams>" to RefloatConfigurationCodecError.INVALID_NUMBER,
+    @Test fun bridgeUsesAtomicExactCapacityAndRejectsInvalidArrays() {
+        assertEquals(REFLOAT_CONFIGURATION_CODEC_ABI_VERSION, RustRefloatConfigurationCodecBridge.abiVersion())
+        val compressed = File(root, "schemas/1.2.3.qcompress").readBytes()
+        val result = IntArray(1)
+        assertEquals(4, RustRefloatConfigurationCodecBridge.decodeSchema(compressed, ByteArray(0), result))
+        assertTrue(result[0] > 48)
+        val record = ByteArray(result[0])
+        result[0] = 0
+        assertEquals(0, RustRefloatConfigurationCodecBridge.decodeSchema(compressed, record, result))
+        assertEquals(record.size, result[0])
+        assertEquals(0, RustRefloatConfigurationCodecBridge.decodeSchema(compressed, record.copyOf(), result))
+        assertEquals(1, RustRefloatConfigurationCodecBridge.decodeSchema(null, ByteArray(0), result))
+        assertEquals(1, RustRefloatConfigurationCodecBridge.decodeSchema(compressed, compressed, result))
+        assertEquals(1, RustRefloatConfigurationCodecBridge.decodeSchema(compressed, ByteArray(0), IntArray(2)))
+    }
+
+    @Test fun strictRecordAdaptersRejectMalformedOrInconsistentRecords() {
+        val schema = RefloatConfigurationSchemaCodec.decodeQtCompressed(File(root, "schemas/1.2.3.qcompress").readBytes())
+        val canonical = requireNotNull(schema.canonicalRecord)
+        val reserved = canonical.copyOf().also { it[2] = 1 }
+        assertEquals(
+            RefloatConfigurationCodecError.INVALID_METADATA,
+            assertThrows(RefloatConfigurationCodecException::class.java) {
+                RefloatConfigurationSchemaCodec.schema(reserved)
+            }.reason,
         )
-        cases.forEach { (xml, expected) ->
+        val truncated = canonical.copyOf(canonical.size - 1)
+        assertEquals(
+            RefloatConfigurationCodecError.INVALID_METADATA,
+            assertThrows(RefloatConfigurationCodecException::class.java) {
+                RefloatConfigurationSchemaCodec.schema(truncated)
+            }.reason,
+        )
+        val defaults = RefloatConfigurationValueCodec.decode(
+            File(root, "values/1.2.3-default.bin").readBytes(),
+            schema,
+        )
+        val valuesRecord = RefloatConfigurationValueCodec.record(defaults)
+        assertEquals(defaults, RefloatConfigurationValueCodec.values(valuesRecord, schema))
+        val badKind = valuesRecord.copyOf().also {
+            val firstNameLength = ((it[12].toInt() and 0xff) shl 24) or
+                ((it[13].toInt() and 0xff) shl 16) or
+                ((it[14].toInt() and 0xff) shl 8) or (it[15].toInt() and 0xff)
+            it[16 + firstNameLength] = 99
+        }
+        assertEquals(
+            RefloatConfigurationCodecError.INVALID_VALUE,
+            assertThrows(RefloatConfigurationCodecException::class.java) {
+                RefloatConfigurationValueCodec.values(badKind, schema)
+            }.reason,
+        )
+        RefloatConfigurationSchemaCodec.requireCompatibleABI(REFLOAT_CONFIGURATION_CODEC_ABI_VERSION)
+        assertThrows(RefloatConfigurationCodecException::class.java) {
+            RefloatConfigurationSchemaCodec.requireCompatibleABI(REFLOAT_CONFIGURATION_CODEC_ABI_VERSION + 1)
+        }
+        checkRefloatConfigurationBridgeStatus(0)
+        for (status in listOf(1, 2, 3, 4, 5, 23, 999)) {
             assertEquals(
-                expected,
+                RefloatConfigurationCodecError.INVALID_METADATA,
                 assertThrows(RefloatConfigurationCodecException::class.java) {
-                    RefloatConfigurationSchemaCodec.parse(xml.toByteArray())
+                    checkRefloatConfigurationBridgeStatus(status)
                 }.reason,
             )
         }
-        val nested = "<ConfigParams>" + "<x>".repeat(40) + "</x>".repeat(40) + "</ConfigParams>"
-        assertEquals(
-            RefloatConfigurationCodecError.STRUCTURAL_LIMIT,
-            assertThrows(RefloatConfigurationCodecException::class.java) {
-                RefloatConfigurationSchemaCodec.parse(nested.toByteArray())
-            }.reason,
-        )
     }
 }

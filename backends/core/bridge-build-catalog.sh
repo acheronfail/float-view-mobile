@@ -150,6 +150,15 @@ float_view_select_bridge() {
       bridge_diagnostic='Refloat configuration codec'
       bridge_apple_package='float-view-refloat-configuration-codec-apple-ffi'
       bridge_apple_archive='libfloat_view_refloat_configuration_codec_apple_ffi.a'
+      bridge_android_package='float-view-refloat-configuration-codec-android-jni'
+      bridge_android_library_stem='float_view_refloat_configuration_codec_android_jni'
+      bridge_android_jni_prefix='Java_fail_acheron_floatview_protocol_refloat_RustRefloatConfigurationCodecBridge'
+      bridge_android_symbols=(
+        Java_fail_acheron_floatview_protocol_refloat_RustRefloatConfigurationCodecBridge_abiVersion
+        Java_fail_acheron_floatview_protocol_refloat_RustRefloatConfigurationCodecBridge_decodeSchema
+        Java_fail_acheron_floatview_protocol_refloat_RustRefloatConfigurationCodecBridge_decodeValues
+        Java_fail_acheron_floatview_protocol_refloat_RustRefloatConfigurationCodecBridge_encodeValues
+      )
       ;;
     *)
       echo "Unknown Rust host bridge: ${requested_bridge:-<empty>}" >&2

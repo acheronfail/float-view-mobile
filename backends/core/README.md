@@ -4,16 +4,17 @@
 ownership. It is a locked Cargo workspace, not another backend and not a
 production runtime.
 
-The workspace currently has thirty-one members:
+The workspace currently has thirty-two members:
 
 | Component               | Scope                                                                 | Integration state                                                                             |
 | ----------------------- | --------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
-| `android-jni-support/`   | Checked call-local JNI environments, primitive-array copies, alias validation, and panic containment | Shared internally by the nine Android bridges; exports no JNI symbol and owns no protocol behavior |
+| `android-jni-support/`   | Checked call-local JNI environments, primitive-array copies, alias validation, and panic containment | Shared internally by the ten Android bridges; exports no JNI symbol and owns no protocol behavior |
 | `apple-ffi-support/`     | Dependency-free checked regions, panic containment, and bounded C output publication | Shared internally by the ten Apple bridges; exports no C symbol and owns no protocol behavior |
 | `refloat-compatibility/` | Safe bounded Refloat INFO identity, exact profile catalogue, and canonical dynamic-layout admission | Selected by Apple and Android through separate host bridges |
 | `refloat-compatibility-android-jni/` | Four-symbol stateless primitive-array JNI ABI for INFO and layout admission | Temporary bridge selected only by Android |
 | `refloat-compatibility-apple-ffi/` | Four-symbol caller-owned-buffer C ABI for INFO and layout admission | Temporary bridge selected only by the shared iOS/macOS adapter |
-| `refloat-configuration-codec/` | Safe bounded Qt-compressed `ConfigParams` parsing, schema normalization, canonical schema/value records, fingerprint/signature calculation, and exact typed value serialization | Selected by Apple; Android retains Kotlin production ownership |
+| `refloat-configuration-codec/` | Safe bounded Qt-compressed `ConfigParams` parsing, schema normalization, canonical schema/value records, fingerprint/signature calculation, and exact typed value serialization | Selected by Apple and Android through separate host bridges |
+| `refloat-configuration-codec-android-jni/` | Temporary four-operation stateless primitive-array JNI ABI for Refloat configuration records | Selected only by Android until the unified Rust runtime removes the bridge |
 | `refloat-configuration-codec-apple-ffi/` | Temporary four-symbol stateless caller-owned-buffer C ABI for Refloat configuration records | Selected only by the shared iOS/macOS adapter until the unified Rust runtime removes the bridge |
 | `refloat-control/`       | Safe bounded Refloat live-control payload encoding and lighting response decoding | Selected by Apple and Android through separate host bridges                         |
 | `refloat-control-apple-ffi/` | Three-symbol caller-owned-buffer C ABI for Refloat controls              | Selected only by the shared iOS/macOS adapter                                       |
@@ -40,15 +41,14 @@ The workspace currently has thirty-one members:
 | `vesc-frame-apple-ffi/`   | Caller-owned-buffer C ABI                                             | Selected only by the shared iOS/macOS frame-codec adapter                       |
 | `vesc-frame-android-jni/` | Primitive-array JNI ABI                                              | Selected by Android for CRC, encoding, exact decoding, and stream-boundary scans |
 
-The thirty-one crates remain independent components and artifacts. The ten
+The thirty-two crates remain independent components and artifacts. The ten
 Apple-selected component families' repeated
 source-build mechanics are centralized in `build-apple-bridge.sh` and
 `build-android-bridge.sh`, driven by a closed ten-entry Apple and
-nine-entry Android `bridge-build-catalog.sh` allowlist. Cross-platform callers pass `frame`,
+ten-entry Android `bridge-build-catalog.sh` allowlist. Cross-platform callers pass `frame`,
 `firmware-identity`, `custom-configuration`, `bms-values`, `controller-data`,
-`refloat-control`, `refloat-compatibility`, `refloat-dynamic-telemetry`, or
-`refloat-legacy-telemetry`; Apple additionally passes
-`refloat-configuration-codec`. Package names,
+`refloat-control`, `refloat-compatibility`, `refloat-dynamic-telemetry`,
+`refloat-legacy-telemetry`, or `refloat-configuration-codec`. Package names,
 archive/library names, diagnostics, and exact JNI symbols come from the
 catalog. The catalog is deliberately non-executable, while the two builders
 retain the pinned offline toolchain, Apple target, Android NDK/API/ABI,
@@ -62,24 +62,24 @@ archives, domain dependencies, and Swift adapters remain explicit in each
 bridge. Header generation and export macros are intentionally absent because
 they would add tooling while obscuring the small reviewed public ABIs.
 
-The nine Android bridges similarly share only protocol-agnostic JNI safety in
+The ten Android bridges similarly share only protocol-agnostic JNI safety in
 `android-jni-support/`: call-scoped environment and exception checks, primitive
 array lengths and copies, local-reference alias checks, exact integer
 publication, and panic containment. The support crate is the workspace's only
 direct `jni-sys` consumer. Export names, statuses, validation order, result
-records, domain dependencies, Kotlin loaders, and nine independent libraries
+records, domain dependencies, Kotlin loaders, and ten independent libraries
 remain explicit. JNI export macros, binding generation, and higher-level JNI
 wrappers stay out of scope because the small bridge ABIs differ and the shared
 mechanics do not need another dependency or generated source tree.
 
-Android's application build consumes these nine artifacts through one typed
+Android's application build consumes these ten artifacts through one typed
 Gradle integration catalog and two generic task factories. That catalog holds
 only Gradle-owned task suffixes, source inputs, generated directories, host
 library stems, and JVM properties; `bridge-build-catalog.sh` remains the closed
 owner of Cargo packages, native artifact names, diagnostics, and JNI symbols.
 Keeping the two small catalogs explicit avoids generated metadata or shell
 parsing while audits require the same ordered identifier set and the exact
-twenty-seven public Gradle task names. A later selected bridge adds one entry rather
+thirty public Gradle task names. A later selected bridge adds one entry rather
 than copying package, host, source-set, test, merge, and clean-order blocks.
 
 The shared Apple backend retains only bounded Swift stream storage. Rust scans
@@ -108,14 +108,16 @@ values as opaque caller-owned bytes. Separate Apple and Android bridges expose
 only fixed metadata and caller-owned regions; schema and typed-value semantics
 remain native.
 
-The Refloat configuration codec candidate owns the next safe protocol layer:
+The Refloat configuration codec owns the complete safe protocol layer:
 bounded Qt/zlib expansion, streaming `ConfigParams` validation, normalized
 schema metadata, raw-source SHA-256 fingerprints, CRC32C wire signatures, and
-complete typed value decoding/encoding. It is deliberately absent from both
-bridge catalogues and native packages. Swift and Kotlin still own production
-schema/value semantics, configuration lifecycle, caches, scheduling, verified
-writes, and Tune persistence until independent host-cutover and later service
-migration changes.
+complete typed value decoding/encoding plus canonical schema/value records.
+Apple and Android select it through independent temporary four-operation bridges
+and strict native record adapters; the superseded Swift and Kotlin protocol
+algorithms are gone. Both hosts retain configuration lifecycle, caches,
+scheduling, verified writes, Tune persistence, application behavior, and OS
+capabilities until their later unified-runtime migration. Both codec bridges and
+record adapters are deleted at that boundary.
 
 The BMS values component decodes only the bounded command-96 payload into a
 platform-neutral fixed-capacity model. Apple and Android select it through
