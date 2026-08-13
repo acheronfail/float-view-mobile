@@ -4,7 +4,7 @@
 ownership. It is a locked Cargo workspace, not another backend and not a
 production runtime.
 
-The workspace currently has thirty-two members:
+The workspace currently has thirty-three members:
 
 | Component               | Scope                                                                 | Integration state                                                                             |
 | ----------------------- | --------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
@@ -14,6 +14,7 @@ The workspace currently has thirty-two members:
 | `refloat-compatibility-android-jni/` | Four-symbol stateless primitive-array JNI ABI for INFO and layout admission | Temporary bridge selected only by Android |
 | `refloat-compatibility-apple-ffi/` | Four-symbol caller-owned-buffer C ABI for INFO and layout admission | Temporary bridge selected only by the shared iOS/macOS adapter |
 | `refloat-configuration-codec/` | Safe bounded Qt-compressed `ConfigParams` parsing, schema normalization, canonical schema/value records, fingerprint/signature calculation, and exact typed value serialization | Selected by Apple and Android through separate host bridges |
+| `refloat-configuration-service/` | Safe connection-scoped catalogue, schema paging/cache admission, read/default/write verification, revision, flywheel, and recovery decisions above the codec | Exhaustively tested candidate; deliberately unselected by every production host |
 | `refloat-configuration-codec-android-jni/` | Temporary four-operation stateless primitive-array JNI ABI for Refloat configuration records | Selected only by Android until the unified Rust runtime removes the bridge |
 | `refloat-configuration-codec-apple-ffi/` | Temporary four-symbol stateless caller-owned-buffer C ABI for Refloat configuration records | Selected only by the shared iOS/macOS adapter until the unified Rust runtime removes the bridge |
 | `refloat-control/`       | Safe bounded Refloat live-control payload encoding and lighting response decoding | Selected by Apple and Android through separate host bridges                         |
@@ -41,7 +42,7 @@ The workspace currently has thirty-two members:
 | `vesc-frame-apple-ffi/`   | Caller-owned-buffer C ABI                                             | Selected only by the shared iOS/macOS frame-codec adapter                       |
 | `vesc-frame-android-jni/` | Primitive-array JNI ABI                                              | Selected by Android for CRC, encoding, exact decoding, and stream-boundary scans |
 
-The thirty-two crates remain independent components and artifacts. The ten
+The thirty-three crates remain independent components and artifacts. The ten
 Apple-selected component families' repeated
 source-build mechanics are centralized in `build-apple-bridge.sh` and
 `build-android-bridge.sh`, driven by a closed ten-entry Apple and
@@ -118,6 +119,17 @@ algorithms are gone. Both hosts retain configuration lifecycle, caches,
 scheduling, verified writes, Tune persistence, application behavior, and OS
 capabilities until their later unified-runtime migration. Both codec bridges and
 record adapters are deleted at that boundary.
+
+The Refloat configuration service candidate owns the deterministic lifecycle
+above that codec: audited release selection, host-provided cache admission,
+bounded schema paging, generations and operations, current/default revisions,
+flywheel policy, verified writes, normalization, conflicts, and recovery. Its
+API is platform-neutral facts, events, effects, and snapshots. It has no bridge,
+host package input, callback, transport, storage implementation, scheduler, or
+OS dependency, so Swift and Kotlin remain selected until later host-cutover
+changes. Those cutovers must delete the native state machines; once the unified
+runtime owns the surrounding application behavior, it also deletes both codec
+bridges and canonical-record adapters.
 
 The BMS values component decodes only the bounded command-96 payload into a
 platform-neutral fixed-capacity model. Apple and Android select it through

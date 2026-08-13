@@ -502,6 +502,32 @@ core-refloat-configuration-codec-test:
     cd backends/core && cargo test --locked --offline \
       --package float-view-refloat-configuration-codec
 
+core-refloat-configuration-service-test:
+    cd backends/core && cargo test --locked --offline \
+      --package float-view-refloat-configuration-service
+
+core-refloat-configuration-service-audit:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    crate='backends/core/refloat-configuration-service'
+    [[ -f "$crate/Cargo.toml" && -f "$crate/src/lib.rs" ]]
+    [[ -f "$crate/tests/service.rs" && -f "$crate/tests/adversarial.rs" ]]
+    rg -q '^#!\[forbid\(unsafe_code\)\]$' "$crate/src/lib.rs"
+    [[ "$(sed -n '/^\[dependencies\]$/,$p' "$crate/Cargo.toml")" == \
+      $'[dependencies]\nfloat-view-refloat-configuration-codec = { path = "../refloat-configuration-codec" }' ]]
+    [[ "$(cd backends/core && cargo tree --locked --offline \
+      --package float-view-refloat-configuration-service --edges normal \
+      --depth 1 --prefix none | wc -l | tr -d ' ')" == 2 ]]
+    ! rg -n 'unsafe[[:space:]]*(\{|fn|impl|trait)|extern[[:space:]]+"(C|system)"|no_mangle|Java_|cbindgen|bindgen|uniffi|jni|host_callback' \
+      "$crate/src" "$crate/tests"
+    [[ "$(find "$crate" -mindepth 1 -maxdepth 1 -type d \
+      ! -name src ! -name tests -print -quit)" == "" ]]
+    ! rg -n 'refloat-configuration-service' \
+      backends/apple backends/android backends/core/bridge-build-catalog.sh \
+      backends/core/build-apple-bridge.sh backends/core/build-android-bridge.sh
+    [[ "$(git ls-files "$crate" | rg '\.(h|a|so|dylib|xcframework|jar)$' || true)" == "" ]]
+    just core-refloat-configuration-service-test
+
 core-refloat-configuration-codec-audit:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -1150,6 +1176,7 @@ audit:
     [[ -f backends/core/refloat-compatibility-apple-ffi/Cargo.toml ]]
     [[ -f backends/core/refloat-compatibility-apple-ffi/tests/abi.c ]]
     [[ -f backends/core/refloat-configuration-codec/Cargo.toml ]]
+    [[ -f backends/core/refloat-configuration-service/Cargo.toml ]]
     [[ -f backends/core/refloat-configuration-codec-android-jni/Cargo.toml ]]
     [[ -f backends/core/refloat-configuration-codec-apple-ffi/Cargo.toml ]]
     [[ -f backends/core/refloat-configuration-codec-apple-ffi/tests/abi.c ]]
@@ -1204,6 +1231,7 @@ audit:
       ! -name refloat-compatibility ! -name refloat-compatibility-android-jni \
       ! -name refloat-compatibility-apple-ffi \
       ! -name refloat-configuration-codec \
+      ! -name refloat-configuration-service \
       ! -name refloat-configuration-codec-android-jni \
       ! -name refloat-configuration-codec-apple-ffi \
       ! -name refloat-control ! -name refloat-control-android-jni \
@@ -1238,6 +1266,8 @@ audit:
     [[ "$(find backends/core/refloat-compatibility-apple-ffi -mindepth 1 -maxdepth 1 -type d \
       ! -name src ! -name tests -print -quit)" == "" ]]
     [[ "$(find backends/core/refloat-configuration-codec -mindepth 1 -maxdepth 1 -type d \
+      ! -name src ! -name tests -print -quit)" == "" ]]
+    [[ "$(find backends/core/refloat-configuration-service -mindepth 1 -maxdepth 1 -type d \
       ! -name src ! -name tests -print -quit)" == "" ]]
     [[ "$(find backends/core/refloat-configuration-codec-apple-ffi -mindepth 1 -maxdepth 1 -type d \
       ! -name src ! -name tests -print -quit)" == "" ]]
@@ -1502,6 +1532,7 @@ audit:
     just core-refloat-control-abi-audit
     just core-refloat-compatibility-abi-audit
     just core-refloat-configuration-codec-audit
+    just core-refloat-configuration-service-audit
     just core-refloat-configuration-codec-abi-audit
     just core-refloat-dynamic-telemetry-abi-audit
     just core-refloat-legacy-telemetry-abi-audit
