@@ -38,6 +38,14 @@ name = "float-view-refloat-dynamic-telemetry"
 version = "0.1.0"
 
 [[package]]
+name = "float-view-refloat-dynamic-telemetry-android-jni"
+version = "0.1.0"
+dependencies = [
+ "float-view-android-jni-support",
+ "float-view-refloat-dynamic-telemetry",
+]
+
+[[package]]
 name = "float-view-refloat-dynamic-telemetry-apple-ffi"
 version = "0.1.0"
 dependencies = [

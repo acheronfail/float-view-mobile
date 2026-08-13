@@ -22,7 +22,7 @@ rust-bridge-build-tooling-audit:
       justfile backends conformance
     expected=$'frame|float-view-vesc-frame-apple-ffi|libfloat_view_vesc_frame_apple_ffi.a|float-view-vesc-frame-android-jni|float_view_vesc_frame_android_jni|Java_fail_acheron_floatview_protocol_RustVescFrameBridge|Java_fail_acheron_floatview_protocol_RustVescFrameBridge_abiVersion Java_fail_acheron_floatview_protocol_RustVescFrameBridge_decodeExact Java_fail_acheron_floatview_protocol_RustVescFrameBridge_encode Java_fail_acheron_floatview_protocol_RustVescFrameBridge_scanNext\nfirmware-identity|float-view-vesc-firmware-identity-apple-ffi|libfloat_view_vesc_firmware_identity_apple_ffi.a|float-view-vesc-firmware-identity-android-jni|float_view_vesc_firmware_identity_android_jni|Java_fail_acheron_floatview_protocol_RustVescFirmwareIdentityBridge|Java_fail_acheron_floatview_protocol_RustVescFirmwareIdentityBridge_abiVersion Java_fail_acheron_floatview_protocol_RustVescFirmwareIdentityBridge_decode\ncustom-configuration|float-view-vesc-custom-configuration-apple-ffi|libfloat_view_vesc_custom_configuration_apple_ffi.a|float-view-vesc-custom-configuration-android-jni|float_view_vesc_custom_configuration_android_jni|Java_fail_acheron_floatview_protocol_RustVescCustomConfigurationBridge|Java_fail_acheron_floatview_protocol_RustVescCustomConfigurationBridge_abiVersion Java_fail_acheron_floatview_protocol_RustVescCustomConfigurationBridge_decode Java_fail_acheron_floatview_protocol_RustVescCustomConfigurationBridge_encode\nbms-values|float-view-vesc-bms-values-apple-ffi|libfloat_view_vesc_bms_values_apple_ffi.a|float-view-vesc-bms-values-android-jni|float_view_vesc_bms_values_android_jni|Java_fail_acheron_floatview_protocol_RustVescBmsValuesBridge|Java_fail_acheron_floatview_protocol_RustVescBmsValuesBridge_abiVersion Java_fail_acheron_floatview_protocol_RustVescBmsValuesBridge_decode\ncontroller-data|float-view-vesc-controller-data-apple-ffi|libfloat_view_vesc_controller_data_apple_ffi.a|float-view-vesc-controller-data-android-jni|float_view_vesc_controller_data_android_jni|Java_fail_acheron_floatview_protocol_RustVescControllerDataBridge|Java_fail_acheron_floatview_protocol_RustVescControllerDataBridge_abiVersion Java_fail_acheron_floatview_protocol_RustVescControllerDataBridge_decode\nrefloat-control|float-view-refloat-control-apple-ffi|libfloat_view_refloat_control_apple_ffi.a|float-view-refloat-control-android-jni|float_view_refloat_control_android_jni|Java_fail_acheron_floatview_protocol_RustRefloatControlBridge|Java_fail_acheron_floatview_protocol_RustRefloatControlBridge_abiVersion Java_fail_acheron_floatview_protocol_RustRefloatControlBridge_decodeLighting Java_fail_acheron_floatview_protocol_RustRefloatControlBridge_encode\nrefloat-legacy-telemetry|float-view-refloat-legacy-telemetry-apple-ffi|libfloat_view_refloat_legacy_telemetry_apple_ffi.a|float-view-refloat-legacy-telemetry-android-jni|float_view_refloat_legacy_telemetry_android_jni|Java_fail_acheron_floatview_protocol_RustRefloatLegacyTelemetryBridge|Java_fail_acheron_floatview_protocol_RustRefloatLegacyTelemetryBridge_abiVersion Java_fail_acheron_floatview_protocol_RustRefloatLegacyTelemetryBridge_decode'
     legacy_catalog_row="${expected##*$'\n'}"
-    expected="${expected%$'\n'*}"$'\nrefloat-dynamic-telemetry|float-view-refloat-dynamic-telemetry-apple-ffi|libfloat_view_refloat_dynamic_telemetry_apple_ffi.a||||\n'"$legacy_catalog_row"
+    expected="${expected%$'\n'*}"$'\nrefloat-dynamic-telemetry|float-view-refloat-dynamic-telemetry-apple-ffi|libfloat_view_refloat_dynamic_telemetry_apple_ffi.a|float-view-refloat-dynamic-telemetry-android-jni|float_view_refloat_dynamic_telemetry_android_jni|Java_fail_acheron_floatview_protocol_RustRefloatDynamicTelemetryBridge|Java_fail_acheron_floatview_protocol_RustRefloatDynamicTelemetryBridge_abiVersion Java_fail_acheron_floatview_protocol_RustRefloatDynamicTelemetryBridge_decodeLayout Java_fail_acheron_floatview_protocol_RustRefloatDynamicTelemetryBridge_decodeRealtime\n'"$legacy_catalog_row"
     source "$catalog"
     actual="$(for bridge in frame firmware-identity custom-configuration bms-values controller-data refloat-control refloat-dynamic-telemetry refloat-legacy-telemetry; do
       float_view_select_bridge "$bridge"
@@ -32,26 +32,20 @@ rust-bridge-build-tooling-audit:
         "$bridge_android_jni_prefix" "${bridge_android_symbols[*]}"
     done)"
     [[ "$actual" == "$expected" ]]
-    catalog_identifiers="$(for bridge in frame firmware-identity custom-configuration bms-values controller-data refloat-control refloat-legacy-telemetry; do
+    catalog_identifiers="$(for bridge in frame firmware-identity custom-configuration bms-values controller-data refloat-control refloat-dynamic-telemetry refloat-legacy-telemetry; do
       float_view_select_bridge "$bridge"
       printf '%s\n' "$bridge_identifier"
     done)"
     gradle_identifiers="$(sed -n 's/^        identifier = "\([^"]*\)",$/\1/p' "$android_gradle")"
     [[ "$gradle_identifiers" == "$catalog_identifiers" ]]
-    if "$android_helper" refloat-dynamic-telemetry host debug \
-      "$PWD/backends/core/target/android/dynamic-telemetry-forbidden" >/dev/null 2>&1; then
-      echo 'Apple-only Refloat dynamic telemetry bridge leaked into Android builds.' >&2
-      exit 1
-    fi
-    [[ ! -e backends/core/target/android/dynamic-telemetry-forbidden ]]
     [[ "$(rg -c '^data class RustAndroidBridgeSpec\(' "$android_gradle")" == 1 ]]
-    [[ "$(rg -c '^    RustAndroidBridgeSpec\(' "$android_gradle")" == 7 ]]
+    [[ "$(rg -c '^    RustAndroidBridgeSpec\(' "$android_gradle")" == 8 ]]
     [[ "$(rg -c '^fun registerAndroidRust(Package|Host)Build\(' "$android_gradle")" == 2 ]]
     [[ "$(rg -c '^fun Exec\.registerRustBridgeInputs\(' "$android_gradle")" == 1 ]]
     [[ "$(rg -c 'inputs\.files\(' "$android_gradle")" == 1 ]]
     [[ "$(rg -c 'jniLibs\.srcDir\(' "$android_gradle")" == 2 ]]
     [[ "$(rg -c 'systemProperty\(spec\.testLibraryProperty' "$android_gradle")" == 1 ]]
-    ! rg -n 'registerAndroidRust(Identity|CustomConfiguration|BmsValues|ControllerData|RefloatControl|RefloatLegacyTelemetry)Build|val buildAndroidRust[A-Z]' \
+    ! rg -n 'registerAndroidRust(Identity|CustomConfiguration|BmsValues|ControllerData|RefloatControl|RefloatDynamicTelemetry|RefloatLegacyTelemetry)Build|val buildAndroidRust[A-Z]' \
       "$android_gradle"
     backends/android/gradlew -p backends/android --offline \
       :app:auditAndroidRustBridgeTasks
@@ -441,6 +435,8 @@ android-rust-host:
       "$PWD/backends/core/target/android/controller-data-host/debug"
     backends/core/build-android-bridge.sh refloat-control host debug \
       "$PWD/backends/core/target/android/refloat-control-host/debug"
+    backends/core/build-android-bridge.sh refloat-dynamic-telemetry host debug \
+      "$PWD/backends/core/target/android/refloat-dynamic-telemetry-host/debug"
     backends/core/build-android-bridge.sh refloat-legacy-telemetry host debug \
       "$PWD/backends/core/target/android/refloat-legacy-telemetry-host/debug"
 
@@ -452,6 +448,7 @@ android-rust-codec-test:
       --tests fail.acheron.floatview.protocol.RustVescBmsValuesBridgeTest \
       --tests fail.acheron.floatview.protocol.RustVescControllerDataBridgeTest \
       --tests fail.acheron.floatview.protocol.RustRefloatControlBridgeTest \
+      --tests fail.acheron.floatview.protocol.RustRefloatDynamicTelemetryBridgeTest \
       --tests fail.acheron.floatview.protocol.RustRefloatLegacyTelemetryBridgeTest \
       --tests fail.acheron.floatview.protocol.RefloatControlCodecTest \
       --tests fail.acheron.floatview.protocol.VescProtocolTest
@@ -467,6 +464,7 @@ android-rust-packaging:
       libfloat_view_vesc_bms_values_android_jni.so \
       libfloat_view_vesc_controller_data_android_jni.so \
       libfloat_view_refloat_control_android_jni.so \
+      libfloat_view_refloat_dynamic_telemetry_android_jni.so \
       libfloat_view_refloat_legacy_telemetry_android_jni.so; do
         printf '%s\n' \
           "lib/arm64-v8a/$library" \
@@ -480,7 +478,7 @@ android-rust-packaging:
       [[ -f "$apk" ]] || { echo "Missing Android package: $apk" >&2; exit 1; }
       unzip -tq "$apk" >/dev/null
       actual="$(unzip -Z1 "$apk" \
-        | rg '(^|/)libfloat_view_(vesc_(frame|firmware_identity|custom_configuration|bms_values|controller_data)|refloat_(control|legacy_telemetry))_android_jni\.so$' \
+        | rg '(^|/)libfloat_view_(vesc_(frame|firmware_identity|custom_configuration|bms_values|controller_data)|refloat_(control|dynamic_telemetry|legacy_telemetry))_android_jni\.so$' \
         | sort)"
       [[ "$actual" == "$expected" ]] || {
         echo "Unexpected Rust JNI library set in $apk:" >&2
@@ -509,6 +507,8 @@ android-rust-audit: android-rust-host
     [[ "$(cd backends/core && cargo tree --locked --offline \
       --package float-view-refloat-control-android-jni --edges normal --depth 1 --prefix none | wc -l | tr -d ' ')" == 3 ]]
     [[ "$(cd backends/core && cargo tree --locked --offline \
+      --package float-view-refloat-dynamic-telemetry-android-jni --edges normal --depth 1 --prefix none | wc -l | tr -d ' ')" == 3 ]]
+    [[ "$(cd backends/core && cargo tree --locked --offline \
       --package float-view-refloat-legacy-telemetry-android-jni --edges normal --depth 1 --prefix none | wc -l | tr -d ' ')" == 3 ]]
     [[ "$(cd backends/core && cargo tree --locked --offline \
       --package float-view-android-jni-support --edges normal --depth 1 --prefix none | wc -l | tr -d ' ')" == 2 ]]
@@ -519,6 +519,7 @@ android-rust-audit: android-rust-host
       backends/core/vesc-bms-values-android-jni/Cargo.toml \
       backends/core/vesc-controller-data-android-jni/Cargo.toml \
       backends/core/refloat-control-android-jni/Cargo.toml \
+      backends/core/refloat-dynamic-telemetry-android-jni/Cargo.toml \
       backends/core/refloat-legacy-telemetry-android-jni/Cargo.toml; do
       rg -q '^float-view-android-jni-support = \{ path = "\.\./android-jni-support" \}$' "$manifest"
       ! rg -n '^jni-sys[[:space:]]*=' "$manifest"
@@ -586,6 +587,16 @@ android-rust-audit: android-rust-host
       backends/android/app/src/main/java/fail/acheron/floatview/protocol/vesc/RustRefloatControlBridge.kt)"
     [[ -n "$refloat_rust_abi" && "$refloat_rust_abi" == "$refloat_kotlin_abi" ]] || {
       echo "Android Refloat-control JNI ABI mismatch: Rust=$refloat_rust_abi Kotlin=$refloat_kotlin_abi" >&2
+      exit 1
+    }
+    dynamic_telemetry_rust_abi="$(sed -n 's/^pub const RECORD_VERSION: u8 = \([0-9][0-9]*\);$/\1/p' \
+      backends/core/refloat-dynamic-telemetry/src/lib.rs)"
+    rg -q '^pub const ABI_VERSION: jint = RECORD_VERSION as jint;$' \
+      backends/core/refloat-dynamic-telemetry-android-jni/src/lib.rs
+    dynamic_telemetry_kotlin_abi="$(sed -n 's/^internal const val REFLOAT_DYNAMIC_TELEMETRY_ABI_VERSION = \([0-9][0-9]*\)$/\1/p' \
+      backends/android/app/src/main/java/fail/acheron/floatview/protocol/RustRefloatDynamicTelemetryBridge.kt)"
+    [[ -n "$dynamic_telemetry_rust_abi" && "$dynamic_telemetry_rust_abi" == "$dynamic_telemetry_kotlin_abi" ]] || {
+      echo "Android Refloat dynamic-telemetry JNI ABI mismatch: Rust=$dynamic_telemetry_rust_abi Kotlin=$dynamic_telemetry_kotlin_abi" >&2
       exit 1
     }
     legacy_rust_abi="$(sed -n 's/^pub const RECORD_VERSION: u32 = \([0-9][0-9]*\);$/\1/p' \
@@ -929,6 +940,7 @@ audit:
     [[ -f backends/core/refloat-control-android-jni/Cargo.toml ]]
     [[ -f backends/core/refloat-control-apple-ffi/Cargo.toml ]]
     [[ -f backends/core/refloat-dynamic-telemetry/Cargo.toml ]]
+    [[ -f backends/core/refloat-dynamic-telemetry-android-jni/Cargo.toml ]]
     [[ -f backends/core/refloat-dynamic-telemetry-apple-ffi/Cargo.toml ]]
     [[ -f backends/core/refloat-dynamic-telemetry-apple-ffi/tests/abi.c ]]
     [[ -f backends/core/refloat-legacy-telemetry/Cargo.toml ]]
@@ -967,6 +979,7 @@ audit:
       ! -name target ! -name android-jni-support ! -name apple-ffi-support \
       ! -name refloat-control ! -name refloat-control-android-jni \
       ! -name refloat-control-apple-ffi ! -name refloat-dynamic-telemetry \
+      ! -name refloat-dynamic-telemetry-android-jni \
       ! -name refloat-dynamic-telemetry-apple-ffi \
       ! -name refloat-legacy-telemetry \
       ! -name refloat-legacy-telemetry-apple-ffi \
@@ -996,6 +1009,8 @@ audit:
     [[ "$(find backends/core/refloat-control-apple-ffi -mindepth 1 -maxdepth 1 -type d \
       ! -name src ! -name tests -print -quit)" == "" ]]
     [[ "$(find backends/core/refloat-dynamic-telemetry -mindepth 1 -maxdepth 1 -type d \
+      ! -name src -print -quit)" == "" ]]
+    [[ "$(find backends/core/refloat-dynamic-telemetry-android-jni -mindepth 1 -maxdepth 1 -type d \
       ! -name src -print -quit)" == "" ]]
     [[ "$(find backends/core/refloat-dynamic-telemetry-apple-ffi -mindepth 1 -maxdepth 1 -type d \
       ! -name src ! -name tests -print -quit)" == "" ]]
@@ -1062,10 +1077,16 @@ audit:
       backends/core/refloat-dynamic-telemetry/src/lib.rs
     ! rg -n 'extern[[:space:]]+"C"|extern[[:space:]]+"system"|no_mangle|Java_|cbindgen|bindgen|uniffi|jni|host_callback' \
       backends/core/refloat-dynamic-telemetry
-    ! rg -n 'refloat-dynamic-telemetry-apple-ffi|refloat_dynamic_telemetry|CVescRefloatDynamicTelemetry' \
+    ! rg -n 'refloat-dynamic-telemetry-apple-ffi|CVescRefloatDynamicTelemetry|float_view_refloat_dynamic_telemetry_(abi_version|decode_layout|decode_realtime)' \
       backends/android
     ! rg -n 'RustRefloatDynamicTelemetryBridge|refloat-dynamic-telemetry-android-jni' \
-      backends/apple backends/core
+      backends/apple
+    ! rg -n 'fn (serialize_layout|serialize_sample)|struct (LayoutRecord|SampleRecord)\(' \
+      backends/core/refloat-dynamic-telemetry-{apple-ffi,android-jni}/src/lib.rs
+    [[ "$(rg -l 'LayoutRecordOutcome' \
+      backends/core/refloat-dynamic-telemetry-{apple-ffi,android-jni}/src/lib.rs | wc -l | tr -d ' ')" == 2 ]]
+    [[ "$(rg -l 'SampleRecordOutcome' \
+      backends/core/refloat-dynamic-telemetry-{apple-ffi,android-jni}/src/lib.rs | wc -l | tr -d ' ')" == 2 ]]
     [[ "$(rg -c 'float_view_refloat_dynamic_telemetry_decode_layout\(' \
       backends/apple/Sources/FloatViewBackend/protocol/refloat/RefloatDynamic.swift)" == 1 ]]
     [[ "$(rg -c 'float_view_refloat_dynamic_telemetry_decode_realtime\(' \
@@ -1081,6 +1102,13 @@ audit:
       backends/apple/Sources/FloatViewBackend/protocol/vesc/VescProtocolService.swift)" == 1 ]]
     [[ "$(rg -c 'dynamicTelemetry\.decodeFields' \
       backends/android/app/src/main/java/fail/acheron/floatview/protocol/vesc/VescProtocolService.kt)" == 1 ]]
+    android_dynamic='backends/android/app/src/main/java/fail/acheron/floatview/protocol/refloat/RefloatDynamic.kt'
+    [[ "$(rg -c 'RustRefloatDynamicTelemetryBridge\.decodeLayout' "$android_dynamic")" == 1 ]]
+    [[ "$(rg -c 'RustRefloatDynamicTelemetryBridge\.decodeRealtime' "$android_dynamic")" == 1 ]]
+    [[ ! -e backends/android/app/src/main/java/fail/acheron/floatview/protocol/refloat/RefloatTelemetryMappings.kt ]]
+    ! rg -n -e 'decodeFloat16' -e 'kotlin\.math\.pow' -e 'includedRuntimeFields' \
+      -e 'expected = 13' -e 'payload\[index \+ 8\]' -e 'RefloatTelemetryMappings' \
+      backends/android/app/src/main -g '*.kt'
     rg -q '^#!\[forbid\(unsafe_code\)\]$' \
       backends/core/refloat-legacy-telemetry/src/lib.rs
     ! rg -n 'extern[[:space:]]+"C"|no_mangle|cbindgen|uniffi|jni|host_callback' \
@@ -1178,6 +1206,7 @@ audit:
     [[ "$(cd backends/core && cargo tree --locked --package float-view-refloat-control-android-jni --edges normal --depth 1 --prefix none | wc -l | tr -d ' ')" == 3 ]]
     [[ "$(cd backends/core && cargo tree --locked --package float-view-refloat-dynamic-telemetry --edges normal --prefix none | wc -l | tr -d ' ')" == 1 ]]
     [[ "$(cd backends/core && cargo tree --locked --package float-view-refloat-dynamic-telemetry-apple-ffi --edges normal --depth 1 --prefix none | wc -l | tr -d ' ')" == 3 ]]
+    [[ "$(cd backends/core && cargo tree --locked --package float-view-refloat-dynamic-telemetry-android-jni --edges normal --depth 1 --prefix none | wc -l | tr -d ' ')" == 3 ]]
     [[ "$(cd backends/core && cargo tree --locked --package float-view-refloat-legacy-telemetry --edges normal --prefix none | wc -l | tr -d ' ')" == 1 ]]
     [[ "$(cd backends/core && cargo tree --locked --package float-view-refloat-legacy-telemetry-apple-ffi --edges normal --depth 1 --prefix none | wc -l | tr -d ' ')" == 3 ]]
     [[ "$(cd backends/core && cargo tree --locked --package float-view-refloat-legacy-telemetry-android-jni --edges normal --depth 1 --prefix none | wc -l | tr -d ' ')" == 3 ]]

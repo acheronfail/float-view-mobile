@@ -108,6 +108,14 @@ float_view_select_bridge() {
       bridge_diagnostic='Refloat dynamic telemetry'
       bridge_apple_package='float-view-refloat-dynamic-telemetry-apple-ffi'
       bridge_apple_archive='libfloat_view_refloat_dynamic_telemetry_apple_ffi.a'
+      bridge_android_package='float-view-refloat-dynamic-telemetry-android-jni'
+      bridge_android_library_stem='float_view_refloat_dynamic_telemetry_android_jni'
+      bridge_android_jni_prefix='Java_fail_acheron_floatview_protocol_RustRefloatDynamicTelemetryBridge'
+      bridge_android_symbols=(
+        Java_fail_acheron_floatview_protocol_RustRefloatDynamicTelemetryBridge_abiVersion
+        Java_fail_acheron_floatview_protocol_RustRefloatDynamicTelemetryBridge_decodeLayout
+        Java_fail_acheron_floatview_protocol_RustRefloatDynamicTelemetryBridge_decodeRealtime
+      )
       ;;
     refloat-legacy-telemetry)
       bridge_identifier='refloat-legacy-telemetry'
