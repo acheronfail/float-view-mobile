@@ -4,12 +4,13 @@
 ownership. It is a locked Cargo workspace, not another backend and not a
 production runtime.
 
-The workspace currently has twenty-six members:
+The workspace currently has twenty-seven members:
 
 | Component               | Scope                                                                 | Integration state                                                                             |
 | ----------------------- | --------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
 | `android-jni-support/`   | Checked call-local JNI environments, primitive-array copies, alias validation, and panic containment | Shared internally by the eight Android bridges; exports no JNI symbol and owns no protocol behavior |
 | `apple-ffi-support/`     | Dependency-free checked regions, panic containment, and bounded C output publication | Shared internally by the eight Apple bridges; exports no C symbol and owns no protocol behavior |
+| `refloat-compatibility/` | Safe bounded Refloat INFO identity, exact profile catalogue, and dynamic-layout admission | Unselected candidate; Swift and Kotlin remain production owners |
 | `refloat-control/`       | Safe bounded Refloat live-control payload encoding and lighting response decoding | Selected by Apple and Android through separate host bridges                         |
 | `refloat-control-apple-ffi/` | Three-symbol caller-owned-buffer C ABI for Refloat controls              | Selected only by the shared iOS/macOS adapter                                       |
 | `refloat-control-android-jni/` | Three-symbol primitive-array JNI ABI for Refloat controls             | Selected only by Android                                                            |
@@ -113,6 +114,13 @@ package, flywheel, legacy/stable lighting, and fatal-clear wire payloads. It
 owns no compatibility lookup, routing, framing, authorization, scheduling,
 confirmation, telemetry, or application state. The shared Apple adapter and
 Android adapter use independent focused three-symbol bridges.
+
+The Refloat compatibility component constructs and decodes only the bounded
+INFO identity and applies the exact audited package, telemetry, control, and
+required-layout policy. It is an unselected dependency-free candidate: Swift
+and Kotlin continue to own production compatibility admission, discovery
+effects, routing, scheduling, state, and presentation until separate verified
+host cutovers.
 
 The controller-data component decodes only the consumed prefix of standard
 VESC realtime values and the current-limit subset of motor configuration.

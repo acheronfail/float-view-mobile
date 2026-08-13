@@ -933,6 +933,7 @@ audit:
     [[ -f backends/core/bridge-build-catalog.sh ]]
     [[ -f backends/core/build-apple-bridge.sh ]]
     [[ -f backends/core/build-android-bridge.sh ]]
+    [[ -f backends/core/refloat-compatibility/Cargo.toml ]]
     [[ -f backends/core/vesc-controller-data/Cargo.toml ]]
     [[ -f backends/core/vesc-controller-data-android-jni/Cargo.toml ]]
     [[ -f backends/core/vesc-controller-data-apple-ffi/Cargo.toml ]]
@@ -977,6 +978,7 @@ audit:
     [[ -f backends/apple/Sources/CVescRefloatLegacyTelemetry/module.modulemap ]]
     unexpected_core="$(find backends/core -mindepth 1 -maxdepth 1 -type d \
       ! -name target ! -name android-jni-support ! -name apple-ffi-support \
+      ! -name refloat-compatibility \
       ! -name refloat-control ! -name refloat-control-android-jni \
       ! -name refloat-control-apple-ffi ! -name refloat-dynamic-telemetry \
       ! -name refloat-dynamic-telemetry-android-jni \
@@ -1001,6 +1003,8 @@ audit:
     [[ "$(find backends/core/apple-ffi-support -mindepth 1 -maxdepth 1 -type d \
       ! -name src -print -quit)" == "" ]]
     [[ "$(find backends/core/android-jni-support -mindepth 1 -maxdepth 1 -type d \
+      ! -name src -print -quit)" == "" ]]
+    [[ "$(find backends/core/refloat-compatibility -mindepth 1 -maxdepth 1 -type d \
       ! -name src -print -quit)" == "" ]]
     [[ "$(find backends/core/refloat-control -mindepth 1 -maxdepth 1 -type d \
       ! -name src -print -quit)" == "" ]]
@@ -1066,6 +1070,11 @@ audit:
     rg -q 'slice::from_raw_parts' backends/core/apple-ffi-support/src/lib.rs
     rg -q 'ptr::copy_nonoverlapping' backends/core/apple-ffi-support/src/lib.rs
     rg -q 'catch_unwind' backends/core/apple-ffi-support/src/lib.rs
+    rg -q '^#!\[forbid\(unsafe_code\)\]$' backends/core/refloat-compatibility/src/lib.rs
+    ! rg -n 'extern[[:space:]]+"C"|extern[[:space:]]+"system"|no_mangle|Java_|cbindgen|bindgen|uniffi|jni|host_callback' \
+      backends/core/refloat-compatibility
+    ! rg -n 'refloat-compatibility|float-view-refloat-compatibility' \
+      backends/core/bridge-build-catalog.sh backends/apple backends/android
     rg -q '^#!\[forbid\(unsafe_code\)\]$' backends/core/refloat-control/src/lib.rs
     ! rg -n 'extern[[:space:]]+"C"|no_mangle|cbindgen|uniffi|jni|host_callback' \
       backends/core/refloat-control
@@ -1202,6 +1211,7 @@ audit:
     ! rg -n 'cbindgen|uniffi|jni|host_callback' \
       backends/core/refloat-legacy-telemetry-apple-ffi
     [[ "$(cd backends/core && cargo tree --locked --package float-view-refloat-control --edges normal --prefix none | wc -l | tr -d ' ')" == 1 ]]
+    [[ "$(cd backends/core && cargo tree --locked --package float-view-refloat-compatibility --edges normal --prefix none | wc -l | tr -d ' ')" == 1 ]]
     [[ "$(cd backends/core && cargo tree --locked --package float-view-refloat-control-apple-ffi --edges normal --depth 1 --prefix none | wc -l | tr -d ' ')" == 3 ]]
     [[ "$(cd backends/core && cargo tree --locked --package float-view-refloat-control-android-jni --edges normal --depth 1 --prefix none | wc -l | tr -d ' ')" == 3 ]]
     [[ "$(cd backends/core && cargo tree --locked --package float-view-refloat-dynamic-telemetry --edges normal --prefix none | wc -l | tr -d ' ')" == 1 ]]
