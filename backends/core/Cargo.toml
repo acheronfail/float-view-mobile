@@ -33,6 +33,7 @@ members = [
     "vesc-frame",
     "vesc-frame-apple-ffi",
     "vesc-frame-android-jni",
+    "vesc-request-scheduler",
 ]
 resolver = "3"
 

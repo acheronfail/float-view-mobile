@@ -4,7 +4,7 @@
 ownership. It is a locked Cargo workspace, not another backend and not a
 production runtime.
 
-The workspace currently has thirty-three members:
+The workspace currently has thirty-four members:
 
 | Component               | Scope                                                                 | Integration state                                                                             |
 | ----------------------- | --------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
@@ -41,8 +41,9 @@ The workspace currently has thirty-three members:
 | `vesc-frame/`             | Safe bounded VESC CRC, frame encoding/decoding, and stream scanning | Apple and Android select every framing decision                                 |
 | `vesc-frame-apple-ffi/`   | Caller-owned-buffer C ABI                                             | Selected only by the shared iOS/macOS frame-codec adapter                       |
 | `vesc-frame-android-jni/` | Primitive-array JNI ABI                                              | Selected by Android for CRC, encoding, exact decoding, and stream-boundary scans |
+| `vesc-request-scheduler/` | Safe bounded generation, priority/FIFO, attribution, deadline, cancellation, and ordered host-effect state machine | Exhaustively tested application-behavior candidate; deliberately unselected by every production host |
 
-The thirty-three crates remain independent components and artifacts. The ten
+The thirty-four crates remain independent components and artifacts. The ten
 Apple-selected component families' repeated
 source-build mechanics are centralized in `build-apple-bridge.sh` and
 `build-android-bridge.sh`, driven by a closed ten-entry Apple and
@@ -130,6 +131,15 @@ OS dependency, so Swift and Kotlin remain selected until later host-cutover
 changes. Those cutovers must delete the native state machines; once the unified
 runtime owns the surrounding application behavior, it also deletes both codec
 bridges and canonical-record adapters.
+
+The VESC request scheduler candidate owns connection-wide arbitration above
+protocol request construction and below host timer/BLE execution: bounded
+priority and FIFO ordering, one in-flight response request, typed attribution,
+generations, deadlines, cancellation, one-way completion, and deferred pumping.
+It emits ordered safe Rust effects and owns no clock, timer, writer, callback,
+host ABI, protocol codec, persistence, or transport. Swift and Kotlin remain
+selected; later unified-runtime cutovers compose this candidate directly rather
+than adding scheduler-specific Apple FFI and Android JNI crates.
 
 The BMS values component decodes only the bounded command-96 payload into a
 platform-neutral fixed-capacity model. Apple and Android select it through

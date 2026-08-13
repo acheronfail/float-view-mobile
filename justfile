@@ -528,6 +528,30 @@ core-refloat-configuration-service-audit:
     [[ "$(git ls-files "$crate" | rg '\.(h|a|so|dylib|xcframework|jar)$' || true)" == "" ]]
     just core-refloat-configuration-service-test
 
+core-vesc-request-scheduler-test:
+    cd backends/core && cargo test --locked --offline \
+      --package float-view-vesc-request-scheduler
+
+core-vesc-request-scheduler-audit:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    crate='backends/core/vesc-request-scheduler'
+    [[ -f "$crate/Cargo.toml" && -f "$crate/src/lib.rs" ]]
+    rg -q '^#!\[forbid\(unsafe_code\)\]$' "$crate/src/lib.rs"
+    [[ "$(sed -n '/^\[dependencies\]$/,$p' "$crate/Cargo.toml")" == '[dependencies]' ]]
+    [[ "$(cd backends/core && cargo tree --locked --offline \
+      --package float-view-vesc-request-scheduler --edges normal \
+      --prefix none | wc -l | tr -d ' ')" == 1 ]]
+    ! rg -n 'unsafe[[:space:]]*(\{|fn|impl|trait)|extern[[:space:]]+"(C|system)"|no_mangle|Java_|cbindgen|bindgen|uniffi|jni|host_callback|Box<dyn Fn|std::thread|tokio|rusqlite' \
+      "$crate/src"
+    [[ "$(find "$crate" -mindepth 1 -maxdepth 1 -type d \
+      ! -name src -print -quit)" == "" ]]
+    ! rg -n 'vesc-request-scheduler' \
+      backends/apple backends/android backends/core/bridge-build-catalog.sh \
+      backends/core/build-apple-bridge.sh backends/core/build-android-bridge.sh
+    [[ "$(git ls-files "$crate" | rg '\.(h|a|so|dylib|xcframework|jar)$' || true)" == "" ]]
+    just core-vesc-request-scheduler-test
+
 core-refloat-configuration-codec-audit:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -1206,6 +1230,7 @@ audit:
     [[ -f backends/core/vesc-frame/Cargo.toml ]]
     [[ -f backends/core/vesc-frame-apple-ffi/Cargo.toml ]]
     [[ -f backends/core/vesc-frame-android-jni/Cargo.toml ]]
+    [[ -f backends/core/vesc-request-scheduler/Cargo.toml ]]
     [[ -f backends/apple/Sources/CVescFrame/include/CVescFrame.h ]]
     [[ -f backends/apple/Sources/CVescFrame/module.modulemap ]]
     [[ -f backends/apple/Sources/CVescCustomConfiguration/include/CVescCustomConfiguration.h ]]
@@ -1250,7 +1275,7 @@ audit:
       ! -name vesc-custom-configuration-apple-ffi \
       ! -name vesc-firmware-identity-android-jni ! -name vesc-firmware-identity-apple-ffi \
       ! -name vesc-frame ! -name vesc-frame-apple-ffi \
-      ! -name vesc-frame-android-jni -print -quit)"
+      ! -name vesc-frame-android-jni ! -name vesc-request-scheduler -print -quit)"
     [[ -z "$unexpected_core" ]] || {
       echo "Unexpected Rust core workspace member: $unexpected_core" >&2
       exit 1
@@ -1533,6 +1558,7 @@ audit:
     just core-refloat-compatibility-abi-audit
     just core-refloat-configuration-codec-audit
     just core-refloat-configuration-service-audit
+    just core-vesc-request-scheduler-audit
     just core-refloat-configuration-codec-abi-audit
     just core-refloat-dynamic-telemetry-abi-audit
     just core-refloat-legacy-telemetry-abi-audit
