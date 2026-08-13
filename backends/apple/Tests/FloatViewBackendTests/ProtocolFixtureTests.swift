@@ -341,15 +341,14 @@ private func bytes(_ hex: String) -> [UInt8] {
   #expect(legacy.chargingCurrentA != nil)
   #expect(legacy.chargingVoltageV != nil)
 
-  let (fields, runtimeFields) = try RefloatDynamicTelemetryDecoder.decodeFields(
+  let layout = try RefloatDynamicTelemetryDecoder.decodeFields(
     refloatSourcePayload("1.1.0-and-1.2.3-command-32-layout")
   )
-  #expect(fields.count == 16)
-  #expect(runtimeFields.count == 10)
+  #expect(layout.fields.count == 16)
+  #expect(layout.runtimeFields.count == 10)
   let dynamic = try RefloatDynamicTelemetryDecoder.decodeData(
     refloatSourcePayload("1.2.3-command-31-running-alert-tail"),
-    fields: fields,
-    runtimeFields: runtimeFields
+    layout: layout
   )
   #expect(dynamic.kind == .realtime)
   #expect(dynamic.packageState == .running)
@@ -365,8 +364,7 @@ private func bytes(_ hex: String) -> [UInt8] {
 
   let fault = try RefloatDynamicTelemetryDecoder.decodeData(
     refloatSourcePayload("1.2.3-command-31-active-firmware-fault"),
-    fields: fields,
-    runtimeFields: runtimeFields
+    layout: layout
   )
   #expect(fault.alertReason == .firmwareFault)
   #expect(fault.firmwareFault == .overVoltage)
@@ -775,7 +773,7 @@ private func bytes(_ hex: String) -> [UInt8] {
 
   let payload: [UInt8] = [
     36, 101, 31,
-    0, 0, 0, 0, 0, 1,
+    1, 0, 0, 0, 0, 1,
     3, 0x40, 0, 0,
     0x50, 0x80,
     0x64, 0x00,

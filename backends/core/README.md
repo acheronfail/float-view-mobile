@@ -4,16 +4,17 @@
 ownership. It is a locked Cargo workspace, not another backend and not a
 production runtime.
 
-The workspace currently has twenty-four members:
+The workspace currently has twenty-five members:
 
 | Component               | Scope                                                                 | Integration state                                                                             |
 | ----------------------- | --------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
 | `android-jni-support/`   | Checked call-local JNI environments, primitive-array copies, alias validation, and panic containment | Shared internally by the seven Android bridges; exports no JNI symbol and owns no protocol behavior |
-| `apple-ffi-support/`     | Dependency-free checked regions, panic containment, and bounded C output publication | Shared internally by the six Apple bridges; exports no C symbol and owns no protocol behavior |
+| `apple-ffi-support/`     | Dependency-free checked regions, panic containment, and bounded C output publication | Shared internally by the eight Apple bridges; exports no C symbol and owns no protocol behavior |
 | `refloat-control/`       | Safe bounded Refloat live-control payload encoding and lighting response decoding | Selected by Apple and Android through separate host bridges                         |
 | `refloat-control-apple-ffi/` | Three-symbol caller-owned-buffer C ABI for Refloat controls              | Selected only by the shared iOS/macOS adapter                                       |
 | `refloat-control-android-jni/` | Three-symbol primitive-array JNI ABI for Refloat controls             | Selected only by Android                                                            |
-| `refloat-dynamic-telemetry/` | Safe bounded Refloat command-32 layout and command-31 dynamic telemetry decoding | Unselected candidate; Swift and Kotlin remain production owners |
+| `refloat-dynamic-telemetry/` | Safe bounded Refloat command-32 layout and command-31 dynamic telemetry decoding plus canonical version-1 layout/sample records | Selected by Apple; Kotlin remains Android's production owner |
+| `refloat-dynamic-telemetry-apple-ffi/` | Three-symbol stateless caller-owned-buffer C ABI for dynamic telemetry | Temporary bridge selected only by the shared iOS/macOS adapter |
 | `refloat-legacy-telemetry/` | Safe bounded Refloat command-10 compact telemetry decoding and canonical version-1 record | Selected by Apple and Android through separate host bridges |
 | `refloat-legacy-telemetry-apple-ffi/` | Two-symbol caller-owned-buffer C ABI for legacy telemetry | Temporary bridge selected only by the shared iOS/macOS adapter |
 | `refloat-legacy-telemetry-android-jni/` | Two-symbol primitive-array JNI ABI for legacy telemetry | Temporary bridge selected only by Android |
@@ -33,19 +34,20 @@ The workspace currently has twenty-four members:
 | `vesc-frame-apple-ffi/`   | Caller-owned-buffer C ABI                                             | Selected only by the shared iOS/macOS frame-codec adapter                       |
 | `vesc-frame-android-jni/` | Primitive-array JNI ABI                                              | Selected by Android for CRC, encoding, exact decoding, and stream-boundary scans |
 
-The twenty-four crates remain independent components and artifacts. The seven
-selected component families' repeated
+The twenty-five crates remain independent components and artifacts. The eight
+Apple-selected component families' repeated
 source-build mechanics are centralized in `build-apple-bridge.sh` and
-`build-android-bridge.sh`, driven by the closed seven-entry
-`bridge-build-catalog.sh` allowlist. Callers pass only `frame`,
+`build-android-bridge.sh`, driven by the closed eight-entry Apple and
+seven-entry Android `bridge-build-catalog.sh` allowlists. Callers pass only `frame`,
 `firmware-identity`, `custom-configuration`, `bms-values`, `controller-data`,
-or `refloat-control`, or `refloat-legacy-telemetry`. Package names,
+`refloat-control`, `refloat-dynamic-telemetry`, or
+`refloat-legacy-telemetry`. Package names,
 archive/library names, diagnostics, and exact JNI symbols come from the
 catalog. The catalog is deliberately non-executable, while the two builders
 retain the pinned offline toolchain, Apple target, Android NDK/API/ABI,
 architecture, and symbol checks.
 
-The seven Apple bridges also share the protocol-agnostic memory-boundary
+The eight Apple bridges also share the protocol-agnostic memory-boundary
 mechanics in `apple-ffi-support/`: checked pointer regions, disjointness,
 panic containment, borrowed input construction, and bounded byte/scalar
 publication. Exported functions, status mapping, result records, headers,
@@ -126,12 +128,14 @@ polling, cache merging, application mapping, persistence, and OS behavior. The
 host bridges are migration scaffolding and are deleted when the unified Rust
 application runtime no longer needs native protocol boundaries.
 
-The Refloat dynamic telemetry candidate owns bounded command-32 UTF-8 layout
+The Refloat dynamic telemetry component owns bounded command-32 UTF-8 layout
 validation and command-31 mask-dependent decoding, including the complete
 finite source float16 range, semantic state, charging and alert tails, typed
-known values, and bounded extensions. It has no bridge or production call path;
-the selected Swift and Kotlin decoders remain unchanged until independent host
-cutovers prove a variable-record ABI and delete each native parser.
+known values, bounded extensions, and canonical layout/sample records. Apple
+selects it through a temporary stateless three-symbol bridge and strict record
+adapter; the superseded Swift wire parser is gone. Kotlin remains Android's
+production owner until its independent cutover proves the same records and
+deletes its parser.
 
 Do not add empty future crates, generated bindings, a general runtime, host
 callbacks, or OS-owned Bluetooth, location, lifecycle, permission, native-file,

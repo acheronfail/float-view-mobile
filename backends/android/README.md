@@ -10,7 +10,10 @@ focused JNI bridges. Kotlin retains
 bounded caller-owned storage, primitive-result validation, error mapping,
 observation-time attachment, and the remaining VESC, BMS application, and
 Refloat compatibility, polling, cache merging, and application semantics.
-The command-10 adapter strictly validates Rust's canonical record and preserves
+Kotlin remains the sole Android owner of Refloat command-31/32 dynamic
+telemetry; Apple's temporary dynamic-telemetry FFI bridge is not an Android
+package, task, artifact, or runtime dependency. The command-10 adapter strictly
+validates Rust's canonical record and preserves
 the existing Kotlin model API; there is no generated API or Gradle module per
 capability.
 The firmware-identity domain crate also owns the single platform-neutral

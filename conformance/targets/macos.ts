@@ -83,20 +83,18 @@ export function macosLaunchArguments() {
 function buildMacosExecutable(root: string) {
   const cwd = `${root}/backends/apple`;
   const scratch = '/tmp/float-view-swift-build';
-  const architecture = execFileSync('uname', ['-m'], { encoding: 'utf8' }).trim();
-  execFileSync(
-    `${root}/backends/core/build-apple-bridge.sh`,
-    ['frame', 'macosx', architecture, 'Debug', `${root}/backends/core/target/apple/macos`],
-    { cwd: root, stdio: 'inherit' }
-  );
-  execFileSync('swift', ['build', '--scratch-path', scratch, '--product', 'FloatViewMac'], {
-    cwd,
-    stdio: 'inherit',
-  });
+  execFileSync('just', ['apple-rust-bridges', 'Debug'], { cwd: root, stdio: 'inherit' });
   const binaryRoot = execFileSync('swift', ['build', '--scratch-path', scratch, '--show-bin-path'], {
     cwd,
     encoding: 'utf8',
   }).trim();
+  // SwiftPM does not model externally linked static archives as inputs. Remove
+  // only the disposable executable so a changed Rust archive is always relinked.
+  rmSync(join(binaryRoot, 'FloatViewMac'), { force: true });
+  execFileSync('swift', ['build', '--scratch-path', scratch, '--product', 'FloatViewMac'], {
+    cwd,
+    stdio: 'inherit',
+  });
   return join(binaryRoot, 'FloatViewMac');
 }
 

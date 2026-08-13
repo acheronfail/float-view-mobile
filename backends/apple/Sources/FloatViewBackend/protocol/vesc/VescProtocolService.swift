@@ -88,16 +88,14 @@ public final class VescProtocolService: VescProtocolPort, @unchecked Sendable {
   public let supportsBmsTelemetry = true
   private let lock = NSLock()
   private var stream = VescFrameStreamDecoder()
-  private var realtimeFields: [String] = []
-  private var realtimeRuntimeFields: [String] = []
+  private var realtimeLayout: RefloatDynamicTelemetryLayout?
 
   public init() {}
 
   public func reset() {
     lock.lock()
     stream = VescFrameStreamDecoder()
-    realtimeFields.removeAll()
-    realtimeRuntimeFields.removeAll()
+    realtimeLayout = nil
     lock.unlock()
   }
 
@@ -260,17 +258,17 @@ public final class VescProtocolService: VescProtocolPort, @unchecked Sendable {
           return try .refloatInfo(version: RefloatInfoDecoder.decodeVersion(payload))
         }
         if command == .realtimeDataInternalIDs {
-          let (fields, runtimeFields) = try RefloatDynamicTelemetryDecoder.decodeFields(payload)
-          realtimeFields = fields
-          realtimeRuntimeFields = runtimeFields
-          return .refloatTelemetryLayout(fields: fields, runtimeFields: runtimeFields)
+          let layout = try RefloatDynamicTelemetryDecoder.decodeFields(payload)
+          realtimeLayout = layout
+          return .refloatTelemetryLayout(
+            fields: layout.fields, runtimeFields: layout.runtimeFields
+          )
         }
         if command == .realtimeDataInternal {
           return try .refloatTelemetry(
             RefloatDynamicTelemetryDecoder.decodeData(
               payload,
-              fields: realtimeFields,
-              runtimeFields: realtimeRuntimeFields
+              layout: try requireRealtimeLayout()
             )
           )
         }
@@ -296,5 +294,10 @@ public final class VescProtocolService: VescProtocolPort, @unchecked Sendable {
         return nil
       }
     }
+  }
+
+  private func requireRealtimeLayout() throws -> RefloatDynamicTelemetryLayout {
+    guard let realtimeLayout else { throw VescProtocolError.invalidFrame }
+    return realtimeLayout
   }
 }

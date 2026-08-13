@@ -97,6 +97,7 @@
 				F30A00042F00000000000004 /* Build Rust VESC BMS values */,
 				F30A00062F00000000000006 /* Build Rust VESC controller data */,
 				F30A00052F00000000000005 /* Build Rust Refloat control codec */,
+				F30A00082F00000000000008 /* Build Rust Refloat dynamic telemetry */,
 				F30A00072F00000000000007 /* Build Rust Refloat legacy telemetry */,
 				BA4ABF182E5BDF4600B47684 /* Sources */,
 				BA4ABF192E5BDF4600B47684 /* Frameworks */,
@@ -418,6 +419,35 @@
 			shellPath = /bin/bash;
 			shellScript = "\"${PROJECT_DIR}/../../core/build-apple-bridge.sh\" \"refloat-legacy-telemetry\" \"${PLATFORM_NAME}\" \"${ARCHS}\" \"${CONFIGURATION}\" \"${DERIVED_FILE_DIR}\"\n";
 		};
+		F30A00082F00000000000008 /* Build Rust Refloat dynamic telemetry */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+				"$(PROJECT_DIR)/../../core/Cargo.lock",
+				"$(PROJECT_DIR)/../../core/Cargo.toml",
+				"$(PROJECT_DIR)/../../core/apple-ffi-support/Cargo.toml",
+				"$(PROJECT_DIR)/../../core/apple-ffi-support/src/lib.rs",
+				"$(PROJECT_DIR)/../../core/refloat-dynamic-telemetry/Cargo.toml",
+				"$(PROJECT_DIR)/../../core/refloat-dynamic-telemetry/src/lib.rs",
+				"$(PROJECT_DIR)/../../core/refloat-dynamic-telemetry-apple-ffi/Cargo.toml",
+				"$(PROJECT_DIR)/../../core/bridge-build-catalog.sh",
+				"$(PROJECT_DIR)/../../core/build-apple-bridge.sh",
+				"$(PROJECT_DIR)/../../core/refloat-dynamic-telemetry-apple-ffi/src/lib.rs",
+			);
+			name = "Build Rust Refloat dynamic telemetry";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+				"$(DERIVED_FILE_DIR)/libfloat_view_refloat_dynamic_telemetry_apple_ffi.a",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/bash;
+			shellScript = "\"${PROJECT_DIR}/../../core/build-apple-bridge.sh\" \"refloat-dynamic-telemetry\" \"${PLATFORM_NAME}\" \"${ARCHS}\" \"${CONFIGURATION}\" \"${DERIVED_FILE_DIR}\"\n";
+		};
 /* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
@@ -595,6 +625,7 @@
 					"-lfloat_view_vesc_firmware_identity_apple_ffi",
 					"-lfloat_view_vesc_custom_configuration_apple_ffi",
 					"-lfloat_view_refloat_control_apple_ffi",
+					"-lfloat_view_refloat_dynamic_telemetry_apple_ffi",
 					"-lfloat_view_refloat_legacy_telemetry_apple_ffi",
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = "fail.acheron.float-view";
@@ -607,6 +638,7 @@
 					"$(PROJECT_DIR)/../Sources/CVescFrame",
 					"$(PROJECT_DIR)/../Sources/CVescFirmwareIdentity",
 					"$(PROJECT_DIR)/../Sources/CVescRefloatControl",
+					"$(PROJECT_DIR)/../Sources/CVescRefloatDynamicTelemetry",
 					"$(PROJECT_DIR)/../Sources/CVescRefloatLegacyTelemetry",
 				);
 				SWIFT_VERSION = 5.0;
@@ -642,6 +674,7 @@
 					"-lfloat_view_vesc_firmware_identity_apple_ffi",
 					"-lfloat_view_vesc_custom_configuration_apple_ffi",
 					"-lfloat_view_refloat_control_apple_ffi",
+					"-lfloat_view_refloat_dynamic_telemetry_apple_ffi",
 					"-lfloat_view_refloat_legacy_telemetry_apple_ffi",
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = "fail.acheron.float-view";
@@ -654,6 +687,7 @@
 					"$(PROJECT_DIR)/../Sources/CVescFrame",
 					"$(PROJECT_DIR)/../Sources/CVescFirmwareIdentity",
 					"$(PROJECT_DIR)/../Sources/CVescRefloatControl",
+					"$(PROJECT_DIR)/../Sources/CVescRefloatDynamicTelemetry",
 					"$(PROJECT_DIR)/../Sources/CVescRefloatLegacyTelemetry",
 				);
 				SWIFT_VERSION = 5.0;

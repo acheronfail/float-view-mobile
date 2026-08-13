@@ -180,13 +180,18 @@ private func shutdownFixture() throws -> ShutdownFixture {
 }
 
 @Test func fatalLatchAndActiveFirmwareFaultDecodeIndependently() throws {
+  let layout = try RefloatDynamicTelemetryDecoder.decodeFields([
+    36, 101, 32, 1, 11,
+    109, 111, 116, 111, 114, 46, 115, 112, 101, 101, 100,
+    0,
+  ])
   let latchedPayload: [UInt8] = [
     36, 101, 31, 4, 8, 0, 0, 0, 0, 2, 0, 0, 0,
     0, 0,
     0, 0, 0, 0, 0, 0, 0, 0, 0,
   ]
   let latched = try RefloatDynamicTelemetryDecoder.decodeData(
-    latchedPayload, fields: ["motor.speed"], runtimeFields: []
+    latchedPayload, layout: layout
   )
   #expect(latched.fatalErrorLatched == true)
   #expect(latched.firmwareFault == nil)
@@ -199,7 +204,7 @@ private func shutdownFixture() throws -> ShutdownFixture {
   activePayload[18] = 1
   activePayload[23] = 1
   let active = try RefloatDynamicTelemetryDecoder.decodeData(
-    activePayload, fields: ["motor.speed"], runtimeFields: []
+    activePayload, layout: layout
   )
   #expect(active.fatalErrorLatched == false)
   #expect(active.firmwareFault == .overVoltage)

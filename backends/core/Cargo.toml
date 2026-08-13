@@ -6,6 +6,7 @@ members = [
     "refloat-control-android-jni",
     "refloat-control-apple-ffi",
     "refloat-dynamic-telemetry",
+    "refloat-dynamic-telemetry-apple-ffi",
     "refloat-legacy-telemetry",
     "refloat-legacy-telemetry-android-jni",
     "refloat-legacy-telemetry-apple-ffi",

@@ -103,6 +103,12 @@ float_view_select_bridge() {
         Java_fail_acheron_floatview_protocol_RustRefloatControlBridge_encode
       )
       ;;
+    refloat-dynamic-telemetry)
+      bridge_identifier='refloat-dynamic-telemetry'
+      bridge_diagnostic='Refloat dynamic telemetry'
+      bridge_apple_package='float-view-refloat-dynamic-telemetry-apple-ffi'
+      bridge_apple_archive='libfloat_view_refloat_dynamic_telemetry_apple_ffi.a'
+      ;;
     refloat-legacy-telemetry)
       bridge_identifier='refloat-legacy-telemetry'
       bridge_diagnostic='Refloat legacy telemetry'

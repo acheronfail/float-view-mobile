@@ -409,9 +409,21 @@ async function runControllerShutdownCheckpoint(
   );
   const writes = runner.simulator.requests.slice(requestOffset);
   assert.equal(writes.filter((request) => request.kind === 'controller-shutdown').length, 1);
+  // A single read-only schema page can already be in the BLE stack when the
+  // user action wins scheduler priority. It may finish after requestOffset,
+  // but discovery must not continue and no other command is permitted.
   assert.ok(
-    writes.every((request) => request.kind === 'controller-shutdown' || request.kind === 'telemetry'),
-    'shutdown checkpoint emitted a non-shutdown/non-telemetry request; motor movement is forbidden'
+    writes.filter((request) => request.kind === 'refloat-configuration-schema').length <= 1,
+    'shutdown checkpoint continued auxiliary configuration discovery'
+  );
+  assert.ok(
+    writes.every(
+      (request) =>
+        request.kind === 'controller-shutdown' ||
+        request.kind === 'telemetry' ||
+        request.kind === 'refloat-configuration-schema'
+    ),
+    'shutdown checkpoint emitted a non-shutdown/non-telemetry/non-schema-read request; motor movement is forbidden'
   );
   if (expectNoOp) {
     const continued = await client.waitForState(
