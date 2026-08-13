@@ -1,7 +1,6 @@
+@testable import FloatViewBackend
 import Foundation
 import Testing
-
-@testable import FloatViewBackend
 
 private func layoutRecord(_ name: String = "motor.speed") -> [UInt8] {
   let bytes = Array(name.utf8)
@@ -9,7 +8,7 @@ private func layoutRecord(_ name: String = "motor.speed") -> [UInt8] {
 }
 
 private func bigEndianBytes(_ value: UInt64) -> [UInt8] {
-  (0..<8).map { shift in UInt8(truncatingIfNeeded: value >> UInt64(56 - shift * 8)) }
+  (0 ..< 8).map { shift in UInt8(truncatingIfNeeded: value >> UInt64(56 - shift * 8)) }
 }
 
 private func sampleRecord(extensionName: String? = nil) -> [UInt8] {
@@ -22,8 +21,8 @@ private func sampleRecord(extensionName: String? = nil) -> [UInt8] {
   record[5] = 1
   record[6] = 1
   record[8] = 1
-  record[16..<20] = [0, 0, 0, 9]
-  record[20..<24] = [0, 0, 0, 1]
+  record[16 ..< 20] = [0, 0, 0, 9]
+  record[20 ..< 24] = [0, 0, 0, 1]
   record += bigEndianBytes(12.5.bitPattern)
   record += [UInt8](repeating: 0, count: 27 * 8)
   if let extensionName {
@@ -36,16 +35,30 @@ private func sampleRecord(extensionName: String? = nil) -> [UInt8] {
   return record
 }
 
-private func layoutPayload(_ name: String) -> [UInt8] {
-  let bytes = Array(name.utf8)
-  return [36, 101, 32, 1, UInt8(bytes.count)] + bytes + [0]
+private func layoutPayload(extraField: String? = nil) -> [UInt8] {
+  let fields = refloatRequiredFields + (extraField.map { [$0] } ?? [])
+  var payload: [UInt8] = [36, 101, 32, UInt8(fields.count)]
+  for field in fields {
+    let bytes = Array(field.utf8)
+    payload += [UInt8(bytes.count)] + bytes
+  }
+  payload.append(UInt8(refloatRequiredRuntimeFields.count))
+  for field in refloatRequiredRuntimeFields {
+    let bytes = Array(field.utf8)
+    payload += [UInt8(bytes.count)] + bytes
+  }
+  return payload
 }
 
-private func readyPayload(_ bits: UInt16 = 0x3c00) -> [UInt8] {
-  [
+private func readyPayload(extraBits: UInt16? = nil) -> [UInt8] {
+  var payload: [UInt8] = [
     36, 101, 31, 0, 0, 0, 0, 0, 9, 2, 0, 0, 0,
-    UInt8(truncatingIfNeeded: bits >> 8), UInt8(truncatingIfNeeded: bits),
   ]
+  payload += [UInt8](repeating: 0, count: refloatRequiredFields.count * 2)
+  if let extraBits {
+    payload += [UInt8(truncatingIfNeeded: extraBits >> 8), UInt8(truncatingIfNeeded: extraBits)]
+  }
+  return payload
 }
 
 @Test func dynamicTelemetryAdapterMapsCanonicalRecordsAndExtensions() throws {
@@ -95,24 +108,24 @@ private func readyPayload(_ bits: UInt16 = 0x3c00) -> [UInt8] {
 
 @Test func dynamicTelemetryLayoutIsConnectionScopedAndReplacedAtomically() throws {
   let service = VescProtocolService()
-  let firstLayout = try VescFrameCodec.encode(layoutPayload("motor.speed"))
+  let firstLayout = try VescFrameCodec.encode(layoutPayload())
   _ = try service.receive(Data(firstLayout))
   service.reset()
   #expect(throws: VescProtocolError.self) {
     try service.receive(Data(VescFrameCodec.encode(readyPayload())))
   }
 
-  let replacement = try VescFrameCodec.encode(layoutPayload("future.energy"))
+  let replacement = try VescFrameCodec.encode(layoutPayload(extraField: "future.energy"))
   _ = try service.receive(Data(replacement))
   guard
-    case .refloatTelemetry(let value) = try #require(
-      service.receive(Data(VescFrameCodec.encode(readyPayload(0x4200)))).first
+    case let .refloatTelemetry(value) = try #require(
+      service.receive(Data(VescFrameCodec.encode(readyPayload(extraBits: 0x4200)))).first
     )
   else {
     Issue.record("Expected replacement-layout telemetry")
     return
   }
-  #expect(value.speedKph == nil)
+  #expect(value.speedKph == 0)
   #expect(value.extensions == ["future.energy": 3])
 }
 

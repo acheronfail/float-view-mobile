@@ -760,15 +760,16 @@ public final class ApplicationService: @unchecked Sendable {
               events.publish("bms_values_decode_failed:\(Self.bmsRouteDiagnostic(expectedCanID))")
               recordBmsFailure()
             }
-          case let .refloatInfo(version):
+          case let .refloatInfo(decision):
             guard connectionState == .identifying else { continue }
-            performDiscoveryEffect(controllerDiscovery.acceptRefloatInfo(version))
-          case let .refloatTelemetryLayout(fields, runtimeFields):
+            performDiscoveryEffect(controllerDiscovery.acceptRefloatInfo(decision))
+          case let .refloatTelemetryLayout(fields, runtimeFields, supported):
             telemetryPolling.layoutEstablished()
             performDiscoveryEffect(
               controllerDiscovery.acceptTelemetryLayout(
                 fields: fields,
-                runtimeFields: runtimeFields
+                runtimeFields: runtimeFields,
+                supported: supported
               )
             )
           case let .refloatTelemetry(value):
@@ -2028,8 +2029,7 @@ public final class ApplicationService: @unchecked Sendable {
   }
 
   private func configureRefloatControls(firmware: FirmwareRecord) {
-    guard let version = controllerDiscovery.refloatPackageVersion,
-          let profile = RefloatCompatibility.controlProfile(wireVersion: version),
+    guard let profile = controllerDiscovery.refloatControlProfile,
           let access = VescCompatibility.accessMode(firmware)
     else {
       refloatProfile = nil

@@ -121,10 +121,7 @@ public final class VescProtocolService: VescProtocolPort, @unchecked Sendable {
   }
 
   public func refloatInfoRequest(route: ControllerRoute) throws -> Data {
-    let command = RefloatWire.request(
-      .info,
-      parameters: [RefloatWire.infoProtocolVersion, RefloatWire.infoFlags]
-    )
+    let command = try RefloatCompatibility.infoRequest()
     let payload = VescCommandRouter.route(command, via: route)
     return try Data(VescFrameCodec.encode(payload))
   }
@@ -255,20 +252,23 @@ public final class VescProtocolService: VescProtocolPort, @unchecked Sendable {
           return nil
         }
         if command == .info {
-          return try .refloatInfo(version: RefloatInfoDecoder.decodeVersion(payload))
+          return try .refloatInfo(RefloatCompatibility.decodeInfo(payload))
         }
         if command == .realtimeDataInternalIDs {
           let layout = try RefloatDynamicTelemetryDecoder.decodeFields(payload)
-          realtimeLayout = layout
+          let supported = try RefloatCompatibility.admits(layoutRecord: layout.record)
+          realtimeLayout = supported ? layout : nil
           return .refloatTelemetryLayout(
-            fields: layout.fields, runtimeFields: layout.runtimeFields
+            fields: layout.fields,
+            runtimeFields: layout.runtimeFields,
+            supported: supported
           )
         }
         if command == .realtimeDataInternal {
           return try .refloatTelemetry(
             RefloatDynamicTelemetryDecoder.decodeData(
               payload,
-              layout: try requireRealtimeLayout()
+              layout: requireRealtimeLayout()
             )
           )
         }

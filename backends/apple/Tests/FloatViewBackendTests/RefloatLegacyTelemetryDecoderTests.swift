@@ -1,19 +1,21 @@
+@testable import FloatViewBackend
 import Foundation
 import Testing
-
-@testable import FloatViewBackend
 
 private struct LegacySourceFixture: Decodable {
   struct Case: Decodable {
     let name: String
     let payloadHex: String
   }
+
   let cases: [Case]
 }
 
 private func legacyPayload(_ name: String) throws -> [UInt8] {
   var root = URL(fileURLWithPath: #filePath)
-  for _ in 0..<4 { root.deleteLastPathComponent() }
+  for _ in 0 ..< 4 {
+    root.deleteLastPathComponent()
+  }
   let data = try Data(
     contentsOf: root.appending(path: "fixtures/refloat/detailed-source-provenance.json")
   )
@@ -22,12 +24,12 @@ private func legacyPayload(_ name: String) throws -> [UInt8] {
   return stride(from: 0, to: hex.count, by: 2).map { offset in
     let start = hex.index(hex.startIndex, offsetBy: offset)
     let end = hex.index(start, offsetBy: 2)
-    return UInt8(hex[start..<end], radix: 16)!
+    return UInt8(hex[start ..< end], radix: 16)!
   }
 }
 
 @Test func rustLegacyTelemetryBridgePreservesAllDetailOptionsAndSentinel() throws {
-  for detail in 1...4 {
+  for detail in 1 ... 4 {
     let decoded = try RefloatLegacyTelemetryDecoder.decode(
       legacyPayload("1.0.0-command-10-detail-\(detail)")
     )
@@ -86,12 +88,12 @@ private func legacyPayload(_ name: String) throws -> [UInt8] {
     try RefloatLegacyTelemetryDecoder.telemetry(from: unknownOption)
   }
   var absentNonzero = record
-  absentNonzero.replaceSubrange(16 + 2 * 8..<16 + 3 * 8, with: 1.0.bitPattern.bigEndianBytes)
+  absentNonzero.replaceSubrange(16 + 2 * 8 ..< 16 + 3 * 8, with: 1.0.bitPattern.bigEndianBytes)
   #expect(throws: VescProtocolError.self) {
     try RefloatLegacyTelemetryDecoder.telemetry(from: absentNonzero)
   }
   var nonfinite = record
-  nonfinite.replaceSubrange(16..<24, with: Double.infinity.bitPattern.bigEndianBytes)
+  nonfinite.replaceSubrange(16 ..< 24, with: Double.infinity.bitPattern.bigEndianBytes)
   #expect(throws: VescProtocolError.self) {
     try RefloatLegacyTelemetryDecoder.telemetry(from: nonfinite)
   }
@@ -103,12 +105,12 @@ private func legacyPayload(_ name: String) throws -> [UInt8] {
 
 private func canonicalLegacySampleRecord() -> [UInt8] {
   var record = [UInt8](repeating: 0, count: 264)
-  record[0...9] = [1, 1, 1, 2, 1, 4, 1, 1, 0, 1]
+  record[0 ... 9] = [1, 1, 1, 2, 1, 4, 1, 1, 0, 1]
   return record
 }
 
-extension UInt64 {
-  fileprivate var bigEndianBytes: [UInt8] {
-    (0..<8).map { UInt8(truncatingIfNeeded: self >> UInt64((7 - $0) * 8)) }
+private extension UInt64 {
+  var bigEndianBytes: [UInt8] {
+    (0 ..< 8).map { UInt8(truncatingIfNeeded: self >> UInt64((7 - $0) * 8)) }
   }
 }

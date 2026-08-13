@@ -427,10 +427,9 @@ private func bytes(_ hex: String) -> [UInt8] {
     try VescFrameCodec.decode(Array(service.refloatInfoRequest(route: .can(42))))
       == [34, 42, 36, 101, 0, 2, 0]
   )
-  #expect(
+  #expect(throws: VescProtocolError.invalidFrame) {
     try service.receive(Data(VescFrameCodec.encode([36, 101, 0, 12])))
-      == [.refloatInfo(version: "1.2")]
-  )
+  }
 }
 
 @Test func bmsValuesRequestsUseExactDirectAndCANRoutes() throws {
@@ -615,30 +614,20 @@ private func bytes(_ hex: String) -> [UInt8] {
   }
 }
 
-@Test func exactCompatibilityCatalogsAndLegacyWireIdentityAreStable() throws {
+@Test func rustCompatibilityDecisionsAndLegacyWireIdentityAreStable() throws {
   #expect(VescCompatibility.supported == [
     .init(6, 2), .init(6, 5), .init(6, 6), .init(7, 0),
   ])
-  #expect(RefloatCompatibility.entries.map(\.sourceVersion) == [
-    "1.0.0", "1.0.1",
-    "1.1.0", "1.1.1", "1.1.2",
-    "1.2.0", "1.2.1", "1.2.2", "1.2.3",
-  ])
-  #expect(RefloatCompatibility.entry(wireVersion: "1.0")?.family == .legacyFixed)
-  #expect(RefloatCompatibility.entry(wireVersion: "1.2.0")?.profile == .dynamicAlerts)
-  #expect(RefloatCompatibility.entry(wireVersion: "1.3.0") == nil)
-  #expect(RefloatCompatibility.supportsDynamicLayout(
-    fields: RefloatCompatibility.requiredFields + ["future.energy"],
-    runtimeFields: RefloatCompatibility.requiredRuntimeFields
-  ))
-  #expect(!RefloatCompatibility.supportsDynamicLayout(
-    fields: Array(RefloatCompatibility.requiredFields.dropFirst()),
-    runtimeFields: RefloatCompatibility.requiredRuntimeFields
-  ))
+  #expect(try RefloatCompatibility.infoRequest() == [36, 101, 0, 2, 0])
+  #expect(try refloatDecision("1.0").family == .legacyFixed)
+  #expect(try refloatDecision("1.2.0").profile == .dynamicAlerts)
+  #expect(throws: VescProtocolError.invalidFrame) {
+    try RefloatCompatibility.decodeInfo(refloatInfoPayload("1.3.0"))
+  }
 
   let service = VescProtocolService()
   let legacy = try VescFrameCodec.encode([36, 101, 0, 10])
-  #expect(try service.receive(Data(legacy)) == [.refloatInfo(version: "1.0")])
+  #expect(try service.receive(Data(legacy)) == [.refloatInfo(refloatDecision("1.0"))])
   #expect(
     try VescFrameCodec.decode(Array(service.refloatLegacyTelemetryRequest(route: .direct)))
       == [36, 101, 10, 4]
@@ -758,17 +747,32 @@ private func bytes(_ hex: String) -> [UInt8] {
     "motor.speed", "motor.erpm", "motor.current", "motor.duty_cycle",
     "motor.batt_voltage", "motor.batt_current", "motor.mosfet_temp",
     "motor.motor_temp", "future.energy",
-  ]
+  ] + refloatRequiredFields.filter {
+    ![
+      "motor.speed", "motor.erpm", "motor.current", "motor.duty_cycle",
+      "motor.batt_voltage", "motor.batt_current", "motor.mosfet_temp",
+      "motor.motor_temp",
+    ].contains($0)
+  }
   var idsPayload: [UInt8] = [36, 101, 32, UInt8(fields.count)]
   for field in fields {
     let bytes = Array(field.utf8)
     idsPayload.append(UInt8(bytes.count))
     idsPayload += bytes
   }
-  idsPayload.append(0)
+  idsPayload.append(UInt8(refloatRequiredRuntimeFields.count))
+  for field in refloatRequiredRuntimeFields {
+    let bytes = Array(field.utf8)
+    idsPayload.append(UInt8(bytes.count))
+    idsPayload += bytes
+  }
   #expect(
     try service.receive(Data(VescFrameCodec.encode(idsPayload)))
-      == [.refloatTelemetryLayout(fields: fields, runtimeFields: [])]
+      == [.refloatTelemetryLayout(
+        fields: fields,
+        runtimeFields: refloatRequiredRuntimeFields,
+        supported: true
+      )]
   )
 
   let payload: [UInt8] = [
@@ -784,7 +788,10 @@ private func bytes(_ hex: String) -> [UInt8] {
     0x50, 0x00,
     0x4C, 0x00,
     0x45, 0x00,
-  ]
+  ] + [UInt8](
+    repeating: 0,
+    count: (fields.count - 9 + refloatRequiredRuntimeFields.count) * 2
+  )
 
   let message = try #require(
     service.receive(Data(VescFrameCodec.encode(payload))).first
@@ -893,13 +900,14 @@ private func bytes(_ hex: String) -> [UInt8] {
   }
 
   #expect(messages.count == 3)
-  #expect(messages[0] == .refloatInfo(version: "1.2.3"))
-  guard case let .refloatTelemetryLayout(fields, runtimeFields) = messages[1] else {
+  #expect(try messages[0] == .refloatInfo(refloatDecision("1.2.3")))
+  guard case let .refloatTelemetryLayout(fields, runtimeFields, supported) = messages[1] else {
     Issue.record("Expected captured Refloat field layout")
     return
   }
   #expect(fields.count == 16)
   #expect(runtimeFields.count == 10)
+  #expect(supported)
   #expect(fields.prefix(3) == ["motor.speed", "motor.erpm", "motor.current"])
 
   guard case let .refloatTelemetry(value) = messages[2] else {

@@ -8,6 +8,9 @@
 
 use std::fmt;
 
+pub use float_view_refloat_dynamic_telemetry::MAX_LAYOUT_RECORD_BYTES;
+use float_view_refloat_dynamic_telemetry::parse_layout_record;
+
 /// VESC `COMM_CUSTOM_APP_DATA`.
 pub const CUSTOM_APP_DATA_COMMAND: u8 = 36;
 /// Refloat custom-app-data package identifier.
@@ -26,6 +29,12 @@ pub const MAX_LAYOUT_FIELDS: usize = 64;
 pub const MAX_IDENTIFIER_BYTES: usize = 64;
 /// Maximum aggregate encoded bytes across dynamic identifiers.
 pub const MAX_AGGREGATE_IDENTIFIER_BYTES: usize = 4_096;
+/// Version of the canonical compatibility bridge record.
+pub const RECORD_VERSION: u8 = 1;
+/// Record kind for one accepted INFO compatibility decision.
+pub const COMPATIBILITY_RECORD_KIND: u8 = 1;
+/// Exact extent of the canonical compatibility record.
+pub const COMPATIBILITY_RECORD_BYTES: usize = 12;
 
 const INFO_V2_RESPONSE_BYTES: usize = 61;
 const INFO_V2_MAJOR_OFFSET: usize = 25;
@@ -289,6 +298,12 @@ pub enum CompatibilityError {
     UnsupportedEnvelope,
     /// The INFO response protocol byte has no defined identity form.
     UnsupportedInfoProtocol,
+    /// A structurally valid INFO identity is outside the exact catalogue.
+    UnsupportedRelease,
+    /// A canonical compatibility record is malformed or inconsistent.
+    InvalidCompatibilityRecord,
+    /// A canonical dynamic-layout record is malformed.
+    InvalidLayoutRecord,
     /// Combined layout field count exceeds the fixed bound.
     TooManyIdentifiers,
     /// A dynamic identifier is empty.
@@ -314,6 +329,9 @@ impl fmt::Display for CompatibilityError {
             Self::TruncatedInfo => "truncated Refloat INFO response",
             Self::UnsupportedEnvelope => "unsupported Refloat INFO envelope",
             Self::UnsupportedInfoProtocol => "unsupported Refloat INFO protocol",
+            Self::UnsupportedRelease => "unsupported Refloat release",
+            Self::InvalidCompatibilityRecord => "invalid Refloat compatibility record",
+            Self::InvalidLayoutRecord => "invalid Refloat layout record",
             Self::TooManyIdentifiers => "too many Refloat layout identifiers",
             Self::EmptyIdentifier => "empty Refloat layout identifier",
             Self::IdentifierTooLong => "Refloat layout identifier is too long",
@@ -327,6 +345,46 @@ impl fmt::Display for CompatibilityError {
         };
         formatter.write_str(message)
     }
+}
+
+/// Fixed canonical record for one accepted compatibility decision.
+#[derive(Clone, Copy, Eq, PartialEq)]
+pub struct CompatibilityRecord([u8; COMPATIBILITY_RECORD_BYTES]);
+
+impl CompatibilityRecord {
+    /// Borrow the complete canonical bytes.
+    #[must_use]
+    pub const fn as_bytes(&self) -> &[u8; COMPATIBILITY_RECORD_BYTES] {
+        &self.0
+    }
+}
+
+impl fmt::Debug for CompatibilityRecord {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("CompatibilityRecord")
+            .field("bytes", &COMPATIBILITY_RECORD_BYTES)
+            .finish()
+    }
+}
+
+/// Closed result for atomic INFO decoding and compatibility selection.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum CompatibilityRecordOutcome {
+    /// One complete accepted decision.
+    Record(CompatibilityRecord),
+    /// Input exceeded the fixed payload bound.
+    InputTooLarge,
+    /// Input ended before the required identity prefix.
+    TruncatedInfo,
+    /// The enclosing command/package/operation was not INFO.
+    UnsupportedEnvelope,
+    /// The INFO protocol byte has no supported structural form.
+    UnsupportedInfoProtocol,
+    /// The decoded identity is outside the exact supported catalogue.
+    UnsupportedRelease,
+    /// An impossible internal representation was encountered.
+    InternalFailure,
 }
 
 impl std::error::Error for CompatibilityError {}
@@ -401,6 +459,126 @@ pub fn compatibility(version: WireVersion) -> Option<CompatibilityProfile> {
         })
 }
 
+/// Decode one INFO response and atomically publish its exact supported decision.
+#[must_use]
+pub fn decode_info_record(payload: &[u8]) -> CompatibilityRecordOutcome {
+    let version = match decode_info(payload) {
+        Ok(version) => version,
+        Err(CompatibilityError::InputTooLarge) => return CompatibilityRecordOutcome::InputTooLarge,
+        Err(CompatibilityError::TruncatedInfo) => return CompatibilityRecordOutcome::TruncatedInfo,
+        Err(CompatibilityError::UnsupportedEnvelope) => {
+            return CompatibilityRecordOutcome::UnsupportedEnvelope;
+        }
+        Err(CompatibilityError::UnsupportedInfoProtocol) => {
+            return CompatibilityRecordOutcome::UnsupportedInfoProtocol;
+        }
+        Err(_) => return CompatibilityRecordOutcome::InternalFailure,
+    };
+    let Some(profile) = compatibility(version) else {
+        return CompatibilityRecordOutcome::UnsupportedRelease;
+    };
+    CompatibilityRecordOutcome::Record(serialize_compatibility(version, profile))
+}
+
+/// Parse and fully validate one canonical compatibility record.
+pub fn parse_compatibility_record(
+    record: &[u8],
+) -> Result<(WireVersion, CompatibilityProfile), CompatibilityError> {
+    if record.len() != COMPATIBILITY_RECORD_BYTES
+        || record[0] != RECORD_VERSION
+        || record[1] != COMPATIBILITY_RECORD_KIND
+        || record[4] > 1
+        || record[9] > 1
+        || record[10..12] != [0, 0]
+        || (record[4] == 0 && record[5] != 0)
+    {
+        return Err(CompatibilityError::InvalidCompatibilityRecord);
+    }
+    let version = WireVersion {
+        major: record[2],
+        minor: record[3],
+        patch: (record[4] == 1).then_some(record[5]),
+    };
+    let telemetry = match record[6] {
+        1 => TelemetryProfile::LegacyFixed,
+        2 => TelemetryProfile::Dynamic,
+        3 => TelemetryProfile::DynamicAlerts,
+        _ => return Err(CompatibilityError::InvalidCompatibilityRecord),
+    };
+    let family = match record[7] {
+        1 => TelemetryFamily::LegacyFixed,
+        2 => TelemetryFamily::Dynamic,
+        _ => return Err(CompatibilityError::InvalidCompatibilityRecord),
+    };
+    let lighting = match record[8] {
+        1 => LightingProfile::LegacyCommand202,
+        2 => LightingProfile::StableCommand20,
+        _ => return Err(CompatibilityError::InvalidCompatibilityRecord),
+    };
+    let profile = CompatibilityProfile {
+        telemetry,
+        control: ControlProfile {
+            lighting,
+            fatal_clear_available: record[9] == 1,
+        },
+    };
+    if telemetry.family() != family || compatibility(version) != Some(profile) {
+        return Err(CompatibilityError::InvalidCompatibilityRecord);
+    }
+    Ok((version, profile))
+}
+
+/// Admit one canonical Rust dynamic-layout record against compatibility policy.
+pub fn admit_dynamic_layout_record(record: &[u8]) -> Result<(), CompatibilityError> {
+    let layout =
+        parse_layout_record(record).map_err(|_| CompatibilityError::InvalidLayoutRecord)?;
+    let fields: Vec<&[u8]> = layout
+        .always_present()
+        .iter()
+        .map(|value| value.as_bytes())
+        .collect();
+    let runtime_fields: Vec<&[u8]> = layout
+        .running_only()
+        .iter()
+        .map(|value| value.as_bytes())
+        .collect();
+    admit_dynamic_layout(&fields, &runtime_fields)
+}
+
+fn serialize_compatibility(
+    version: WireVersion,
+    profile: CompatibilityProfile,
+) -> CompatibilityRecord {
+    let (patch_present, patch) = version.patch.map_or((0, 0), |value| (1, value));
+    let telemetry = match profile.telemetry {
+        TelemetryProfile::LegacyFixed => 1,
+        TelemetryProfile::Dynamic => 2,
+        TelemetryProfile::DynamicAlerts => 3,
+    };
+    let family = match profile.telemetry.family() {
+        TelemetryFamily::LegacyFixed => 1,
+        TelemetryFamily::Dynamic => 2,
+    };
+    let lighting = match profile.control.lighting {
+        LightingProfile::LegacyCommand202 => 1,
+        LightingProfile::StableCommand20 => 2,
+    };
+    CompatibilityRecord([
+        RECORD_VERSION,
+        COMPATIBILITY_RECORD_KIND,
+        version.major,
+        version.minor,
+        patch_present,
+        patch,
+        telemetry,
+        family,
+        lighting,
+        u8::from(profile.control.fatal_clear_available),
+        0,
+        0,
+    ])
+}
+
 /// Validate whether bounded identifier groups satisfy dynamic admission policy.
 pub fn admit_dynamic_layout(
     fields: &[&[u8]],
@@ -457,6 +635,7 @@ pub fn admit_dynamic_layout(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use float_view_refloat_dynamic_telemetry::{LayoutRecordOutcome, decode_layout_to_record};
 
     fn required_fields() -> Vec<&'static [u8]> {
         REQUIRED_FIELDS
@@ -480,6 +659,23 @@ mod tests {
         payload[INFO_V2_MINOR_OFFSET] = minor;
         payload[INFO_V2_PATCH_OFFSET] = patch;
         payload
+    }
+
+    fn layout_record(fields: &[&str], runtime: &[&str]) -> Vec<u8> {
+        let mut payload = vec![36, 101, 32, u8::try_from(fields.len()).unwrap()];
+        for name in fields {
+            payload.push(u8::try_from(name.len()).unwrap());
+            payload.extend_from_slice(name.as_bytes());
+        }
+        payload.push(u8::try_from(runtime.len()).unwrap());
+        for name in runtime {
+            payload.push(u8::try_from(name.len()).unwrap());
+            payload.extend_from_slice(name.as_bytes());
+        }
+        let LayoutRecordOutcome::Record(record) = decode_layout_to_record(&payload) else {
+            panic!("test layout must decode");
+        };
+        record.as_bytes().to_vec()
     }
 
     #[test]
@@ -731,5 +927,100 @@ mod tests {
         assert!(!diagnostic.contains("private"));
         assert!(!diagnostic.contains("controller"));
         assert!(!diagnostic.contains("payload"));
+    }
+
+    #[test]
+    fn atomic_info_records_are_exact_and_round_trip() {
+        let CompatibilityRecordOutcome::Record(legacy) = decode_info_record(&[36, 101, 0, 10])
+        else {
+            panic!("legacy identity must be accepted");
+        };
+        assert_eq!(legacy.as_bytes(), &[1, 1, 1, 0, 0, 0, 1, 1, 1, 0, 0, 0]);
+        assert_eq!(
+            parse_compatibility_record(legacy.as_bytes()),
+            Ok((
+                WireVersion::legacy(1, 0),
+                compatibility(WireVersion::legacy(1, 0)).unwrap()
+            ))
+        );
+
+        let CompatibilityRecordOutcome::Record(stable) = decode_info_record(&info_v2(1, 2, 3))
+        else {
+            panic!("stable identity must be accepted");
+        };
+        assert_eq!(stable.as_bytes(), &[1, 1, 1, 2, 1, 3, 3, 2, 2, 1, 0, 0]);
+        assert_eq!(
+            parse_compatibility_record(stable.as_bytes()),
+            Ok((
+                WireVersion::patched(1, 2, 3),
+                compatibility(WireVersion::patched(1, 2, 3)).unwrap()
+            ))
+        );
+    }
+
+    #[test]
+    fn atomic_info_records_preserve_closed_failures() {
+        assert_eq!(
+            decode_info_record(&[]),
+            CompatibilityRecordOutcome::TruncatedInfo
+        );
+        assert_eq!(
+            decode_info_record(&[35, 101, 0, 10]),
+            CompatibilityRecordOutcome::UnsupportedEnvelope
+        );
+        assert_eq!(
+            decode_info_record(&[36, 101, 0, 1]),
+            CompatibilityRecordOutcome::UnsupportedInfoProtocol
+        );
+        assert_eq!(
+            decode_info_record(&info_v2(1, 2, 4)),
+            CompatibilityRecordOutcome::UnsupportedRelease
+        );
+        assert_eq!(
+            decode_info_record(&vec![0; MAX_PAYLOAD_BYTES + 1]),
+            CompatibilityRecordOutcome::InputTooLarge
+        );
+    }
+
+    #[test]
+    fn compatibility_record_corruption_fails_closed() {
+        let CompatibilityRecordOutcome::Record(record) = decode_info_record(&info_v2(1, 2, 3))
+        else {
+            panic!("stable identity must be accepted");
+        };
+        for index in 0..COMPATIBILITY_RECORD_BYTES {
+            let mut corrupt = *record.as_bytes();
+            corrupt[index] ^= if index == 10 || index == 11 { 1 } else { 0xff };
+            assert_eq!(
+                parse_compatibility_record(&corrupt),
+                Err(CompatibilityError::InvalidCompatibilityRecord),
+                "byte {index}"
+            );
+        }
+        assert_eq!(
+            parse_compatibility_record(&record.as_bytes()[..11]),
+            Err(CompatibilityError::InvalidCompatibilityRecord)
+        );
+    }
+
+    #[test]
+    fn canonical_dynamic_layout_record_is_the_only_admission_input() {
+        let record = layout_record(&REQUIRED_FIELDS, &REQUIRED_RUNTIME_FIELDS);
+        assert_eq!(admit_dynamic_layout_record(&record), Ok(()));
+
+        let mut fields = REQUIRED_FIELDS.to_vec();
+        fields.remove(0);
+        let incomplete = layout_record(&fields, &REQUIRED_RUNTIME_FIELDS);
+        assert_eq!(
+            admit_dynamic_layout_record(&incomplete),
+            Err(CompatibilityError::MissingRequiredIdentifier)
+        );
+
+        let mut corrupt = record;
+        corrupt[0] = 2;
+        assert_eq!(
+            admit_dynamic_layout_record(&corrupt),
+            Err(CompatibilityError::InvalidLayoutRecord)
+        );
     }
 }

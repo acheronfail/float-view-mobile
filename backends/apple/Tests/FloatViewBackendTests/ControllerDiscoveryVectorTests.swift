@@ -2,28 +2,23 @@
 import Foundation
 import Testing
 
-@Test func dynamicRefloatDiscoveryRequiresAuditedCompleteLayout() {
+@Test func dynamicRefloatDiscoveryRequiresAuditedCompleteLayout() throws {
   let supported = ControllerDiscovery()
-  #expect(supported.acceptRefloatInfo("1.2.1") == .requestTelemetryLayout)
+  #expect(try supported.acceptRefloatInfo(refloatDecision("1.2.1")) == .requestTelemetryLayout)
   #expect(supported.acceptTelemetryLayout(
-    fields: RefloatCompatibility.requiredFields + ["future.energy"],
-    runtimeFields: RefloatCompatibility.requiredRuntimeFields
+    fields: refloatRequiredFields + ["future.energy"],
+    runtimeFields: refloatRequiredRuntimeFields,
+    supported: true
   ) == .ready)
 
   let incomplete = ControllerDiscovery()
-  #expect(incomplete.acceptRefloatInfo("1.1.2") == .requestTelemetryLayout)
+  #expect(try incomplete.acceptRefloatInfo(refloatDecision("1.1.2")) == .requestTelemetryLayout)
   guard case let .failed(issue) = incomplete.acceptTelemetryLayout(
-    fields: Array(RefloatCompatibility.requiredFields.dropFirst()),
-    runtimeFields: RefloatCompatibility.requiredRuntimeFields
+    fields: Array(refloatRequiredFields.dropFirst()),
+    runtimeFields: refloatRequiredRuntimeFields,
+    supported: false
   ) else {
     Issue.record("Expected an incomplete Refloat layout to fail")
-    return
-  }
-  #expect(issue.code == .unsupportedRefloat)
-
-  let unknown = ControllerDiscovery()
-  guard case let .failed(issue) = unknown.acceptRefloatInfo("1.3.0") else {
-    Issue.record("Expected an unknown Refloat release to fail")
     return
   }
   #expect(issue.code == .unsupportedRefloat)

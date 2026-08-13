@@ -5,13 +5,14 @@ below match Android. Rust under `../core/vesc-frame/` is the production owner
 for VESC CRC, outbound framing, exact frame decoding, and notification-stream
 boundary interpretation through the bounded `vesc-frame-apple-ffi/` bridge.
 Swift retains only bounded caller-owned stream bytes and mechanical consumption
-of Rust-returned regions alongside VESC payload routing, remaining Refloat
+of Rust-returned regions alongside VESC payload routing, higher-level Refloat
 behavior, application behavior, and every OS-owned capability. Rust also owns
 command-10 legacy and command-31/32 dynamic Refloat telemetry decoding and
-their canonical records through temporary focused boundaries. There is no
+their canonical records, plus INFO compatibility selection and dynamic-layout
+admission, through temporary focused boundaries. There is no
 generated API, Rust stream handle, or Swift production framing fallback.
-All eight focused Rust bridge crates remain separate. SwiftPM recipes and the
-eight Xcode phases select them through the shared allowlisted Apple builder in
+All nine focused Rust bridge crates remain separate. SwiftPM recipes and the
+nine Xcode phases select them through the shared allowlisted Apple builder in
 `../core/`, so bridge-specific ABI code is not coupled to duplicated build
 scripts. Their protocol-neutral pointer validation, panic containment, and
 bounded output publication come from `../core/apple-ffi-support/`; exported
@@ -24,11 +25,12 @@ the independent two-symbol C boundary, pointer-region validation, fixed status
 mapping, and caller-owned publication; the header and Swift model mapping stay
 explicit here.
 
-The same canonical-record ownership applies to legacy and dynamic Refloat
-telemetry. The dynamic adapter retains Rust's validated layout record only for
-the current connection; both adapters perform only strict record validation
-and domain mapping. Their bridges are migration scaffolding planned for
-deletion with the unified Rust application runtime.
+The same canonical-record ownership applies to Refloat compatibility and
+legacy/dynamic telemetry. The compatibility adapter carries one complete
+Rust-accepted INFO decision; the dynamic adapter retains Rust's validated
+layout record only for the current connection. These adapters perform only
+strict record validation and domain mapping. Their bridges are migration
+scaffolding planned for deletion with the unified Rust application runtime.
 
 SwiftPM and Xcode use one shared implementation root and two sibling platform
 host roots:
@@ -73,8 +75,8 @@ telemetry or location data stay out of ordinary logs and diagnostics. File and
 location data cross the UI boundary only through bounded authenticated reads or
 an explicit user import/export action.
 
-For a compatible VESC or Refloat version, extend the exact compatibility entry
-and source-derived fixtures in both native backends. For a new wire family,
+For a compatible VESC or Refloat version, extend the exact Rust compatibility
+entry, Android's retained entry, and source-derived fixtures. For a new wire family,
 change or add the focused codec below `protocol/vesc` or `protocol/refloat` and
 map exact versions to it; do not fork application coordination or polling.
 

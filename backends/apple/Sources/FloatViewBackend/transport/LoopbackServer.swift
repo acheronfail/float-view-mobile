@@ -828,8 +828,7 @@ public final class LoopbackServer: @unchecked Sendable {
           "packageVersion": packageVersion,
           "hardwareName": firmware.hardwareName.map { $0 as Any } ?? NSNull(),
           "accessMode": VescCompatibility.accessMode(firmware)?.rawValue ?? "readOnly",
-          "supported": RefloatCompatibility.entry(wireVersion: packageVersion) != nil &&
-            VescCompatibility.supports(firmware),
+          "supported": VescCompatibility.supports(firmware),
         ]
       } else {
         value["firmware"] = NSNull()

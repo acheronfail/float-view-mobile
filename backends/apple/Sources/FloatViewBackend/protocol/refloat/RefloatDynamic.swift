@@ -1,7 +1,7 @@
 import CVescRefloatDynamicTelemetry
 import Foundation
 
-struct RefloatDynamicTelemetryLayout: Sendable, Equatable {
+struct RefloatDynamicTelemetryLayout: Equatable {
   let fields: [String]
   let runtimeFields: [String]
   let record: [UInt8]
@@ -80,26 +80,26 @@ enum RefloatDynamicTelemetryDecoder {
 
   static func layout(from record: [UInt8]) throws -> RefloatDynamicTelemetryLayout {
     guard record.count >= Int(FLOAT_VIEW_REFLOAT_DYNAMIC_TELEMETRY_LAYOUT_HEADER_BYTES),
-      record.count <= Int(FLOAT_VIEW_REFLOAT_DYNAMIC_TELEMETRY_MAX_LAYOUT_RECORD_BYTES),
-      record[0] == recordVersion,
-      record[1] == UInt8(FLOAT_VIEW_REFLOAT_DYNAMIC_TELEMETRY_LAYOUT_RECORD_KIND),
-      record[6] == 0,
-      record[7] == 0
+          record.count <= Int(FLOAT_VIEW_REFLOAT_DYNAMIC_TELEMETRY_MAX_LAYOUT_RECORD_BYTES),
+          record[0] == recordVersion,
+          record[1] == UInt8(FLOAT_VIEW_REFLOAT_DYNAMIC_TELEMETRY_LAYOUT_RECORD_KIND),
+          record[6] == 0,
+          record[7] == 0
     else { throw VescProtocolError.truncatedPayload }
     let fieldsCount = Int(record[2])
     let runtimeCount = Int(record[3])
     let expectedAggregate = Int(UInt16(record[4]) << 8 | UInt16(record[5]))
     guard fieldsCount > 0,
-      fieldsCount + runtimeCount <= maxFields,
-      expectedAggregate <= 4_096
+          fieldsCount + runtimeCount <= maxFields,
+          expectedAggregate <= 4_096
     else { throw VescProtocolError.truncatedPayload }
     var cursor = RecordCursor(record, index: 8)
     let fields = try cursor.readNames(count: fieldsCount, maxBytes: maxFieldBytes)
     let runtimeFields = try cursor.readNames(count: runtimeCount, maxBytes: maxFieldBytes)
     let all = fields + runtimeFields
     guard cursor.isAtEnd,
-      all.reduce(0, { $0 + $1.utf8.count }) == expectedAggregate,
-      Set(all).count == all.count
+          all.reduce(0, { $0 + $1.utf8.count }) == expectedAggregate,
+          Set(all).count == all.count
     else { throw VescProtocolError.truncatedPayload }
     return RefloatDynamicTelemetryLayout(
       fields: fields,
@@ -110,14 +110,14 @@ enum RefloatDynamicTelemetryDecoder {
 
   static func telemetry(from record: [UInt8]) throws -> RefloatTelemetryRecord {
     guard record.count >= Int(FLOAT_VIEW_REFLOAT_DYNAMIC_TELEMETRY_SAMPLE_FIXED_BYTES),
-      record.count <= Int(FLOAT_VIEW_REFLOAT_DYNAMIC_TELEMETRY_MAX_SAMPLE_RECORD_BYTES),
-      record[0] == recordVersion,
-      record[1] == UInt8(FLOAT_VIEW_REFLOAT_DYNAMIC_TELEMETRY_SAMPLE_RECORD_KIND),
-      record[7] & ~knownBehaviorFlags == 0,
-      record[11] & ~knownOptionFlags == 0,
-      record[13] == 0,
-      record[14] == 0,
-      record[15] == 0
+          record.count <= Int(FLOAT_VIEW_REFLOAT_DYNAMIC_TELEMETRY_MAX_SAMPLE_RECORD_BYTES),
+          record[0] == recordVersion,
+          record[1] == UInt8(FLOAT_VIEW_REFLOAT_DYNAMIC_TELEMETRY_SAMPLE_RECORD_KIND),
+          record[7] & ~knownBehaviorFlags == 0,
+          record[11] & ~knownOptionFlags == 0,
+          record[13] == 0,
+          record[14] == 0,
+          record[15] == 0
     else { throw VescProtocolError.truncatedPayload }
 
     let packageState = try packageState(record[2])
@@ -142,9 +142,9 @@ enum RefloatDynamicTelemetryDecoder {
     let rawFault = record[10]
     let faultCode = record[9]
     guard hasAlerts || (word0 == 0 && word1 == 0),
-      (rawFault == 0) == (faultCode == 0),
-      (rawFault != 0) == (word0 & 1 != 0),
-      rawFault == 0 || faultCode == (rawFault <= 27 ? rawFault : 28)
+          (rawFault == 0) == (faultCode == 0),
+          (rawFault != 0) == (word0 & 1 != 0),
+          rawFault == 0 || faultCode == (rawFault <= 27 ? rawFault : 28)
     else { throw VescProtocolError.truncatedPayload }
     let firmwareFault = faultCode == 0 ? nil : try firmwareFault(faultCode)
 
@@ -155,7 +155,7 @@ enum RefloatDynamicTelemetryDecoder {
     var cursor = RecordCursor(record, index: 32)
     var values = [Double?]()
     values.reserveCapacity(fixedValueCount)
-    for index in 0..<fixedValueCount {
+    for index in 0 ..< fixedValueCount {
       let bits = try cursor.readUInt64()
       if presence & (UInt32(1) << UInt32(index)) == 0 {
         guard bits == 0 else { throw VescProtocolError.truncatedPayload }
@@ -168,9 +168,9 @@ enum RefloatDynamicTelemetryDecoder {
     }
 
     var extensions: [String: Double] = [:]
-    for _ in 0..<extensionCount {
+    for _ in 0 ..< extensionCount {
       let name = try cursor.readName(maxBytes: maxFieldBytes)
-      let value = Double(bitPattern: try cursor.readUInt64())
+      let value = try Double(bitPattern: cursor.readUInt64())
       guard value.isFinite, extensions[name] == nil else {
         throw VescProtocolError.truncatedPayload
       }
@@ -178,8 +178,8 @@ enum RefloatDynamicTelemetryDecoder {
     }
     let charging = behavior & 0x04 != 0
     guard cursor.isAtEnd,
-      charging == (values[26] != nil && values[27] != nil),
-      (values[26] == nil) == (values[27] == nil)
+          charging == (values[26] != nil && values[27] != nil),
+          (values[26] == nil) == (values[27] == nil)
     else { throw VescProtocolError.truncatedPayload }
 
     return RefloatTelemetryRecord(
@@ -242,8 +242,8 @@ enum RefloatDynamicTelemetryDecoder {
     case UInt32(FLOAT_VIEW_REFLOAT_DYNAMIC_TELEMETRY_STATUS_TRUNCATED_PAYLOAD):
       throw VescProtocolError.truncatedPayload
     case UInt32(FLOAT_VIEW_REFLOAT_DYNAMIC_TELEMETRY_STATUS_UNSUPPORTED_ENVELOPE),
-      UInt32(FLOAT_VIEW_REFLOAT_DYNAMIC_TELEMETRY_STATUS_INVALID_LAYOUT),
-      UInt32(FLOAT_VIEW_REFLOAT_DYNAMIC_TELEMETRY_STATUS_INVALID_TELEMETRY):
+         UInt32(FLOAT_VIEW_REFLOAT_DYNAMIC_TELEMETRY_STATUS_INVALID_LAYOUT),
+         UInt32(FLOAT_VIEW_REFLOAT_DYNAMIC_TELEMETRY_STATUS_INVALID_TELEMETRY):
       throw VescProtocolError.invalidFrame
     default:
       report("bridge status \(status)")
@@ -269,7 +269,8 @@ enum RefloatDynamicTelemetryDecoder {
       [
         1: .none, 2: .pitch, 3: .roll, 4: .switchHalf, 5: .switchFull,
         6: .reverseStop, 7: .quickStop, 8: .unknown,
-      ])
+      ]
+    )
   }
 
   private static func setpointAdjustment(_ code: UInt8) throws -> SetpointAdjustment {
@@ -278,7 +279,8 @@ enum RefloatDynamicTelemetryDecoder {
       [
         1: .none, 2: .centering, 3: .reverseStop, 4: .speed, 5: .duty,
         6: .error, 7: .highVoltage, 8: .lowVoltage, 9: .temperature, 10: .unknown,
-      ])
+      ]
+    )
   }
 
   private static func alertReason(_ code: UInt8) throws -> AlertReason {
@@ -291,7 +293,8 @@ enum RefloatDynamicTelemetryDecoder {
         13: .cellUnderTemperature, 14: .cellOverTemperature, 15: .cellLowVoltage,
         16: .cellHighVoltage, 17: .cellImbalance, 18: .bmsConnection,
         19: .bmsOverTemperature, 20: .firmwareFault, 21: .unknown,
-      ])
+      ]
+    )
   }
 
   private static func firmwareFault(_ code: UInt8) throws -> FirmwareFault {
@@ -308,7 +311,8 @@ enum RefloatDynamicTelemetryDecoder {
         22: .resolverLossOfSignal, 23: .appConfigFlashCorruption,
         24: .motorConfigFlashCorruption, 25: .encoderNoMagnet,
         26: .encoderMagnetTooStrong, 27: .phaseFilter, 28: .unknown,
-      ])
+      ]
+    )
   }
 
   private static func closed<T>(_ code: UInt8, _ values: [UInt8: T]) throws -> T {
@@ -335,16 +339,18 @@ private struct RecordCursor {
     self.index = index
   }
 
-  var isAtEnd: Bool { index == bytes.count }
+  var isAtEnd: Bool {
+    index == bytes.count
+  }
 
   mutating func readNames(count: Int, maxBytes: Int) throws -> [String] {
-    try (0..<count).map { _ in try readName(maxBytes: maxBytes) }
+    try (0 ..< count).map { _ in try readName(maxBytes: maxBytes) }
   }
 
   mutating func readName(maxBytes: Int) throws -> String {
-    let length = Int(try readUInt8())
+    let length = try Int(readUInt8())
     guard length > 0, length <= maxBytes, index <= bytes.count - length,
-      let value = String(bytes: bytes[index..<index + length], encoding: .utf8)
+          let value = String(bytes: bytes[index ..< index + length], encoding: .utf8)
     else { throw VescProtocolError.truncatedPayload }
     index += length
     return value
@@ -361,7 +367,7 @@ private struct RecordCursor {
       throw VescProtocolError.truncatedPayload
     }
     var value: UInt64 = 0
-    for byte in bytes[index..<index + MemoryLayout<UInt64>.size] {
+    for byte in bytes[index ..< index + MemoryLayout<UInt64>.size] {
       value = value << 8 | UInt64(byte)
     }
     index += MemoryLayout<UInt64>.size

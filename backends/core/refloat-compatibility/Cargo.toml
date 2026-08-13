@@ -5,3 +5,4 @@ edition.workspace = true
 rust-version.workspace = true
 
 [dependencies]
+float-view-refloat-dynamic-telemetry = { path = "../refloat-dynamic-telemetry" }

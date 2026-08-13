@@ -60,27 +60,26 @@ private func shutdownFixture() throws -> ShutdownFixture {
   )))
 }
 
-@Test func exactRefloatControlProfilesFailClosed() {
+@Test func exactRefloatControlProfilesFailClosed() throws {
   for version in ["1.0", "1.1.0", "1.1.1", "1.1.2"] {
-    #expect(RefloatCompatibility.controlProfile(wireVersion: version) == .init(
+    #expect(try refloatDecision(version).controlProfile == .init(
       lighting: .legacyCommand202, fatalClearAvailable: false
     ))
   }
   for version in ["1.2.0", "1.2.1", "1.2.2", "1.2.3"] {
-    #expect(RefloatCompatibility.controlProfile(wireVersion: version) == .init(
+    #expect(try refloatDecision(version).controlProfile == .init(
       lighting: .stableCommand20, fatalClearAvailable: true
     ))
   }
-  #expect(RefloatCompatibility.controlProfile(wireVersion: "1.0.0") == nil)
-  #expect(RefloatCompatibility.controlProfile(wireVersion: "1.2.4") == nil)
-  #expect(RefloatCompatibility.controlProfile(wireVersion: "1.2.3-beta1") == nil)
+  #expect(throws: VescProtocolError.self) { try refloatDecision("1.2.4") }
+  #expect(throws: VescProtocolError.self) { try refloatDecision("1.3.0") }
 }
 
 @Test func sourceDerivedRefloatControlRequestsAndLightingResponsesAreExact() throws {
   let service = VescProtocolService()
   for item in try controlFixture().cases {
     let wireVersion = item.version.hasPrefix("1.0.") ? "1.0" : item.version
-    let profile = try #require(RefloatCompatibility.controlProfile(wireVersion: wireVersion))
+    let profile = try refloatDecision(wireVersion).controlProfile
     let frame: Data = switch item.name {
     case "package-enable": try service.refloatPackageControlRequest(route: .direct, enabled: true)
     case "package-disable": try service.refloatPackageControlRequest(route: .direct, enabled: false)
@@ -122,7 +121,7 @@ private func shutdownFixture() throws -> ShutdownFixture {
     try VescFrameCodec.decode(Array(service.refloatPackageControlRequest(route: .can(42), enabled: true)))
       == [34, 42, 36, 101, 12, 0]
   )
-  let profile = try #require(RefloatCompatibility.controlProfile(wireVersion: "1.2.3"))
+  let profile = try refloatDecision("1.2.3").controlProfile
   #expect(throws: VescProtocolError.self) {
     try RefloatControlCodec.decodeLightingResponse([36, 101, 20], profile: profile)
   }

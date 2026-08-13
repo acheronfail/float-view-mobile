@@ -544,7 +544,7 @@ func flywheelTransitionsConfirmBeforeModeCleanup() async throws {
   let enable = Task.detached { try service.setRefloatControl(.flywheel, enabled: true) }
   #expect(await waitForSignal(enableSent))
   bluetooth.onWrite = nil
-  scheduler.fireRepeating(scheduler.repeatingIntervals.indices.last!)
+  try scheduler.fireRepeating(#require(scheduler.repeatingIntervals.indices.last))
   try service.receive(.notification(id, Data([8])))
   #expect(service.activeConnectionSnapshot()?.refloatControls?.flywheelEnabled == true)
   #expect(service.activeConnectionSnapshot()?.refloatControls?.pendingAction == nil)
@@ -562,7 +562,7 @@ func flywheelTransitionsConfirmBeforeModeCleanup() async throws {
   #expect(service.activeConnectionSnapshot()?.refloatControls?.pendingAction == .flywheel)
   #expect(await waitForSignal(disableSent))
   bluetooth.onWrite = nil
-  scheduler.fireRepeating(scheduler.repeatingIntervals.indices.last!)
+  try scheduler.fireRepeating(#require(scheduler.repeatingIntervals.indices.last))
   try service.receive(.notification(id, Data([9])))
   let disabled = try await disable.value
   #expect(disabled.flywheelEnabled == false)
@@ -1416,7 +1416,7 @@ private final class CanDiscoveryProtocol: VescProtocolPort, @unchecked Sendable 
         ),
       ]
     case 5:
-      return [.refloatInfo(version: "1.2.3")]
+      return try [.refloatInfo(refloatDecision("1.2.3"))]
     default:
       return []
     }
@@ -1489,11 +1489,12 @@ private final class TelemetryProtocol: VescProtocolPort, @unchecked Sendable {
         ),
       ]
     case 2:
-      return [.refloatInfo(version: "1.2.3")]
+      return try [.refloatInfo(refloatDecision("1.2.3"))]
     case 3:
       return [.refloatTelemetryLayout(
-        fields: RefloatCompatibility.requiredFields,
-        runtimeFields: RefloatCompatibility.requiredRuntimeFields
+        fields: refloatRequiredFields,
+        runtimeFields: refloatRequiredRuntimeFields,
+        supported: true
       )]
     case 4:
       return [
@@ -1620,11 +1621,12 @@ private final class AmbiguousProtocol: VescProtocolPort, @unchecked Sendable {
         controllerUUID: Data((1 ... 12).map(UInt8.init))
       ))]
     case 5:
-      return [.refloatInfo(version: "1.2.3")]
+      return try [.refloatInfo(refloatDecision("1.2.3"))]
     case 6:
       return [.refloatTelemetryLayout(
-        fields: RefloatCompatibility.requiredFields,
-        runtimeFields: RefloatCompatibility.requiredRuntimeFields
+        fields: refloatRequiredFields,
+        runtimeFields: refloatRequiredRuntimeFields,
+        supported: true
       )]
     default:
       return []

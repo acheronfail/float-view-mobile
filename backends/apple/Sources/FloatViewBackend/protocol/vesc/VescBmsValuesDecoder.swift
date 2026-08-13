@@ -90,12 +90,12 @@ public enum VescBmsValuesDecoder {
     var fixed: [Double] = []
     fixed.reserveCapacity(fixedValueCount)
     for _ in 0 ..< fixedValueCount {
-      fixed.append(try double(from: record, cursor: &cursor))
+      try fixed.append(double(from: record, cursor: &cursor))
     }
     var cells: [Double] = []
     cells.reserveCapacity(cellCount)
     for _ in 0 ..< cellCount {
-      cells.append(try double(from: record, cursor: &cursor))
+      try cells.append(double(from: record, cursor: &cursor))
     }
     var balancing: [Bool] = []
     balancing.reserveCapacity(cellCount)
@@ -110,7 +110,7 @@ public enum VescBmsValuesDecoder {
     var temperatures: [Double] = []
     temperatures.reserveCapacity(temperatureCount)
     for _ in 0 ..< temperatureCount {
-      temperatures.append(try double(from: record, cursor: &cursor))
+      try temperatures.append(double(from: record, cursor: &cursor))
     }
     let status: String?
     if extended {

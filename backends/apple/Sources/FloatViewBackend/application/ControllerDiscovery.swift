@@ -84,6 +84,7 @@ final class ControllerDiscovery {
   private(set) var transportFirmware: FirmwareRecord?
   private(set) var refloatPackageVersion: String?
   private(set) var refloatFamily: RefloatTelemetryFamily?
+  private(set) var refloatControlProfile: RefloatControlProfile?
   private(set) var controllerRoute: ControllerRoute?
   private(set) var controllerCandidates: [ControllerCandidate] = []
   private(set) var classifiedInventory: [FirmwareRecord] = []
@@ -215,28 +216,21 @@ final class ControllerDiscovery {
     return nextCANProbe()
   }
 
-  func acceptRefloatInfo(_ version: String) -> ControllerDiscoveryEffect {
-    guard let entry = RefloatCompatibility.entry(wireVersion: version) else {
-      return fail(
-        .unsupportedRefloat,
-        "This controller's Refloat version is not supported."
-      )
-    }
-    refloatPackageVersion = version
-    refloatFamily = entry.family
-    return entry.family == .dynamic ? .requestTelemetryLayout : .ready
+  func acceptRefloatInfo(_ decision: RefloatCompatibilityDecision) -> ControllerDiscoveryEffect {
+    refloatPackageVersion = decision.wireVersion
+    refloatFamily = decision.family
+    refloatControlProfile = decision.controlProfile
+    return decision.family == .dynamic ? .requestTelemetryLayout : .ready
   }
 
   func acceptTelemetryLayout(
     fields: [String],
-    runtimeFields: [String]
+    runtimeFields: [String],
+    supported: Bool
   ) -> ControllerDiscoveryEffect {
-    guard refloatFamily == .dynamic,
-          RefloatCompatibility.supportsDynamicLayout(
-            fields: fields,
-            runtimeFields: runtimeFields
-          )
-    else {
+    _ = fields
+    _ = runtimeFields
+    guard refloatFamily == .dynamic, supported else {
       return fail(
         .unsupportedRefloat,
         "This controller's Refloat telemetry layout is not supported."
@@ -305,6 +299,7 @@ final class ControllerDiscovery {
     transportFirmware = nil
     refloatPackageVersion = nil
     refloatFamily = nil
+    refloatControlProfile = nil
     pendingCanIDs.removeAll()
     probedControllers.removeAll()
     probedNodes.removeAll()

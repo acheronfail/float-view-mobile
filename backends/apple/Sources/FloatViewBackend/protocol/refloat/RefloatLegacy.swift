@@ -58,9 +58,9 @@ enum RefloatLegacyTelemetryDecoder {
 
   static func telemetry(from record: [UInt8]) throws -> RefloatTelemetryRecord {
     guard record.count >= headerBytes,
-      record[0] == recordVersion,
-      record[14] == 0,
-      record[15] == 0
+          record[0] == recordVersion,
+          record[14] == 0,
+          record[15] == 0
     else { throw VescProtocolError.truncatedPayload }
     switch record[1] {
     case UInt8(FLOAT_VIEW_REFLOAT_LEGACY_TELEMETRY_RESULT_SAMPLE):
@@ -74,10 +74,10 @@ enum RefloatLegacyTelemetryDecoder {
 
   private static func sample(from record: [UInt8]) throws -> RefloatTelemetryRecord {
     guard record.count == sampleBytes,
-      (1...4).contains(record[2]),
-      record[8] & ~knownBehaviorFlags == 0,
-      record[10] == 0,
-      record[11] == 0
+          (1 ... 4).contains(record[2]),
+          record[8] & ~knownBehaviorFlags == 0,
+          record[10] == 0,
+          record[11] == 0
     else { throw VescProtocolError.truncatedPayload }
     let options = UInt16(record[12]) << 8 | UInt16(record[13])
     guard options & ~knownOptionFlags == 0 else { throw VescProtocolError.truncatedPayload }
@@ -86,29 +86,34 @@ enum RefloatLegacyTelemetryDecoder {
       record[3],
       [
         1: .startup, 2: .running, 3: .ready, 4: .disabled,
-      ])
+      ]
+    )
     let packageMode: PackageMode = try closed(
       record[4],
       [
         1: .normal, 2: .handTest, 3: .flywheel,
-      ])
+      ]
+    )
     let footpadState: FootpadState = try closed(
       record[5],
       [
         1: .none, 2: .left, 3: .right, 4: .both,
-      ])
+      ]
+    )
     let stopCondition: StopCondition = try closed(
       record[6],
       [
         1: .none, 2: .pitch, 3: .roll, 4: .switchHalf, 5: .switchFull,
         6: .reverseStop, 7: .quickStop,
-      ])
+      ]
+    )
     let adjustment: SetpointAdjustment = try closed(
       record[7],
       [
         1: .centering, 2: .reverseStop, 3: .none, 4: .duty,
         5: .highVoltage, 6: .lowVoltage, 7: .temperature, 8: .unknown,
-      ])
+      ]
+    )
     let alert: AlertReason = try closed(
       record[9],
       [
@@ -117,12 +122,15 @@ enum RefloatLegacyTelemetryDecoder {
         9: .lowBattery, 10: .idle, 11: .error, 12: .speed,
         13: .cellUnderTemperature, 14: .cellOverTemperature,
         15: .cellLowVoltage, 16: .cellHighVoltage, 17: .unknown,
-      ])
+      ]
+    )
 
     var cursor = headerBytes
     var values: [Double] = []
     values.reserveCapacity(valueCount)
-    for _ in 0..<valueCount { values.append(try double(from: record, cursor: &cursor)) }
+    for _ in 0 ..< valueCount {
+      try values.append(double(from: record, cursor: &cursor))
+    }
     guard cursor == record.count else { throw VescProtocolError.truncatedPayload }
 
     let optionFlags: [UInt16] = [
@@ -138,9 +146,9 @@ enum RefloatLegacyTelemetryDecoder {
     let detail = record[2]
     let required: UInt16 = detail == 1 ? 0 : detail == 2 ? 0x00B : detail == 3 ? 0x3FB : 0xFFB
     guard options & required == required,
-      detail >= 2 || options & 0xFFB == 0,
-      detail >= 3 || options & 0xFF0 == 0,
-      detail >= 4 || options & 0xC00 == 0
+          detail >= 2 || options & 0xFFB == 0,
+          detail >= 3 || options & 0xFF0 == 0,
+          detail >= 4 || options & 0xC00 == 0
     else { throw VescProtocolError.truncatedPayload }
     func optional(_ index: Int, _ flag: UInt16) -> Double? {
       options & flag == 0 ? nil : values[index]
@@ -178,10 +186,10 @@ enum RefloatLegacyTelemetryDecoder {
 
   private static func activeFault(from record: [UInt8]) throws -> RefloatTelemetryRecord {
     guard record.count == activeFaultBytes,
-      record[2..<10].allSatisfy({ $0 == 0 }),
-      record[11] != 0,
-      record[12] == 0,
-      record[13] == 0
+          record[2 ..< 10].allSatisfy({ $0 == 0 }),
+          record[11] != 0,
+          record[12] == 0,
+          record[13] == 0
     else { throw VescProtocolError.truncatedPayload }
     let faults: [UInt8: FirmwareFault] = [
       1: .overVoltage, 2: .underVoltage, 3: .driver, 4: .absoluteOverCurrent,
@@ -196,7 +204,7 @@ enum RefloatLegacyTelemetryDecoder {
       26: .encoderMagnetTooStrong, 27: .phaseFilter, 28: .unknown,
     ]
     guard let fault = faults[record[10]],
-      (record[10] == 28) == (record[11] > 27)
+          (record[10] == 28) == (record[11] > 27)
     else { throw VescProtocolError.truncatedPayload }
     return RefloatTelemetryRecord(
       kind: .compact, rideState: .unknown, alertReason: .firmwareFault,
@@ -214,7 +222,7 @@ enum RefloatLegacyTelemetryDecoder {
       throw VescProtocolError.truncatedPayload
     }
     var bits: UInt64 = 0
-    for byte in record[cursor..<cursor + MemoryLayout<UInt64>.size] {
+    for byte in record[cursor ..< cursor + MemoryLayout<UInt64>.size] {
       bits = bits << 8 | UInt64(byte)
     }
     cursor += MemoryLayout<UInt64>.size

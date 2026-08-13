@@ -1,6 +1,6 @@
 import Foundation
 #if canImport(RefloatConfigurationFixtures)
-import RefloatConfigurationFixtures
+  import RefloatConfigurationFixtures
 #endif
 
 /// Minimal deterministic direct VESC used only by software-host conformance.
@@ -123,14 +123,14 @@ public final class SoftwareVescPeripheral: @unchecked Sendable {
 
   private static func fixture(_ path: String) -> [UInt8] {
     #if canImport(RefloatConfigurationFixtures)
-    let data = RefloatConfigurationFixtureResources.data(path)
+      let data = RefloatConfigurationFixtureResources.data(path)
     #else
-    let data = Bundle.main.resourceURL.flatMap {
-      try? Data(
-        contentsOf: $0.appending(path: path),
-        options: [.mappedIfSafe]
-      )
-    }
+      let data = Bundle.main.resourceURL.flatMap {
+        try? Data(
+          contentsOf: $0.appending(path: path),
+          options: [.mappedIfSafe]
+        )
+      }
     #endif
     guard let data, !data.isEmpty, data.count <= 32_768 else {
       preconditionFailure("Missing bounded software Refloat configuration fixture")

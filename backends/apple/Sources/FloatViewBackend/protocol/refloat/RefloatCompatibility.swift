@@ -1,3 +1,4 @@
+import CVescRefloatCompatibility
 import Foundation
 
 public enum RefloatTelemetryFamily: Sendable, Equatable {
@@ -9,10 +10,6 @@ public enum RefloatWireProfile: Sendable, Equatable {
   case legacyFixed
   case dynamic
   case dynamicAlerts
-
-  public var family: RefloatTelemetryFamily {
-    self == .legacyFixed ? .legacyFixed : .dynamic
-  }
 }
 
 public enum RefloatLightingProfile: Sendable, Equatable {
@@ -23,66 +20,159 @@ public enum RefloatLightingProfile: Sendable, Equatable {
 public struct RefloatControlProfile: Sendable, Equatable {
   public let lighting: RefloatLightingProfile
   public let fatalClearAvailable: Bool
+
+  public init(lighting: RefloatLightingProfile, fatalClearAvailable: Bool) {
+    self.lighting = lighting
+    self.fatalClearAvailable = fatalClearAvailable
+  }
 }
 
-public struct RefloatCompatibilityEntry: Sendable, Equatable {
-  public let sourceVersion: String
+/// One complete Rust-accepted INFO compatibility decision.
+public struct RefloatCompatibilityDecision: Sendable, Equatable {
   public let wireVersion: String
   public let profile: RefloatWireProfile
+  public let family: RefloatTelemetryFamily
+  public let controlProfile: RefloatControlProfile
 
-  public var family: RefloatTelemetryFamily {
-    profile.family
-  }
-
-  public var controlProfile: RefloatControlProfile {
-    switch profile {
-    case .legacyFixed, .dynamic:
-      .init(lighting: .legacyCommand202, fatalClearAvailable: false)
-    case .dynamicAlerts:
-      .init(lighting: .stableCommand20, fatalClearAvailable: true)
-    }
+  init(
+    wireVersion: String,
+    profile: RefloatWireProfile,
+    family: RefloatTelemetryFamily,
+    controlProfile: RefloatControlProfile
+  ) {
+    self.wireVersion = wireVersion
+    self.profile = profile
+    self.family = family
+    self.controlProfile = controlProfile
   }
 }
 
+/// Strict Apple adapter for Rust-owned Refloat INFO compatibility policy.
 public enum RefloatCompatibility {
-  public static let entries: [RefloatCompatibilityEntry] = [
-    .init(sourceVersion: "1.0.0", wireVersion: "1.0", profile: .legacyFixed),
-    .init(sourceVersion: "1.0.1", wireVersion: "1.0", profile: .legacyFixed),
-    .init(sourceVersion: "1.1.0", wireVersion: "1.1.0", profile: .dynamic),
-    .init(sourceVersion: "1.1.1", wireVersion: "1.1.1", profile: .dynamic),
-    .init(sourceVersion: "1.1.2", wireVersion: "1.1.2", profile: .dynamic),
-    .init(sourceVersion: "1.2.0", wireVersion: "1.2.0", profile: .dynamicAlerts),
-    .init(sourceVersion: "1.2.1", wireVersion: "1.2.1", profile: .dynamicAlerts),
-    .init(sourceVersion: "1.2.2", wireVersion: "1.2.2", profile: .dynamicAlerts),
-    .init(sourceVersion: "1.2.3", wireVersion: "1.2.3", profile: .dynamicAlerts),
-  ]
+  private static let expectedABI: UInt32 = 1
+  private static let recordVersion: UInt8 = 1
+  private static let recordKind: UInt8 = 1
 
-  public static func entry(wireVersion: String) -> RefloatCompatibilityEntry? {
-    entries.first { $0.wireVersion == wireVersion }
+  public static func infoRequest() throws -> [UInt8] {
+    try requireCompatibleABI()
+    var request = [UInt8](
+      repeating: 0,
+      count: Int(FLOAT_VIEW_REFLOAT_COMPATIBILITY_INFO_REQUEST_BYTES)
+    )
+    let capacity = request.count
+    var length = 0
+    let status = request.withUnsafeMutableBytes { bytes in
+      float_view_refloat_compatibility_info_request(
+        bytes.bindMemory(to: UInt8.self).baseAddress,
+        capacity,
+        &length
+      )
+    }
+    try requireSuccess(status)
+    guard length == request.count else { throw VescProtocolError.truncatedPayload }
+    return request
   }
 
-  public static func controlProfile(wireVersion: String) -> RefloatControlProfile? {
-    entry(wireVersion: wireVersion)?.controlProfile
+  public static func decodeInfo(_ payload: [UInt8]) throws -> RefloatCompatibilityDecision {
+    try requireCompatibleABI()
+    var record = [UInt8](
+      repeating: 0,
+      count: Int(FLOAT_VIEW_REFLOAT_COMPATIBILITY_RECORD_BYTES)
+    )
+    let capacity = record.count
+    var length = 0
+    let status = payload.withUnsafeBytes { payloadBytes in
+      record.withUnsafeMutableBytes { recordBytes in
+        float_view_refloat_compatibility_decode_info(
+          payloadBytes.bindMemory(to: UInt8.self).baseAddress,
+          payload.count,
+          recordBytes.bindMemory(to: UInt8.self).baseAddress,
+          capacity,
+          &length
+        )
+      }
+    }
+    try requireSuccess(status)
+    guard length == record.count else { throw VescProtocolError.truncatedPayload }
+    return try decision(from: record)
   }
 
-  public static let requiredFields = [
-    "motor.speed", "motor.erpm", "motor.current", "motor.dir_current",
-    "motor.filt_current", "motor.duty_cycle", "motor.batt_voltage",
-    "motor.batt_current", "motor.mosfet_temp", "motor.motor_temp", "imu.pitch",
-    "imu.balance_pitch", "imu.roll", "footpad.adc1", "footpad.adc2", "remote.input",
-  ]
+  static func admits(layoutRecord: [UInt8]) throws -> Bool {
+    try requireCompatibleABI()
+    let status = layoutRecord.withUnsafeBytes { bytes in
+      float_view_refloat_compatibility_admit_layout(
+        bytes.bindMemory(to: UInt8.self).baseAddress,
+        layoutRecord.count
+      )
+    }
+    switch status {
+    case UInt32(FLOAT_VIEW_REFLOAT_COMPATIBILITY_STATUS_OK):
+      return true
+    case UInt32(FLOAT_VIEW_REFLOAT_COMPATIBILITY_STATUS_INVALID_LAYOUT):
+      return false
+    default:
+      try requireSuccess(status)
+      return false
+    }
+  }
 
-  public static let requiredRuntimeFields = [
-    "setpoint", "atr.setpoint", "brake_tilt.setpoint", "torque_tilt.setpoint",
-    "turn_tilt.setpoint", "remote.setpoint", "balance_current", "atr.accel_diff",
-    "atr.speed_boost", "booster.current",
-  ]
+  static func decision(from record: [UInt8]) throws -> RefloatCompatibilityDecision {
+    guard record.count == Int(FLOAT_VIEW_REFLOAT_COMPATIBILITY_RECORD_BYTES),
+          record[0] == recordVersion,
+          record[1] == recordKind,
+          record[4] <= 1,
+          record[9] <= 1,
+          record[10] == 0,
+          record[11] == 0,
+          record[4] == 1 || record[5] == 0
+    else { throw VescProtocolError.truncatedPayload }
 
-  public static func supportsDynamicLayout(
-    fields: [String],
-    runtimeFields: [String]
-  ) -> Bool {
-    Set(requiredFields).isSubset(of: Set(fields))
-      && Set(requiredRuntimeFields).isSubset(of: Set(runtimeFields))
+    let wireVersion = record[4] == 1
+      ? "\(record[2]).\(record[3]).\(record[5])"
+      : "\(record[2]).\(record[3])"
+    let decision: (
+      RefloatWireProfile, RefloatTelemetryFamily, RefloatControlProfile
+    ) = switch (record[6], record[7], record[8], record[9]) {
+    case (1, 1, 1, 0):
+      (.legacyFixed, .legacyFixed, .init(
+        lighting: .legacyCommand202, fatalClearAvailable: false
+      ))
+    case (2, 2, 1, 0):
+      (.dynamic, .dynamic, .init(
+        lighting: .legacyCommand202, fatalClearAvailable: false
+      ))
+    case (3, 2, 2, 1):
+      (.dynamicAlerts, .dynamic, .init(
+        lighting: .stableCommand20, fatalClearAvailable: true
+      ))
+    default:
+      throw VescProtocolError.truncatedPayload
+    }
+    return RefloatCompatibilityDecision(
+      wireVersion: wireVersion,
+      profile: decision.0,
+      family: decision.1,
+      controlProfile: decision.2
+    )
+  }
+
+  private static func requireCompatibleABI() throws {
+    guard float_view_refloat_compatibility_abi_version() == expectedABI else {
+      throw VescProtocolError.truncatedPayload
+    }
+  }
+
+  private static func requireSuccess(_ status: UInt32) throws {
+    switch status {
+    case UInt32(FLOAT_VIEW_REFLOAT_COMPATIBILITY_STATUS_OK):
+      return
+    case UInt32(FLOAT_VIEW_REFLOAT_COMPATIBILITY_STATUS_UNSUPPORTED_ENVELOPE),
+         UInt32(FLOAT_VIEW_REFLOAT_COMPATIBILITY_STATUS_UNSUPPORTED_PROTOCOL),
+         UInt32(FLOAT_VIEW_REFLOAT_COMPATIBILITY_STATUS_UNSUPPORTED_RELEASE),
+         UInt32(FLOAT_VIEW_REFLOAT_COMPATIBILITY_STATUS_INVALID_LAYOUT):
+      throw VescProtocolError.invalidFrame
+    default:
+      throw VescProtocolError.truncatedPayload
+    }
   }
 }
