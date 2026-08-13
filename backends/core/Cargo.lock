@@ -34,6 +34,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "float-view-refloat-dynamic-telemetry"
+version = "0.1.0"
+
+[[package]]
 name = "float-view-refloat-legacy-telemetry"
 version = "0.1.0"
 

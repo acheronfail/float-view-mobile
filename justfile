@@ -888,6 +888,7 @@ audit:
     [[ -f backends/core/refloat-control/Cargo.toml ]]
     [[ -f backends/core/refloat-control-android-jni/Cargo.toml ]]
     [[ -f backends/core/refloat-control-apple-ffi/Cargo.toml ]]
+    [[ -f backends/core/refloat-dynamic-telemetry/Cargo.toml ]]
     [[ -f backends/core/refloat-legacy-telemetry/Cargo.toml ]]
     [[ -f backends/core/refloat-legacy-telemetry-android-jni/Cargo.toml ]]
     [[ -f backends/core/refloat-legacy-telemetry-apple-ffi/Cargo.toml ]]
@@ -921,7 +922,8 @@ audit:
     unexpected_core="$(find backends/core -mindepth 1 -maxdepth 1 -type d \
       ! -name target ! -name android-jni-support ! -name apple-ffi-support \
       ! -name refloat-control ! -name refloat-control-android-jni \
-      ! -name refloat-control-apple-ffi ! -name refloat-legacy-telemetry \
+      ! -name refloat-control-apple-ffi ! -name refloat-dynamic-telemetry \
+      ! -name refloat-legacy-telemetry \
       ! -name refloat-legacy-telemetry-apple-ffi \
       ! -name refloat-legacy-telemetry-android-jni \
       ! -name vesc-bms-values ! -name vesc-bms-values-android-jni \
@@ -948,6 +950,8 @@ audit:
       ! -name src -print -quit)" == "" ]]
     [[ "$(find backends/core/refloat-control-apple-ffi -mindepth 1 -maxdepth 1 -type d \
       ! -name src ! -name tests -print -quit)" == "" ]]
+    [[ "$(find backends/core/refloat-dynamic-telemetry -mindepth 1 -maxdepth 1 -type d \
+      ! -name src -print -quit)" == "" ]]
     [[ "$(find backends/core/refloat-legacy-telemetry -mindepth 1 -maxdepth 1 -type d \
       ! -name src -print -quit)" == "" ]]
     [[ "$(find backends/core/refloat-legacy-telemetry-apple-ffi -mindepth 1 -maxdepth 1 -type d \
@@ -1007,6 +1011,17 @@ audit:
       backends/android
     ! rg -n 'refloat-control-android-jni|RustRefloatControlBridge|float_view_refloat_control_android_jni' \
       backends/apple
+    rg -q '^#!\[forbid\(unsafe_code\)\]$' \
+      backends/core/refloat-dynamic-telemetry/src/lib.rs
+    ! rg -n 'extern[[:space:]]+"C"|extern[[:space:]]+"system"|no_mangle|Java_|cbindgen|bindgen|uniffi|jni|host_callback' \
+      backends/core/refloat-dynamic-telemetry
+    ! rg -n 'refloat-dynamic-telemetry|refloat_dynamic_telemetry|RustRefloatDynamicTelemetryBridge|CVescRefloatDynamicTelemetry' \
+      backends/apple backends/android backends/core/bridge-build-catalog.sh \
+      backends/core/build-apple-bridge.sh backends/core/build-android-bridge.sh
+    [[ "$(rg -c 'RefloatDynamicTelemetryDecoder\.decodeFields' \
+      backends/apple/Sources/FloatViewBackend/protocol/vesc/VescProtocolService.swift)" == 1 ]]
+    [[ "$(rg -c 'dynamicTelemetry\.decodeFields' \
+      backends/android/app/src/main/java/fail/acheron/floatview/protocol/vesc/VescProtocolService.kt)" == 1 ]]
     rg -q '^#!\[forbid\(unsafe_code\)\]$' \
       backends/core/refloat-legacy-telemetry/src/lib.rs
     ! rg -n 'extern[[:space:]]+"C"|no_mangle|cbindgen|uniffi|jni|host_callback' \
@@ -1100,6 +1115,7 @@ audit:
     [[ "$(cd backends/core && cargo tree --locked --package float-view-refloat-control --edges normal --prefix none | wc -l | tr -d ' ')" == 1 ]]
     [[ "$(cd backends/core && cargo tree --locked --package float-view-refloat-control-apple-ffi --edges normal --depth 1 --prefix none | wc -l | tr -d ' ')" == 3 ]]
     [[ "$(cd backends/core && cargo tree --locked --package float-view-refloat-control-android-jni --edges normal --depth 1 --prefix none | wc -l | tr -d ' ')" == 3 ]]
+    [[ "$(cd backends/core && cargo tree --locked --package float-view-refloat-dynamic-telemetry --edges normal --prefix none | wc -l | tr -d ' ')" == 1 ]]
     [[ "$(cd backends/core && cargo tree --locked --package float-view-refloat-legacy-telemetry --edges normal --prefix none | wc -l | tr -d ' ')" == 1 ]]
     [[ "$(cd backends/core && cargo tree --locked --package float-view-refloat-legacy-telemetry-apple-ffi --edges normal --depth 1 --prefix none | wc -l | tr -d ' ')" == 3 ]]
     [[ "$(cd backends/core && cargo tree --locked --package float-view-refloat-legacy-telemetry-android-jni --edges normal --depth 1 --prefix none | wc -l | tr -d ' ')" == 3 ]]

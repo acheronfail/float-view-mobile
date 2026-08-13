@@ -4,7 +4,7 @@
 ownership. It is a locked Cargo workspace, not another backend and not a
 production runtime.
 
-The workspace currently has twenty-three members:
+The workspace currently has twenty-four members:
 
 | Component               | Scope                                                                 | Integration state                                                                             |
 | ----------------------- | --------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
@@ -13,6 +13,7 @@ The workspace currently has twenty-three members:
 | `refloat-control/`       | Safe bounded Refloat live-control payload encoding and lighting response decoding | Selected by Apple and Android through separate host bridges                         |
 | `refloat-control-apple-ffi/` | Three-symbol caller-owned-buffer C ABI for Refloat controls              | Selected only by the shared iOS/macOS adapter                                       |
 | `refloat-control-android-jni/` | Three-symbol primitive-array JNI ABI for Refloat controls             | Selected only by Android                                                            |
+| `refloat-dynamic-telemetry/` | Safe bounded Refloat command-32 layout and command-31 dynamic telemetry decoding | Unselected candidate; Swift and Kotlin remain production owners |
 | `refloat-legacy-telemetry/` | Safe bounded Refloat command-10 compact telemetry decoding and canonical version-1 record | Selected by Apple and Android through separate host bridges |
 | `refloat-legacy-telemetry-apple-ffi/` | Two-symbol caller-owned-buffer C ABI for legacy telemetry | Temporary bridge selected only by the shared iOS/macOS adapter |
 | `refloat-legacy-telemetry-android-jni/` | Two-symbol primitive-array JNI ABI for legacy telemetry | Temporary bridge selected only by Android |
@@ -32,7 +33,7 @@ The workspace currently has twenty-three members:
 | `vesc-frame-apple-ffi/`   | Caller-owned-buffer C ABI                                             | Selected only by the shared iOS/macOS frame-codec adapter                       |
 | `vesc-frame-android-jni/` | Primitive-array JNI ABI                                              | Selected by Android for CRC, encoding, exact decoding, and stream-boundary scans |
 
-The twenty-three crates remain independent components and artifacts. The seven
+The twenty-four crates remain independent components and artifacts. The seven
 selected component families' repeated
 source-build mechanics are centralized in `build-apple-bridge.sh` and
 `build-android-bridge.sh`, driven by the closed seven-entry
@@ -124,6 +125,13 @@ Both hosts retain compatibility,
 polling, cache merging, application mapping, persistence, and OS behavior. The
 host bridges are migration scaffolding and are deleted when the unified Rust
 application runtime no longer needs native protocol boundaries.
+
+The Refloat dynamic telemetry candidate owns bounded command-32 UTF-8 layout
+validation and command-31 mask-dependent decoding, including the complete
+finite source float16 range, semantic state, charging and alert tails, typed
+known values, and bounded extensions. It has no bridge or production call path;
+the selected Swift and Kotlin decoders remain unchanged until independent host
+cutovers prove a variable-record ABI and delete each native parser.
 
 Do not add empty future crates, generated bindings, a general runtime, host
 callbacks, or OS-owned Bluetooth, location, lifecycle, permission, native-file,
