@@ -458,6 +458,52 @@ apple-packaging:
 core-test: core-abi-test core-identity-abi-test core-custom-configuration-abi-test core-bms-values-abi-test core-controller-data-abi-test core-refloat-control-abi-test core-refloat-compatibility-abi-test core-refloat-dynamic-telemetry-abi-test core-refloat-legacy-telemetry-abi-test
     cd backends/core && cargo test --locked --offline
 
+core-refloat-configuration-codec-test:
+    cd backends/core && cargo test --locked --offline \
+      --package float-view-refloat-configuration-codec
+
+core-refloat-configuration-codec-audit:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    crate='backends/core/refloat-configuration-codec'
+    [[ -f "$crate/Cargo.toml" && -f "$crate/src/lib.rs" ]]
+    [[ -f "$crate/tests/fixtures.rs" && -f "$crate/tests/adversarial.rs" ]]
+    rg -q '^#!\[forbid\(unsafe_code\)\]$' "$crate/src/lib.rs"
+    [[ "$(sed -n '/^\[dependencies\]$/,/^\[/p' "$crate/Cargo.toml" | sed '$d')" == \
+      $'[dependencies]\nflate2 = { version = "=1.1.9", default-features = false, features = ["rust_backend"] }\nquick-xml = { version = "=0.39.4", default-features = false }\nsha2 = { version = "=0.11.0", default-features = false }' ]]
+    dependency_names="$(cd backends/core && cargo tree --locked --offline \
+      --package float-view-refloat-configuration-codec --edges normal \
+      --prefix none --format '{p}' | sed -E 's/ v.*$//' | sort -u)"
+    [[ "$dependency_names" == \
+      $'adler2\nblock-buffer\ncfg-if\ncpufeatures\ncrc32fast\ncrypto-common\ndigest\nflate2\nfloat-view-refloat-configuration-codec\nhybrid-array\nlibc\nmemchr\nminiz_oxide\nquick-xml\nsha2\nsimd-adler32\ntypenum' ]]
+    [[ "$(cd backends/core && cargo tree --locked --offline \
+      --package float-view-refloat-configuration-codec --edges normal \
+      --depth 1 --prefix none | wc -l | tr -d ' ')" == 4 ]]
+    ! (cd backends/core && cargo tree --locked --offline \
+      --package float-view-refloat-configuration-codec --edges normal) \
+      | rg 'libz-sys|cloudflare-zlib|zlib-rs'
+    ! rg -n 'unsafe[[:space:]]*(\{|fn|impl|trait)|extern[[:space:]]+"(C|system)"|no_mangle|Java_|cbindgen|bindgen|uniffi|jni|host_callback' \
+      "$crate/src" "$crate/tests"
+    [[ "$(find "$crate" -mindepth 1 -maxdepth 1 -type d \
+      ! -name src ! -name tests -print -quit)" == "" ]]
+    [[ ! -e backends/core/refloat-configuration-codec-apple-ffi ]]
+    [[ ! -e backends/core/refloat-configuration-codec-android-jni ]]
+    ! rg -n 'refloat-configuration-codec|float_view_refloat_configuration_codec|RustRefloatConfigurationCodec' \
+      backends/core/bridge-build-catalog.sh backends/core/build-apple-bridge.sh \
+      backends/core/build-android-bridge.sh backends/apple/Package.swift \
+      backends/apple/ios/float-view.xcodeproj/project.pbxproj \
+      backends/android/app/build.gradle.kts backends/apple/Sources \
+      backends/android/app/src/main
+    rg -q '^public enum RefloatConfigurationSchemaCodec' \
+      backends/apple/Sources/FloatViewBackend/protocol/refloat/RefloatConfigurationCodec.swift
+    rg -q '^public enum RefloatConfigurationValueCodec' \
+      backends/apple/Sources/FloatViewBackend/protocol/refloat/RefloatConfigurationCodec.swift
+    rg -q '^object RefloatConfigurationSchemaCodec' \
+      backends/android/app/src/main/java/fail/acheron/floatview/protocol/refloat/RefloatConfigurationCodec.kt
+    rg -q '^object RefloatConfigurationValueCodec' \
+      backends/android/app/src/main/java/fail/acheron/floatview/protocol/refloat/RefloatConfigurationCodec.kt
+    just core-refloat-configuration-codec-test
+
 android-rust-host:
     backends/core/build-android-bridge.sh frame host debug \
       "$PWD/backends/core/target/android/host/debug"
@@ -1010,6 +1056,7 @@ audit:
     [[ -f backends/core/refloat-compatibility-android-jni/Cargo.toml ]]
     [[ -f backends/core/refloat-compatibility-apple-ffi/Cargo.toml ]]
     [[ -f backends/core/refloat-compatibility-apple-ffi/tests/abi.c ]]
+    [[ -f backends/core/refloat-configuration-codec/Cargo.toml ]]
     [[ -f backends/core/vesc-controller-data/Cargo.toml ]]
     [[ -f backends/core/vesc-controller-data-android-jni/Cargo.toml ]]
     [[ -f backends/core/vesc-controller-data-apple-ffi/Cargo.toml ]]
@@ -1058,6 +1105,7 @@ audit:
       ! -name target ! -name android-jni-support ! -name apple-ffi-support \
       ! -name refloat-compatibility ! -name refloat-compatibility-android-jni \
       ! -name refloat-compatibility-apple-ffi \
+      ! -name refloat-configuration-codec \
       ! -name refloat-control ! -name refloat-control-android-jni \
       ! -name refloat-control-apple-ffi ! -name refloat-dynamic-telemetry \
       ! -name refloat-dynamic-telemetry-android-jni \
@@ -1088,6 +1136,8 @@ audit:
     [[ "$(find backends/core/refloat-compatibility-android-jni -mindepth 1 -maxdepth 1 -type d \
       ! -name src -print -quit)" == "" ]]
     [[ "$(find backends/core/refloat-compatibility-apple-ffi -mindepth 1 -maxdepth 1 -type d \
+      ! -name src ! -name tests -print -quit)" == "" ]]
+    [[ "$(find backends/core/refloat-configuration-codec -mindepth 1 -maxdepth 1 -type d \
       ! -name src ! -name tests -print -quit)" == "" ]]
     [[ "$(find backends/core/refloat-control -mindepth 1 -maxdepth 1 -type d \
       ! -name src -print -quit)" == "" ]]
@@ -1343,6 +1393,7 @@ audit:
     just core-controller-data-abi-audit
     just core-refloat-control-abi-audit
     just core-refloat-compatibility-abi-audit
+    just core-refloat-configuration-codec-audit
     just core-refloat-dynamic-telemetry-abi-audit
     just core-refloat-legacy-telemetry-abi-audit
     just android-rust-audit

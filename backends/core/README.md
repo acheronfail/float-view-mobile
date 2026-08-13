@@ -4,7 +4,7 @@
 ownership. It is a locked Cargo workspace, not another backend and not a
 production runtime.
 
-The workspace currently has twenty-nine members:
+The workspace currently has thirty members:
 
 | Component               | Scope                                                                 | Integration state                                                                             |
 | ----------------------- | --------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
@@ -13,6 +13,7 @@ The workspace currently has twenty-nine members:
 | `refloat-compatibility/` | Safe bounded Refloat INFO identity, exact profile catalogue, and canonical dynamic-layout admission | Selected by Apple and Android through separate host bridges |
 | `refloat-compatibility-android-jni/` | Four-symbol stateless primitive-array JNI ABI for INFO and layout admission | Temporary bridge selected only by Android |
 | `refloat-compatibility-apple-ffi/` | Four-symbol caller-owned-buffer C ABI for INFO and layout admission | Temporary bridge selected only by the shared iOS/macOS adapter |
+| `refloat-configuration-codec/` | Safe bounded Qt-compressed `ConfigParams` parsing, schema normalization, fingerprint/signature calculation, and exact typed value serialization | Unselected candidate; Swift and Kotlin retain production ownership |
 | `refloat-control/`       | Safe bounded Refloat live-control payload encoding and lighting response decoding | Selected by Apple and Android through separate host bridges                         |
 | `refloat-control-apple-ffi/` | Three-symbol caller-owned-buffer C ABI for Refloat controls              | Selected only by the shared iOS/macOS adapter                                       |
 | `refloat-control-android-jni/` | Three-symbol primitive-array JNI ABI for Refloat controls             | Selected only by Android                                                            |
@@ -38,7 +39,7 @@ The workspace currently has twenty-nine members:
 | `vesc-frame-apple-ffi/`   | Caller-owned-buffer C ABI                                             | Selected only by the shared iOS/macOS frame-codec adapter                       |
 | `vesc-frame-android-jni/` | Primitive-array JNI ABI                                              | Selected by Android for CRC, encoding, exact decoding, and stream-boundary scans |
 
-The twenty-nine crates remain independent components and artifacts. The nine
+The thirty crates remain independent components and artifacts. The nine
 Apple-selected component families' repeated
 source-build mechanics are centralized in `build-apple-bridge.sh` and
 `build-android-bridge.sh`, driven by a closed nine-entry Apple and
@@ -104,6 +105,15 @@ commands 92–95 envelope while treating compressed schemas and serialized
 values as opaque caller-owned bytes. Separate Apple and Android bridges expose
 only fixed metadata and caller-owned regions; schema and typed-value semantics
 remain native.
+
+The Refloat configuration codec candidate owns the next safe protocol layer:
+bounded Qt/zlib expansion, streaming `ConfigParams` validation, normalized
+schema metadata, raw-source SHA-256 fingerprints, CRC32C wire signatures, and
+complete typed value decoding/encoding. It is deliberately absent from both
+bridge catalogues and native packages. Swift and Kotlin still own production
+schema/value semantics, configuration lifecycle, caches, scheduling, verified
+writes, and Tune persistence until independent host-cutover and later service
+migration changes.
 
 The BMS values component decodes only the bounded command-96 payload into a
 platform-neutral fixed-capacity model. Apple and Android select it through

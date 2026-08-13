@@ -5,6 +5,7 @@ members = [
     "refloat-compatibility",
     "refloat-compatibility-android-jni",
     "refloat-compatibility-apple-ffi",
+    "refloat-configuration-codec",
     "refloat-control",
     "refloat-control-android-jni",
     "refloat-control-apple-ffi",
