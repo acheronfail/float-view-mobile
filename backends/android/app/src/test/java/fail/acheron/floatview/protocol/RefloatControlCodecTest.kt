@@ -3,7 +3,6 @@ package fail.acheron.floatview.protocol
 import fail.acheron.floatview.application.FirmwareFault
 import fail.acheron.floatview.application.VescProtocolMessage
 import fail.acheron.floatview.protocol.refloat.RefloatBooleanControl
-import fail.acheron.floatview.protocol.refloat.RefloatCompatibility
 import fail.acheron.floatview.protocol.refloat.RefloatControlCodec
 import fail.acheron.floatview.protocol.refloat.RefloatControlProfile
 import fail.acheron.floatview.protocol.refloat.RefloatDynamicTelemetryDecoder
@@ -42,25 +41,25 @@ class RefloatControlCodecTest {
         listOf("1.0", "1.1.0", "1.1.1", "1.1.2").forEach {
             assertEquals(
                 RefloatControlProfile(RefloatLightingProfile.LEGACY_COMMAND_202, false),
-                RefloatCompatibility.controlProfile(it),
+                refloatCompatibilityDecision(it).controlProfile,
             )
         }
         listOf("1.2.0", "1.2.1", "1.2.2", "1.2.3").forEach {
             assertEquals(
                 RefloatControlProfile(RefloatLightingProfile.STABLE_COMMAND_20, true),
-                RefloatCompatibility.controlProfile(it),
+                refloatCompatibilityDecision(it).controlProfile,
             )
         }
-        assertNull(RefloatCompatibility.controlProfile("1.0.0"))
-        assertNull(RefloatCompatibility.controlProfile("1.2.4"))
-        assertNull(RefloatCompatibility.controlProfile("1.2.3-beta1"))
+        listOf("1.0.0", "1.2.4", "1.2.3-beta1").forEach { version ->
+            assertThrows(Exception::class.java) { refloatCompatibilityDecision(version) }
+        }
     }
 
     @Test
     fun sourceDerivedRequestsAndLightingResponsesAreExact() {
         val service = VescProtocolService()
-        val legacy = requireNotNull(RefloatCompatibility.controlProfile("1.0"))
-        val stable = requireNotNull(RefloatCompatibility.controlProfile("1.2.3"))
+        val legacy = refloatCompatibilityDecision("1.0").controlProfile
+        val stable = refloatCompatibilityDecision("1.2.3").controlProfile
         val current = RefloatLightingState(true, true)
         val requests = mapOf(
             "package-enable" to service.refloatPackageControlRequest(ControllerRoute.Direct, true),
@@ -106,7 +105,7 @@ class RefloatControlCodecTest {
             byteArrayOf(34, 42, 36, 101, 12, 0),
             VescFrameCodec.decode(service.refloatPackageControlRequest(ControllerRoute.Can(42), true)),
         )
-        val stable = requireNotNull(RefloatCompatibility.controlProfile("1.2.3"))
+        val stable = refloatCompatibilityDecision("1.2.3").controlProfile
         assertThrows(VescProtocolException::class.java) {
             RefloatControlCodec.decodeLightingResponse(byteArrayOf(36, 101, 20), stable)
         }

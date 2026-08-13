@@ -1,6 +1,8 @@
 package fail.acheron.floatview.application
 
-import fail.acheron.floatview.protocol.refloat.RefloatCompatibility
+import fail.acheron.floatview.protocol.refloatCompatibilityDecision
+import fail.acheron.floatview.protocol.refloatRequiredFields
+import fail.acheron.floatview.protocol.refloatRequiredRuntimeFields
 import fail.acheron.floatview.protocol.vesc.ControllerRoute
 import java.nio.file.Files
 import java.nio.file.Path
@@ -14,24 +16,26 @@ class ControllerDiscoveryVectorTest {
         val supported = ControllerDiscovery()
         assertEquals(
             ControllerDiscoveryEffect.RequestTelemetryLayout,
-            supported.acceptRefloatInfo("1.2.1"),
+            supported.acceptRefloatInfo(refloatCompatibilityDecision("1.2.1")),
         )
         assertEquals(
             ControllerDiscoveryEffect.Ready,
             supported.acceptTelemetryLayout(
-                RefloatCompatibility.requiredFields + "future.energy",
-                RefloatCompatibility.requiredRuntimeFields,
+                refloatRequiredFields + "future.energy",
+                refloatRequiredRuntimeFields,
+                true,
             ),
         )
 
         val incomplete = ControllerDiscovery()
         assertEquals(
             ControllerDiscoveryEffect.RequestTelemetryLayout,
-            incomplete.acceptRefloatInfo("1.1.2"),
+            incomplete.acceptRefloatInfo(refloatCompatibilityDecision("1.1.2")),
         )
         val failed = incomplete.acceptTelemetryLayout(
-            RefloatCompatibility.requiredFields.drop(1),
-            RefloatCompatibility.requiredRuntimeFields,
+            refloatRequiredFields.drop(1),
+            refloatRequiredRuntimeFields,
+            false,
         )
         assertTrue(failed is ControllerDiscoveryEffect.Failed)
         assertEquals(
@@ -39,11 +43,9 @@ class ControllerDiscoveryVectorTest {
             (failed as ControllerDiscoveryEffect.Failed).issue.code,
         )
 
-        val unknown = ControllerDiscovery().acceptRefloatInfo("1.3.0")
-        assertTrue(unknown is ControllerDiscoveryEffect.Failed)
         assertEquals(
-            ConnectionIssueCode.UNSUPPORTED_REFLOAT,
-            (unknown as ControllerDiscoveryEffect.Failed).issue.code,
+            refloatCompatibilityDecision("1.1.2").controlProfile,
+            incomplete.refloatControlProfile,
         )
     }
 

@@ -108,6 +108,15 @@ float_view_select_bridge() {
       bridge_diagnostic='Refloat compatibility'
       bridge_apple_package='float-view-refloat-compatibility-apple-ffi'
       bridge_apple_archive='libfloat_view_refloat_compatibility_apple_ffi.a'
+      bridge_android_package='float-view-refloat-compatibility-android-jni'
+      bridge_android_library_stem='float_view_refloat_compatibility_android_jni'
+      bridge_android_jni_prefix='Java_fail_acheron_floatview_protocol_RustRefloatCompatibilityBridge'
+      bridge_android_symbols=(
+        Java_fail_acheron_floatview_protocol_RustRefloatCompatibilityBridge_abiVersion
+        Java_fail_acheron_floatview_protocol_RustRefloatCompatibilityBridge_admitLayout
+        Java_fail_acheron_floatview_protocol_RustRefloatCompatibilityBridge_decodeInfo
+        Java_fail_acheron_floatview_protocol_RustRefloatCompatibilityBridge_infoRequest
+      )
       ;;
     refloat-dynamic-telemetry)
       bridge_identifier='refloat-dynamic-telemetry'

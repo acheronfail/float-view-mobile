@@ -1,6 +1,7 @@
 package fail.acheron.floatview.application
 
-import fail.acheron.floatview.protocol.refloat.RefloatCompatibility
+import fail.acheron.floatview.protocol.refloat.RefloatCompatibilityDecision
+import fail.acheron.floatview.protocol.refloat.RefloatControlProfile
 import fail.acheron.floatview.protocol.refloat.RefloatTelemetryFamily
 import fail.acheron.floatview.protocol.vesc.ControllerRoute
 import fail.acheron.floatview.protocol.vesc.VescCompatibility
@@ -96,6 +97,8 @@ class ControllerDiscovery {
     var refloatPackageVersion: String? = null
         private set
     var refloatFamily: RefloatTelemetryFamily? = null
+        private set
+    var refloatControlProfile: RefloatControlProfile? = null
         private set
     var controllerRoute: ControllerRoute? = null
         private set
@@ -253,15 +256,11 @@ class ControllerDiscovery {
         return nextCanProbe(continuity)
     }
 
-    fun acceptRefloatInfo(version: String): ControllerDiscoveryEffect {
-        val entry = RefloatCompatibility.entry(version)
-            ?: return fail(
-                ConnectionIssueCode.UNSUPPORTED_REFLOAT,
-                "This controller's Refloat version is not supported.",
-            )
-        refloatPackageVersion = version
-        refloatFamily = entry.family
-        return if (entry.family == RefloatTelemetryFamily.DYNAMIC) {
+    fun acceptRefloatInfo(decision: RefloatCompatibilityDecision): ControllerDiscoveryEffect {
+        refloatPackageVersion = decision.wireVersion
+        refloatFamily = decision.family
+        refloatControlProfile = decision.controlProfile
+        return if (decision.family == RefloatTelemetryFamily.DYNAMIC) {
             ControllerDiscoveryEffect.RequestTelemetryLayout
         } else {
             ControllerDiscoveryEffect.Ready
@@ -269,12 +268,13 @@ class ControllerDiscovery {
     }
 
     fun acceptTelemetryLayout(
-        fields: List<String>,
-        runtimeFields: List<String>,
+        _fields: List<String>,
+        _runtimeFields: List<String>,
+        supported: Boolean,
     ): ControllerDiscoveryEffect {
         if (
             refloatFamily != RefloatTelemetryFamily.DYNAMIC ||
-            !RefloatCompatibility.supportsDynamicLayout(fields, runtimeFields)
+            !supported
         ) {
             return fail(
                 ConnectionIssueCode.UNSUPPORTED_REFLOAT,
@@ -341,6 +341,7 @@ class ControllerDiscovery {
         transportFirmware = null
         refloatPackageVersion = null
         refloatFamily = null
+        refloatControlProfile = null
         pendingCanIds.clear()
         probedControllers.clear()
         probedNodes.clear()

@@ -2,6 +2,7 @@ package fail.acheron.floatview.protocol.vesc
 
 import fail.acheron.floatview.protocol.VescFrameCodec
 import fail.acheron.floatview.protocol.refloat.RefloatCommand
+import fail.acheron.floatview.protocol.refloat.RefloatCompatibility
 import fail.acheron.floatview.protocol.refloat.RefloatWire
 import java.io.File
 
@@ -38,11 +39,7 @@ class SoftwareVescPeripheral(
                     ),
                 ) -> bmsValues
                 request.contentEquals(
-                    RefloatWire.request(
-                        RefloatCommand.INFO,
-                        RefloatWire.INFO_PROTOCOL_VERSION,
-                        RefloatWire.INFO_FLAGS,
-                    ),
+                    RefloatCompatibility.infoRequest(),
                 ) -> RefloatWire.request(RefloatCommand.INFO, 10)
                 request.contentEquals(
                     RefloatWire.request(

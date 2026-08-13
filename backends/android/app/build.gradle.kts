@@ -21,6 +21,7 @@ data class RustAndroidBridgeSpec(
     val hostOutputDirectory: String,
     val libraryStem: String,
     val testLibraryProperty: String,
+    val dependencyDirectories: List<String> = emptyList(),
 ) {
     val jniCrateDirectory = "$crateDirectory-android-jni"
 
@@ -98,6 +99,18 @@ val rustAndroidBridges = listOf(
         testLibraryProperty = "floatViewRefloatControlJniLibrary",
     ),
     RustAndroidBridgeSpec(
+        identifier = "refloat-compatibility",
+        taskSuffix = "RefloatCompatibility",
+        packageDescription = "Builds the four source-owned Android Rust Refloat compatibility JNI libraries for {profile}.",
+        hostDescription = "Builds the exact source-owned host Refloat compatibility JNI library used by JVM tests.",
+        crateDirectory = "refloat-compatibility",
+        androidOutputDirectory = "refloatCompatibilityJniLibs",
+        hostOutputDirectory = "refloat-compatibility-host/debug",
+        libraryStem = "float_view_refloat_compatibility_android_jni",
+        testLibraryProperty = "floatViewRefloatCompatibilityJniLibrary",
+        dependencyDirectories = listOf("refloat-dynamic-telemetry"),
+    ),
+    RustAndroidBridgeSpec(
         identifier = "refloat-dynamic-telemetry",
         taskSuffix = "RefloatDynamicTelemetry",
         packageDescription = "Builds the four source-owned Android Rust Refloat dynamic telemetry JNI libraries for {profile}.",
@@ -127,7 +140,7 @@ fun requireUniqueRustBridgeField(name: String, values: List<String>) {
     }
 }
 
-require(rustAndroidBridges.size == 8) { "Expected exactly eight Android Rust bridges." }
+require(rustAndroidBridges.size == 9) { "Expected exactly nine Android Rust bridges." }
 require(
     rustAndroidBridges.map { it.identifier }.toSet() == setOf(
         "frame",
@@ -136,6 +149,7 @@ require(
         "bms-values",
         "controller-data",
         "refloat-control",
+        "refloat-compatibility",
         "refloat-dynamic-telemetry",
         "refloat-legacy-telemetry",
     )
@@ -173,6 +187,12 @@ fun RustAndroidBridgeSpec.inputFiles() =
         rustCoreDirectory.resolve("$jniCrateDirectory/Cargo.toml"),
         fileTree(rustCoreDirectory.resolve("$crateDirectory/src")),
         fileTree(rustCoreDirectory.resolve("$jniCrateDirectory/src")),
+        dependencyDirectories.map { directory ->
+            rustCoreDirectory.resolve("$directory/Cargo.toml")
+        },
+        dependencyDirectories.map { directory ->
+            fileTree(rustCoreDirectory.resolve("$directory/src"))
+        },
         rustAndroidHelper,
         rustBridgeCatalog,
     )
@@ -227,8 +247,8 @@ val expectedRustBuildTaskNames = rustAndroidBridges.flatMap { spec ->
     listOf(spec.packageTaskName("debug"), spec.packageTaskName("release"), spec.hostTaskName)
 }.toSet()
 
-require(expectedRustBuildTaskNames.size == 24) {
-    "Expected exactly twenty-four unique Android Rust bridge task names."
+require(expectedRustBuildTaskNames.size == 27) {
+    "Expected exactly twenty-seven unique Android Rust bridge task names."
 }
 
 val cleanAndroidRust by tasks.registering(Delete::class) {

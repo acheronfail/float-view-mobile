@@ -5,6 +5,7 @@ import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import fail.acheron.floatview.protocol.vesc.ControllerRoute
 import fail.acheron.floatview.protocol.refloat.RefloatCommand
+import fail.acheron.floatview.protocol.refloat.RefloatCompatibilityDecision
 
 @JvmInline
 value class DeviceId(val value: String)
@@ -278,10 +279,11 @@ sealed interface VescProtocolMessage {
     data class CurrentLimits(val value: ControllerCurrentLimits) : VescProtocolMessage
     data class CanDevices(val canIds: List<Int>) : VescProtocolMessage
     data class BmsValuesPayload(val payload: ByteArray) : VescProtocolMessage
-    data class RefloatInfo(val version: String) : VescProtocolMessage
+    data class RefloatInfo(val decision: RefloatCompatibilityDecision) : VescProtocolMessage
     data class RefloatTelemetryLayout(
         val fields: List<String>,
         val runtimeFields: List<String>,
+        val supported: Boolean,
     ) : VescProtocolMessage
     data class RefloatTelemetry(val value: RefloatTelemetryRecord) : VescProtocolMessage
     data class RefloatLighting(

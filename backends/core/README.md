@@ -4,13 +4,14 @@
 ownership. It is a locked Cargo workspace, not another backend and not a
 production runtime.
 
-The workspace currently has twenty-eight members:
+The workspace currently has twenty-nine members:
 
 | Component               | Scope                                                                 | Integration state                                                                             |
 | ----------------------- | --------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
-| `android-jni-support/`   | Checked call-local JNI environments, primitive-array copies, alias validation, and panic containment | Shared internally by the eight Android bridges; exports no JNI symbol and owns no protocol behavior |
+| `android-jni-support/`   | Checked call-local JNI environments, primitive-array copies, alias validation, and panic containment | Shared internally by the nine Android bridges; exports no JNI symbol and owns no protocol behavior |
 | `apple-ffi-support/`     | Dependency-free checked regions, panic containment, and bounded C output publication | Shared internally by the nine Apple bridges; exports no C symbol and owns no protocol behavior |
-| `refloat-compatibility/` | Safe bounded Refloat INFO identity, exact profile catalogue, and canonical dynamic-layout admission | Selected by Apple; Kotlin remains Android's production owner |
+| `refloat-compatibility/` | Safe bounded Refloat INFO identity, exact profile catalogue, and canonical dynamic-layout admission | Selected by Apple and Android through separate host bridges |
+| `refloat-compatibility-android-jni/` | Four-symbol stateless primitive-array JNI ABI for INFO and layout admission | Temporary bridge selected only by Android |
 | `refloat-compatibility-apple-ffi/` | Four-symbol caller-owned-buffer C ABI for INFO and layout admission | Temporary bridge selected only by the shared iOS/macOS adapter |
 | `refloat-control/`       | Safe bounded Refloat live-control payload encoding and lighting response decoding | Selected by Apple and Android through separate host bridges                         |
 | `refloat-control-apple-ffi/` | Three-symbol caller-owned-buffer C ABI for Refloat controls              | Selected only by the shared iOS/macOS adapter                                       |
@@ -37,14 +38,13 @@ The workspace currently has twenty-eight members:
 | `vesc-frame-apple-ffi/`   | Caller-owned-buffer C ABI                                             | Selected only by the shared iOS/macOS frame-codec adapter                       |
 | `vesc-frame-android-jni/` | Primitive-array JNI ABI                                              | Selected by Android for CRC, encoding, exact decoding, and stream-boundary scans |
 
-The twenty-eight crates remain independent components and artifacts. The nine
+The twenty-nine crates remain independent components and artifacts. The nine
 Apple-selected component families' repeated
 source-build mechanics are centralized in `build-apple-bridge.sh` and
 `build-android-bridge.sh`, driven by a closed nine-entry Apple and
-eight-entry Android `bridge-build-catalog.sh` allowlist. Apple callers additionally
-select `refloat-compatibility`; cross-platform callers pass `frame`,
+nine-entry Android `bridge-build-catalog.sh` allowlist. Cross-platform callers pass `frame`,
 `firmware-identity`, `custom-configuration`, `bms-values`, `controller-data`,
-`refloat-control`, `refloat-dynamic-telemetry`, or
+`refloat-control`, `refloat-compatibility`, `refloat-dynamic-telemetry`, or
 `refloat-legacy-telemetry`. Package names,
 archive/library names, diagnostics, and exact JNI symbols come from the
 catalog. The catalog is deliberately non-executable, while the two builders
@@ -59,24 +59,24 @@ archives, domain dependencies, and Swift adapters remain explicit in each
 bridge. Header generation and export macros are intentionally absent because
 they would add tooling while obscuring the small reviewed public ABIs.
 
-The eight Android bridges similarly share only protocol-agnostic JNI safety in
+The nine Android bridges similarly share only protocol-agnostic JNI safety in
 `android-jni-support/`: call-scoped environment and exception checks, primitive
 array lengths and copies, local-reference alias checks, exact integer
 publication, and panic containment. The support crate is the workspace's only
 direct `jni-sys` consumer. Export names, statuses, validation order, result
-records, domain dependencies, Kotlin loaders, and eight independent libraries
+records, domain dependencies, Kotlin loaders, and nine independent libraries
 remain explicit. JNI export macros, binding generation, and higher-level JNI
 wrappers stay out of scope because the small bridge ABIs differ and the shared
 mechanics do not need another dependency or generated source tree.
 
-Android's application build consumes these eight artifacts through one typed
+Android's application build consumes these nine artifacts through one typed
 Gradle integration catalog and two generic task factories. That catalog holds
 only Gradle-owned task suffixes, source inputs, generated directories, host
 library stems, and JVM properties; `bridge-build-catalog.sh` remains the closed
 owner of Cargo packages, native artifact names, diagnostics, and JNI symbols.
 Keeping the two small catalogs explicit avoids generated metadata or shell
 parsing while audits require the same ordered identifier set and the exact
-twenty-four public Gradle task names. A later selected bridge adds one entry rather
+twenty-seven public Gradle task names. A later selected bridge adds one entry rather
 than copying package, host, source-set, test, merge, and clean-order blocks.
 
 The shared Apple backend retains only bounded Swift stream storage. Rust scans
@@ -119,13 +119,13 @@ Android adapter use independent focused three-symbol bridges.
 
 The Refloat compatibility component constructs and decodes only the bounded
 INFO identity and applies the exact audited package, telemetry, control, and
-required-layout policy to the canonical dynamic-layout record. Apple selects
-it through a temporary four-symbol bridge and strict shared Swift record
-adapter; the superseded Swift INFO offsets, catalogue, profile derivation, and
-set-based layout admission are gone. Kotlin remains Android's production owner.
-Both hosts retain discovery effects, routing, scheduling, state, presentation,
-and OS behavior. The Apple bridge is migration scaffolding and is deleted when
-the unified Rust application runtime no longer needs native protocol boundaries.
+required-layout policy to the canonical dynamic-layout record. Apple and
+Android select it through separate temporary four-symbol bridges and strict
+record adapters; the superseded Swift and Kotlin INFO offsets, catalogues,
+profile derivation, and set-based layout admission are gone. Both hosts retain
+discovery effects, routing, scheduling, state, presentation, and OS behavior.
+The host bridges are migration scaffolding and are deleted when the unified
+Rust application runtime no longer needs native protocol boundaries.
 
 The controller-data component decodes only the consumed prefix of standard
 VESC realtime values and the current-limit subset of motor configuration.

@@ -172,39 +172,21 @@ class VescProtocolTest {
             VescCompatibility.supported,
         )
         assertEquals(
-            listOf(
-                "1.0.0", "1.0.1",
-                "1.1.0", "1.1.1", "1.1.2",
-                "1.2.0", "1.2.1", "1.2.2", "1.2.3",
-            ),
-            RefloatCompatibility.entries.map { it.sourceVersion },
-        )
-        assertEquals(
             RefloatTelemetryFamily.LEGACY_FIXED,
-            RefloatCompatibility.entry("1.0")?.family,
+            refloatCompatibilityDecision("1.0").family,
         )
         assertEquals(
             RefloatWireProfile.DYNAMIC_ALERTS,
-            RefloatCompatibility.entry("1.2.0")?.profile,
+            refloatCompatibilityDecision("1.2.0").profile,
         )
-        assertEquals(null, RefloatCompatibility.entry("1.3.0"))
-        assertTrue(
-            RefloatCompatibility.supportsDynamicLayout(
-                RefloatCompatibility.requiredFields + "future.energy",
-                RefloatCompatibility.requiredRuntimeFields,
-            ),
-        )
-        assertFalse(
-            RefloatCompatibility.supportsDynamicLayout(
-                RefloatCompatibility.requiredFields.drop(1),
-                RefloatCompatibility.requiredRuntimeFields,
-            ),
-        )
+        assertThrows(VescProtocolException.InvalidFrame::class.java) {
+            RefloatCompatibility.decodeInfo(refloatInfoPayload("1.3.0"))
+        }
 
         val service = VescProtocolService()
         val legacy = VescFrameCodec.encode(byteArrayOf(36, 101, 0, 10))
         assertEquals(
-            listOf(VescProtocolMessage.RefloatInfo("1.0")),
+            listOf(VescProtocolMessage.RefloatInfo(refloatCompatibilityDecision("1.0"))),
             service.receive(legacy),
         )
         assertEquals(
@@ -476,10 +458,9 @@ class VescProtocolTest {
             VescFrameCodec.decode(service.refloatInfoRequest(ControllerRoute.Can(42)))
                 .map { it.toInt() and 0xff },
         )
-        assertEquals(
-            VescProtocolMessage.RefloatInfo("1.2"),
-            service.receive(VescFrameCodec.encode(byteArrayOf(36, 101, 0, 12))).single(),
-        )
+        assertThrows(VescProtocolException.InvalidFrame::class.java) {
+            service.receive(VescFrameCodec.encode(byteArrayOf(36, 101, 0, 12)))
+        }
     }
 
     @Test
@@ -700,12 +681,10 @@ class VescProtocolTest {
             idsPayload += field.encodeToByteArray().map { it.toInt() and 0xff }
         }
         idsPayload += 0
-        val layout = service.receive(
-            VescFrameCodec.encode(idsPayload.map(Int::toByte).toByteArray()),
-        ).single()
+        val decoder = RefloatDynamicTelemetryDecoder()
         assertEquals(
-            VescProtocolMessage.RefloatTelemetryLayout(fields, emptyList()),
-            layout,
+            fields to emptyList<String>(),
+            decoder.decodeFields(idsPayload.map(Int::toByte).toByteArray()),
         )
 
         val payload = byteArrayOf(
@@ -723,19 +702,18 @@ class VescProtocolTest {
             0x45, 0x00,
         )
 
-        val message = service.receive(VescFrameCodec.encode(payload)).single()
-            as VescProtocolMessage.RefloatTelemetry
-        assertEquals(RideState.RIDING, message.value.rideState)
-        assertEquals(FootpadState.LEFT, message.value.footpadState)
-        assertEquals(64.0, message.value.packVoltageV!!, 0.0)
-        assertEquals(0.5, message.value.dutyCycle!!, 0.0)
-        assertEquals(32.0, message.value.controllerTempC!!, 0.0)
-        assertEquals(16.0, message.value.motorTempC!!, 0.0)
-        assertEquals(8.0, message.value.motorCurrentA!!, 0.0)
-        assertEquals(-4.0, message.value.batteryCurrentA!!, 0.0)
-        assertEquals(1024.0, message.value.erpm)
-        assertEquals(36.0, message.value.speedKph!!, 0.0)
-        assertEquals(mapOf("future.energy" to 5.0), message.value.extensions)
+        val value = decoder.decodeData(payload)
+        assertEquals(RideState.RIDING, value.rideState)
+        assertEquals(FootpadState.LEFT, value.footpadState)
+        assertEquals(64.0, value.packVoltageV!!, 0.0)
+        assertEquals(0.5, value.dutyCycle!!, 0.0)
+        assertEquals(32.0, value.controllerTempC!!, 0.0)
+        assertEquals(16.0, value.motorTempC!!, 0.0)
+        assertEquals(8.0, value.motorCurrentA!!, 0.0)
+        assertEquals(-4.0, value.batteryCurrentA!!, 0.0)
+        assertEquals(1024.0, value.erpm)
+        assertEquals(36.0, value.speedKph!!, 0.0)
+        assertEquals(mapOf("future.energy" to 5.0), value.extensions)
     }
 
     @Test
@@ -745,7 +723,7 @@ class VescProtocolTest {
             .flatMap { service.receive(it.hexBytes()) }
 
         assertEquals(3, messages.size)
-        assertEquals(VescProtocolMessage.RefloatInfo("1.2.3"), messages[0])
+        assertEquals(VescProtocolMessage.RefloatInfo(refloatCompatibilityDecision("1.2.3")), messages[0])
         val layout = messages[1] as VescProtocolMessage.RefloatTelemetryLayout
         assertEquals(16, layout.fields.size)
         assertEquals(10, layout.runtimeFields.size)

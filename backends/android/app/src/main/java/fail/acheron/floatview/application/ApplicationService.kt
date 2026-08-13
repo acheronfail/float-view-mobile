@@ -3,7 +3,6 @@ package fail.acheron.floatview.application
 import fail.acheron.floatview.protocol.refloat.RefloatTelemetryFamily
 import fail.acheron.floatview.protocol.refloat.RefloatCommand
 import fail.acheron.floatview.protocol.refloat.RefloatBooleanControl
-import fail.acheron.floatview.protocol.refloat.RefloatCompatibility
 import fail.acheron.floatview.protocol.refloat.RefloatControlCodec
 import fail.acheron.floatview.protocol.refloat.RefloatControlProfile
 import fail.acheron.floatview.protocol.refloat.RefloatLightingState
@@ -665,7 +664,7 @@ class ApplicationService(
                             is VescProtocolMessage.RefloatInfo -> {
                                 if (connectionState != ConnectionState.IDENTIFYING) return@forEach
                                 performDiscoveryEffect(
-                                    controllerDiscovery.acceptRefloatInfo(message.version),
+                                    controllerDiscovery.acceptRefloatInfo(message.decision),
                                 )
                             }
                             is VescProtocolMessage.RefloatTelemetryLayout -> {
@@ -674,6 +673,7 @@ class ApplicationService(
                                     controllerDiscovery.acceptTelemetryLayout(
                                         message.fields,
                                         message.runtimeFields,
+                                        message.supported,
                                     ),
                                 )
                             }
@@ -1868,7 +1868,7 @@ class ApplicationService(
     }
 
     private fun configureRefloatControls(firmware: FirmwareRecord) {
-        val profile = controllerDiscovery.refloatPackageVersion?.let(RefloatCompatibility::controlProfile)
+        val profile = controllerDiscovery.refloatControlProfile
         val access = VescCompatibility.accessMode(firmware)
         if (profile == null || access == null) { refloatProfile = null; return }
         refloatProfile = profile

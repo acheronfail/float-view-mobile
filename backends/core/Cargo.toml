@@ -3,6 +3,7 @@ members = [
     "android-jni-support",
     "apple-ffi-support",
     "refloat-compatibility",
+    "refloat-compatibility-android-jni",
     "refloat-compatibility-apple-ffi",
     "refloat-control",
     "refloat-control-android-jni",

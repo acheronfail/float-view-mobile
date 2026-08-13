@@ -21,6 +21,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "float-view-refloat-compatibility-android-jni"
+version = "0.1.0"
+dependencies = [
+ "float-view-android-jni-support",
+ "float-view-refloat-compatibility",
+ "float-view-refloat-dynamic-telemetry",
+]
+
+[[package]]
 name = "float-view-refloat-compatibility-apple-ffi"
 version = "0.1.0"
 dependencies = [

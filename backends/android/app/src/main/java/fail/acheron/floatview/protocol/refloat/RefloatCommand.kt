@@ -24,8 +24,6 @@ enum class RefloatCommand(val id: Int) {
 
 object RefloatWire {
     const val PACKAGE_ID = 101
-    const val INFO_PROTOCOL_VERSION = 2
-    const val INFO_FLAGS = 0
     const val LEGACY_TELEMETRY_DETAIL_LEVEL = 4
 
     fun request(command: RefloatCommand, vararg parameters: Int): ByteArray =

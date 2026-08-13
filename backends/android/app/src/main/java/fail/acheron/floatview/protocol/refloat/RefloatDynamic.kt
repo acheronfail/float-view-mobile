@@ -33,6 +33,11 @@ class RefloatDynamicTelemetryDecoder {
     }
 
     fun decodeFields(payload: ByteArray): Pair<List<String>, List<String>> {
+        val decoded = decodeFieldsWithRecord(payload)
+        return decoded.fields to decoded.runtimeFields
+    }
+
+    internal fun decodeFieldsWithRecord(payload: ByteArray): DynamicTelemetryLayout {
         verifyRefloatDynamicTelemetryAbiVersion(linkedAbiVersion)
         val output = ByteArray(MAX_LAYOUT_RECORD_BYTES)
         val result = IntArray(1)
@@ -44,7 +49,7 @@ class RefloatDynamicTelemetryDecoder {
         fields = decoded.fields
         runtimeFields = decoded.runtimeFields
         layoutRecord = decoded.record
-        return fields to runtimeFields
+        return decoded
     }
 
     fun decodeData(payload: ByteArray): RefloatTelemetryRecord {

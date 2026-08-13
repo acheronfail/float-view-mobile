@@ -7,7 +7,7 @@ import fail.acheron.floatview.application.ControllerCurrentLimits
 import fail.acheron.floatview.application.VescProtocolMessage
 import fail.acheron.floatview.application.VescProtocolPort
 import fail.acheron.floatview.protocol.refloat.RefloatDynamicTelemetryDecoder
-import fail.acheron.floatview.protocol.refloat.RefloatInfoDecoder
+import fail.acheron.floatview.protocol.refloat.RefloatCompatibility
 import fail.acheron.floatview.protocol.refloat.RefloatLegacyTelemetryDecoder
 import fail.acheron.floatview.protocol.refloat.RefloatCommand
 import fail.acheron.floatview.protocol.refloat.RefloatWire
@@ -140,11 +140,7 @@ class VescProtocolService : VescProtocolPort {
         )
 
     override fun refloatInfoRequest(route: ControllerRoute): ByteArray {
-        val command = RefloatWire.request(
-            RefloatCommand.INFO,
-            RefloatWire.INFO_PROTOCOL_VERSION,
-            RefloatWire.INFO_FLAGS,
-        )
+        val command = RefloatCompatibility.infoRequest()
         val payload = VescCommandRouter.route(command, route)
         return VescFrameCodec.encode(payload)
     }
@@ -272,14 +268,20 @@ class VescProtocolService : VescProtocolPort {
                         command == RefloatCommand.INFO
                     ) {
                         VescProtocolMessage.RefloatInfo(
-                            RefloatInfoDecoder.decodeVersion(payload),
+                            RefloatCompatibility.decodeInfo(payload),
                         )
                     } else if (
                         payload.size >= 5 &&
                         command == RefloatCommand.REALTIME_DATA_INTERNAL_IDS
                     ) {
-                        val (fields, runtimeFields) = dynamicTelemetry.decodeFields(payload)
-                        VescProtocolMessage.RefloatTelemetryLayout(fields, runtimeFields)
+                        val layout = dynamicTelemetry.decodeFieldsWithRecord(payload)
+                        val supported = RefloatCompatibility.admits(layout.record)
+                        if (!supported) dynamicTelemetry.reset()
+                        VescProtocolMessage.RefloatTelemetryLayout(
+                            layout.fields,
+                            layout.runtimeFields,
+                            supported,
+                        )
                     } else if (
                         payload.size >= 13 &&
                         command == RefloatCommand.REALTIME_DATA_INTERNAL

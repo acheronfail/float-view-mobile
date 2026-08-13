@@ -1,7 +1,9 @@
 package fail.acheron.floatview.application
 
-import fail.acheron.floatview.protocol.refloat.RefloatCompatibility
 import fail.acheron.floatview.protocol.refloat.RefloatBooleanControl
+import fail.acheron.floatview.protocol.refloatCompatibilityDecision
+import fail.acheron.floatview.protocol.refloatRequiredFields
+import fail.acheron.floatview.protocol.refloatRequiredRuntimeFields
 import fail.acheron.floatview.protocol.vesc.ControllerRoute
 import java.time.Instant
 import java.util.concurrent.CopyOnWriteArrayList
@@ -1303,7 +1305,7 @@ class ApplicationServiceTest {
                         FirmwareRecord(6, 6, "THOR300", null, hardwareType = 0, canId = 42),
                     ),
                 )
-                5 -> listOf(VescProtocolMessage.RefloatInfo("1.2.3"))
+                5 -> listOf(VescProtocolMessage.RefloatInfo(refloatCompatibilityDecision("1.2.3")))
                 else -> emptyList()
             }
     }
@@ -1334,11 +1336,12 @@ class ApplicationServiceTest {
                         FirmwareRecord(6, 6, "THOR300", null, 0, null),
                     ),
                 )
-                2 -> listOf(VescProtocolMessage.RefloatInfo("1.2.3"))
+                2 -> listOf(VescProtocolMessage.RefloatInfo(refloatCompatibilityDecision("1.2.3")))
                 3 -> listOf(
                     VescProtocolMessage.RefloatTelemetryLayout(
-                        RefloatCompatibility.requiredFields,
-                        RefloatCompatibility.requiredRuntimeFields,
+                        refloatRequiredFields,
+                        refloatRequiredRuntimeFields,
+                        true,
                     ),
                 )
                 4 -> listOf(
@@ -1478,11 +1481,12 @@ class ApplicationServiceTest {
                         ),
                     ),
                 )
-                5 -> listOf(VescProtocolMessage.RefloatInfo("1.2.3"))
+                5 -> listOf(VescProtocolMessage.RefloatInfo(refloatCompatibilityDecision("1.2.3")))
                 6 -> listOf(
                     VescProtocolMessage.RefloatTelemetryLayout(
-                        RefloatCompatibility.requiredFields,
-                        RefloatCompatibility.requiredRuntimeFields,
+                        refloatRequiredFields,
+                        refloatRequiredRuntimeFields,
+                        true,
                     ),
                 )
                 else -> emptyList()

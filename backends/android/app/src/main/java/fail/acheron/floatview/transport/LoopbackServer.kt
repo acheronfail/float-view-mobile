@@ -44,7 +44,6 @@ import fail.acheron.floatview.application.SettingsRecord
 import fail.acheron.floatview.application.TelemetrySample
 import fail.acheron.floatview.application.TrackingMode
 import fail.acheron.floatview.application.VescProtocolMessage
-import fail.acheron.floatview.protocol.refloat.RefloatCompatibility
 import fail.acheron.floatview.protocol.refloat.RefloatConfigurationField
 import fail.acheron.floatview.protocol.refloat.RefloatConfigurationFieldType
 import fail.acheron.floatview.protocol.refloat.RefloatConfigurationLimits
@@ -937,8 +936,7 @@ class LoopbackServer(
                         )
                         .put(
                             "supported",
-                            RefloatCompatibility.entry(packageVersion) != null &&
-                                VescCompatibility.supports(firmware),
+                            VescCompatibility.supports(firmware),
                         )
                 } else {
                     JSONObject.NULL
