@@ -5,32 +5,35 @@ mirror the Apple capability names for navigation. Rust owns VESC CRC, frame
 encoding, exact frame decoding, and stream-boundary decisions through the
 four-function `../core/vesc-frame-android-jni/` bridge. Rust also owns
 firmware-identity structure, commands 92–95 custom-configuration envelopes,
-and command-96 BMS values through separate focused JNI bridges. Kotlin retains
+command-96 BMS values, and Refloat command-10 legacy telemetry through separate
+focused JNI bridges. Kotlin retains
 bounded caller-owned storage, primitive-result validation, error mapping,
 observation-time attachment, and the remaining VESC, BMS application, and
-Refloat semantics, including the selected command-10 legacy telemetry decoder.
-Apple's independent Rust legacy-telemetry selection adds no JNI crate, Gradle
-task, or packaged library here; there is no generated API or Gradle module per
+Refloat compatibility, polling, cache merging, and application semantics.
+The command-10 adapter strictly validates Rust's canonical record and preserves
+the existing Kotlin model API; there is no generated API or Gradle module per
 capability.
 The firmware-identity domain crate also owns the single platform-neutral
 version-1 record layout and serialization used by both host families. Its JNI
 crate retains only the independent two-symbol boundary, call-local array
 validation and copies, fixed status/metadata mapping, and caller-owned
 publication; Kotlin loading and model validation remain explicit here.
-All six JNI crates remain separate. Each depends on its domain crate and the
+All seven JNI crates remain separate migration boundaries. Each depends on its domain crate and the
 protocol-neutral `../core/android-jni-support/` crate for call-scoped JVM
 exception, array, alias, copy, publication, and panic safety. The support owns
 no JNI export or protocol behavior and is the only direct `jni-sys` consumer.
-Gradle has one closed typed six-entry integration catalog beside the application
+Gradle has one closed typed seven-entry integration catalog beside the application
 build. Each entry supplies the stable shell-builder identifier plus the existing
 task suffix, domain/JNI source roots, generated directories, host library, and
-JVM test property. Two generic factories register the twelve Android package
-tasks and six host-test tasks, and the same entries drive JNI source sets, test
+JVM test property. Two generic factories register the fourteen Android package
+tasks and seven host-test tasks, and the same entries drive JNI source sets, test
 dependencies, runtime properties, merge dependencies, and clean ordering. This
 catalog intentionally remains separate from the shell build catalog: Gradle owns
 task integration metadata, while the shell catalog owns Cargo packages,
 artifacts, and JNI symbols. Adding a later selected bridge requires one entry in
 each relevant catalog rather than another task-registration block.
+The per-platform JNI and FFI crates are deleted after the unified Rust runtime
+can call these domain components directly.
 
 Production Kotlin lives under
 `app/src/main/java/fail/acheron/floatview/`:

@@ -1,6 +1,7 @@
 package fail.acheron.floatview.protocol.refloat
 
 import fail.acheron.floatview.application.AlertReason
+import fail.acheron.floatview.application.FirmwareFault
 import fail.acheron.floatview.application.FootpadState
 import fail.acheron.floatview.application.PackageMode
 import fail.acheron.floatview.application.PackageState
@@ -9,125 +10,205 @@ import fail.acheron.floatview.application.RefloatTelemetryRecord
 import fail.acheron.floatview.application.RideState
 import fail.acheron.floatview.application.SetpointAdjustment
 import fail.acheron.floatview.application.StopCondition
+import fail.acheron.floatview.protocol.RustRefloatLegacyTelemetryBridge
+import fail.acheron.floatview.protocol.VescProtocolException
+import fail.acheron.floatview.protocol.verifyRefloatLegacyTelemetryAbiVersion
 
+/** Android adapter for the Rust-owned Refloat command-10 canonical record. */
 object RefloatLegacyTelemetryDecoder {
+    private const val HEADER_BYTES = 16
+    private const val SAMPLE_BYTES = 264
+    private const val ACTIVE_FAULT_BYTES = 16
+    private const val VALUE_COUNT = 31
+    private const val KNOWN_BEHAVIOR_FLAGS = 0b111
+    private const val KNOWN_OPTION_FLAGS = 0x0fff
+    private const val STATUS_OK = 0
+    private const val STATUS_UNSUPPORTED_ENVELOPE = 2
+    private const val STATUS_TRUNCATED_PAYLOAD = 3
+    private const val STATUS_INVALID_PAYLOAD = 4
+
+    private val linkedAbiVersion = RustRefloatLegacyTelemetryBridge.abiVersion()
+
     fun decode(payload: ByteArray): RefloatTelemetryRecord {
-        require(payload.size >= 4) { "Truncated Refloat compact response" }
-        fun unsigned(index: Int) = payload[index].toInt() and 0xff
-        if (unsigned(3) == 69) {
-            require(payload.size == 5) { "Invalid Refloat compact fault response" }
-            return RefloatTelemetryRecord(
-                kind = RefloatTelemetryKind.COMPACT,
-                rideState = RideState.UNKNOWN,
-                alertReason = AlertReason.FIRMWARE_FAULT,
-                firmwareFault = RefloatTelemetryMappings.firmwareFault(unsigned(4)),
-            )
+        verifyRefloatLegacyTelemetryAbiVersion(linkedAbiVersion)
+        val record = ByteArray(SAMPLE_BYTES)
+        val result = IntArray(2)
+        val status = RustRefloatLegacyTelemetryBridge.decode(payload, record, result)
+        return decodeBridgeResult(status, record, result)
+    }
+
+    internal fun decodeBridgeResult(
+        status: Int,
+        record: ByteArray,
+        result: IntArray,
+    ): RefloatTelemetryRecord {
+        if (result.size != 2) throw VescProtocolException.TruncatedPayload
+        val (recordLength, unsupportedCommand) = result
+        return when (status) {
+            STATUS_OK -> {
+                if (
+                    recordLength !in HEADER_BYTES..minOf(record.size, SAMPLE_BYTES) ||
+                    unsupportedCommand != 0
+                ) throw VescProtocolException.TruncatedPayload
+                telemetry(record.copyOf(recordLength))
+            }
+            STATUS_UNSUPPORTED_ENVELOPE -> {
+                if (recordLength != 0 || unsupportedCommand !in 1..255) {
+                    throw VescProtocolException.TruncatedPayload
+                }
+                throw VescProtocolException.UnsupportedCommand(unsupportedCommand)
+            }
+            STATUS_TRUNCATED_PAYLOAD -> {
+                requireEmptyFailure(recordLength, unsupportedCommand)
+                throw VescProtocolException.TruncatedPayload
+            }
+            STATUS_INVALID_PAYLOAD -> {
+                requireEmptyFailure(recordLength, unsupportedCommand)
+                throw VescProtocolException.InvalidFrame
+            }
+            else -> throw VescProtocolException.TruncatedPayload
         }
-        val detailLevel = unsigned(3)
-        require(detailLevel in 1..4) { "Unsupported Refloat detail level" }
-        val required =
-            if (detailLevel >= 4) 59 else if (detailLevel >= 3) 55 else if (detailLevel >= 2) 42 else 35
-        require(payload.size == required) { "Truncated Refloat telemetry response" }
-        fun signed16(index: Int): Int =
-            ((unsigned(index) shl 8) or unsigned(index + 1)).toShort().toInt()
-        fun unsigned32(index: Int): Long =
-            ((unsigned(index).toLong() shl 24) or
-                (unsigned(index + 1).toLong() shl 16) or
-                (unsigned(index + 2).toLong() shl 8) or
-                unsigned(index + 3).toLong())
-        val legacyState = unsigned(10) and 0x0f
-        val switchBits = unsigned(11) and 0x07
-        val adc1 = unsigned(12) / 50.0
-        val adc2 = unsigned(13) / 50.0
-        val footpad = when (switchBits) {
-            2 -> FootpadState.BOTH
-            1 -> if (adc1 > adc2) FootpadState.LEFT else FootpadState.RIGHT
-            else -> FootpadState.NONE
+    }
+
+    internal fun telemetry(record: ByteArray): RefloatTelemetryRecord {
+        if (
+            record.size < HEADER_BYTES ||
+            record[0].unsigned() != 1 ||
+            record[14].unsigned() != 0 ||
+            record[15].unsigned() != 0
+        ) throw VescProtocolException.TruncatedPayload
+        return when (record[1].unsigned()) {
+            1 -> sample(record)
+            2 -> activeFault(record)
+            else -> throw VescProtocolException.TruncatedPayload
         }
-        val (packageState, stopCondition) = legacySemanticState(legacyState)
+    }
+
+    private fun sample(record: ByteArray): RefloatTelemetryRecord {
+        if (
+            record.size != SAMPLE_BYTES ||
+            record[2].unsigned() !in 1..4 ||
+            record[8].unsigned() and KNOWN_BEHAVIOR_FLAGS.inv() != 0 ||
+            record[10].unsigned() != 0 ||
+            record[11].unsigned() != 0
+        ) throw VescProtocolException.TruncatedPayload
+        val options = record.bigEndianUnsignedShort(12)
+        if (options and KNOWN_OPTION_FLAGS.inv() != 0) throw VescProtocolException.TruncatedPayload
+
+        val packageState = closed(record[3], PackageState.STARTUP, PackageState.RUNNING, PackageState.READY, PackageState.DISABLED)
+        val packageMode = closed(record[4], PackageMode.NORMAL, PackageMode.HAND_TEST, PackageMode.FLYWHEEL)
+        val footpadState = closed(record[5], FootpadState.NONE, FootpadState.LEFT, FootpadState.RIGHT, FootpadState.BOTH)
+        val stopCondition = closed(
+            record[6], StopCondition.NONE, StopCondition.PITCH, StopCondition.ROLL,
+            StopCondition.SWITCH_HALF, StopCondition.SWITCH_FULL, StopCondition.REVERSE_STOP,
+            StopCondition.QUICK_STOP,
+        )
+        val adjustment = closed(
+            record[7], SetpointAdjustment.CENTERING, SetpointAdjustment.REVERSE_STOP,
+            SetpointAdjustment.NONE, SetpointAdjustment.DUTY, SetpointAdjustment.HIGH_VOLTAGE,
+            SetpointAdjustment.LOW_VOLTAGE, SetpointAdjustment.TEMPERATURE, SetpointAdjustment.UNKNOWN,
+        )
+        val alert = closed(
+            record[9], AlertReason.NONE, AlertReason.LOW_VOLTAGE, AlertReason.HIGH_VOLTAGE,
+            AlertReason.CONTROLLER_TEMPERATURE, AlertReason.MOTOR_TEMPERATURE, AlertReason.CURRENT,
+            AlertReason.DUTY, AlertReason.SENSORS, AlertReason.LOW_BATTERY, AlertReason.IDLE,
+            AlertReason.ERROR, AlertReason.SPEED, AlertReason.CELL_UNDER_TEMPERATURE,
+            AlertReason.CELL_OVER_TEMPERATURE, AlertReason.CELL_LOW_VOLTAGE,
+            AlertReason.CELL_HIGH_VOLTAGE, AlertReason.UNKNOWN,
+        )
+
+        val values = DoubleArray(VALUE_COUNT) { index -> record.bigEndianDouble(HEADER_BYTES + index * 8) }
+        val optionFlags = intArrayOf(0x001, 0x002, 0x004, 0x008, 0x010, 0x020, 0x040, 0x080, 0x100, 0x200, 0x400, 0x800)
+        val optionIndexes = intArrayOf(2, 3, 13, 22, 23, 24, 25, 26, 27, 28, 29, 30)
+        optionFlags.indices.forEach { position ->
+            if (options and optionFlags[position] == 0 && values[optionIndexes[position]].toBits() != 0L) {
+                throw VescProtocolException.TruncatedPayload
+            }
+        }
+        val detail = record[2].unsigned()
+        val required = when (detail) { 1 -> 0; 2 -> 0x00b; 3 -> 0x3fb; else -> 0xffb }
+        if (
+            options and required != required ||
+            (detail < 2 && options and 0xffb != 0) ||
+            (detail < 3 && options and 0xff0 != 0) ||
+            (detail < 4 && options and 0xc00 != 0)
+        ) throw VescProtocolException.TruncatedPayload
+        fun optional(index: Int, flag: Int): Double? = if (options and flag == 0) null else values[index]
+
         return RefloatTelemetryRecord(
             kind = RefloatTelemetryKind.COMPACT,
             rideState = if (packageState == PackageState.RUNNING) RideState.RIDING else RideState.IDLE,
-            packageState = packageState,
-            packageMode = if (unsigned(11) and 0x08 != 0) {
-                PackageMode.HAND_TEST
-            } else if (legacyState == 5) {
-                PackageMode.FLYWHEEL
-            } else {
-                PackageMode.NORMAL
-            },
-            footpadState = footpad,
-            stopCondition = stopCondition,
-            setpointAdjustment = legacySetpointAdjustment(unsigned(10) ushr 4),
-            wheelslip = legacyState == 3,
-            darkride = legacyState == 4,
-            charging = legacyState == 14,
-            alertReason = RefloatTelemetryMappings.alertReason(unsigned(11) ushr 4),
-            packVoltageV = signed16(23) / 10.0,
-            dutyCycle = (unsigned(33) - 128) / 100.0,
-            controllerTempC = if (detailLevel >= 2) unsigned(39) / 2.0 else null,
-            motorTempC = if (detailLevel >= 2) unsigned(40) / 2.0 else null,
-            motorCurrentA = signed16(29) / 10.0,
-            batteryCurrentA = signed16(31) / 10.0,
-            erpm = signed16(25).toDouble(),
-            speedKph = signed16(27) / 10.0 * 3.6,
-            pitchDeg = signed16(20) / 10.0,
-            balancePitchDeg = signed16(6) / 10.0,
-            rollDeg = signed16(8) / 10.0,
-            requestedBalanceCurrentA = signed16(4) / 10.0,
-            boosterCurrentA = (unsigned(22) - 128).toDouble(),
-            fieldWeakeningCurrentA = unsigned(34) / 3.0,
-            footpadAdc1V = adc1,
-            footpadAdc2V = adc2,
-            setpointDeg = (unsigned(14) - 128) / 5.0,
-            atrSetpointDeg = (unsigned(15) - 128) / 5.0,
-            brakeTiltSetpointDeg = (unsigned(16) - 128) / 5.0,
-            torqueTiltSetpointDeg = (unsigned(17) - 128) / 5.0,
-            turnTiltSetpointDeg = (unsigned(18) - 128) / 5.0,
-            remoteSetpointDeg = (unsigned(19) - 128) / 5.0,
-            distanceM = if (detailLevel >= 2) decodeFloat32(payload, 35) else null,
-            odometerM = if (detailLevel >= 3) unsigned32(42).toDouble() else null,
-            ampHoursDrawnAh = if (detailLevel >= 3) signed16(46) / 10.0 else null,
-            ampHoursChargedAh = if (detailLevel >= 3) signed16(48) / 10.0 else null,
-            wattHoursDrawnWh = if (detailLevel >= 3) signed16(50).toDouble() else null,
-            wattHoursChargedWh = if (detailLevel >= 3) signed16(52).toDouble() else null,
-            batteryLevel = if (detailLevel >= 3) unsigned(54) / 200.0 else null,
-            chargingCurrentA = if (detailLevel >= 4) signed16(55) / 10.0 else null,
-            chargingVoltageV = if (detailLevel >= 4) signed16(57) / 10.0 else null,
+            packageState = packageState, packageMode = packageMode, footpadState = footpadState,
+            stopCondition = stopCondition, setpointAdjustment = adjustment,
+            wheelslip = record[8].unsigned() and 0x01 != 0,
+            darkride = record[8].unsigned() and 0x02 != 0,
+            charging = record[8].unsigned() and 0x04 != 0,
+            alertReason = alert,
+            packVoltageV = values[0], dutyCycle = values[1],
+            controllerTempC = optional(2, 0x001), motorTempC = optional(3, 0x002),
+            motorCurrentA = values[4], batteryCurrentA = values[5], erpm = values[6],
+            speedKph = values[7], pitchDeg = values[8], balancePitchDeg = values[9],
+            rollDeg = values[10], requestedBalanceCurrentA = values[11],
+            boosterCurrentA = values[12], fieldWeakeningCurrentA = optional(13, 0x004),
+            footpadAdc1V = values[14], footpadAdc2V = values[15],
+            setpointDeg = values[16], atrSetpointDeg = values[17],
+            brakeTiltSetpointDeg = values[18], torqueTiltSetpointDeg = values[19],
+            turnTiltSetpointDeg = values[20], remoteSetpointDeg = values[21],
+            distanceM = optional(22, 0x008), odometerM = optional(23, 0x010),
+            ampHoursDrawnAh = optional(24, 0x020), ampHoursChargedAh = optional(25, 0x040),
+            wattHoursDrawnWh = optional(26, 0x080), wattHoursChargedWh = optional(27, 0x100),
+            batteryLevel = optional(28, 0x200), chargingCurrentA = optional(29, 0x400),
+            chargingVoltageV = optional(30, 0x800),
         )
     }
 
-    private fun decodeFloat32(payload: ByteArray, index: Int): Double {
-        val bits =
-            ((payload[index].toInt() and 0xff) shl 24) or
-                ((payload[index + 1].toInt() and 0xff) shl 16) or
-                ((payload[index + 2].toInt() and 0xff) shl 8) or
-                (payload[index + 3].toInt() and 0xff)
-        return Float.fromBits(bits).toDouble()
+    private fun activeFault(record: ByteArray): RefloatTelemetryRecord {
+        if (
+            record.size != ACTIVE_FAULT_BYTES ||
+            record.sliceArray(2 until 10).any { it.unsigned() != 0 } ||
+            record[11].unsigned() == 0 || record[12].unsigned() != 0 || record[13].unsigned() != 0
+        ) throw VescProtocolException.TruncatedPayload
+        val fault = closed(
+            record[10], FirmwareFault.OVER_VOLTAGE, FirmwareFault.UNDER_VOLTAGE,
+            FirmwareFault.DRIVER, FirmwareFault.ABSOLUTE_OVER_CURRENT,
+            FirmwareFault.CONTROLLER_OVER_TEMPERATURE, FirmwareFault.MOTOR_OVER_TEMPERATURE,
+            FirmwareFault.GATE_DRIVER_OVER_VOLTAGE, FirmwareFault.GATE_DRIVER_UNDER_VOLTAGE,
+            FirmwareFault.MCU_UNDER_VOLTAGE, FirmwareFault.WATCHDOG_RESET, FirmwareFault.ENCODER_SPI,
+            FirmwareFault.ENCODER_SINCOS_BELOW_MINIMUM, FirmwareFault.ENCODER_SINCOS_ABOVE_MAXIMUM,
+            FirmwareFault.FLASH_CORRUPTION, FirmwareFault.CURRENT_SENSOR_OFFSET_1,
+            FirmwareFault.CURRENT_SENSOR_OFFSET_2, FirmwareFault.CURRENT_SENSOR_OFFSET_3,
+            FirmwareFault.UNBALANCED_CURRENTS, FirmwareFault.BRAKE,
+            FirmwareFault.RESOLVER_LOSS_OF_TRACKING, FirmwareFault.RESOLVER_DEGRADATION_OF_SIGNAL,
+            FirmwareFault.RESOLVER_LOSS_OF_SIGNAL, FirmwareFault.APP_CONFIG_FLASH_CORRUPTION,
+            FirmwareFault.MOTOR_CONFIG_FLASH_CORRUPTION, FirmwareFault.ENCODER_NO_MAGNET,
+            FirmwareFault.ENCODER_MAGNET_TOO_STRONG, FirmwareFault.PHASE_FILTER, FirmwareFault.UNKNOWN,
+        )
+        if ((record[10].unsigned() == 28) != (record[11].unsigned() > 27)) {
+            throw VescProtocolException.TruncatedPayload
+        }
+        return RefloatTelemetryRecord(
+            kind = RefloatTelemetryKind.COMPACT,
+            rideState = RideState.UNKNOWN,
+            alertReason = AlertReason.FIRMWARE_FAULT,
+            firmwareFault = fault,
+        )
     }
 
-    private fun legacySetpointAdjustment(value: Int) = when (value) {
-        0 -> SetpointAdjustment.CENTERING
-        1 -> SetpointAdjustment.REVERSE_STOP
-        2 -> SetpointAdjustment.NONE
-        3 -> SetpointAdjustment.DUTY
-        4 -> SetpointAdjustment.HIGH_VOLTAGE
-        5 -> SetpointAdjustment.LOW_VOLTAGE
-        6 -> SetpointAdjustment.TEMPERATURE
-        else -> SetpointAdjustment.UNKNOWN
+    private fun requireEmptyFailure(recordLength: Int, unsupportedCommand: Int) {
+        if (recordLength != 0 || unsupportedCommand != 0) throw VescProtocolException.TruncatedPayload
     }
 
-    private fun legacySemanticState(value: Int): Pair<PackageState, StopCondition> = when (value) {
-        0 -> PackageState.STARTUP to StopCondition.NONE
-        in 1..5 -> PackageState.RUNNING to StopCondition.NONE
-        6 -> PackageState.READY to StopCondition.PITCH
-        7 -> PackageState.READY to StopCondition.ROLL
-        8 -> PackageState.READY to StopCondition.SWITCH_HALF
-        9 -> PackageState.READY to StopCondition.SWITCH_FULL
-        12 -> PackageState.READY to StopCondition.REVERSE_STOP
-        13 -> PackageState.READY to StopCondition.QUICK_STOP
-        14 -> PackageState.READY to StopCondition.NONE
-        15 -> PackageState.DISABLED to StopCondition.NONE
-        else -> PackageState.READY to StopCondition.NONE
+    private fun <T> closed(code: Byte, vararg values: T): T =
+        values.getOrNull(code.unsigned() - 1) ?: throw VescProtocolException.TruncatedPayload
+
+    private fun Byte.unsigned(): Int = toInt() and 0xff
+
+    private fun ByteArray.bigEndianUnsignedShort(offset: Int): Int =
+        (this[offset].unsigned() shl 8) or this[offset + 1].unsigned()
+
+    private fun ByteArray.bigEndianDouble(offset: Int): Double {
+        var bits = 0L
+        for (index in offset until offset + 8) bits = (bits shl 8) or this[index].unsigned().toLong()
+        return Double.fromBits(bits).takeIf { it.isFinite() } ?: throw VescProtocolException.TruncatedPayload
     }
 }
