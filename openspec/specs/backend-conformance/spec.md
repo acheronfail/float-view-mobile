@@ -1691,6 +1691,42 @@ Physical Apple evidence SHALL exercise the production Rust command-10 decoder th
 - **WHEN** a mobile run receives no location sample within its bounded dwell
 - **THEN** only that observation is deferred and every non-location assertion and cleanup remains mandatory
 
+### Requirement: Apple Rust Refloat compatibility cutover evidence
+
+The Apple Refloat compatibility cutover SHALL NOT be complete until focused safe-record, compiled C-ABI, Swift-adapter, dependency, source-ownership, exact-symbol, clean-packaging, Android-isolation, strict OpenSpec, and complete `just verify` checks pass, followed by focused Android, iOS, and macOS ESP32 regression. Evidence SHALL cover exact INFO request bytes; minimal/source legacy, compact major/minor, and complete version-2 responses; legacy patch absence; every audited release/profile; unknown releases; canonical compatibility records and corruption; required layout groups; bounded future identifiers/order; every malformed payload/record/layout/region/capacity boundary; contained panics; payload-safe diagnostics; and deletion of superseded Swift algorithms.
+
+Physical Apple evidence SHALL exercise production Rust INFO/profile/layout admission through real CoreBluetooth, direct/CAN routing, framing, discovery, telemetry, controls, application state, sessions, reconnect recovery, and cleanup. Android SHALL exercise its unchanged Kotlin compatibility owner and real BLE path to prove platform isolation. A missing location sample within a bounded automated dwell SHALL be deferred manual coverage only and SHALL NOT conceal permission, capability, monotonic-boundary, BLE, protocol, telemetry, route, state, session, background, control, or cleanup failures.
+
+#### Scenario: Verify canonical safe compatibility records
+
+- **WHEN** focused Rust tests exercise every source-derived and adversarial INFO/profile/layout form and corrupt every record boundary
+- **THEN** the safe component alone produces and consumes the exact bounded decision or stable failure with no unsafe code, private diagnostic, or bridge-local serializer
+
+#### Scenario: Verify the compiled Apple boundary
+
+- **WHEN** compiled C and Swift tests exercise every valid and invalid ABI, region, capacity, status, record, request, and model-mapping path
+- **THEN** the exact public symbols, fixed statuses, canonical records, errors, and publication behavior remain deterministic with no partial output or fallback policy
+
+#### Scenario: Verify software selection and isolation
+
+- **WHEN** clean macOS/iOS packaging, Android host/four-ABI packaging, dependency/source audits, strict OpenSpec validation, and `just verify` run after selection
+- **THEN** both Apple hosts link the correct Rust bridge from source, superseded Swift algorithms are absent, Android artifacts and ownership are unchanged, and all unrelated behavior passes
+
+#### Scenario: Verify Apple physical selection
+
+- **WHEN** focused identity, direct/CAN control, applicable BMS, legacy/dynamic telemetry, ride, unexpected-disconnect, and mobile-background scenarios run on connected iOS and macOS against the ESP32 fixture
+- **THEN** both hosts complete through production Rust compatibility decisions with unchanged routing, state, session, control, background where applicable, recovery, and cleanup behavior
+
+#### Scenario: Verify Android physical regression
+
+- **WHEN** the same applicable scenarios run on the connected Android device
+- **THEN** Android completes through its unchanged Kotlin compatibility path without resolving, packaging, or calling the Apple bridge
+
+#### Scenario: Defer only bounded location acquisition
+
+- **WHEN** a mobile run receives no location sample within its bounded dwell
+- **THEN** only that observation is deferred and every non-location assertion and cleanup remains mandatory
+
 ### Requirement: Rust Refloat compatibility candidate evidence
 
 The Rust Refloat compatibility candidate SHALL NOT be treated as a production backend owner until it passes locked formatting, warnings-denied linting, dependency and workspace-layout audits, pinned-source and canonical fixture parity, adversarial identity/catalogue/layout tests, the complete `just verify` software gate, and focused physical controller regression on Android, iOS, and macOS. Component evidence SHALL cover exact INFO request bytes; minimal and source legacy response forms; compact major/minor and complete version-2 identities; legacy patch absence; every audited source/wire catalogue entry; telemetry, lighting, and fatal-clear profiles; unknown and prerelease-equivalent rejection; all required identifier names and groups; bounded extras, ordering, counts, lengths, aggregate bytes, UTF-8, uniqueness, missing/wrong-group names; wrong envelopes, unsupported protocol versions, truncation, excessive payloads; deterministic complete results; and payload-safe diagnostics.
