@@ -1,7 +1,9 @@
 use std::path::{Path, PathBuf};
 
 use float_view_refloat_configuration_codec::{
-    ConfigurationValue, decode_qt_compressed, decode_values, encode_values,
+    ConfigurationValue, decode_qt_compressed, decode_qt_compressed_to_record, decode_schema_record,
+    decode_value_record, decode_values, decode_values_to_record, encode_values,
+    encode_values_from_records,
 };
 
 struct Release {
@@ -104,6 +106,8 @@ fn every_audited_schema_matches_exact_source_evidence() {
         );
         assert_eq!(schema.fields.len(), release.fields, "{}", release.version);
         assert_eq!(schema.groups.len(), release.groups, "{}", release.version);
+        let schema_record = decode_qt_compressed_to_record(&compressed).unwrap();
+        assert_eq!(decode_schema_record(&schema_record), Ok(schema.clone()));
         assert_eq!(
             decode_qt_compressed(&compressed),
             Ok(schema.clone()),
@@ -148,8 +152,20 @@ fn every_audited_value_family_round_trips_exact_bytes() {
             assert_eq!(values.len(), release.fields, "{} {kind}", release.version);
             assert_eq!(
                 encode_values(&values, &schema),
-                Ok(bytes),
+                Ok(bytes.clone()),
                 "{} {kind}",
+                release.version
+            );
+            let schema_record =
+                float_view_refloat_configuration_codec::encode_schema_record(&schema)
+                    .expect("audited schema record must encode");
+            let value_record = decode_values_to_record(&schema_record, &bytes)
+                .expect("audited values record must decode");
+            assert_eq!(decode_value_record(&value_record), Ok(values));
+            assert_eq!(
+                encode_values_from_records(&schema_record, &value_record),
+                Ok(bytes),
+                "{} {kind} canonical record",
                 release.version
             );
         }

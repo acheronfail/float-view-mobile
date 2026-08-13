@@ -62,37 +62,41 @@ private func configurationFixtureRoot() -> URL {
   }
 }
 
-@Test func refloatConfigurationParserRejectsAdversarialSchemasWithoutPartialState() {
-  let cases: [(String, RefloatConfigurationCodecError)] = [
-    (
-      "<?xml version=\"1.0\"?><!DOCTYPE x [<!ENTITY e SYSTEM \"file:///etc/passwd\">]><ConfigParams>&e;</ConfigParams>",
-      .prohibitedXML
-    ),
-    ("<ConfigParams><Params><x/><x/></Params><SerOrder/><Grouping/></ConfigParams>", .duplicateField),
-    (
-      "<ConfigParams><Params><x><type>5</type></x></Params><SerOrder><ser>x</ser><ser>x</ser></SerOrder><Grouping/></ConfigParams>",
-      .duplicateOrder
-    ),
-    ("<ConfigParams><Params/><SerOrder><ser>x</ser></SerOrder><Grouping/></ConfigParams>", .missingReference),
-    (
-      "<ConfigParams><Params><x><type>99</type></x></Params><SerOrder><ser>x</ser></SerOrder><Grouping/></ConfigParams>",
-      .unsupportedType
-    ),
-    (
-      "<ConfigParams><Params><x><type>1</type><vTx>99</vTx></x></Params><SerOrder><ser>x</ser></SerOrder><Grouping/></ConfigParams>",
-      .unsupportedEncoding
-    ),
-    (
-      "<ConfigParams><Params><x><type>1</type><vTx>7</vTx><valDouble>NaN</valDouble></x></Params><SerOrder><ser>x</ser></SerOrder><Grouping/></ConfigParams>",
-      .invalidNumber
-    ),
-  ]
-  for (xml, expected) in cases {
-    #expect(throws: expected) { try RefloatConfigurationSchemaCodec.parse(Data(xml.utf8)) }
+@Test func refloatConfigurationAdapterRejectsSchemasWithoutTheSelectedCanonicalRecord() throws {
+  let root = configurationFixtureRoot()
+  let selected = try RefloatConfigurationSchemaCodec.decodeQtCompressed(
+    Data(contentsOf: root.appending(path: "schemas/1.2.3.qcompress"))
+  )
+  let reconstructed = RefloatConfigurationSchema(
+    fingerprint: selected.fingerprint, wireSignature: selected.wireSignature,
+    fields: selected.fields, groups: selected.groups
+  )
+  let values = try Data(contentsOf: root.appending(path: "values/1.2.3-default.bin"))
+  #expect(throws: RefloatConfigurationCodecError.invalidMetadata) {
+    try RefloatConfigurationValueCodec.decode(values, schema: reconstructed)
   }
-  let nested = "<ConfigParams>" + String(repeating: "<x>", count: 40) +
-    String(repeating: "</x>", count: 40) + "</ConfigParams>"
-  #expect(throws: RefloatConfigurationCodecError.structuralLimit) {
-    try RefloatConfigurationSchemaCodec.parse(Data(nested.utf8))
+
+  var corruptRecord = try #require(selected.canonicalRecord)
+  corruptRecord[2] = 1
+  let corrupt = RefloatConfigurationSchema(
+    fingerprint: selected.fingerprint, wireSignature: selected.wireSignature,
+    fields: selected.fields, groups: selected.groups, canonicalRecord: corruptRecord
+  )
+  #expect(throws: RefloatConfigurationCodecError.invalidMetadata) {
+    try RefloatConfigurationValueCodec.decode(values, schema: corrupt)
+  }
+
+  let persisted = try JSONEncoder().encode(selected)
+  let decoded = try JSONDecoder().decode(RefloatConfigurationSchema.self, from: persisted)
+  #expect(decoded == selected)
+  #expect(decoded.canonicalRecord == nil)
+  #expect(throws: RefloatConfigurationCodecError.invalidMetadata) {
+    try RefloatConfigurationValueCodec.decode(values, schema: decoded)
+  }
+}
+
+@Test func refloatConfigurationAdapterRejectsABIDrift() {
+  #expect(throws: RefloatConfigurationCodecError.invalidMetadata) {
+    try RefloatConfigurationSchemaCodec.requireCompatibleABI(2)
   }
 }

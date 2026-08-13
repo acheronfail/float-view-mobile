@@ -115,6 +115,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "float-view-refloat-configuration-codec-apple-ffi"
+version = "0.1.0"
+dependencies = [
+ "float-view-apple-ffi-support",
+ "float-view-refloat-configuration-codec",
+]
+
+[[package]]
 name = "float-view-refloat-control"
 version = "0.1.0"
 

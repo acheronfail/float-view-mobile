@@ -39,6 +39,12 @@ rust-bridge-build-tooling-audit:
     done)"
     gradle_identifiers="$(sed -n 's/^        identifier = "\([^"]*\)",$/\1/p' "$android_gradle")"
     [[ "$gradle_identifiers" == "$catalog_identifiers" ]]
+    float_view_select_bridge refloat-configuration-codec
+    [[ "$bridge_identifier" == refloat-configuration-codec ]]
+    [[ "$bridge_apple_package" == float-view-refloat-configuration-codec-apple-ffi ]]
+    [[ "$bridge_apple_archive" == libfloat_view_refloat_configuration_codec_apple_ffi.a ]]
+    [[ -z "$bridge_android_package$bridge_android_library_stem$bridge_android_jni_prefix" ]]
+    [[ ${#bridge_android_symbols[@]} -eq 0 ]]
     [[ "$(rg -c '^data class RustAndroidBridgeSpec\(' "$android_gradle")" == 1 ]]
     [[ "$(rg -c '^    RustAndroidBridgeSpec\(' "$android_gradle")" == 9 ]]
     [[ "$(rg -c '^fun registerAndroidRust(Package|Host)Build\(' "$android_gradle")" == 2 ]]
@@ -146,6 +152,13 @@ apple-rust-refloat-legacy-telemetry configuration="Debug":
       macosx "$(uname -m)" "{{ configuration }}" \
       "$PWD/backends/core/target/apple/macos"
 
+apple-rust-refloat-configuration-codec configuration="Debug":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    backends/core/build-apple-bridge.sh refloat-configuration-codec \
+      macosx "$(uname -m)" "{{ configuration }}" \
+      "$PWD/backends/core/target/apple/macos"
+
 apple-rust-bridges configuration="Debug":
     just apple-rust-codec "{{ configuration }}"
     just apple-rust-firmware-identity "{{ configuration }}"
@@ -156,6 +169,7 @@ apple-rust-bridges configuration="Debug":
     just apple-rust-refloat-control "{{ configuration }}"
     just apple-rust-refloat-dynamic-telemetry "{{ configuration }}"
     just apple-rust-refloat-legacy-telemetry "{{ configuration }}"
+    just apple-rust-refloat-configuration-codec "{{ configuration }}"
 
 core-abi-test: apple-rust-codec
     xcrun clang -std=c17 -Wall -Wextra -Werror \
@@ -272,6 +286,29 @@ core-refloat-legacy-telemetry-abi-audit: apple-rust-refloat-legacy-telemetry
     [[ "$actual" == "$expected" ]]
     rg -q '^pub const ABI_VERSION: u32 = RECORD_VERSION;$' \
       backends/core/refloat-legacy-telemetry-apple-ffi/src/lib.rs
+    [[ "$(xcrun lipo -archs "$archive")" == "$(uname -m)" ]]
+
+core-refloat-configuration-codec-abi-test: apple-rust-refloat-configuration-codec
+    xcrun clang -std=c17 -Wall -Wextra -Werror \
+      backends/core/refloat-configuration-codec-apple-ffi/tests/abi.c \
+      -I backends/apple/Sources/CVescRefloatConfigurationCodec/include \
+      -L backends/core/target/apple/macos \
+      -lfloat_view_refloat_configuration_codec_apple_ffi \
+      -o /tmp/float-view-refloat-configuration-codec-abi-test
+    /tmp/float-view-refloat-configuration-codec-abi-test
+
+core-refloat-configuration-codec-abi-audit: apple-rust-refloat-configuration-codec
+    #!/usr/bin/env bash
+    set -euo pipefail
+    archive='backends/core/target/apple/macos/libfloat_view_refloat_configuration_codec_apple_ffi.a'
+    actual="$({ nm -gjU "$archive" 2>/dev/null || true; } \
+      | sed 's/^_//' | rg '^float_view_[a-z_]+$' | sort -u)"
+    expected="$(printf '%s\n' \
+      float_view_refloat_configuration_codec_abi_version \
+      float_view_refloat_configuration_codec_decode_schema \
+      float_view_refloat_configuration_codec_decode_values \
+      float_view_refloat_configuration_codec_encode_values)"
+    [[ "$actual" == "$expected" ]]
     [[ "$(xcrun lipo -archs "$archive")" == "$(uname -m)" ]]
 
 core-identity-abi-audit: apple-rust-firmware-identity
@@ -455,7 +492,7 @@ apple-packaging:
       -derivedDataPath /tmp/float-view-ios-device CODE_SIGNING_ALLOWED=NO clean build
     just apple-rust-bridges Debug
 
-core-test: core-abi-test core-identity-abi-test core-custom-configuration-abi-test core-bms-values-abi-test core-controller-data-abi-test core-refloat-control-abi-test core-refloat-compatibility-abi-test core-refloat-dynamic-telemetry-abi-test core-refloat-legacy-telemetry-abi-test
+core-test: core-abi-test core-identity-abi-test core-custom-configuration-abi-test core-bms-values-abi-test core-controller-data-abi-test core-refloat-control-abi-test core-refloat-compatibility-abi-test core-refloat-dynamic-telemetry-abi-test core-refloat-legacy-telemetry-abi-test core-refloat-configuration-codec-abi-test
     cd backends/core && cargo test --locked --offline
 
 core-refloat-configuration-codec-test:
@@ -486,18 +523,40 @@ core-refloat-configuration-codec-audit:
       "$crate/src" "$crate/tests"
     [[ "$(find "$crate" -mindepth 1 -maxdepth 1 -type d \
       ! -name src ! -name tests -print -quit)" == "" ]]
-    [[ ! -e backends/core/refloat-configuration-codec-apple-ffi ]]
+    [[ -f backends/core/refloat-configuration-codec-apple-ffi/Cargo.toml ]]
+    [[ -f backends/core/refloat-configuration-codec-apple-ffi/src/lib.rs ]]
+    [[ -f backends/core/refloat-configuration-codec-apple-ffi/tests/abi.c ]]
     [[ ! -e backends/core/refloat-configuration-codec-android-jni ]]
     ! rg -n 'refloat-configuration-codec|float_view_refloat_configuration_codec|RustRefloatConfigurationCodec' \
-      backends/core/bridge-build-catalog.sh backends/core/build-apple-bridge.sh \
-      backends/core/build-android-bridge.sh backends/apple/Package.swift \
-      backends/apple/ios/float-view.xcodeproj/project.pbxproj \
-      backends/android/app/build.gradle.kts backends/apple/Sources \
+      backends/core/build-android-bridge.sh backends/android/app/build.gradle.kts \
       backends/android/app/src/main
+    ! rg -n 'CryptoKit|import zlib|XMLParser|inflateInit_|crc32c|ConfigurationByteReader' \
+      backends/apple/Sources/FloatViewBackend/protocol/refloat/RefloatConfigurationCodec.swift
     rg -q '^public enum RefloatConfigurationSchemaCodec' \
       backends/apple/Sources/FloatViewBackend/protocol/refloat/RefloatConfigurationCodec.swift
     rg -q '^public enum RefloatConfigurationValueCodec' \
       backends/apple/Sources/FloatViewBackend/protocol/refloat/RefloatConfigurationCodec.swift
+    apple_configuration_source='backends/apple/Sources/FloatViewBackend/protocol/refloat/RefloatConfigurationCodec.swift'
+    [[ "$(rg -c 'float_view_refloat_configuration_codec_(abi_version|decode_schema|decode_values|encode_values)\(' \
+      "$apple_configuration_source")" == 4 ]]
+    [[ "$(rg -l '^import CVescRefloatConfigurationCodec$' \
+      backends/apple/Sources -g '*.swift')" == "$apple_configuration_source" ]]
+    [[ "$(rg -l 'float_view_refloat_configuration_codec_' \
+      backends/apple/Sources -g '*.swift')" == "$apple_configuration_source" ]]
+    [[ "$(rg -c '\.systemLibrary\(name: "CVescRefloatConfigurationCodec"\)' \
+      backends/apple/Package.swift)" == 1 ]]
+    [[ "$(rg -c '\.linkedLibrary\("float_view_refloat_configuration_codec_apple_ffi"\)' \
+      backends/apple/Package.swift)" == 1 ]]
+    [[ "$(rg -c 'Build Rust Refloat configuration codec' \
+      backends/apple/ios/float-view.xcodeproj/project.pbxproj)" == 3 ]]
+    [[ "$(rg -c 'refloat-configuration-codec/src/records.rs' \
+      backends/apple/ios/float-view.xcodeproj/project.pbxproj)" == 1 ]]
+    [[ "$(rg -c 'libfloat_view_refloat_configuration_codec_apple_ffi.a' \
+      backends/apple/ios/float-view.xcodeproj/project.pbxproj)" == 1 ]]
+    [[ "$(rg -c -- '-lfloat_view_refloat_configuration_codec_apple_ffi' \
+      backends/apple/ios/float-view.xcodeproj/project.pbxproj)" == 2 ]]
+    [[ "$(rg -c 'Sources/CVescRefloatConfigurationCodec' \
+      backends/apple/ios/float-view.xcodeproj/project.pbxproj)" == 2 ]]
     rg -q '^object RefloatConfigurationSchemaCodec' \
       backends/android/app/src/main/java/fail/acheron/floatview/protocol/refloat/RefloatConfigurationCodec.kt
     rg -q '^object RefloatConfigurationValueCodec' \
@@ -1057,6 +1116,8 @@ audit:
     [[ -f backends/core/refloat-compatibility-apple-ffi/Cargo.toml ]]
     [[ -f backends/core/refloat-compatibility-apple-ffi/tests/abi.c ]]
     [[ -f backends/core/refloat-configuration-codec/Cargo.toml ]]
+    [[ -f backends/core/refloat-configuration-codec-apple-ffi/Cargo.toml ]]
+    [[ -f backends/core/refloat-configuration-codec-apple-ffi/tests/abi.c ]]
     [[ -f backends/core/vesc-controller-data/Cargo.toml ]]
     [[ -f backends/core/vesc-controller-data-android-jni/Cargo.toml ]]
     [[ -f backends/core/vesc-controller-data-apple-ffi/Cargo.toml ]]
@@ -1095,6 +1156,8 @@ audit:
     [[ -f backends/apple/Sources/CVescFirmwareIdentity/module.modulemap ]]
     [[ -f backends/apple/Sources/CVescRefloatCompatibility/include/CVescRefloatCompatibility.h ]]
     [[ -f backends/apple/Sources/CVescRefloatCompatibility/module.modulemap ]]
+    [[ -f backends/apple/Sources/CVescRefloatConfigurationCodec/include/CVescRefloatConfigurationCodec.h ]]
+    [[ -f backends/apple/Sources/CVescRefloatConfigurationCodec/module.modulemap ]]
     [[ -f backends/apple/Sources/CVescRefloatControl/include/CVescRefloatControl.h ]]
     [[ -f backends/apple/Sources/CVescRefloatControl/module.modulemap ]]
     [[ -f backends/apple/Sources/CVescRefloatDynamicTelemetry/include/CVescRefloatDynamicTelemetry.h ]]
@@ -1106,6 +1169,7 @@ audit:
       ! -name refloat-compatibility ! -name refloat-compatibility-android-jni \
       ! -name refloat-compatibility-apple-ffi \
       ! -name refloat-configuration-codec \
+      ! -name refloat-configuration-codec-apple-ffi \
       ! -name refloat-control ! -name refloat-control-android-jni \
       ! -name refloat-control-apple-ffi ! -name refloat-dynamic-telemetry \
       ! -name refloat-dynamic-telemetry-android-jni \
@@ -1138,6 +1202,8 @@ audit:
     [[ "$(find backends/core/refloat-compatibility-apple-ffi -mindepth 1 -maxdepth 1 -type d \
       ! -name src ! -name tests -print -quit)" == "" ]]
     [[ "$(find backends/core/refloat-configuration-codec -mindepth 1 -maxdepth 1 -type d \
+      ! -name src ! -name tests -print -quit)" == "" ]]
+    [[ "$(find backends/core/refloat-configuration-codec-apple-ffi -mindepth 1 -maxdepth 1 -type d \
       ! -name src ! -name tests -print -quit)" == "" ]]
     [[ "$(find backends/core/refloat-control -mindepth 1 -maxdepth 1 -type d \
       ! -name src -print -quit)" == "" ]]
@@ -1195,9 +1261,9 @@ audit:
     [[ "$(cd backends/core && cargo tree --locked --package float-view-apple-ffi-support \
       --edges normal --prefix none | wc -l | tr -d ' ')" == 1 ]]
     [[ "$(rg -c 'core/apple-ffi-support/Cargo.toml' \
-      backends/apple/ios/float-view.xcodeproj/project.pbxproj)" == 9 ]]
+      backends/apple/ios/float-view.xcodeproj/project.pbxproj)" == 10 ]]
     [[ "$(rg -c 'core/apple-ffi-support/src/lib.rs' \
-      backends/apple/ios/float-view.xcodeproj/project.pbxproj)" == 9 ]]
+      backends/apple/ios/float-view.xcodeproj/project.pbxproj)" == 10 ]]
     ! rg -n 'slice::from_raw_parts|ptr::copy_nonoverlapping|catch_unwind|AssertUnwindSafe|fn address_region|fn regions_overlap' \
       backends/core/*-apple-ffi/src/lib.rs
     rg -q 'slice::from_raw_parts' backends/core/apple-ffi-support/src/lib.rs
@@ -1358,6 +1424,8 @@ audit:
       backends/core/refloat-dynamic-telemetry-apple-ffi
     ! rg -n 'cbindgen|uniffi|jni|host_callback' \
       backends/core/refloat-legacy-telemetry-apple-ffi
+    ! rg -n 'cbindgen|uniffi|jni|host_callback' \
+      backends/core/refloat-configuration-codec-apple-ffi
     [[ "$(cd backends/core && cargo tree --locked --package float-view-refloat-control --edges normal --prefix none | wc -l | tr -d ' ')" == 1 ]]
     [[ "$(cd backends/core && cargo tree --locked --package float-view-refloat-compatibility --edges normal --prefix none | wc -l | tr -d ' ')" == 2 ]]
     [[ "$(cd backends/core && cargo tree --locked --package float-view-refloat-compatibility-apple-ffi --edges normal --depth 1 --prefix none | wc -l | tr -d ' ')" == 3 ]]
@@ -1370,6 +1438,7 @@ audit:
     [[ "$(cd backends/core && cargo tree --locked --package float-view-refloat-legacy-telemetry --edges normal --prefix none | wc -l | tr -d ' ')" == 1 ]]
     [[ "$(cd backends/core && cargo tree --locked --package float-view-refloat-legacy-telemetry-apple-ffi --edges normal --depth 1 --prefix none | wc -l | tr -d ' ')" == 3 ]]
     [[ "$(cd backends/core && cargo tree --locked --package float-view-refloat-legacy-telemetry-android-jni --edges normal --depth 1 --prefix none | wc -l | tr -d ' ')" == 3 ]]
+    [[ "$(cd backends/core && cargo tree --locked --package float-view-refloat-configuration-codec-apple-ffi --edges normal --depth 1 --prefix none | wc -l | tr -d ' ')" == 3 ]]
     [[ "$(cd backends/core && cargo tree --locked --package float-view-vesc-firmware-identity --edges normal --prefix none | wc -l | tr -d ' ')" == 1 ]]
     [[ "$(cd backends/core && cargo tree --locked --package float-view-vesc-bms-values --edges normal --prefix none | wc -l | tr -d ' ')" == 1 ]]
     [[ "$(cd backends/core && cargo tree --locked --package float-view-vesc-bms-values-apple-ffi --edges normal --depth 1 --prefix none | wc -l | tr -d ' ')" == 3 ]]
@@ -1384,7 +1453,7 @@ audit:
     [[ "$(cd backends/core && cargo tree --locked --package float-view-vesc-firmware-identity-apple-ffi --edges normal --depth 1 --prefix none | wc -l | tr -d ' ')" == 3 ]]
     [[ "$(cd backends/core && cargo tree --locked --package float-view-vesc-firmware-identity-android-jni --edges normal --depth 1 --prefix none | wc -l | tr -d ' ')" == 3 ]]
     ! git ls-files | rg '\.(a|so|xcframework|dylib)$'
-    [[ "$(find backends/apple/Sources -type f \( -name '*.h' -o -name '*.modulemap' \) | sort)" == $'backends/apple/Sources/CSQLite/module.modulemap\nbackends/apple/Sources/CSQLite/shim.h\nbackends/apple/Sources/CVescBmsValues/include/CVescBmsValues.h\nbackends/apple/Sources/CVescBmsValues/module.modulemap\nbackends/apple/Sources/CVescControllerData/include/CVescControllerData.h\nbackends/apple/Sources/CVescControllerData/module.modulemap\nbackends/apple/Sources/CVescCustomConfiguration/include/CVescCustomConfiguration.h\nbackends/apple/Sources/CVescCustomConfiguration/module.modulemap\nbackends/apple/Sources/CVescFirmwareIdentity/include/CVescFirmwareIdentity.h\nbackends/apple/Sources/CVescFirmwareIdentity/module.modulemap\nbackends/apple/Sources/CVescFrame/include/CVescFrame.h\nbackends/apple/Sources/CVescFrame/module.modulemap\nbackends/apple/Sources/CVescRefloatCompatibility/include/CVescRefloatCompatibility.h\nbackends/apple/Sources/CVescRefloatCompatibility/module.modulemap\nbackends/apple/Sources/CVescRefloatControl/include/CVescRefloatControl.h\nbackends/apple/Sources/CVescRefloatControl/module.modulemap\nbackends/apple/Sources/CVescRefloatDynamicTelemetry/include/CVescRefloatDynamicTelemetry.h\nbackends/apple/Sources/CVescRefloatDynamicTelemetry/module.modulemap\nbackends/apple/Sources/CVescRefloatLegacyTelemetry/include/CVescRefloatLegacyTelemetry.h\nbackends/apple/Sources/CVescRefloatLegacyTelemetry/module.modulemap' ]]
+    [[ "$(find backends/apple/Sources -type f \( -name '*.h' -o -name '*.modulemap' \) | sort)" == $'backends/apple/Sources/CSQLite/module.modulemap\nbackends/apple/Sources/CSQLite/shim.h\nbackends/apple/Sources/CVescBmsValues/include/CVescBmsValues.h\nbackends/apple/Sources/CVescBmsValues/module.modulemap\nbackends/apple/Sources/CVescControllerData/include/CVescControllerData.h\nbackends/apple/Sources/CVescControllerData/module.modulemap\nbackends/apple/Sources/CVescCustomConfiguration/include/CVescCustomConfiguration.h\nbackends/apple/Sources/CVescCustomConfiguration/module.modulemap\nbackends/apple/Sources/CVescFirmwareIdentity/include/CVescFirmwareIdentity.h\nbackends/apple/Sources/CVescFirmwareIdentity/module.modulemap\nbackends/apple/Sources/CVescFrame/include/CVescFrame.h\nbackends/apple/Sources/CVescFrame/module.modulemap\nbackends/apple/Sources/CVescRefloatCompatibility/include/CVescRefloatCompatibility.h\nbackends/apple/Sources/CVescRefloatCompatibility/module.modulemap\nbackends/apple/Sources/CVescRefloatConfigurationCodec/include/CVescRefloatConfigurationCodec.h\nbackends/apple/Sources/CVescRefloatConfigurationCodec/module.modulemap\nbackends/apple/Sources/CVescRefloatControl/include/CVescRefloatControl.h\nbackends/apple/Sources/CVescRefloatControl/module.modulemap\nbackends/apple/Sources/CVescRefloatDynamicTelemetry/include/CVescRefloatDynamicTelemetry.h\nbackends/apple/Sources/CVescRefloatDynamicTelemetry/module.modulemap\nbackends/apple/Sources/CVescRefloatLegacyTelemetry/include/CVescRefloatLegacyTelemetry.h\nbackends/apple/Sources/CVescRefloatLegacyTelemetry/module.modulemap' ]]
     just rust-bridge-build-tooling-audit
     just core-abi-audit
     just core-identity-abi-audit
@@ -1394,6 +1463,7 @@ audit:
     just core-refloat-control-abi-audit
     just core-refloat-compatibility-abi-audit
     just core-refloat-configuration-codec-audit
+    just core-refloat-configuration-codec-abi-audit
     just core-refloat-dynamic-telemetry-abi-audit
     just core-refloat-legacy-telemetry-abi-audit
     just android-rust-audit

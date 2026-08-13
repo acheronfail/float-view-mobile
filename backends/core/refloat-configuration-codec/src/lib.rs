@@ -15,6 +15,14 @@ use quick_xml::events::Event;
 use quick_xml::reader::Reader;
 use sha2::{Digest, Sha256};
 
+mod records;
+
+pub use records::{
+    MAX_SCHEMA_RECORD_BYTES, MAX_VALUE_PAYLOAD_BYTES, MAX_VALUE_RECORD_BYTES, RecordError,
+    decode_qt_compressed_to_record, decode_schema_record, decode_value_record,
+    decode_values_to_record, encode_schema_record, encode_value_record, encode_values_from_records,
+};
+
 /// Maximum complete Qt-compressed schema bytes, including its length prefix.
 pub const MAX_COMPRESSED_BYTES: usize = 32 * 1024;
 /// Maximum expanded `ConfigParams` XML bytes.

@@ -1,0 +1,4 @@
+module CVescRefloatConfigurationCodec [system] {
+  header "include/CVescRefloatConfigurationCodec.h"
+  export *
+}

@@ -1,6 +1,5 @@
-import CryptoKit
+import CVescRefloatConfigurationCodec
 import Foundation
-import zlib
 
 public enum RefloatConfigurationLimits {
   public static let compressedBytes = 32 * 1024
@@ -94,11 +93,58 @@ public struct RefloatConfigurationGroup: Equatable, Sendable, Codable {
   public let subgroups: [RefloatConfigurationSubgroup]
 }
 
-public struct RefloatConfigurationSchema: Equatable, Sendable, Codable {
+public struct RefloatConfigurationSchema: Sendable, Codable, Equatable {
   public let fingerprint: String
   public let wireSignature: UInt32
   public let fields: [RefloatConfigurationField]
   public let groups: [RefloatConfigurationGroup]
+  let canonicalRecord: Data?
+
+  public init(
+    fingerprint: String, wireSignature: UInt32, fields: [RefloatConfigurationField],
+    groups: [RefloatConfigurationGroup]
+  ) {
+    self.fingerprint = fingerprint
+    self.wireSignature = wireSignature
+    self.fields = fields
+    self.groups = groups
+    canonicalRecord = nil
+  }
+
+  init(
+    fingerprint: String, wireSignature: UInt32, fields: [RefloatConfigurationField],
+    groups: [RefloatConfigurationGroup], canonicalRecord: Data
+  ) {
+    self.fingerprint = fingerprint
+    self.wireSignature = wireSignature
+    self.fields = fields
+    self.groups = groups
+    self.canonicalRecord = canonicalRecord
+  }
+
+  enum CodingKeys: String, CodingKey { case fingerprint, wireSignature, fields, groups }
+
+  public init(from decoder: any Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    fingerprint = try container.decode(String.self, forKey: .fingerprint)
+    wireSignature = try container.decode(UInt32.self, forKey: .wireSignature)
+    fields = try container.decode([RefloatConfigurationField].self, forKey: .fields)
+    groups = try container.decode([RefloatConfigurationGroup].self, forKey: .groups)
+    canonicalRecord = nil
+  }
+
+  public func encode(to encoder: any Encoder) throws {
+    var container = encoder.container(keyedBy: CodingKeys.self)
+    try container.encode(fingerprint, forKey: .fingerprint)
+    try container.encode(wireSignature, forKey: .wireSignature)
+    try container.encode(fields, forKey: .fields)
+    try container.encode(groups, forKey: .groups)
+  }
+
+  public static func == (left: Self, right: Self) -> Bool {
+    left.fingerprint == right.fingerprint && left.wireSignature == right.wireSignature
+      && left.fields == right.fields && left.groups == right.groups
+  }
 }
 
 public struct RefloatConfigurationSchemaIdentity: Equatable, Sendable, Codable {
@@ -130,430 +176,398 @@ public enum RefloatConfigurationAvailability: String, Sendable, Codable {
   case loading, ready, unavailable
 }
 
-private struct RawField {
-  var values: [String: [String]] = [:]
-
-  func first(_ name: String, default fallback: String = "") -> String {
-    values[name]?.first ?? fallback
-  }
+private enum CanonicalRecord {
+  static let version: UInt8 = 1
+  static let schemaKind: UInt8 = 1
+  static let valuesKind: UInt8 = 2
+  static let schemaHeaderBytes = 48
+  static let valuesHeaderBytes = 12
+  static let decimalKind: UInt8 = 1
+  static let integerKind: UInt8 = 2
+  static let booleanKind: UInt8 = 3
+  static let stringKind: UInt8 = 4
 }
 
-private final class ConfigParamsXMLDelegate: NSObject, XMLParserDelegate {
-  var fields: [(String, RawField)] = []
-  var order: [String] = []
-  var groups: [RefloatConfigurationGroup] = []
-  var error: RefloatConfigurationCodecError?
+private struct CanonicalReader {
+  let bytes: [UInt8]
+  var offset = 0
 
-  private var stack: [String] = []
-  private var contents = ""
-  private var elementCount = 0
-  private var currentFieldName: String?
-  private var currentField = RawField()
-  private var currentGroupName: String?
-  private var currentSubgroups: [RefloatConfigurationSubgroup] = []
-  private var currentSubgroupName: String?
-  private var currentSubgroupFields: [String] = []
+  mutating func header(kind: UInt8, minimumBytes: Int) throws {
+    guard bytes.count >= minimumBytes,
+          try take(4).elementsEqual([CanonicalRecord.version, kind, 0, 0]),
+          try uint32() == UInt32(bytes.count)
+    else { throw RefloatConfigurationCodecError.invalidMetadata }
+  }
 
-  func parser(
-    _: XMLParser, didStartElement elementName: String, namespaceURI _: String?,
-    qualifiedName _: String?, attributes _: [String: String] = [:]
-  ) {
-    guard error == nil else { return }
-    elementCount += 1
-    stack.append(elementName)
-    contents = ""
-    if stack.count > RefloatConfigurationLimits.xmlDepth || elementCount > RefloatConfigurationLimits.xmlElements {
-      error = .structuralLimit
-      return
+  mutating func take(_ count: Int) throws -> ArraySlice<UInt8> {
+    guard count >= 0, count <= bytes.count - offset else {
+      throw RefloatConfigurationCodecError.invalidMetadata
     }
-    if stack.count == 3, stack[0] == "ConfigParams", stack[1] == "Params" {
-      currentFieldName = elementName
-      currentField = RawField()
-    } else if stack.suffix(2) == ["Grouping", "group"] {
-      currentGroupName = nil
-      currentSubgroups = []
-    } else if stack.suffix(2) == ["group", "subgroup"] {
-      currentSubgroupName = nil
-      currentSubgroupFields = []
+    let start = offset
+    offset += count
+    return bytes[start ..< offset]
+  }
+
+  mutating func uint8() throws -> UInt8 {
+    try take(1).first!
+  }
+
+  mutating func uint16() throws -> UInt16 {
+    try take(2).reduce(0) { ($0 << 8) | UInt16($1) }
+  }
+
+  mutating func uint32() throws -> UInt32 {
+    try take(4).reduce(0) { ($0 << 8) | UInt32($1) }
+  }
+
+  mutating func uint64() throws -> UInt64 {
+    try take(8).reduce(0) { ($0 << 8) | UInt64($1) }
+  }
+
+  mutating func int32() throws -> Int32 {
+    try Int32(bitPattern: uint32())
+  }
+
+  mutating func int64() throws -> Int64 {
+    try Int64(bitPattern: uint64())
+  }
+
+  mutating func double() throws -> Double {
+    let value = try Double(bitPattern: uint64())
+    guard value.isFinite else { throw RefloatConfigurationCodecError.invalidNumber }
+    return value
+  }
+
+  mutating func string(maximum: Int, allowEmpty: Bool) throws -> String {
+    let count = try Int(uint32())
+    guard count <= maximum, allowEmpty || count > 0 else {
+      throw RefloatConfigurationCodecError.invalidMetadata
+    }
+    let contents = try take(count)
+    guard !contents.contains(0), let value = String(bytes: contents, encoding: .utf8) else {
+      throw RefloatConfigurationCodecError.invalidMetadata
+    }
+    return value
+  }
+
+  mutating func value(kind: UInt8) throws -> RefloatConfigurationValue {
+    switch kind {
+    case CanonicalRecord.decimalKind: return try .double(double())
+    case CanonicalRecord.integerKind: return try .integer(int64())
+    case CanonicalRecord.booleanKind:
+      switch try uint8() {
+      case 0: return .boolean(false)
+      case 1: return .boolean(true)
+      default: throw RefloatConfigurationCodecError.invalidValue
+      }
+    case CanonicalRecord.stringKind:
+      return try .string(string(maximum: RefloatConfigurationLimits.stringValueBytes, allowEmpty: true))
+    default: throw RefloatConfigurationCodecError.invalidValue
     }
   }
 
-  func parser(_: XMLParser, foundCharacters string: String) {
-    guard contents.utf8.count + string.utf8.count <= RefloatConfigurationLimits.descriptionBytes * 2 else {
-      error = .structuralLimit
-      return
-    }
-    contents += string
-  }
-
-  func parser(
-    _: XMLParser, didEndElement elementName: String, namespaceURI _: String?, qualifiedName _: String?
-  ) {
-    guard error == nil else { return }
-    let value = contents
-    if stack.count == 4, stack[0] == "ConfigParams", stack[1] == "Params" {
-      currentField.values[elementName, default: []].append(value)
-    } else if stack == ["ConfigParams", "SerOrder", "ser"] {
-      order.append(value)
-    } else if stack.suffix(3) == ["group", "subgroup", "subgroupName"] {
-      currentSubgroupName = value
-    } else if stack.suffix(2) == ["subgroupParams", "param"] {
-      currentSubgroupFields.append(value)
-    } else if stack.suffix(2) == ["group", "groupName"] {
-      currentGroupName = value
-    }
-
-    if stack.count == 3, stack[0] == "ConfigParams", stack[1] == "Params",
-       let name = currentFieldName
-    {
-      fields.append((name, currentField))
-      currentFieldName = nil
-    } else if stack.suffix(2) == ["group", "subgroup"] {
-      currentSubgroups.append(.init(name: currentSubgroupName ?? "", fields: currentSubgroupFields))
-    } else if stack.suffix(2) == ["Grouping", "group"] {
-      groups.append(.init(name: currentGroupName ?? "", subgroups: currentSubgroups))
-    }
-    stack.removeLast()
-    contents = ""
-  }
-
-  func parser(_: XMLParser, parseErrorOccurred _: Error) {
-    if error == nil { error = .malformedXML }
+  func finished() throws {
+    guard offset == bytes.count else { throw RefloatConfigurationCodecError.remainder }
   }
 }
 
 public enum RefloatConfigurationSchemaCodec {
-  public static func decodeQtCompressed(_ input: Data) throws -> RefloatConfigurationSchema {
-    guard input.count >= 4 else { throw RefloatConfigurationCodecError.truncatedEnvelope }
-    guard input.count <= RefloatConfigurationLimits.compressedBytes else {
-      throw RefloatConfigurationCodecError.compressedTooLarge
-    }
-    let expected = input.prefix(4).reduce(0) { ($0 << 8) | Int($1) }
-    guard expected <= RefloatConfigurationLimits.expandedBytes else {
-      throw RefloatConfigurationCodecError.expandedTooLarge
-    }
-    let expanded = try inflate(input.dropFirst(4), expectedBytes: expected)
-    return try parse(expanded)
-  }
-
-  public static func parse(_ xml: Data) throws -> RefloatConfigurationSchema {
-    guard xml.count <= RefloatConfigurationLimits.expandedBytes else {
-      throw RefloatConfigurationCodecError.expandedTooLarge
-    }
-    let lowered = String(decoding: xml, as: UTF8.self).lowercased()
-    guard !lowered.contains("<!doctype"), !lowered.contains("<!entity") else {
-      throw RefloatConfigurationCodecError.prohibitedXML
-    }
-    let delegate = ConfigParamsXMLDelegate()
-    let parser = XMLParser(data: xml)
-    parser.shouldProcessNamespaces = false
-    parser.shouldReportNamespacePrefixes = false
-    parser.shouldResolveExternalEntities = false
-    parser.delegate = delegate
-    guard parser.parse(), delegate.error == nil else {
-      throw delegate.error ?? RefloatConfigurationCodecError.malformedXML
-    }
-    guard delegate.fields.count <= RefloatConfigurationLimits.fields,
-          delegate.groups.count <= RefloatConfigurationLimits.groups,
-          delegate.groups.reduce(0, { $0 + $1.subgroups.count }) <= RefloatConfigurationLimits.subgroups
-    else { throw RefloatConfigurationCodecError.structuralLimit }
-    var rawByName: [String: RawField] = [:]
-    for (name, raw) in delegate.fields {
-      guard rawByName.updateValue(raw, forKey: name) == nil else {
-        throw RefloatConfigurationCodecError.duplicateField
-      }
-    }
-    guard Set(delegate.order).count == delegate.order.count else {
-      throw RefloatConfigurationCodecError.duplicateOrder
-    }
-    var fields: [RefloatConfigurationField] = []
-    for name in delegate.order {
-      guard let raw = rawByName[name] else { throw RefloatConfigurationCodecError.missingReference }
-      try fields.append(normalizedField(name: name, raw: raw))
-    }
-    let signature = RefloatConfigurationValueCodec.signature(fields: fields)
-    let digest = SHA256.hash(data: xml).map { String(format: "%02x", $0) }.joined()
-    return .init(fingerprint: digest, wireSignature: signature, fields: fields, groups: delegate.groups)
-  }
-
-  private static func inflate(_ bytes: Data.SubSequence, expectedBytes: Int) throws -> Data {
-    var stream = z_stream()
-    guard inflateInit_(&stream, ZLIB_VERSION, Int32(MemoryLayout<z_stream>.size)) == Z_OK else {
-      throw RefloatConfigurationCodecError.decompressionFailed
-    }
-    defer { inflateEnd(&stream) }
-    var output = Data(count: expectedBytes)
-    let result = Data(bytes).withUnsafeBytes { input in
-      output.withUnsafeMutableBytes { destination in
-        stream.next_in = UnsafeMutablePointer(mutating: input.bindMemory(to: Bytef.self).baseAddress)
-        stream.avail_in = uInt(input.count)
-        stream.next_out = destination.bindMemory(to: Bytef.self).baseAddress
-        stream.avail_out = uInt(destination.count)
-        return zlib.inflate(&stream, Z_FINISH)
-      }
-    }
-    guard result == Z_STREAM_END else { throw RefloatConfigurationCodecError.decompressionFailed }
-    guard Int(stream.total_out) == expectedBytes, stream.avail_in == 0 else {
-      throw RefloatConfigurationCodecError.expandedLengthMismatch
-    }
-    return output
-  }
-
-  private static func normalizedField(name: String, raw: RawField) throws -> RefloatConfigurationField {
-    try bounded(name, RefloatConfigurationLimits.nameBytes)
-    guard let rawType = Int(raw.first("type")), let type = RefloatConfigurationFieldType(rawValue: rawType) else {
-      throw RefloatConfigurationCodecError.unsupportedType
-    }
-    let wireType = raw.values["vTx"]?.first.flatMap(Int.init).flatMap(RefloatConfigurationWireType.init)
-    if type == .double || type == .integer, wireType == nil {
-      throw RefloatConfigurationCodecError.unsupportedEncoding
-    }
-    let choices = raw.values["enumNames"] ?? []
-    guard choices.count <= RefloatConfigurationLimits.enumChoices else {
-      throw RefloatConfigurationCodecError.structuralLimit
-    }
-    let value: RefloatConfigurationValue
-    switch type {
-    case .double:
-      guard let number = Double(raw.first("valDouble")), number.isFinite else {
-        throw RefloatConfigurationCodecError.invalidNumber
-      }
-      value = .double(number)
-    case .integer, .enumeration, .bitfield:
-      guard let number = Int64(raw.first("valInt")) else { throw RefloatConfigurationCodecError.invalidNumber }
-      value = .integer(number)
-    case .boolean:
-      guard let number = Int(raw.first("valInt")), number == 0 || number == 1 else {
-        throw RefloatConfigurationCodecError.invalidNumber
-      }
-      value = .boolean(number == 1)
-    case .string:
-      value = .string(raw.first("valString"))
-    }
-    let minimum = try optionalFinite(type == .double ? raw.first("minDouble") : raw.first("minInt"))
-    let maximum = try optionalFinite(type == .double ? raw.first("maxDouble") : raw.first("maxInt"))
-    let step = try optionalFinite(type == .double ? raw.first("stepDouble") : raw.first("stepInt"))
-    let scale = try optionalFinite(raw.first("vTxDoubleScale"))
-    let description = sanitize(raw.first("description"))
-    try bounded(description, RefloatConfigurationLimits.descriptionBytes)
-    return .init(
-      name: name, longName: raw.first("longName"), type: type, wireType: wireType,
-      defaultValue: value, minimum: minimum, maximum: maximum, step: step,
-      precision: Int(raw.first("editorDecimalsDouble")), scale: scale,
-      suffix: raw.first("suffix"), choices: choices, description: description
-    )
-  }
-
-  private static func optionalFinite(_ value: String) throws -> Double? {
-    guard !value.isEmpty else { return nil }
-    guard let result = Double(value), result.isFinite else { throw RefloatConfigurationCodecError.invalidNumber }
-    return result
-  }
-
-  private static func bounded(_ value: String, _ maximum: Int) throws {
-    guard !value.isEmpty, value.utf8.count <= maximum else {
+  static func requireCompatibleABI(_ actual: UInt32) throws {
+    guard actual == UInt32(FLOAT_VIEW_REFLOAT_CONFIGURATION_CODEC_ABI_VERSION) else {
       throw RefloatConfigurationCodecError.invalidMetadata
     }
   }
 
-  private static func sanitize(_ value: String) -> String {
-    var result = ""
-    var insideTag = false
-    for character in value {
-      if character == "<" { insideTag = true; result.append(" ") }
-      else if character == ">" { insideTag = false; result.append(" ") }
-      else if !insideTag { result.append(character) }
+  public static func decodeQtCompressed(_ input: Data) throws -> RefloatConfigurationSchema {
+    try requireABI()
+    var record = Data(count: Int(FLOAT_VIEW_REFLOAT_CONFIGURATION_CODEC_MAX_SCHEMA_RECORD_BYTES))
+    let capacity = record.count
+    var length = 0
+    let status = input.withUnsafeBytes { inputBytes in
+      record.withUnsafeMutableBytes { recordBytes in
+        float_view_refloat_configuration_codec_decode_schema(
+          inputBytes.bindMemory(to: UInt8.self).baseAddress, input.count,
+          recordBytes.bindMemory(to: UInt8.self).baseAddress, capacity, &length
+        )
+      }
     }
-    return result.split(whereSeparator: { $0.isWhitespace }).joined(separator: " ")
-  }
-}
-
-private struct ConfigurationByteReader {
-  let bytes: [UInt8]
-  var offset = 0
-  var remaining: Int {
-    bytes.count - offset
+    try check(status)
+    guard length <= record.count else { throw RefloatConfigurationCodecError.invalidMetadata }
+    record.removeSubrange(length ..< record.count)
+    return try schema(from: record)
   }
 
-  mutating func take(_ count: Int) throws -> ArraySlice<UInt8> {
-    guard count >= 0, offset + count <= bytes.count else { throw RefloatConfigurationCodecError.truncatedValues }
-    defer { offset += count }
-    return bytes[offset ..< offset + count]
-  }
-
-  mutating func unsigned(_ count: Int) throws -> UInt64 {
-    try take(count).reduce(0) { ($0 << 8) | UInt64($1) }
-  }
-
-  mutating func signed(_ count: Int) throws -> Int64 {
-    let value = try unsigned(count)
-    let shift = UInt64(64 - count * 8)
-    return Int64(bitPattern: value << shift) >> Int64(shift)
+  private static func schema(from record: Data) throws -> RefloatConfigurationSchema {
+    var reader = CanonicalReader(bytes: Array(record))
+    try reader.header(kind: CanonicalRecord.schemaKind, minimumBytes: CanonicalRecord.schemaHeaderBytes)
+    let fieldCount = try Int(reader.uint16())
+    let groupCount = try Int(reader.uint16())
+    guard fieldCount <= RefloatConfigurationLimits.fields, groupCount <= RefloatConfigurationLimits.groups else {
+      throw RefloatConfigurationCodecError.structuralLimit
+    }
+    let signature = try reader.uint32()
+    let fingerprint = try reader.take(32).map { String(format: "%02x", $0) }.joined()
+    var fields: [RefloatConfigurationField] = []
+    for _ in 0 ..< fieldCount {
+      let name = try reader.string(maximum: RefloatConfigurationLimits.nameBytes, allowEmpty: false)
+      let longName = try reader.string(maximum: RefloatConfigurationLimits.descriptionBytes, allowEmpty: true)
+      guard let type = try RefloatConfigurationFieldType(rawValue: Int(reader.uint8())) else {
+        throw RefloatConfigurationCodecError.unsupportedType
+      }
+      let rawWire = try Int(reader.uint8())
+      let wireType: RefloatConfigurationWireType?
+      if rawWire == 0 { wireType = nil }
+      else {
+        guard let parsed = RefloatConfigurationWireType(rawValue: rawWire) else {
+          throw RefloatConfigurationCodecError.unsupportedEncoding
+        }
+        wireType = parsed
+      }
+      let defaultKind = try reader.uint8()
+      let flags = try reader.uint8()
+      guard flags & 0xE0 == 0 else { throw RefloatConfigurationCodecError.invalidMetadata }
+      let defaultValue = try reader.value(kind: defaultKind)
+      let minimum = flags & 1 == 0 ? nil : try reader.double()
+      let maximum = flags & 2 == 0 ? nil : try reader.double()
+      let step = flags & 4 == 0 ? nil : try reader.double()
+      let precision = try flags & 8 == 0 ? nil : Int(reader.int32())
+      let scale = flags & 16 == 0 ? nil : try reader.double()
+      let suffix = try reader.string(maximum: RefloatConfigurationLimits.descriptionBytes, allowEmpty: true)
+      let choiceCount = try Int(reader.uint16())
+      guard choiceCount <= RefloatConfigurationLimits.enumChoices, try reader.uint16() == 0 else {
+        throw RefloatConfigurationCodecError.structuralLimit
+      }
+      var choices: [String] = []
+      for _ in 0 ..< choiceCount {
+        try choices.append(reader.string(maximum: RefloatConfigurationLimits.descriptionBytes, allowEmpty: true))
+      }
+      let description = try reader.string(
+        maximum: RefloatConfigurationLimits.descriptionBytes, allowEmpty: false
+      )
+      fields.append(.init(
+        name: name, longName: longName, type: type, wireType: wireType,
+        defaultValue: defaultValue, minimum: minimum, maximum: maximum, step: step,
+        precision: precision, scale: scale, suffix: suffix, choices: choices, description: description
+      ))
+    }
+    var groups: [RefloatConfigurationGroup] = []
+    var subgroupTotal = 0
+    for _ in 0 ..< groupCount {
+      let name = try reader.string(maximum: RefloatConfigurationLimits.descriptionBytes, allowEmpty: true)
+      let subgroupCount = try Int(reader.uint16())
+      guard try reader.uint16() == 0 else { throw RefloatConfigurationCodecError.invalidMetadata }
+      subgroupTotal += subgroupCount
+      guard subgroupTotal <= RefloatConfigurationLimits.subgroups else {
+        throw RefloatConfigurationCodecError.structuralLimit
+      }
+      var subgroups: [RefloatConfigurationSubgroup] = []
+      for _ in 0 ..< subgroupCount {
+        let subgroupName = try reader.string(
+          maximum: RefloatConfigurationLimits.descriptionBytes, allowEmpty: true
+        )
+        let referenceCount = try Int(reader.uint16())
+        guard referenceCount <= RefloatConfigurationLimits.fields, try reader.uint16() == 0 else {
+          throw RefloatConfigurationCodecError.structuralLimit
+        }
+        var references: [String] = []
+        for _ in 0 ..< referenceCount {
+          try references.append(reader.string(
+            maximum: RefloatConfigurationLimits.descriptionBytes, allowEmpty: true
+          ))
+        }
+        subgroups.append(.init(name: subgroupName, fields: references))
+      }
+      groups.append(.init(name: name, subgroups: subgroups))
+    }
+    try reader.finished()
+    return .init(
+      fingerprint: fingerprint, wireSignature: signature, fields: fields, groups: groups,
+      canonicalRecord: record
+    )
   }
 }
 
 public enum RefloatConfigurationValueCodec {
-  public static func signature(fields: [RefloatConfigurationField]) -> UInt32 {
-    var input = ""
-    for field in fields {
-      input += field.name + String(field.type.rawValue) + String(field.wireType?.rawValue ?? 0)
-      input += field.choices.joined()
+  public static func decode(
+    _ data: Data, schema: RefloatConfigurationSchema
+  ) throws -> [String: RefloatConfigurationValue] {
+    guard let schemaRecord = schema.canonicalRecord else {
+      throw RefloatConfigurationCodecError.invalidMetadata
     }
-    return crc32c(Data(input.utf8))
-  }
-
-  public static func decode(_ data: Data,
-                            schema: RefloatConfigurationSchema) throws -> [String: RefloatConfigurationValue]
-  {
-    var reader = ConfigurationByteReader(bytes: Array(data))
-    guard try reader.unsigned(4) == UInt64(schema.wireSignature) else {
-      throw RefloatConfigurationCodecError.signatureMismatch
+    try requireABI()
+    var record = Data(count: Int(FLOAT_VIEW_REFLOAT_CONFIGURATION_CODEC_MAX_VALUE_RECORD_BYTES))
+    let capacity = record.count
+    var length = 0
+    let status = schemaRecord.withUnsafeBytes { schemaBytes in
+      data.withUnsafeBytes { dataBytes in
+        record.withUnsafeMutableBytes { recordBytes in
+          float_view_refloat_configuration_codec_decode_values(
+            schemaBytes.bindMemory(to: UInt8.self).baseAddress, schemaRecord.count,
+            dataBytes.bindMemory(to: UInt8.self).baseAddress, data.count,
+            recordBytes.bindMemory(to: UInt8.self).baseAddress, capacity, &length
+          )
+        }
+      }
     }
-    var values: [String: RefloatConfigurationValue] = [:]
-    for field in schema.fields {
-      values[field.name] = try decode(field, reader: &reader)
-    }
-    guard reader.remaining == 0 else { throw RefloatConfigurationCodecError.remainder }
-    return values
+    try check(status)
+    guard length <= record.count else { throw RefloatConfigurationCodecError.invalidMetadata }
+    record.removeSubrange(length ..< record.count)
+    return try values(from: record)
   }
 
   public static func encode(
     _ values: [String: RefloatConfigurationValue], schema: RefloatConfigurationSchema
   ) throws -> Data {
-    let expected = Set(schema.fields.map(\.name))
-    let provided = Set(values.keys)
-    guard expected.isSubset(of: provided) else { throw RefloatConfigurationCodecError.missingValue }
-    guard provided.isSubset(of: expected) else { throw RefloatConfigurationCodecError.extraValue }
-    var output = Data()
-    append(UInt64(schema.wireSignature), bytes: 4, to: &output)
-    for field in schema.fields {
-      try encode(values[field.name]!, field: field, to: &output)
+    guard let schemaRecord = schema.canonicalRecord else {
+      throw RefloatConfigurationCodecError.invalidMetadata
     }
+    try requireABI()
+    let valueRecord = try record(for: values)
+    var output = Data(count: Int(FLOAT_VIEW_REFLOAT_CONFIGURATION_CODEC_MAX_VALUE_PAYLOAD_BYTES))
+    let capacity = output.count
+    var length = 0
+    let status = schemaRecord.withUnsafeBytes { schemaBytes in
+      valueRecord.withUnsafeBytes { valueBytes in
+        output.withUnsafeMutableBytes { outputBytes in
+          float_view_refloat_configuration_codec_encode_values(
+            schemaBytes.bindMemory(to: UInt8.self).baseAddress, schemaRecord.count,
+            valueBytes.bindMemory(to: UInt8.self).baseAddress, valueRecord.count,
+            outputBytes.bindMemory(to: UInt8.self).baseAddress, capacity, &length
+          )
+        }
+      }
+    }
+    try check(status)
+    guard length <= output.count else { throw RefloatConfigurationCodecError.invalidMetadata }
+    output.removeSubrange(length ..< output.count)
     return output
   }
 
-  private static func decode(
-    _ field: RefloatConfigurationField, reader: inout ConfigurationByteReader
-  ) throws -> RefloatConfigurationValue {
-    switch field.type {
-    case .double:
-      guard let scale = field.scale, scale > 0 else { throw RefloatConfigurationCodecError.invalidMetadata }
-      let raw: Int64
-      switch field.wireType {
-      case .double16: raw = try reader.signed(2)
-      case .double32: raw = try reader.signed(4)
-      default: throw RefloatConfigurationCodecError.unsupportedEncoding
-      }
-      return .double(Double(raw) / scale)
-    case .integer:
-      let raw: Int64
-      switch field.wireType {
-      case .uint8: raw = try Int64(reader.unsigned(1))
-      case .int8: raw = try reader.signed(1)
-      case .uint16: raw = try Int64(reader.unsigned(2))
-      case .int16: raw = try reader.signed(2)
-      case .uint32: raw = try Int64(reader.unsigned(4))
-      case .int32: raw = try reader.signed(4)
-      default: throw RefloatConfigurationCodecError.unsupportedEncoding
-      }
-      return .integer(raw)
-    case .enumeration:
-      return try .integer(reader.signed(1))
-    case .bitfield:
-      return try .integer(Int64(reader.unsigned(1)))
-    case .boolean:
-      let raw = try reader.signed(1)
-      guard raw == 0 || raw == 1 else { throw RefloatConfigurationCodecError.invalidValue }
-      return .boolean(raw == 1)
-    case .string:
-      let start = reader.offset
-      guard let end = reader.bytes[start...].firstIndex(of: 0),
-            end - start <= RefloatConfigurationLimits.stringValueBytes
-      else { throw RefloatConfigurationCodecError.truncatedValues }
-      let bytes = try reader.take(end - start + 1).dropLast()
-      guard let value = String(bytes: bytes, encoding: .utf8) else {
-        throw RefloatConfigurationCodecError.invalidValue
-      }
-      return .string(value)
+  private static func values(from record: Data) throws -> [String: RefloatConfigurationValue] {
+    var reader = CanonicalReader(bytes: Array(record))
+    try reader.header(kind: CanonicalRecord.valuesKind, minimumBytes: CanonicalRecord.valuesHeaderBytes)
+    let count = try Int(reader.uint16())
+    guard count <= RefloatConfigurationLimits.fields, try reader.uint16() == 0 else {
+      throw RefloatConfigurationCodecError.structuralLimit
     }
+    var result: [String: RefloatConfigurationValue] = [:]
+    for _ in 0 ..< count {
+      let name = try reader.string(maximum: RefloatConfigurationLimits.nameBytes, allowEmpty: false)
+      let kind = try reader.uint8()
+      guard try reader.take(3).allSatisfy({ $0 == 0 }), result[name] == nil else {
+        throw RefloatConfigurationCodecError.invalidMetadata
+      }
+      result[name] = try reader.value(kind: kind)
+    }
+    try reader.finished()
+    return result
   }
 
-  private static func encode(
-    _ value: RefloatConfigurationValue, field: RefloatConfigurationField, to output: inout Data
+  private static func record(for values: [String: RefloatConfigurationValue]) throws -> Data {
+    guard values.count <= RefloatConfigurationLimits.fields, let count = UInt16(exactly: values.count) else {
+      throw RefloatConfigurationCodecError.structuralLimit
+    }
+    var record = Data([CanonicalRecord.version, CanonicalRecord.valuesKind, 0, 0, 0, 0, 0, 0])
+    append(count, to: &record)
+    record.append(contentsOf: [0, 0])
+    for name in values.keys.sorted() {
+      guard let value = values[name] else { throw RefloatConfigurationCodecError.missingValue }
+      try append(name, maximum: RefloatConfigurationLimits.nameBytes, allowEmpty: false, to: &record)
+      switch value {
+      case let .double(number):
+        guard number.isFinite else { throw RefloatConfigurationCodecError.invalidNumber }
+        record.append(contentsOf: [CanonicalRecord.decimalKind, 0, 0, 0])
+        append(number.bitPattern, to: &record)
+      case let .integer(number):
+        record.append(contentsOf: [CanonicalRecord.integerKind, 0, 0, 0])
+        append(UInt64(bitPattern: number), to: &record)
+      case let .boolean(value):
+        record.append(contentsOf: [CanonicalRecord.booleanKind, 0, 0, 0, value ? 1 : 0])
+      case let .string(value):
+        record.append(contentsOf: [CanonicalRecord.stringKind, 0, 0, 0])
+        try append(value, maximum: RefloatConfigurationLimits.stringValueBytes, allowEmpty: true, to: &record)
+      }
+    }
+    guard record.count <= Int(FLOAT_VIEW_REFLOAT_CONFIGURATION_CODEC_MAX_VALUE_RECORD_BYTES),
+          let length = UInt32(exactly: record.count)
+    else { throw RefloatConfigurationCodecError.structuralLimit }
+    for (index, byte) in length.bigEndianBytes.enumerated() {
+      record[4 + index] = byte
+    }
+    return record
+  }
+
+  private static func append(
+    _ value: String, maximum: Int, allowEmpty: Bool, to output: inout Data
   ) throws {
-    switch (field.type, value) {
-    case let (.double, .double(number)):
-      guard number.isFinite, within(number, field: field), let scale = field.scale, scale > 0 else {
-        throw RefloatConfigurationCodecError.invalidValue
-      }
-      let scaled = number * scale
-      guard scaled.rounded() == scaled else { throw RefloatConfigurationCodecError.invalidValue }
-      let raw = Int64(scaled)
-      switch field.wireType {
-      case .double16 where raw >= Int64(Int16.min) && raw <= Int64(Int16.max): append(
-          UInt64(bitPattern: raw),
-          bytes: 2,
-          to: &output
-        )
-      case .double32 where raw >= Int64(Int32.min) && raw <= Int64(Int32.max): append(
-          UInt64(bitPattern: raw),
-          bytes: 4,
-          to: &output
-        )
-      default: throw RefloatConfigurationCodecError.invalidValue
-      }
-    case let (.integer, .integer(number)):
-      guard within(Double(number), field: field) else { throw RefloatConfigurationCodecError.invalidValue }
-      let bounds: (Int64, Int64, Int)
-      switch field.wireType {
-      case .uint8: bounds = (0, 255, 1)
-      case .int8: bounds = (-128, 127, 1)
-      case .uint16: bounds = (0, 65_535, 2)
-      case .int16: bounds = (-32_768, 32_767, 2)
-      case .uint32: bounds = (0, 4_294_967_295, 4)
-      case .int32: bounds = (-2_147_483_648, 2_147_483_647, 4)
-      default: throw RefloatConfigurationCodecError.unsupportedEncoding
-      }
-      guard number >= bounds.0, number <= bounds.1 else { throw RefloatConfigurationCodecError.invalidValue }
-      append(UInt64(bitPattern: number), bytes: bounds.2, to: &output)
-    case let (.enumeration, .integer(number)):
-      guard number >= 0, number < field.choices.count,
-            number <= 127 else { throw RefloatConfigurationCodecError.invalidValue }
-      append(UInt64(number), bytes: 1, to: &output)
-    case let (.bitfield, .integer(number)):
-      guard number >= 0, number <= 255 else { throw RefloatConfigurationCodecError.invalidValue }
-      append(UInt64(number), bytes: 1, to: &output)
-    case let (.boolean, .boolean(boolean)):
-      output.append(boolean ? 1 : 0)
-    case let (.string, .string(string)):
-      guard string.utf8.count <= RefloatConfigurationLimits.stringValueBytes, !string.utf8.contains(0) else {
-        throw RefloatConfigurationCodecError.invalidValue
-      }
-      output.append(contentsOf: string.utf8); output.append(0)
-    default:
-      throw RefloatConfigurationCodecError.invalidValue
-    }
+    let bytes = Array(value.utf8)
+    guard bytes.count <= maximum, allowEmpty || !bytes.isEmpty, !bytes.contains(0),
+          let count = UInt32(exactly: bytes.count)
+    else { throw RefloatConfigurationCodecError.invalidValue }
+    append(count, to: &output)
+    output.append(contentsOf: bytes)
   }
 
-  private static func within(_ value: Double, field: RefloatConfigurationField) -> Bool {
-    (field.minimum == nil || value >= field.minimum!) && (field.maximum == nil || value <= field.maximum!)
+  private static func append<T: FixedWidthInteger>(_ value: T, to output: inout Data) {
+    output.append(contentsOf: value.bigEndianBytes)
   }
+}
 
-  private static func append(_ value: UInt64, bytes: Int, to data: inout Data) {
-    for shift in stride(from: (bytes - 1) * 8, through: 0, by: -8) {
-      data.append(UInt8(truncatingIfNeeded: value >> UInt64(shift)))
-    }
+private extension FixedWidthInteger {
+  var bigEndianBytes: [UInt8] {
+    withUnsafeBytes(of: bigEndian) { Array($0) }
   }
+}
 
-  private static func crc32c(_ data: Data) -> UInt32 {
-    var crc: UInt32 = 0xFFFFFFFF
-    for byte in data {
-      crc ^= UInt32(byte)
-      for _ in 0 ..< 8 {
-        let mask = UInt32(bitPattern: -Int32(crc & 1))
-        crc = (crc >> 1) ^ (0x82F63B78 & mask)
-      }
-    }
-    return ~crc
+private func requireABI() throws {
+  try RefloatConfigurationSchemaCodec.requireCompatibleABI(
+    float_view_refloat_configuration_codec_abi_version()
+  )
+}
+
+private func check(_ status: UInt32) throws {
+  switch status {
+  case UInt32(FLOAT_VIEW_REFLOAT_CONFIGURATION_CODEC_STATUS_OK): return
+  case UInt32(FLOAT_VIEW_REFLOAT_CONFIGURATION_CODEC_STATUS_TRUNCATED_ENVELOPE):
+    throw RefloatConfigurationCodecError.truncatedEnvelope
+  case UInt32(FLOAT_VIEW_REFLOAT_CONFIGURATION_CODEC_STATUS_COMPRESSED_TOO_LARGE):
+    throw RefloatConfigurationCodecError.compressedTooLarge
+  case UInt32(FLOAT_VIEW_REFLOAT_CONFIGURATION_CODEC_STATUS_EXPANDED_TOO_LARGE):
+    throw RefloatConfigurationCodecError.expandedTooLarge
+  case UInt32(FLOAT_VIEW_REFLOAT_CONFIGURATION_CODEC_STATUS_EXPANDED_LENGTH_MISMATCH):
+    throw RefloatConfigurationCodecError.expandedLengthMismatch
+  case UInt32(FLOAT_VIEW_REFLOAT_CONFIGURATION_CODEC_STATUS_DECOMPRESSION_FAILED):
+    throw RefloatConfigurationCodecError.decompressionFailed
+  case UInt32(FLOAT_VIEW_REFLOAT_CONFIGURATION_CODEC_STATUS_PROHIBITED_XML):
+    throw RefloatConfigurationCodecError.prohibitedXML
+  case UInt32(FLOAT_VIEW_REFLOAT_CONFIGURATION_CODEC_STATUS_MALFORMED_XML):
+    throw RefloatConfigurationCodecError.malformedXML
+  case UInt32(FLOAT_VIEW_REFLOAT_CONFIGURATION_CODEC_STATUS_STRUCTURAL_LIMIT):
+    throw RefloatConfigurationCodecError.structuralLimit
+  case UInt32(FLOAT_VIEW_REFLOAT_CONFIGURATION_CODEC_STATUS_DUPLICATE_FIELD):
+    throw RefloatConfigurationCodecError.duplicateField
+  case UInt32(FLOAT_VIEW_REFLOAT_CONFIGURATION_CODEC_STATUS_DUPLICATE_ORDER):
+    throw RefloatConfigurationCodecError.duplicateOrder
+  case UInt32(FLOAT_VIEW_REFLOAT_CONFIGURATION_CODEC_STATUS_MISSING_REFERENCE):
+    throw RefloatConfigurationCodecError.missingReference
+  case UInt32(FLOAT_VIEW_REFLOAT_CONFIGURATION_CODEC_STATUS_UNSUPPORTED_TYPE):
+    throw RefloatConfigurationCodecError.unsupportedType
+  case UInt32(FLOAT_VIEW_REFLOAT_CONFIGURATION_CODEC_STATUS_UNSUPPORTED_ENCODING):
+    throw RefloatConfigurationCodecError.unsupportedEncoding
+  case UInt32(FLOAT_VIEW_REFLOAT_CONFIGURATION_CODEC_STATUS_INVALID_NUMBER):
+    throw RefloatConfigurationCodecError.invalidNumber
+  case UInt32(FLOAT_VIEW_REFLOAT_CONFIGURATION_CODEC_STATUS_SIGNATURE_MISMATCH):
+    throw RefloatConfigurationCodecError.signatureMismatch
+  case UInt32(FLOAT_VIEW_REFLOAT_CONFIGURATION_CODEC_STATUS_TRUNCATED_VALUES):
+    throw RefloatConfigurationCodecError.truncatedValues
+  case UInt32(FLOAT_VIEW_REFLOAT_CONFIGURATION_CODEC_STATUS_REMAINDER):
+    throw RefloatConfigurationCodecError.remainder
+  case UInt32(FLOAT_VIEW_REFLOAT_CONFIGURATION_CODEC_STATUS_MISSING_VALUE):
+    throw RefloatConfigurationCodecError.missingValue
+  case UInt32(FLOAT_VIEW_REFLOAT_CONFIGURATION_CODEC_STATUS_EXTRA_VALUE):
+    throw RefloatConfigurationCodecError.extraValue
+  case UInt32(FLOAT_VIEW_REFLOAT_CONFIGURATION_CODEC_STATUS_INVALID_VALUE):
+    throw RefloatConfigurationCodecError.invalidValue
+  default: throw RefloatConfigurationCodecError.invalidMetadata
   }
 }

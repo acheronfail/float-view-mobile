@@ -145,6 +145,12 @@ float_view_select_bridge() {
         Java_fail_acheron_floatview_protocol_RustRefloatLegacyTelemetryBridge_decode
       )
       ;;
+    refloat-configuration-codec)
+      bridge_identifier='refloat-configuration-codec'
+      bridge_diagnostic='Refloat configuration codec'
+      bridge_apple_package='float-view-refloat-configuration-codec-apple-ffi'
+      bridge_apple_archive='libfloat_view_refloat_configuration_codec_apple_ffi.a'
+      ;;
     *)
       echo "Unknown Rust host bridge: ${requested_bridge:-<empty>}" >&2
       return 2
