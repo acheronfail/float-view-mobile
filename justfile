@@ -552,6 +552,40 @@ core-vesc-request-scheduler-audit:
     [[ "$(git ls-files "$crate" | rg '\.(h|a|so|dylib|xcframework|jar)$' || true)" == "" ]]
     just core-vesc-request-scheduler-test
 
+core-vesc-compatibility-test:
+    cd backends/core && cargo test --locked --offline \
+      --package float-view-vesc-compatibility
+
+core-vesc-compatibility-audit:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    crate='backends/core/vesc-compatibility'
+    [[ -f "$crate/Cargo.toml" && -f "$crate/src/lib.rs" ]]
+    rg -q '^#!\[forbid\(unsafe_code\)\]$' "$crate/src/lib.rs"
+    [[ "$(sed -n '/^\[dependencies\]$/,/^\[dev-dependencies\]$/p' "$crate/Cargo.toml" | sed '$d')" == \
+      $'[dependencies]\nfloat-view-vesc-firmware-identity = { path = "../vesc-firmware-identity" }' ]]
+    [[ "$(cd backends/core && cargo tree --locked --offline \
+      --package float-view-vesc-compatibility --edges normal \
+      --depth 1 --prefix none | wc -l | tr -d ' ')" == 2 ]]
+    ! rg -n 'unsafe[[:space:]]*(\{|fn|impl|trait)|extern[[:space:]]+"(C|system)"|no_mangle|Java_|cbindgen|bindgen|uniffi|jni|host_callback|Box<dyn Fn|std::thread|tokio|async_std|rusqlite|sqlite|TcpListener|UdpSocket|std::fs|std::net' \
+      "$crate/src"
+    [[ "$(find "$crate" -mindepth 1 -maxdepth 1 -type d \
+      ! -name src -print -quit)" == "" ]]
+    ! rg -n 'vesc-compatibility' \
+      backends/apple backends/android backends/core/bridge-build-catalog.sh \
+      backends/core/build-apple-bridge.sh backends/core/build-android-bridge.sh
+    actual_bridges="$(sed -n 's/^    \([a-z][a-z-]*\))$/\1/p' \
+      backends/core/bridge-build-catalog.sh)"
+    expected_bridges="$(printf '%s\n' \
+      frame firmware-identity custom-configuration bms-values controller-data \
+      refloat-control refloat-compatibility refloat-dynamic-telemetry \
+      refloat-legacy-telemetry refloat-configuration-codec)"
+    [[ "$actual_bridges" == "$expected_bridges" ]]
+    [[ -f backends/apple/Sources/FloatViewBackend/protocol/vesc/VescCompatibility.swift ]]
+    [[ -f backends/android/app/src/main/java/fail/acheron/floatview/protocol/vesc/VescCompatibility.kt ]]
+    [[ "$(git ls-files "$crate" | rg '\.(h|a|so|dylib|xcframework|jar)$' || true)" == "" ]]
+    just core-vesc-compatibility-test
+
 core-refloat-telemetry-service-test:
     cd backends/core && cargo test --locked --offline \
       --package float-view-refloat-telemetry-service
@@ -1251,6 +1285,7 @@ audit:
     [[ -f backends/core/vesc-custom-configuration-android-jni/Cargo.toml ]]
     [[ -f backends/core/vesc-custom-configuration-apple-ffi/Cargo.toml ]]
     [[ -f backends/core/vesc-firmware-identity/Cargo.toml ]]
+    [[ -f backends/core/vesc-compatibility/Cargo.toml ]]
     [[ -f backends/core/vesc-firmware-identity-android-jni/Cargo.toml ]]
     [[ -f backends/core/vesc-firmware-identity-apple-ffi/Cargo.toml ]]
     [[ -f backends/core/vesc-frame/Cargo.toml ]]
@@ -1298,6 +1333,7 @@ audit:
       ! -name vesc-controller-data ! -name vesc-controller-data-android-jni \
       ! -name vesc-controller-data-apple-ffi \
       ! -name vesc-custom-configuration ! -name vesc-firmware-identity \
+      ! -name vesc-compatibility \
       ! -name vesc-custom-configuration-android-jni \
       ! -name vesc-custom-configuration-apple-ffi \
       ! -name vesc-firmware-identity-android-jni ! -name vesc-firmware-identity-apple-ffi \
@@ -1360,6 +1396,8 @@ audit:
     [[ "$(find backends/core/vesc-custom-configuration-apple-ffi -mindepth 1 -maxdepth 1 -type d \
       ! -name src ! -name tests -print -quit)" == "" ]]
     [[ "$(find backends/core/vesc-firmware-identity -mindepth 1 -maxdepth 1 -type d \
+      ! -name src -print -quit)" == "" ]]
+    [[ "$(find backends/core/vesc-compatibility -mindepth 1 -maxdepth 1 -type d \
       ! -name src -print -quit)" == "" ]]
     [[ "$(find backends/core/vesc-frame -mindepth 1 -maxdepth 1 -type d \
       ! -name src -print -quit)" == "" ]]
@@ -1586,6 +1624,7 @@ audit:
     just core-refloat-configuration-codec-audit
     just core-refloat-configuration-service-audit
     just core-vesc-request-scheduler-audit
+    just core-vesc-compatibility-audit
     just core-refloat-telemetry-service-audit
     just core-refloat-configuration-codec-abi-audit
     just core-refloat-dynamic-telemetry-abi-audit

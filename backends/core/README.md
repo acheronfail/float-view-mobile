@@ -4,7 +4,7 @@
 ownership. It is a locked Cargo workspace, not another backend and not a
 production runtime.
 
-The workspace currently has thirty-five members:
+The workspace currently has thirty-six members:
 
 | Component               | Scope                                                                 | Integration state                                                                             |
 | ----------------------- | --------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
@@ -37,6 +37,7 @@ The workspace currently has thirty-five members:
 | `vesc-custom-configuration-apple-ffi/` | Three-symbol caller-owned-buffer C ABI for commands 92–95 | Selected only by the shared iOS/macOS adapter                                                  |
 | `vesc-custom-configuration-android-jni/` | Three-symbol primitive-array JNI ABI for commands 92–95 | Selected only by Android                                                                       |
 | `vesc-firmware-identity/` | Safe bounded `COMM_FW_VERSION` decoding and canonical version-1 identity record serialization | Selected by Apple and Android through separate host bridges                                   |
+| `vesc-compatibility/` | Safe exact VESC controller-version, access-mode, operation-authorization, and shutdown policy over decoded identities | Exhaustively tested candidate; deliberately unselected by every production host |
 | `vesc-firmware-identity-apple-ffi/` | Two-symbol caller-owned-buffer C ABI for firmware identity | Selected only by the shared iOS/macOS identity adapter                                        |
 | `vesc-firmware-identity-android-jni/` | Two-symbol primitive-array JNI ABI for firmware identity | Selected only by Android                                                                      |
 | `vesc-frame/`             | Safe bounded VESC CRC, frame encoding/decoding, and stream scanning | Apple and Android select every framing decision                                 |
@@ -44,7 +45,7 @@ The workspace currently has thirty-five members:
 | `vesc-frame-android-jni/` | Primitive-array JNI ABI                                              | Selected by Android for CRC, encoding, exact decoding, and stream-boundary scans |
 | `vesc-request-scheduler/` | Safe bounded generation, priority/FIFO, attribution, deadline, cancellation, and ordered host-effect state machine | Exhaustively tested application-behavior candidate; deliberately unselected by every production host |
 
-The thirty-five crates remain independent components and artifacts. The ten
+The thirty-six crates remain independent components and artifacts. The ten
 Apple-selected component families' repeated
 source-build mechanics are centralized in `build-apple-bridge.sh` and
 `build-android-bridge.sh`, driven by a closed ten-entry Apple and
@@ -104,6 +105,15 @@ JNI validation, fixed host status mapping, and caller-owned publication. This
 ordinary shared API reduced their combined production source from 418 to 264
 lines without code generation or export macros; later record families should
 follow this pattern only through their own incremental changes.
+
+The VESC compatibility candidate directly consumes the safe decoded firmware
+identity model and owns the exact four-version motor-controller catalogue,
+stable/test access classification, read/write authorization, and shutdown
+availability. It adds no record, bridge, package input, callback, or production
+selection. Swift and Kotlin remain selected until the unified Rust runtime
+absorbs discovery and application mutation policy. The next controller-
+discovery candidate composes this safe API directly rather than copying the
+catalogue or adding compatibility-specific Apple FFI and Android JNI crates.
 
 The custom-configuration component encodes and decodes the bounded VESC
 commands 92–95 envelope while treating compressed schemas and serialized

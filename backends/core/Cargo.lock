@@ -227,6 +227,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "float-view-vesc-compatibility"
+version = "0.1.0"
+dependencies = [
+ "float-view-vesc-firmware-identity",
+ "float-view-vesc-frame",
+]
+
+[[package]]
 name = "float-view-vesc-controller-data"
 version = "0.1.0"
 
