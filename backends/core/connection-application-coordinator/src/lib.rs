@@ -17,6 +17,7 @@ use float_view_refloat_dynamic_telemetry as dynamic;
 use float_view_refloat_legacy_telemetry as legacy;
 use float_view_refloat_telemetry_service as telemetry;
 use float_view_vesc_bms_telemetry_service as bms;
+use float_view_vesc_controller_data as controller_data;
 use float_view_vesc_custom_configuration as custom_configuration;
 use float_view_vesc_firmware_identity as firmware;
 use float_view_vesc_request_scheduler as scheduler;
@@ -91,6 +92,7 @@ pub struct Snapshot {
     pub bms: bms::Snapshot,
     pub mutations: mutation::Snapshot,
     pub configuration: configuration::Snapshot,
+    pub current_limits: Option<controller_data::CurrentLimits>,
 }
 
 impl std::fmt::Debug for Snapshot {
@@ -121,6 +123,7 @@ impl std::fmt::Debug for Snapshot {
                 &self.configuration.defaults.is_some(),
             )
             .field("configuration_pending", &self.configuration.pending)
+            .field("has_current_limits", &self.current_limits.is_some())
             .finish()
     }
 }
@@ -179,6 +182,7 @@ pub enum MalformedResponse {
     RefloatLayout,
     RefloatTelemetry,
     RefloatConfiguration,
+    CurrentLimits,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -393,6 +397,7 @@ pub struct ConnectionApplicationCoordinator {
     bms: bms::VescBmsTelemetryService,
     mutations: mutation::DeviceMutationCoordinator,
     configuration: configuration::ConfigurationService,
+    current_limits: Option<controller_data::CurrentLimits>,
 }
 
 impl Default for ConnectionApplicationCoordinator {
@@ -420,6 +425,7 @@ impl Default for ConnectionApplicationCoordinator {
             bms: bms::VescBmsTelemetryService::new(),
             mutations: mutation::DeviceMutationCoordinator::new(),
             configuration: configuration::ConfigurationService::new(),
+            current_limits: None,
         }
     }
 }
@@ -435,6 +441,7 @@ impl std::fmt::Debug for ConnectionApplicationCoordinator {
             .field("has_dynamic_layout", &self.dynamic_layout.is_some())
             .field("has_refloat_version", &self.refloat_version.is_some())
             .field("configuration_token", &self.configuration_token)
+            .field("has_current_limits", &self.current_limits.is_some())
             .finish_non_exhaustive()
     }
 }
@@ -453,6 +460,7 @@ impl ConnectionApplicationCoordinator {
             bms: self.bms.snapshot(),
             mutations: self.mutations.snapshot(),
             configuration: self.configuration.snapshot(),
+            current_limits: self.current_limits,
         }
     }
 
@@ -761,6 +769,11 @@ impl ConnectionApplicationCoordinator {
             cached_schema: cached_configuration_schema,
         });
         self.process_configuration(child, now_ms, &mut effects)?;
+        self.enqueue(
+            current_limits_request_facts(route, scheduler_generation)?,
+            now_ms,
+            &mut effects,
+        )?;
         let refresh_generation = scheduler_generation;
         push_effect(
             &mut effects,
@@ -982,6 +995,7 @@ impl ConnectionApplicationCoordinator {
         let mutation_effects = self.mutations.apply(mutation::Command::Reset)?;
         self.process_mutation(mutation_effects, now_ms, effects)?;
         self.configuration.reset();
+        self.current_limits = None;
         self.configuration_token = None;
         let telemetry_effects = self.telemetry.apply(telemetry::Command::Reset)?;
         self.process_telemetry(telemetry_effects, now_ms, effects)?;
@@ -1207,6 +1221,9 @@ impl ConnectionApplicationCoordinator {
             scheduler::RequestContext::RefloatTelemetry(_) => {
                 self.complete_refloat_telemetry(outcome, now_ms, observed_at_epoch_ms, effects)
             }
+            scheduler::RequestContext::CurrentLimits(_) => {
+                self.complete_current_limits(outcome, effects)
+            }
             scheduler::RequestContext::AuxiliaryCanPing => self.complete_bms(
                 request,
                 bms::RequestKind::CanScan,
@@ -1247,7 +1264,6 @@ impl ConnectionApplicationCoordinator {
             | scheduler::RequestContext::RefloatConfigurationVerification { .. } => {
                 self.complete_configuration_request(request, outcome, now_ms, effects)
             }
-            _ => push_effect(effects, Effect::Diagnostic(Diagnostic::UnexpectedResponse)),
         }
     }
 
@@ -1290,6 +1306,31 @@ impl ConnectionApplicationCoordinator {
                 })?;
                 self.process_mutation(child, now_ms, effects)
             }
+        }
+    }
+
+    fn complete_current_limits(
+        &mut self,
+        outcome: scheduler::Completion,
+        effects: &mut Vec<Effect>,
+    ) -> Result<(), CoordinatorError> {
+        let scheduler::Completion::Response(payload) = outcome else {
+            return Ok(());
+        };
+        if self.phase != Phase::Ready {
+            return Ok(());
+        }
+        match controller_data::decode_current_limits(&payload) {
+            Ok(current_limits) => {
+                self.current_limits = Some(current_limits);
+                self.publish_state(effects)
+            }
+            Err(_) => push_effect(
+                effects,
+                Effect::Diagnostic(Diagnostic::MalformedResponse(
+                    MalformedResponse::CurrentLimits,
+                )),
+            ),
         }
     }
 
@@ -2010,6 +2051,24 @@ fn discovery_request_facts(
         priority: scheduler::Priority::ControllerIdentification,
         context,
         timeout_ms,
+        generation,
+        expects_response: true,
+    })
+}
+
+fn current_limits_request_facts(
+    route: scheduler::Route,
+    generation: scheduler::Generation,
+) -> Result<scheduler::RequestFacts, CoordinatorError> {
+    Ok(scheduler::RequestFacts {
+        payload: routed_scheduler_payload(route, &[controller_data::COMM_GET_MCCONF])?,
+        expected_response: scheduler::ExpectedResponse {
+            command: controller_data::COMM_GET_MCCONF,
+            refloat_command: None,
+        },
+        priority: scheduler::Priority::ControllerWork,
+        context: scheduler::RequestContext::CurrentLimits(route),
+        timeout_ms: CAN_PROBE_TIMEOUT_MS,
         generation,
         expects_response: true,
     })

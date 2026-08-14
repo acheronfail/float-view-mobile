@@ -102,6 +102,7 @@ dependencies = [
  "float-view-refloat-legacy-telemetry",
  "float-view-refloat-telemetry-service",
  "float-view-vesc-bms-telemetry-service",
+ "float-view-vesc-controller-data",
  "float-view-vesc-custom-configuration",
  "float-view-vesc-firmware-identity",
  "float-view-vesc-request-scheduler",

@@ -15,6 +15,11 @@ fn ready_legacy() -> (ConnectionApplicationCoordinator, Vec<Effect>) {
     receive(&mut coordinator, motor_payload(42), 20);
     receive(&mut coordinator, legacy_info_payload(), 30);
     let activation = activate(&mut coordinator, 40);
+    receive(
+        &mut coordinator,
+        current_limits_payload(0x2EFD_0142, Some(15)),
+        45,
+    );
     (coordinator, activation)
 }
 
@@ -295,7 +300,7 @@ fn every_emitted_request_is_read_only_and_bounded() {
             payload[0]
         };
         assert!(
-            matches!(command, 0 | 36 | 62 | 96),
+            matches!(command, 0 | 14 | 36 | 62 | 96),
             "mutating command {command}"
         );
     }

@@ -192,6 +192,25 @@ pub fn configuration_write_values_1_2_3() -> &'static [u8] {
     include_bytes!("../../../../fixtures/refloat-configuration/values/1.2.3-write.bin")
 }
 
+pub fn current_limits_payload(signature: u32, battery_series_cells: Option<u8>) -> Vec<u8> {
+    let mut payload = vec![14];
+    payload.extend_from_slice(&signature.to_be_bytes());
+    payload.extend_from_slice(&[0; 4]);
+    for raw in [
+        0x42C8_0000_u32,
+        0xC2C8_0000_u32,
+        0x4248_0000_u32,
+        0xC1A0_0000_u32,
+    ] {
+        payload.extend_from_slice(&raw.to_be_bytes());
+    }
+    if let Some(cells) = battery_series_cells {
+        payload.resize(459, 0);
+        payload[458] = cells;
+    }
+    payload
+}
+
 fn configuration_values_response(command: u8, bytes: &[u8]) -> Vec<u8> {
     let mut response = vec![command, 0];
     response.extend_from_slice(bytes);

@@ -51,6 +51,12 @@ fn ready_configuration() -> (ConnectionApplicationCoordinator, TimerToken) {
     );
 
     let telemetry_request = receive(&mut coordinator, configuration_current_response_1_2_3(), 60);
+    assert_eq!(write(&telemetry_request).payload, [14]);
+    let telemetry_request = receive(
+        &mut coordinator,
+        current_limits_payload(0x2EFD_0142, Some(15)),
+        65,
+    );
     assert_eq!(write(&telemetry_request).payload, [36, 101, 31]);
     let bms_request = receive(&mut coordinator, dynamic_idle_payload(), 70);
     assert_eq!(write(&bms_request).payload, [62]);

@@ -1,0 +1,5 @@
+# name|route|request|signature|cells|source
+direct-known-signature|direct|0e|2efd0142|15|bldc-comm-get-mcconf
+direct-unknown-signature|direct|0e|deadbeef|none|bldc-comm-get-mcconf
+can-known-signature|can:42|222a0e|2efd0142|15|bldc-comm-get-mcconf
+standalone-bms|direct|none|none|none|apple-android-application-service

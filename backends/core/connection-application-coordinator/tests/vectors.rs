@@ -69,7 +69,13 @@ fn direct_legacy() -> float_view_connection_application_coordinator::Snapshot {
             .any(|effect| matches!(effect, Effect::PublishTelemetry(_)))
     );
     let activation = activate(&mut coordinator, 40);
-    assert_eq!(write(&activation).payload, [36, 101, 10, 4]);
+    assert_eq!(write(&activation).payload, [14]);
+    let telemetry_request = receive(
+        &mut coordinator,
+        current_limits_payload(0x2EFD_0142, Some(15)),
+        45,
+    );
+    assert_eq!(write(&telemetry_request).payload, [36, 101, 10, 4]);
     let telemetry = receive(&mut coordinator, legacy_idle_payload(), 50);
     assert!(
         telemetry
@@ -90,7 +96,13 @@ fn preferred_can() -> float_view_connection_application_coordinator::Snapshot {
     let info = receive(&mut coordinator, motor_payload(42), 30);
     assert_eq!(&write(&info).payload[..2], &[34, 42]);
     receive(&mut coordinator, legacy_info_payload(), 40);
-    activate(&mut coordinator, 50);
+    let activation = activate(&mut coordinator, 50);
+    assert_eq!(write(&activation).payload, [34, 42, 14]);
+    receive(
+        &mut coordinator,
+        current_limits_payload(0x2EFD_0142, Some(15)),
+        55,
+    );
     coordinator.snapshot()
 }
 
@@ -102,7 +114,13 @@ fn direct_dynamic() -> float_view_connection_application_coordinator::Snapshot {
     assert_eq!(write(&layout_request).payload, [36, 101, 32]);
     receive(&mut coordinator, dynamic_layout_payload(), 40);
     let activation = activate(&mut coordinator, 50);
-    assert_eq!(write(&activation).payload, [36, 101, 31]);
+    assert_eq!(write(&activation).payload, [14]);
+    let telemetry_request = receive(
+        &mut coordinator,
+        current_limits_payload(0xDEAD_BEEF, None),
+        55,
+    );
+    assert_eq!(write(&telemetry_request).payload, [36, 101, 31]);
     let sample = receive(&mut coordinator, dynamic_idle_payload(), 60);
     assert!(
         sample

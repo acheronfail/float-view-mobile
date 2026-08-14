@@ -16,5 +16,6 @@ float-view-refloat-legacy-telemetry = { path = "../refloat-legacy-telemetry" }
 float-view-refloat-telemetry-service = { path = "../refloat-telemetry-service" }
 float-view-vesc-bms-telemetry-service = { path = "../vesc-bms-telemetry-service" }
 float-view-vesc-custom-configuration = { path = "../vesc-custom-configuration" }
+float-view-vesc-controller-data = { path = "../vesc-controller-data" }
 float-view-vesc-firmware-identity = { path = "../vesc-firmware-identity" }
 float-view-vesc-request-scheduler = { path = "../vesc-request-scheduler" }
