@@ -1,0 +1,11 @@
+[package]
+name = "float-view-controller-discovery"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+float-view-refloat-compatibility = { path = "../refloat-compatibility" }
+float-view-vesc-compatibility = { path = "../vesc-compatibility" }
+float-view-vesc-firmware-identity = { path = "../vesc-firmware-identity" }

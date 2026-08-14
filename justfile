@@ -586,6 +586,44 @@ core-vesc-compatibility-audit:
     [[ "$(git ls-files "$crate" | rg '\.(h|a|so|dylib|xcframework|jar)$' || true)" == "" ]]
     just core-vesc-compatibility-test
 
+core-controller-discovery-test:
+    cd backends/core && cargo test --locked --offline \
+      --package float-view-controller-discovery
+
+core-controller-discovery-audit:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    crate='backends/core/controller-discovery'
+    [[ -f "$crate/Cargo.toml" && -f "$crate/src/lib.rs" ]]
+    [[ -f "$crate/tests/vectors.rs" && -f "$crate/tests/adversarial.rs" ]]
+    rg -q '^#!\[forbid\(unsafe_code\)\]$' "$crate/src/lib.rs"
+    [[ "$(sed -n '/^\[dependencies\]$/,$p' "$crate/Cargo.toml")" == \
+      $'[dependencies]\nfloat-view-refloat-compatibility = { path = "../refloat-compatibility" }\nfloat-view-vesc-compatibility = { path = "../vesc-compatibility" }\nfloat-view-vesc-firmware-identity = { path = "../vesc-firmware-identity" }' ]]
+    [[ "$(cd backends/core && cargo tree --locked --offline \
+      --package float-view-controller-discovery --edges normal \
+      --depth 1 --prefix none | wc -l | tr -d ' ')" == 4 ]]
+    ! rg -n 'unsafe[[:space:]]*(\{|fn|impl|trait)|extern[[:space:]]+"(C|system)"|no_mangle|Java_|cbindgen|bindgen|uniffi|jni|host_callback|Box<dyn Fn|std::thread|tokio|async_std|rusqlite|sqlite|TcpListener|UdpSocket|std::fs|std::net' \
+      "$crate/src" "$crate/tests"
+    [[ "$(find "$crate" -mindepth 1 -maxdepth 1 -type d \
+      ! -name src ! -name tests -print -quit)" == "" ]]
+    ! rg -n 'controller-discovery' \
+      backends/apple/Package.swift \
+      backends/apple/ios/float-view.xcodeproj/project.pbxproj \
+      backends/android/app/build.gradle.kts \
+      backends/core/bridge-build-catalog.sh \
+      backends/core/build-apple-bridge.sh backends/core/build-android-bridge.sh
+    actual_bridges="$(sed -n 's/^    \([a-z][a-z-]*\))$/\1/p' \
+      backends/core/bridge-build-catalog.sh)"
+    expected_bridges="$(printf '%s\n' \
+      frame firmware-identity custom-configuration bms-values controller-data \
+      refloat-control refloat-compatibility refloat-dynamic-telemetry \
+      refloat-legacy-telemetry refloat-configuration-codec)"
+    [[ "$actual_bridges" == "$expected_bridges" ]]
+    [[ -f backends/apple/Sources/FloatViewBackend/application/ControllerDiscovery.swift ]]
+    [[ -f backends/android/app/src/main/java/fail/acheron/floatview/application/ControllerDiscovery.kt ]]
+    [[ "$(git ls-files "$crate" | rg '\.(h|a|so|dylib|xcframework|jar)$' || true)" == "" ]]
+    just core-controller-discovery-test
+
 core-refloat-telemetry-service-test:
     cd backends/core && cargo test --locked --offline \
       --package float-view-refloat-telemetry-service
@@ -1292,6 +1330,7 @@ audit:
     [[ -f backends/core/vesc-frame-apple-ffi/Cargo.toml ]]
     [[ -f backends/core/vesc-frame-android-jni/Cargo.toml ]]
     [[ -f backends/core/vesc-request-scheduler/Cargo.toml ]]
+    [[ -f backends/core/controller-discovery/Cargo.toml ]]
     [[ -f backends/apple/Sources/CVescFrame/include/CVescFrame.h ]]
     [[ -f backends/apple/Sources/CVescFrame/module.modulemap ]]
     [[ -f backends/apple/Sources/CVescCustomConfiguration/include/CVescCustomConfiguration.h ]]
@@ -1338,7 +1377,8 @@ audit:
       ! -name vesc-custom-configuration-apple-ffi \
       ! -name vesc-firmware-identity-android-jni ! -name vesc-firmware-identity-apple-ffi \
       ! -name vesc-frame ! -name vesc-frame-apple-ffi \
-      ! -name vesc-frame-android-jni ! -name vesc-request-scheduler -print -quit)"
+      ! -name vesc-frame-android-jni ! -name vesc-request-scheduler \
+      ! -name controller-discovery -print -quit)"
     [[ -z "$unexpected_core" ]] || {
       echo "Unexpected Rust core workspace member: $unexpected_core" >&2
       exit 1
@@ -1356,6 +1396,8 @@ audit:
     [[ "$(find backends/core/refloat-configuration-codec -mindepth 1 -maxdepth 1 -type d \
       ! -name src ! -name tests -print -quit)" == "" ]]
     [[ "$(find backends/core/refloat-configuration-service -mindepth 1 -maxdepth 1 -type d \
+      ! -name src ! -name tests -print -quit)" == "" ]]
+    [[ "$(find backends/core/controller-discovery -mindepth 1 -maxdepth 1 -type d \
       ! -name src ! -name tests -print -quit)" == "" ]]
     [[ "$(find backends/core/refloat-configuration-codec-apple-ffi -mindepth 1 -maxdepth 1 -type d \
       ! -name src ! -name tests -print -quit)" == "" ]]
@@ -1625,6 +1667,7 @@ audit:
     just core-refloat-configuration-service-audit
     just core-vesc-request-scheduler-audit
     just core-vesc-compatibility-audit
+    just core-controller-discovery-audit
     just core-refloat-telemetry-service-audit
     just core-refloat-configuration-codec-abi-audit
     just core-refloat-dynamic-telemetry-abi-audit
