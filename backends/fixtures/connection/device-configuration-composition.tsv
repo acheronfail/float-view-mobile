@@ -1,0 +1,13 @@
+# name|expected|source
+direct-cache-activation|configuration-current|apple-android-application-service
+can-cache-activation|once-forwarded-configuration-current|apple-android-application-service
+cache-corruption|remove-then-schema|refloat-configuration-native-services
+default-read|configuration-default|refloat-configuration-native-services
+control-confirmation|token-confirmed|refloat-mutation-native-coordinators
+control-timeout|token-failed|refloat-mutation-native-coordinators
+shutdown-timeout|token-released|application-service-shutdown-intent
+configuration-write|lease-command-95|refloat-configuration-native-services
+configuration-verification|lease-command-93|refloat-configuration-native-services
+tune-write|tune-lease-command-95|application-service-tune-apply
+malformed-write-response|lease-failed|application-service-scheduler-completion
+reconnect-reset|all-children-reset|apple-android-application-service

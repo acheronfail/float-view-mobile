@@ -18,6 +18,8 @@ use float_view_vesc_request_scheduler as scheduler;
 
 /// Native-equivalent semantic-control confirmation timeout.
 pub const CONTROL_TIMEOUT_MS: u64 = 3_000;
+/// Native lighting-observation request timeout.
+pub const LIGHTING_TIMEOUT_MS: u64 = 1_000;
 /// Native shutdown-intent window.
 pub const SHUTDOWN_TIMEOUT_MS: u64 = 30_000;
 /// VESC `COMM_FORWARD_CAN`.
@@ -177,6 +179,7 @@ pub enum Effect {
         token: MutationToken,
         request: scheduler::RequestFacts,
     },
+    SubmitObservation(scheduler::RequestFacts),
     Lease(MutationToken),
     Idempotent(Snapshot),
     Confirmed(MutationToken),
@@ -200,6 +203,9 @@ pub enum Command {
         generation: scheduler::Generation,
         observation_sequence: u64,
         payload: Vec<u8>,
+    },
+    RefreshLighting {
+        generation: scheduler::Generation,
     },
     SetControl {
         generation: scheduler::Generation,
@@ -333,6 +339,7 @@ impl DeviceMutationCoordinator {
                 observation_sequence,
                 payload,
             } => self.observe_lighting(generation, observation_sequence, &payload),
+            Command::RefreshLighting { generation } => self.refresh_lighting(generation),
             Command::SetControl {
                 generation,
                 control,
@@ -509,6 +516,42 @@ impl DeviceMutationCoordinator {
             effects.push(Effect::Confirmed(token));
         }
         Ok(effects)
+    }
+
+    fn refresh_lighting(
+        &self,
+        generation: scheduler::Generation,
+    ) -> Result<Vec<Effect>, CoordinatorError> {
+        if !self.is_current(generation) {
+            return Ok(vec![Effect::Diagnostic(Diagnostic::StaleEvent)]);
+        }
+        if !self.connection_ready || self.pending.is_some() {
+            return Ok(Vec::new());
+        }
+        let controls = self
+            .controls
+            .as_ref()
+            .ok_or(CoordinatorError::InvalidState)?;
+        let profile = self.profile.ok_or(CoordinatorError::InvalidState)?;
+        let route = self.route.ok_or(CoordinatorError::InvalidState)?;
+        let current = control::LightingState {
+            leds_enabled: controls.leds_enabled.unwrap_or(false),
+            headlights_enabled: controls.headlights_enabled.unwrap_or(false),
+        };
+        let payload =
+            control::lighting_request(lighting_profile(profile.lighting), None, false, current);
+        Ok(vec![Effect::SubmitObservation(scheduler::RequestFacts {
+            payload: routed_payload(route, payload.as_slice())?,
+            expected_response: scheduler::ExpectedResponse {
+                command: control::CUSTOM_APP_DATA_COMMAND,
+                refloat_command: payload.as_slice().get(2).copied(),
+            },
+            priority: scheduler::Priority::Auxiliary,
+            context: scheduler::RequestContext::RefloatLighting(route),
+            timeout_ms: LIGHTING_TIMEOUT_MS,
+            generation: self.generation,
+            expects_response: true,
+        })])
     }
 
     fn authorize_control(

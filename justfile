@@ -737,17 +737,21 @@ core-connection-application-coordinator-audit:
     set -euo pipefail
     crate='backends/core/connection-application-coordinator'
     [[ -f "$crate/Cargo.toml" && -f "$crate/src/lib.rs" ]]
-    [[ -f "$crate/tests/vectors.rs" && -f "$crate/tests/adversarial.rs" ]]
+    [[ -f "$crate/tests/vectors.rs" && -f "$crate/tests/adversarial.rs" && -f "$crate/tests/composition.rs" ]]
     [[ -f backends/fixtures/connection/connection-application-coordinator.tsv ]]
     [[ "$(sed '/^#/d;/^$/d' backends/fixtures/connection/connection-application-coordinator.tsv | wc -l | tr -d ' ')" == 8 ]]
+    [[ -f backends/fixtures/connection/device-configuration-composition.tsv ]]
+    [[ "$(sed '/^#/d;/^$/d' backends/fixtures/connection/device-configuration-composition.tsv | wc -l | tr -d ' ')" == 12 ]]
     rg -q '^#!\[forbid\(unsafe_code\)\]$' "$crate/src/lib.rs"
     [[ "$(sed -n '/^\[dependencies\]$/,$p' "$crate/Cargo.toml")" == \
-      $'[dependencies]\nfloat-view-controller-discovery = { path = "../controller-discovery" }\nfloat-view-refloat-compatibility = { path = "../refloat-compatibility" }\nfloat-view-refloat-dynamic-telemetry = { path = "../refloat-dynamic-telemetry" }\nfloat-view-refloat-legacy-telemetry = { path = "../refloat-legacy-telemetry" }\nfloat-view-refloat-telemetry-service = { path = "../refloat-telemetry-service" }\nfloat-view-vesc-bms-telemetry-service = { path = "../vesc-bms-telemetry-service" }\nfloat-view-vesc-firmware-identity = { path = "../vesc-firmware-identity" }\nfloat-view-vesc-request-scheduler = { path = "../vesc-request-scheduler" }' ]]
+      $'[dependencies]\nfloat-view-controller-discovery = { path = "../controller-discovery" }\nfloat-view-device-mutation-coordinator = { path = "../device-mutation-coordinator" }\nfloat-view-refloat-compatibility = { path = "../refloat-compatibility" }\nfloat-view-refloat-configuration-codec = { path = "../refloat-configuration-codec" }\nfloat-view-refloat-configuration-service = { path = "../refloat-configuration-service" }\nfloat-view-refloat-dynamic-telemetry = { path = "../refloat-dynamic-telemetry" }\nfloat-view-refloat-legacy-telemetry = { path = "../refloat-legacy-telemetry" }\nfloat-view-refloat-telemetry-service = { path = "../refloat-telemetry-service" }\nfloat-view-vesc-bms-telemetry-service = { path = "../vesc-bms-telemetry-service" }\nfloat-view-vesc-custom-configuration = { path = "../vesc-custom-configuration" }\nfloat-view-vesc-firmware-identity = { path = "../vesc-firmware-identity" }\nfloat-view-vesc-request-scheduler = { path = "../vesc-request-scheduler" }' ]]
     [[ "$(cd backends/core && cargo tree --locked --offline \
       --package float-view-connection-application-coordinator --edges normal \
-      --depth 1 --prefix none | wc -l | tr -d ' ')" == 9 ]]
+      --depth 1 --prefix none | wc -l | tr -d ' ')" == 13 ]]
     ! rg -n 'unsafe[[:space:]]*(\{|fn|impl|trait)|extern[[:space:]]+"(C|system)"|no_mangle|Java_|cbindgen|bindgen|uniffi|jni|host_callback|Box<dyn Fn|std::thread|tokio|async_std|rusqlite|sqlite|TcpListener|UdpSocket|std::fs|std::net' \
       "$crate/src" "$crate/tests"
+    ! rg -n 'const[[:space:]]+[A-Z0-9_]+.*(92|93|94|95)|fn[[:space:]]+(schema_request|values_request|write_request|decode_response)' \
+      "$crate/src"
     [[ "$(find "$crate" -mindepth 1 -maxdepth 1 -type d \
       ! -name src ! -name tests -print -quit)" == "" ]]
     ! rg -n 'connection-application-coordinator' \
@@ -755,6 +759,10 @@ core-connection-application-coordinator-audit:
       backends/core/build-apple-bridge.sh backends/core/build-android-bridge.sh
     [[ -f backends/apple/Sources/FloatViewBackend/application/ApplicationService.swift ]]
     [[ -f backends/android/app/src/main/java/fail/acheron/floatview/application/ApplicationService.kt ]]
+    [[ -f backends/apple/Sources/FloatViewBackend/application/RefloatConfigurationService.swift ]]
+    [[ -f backends/android/app/src/main/java/fail/acheron/floatview/application/RefloatConfigurationService.kt ]]
+    [[ -f backends/apple/Sources/FloatViewBackend/application/RefloatMutationCoordinator.swift ]]
+    [[ -f backends/android/app/src/main/java/fail/acheron/floatview/application/RefloatMutationCoordinator.kt ]]
     [[ "$(git ls-files "$crate" | rg '\.(h|a|so|dylib|xcframework|jar)$' || true)" == "" ]]
     just core-connection-application-coordinator-test
 

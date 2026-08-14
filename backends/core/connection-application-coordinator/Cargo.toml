@@ -7,10 +7,14 @@ publish = false
 
 [dependencies]
 float-view-controller-discovery = { path = "../controller-discovery" }
+float-view-device-mutation-coordinator = { path = "../device-mutation-coordinator" }
 float-view-refloat-compatibility = { path = "../refloat-compatibility" }
+float-view-refloat-configuration-codec = { path = "../refloat-configuration-codec" }
+float-view-refloat-configuration-service = { path = "../refloat-configuration-service" }
 float-view-refloat-dynamic-telemetry = { path = "../refloat-dynamic-telemetry" }
 float-view-refloat-legacy-telemetry = { path = "../refloat-legacy-telemetry" }
 float-view-refloat-telemetry-service = { path = "../refloat-telemetry-service" }
 float-view-vesc-bms-telemetry-service = { path = "../vesc-bms-telemetry-service" }
+float-view-vesc-custom-configuration = { path = "../vesc-custom-configuration" }
 float-view-vesc-firmware-identity = { path = "../vesc-firmware-identity" }
 float-view-vesc-request-scheduler = { path = "../vesc-request-scheduler" }

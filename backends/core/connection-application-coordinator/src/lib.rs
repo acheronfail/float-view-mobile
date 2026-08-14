@@ -9,11 +9,15 @@
 use std::collections::VecDeque;
 
 use float_view_controller_discovery as discovery;
+use float_view_device_mutation_coordinator as mutation;
 use float_view_refloat_compatibility as compatibility;
+use float_view_refloat_configuration_codec as configuration_codec;
+use float_view_refloat_configuration_service as configuration;
 use float_view_refloat_dynamic_telemetry as dynamic;
 use float_view_refloat_legacy_telemetry as legacy;
 use float_view_refloat_telemetry_service as telemetry;
 use float_view_vesc_bms_telemetry_service as bms;
+use float_view_vesc_custom_configuration as custom_configuration;
 use float_view_vesc_firmware_identity as firmware;
 use float_view_vesc_request_scheduler as scheduler;
 
@@ -69,11 +73,13 @@ pub struct ActivationFacts {
     pub selected: discovery::RoutedIdentity,
     pub transport: firmware::FirmwareIdentity,
     pub compatibility: compatibility::CompatibilityProfile,
+    pub refloat_version: compatibility::WireVersion,
+    pub configuration_cache_identity: Option<configuration::CacheIdentity>,
     pub inventory: Vec<discovery::RoutedIdentity>,
     pub inventory_complete: bool,
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, PartialEq)]
 pub struct Snapshot {
     pub generation: Generation,
     pub phase: Phase,
@@ -83,12 +89,85 @@ pub struct Snapshot {
     pub scheduler: scheduler::Snapshot,
     pub telemetry: telemetry::Snapshot,
     pub bms: bms::Snapshot,
+    pub mutations: mutation::Snapshot,
+    pub configuration: configuration::Snapshot,
+}
+
+impl std::fmt::Debug for Snapshot {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("Snapshot")
+            .field("generation", &self.generation)
+            .field("phase", &self.phase)
+            .field("standalone_bms", &self.standalone_bms)
+            .field("awaiting_activation", &self.awaiting_activation)
+            .field("discovery", &self.discovery)
+            .field("scheduler", &self.scheduler)
+            .field("telemetry", &self.telemetry)
+            .field("bms", &self.bms)
+            .field("mutations", &self.mutations)
+            .field(
+                "configuration_availability",
+                &self.configuration.availability,
+            )
+            .field("configuration_writable", &self.configuration.writable)
+            .field("configuration_identity", &self.configuration.identity)
+            .field(
+                "has_configuration_current",
+                &self.configuration.current.is_some(),
+            )
+            .field(
+                "has_configuration_defaults",
+                &self.configuration.defaults.is_some(),
+            )
+            .field("configuration_pending", &self.configuration.pending)
+            .finish()
+    }
+}
+
+#[derive(Clone, Eq, PartialEq)]
+pub struct ConfigurationCacheEffect(configuration::CacheEffect);
+
+impl ConfigurationCacheEffect {
+    #[must_use]
+    pub const fn as_inner(&self) -> &configuration::CacheEffect {
+        &self.0
+    }
+
+    #[must_use]
+    pub fn into_inner(self) -> configuration::CacheEffect {
+        self.0
+    }
+}
+
+impl std::fmt::Debug for ConfigurationCacheEffect {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match &self.0 {
+            configuration::CacheEffect::Store { bytes, .. } => formatter
+                .debug_struct("ConfigurationCacheStore")
+                .field("identity", &"[redacted]")
+                .field("bytes", &bytes.len())
+                .finish(),
+            configuration::CacheEffect::Remove { .. } => formatter
+                .debug_struct("ConfigurationCacheRemove")
+                .field("identity", &"[redacted]")
+                .finish(),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum MutationTimerToken {
+    Confirmation(mutation::MutationToken),
+    Shutdown(mutation::MutationToken),
+    LightingRefresh(scheduler::Generation),
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum TimerToken {
     Refloat(telemetry::TimerToken),
     Bms(bms::TimerToken),
+    Mutation(MutationTimerToken),
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -99,6 +178,7 @@ pub enum MalformedResponse {
     RefloatInfo,
     RefloatLayout,
     RefloatTelemetry,
+    RefloatConfiguration,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -110,12 +190,30 @@ pub enum Diagnostic {
     Telemetry(telemetry::Diagnostic),
     Bms(bms::Diagnostic),
     EnqueueRejected,
+    Mutation(mutation::Diagnostic),
+    ConfigurationStale,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum Failure {
     Discovery(discovery::Issue),
     Telemetry(telemetry::Failure),
+    Configuration(configuration::ServiceError),
+    Mutation {
+        token: mutation::MutationToken,
+        reason: mutation::FailureReason,
+    },
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum MutationEvent {
+    Idempotent,
+    Confirmed(mutation::MutationToken),
+    Released(mutation::MutationToken),
+    Failed {
+        token: mutation::MutationToken,
+        reason: mutation::FailureReason,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -138,11 +236,13 @@ pub enum Effect {
     PublishTelemetry(Box<telemetry::NormalizedSample>),
     PublishBmsState(bms::Snapshot),
     PublishBmsObservation(Box<bms::BmsObservation>),
+    ApplyConfigurationCache(ConfigurationCacheEffect),
+    Mutation(MutationEvent),
     Failure(Failure),
     Diagnostic(Diagnostic),
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, PartialEq)]
 pub enum Command {
     Begin(BeginFacts),
     SelectController {
@@ -170,6 +270,36 @@ pub enum Command {
         generation: Generation,
         now_ms: u64,
         session_started: bool,
+        cached_configuration_schema: Option<Vec<u8>>,
+    },
+    SetControl {
+        generation: Generation,
+        control: mutation::BooleanControl,
+        enabled: bool,
+        now_ms: u64,
+    },
+    ClearFatalError {
+        generation: Generation,
+        now_ms: u64,
+    },
+    ShutdownController {
+        generation: Generation,
+        now_ms: u64,
+    },
+    ReadConfiguration {
+        generation: Generation,
+        defaults: bool,
+        now_ms: u64,
+    },
+    WriteConfiguration {
+        generation: Generation,
+        mutation: mutation::ConfigurationMutation,
+        package_version: String,
+        fingerprint: String,
+        wire_signature: u32,
+        base_revision: u64,
+        values: configuration_codec::ConfigurationValues,
+        now_ms: u64,
     },
     UpdateSettings {
         generation: Generation,
@@ -185,7 +315,7 @@ pub enum Command {
     },
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum CoordinatorError {
     InvalidCanId,
     InvalidObservationTime,
@@ -196,6 +326,9 @@ pub enum CoordinatorError {
     Scheduler(scheduler::SchedulerError),
     Telemetry(telemetry::ServiceError),
     Bms(bms::ServiceError),
+    Mutation(mutation::CoordinatorError),
+    Configuration(configuration::ServiceError),
+    CustomConfiguration(custom_configuration::CustomConfigurationError),
 }
 
 impl From<discovery::DiscoveryInputError> for CoordinatorError {
@@ -222,6 +355,24 @@ impl From<bms::ServiceError> for CoordinatorError {
     }
 }
 
+impl From<mutation::CoordinatorError> for CoordinatorError {
+    fn from(value: mutation::CoordinatorError) -> Self {
+        Self::Mutation(value)
+    }
+}
+
+impl From<configuration::ServiceError> for CoordinatorError {
+    fn from(value: configuration::ServiceError) -> Self {
+        Self::Configuration(value)
+    }
+}
+
+impl From<custom_configuration::CustomConfigurationError> for CoordinatorError {
+    fn from(value: custom_configuration::CustomConfigurationError) -> Self {
+        Self::CustomConfiguration(value)
+    }
+}
+
 pub struct ConnectionApplicationCoordinator {
     generation: Generation,
     phase: Phase,
@@ -233,11 +384,15 @@ pub struct ConnectionApplicationCoordinator {
     preferred_bms_can_id: Option<u8>,
     awaiting_activation: Option<ActivationFacts>,
     direct_firmware_attempt: u8,
+    refloat_version: Option<compatibility::WireVersion>,
     dynamic_layout: Option<dynamic::DynamicLayout>,
+    configuration_token: Option<mutation::MutationToken>,
     discovery: discovery::ControllerDiscovery,
     scheduler: scheduler::VescRequestScheduler,
     telemetry: telemetry::RefloatTelemetryService,
     bms: bms::VescBmsTelemetryService,
+    mutations: mutation::DeviceMutationCoordinator,
+    configuration: configuration::ConfigurationService,
 }
 
 impl Default for ConnectionApplicationCoordinator {
@@ -256,11 +411,15 @@ impl Default for ConnectionApplicationCoordinator {
             preferred_bms_can_id: None,
             awaiting_activation: None,
             direct_firmware_attempt: 0,
+            refloat_version: None,
             dynamic_layout: None,
+            configuration_token: None,
             discovery: discovery::ControllerDiscovery::new(),
             scheduler: scheduler::VescRequestScheduler::default(),
             telemetry: telemetry::RefloatTelemetryService::default(),
             bms: bms::VescBmsTelemetryService::new(),
+            mutations: mutation::DeviceMutationCoordinator::new(),
+            configuration: configuration::ConfigurationService::new(),
         }
     }
 }
@@ -274,6 +433,8 @@ impl std::fmt::Debug for ConnectionApplicationCoordinator {
             .field("routing_hint", &self.routing_hint)
             .field("continuity", &self.continuity)
             .field("has_dynamic_layout", &self.dynamic_layout.is_some())
+            .field("has_refloat_version", &self.refloat_version.is_some())
+            .field("configuration_token", &self.configuration_token)
             .finish_non_exhaustive()
     }
 }
@@ -290,7 +451,14 @@ impl ConnectionApplicationCoordinator {
             scheduler: self.scheduler.snapshot(),
             telemetry: self.telemetry.snapshot(),
             bms: self.bms.snapshot(),
+            mutations: self.mutations.snapshot(),
+            configuration: self.configuration.snapshot(),
         }
+    }
+
+    #[must_use]
+    pub fn configuration_schema(&self) -> Option<&configuration_codec::ConfigurationSchema> {
+        self.configuration.loaded_schema()
     }
 
     pub fn apply(&mut self, command: Command) -> Result<Vec<Effect>, CoordinatorError> {
@@ -321,7 +489,49 @@ impl ConnectionApplicationCoordinator {
                 generation,
                 now_ms,
                 session_started,
-            } => self.activate(generation, now_ms, session_started),
+                cached_configuration_schema,
+            } => self.activate(
+                generation,
+                now_ms,
+                session_started,
+                cached_configuration_schema,
+            ),
+            Command::SetControl {
+                generation,
+                control,
+                enabled,
+                now_ms,
+            } => self.set_control(generation, control, enabled, now_ms),
+            Command::ClearFatalError { generation, now_ms } => {
+                self.clear_fatal_error(generation, now_ms)
+            }
+            Command::ShutdownController { generation, now_ms } => {
+                self.shutdown_controller(generation, now_ms)
+            }
+            Command::ReadConfiguration {
+                generation,
+                defaults,
+                now_ms,
+            } => self.read_configuration(generation, defaults, now_ms),
+            Command::WriteConfiguration {
+                generation,
+                mutation,
+                package_version,
+                fingerprint,
+                wire_signature,
+                base_revision,
+                values,
+                now_ms,
+            } => self.write_configuration(
+                generation,
+                mutation,
+                &package_version,
+                &fingerprint,
+                wire_signature,
+                base_revision,
+                &values,
+                now_ms,
+            ),
             Command::UpdateSettings {
                 generation,
                 settings,
@@ -441,6 +651,58 @@ impl ConnectionApplicationCoordinator {
                 let child = self.bms.apply(bms::Command::TimerFired(token))?;
                 self.process_bms(child, now_ms, &mut effects)?;
             }
+            TimerToken::Mutation(MutationTimerToken::Confirmation(token)) => {
+                let child = self.mutations.apply(mutation::Command::Fail {
+                    token,
+                    reason: mutation::FailureReason::ConfirmationTimedOut,
+                })?;
+                self.process_mutation(child, now_ms, &mut effects)?;
+                if let Some(route) = self.mutations.snapshot().route {
+                    let scheduler_effects = self.scheduler.cancel_matching(
+                        &scheduler::CancellationSelector::Exact(
+                            scheduler::RequestContext::RefloatControl(route),
+                        ),
+                        true,
+                        now_ms,
+                    )?;
+                    self.process_scheduler(scheduler_effects, now_ms, 1, &mut effects)?;
+                }
+            }
+            TimerToken::Mutation(MutationTimerToken::Shutdown(token)) => {
+                let child = self
+                    .mutations
+                    .apply(mutation::Command::ClearShutdown { token })?;
+                self.process_mutation(child, now_ms, &mut effects)?;
+                if let Some(route) = self.mutations.snapshot().route {
+                    let scheduler_effects = self.scheduler.cancel_matching(
+                        &scheduler::CancellationSelector::Exact(
+                            scheduler::RequestContext::ControllerShutdown(route),
+                        ),
+                        true,
+                        now_ms,
+                    )?;
+                    self.process_scheduler(scheduler_effects, now_ms, 1, &mut effects)?;
+                }
+            }
+            TimerToken::Mutation(MutationTimerToken::LightingRefresh(scheduler_generation)) => {
+                let child = self.mutations.apply(mutation::Command::RefreshLighting {
+                    generation: scheduler_generation,
+                })?;
+                self.process_mutation(child, now_ms, &mut effects)?;
+                if self.phase == Phase::Ready
+                    && self.scheduler.snapshot().generation == scheduler_generation
+                {
+                    push_effect(
+                        &mut effects,
+                        Effect::ReplaceTimer {
+                            token: TimerToken::Mutation(MutationTimerToken::LightingRefresh(
+                                scheduler_generation,
+                            )),
+                            interval_ms: mutation::LIGHTING_TIMEOUT_MS,
+                        },
+                    )?;
+                }
+            }
         }
         Ok(effects)
     }
@@ -450,6 +712,7 @@ impl ConnectionApplicationCoordinator {
         generation: Generation,
         now_ms: u64,
         session_started: bool,
+        cached_configuration_schema: Option<Vec<u8>>,
     ) -> Result<Vec<Effect>, CoordinatorError> {
         validate_now(now_ms)?;
         if generation != self.generation
@@ -474,6 +737,40 @@ impl ConnectionApplicationCoordinator {
         configuration.validate()?;
 
         let mut effects = Vec::new();
+        let child =
+            self.mutations
+                .apply(mutation::Command::Configure(mutation::ConfigureFacts {
+                    generation: scheduler_generation,
+                    route,
+                    firmware: activation.selected.identity.clone(),
+                    refloat: activation.compatibility,
+                    connection_ready: true,
+                }))?;
+        self.process_mutation(child, now_ms, &mut effects)?;
+        let child = self.configuration.begin(configuration::BeginFacts {
+            route: configuration_route(route),
+            generation: configuration::Generation(scheduler_generation.0),
+            firmware: configuration_firmware(&activation.selected.identity),
+            reported_version: activation.refloat_version.to_string(),
+            writable: self
+                .mutations
+                .snapshot()
+                .controls
+                .is_some_and(|controls| controls.writable),
+            flywheel: false,
+            cached_schema: cached_configuration_schema,
+        });
+        self.process_configuration(child, now_ms, &mut effects)?;
+        let refresh_generation = scheduler_generation;
+        push_effect(
+            &mut effects,
+            Effect::ReplaceTimer {
+                token: TimerToken::Mutation(MutationTimerToken::LightingRefresh(
+                    refresh_generation,
+                )),
+                interval_ms: mutation::LIGHTING_TIMEOUT_MS,
+            },
+        )?;
         let child = self.telemetry.apply(telemetry::Command::Start {
             configuration,
             now_ms,
@@ -507,6 +804,118 @@ impl ConnectionApplicationCoordinator {
         self.phase = Phase::Ready;
         self.publish_state(&mut effects)?;
         Ok(effects)
+    }
+
+    fn set_control(
+        &mut self,
+        generation: Generation,
+        control: mutation::BooleanControl,
+        enabled: bool,
+        now_ms: u64,
+    ) -> Result<Vec<Effect>, CoordinatorError> {
+        let scheduler_generation = self.ready_generation(generation, now_ms)?;
+        let child = self.mutations.apply(mutation::Command::SetControl {
+            generation: scheduler_generation,
+            control,
+            enabled,
+        })?;
+        let mut effects = Vec::new();
+        self.process_mutation(child, now_ms, &mut effects)?;
+        Ok(effects)
+    }
+
+    fn clear_fatal_error(
+        &mut self,
+        generation: Generation,
+        now_ms: u64,
+    ) -> Result<Vec<Effect>, CoordinatorError> {
+        let scheduler_generation = self.ready_generation(generation, now_ms)?;
+        let child = self.mutations.apply(mutation::Command::ClearFatalError {
+            generation: scheduler_generation,
+        })?;
+        let mut effects = Vec::new();
+        self.process_mutation(child, now_ms, &mut effects)?;
+        Ok(effects)
+    }
+
+    fn shutdown_controller(
+        &mut self,
+        generation: Generation,
+        now_ms: u64,
+    ) -> Result<Vec<Effect>, CoordinatorError> {
+        let scheduler_generation = self.ready_generation(generation, now_ms)?;
+        let child = self
+            .mutations
+            .apply(mutation::Command::ShutdownController {
+                generation: scheduler_generation,
+            })?;
+        let mut effects = Vec::new();
+        self.process_mutation(child, now_ms, &mut effects)?;
+        Ok(effects)
+    }
+
+    fn read_configuration(
+        &mut self,
+        generation: Generation,
+        defaults: bool,
+        now_ms: u64,
+    ) -> Result<Vec<Effect>, CoordinatorError> {
+        self.ready_generation(generation, now_ms)?;
+        let child = self.configuration.request_values(defaults)?;
+        let mut effects = Vec::new();
+        self.process_configuration(child, now_ms, &mut effects)?;
+        Ok(effects)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn write_configuration(
+        &mut self,
+        generation: Generation,
+        configuration_mutation: mutation::ConfigurationMutation,
+        package_version: &str,
+        fingerprint: &str,
+        wire_signature: u32,
+        base_revision: u64,
+        values: &configuration_codec::ConfigurationValues,
+        now_ms: u64,
+    ) -> Result<Vec<Effect>, CoordinatorError> {
+        let scheduler_generation = self.ready_generation(generation, now_ms)?;
+        let transition = self.configuration.request_write(
+            package_version,
+            fingerprint,
+            wire_signature,
+            base_revision,
+            values,
+        )?;
+        let lease = match self.mutations.apply(mutation::Command::BeginConfiguration {
+            generation: scheduler_generation,
+            mutation: configuration_mutation,
+        }) {
+            Ok(effects) => effects,
+            Err(error) => {
+                self.configuration
+                    .abort_active_operation(configuration::Generation(scheduler_generation.0));
+                return Err(error.into());
+            }
+        };
+        let mut effects = Vec::new();
+        self.process_mutation(lease, now_ms, &mut effects)?;
+        self.process_configuration(transition, now_ms, &mut effects)?;
+        Ok(effects)
+    }
+
+    fn ready_generation(
+        &self,
+        generation: Generation,
+        now_ms: u64,
+    ) -> Result<scheduler::Generation, CoordinatorError> {
+        validate_now(now_ms)?;
+        if generation != self.generation || self.phase != Phase::Ready || self.standalone_bms {
+            return Err(CoordinatorError::Mutation(
+                mutation::CoordinatorError::InvalidState,
+            ));
+        }
+        Ok(self.scheduler.snapshot().generation)
     }
 
     fn update_settings(
@@ -562,6 +971,18 @@ impl ConnectionApplicationCoordinator {
         publish: bool,
         effects: &mut Vec<Effect>,
     ) -> Result<(), CoordinatorError> {
+        if self.mutations.snapshot().configured {
+            push_effect(
+                effects,
+                Effect::CancelTimer(TimerToken::Mutation(MutationTimerToken::LightingRefresh(
+                    self.scheduler.snapshot().generation,
+                ))),
+            )?;
+        }
+        let mutation_effects = self.mutations.apply(mutation::Command::Reset)?;
+        self.process_mutation(mutation_effects, now_ms, effects)?;
+        self.configuration.reset();
+        self.configuration_token = None;
         let telemetry_effects = self.telemetry.apply(telemetry::Command::Reset)?;
         self.process_telemetry(telemetry_effects, now_ms, effects)?;
         let bms_effects = self.bms.apply(bms::Command::Reset)?;
@@ -574,6 +995,7 @@ impl ConnectionApplicationCoordinator {
         self.standalone_bms = false;
         self.awaiting_activation = None;
         self.direct_firmware_attempt = 0;
+        self.refloat_version = None;
         self.dynamic_layout = None;
         self.preferred_controller_can_id = None;
         self.routing_hint = None;
@@ -670,9 +1092,19 @@ impl ConnectionApplicationCoordinator {
         };
         let facts = ActivationFacts {
             generation: self.generation,
-            selected,
+            selected: selected.clone(),
             transport,
             compatibility: profile,
+            refloat_version: self
+                .refloat_version
+                .ok_or(CoordinatorError::InvalidPayload)?,
+            configuration_cache_identity: configuration::cache_identity(
+                &configuration_firmware(&selected.identity),
+                &self
+                    .refloat_version
+                    .ok_or(CoordinatorError::InvalidPayload)?
+                    .to_string(),
+            ),
             inventory: snapshot.inventory,
             inventory_complete: snapshot.inventory_complete,
         };
@@ -802,8 +1234,167 @@ impl ConnectionApplicationCoordinator {
                 observed_at_epoch_ms,
                 effects,
             ),
+            scheduler::RequestContext::RefloatControl(_)
+            | scheduler::RequestContext::RefloatLighting(_) => {
+                self.complete_mutation_request(request, outcome, now_ms, effects)
+            }
+            scheduler::RequestContext::ControllerShutdown(_) => {
+                self.complete_shutdown_request(outcome, now_ms, effects)
+            }
+            scheduler::RequestContext::RefloatConfigurationSchema { .. }
+            | scheduler::RequestContext::RefloatConfigurationValues { .. }
+            | scheduler::RequestContext::RefloatConfigurationWrite { .. }
+            | scheduler::RequestContext::RefloatConfigurationVerification { .. } => {
+                self.complete_configuration_request(request, outcome, now_ms, effects)
+            }
             _ => push_effect(effects, Effect::Diagnostic(Diagnostic::UnexpectedResponse)),
         }
+    }
+
+    fn complete_mutation_request(
+        &mut self,
+        request: scheduler::ScheduledRequest,
+        outcome: scheduler::Completion,
+        now_ms: u64,
+        effects: &mut Vec<Effect>,
+    ) -> Result<(), CoordinatorError> {
+        match outcome {
+            scheduler::Completion::Response(payload) => {
+                let child = self.mutations.apply(mutation::Command::ObserveLighting {
+                    generation: request.generation,
+                    observation_sequence: request.sequence,
+                    payload,
+                })?;
+                self.process_mutation(child, now_ms, effects)
+            }
+            scheduler::Completion::Sent => Ok(()),
+            scheduler::Completion::TimedOut
+            | scheduler::Completion::QueueFull
+            | scheduler::Completion::Cancelled
+            | scheduler::Completion::StaleGeneration => {
+                let Some(token) = self.mutations.snapshot().pending.filter(|token| {
+                    matches!(
+                        token.kind,
+                        mutation::PendingKind::Package
+                            | mutation::PendingKind::Flywheel
+                            | mutation::PendingKind::Leds
+                            | mutation::PendingKind::Headlights
+                            | mutation::PendingKind::ClearFatalError
+                    )
+                }) else {
+                    return Ok(());
+                };
+                let child = self.mutations.apply(mutation::Command::Fail {
+                    token,
+                    reason: mutation::FailureReason::RequestFailed,
+                })?;
+                self.process_mutation(child, now_ms, effects)
+            }
+        }
+    }
+
+    fn complete_shutdown_request(
+        &mut self,
+        outcome: scheduler::Completion,
+        now_ms: u64,
+        effects: &mut Vec<Effect>,
+    ) -> Result<(), CoordinatorError> {
+        if outcome == scheduler::Completion::Sent {
+            return Ok(());
+        }
+        let Some(token) = self
+            .mutations
+            .snapshot()
+            .pending
+            .filter(|token| token.kind == mutation::PendingKind::ControllerShutdown)
+        else {
+            return Ok(());
+        };
+        let child = self
+            .mutations
+            .apply(mutation::Command::ClearShutdown { token })?;
+        self.process_mutation(child, now_ms, effects)
+    }
+
+    fn complete_configuration_request(
+        &mut self,
+        request: scheduler::ScheduledRequest,
+        outcome: scheduler::Completion,
+        now_ms: u64,
+        effects: &mut Vec<Effect>,
+    ) -> Result<(), CoordinatorError> {
+        let context = match configuration_context(&request.context) {
+            Ok(context) => context,
+            Err(error) => {
+                push_effect(effects, Effect::Diagnostic(Diagnostic::ConfigurationStale))?;
+                return Err(error);
+            }
+        };
+        let generation = configuration::Generation(request.generation.0);
+        let scheduler::Completion::Response(payload) = outcome else {
+            if outcome != scheduler::Completion::Sent {
+                self.configuration.request_failed(context, generation);
+                push_effect(
+                    effects,
+                    Effect::Failure(Failure::Configuration(
+                        configuration::ServiceError::Unavailable,
+                    )),
+                )?;
+                self.fail_configuration_token(
+                    mutation::FailureReason::RequestFailed,
+                    now_ms,
+                    effects,
+                )?;
+                self.publish_state(effects)?;
+            }
+            return Ok(());
+        };
+        let response = match configuration_response(&payload) {
+            Ok(response) => response,
+            Err(_) => {
+                self.configuration.request_failed(context, generation);
+                push_effect(
+                    effects,
+                    Effect::Diagnostic(Diagnostic::MalformedResponse(
+                        MalformedResponse::RefloatConfiguration,
+                    )),
+                )?;
+                push_effect(
+                    effects,
+                    Effect::Failure(Failure::Configuration(
+                        configuration::ServiceError::MalformedResponse,
+                    )),
+                )?;
+                self.fail_configuration_token(
+                    mutation::FailureReason::RequestFailed,
+                    now_ms,
+                    effects,
+                )?;
+                self.publish_state(effects)?;
+                return Ok(());
+            }
+        };
+        match self.configuration.accept(response, context, generation) {
+            Ok(transition) => {
+                self.process_configuration(transition, now_ms, effects)?;
+                if self.configuration_token.is_some()
+                    && self.configuration.snapshot().pending.is_none()
+                {
+                    self.complete_configuration_token(now_ms, effects)?;
+                }
+            }
+            Err(error) => {
+                self.configuration.request_failed(context, generation);
+                push_effect(effects, Effect::Failure(Failure::Configuration(error)))?;
+                self.fail_configuration_token(
+                    mutation::FailureReason::RequestFailed,
+                    now_ms,
+                    effects,
+                )?;
+                self.publish_state(effects)?;
+            }
+        }
+        Ok(())
     }
 
     fn complete_controller_firmware(
@@ -917,11 +1508,14 @@ impl ConnectionApplicationCoordinator {
     ) -> Result<(), CoordinatorError> {
         match outcome {
             scheduler::Completion::Response(payload) => {
-                let profile = compatibility::decode_info(&payload)
+                let admitted = compatibility::decode_info(&payload)
                     .ok()
-                    .and_then(compatibility::compatibility);
-                match profile {
-                    Some(profile) => {
+                    .and_then(|version| {
+                        compatibility::compatibility(version).map(|profile| (version, profile))
+                    });
+                match admitted {
+                    Some((version, profile)) => {
+                        self.refloat_version = Some(version);
                         let transition = self.discovery.accept_refloat_profile(profile);
                         self.process_discovery(transition, now_ms, effects)
                     }
@@ -1106,6 +1700,131 @@ impl ConnectionApplicationCoordinator {
         self.process_bms(child, now_ms, effects)
     }
 
+    fn process_mutation(
+        &mut self,
+        child_effects: Vec<mutation::Effect>,
+        now_ms: u64,
+        effects: &mut Vec<Effect>,
+    ) -> Result<(), CoordinatorError> {
+        for effect in child_effects {
+            match effect {
+                mutation::Effect::Publish(_) => self.publish_state(effects)?,
+                mutation::Effect::Submit { token, request } => {
+                    self.enqueue(request, now_ms, effects)?;
+                    if self.mutations.snapshot().pending == Some(token)
+                        && let Some((timer, interval_ms)) = mutation_timer(token)
+                    {
+                        push_effect(
+                            effects,
+                            Effect::ReplaceTimer {
+                                token: TimerToken::Mutation(timer),
+                                interval_ms,
+                            },
+                        )?;
+                    }
+                }
+                mutation::Effect::SubmitObservation(request) => {
+                    self.enqueue(request, now_ms, effects)?;
+                }
+                mutation::Effect::Lease(token) => {
+                    self.configuration_token = Some(token);
+                }
+                mutation::Effect::Idempotent(_) => {
+                    push_effect(effects, Effect::Mutation(MutationEvent::Idempotent))?;
+                    self.publish_state(effects)?;
+                }
+                mutation::Effect::Confirmed(token) => {
+                    if let Some((timer, _)) = mutation_timer(token) {
+                        push_effect(effects, Effect::CancelTimer(TimerToken::Mutation(timer)))?;
+                    }
+                    if self.configuration_token == Some(token) {
+                        self.configuration_token = None;
+                    }
+                    push_effect(effects, Effect::Mutation(MutationEvent::Confirmed(token)))?;
+                }
+                mutation::Effect::Released(token) => {
+                    if let Some((timer, _)) = mutation_timer(token) {
+                        push_effect(effects, Effect::CancelTimer(TimerToken::Mutation(timer)))?;
+                    }
+                    if self.configuration_token == Some(token) {
+                        self.configuration_token = None;
+                    }
+                    push_effect(effects, Effect::Mutation(MutationEvent::Released(token)))?;
+                }
+                mutation::Effect::Failed { token, reason } => {
+                    if let Some((timer, _)) = mutation_timer(token) {
+                        push_effect(effects, Effect::CancelTimer(TimerToken::Mutation(timer)))?;
+                    }
+                    if self.configuration_token == Some(token) {
+                        self.configuration
+                            .abort_active_operation(configuration::Generation(token.generation.0));
+                        self.configuration_token = None;
+                    }
+                    push_effect(
+                        effects,
+                        Effect::Failure(Failure::Mutation { token, reason }),
+                    )?;
+                    push_effect(
+                        effects,
+                        Effect::Mutation(MutationEvent::Failed { token, reason }),
+                    )?;
+                }
+                mutation::Effect::Diagnostic(value) => {
+                    push_effect(effects, Effect::Diagnostic(Diagnostic::Mutation(value)))?;
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn process_configuration(
+        &mut self,
+        transition: configuration::Transition,
+        now_ms: u64,
+        effects: &mut Vec<Effect>,
+    ) -> Result<(), CoordinatorError> {
+        if let Some(cache) = transition.cache {
+            push_effect(
+                effects,
+                Effect::ApplyConfigurationCache(ConfigurationCacheEffect(cache)),
+            )?;
+        }
+        if let Some(request) = transition.request {
+            let facts = configuration_request_facts(request, self.scheduler.snapshot().generation)?;
+            self.enqueue(facts, now_ms, effects)?;
+        }
+        self.publish_state(effects)
+    }
+
+    fn complete_configuration_token(
+        &mut self,
+        now_ms: u64,
+        effects: &mut Vec<Effect>,
+    ) -> Result<(), CoordinatorError> {
+        let Some(token) = self.configuration_token else {
+            return Ok(());
+        };
+        let child = self
+            .mutations
+            .apply(mutation::Command::CompleteConfiguration { token })?;
+        self.process_mutation(child, now_ms, effects)
+    }
+
+    fn fail_configuration_token(
+        &mut self,
+        reason: mutation::FailureReason,
+        now_ms: u64,
+        effects: &mut Vec<Effect>,
+    ) -> Result<(), CoordinatorError> {
+        let Some(token) = self.configuration_token else {
+            return Ok(());
+        };
+        let child = self
+            .mutations
+            .apply(mutation::Command::Fail { token, reason })?;
+        self.process_mutation(child, now_ms, effects)
+    }
+
     fn process_telemetry(
         &mut self,
         child_effects: Vec<telemetry::Effect>,
@@ -1128,6 +1847,33 @@ impl ConnectionApplicationCoordinator {
                     self.enqueue(facts, now_ms, effects)?;
                 }
                 telemetry::Effect::Publish(sample) => {
+                    let mutation_effects =
+                        self.mutations.apply(mutation::Command::ObserveTelemetry {
+                            generation: self.scheduler.snapshot().generation,
+                            sample: sample.clone(),
+                        })?;
+                    self.process_mutation(mutation_effects, now_ms, effects)?;
+                    if let Some(mode) = sample.package_mode {
+                        let flywheel = mode == telemetry::PackageMode::Flywheel;
+                        let transition = self.configuration.set_flywheel(flywheel);
+                        self.process_configuration(transition, now_ms, effects)?;
+                        if flywheel {
+                            let scheduler_effects = self.scheduler.cancel_matching(
+                                &scheduler::CancellationSelector::FlywheelProhibited {
+                                    preserve_refloat_control: self
+                                        .mutations
+                                        .snapshot()
+                                        .pending
+                                        .is_some_and(|token| {
+                                            token.kind == mutation::PendingKind::Flywheel
+                                        }),
+                                },
+                                true,
+                                now_ms,
+                            )?;
+                            self.process_scheduler(scheduler_effects, now_ms, 1, effects)?;
+                        }
+                    }
                     push_effect(effects, Effect::PublishTelemetry(sample))?;
                 }
                 telemetry::Effect::Failure(failure) => {
@@ -1352,6 +2098,242 @@ fn bms_outcome(outcome: &scheduler::Completion) -> bms::RequestOutcome {
     }
 }
 
+fn mutation_timer(token: mutation::MutationToken) -> Option<(MutationTimerToken, u64)> {
+    match token.kind {
+        mutation::PendingKind::ControllerShutdown => Some((
+            MutationTimerToken::Shutdown(token),
+            mutation::SHUTDOWN_TIMEOUT_MS,
+        )),
+        mutation::PendingKind::Package
+        | mutation::PendingKind::Flywheel
+        | mutation::PendingKind::Leds
+        | mutation::PendingKind::Headlights
+        | mutation::PendingKind::ClearFatalError => Some((
+            MutationTimerToken::Confirmation(token),
+            mutation::CONTROL_TIMEOUT_MS,
+        )),
+        mutation::PendingKind::ConfigurationWrite | mutation::PendingKind::TuneApply => None,
+    }
+}
+
+fn configuration_firmware(identity: &firmware::FirmwareIdentity) -> configuration::FirmwareFacts {
+    configuration::FirmwareFacts {
+        major: identity.major,
+        minor: identity.minor,
+        hardware_name: identity.hardware_name.clone(),
+        custom_configuration_count: identity.custom_configuration_count,
+        hardware_configuration_crc: identity.hardware_configuration_crc,
+    }
+}
+
+const fn configuration_route(route: scheduler::Route) -> configuration::Route {
+    match route {
+        scheduler::Route::Direct => configuration::Route(0),
+        scheduler::Route::Can(can_id) => configuration::Route(can_id as u32 + 1),
+    }
+}
+
+fn scheduler_configuration_route(
+    route: configuration::Route,
+) -> Result<scheduler::Route, CoordinatorError> {
+    match route.0 {
+        0 => Ok(scheduler::Route::Direct),
+        1..=254 => Ok(scheduler::Route::Can((route.0 - 1) as u8)),
+        _ => Err(CoordinatorError::InvalidCanId),
+    }
+}
+
+fn configuration_request_facts(
+    request: configuration::RequestEffect,
+    generation: scheduler::Generation,
+) -> Result<scheduler::RequestFacts, CoordinatorError> {
+    let (route, body, expected_command, context) = match request {
+        configuration::RequestEffect::SchemaChunk {
+            route,
+            length,
+            offset,
+            operation,
+        } => {
+            let body = custom_configuration::schema_request(
+                configuration::REFLOAT_INDEX,
+                i64::try_from(length).map_err(|_| CoordinatorError::InvalidPayload)?,
+                i64::try_from(offset).map_err(|_| CoordinatorError::InvalidPayload)?,
+            )?
+            .to_vec();
+            let scheduler_route = scheduler_configuration_route(route)?;
+            (
+                scheduler_route,
+                body,
+                custom_configuration::GET_SCHEMA_COMMAND,
+                scheduler::RequestContext::RefloatConfigurationSchema {
+                    route: scheduler_route,
+                    index: configuration::REFLOAT_INDEX,
+                    offset,
+                    operation: operation.0,
+                },
+            )
+        }
+        configuration::RequestEffect::Values {
+            route,
+            defaults,
+            operation,
+        } => {
+            let scheduler_route = scheduler_configuration_route(route)?;
+            let command = if defaults {
+                custom_configuration::GET_DEFAULT_COMMAND
+            } else {
+                custom_configuration::GET_CURRENT_COMMAND
+            };
+            (
+                scheduler_route,
+                custom_configuration::values_request(configuration::REFLOAT_INDEX, defaults)
+                    .to_vec(),
+                command,
+                scheduler::RequestContext::RefloatConfigurationValues {
+                    route: scheduler_route,
+                    index: configuration::REFLOAT_INDEX,
+                    defaults,
+                    operation: operation.0,
+                },
+            )
+        }
+        configuration::RequestEffect::Write {
+            route,
+            payload,
+            operation,
+        } => {
+            let scheduler_route = scheduler_configuration_route(route)?;
+            (
+                scheduler_route,
+                custom_configuration::write_request(configuration::REFLOAT_INDEX, &payload)?,
+                custom_configuration::SET_CONFIGURATION_COMMAND,
+                scheduler::RequestContext::RefloatConfigurationWrite {
+                    route: scheduler_route,
+                    index: configuration::REFLOAT_INDEX,
+                    operation: operation.0,
+                },
+            )
+        }
+        configuration::RequestEffect::Verification { route, operation } => {
+            let scheduler_route = scheduler_configuration_route(route)?;
+            (
+                scheduler_route,
+                custom_configuration::values_request(configuration::REFLOAT_INDEX, false).to_vec(),
+                custom_configuration::GET_CURRENT_COMMAND,
+                scheduler::RequestContext::RefloatConfigurationVerification {
+                    route: scheduler_route,
+                    index: configuration::REFLOAT_INDEX,
+                    operation: operation.0,
+                },
+            )
+        }
+    };
+    Ok(scheduler::RequestFacts {
+        payload: routed_scheduler_payload(route, &body)?,
+        expected_response: scheduler::ExpectedResponse {
+            command: expected_command,
+            refloat_command: None,
+        },
+        priority: scheduler::Priority::ControllerWork,
+        context,
+        timeout_ms: configuration::REQUEST_TIMEOUT_MS,
+        generation,
+        expects_response: true,
+    })
+}
+
+fn configuration_context(
+    context: &scheduler::RequestContext,
+) -> Result<configuration::RequestContext, CoordinatorError> {
+    Ok(match *context {
+        scheduler::RequestContext::RefloatConfigurationSchema {
+            route,
+            index,
+            offset,
+            operation,
+        } => configuration::RequestContext::Schema {
+            route: configuration_route(route),
+            index,
+            offset,
+            operation: configuration::Operation(operation),
+        },
+        scheduler::RequestContext::RefloatConfigurationValues {
+            route,
+            index,
+            defaults,
+            operation,
+        } => configuration::RequestContext::Values {
+            route: configuration_route(route),
+            index,
+            defaults,
+            operation: configuration::Operation(operation),
+        },
+        scheduler::RequestContext::RefloatConfigurationWrite {
+            route,
+            index,
+            operation,
+        } => configuration::RequestContext::Write {
+            route: configuration_route(route),
+            index,
+            operation: configuration::Operation(operation),
+        },
+        scheduler::RequestContext::RefloatConfigurationVerification {
+            route,
+            index,
+            operation,
+        } => configuration::RequestContext::Verification {
+            route: configuration_route(route),
+            index,
+            operation: configuration::Operation(operation),
+        },
+        _ => return Err(CoordinatorError::InvalidPayload),
+    })
+}
+
+fn configuration_response(
+    payload: &[u8],
+) -> Result<configuration::Response, custom_configuration::CustomConfigurationError> {
+    Ok(match custom_configuration::decode_response(payload)? {
+        custom_configuration::CustomConfigurationResponse::SchemaChunk {
+            index,
+            total_length,
+            offset,
+            bytes,
+        } => configuration::Response::SchemaChunk {
+            index,
+            total: total_length,
+            offset,
+            bytes: bytes.to_vec(),
+        },
+        custom_configuration::CustomConfigurationResponse::Values {
+            command,
+            index,
+            bytes,
+        } => configuration::Response::Values {
+            command: match command {
+                custom_configuration::ValuesCommand::Current => {
+                    configuration::ValuesCommand::Current
+                }
+                custom_configuration::ValuesCommand::Default => {
+                    configuration::ValuesCommand::Default
+                }
+            },
+            index,
+            bytes: bytes.to_vec(),
+        },
+        custom_configuration::CustomConfigurationResponse::WriteAcknowledgement => {
+            configuration::Response::WriteAcknowledgement
+        }
+    })
+}
+
+fn routed_scheduler_payload(
+    route: scheduler::Route,
+    payload: &[u8],
+) -> Result<Vec<u8>, CoordinatorError> {
+    routed_payload(discovery_route(route)?, payload)
+}
+
 fn scheduler_route(route: discovery::Route) -> Result<scheduler::Route, CoordinatorError> {
     match route {
         discovery::Route::Direct => Ok(scheduler::Route::Direct),
@@ -1497,5 +2479,48 @@ mod tests {
             .unwrap();
         assert_eq!(effects, [Effect::Diagnostic(Diagnostic::StaleEvent)]);
         assert_eq!(coordinator.snapshot(), before);
+    }
+
+    #[test]
+    fn composition_effect_bound_is_exact() {
+        let mut effects = vec![Effect::Diagnostic(Diagnostic::StaleEvent); MAX_TRANSITION_EFFECTS];
+        assert_eq!(
+            push_effect(&mut effects, Effect::Diagnostic(Diagnostic::StaleEvent)),
+            Err(CoordinatorError::EffectLimit)
+        );
+        assert_eq!(effects.len(), MAX_TRANSITION_EFFECTS);
+    }
+
+    #[test]
+    fn configuration_request_adapters_are_exact_and_once_routed() {
+        let generation = scheduler::Generation(9);
+        let direct = configuration_request_facts(
+            configuration::RequestEffect::SchemaChunk {
+                route: configuration::Route(0),
+                length: 400,
+                offset: 12,
+                operation: configuration::Operation(7),
+            },
+            generation,
+        )
+        .unwrap();
+        assert_eq!(direct.payload, [92, 0, 0, 0, 1, 144, 0, 0, 0, 12]);
+        assert_eq!(direct.generation, generation);
+        assert_eq!(direct.priority, scheduler::Priority::ControllerWork);
+
+        let can = configuration_request_facts(
+            configuration::RequestEffect::Values {
+                route: configuration::Route(254),
+                defaults: true,
+                operation: configuration::Operation(8),
+            },
+            generation,
+        )
+        .unwrap();
+        assert_eq!(can.payload, [34, 253, 94, 0]);
+        assert_eq!(
+            scheduler_configuration_route(configuration::Route(255)),
+            Err(CoordinatorError::InvalidCanId)
+        );
     }
 }

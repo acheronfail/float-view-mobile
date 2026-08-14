@@ -15,6 +15,8 @@ use float_view_refloat_configuration_codec::{
 pub const REFLOAT_INDEX: u8 = 0;
 /// Maximum bytes requested in one command-92 schema page.
 pub const MAX_SCHEMA_CHUNK_BYTES: usize = 400;
+/// Native-equivalent scheduler timeout for one commands 92–95 request.
+pub const REQUEST_TIMEOUT_MS: u64 = 3_000;
 
 /// An opaque host route identity. Rust compares it but does not interpret it.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
@@ -39,13 +41,26 @@ pub struct FirmwareFacts {
 }
 
 /// Exact host-owned cache key.
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Eq, Hash, PartialEq)]
 pub struct CacheIdentity {
     pub firmware_version: String,
     pub hardware_name: String,
     pub package_version: String,
     pub custom_index: u8,
     pub hardware_configuration_crc: u32,
+}
+
+impl std::fmt::Debug for CacheIdentity {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("CacheIdentity")
+            .field("firmware_version", &self.firmware_version)
+            .field("hardware_name", &"[redacted]")
+            .field("package_version", &self.package_version)
+            .field("custom_index", &self.custom_index)
+            .field("hardware_configuration_crc", &"[redacted]")
+            .finish()
+    }
 }
 
 /// Immutable facts used to start one connection generation.
@@ -59,6 +74,22 @@ pub struct BeginFacts {
     pub flywheel: bool,
     /// Host-loaded bytes for the exact derived cache identity, if present.
     pub cached_schema: Option<Vec<u8>>,
+}
+
+/// Derive the exact host-owned schema cache identity, when firmware supplies
+/// the nonzero hardware-configuration CRC required to make it stable.
+#[must_use]
+pub fn cache_identity(firmware: &FirmwareFacts, reported_version: &str) -> Option<CacheIdentity> {
+    firmware
+        .hardware_configuration_crc
+        .filter(|crc| *crc != 0)
+        .map(|crc| CacheIdentity {
+            firmware_version: format!("{}.{}", firmware.major, firmware.minor),
+            hardware_name: firmware.hardware_name.clone(),
+            package_version: reported_version.to_owned(),
+            custom_index: REFLOAT_INDEX,
+            hardware_configuration_crc: crc,
+        })
 }
 
 /// Audited package identity selected from the complete schema.
@@ -245,6 +276,7 @@ impl Transition {
 /// Stable, payload-free lifecycle failure.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum ServiceError {
+    Unavailable,
     InvalidState,
     StaleResponse,
     UnauditedSchema,
@@ -390,17 +422,7 @@ impl ConfigurationService {
         }
         self.availability = Availability::Loading;
 
-        let cache_identity = facts
-            .firmware
-            .hardware_configuration_crc
-            .filter(|crc| *crc != 0)
-            .map(|crc| CacheIdentity {
-                firmware_version: format!("{}.{}", facts.firmware.major, facts.firmware.minor),
-                hardware_name: facts.firmware.hardware_name,
-                package_version: facts.reported_version,
-                custom_index: REFLOAT_INDEX,
-                hardware_configuration_crc: crc,
-            });
+        let cache_identity = cache_identity(&facts.firmware, &facts.reported_version);
         self.cache_identity = cache_identity.clone();
         let mut cache = None;
         if let (Some(identity), Some(bytes)) = (cache_identity, facts.cached_schema) {

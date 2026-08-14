@@ -94,11 +94,15 @@ name = "float-view-connection-application-coordinator"
 version = "0.1.0"
 dependencies = [
  "float-view-controller-discovery",
+ "float-view-device-mutation-coordinator",
  "float-view-refloat-compatibility",
+ "float-view-refloat-configuration-codec",
+ "float-view-refloat-configuration-service",
  "float-view-refloat-dynamic-telemetry",
  "float-view-refloat-legacy-telemetry",
  "float-view-refloat-telemetry-service",
  "float-view-vesc-bms-telemetry-service",
+ "float-view-vesc-custom-configuration",
  "float-view-vesc-firmware-identity",
  "float-view-vesc-request-scheduler",
 ]

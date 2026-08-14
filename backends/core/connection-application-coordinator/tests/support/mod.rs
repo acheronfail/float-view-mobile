@@ -58,17 +58,39 @@ pub fn receive(
 }
 
 pub fn activate(coordinator: &mut ConnectionApplicationCoordinator, now_ms: u64) -> Vec<Effect> {
+    activate_with_cache(coordinator, now_ms, None)
+}
+
+pub fn activate_with_cache(
+    coordinator: &mut ConnectionApplicationCoordinator,
+    now_ms: u64,
+    cached_configuration_schema: Option<Vec<u8>>,
+) -> Vec<Effect> {
     coordinator
         .apply(Command::Activate {
             generation: coordinator.snapshot().generation,
             now_ms,
             session_started: true,
+            cached_configuration_schema,
         })
         .expect("valid activation")
 }
 
 pub fn motor_payload(uuid_byte: u8) -> Vec<u8> {
     firmware_payload(0, 6, b"THOR300", uuid_byte, b"Float")
+}
+
+pub fn motor_configuration_payload(uuid_byte: u8) -> Vec<u8> {
+    let mut payload = vec![0, 6, 6];
+    payload.extend_from_slice(b"THOR300");
+    payload.push(0);
+    payload.extend_from_slice(&[uuid_byte; 12]);
+    payload.extend_from_slice(&[1, 0, 0, 1]);
+    payload.extend_from_slice(&[1, 0, 1, 0]);
+    payload.extend_from_slice(b"Float");
+    payload.push(0);
+    payload.extend_from_slice(&123_u32.to_be_bytes());
+    payload
 }
 
 pub fn gateway_payload(uuid_byte: u8) -> Vec<u8> {
@@ -139,6 +161,41 @@ pub fn dynamic_idle_payload() -> Vec<u8> {
         include_str!("../../../../fixtures/refloat/rtdata-1.2.3-android-hardware.json"),
         "idle-realtime-data",
     )
+}
+
+pub fn configuration_schema_1_2_3() -> Vec<u8> {
+    include_bytes!("../../../../fixtures/refloat-configuration/schemas/1.2.3.qcompress").to_vec()
+}
+
+pub fn configuration_current_response_1_2_3() -> Vec<u8> {
+    configuration_values_response(
+        93,
+        include_bytes!("../../../../fixtures/refloat-configuration/values/1.2.3-current.bin"),
+    )
+}
+
+pub fn configuration_default_response_1_2_3() -> Vec<u8> {
+    configuration_values_response(
+        94,
+        include_bytes!("../../../../fixtures/refloat-configuration/values/1.2.3-default.bin"),
+    )
+}
+
+pub fn configuration_readback_response_1_2_3() -> Vec<u8> {
+    configuration_values_response(
+        93,
+        include_bytes!("../../../../fixtures/refloat-configuration/values/1.2.3-readback.bin"),
+    )
+}
+
+pub fn configuration_write_values_1_2_3() -> &'static [u8] {
+    include_bytes!("../../../../fixtures/refloat-configuration/values/1.2.3-write.bin")
+}
+
+fn configuration_values_response(command: u8, bytes: &[u8]) -> Vec<u8> {
+    let mut response = vec![command, 0];
+    response.extend_from_slice(bytes);
+    response
 }
 
 fn fixture_payload(document: &str, name: &str) -> Vec<u8> {

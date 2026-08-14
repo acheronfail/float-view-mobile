@@ -37,6 +37,7 @@ fn activation_is_generation_qualified_and_exactly_once() {
             generation: stale_generation(before.generation),
             now_ms: 40,
             session_started: true,
+            cached_configuration_schema: None,
         })
         .unwrap();
     assert_eq!(stale, [Effect::Diagnostic(Diagnostic::StaleEvent)]);
@@ -49,6 +50,7 @@ fn activation_is_generation_qualified_and_exactly_once() {
             generation: active.generation,
             now_ms: 60,
             session_started: true,
+            cached_configuration_schema: None,
         })
         .unwrap();
     assert_eq!(repeated, [Effect::Diagnostic(Diagnostic::StaleEvent)]);
