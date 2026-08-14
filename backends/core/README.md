@@ -4,7 +4,7 @@
 ownership. It is a locked Cargo workspace, not another backend and not a
 production runtime.
 
-The workspace currently has thirty-eight members:
+The workspace currently has thirty-nine members:
 
 | Component               | Scope                                                                 | Integration state                                                                             |
 | ----------------------- | --------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
@@ -32,6 +32,7 @@ The workspace currently has thirty-eight members:
 | `vesc-bms-values/`       | Safe bounded VESC command-96 BMS values decoding                     | Selected by Apple and Android through separate host bridges                                    |
 | `vesc-bms-values-android-jni/` | Two-symbol primitive-array JNI ABI for BMS values              | Selected only by Android                                                                       |
 | `vesc-bms-values-apple-ffi/` | Two-symbol caller-owned-buffer C ABI for BMS values              | Selected only by the shared iOS/macOS adapter                                                  |
+| `vesc-bms-telemetry-service/` | Safe bounded direct/preferred/reused/enumerated BMS discovery, command-96 polling, availability, recovery, and owned-observation decisions | Directly composes safe discovery/decoder/scheduler models; deliberately unselected by every production host |
 | `vesc-controller-data/`  | Safe bounded VESC command-4 realtime and command-14 current-limit decoding | Selected by Apple and Android through separate host bridges                      |
 | `vesc-controller-data-android-jni/` | Two-symbol primitive-array JNI ABI for controller data | Selected only by Android                                                           |
 | `vesc-controller-data-apple-ffi/` | Two-symbol tagged-record C ABI for controller data | Selected only by the shared iOS/macOS adapter                                                |
@@ -47,7 +48,7 @@ The workspace currently has thirty-eight members:
 | `vesc-frame-android-jni/` | Primitive-array JNI ABI                                              | Selected by Android for CRC, encoding, exact decoding, and stream-boundary scans |
 | `vesc-request-scheduler/` | Safe bounded generation, priority/FIFO, attribution, deadline, cancellation, and ordered host-effect state machine | Exhaustively tested application-behavior candidate; deliberately unselected by every production host |
 
-The thirty-eight crates remain independent components and artifacts. The ten
+The thirty-nine crates remain independent components and artifacts. The ten
 Apple-selected component families' repeated
 source-build mechanics are centralized in `build-apple-bridge.sh` and
 `build-android-bridge.sh`, driven by a closed ten-entry Apple and
@@ -139,8 +140,19 @@ Swift and Kotlin remain selected until the unified Rust runtime composes this
 candidate with scheduling, BMS decoding/polling, and application state; that
 cutover deletes both native auxiliary state machines rather than adding
 `auxiliary-node-discovery-apple-ffi` or `auxiliary-node-discovery-android-jni`.
-The recommended next migration slice is the BMS polling/application lifecycle
-that will supply the concrete owned observation model and execute these effects.
+The VESC BMS telemetry service now supplies that concrete observation and
+polling lifecycle directly by composing this discovery model with command-96
+decoding and request-scheduler facts. It remains a pure unselected candidate.
+
+The VESC BMS telemetry service owns direct/preferred/reused/enumerated BMS
+selection, exact read-only request facts, completion-driven cadence, bounded
+failure and recovery, generation/reset handling, and the complete owned live
+BMS observation. It has no bridge, callback, executor, transport, persistence,
+local server, or OS dependency. Swift and Kotlin remain selected until a later
+unified Rust application runtime calls this service directly. The recommended
+next migration slice is a connection-scoped application coordinator that
+composes controller discovery, auxiliary BMS telemetry, Refloat telemetry, and
+the request scheduler without introducing another host bridge.
 
 The custom-configuration component encodes and decodes the bounded VESC
 commands 92–95 envelope while treating compressed schemas and serialized

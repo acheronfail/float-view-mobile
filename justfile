@@ -664,6 +664,45 @@ core-auxiliary-node-discovery-audit:
     [[ "$(git ls-files "$crate" | rg '\.(h|a|so|dylib|xcframework|jar)$' || true)" == "" ]]
     just core-auxiliary-node-discovery-test
 
+core-vesc-bms-telemetry-service-test:
+    cd backends/core && cargo test --locked --offline \
+      --package float-view-vesc-bms-telemetry-service
+
+core-vesc-bms-telemetry-service-audit:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    crate='backends/core/vesc-bms-telemetry-service'
+    [[ -f "$crate/Cargo.toml" && -f "$crate/src/lib.rs" ]]
+    [[ -f "$crate/tests/vectors.rs" && -f "$crate/tests/adversarial.rs" ]]
+    [[ -f backends/fixtures/connection/vesc-bms-telemetry-service.tsv ]]
+    [[ "$(sed '/^#/d;/^$/d' backends/fixtures/connection/vesc-bms-telemetry-service.tsv | wc -l | tr -d ' ')" == 12 ]]
+    rg -q '^#!\[forbid\(unsafe_code\)\]$' "$crate/src/lib.rs"
+    [[ "$(sed -n '/^\[dependencies\]$/,/^\[dev-dependencies\]$/p' "$crate/Cargo.toml" | sed '$d')" == \
+      $'[dependencies]\nfloat-view-auxiliary-node-discovery = { path = "../auxiliary-node-discovery" }\nfloat-view-vesc-bms-values = { path = "../vesc-bms-values" }\nfloat-view-vesc-request-scheduler = { path = "../vesc-request-scheduler" }' ]]
+    [[ "$(cd backends/core && cargo tree --locked --offline \
+      --package float-view-vesc-bms-telemetry-service --edges normal \
+      --depth 1 --prefix none | wc -l | tr -d ' ')" == 4 ]]
+    ! rg -n 'unsafe[[:space:]]*(\{|fn|impl|trait)|extern[[:space:]]+"(C|system)"|no_mangle|Java_|cbindgen|bindgen|uniffi|jni|host_callback|Box<dyn Fn|std::thread|tokio|async_std|rusqlite|sqlite|TcpListener|UdpSocket|std::fs|std::net' \
+      "$crate/src" "$crate/tests"
+    [[ "$(find "$crate" -mindepth 1 -maxdepth 1 -type d \
+      ! -name src ! -name tests -print -quit)" == "" ]]
+    ! rg -n 'vesc-bms-telemetry-service' \
+      backends/apple backends/android backends/core/bridge-build-catalog.sh \
+      backends/core/build-apple-bridge.sh backends/core/build-android-bridge.sh
+    actual_bridges="$(sed -n 's/^    \([a-z][a-z-]*\))$/\1/p' \
+      backends/core/bridge-build-catalog.sh)"
+    expected_bridges="$(printf '%s\n' \
+      frame firmware-identity custom-configuration bms-values controller-data \
+      refloat-control refloat-compatibility refloat-dynamic-telemetry \
+      refloat-legacy-telemetry refloat-configuration-codec)"
+    [[ "$actual_bridges" == "$expected_bridges" ]]
+    [[ -f backends/apple/Sources/FloatViewBackend/application/ApplicationService.swift ]]
+    [[ -f backends/apple/Sources/FloatViewBackend/application/AuxiliaryNodeDiscovery.swift ]]
+    [[ -f backends/android/app/src/main/java/fail/acheron/floatview/application/ApplicationService.kt ]]
+    [[ -f backends/android/app/src/main/java/fail/acheron/floatview/application/AuxiliaryNodeDiscovery.kt ]]
+    [[ "$(git ls-files "$crate" | rg '\.(h|a|so|dylib|xcframework|jar)$' || true)" == "" ]]
+    just core-vesc-bms-telemetry-service-test
+
 core-refloat-telemetry-service-test:
     cd backends/core && cargo test --locked --offline \
       --package float-view-refloat-telemetry-service
@@ -1372,6 +1411,7 @@ audit:
     [[ -f backends/core/vesc-request-scheduler/Cargo.toml ]]
     [[ -f backends/core/controller-discovery/Cargo.toml ]]
     [[ -f backends/core/auxiliary-node-discovery/Cargo.toml ]]
+    [[ -f backends/core/vesc-bms-telemetry-service/Cargo.toml ]]
     [[ -f backends/apple/Sources/CVescFrame/include/CVescFrame.h ]]
     [[ -f backends/apple/Sources/CVescFrame/module.modulemap ]]
     [[ -f backends/apple/Sources/CVescCustomConfiguration/include/CVescCustomConfiguration.h ]]
@@ -1419,7 +1459,8 @@ audit:
       ! -name vesc-firmware-identity-android-jni ! -name vesc-firmware-identity-apple-ffi \
       ! -name vesc-frame ! -name vesc-frame-apple-ffi \
       ! -name vesc-frame-android-jni ! -name vesc-request-scheduler \
-      ! -name controller-discovery ! -name auxiliary-node-discovery -print -quit)"
+      ! -name controller-discovery ! -name auxiliary-node-discovery \
+      ! -name vesc-bms-telemetry-service -print -quit)"
     [[ -z "$unexpected_core" ]] || {
       echo "Unexpected Rust core workspace member: $unexpected_core" >&2
       exit 1
@@ -1441,6 +1482,8 @@ audit:
     [[ "$(find backends/core/controller-discovery -mindepth 1 -maxdepth 1 -type d \
       ! -name src ! -name tests -print -quit)" == "" ]]
     [[ "$(find backends/core/auxiliary-node-discovery -mindepth 1 -maxdepth 1 -type d \
+      ! -name src ! -name tests -print -quit)" == "" ]]
+    [[ "$(find backends/core/vesc-bms-telemetry-service -mindepth 1 -maxdepth 1 -type d \
       ! -name src ! -name tests -print -quit)" == "" ]]
     [[ "$(find backends/core/refloat-configuration-codec-apple-ffi -mindepth 1 -maxdepth 1 -type d \
       ! -name src ! -name tests -print -quit)" == "" ]]
@@ -1712,6 +1755,7 @@ audit:
     just core-vesc-compatibility-audit
     just core-controller-discovery-audit
     just core-auxiliary-node-discovery-audit
+    just core-vesc-bms-telemetry-service-audit
     just core-refloat-telemetry-service-audit
     just core-refloat-configuration-codec-abi-audit
     just core-refloat-dynamic-telemetry-abi-audit

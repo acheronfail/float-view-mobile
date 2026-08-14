@@ -224,6 +224,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "float-view-vesc-bms-telemetry-service"
+version = "0.1.0"
+dependencies = [
+ "float-view-auxiliary-node-discovery",
+ "float-view-vesc-bms-values",
+ "float-view-vesc-firmware-identity",
+ "float-view-vesc-request-scheduler",
+]
+
+[[package]]
 name = "float-view-vesc-bms-values"
 version = "0.1.0"
 

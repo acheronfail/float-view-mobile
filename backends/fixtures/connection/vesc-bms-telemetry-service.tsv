@@ -1,0 +1,13 @@
+# name|setup|lifecycle|expected_status|expected_failures|expected_observation|expected_timer
+standalone-valid|direct|valid|attached|0|yes|yes
+standalone-timeout|direct|timeout|discovering|1|no|yes
+standalone-three-timeouts|direct|timeout,timeout,timeout|unavailable|3|no|yes
+standalone-recovery|direct|valid,timeout,timeout,timeout,valid|attached|0|yes|yes
+standalone-malformed|direct|malformed|discovering|1|no|yes
+standalone-queue-full|direct|queue_full|discovering|1|no|yes
+standalone-cancelled|direct|cancelled|discovering|0|no|no
+reused-can-valid|reused-can|valid|attached|0|yes|yes
+preferred-can-valid|preferred-can|valid|attached|0|yes|yes
+enumerated-can-valid|enumerated-can|valid|attached|0|yes|yes
+enumerated-none|enumerated-none||not_found|0|no|no
+reset-after-valid|direct|valid,reset|discovering|0|no|no

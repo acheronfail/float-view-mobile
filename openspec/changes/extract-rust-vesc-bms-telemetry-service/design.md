@@ -29,9 +29,9 @@ The safe Rust workspace now has all three lower-level owners required by that li
 
 ### Use explicit commands and ordered effects
 
-Public commands carry service generation, auxiliary generation, scheduler generation, monotonic time where needed, observation epoch time, route, request kind, completion, decoded discovery facts, or payload bytes. Transitions return ordered effects for scheduler enqueue, one-shot timer replacement/cancellation, public-state publication, observation publication, stable failure, and redacted diagnostic. No effect executes work and the service retains no host reference.
+Public commands carry service generation, auxiliary generation, scheduler generation, positive observation epoch time, route, request kind, completion, decoded discovery facts, or payload bytes. Timer execution remains host-owned, so the candidate accepts no physical monotonic clock value. Transitions return ordered effects for scheduler enqueue, one-shot timer replacement/cancellation, public-state publication, observation publication, stable failure, and redacted diagnostic. No effect executes work and the service retains no host reference.
 
-Timer tokens contain service generation, auxiliary generation, route, and a wrapping nonce. Public validation rejects CAN routes above 253, zero/overflowing physical time, mismatched routes, oversized discovery input through the composed owner, and malformed decoded observations without partial mutation. Stale, repeated, mismatched, or prior-generation commands cannot advance current work.
+Timer tokens contain service generation, auxiliary generation, route, and a wrapping nonce. Public validation rejects CAN routes above 253, non-positive observation epoch time, mismatched routes, oversized discovery input through the composed owner, and malformed decoded observations without partial mutation. The full positive `i64` epoch range is accepted without arithmetic. Stale, repeated, mismatched, or prior-generation commands cannot advance current work.
 
 ### Preserve exact scheduler and request behavior
 
