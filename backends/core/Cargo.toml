@@ -23,6 +23,7 @@ members = [
     "refloat-legacy-telemetry-android-jni",
     "refloat-legacy-telemetry-apple-ffi",
     "refloat-telemetry-service",
+    "session-history-kernel",
     "vesc-bms-values",
     "vesc-bms-telemetry-service",
     "vesc-bms-values-android-jni",

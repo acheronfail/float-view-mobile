@@ -255,6 +255,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "float-view-session-history-kernel"
+version = "0.1.0"
+
+[[package]]
 name = "float-view-vesc-bms-telemetry-service"
 version = "0.1.0"
 dependencies = [

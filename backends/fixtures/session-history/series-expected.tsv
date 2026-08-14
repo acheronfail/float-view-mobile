@@ -1,0 +1,18 @@
+# field	sequence	elapsed_ms	value	generation
+speedKph	10	0	0	0
+speedKph	13	1000	20	0
+speedKph	14	1001	5	0
+speedKph	16	3501	7	2
+speedKph	17	10000	2	3
+speedKph	18	10000	3	3
+packVoltageV	10	0	60	0
+packVoltageV	14	1001	56	0
+packVoltageV	15	3500	55	1
+packVoltageV	17	10000	54	3
+packVoltageV	18	10000	53	3
+extensionLate	12	999	0.5	2
+extensionLate	14	1001	0.7	2
+extensionLate	15	3500	0.8	3
+extensionLate	16	3501	0.9	3
+extensionLate	17	10000	1	4
+extensionLate	18	10000	1.1	4

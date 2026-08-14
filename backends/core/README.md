@@ -4,7 +4,7 @@
 ownership. It is a locked Cargo workspace, not another backend and not a
 production runtime.
 
-The workspace currently has forty-one members:
+The workspace currently has forty-two members:
 
 | Component               | Scope                                                                 | Integration state                                                                             |
 | ----------------------- | --------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
@@ -31,6 +31,7 @@ The workspace currently has forty-one members:
 | `refloat-legacy-telemetry-apple-ffi/` | Two-symbol caller-owned-buffer C ABI for legacy telemetry | Temporary bridge selected only by the shared iOS/macOS adapter |
 | `refloat-legacy-telemetry-android-jni/` | Two-symbol primitive-array JNI ABI for legacy telemetry | Temporary bridge selected only by Android |
 | `refloat-telemetry-service/` | Safe bounded layout retry, route-correct request, adaptive cadence, compact-cache merge, normalization, and ordered host-effect state machine | Directly composes safe decoder/scheduler models; deliberately unselected by every production host |
+| `session-history-kernel/` | Safe bounded ordered M4 historical-series reduction, continuity generations, and incremental protected/eight-row prune selection | Standard-library-only application candidate for the future Rust SQLite/session runtime; deliberately unselected by every production host |
 | `vesc-bms-values/`       | Safe bounded VESC command-96 BMS values decoding                     | Selected by Apple and Android through separate host bridges                                    |
 | `vesc-bms-values-android-jni/` | Two-symbol primitive-array JNI ABI for BMS values              | Selected only by Android                                                                       |
 | `vesc-bms-values-apple-ffi/` | Two-symbol caller-owned-buffer C ABI for BMS values              | Selected only by the shared iOS/macOS adapter                                                  |
@@ -50,7 +51,7 @@ The workspace currently has forty-one members:
 | `vesc-frame-android-jni/` | Primitive-array JNI ABI                                              | Selected by Android for CRC, encoding, exact decoding, and stream-boundary scans |
 | `vesc-request-scheduler/` | Safe bounded generation, priority/FIFO, attribution, deadline, cancellation, and ordered host-effect state machine | Exhaustively tested application-behavior candidate; deliberately unselected by every production host |
 
-The forty-one crates remain independent components and artifacts. The ten
+The forty-two crates remain independent components and artifacts. The ten
 Apple-selected component families' repeated
 source-build mechanics are centralized in `build-apple-bridge.sh` and
 `build-android-bridge.sh`, driven by a closed ten-entry Apple and
@@ -212,6 +213,16 @@ filesystem, or package selection. Swift and Kotlin therefore remain the
 production application owners while this candidate provides the deterministic
 spine for a later platform-neutral runtime. That runtime will add persistence
 and local-server ports through separate changes before either host cutover.
+
+The session-history kernel owns the duplicated platform-neutral work directly
+above future persistence: ordered M4 first/minimum/maximum/last reduction,
+continuity generations, and elapsed-zero-aligned prune selection with protected
+semantic evidence and no more than eight ordinary rows per bucket. Its series
+and prune APIs finalize incrementally over bounded state, use only `std`, and
+own no SQLite connection, cursor codec, file, server, callback, bridge, or OS
+behavior. Swift and Kotlin remain selected until the Rust SQLite/session
+runtime calls this kernel directly; that later cutover deletes both native
+reducers without creating session-history Apple FFI or Android JNI crates.
 
 The BMS values component decodes only the bounded command-96 payload into a
 platform-neutral fixed-capacity model. Apple and Android select it through

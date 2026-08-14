@@ -770,6 +770,52 @@ core-connection-application-coordinator-audit:
     [[ "$(git ls-files "$crate" | rg '\.(h|a|so|dylib|xcframework|jar)$' || true)" == "" ]]
     just core-connection-application-coordinator-test
 
+core-session-history-kernel-test:
+    cd backends/core && cargo test --locked --offline \
+      --package float-view-session-history-kernel
+
+core-session-history-kernel-audit:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    crate='backends/core/session-history-kernel'
+    fixtures='backends/fixtures/session-history'
+    [[ -f "$crate/Cargo.toml" && -f "$crate/src/lib.rs" ]]
+    [[ -f "$crate/tests/vectors.rs" && -f "$crate/tests/adversarial.rs" && -f "$crate/tests/support/mod.rs" ]]
+    for fixture in series.tsv series-expected.tsv prune.tsv prune-expected.tsv \
+      prune-eight-cap.tsv prune-eight-cap-expected.tsv; do
+      [[ -f "$fixtures/$fixture" ]]
+    done
+    [[ "$(sed '/^#/d;/^$/d' "$fixtures/series.tsv" | wc -l | tr -d ' ')" == 9 ]]
+    [[ "$(sed '/^#/d;/^$/d' "$fixtures/series-expected.tsv" | wc -l | tr -d ' ')" == 17 ]]
+    [[ "$(sed '/^#/d;/^$/d' "$fixtures/prune.tsv" | wc -l | tr -d ' ')" == 24 ]]
+    [[ "$(sed '/^#/d;/^$/d' "$fixtures/prune-expected.tsv" | wc -l | tr -d ' ')" == 10 ]]
+    [[ "$(sed '/^#/d;/^$/d' "$fixtures/prune-eight-cap.tsv" | wc -l | tr -d ' ')" == 11 ]]
+    [[ "$(sed '/^#/d;/^$/d' "$fixtures/prune-eight-cap-expected.tsv" | wc -l | tr -d ' ')" == 10 ]]
+    rg -q '^#!\[forbid\(unsafe_code\)\]$' "$crate/src/lib.rs"
+    [[ "$(sed -n '/^\[dependencies\]$/,$p' "$crate/Cargo.toml")" == '[dependencies]' ]]
+    [[ "$(cd backends/core && cargo tree --locked --offline \
+      --package float-view-session-history-kernel --edges normal \
+      --prefix none | wc -l | tr -d ' ')" == 1 ]]
+    ! rg -n 'unsafe[[:space:]]*(\{|fn|impl|trait)|extern[[:space:]]+"(C|system)"|no_mangle|Java_|cbindgen|bindgen|uniffi|jni|host_callback|Box<dyn Fn|std::thread|tokio|async_std|rusqlite|libsqlite|sqlite3_|TcpListener|UdpSocket|std::fs|std::net|serde|base64' \
+      "$crate/src" "$crate/tests"
+    ! rg -n 'SessionHistoryReducer\.(swift|kt)|session-reference\.ts|session-vectors\.ts|prune-vectors\.ts|include_(str|bytes)!.*(frontend|apple|android)' \
+      "$crate"
+    [[ "$(find "$crate" -mindepth 1 -maxdepth 1 -type d \
+      ! -name src ! -name tests -print -quit)" == "" ]]
+    ! rg -n 'session-history-kernel' \
+      backends/apple/Package.swift \
+      backends/apple/ios/float-view.xcodeproj/project.pbxproj \
+      backends/android/app/build.gradle.kts \
+      backends/core/bridge-build-catalog.sh \
+      backends/core/build-apple-bridge.sh backends/core/build-android-bridge.sh
+    [[ ! -e backends/core/session-history-apple-ffi ]]
+    [[ ! -e backends/core/session-history-android-jni ]]
+    [[ -f backends/apple/Sources/FloatViewBackend/application/SessionHistoryReducer.swift ]]
+    [[ -f backends/android/app/src/main/java/fail/acheron/floatview/application/SessionHistoryReducer.kt ]]
+    git diff --quiet HEAD -- backends/apple backends/android frontend backends/sql
+    [[ "$(git ls-files "$crate" | rg '\.(h|a|so|dylib|xcframework|jar)$' || true)" == "" ]]
+    just core-session-history-kernel-test
+
 core-device-mutation-coordinator-test:
     cd backends/core && cargo test --locked --offline \
       --package float-view-device-mutation-coordinator
@@ -1487,6 +1533,7 @@ audit:
     [[ -f backends/core/auxiliary-node-discovery/Cargo.toml ]]
     [[ -f backends/core/vesc-bms-telemetry-service/Cargo.toml ]]
     [[ -f backends/core/connection-application-coordinator/Cargo.toml ]]
+    [[ -f backends/core/session-history-kernel/Cargo.toml ]]
     [[ -f backends/core/device-mutation-coordinator/Cargo.toml ]]
     [[ -f backends/apple/Sources/CVescFrame/include/CVescFrame.h ]]
     [[ -f backends/apple/Sources/CVescFrame/module.modulemap ]]
@@ -1538,6 +1585,7 @@ audit:
       ! -name controller-discovery ! -name auxiliary-node-discovery \
       ! -name vesc-bms-telemetry-service \
       ! -name connection-application-coordinator \
+      ! -name session-history-kernel \
       ! -name device-mutation-coordinator -print -quit)"
     [[ -z "$unexpected_core" ]] || {
       echo "Unexpected Rust core workspace member: $unexpected_core" >&2
@@ -1564,6 +1612,8 @@ audit:
     [[ "$(find backends/core/vesc-bms-telemetry-service -mindepth 1 -maxdepth 1 -type d \
       ! -name src ! -name tests -print -quit)" == "" ]]
     [[ "$(find backends/core/connection-application-coordinator -mindepth 1 -maxdepth 1 -type d \
+      ! -name src ! -name tests -print -quit)" == "" ]]
+    [[ "$(find backends/core/session-history-kernel -mindepth 1 -maxdepth 1 -type d \
       ! -name src ! -name tests -print -quit)" == "" ]]
     [[ "$(find backends/core/device-mutation-coordinator -mindepth 1 -maxdepth 1 -type d \
       ! -name src ! -name tests -print -quit)" == "" ]]
@@ -1840,6 +1890,7 @@ audit:
     just core-vesc-bms-telemetry-service-audit
     just core-refloat-telemetry-service-audit
     just core-connection-application-coordinator-audit
+    just core-session-history-kernel-audit
     just core-device-mutation-coordinator-audit
     just core-refloat-configuration-codec-abi-audit
     just core-refloat-dynamic-telemetry-abi-audit

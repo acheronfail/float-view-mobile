@@ -1,0 +1,10 @@
+# sequence	elapsed_ms	ride_phase	speedKph	packVoltageV	extensionLate
+10	0	other	0	60	-
+11	0	other	1	59	-
+12	999	riding	10	58	0.5
+13	1000	riding	20	57	0.6
+14	1001	riding	5	56	0.7
+15	3500	riding	-	55	0.8
+16	3501	riding	7	-	0.9
+17	10000	other	2	54	1
+18	10000	other	3	53	1.1
