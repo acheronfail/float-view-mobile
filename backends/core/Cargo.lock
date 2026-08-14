@@ -113,6 +113,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "float-view-device-mutation-coordinator"
+version = "0.1.0"
+dependencies = [
+ "float-view-refloat-compatibility",
+ "float-view-refloat-control",
+ "float-view-refloat-telemetry-service",
+ "float-view-vesc-compatibility",
+ "float-view-vesc-firmware-identity",
+ "float-view-vesc-request-scheduler",
+]
+
+[[package]]
 name = "float-view-refloat-compatibility"
 version = "0.1.0"
 dependencies = [

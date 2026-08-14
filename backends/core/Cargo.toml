@@ -5,6 +5,7 @@ members = [
     "auxiliary-node-discovery",
     "connection-application-coordinator",
     "controller-discovery",
+    "device-mutation-coordinator",
     "refloat-compatibility",
     "refloat-compatibility-android-jni",
     "refloat-compatibility-apple-ffi",

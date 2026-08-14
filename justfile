@@ -758,6 +758,38 @@ core-connection-application-coordinator-audit:
     [[ "$(git ls-files "$crate" | rg '\.(h|a|so|dylib|xcframework|jar)$' || true)" == "" ]]
     just core-connection-application-coordinator-test
 
+core-device-mutation-coordinator-test:
+    cd backends/core && cargo test --locked --offline \
+      --package float-view-device-mutation-coordinator
+
+core-device-mutation-coordinator-audit:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    crate='backends/core/device-mutation-coordinator'
+    [[ -f "$crate/Cargo.toml" && -f "$crate/src/lib.rs" ]]
+    [[ -f "$crate/tests/vectors.rs" && -f "$crate/tests/adversarial.rs" ]]
+    [[ -f backends/fixtures/connection/device-mutation-coordinator.tsv ]]
+    [[ "$(sed '/^#/d;/^$/d' backends/fixtures/connection/device-mutation-coordinator.tsv | wc -l | tr -d ' ')" == 16 ]]
+    rg -q '^#!\[forbid\(unsafe_code\)\]$' "$crate/src/lib.rs"
+    [[ "$(sed -n '/^\[dependencies\]$/,$p' "$crate/Cargo.toml")" == \
+      $'[dependencies]\nfloat-view-refloat-compatibility = { path = "../refloat-compatibility" }\nfloat-view-refloat-control = { path = "../refloat-control" }\nfloat-view-refloat-telemetry-service = { path = "../refloat-telemetry-service" }\nfloat-view-vesc-compatibility = { path = "../vesc-compatibility" }\nfloat-view-vesc-firmware-identity = { path = "../vesc-firmware-identity" }\nfloat-view-vesc-request-scheduler = { path = "../vesc-request-scheduler" }' ]]
+    [[ "$(cd backends/core && cargo tree --locked --offline \
+      --package float-view-device-mutation-coordinator --edges normal \
+      --depth 1 --prefix none | wc -l | tr -d ' ')" == 7 ]]
+    ! rg -n 'unsafe[[:space:]]*(\{|fn|impl|trait)|extern[[:space:]]+"(C|system)"|no_mangle|Java_|cbindgen|bindgen|uniffi|jni|host_callback|Box<dyn Fn|std::thread|tokio|async_std|rusqlite|sqlite|TcpListener|UdpSocket|std::fs|std::net' \
+      "$crate/src" "$crate/tests"
+    [[ "$(find "$crate" -mindepth 1 -maxdepth 1 -type d \
+      ! -name src ! -name tests -print -quit)" == "" ]]
+    ! rg -n 'device-mutation-coordinator' \
+      backends/apple backends/android backends/core/bridge-build-catalog.sh \
+      backends/core/build-apple-bridge.sh backends/core/build-android-bridge.sh
+    [[ -f backends/apple/Sources/FloatViewBackend/application/RefloatMutationCoordinator.swift ]]
+    [[ -f backends/android/app/src/main/java/fail/acheron/floatview/application/RefloatMutationCoordinator.kt ]]
+    [[ -f backends/apple/Sources/FloatViewBackend/application/ApplicationService.swift ]]
+    [[ -f backends/android/app/src/main/java/fail/acheron/floatview/application/ApplicationService.kt ]]
+    [[ "$(git ls-files "$crate" | rg '\.(h|a|so|dylib|xcframework|jar)$' || true)" == "" ]]
+    just core-device-mutation-coordinator-test
+
 core-refloat-configuration-codec-audit:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -1443,6 +1475,7 @@ audit:
     [[ -f backends/core/auxiliary-node-discovery/Cargo.toml ]]
     [[ -f backends/core/vesc-bms-telemetry-service/Cargo.toml ]]
     [[ -f backends/core/connection-application-coordinator/Cargo.toml ]]
+    [[ -f backends/core/device-mutation-coordinator/Cargo.toml ]]
     [[ -f backends/apple/Sources/CVescFrame/include/CVescFrame.h ]]
     [[ -f backends/apple/Sources/CVescFrame/module.modulemap ]]
     [[ -f backends/apple/Sources/CVescCustomConfiguration/include/CVescCustomConfiguration.h ]]
@@ -1492,7 +1525,8 @@ audit:
       ! -name vesc-frame-android-jni ! -name vesc-request-scheduler \
       ! -name controller-discovery ! -name auxiliary-node-discovery \
       ! -name vesc-bms-telemetry-service \
-      ! -name connection-application-coordinator -print -quit)"
+      ! -name connection-application-coordinator \
+      ! -name device-mutation-coordinator -print -quit)"
     [[ -z "$unexpected_core" ]] || {
       echo "Unexpected Rust core workspace member: $unexpected_core" >&2
       exit 1
@@ -1518,6 +1552,8 @@ audit:
     [[ "$(find backends/core/vesc-bms-telemetry-service -mindepth 1 -maxdepth 1 -type d \
       ! -name src ! -name tests -print -quit)" == "" ]]
     [[ "$(find backends/core/connection-application-coordinator -mindepth 1 -maxdepth 1 -type d \
+      ! -name src ! -name tests -print -quit)" == "" ]]
+    [[ "$(find backends/core/device-mutation-coordinator -mindepth 1 -maxdepth 1 -type d \
       ! -name src ! -name tests -print -quit)" == "" ]]
     [[ "$(find backends/core/refloat-configuration-codec-apple-ffi -mindepth 1 -maxdepth 1 -type d \
       ! -name src ! -name tests -print -quit)" == "" ]]
@@ -1792,6 +1828,7 @@ audit:
     just core-vesc-bms-telemetry-service-audit
     just core-refloat-telemetry-service-audit
     just core-connection-application-coordinator-audit
+    just core-device-mutation-coordinator-audit
     just core-refloat-configuration-codec-abi-audit
     just core-refloat-dynamic-telemetry-abi-audit
     just core-refloat-legacy-telemetry-abi-audit

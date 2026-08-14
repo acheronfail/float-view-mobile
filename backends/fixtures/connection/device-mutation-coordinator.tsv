@@ -1,0 +1,17 @@
+# scenario|route|outcome|kind|payload_hex
+package-idempotent|direct|idempotent||
+package-disable|direct|submit|package|24650c01
+flywheel-enable|direct|submit|flywheel|246516810000000001
+flywheel-disable-active|direct|submit|flywheel|246516800000000001
+leds-disable|direct|submit|leds|2465140000000102
+headlights-disable|direct|submit|headlights|2465140000000201
+fatal-clear|direct|submit|clear-fatal-error|24652401
+configuration-write|direct|lease|configuration-write|
+tune-apply|direct|lease|tune-apply|
+shutdown-direct|direct|submit|controller-shutdown|9c0000
+shutdown-can|can:42|submit|controller-shutdown|222a9c0000
+reset-pending|direct|cancelled|configuration-write|
+package-confirmed|direct|confirmed|package|
+configuration-failed|direct|failed|configuration-write|
+configuration-cancelled|direct|cancelled|configuration-write|
+reconnect-replaced|direct|replaced|configuration-write|

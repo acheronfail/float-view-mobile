@@ -4,7 +4,7 @@
 ownership. It is a locked Cargo workspace, not another backend and not a
 production runtime.
 
-The workspace currently has forty members:
+The workspace currently has forty-one members:
 
 | Component               | Scope                                                                 | Integration state                                                                             |
 | ----------------------- | --------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
@@ -13,6 +13,7 @@ The workspace currently has forty members:
 | `auxiliary-node-discovery/` | Safe bounded exact-VBMS admission, inventory reuse, preferred/automatic routing, availability, and observation-retention decisions | Exhaustively tested candidate; deliberately unselected by every production host |
 | `controller-discovery/` | Safe bounded direct/CAN discovery, recovery, continuity, candidate selection, and Refloat-readiness decisions | Exhaustively tested candidate; deliberately unselected by every production host |
 | `connection-application-coordinator/` | Safe generation-scoped composition of discovery, request scheduling, Refloat telemetry, BMS telemetry, activation, reset, and ordered host effects | Exhaustively tested candidate; deliberately unselected by every production host |
+| `device-mutation-coordinator/` | Safe generation-scoped authorization, serialization, request facts, confirmation, and failure handling for controls, shutdown, configuration writes, and Tune apply | Exhaustively tested candidate; deliberately unselected by every production host |
 | `refloat-compatibility/` | Safe bounded Refloat INFO identity, exact profile catalogue, and canonical dynamic-layout admission | Selected by Apple and Android through separate host bridges |
 | `refloat-compatibility-android-jni/` | Four-symbol stateless primitive-array JNI ABI for INFO and layout admission | Temporary bridge selected only by Android |
 | `refloat-compatibility-apple-ffi/` | Four-symbol caller-owned-buffer C ABI for INFO and layout admission | Temporary bridge selected only by the shared iOS/macOS adapter |
@@ -49,7 +50,7 @@ The workspace currently has forty members:
 | `vesc-frame-android-jni/` | Primitive-array JNI ABI                                              | Selected by Android for CRC, encoding, exact decoding, and stream-boundary scans |
 | `vesc-request-scheduler/` | Safe bounded generation, priority/FIFO, attribution, deadline, cancellation, and ordered host-effect state machine | Exhaustively tested application-behavior candidate; deliberately unselected by every production host |
 
-The forty crates remain independent components and artifacts. The ten
+The forty-one crates remain independent components and artifacts. The ten
 Apple-selected component families' repeated
 source-build mechanics are centralized in `build-apple-bridge.sh` and
 `build-android-bridge.sh`, driven by a closed ten-entry Apple and
