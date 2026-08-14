@@ -552,6 +552,31 @@ core-vesc-request-scheduler-audit:
     [[ "$(git ls-files "$crate" | rg '\.(h|a|so|dylib|xcframework|jar)$' || true)" == "" ]]
     just core-vesc-request-scheduler-test
 
+core-refloat-telemetry-service-test:
+    cd backends/core && cargo test --locked --offline \
+      --package float-view-refloat-telemetry-service
+
+core-refloat-telemetry-service-audit:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    crate='backends/core/refloat-telemetry-service'
+    [[ -f "$crate/Cargo.toml" && -f "$crate/src/lib.rs" ]]
+    rg -q '^#!\[forbid\(unsafe_code\)\]$' "$crate/src/lib.rs"
+    [[ "$(sed -n '/^\[dependencies\]$/,$p' "$crate/Cargo.toml")" == \
+      $'[dependencies]\nfloat-view-refloat-dynamic-telemetry = { path = "../refloat-dynamic-telemetry" }\nfloat-view-refloat-legacy-telemetry = { path = "../refloat-legacy-telemetry" }\nfloat-view-vesc-request-scheduler = { path = "../vesc-request-scheduler" }' ]]
+    [[ "$(cd backends/core && cargo tree --locked --offline \
+      --package float-view-refloat-telemetry-service --edges normal \
+      --depth 1 --prefix none | wc -l | tr -d ' ')" == 4 ]]
+    ! rg -n 'unsafe[[:space:]]*(\{|fn|impl|trait)|extern[[:space:]]+"(C|system)"|no_mangle|Java_|cbindgen|bindgen|uniffi|jni|host_callback|Box<dyn Fn|std::thread|tokio|async_std|rusqlite|sqlite|TcpListener|UdpSocket|std::fs|std::net' \
+      "$crate/src"
+    [[ "$(find "$crate" -mindepth 1 -maxdepth 1 -type d \
+      ! -name src -print -quit)" == "" ]]
+    ! rg -n 'refloat-telemetry-service' \
+      backends/apple backends/android backends/core/bridge-build-catalog.sh \
+      backends/core/build-apple-bridge.sh backends/core/build-android-bridge.sh
+    [[ "$(git ls-files "$crate" | rg '\.(h|a|so|dylib|xcframework|jar)$' || true)" == "" ]]
+    just core-refloat-telemetry-service-test
+
 core-refloat-configuration-codec-audit:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -1218,6 +1243,7 @@ audit:
     [[ -f backends/core/refloat-legacy-telemetry-android-jni/Cargo.toml ]]
     [[ -f backends/core/refloat-legacy-telemetry-apple-ffi/Cargo.toml ]]
     [[ -f backends/core/refloat-legacy-telemetry-apple-ffi/tests/abi.c ]]
+    [[ -f backends/core/refloat-telemetry-service/Cargo.toml ]]
     [[ -f backends/core/vesc-bms-values/Cargo.toml ]]
     [[ -f backends/core/vesc-bms-values-android-jni/Cargo.toml ]]
     [[ -f backends/core/vesc-bms-values-apple-ffi/Cargo.toml ]]
@@ -1266,6 +1292,7 @@ audit:
       ! -name refloat-legacy-telemetry \
       ! -name refloat-legacy-telemetry-apple-ffi \
       ! -name refloat-legacy-telemetry-android-jni \
+      ! -name refloat-telemetry-service \
       ! -name vesc-bms-values ! -name vesc-bms-values-android-jni \
       ! -name vesc-bms-values-apple-ffi \
       ! -name vesc-controller-data ! -name vesc-controller-data-android-jni \
@@ -1559,6 +1586,7 @@ audit:
     just core-refloat-configuration-codec-audit
     just core-refloat-configuration-service-audit
     just core-vesc-request-scheduler-audit
+    just core-refloat-telemetry-service-audit
     just core-refloat-configuration-codec-abi-audit
     just core-refloat-dynamic-telemetry-abi-audit
     just core-refloat-legacy-telemetry-abi-audit

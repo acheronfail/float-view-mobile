@@ -1,0 +1,11 @@
+[package]
+name = "float-view-refloat-telemetry-service"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+float-view-refloat-dynamic-telemetry = { path = "../refloat-dynamic-telemetry" }
+float-view-refloat-legacy-telemetry = { path = "../refloat-legacy-telemetry" }
+float-view-vesc-request-scheduler = { path = "../vesc-request-scheduler" }

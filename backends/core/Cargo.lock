@@ -198,6 +198,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "float-view-refloat-telemetry-service"
+version = "0.1.0"
+dependencies = [
+ "float-view-refloat-dynamic-telemetry",
+ "float-view-refloat-legacy-telemetry",
+ "float-view-vesc-request-scheduler",
+]
+
+[[package]]
 name = "float-view-vesc-bms-values"
 version = "0.1.0"
 
