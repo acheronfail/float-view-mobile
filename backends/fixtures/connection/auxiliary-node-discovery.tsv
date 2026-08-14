@@ -1,0 +1,14 @@
+# name|local(type:major:minor:name)|preferredCanId|inventory(none,empty,id:type:major:minor:name)|canIds|probed(id:type:major:minor:name)|lifecycle|expectedStatus|expectedEffect|expectedRoute|expectedCandidates|expectedIssue|expectedObservation
+direct-stock|1:6:0:VBMS||none||||discovering|request_values|direct|||
+direct-vbms32|2:6:6:VBMS32||none||||discovering|request_values|direct|||
+reject-custom-module|0:6:6:THOR300||10:2:6:6:Gateway||||not_found|none||||
+reused-unique|0:6:6:THOR300||42:1:6:0:VBMS||||discovering|request_values|can:42|||
+reused-ambiguous|0:6:6:THOR300||8:1:6:0:VBMS;3:2:6:6:VBMS32||||ambiguous|none||can:3,can:8||
+preferred-reused|0:6:6:THOR300|42|42:2:6:6:VBMS32||||discovering|request_values|can:42|||
+preferred-probed|0:6:6:THOR300|42|empty||42:1:6:0:VBMS||discovering|request_values|can:42|||
+preferred-incompatible|0:6:6:THOR300|42|empty||42:2:6:6:Gateway||unavailable|none|||preferred_bms_unavailable|
+preferred-timeout|0:6:6:THOR300|42|none||||unavailable|none|||preferred_bms_unavailable|
+enumerated-unique|0:6:6:THOR300||none|42,3|3:0:6:6:THOR300;42:2:6:6:VBMS32||discovering|request_values|can:42|||
+enumerated-none|0:6:6:THOR300||none|3|3:0:6:6:THOR300||not_found|none||||
+observation-recovery|1:6:0:VBMS||none|||observe-unavailable-recover|attached|request_values|direct|||second
+generation-reset|1:6:0:VBMS||none|||reset|discovering|none||||

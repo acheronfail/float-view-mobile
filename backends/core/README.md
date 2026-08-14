@@ -4,12 +4,13 @@
 ownership. It is a locked Cargo workspace, not another backend and not a
 production runtime.
 
-The workspace currently has thirty-seven members:
+The workspace currently has thirty-eight members:
 
 | Component               | Scope                                                                 | Integration state                                                                             |
 | ----------------------- | --------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
 | `android-jni-support/`   | Checked call-local JNI environments, primitive-array copies, alias validation, and panic containment | Shared internally by the ten Android bridges; exports no JNI symbol and owns no protocol behavior |
 | `apple-ffi-support/`     | Dependency-free checked regions, panic containment, and bounded C output publication | Shared internally by the ten Apple bridges; exports no C symbol and owns no protocol behavior |
+| `auxiliary-node-discovery/` | Safe bounded exact-VBMS admission, inventory reuse, preferred/automatic routing, availability, and observation-retention decisions | Exhaustively tested candidate; deliberately unselected by every production host |
 | `controller-discovery/` | Safe bounded direct/CAN discovery, recovery, continuity, candidate selection, and Refloat-readiness decisions | Exhaustively tested candidate; deliberately unselected by every production host |
 | `refloat-compatibility/` | Safe bounded Refloat INFO identity, exact profile catalogue, and canonical dynamic-layout admission | Selected by Apple and Android through separate host bridges |
 | `refloat-compatibility-android-jni/` | Four-symbol stateless primitive-array JNI ABI for INFO and layout admission | Temporary bridge selected only by Android |
@@ -46,7 +47,7 @@ The workspace currently has thirty-seven members:
 | `vesc-frame-android-jni/` | Primitive-array JNI ABI                                              | Selected by Android for CRC, encoding, exact decoding, and stream-boundary scans |
 | `vesc-request-scheduler/` | Safe bounded generation, priority/FIFO, attribution, deadline, cancellation, and ordered host-effect state machine | Exhaustively tested application-behavior candidate; deliberately unselected by every production host |
 
-The thirty-seven crates remain independent components and artifacts. The ten
+The thirty-eight crates remain independent components and artifacts. The ten
 Apple-selected component families' repeated
 source-build mechanics are centralized in `build-apple-bridge.sh` and
 `build-android-bridge.sh`, driven by a closed ten-entry Apple and
@@ -126,6 +127,20 @@ surrounding application runtime is native. A later unified Rust runtime calls
 this candidate directly, deletes both native discovery state machines, and
 ultimately removes the temporary protocol bridge crates once no native
 application/protocol boundary remains.
+
+The auxiliary-node-discovery candidate directly consumes controller-discovery
+routes and complete classified inventory. It owns the exact stock-VBMS/VBMS32
+catalogue, direct and preferred selection, bounded fallback enumeration,
+ambiguity, availability, generations, and opaque owned observation retention.
+It deliberately follows the canonical fail-closed seventeenth-BMS rule rather
+than the native implementations' untested ambiguous edge. It has no request
+bytes, decoder, scheduler, callback, bridge, persistence, or host package input.
+Swift and Kotlin remain selected until the unified Rust runtime composes this
+candidate with scheduling, BMS decoding/polling, and application state; that
+cutover deletes both native auxiliary state machines rather than adding
+`auxiliary-node-discovery-apple-ffi` or `auxiliary-node-discovery-android-jni`.
+The recommended next migration slice is the BMS polling/application lifecycle
+that will supply the concrete owned observation model and execute these effects.
 
 The custom-configuration component encodes and decodes the bounded VESC
 commands 92–95 envelope while treating compressed schemas and serialized

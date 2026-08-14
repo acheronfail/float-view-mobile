@@ -82,6 +82,14 @@ name = "float-view-apple-ffi-support"
 version = "0.1.0"
 
 [[package]]
+name = "float-view-auxiliary-node-discovery"
+version = "0.1.0"
+dependencies = [
+ "float-view-controller-discovery",
+ "float-view-vesc-firmware-identity",
+]
+
+[[package]]
 name = "float-view-controller-discovery"
 version = "0.1.0"
 dependencies = [
