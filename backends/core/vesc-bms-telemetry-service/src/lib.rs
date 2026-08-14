@@ -13,7 +13,7 @@ use float_view_auxiliary_node_discovery as discovery;
 use float_view_vesc_bms_values as values;
 use float_view_vesc_request_scheduler as scheduler;
 
-pub use discovery::{Candidate, IssueCode, Route, RoutedIdentity, Status};
+pub use discovery::{Candidate, IssueCode, Route, RoutedIdentity, Status, supports_bms};
 pub use scheduler::Generation as SchedulerGeneration;
 
 /// Current auxiliary-discovery generation.
@@ -156,6 +156,7 @@ pub struct TimerToken {
 pub enum Diagnostic {
     StaleEvent,
     MismatchedEvent,
+    MalformedDiscovery,
     MalformedValues,
     EnqueueRejected,
 }
@@ -241,6 +242,12 @@ pub enum Command {
         route: Route,
         payload: Vec<u8>,
         observed_at_epoch_ms: i64,
+    },
+    DecodeFailed {
+        service_generation: u64,
+        auxiliary_generation: AuxiliaryGeneration,
+        kind: RequestKind,
+        route: Option<Route>,
     },
     TimerFired(TimerToken),
     Reset,
@@ -371,6 +378,12 @@ impl VescBmsTelemetryService {
                 &payload,
                 observed_at_epoch_ms,
             ),
+            Command::DecodeFailed {
+                service_generation,
+                auxiliary_generation,
+                kind,
+                route,
+            } => Ok(self.decode_failed(service_generation, auxiliary_generation, kind, route)),
             Command::TimerFired(token) => Ok(self.timer_fired(token)),
             Command::Reset => Ok(self.reset()),
         }
@@ -542,6 +555,40 @@ impl VescBmsTelemetryService {
             Effect::PublishObservation(observation),
             Effect::PublishState(self.snapshot()),
         ])
+    }
+
+    pub fn decode_failed(
+        &mut self,
+        service_generation: u64,
+        auxiliary_generation: AuxiliaryGeneration,
+        kind: RequestKind,
+        route: Option<Route>,
+    ) -> Vec<Effect> {
+        let expected = RequestIdentity {
+            service_generation,
+            auxiliary_generation,
+            kind,
+            route,
+        };
+        if !self.consume_decoded(expected) {
+            return self.stale_or_mismatched(expected);
+        }
+        let mut effects = vec![Effect::Diagnostic(Diagnostic::MalformedDiscovery)];
+        effects.extend(match (kind, route) {
+            (RequestKind::CanScan, None) => {
+                let transition = self.discovery.scan_failed(auxiliary_generation);
+                self.translate_transition(transition)
+            }
+            (RequestKind::Firmware, Some(route)) => {
+                let transition = self.discovery.probe_timed_out(route, auxiliary_generation);
+                self.translate_transition(transition)
+            }
+            (RequestKind::Values, Some(route)) => {
+                self.record_values_failure(route, auxiliary_generation)
+            }
+            _ => vec![Effect::Diagnostic(Diagnostic::MismatchedEvent)],
+        });
+        effects
     }
 
     pub fn timer_fired(&mut self, token: TimerToken) -> Vec<Effect> {

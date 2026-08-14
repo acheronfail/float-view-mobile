@@ -3,6 +3,7 @@ members = [
     "android-jni-support",
     "apple-ffi-support",
     "auxiliary-node-discovery",
+    "connection-application-coordinator",
     "controller-discovery",
     "refloat-compatibility",
     "refloat-compatibility-android-jni",

@@ -4,7 +4,7 @@
 ownership. It is a locked Cargo workspace, not another backend and not a
 production runtime.
 
-The workspace currently has thirty-nine members:
+The workspace currently has forty members:
 
 | Component               | Scope                                                                 | Integration state                                                                             |
 | ----------------------- | --------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
@@ -12,6 +12,7 @@ The workspace currently has thirty-nine members:
 | `apple-ffi-support/`     | Dependency-free checked regions, panic containment, and bounded C output publication | Shared internally by the ten Apple bridges; exports no C symbol and owns no protocol behavior |
 | `auxiliary-node-discovery/` | Safe bounded exact-VBMS admission, inventory reuse, preferred/automatic routing, availability, and observation-retention decisions | Exhaustively tested candidate; deliberately unselected by every production host |
 | `controller-discovery/` | Safe bounded direct/CAN discovery, recovery, continuity, candidate selection, and Refloat-readiness decisions | Exhaustively tested candidate; deliberately unselected by every production host |
+| `connection-application-coordinator/` | Safe generation-scoped composition of discovery, request scheduling, Refloat telemetry, BMS telemetry, activation, reset, and ordered host effects | Exhaustively tested candidate; deliberately unselected by every production host |
 | `refloat-compatibility/` | Safe bounded Refloat INFO identity, exact profile catalogue, and canonical dynamic-layout admission | Selected by Apple and Android through separate host bridges |
 | `refloat-compatibility-android-jni/` | Four-symbol stateless primitive-array JNI ABI for INFO and layout admission | Temporary bridge selected only by Android |
 | `refloat-compatibility-apple-ffi/` | Four-symbol caller-owned-buffer C ABI for INFO and layout admission | Temporary bridge selected only by the shared iOS/macOS adapter |
@@ -48,7 +49,7 @@ The workspace currently has thirty-nine members:
 | `vesc-frame-android-jni/` | Primitive-array JNI ABI                                              | Selected by Android for CRC, encoding, exact decoding, and stream-boundary scans |
 | `vesc-request-scheduler/` | Safe bounded generation, priority/FIFO, attribution, deadline, cancellation, and ordered host-effect state machine | Exhaustively tested application-behavior candidate; deliberately unselected by every production host |
 
-The thirty-nine crates remain independent components and artifacts. The ten
+The forty crates remain independent components and artifacts. The ten
 Apple-selected component families' repeated
 source-build mechanics are centralized in `build-apple-bridge.sh` and
 `build-android-bridge.sh`, driven by a closed ten-entry Apple and
@@ -200,6 +201,16 @@ It retains no clock, timer, BLE writer, callback, bridge, persistence, local
 server, transport, or OS dependency. Swift and Kotlin remain selected; a later
 unified Rust runtime calls this API directly and deletes both native services
 without creating telemetry-service-specific Apple FFI or Android JNI crates.
+
+The connection application coordinator directly composes controller discovery,
+the VESC request scheduler, Refloat telemetry, and VESC BMS telemetry. It owns
+one bounded connection generation, exact response attribution, checked routing,
+prepare/activate readiness, child timers, reset, and ordered read-only host
+effects. It has no bridge, host callback, BLE executor, persistence, socket,
+filesystem, or package selection. Swift and Kotlin therefore remain the
+production application owners while this candidate provides the deterministic
+spine for a later platform-neutral runtime. That runtime will add persistence
+and local-server ports through separate changes before either host cutover.
 
 The BMS values component decodes only the bounded command-96 payload into a
 platform-neutral fixed-capacity model. Apple and Android select it through

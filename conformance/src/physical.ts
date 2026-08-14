@@ -23,6 +23,10 @@ const LOCATION_BACKGROUND_DWELL_MS = 10_000;
 // link-supervision loss can still be classified as user initiated.
 export const SHUTDOWN_NO_OP_WAIT_MS = 35_000;
 
+export function shouldDeferPhysicalLocation(value = process.env.FLOAT_VIEW_DEFER_PHYSICAL_LOCATION) {
+  return value === '1';
+}
+
 export async function runPhysicalConformance(
   target: PhysicalTarget,
   fixturePath: string,
@@ -524,7 +528,13 @@ async function runBackground(
   report: Progress
 ): Promise<{ client: ConformanceClient; locationCheckpoint: LocationCheckpoint }> {
   assert.ok(target.background && target.foreground && target.endpoint, 'Mobile lifecycle is unavailable');
-  const location = await enablePhysicalLocation(client, report);
+  const deferPhysicalLocation = shouldDeferPhysicalLocation();
+  const location = deferPhysicalLocation
+    ? (await client.request('state.get', {})).location
+    : await enablePhysicalLocation(client, report);
+  if (deferPhysicalLocation) {
+    report('  Location: automated authorization and acquisition deferred to manual verification');
+  }
   await runner.waitForRequests(
     (requests) => requests.filter((request) => request.kind === 'telemetry').length >= 4,
     15_000

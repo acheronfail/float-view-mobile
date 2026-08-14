@@ -90,6 +90,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "float-view-connection-application-coordinator"
+version = "0.1.0"
+dependencies = [
+ "float-view-controller-discovery",
+ "float-view-refloat-compatibility",
+ "float-view-refloat-dynamic-telemetry",
+ "float-view-refloat-legacy-telemetry",
+ "float-view-refloat-telemetry-service",
+ "float-view-vesc-bms-telemetry-service",
+ "float-view-vesc-firmware-identity",
+ "float-view-vesc-request-scheduler",
+]
+
+[[package]]
 name = "float-view-controller-discovery"
 version = "0.1.0"
 dependencies = [

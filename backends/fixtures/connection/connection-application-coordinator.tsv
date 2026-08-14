@@ -1,0 +1,9 @@
+# name|expectedPhase|expectedRoute|expectedStandalone|source
+direct-legacy-activation|ready|direct|no|apple-android-application-service
+preferred-can-legacy-activation|ready|can:42|no|controller-discovery-and-application-service
+direct-dynamic-telemetry|ready|direct|no|refloat-1.2.3-hardware-fixture
+standalone-bms-values|ready||yes|vesc-bms-source-derived
+ambiguous-explicit-selection|awaiting_activation|can:42|no|controller-discovery-native-vectors
+stale-hint-fallback|identifying||no|controller-discovery-native-vectors
+two-attempt-identification-timeout|failed|||apple-android-application-service
+reset-during-identification|disconnected|||apple-android-application-service

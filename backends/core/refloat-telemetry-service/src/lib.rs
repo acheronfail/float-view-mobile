@@ -323,6 +323,7 @@ pub enum Failure {
 pub enum Diagnostic {
     LayoutRequestTimeout,
     TelemetryRequestTimeout,
+    MalformedTelemetry,
     UnexpectedTelemetryResponse,
     StaleEvent,
 }
@@ -378,6 +379,10 @@ pub enum Command {
         service_generation: u64,
         kind: RequestKind,
         outcome: RequestOutcome,
+    },
+    DecodeFailed {
+        service_generation: u64,
+        kind: RequestKind,
     },
     Receive {
         service_generation: u64,
@@ -613,6 +618,10 @@ impl RefloatTelemetryService {
                 kind,
                 outcome,
             } => Ok(self.request_completed(service_generation, kind, outcome)),
+            Command::DecodeFailed {
+                service_generation,
+                kind,
+            } => Ok(self.decode_failed(service_generation, kind)),
             Command::Receive {
                 service_generation,
                 telemetry,
@@ -771,6 +780,20 @@ impl RefloatTelemetryService {
             }
         }
         Vec::new()
+    }
+
+    fn decode_failed(&mut self, service_generation: u64, kind: RequestKind) -> Vec<Effect> {
+        if self.service_generation != Some(service_generation) {
+            return Vec::new();
+        }
+        if kind == RequestKind::Layout {
+            return vec![Effect::Diagnostic(Diagnostic::MalformedTelemetry)];
+        }
+        if self.pending_request != Some(kind) {
+            return vec![Effect::Diagnostic(Diagnostic::UnexpectedTelemetryResponse)];
+        }
+        self.pending_request = None;
+        vec![Effect::Diagnostic(Diagnostic::MalformedTelemetry)]
     }
 
     fn receive(

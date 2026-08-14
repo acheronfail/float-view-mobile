@@ -13,6 +13,14 @@ npm run physical -- android <fixture-port> <adb-serial>
 npm run physical -- ios <fixture-port> <device-id>
 ```
 
+When a connected mobile device cannot acquire location promptly, rerun the
+background scenario with
+`FLOAT_VIEW_PHYSICAL_SCENARIOS=background FLOAT_VIEW_DEFER_PHYSICAL_LOCATION=1`.
+This explicitly defers location authorization and fix acquisition to manual
+verification; the runner still requires background lifecycle recovery,
+continuous BLE telemetry, session growth, and non-regressing persistence
+boundaries.
+
 Android, iOS, and macOS adapters launch or locate their application and expose a
 loopback WebSocket URL; scenarios and assertions remain shared. Physical runs
 add a serial-controlled `tools/vesc-test-device` byte bridge. Passing runs retain
