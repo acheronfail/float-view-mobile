@@ -3,19 +3,17 @@ mod support;
 use std::fs;
 
 use float_view_refloat_telemetry_service::{ExtensionValue, PackageState, RideState};
-use float_view_session_sqlite_writer::{
+use float_view_session_sqlite::{
     LocationObservation, SESSION_SCHEMA, SessionMetadata, SessionWriter, WriterError,
 };
 use rusqlite::Connection;
 use support::{TestDirectory, sample};
 
-const SAMPLE_FIXTURE: &str = include_str!("../../../fixtures/session-sqlite-writer/samples.tsv");
-const SAMPLE_EXPECTED: &str =
-    include_str!("../../../fixtures/session-sqlite-writer/samples-expected.tsv");
-const LOCATION_FIXTURE: &str =
-    include_str!("../../../fixtures/session-sqlite-writer/locations.tsv");
+const SAMPLE_FIXTURE: &str = include_str!("../../../fixtures/session-sqlite/samples.tsv");
+const SAMPLE_EXPECTED: &str = include_str!("../../../fixtures/session-sqlite/samples-expected.tsv");
+const LOCATION_FIXTURE: &str = include_str!("../../../fixtures/session-sqlite/locations.tsv");
 const LOCATION_EXPECTED: &str =
-    include_str!("../../../fixtures/session-sqlite-writer/locations-expected.tsv");
+    include_str!("../../../fixtures/session-sqlite/locations-expected.tsv");
 
 fn metadata() -> SessionMetadata {
     SessionMetadata {

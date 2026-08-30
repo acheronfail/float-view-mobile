@@ -1,4 +1,4 @@
-//! Bounded, unselected writer for one canonical Float View session database.
+//! Bounded, unselected access to one canonical Float View session database.
 
 #![forbid(unsafe_code)]
 
@@ -17,6 +17,14 @@ use rusqlite::ffi::ErrorCode;
 use rusqlite::{
     Connection, OpenFlags, OptionalExtension, Transaction, TransactionBehavior, named_params,
     params,
+};
+
+mod reader;
+
+pub use reader::{
+    EventPage, EventRecord, FieldDescriptor, FieldSource, LocationGap, LocationPage,
+    LocationRecord, PublishedBoundary, ReadInterrupter, ReaderError, ReaderMetadata, SampleKey,
+    SamplePage, SampleRecord, SeriesReduction, SessionReader,
 };
 
 pub const SESSION_SCHEMA: &str = include_str!("../../../sql/session.sql");
@@ -98,7 +106,7 @@ impl Debug for LocationObservation {
     }
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, PartialEq)]
 pub struct CommitMarker {
     pub committed_sample_sequence: u64,
     pub committed_event_sequence: u64,
@@ -121,6 +129,12 @@ pub struct CommitMarker {
     pub recorded_location_count: u64,
     pub stored_location_count: u64,
     pub last_location_status: String,
+}
+
+impl Debug for CommitMarker {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
+        formatter.write_str("CommitMarker([redacted])")
+    }
 }
 
 pub struct SessionWriter {
@@ -1210,6 +1224,35 @@ mod tests {
             WriterError::Corrupt
         );
         assert_eq!(format!("{:?}", WriterError::Database), "Database");
+        assert_eq!(
+            format!(
+                "{:?}",
+                CommitMarker {
+                    committed_sample_sequence: 1,
+                    committed_event_sequence: 2,
+                    recorded_sample_count: 3,
+                    stored_sample_count: 4,
+                    committed_event_count: 5,
+                    committed_elapsed_ms: 6,
+                    history_revision: 7,
+                    committed_at_epoch_ms: 8,
+                    riding_elapsed_ms: 9,
+                    distance_m: Some(10.0),
+                    maximum_speed_kph: Some(11.0),
+                    maximum_speed_source_sequence: Some(12),
+                    maximum_duty_cycle: Some(13.0),
+                    maximum_duty_source_sequence: Some(14),
+                    last_speed_kph: Some(15.0),
+                    last_ride_state: Some("secret".to_owned()),
+                    committed_location_sequence: 16,
+                    committed_location_elapsed_ms: 17,
+                    recorded_location_count: 18,
+                    stored_location_count: 19,
+                    last_location_status: "secret".to_owned(),
+                }
+            ),
+            "CommitMarker([redacted])"
+        );
         assert_eq!(
             format!(
                 "{:?}",

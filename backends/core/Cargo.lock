@@ -293,10 +293,11 @@ name = "float-view-session-history-kernel"
 version = "0.1.0"
 
 [[package]]
-name = "float-view-session-sqlite-writer"
+name = "float-view-session-sqlite"
 version = "0.1.0"
 dependencies = [
  "float-view-refloat-telemetry-service",
+ "float-view-session-history-kernel",
  "rusqlite",
  "serde_json",
 ]

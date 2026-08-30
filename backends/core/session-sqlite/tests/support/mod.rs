@@ -14,7 +14,7 @@ pub struct TestDirectory(PathBuf);
 impl TestDirectory {
     pub fn new() -> Self {
         let path = std::env::temp_dir().join(format!(
-            "float-view-session-writer-{}-{}",
+            "float-view-session-sqlite-{}-{}",
             std::process::id(),
             TEST_SEQUENCE.fetch_add(1, Ordering::Relaxed)
         ));

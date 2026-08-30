@@ -1,7 +1,7 @@
 mod support;
 
 use float_view_refloat_telemetry_service::ExtensionValue;
-use float_view_session_sqlite_writer::{
+use float_view_session_sqlite::{
     LocationObservation, MAX_EXTENSION_NAME_BYTES, MAX_EXTENSIONS, MAX_LOCATION_BATCH,
     MAX_SAMPLE_BATCH, SessionMetadata, SessionWriter, WriterError,
 };

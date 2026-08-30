@@ -1,0 +1,9 @@
+# operation	fields	range	limit-or-buckets	continuation
+metadata	-	-	-	-
+fields	-	-	-	-
+samples	speedKph,fixtureValue	0..30000	2	-
+samples	speedKph,fixtureValue	0..30000	2	1000:2
+series	speedKph,fixtureValue	0..30000	2	-
+events	-	0..30000	2	-
+locations	-	0..30000	2	-
+locations	-	0..30000	2	2

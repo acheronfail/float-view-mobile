@@ -1,0 +1,9 @@
+# projection	value
+metadata	100,1000,0
+fields	fixtureValue:extension,speedKph:stable
+sample-page-1	1@0:10:null,2@1000:20:2.5,next=2
+sample-page-2	3@12000:null:3.5,4@12000:5:4.5,next=-
+series-source-rows	4
+events	packageState@0,packageState@1000,next=2
+locations-page-1	1@0,2@10000,next=2
+locations-page-2	3@20001,gaps=-,next=-

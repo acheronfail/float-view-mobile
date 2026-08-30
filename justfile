@@ -812,44 +812,49 @@ core-session-history-kernel-audit:
     [[ ! -e backends/core/session-history-android-jni ]]
     [[ -f backends/apple/Sources/FloatViewBackend/application/SessionHistoryReducer.swift ]]
     [[ -f backends/android/app/src/main/java/fail/acheron/floatview/application/SessionHistoryReducer.kt ]]
-    git diff --quiet HEAD -- backends/apple backends/android frontend backends/sql
+    git diff --quiet HEAD -- backends/apple backends/android frontend backends/sql \
+      ':(exclude)backends/apple/ios/float-view.xcodeproj/project.pbxproj'
     [[ "$(git ls-files "$crate" | rg '\.(h|a|so|dylib|xcframework|jar)$' || true)" == "" ]]
     just core-session-history-kernel-test
 
-core-session-sqlite-writer-test:
+core-session-sqlite-test:
     cd backends/core && cargo test --locked --offline \
-      --package float-view-session-sqlite-writer
+      --package float-view-session-sqlite
 
-core-session-sqlite-writer-audit:
+core-session-sqlite-audit:
     #!/usr/bin/env bash
     set -euo pipefail
-    crate='backends/core/session-sqlite-writer'
-    fixtures='backends/fixtures/session-sqlite-writer'
-    [[ -f "$crate/Cargo.toml" && -f "$crate/src/lib.rs" ]]
-    [[ -f "$crate/tests/vectors.rs" && -f "$crate/tests/adversarial.rs" && -f "$crate/tests/support/mod.rs" ]]
-    for fixture in samples.tsv samples-expected.tsv locations.tsv locations-expected.tsv; do
+    crate='backends/core/session-sqlite'
+    fixtures='backends/fixtures/session-sqlite'
+    [[ -f "$crate/Cargo.toml" && -f "$crate/src/lib.rs" && -f "$crate/src/reader.rs" ]]
+    [[ -f "$crate/tests/vectors.rs" && -f "$crate/tests/adversarial.rs" && -f "$crate/tests/reader.rs" && -f "$crate/tests/support/mod.rs" ]]
+    for fixture in samples.tsv samples-expected.tsv locations.tsv locations-expected.tsv reader-requests.tsv reader-expected.tsv; do
       [[ -f "$fixtures/$fixture" ]]
     done
     rg -q '^#!\[forbid\(unsafe_code\)\]$' "$crate/src/lib.rs"
     rg -q 'include_str!\("\.\./\.\./\.\./sql/session\.sql"\)' "$crate/src/lib.rs"
     [[ "$(cd backends/core && cargo tree --locked --offline \
-      --package float-view-session-sqlite-writer --edges normal --depth 1 \
-      --prefix none | wc -l | tr -d ' ')" == 4 ]]
+      --package float-view-session-sqlite --edges normal --depth 1 \
+      --prefix none | wc -l | tr -d ' ')" == 5 ]]
     [[ "$(sed -n '/^\[dependencies\]$/,/^\[dev-dependencies\]$/p' "$crate/Cargo.toml")" == \
-      $'[dependencies]\nfloat-view-refloat-telemetry-service = { path = "../refloat-telemetry-service" }\nrusqlite = { version = "0.37.0", features = ["bundled"] }\nserde_json = "1.0.149"\n\n[dev-dependencies]' ]]
-    ! rg -n 'unsafe[[:space:]]*\(|extern[[:space:]]+"(C|system)"|no_mangle|Java_|cbindgen|bindgen|uniffi|jni|host_callback|Box<dyn Fn|std::thread|tokio|async_std|TcpListener|UdpSocket|std::net|Swift|Kotlin|Catalog|Loopback|WebSocket|Generated' \
+      $'[dependencies]\nfloat-view-refloat-telemetry-service = { path = "../refloat-telemetry-service" }\nfloat-view-session-history-kernel = { path = "../session-history-kernel" }\nrusqlite = { version = "0.37.0", features = ["bundled"] }\nserde_json = "1.0.149"\n\n[dev-dependencies]' ]]
+    ! rg -n 'unsafe[[:space:]]*\(|extern[[:space:]]+"(C|system)"|no_mangle|Java_|cbindgen|bindgen|uniffi|jni|host_callback|Box<dyn Fn|TcpListener|UdpSocket|std::net|Swift|Kotlin|Catalog|Loopback|WebSocket|Generated' \
       "$crate/src" "$crate/tests"
-    ! rg -n 'session-sqlite-writer' \
+    ! rg -n 'std::thread|tokio|async_std' "$crate/src"
+    ! rg -n 'session-sqlite(-writer)?' \
       backends/apple/Package.swift \
       backends/apple/ios/float-view.xcodeproj/project.pbxproj \
       backends/android/app/build.gradle.kts \
       backends/core/bridge-build-catalog.sh \
       backends/core/build-apple-bridge.sh backends/core/build-android-bridge.sh
-    [[ ! -e backends/core/session-sqlite-writer-apple-ffi ]]
-    [[ ! -e backends/core/session-sqlite-writer-android-jni ]]
-    git diff --quiet HEAD -- backends/apple backends/android frontend backends/sql
+    [[ ! -e backends/core/session-sqlite-writer ]]
+    [[ ! -e backends/fixtures/session-sqlite-writer ]]
+    [[ ! -e backends/core/session-sqlite-apple-ffi ]]
+    [[ ! -e backends/core/session-sqlite-android-jni ]]
+    git diff --quiet HEAD -- backends/apple backends/android frontend backends/sql \
+      ':(exclude)backends/apple/ios/float-view.xcodeproj/project.pbxproj'
     [[ "$(git ls-files "$crate" | rg '\.(h|a|so|dylib|xcframework|jar)$' || true)" == "" ]]
-    just core-session-sqlite-writer-test
+    just core-session-sqlite-test
 
 core-device-mutation-coordinator-test:
     cd backends/core && cargo test --locked --offline \
@@ -1569,7 +1574,7 @@ audit:
     [[ -f backends/core/vesc-bms-telemetry-service/Cargo.toml ]]
     [[ -f backends/core/connection-application-coordinator/Cargo.toml ]]
     [[ -f backends/core/session-history-kernel/Cargo.toml ]]
-    [[ -f backends/core/session-sqlite-writer/Cargo.toml ]]
+    [[ -f backends/core/session-sqlite/Cargo.toml ]]
     [[ -f backends/core/device-mutation-coordinator/Cargo.toml ]]
     [[ -f backends/apple/Sources/CVescFrame/include/CVescFrame.h ]]
     [[ -f backends/apple/Sources/CVescFrame/module.modulemap ]]
@@ -1622,7 +1627,7 @@ audit:
       ! -name vesc-bms-telemetry-service \
       ! -name connection-application-coordinator \
       ! -name session-history-kernel \
-      ! -name session-sqlite-writer \
+      ! -name session-sqlite \
       ! -name device-mutation-coordinator -print -quit)"
     [[ -z "$unexpected_core" ]] || {
       echo "Unexpected Rust core workspace member: $unexpected_core" >&2
@@ -1652,7 +1657,7 @@ audit:
       ! -name src ! -name tests -print -quit)" == "" ]]
     [[ "$(find backends/core/session-history-kernel -mindepth 1 -maxdepth 1 -type d \
       ! -name src ! -name tests -print -quit)" == "" ]]
-    [[ "$(find backends/core/session-sqlite-writer -mindepth 1 -maxdepth 1 -type d \
+    [[ "$(find backends/core/session-sqlite -mindepth 1 -maxdepth 1 -type d \
       ! -name src ! -name tests -print -quit)" == "" ]]
     [[ "$(find backends/core/device-mutation-coordinator -mindepth 1 -maxdepth 1 -type d \
       ! -name src ! -name tests -print -quit)" == "" ]]
@@ -1930,7 +1935,7 @@ audit:
     just core-refloat-telemetry-service-audit
     just core-connection-application-coordinator-audit
     just core-session-history-kernel-audit
-    just core-session-sqlite-writer-audit
+    just core-session-sqlite-audit
     just core-device-mutation-coordinator-audit
     just core-refloat-configuration-codec-abi-audit
     just core-refloat-dynamic-telemetry-abi-audit
