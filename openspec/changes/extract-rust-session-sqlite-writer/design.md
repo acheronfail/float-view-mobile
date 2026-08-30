@@ -30,7 +30,7 @@ A trait, generated SQL plan, or mock persistence port was rejected because it wo
 
 ### 2. Compile the canonical schema and publish creation atomically
 
-The crate uses `include_str!("../../../sql/session.sql")`, so the repository schema remains the only table/index/pragma source. Creation validates input and target absence, initializes a private sibling temporary database, executes the exact schema, inserts `session_metadata` and `commit_marker` transactionally, checkpoints/closes it, and atomically renames the completed main file to the caller path. Failure removes only the candidate-owned temporary main/WAL/SHM files and never overwrites the target.
+The crate uses `include_str!("../../../sql/session.sql")`, so the repository schema remains the only table/index/pragma source. Creation validates input and target absence, initializes a private sibling temporary database, executes the exact schema, inserts `session_metadata` and `commit_marker` transactionally, checkpoints/closes it, and atomically publishes the completed main file with a same-directory no-clobber hard link before unlinking the private name. Failure removes only the candidate-owned temporary main/WAL/SHM files and never overwrites the target.
 
 `open` checks `PRAGMA quick_check`, `user_version`, required singleton rows, positive cadence bounds, and the exact required table set before accepting writes. It does not upgrade or repair an incompatible file.
 

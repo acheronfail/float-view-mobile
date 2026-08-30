@@ -1,0 +1,5 @@
+# sequence observed_at_ms elapsed_ms ride_state package_state speed_kph duty_cycle extension_name extension_value
+1	1000000	0	idle	ready	-	0.10	-	-
+2	1001000	1000	riding	running	18.0	-0.50	customVoltage	42.5
+3	1002000	2000	riding	running	-18.0	0.50	customVoltage	43.0
+4	1003000	3000	idle	ready	0.0	0.20	-	-

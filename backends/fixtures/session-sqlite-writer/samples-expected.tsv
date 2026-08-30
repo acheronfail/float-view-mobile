@@ -1,0 +1,16 @@
+# table key value
+sample	count	4
+session_numeric_field	count	3
+session_event	count	5
+commit_marker	recorded_sample_count	4
+commit_marker	stored_sample_count	4
+commit_marker	committed_sample_sequence	4
+commit_marker	committed_elapsed_ms	3000
+commit_marker	riding_elapsed_ms	2000
+commit_marker	distance_m	7.5
+commit_marker	maximum_speed_kph	18
+commit_marker	maximum_speed_source_sequence	2
+commit_marker	maximum_duty_cycle	0.5
+commit_marker	maximum_duty_source_sequence	2
+commit_marker	last_speed_kph	0
+commit_marker	last_ride_state	idle

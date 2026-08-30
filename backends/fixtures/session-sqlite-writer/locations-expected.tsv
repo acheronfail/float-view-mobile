@@ -1,0 +1,9 @@
+# table key value
+location	count	3
+location	first_sequence	1
+location	last_sequence	3
+commit_marker	committed_location_sequence	3
+commit_marker	committed_location_elapsed_ms	3500
+commit_marker	recorded_location_count	3
+commit_marker	stored_location_count	3
+commit_marker	last_location_status	available

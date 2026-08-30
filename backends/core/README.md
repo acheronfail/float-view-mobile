@@ -4,7 +4,7 @@
 ownership. It is a locked Cargo workspace, not another backend and not a
 production runtime.
 
-The workspace currently has forty-two members:
+The workspace currently has forty-three members:
 
 | Component               | Scope                                                                 | Integration state                                                                             |
 | ----------------------- | --------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
@@ -32,6 +32,7 @@ The workspace currently has forty-two members:
 | `refloat-legacy-telemetry-android-jni/` | Two-symbol primitive-array JNI ABI for legacy telemetry | Temporary bridge selected only by Android |
 | `refloat-telemetry-service/` | Safe bounded layout retry, route-correct request, adaptive cadence, compact-cache merge, normalization, and ordered host-effect state machine | Directly composes safe decoder/scheduler models; deliberately unselected by every production host |
 | `session-history-kernel/` | Safe bounded ordered M4 historical-series reduction, continuity generations, and incremental protected/eight-row prune selection | Standard-library-only application candidate for the future Rust SQLite/session runtime; deliberately unselected by every production host |
+| `session-sqlite-writer/` | Safe bounded canonical per-session SQLite creation, normalized telemetry/location transactions, transition/field evidence, and commit-marker summaries | Bundled-SQLite persistence candidate for the future Rust application runtime; deliberately unselected by every production host |
 | `vesc-bms-values/`       | Safe bounded VESC command-96 BMS values decoding                     | Selected by Apple and Android through separate host bridges                                    |
 | `vesc-bms-values-android-jni/` | Two-symbol primitive-array JNI ABI for BMS values              | Selected only by Android                                                                       |
 | `vesc-bms-values-apple-ffi/` | Two-symbol caller-owned-buffer C ABI for BMS values              | Selected only by the shared iOS/macOS adapter                                                  |
@@ -51,7 +52,7 @@ The workspace currently has forty-two members:
 | `vesc-frame-android-jni/` | Primitive-array JNI ABI                                              | Selected by Android for CRC, encoding, exact decoding, and stream-boundary scans |
 | `vesc-request-scheduler/` | Safe bounded generation, priority/FIFO, attribution, deadline, cancellation, and ordered host-effect state machine | Exhaustively tested application-behavior candidate; deliberately unselected by every production host |
 
-The forty-two crates remain independent components and artifacts. The ten
+The forty-three crates remain independent components and artifacts. The ten
 Apple-selected component families' repeated
 source-build mechanics are centralized in `build-apple-bridge.sh` and
 `build-android-bridge.sh`, driven by a closed ten-entry Apple and
@@ -223,6 +224,15 @@ own no SQLite connection, cursor codec, file, server, callback, bridge, or OS
 behavior. Swift and Kotlin remain selected until the Rust SQLite/session
 runtime calls this kernel directly; that later cutover deletes both native
 reducers without creating session-history Apple FFI or Android JNI crates.
+
+The session SQLite writer is the first candidate to own durable behavior. It
+creates and validates one canonical per-session database from the repository
+schema, atomically records normalized Refloat samples and already-observed
+locations, derives first numeric fields and transition events, and publishes a
+reopenable commit marker in the same transactions. It deliberately excludes
+catalog, history reads/pruning, recovery, imports/exports, runtime selection,
+callbacks, and host packages. A future Rust persistence/application runtime
+will call it directly; no writer Apple FFI or Android JNI crate is introduced.
 
 The BMS values component decodes only the bounded command-96 payload into a
 platform-neutral fixed-capacity model. Apple and Android select it through
