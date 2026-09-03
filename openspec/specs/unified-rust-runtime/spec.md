@@ -120,3 +120,12 @@ The shared iOS/macOS backend SHALL select the unified Rust runtime through one c
 
 - **WHEN** only Apple has selected the runtime
 - **THEN** the migration remains incomplete and bridge retirement cannot remove Android scaffolding until Android independently passes its cutover
+
+### Requirement: Both mobile hosts complete unified runtime selection
+
+Apple and Android SHALL select the same safe application runtime through thin platform bindings, with no protocol-specific bridge or native application/protocol/session-decision fallback remaining.
+
+#### Scenario: Complete the migration
+
+- **WHEN** Android passes its deletion, packaging, software, convergence, and requested iOS physical-regression gates
+- **THEN** both mobile hosts share the unified runtime and the temporary protocol bridge/build matrix is fully retired

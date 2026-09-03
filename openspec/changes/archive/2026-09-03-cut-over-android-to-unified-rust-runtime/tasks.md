@@ -33,4 +33,4 @@
 
 - [x] 6.1 Discover the connected iOS device and ESP32 serial port and rerun the canonical iOS physical matrix after shared-boundary changes, allowing only an explicit bounded location deferral.
 - [x] 6.2 Record that Android physical testing was skipped, confirm no production fallback or unrelated contract/schema change, and commit the deletion-bearing final cutover.
-- [ ] 6.3 Sync delta specs, archive the completed change, commit the archive, and leave only pre-existing user changes in the worktree.
+- [x] 6.3 Sync delta specs, archive the completed change, commit the archive, and leave only pre-existing user changes in the worktree.
