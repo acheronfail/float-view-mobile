@@ -1,4 +1,0 @@
-module CVescRefloatCompatibility [system] {
-  header "include/CVescRefloatCompatibility.h"
-  export *
-}

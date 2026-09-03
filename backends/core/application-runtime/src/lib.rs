@@ -14,6 +14,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 pub use float_view_connection_application_coordinator as coordinator;
 pub use float_view_refloat_telemetry_service as telemetry;
+pub use float_view_session_history_kernel as history;
 pub use float_view_session_sqlite as session;
 
 use coordinator::{ConnectionApplicationCoordinator, Effect as CoordinatorEffect};

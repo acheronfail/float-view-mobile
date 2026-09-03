@@ -97,6 +97,7 @@ fn applies_once_and_copies_one_bounded_ordered_result() {
     assert_eq!(written, required);
     let value: Value = serde_json::from_slice(&output).expect("result JSON");
     assert_eq!(value["version"], ABI_VERSION);
+    assert_eq!(value["generation"], 1);
     let effects = value["effects"].as_array().expect("effects");
     assert!(
         effects

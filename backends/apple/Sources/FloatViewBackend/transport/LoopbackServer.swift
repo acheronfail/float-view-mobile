@@ -822,13 +822,14 @@ public final class LoopbackServer: @unchecked Sendable {
     if let active {
       var value = connectionPayload(active)
       if let firmware, let packageVersion {
+        let configuration = applicationService.refloatConfigurationSummarySnapshot()
         value["firmware"] = [
           "vescVersion": "\(firmware.major).\(String(format: "%02d", firmware.minor))",
           "packageName": "refloat",
           "packageVersion": packageVersion,
           "hardwareName": firmware.hardwareName.map { $0 as Any } ?? NSNull(),
-          "accessMode": VescCompatibility.accessMode(firmware)?.rawValue ?? "readOnly",
-          "supported": VescCompatibility.supports(firmware),
+          "accessMode": configuration.writable ? "readWrite" : "readOnly",
+          "supported": true,
         ]
       } else {
         value["firmware"] = NSNull()
@@ -1433,7 +1434,7 @@ public final class LoopbackServer: @unchecked Sendable {
       )
       let decodedCursor: SessionHistoryCursor?
       if let raw = params["cursor"] as? String {
-        let cursor = try SessionHistoryReducer.decodeCursor(raw)
+        let cursor = try Self.decodeSessionCursor(raw)
         guard cursor.sessionID == sessionID, cursor.snapshot == published,
               cursor.range.startElapsedMs == start, cursor.range.endElapsedMs == end
         else { throw SessionStoreError.invalidCursor }
@@ -1445,11 +1446,18 @@ public final class LoopbackServer: @unchecked Sendable {
         sessionID: sessionID, startElapsedMs: start, endElapsedMs: end, fields: fields,
         maxRows: 200_000, publishedSampleSequence: sampleSequence.int64Value
       )
-      let page = try SessionHistoryReducer.page(
-        rows: source, limit: requestedLimit, cursor: decodedCursor, cursorContext: seed
-      )
-      let points = page.rows
-      let nextCursor = try page.next.map(SessionHistoryReducer.encodeCursor)
+      let available = source.filter { point in
+        guard let decodedCursor else { return true }
+        return point.elapsedMs > decodedCursor.elapsedMs ||
+          (point.elapsedMs == decodedCursor.elapsedMs && point.sequence > decodedCursor.sequence)
+      }
+      let points = Array(available.prefix(requestedLimit))
+      let nextCursor = points.last.flatMap { last in
+        points.count < available.count ? try? Self.encodeSessionCursor(SessionHistoryCursor(
+          sessionID: seed.sessionID, snapshot: seed.snapshot, range: seed.range,
+          elapsedMs: last.elapsedMs, sequence: last.sequence
+        )) : nil
+      }
       let values = Dictionary(uniqueKeysWithValues: fields.map { field in
         (field, points.map { point -> Any in point.values[field].flatMap { $0 } as Any? ?? NSNull() })
       })
@@ -1493,7 +1501,7 @@ public final class LoopbackServer: @unchecked Sendable {
     )
     let decodedCursor: SessionHistoryCursor?
     if let raw = params["cursor"] as? String {
-      let cursor = try SessionHistoryReducer.decodeCursor(raw)
+      let cursor = try Self.decodeSessionCursor(raw)
       guard cursor.sessionID == sessionID, cursor.snapshot == published,
             cursor.range.startElapsedMs == start, cursor.range.endElapsedMs == end
       else { throw SessionStoreError.invalidCursor }
@@ -1529,7 +1537,7 @@ public final class LoopbackServer: @unchecked Sendable {
         sessionID: seed.sessionID, snapshot: seed.snapshot, range: seed.range,
         elapsedMs: last.elapsedMs, sequence: Int64(last.eventID) ?? 0
       )
-      next = try SessionHistoryReducer.encodeCursor(cursor)
+      next = try Self.encodeSessionCursor(cursor)
     } else {
       next = nil
     }
@@ -1538,6 +1546,20 @@ public final class LoopbackServer: @unchecked Sendable {
                      "sourceSampleSequence": events.map { $0.sourceSampleSequence ?? 0 },
                      "kinds": events.map(\.kind), "values": values],
             "nextCursor": next as Any? ?? NSNull()]
+  }
+
+  private static func decodeSessionCursor(_ raw: String) throws -> SessionHistoryCursor {
+    guard let data = Data(base64Encoded: raw), data.count <= 4_096,
+          let cursor = try? JSONDecoder().decode(SessionHistoryCursor.self, from: data),
+          cursor.version == 1
+    else { throw SessionStoreError.invalidCursor }
+    return cursor
+  }
+
+  private static func encodeSessionCursor(_ cursor: SessionHistoryCursor) throws -> String {
+    let data = try JSONEncoder().encode(cursor)
+    guard data.count <= 4_096 else { throw SessionStoreError.invalidCursor }
+    return data.base64EncodedString()
   }
 
   private func operationPayload(
@@ -1855,15 +1877,6 @@ private struct BackendMessageHandler: WSMessageHandler {
 }
 
 private func invalidatesState(_ event: any Sendable) -> Bool {
-  if let message = event as? VescProtocolMessage {
-    switch message {
-    case .firmware, .currentLimits, .refloatInfo, .refloatLighting:
-      return true
-    case .canDevices, .bmsValuesPayload, .refloatTelemetryLayout, .refloatTelemetry,
-         .customConfiguration:
-      return false
-    }
-  }
   return event is BluetoothState || event is DiscoverySnapshot || event is ConnectionState ||
     event is KnownDevice ||
     event is SessionRecord || event is SavedDeviceRecord || event is BoardProfileRecord ||

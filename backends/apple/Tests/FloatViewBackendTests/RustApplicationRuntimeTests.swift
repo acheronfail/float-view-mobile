@@ -6,7 +6,7 @@ import Testing
 struct RustApplicationRuntimeTests {
   @Test func coarseRustRuntimePublishesOneOrderedResult() throws {
     let runtime = try RustApplicationRuntime()
-    let effects = try runtime.apply([
+    let result = try runtime.apply([
       "command": "begin",
       "now_ms": 10,
       "idle_interval_ms": 1_000,
@@ -20,10 +20,11 @@ struct RustApplicationRuntimeTests {
       "continuity_controller_uuid": NSNull(),
     ])
 
-    #expect(effects.first?["effect"] as? String == "publish_state")
-    #expect(effects.contains { $0["effect"] as? String == "write_bytes" })
-    #expect(effects.contains { $0["effect"] as? String == "arm_deadline" })
-    #expect(effects.last?["effect"] as? String == "publish_state")
+    #expect(result.generation == 1)
+    #expect(result.effects.first?["effect"] as? String == "publish_state")
+    #expect(result.effects.contains { $0["effect"] as? String == "write_bytes" })
+    #expect(result.effects.contains { $0["effect"] as? String == "arm_deadline" })
+    #expect(result.effects.last?["effect"] as? String == "publish_state")
   }
 
   @Test func coarseRustRuntimeRejectsOpenAndOversizedCommands() throws {

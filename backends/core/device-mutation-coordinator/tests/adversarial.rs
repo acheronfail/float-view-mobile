@@ -142,6 +142,33 @@ fn configuration_requires_the_complete_current_safety_state() {
 }
 
 #[test]
+fn configuration_does_not_wait_for_lower_priority_lighting_observation() {
+    let mut coordinator = DeviceMutationCoordinator::new();
+    configure(
+        &mut coordinator,
+        Route::Direct,
+        firmware(0),
+        stable_profile(),
+    );
+    observe(
+        &mut coordinator,
+        sample(1, RideState::Idle, PackageMode::Normal),
+    );
+    assert_eq!(
+        coordinator.snapshot().controls.as_ref().unwrap().status,
+        ControlStatus::Loading
+    );
+
+    let effects = coordinator
+        .apply(Command::BeginConfiguration {
+            generation: Generation(7),
+            mutation: ConfigurationMutation::Write,
+        })
+        .unwrap();
+    assert_eq!(lease(&effects).kind, PendingKind::ConfigurationWrite);
+}
+
+#[test]
 fn one_pending_slot_excludes_every_competing_family() {
     let mut coordinator = DeviceMutationCoordinator::new();
     ready(&mut coordinator, Route::Direct);
@@ -377,6 +404,33 @@ fn shutdown_is_accepted_only_idle_supported_and_once_forwarded() {
     assert!(!request.expects_response);
     let cleared = coordinator.apply(Command::ClearShutdown { token }).unwrap();
     assert!(cleared.contains(&Effect::Released(token)));
+}
+
+#[test]
+fn shutdown_remains_available_while_independent_controls_are_loading() {
+    let mut coordinator = DeviceMutationCoordinator::new();
+    configure(
+        &mut coordinator,
+        Route::Direct,
+        firmware(0),
+        stable_profile(),
+    );
+    observe(
+        &mut coordinator,
+        sample(1, RideState::Idle, PackageMode::Normal),
+    );
+    assert_eq!(
+        coordinator.snapshot().controls.as_ref().unwrap().status,
+        ControlStatus::Loading
+    );
+    assert!(coordinator.snapshot().controller_actions.shutdown_available);
+    assert!(
+        coordinator
+            .apply(Command::ShutdownController {
+                generation: Generation(7),
+            })
+            .is_ok()
+    );
 }
 
 #[test]

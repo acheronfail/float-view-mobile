@@ -1,4 +1,0 @@
-module CVescRefloatLegacyTelemetry [system] {
-  header "include/CVescRefloatLegacyTelemetry.h"
-  export *
-}

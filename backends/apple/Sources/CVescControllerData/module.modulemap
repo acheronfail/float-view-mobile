@@ -1,4 +1,0 @@
-module CVescControllerData [system] {
-  header "include/CVescControllerData.h"
-  export *
-}

@@ -112,15 +112,12 @@ dependencies = [
 ]
 
 [[package]]
-name = "float-view-apple-ffi-support"
-version = "0.1.0"
-
-[[package]]
 name = "float-view-application-runtime"
 version = "0.1.0"
 dependencies = [
  "float-view-connection-application-coordinator",
  "float-view-refloat-telemetry-service",
+ "float-view-session-history-kernel",
  "float-view-session-sqlite",
  "float-view-vesc-frame",
 ]
@@ -199,14 +196,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "float-view-refloat-compatibility-apple-ffi"
-version = "0.1.0"
-dependencies = [
- "float-view-apple-ffi-support",
- "float-view-refloat-compatibility",
-]
-
-[[package]]
 name = "float-view-refloat-configuration-codec"
 version = "0.1.0"
 dependencies = [
@@ -220,14 +209,6 @@ name = "float-view-refloat-configuration-codec-android-jni"
 version = "0.1.0"
 dependencies = [
  "float-view-android-jni-support",
- "float-view-refloat-configuration-codec",
-]
-
-[[package]]
-name = "float-view-refloat-configuration-codec-apple-ffi"
-version = "0.1.0"
-dependencies = [
- "float-view-apple-ffi-support",
  "float-view-refloat-configuration-codec",
 ]
 
@@ -251,14 +232,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "float-view-refloat-control-apple-ffi"
-version = "0.1.0"
-dependencies = [
- "float-view-apple-ffi-support",
- "float-view-refloat-control",
-]
-
-[[package]]
 name = "float-view-refloat-dynamic-telemetry"
 version = "0.1.0"
 
@@ -271,14 +244,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "float-view-refloat-dynamic-telemetry-apple-ffi"
-version = "0.1.0"
-dependencies = [
- "float-view-apple-ffi-support",
- "float-view-refloat-dynamic-telemetry",
-]
-
-[[package]]
 name = "float-view-refloat-legacy-telemetry"
 version = "0.1.0"
 
@@ -287,14 +252,6 @@ name = "float-view-refloat-legacy-telemetry-android-jni"
 version = "0.1.0"
 dependencies = [
  "float-view-android-jni-support",
- "float-view-refloat-legacy-telemetry",
-]
-
-[[package]]
-name = "float-view-refloat-legacy-telemetry-apple-ffi"
-version = "0.1.0"
-dependencies = [
- "float-view-apple-ffi-support",
  "float-view-refloat-legacy-telemetry",
 ]
 
@@ -344,14 +301,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "float-view-vesc-bms-values-apple-ffi"
-version = "0.1.0"
-dependencies = [
- "float-view-apple-ffi-support",
- "float-view-vesc-bms-values",
-]
-
-[[package]]
 name = "float-view-vesc-compatibility"
 version = "0.1.0"
 dependencies = [
@@ -372,14 +321,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "float-view-vesc-controller-data-apple-ffi"
-version = "0.1.0"
-dependencies = [
- "float-view-apple-ffi-support",
- "float-view-vesc-controller-data",
-]
-
-[[package]]
 name = "float-view-vesc-custom-configuration"
 version = "0.1.0"
 
@@ -388,14 +329,6 @@ name = "float-view-vesc-custom-configuration-android-jni"
 version = "0.1.0"
 dependencies = [
  "float-view-android-jni-support",
- "float-view-vesc-custom-configuration",
-]
-
-[[package]]
-name = "float-view-vesc-custom-configuration-apple-ffi"
-version = "0.1.0"
-dependencies = [
- "float-view-apple-ffi-support",
  "float-view-vesc-custom-configuration",
 ]
 
@@ -415,14 +348,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "float-view-vesc-firmware-identity-apple-ffi"
-version = "0.1.0"
-dependencies = [
- "float-view-apple-ffi-support",
- "float-view-vesc-firmware-identity",
-]
-
-[[package]]
 name = "float-view-vesc-frame"
 version = "0.1.0"
 
@@ -431,14 +356,6 @@ name = "float-view-vesc-frame-android-jni"
 version = "0.1.0"
 dependencies = [
  "float-view-android-jni-support",
- "float-view-vesc-frame",
-]
-
-[[package]]
-name = "float-view-vesc-frame-apple-ffi"
-version = "0.1.0"
-dependencies = [
- "float-view-apple-ffi-support",
  "float-view-vesc-frame",
 ]
 

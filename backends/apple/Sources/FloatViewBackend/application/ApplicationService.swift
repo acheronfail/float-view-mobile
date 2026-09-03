@@ -7,7 +7,6 @@ public final class ApplicationService: @unchecked Sendable {
   private let logStore: LogStorePort
   private let productStore: (any ProductStorePort)?
   private let sessionStore: (any SessionStorePort)?
-  private let protocolCodec: VescProtocolPort?
   private let scheduler: (any SchedulerPort)?
   private let locationProvider: (any LocationProviderPort)?
   private let events: EventSink
@@ -15,10 +14,29 @@ public final class ApplicationService: @unchecked Sendable {
   private var rustGeneration: UInt64 = 0
   private var rustDeadlines: [UInt64: any CancellationPort] = [:]
   private var rustTimers: [UInt64: any CancellationPort] = [:]
+  private var rustTimerIntervals: [UInt64: Int64] = [:]
+  private var rustSessionAttached = false
+  private var rustControllerRoute: ControllerRoute?
+  private var rustControllerCandidates: [ControllerCandidate] = []
+  private var rustConnectionIssue: ConnectionIssue?
+  private var rustFirmware: FirmwareRecord?
+  private var rustRefloatPackageVersion: String?
+  private var rustControls: RefloatControls?
+  private var rustControllerActions = ControllerActions()
+  private var rustBmsState = BmsState()
+  private var rustConfigurationSummary = RefloatConfigurationSummary(
+    availability: .unavailable, writable: false, packageVersion: nil,
+    schemaFingerprint: nil, wireSignature: nil, currentLoaded: false,
+    defaultLoaded: false, pendingOperation: nil
+  )
+  private var rustConfigurationSchema: RefloatConfigurationSchema?
+  private var rustConfigurationCurrent: RefloatConfigurationValues?
+  private var rustConfigurationDefaults: RefloatConfigurationValues?
+  private var rustSessionResult: [String: Any]?
   private var reconnectDurationMs: Int64
   private var idleProbeIntervalMs: Int64
   private let lock = NSRecursiveLock()
-  private var sampling: AdaptiveSamplingPolicy
+  private var samplingSettings: SamplingSettings
   private var explicitDisconnect = false
   private var scanSequence = 0
   private var knownDevicesByID: [DeviceID: KnownDevice] = [:]
@@ -26,15 +44,9 @@ public final class ApplicationService: @unchecked Sendable {
   private var discoveryUpdatePending = false
   private var discoveryExpiryTimer: (any CancellationPort)?
   private var discoveryExpiryGeneration = 0
-  private let controllerDiscovery = ControllerDiscovery()
-  private let auxiliaryDiscovery = AuxiliaryNodeDiscovery()
   private var deviceKind: DeviceKind?
   private var trackingMode: TrackingMode = .saved
   private var currentSavedDevice: SavedDeviceRecord?
-  private var identificationTimer: (any CancellationPort)?
-  private var canProbeTimer: (any CancellationPort)?
-  private var bmsPollTimer: (any CancellationPort)?
-  private var bmsFailureCount = 0
   private var sessionControllerRoute: ControllerRoute?
   private var sessionControllerUUID: Data?
   private var sessionFirmware: FirmwareRecord?
@@ -45,71 +57,12 @@ public final class ApplicationService: @unchecked Sendable {
   private var locationCaptureBaseElapsedMs: Int64 = 0
   private var locationCaptureActive = false
   private var currentLimits: ControllerCurrentLimits?
-  private let refloatMutations = DeviceMutationCoordinator()
-  private let refloatConfiguration: RefloatConfigurationService
-  private var refloatProfile: RefloatControlProfile?
-  private var latestRefloatTelemetry: RefloatTelemetryRecord?
-  private var latestRefloatTelemetryMonotonicMs: Int64?
-  private var refloatRefreshTimer: (any CancellationPort)?
-  private var refloatMutationTimer: (any CancellationPort)?
-  private var shutdownIntentTimer: (any CancellationPort)?
   private var refloatWaiter: RefloatMutationWaiter?
   private var refloatConfigurationWaiter: RefloatConfigurationRequestWaiter?
-  private lazy var refloatScheduler: any SchedulerPort = scheduler ?? SystemScheduler()
-  private var vescGeneration = VescRequestGeneration(rawValue: 0)
-  private lazy var vescRequests =
-    VescRequestScheduler(
-      clock: clock,
-      scheduler: scheduler ?? SystemScheduler(),
-      write: { [weak self] bytes in
-        guard let self, let deviceID = self.activeDeviceID else { return }
-        self.bluetooth.write(bytes, to: deviceID)
-      },
-      diagnostic: { [weak self] message in self?.events.publish(message) }
-    )
+  private var refloatConfigurationObservedPending = false
   private var reconnectTimer: (any CancellationPort)?
   private var reconnectStartedAtMs: Int64?
   private var reconnectAttempt = 0
-  private lazy var telemetryPolling = TelemetryPolling(
-    clock: clock,
-    scheduler: scheduler,
-    protocolCodec: protocolCodec,
-    submit: { [weak self] payload, expected, priority, context, timeout, completion in
-      self?.submitVescRequest(
-        payload: payload,
-        expected: expected,
-        priority: priority,
-        context: context,
-        timeoutMs: timeout,
-        completion: completion
-      )
-    },
-    onSample: { [weak self] sample in
-      do {
-        try self?.ingest(sample)
-      } catch {
-        self?.events.publish(String(describing: error))
-      }
-    },
-    onFailure: { [weak self] reason in
-      self?.lock.withLock {
-        guard let self else { return }
-        self.events.publish(reason)
-        if self.refloatMutations.controllerActions(shutdownAvailable: false).pendingAction == .shutdown {
-          self.shutdownIntentTimer?.cancel()
-          self.shutdownIntentTimer = nil
-          _ = self.refloatMutations.clearShutdown(generation: self.vescGeneration)
-          self.finishReconnect(reason: "controller_shutdown")
-          return
-        }
-        self.failIdentification(
-          .identificationTimeout,
-          "Refloat telemetry negotiation timed out."
-        )
-      }
-    },
-    onDiagnostic: { [weak self] message in self?.events.publish(message) }
-  )
 
   public private(set) var activeDeviceID: DeviceID?
   private var activeDeviceName: String?
@@ -126,7 +79,6 @@ public final class ApplicationService: @unchecked Sendable {
     logStore: LogStorePort,
     productStore: (any ProductStorePort)? = nil,
     sessionStore: (any SessionStorePort)? = nil,
-    protocolCodec: VescProtocolPort? = nil,
     scheduler: (any SchedulerPort)? = nil,
     events: EventSink,
     samplingSettings: SamplingSettings = .init(),
@@ -141,15 +93,13 @@ public final class ApplicationService: @unchecked Sendable {
     self.clock = clock
     self.logStore = logStore
     self.productStore = productStore
-    refloatConfiguration = RefloatConfigurationService(cache: productStore)
     self.sessionStore = sessionStore
-    self.protocolCodec = protocolCodec
     self.scheduler = scheduler
     self.locationProvider = locationProvider
     self.events = events
     reconnectDurationMs = samplingSettings.reconnectDurationMs
     idleProbeIntervalMs = samplingSettings.idleProbeIntervalMs
-    sampling = AdaptiveSamplingPolicy(settings: samplingSettings)
+    self.samplingSettings = samplingSettings
     bluetoothState = bluetooth.currentState()
     let savedIDs = ((try? productStore?.savedDevices()) ?? [])
       .compactMap { $0.bluetoothIdentifier.map(DeviceID.init) }
@@ -216,25 +166,14 @@ public final class ApplicationService: @unchecked Sendable {
       at: clock.now()
     )
     events.publish(profile)
-    if connectionState == .ready, currentSavedDevice?.savedDeviceID == savedDeviceID {
-      bmsPollTimer?.cancel()
-      bmsPollTimer = nil
-      startAuxiliaryDiscovery()
-    }
     return profile
   }
 
   public func selectController(deviceID: DeviceID, canID: UInt8) throws {
     lock.lock()
     defer { lock.unlock() }
-    guard activeDeviceID == deviceID,
-          connectionState == .selectingController,
-          controllerDiscovery.canSelect(canID: canID)
-    else {
-      throw ApplicationError.invalidControllerSelection
-    }
-    guard case let .requestRefloatInfo(route, selectedFirmware?) =
-      controllerDiscovery.selectController(canID: canID)
+    guard activeDeviceID == deviceID, connectionState == .selectingController,
+          rustControllerCandidates.contains(where: { $0.canID == canID })
     else {
       throw ApplicationError.invalidControllerSelection
     }
@@ -245,14 +184,16 @@ public final class ApplicationService: @unchecked Sendable {
       let profile = try productStore.selectController(
         savedDeviceID: savedDevice.savedDeviceID,
         canID: canID,
-        controllerUUID: ControllerDiscoveryPolicy.meaningfulUUID(selectedFirmware.controllerUUID),
+        controllerUUID: nil,
         at: clock.now()
       )
       events.publish(profile)
     }
-    controllerDiscovery.clearIssue()
     transition(.identifying)
-    performDiscoveryEffect(.requestRefloatInfo(route: route, rememberController: nil))
+    try performRustCommand([
+      "command": "select_controller", "generation": rustGeneration, "can_id": canID,
+      "now_ms": clock.monotonicMilliseconds(),
+    ])
   }
 
   public func settings() throws -> SettingsRecord {
@@ -300,17 +241,19 @@ public final class ApplicationService: @unchecked Sendable {
     lock.withLock {
       idleProbeIntervalMs = value.idleProbeIntervalMs
       reconnectDurationMs = value.reconnectDurationMs
-      sampling = AdaptiveSamplingPolicy(settings: SamplingSettings(
+      samplingSettings = SamplingSettings(
         idleProbeIntervalMs: value.idleProbeIntervalMs,
         idlePersistIntervalMs: value.idlePersistIntervalMs,
         ridingPersistIntervalMs: value.ridingPersistIntervalMs,
         postRideTailMs: value.postRideTailMs,
         reconnectDurationMs: value.reconnectDurationMs
-      ))
-      telemetryPolling.updateSettings(
-        idleIntervalMs: value.idleProbeIntervalMs,
-        postRideTailMs: value.postRideTailMs
       )
+      try? performRustCommand([
+        "command": "update_settings", "generation": rustGeneration,
+        "idle_interval_ms": value.idleProbeIntervalMs,
+        "post_ride_tail_ms": value.postRideTailMs,
+        "now_ms": clock.monotonicMilliseconds(),
+      ])
       if !value.locationRecordingEnabled {
         stopLocationCapture()
       } else {
@@ -337,8 +280,17 @@ public final class ApplicationService: @unchecked Sendable {
   }
 
   public func sessionHistoryConfiguration(sessionID: String) throws -> SessionHistoryConfiguration {
-    guard let sessionStore else { throw ApplicationError.productStoreUnavailable }
-    return try sessionStore.sessionHistoryConfiguration(sessionID: sessionID)
+    let value = try rustSessionQuery([
+      "command": "session_metadata", "path": sessionPath(sessionID),
+    ])
+    guard let riding = Self.int64(value["expected_riding_persistence_ms"]),
+          let idle = Self.int64(value["expected_idle_persistence_ms"]),
+          let resolution = Self.int64(value["retained_resolution_seconds"])
+    else { throw SessionStoreError.sessionNotFound }
+    return SessionHistoryConfiguration(
+      expectedRidingPersistenceMs: riding, expectedIdlePersistenceMs: idle,
+      retainedResolutionSeconds: resolution
+    )
   }
 
   public func querySessionSeries(
@@ -349,11 +301,9 @@ public final class ApplicationService: @unchecked Sendable {
     maxPoints: Int,
     publishedSampleSequence: Int64? = nil
   ) throws -> [SessionSeriesPoint] {
-    guard let sessionStore else { throw ApplicationError.productStoreUnavailable }
-    return try sessionStore.querySeries(
+    try rustSessionSamples(
       sessionID: sessionID, startElapsedMs: startElapsedMs, endElapsedMs: endElapsedMs,
-      fields: fields, maxPoints: maxPoints,
-      publishedSampleSequence: publishedSampleSequence
+      fields: fields, maxRows: maxPoints, publishedSampleSequence: publishedSampleSequence
     )
   }
 
@@ -365,8 +315,7 @@ public final class ApplicationService: @unchecked Sendable {
     maxRows: Int,
     publishedSampleSequence: Int64? = nil
   ) throws -> [SessionSeriesPoint] {
-    guard let sessionStore else { throw ApplicationError.productStoreUnavailable }
-    return try sessionStore.querySeriesSource(
+    try rustSessionSamples(
       sessionID: sessionID, startElapsedMs: startElapsedMs, endElapsedMs: endElapsedMs,
       fields: fields, maxRows: maxRows, publishedSampleSequence: publishedSampleSequence
     )
@@ -379,25 +328,35 @@ public final class ApplicationService: @unchecked Sendable {
     fields: [String],
     buckets: Int,
     gapPolicy: SessionGapPolicyRecord,
-    expectedPersistenceMs: Int64,
-    expectedRidingPersistenceMs: Int64?,
-    expectedIdlePersistenceMs: Int64?,
-    retainedResolutionSeconds: Int64,
+    expectedPersistenceMs _: Int64,
+    expectedRidingPersistenceMs _: Int64?,
+    expectedIdlePersistenceMs _: Int64?,
+    retainedResolutionSeconds _: Int64,
     publishedSampleSequence: Int64? = nil
   ) throws -> SessionSeriesReductionRecord {
-    guard let sessionStore else { throw ApplicationError.productStoreUnavailable }
-    return try sessionStore.reduceSeries(
-      sessionID: sessionID,
-      startElapsedMs: startElapsedMs,
-      endElapsedMs: endElapsedMs,
-      fields: fields,
-      buckets: buckets,
-      gapPolicy: gapPolicy,
-      expectedPersistenceMs: expectedPersistenceMs,
-      expectedRidingPersistenceMs: expectedRidingPersistenceMs,
-      expectedIdlePersistenceMs: expectedIdlePersistenceMs,
-      retainedResolutionSeconds: retainedResolutionSeconds,
-      publishedSampleSequence: publishedSampleSequence
+    let snapshot = try sessionSnapshot(sessionID: sessionID)
+    let started = DispatchTime.now().uptimeNanoseconds
+    let value = try rustSessionQuery([
+      "command": "session_reduce", "path": sessionPath(sessionID), "fields": fields,
+      "start_elapsed_ms": startElapsedMs, "end_elapsed_ms": endElapsedMs, "buckets": buckets,
+      "gap_seconds": gapPolicy.thresholdSeconds ?? NSNull(),
+      "boundary": Self.boundary(snapshot, sampleSequence: publishedSampleSequence),
+    ])
+    let columns = (value["columns"] as? [[String: Any]] ?? []).reduce(into: [String: SessionSeriesColumnRecord]()) {
+      guard let field = $1["field"] as? String,
+            let elapsed = Self.int64s($1["elapsed_ms"]),
+            let sequences = Self.int64s($1["sequences"]),
+            let values = Self.optionalDoubles($1["values"]),
+            let generations = Self.ints($1["generations"])
+      else { return }
+      $0[field] = SessionSeriesColumnRecord(
+        elapsedMs: elapsed, sequence: sequences, values: values, generations: generations
+      )
+    }
+    let elapsed = Double(DispatchTime.now().uptimeNanoseconds - started) / 1_000_000
+    return SessionSeriesReductionRecord(
+      columns: columns, sourceRows: Int(Self.int64(value["source_rows"]) ?? 0),
+      sourceMs: elapsed, reducerMs: 0, elapsedMs: elapsed
     )
   }
 
@@ -405,8 +364,9 @@ public final class ApplicationService: @unchecked Sendable {
     _ cancellation: SessionReadCancellation,
     body: () throws -> T
   ) rethrows -> T {
-    guard let sessionStore else { return try body() }
-    return try sessionStore.withSessionReadCancellation(cancellation, body: body)
+    let registration = cancellation.register { [rustRuntime] in rustRuntime.interrupt() }
+    defer { cancellation.unregister(registration) }
+    return try body()
   }
 
   public func sessionEvents(
@@ -415,11 +375,22 @@ public final class ApplicationService: @unchecked Sendable {
     endElapsedMs: Int64,
     publishedEventSequence: Int64? = nil
   ) throws -> [SessionEventRecord] {
-    guard let sessionStore else { throw ApplicationError.productStoreUnavailable }
-    return try sessionStore.sessionEvents(
-      sessionID: sessionID, startElapsedMs: startElapsedMs, endElapsedMs: endElapsedMs,
-      publishedEventSequence: publishedEventSequence
-    )
+    let snapshot = try sessionSnapshot(sessionID: sessionID)
+    let value = try rustSessionQuery([
+      "command": "session_events", "path": sessionPath(sessionID),
+      "start_elapsed_ms": startElapsedMs, "end_elapsed_ms": endElapsedMs, "limit": 500,
+      "after_elapsed_ms": NSNull(), "after_sequence": NSNull(),
+      "boundary": Self.boundary(snapshot, eventSequence: publishedEventSequence),
+    ])
+    return (value["rows"] as? [[String: Any]] ?? []).compactMap {
+      guard let sequence = Self.int64($0["sequence"]), let elapsed = Self.int64($0["elapsed_ms"]),
+            let kind = $0["kind"] as? String, let details = $0["details_json"] as? String
+      else { return nil }
+      return SessionEventRecord(
+        eventID: String(sequence), elapsedMs: elapsed, kind: kind, detailsJSON: details,
+        sourceSampleSequence: Self.int64($0["source_sample_sequence"])
+      )
+    }
   }
 
   public func querySessionLocations(
@@ -430,35 +401,67 @@ public final class ApplicationService: @unchecked Sendable {
     cursor: String?,
     publishedLocationSequence: Int64?
   ) throws -> SessionLocationPageRecord {
-    guard let sessionStore else { throw ApplicationError.productStoreUnavailable }
-    return try sessionStore.queryLocations(
-      sessionID: sessionID,
-      startElapsedMs: startElapsedMs,
-      endElapsedMs: endElapsedMs,
-      limit: limit,
-      cursor: cursor,
-      publishedLocationSequence: publishedLocationSequence
-    )
+    let snapshot = try sessionSnapshot(sessionID: sessionID)
+    let after = cursor.flatMap { Data(base64Encoded: $0) }
+      .flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
+      .flatMap { Self.int64($0["locationSequence"]) }
+    let value = try rustSessionQuery([
+      "command": "session_locations", "path": sessionPath(sessionID),
+      "start_elapsed_ms": startElapsedMs, "end_elapsed_ms": endElapsedMs, "limit": limit,
+      "after_location_sequence": after ?? NSNull(),
+      "boundary": Self.boundary(snapshot, locationSequence: publishedLocationSequence),
+    ])
+    let points: [SessionLocationPointRecord] = (value["rows"] as? [[String: Any]] ?? []).compactMap {
+      guard let sequence = Self.int64($0["location_sequence"]), let elapsed = Self.int64($0["elapsed_ms"]),
+            let observed = Self.int64($0["observed_at_epoch_ms"]),
+            let latitude = Self.double($0["latitude"]), let longitude = Self.double($0["longitude"])
+      else { return nil }
+      return SessionLocationPointRecord(
+        locationSequence: sequence, elapsedMs: elapsed, latitude: latitude, longitude: longitude,
+        accuracyM: Self.double($0["accuracy_m"]),
+        observedAt: Date(timeIntervalSince1970: Double(observed) / 1_000)
+      )
+    }
+    let gaps: [SessionLocationGapRecord] = (value["gaps"] as? [[String: Any]] ?? []).compactMap {
+      guard let start = Self.int64($0["start_elapsed_ms"]), let end = Self.int64($0["end_elapsed_ms"])
+      else { return nil }
+      return SessionLocationGapRecord(startElapsedMs: start, endElapsedMs: end, reason: "noFix")
+    }
+    let next = Self.int64(value["next_location_sequence"]).flatMap { sequence in
+      try? JSONSerialization.data(withJSONObject: [
+        "sessionId": sessionID, "startElapsedMs": startElapsedMs, "endElapsedMs": endElapsedMs,
+        "historyRevision": snapshot.historyRevision, "locationSequence": sequence,
+      ]).base64EncodedString()
+    }
+    return SessionLocationPageRecord(points: points, gaps: gaps, nextCursor: next, snapshot: snapshot)
   }
 
   public func sessionExtensionFields(sessionID: String) throws -> [String] {
-    guard let sessionStore else { throw ApplicationError.productStoreUnavailable }
-    return try sessionStore.sessionExtensionFields(sessionID: sessionID)
+    let value = try rustSessionQuery(["command": "session_fields", "path": sessionPath(sessionID)])
+    return (value["rows"] as? [[String: Any]] ?? []).compactMap {
+      ($0["source"] as? String) == "extension" ? $0["name"] as? String : nil
+    }
   }
 
   public func sessionPruneMetadata(sessionID: String) throws -> SessionPruneMetadataRecord {
-    guard let sessionStore else { throw ApplicationError.productStoreUnavailable }
-    return try sessionStore.sessionPruneMetadata(sessionID: sessionID)
+    let value = try rustSessionQuery(["command": "session_metadata", "path": sessionPath(sessionID)])
+    return SessionPruneMetadataRecord(
+      targetResolutionSeconds: Self.int64(value["retained_resolution_seconds"]).flatMap { $0 == 0 ? nil : $0 },
+      recordedSampleCount: Self.int64(value["recorded_sample_count"]) ?? 0,
+      storedSampleCount: Self.int64(value["stored_sample_count"]) ?? 0,
+      policy: value["prune_policy"] as? String
+    )
   }
 
   public func prunePreview(sessionID: String, targetResolutionSeconds: Int64) throws -> SessionPrunePreviewRecord {
-    guard let sessionStore else { throw ApplicationError.productStoreUnavailable }
-    return try sessionStore.prunePreview(sessionID: sessionID, targetResolutionSeconds: targetResolutionSeconds)
+    try rustPrune(sessionID: sessionID, targetResolutionSeconds: targetResolutionSeconds, commit: false)
   }
 
   public func pruneSession(sessionID: String, targetResolutionSeconds: Int64) throws -> SessionPrunePreviewRecord {
-    guard let sessionStore else { throw ApplicationError.productStoreUnavailable }
-    return try sessionStore.pruneSession(sessionID: sessionID, targetResolutionSeconds: targetResolutionSeconds)
+    sessionStore?.cancelHistoricalReads(sessionID: sessionID)
+    let value = try rustPrune(sessionID: sessionID, targetResolutionSeconds: targetResolutionSeconds, commit: true)
+    try sessionStore?.reconcileSession(sessionID: sessionID)
+    return value
   }
 
   public func maintenanceJob() throws -> SessionMaintenanceJobRecord? {
@@ -484,10 +487,9 @@ public final class ApplicationService: @unchecked Sendable {
     fields: [String],
     publishedSampleSequence: Int64? = nil
   ) throws -> [SessionSeriesPoint] {
-    guard let sessionStore else { throw ApplicationError.productStoreUnavailable }
-    return try sessionStore.querySampleWindow(
-      sessionID: sessionID, centerElapsedMs: centerElapsedMs,
-      beforeMs: beforeMs, afterMs: afterMs, fields: fields,
+    try rustSessionSamples(
+      sessionID: sessionID, startElapsedMs: max(0, centerElapsedMs - beforeMs),
+      endElapsedMs: centerElapsedMs + afterMs, fields: fields, maxRows: 2_000,
       publishedSampleSequence: publishedSampleSequence
     )
   }
@@ -583,11 +585,9 @@ public final class ApplicationService: @unchecked Sendable {
     }
     explicitDisconnect = false
     cancelReconnect()
-    telemetryPolling.resetSession()
     latestPersistedSample = nil
     latestLocation = nil
-    resetFirmwareDiscovery()
-    protocolCodec?.reset()
+    try performRustCommand(["command": "reset", "now_ms": clock.monotonicMilliseconds()])
     transition(.connecting)
     bluetooth.connect(deviceID)
   }
@@ -636,21 +636,14 @@ public final class ApplicationService: @unchecked Sendable {
     case let .connectionChanged(deviceID, state):
       guard deviceID == activeDeviceID else { return }
       if state == .failed || state == .disconnected,
-         refloatMutations.controllerActions(shutdownAvailable: false).pendingAction == .shutdown
+         rustControllerActions.pendingAction == .shutdown
       {
-        shutdownIntentTimer?.cancel()
-        shutdownIntentTimer = nil
-        _ = refloatMutations.clearShutdown(generation: vescGeneration)
         finishReconnect(reason: "controller_shutdown")
         return
       }
       if state == .ready {
-        if protocolCodec == nil {
-          completeWithoutProtocol()
-          return
-        }
         transition(.identifying)
-        startFirmwareDiscovery(deviceID)
+        try beginRustApplication()
         return
       }
       if state == .failed || state == .disconnected,
@@ -663,9 +656,9 @@ public final class ApplicationService: @unchecked Sendable {
       if state == .failed, trackingMode == .saved || trackingMode == .guest, !explicitDisconnect,
          logStore.active() == nil
       {
-        controllerDiscovery.markFailure(
-          .transportSetupFailed,
-          "The VESC Bluetooth transport could not be prepared."
+        rustConnectionIssue = ConnectionIssue(
+          code: .transportSetupFailed,
+          message: "The VESC Bluetooth transport could not be prepared."
         )
         transition(.failed)
         return
@@ -679,232 +672,17 @@ public final class ApplicationService: @unchecked Sendable {
         activeDeviceName = nil
         latestPersistedSample = nil
         latestLocation = nil
-        resetFirmwareDiscovery()
       }
       transition(state)
     case let .notification(deviceID, bytes):
       guard deviceID == activeDeviceID else { return }
-      guard let protocolCodec else {
-        events.publish(event)
-        return
-      }
-      do {
-        for message in try protocolCodec.receive(bytes) {
-          let requestContext = vescRequests.inFlightRequest?.context
-          let identity: (UInt8, UInt8?) = switch message {
-          case .firmware: (VescCommand.getFirmwareVersion.rawValue, nil)
-          case .currentLimits: (VescCommand.getMotorConfiguration.rawValue, nil)
-          case .canDevices: (VescCommand.pingCAN.rawValue, nil)
-          case .bmsValuesPayload: (VescCommand.bmsGetValues.rawValue, nil)
-          case .refloatInfo: (VescCommand.customAppData.rawValue, RefloatCommand.info.rawValue)
-          case .refloatTelemetryLayout:
-            (VescCommand.customAppData.rawValue, RefloatCommand.realtimeDataInternalIDs.rawValue)
-          case let .refloatTelemetry(value):
-            (VescCommand.customAppData.rawValue,
-             value.kind == .realtime
-               ? RefloatCommand.realtimeDataInternal.rawValue : RefloatCommand.getAllData.rawValue)
-          case let .refloatLighting(command, _):
-            (VescCommand.customAppData.rawValue, command.rawValue)
-          case let .customConfiguration(response):
-            switch response {
-            case .schemaChunk: (VescCommand.getCustomConfigurationXML.rawValue, nil)
-            case let .values(command, _, _): (command.rawValue, nil)
-            case .writeAcknowledgement: (VescCommand.setCustomConfiguration.rawValue, nil)
-            }
-          }
-          let deferNext = switch message {
-          case .refloatTelemetry, .customConfiguration: true
-          default: false
-          }
-          var deferredResumed = false
-          if !vescRequests.receive(
-            payload: bytes,
-            command: identity.0,
-            refloatCommand: identity.1,
-            validContext: { context in Self.matchesCustomConfiguration(message, context: context) },
-            deferNext: deferNext
-          )
-          { continue }
-          switch message {
-          case let .firmware(value):
-            let attributed = attributedFirmware(value, context: requestContext)
-            if case .some(.auxiliaryFirmware) = requestContext {
-              events.publish(
-                "bms_discovery_identity:\(Self.bmsRouteDiagnostic(attributed.canID)):"
-                  + "type=\(attributed.hardwareType):version=\(attributed.major).\(attributed.minor):"
-                  + "hardware=\(Self.bmsHardwareDiagnostic(attributed.hardwareName))"
-              )
-              performAuxiliaryEffect(auxiliaryDiscovery.acceptFirmware(
-                attributed, generation: auxiliaryDiscovery.generation
-              ))
-            } else {
-              handleFirmware(attributed)
-            }
-          case let .currentLimits(value):
-            if connectionState == .ready { currentLimits = value }
-          case let .canDevices(canIDs):
-            if requestContext == .auxiliaryCanPing {
-              events.publish("bms_discovery_scan_result:count=\(canIDs.count)")
-              performAuxiliaryEffect(auxiliaryDiscovery.acceptCANIDs(
-                canIDs, generation: auxiliaryDiscovery.generation
-              ))
-            } else {
-              handleCanDevices(canIDs)
-            }
-          case let .bmsValuesPayload(payload):
-            guard case let .bmsValues(route) = requestContext else { continue }
-            let expectedCanID: UInt8? = switch route {
-            case .direct: nil
-            case let .can(canID): canID
-            }
-            do {
-              let snapshot = try VescPayloadDecoder.bmsValues(
-                Array(payload), expectedCanID: expectedCanID, observedAt: clock.now()
-              )
-              bmsFailureCount = 0
-              auxiliaryDiscovery.acceptSnapshot(snapshot)
-              events.publish("bms_values_attached:\(Self.bmsRouteDiagnostic(expectedCanID))")
-              events.publish(snapshot)
-            } catch {
-              events.publish("bms_values_decode_failed:\(Self.bmsRouteDiagnostic(expectedCanID))")
-              recordBmsFailure()
-            }
-          case let .refloatInfo(decision):
-            guard connectionState == .identifying else { continue }
-            performDiscoveryEffect(controllerDiscovery.acceptRefloatInfo(decision))
-          case let .refloatTelemetryLayout(fields, runtimeFields, supported):
-            telemetryPolling.layoutEstablished()
-            performDiscoveryEffect(
-              controllerDiscovery.acceptTelemetryLayout(
-                fields: fields,
-                runtimeFields: runtimeFields,
-                supported: supported
-              )
-            )
-          case let .refloatTelemetry(value):
-            latestRefloatTelemetry = value
-            latestRefloatTelemetryMonotonicMs = clock.monotonicMilliseconds()
-            let wasPending = refloatMutations.snapshot()?.pendingAction
-            let updated = refloatMutations.observeTelemetry(value)
-            if wasPending != nil, updated?.pendingAction == nil {
-              refloatConfiguration.invalidateCurrent()
-              finishRefloatMutation(.success(updated!))
-            }
-            if let mode = value.packageMode {
-              if mode == .flywheel {
-                cancelFlywheelProhibitedRequests(
-                  preservingRefloatControl: updated?.pendingAction == .flywheel
-                )
-                if let pending = updated?.pendingAction, pending != .flywheel {
-                  failRefloatMutation(generation: vescGeneration)
-                }
-                _ = refloatMutations.clearShutdown(generation: vescGeneration)
-                refloatMutations.finishConfiguration(generation: vescGeneration)
-              }
-              performRefloatConfigurationEffect(
-                refloatConfiguration.setFlywheel(mode == .flywheel)
-              )
-            }
-            vescRequests.resume()
-            deferredResumed = true
-            telemetryPolling.receive(value)
-          case let .refloatLighting(_, state):
-            let wasPending = refloatMutations.snapshot()?.pendingAction
-            let updated = refloatMutations.observeLighting(state)
-            if wasPending != nil, updated?.pendingAction == nil {
-              refloatConfiguration.invalidateCurrent()
-              finishRefloatMutation(.success(updated!))
-            }
-          case let .customConfiguration(response):
-            guard let requestContext else { continue }
-            do {
-              let effect = try refloatConfiguration.accept(
-                response, context: requestContext, generation: vescGeneration
-              )
-              performRefloatConfigurationEffect(effect)
-              if case .refloatConfigurationVerification = requestContext {
-                refloatMutations.finishConfiguration(generation: vescGeneration)
-                telemetryPolling.refresh()
-                if let route = controllerDiscovery.controllerRoute, let profile = refloatProfile {
-                  requestRefloatLighting(route: route, profile: profile)
-                }
-              }
-              events.publish(refloatConfiguration.summary())
-              switch requestContext {
-              case .refloatConfigurationValues, .refloatConfigurationVerification:
-                finishRefloatConfigurationRequest(.success(()))
-              default:
-                break
-              }
-            } catch {
-              if case .refloatConfigurationWrite = requestContext {
-                refloatMutations.finishConfiguration(generation: vescGeneration)
-              }
-              if case .refloatConfigurationVerification = requestContext {
-                refloatMutations.finishConfiguration(generation: vescGeneration)
-              }
-              finishRefloatConfigurationRequest(.failure(error))
-              events.publish(String(describing: error))
-            }
-          }
-          if deferNext, !deferredResumed { vescRequests.resume() }
-          events.publish(message)
-        }
-      } catch {
-        events.publish(String(describing: error))
-      }
+      try performRustCommand([
+        "command": "receive_bytes", "generation": rustGeneration, "bytes": Array(bytes),
+        "now_ms": clock.monotonicMilliseconds(),
+        "observed_at_epoch_ms": Int64(clock.now().timeIntervalSince1970 * 1_000),
+      ])
+      return
     }
-  }
-
-  private static func matchesCustomConfiguration(
-    _ message: VescProtocolMessage, context: VescRequestContext
-  ) -> Bool {
-    guard case let .customConfiguration(response) = message else { return true }
-    return switch (response, context) {
-    case let (.schemaChunk(index, _, offset, _), .refloatConfigurationSchema(_, expected, expectedOffset, _)):
-      index == expected && offset == expectedOffset
-    case let (.values(command, index, _), .refloatConfigurationValues(_, expected, defaults, _)):
-      index == expected && command == (defaults ? .getCustomConfigurationDefault : .getCustomConfiguration)
-    case let (.values(command, index, _), .refloatConfigurationVerification(_, expected, _)):
-      index == expected && command == .getCustomConfiguration
-    case (.writeAcknowledgement, .refloatConfigurationWrite): true
-    default: false
-    }
-  }
-
-  private func cancelFlywheelProhibitedRequests(preservingRefloatControl: Bool) {
-    vescRequests.cancelMatching({ context in
-      switch context {
-      case .refloatControl:
-        !preservingRefloatControl
-      case .controllerShutdown, .refloatConfigurationWrite, .refloatConfigurationVerification:
-        true
-      case let .refloatConfigurationValues(_, _, defaults, _): !defaults
-      default: false
-      }
-    }, resume: false)
-  }
-
-  private func attributedFirmware(
-    _ value: FirmwareRecord,
-    context: VescRequestContext?
-  ) -> FirmwareRecord {
-    let attributedCanID: UInt8? = switch context {
-    case let .controllerFirmware(.can(canID)), let .auxiliaryFirmware(.can(canID)): canID
-    default: nil
-    }
-    return FirmwareRecord(
-      major: value.major,
-      minor: value.minor,
-      testVersion: value.testVersion,
-      hardwareName: value.hardwareName,
-      firmwareName: value.firmwareName,
-      hardwareType: value.hardwareType,
-      canID: attributedCanID ?? value.canID,
-      controllerUUID: value.controllerUUID,
-      customConfigurationCount: value.customConfigurationCount,
-      hardwareConfigurationCRC: value.hardwareConfigurationCRC
-    )
   }
 
   public func disconnect() throws {
@@ -914,14 +692,19 @@ public final class ApplicationService: @unchecked Sendable {
     transition(.disconnecting)
     explicitDisconnect = true
     cancelReconnect()
-    telemetryPolling.cancelLayout()
-    telemetryPolling.stop()
     stopLocationCapture()
     if trackingMode == .saved, let active = logStore.active() {
+      try performRustCommand(["command": "detach_session"])
+      rustSessionAttached = false
       try events.publish(
         logStore.close(jobID: active.jobID, at: clock.now(), reason: "explicit_disconnect")
       )
     }
+    rustDeadlines.values.forEach { $0.cancel() }
+    rustDeadlines.removeAll()
+    rustTimers.values.forEach { $0.cancel() }
+    rustTimers.removeAll()
+    rustTimerIntervals.removeAll()
     bluetooth.disconnect(deviceID)
   }
 
@@ -936,11 +719,9 @@ public final class ApplicationService: @unchecked Sendable {
     }
     guard let active = logStore.active() else { return }
     updateLocationCapture(rideState: sample.rideState)
-    if sampling.shouldPersist(rideState: sample.rideState, elapsedMs: sample.elapsedMs) {
-      try logStore.append(jobID: active.jobID, samples: [sample])
-      latestPersistedSample = sample
-      events.publish(sample)
-    }
+    try logStore.append(jobID: active.jobID, samples: [sample])
+    latestPersistedSample = sample
+    events.publish(sample)
   }
 
   private func updateLocationCapture(rideState: RideState) {
@@ -985,16 +766,15 @@ public final class ApplicationService: @unchecked Sendable {
     else { return }
     let elapsedMs = locationCaptureBaseElapsedMs + max(0, clock.monotonicMilliseconds() - started)
     do {
-      try logStore.appendLocations(
-        jobID: jobID,
-        observations: [LocationObservation(
-          observedAt: observation.observedAt,
-          elapsedMs: elapsedMs,
-          latitude: observation.latitude,
-          longitude: observation.longitude,
-          accuracyM: observation.accuracyM
-        )]
-      )
+      try performRustCommand([
+        "command": "append_locations",
+        "locations": [[
+          "observed_at_epoch_ms": Int64(observation.observedAt.timeIntervalSince1970 * 1_000),
+          "elapsed_ms": elapsedMs, "latitude": observation.latitude,
+          "longitude": observation.longitude,
+          "accuracy_m": observation.accuracyM.map { $0 as Any } ?? NSNull(),
+        ]],
+      ])
       latestLocation = LiveLocation(
         latitude: observation.latitude,
         longitude: observation.longitude,
@@ -1035,130 +815,101 @@ public final class ApplicationService: @unchecked Sendable {
       latestSample: latestPersistedSample,
       latestLocation: latestLocation,
 
-      currentLimits: currentLimits,
-      controllerRoute: controllerDiscovery.controllerRoute,
-      controllerCandidates: controllerDiscovery.controllerCandidates,
-      connectionIssue: controllerDiscovery.connectionIssue,
-      bms: auxiliaryDiscovery.state,
-      refloatControls: refloatMutations.snapshot(),
-      controllerActions: controllerActionsSnapshot()
+      currentLimits: nil,
+      controllerRoute: rustControllerRoute,
+      controllerCandidates: rustControllerCandidates,
+      connectionIssue: rustConnectionIssue,
+      bms: rustBmsState,
+      refloatControls: rustControls,
+      controllerActions: rustControllerActions
     )
   }
 
   public func shutdownController() throws {
     try lock.withLock {
-      guard let protocolCodec,
-            let route = controllerDiscovery.controllerRoute,
-            let firmware = controllerDiscovery.firmware,
-            let telemetry = latestRefloatTelemetry
-      else { throw RefloatMutationError.invalidState }
-      let context = ControllerShutdownContext(
-        generation: vescGeneration,
-        connectionReady: connectionState == .ready,
-        shutdownSupported: VescCompatibility.supportsShutdown(firmware),
-        rideState: telemetry.rideState,
-        packageMode: telemetry.packageMode
-      )
-      let actions = try refloatMutations.authorizeShutdown(context: context)
-      do {
-        let payload = try protocolCodec.controllerShutdownRequest(route: route)
-        events.publish(actions)
-        vescRequests.enqueueOneWay(
-          payload: payload,
-          expectedResponse: .init(command: VescCommand.shutdown.rawValue),
-          priority: .ridingTelemetry,
-          context: .controllerShutdown(.init(route)),
-          timeoutMs: Self.shutdownIntentTimeoutMs,
-          generation: vescGeneration
-        ) { [weak self] _, outcome in
-          guard outcome != .sent else { return }
-          self?.lock.withLock { self?.expireShutdownIntent(generation: context.generation) }
-        }
-        shutdownIntentTimer?.cancel()
-        shutdownIntentTimer = refloatScheduler.schedule(
-          afterMilliseconds: Self.shutdownIntentTimeoutMs
-        ) { [weak self] in
-          self?.lock.withLock { self?.expireShutdownIntent(generation: context.generation) }
-        }
-      } catch {
-        _ = refloatMutations.clearShutdown(generation: context.generation)
-        throw error
-      }
+      try performRustCommand([
+        "command": "shutdown_controller", "generation": rustGeneration,
+        "now_ms": clock.monotonicMilliseconds(),
+      ])
     }
   }
 
   public func setRefloatControl(_ control: RefloatBooleanControl, enabled: Bool) throws -> RefloatControls {
-    let waiter = try lock.withLock { () throws -> RefloatMutationWaiter? in
-      let context = try refloatMutationContext()
-      switch try refloatMutations.authorizeSet(control: control, enabled: enabled, context: context) {
-      case .idempotent: return nil
-      case let .mutation(mutation, state):
-        let waiter = RefloatMutationWaiter()
-        refloatWaiter = waiter
-        events.publish(state)
-        try submitRefloatMutation(mutation, route: context.route, generation: context.generation)
-        armRefloatMutationTimeout(generation: context.generation)
-        return waiter
+    let waiter = try lock.withLock { () throws -> RefloatMutationWaiter in
+      let waiter = RefloatMutationWaiter()
+      refloatWaiter = waiter
+      let controlName = switch control {
+      case .package: "package"
+      case .flywheel: "flywheel"
+      case .leds: "leds"
+      case .headlights: "headlights"
       }
+      try performRustCommand([
+        "command": "set_control", "generation": rustGeneration, "control": controlName,
+        "enabled": enabled, "now_ms": clock.monotonicMilliseconds(),
+      ])
+      return waiter
     }
-    guard let waiter else { return refloatMutations.snapshot()! }
+    if let controls = lock.withLock({ rustControls }), controls.pendingAction == nil {
+      return controls
+    }
     return try waiter.wait(timeout: 3.25)
   }
 
   public func clearRefloatFatalError() throws -> RefloatControls {
-    let waiter = try lock.withLock { () throws -> RefloatMutationWaiter? in
-      let context = try refloatMutationContext()
-      switch try refloatMutations.authorizeFatalClear(context: context) {
-      case .idempotent: return nil
-      case let .mutation(mutation, _):
-        let waiter = RefloatMutationWaiter()
-        refloatWaiter = waiter
-        events.publish(refloatMutations.snapshot()!)
-        try submitRefloatMutation(mutation, route: context.route, generation: context.generation)
-        armRefloatMutationTimeout(generation: context.generation)
-        return waiter
-      }
+    let waiter = try lock.withLock { () throws -> RefloatMutationWaiter in
+      let waiter = RefloatMutationWaiter()
+      refloatWaiter = waiter
+      try performRustCommand([
+        "command": "clear_fatal_error", "generation": rustGeneration,
+        "now_ms": clock.monotonicMilliseconds(),
+      ])
+      return waiter
     }
-    guard let waiter else { return refloatMutations.snapshot()! }
+    if let controls = lock.withLock({ rustControls }), controls.pendingAction == nil {
+      return controls
+    }
     return try waiter.wait(timeout: 3.25)
   }
 
   public func firmwareSnapshot() -> FirmwareRecord? {
     lock.lock()
     defer { lock.unlock() }
-    return controllerDiscovery.firmware
+    return rustFirmware
   }
 
   public func refloatPackageVersionSnapshot() -> String? {
     lock.lock()
     defer { lock.unlock() }
-    return controllerDiscovery.refloatPackageVersion
+    return rustRefloatPackageVersion
   }
 
   public func refloatConfigurationSummarySnapshot() -> RefloatConfigurationSummary {
-    refloatConfiguration.summary()
+    lock.withLock { rustConfigurationSummary }
   }
 
   public func refloatConfigurationSchemaSnapshot() -> RefloatConfigurationSchema? {
-    refloatConfiguration.loadedSchema()
+    lock.withLock { rustConfigurationSchema }
   }
 
   public func refloatConfigurationValuesSnapshot(defaults: Bool) -> RefloatConfigurationValues? {
-    refloatConfiguration.loadedValues(defaults: defaults)
+    lock.withLock { defaults ? rustConfigurationDefaults : rustConfigurationCurrent }
   }
 
   public func readRefloatConfiguration(defaults: Bool) throws -> RefloatConfigurationValues {
     let waiter = try lock.withLock { () throws -> RefloatConfigurationRequestWaiter in
       let waiter = RefloatConfigurationRequestWaiter()
       refloatConfigurationWaiter = waiter
-      try performRefloatConfigurationEffect(refloatConfiguration.requestValues(defaults: defaults))
-      events.publish(refloatConfiguration.summary())
+      refloatConfigurationObservedPending = false
+      try performRustCommand([
+        "command": "read_configuration", "generation": rustGeneration, "defaults": defaults,
+        "now_ms": clock.monotonicMilliseconds(),
+      ])
       return waiter
     }
-    try waiter.wait(timeout: 3.25)
-    guard let values = refloatConfiguration.loadedValues(defaults: defaults) else {
-      throw RefloatConfigurationServiceError.invalidState
-    }
+    try waiter.wait(timeout: Self.configurationReadHostWaitTimeout)
+    guard let values = lock.withLock({ defaults ? rustConfigurationDefaults : rustConfigurationCurrent })
+    else { throw RefloatConfigurationServiceError.invalidState }
     return values
   }
 
@@ -1166,41 +917,31 @@ public final class ApplicationService: @unchecked Sendable {
     packageVersion: String, fingerprint: String, wireSignature: UInt32,
     baseRevision: UInt64, values: [String: RefloatConfigurationValue]
   ) throws -> RefloatConfigurationValues {
+    try writeRefloatConfiguration(
+      mutation: "write", packageVersion: packageVersion, fingerprint: fingerprint,
+      wireSignature: wireSignature, baseRevision: baseRevision, values: values
+    )
+  }
+
+  private func writeRefloatConfiguration(
+    mutation: String, packageVersion: String, fingerprint: String, wireSignature: UInt32,
+    baseRevision: UInt64, values: [String: RefloatConfigurationValue]
+  ) throws -> RefloatConfigurationValues {
     let waiter = try lock.withLock { () throws -> RefloatConfigurationRequestWaiter in
-      guard let telemetry = latestRefloatTelemetry,
-            let firmware = controllerDiscovery.firmware,
-            let observed = latestRefloatTelemetryMonotonicMs,
-            clock.monotonicMilliseconds() - observed <= max(3_000, idleProbeIntervalMs * 2)
-      else { throw RefloatMutationError.invalidState }
-      let context = RefloatConfigurationMutationContext(
-        generation: vescGeneration,
-        connectionReady: connectionState == .ready,
-        writable: VescCompatibility.accessMode(firmware) == .readWrite,
-        rideState: telemetry.rideState,
-        footpadState: telemetry.footpadState,
-        packageState: telemetry.packageState,
-        packageMode: telemetry.packageMode
-      )
-      try refloatMutations.authorizeConfiguration(context: context)
-      do {
-        let waiter = RefloatConfigurationRequestWaiter()
-        refloatConfigurationWaiter = waiter
-        let effect = try refloatConfiguration.requestWrite(
-          packageVersion: packageVersion, fingerprint: fingerprint,
-          wireSignature: wireSignature, baseRevision: baseRevision, values: values
-        )
-        performRefloatConfigurationEffect(effect)
-        events.publish(refloatConfiguration.summary())
-        return waiter
-      } catch {
-        refloatMutations.finishConfiguration(generation: context.generation)
-        throw error
-      }
+      let waiter = RefloatConfigurationRequestWaiter()
+      refloatConfigurationWaiter = waiter
+      refloatConfigurationObservedPending = false
+      try performRustCommand([
+        "command": "write_configuration", "generation": rustGeneration, "mutation": mutation,
+        "package_version": packageVersion, "fingerprint": fingerprint,
+        "wire_signature": wireSignature, "base_revision": baseRevision,
+        "values": Self.rustConfigurationValues(values), "now_ms": clock.monotonicMilliseconds(),
+      ])
+      return waiter
     }
-    try waiter.wait(timeout: 3.25)
-    guard let values = refloatConfiguration.loadedValues(defaults: false) else {
-      throw RefloatConfigurationServiceError.invalidState
-    }
+    try waiter.wait(timeout: Self.configurationWriteHostWaitTimeout)
+    guard let values = lock.withLock({ rustConfigurationCurrent })
+    else { throw RefloatConfigurationServiceError.invalidState }
     return values
   }
 
@@ -1234,7 +975,7 @@ public final class ApplicationService: @unchecked Sendable {
   ) throws -> RefloatConfigurationRecord {
     guard let productStore else { throw ApplicationError.productStoreUnavailable }
     let record = try productStore.refloatConfiguration(configurationID: configurationID)
-    let currentRevision = refloatConfiguration.loadedValues(defaults: false)?.revision
+    let currentRevision = rustConfigurationCurrent?.revision
     try validateRefloatTuneValues(identity: record.identity, sourceRevision: currentRevision, values: values)
     return try productStore.updateRefloatConfiguration(
       configurationID: configurationID, expectedRevision: expectedRevision,
@@ -1260,7 +1001,7 @@ public final class ApplicationService: @unchecked Sendable {
     }
     let values = try Self.refloatConfigurationValues(json: record.valuesJSON)
     return try writeRefloatConfiguration(
-      packageVersion: record.identity.packageVersion,
+      mutation: "tune_apply", packageVersion: record.identity.packageVersion,
       fingerprint: record.identity.schemaFingerprint,
       wireSignature: record.identity.wireSignature,
       baseRevision: baseRevision, values: values
@@ -1271,15 +1012,17 @@ public final class ApplicationService: @unchecked Sendable {
     identity: RefloatConfigurationIdentityRecord, sourceRevision: UInt64?,
     values: [String: RefloatConfigurationValue]
   ) throws {
-    let summary = refloatConfiguration.summary()
+    let summary = rustConfigurationSummary
     guard identity.packageName == "refloat", summary.packageVersion == identity.packageVersion,
           summary.schemaFingerprint == identity.schemaFingerprint,
           summary.wireSignature == identity.wireSignature,
-          sourceRevision != nil,
-          refloatConfiguration.loadedValues(defaults: false)?.revision == sourceRevision,
-          let schema = refloatConfiguration.loadedSchema()
+          sourceRevision != nil, rustConfigurationCurrent?.revision == sourceRevision,
+          rustConfigurationSchema != nil,
+          values.values.allSatisfy({
+            if case let .double(value) = $0 { return value.isFinite }
+            return true
+          })
     else { throw RefloatConfigurationServiceError.invalidState }
-    _ = try RefloatConfigurationValueCodec.encode(values, schema: schema)
   }
 
   private static func refloatConfigurationValuesJSON(
@@ -1330,556 +1073,8 @@ public final class ApplicationService: @unchecked Sendable {
   private func finishRefloatConfigurationRequest(_ result: Result<Void, any Error>) {
     let waiter = refloatConfigurationWaiter
     refloatConfigurationWaiter = nil
+    refloatConfigurationObservedPending = false
     waiter?.finish(result)
-  }
-
-  private func startFirmwareDiscovery(_ deviceID: DeviceID) {
-    guard protocolCodec != nil, activeDeviceID == deviceID else { return }
-    vescGeneration = vescRequests.beginGeneration()
-    let (generation, effect) = controllerDiscovery.begin()
-    guard effect != .none else { return }
-    identificationTimer?.cancel()
-    identificationTimer = scheduler?.schedule(
-      afterMilliseconds: Self.identificationTimeoutMs
-    ) { [weak self] in
-      self?.identificationTimedOut(generation: generation)
-    }
-    performDiscoveryEffect(effect)
-  }
-
-  private func submitVescRequest(
-    payload: Data,
-    expected: VescExpectedResponse,
-    priority: VescRequestPriority,
-    context: VescRequestContext,
-    timeoutMs: Int64,
-    diagnosticAttempt: Int? = nil,
-    completion: @escaping @Sendable (VescRequestCompletion) -> Void = { _ in }
-  ) {
-    if priority == .controllerIdentification {
-      events.publish(Self.identificationDiagnostic(
-        context: context, attempt: diagnosticAttempt, outcome: "submitted"
-      ))
-    }
-    vescRequests.enqueue(
-      payload: payload,
-      expectedResponse: expected,
-      priority: priority,
-      context: context,
-      timeoutMs: timeoutMs,
-      generation: vescGeneration
-    ) { [weak self] _, outcome in
-      if priority == .controllerIdentification {
-        self?.events.publish(Self.identificationDiagnostic(
-          context: context,
-          attempt: diagnosticAttempt,
-          outcome: Self.requestOutcomeDiagnostic(outcome)
-        ))
-      }
-      completion(outcome)
-    }
-  }
-
-  private func requestInitialFirmware(
-    attempt: Int,
-    identificationGeneration: Int,
-    requestGeneration: VescRequestGeneration
-  ) {
-    guard activeDeviceID != nil, connectionState == .identifying,
-          controllerDiscovery.identificationGeneration == identificationGeneration,
-          vescGeneration == requestGeneration,
-          let protocolCodec
-    else { return }
-    do {
-      try submitVescRequest(
-        payload: protocolCodec.firmwareRequest(route: .direct),
-        expected: .init(command: VescCommand.getFirmwareVersion.rawValue),
-        priority: .controllerIdentification,
-        context: .controllerFirmware(.direct),
-        timeoutMs: attempt == 1
-          ? Self.initialIdentificationAttemptTimeoutMs
-          : Self.identificationTimeoutMs - Self.initialIdentificationAttemptTimeoutMs,
-        diagnosticAttempt: attempt
-      ) { [weak self] outcome in
-        guard outcome == .timedOut, attempt == 1 else { return }
-        self?.lock.withLock {
-          self?.requestInitialFirmware(
-            attempt: 2,
-            identificationGeneration: identificationGeneration,
-            requestGeneration: requestGeneration
-          )
-        }
-      }
-    } catch {
-      failIdentification(.transportSetupFailed, "Unable to request VESC firmware.")
-      events.publish(String(describing: error))
-    }
-  }
-
-  private func handleFirmware(_ value: FirmwareRecord) {
-    if value.canID == nil {
-      if trackingMode == .saved {
-        do {
-          let stableIdentity = Self.stableBoardIdentity(value.controllerUUID)
-          currentSavedDevice = try productStore?.ensureSavedDevice(
-            deviceID: activeDeviceID ?? DeviceID(""),
-            advertisedName: activeDeviceName,
-            stableIdentity: stableIdentity,
-            at: clock.now()
-          )
-          if let currentSavedDevice {
-            let saved = (try? productStore?.savedDevices()) ?? [currentSavedDevice]
-            bluetooth.configureSavedDeviceIDs(Set(
-              saved.compactMap { $0.bluetoothIdentifier.map(DeviceID.init) }
-            ))
-          }
-        } catch {
-          failIdentification(.transportSetupFailed, "Unable to save the VESC device.")
-          return
-        }
-      }
-      if BMSIdentityPolicy.supports(value) {
-        if trackingMode == .saved, logStore.active() != nil {
-          failIdentification(
-            .controllerChanged,
-            "The connected device is a BMS, not the controller for the active session."
-          )
-          return
-        }
-        completeBMSReady(localIdentity: value)
-        return
-      }
-      let profile = try? currentSavedDevice.flatMap {
-        try productStore?.boardProfile(savedDeviceID: $0.savedDeviceID)
-      }
-      let hint = try? currentSavedDevice.flatMap {
-        try productStore?.controllerRoutingHint(savedDeviceID: $0.savedDeviceID)
-      }
-      performDiscoveryEffect(controllerDiscovery.acceptTransport(
-        value,
-        preferredCanID: profile.flatMap {
-          ControllerDiscoveryPolicy.preferredCanID($0.valuesJSON)
-        },
-        routingHint: hint ?? nil
-      ))
-      return
-    }
-    guard controllerDiscovery.activeCanProbeID == value.canID else { return }
-    cancelCanProbeTimeout()
-    performDiscoveryEffect(
-      controllerDiscovery.acceptCANFirmware(value, continuity: controllerContinuity())
-    )
-  }
-
-  private func handleCanDevices(_ rawCanIDs: [UInt8]) {
-    performDiscoveryEffect(
-      controllerDiscovery.acceptCANIDs(rawCanIDs, continuity: controllerContinuity())
-    )
-  }
-
-  private func controllerContinuity() -> ControllerContinuity {
-    ControllerContinuity(
-      hasActiveSession: trackingMode == .saved && logStore.active() != nil,
-      route: sessionControllerRoute,
-      controllerUUID: sessionControllerUUID
-    )
-  }
-
-  private func performDiscoveryEffect(_ effect: ControllerDiscoveryEffect) {
-    switch effect {
-    case let .probeFirmware(route):
-      guard activeDeviceID != nil, let protocolCodec else { return }
-      if route == .direct {
-        requestInitialFirmware(
-          attempt: 1,
-          identificationGeneration: controllerDiscovery.identificationGeneration,
-          requestGeneration: vescGeneration
-        )
-        return
-      }
-      if case let .can(canID) = route { scheduleCanProbeTimeout(canID: canID) }
-      do {
-        try submitVescRequest(
-          payload: protocolCodec.firmwareRequest(route: route),
-          expected: .init(command: VescCommand.getFirmwareVersion.rawValue),
-          priority: .controllerIdentification,
-          context: .controllerFirmware(.init(route)),
-          timeoutMs: route == .direct ? Self.identificationTimeoutMs : Self.canProbeTimeoutMs
-        )
-      } catch {
-        if route == .direct {
-          failIdentification(.transportSetupFailed, "Unable to request VESC firmware.")
-          events.publish(String(describing: error))
-        } else {
-          failIdentification(.transportSetupFailed, "Unable to probe the CAN controller.")
-        }
-      }
-    case .pingCAN:
-      cancelCanProbeTimeout()
-      guard activeDeviceID != nil, let protocolCodec else { return }
-      do {
-        try submitVescRequest(
-          payload: protocolCodec.canPingRequest(),
-          expected: .init(command: VescCommand.pingCAN.rawValue),
-          priority: .controllerIdentification,
-          context: .canPing,
-          timeoutMs: Self.identificationTimeoutMs
-        )
-      } catch {
-        failIdentification(.transportSetupFailed, "Unable to discover CAN controllers.")
-      }
-    case let .clearHintThen(next):
-      invalidateAutomaticHint()
-      restartIdentificationTimeout()
-      performDiscoveryEffect(next)
-    case let .requestRefloatInfo(route, selected):
-      if trackingMode == .saved,
-         let selected,
-         let savedDevice = currentSavedDevice,
-         let canID = selected.canID,
-         let uuid = ControllerDiscoveryPolicy.meaningfulUUID(selected.controllerUUID)
-      {
-        try? productStore?.storeControllerRoutingHint(
-          ControllerRoutingHint(
-            savedDeviceID: savedDevice.savedDeviceID,
-            canID: canID,
-            controllerUUID: uuid
-          ),
-          at: clock.now()
-        )
-      }
-      guard activeDeviceID != nil, let protocolCodec else { return }
-      do {
-        try submitVescRequest(
-          payload: protocolCodec.refloatInfoRequest(route: route),
-          expected: .init(
-            command: VescCommand.customAppData.rawValue,
-            refloatCommand: RefloatCommand.info.rawValue
-          ),
-          priority: .controllerIdentification,
-          context: .refloatInfo(.init(route)),
-          timeoutMs: Self.identificationTimeoutMs
-        )
-      } catch {
-        events.publish(String(describing: error))
-      }
-    case .requestTelemetryLayout:
-      guard let activeDeviceID, let route = controllerDiscovery.controllerRoute else { return }
-      telemetryPolling.beginLayout(deviceID: activeDeviceID, route: route)
-    case .ready:
-      completeApplicationReady()
-    case .selectingController:
-      cancelIdentificationTimeout()
-      transition(.selectingController)
-    case let .failed(issue):
-      failIdentification(issue.code, issue.message)
-    case .none:
-      break
-    }
-  }
-
-  private func completeApplicationReady() {
-    guard let deviceID = activeDeviceID,
-          let route = controllerDiscovery.controllerRoute,
-          let firmware = controllerDiscovery.firmware
-    else { return }
-    cancelIdentificationTimeout()
-    if trackingMode == .saved, logStore.active() != nil {
-      guard controllerContinuityIsProven(route: route, firmware: firmware) else {
-        failIdentification(
-          .controllerChanged,
-          "The connected controller no longer matches the active session."
-        )
-        return
-      }
-    } else if trackingMode == .saved {
-      do {
-        try events.publish(logStore.create(
-          deviceID: deviceID,
-          advertisedName: activeDeviceName,
-          at: clock.now()
-        ))
-        telemetryPolling.markSessionStarted()
-        sessionControllerRoute = route
-        sessionControllerUUID = ControllerDiscoveryPolicy.meaningfulUUID(firmware.controllerUUID)
-        sessionFirmware = firmware
-        sessionRefloatPackageVersion = controllerDiscovery.refloatPackageVersion
-      } catch {
-        failIdentification(.transportSetupFailed, "Unable to start durable telemetry.")
-        return
-      }
-    }
-    cancelReconnect()
-    deviceKind = .board
-    controllerDiscovery.clearIssue()
-    clearDiscoveredDevices(publish: false)
-    transition(.ready)
-    configureRefloatControls(firmware: firmware)
-    performRefloatConfigurationEffect(refloatConfiguration.begin(
-      route: route,
-      generation: vescGeneration,
-      firmware: firmware,
-      reportedVersion: controllerDiscovery.refloatPackageVersion ?? "",
-      writable: VescCompatibility.accessMode(firmware) == .readWrite,
-      flywheel: latestRefloatTelemetry?.packageMode == .flywheel
-    ))
-    events.publish(refloatConfiguration.summary())
-    if let protocolCodec {
-      do {
-        try submitVescRequest(
-          payload: protocolCodec.motorConfigurationRequest(route: route),
-          expected: .init(command: VescCommand.getMotorConfiguration.rawValue),
-          priority: .controllerWork,
-          context: .currentLimits(.init(route)),
-          timeoutMs: Self.canProbeTimeoutMs
-        )
-      } catch {
-        events.publish(String(describing: error))
-      }
-    }
-    telemetryPolling.start(
-      deviceID: deviceID,
-      route: route,
-      family: controllerDiscovery.refloatFamily ?? .dynamic,
-      idleIntervalMs: idleProbeIntervalMs,
-      postRideTailMs: sampling.settings.postRideTailMs
-    )
-    startAuxiliaryDiscovery()
-  }
-
-  private func completeBMSReady(localIdentity: FirmwareRecord) {
-    cancelIdentificationTimeout()
-    cancelCanProbeTimeout()
-    cancelReconnect()
-    clearDiscoveredDevices(publish: false)
-    deviceKind = .bms
-    let effect = auxiliaryDiscovery.begin(
-      localIdentity: localIdentity,
-      reusableInventory: nil,
-      preferredCanID: nil
-    )
-    transition(.ready)
-    events.publish("standalone_bms_ready")
-    events.publish(auxiliaryDiscovery.state)
-    performAuxiliaryEffect(effect)
-  }
-
-  private func startAuxiliaryDiscovery() {
-    guard protocolCodec?.supportsBmsTelemetry == true,
-          let localIdentity = controllerDiscovery.transportFirmware else { return }
-    let profile = try? currentSavedDevice.flatMap {
-      try productStore?.boardProfile(savedDeviceID: $0.savedDeviceID)
-    }
-    let preferred = profile.flatMap {
-      ControllerDiscoveryPolicy.preferredBmsCanID($0.valuesJSON)
-    }
-    performAuxiliaryEffect(auxiliaryDiscovery.begin(
-      localIdentity: localIdentity,
-      reusableInventory: controllerDiscovery.inventoryComplete
-        ? controllerDiscovery.classifiedInventory : nil,
-      preferredCanID: preferred
-    ))
-  }
-
-  private func performAuxiliaryEffect(_ effect: AuxiliaryDiscoveryEffect) {
-    guard connectionState == .ready, let protocolCodec else { return }
-    switch effect {
-    case .pingCAN:
-      events.publish("bms_discovery_scan_started")
-      do {
-        try submitVescRequest(
-          payload: protocolCodec.canPingRequest(),
-          expected: .init(command: VescCommand.pingCAN.rawValue),
-          priority: .auxiliary, context: .auxiliaryCanPing,
-          timeoutMs: Self.canScanTimeoutMs,
-          completion: { [weak self] completion in
-            guard case .timedOut = completion else { return }
-            self?.lock.withLock { self?.auxiliaryDiscovery.markUnavailable() }
-          }
-        )
-      } catch { auxiliaryDiscovery.markUnavailable() }
-    case let .probeFirmware(route):
-      events.publish("bms_discovery_probe:\(Self.bmsRouteDiagnostic(route.canID))")
-      let generation = auxiliaryDiscovery.generation
-      let canID: UInt8? = if case let .can(value) = route { value } else { nil }
-      do {
-        try submitVescRequest(
-          payload: protocolCodec.firmwareRequest(route: route),
-          expected: .init(command: VescCommand.getFirmwareVersion.rawValue),
-          priority: .auxiliary, context: .auxiliaryFirmware(.init(route)),
-          timeoutMs: Self.canProbeTimeoutMs,
-          completion: { [weak self] completion in
-            guard case .timedOut = completion, let canID else { return }
-            self?.lock.withLock {
-              guard let self else { return }
-              self.performAuxiliaryEffect(self.auxiliaryDiscovery.probeTimedOut(
-                canID: canID, generation: generation
-              ))
-            }
-          }
-        )
-      } catch { auxiliaryDiscovery.markUnavailable() }
-    case let .requestValues(connection):
-      let canID: UInt8? = if case let .can(value) = connection { value } else { nil }
-      events.publish("bms_values_requested:\(Self.bmsRouteDiagnostic(canID))")
-      requestBmsValues(connection)
-    case .none:
-      events.publish("bms_discovery_complete:\(auxiliaryDiscovery.state.status.rawValue)")
-      events.publish(auxiliaryDiscovery.state)
-    }
-  }
-
-  private func requestBmsValues(_ connection: BmsConnection) {
-    guard connectionState == .ready, let protocolCodec else { return }
-    bmsPollTimer?.cancel()
-    bmsPollTimer = nil
-    let route: VescRequestRoute = switch connection {
-    case .direct: .direct
-    case let .can(canID): .can(canID)
-    }
-    do {
-      try submitVescRequest(
-        payload: protocolCodec.bmsValuesRequest(connection: connection),
-        expected: .init(command: VescCommand.bmsGetValues.rawValue),
-        priority: .auxiliary, context: .bmsValues(route), timeoutMs: 1_000,
-        completion: { [weak self] completion in
-          self?.lock.withLock {
-            guard let self, self.connectionState == .ready else { return }
-            switch completion {
-            case .timedOut, .queueFull: self.recordBmsFailure()
-            case .response, .sent: break
-            case .cancelled, .staleGeneration: return
-            }
-            self.bmsPollTimer = self.scheduler?.schedule(afterMilliseconds: 1_000) { [weak self] in
-              self?.lock.withLock {
-                guard let self, let selected = self.auxiliaryDiscovery.selectedConnection else { return }
-                self.requestBmsValues(selected)
-              }
-            }
-          }
-        }
-      )
-    } catch { recordBmsFailure() }
-  }
-
-  private func recordBmsFailure() {
-    bmsFailureCount += 1
-    if bmsFailureCount >= 3 {
-      auxiliaryDiscovery.markUnavailable()
-      events.publish(auxiliaryDiscovery.state)
-    }
-  }
-
-  /// Production hosts always provide a VESC codec and never take this path.
-  private func completeWithoutProtocol() {
-    guard let deviceID = activeDeviceID else { return }
-    if trackingMode == .saved, logStore.active() == nil {
-      do {
-        try events.publish(logStore.create(
-          deviceID: deviceID,
-          advertisedName: activeDeviceName,
-          at: clock.now()
-        ))
-        telemetryPolling.markSessionStarted()
-      } catch {
-        transition(.failed)
-        explicitDisconnect = true
-        bluetooth.disconnect(deviceID)
-        events.publish(String(describing: error))
-        return
-      }
-    }
-    cancelReconnect()
-    clearDiscoveredDevices(publish: false)
-    transition(.ready)
-  }
-
-  private func controllerContinuityIsProven(
-    route: ControllerRoute,
-    firmware: FirmwareRecord
-  ) -> Bool {
-    guard let previousRoute = sessionControllerRoute else { return true }
-    let currentUUID = ControllerDiscoveryPolicy.meaningfulUUID(firmware.controllerUUID)
-    if let sessionControllerUUID {
-      return sessionControllerUUID == currentUUID
-    }
-    return previousRoute == route
-      && sessionFirmware.map {
-        ControllerDiscoveryPolicy.samePublicIdentity($0, firmware)
-      } == true
-      && sessionRefloatPackageVersion == controllerDiscovery.refloatPackageVersion
-  }
-
-  private func identificationTimedOut(generation: Int) {
-    lock.withLock {
-      guard connectionState == .identifying else { return }
-      performDiscoveryEffect(
-        controllerDiscovery.identificationTimedOut(generation: generation)
-      )
-    }
-  }
-
-  private func failIdentification(_ code: ConnectionIssueCode, _ message: String) {
-    events.publish("connection_identification outcome=failed code=\(code.rawValue)")
-    cancelIdentificationTimeout()
-    cancelCanProbeTimeout()
-    vescRequests.cancel(generation: vescGeneration)
-    telemetryPolling.cancelLayout()
-    telemetryPolling.stop()
-    controllerDiscovery.markFailure(code, message)
-    if trackingMode == .saved, code == .controllerChanged, let active = logStore.active() {
-      _ = try? logStore.close(jobID: active.jobID, at: clock.now(), reason: code.rawValue)
-    }
-    transition(.failed)
-  }
-
-  private func cancelIdentificationTimeout() {
-    identificationTimer?.cancel()
-    identificationTimer = nil
-  }
-
-  private func restartIdentificationTimeout() {
-    identificationTimer?.cancel()
-    let generation = controllerDiscovery.identificationGeneration
-    identificationTimer = scheduler?.schedule(
-      afterMilliseconds: Self.identificationTimeoutMs
-    ) { [weak self] in
-      self?.identificationTimedOut(generation: generation)
-    }
-  }
-
-  private func invalidateAutomaticHint() {
-    if let savedDeviceID = currentSavedDevice?.savedDeviceID {
-      try? productStore?.clearControllerRoutingHint(savedDeviceID: savedDeviceID)
-    }
-  }
-
-  private func scheduleCanProbeTimeout(canID: UInt8) {
-    cancelCanProbeTimeout()
-    let generation = controllerDiscovery.canProbeGeneration
-    canProbeTimer = scheduler?.schedule(
-      afterMilliseconds: Self.canProbeTimeoutMs
-    ) { [weak self] in
-      self?.canProbeTimedOut(canID: canID, generation: generation)
-    }
-  }
-
-  private func canProbeTimedOut(canID: UInt8, generation: Int) {
-    lock.withLock {
-      guard connectionState == .identifying else { return }
-      let effect = controllerDiscovery.canProbeTimedOut(
-        canID: canID,
-        generation: generation
-      )
-      guard effect != .none else { return }
-      cancelCanProbeTimeout()
-      performDiscoveryEffect(effect)
-    }
-  }
-
-  private func cancelCanProbeTimeout() {
-    canProbeTimer?.cancel()
-    canProbeTimer = nil
   }
 
   private func beginReconnect() {
@@ -1892,7 +1087,6 @@ public final class ApplicationService: @unchecked Sendable {
       reconnectAttempt = 0
     }
     transition(.reconnecting)
-    resetFirmwareDiscovery()
     scheduleReconnectAttempt()
   }
 
@@ -1938,6 +1132,10 @@ public final class ApplicationService: @unchecked Sendable {
   private func finishReconnect(reason: String) {
     let deviceID = activeDeviceID
     cancelReconnect()
+    if rustSessionAttached {
+      try? performRustCommand(["command": "detach_session"])
+      rustSessionAttached = false
+    }
     if trackingMode == .saved, let active = logStore.active() {
       do {
         try events.publish(
@@ -1953,7 +1151,7 @@ public final class ApplicationService: @unchecked Sendable {
     activeDeviceName = nil
     latestPersistedSample = nil
     latestLocation = nil
-    resetFirmwareDiscovery()
+    try? performRustCommand(["command": "reset", "now_ms": clock.monotonicMilliseconds()])
     transition(.disconnected)
     events.publish(reason)
   }
@@ -1966,12 +1164,27 @@ public final class ApplicationService: @unchecked Sendable {
   }
 
   private static func stableBoardIdentity(_ value: Data?) -> String? {
-    guard let value = ControllerDiscoveryPolicy.meaningfulUUID(value) else { return nil }
+    guard let value, value.count == 12, value.contains(where: { $0 != 0 }) else { return nil }
     var input = Data("float-view-board-v1\0".utf8)
     input.append(value)
     let digest = SHA256.hash(data: input)
     return "vesc-v1-" + digest.map { String(format: "%02x", $0) }.joined()
   }
+
+  private static func preferredCANID(_ json: String, key: String) -> UInt8? {
+    guard let object = try? JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: Any],
+          let number = object[key] as? NSNumber,
+          CFGetTypeID(number) != CFBooleanGetTypeID(),
+          number.intValue >= 0, number.intValue <= Int(UInt8.max)
+    else { return nil }
+    return UInt8(number.intValue)
+  }
+
+  private static let discoveryPublishIntervalMs: Int64 = 250
+  private static let discoveryExpiryMs: Int64 = 120_000
+  private static let maxReconnectBackoffMs: Int64 = 30_000
+  private static let configurationReadHostWaitTimeout: TimeInterval = 3.25
+  private static let configurationWriteHostWaitTimeout: TimeInterval = 3.25
 
   private func transition(_ state: ConnectionState) {
     connectionState = state
@@ -2037,313 +1250,855 @@ public final class ApplicationService: @unchecked Sendable {
     if publish { events.publish(discoverySnapshot()) }
   }
 
-  private func configureRefloatControls(firmware: FirmwareRecord) {
-    guard let profile = controllerDiscovery.refloatControlProfile,
-          let access = VescCompatibility.accessMode(firmware)
-    else {
-      refloatProfile = nil
-      return
-    }
-    refloatProfile = profile
-    latestRefloatTelemetry = nil
-    latestRefloatTelemetryMonotonicMs = nil
-    events.publish(refloatMutations.configure(
-      generation: vescGeneration, profile: profile, writable: access == .readWrite
-    ))
-    scheduleRefloatLightingRefresh()
+  private func sessionPath(_ sessionID: String) throws -> String {
+    guard let sessionStore else { throw ApplicationError.productStoreUnavailable }
+    return try sessionStore.sessionURL(sessionID: sessionID).path
   }
 
-  private func performRefloatConfigurationEffect(_ effect: RefloatConfigurationEffect) {
-    guard let protocolCodec else { return }
-    do {
-      let payload: Data
-      let expected: VescExpectedResponse
-      let context: VescRequestContext
-      switch effect {
-      case .none:
-        return
-      case let .schemaChunk(route, length, offset, operation):
-        payload = try protocolCodec.customConfigurationSchemaRequest(
-          route: route, length: length, offset: offset
-        )
-        expected = .init(command: VescCommand.getCustomConfigurationXML.rawValue)
-        context = .refloatConfigurationSchema(
-          route: .init(route), index: RefloatConfigurationService.index,
-          offset: offset, operation: operation
-        )
-      case let .values(route, defaults, operation):
-        payload = try protocolCodec.customConfigurationValuesRequest(route: route, defaults: defaults)
-        expected = .init(command: defaults
-          ? VescCommand.getCustomConfigurationDefault.rawValue
-          : VescCommand.getCustomConfiguration.rawValue)
-        context = .refloatConfigurationValues(
-          route: .init(route), index: RefloatConfigurationService.index,
-          defaults: defaults, operation: operation
-        )
-      case let .write(route, values, operation):
-        payload = try protocolCodec.customConfigurationWriteRequest(route: route, values: values)
-        expected = .init(command: VescCommand.setCustomConfiguration.rawValue)
-        context = .refloatConfigurationWrite(
-          route: .init(route), index: RefloatConfigurationService.index, operation: operation
-        )
-      case let .verification(route, operation):
-        payload = try protocolCodec.customConfigurationValuesRequest(route: route, defaults: false)
-        expected = .init(command: VescCommand.getCustomConfiguration.rawValue)
-        context = .refloatConfigurationVerification(
-          route: .init(route), index: RefloatConfigurationService.index, operation: operation
-        )
-      }
-      let requestGeneration = vescGeneration
-      submitVescRequest(
-        payload: payload,
-        expected: expected,
-        priority: .controllerWork,
-        context: context,
-        timeoutMs: RefloatConfigurationService.requestTimeoutMs
-      ) { [weak self] outcome in
-        switch outcome {
-        case .response, .sent: return
-        default:
-          self?.refloatConfiguration.requestFailed(
-            context: context, generation: requestGeneration
-          )
-          self?.finishRefloatConfigurationRequest(
-            .failure(RefloatConfigurationServiceError.unavailable)
-          )
-          if case .refloatConfigurationWrite = context {
-            self?.refloatMutations.finishConfiguration(generation: requestGeneration)
-          }
-          if case .refloatConfigurationVerification = context {
-            self?.refloatMutations.finishConfiguration(generation: requestGeneration)
-          }
+  private func rustSessionQuery(_ command: [String: Any]) throws -> [String: Any] {
+    try lock.withLock {
+      rustSessionResult = nil
+      try performRustCommand(command)
+      guard let result = rustSessionResult else { throw RustApplicationRuntimeError.internalFailure }
+      rustSessionResult = nil
+      return result
+    }
+  }
+
+  private static func boundary(
+    _ snapshot: SessionPublishedSnapshotRecord,
+    sampleSequence: Int64? = nil,
+    eventSequence: Int64? = nil,
+    locationSequence: Int64? = nil
+  ) -> [String: Any] {
+    [
+      "history_revision": snapshot.historyRevision,
+      "sample_sequence": sampleSequence ?? snapshot.committedSampleSequence,
+      "event_sequence": eventSequence ?? snapshot.committedEventSequence,
+      "location_sequence": locationSequence ?? snapshot.committedLocationSequence,
+    ]
+  }
+
+  private func rustSessionSamples(
+    sessionID: String,
+    startElapsedMs: Int64,
+    endElapsedMs: Int64,
+    fields: [String],
+    maxRows: Int,
+    publishedSampleSequence: Int64?
+  ) throws -> [SessionSeriesPoint] {
+    guard maxRows > 0 else { throw SessionStoreError.invalidRange }
+    let snapshot = try sessionSnapshot(sessionID: sessionID)
+    let path = try sessionPath(sessionID)
+    var rows: [SessionSeriesPoint] = []
+    var afterElapsed: Any = NSNull()
+    var afterSequence: Any = NSNull()
+    while rows.count < maxRows {
+      let value = try rustSessionQuery([
+        "command": "session_samples", "path": path, "fields": fields,
+        "start_elapsed_ms": startElapsedMs, "end_elapsed_ms": endElapsedMs,
+        "limit": min(2_000, maxRows - rows.count),
+        "after_elapsed_ms": afterElapsed, "after_sequence": afterSequence,
+        "boundary": Self.boundary(snapshot, sampleSequence: publishedSampleSequence),
+      ])
+      let page = (value["rows"] as? [[String: Any]] ?? []).compactMap { row -> SessionSeriesPoint? in
+        guard let elapsed = Self.int64(row["elapsed_ms"]), let sequence = Self.int64(row["sequence"]),
+              let rawValues = row["values"] as? [Any], rawValues.count == fields.count
+        else { return nil }
+        var values: [String: Double?] = [:]
+        for (field, raw) in zip(fields, rawValues) {
+          values[field] = raw is NSNull ? nil : Self.double(raw)
         }
+        return SessionSeriesPoint(
+          elapsedMs: elapsed, values: values, sequence: sequence,
+          rideState: row["ride_state"] as? String
+        )
       }
-    } catch {
-      refloatConfiguration.abortActiveOperation(generation: vescGeneration)
-      switch effect {
-      case .write, .verification:
-        refloatMutations.finishConfiguration(generation: vescGeneration)
-      default:
-        break
-      }
-      events.publish(String(describing: error))
+      rows.append(contentsOf: page)
+      guard let next = value["next"] as? [String: Any],
+            let elapsed = Self.int64(next["elapsed_ms"]),
+            let sequence = Self.int64(next["sequence"])
+      else { break }
+      afterElapsed = elapsed
+      afterSequence = sequence
     }
+    return rows
   }
 
-  private func requestRefloatLighting(route: ControllerRoute, profile: RefloatControlProfile) {
-    guard connectionState == .ready, refloatMutations.snapshot()?.pendingAction == nil else { return }
-    do {
-      let current = RefloatLightingState(
-        ledsEnabled: refloatMutations.snapshot()?.ledsEnabled ?? false,
-        headlightsEnabled: refloatMutations.snapshot()?.headlightsEnabled ?? false
-      )
-      let command = try RefloatControlCodec.lightingRequest(
-        profile: profile, control: nil, current: current
-      )
-      let payload = try Data(VescFrameCodec.encode(VescCommandRouter.route(command, via: route)))
-      submitVescRequest(
-        payload: payload,
-        expected: .init(command: VescCommand.customAppData.rawValue, refloatCommand: command[2]),
-        priority: .auxiliary,
-        context: .refloatLighting(.init(route)),
-        timeoutMs: Self.canProbeTimeoutMs
-      )
-    } catch {
-      events.publish("refloat_lighting_refresh_failed")
-    }
-  }
-
-  private func scheduleRefloatLightingRefresh() {
-    refloatRefreshTimer?.cancel()
-    refloatRefreshTimer = refloatScheduler.schedule(afterMilliseconds: Self.refloatRefreshMs) { [weak self] in
-      self?.lock.withLock {
-        guard let self,
-              let route = self.controllerDiscovery.controllerRoute,
-              let profile = self.refloatProfile
-        else { return }
-        self.requestRefloatLighting(route: route, profile: profile)
-        self.scheduleRefloatLightingRefresh()
-      }
-    }
-  }
-
-  private func refloatMutationContext() throws -> RefloatMutationContext {
-    guard connectionState == .ready,
-          let route = controllerDiscovery.controllerRoute,
-          let profile = refloatProfile,
-          let telemetry = latestRefloatTelemetry,
-          let firmware = controllerDiscovery.firmware
-    else { throw RefloatMutationError.invalidState }
-    return RefloatMutationContext(
-      generation: vescGeneration, route: route, profile: profile,
-      connectionReady: true, writable: VescCompatibility.accessMode(firmware) == .readWrite,
-      rideState: telemetry.rideState, packageState: telemetry.packageState,
-      packageMode: telemetry.packageMode
+  private func rustPrune(
+    sessionID: String, targetResolutionSeconds: Int64, commit: Bool
+  ) throws -> SessionPrunePreviewRecord {
+    let value = try rustSessionQuery([
+      "command": "session_prune", "path": sessionPath(sessionID),
+      "target_resolution_seconds": targetResolutionSeconds, "commit": commit,
+      "committed_at_epoch_ms": Int64(clock.now().timeIntervalSince1970 * 1_000),
+    ])
+    guard let recorded = Self.int64(value["recorded_sample_count"]),
+          let retained = Self.int64(value["retained_sample_count"]),
+          let reclaimable = Self.int64(value["estimated_reclaimable_bytes"]),
+          let skipped = value["skipped"] as? Bool
+    else { throw RustApplicationRuntimeError.internalFailure }
+    return SessionPrunePreviewRecord(
+      recordedSampleCount: recorded, estimatedStoredSampleCount: retained,
+      estimatedReclaimableBytes: reclaimable, skipped: skipped,
+      skipReason: skipped ? "already_at_or_below_target" : nil
     )
   }
 
-  private func submitRefloatMutation(
-    _ mutation: AuthorizedRefloatMutation,
-    route: ControllerRoute,
-    generation: VescRequestGeneration
-  ) throws {
-    let data = try Data(VescFrameCodec.encode(VescCommandRouter.route(mutation.payload, via: route)))
-    let complete: @Sendable (VescScheduledRequest, VescRequestCompletion) -> Void = {
-      [weak self] _, outcome in
-      switch outcome {
-      case .response, .sent: break
-      case .timedOut, .queueFull, .cancelled, .staleGeneration:
-        self?.lock.withLock { self?.failRefloatMutation(generation: generation) }
+  private static func int64s(_ value: Any?) -> [Int64]? {
+    (value as? [Any])?.compactMap(int64)
+  }
+
+  private static func ints(_ value: Any?) -> [Int]? {
+    int64s(value).map { $0.map(Int.init) }
+  }
+
+  private static func optionalDoubles(_ value: Any?) -> [Double?]? {
+    guard let values = value as? [Any] else { return nil }
+    return values.map { $0 is NSNull ? nil : Self.double($0) }
+  }
+
+  private func beginRustApplication() throws {
+    let saved = try? productStore?.savedDevices().first {
+      $0.bluetoothIdentifier == activeDeviceID?.value
+    }
+    currentSavedDevice = saved ?? nil
+    let profile: BoardProfileRecord? = (try? saved.flatMap {
+      try productStore?.boardProfile(savedDeviceID: $0.savedDeviceID)
+    }) ?? nil
+    let hint: ControllerRoutingHint? = (try? saved.flatMap {
+      try productStore?.controllerRoutingHint(savedDeviceID: $0.savedDeviceID)
+    }) ?? nil
+    try performRustCommand([
+      "command": "begin",
+      "now_ms": clock.monotonicMilliseconds(),
+      "idle_interval_ms": idleProbeIntervalMs,
+      "post_ride_tail_ms": samplingSettings.postRideTailMs,
+      "preferred_controller_can_id": profile.flatMap {
+        Self.preferredCANID($0.valuesJSON, key: "preferredCanId")
+      } ?? NSNull(),
+      "preferred_bms_can_id": profile.flatMap {
+        Self.preferredCANID($0.valuesJSON, key: "preferredBmsCanId")
+      } ?? NSNull(),
+      "routing_hint_can_id": hint?.canID ?? NSNull(),
+      "routing_hint_controller_uuid": hint?.controllerUUID.map(Array.init) ?? NSNull(),
+      "has_active_session": trackingMode == .saved && logStore.active() != nil,
+      "continuity_can_id": sessionControllerRoute?.canID ?? NSNull(),
+      "continuity_controller_uuid": sessionControllerUUID.map(Array.init) ?? NSNull(),
+    ])
+  }
+
+  private func performRustCommand(_ command: [String: Any]) throws {
+    let result: RustApplicationRuntimeResult
+    do {
+      result = try rustRuntime.apply(command)
+    } catch {
+      let name = command["command"] as? String ?? "invalid"
+      events.publish("rust_runtime_apply_failure_\(name)_\(String(describing: error))")
+      if let runtimeError = error as? RustApplicationRuntimeError {
+        switch (name, runtimeError) {
+        case let (command, .invalidState)
+          where ["set_control", "clear_fatal_error", "shutdown_controller"].contains(command):
+          throw RefloatMutationError.invalidState
+        case let (command, .invalidState)
+          where ["read_configuration", "write_configuration"].contains(command):
+          throw RefloatConfigurationServiceError.invalidState
+        case let (command, .conflict)
+          where ["read_configuration", "write_configuration"].contains(command):
+          throw RefloatConfigurationServiceError.conflict
+        case let (command, .unavailable)
+          where ["read_configuration", "write_configuration"].contains(command):
+          throw RefloatConfigurationServiceError.unavailable
+        default: break
+        }
+      }
+      throw error
+    }
+    rustGeneration = result.generation
+    for effect in result.effects {
+      do {
+        try performRustEffect(effect)
+      } catch {
+        let kind = effect["effect"] as? String ?? "invalid"
+        events.publish("rust_runtime_effect_failure_\(kind)")
+        throw error
       }
     }
-    if mutation.oneWay {
-      vescRequests.enqueueOneWay(
-        payload: data, expectedResponse: mutation.expectedResponse,
-        priority: .ridingTelemetry, context: .refloatControl(.init(route)),
-        timeoutMs: Self.refloatMutationTimeoutMs, generation: generation, completion: complete
-      )
+  }
+
+  private func performRustEffect(_ effect: [String: Any]) throws {
+    guard let kind = effect["effect"] as? String else {
+      throw RustApplicationRuntimeError.internalFailure
+    }
+    switch kind {
+    case "write_bytes":
+      guard let deviceID = activeDeviceID, let bytes = Self.bytes(effect["bytes"]) else {
+        throw RustApplicationRuntimeError.internalFailure
+      }
+      bluetooth.write(Data(bytes), to: deviceID)
+    case "arm_deadline":
+      try armRustTimer(effect, repeating: false, deadline: true)
+    case "replace_timer":
+      try armRustTimer(effect, repeating: true, deadline: false)
+    case "cancel_deadline":
+      guard let token = Self.uint64(effect["token"]) else { throw RustApplicationRuntimeError.internalFailure }
+      rustDeadlines.removeValue(forKey: token)?.cancel()
+    case "cancel_timer":
+      guard let token = Self.uint64(effect["token"]) else { throw RustApplicationRuntimeError.internalFailure }
+      rustTimers.removeValue(forKey: token)?.cancel()
+      rustTimerIntervals.removeValue(forKey: token)
+    case "clear_routing_hint":
+      if let savedDeviceID = currentSavedDevice?.savedDeviceID {
+        try? productStore?.clearControllerRoutingHint(savedDeviceID: savedDeviceID)
+      }
+    case "store_routing_hint":
+      try storeRustRoutingHint(effect)
+    case "prepare_activation":
+      try prepareRustActivation(effect)
+    case "publish_state":
+      try publishRustState(effect)
+    case "publish_telemetry":
+      try publishRustTelemetry(effect)
+    case "publish_bms_state":
+      try publishRustBmsState(effect)
+    case "publish_bms_observation":
+      try publishRustBmsObservation(effect)
+    case "publish_session_marker":
+      try applyRustSessionMarker(effect)
+      events.publish("rust_session_commit")
+    case "session_result":
+      rustSessionResult = effect["value"] as? [String: Any]
+      if rustSessionResult == nil, let values = effect["value"] as? [[String: Any]] {
+        rustSessionResult = ["rows": values]
+      }
+    case "store_configuration_cache":
+      if let identity = Self.cacheIdentity(effect["identity"]), let bytes = Self.bytes(effect["bytes"]) {
+        productStore?.storeRefloatSchema(Data(bytes), identity: identity)
+      }
+    case "remove_configuration_cache":
+      if let identity = Self.cacheIdentity(effect["identity"]) {
+        productStore?.removeCachedRefloatSchema(identity: identity)
+      }
+    case "mutation":
+      let value = effect["value"] as? String ?? ""
+      if value.contains("Failed") {
+        refloatWaiter?.finish(.failure(.unavailable))
+        refloatWaiter = nil
+      } else if value.contains("Idempotent") || value.contains("Confirmed") || value.contains("Released") {
+        if let rustControls { refloatWaiter?.finish(.success(rustControls)) }
+        refloatWaiter = nil
+      }
+    case "failure":
+      let failure = effect["kind"] as? String ?? ""
+      events.publish("rust_runtime_failure")
+      if failure.hasPrefix("Mutation") {
+        refloatWaiter?.finish(.failure(.unavailable))
+        refloatWaiter = nil
+      }
+      if failure.hasPrefix("Configuration")
+        || failure.contains("ConfigurationWrite")
+        || failure.contains("TuneApply")
+      {
+        finishRefloatConfigurationRequest(.failure(Self.configurationFailure(failure)))
+      }
+    case "diagnostic":
+      events.publish("rust_runtime_diagnostic")
+    default:
+      throw RustApplicationRuntimeError.internalFailure
+    }
+  }
+
+  private func armRustTimer(_ effect: [String: Any], repeating: Bool, deadline: Bool) throws {
+    guard let token = Self.uint64(effect["token"]),
+          let interval = Self.int64(effect["timeout_ms"] ?? effect["interval_ms"]),
+          interval > 0
+    else { throw RustApplicationRuntimeError.internalFailure }
+    let command = deadline ? "deadline_fired" : "timer_fired"
+    if repeating, rustTimerIntervals[token] == interval, rustTimers[token] != nil { return }
+    let action: @Sendable () -> Void = { [weak self] in
+      self?.lock.withLock {
+        guard let self else { return }
+        do {
+          try self.performRustCommand([
+            "command": command, "generation": self.rustGeneration,
+            "token": token, "now_ms": self.clock.monotonicMilliseconds(),
+          ])
+        } catch {
+          self.events.publish("rust_runtime_timer_failure")
+        }
+        if deadline { self.rustDeadlines.removeValue(forKey: token)?.cancel() }
+      }
+    }
+    let timer = scheduler ?? SystemScheduler()
+    let cancellation = repeating || deadline
+      ? timer.scheduleRepeating(everyMilliseconds: interval, action: action)
+      : timer.schedule(afterMilliseconds: interval, action: action)
+    if deadline {
+      rustDeadlines.removeValue(forKey: token)?.cancel()
+      rustDeadlines[token] = cancellation
     } else {
-      vescRequests.enqueue(
-        payload: data, expectedResponse: mutation.expectedResponse,
-        priority: .ridingTelemetry, context: .refloatControl(.init(route)),
-        timeoutMs: Self.refloatMutationTimeoutMs, generation: generation, completion: complete
+      rustTimers.removeValue(forKey: token)?.cancel()
+      rustTimers[token] = cancellation
+      rustTimerIntervals[token] = interval
+    }
+  }
+
+  private func prepareRustActivation(_ effect: [String: Any]) throws {
+    guard let generation = Self.uint64(effect["generation"]),
+          let route = Self.controllerRoute(effect["selected_route"]),
+          let firmware = Self.firmware(effect["selected_identity"], route: route),
+          let packageVersion = effect["refloat_version"] as? String
+    else { throw RustApplicationRuntimeError.internalFailure }
+    rustGeneration = generation
+    rustControllerRoute = route
+    rustFirmware = firmware
+    rustRefloatPackageVersion = packageVersion
+    if trackingMode == .saved, let deviceID = activeDeviceID {
+      currentSavedDevice = try productStore?.ensureSavedDevice(
+        deviceID: deviceID, advertisedName: activeDeviceName,
+        stableIdentity: Self.stableBoardIdentity(firmware.controllerUUID), at: clock.now()
       )
     }
-  }
-
-  private func armRefloatMutationTimeout(generation: VescRequestGeneration) {
-    refloatMutationTimer?.cancel()
-    refloatMutationTimer = refloatScheduler.schedule(
-      afterMilliseconds: Self.refloatMutationTimeoutMs
-    ) { [weak self] in self?.lock.withLock { self?.failRefloatMutation(generation: generation) } }
-  }
-
-  private func failRefloatMutation(generation: VescRequestGeneration) {
-    guard let updated = refloatMutations.failPending(generation: generation) else { return }
-    events.publish("refloat_control_confirmation_timeout")
-    events.publish(updated)
-    finishRefloatMutation(.failure(.unavailable))
-  }
-
-  private func finishRefloatMutation(_ result: Result<RefloatControls, RefloatMutationError>) {
-    refloatMutationTimer?.cancel()
-    refloatMutationTimer = nil
-    let waiter = refloatWaiter
-    refloatWaiter = nil
-    waiter?.finish(result)
-  }
-
-  private func cancelRefloatControls() {
-    refloatRefreshTimer?.cancel()
-    refloatRefreshTimer = nil
-    refloatMutationTimer?.cancel()
-    refloatMutationTimer = nil
-    shutdownIntentTimer?.cancel()
-    shutdownIntentTimer = nil
-    refloatProfile = nil
-    latestRefloatTelemetry = nil
-    _ = refloatMutations.cancel()
-    finishRefloatMutation(.failure(.unavailable))
-  }
-
-  private func controllerActionsSnapshot() -> ControllerActions {
-    let supported = controllerDiscovery.firmware.map(VescCompatibility.supportsShutdown) ?? false
-    let telemetry = latestRefloatTelemetry
-    let available = connectionState == .ready
-      && supported
-      && telemetry?.rideState == .idle
-      && telemetry?.packageMode != .flywheel
-      && refloatMutations.snapshot()?.pendingAction == nil
-    return refloatMutations.controllerActions(shutdownAvailable: available)
-  }
-
-  private func expireShutdownIntent(generation: VescRequestGeneration) {
-    guard let actions = refloatMutations.clearShutdown(generation: generation) else { return }
-    shutdownIntentTimer?.cancel()
-    shutdownIntentTimer = nil
-    events.publish("controller_shutdown_unconfirmed")
-    events.publish(actions)
-  }
-
-  private func resetFirmwareDiscovery() {
-    finishRefloatConfigurationRequest(.failure(RefloatConfigurationServiceError.unavailable))
-    refloatConfiguration.reset()
-    vescGeneration = vescRequests.beginGeneration()
-    telemetryPolling.cancelLayout()
-    telemetryPolling.stop()
-    controllerDiscovery.reset()
-    auxiliaryDiscovery.reset()
-    deviceKind = nil
-    bmsPollTimer?.cancel()
-    bmsPollTimer = nil
-    bmsFailureCount = 0
-    currentLimits = nil
-    cancelRefloatControls()
-    currentSavedDevice = nil
-    cancelIdentificationTimeout()
-    cancelCanProbeTimeout()
-    protocolCodec?.reset()
-  }
-
-  private static let discoveryPublishIntervalMs: Int64 = 250
-  private static let discoveryExpiryMs: Int64 = 120_000
-  private static let maxReconnectBackoffMs: Int64 = 30_000
-  private static let identificationTimeoutMs: Int64 = 10_000
-  private static let initialIdentificationAttemptTimeoutMs: Int64 = 2_000
-  // COMM_PING_CAN can synchronously probe all 255 CAN IDs at 10 ms per ID.
-  private static let canScanTimeoutMs: Int64 = 10_000
-  private static let canProbeTimeoutMs: Int64 = 1_000
-  private static let refloatRefreshMs: Int64 = 1_000
-  private static let refloatMutationTimeoutMs: Int64 = 3_000
-  /// Keep intent through a bounded BLE link-supervision timeout. A powered-off
-  /// controller may not be reported disconnected immediately after the write.
-  private static let shutdownIntentTimeoutMs: Int64 = 30_000
-
-  private static func bmsRouteDiagnostic(_ canID: UInt8?) -> String {
-    canID.map { "can=\($0)" } ?? "direct"
-  }
-
-  private static func bmsHardwareDiagnostic(_ value: String?) -> String {
-    guard let value else { return "unknown" }
-    let scalarValues = value.unicodeScalars.prefix(32).map { scalar -> Character in
-      let accepted = scalar.isASCII
-        && (CharacterSet.alphanumerics.contains(scalar) || scalar == "-" || scalar == "_")
-      return accepted ? Character(String(scalar)) : "_"
+    var sessionStarted = false
+    if trackingMode == .saved, logStore.active() == nil, let deviceID = activeDeviceID {
+      try events.publish(logStore.create(deviceID: deviceID, advertisedName: activeDeviceName, at: clock.now()))
+      sessionStarted = true
+      sessionControllerRoute = route
+      sessionControllerUUID = firmware.controllerUUID
+      sessionFirmware = firmware
+      sessionRefloatPackageVersion = packageVersion
     }
-    return scalarValues.isEmpty ? "unknown" : String(scalarValues)
+    if !rustSessionAttached, let url = trackingMode == .saved ? logStore.activeSessionURL() : nil {
+      try performRustCommand([
+        "command": "attach_session", "path": url.path, "mode": "open",
+        "expected_riding_persistence_ms": samplingSettings.ridingPersistIntervalMs,
+        "expected_idle_persistence_ms": samplingSettings.idlePersistIntervalMs,
+        "committed_at_epoch_ms": Int64(clock.now().timeIntervalSince1970 * 1_000),
+      ])
+      rustSessionAttached = true
+    }
+    var cached: Any = NSNull()
+    if let identity = Self.cacheIdentity(effect["configuration_cache_identity"]),
+       let bytes = productStore?.cachedRefloatSchema(identity: identity)
+    { cached = Array(bytes) }
+    try performRustCommand([
+      "command": "activate", "generation": generation,
+      "now_ms": clock.monotonicMilliseconds(), "session_started": sessionStarted,
+      "cached_configuration_schema": cached,
+    ])
   }
 
-  private static func identificationDiagnostic(
-    context: VescRequestContext,
-    attempt: Int?,
-    outcome: String
-  ) -> String {
-    let stage: String
-    switch context {
-    case .controllerFirmware: stage = "firmware"
-    case .canPing: stage = "can_ping"
-    case .refloatInfo: stage = "refloat_info"
-    case .refloatLayout: stage = "telemetry_layout"
-    default: stage = "other"
-    }
-    let route = switch context.route {
-    case .direct: "direct"
-    case let .can(canID): "can:\(canID)"
-    case nil: "none"
-    }
-    return "connection_identification stage=\(stage) route=\(route) "
-      + "attempt=\(attempt ?? 1) outcome=\(outcome)"
+  private func storeRustRoutingHint(_ effect: [String: Any]) throws {
+    guard trackingMode == .saved, let savedDeviceID = currentSavedDevice?.savedDeviceID,
+          let route = Self.controllerRoute(effect["route"]), case let .can(canID) = route,
+          let identity = effect["identity"] as? [String: Any], let uuid = Self.bytes(identity["controller_uuid"])
+    else { return }
+    try productStore?.storeControllerRoutingHint(
+      ControllerRoutingHint(savedDeviceID: savedDeviceID, canID: canID, controllerUUID: Data(uuid)),
+      at: clock.now()
+    )
   }
 
-  private static func requestOutcomeDiagnostic(_ outcome: VescRequestCompletion) -> String {
-    switch outcome {
-    case .response: "response"
-    case .sent: "sent"
-    case .timedOut: "timed_out"
-    case .queueFull: "queue_full"
-    case .cancelled: "cancelled"
-    case .staleGeneration: "stale_generation"
+  private func publishRustState(_ effect: [String: Any]) throws {
+    guard let generation = Self.uint64(effect["generation"]), let phase = effect["phase"] as? String else {
+      throw RustApplicationRuntimeError.internalFailure
     }
+    rustGeneration = generation
+    rustControllerRoute = Self.controllerRoute(effect["controller_route"])
+    rustFirmware = Self.firmware(effect["selected_firmware"], route: rustControllerRoute)
+    rustControllerCandidates = (effect["controller_candidates"] as? [[String: Any]] ?? []).compactMap {
+      guard let canID = Self.uint8($0["can_id"]), let version = $0["vesc_version"] as? String,
+            let supported = $0["vesc_supported"] as? Bool else { return nil }
+      return ControllerCandidate(canID: canID, hardwareName: $0["hardware_name"] as? String,
+                                 firmwareName: $0["firmware_name"] as? String,
+                                 vescVersion: version, vescSupported: supported)
+    }
+    if let issue = effect["connection_issue"] as? [String: Any],
+       let raw = issue["code"] as? String, let code = ConnectionIssueCode(rawValue: raw),
+       let message = issue["message"] as? String
+    {
+      rustConnectionIssue = ConnectionIssue(code: code, message: message)
+    } else { rustConnectionIssue = nil }
+    if let limits = effect["current_limits"] as? [String: Any] {
+      currentLimits = ControllerCurrentLimits(
+        motorCurrentMaxA: Self.double(limits["motor_current_max_a"]) ?? 0,
+        motorCurrentMinA: Self.double(limits["motor_current_min_a"]) ?? 0,
+        batteryCurrentMaxA: Self.double(limits["battery_current_max_a"]) ?? 0,
+        batteryCurrentMinA: Self.double(limits["battery_current_min_a"]) ?? 0,
+        batterySeriesCells: Self.uint8(limits["battery_series_cells"])
+      )
+    } else { currentLimits = nil }
+    rustControls = Self.controls(effect["controls"])
+    if let configuration = effect["configuration"] as? [String: Any] {
+      try updateRustConfiguration(configuration)
+    }
+    if let actions = effect["controller_actions"] as? [String: Any],
+       let available = actions["shutdown_available"] as? Bool,
+       let pending = actions["shutdown_pending"] as? Bool
+    {
+      rustControllerActions = ControllerActions(
+        shutdownAvailable: available, pendingAction: pending ? .shutdown : nil
+      )
+    }
+    deviceKind = (effect["standalone_bms"] as? Bool) == true ? .bms : (rustFirmware == nil ? nil : .board)
+    let state: ConnectionState = switch phase {
+    case "identifying", "awaitingactivation": .identifying
+    case "selectingcontroller": .selectingController
+    case "ready": .ready
+    case "failed": .failed
+    default: .disconnected
+    }
+    transition(state)
+  }
+
+  private func publishRustTelemetry(_ effect: [String: Any]) throws {
+    guard let sequence = Self.int64(effect["sequence"]), let elapsed = Self.int64(effect["elapsed_ms"]),
+          let observed = Self.int64(effect["observed_at_epoch_ms"]),
+          let ride = Self.rideState(effect["ride_state"])
+    else { throw RustApplicationRuntimeError.internalFailure }
+    let extensions = (effect["extensions"] as? [[String: Any]] ?? []).reduce(into: [String: Double]()) {
+      if let name = $1["name"] as? String, let value = Self.double($1["value"]) { $0[name] = value }
+    }
+    let sample = TelemetrySample(
+      sequence: sequence, observedAt: Date(timeIntervalSince1970: Double(observed) / 1_000),
+      slowObservedAt: Self.int64(effect["slow_observed_at_epoch_ms"])
+        .map { Date(timeIntervalSince1970: Double($0) / 1_000) },
+      elapsedMs: elapsed, rideState: ride,
+      packageState: Self.enumValue(effect["package_state"], PackageState.self),
+      packageMode: Self.packageMode(effect["package_mode"]),
+      footpadState: Self.enumValue(effect["footpad_state"], FootpadState.self),
+      stopCondition: Self.stopCondition(effect["stop_condition"]),
+      setpointAdjustment: Self.setpointAdjustment(effect["setpoint_adjustment"]),
+      wheelslip: effect["wheelslip"] as? Bool, darkride: effect["darkride"] as? Bool,
+      charging: effect["charging"] as? Bool, alertReason: Self.alertReason(effect["alert_reason"]),
+      firmwareFault: Self.firmwareFault(effect["firmware_fault"]),
+      packVoltageV: Self.double(effect["pack_voltage_v"]), dutyCycle: Self.double(effect["duty_cycle"]),
+      controllerTempC: Self.double(effect["controller_temp_c"]), motorTempC: Self.double(effect["motor_temp_c"]),
+      motorCurrentA: Self.double(effect["motor_current_a"]), batteryCurrentA: Self.double(effect["battery_current_a"]),
+      erpm: Self.double(effect["erpm"]), speedKph: Self.double(effect["speed_kph"]),
+      pitchDeg: Self.double(effect["pitch_deg"]), balancePitchDeg: Self.double(effect["balance_pitch_deg"]),
+      rollDeg: Self.double(effect["roll_deg"]),
+      directionalMotorCurrentA: Self.double(effect["directional_motor_current_a"]),
+      filteredMotorCurrentA: Self.double(effect["filtered_motor_current_a"]),
+      requestedBalanceCurrentA: Self.double(effect["requested_balance_current_a"]),
+      boosterCurrentA: Self.double(effect["booster_current_a"]),
+      fieldWeakeningCurrentA: Self.double(effect["field_weakening_current_a"]),
+      footpadAdc1V: Self.double(effect["footpad_adc1_v"]), footpadAdc2V: Self.double(effect["footpad_adc2_v"]),
+      remoteInput: Self.double(effect["remote_input"]), setpointDeg: Self.double(effect["setpoint_deg"]),
+      atrSetpointDeg: Self.double(effect["atr_setpoint_deg"]),
+      brakeTiltSetpointDeg: Self.double(effect["brake_tilt_setpoint_deg"]),
+      torqueTiltSetpointDeg: Self.double(effect["torque_tilt_setpoint_deg"]),
+      turnTiltSetpointDeg: Self.double(effect["turn_tilt_setpoint_deg"]),
+      remoteSetpointDeg: Self.double(effect["remote_setpoint_deg"]),
+      atrAccelerationDifferenceErpmPerSecond: Self.double(effect["atr_acceleration_difference_erpm_per_second"]),
+      atrSpeedBoost: Self.double(effect["atr_speed_boost"]), distanceM: Self.double(effect["distance_m"]),
+      odometerM: Self.double(effect["odometer_m"]), ampHoursDrawnAh: Self.double(effect["amp_hours_drawn_ah"]),
+      ampHoursChargedAh: Self.double(effect["amp_hours_charged_ah"]),
+      wattHoursDrawnWh: Self.double(effect["watt_hours_drawn_wh"]),
+      wattHoursChargedWh: Self.double(effect["watt_hours_charged_wh"]),
+      batteryLevel: Self.double(effect["battery_level"]),
+      chargingCurrentA: Self.double(effect["charging_current_a"]),
+      chargingVoltageV: Self.double(effect["charging_voltage_v"]),
+      extensionFields: extensions
+    )
+    latestPersistedSample = sample
+    updateLocationCapture(rideState: ride)
+    events.publish(sample)
+  }
+
+  private func updateRustConfiguration(_ value: [String: Any]) throws {
+    guard let rawAvailability = value["availability"] as? String,
+          let availability = RefloatConfigurationAvailability(rawValue: rawAvailability),
+          let writable = value["writable"] as? Bool
+    else { throw RustApplicationRuntimeError.internalFailure }
+    let identity = value["identity"] as? [String: Any]
+    let pending: RefloatConfigurationOperation? = switch value["pending"] as? String {
+    case "schema": .schema
+    case "readcurrent": .readCurrent
+    case "readdefault": .readDefault
+    case "write": .write
+    case nil: nil
+    default: throw RustApplicationRuntimeError.internalFailure
+    }
+    rustConfigurationSchema = try Self.configurationSchema(value["schema"])
+    rustConfigurationCurrent = try Self.configurationValues(
+      value["current_values"], revision: Self.uint64(value["current_revision"]), source: "current"
+    )
+    rustConfigurationDefaults = try Self.configurationValues(
+      value["default_values"], revision: Self.uint64(value["default_revision"]), source: "default"
+    )
+    rustConfigurationSummary = RefloatConfigurationSummary(
+      availability: availability, writable: writable,
+      packageVersion: identity?["package_version"] as? String,
+      schemaFingerprint: identity?["fingerprint"] as? String,
+      wireSignature: Self.uint64(identity?["wire_signature"]).map(UInt32.init),
+      currentLoaded: rustConfigurationCurrent != nil, defaultLoaded: rustConfigurationDefaults != nil,
+      pendingOperation: pending
+    )
+    events.publish(rustConfigurationSummary)
+    if pending != nil, refloatConfigurationWaiter != nil {
+      refloatConfigurationObservedPending = true
+    } else if pending == nil, refloatConfigurationObservedPending {
+      finishRefloatConfigurationRequest(.success(()))
+    }
+  }
+
+  private func publishRustBmsState(_ effect: [String: Any]) throws {
+    guard let raw = effect["status"] as? String, let status = BmsStatus(rawValue: raw) else {
+      throw RustApplicationRuntimeError.internalFailure
+    }
+    let connection = Self.bmsConnection(effect["route"])
+    let candidates = (effect["candidates"] as? [[String: Any]] ?? []).compactMap { item -> BmsCandidate? in
+      guard let version = item["version"] as? String else { return nil }
+      let route: BmsConnection = Self.uint8(item["can_id"]).map(BmsConnection.can) ?? .direct
+      return BmsCandidate(connection: route, hardwareName: item["hardware_name"] as? String, vescVersion: version)
+    }
+    rustBmsState = BmsState(status: status, connection: connection, candidates: candidates,
+                            latestSnapshot: rustBmsState.latestSnapshot)
+    events.publish(rustBmsState)
+  }
+
+  private func publishRustBmsObservation(_ effect: [String: Any]) throws {
+    guard let observed = Self.int64(effect["observed_at_epoch_ms"]),
+          let total = Self.double(effect["total_voltage_v"]), let charge = Self.double(effect["charge_voltage_v"]),
+          let input = Self.double(effect["input_current_a"]), let icInput = Self.double(effect["input_ic_current_a"]),
+          let ampHours = Self.double(effect["session_amp_hours_ah"]),
+          let wattHours = Self.double(effect["session_watt_hours_wh"]),
+          let cells = Self.doubles(effect["cell_voltages_v"]), let balancing = effect["balancing"] as? [Bool],
+          let temperatures = Self.doubles(effect["temperatures_c"]),
+          let icTemperature = Self.double(effect["ic_temperature_c"]),
+          let humidityTemperature = Self.double(effect["humidity_sensor_temperature_c"]),
+          let humidity = Self.double(effect["humidity_percent"]),
+          let highest = Self.double(effect["highest_cell_temperature_c"]),
+          let chargeState = Self.double(effect["state_of_charge"]), let health = Self.double(effect["state_of_health"]),
+          let reportedCanID = Self.uint8(effect["reported_can_id"]),
+          let lifetimeChargeAh = Self.double(effect["lifetime_charge_amp_hours_ah"]),
+          let lifetimeChargeWh = Self.double(effect["lifetime_charge_watt_hours_wh"]),
+          let lifetimeDischargeAh = Self.double(effect["lifetime_discharge_amp_hours_ah"]),
+          let lifetimeDischargeWh = Self.double(effect["lifetime_discharge_watt_hours_wh"]),
+          let pressure = Self.double(effect["pressure_pa"])
+    else { throw RustApplicationRuntimeError.internalFailure }
+    let snapshot = BmsSnapshot(
+      observedAt: Date(timeIntervalSince1970: Double(observed) / 1_000), totalVoltageV: total,
+      chargeVoltageV: charge, inputCurrentA: input, inputICCurrentA: icInput,
+      sessionAmpHoursAh: ampHours, sessionWattHoursWh: wattHours, cellVoltagesV: cells,
+      balancing: balancing, temperaturesC: temperatures, icTemperatureC: icTemperature,
+      humiditySensorTemperatureC: humidityTemperature, humidityPercent: humidity,
+      highestCellTemperatureC: highest, stateOfCharge: chargeState, stateOfHealth: health,
+      reportedCanID: reportedCanID, lifetimeChargeAmpHoursAh: lifetimeChargeAh,
+      lifetimeChargeWattHoursWh: lifetimeChargeWh, lifetimeDischargeAmpHoursAh: lifetimeDischargeAh,
+      lifetimeDischargeWattHoursWh: lifetimeDischargeWh, pressurePa: pressure,
+      dataVersion: Self.uint8(effect["data_version"]), status: effect["status"] as? String
+    )
+    rustBmsState = BmsState(status: .attached, connection: Self.bmsConnection(effect["route"]),
+                            candidates: rustBmsState.candidates, latestSnapshot: snapshot)
+    events.publish(snapshot)
+  }
+
+  private func applyRustSessionMarker(_ effect: [String: Any]) throws {
+    guard let active = logStore.active(),
+          let historyRevision = Self.int64(effect["history_revision"]),
+          let sampleSequence = Self.int64(effect["committed_sample_sequence"]),
+          let eventSequence = Self.int64(effect["committed_event_sequence"]),
+          let elapsed = Self.int64(effect["committed_elapsed_ms"]),
+          let recordedSamples = Self.int64(effect["recorded_sample_count"]),
+          let storedSamples = Self.int64(effect["stored_sample_count"]),
+          let locationSequence = Self.int64(effect["committed_location_sequence"]),
+          let locationElapsed = Self.int64(effect["committed_location_elapsed_ms"]),
+          let recordedLocations = Self.int64(effect["recorded_location_count"]),
+          let storedLocations = Self.int64(effect["stored_location_count"]),
+          let locationStatus = effect["last_location_status"] as? String,
+          let eventCount = Self.int64(effect["committed_event_count"]),
+          let committedAt = Self.int64(effect["committed_at_epoch_ms"]),
+          let ridingElapsed = Self.int64(effect["riding_elapsed_ms"])
+    else { throw RustApplicationRuntimeError.internalFailure }
+    let snapshot = SessionPublishedSnapshotRecord(
+      historyRevision: historyRevision, committedSampleSequence: sampleSequence,
+      committedEventSequence: eventSequence, committedElapsedMs: elapsed,
+      recordedSampleCount: recordedSamples, storedSampleCount: storedSamples,
+      committedLocationSequence: locationSequence, committedLocationElapsedMs: locationElapsed,
+      recordedLocationCount: recordedLocations, storedLocationCount: storedLocations,
+      locationStatus: locationStatus
+    )
+    try sessionStore?.applySessionCommitMarker(
+      sessionID: active.sessionID.value,
+      marker: SessionCommitMarkerRecord(
+        snapshot: snapshot, committedEventCount: eventCount,
+        committedAt: Date(timeIntervalSince1970: Double(committedAt) / 1_000),
+        ridingElapsedMs: ridingElapsed, distanceM: Self.double(effect["distance_m"]),
+        maximumSpeedKph: Self.double(effect["maximum_speed_kph"]),
+        maximumSpeedSourceSequence: Self.int64(effect["maximum_speed_source_sequence"]),
+        maximumDutyCycle: Self.double(effect["maximum_duty_cycle"]),
+        maximumDutySourceSequence: Self.int64(effect["maximum_duty_source_sequence"]),
+        lastSpeedKph: Self.double(effect["last_speed_kph"]),
+        lastRideState: effect["last_ride_state"] as? String
+      )
+    )
+  }
+
+  private static func uint64(_ value: Any?) -> UInt64? {
+    guard let number = value as? NSNumber, CFGetTypeID(number) != CFBooleanGetTypeID(),
+          number.doubleValue >= 0, number.doubleValue.rounded() == number.doubleValue
+    else { return nil }
+    return number.uint64Value
+  }
+
+  private static func int64(_ value: Any?) -> Int64? {
+    guard let number = value as? NSNumber, CFGetTypeID(number) != CFBooleanGetTypeID(),
+          number.doubleValue.rounded() == number.doubleValue
+    else { return nil }
+    return number.int64Value
+  }
+
+  private static func uint8(_ value: Any?) -> UInt8? {
+    guard let value = uint64(value), value <= UInt8.max else { return nil }
+    return UInt8(value)
+  }
+
+  private static func double(_ value: Any?) -> Double? {
+    guard let number = value as? NSNumber, CFGetTypeID(number) != CFBooleanGetTypeID(),
+          number.doubleValue.isFinite else { return nil }
+    return number.doubleValue
+  }
+
+  private static func bytes(_ value: Any?) -> [UInt8]? {
+    guard let values = value as? [Any] else { return nil }
+    let bytes = values.compactMap(uint8)
+    return bytes.count == values.count ? bytes : nil
+  }
+
+  private static func doubles(_ value: Any?) -> [Double]? {
+    guard let values = value as? [Any] else { return nil }
+    let numbers = values.compactMap(double)
+    return numbers.count == values.count ? numbers : nil
+  }
+
+  private static func enumValue<T: RawRepresentable>(_ value: Any?, _: T.Type) -> T?
+    where T.RawValue == String
+  {
+    (value as? String).flatMap(T.init(rawValue:))
+  }
+
+  private static func rideState(_ value: Any?) -> RideState? {
+    enumValue(value, RideState.self)
+  }
+
+  private static func packageMode(_ value: Any?) -> PackageMode? {
+    switch value as? String {
+    case "handtest": .handTest
+    case let value?: PackageMode(rawValue: value)
+    case nil: nil
+    }
+  }
+
+  private static func stopCondition(_ value: Any?) -> StopCondition? {
+    switch value as? String {
+    case "switchhalf": .switchHalf
+    case "switchfull": .switchFull
+    case "reversestop": .reverseStop
+    case "quickstop": .quickStop
+    case let value?: StopCondition(rawValue: value)
+    case nil: nil
+    }
+  }
+
+  private static func setpointAdjustment(_ value: Any?) -> SetpointAdjustment? {
+    switch value as? String {
+    case "reversestop": .reverseStop
+    case let value?: SetpointAdjustment(rawValue: value)
+    case nil: nil
+    }
+  }
+
+  private static func alertReason(_ value: Any?) -> AlertReason? {
+    guard let raw = value as? String else { return nil }
+    return AlertReason.allCases.first { String(describing: $0).lowercased() == raw }
+  }
+
+  private static func firmwareFault(_ value: Any?) -> FirmwareFault? {
+    guard let raw = value as? String else { return nil }
+    return FirmwareFault.allCases.first { String(describing: $0).lowercased() == raw }
+  }
+
+  private static func controllerRoute(_ value: Any?) -> ControllerRoute? {
+    guard let value = value as? [String: Any], let kind = value["kind"] as? String else { return nil }
+    if kind == "direct" { return .direct }
+    if kind == "can", let canID = uint8(value["can_id"]) { return .can(canID) }
+    return nil
+  }
+
+  private static func bmsConnection(_ value: Any?) -> BmsConnection? {
+    switch controllerRoute(value) {
+    case .direct: .direct
+    case let .can(canID): .can(canID)
+    case nil: nil
+    }
+  }
+
+  private static func firmware(_ value: Any?, route: ControllerRoute?) -> FirmwareRecord? {
+    guard let value = value as? [String: Any], let major = uint8(value["major"]),
+          let minor = uint8(value["minor"]), let test = uint8(value["test_version"]),
+          let hardwareType = uint8(value["hardware_type"]),
+          let customCount = uint8(value["custom_configuration_count"])
+    else { return nil }
+    return FirmwareRecord(
+      major: major, minor: minor, testVersion: test, hardwareName: value["hardware_name"] as? String,
+      firmwareName: value["firmware_name"] as? String, hardwareType: hardwareType,
+      canID: route?.canID, controllerUUID: bytes(value["controller_uuid"]).map { Data($0) },
+      customConfigurationCount: customCount,
+      hardwareConfigurationCRC: uint64(value["hardware_configuration_crc"]).map(UInt32.init)
+    )
+  }
+
+  private static func controls(_ value: Any?) -> RefloatControls? {
+    guard let value = value as? [String: Any], let raw = value["status"] as? String,
+          let status = RefloatControlStatus(rawValue: raw), let writable = value["writable"] as? Bool,
+          let lighting = value["lighting_available"] as? Bool,
+          let clearAvailable = value["fatal_error_clear_available"] as? Bool
+    else { return nil }
+    let pending = (value["pending_action"] as? String).flatMap { raw -> RefloatPendingAction? in
+      switch raw {
+      case "clearfatalerror": .clearFatalError
+      default: RefloatPendingAction(rawValue: raw)
+      }
+    }
+    return RefloatControls(
+      status: status, writable: writable, packageEnabled: value["package_enabled"] as? Bool,
+      flywheelEnabled: value["flywheel_enabled"] as? Bool, lightingAvailable: lighting,
+      ledsEnabled: value["leds_enabled"] as? Bool, headlightsEnabled: value["headlights_enabled"] as? Bool,
+      fatalErrorClearAvailable: clearAvailable, fatalErrorLatched: value["fatal_error_latched"] as? Bool,
+      fatalErrorActive: value["fatal_error_active"] as? Bool,
+      fatalErrorClearable: value["fatal_error_clearable"] as? Bool, pendingAction: pending
+    )
+  }
+
+  private static func configurationFailure(_ value: String) -> RefloatConfigurationServiceError {
+    if value.contains("Conflict") { return .conflict }
+    if value.contains("StaleResponse") { return .staleResponse }
+    if value.contains("UnauditedSchema") { return .unauditedSchema }
+    if value.contains("MalformedResponse") || value.contains("Codec") { return .malformedResponse }
+    if value.contains("InvalidState") { return .invalidState }
+    return .unavailable
+  }
+
+  private static func configurationValue(_ value: Any?) throws -> RefloatConfigurationValue {
+    guard let value = value as? [String: Any], let type = value["type"] as? String else {
+      throw RustApplicationRuntimeError.internalFailure
+    }
+    switch type {
+    case "double":
+      guard let number = double(value["value"]) else { throw RustApplicationRuntimeError.internalFailure }
+      return .double(number)
+    case "integer":
+      guard let number = int64(value["value"]) else { throw RustApplicationRuntimeError.internalFailure }
+      return .integer(number)
+    case "boolean":
+      guard let boolean = value["value"] as? Bool else { throw RustApplicationRuntimeError.internalFailure }
+      return .boolean(boolean)
+    case "string":
+      guard let string = value["value"] as? String else { throw RustApplicationRuntimeError.internalFailure }
+      return .string(string)
+    default: throw RustApplicationRuntimeError.internalFailure
+    }
+  }
+
+  private static func rustConfigurationValues(
+    _ values: [String: RefloatConfigurationValue]
+  ) -> [String: Any] {
+    values.mapValues { value in
+      switch value {
+      case let .double(value): ["type": "double", "value": value]
+      case let .integer(value): ["type": "integer", "value": value]
+      case let .boolean(value): ["type": "boolean", "value": value]
+      case let .string(value): ["type": "string", "value": value]
+      }
+    }
+  }
+
+  private static func configurationValues(
+    _ value: Any?, revision: UInt64?, source: String
+  ) throws -> RefloatConfigurationValues? {
+    guard let value, !(value is NSNull) else { return nil }
+    guard let revision, let object = value as? [String: Any] else {
+      throw RustApplicationRuntimeError.internalFailure
+    }
+    var values: [String: RefloatConfigurationValue] = [:]
+    for (name, raw) in object {
+      values[name] = try configurationValue(raw)
+    }
+    return RefloatConfigurationValues(revision: revision, source: source, values: values)
+  }
+
+  private static func configurationSchema(_ value: Any?) throws -> RefloatConfigurationSchema? {
+    guard let value, !(value is NSNull) else { return nil }
+    guard let object = value as? [String: Any], let fingerprint = object["fingerprint"] as? String,
+          let signature = uint64(object["wire_signature"]), signature <= UInt32.max,
+          let rawFields = object["fields"] as? [[String: Any]],
+          let rawGroups = object["groups"] as? [[String: Any]]
+    else { throw RustApplicationRuntimeError.internalFailure }
+    let fields = try rawFields.map { field -> RefloatConfigurationField in
+      guard let name = field["name"] as? String, let longName = field["long_name"] as? String,
+            let rawType = field["field_type"] as? String,
+            let type = configurationFieldType(rawType), let suffix = field["suffix"] as? String,
+            let choices = field["choices"] as? [String], let description = field["description"] as? String
+      else { throw RustApplicationRuntimeError.internalFailure }
+      let wireType: RefloatConfigurationWireType? = switch field["wire_type"] as? String {
+      case "uint8": .uint8
+      case "int8": .int8
+      case "uint16": .uint16
+      case "int16": .int16
+      case "uint32": .uint32
+      case "int32": .int32
+      case "decimal16": .double16
+      case "decimal32": .double32
+      case "decimal32auto": .double32Auto
+      case nil: nil
+      default: throw RustApplicationRuntimeError.internalFailure
+      }
+      return try RefloatConfigurationField(
+        name: name, longName: longName, type: type, wireType: wireType,
+        defaultValue: configurationValue(field["default_value"]),
+        minimum: double(field["minimum"]), maximum: double(field["maximum"]),
+        step: double(field["step"]), precision: int64(field["precision"]).map(Int.init),
+        scale: double(field["scale"]), suffix: suffix, choices: choices, description: description
+      )
+    }
+    let groups = try rawGroups.map { group -> RefloatConfigurationGroup in
+      guard let name = group["name"] as? String,
+            let rawSubgroups = group["subgroups"] as? [[String: Any]]
+      else { throw RustApplicationRuntimeError.internalFailure }
+      return try RefloatConfigurationGroup(name: name, subgroups: rawSubgroups.map { subgroup in
+        guard let name = subgroup["name"] as? String, let fields = subgroup["fields"] as? [String]
+        else { throw RustApplicationRuntimeError.internalFailure }
+        return RefloatConfigurationSubgroup(name: name, fields: fields)
+      })
+    }
+    return RefloatConfigurationSchema(
+      fingerprint: fingerprint, wireSignature: UInt32(signature), fields: fields, groups: groups
+    )
+  }
+
+  private static func configurationFieldType(_ value: String) -> RefloatConfigurationFieldType? {
+    switch value {
+    case "decimal": .double
+    case "integer": .integer
+    case "string": .string
+    case "enumeration": .enumeration
+    case "boolean": .boolean
+    case "bitfield": .bitfield
+    default: nil
+    }
+  }
+
+  private static func cacheIdentity(_ value: Any?) -> RefloatSchemaCacheIdentity? {
+    guard let value = value as? [String: Any], let firmware = value["firmware_version"] as? String,
+          let hardware = value["hardware_name"] as? String, let package = value["package_version"] as? String,
+          let index = uint8(value["custom_index"]), let crc = uint64(value["hardware_configuration_crc"]),
+          crc <= UInt32.max
+    else { return nil }
+    return RefloatSchemaCacheIdentity(firmwareVersion: firmware, hardwareName: hardware,
+                                      packageVersion: package, customIndex: index,
+                                      hardwareConfigurationCRC: UInt32(crc))
   }
 
   private static func permissionAllowsUse(_ state: BluetoothPermissionState) -> Bool {

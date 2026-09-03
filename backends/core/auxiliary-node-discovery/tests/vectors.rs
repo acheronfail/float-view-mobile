@@ -96,13 +96,7 @@ fn shared_native_lifecycle_vectors_match_exactly() {
         }
 
         let state = discovery.state();
-        let status = match state.status {
-            float_view_auxiliary_node_discovery::Status::Discovering => "discovering",
-            float_view_auxiliary_node_discovery::Status::NotFound => "not_found",
-            float_view_auxiliary_node_discovery::Status::Attached => "attached",
-            float_view_auxiliary_node_discovery::Status::Unavailable => "unavailable",
-            float_view_auxiliary_node_discovery::Status::Ambiguous => "ambiguous",
-        };
+        let status = state.status.as_str();
         assert_eq!(status, vector.expected_status, "{}", vector.name);
         assert_eq!(
             stable_effect(&transition),

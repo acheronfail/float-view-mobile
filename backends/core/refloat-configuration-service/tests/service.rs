@@ -219,6 +219,8 @@ fn selected_native_read_default_write_verify_and_conflict_transitions_match() {
 
     let schema = service.loaded_schema().expect("schema");
     let draft = decode_values(&bytes("values/1.2.3-write.bin"), schema).expect("draft");
+    let mut map_ordered_draft = draft.clone();
+    map_ordered_draft.sort_by(|left, right| left.0.cmp(&right.0));
     let identity = service.snapshot().identity.expect("identity");
     let base = service.snapshot().current.expect("current").revision;
     assert_eq!(
@@ -237,7 +239,7 @@ fn selected_native_read_default_write_verify_and_conflict_transitions_match() {
             identity.fingerprint,
             identity.wire_signature,
             base,
-            &draft,
+            &map_ordered_draft,
         )
         .expect("write");
     let operation = match write.request.expect("request") {
@@ -290,7 +292,7 @@ fn selected_native_read_default_write_verify_and_conflict_transitions_match() {
             identity.fingerprint,
             identity.wire_signature,
             current.revision,
-            &draft,
+            &map_ordered_draft,
         )
         .expect("second write");
     let RequestEffect::Write { operation, .. } = write.request.expect("request") else {

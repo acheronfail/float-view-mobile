@@ -823,126 +823,71 @@ public final class SQLiteLogStore: LogStorePort, ProductStorePort, SessionStoreP
     return value
   }
 
-  public func sessionHistoryConfiguration(sessionID: String) throws -> SessionHistoryConfiguration {
-    try withReadLease(sessionID: sessionID) { database, _ in
-      guard let value = try database.query(
-        """
-        SELECT expected_riding_persistence_ms, expected_idle_persistence_ms,
-               COALESCE(retained_resolution_seconds, 0)
-        FROM session_metadata WHERE singleton = 1
-        """,
-        map: { statement in
-          SessionHistoryConfiguration(
-            expectedRidingPersistenceMs: sqlite3_column_int64(statement, 0),
-            expectedIdlePersistenceMs: sqlite3_column_int64(statement, 1),
-            retainedResolutionSeconds: sqlite3_column_int64(statement, 2)
-          )
-        }
-      ).first else { throw SessionStoreError.sessionNotFound }
-      return value
-    }
-  }
-
-  public func sessionPruneMetadata(sessionID: String) throws -> SessionPruneMetadataRecord {
-    try withReadLease(sessionID: sessionID) { database, _ in
-      guard let value = try database.query(
-        """
-        SELECT retained_resolution_seconds, prune_policy
-        FROM session_metadata WHERE singleton = 1
-        """,
-        map: { statement in
-          (
-            resolution: sqlite3_column_type(statement, 0) == SQLITE_NULL ? nil : sqlite3_column_int64(statement, 0),
-            policy: Self.columnText(statement, 1)
-          )
-        }
-      ).first else { throw SessionStoreError.sessionNotFound }
-      let snapshot = try sessionSnapshot(sessionID: sessionID)
-      return SessionPruneMetadataRecord(
-        targetResolutionSeconds: value.resolution,
-        recordedSampleCount: snapshot.recordedSampleCount,
-        storedSampleCount: snapshot.storedSampleCount,
-        policy: value.policy
-      )
-    }
-  }
-
-  public func prunePreview(sessionID: String, targetResolutionSeconds: Int64) throws -> SessionPrunePreviewRecord {
-    let selection = try pruneSelection(sessionID: sessionID, targetResolutionSeconds: targetResolutionSeconds)
-    let skipped = selection.keep.count == selection.rows.count
-    return SessionPrunePreviewRecord(
-      recordedSampleCount: Int64(selection.rows.count),
-      estimatedStoredSampleCount: Int64(selection.keep.count),
-      estimatedReclaimableBytes: Int64(max(0, selection.rows.count - selection.keep.count) * 256),
-      skipped: skipped,
-      skipReason: skipped ? "already_at_or_below_target" : nil
-    )
-  }
-
-  public func pruneSession(sessionID: String, targetResolutionSeconds: Int64) throws -> SessionPrunePreviewRecord {
-    let selection = try pruneSelection(sessionID: sessionID, targetResolutionSeconds: targetResolutionSeconds)
-    if selection.keep.count == selection.rows.count {
-      return SessionPrunePreviewRecord(
-        recordedSampleCount: Int64(selection.rows.count), estimatedStoredSampleCount: Int64(selection.keep.count),
-        estimatedReclaimableBytes: 0, skipped: true, skipReason: "already_at_or_below_target"
-      )
-    }
+  public func sessionURL(sessionID: String) throws -> URL {
     lock.lock()
     defer { lock.unlock() }
-    guard current?.sessionID.value != sessionID else { throw SessionStoreError.sessionActive }
-    guard activeReadLeases[sessionID, default: 0] == 0 else {
-      throw SessionStoreError.maintenanceInProgress
-    }
-    guard maintenanceSessions.insert(sessionID).inserted else {
-      throw SessionStoreError.maintenanceInProgress
-    }
-    defer { maintenanceSessions.remove(sessionID) }
     guard let fileName = try catalog.query(
       "SELECT file_name FROM session_catalog WHERE session_id = ? AND pending_delete = 0",
       values: [.text(sessionID)], map: { Self.columnText($0, 0)! }
     ).first else { throw SessionStoreError.sessionNotFound }
-    let database = try openSessionLocked(sessionID: sessionID)
-    try database.execute("BEGIN IMMEDIATE")
-    do {
-      try database.execute("PRAGMA temp_store = FILE")
-      try database.execute("CREATE TEMP TABLE prune_keep(sequence INTEGER PRIMARY KEY)")
-      for sequence in selection.keep {
-        try database.statement("INSERT INTO prune_keep(sequence) VALUES (?)", values: [.integer(sequence)])
-      }
-      try database.execute("DELETE FROM sample WHERE sequence NOT IN (SELECT sequence FROM prune_keep)")
-      try database.statement(
-        "DELETE FROM location WHERE NOT EXISTS (SELECT 1 FROM sample WHERE ABS(sample.monotonic_elapsed_ms - location.monotonic_elapsed_ms) <= ?)",
-        values: [.integer(targetResolutionSeconds * 1_000)]
-      )
-      try database.statement(
-        "UPDATE session_metadata SET pruned_at_ms = ?, retained_resolution_seconds = ?, prune_policy = 'm4-source-v1' WHERE singleton = 1",
-        values: [.integer(Int64(Date().timeIntervalSince1970 * 1_000)), .integer(targetResolutionSeconds)]
-      )
-      try database.statement(
-        "UPDATE commit_marker SET stored_sample_count = (SELECT COUNT(*) FROM sample), stored_location_count = (SELECT COUNT(*) FROM location), history_revision = history_revision + 1, committed_at_ms = ? WHERE singleton = 1",
-        values: [.integer(Int64(Date().timeIntervalSince1970 * 1_000))]
-      )
-      try database.execute("COMMIT")
-      try? database.execute("DROP TABLE IF EXISTS prune_keep")
-      // Logical pruning is already durable. These bounded follow-up steps make
-      // reclaimed pages visible without holding the writer transaction open or
-      // requiring a blocking full VACUUM.
-      try? database.execute("PRAGMA wal_checkpoint(PASSIVE)")
-      try? database.execute("PRAGMA incremental_vacuum(256)")
-    } catch {
-      try? database.execute("ROLLBACK")
-      throw error
+    return root.appending(path: fileName)
+  }
+
+  public func reconcileSession(sessionID: String) throws {
+    lock.lock()
+    defer { lock.unlock() }
+    guard let row = try catalog.query(
+      "SELECT job_id, file_name FROM session_catalog WHERE session_id = ? AND pending_delete = 0",
+      values: [.text(sessionID)], map: { (Self.columnText($0, 0)!, Self.columnText($0, 1)!) }
+    ).first else { throw SessionStoreError.sessionNotFound }
+    try reconcileSessionCatalogLocked(sessionID: sessionID, jobID: row.0, fileName: row.1)
+  }
+
+  public func applySessionCommitMarker(
+    sessionID: String,
+    marker: SessionCommitMarkerRecord
+  ) throws {
+    lock.lock()
+    defer { lock.unlock() }
+    guard let record = current, record.sessionID.value == sessionID else {
+      throw SessionStoreError.sessionNotFound
     }
-    let jobID = try catalog.query(
-      "SELECT job_id FROM session_catalog WHERE session_id = ?",
-      values: [.text(sessionID)], map: { Self.columnText($0, 0)! }
-    ).first!
-    try reconcileSessionCatalogLocked(sessionID: sessionID, jobID: jobID, fileName: fileName)
-    return SessionPrunePreviewRecord(
-      recordedSampleCount: Int64(selection.rows.count),
-      estimatedStoredSampleCount: Int64(selection.keep.count),
-      estimatedReclaimableBytes: Int64(max(0, selection.rows.count - selection.keep.count) * 256),
-      skipped: false, skipReason: nil
+    let snapshot = marker.snapshot
+    try catalog.statement(
+      """
+      UPDATE session_catalog SET integrity = 'complete', committed_sequence = ?,
+        committed_event_sequence = ?, sample_count = ?, stored_sample_count = ?,
+        event_count = ?, committed_elapsed_ms = ?, history_revision = ?,
+        riding_elapsed_ms = ?, total_elapsed_ms = ?, distance_m = ?, max_speed_mps = ?,
+        max_duty_cycle = ?, max_speed_source_sequence = ?, max_duty_source_sequence = ?,
+        last_sample_elapsed_ms = ?, last_speed_mps = ?, committed_location_sequence = ?,
+        committed_location_elapsed_ms = ?, location_count = ?, recorded_location_count = ?,
+        stored_location_count = ?, location_status = ?
+      WHERE session_id = ? AND job_id = ? AND state = 'active' AND pending_delete = 0
+      """,
+      values: [
+        .integer(snapshot.committedSampleSequence), .integer(snapshot.committedEventSequence),
+        .integer(snapshot.recordedSampleCount), .integer(snapshot.storedSampleCount),
+        .integer(marker.committedEventCount), .integer(snapshot.committedElapsedMs),
+        .integer(snapshot.historyRevision), .integer(marker.ridingElapsedMs),
+        .integer(snapshot.committedElapsedMs), marker.distanceM.map(SQLiteValue.real) ?? .null,
+        marker.maximumSpeedKph.map { .real(abs($0) / 3.6) } ?? .null,
+        marker.maximumDutyCycle.map { .real(abs($0)) } ?? .null,
+        marker.maximumSpeedSourceSequence.map(SQLiteValue.integer) ?? .null,
+        marker.maximumDutySourceSequence.map(SQLiteValue.integer) ?? .null,
+        .integer(snapshot.committedElapsedMs),
+        marker.lastSpeedKph.map { .real($0 / 3.6) } ?? .null,
+        .integer(snapshot.committedLocationSequence),
+        .integer(snapshot.committedLocationElapsedMs),
+        .integer(snapshot.recordedLocationCount), .integer(snapshot.recordedLocationCount),
+        .integer(snapshot.storedLocationCount), .text(snapshot.locationStatus),
+        .text(sessionID), .text(record.jobID.value),
+      ]
+    )
+    current = SessionRecord(
+      sessionID: record.sessionID, jobID: record.jobID, deviceID: record.deviceID,
+      startedAt: record.startedAt, committedSequence: snapshot.committedSampleSequence,
+      active: true
     )
   }
 
@@ -1014,391 +959,6 @@ public final class SQLiteLogStore: LogStorePort, ProductStorePort, SessionStoreP
     try saveMaintenanceJob(updated)
     if let sessionID = job.sessionID { cancelHistoricalReads(sessionID: sessionID) }
     return updated
-  }
-
-  private struct PruneSelection {
-    let rows: [SessionSeriesPoint]
-    let keep: [Int64]
-  }
-
-  private func pruneSelection(sessionID: String, targetResolutionSeconds: Int64) throws -> PruneSelection {
-    guard (1 ... 300).contains(targetResolutionSeconds) else { throw SessionStoreError.invalidRange }
-    if current?.sessionID.value == sessionID { throw SessionStoreError.sessionActive }
-    let existingResolution = try withReadLease(sessionID: sessionID) { database, _ in
-      try database.query("SELECT retained_resolution_seconds FROM session_metadata WHERE singleton = 1") { statement in
-        sqlite3_column_type(statement, 0) == SQLITE_NULL ? nil : sqlite3_column_int64(statement, 0)
-      }.first ?? nil
-    }
-    if let existingResolution, existingResolution > 0,
-       targetResolutionSeconds <= existingResolution || targetResolutionSeconds % existingResolution != 0
-    {
-      throw SessionStoreError.invalidRange
-    }
-    let rows = try withReadLease(sessionID: sessionID) { database, _ in
-      try database.query(
-        "SELECT sequence, monotonic_elapsed_ms, ride_state, speed_kph, raw_pack_voltage_v FROM sample ORDER BY monotonic_elapsed_ms, sequence"
-      ) { statement in
-        SessionSeriesPoint(
-          elapsedMs: sqlite3_column_int64(statement, 1),
-          values: [
-            "speedKph": Self.columnDouble(statement, 3),
-            "packVoltageV": Self.columnDouble(statement, 4),
-          ],
-          sequence: sqlite3_column_int64(statement, 0),
-          rideState: Self.columnText(statement, 2)
-        )
-      }
-    }
-    let protected = try withReadLease(sessionID: sessionID) { database, _ in
-      var sequences = Set<Int64>()
-      try database
-        .forEachRow("SELECT first_sequence FROM session_numeric_field") { sequences.insert(sqlite3_column_int64(
-          $0,
-          0
-        )) }
-      try database
-        .forEachRow("SELECT source_sample_sequence FROM session_event WHERE source_sample_sequence IS NOT NULL") {
-          sequences.insert(sqlite3_column_int64(
-            $0,
-            0
-          ))
-        }
-      return sequences
-    }
-    let keep = try SessionHistoryReducer.selectPruneRows(
-      rows: rows, fields: ["speedKph", "packVoltageV"], targetResolutionSeconds: targetResolutionSeconds,
-      protectedSequences: protected, eventSourceSequences: []
-    )
-    return PruneSelection(rows: rows, keep: keep)
-  }
-
-  public func querySeries(
-    sessionID: String,
-    startElapsedMs: Int64,
-    endElapsedMs: Int64,
-    fields: [String],
-    maxPoints: Int
-  ) throws -> [SessionSeriesPoint] {
-    try querySeries(
-      sessionID: sessionID, startElapsedMs: startElapsedMs, endElapsedMs: endElapsedMs,
-      fields: fields, maxPoints: maxPoints, publishedSampleSequence: nil
-    )
-  }
-
-  public func cancelHistoricalReads(sessionID: String) {
-    lock.lock()
-    let connections = historicalConnections[sessionID] ?? []
-    let cancellations = historicalCancellations[sessionID] ?? []
-    lock.unlock()
-    cancellations.forEach { $0.cancel() }
-    connections.forEach { $0.interrupt() }
-  }
-
-  public func withSessionReadCancellation<T>(
-    _ cancellation: SessionReadCancellation,
-    body: () throws -> T
-  ) rethrows -> T {
-    try SessionReadCancellationContext.$current.withValue(cancellation, operation: body)
-  }
-
-  public func querySeries(
-    sessionID: String,
-    startElapsedMs: Int64,
-    endElapsedMs: Int64,
-    fields: [String],
-    maxPoints: Int,
-    publishedSampleSequence: Int64?
-  ) throws -> [SessionSeriesPoint] {
-    guard startElapsedMs <= endElapsedMs, (1 ... 2_000).contains(maxPoints) else {
-      throw SessionStoreError.invalidRange
-    }
-    return try readSeries(
-      sessionID: sessionID, start: startElapsedMs, end: endElapsedMs,
-      fields: fields, maxPoints: maxPoints, lossless: false,
-      maximumSequence: publishedSampleSequence
-    )
-  }
-
-  public func querySeriesSource(
-    sessionID: String,
-    startElapsedMs: Int64,
-    endElapsedMs: Int64,
-    fields: [String],
-    maxRows: Int,
-    publishedSampleSequence: Int64?
-  ) throws -> [SessionSeriesPoint] {
-    guard startElapsedMs <= endElapsedMs, (1 ... 200_000).contains(maxRows) else {
-      throw SessionStoreError.invalidRange
-    }
-    return try readSeries(
-      sessionID: sessionID, start: startElapsedMs, end: endElapsedMs,
-      fields: fields, maxPoints: maxRows, lossless: true,
-      maximumSequence: publishedSampleSequence
-    )
-  }
-
-  public func reduceSeries(
-    sessionID: String,
-    startElapsedMs: Int64,
-    endElapsedMs: Int64,
-    fields: [String],
-    buckets: Int,
-    gapPolicy: SessionGapPolicyRecord,
-    expectedPersistenceMs: Int64,
-    expectedRidingPersistenceMs: Int64?,
-    expectedIdlePersistenceMs: Int64?,
-    retainedResolutionSeconds: Int64,
-    publishedSampleSequence: Int64?
-  ) throws -> SessionSeriesReductionRecord {
-    guard startElapsedMs <= endElapsedMs else { throw SessionStoreError.invalidRange }
-    let uniqueFields = Array(NSOrderedSet(array: fields)) as? [String] ?? fields
-    guard !uniqueFields.isEmpty, uniqueFields.count <= 16 else { throw SessionStoreError.invalidRange }
-    let columns = try uniqueFields.map { field -> String in
-      if let column = Self.seriesColumns[field] { return column }
-      guard !field.isEmpty, field.lengthOfBytes(using: .utf8) <= 64 else {
-        throw SessionStoreError.unsupportedField(field)
-      }
-      let encoded = try JSONSerialization.data(withJSONObject: field, options: [.fragmentsAllowed])
-      let jsonKey = String(decoding: encoded, as: UTF8.self)
-      let path = ("$." + jsonKey).replacingOccurrences(of: "'", with: "''")
-      return "json_extract(extension_json, '\(path)')"
-    }
-    return try withReadLease(sessionID: sessionID) { database, _ in
-      let selected = columns.enumerated().map { index, column in
-        "\(column) AS value_\(index)"
-      }.joined(separator: ", ")
-      let sequencePredicate = publishedSampleSequence == nil ? "" : " AND sequence <= ?"
-      var values: [SQLiteValue] = [.integer(startElapsedMs), .integer(endElapsedMs)]
-      if let publishedSampleSequence { values.append(.integer(publishedSampleSequence)) }
-      values.append(.integer(200_000))
-      let sql = """
-      SELECT sequence, monotonic_elapsed_ms, ride_state, \(selected) FROM sample
-      WHERE monotonic_elapsed_ms BETWEEN ? AND ?\(sequencePredicate)
-      ORDER BY monotonic_elapsed_ms, sequence LIMIT ?
-      """
-      let accumulator = try SessionHistoryReducer.SeriesAccumulator(
-        fields: uniqueFields,
-        range: SessionElapsedRange(startElapsedMs: startElapsedMs, endElapsedMs: endElapsedMs),
-        buckets: buckets,
-        gapPolicy: gapPolicy,
-        expectedPersistenceMs: expectedPersistenceMs,
-        expectedRidingPersistenceMs: expectedRidingPersistenceMs,
-        expectedIdlePersistenceMs: expectedIdlePersistenceMs,
-        retainedResolutionSeconds: retainedResolutionSeconds
-      )
-      let started = DispatchTime.now().uptimeNanoseconds
-      var rowValues = [Double?](repeating: nil, count: uniqueFields.count)
-      var rowCount = 0
-      try database.forEachRow(sql, values: values) { statement in
-        for index in uniqueFields.indices {
-          rowValues[index] = Self.columnDouble(statement, Int32(index + 3))
-        }
-        accumulator.append(
-          elapsedMs: sqlite3_column_int64(statement, 1),
-          sequence: sqlite3_column_int64(statement, 0),
-          rideState: Self.columnText(statement, 2),
-          values: rowValues
-        )
-        rowCount += 1
-      }
-      let reducedColumns = try accumulator.finish()
-      let elapsedNanos = DispatchTime.now().uptimeNanoseconds - started
-      return SessionSeriesReductionRecord(
-        columns: reducedColumns,
-        sourceRows: rowCount,
-        sourceMs: Double(elapsedNanos) / 1_000_000,
-        reducerMs: 0,
-        elapsedMs: Double(elapsedNanos) / 1_000_000
-      )
-    }
-  }
-
-  public func querySampleWindow(
-    sessionID: String,
-    centerElapsedMs: Int64,
-    beforeMs: Int64,
-    afterMs: Int64,
-    fields: [String]
-  ) throws -> [SessionSeriesPoint] {
-    try querySampleWindow(
-      sessionID: sessionID, centerElapsedMs: centerElapsedMs, beforeMs: beforeMs,
-      afterMs: afterMs, fields: fields, publishedSampleSequence: nil
-    )
-  }
-
-  public func querySampleWindow(
-    sessionID: String,
-    centerElapsedMs: Int64,
-    beforeMs: Int64,
-    afterMs: Int64,
-    fields: [String],
-    publishedSampleSequence: Int64?
-  ) throws -> [SessionSeriesPoint] {
-    guard centerElapsedMs >= 0, (0 ... 300_000).contains(beforeMs),
-          (0 ... 300_000).contains(afterMs)
-    else { throw SessionStoreError.invalidRange }
-    return try readSeries(
-      sessionID: sessionID, start: max(0, centerElapsedMs - beforeMs),
-      end: centerElapsedMs + afterMs, fields: fields, maxPoints: 2_000, lossless: true,
-      maximumSequence: publishedSampleSequence
-    )
-  }
-
-  public func sessionEvents(
-    sessionID: String,
-    startElapsedMs: Int64,
-    endElapsedMs: Int64
-  ) throws -> [SessionEventRecord] {
-    try sessionEvents(
-      sessionID: sessionID, startElapsedMs: startElapsedMs, endElapsedMs: endElapsedMs,
-      publishedEventSequence: nil
-    )
-  }
-
-  public func sessionEvents(
-    sessionID: String,
-    startElapsedMs: Int64,
-    endElapsedMs: Int64,
-    publishedEventSequence: Int64?
-  ) throws -> [SessionEventRecord] {
-    guard startElapsedMs <= endElapsedMs else { throw SessionStoreError.invalidRange }
-    return try withReadLease(sessionID: sessionID) { database, _ in
-      var values: [SQLiteValue] = [.integer(startElapsedMs), .integer(endElapsedMs)]
-      let sequencePredicate: String
-      if let publishedEventSequence {
-        sequencePredicate = " AND sequence <= ?"
-        values.append(.integer(publishedEventSequence))
-      } else {
-        sequencePredicate = ""
-      }
-      return try database.query(
-        """
-        SELECT sequence, source_sample_sequence, monotonic_elapsed_ms, kind, details_json FROM (
-          SELECT sequence, source_sample_sequence, monotonic_elapsed_ms, kind, details_json FROM session_event
-          WHERE monotonic_elapsed_ms BETWEEN ? AND ?
-            \(sequencePredicate)
-            AND kind IN (
-              'packageState', 'packageMode', 'footpadState', 'stopCondition',
-              'setpointAdjustment', 'wheelslip', 'darkride', 'charging',
-              'alertReason', 'firmwareFault'
-            )
-          ORDER BY monotonic_elapsed_ms, sequence LIMIT 501
-        ) ORDER BY monotonic_elapsed_ms, sequence
-        """,
-        values: values
-      ) { statement in
-        SessionEventRecord(
-          eventID: String(sqlite3_column_int64(statement, 0)),
-          elapsedMs: sqlite3_column_int64(statement, 2),
-          kind: Self.columnText(statement, 3)!,
-          detailsJSON: Self.columnText(statement, 4) ?? "{}",
-          sourceSampleSequence: sqlite3_column_type(statement, 1) == SQLITE_NULL ? nil : sqlite3_column_int64(
-            statement,
-            1
-          )
-        )
-      }
-    }
-  }
-
-  public func queryLocations(
-    sessionID: String,
-    startElapsedMs: Int64,
-    endElapsedMs: Int64,
-    limit: Int,
-    cursor: String?,
-    publishedLocationSequence: Int64?
-  ) throws -> SessionLocationPageRecord {
-    guard startElapsedMs <= endElapsedMs, (1 ... 2_000).contains(limit) else {
-      throw SessionStoreError.invalidRange
-    }
-    let snapshot = try sessionSnapshot(sessionID: sessionID)
-    if let publishedLocationSequence, publishedLocationSequence != snapshot.committedLocationSequence {
-      throw SessionStoreError.invalidRange
-    }
-    var afterSequence: Int64 = 0
-    if let cursor {
-      guard let data = Data(base64Encoded: cursor),
-            let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
-            object["sessionId"] as? String == sessionID,
-            (object["startElapsedMs"] as? NSNumber)?.int64Value == startElapsedMs,
-            (object["endElapsedMs"] as? NSNumber)?.int64Value == endElapsedMs,
-            (object["historyRevision"] as? NSNumber)?.int64Value == snapshot.historyRevision,
-            let sequence = (object["locationSequence"] as? NSNumber)?.int64Value,
-            sequence >= 0
-      else { throw SessionStoreError.invalidCursor }
-      afterSequence = sequence
-    }
-    return try withReadLease(sessionID: sessionID) { database, _ in
-      var values: [SQLiteValue] = [.integer(startElapsedMs), .integer(endElapsedMs)]
-      var sequencePredicate = ""
-      if let publishedLocationSequence {
-        sequencePredicate += " AND location_sequence <= ?"
-        values.append(.integer(publishedLocationSequence))
-      }
-      if afterSequence > 0 {
-        sequencePredicate += " AND location_sequence > ?"
-        values.append(.integer(afterSequence))
-      }
-      values.append(.integer(Int64(limit + 1)))
-      let rows = try database.query(
-        """
-        SELECT location_sequence, monotonic_elapsed_ms, latitude, longitude, accuracy_m, observed_at_ms
-        FROM location WHERE monotonic_elapsed_ms BETWEEN ? AND ?\(sequencePredicate)
-        ORDER BY monotonic_elapsed_ms, location_sequence LIMIT ?
-        """,
-        values: values
-      ) { statement in
-        SessionLocationPointRecord(
-          locationSequence: sqlite3_column_int64(statement, 0),
-          elapsedMs: sqlite3_column_int64(statement, 1),
-          latitude: sqlite3_column_double(statement, 2),
-          longitude: sqlite3_column_double(statement, 3),
-          accuracyM: sqlite3_column_type(statement, 4) == SQLITE_NULL ? nil : sqlite3_column_double(statement, 4),
-          observedAt: Date(timeIntervalSince1970: Double(sqlite3_column_int64(statement, 5)) / 1_000)
-        )
-      }
-      let hasMore = rows.count > limit
-      let page = hasMore ? Array(rows.prefix(limit)) : rows
-      let gaps: [SessionLocationGapRecord] = zip(page, page.dropFirst()).compactMap { left, right in
-        right.elapsedMs - left.elapsedMs > 10_000
-          ? SessionLocationGapRecord(
-            startElapsedMs: left.elapsedMs + 1,
-            endElapsedMs: right.elapsedMs - 1,
-            reason: "noFix"
-          )
-          : nil
-      }
-      let next = hasMore ? page.last.flatMap { point in
-        try? JSONSerialization.data(withJSONObject: [
-          "sessionId": sessionID,
-          "startElapsedMs": startElapsedMs,
-          "endElapsedMs": endElapsedMs,
-          "historyRevision": snapshot.historyRevision,
-          "locationSequence": point.locationSequence,
-        ])
-        .base64EncodedString()
-      } : nil
-      return SessionLocationPageRecord(points: page, gaps: gaps, nextCursor: next, snapshot: snapshot)
-    }
-  }
-
-  public func sessionExtensionFields(sessionID: String) throws -> [String] {
-    return try withReadLease(sessionID: sessionID) { database, _ in
-      let fields = try database.query(
-        """
-        SELECT field_name FROM session_numeric_field
-        WHERE source = 'extension'
-        ORDER BY field_name
-        LIMIT 33
-        """,
-        map: { Self.columnText($0, 0)! }
-      )
-      guard fields.count <= 32 else {
-        throw SQLiteLogStoreError.sqlite("Stored telemetry extensions exceed their bound")
-      }
-      return fields
-    }
   }
 
   public func savedDevices() throws -> [SavedDeviceRecord] {

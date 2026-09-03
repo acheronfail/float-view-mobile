@@ -443,175 +443,6 @@ public struct FirmwareRecord: Sendable, Codable, Equatable {
   }
 }
 
-public enum VescProtocolMessage: Sendable, Equatable {
-  case firmware(FirmwareRecord)
-  case currentLimits(ControllerCurrentLimits)
-  case canDevices([UInt8])
-  case bmsValuesPayload(Data)
-  case refloatInfo(RefloatCompatibilityDecision)
-  case refloatTelemetryLayout(fields: [String], runtimeFields: [String], supported: Bool)
-  case refloatTelemetry(RefloatTelemetryRecord)
-  case refloatLighting(command: RefloatCommand, state: RefloatLightingState)
-  case customConfiguration(VescCustomConfigurationResponse)
-}
-
-public struct RefloatTelemetryRecord: Sendable, Equatable {
-  public let kind: RefloatTelemetryKind
-  public let rideState: RideState
-  public let packageState: PackageState?
-  public let packageMode: PackageMode?
-  public let footpadState: FootpadState?
-  public let stopCondition: StopCondition?
-  public let setpointAdjustment: SetpointAdjustment?
-  public let wheelslip: Bool?
-  public let darkride: Bool?
-  public let charging: Bool?
-  public let alertReason: AlertReason?
-  public let firmwareFault: FirmwareFault?
-  public let fatalErrorLatched: Bool?
-  public let packVoltageV: Double?
-  public let dutyCycle: Double?
-  public let controllerTempC: Double?
-  public let motorTempC: Double?
-  public let motorCurrentA: Double?
-  public let batteryCurrentA: Double?
-  public let erpm: Double?
-  public let speedKph: Double?
-  public let pitchDeg: Double?
-  public let balancePitchDeg: Double?
-  public let rollDeg: Double?
-  public let directionalMotorCurrentA: Double?
-  public let filteredMotorCurrentA: Double?
-  public let requestedBalanceCurrentA: Double?
-  public let boosterCurrentA: Double?
-  public let fieldWeakeningCurrentA: Double?
-  public let footpadAdc1V: Double?
-  public let footpadAdc2V: Double?
-  public let remoteInput: Double?
-  public let setpointDeg: Double?
-  public let atrSetpointDeg: Double?
-  public let brakeTiltSetpointDeg: Double?
-  public let torqueTiltSetpointDeg: Double?
-  public let turnTiltSetpointDeg: Double?
-  public let remoteSetpointDeg: Double?
-  public let atrAccelerationDifferenceErpmPerSecond: Double?
-  public let atrSpeedBoost: Double?
-  public let distanceM: Double?
-  public let odometerM: Double?
-  public let ampHoursDrawnAh: Double?
-  public let ampHoursChargedAh: Double?
-  public let wattHoursDrawnWh: Double?
-  public let wattHoursChargedWh: Double?
-  public let batteryLevel: Double?
-  public let chargingCurrentA: Double?
-  public let chargingVoltageV: Double?
-  public let extensions: [String: Double]
-
-  public init(
-    kind: RefloatTelemetryKind = .realtime,
-    rideState: RideState,
-    packageState: PackageState? = nil,
-    packageMode: PackageMode? = nil,
-    footpadState: FootpadState? = nil,
-    stopCondition: StopCondition? = nil,
-    setpointAdjustment: SetpointAdjustment? = nil,
-    wheelslip: Bool? = nil,
-    darkride: Bool? = nil,
-    charging: Bool? = nil,
-    alertReason: AlertReason? = nil,
-    firmwareFault: FirmwareFault? = nil,
-    fatalErrorLatched: Bool? = nil,
-    packVoltageV: Double? = nil,
-    dutyCycle: Double? = nil,
-    controllerTempC: Double? = nil,
-    motorTempC: Double? = nil,
-    motorCurrentA: Double? = nil,
-    batteryCurrentA: Double? = nil,
-    erpm: Double? = nil,
-    speedKph: Double? = nil,
-    pitchDeg: Double? = nil,
-    balancePitchDeg: Double? = nil,
-    rollDeg: Double? = nil,
-    directionalMotorCurrentA: Double? = nil,
-    filteredMotorCurrentA: Double? = nil,
-    requestedBalanceCurrentA: Double? = nil,
-    boosterCurrentA: Double? = nil,
-    fieldWeakeningCurrentA: Double? = nil,
-    footpadAdc1V: Double? = nil,
-    footpadAdc2V: Double? = nil,
-    remoteInput: Double? = nil,
-    setpointDeg: Double? = nil,
-    atrSetpointDeg: Double? = nil,
-    brakeTiltSetpointDeg: Double? = nil,
-    torqueTiltSetpointDeg: Double? = nil,
-    turnTiltSetpointDeg: Double? = nil,
-    remoteSetpointDeg: Double? = nil,
-    atrAccelerationDifferenceErpmPerSecond: Double? = nil,
-    atrSpeedBoost: Double? = nil,
-    distanceM: Double? = nil,
-    odometerM: Double? = nil,
-    ampHoursDrawnAh: Double? = nil,
-    ampHoursChargedAh: Double? = nil,
-    wattHoursDrawnWh: Double? = nil,
-    wattHoursChargedWh: Double? = nil,
-    batteryLevel: Double? = nil,
-    chargingCurrentA: Double? = nil,
-    chargingVoltageV: Double? = nil,
-    extensions: [String: Double] = [:]
-  ) {
-    self.kind = kind
-    self.rideState = rideState
-    self.packageState = packageState
-    self.packageMode = packageMode
-    self.footpadState = footpadState
-    self.stopCondition = stopCondition
-    self.setpointAdjustment = setpointAdjustment
-    self.wheelslip = wheelslip
-    self.darkride = darkride
-    self.charging = charging
-    self.alertReason = alertReason
-    self.firmwareFault = firmwareFault
-    self.fatalErrorLatched = fatalErrorLatched
-    self.packVoltageV = packVoltageV
-    self.dutyCycle = dutyCycle
-    self.controllerTempC = controllerTempC
-    self.motorTempC = motorTempC
-    self.motorCurrentA = motorCurrentA
-    self.batteryCurrentA = batteryCurrentA
-    self.erpm = erpm
-    self.speedKph = speedKph
-    self.pitchDeg = pitchDeg
-    self.balancePitchDeg = balancePitchDeg
-    self.rollDeg = rollDeg
-    self.directionalMotorCurrentA = directionalMotorCurrentA
-    self.filteredMotorCurrentA = filteredMotorCurrentA
-    self.requestedBalanceCurrentA = requestedBalanceCurrentA
-    self.boosterCurrentA = boosterCurrentA
-    self.fieldWeakeningCurrentA = fieldWeakeningCurrentA
-    self.footpadAdc1V = footpadAdc1V
-    self.footpadAdc2V = footpadAdc2V
-    self.remoteInput = remoteInput
-    self.setpointDeg = setpointDeg
-    self.atrSetpointDeg = atrSetpointDeg
-    self.brakeTiltSetpointDeg = brakeTiltSetpointDeg
-    self.torqueTiltSetpointDeg = torqueTiltSetpointDeg
-    self.turnTiltSetpointDeg = turnTiltSetpointDeg
-    self.remoteSetpointDeg = remoteSetpointDeg
-    self.atrAccelerationDifferenceErpmPerSecond = atrAccelerationDifferenceErpmPerSecond
-    self.atrSpeedBoost = atrSpeedBoost
-    self.distanceM = distanceM
-    self.odometerM = odometerM
-    self.ampHoursDrawnAh = ampHoursDrawnAh
-    self.ampHoursChargedAh = ampHoursChargedAh
-    self.wattHoursDrawnWh = wattHoursDrawnWh
-    self.wattHoursChargedWh = wattHoursChargedWh
-    self.batteryLevel = batteryLevel
-    self.chargingCurrentA = chargingCurrentA
-    self.chargingVoltageV = chargingVoltageV
-    self.extensions = extensions
-  }
-}
-
 public struct TelemetrySample: Sendable, Codable, Equatable {
   public let sequence: Int64
   public let observedAt: Date
@@ -877,6 +708,40 @@ public struct SessionPublishedSnapshotRecord: Sendable, Codable, Equatable {
     self.recordedLocationCount = recordedLocationCount
     self.storedLocationCount = storedLocationCount
     self.locationStatus = locationStatus
+  }
+}
+
+public struct SessionCommitMarkerRecord: Sendable, Equatable {
+  public let snapshot: SessionPublishedSnapshotRecord
+  public let committedEventCount: Int64
+  public let committedAt: Date
+  public let ridingElapsedMs: Int64
+  public let distanceM: Double?
+  public let maximumSpeedKph: Double?
+  public let maximumSpeedSourceSequence: Int64?
+  public let maximumDutyCycle: Double?
+  public let maximumDutySourceSequence: Int64?
+  public let lastSpeedKph: Double?
+  public let lastRideState: String?
+
+  public init(
+    snapshot: SessionPublishedSnapshotRecord, committedEventCount: Int64,
+    committedAt: Date, ridingElapsedMs: Int64, distanceM: Double?,
+    maximumSpeedKph: Double?, maximumSpeedSourceSequence: Int64?,
+    maximumDutyCycle: Double?, maximumDutySourceSequence: Int64?,
+    lastSpeedKph: Double?, lastRideState: String?
+  ) {
+    self.snapshot = snapshot
+    self.committedEventCount = committedEventCount
+    self.committedAt = committedAt
+    self.ridingElapsedMs = ridingElapsedMs
+    self.distanceM = distanceM
+    self.maximumSpeedKph = maximumSpeedKph
+    self.maximumSpeedSourceSequence = maximumSpeedSourceSequence
+    self.maximumDutyCycle = maximumDutyCycle
+    self.maximumDutySourceSequence = maximumDutySourceSequence
+    self.lastSpeedKph = lastSpeedKph
+    self.lastRideState = lastRideState
   }
 }
 
@@ -1478,65 +1343,6 @@ public extension BluetoothPort {
   func configureSavedDeviceIDs(_: Set<DeviceID>) {}
 }
 
-public protocol VescProtocolPort: AnyObject, Sendable {
-  var supportsBmsTelemetry: Bool { get }
-  func reset()
-  func firmwareRequest(route: ControllerRoute) throws -> Data
-  func motorConfigurationRequest(route: ControllerRoute) throws -> Data
-  func canPingRequest() throws -> Data
-  func controllerShutdownRequest(route: ControllerRoute) throws -> Data
-  func refloatInfoRequest(route: ControllerRoute) throws -> Data
-  func refloatTelemetryIDsRequest(route: ControllerRoute) throws -> Data
-  func refloatTelemetryRequest(route: ControllerRoute) throws -> Data
-  func refloatLegacyTelemetryRequest(route: ControllerRoute) throws -> Data
-  func refloatCompactTelemetryRequest(route: ControllerRoute) throws -> Data
-  func customConfigurationSchemaRequest(route: ControllerRoute, length: Int, offset: Int) throws -> Data
-  func customConfigurationValuesRequest(route: ControllerRoute, defaults: Bool) throws -> Data
-  func customConfigurationWriteRequest(route: ControllerRoute, values: Data) throws -> Data
-  func bmsValuesRequest(connection: BmsConnection) throws -> Data
-  func receive(_ bytes: Data) throws -> [VescProtocolMessage]
-}
-
-public extension VescProtocolPort {
-  var supportsBmsTelemetry: Bool {
-    false
-  }
-
-  func bmsValuesRequest(connection _: BmsConnection) throws -> Data {
-    throw VescProtocolError.unsupportedCommand(VescCommand.bmsGetValues.rawValue)
-  }
-
-  func motorConfigurationRequest(route _: ControllerRoute) throws -> Data {
-    throw VescProtocolError.unsupportedCommand(VescCommand.getMotorConfiguration.rawValue)
-  }
-
-  func controllerShutdownRequest(route _: ControllerRoute) throws -> Data {
-    throw VescProtocolError.unsupportedCommand(VescCommand.shutdown.rawValue)
-  }
-
-  func refloatLegacyTelemetryRequest(route: ControllerRoute) throws -> Data {
-    try refloatTelemetryRequest(route: route)
-  }
-
-  func refloatCompactTelemetryRequest(route: ControllerRoute) throws -> Data {
-    try refloatLegacyTelemetryRequest(route: route)
-  }
-
-  func customConfigurationSchemaRequest(route _: ControllerRoute, length _: Int, offset _: Int) throws -> Data {
-    throw VescProtocolError.unsupportedCommand(VescCommand.getCustomConfigurationXML.rawValue)
-  }
-
-  func customConfigurationValuesRequest(route _: ControllerRoute, defaults: Bool) throws -> Data {
-    throw VescProtocolError.unsupportedCommand(
-      defaults ? VescCommand.getCustomConfigurationDefault.rawValue : VescCommand.getCustomConfiguration.rawValue
-    )
-  }
-
-  func customConfigurationWriteRequest(route _: ControllerRoute, values _: Data) throws -> Data {
-    throw VescProtocolError.unsupportedCommand(VescCommand.setCustomConfiguration.rawValue)
-  }
-}
-
 public protocol CancellationPort: AnyObject, Sendable {
   func cancel()
 }
@@ -1843,94 +1649,16 @@ public final class SessionReadCancellation: @unchecked Sendable {
 }
 
 public protocol SessionStorePort: AnyObject, Sendable {
+  func sessionURL(sessionID: String) throws -> URL
+  func reconcileSession(sessionID: String) throws
+  func applySessionCommitMarker(sessionID: String, marker: SessionCommitMarkerRecord) throws
   func sessions(_ query: SessionListQuery) throws -> SessionPage
   func session(sessionID: String) throws -> SessionSummaryRecord
   func sessionSnapshot(sessionID: String) throws -> SessionPublishedSnapshotRecord
-  func sessionHistoryConfiguration(sessionID: String) throws -> SessionHistoryConfiguration
-  func sessionPruneMetadata(sessionID: String) throws -> SessionPruneMetadataRecord
-  func prunePreview(sessionID: String, targetResolutionSeconds: Int64) throws -> SessionPrunePreviewRecord
-  func pruneSession(sessionID: String, targetResolutionSeconds: Int64) throws -> SessionPrunePreviewRecord
+  func cancelHistoricalReads(sessionID: String)
   func maintenanceJob() throws -> SessionMaintenanceJobRecord?
   func saveMaintenanceJob(_ job: SessionMaintenanceJobRecord) throws
   func cancelMaintenanceJob(operationID: String) throws -> SessionMaintenanceJobRecord?
-  func querySeries(
-    sessionID: String,
-    startElapsedMs: Int64,
-    endElapsedMs: Int64,
-    fields: [String],
-    maxPoints: Int,
-    publishedSampleSequence: Int64?
-  ) throws -> [SessionSeriesPoint]
-  func querySeries(
-    sessionID: String,
-    startElapsedMs: Int64,
-    endElapsedMs: Int64,
-    fields: [String],
-    maxPoints: Int
-  ) throws -> [SessionSeriesPoint]
-  func querySeriesSource(
-    sessionID: String,
-    startElapsedMs: Int64,
-    endElapsedMs: Int64,
-    fields: [String],
-    maxRows: Int,
-    publishedSampleSequence: Int64?
-  ) throws -> [SessionSeriesPoint]
-  func reduceSeries(
-    sessionID: String,
-    startElapsedMs: Int64,
-    endElapsedMs: Int64,
-    fields: [String],
-    buckets: Int,
-    gapPolicy: SessionGapPolicyRecord,
-    expectedPersistenceMs: Int64,
-    expectedRidingPersistenceMs: Int64?,
-    expectedIdlePersistenceMs: Int64?,
-    retainedResolutionSeconds: Int64,
-    publishedSampleSequence: Int64?
-  ) throws -> SessionSeriesReductionRecord
-  func sessionEvents(
-    sessionID: String,
-    startElapsedMs: Int64,
-    endElapsedMs: Int64,
-    publishedEventSequence: Int64?
-  ) throws -> [SessionEventRecord]
-  func queryLocations(
-    sessionID: String,
-    startElapsedMs: Int64,
-    endElapsedMs: Int64,
-    limit: Int,
-    cursor: String?,
-    publishedLocationSequence: Int64?
-  ) throws -> SessionLocationPageRecord
-  func sessionEvents(
-    sessionID: String,
-    startElapsedMs: Int64,
-    endElapsedMs: Int64
-  ) throws -> [SessionEventRecord]
-  func sessionExtensionFields(sessionID: String) throws -> [String]
-  func withSessionReadCancellation<T>(
-    _ cancellation: SessionReadCancellation,
-    body: () throws -> T
-  ) rethrows -> T
-  func querySampleWindow(
-    sessionID: String,
-    centerElapsedMs: Int64,
-    beforeMs: Int64,
-    afterMs: Int64,
-    fields: [String],
-    publishedSampleSequence: Int64?
-  ) throws -> [SessionSeriesPoint]
-  /// Interrupts every historical read for explicit session maintenance.
-  /// HTTP request cancellation uses `withSessionReadCancellation` instead.
-  func cancelHistoricalReads(sessionID: String)
-  func querySampleWindow(
-    sessionID: String,
-    centerElapsedMs: Int64,
-    beforeMs: Int64,
-    afterMs: Int64,
-    fields: [String]
-  ) throws -> [SessionSeriesPoint]
   func deleteSession(sessionID: String) throws
   func cancelPendingDelete(operationID: String) throws -> Bool
   func exportSession(sessionID: String, format: String) throws -> SessionExportRecord
@@ -1938,141 +1666,11 @@ public protocol SessionStorePort: AnyObject, Sendable {
 }
 
 public extension SessionStorePort {
-  func withSessionReadCancellation<T>(
-    _: SessionReadCancellation,
-    body: () throws -> T
-  ) rethrows -> T {
-    try body()
-  }
-
-  func queryLocations(
-    sessionID _: String,
-    startElapsedMs _: Int64,
-    endElapsedMs _: Int64,
-    limit _: Int,
-    cursor _: String?,
-    publishedLocationSequence _: Int64?
-  ) throws -> SessionLocationPageRecord {
-    throw SessionStoreError.sessionNotFound
-  }
-
-  func querySeries(
-    sessionID: String,
-    startElapsedMs: Int64,
-    endElapsedMs: Int64,
-    fields: [String],
-    maxPoints: Int,
-    publishedSampleSequence _: Int64?
-  ) throws -> [SessionSeriesPoint] {
-    try querySeries(
-      sessionID: sessionID, startElapsedMs: startElapsedMs, endElapsedMs: endElapsedMs,
-      fields: fields, maxPoints: maxPoints
-    )
-  }
-
-  func querySeriesSource(
-    sessionID: String,
-    startElapsedMs: Int64,
-    endElapsedMs: Int64,
-    fields: [String],
-    maxRows: Int,
-    publishedSampleSequence _: Int64?
-  ) throws -> [SessionSeriesPoint] {
-    guard maxRows >= 1 else { throw SessionStoreError.invalidRange }
-    return try querySeries(
-      sessionID: sessionID, startElapsedMs: startElapsedMs, endElapsedMs: endElapsedMs,
-      fields: fields, maxPoints: min(maxRows, 2_000)
-    )
-  }
-
-  func reduceSeries(
-    sessionID: String,
-    startElapsedMs: Int64,
-    endElapsedMs: Int64,
-    fields: [String],
-    buckets: Int,
-    gapPolicy: SessionGapPolicyRecord,
-    expectedPersistenceMs: Int64,
-    expectedRidingPersistenceMs: Int64?,
-    expectedIdlePersistenceMs: Int64?,
-    retainedResolutionSeconds: Int64,
-    publishedSampleSequence: Int64?
-  ) throws -> SessionSeriesReductionRecord {
-    let started = DispatchTime.now().uptimeNanoseconds
-    let rows = try querySeriesSource(
-      sessionID: sessionID,
-      startElapsedMs: startElapsedMs,
-      endElapsedMs: endElapsedMs,
-      fields: fields,
-      maxRows: 200_000,
-      publishedSampleSequence: publishedSampleSequence
-    )
-    let columns = try SessionHistoryReducer.reduceSeries(
-      rows: rows,
-      fields: fields,
-      range: SessionElapsedRange(startElapsedMs: startElapsedMs, endElapsedMs: endElapsedMs),
-      buckets: buckets,
-      gapPolicy: gapPolicy,
-      expectedPersistenceMs: expectedPersistenceMs,
-      expectedRidingPersistenceMs: expectedRidingPersistenceMs,
-      expectedIdlePersistenceMs: expectedIdlePersistenceMs,
-      retainedResolutionSeconds: retainedResolutionSeconds,
-      rowsAreOrdered: true
-    )
-    return SessionSeriesReductionRecord(
-      columns: columns,
-      sourceRows: rows.count,
-      sourceMs: 0,
-      reducerMs: Double(DispatchTime.now().uptimeNanoseconds - started) / 1_000_000,
-      elapsedMs: Double(DispatchTime.now().uptimeNanoseconds - started) / 1_000_000
-    )
-  }
-
-  func sessionEvents(
-    sessionID: String,
-    startElapsedMs: Int64,
-    endElapsedMs: Int64,
-    publishedEventSequence _: Int64?
-  ) throws -> [SessionEventRecord] {
-    try sessionEvents(
-      sessionID: sessionID, startElapsedMs: startElapsedMs, endElapsedMs: endElapsedMs
-    )
-  }
-
-  func querySampleWindow(
-    sessionID: String,
-    centerElapsedMs: Int64,
-    beforeMs: Int64,
-    afterMs: Int64,
-    fields: [String],
-    publishedSampleSequence _: Int64?
-  ) throws -> [SessionSeriesPoint] {
-    try querySampleWindow(
-      sessionID: sessionID, centerElapsedMs: centerElapsedMs,
-      beforeMs: beforeMs, afterMs: afterMs, fields: fields
-    )
-  }
-
   func sessionSnapshot(sessionID _: String) throws -> SessionPublishedSnapshotRecord {
     throw SessionStoreError.sessionNotFound
   }
 
   func cancelHistoricalReads(sessionID _: String) {}
-  func sessionHistoryConfiguration(sessionID _: String) throws -> SessionHistoryConfiguration {
-    SessionHistoryConfiguration(expectedRidingPersistenceMs: 1_000, expectedIdlePersistenceMs: 1_000)
-  }
-
-  func sessionPruneMetadata(sessionID _: String) throws -> SessionPruneMetadataRecord {
-    SessionPruneMetadataRecord(targetResolutionSeconds: nil, recordedSampleCount: 0, storedSampleCount: 0, policy: nil)
-  }
-
-  func prunePreview(sessionID _: String, targetResolutionSeconds _: Int64) throws -> SessionPrunePreviewRecord {
-    throw SessionStoreError.sessionNotFound
-  }
-
-  func pruneSession(sessionID _: String, targetResolutionSeconds _: Int64) throws -> SessionPrunePreviewRecord {
-    throw SessionStoreError.sessionNotFound
-  }
 
   func maintenanceJob() throws -> SessionMaintenanceJobRecord? {
     nil
@@ -2081,10 +1679,6 @@ public extension SessionStorePort {
   func saveMaintenanceJob(_: SessionMaintenanceJobRecord) throws {}
   func cancelMaintenanceJob(operationID _: String) throws -> SessionMaintenanceJobRecord? {
     nil
-  }
-
-  func sessionExtensionFields(sessionID _: String) throws -> [String] {
-    []
   }
 
   func deleteSession(sessionID _: String) throws {

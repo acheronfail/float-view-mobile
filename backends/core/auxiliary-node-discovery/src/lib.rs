@@ -38,6 +38,19 @@ pub enum Status {
     Ambiguous,
 }
 
+impl Status {
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Discovering => "discovering",
+            Self::NotFound => "not_found",
+            Self::Attached => "attached",
+            Self::Unavailable => "unavailable",
+            Self::Ambiguous => "ambiguous",
+        }
+    }
+}
+
 /// One display-safe BMS candidate.
 #[derive(Clone, Eq, PartialEq)]
 pub struct Candidate {

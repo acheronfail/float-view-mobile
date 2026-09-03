@@ -1,4 +1,0 @@
-module CVescRefloatDynamicTelemetry [system] {
-  header "include/CVescRefloatDynamicTelemetry.h"
-  export *
-}

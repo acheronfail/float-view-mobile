@@ -13,7 +13,7 @@ public final class SoftwareVescPeripheral: @unchecked Sendable {
   }
 
   public func response(to frame: Data) -> Data? {
-    guard let request = try? VescFrameCodec.decode(Array(frame)) else { return nil }
+    guard let request = Self.decodeFrame(Array(frame)) else { return nil }
     let payload: [UInt8]?
     switch request {
     case [VescCommand.getFirmwareVersion.rawValue]:
@@ -38,7 +38,7 @@ public final class SoftwareVescPeripheral: @unchecked Sendable {
       payload = configurationResponse(request)
     }
     guard let payload else { return nil }
-    return try? Data(VescFrameCodec.encode(payload))
+    return Data(Self.encodeFrame(payload))
   }
 
   private func configurationResponse(_ request: [UInt8]) -> [UInt8]? {
@@ -152,5 +152,46 @@ public final class SoftwareVescPeripheral: @unchecked Sendable {
       UInt8(truncatingIfNeeded: raw >> 8),
       UInt8(truncatingIfNeeded: raw),
     ]
+  }
+
+  private static func encodeFrame(_ payload: [UInt8]) -> [UInt8] {
+    let header: [UInt8] = payload.count <= 255
+      ? [2, UInt8(payload.count)]
+      : [3, UInt8(payload.count >> 8), UInt8(truncatingIfNeeded: payload.count)]
+    let checksum = crc16(payload)
+    return header + payload + [UInt8(checksum >> 8), UInt8(truncatingIfNeeded: checksum), 3]
+  }
+
+  private static func decodeFrame(_ frame: [UInt8]) -> [UInt8]? {
+    guard let marker = frame.first else { return nil }
+    let headerCount: Int
+    let payloadCount: Int
+    switch marker {
+    case 2 where frame.count >= 5:
+      headerCount = 2
+      payloadCount = Int(frame[1])
+    case 3 where frame.count >= 6:
+      headerCount = 3
+      payloadCount = Int(frame[1]) << 8 | Int(frame[2])
+    default:
+      return nil
+    }
+    guard payloadCount <= 4_096, frame.count == headerCount + payloadCount + 3,
+          frame.last == 3
+    else { return nil }
+    let payload = Array(frame[headerCount ..< headerCount + payloadCount])
+    let received = UInt16(frame[headerCount + payloadCount]) << 8
+      | UInt16(frame[headerCount + payloadCount + 1])
+    return crc16(payload) == received ? payload : nil
+  }
+
+  private static func crc16(_ bytes: [UInt8]) -> UInt16 {
+    bytes.reduce(UInt16(0)) { partial, byte in
+      var crc = partial ^ UInt16(byte) << 8
+      for _ in 0 ..< 8 {
+        crc = crc & 0x8000 == 0 ? crc << 1 : crc << 1 ^ 0x1021
+      }
+      return crc
+    }
   }
 }

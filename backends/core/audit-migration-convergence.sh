@@ -13,7 +13,10 @@ count_lines() {
   done < <(
     git ls-files --cached --others --exclude-standard "$root" |
       grep -E '\.(rs|swift|kt|kts|c|h)$' |
-      grep -Ev '(^|/)(Tests?|tests?|build|target)/|Test\.kt$|Tests\.swift$' || true
+      grep -Ev '(^|/)(Tests?|tests?|build|target)/|Test\.kt$|Tests\.swift$' |
+      while IFS= read -r file; do
+        [[ -f "$file" ]] && printf '%s\n' "$file"
+      done || true
   )
   if ((${#files[@]} == 0)); then
     echo 0
@@ -29,8 +32,13 @@ members="$(awk '
   END { print count+0 }
 ' backends/core/Cargo.toml)"
 
-bridge_crates="$(find backends/core -mindepth 1 -maxdepth 1 -type d \
-  \( -name '*-apple-ffi' -o -name '*-android-jni' \) | wc -l | tr -d ' ')"
+bridge_crates="$(find backends/core -mindepth 2 -maxdepth 2 \
+  \( -path '*-apple-ffi/Cargo.toml' -o -path '*-android-jni/Cargo.toml' \) \
+  | wc -l | tr -d ' ')"
+apple_bridge_artifacts="$(find backends/core -mindepth 2 -maxdepth 2 \
+  -path '*-apple-ffi/Cargo.toml' | wc -l | tr -d ' ')"
+android_bridge_artifacts="$(find backends/core -mindepth 2 -maxdepth 2 \
+  -path '*-android-jni/Cargo.toml' | wc -l | tr -d ' ')"
 
 selected_families="$(awk '
   /^bridge_family\|/ { count++ }
@@ -48,13 +56,16 @@ android_production_source_lines=$android_lines
 workspace_members=$members
 temporary_protocol_bridge_crates=$bridge_crates
 selected_protocol_families=$selected_families
-apple_bridge_family_artifacts=$selected_families
-android_bridge_target_artifacts=$((selected_families * 4 * 2))
+apple_bridge_family_artifacts=$apple_bridge_artifacts
+android_bridge_crates=$android_bridge_artifacts
+android_bridge_target_artifacts=$((android_bridge_artifacts * 4 * 2))
 EOF
 
-[[ "$bridge_crates" == 20 ]]
+[[ "$bridge_crates" == 11 ]]
+[[ "$apple_bridge_artifacts" == 1 ]]
+[[ "$android_bridge_artifacts" == 10 ]]
 [[ "$selected_families" == 10 ]]
-[[ "$members" == 43 || "$members" == 44 ]]
+[[ "$members" == 34 ]]
 
 expected_candidates='application-runtime auxiliary-node-discovery connection-application-coordinator controller-discovery device-mutation-coordinator refloat-configuration-service refloat-telemetry-service session-history-kernel session-sqlite vesc-bms-telemetry-service vesc-compatibility vesc-request-scheduler'
 actual_candidates="$(awk -F'|' '/^candidate\|/ { print $2 }' backends/core/migration-baseline.txt | sort | xargs)"

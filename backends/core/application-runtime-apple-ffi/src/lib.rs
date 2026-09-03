@@ -28,6 +28,9 @@ pub enum Status {
     BufferTooSmall = 6,
     Busy = 7,
     Internal = 8,
+    InvalidState = 9,
+    Conflict = 10,
+    Unavailable = 11,
 }
 
 #[derive(Deserialize)]
@@ -98,7 +101,7 @@ enum CommandEnvelope {
         fingerprint: String,
         wire_signature: u32,
         base_revision: u64,
-        value_record: Vec<u8>,
+        values: BTreeMap<String, ConfigurationValueEnvelope>,
         now_ms: u64,
     },
     UpdateSettings {
@@ -125,13 +128,60 @@ enum CommandEnvelope {
         locations: Vec<LocationEnvelope>,
     },
     DetachSession,
+    SessionMetadata {
+        path: String,
+    },
+    SessionFields {
+        path: String,
+    },
+    SessionSamples {
+        path: String,
+        fields: Vec<String>,
+        start_elapsed_ms: u64,
+        end_elapsed_ms: u64,
+        limit: usize,
+        after_elapsed_ms: Option<u64>,
+        after_sequence: Option<u64>,
+        boundary: BoundaryEnvelope,
+    },
+    SessionReduce {
+        path: String,
+        fields: Vec<String>,
+        start_elapsed_ms: u64,
+        end_elapsed_ms: u64,
+        buckets: usize,
+        gap_seconds: Option<f64>,
+        boundary: BoundaryEnvelope,
+    },
+    SessionEvents {
+        path: String,
+        start_elapsed_ms: u64,
+        end_elapsed_ms: u64,
+        limit: usize,
+        after_elapsed_ms: Option<u64>,
+        after_sequence: Option<u64>,
+        boundary: BoundaryEnvelope,
+    },
+    SessionLocations {
+        path: String,
+        start_elapsed_ms: u64,
+        end_elapsed_ms: u64,
+        limit: usize,
+        after_location_sequence: Option<u64>,
+        boundary: BoundaryEnvelope,
+    },
+    SessionPrune {
+        path: String,
+        target_resolution_seconds: u64,
+        commit: bool,
+        committed_at_epoch_ms: i64,
+    },
 }
 
 impl CommandEnvelope {
     fn consumed_token(&self) -> Option<InputToken> {
         match self {
             Self::DeadlineFired { token, .. } => Some(InputToken::Deadline(*token)),
-            Self::TimerFired { token, .. } => Some(InputToken::Timer(*token)),
             _ => None,
         }
     }
@@ -140,13 +190,11 @@ impl CommandEnvelope {
 #[derive(Clone, Copy)]
 enum InputToken {
     Deadline(u64),
-    Timer(u64),
 }
 
 #[derive(Clone, Copy)]
 enum RecentToken {
     Deadline(u64, coordinator::scheduler::DeadlineToken),
-    Timer(u64, coordinator::TimerToken),
 }
 
 #[derive(Clone, Copy, Deserialize)]
@@ -165,6 +213,20 @@ enum ConfigurationMutation {
     TuneApply,
 }
 
+#[derive(Deserialize)]
+#[serde(
+    tag = "type",
+    content = "value",
+    rename_all = "snake_case",
+    deny_unknown_fields
+)]
+enum ConfigurationValueEnvelope {
+    Double(f64),
+    Integer(i64),
+    Boolean(bool),
+    String(String),
+}
+
 #[derive(Clone, Copy, Deserialize)]
 #[serde(rename_all = "snake_case")]
 enum SessionMode {
@@ -180,6 +242,26 @@ struct LocationEnvelope {
     latitude: f64,
     longitude: f64,
     accuracy_m: Option<f64>,
+}
+
+#[derive(Clone, Copy, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct BoundaryEnvelope {
+    history_revision: u64,
+    sample_sequence: u64,
+    event_sequence: u64,
+    location_sequence: u64,
+}
+
+impl From<BoundaryEnvelope> for runtime::session::PublishedBoundary {
+    fn from(value: BoundaryEnvelope) -> Self {
+        Self {
+            history_revision: value.history_revision,
+            sample_sequence: value.sample_sequence,
+            event_sequence: value.event_sequence,
+            location_sequence: value.location_sequence,
+        }
+    }
 }
 
 struct Entry {
@@ -264,7 +346,7 @@ impl Entry {
         }
         match self.recent_token {
             Some(RecentToken::Deadline(id, candidate)) if candidate == token => Ok(id),
-            _ => Err(Status::RuntimeFailure),
+            _ => Ok(0),
         }
     }
 
@@ -276,10 +358,7 @@ impl Entry {
         {
             return Ok(self.timers.remove(index).0);
         }
-        match self.recent_token {
-            Some(RecentToken::Timer(id, candidate)) if candidate == token => Ok(id),
-            _ => Err(Status::RuntimeFailure),
-        }
+        Ok(0)
     }
 
     fn consume_token(&mut self, consumed: Option<InputToken>) -> Result<(), Status> {
@@ -294,15 +373,6 @@ impl Entry {
                 let (_, token) = self.deadlines.remove(index);
                 Some(RecentToken::Deadline(id, token))
             }
-            Some(InputToken::Timer(id)) => {
-                let index = self
-                    .timers
-                    .iter()
-                    .position(|(candidate, _)| *candidate == id)
-                    .ok_or(Status::Internal)?;
-                let (_, token) = self.timers.remove(index);
-                Some(RecentToken::Timer(id, token))
-            }
         };
         Ok(())
     }
@@ -315,6 +385,43 @@ struct Registry {
 }
 
 static REGISTRY: LazyLock<Mutex<Registry>> = LazyLock::new(|| Mutex::new(Registry::default()));
+static INTERRUPTERS: LazyLock<Mutex<BTreeMap<u64, ActiveInterrupter>>> =
+    LazyLock::new(|| Mutex::new(BTreeMap::new()));
+
+enum ActiveInterrupter {
+    Reader(runtime::session::ReadInterrupter),
+    Pruner(runtime::session::PruneInterrupter),
+}
+
+impl ActiveInterrupter {
+    fn interrupt(&self) {
+        match self {
+            Self::Reader(value) => value.interrupt(),
+            Self::Pruner(value) => value.interrupt(),
+        }
+    }
+}
+
+struct InterruptRegistration(u64);
+
+impl Drop for InterruptRegistration {
+    fn drop(&mut self) {
+        if let Ok(mut values) = INTERRUPTERS.lock() {
+            values.remove(&self.0);
+        }
+    }
+}
+
+fn register_interrupt(
+    handle: u64,
+    value: ActiveInterrupter,
+) -> Result<InterruptRegistration, Status> {
+    let mut values = INTERRUPTERS.lock().map_err(|_| Status::Internal)?;
+    if values.insert(handle, value).is_some() {
+        return Err(Status::Busy);
+    }
+    Ok(InterruptRegistration(handle))
+}
 
 #[unsafe(no_mangle)]
 pub extern "C" fn float_view_application_runtime_abi_version() -> u32 {
@@ -322,6 +429,11 @@ pub extern "C" fn float_view_application_runtime_abi_version() -> u32 {
 }
 
 #[unsafe(no_mangle)]
+/// Creates a runtime and writes its nonzero registry handle.
+///
+/// # Safety
+///
+/// `out_handle` must be non-null, aligned, and writable for one `u64`.
 pub unsafe extern "C" fn float_view_application_runtime_create(out_handle: *mut u64) -> i32 {
     contain(|| {
         if !valid_scalar(out_handle) {
@@ -353,6 +465,27 @@ pub extern "C" fn float_view_application_runtime_destroy(handle: u64) -> i32 {
 }
 
 #[unsafe(no_mangle)]
+pub extern "C" fn float_view_application_runtime_interrupt(handle: u64) -> i32 {
+    contain(|| {
+        let values = match INTERRUPTERS.lock() {
+            Ok(values) => values,
+            Err(_) => return Status::Internal,
+        };
+        if let Some(value) = values.get(&handle) {
+            value.interrupt();
+        }
+        Status::Ok
+    })
+}
+
+#[unsafe(no_mangle)]
+/// Applies one JSON command and records the required result-buffer length.
+///
+/// # Safety
+///
+/// `command` must identify `command_length` readable bytes. `out_required` must
+/// be non-null, aligned, and writable for one `usize`; the two regions must not
+/// overlap.
 pub unsafe extern "C" fn float_view_application_runtime_apply(
     handle: u64,
     command: *const u8,
@@ -385,13 +518,19 @@ pub unsafe extern "C" fn float_view_application_runtime_apply(
                 return Err(Status::ResultPending);
             }
             let consumed_token = envelope.consumed_token();
-            let command = entry.command(envelope)?;
-            let effects = entry
-                .runtime
-                .apply(command)
-                .map_err(|_| Status::RuntimeFailure)?;
-            entry.consume_token(consumed_token)?;
-            let value = entry.effects(effects)?;
+            let mut value = if let Some(value) = entry.direct(handle, &envelope) {
+                value?
+            } else {
+                let command = entry.command(envelope)?;
+                let effects = entry.runtime.apply(command).map_err(runtime_status)?;
+                entry.consume_token(consumed_token)?;
+                entry.effects(effects)?
+            };
+            let generation = entry.runtime.snapshot().application.generation.0;
+            value
+                .as_object_mut()
+                .ok_or(Status::Internal)?
+                .insert("generation".to_owned(), generation.into());
             entry.recent_token = None;
             let result = serde_json::to_vec(&value).map_err(|_| Status::Internal)?;
             if result.len() > MAX_RESULT_BYTES {
@@ -405,6 +544,13 @@ pub unsafe extern "C" fn float_view_application_runtime_apply(
 }
 
 #[unsafe(no_mangle)]
+/// Copies the pending JSON result into caller-owned storage.
+///
+/// # Safety
+///
+/// `output` must identify `output_capacity` writable bytes when the capacity is
+/// nonzero. `out_written` must be non-null, aligned, and writable for one
+/// `usize`; the two regions must not overlap.
 pub unsafe extern "C" fn float_view_application_runtime_copy_result(
     handle: u64,
     output: *mut u8,
@@ -442,6 +588,103 @@ pub unsafe extern "C" fn float_view_application_runtime_copy_result(
 }
 
 impl Entry {
+    fn direct(&mut self, handle: u64, envelope: &CommandEnvelope) -> Option<Result<Value, Status>> {
+        use CommandEnvelope as E;
+        Some(match envelope {
+            E::SessionMetadata { path } => session_metadata(path),
+            E::SessionFields { path } => session_fields(path),
+            E::SessionSamples {
+                path,
+                fields,
+                start_elapsed_ms,
+                end_elapsed_ms,
+                limit,
+                after_elapsed_ms,
+                after_sequence,
+                boundary,
+            } => match optional_sample_key(*after_elapsed_ms, *after_sequence) {
+                Ok(after) => session_samples(SessionSampleQuery {
+                    handle,
+                    path,
+                    fields,
+                    start_elapsed_ms: *start_elapsed_ms,
+                    end_elapsed_ms: *end_elapsed_ms,
+                    limit: *limit,
+                    after,
+                    boundary: (*boundary).into(),
+                }),
+                Err(error) => Err(error),
+            },
+            E::SessionReduce {
+                path,
+                fields,
+                start_elapsed_ms,
+                end_elapsed_ms,
+                buckets,
+                gap_seconds,
+                boundary,
+            } => session_reduce(SessionReduceQuery {
+                handle,
+                path,
+                fields,
+                start_elapsed_ms: *start_elapsed_ms,
+                end_elapsed_ms: *end_elapsed_ms,
+                buckets: *buckets,
+                gap_seconds: *gap_seconds,
+                boundary: (*boundary).into(),
+            }),
+            E::SessionEvents {
+                path,
+                start_elapsed_ms,
+                end_elapsed_ms,
+                limit,
+                after_elapsed_ms,
+                after_sequence,
+                boundary,
+            } => match optional_sample_key(*after_elapsed_ms, *after_sequence) {
+                Ok(after) => session_events(
+                    handle,
+                    path,
+                    *start_elapsed_ms,
+                    *end_elapsed_ms,
+                    *limit,
+                    after,
+                    (*boundary).into(),
+                ),
+                Err(error) => Err(error),
+            },
+            E::SessionLocations {
+                path,
+                start_elapsed_ms,
+                end_elapsed_ms,
+                limit,
+                after_location_sequence,
+                boundary,
+            } => session_locations(
+                handle,
+                path,
+                *start_elapsed_ms,
+                *end_elapsed_ms,
+                *limit,
+                *after_location_sequence,
+                (*boundary).into(),
+            ),
+            E::SessionPrune {
+                path,
+                target_resolution_seconds,
+                commit,
+                committed_at_epoch_ms,
+            } => session_prune(
+                handle,
+                path,
+                *target_resolution_seconds,
+                *commit,
+                *committed_at_epoch_ms,
+            ),
+            _ => return None,
+        })
+    }
+
     fn command(&mut self, envelope: CommandEnvelope) -> Result<runtime::Command, Status> {
         use CommandEnvelope as E;
         Ok(match envelope {
@@ -572,7 +815,7 @@ impl Entry {
                 fingerprint,
                 wire_signature,
                 base_revision,
-                value_record,
+                values,
                 now_ms,
             } => runtime::Command::Application(coordinator::Command::WriteConfiguration {
                 generation: coordinator::Generation(generation),
@@ -588,8 +831,29 @@ impl Entry {
                 fingerprint,
                 wire_signature,
                 base_revision,
-                values: coordinator::configuration_codec::decode_value_record(&value_record)
-                    .map_err(|_| Status::InvalidEnvelope)?,
+                values: values
+                    .into_iter()
+                    .map(|(name, value)| {
+                        let value = match value {
+                            ConfigurationValueEnvelope::Double(value) if value.is_finite() => {
+                                coordinator::configuration_codec::ConfigurationValue::Decimal(value)
+                            }
+                            ConfigurationValueEnvelope::Double(_) => {
+                                return Err(Status::InvalidEnvelope);
+                            }
+                            ConfigurationValueEnvelope::Integer(value) => {
+                                coordinator::configuration_codec::ConfigurationValue::Integer(value)
+                            }
+                            ConfigurationValueEnvelope::Boolean(value) => {
+                                coordinator::configuration_codec::ConfigurationValue::Boolean(value)
+                            }
+                            ConfigurationValueEnvelope::String(value) => {
+                                coordinator::configuration_codec::ConfigurationValue::String(value)
+                            }
+                        };
+                        Ok((name, value))
+                    })
+                    .collect::<Result<Vec<_>, _>>()?,
                 now_ms,
             }),
             E::UpdateSettings {
@@ -646,6 +910,13 @@ impl Entry {
                     .collect(),
             ),
             E::DetachSession => runtime::Command::DetachSession,
+            E::SessionMetadata { .. }
+            | E::SessionFields { .. }
+            | E::SessionSamples { .. }
+            | E::SessionReduce { .. }
+            | E::SessionEvents { .. }
+            | E::SessionLocations { .. }
+            | E::SessionPrune { .. } => return Err(Status::Internal),
         })
     }
 
@@ -754,6 +1025,31 @@ fn optional_routing_hint(
     }
 }
 
+fn runtime_status(error: runtime::RuntimeError) -> Status {
+    use coordinator::CoordinatorError;
+    use coordinator::configuration::ServiceError as ConfigurationError;
+    use coordinator::mutation::CoordinatorError as MutationError;
+    match error {
+        runtime::RuntimeError::Coordinator(CoordinatorError::Mutation(
+            MutationError::InvalidState,
+        ))
+        | runtime::RuntimeError::Coordinator(CoordinatorError::Configuration(
+            ConfigurationError::InvalidState
+            | ConfigurationError::StaleResponse
+            | ConfigurationError::UnauditedSchema
+            | ConfigurationError::MalformedResponse
+            | ConfigurationError::Codec(_),
+        )) => Status::InvalidState,
+        runtime::RuntimeError::Coordinator(CoordinatorError::Configuration(
+            ConfigurationError::Conflict,
+        )) => Status::Conflict,
+        runtime::RuntimeError::Coordinator(CoordinatorError::Configuration(
+            ConfigurationError::Unavailable,
+        )) => Status::Unavailable,
+        _ => Status::RuntimeFailure,
+    }
+}
+
 fn optional_uuid(value: Option<Vec<u8>>) -> Result<Option<[u8; 12]>, Status> {
     value
         .map(|bytes| bytes.try_into().map_err(|_| Status::InvalidEnvelope))
@@ -811,6 +1107,10 @@ fn state_snapshot(
             "message": issue.message,
         })),
         "controls": value.mutations.controls.as_ref().map(controls),
+        "controller_actions": {
+            "shutdown_available": value.mutations.controller_actions.shutdown_available,
+            "shutdown_pending": value.mutations.controller_actions.shutdown_pending,
+        },
         "configuration": configuration_state(&value.configuration, schema),
         "current_limits": value.current_limits.as_ref().map(|limits| json!({
             "motor_current_max_a": limits.motor_current_max_a,
@@ -1026,7 +1326,7 @@ impl<'a> From<&'a coordinator::telemetry::NormalizedSample> for TelemetryProject
 fn bms_state(value: &coordinator::bms::Snapshot) -> Value {
     json!({
         "effect": "publish_bms_state",
-        "status": format!("{:?}", value.status).to_lowercase(),
+        "status": value.status.as_str(),
         "route": value.route.map(route_bms),
         "candidates": value.candidates.iter().map(|candidate| json!({
             "can_id": candidate.route.can_id(),
@@ -1110,11 +1410,300 @@ fn session_marker(value: &runtime::session::CommitMarker) -> Value {
         "committed_location_elapsed_ms": value.committed_location_elapsed_ms,
         "recorded_location_count": value.recorded_location_count,
         "stored_location_count": value.stored_location_count,
+        "last_location_status": value.last_location_status,
     })
 }
 
 fn debug_lower(value: impl std::fmt::Debug) -> String {
     format!("{value:?}").to_lowercase()
+}
+
+fn session_result(operation: &str, value: Value) -> Value {
+    json!({
+        "version": ABI_VERSION,
+        "effects": [{ "effect": "session_result", "operation": operation, "value": value }],
+    })
+}
+
+fn session_path(path: &str) -> Result<PathBuf, Status> {
+    let path = PathBuf::from(path);
+    if path.as_os_str().is_empty()
+        || path.as_os_str().as_encoded_bytes().len() > runtime::MAX_SESSION_PATH_BYTES
+        || !path.is_absolute()
+        || path
+            .components()
+            .any(|component| matches!(component, std::path::Component::ParentDir))
+    {
+        return Err(Status::InvalidEnvelope);
+    }
+    Ok(path)
+}
+
+fn open_reader(path: &str) -> Result<runtime::session::SessionReader, Status> {
+    runtime::ApplicationRuntime::open_reader(session_path(path)?)
+        .map_err(|_| Status::RuntimeFailure)
+}
+
+fn optional_sample_key(
+    elapsed_ms: Option<u64>,
+    sequence: Option<u64>,
+) -> Result<Option<runtime::session::SampleKey>, Status> {
+    match (elapsed_ms, sequence) {
+        (None, None) => Ok(None),
+        (Some(elapsed_ms), Some(sequence)) => Ok(Some(runtime::session::SampleKey {
+            elapsed_ms,
+            sequence,
+        })),
+        _ => Err(Status::InvalidEnvelope),
+    }
+}
+
+fn sample_key(key: runtime::session::SampleKey) -> Value {
+    json!({ "elapsed_ms": key.elapsed_ms, "sequence": key.sequence })
+}
+
+fn session_metadata(path: &str) -> Result<Value, Status> {
+    let mut reader = open_reader(path)?;
+    let metadata = reader.metadata().map_err(|_| Status::RuntimeFailure)?;
+    let marker = reader.marker().map_err(|_| Status::RuntimeFailure)?;
+    Ok(session_result(
+        "metadata",
+        json!({
+            "expected_riding_persistence_ms": metadata.expected_riding_persistence_ms,
+            "expected_idle_persistence_ms": metadata.expected_idle_persistence_ms,
+            "pruned_at_epoch_ms": metadata.pruned_at_epoch_ms,
+            "retained_resolution_seconds": metadata.retained_resolution_seconds,
+            "prune_policy": metadata.prune_policy,
+            "history_revision": marker.history_revision,
+            "recorded_sample_count": marker.recorded_sample_count,
+            "stored_sample_count": marker.stored_sample_count,
+            "sample_sequence": marker.committed_sample_sequence,
+            "event_sequence": marker.committed_event_sequence,
+            "location_sequence": marker.committed_location_sequence,
+            "stored_location_count": marker.stored_location_count,
+        }),
+    ))
+}
+
+fn session_fields(path: &str) -> Result<Value, Status> {
+    let mut reader = open_reader(path)?;
+    let fields = reader.fields().map_err(|_| Status::RuntimeFailure)?;
+    Ok(session_result(
+        "fields",
+        json!(
+            fields
+                .into_iter()
+                .map(|field| json!({
+                    "name": field.name,
+                    "source": match field.source {
+                        runtime::session::FieldSource::Stable => "stable",
+                        runtime::session::FieldSource::Extension => "extension",
+                    },
+                    "first_sequence": field.first_sequence,
+                }))
+                .collect::<Vec<_>>()
+        ),
+    ))
+}
+
+struct SessionSampleQuery<'a> {
+    handle: u64,
+    path: &'a str,
+    fields: &'a [String],
+    start_elapsed_ms: u64,
+    end_elapsed_ms: u64,
+    limit: usize,
+    after: Option<runtime::session::SampleKey>,
+    boundary: runtime::session::PublishedBoundary,
+}
+
+fn session_samples(query: SessionSampleQuery<'_>) -> Result<Value, Status> {
+    let mut reader = open_reader(query.path)?;
+    let _interrupt = register_interrupt(
+        query.handle,
+        ActiveInterrupter::Reader(reader.interrupter()),
+    )?;
+    let page = reader
+        .sample_page(
+            query.fields,
+            query.start_elapsed_ms,
+            query.end_elapsed_ms,
+            query.limit,
+            query.after,
+            query.boundary,
+        )
+        .map_err(|_| Status::RuntimeFailure)?;
+    Ok(session_result(
+        "samples",
+        json!({
+            "rows": page.rows.into_iter().map(|row| json!({
+                "elapsed_ms": row.key.elapsed_ms,
+                "sequence": row.key.sequence,
+                "ride_state": row.ride_state,
+                "values": row.values,
+            })).collect::<Vec<_>>(),
+            "next": page.next.map(sample_key),
+        }),
+    ))
+}
+
+struct SessionReduceQuery<'a> {
+    handle: u64,
+    path: &'a str,
+    fields: &'a [String],
+    start_elapsed_ms: u64,
+    end_elapsed_ms: u64,
+    buckets: usize,
+    gap_seconds: Option<f64>,
+    boundary: runtime::session::PublishedBoundary,
+}
+
+fn session_reduce(query: SessionReduceQuery<'_>) -> Result<Value, Status> {
+    let gap_policy = match query.gap_seconds {
+        None => runtime::history::GapPolicy::Automatic,
+        Some(value) => runtime::history::GapPolicy::explicit_seconds(value)
+            .map_err(|_| Status::InvalidEnvelope)?,
+    };
+    let mut reader = open_reader(query.path)?;
+    let _interrupt = register_interrupt(
+        query.handle,
+        ActiveInterrupter::Reader(reader.interrupter()),
+    )?;
+    let value = reader
+        .reduce_series(
+            query.fields,
+            query.start_elapsed_ms,
+            query.end_elapsed_ms,
+            query.buckets,
+            gap_policy,
+            query.boundary,
+        )
+        .map_err(|_| Status::RuntimeFailure)?;
+    Ok(session_result(
+        "reduce",
+        json!({
+            "columns": value.columns.into_iter().map(|column| json!({
+                "field": column.field,
+                "elapsed_ms": column.elapsed_ms,
+                "sequences": column.sequences,
+                "values": column.values,
+                "generations": column.generations,
+            })).collect::<Vec<_>>(),
+            "source_rows": value.source_rows,
+        }),
+    ))
+}
+
+fn session_events(
+    handle: u64,
+    path: &str,
+    start_elapsed_ms: u64,
+    end_elapsed_ms: u64,
+    limit: usize,
+    after: Option<runtime::session::SampleKey>,
+    boundary: runtime::session::PublishedBoundary,
+) -> Result<Value, Status> {
+    let mut reader = open_reader(path)?;
+    let _interrupt = register_interrupt(handle, ActiveInterrupter::Reader(reader.interrupter()))?;
+    let page = reader
+        .event_page(start_elapsed_ms, end_elapsed_ms, limit, after, boundary)
+        .map_err(|_| Status::RuntimeFailure)?;
+    Ok(session_result(
+        "events",
+        json!({
+            "rows": page.rows.into_iter().map(|row| json!({
+                "elapsed_ms": row.key.elapsed_ms,
+                "sequence": row.key.sequence,
+                "kind": row.kind,
+                "details_json": row.details_json,
+                "source_sample_sequence": row.source_sample_sequence,
+            })).collect::<Vec<_>>(),
+            "next": page.next.map(sample_key),
+        }),
+    ))
+}
+
+fn session_locations(
+    handle: u64,
+    path: &str,
+    start_elapsed_ms: u64,
+    end_elapsed_ms: u64,
+    limit: usize,
+    after_location_sequence: Option<u64>,
+    boundary: runtime::session::PublishedBoundary,
+) -> Result<Value, Status> {
+    let mut reader = open_reader(path)?;
+    let _interrupt = register_interrupt(handle, ActiveInterrupter::Reader(reader.interrupter()))?;
+    let page = reader
+        .location_page(
+            start_elapsed_ms,
+            end_elapsed_ms,
+            limit,
+            after_location_sequence,
+            boundary,
+        )
+        .map_err(|_| Status::RuntimeFailure)?;
+    Ok(session_result(
+        "locations",
+        json!({
+            "rows": page.rows.into_iter().map(|row| json!({
+                "location_sequence": row.location_sequence,
+                "elapsed_ms": row.elapsed_ms,
+                "observed_at_epoch_ms": row.observed_at_epoch_ms,
+                "latitude": row.latitude,
+                "longitude": row.longitude,
+                "accuracy_m": row.accuracy_m,
+            })).collect::<Vec<_>>(),
+            "gaps": page.gaps.into_iter().map(|gap| json!({
+                "start_elapsed_ms": gap.start_elapsed_ms,
+                "end_elapsed_ms": gap.end_elapsed_ms,
+            })).collect::<Vec<_>>(),
+            "published_location_sequence": page.published_location_sequence,
+            "next_location_sequence": page.next_location_sequence,
+        }),
+    ))
+}
+
+fn session_prune(
+    handle: u64,
+    path: &str,
+    target_resolution_seconds: u64,
+    commit: bool,
+    committed_at_epoch_ms: i64,
+) -> Result<Value, Status> {
+    let mut pruner = runtime::ApplicationRuntime::open_pruner(session_path(path)?)
+        .map_err(|_| Status::RuntimeFailure)?;
+    let _interrupt = register_interrupt(handle, ActiveInterrupter::Pruner(pruner.interrupter()))?;
+    let plan = pruner
+        .preview(target_resolution_seconds)
+        .map_err(|_| Status::RuntimeFailure)?;
+    let preview = plan.preview();
+    let (history_revision, stored_location_count, skipped) = if commit {
+        let value = pruner
+            .commit(plan, committed_at_epoch_ms)
+            .map_err(|_| Status::RuntimeFailure)?;
+        (
+            value.history_revision,
+            value.stored_location_count,
+            value.skipped,
+        )
+    } else {
+        (preview.history_revision, 0, preview.skipped)
+    };
+    Ok(session_result(
+        "prune",
+        json!({
+            "recorded_sample_count": preview.recorded_sample_count,
+            "stored_sample_count": preview.stored_sample_count,
+            "retained_sample_count": preview.retained_sample_count,
+            "estimated_reclaimable_bytes": preview.estimated_reclaimable_bytes,
+            "target_resolution_seconds": preview.target_resolution_seconds,
+            "history_revision": history_revision,
+            "stored_location_count": stored_location_count,
+            "skipped": skipped,
+            "committed": commit,
+        }),
+    ))
 }
 
 fn valid_scalar<T>(pointer: *const T) -> bool {
@@ -1155,10 +1744,9 @@ fn regions_overlap(
 }
 
 fn with_registry(operation: impl FnOnce(&mut Registry) -> Result<(), Status>) -> Status {
-    let mut registry = match REGISTRY.try_lock() {
+    let mut registry = match REGISTRY.lock() {
         Ok(value) => value,
-        Err(TryLockError::WouldBlock) => return Status::Busy,
-        Err(TryLockError::Poisoned(_)) => return Status::Internal,
+        Err(_) => return Status::Internal,
     };
     match operation(&mut registry) {
         Ok(()) => Status::Ok,
@@ -1168,10 +1756,9 @@ fn with_registry(operation: impl FnOnce(&mut Registry) -> Result<(), Status>) ->
 
 fn with_entry(handle: u64, operation: impl FnOnce(&mut Entry) -> Result<(), Status>) -> Status {
     let entry = {
-        let registry = match REGISTRY.try_lock() {
+        let registry = match REGISTRY.lock() {
             Ok(value) => value,
-            Err(TryLockError::WouldBlock) => return Status::Busy,
-            Err(TryLockError::Poisoned(_)) => return Status::Internal,
+            Err(_) => return Status::Internal,
         };
         let Some(entry) = registry.entries.get(&handle).cloned() else {
             return Status::InvalidHandle;
@@ -1225,5 +1812,37 @@ mod tests {
         assert!(regions_overlap(start, 8, unsafe { start.add(7) }, 2));
         assert!(!regions_overlap(start, 8, unsafe { start.add(8) }, 8));
         assert!(regions_overlap(usize::MAX as *const u8, 2, start, 1));
+    }
+
+    #[test]
+    fn cancellation_of_a_never_armed_internal_timer_is_an_idempotent_no_op() {
+        let mut entry = Entry::new();
+        let token = coordinator::TimerToken::Mutation(
+            coordinator::MutationTimerToken::LightingRefresh(coordinator::scheduler::Generation(1)),
+        );
+        assert_eq!(entry.remove_timer(token), Ok(0));
+    }
+
+    #[test]
+    fn logical_timer_handle_survives_firing_and_is_reused_by_replacement() {
+        let mut entry = Entry::new();
+        let token = coordinator::TimerToken::Mutation(
+            coordinator::MutationTimerToken::LightingRefresh(coordinator::scheduler::Generation(1)),
+        );
+        let id = entry.allocate_timer(token).expect("timer handle");
+        let fired = CommandEnvelope::TimerFired {
+            generation: 1,
+            token: id,
+            now_ms: 1_000,
+        };
+
+        entry
+            .consume_token(fired.consumed_token())
+            .expect("logical timer remains registered");
+        assert_eq!(entry.timer(id), Ok(token));
+        let replacement = entry.allocate_timer(token).expect("replacement handle");
+        assert_eq!(replacement, id);
+        assert_eq!(entry.timer(replacement), Ok(token));
+        assert_eq!(entry.remove_timer(token), Ok(id));
     }
 }

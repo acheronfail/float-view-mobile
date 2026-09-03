@@ -68,7 +68,6 @@ final class AppBackend: ObservableObject {
       logStore: logStore,
       productStore: logStore,
       sessionStore: logStore,
-      protocolCodec: VescProtocolService(),
       scheduler: SystemScheduler(),
       events: events,
       samplingSettings: SamplingSettings(

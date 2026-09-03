@@ -561,7 +561,8 @@ impl ConfigurationService {
             return Err(ServiceError::InvalidState);
         }
         let payload = encode_values(values, schema)?;
-        self.expected_readback = Some(normalized(values, identity.package_version));
+        let canonical = decode_values(&payload, schema)?;
+        self.expected_readback = Some(normalized(&canonical, identity.package_version));
         self.pending = Some(PendingOperation::Write);
         let operation = self.start_operation();
         Ok(Transition::request(RequestEffect::Write {

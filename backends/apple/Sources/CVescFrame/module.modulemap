@@ -1,4 +1,0 @@
-module CVescFrame [system] {
-  header "include/CVescFrame.h"
-  export *
-}

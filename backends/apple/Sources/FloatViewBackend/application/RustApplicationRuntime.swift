@@ -8,6 +8,17 @@ enum RustApplicationRuntimeError: Error, Equatable {
   case runtimeFailure
   case busy
   case internalFailure
+  case invalidState
+  case conflict
+  case unavailable
+  case resultTooLarge
+  case copyMismatch
+  case malformedResult
+}
+
+struct RustApplicationRuntimeResult {
+  let generation: UInt64
+  let effects: [[String: Any]]
 }
 
 final class RustApplicationRuntime: @unchecked Sendable {
@@ -32,7 +43,7 @@ final class RustApplicationRuntime: @unchecked Sendable {
     _ = float_view_application_runtime_destroy(handle)
   }
 
-  func apply(_ command: [String: Any]) throws -> [[String: Any]] {
+  func apply(_ command: [String: Any]) throws -> RustApplicationRuntimeResult {
     guard JSONSerialization.isValidJSONObject(command) else {
       throw RustApplicationRuntimeError.invalidCommand
     }
@@ -49,9 +60,8 @@ final class RustApplicationRuntime: @unchecked Sendable {
         &required
       )
     }
-    guard applyStatus == FLOAT_VIEW_APPLICATION_RUNTIME_STATUS_OK,
-          required <= Self.maximumResultBytes
-    else { throw Self.error(applyStatus) }
+    guard applyStatus == FLOAT_VIEW_APPLICATION_RUNTIME_STATUS_OK else { throw Self.error(applyStatus) }
+    guard required <= Self.maximumResultBytes else { throw RustApplicationRuntimeError.resultTooLarge }
     var output = Data(count: required)
     var written = 0
     let copyStatus = output.withUnsafeMutableBytes { bytes in
@@ -62,14 +72,18 @@ final class RustApplicationRuntime: @unchecked Sendable {
         &written
       )
     }
-    guard copyStatus == FLOAT_VIEW_APPLICATION_RUNTIME_STATUS_OK, written == required else {
-      throw Self.error(copyStatus)
-    }
+    guard copyStatus == FLOAT_VIEW_APPLICATION_RUNTIME_STATUS_OK else { throw Self.error(copyStatus) }
+    guard written == required else { throw RustApplicationRuntimeError.copyMismatch }
     guard let result = try JSONSerialization.jsonObject(with: output) as? [String: Any],
           (result["version"] as? NSNumber)?.uint32Value == Self.abiVersion,
+          let generation = (result["generation"] as? NSNumber)?.uint64Value,
           let effects = result["effects"] as? [[String: Any]]
-    else { throw RustApplicationRuntimeError.internalFailure }
-    return effects
+    else { throw RustApplicationRuntimeError.malformedResult }
+    return RustApplicationRuntimeResult(generation: generation, effects: effects)
+  }
+
+  func interrupt() {
+    _ = float_view_application_runtime_interrupt(handle)
   }
 
   private static func error(_ status: FloatViewApplicationRuntimeStatus) -> RustApplicationRuntimeError {
@@ -85,6 +99,12 @@ final class RustApplicationRuntime: @unchecked Sendable {
       .runtimeFailure
     case FloatViewApplicationRuntimeStatus(FLOAT_VIEW_APPLICATION_RUNTIME_STATUS_BUSY):
       .busy
+    case FloatViewApplicationRuntimeStatus(FLOAT_VIEW_APPLICATION_RUNTIME_STATUS_INVALID_STATE):
+      .invalidState
+    case FloatViewApplicationRuntimeStatus(FLOAT_VIEW_APPLICATION_RUNTIME_STATUS_CONFLICT):
+      .conflict
+    case FloatViewApplicationRuntimeStatus(FLOAT_VIEW_APPLICATION_RUNTIME_STATUS_UNAVAILABLE):
+      .unavailable
     default:
       .internalFailure
     }

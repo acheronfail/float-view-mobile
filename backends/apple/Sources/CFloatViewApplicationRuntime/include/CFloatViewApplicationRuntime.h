@@ -24,6 +24,9 @@ enum {
   FLOAT_VIEW_APPLICATION_RUNTIME_STATUS_BUFFER_TOO_SMALL = 6,
   FLOAT_VIEW_APPLICATION_RUNTIME_STATUS_BUSY = 7,
   FLOAT_VIEW_APPLICATION_RUNTIME_STATUS_INTERNAL = 8,
+  FLOAT_VIEW_APPLICATION_RUNTIME_STATUS_INVALID_STATE = 9,
+  FLOAT_VIEW_APPLICATION_RUNTIME_STATUS_CONFLICT = 10,
+  FLOAT_VIEW_APPLICATION_RUNTIME_STATUS_UNAVAILABLE = 11,
 };
 
 /*
@@ -38,6 +41,10 @@ FloatViewApplicationRuntimeStatus float_view_application_runtime_create(
     uint64_t *out_handle);
 
 FloatViewApplicationRuntimeStatus float_view_application_runtime_destroy(
+    uint64_t handle);
+
+/* Thread-safe cooperative interruption for an active reader or pruner. */
+FloatViewApplicationRuntimeStatus float_view_application_runtime_interrupt(
     uint64_t handle);
 
 FloatViewApplicationRuntimeStatus float_view_application_runtime_apply(

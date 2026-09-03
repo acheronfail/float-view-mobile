@@ -678,8 +678,10 @@ impl DeviceMutationCoordinator {
         &mut self,
         generation: scheduler::Generation,
     ) -> Result<Vec<Effect>, CoordinatorError> {
-        self.validate_mutable(generation)?;
-        if !self.shutdown_supported
+        if !self.is_current(generation)
+            || !self.connection_ready
+            || self.pending.is_some()
+            || !self.shutdown_supported
             || self.ride_state != telemetry::RideState::Idle
             || self.package_mode == Some(telemetry::PackageMode::Flywheel)
         {
@@ -710,7 +712,7 @@ impl DeviceMutationCoordinator {
         generation: scheduler::Generation,
         mutation: ConfigurationMutation,
     ) -> Result<Vec<Effect>, CoordinatorError> {
-        self.validate_mutable(generation)?;
+        self.validate_configuration_mutable(generation)?;
         if self.ride_state != telemetry::RideState::Idle
             || self.footpad_state != Some(telemetry::FootpadState::None)
             || self.package_state != Some(telemetry::PackageState::Ready)
@@ -835,6 +837,20 @@ impl DeviceMutationCoordinator {
                 .controls
                 .as_ref()
                 .is_none_or(|controls| controls.status != ControlStatus::Ready)
+        {
+            return Err(CoordinatorError::InvalidState);
+        }
+        Ok(())
+    }
+
+    fn validate_configuration_mutable(
+        &self,
+        generation: scheduler::Generation,
+    ) -> Result<(), CoordinatorError> {
+        if !self.is_current(generation)
+            || !self.connection_ready
+            || !self.writable
+            || self.pending.is_some()
         {
             return Err(CoordinatorError::InvalidState);
         }

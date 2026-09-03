@@ -111,7 +111,6 @@ final class MacBackendRuntime: @unchecked Sendable {
       logStore: logStore,
       productStore: logStore,
       sessionStore: logStore,
-      protocolCodec: VescProtocolService(),
       scheduler: SystemScheduler(),
       events: events,
       samplingSettings: SamplingSettings(
