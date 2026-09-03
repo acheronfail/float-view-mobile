@@ -3,9 +3,7 @@
 ## Purpose
 
 Define the safe coarse application boundary that composes proven portable backend owners and the evidence and convergence gates required before native hosts select it.
-
 ## Requirements
-
 ### Requirement: One portable application runtime owner
 
 The core workspace SHALL contain one safe application-runtime component that directly composes the existing VESC framing, connection/application coordinator, normalized telemetry, and canonical session-SQLite components. It MUST own connection-scoped stream and application state without owning an OS service, callback, executor, thread, loopback transport, catalog database, filesystem discovery, or platform object.
@@ -108,3 +106,17 @@ The repository SHALL retain a reproducible baseline for production source lines,
 
 - **WHEN** Apple and Android have passed their required gates through the runtime boundary
 - **THEN** a final change removes every obsolete per-protocol Apple FFI and Android JNI crate, native adapter, header/module, and per-family build entry rather than retaining fallback scaffolding
+
+### Requirement: Apple selects the unified runtime independently
+
+The shared iOS/macOS backend SHALL select the unified Rust runtime through one coarse audited Apple boundary only after deleting its superseded native application/protocol/session decisions and passing complete Apple software and physical gates. Android SHALL remain the production owner of its current application behavior and continue using its temporary JNI bridges until a separate deletion-bearing cutover.
+
+#### Scenario: Complete Apple selection
+
+- **WHEN** the Apple deletion, packaging, canonical conformance, and connected iOS fixture gates pass
+- **THEN** Apple becomes the first production selector of the unified runtime while Android ownership is unchanged
+
+#### Scenario: Preserve the final convergence gate
+
+- **WHEN** only Apple has selected the runtime
+- **THEN** the migration remains incomplete and bridge retirement cannot remove Android scaffolding until Android independently passes its cutover
