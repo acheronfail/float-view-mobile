@@ -8,7 +8,7 @@
 #![forbid(unsafe_code)]
 
 use std::fmt::{self, Debug, Formatter};
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 #[cfg(test)]
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -149,6 +149,13 @@ impl ApplicationRuntime {
         }
     }
 
+    #[must_use]
+    pub fn configuration_schema(
+        &self,
+    ) -> Option<&coordinator::configuration_codec::ConfigurationSchema> {
+        self.application.configuration_schema()
+    }
+
     pub fn apply(&mut self, command: Command) -> Result<Vec<Effect>, RuntimeError> {
         match command {
             Command::Application(command) => {
@@ -286,7 +293,12 @@ impl ApplicationRuntime {
 
 fn validate_path(path: &Path) -> Result<(), RuntimeError> {
     let bytes = path.as_os_str().as_encoded_bytes();
-    if bytes.is_empty() || bytes.len() > MAX_SESSION_PATH_BYTES {
+    if bytes.is_empty()
+        || bytes.len() > MAX_SESSION_PATH_BYTES
+        || bytes.contains(&0)
+        || !path.is_absolute()
+        || path.components().any(|part| part == Component::ParentDir)
+    {
         Err(RuntimeError::InvalidSessionPath)
     } else {
         Ok(())

@@ -1620,10 +1620,14 @@ public protocol LogStorePort: AnyObject, Sendable {
   func appendLocations(jobID: JobID, observations: [LocationObservation]) throws
   func close(jobID: JobID, at: Date, reason: String) throws -> SessionRecord
   func active() -> SessionRecord?
+  func activeSessionURL() -> URL?
 }
 
 public extension LogStorePort {
   func appendLocations(jobID _: JobID, observations _: [LocationObservation]) throws {}
+  func activeSessionURL() -> URL? {
+    nil
+  }
 }
 
 public protocol ProductStorePort: AnyObject, Sendable, RefloatSchemaCachePort {

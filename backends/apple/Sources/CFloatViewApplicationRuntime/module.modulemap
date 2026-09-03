@@ -1,0 +1,4 @@
+module CFloatViewApplicationRuntime [system] {
+  header "include/CFloatViewApplicationRuntime.h"
+  export *
+}

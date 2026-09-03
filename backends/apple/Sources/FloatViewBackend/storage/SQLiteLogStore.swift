@@ -349,6 +349,12 @@ public final class SQLiteLogStore: LogStorePort, ProductStorePort, SessionStoreP
     try create(deviceID: deviceID, advertisedName: nil, at: at)
   }
 
+  public func activeSessionURL() -> URL? {
+    lock.withLock {
+      current.map { root.appending(path: "session-\($0.sessionID.value).sqlite") }
+    }
+  }
+
   public func append(jobID: JobID, samples: [TelemetrySample]) throws {
     lock.lock()
     defer { lock.unlock() }

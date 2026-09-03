@@ -18,6 +18,7 @@ let package = Package(
   ],
   targets: [
     .systemLibrary(name: "CSQLite"),
+    .systemLibrary(name: "CFloatViewApplicationRuntime"),
     .systemLibrary(name: "CVescBmsValues"),
     .systemLibrary(name: "CVescControllerData"),
     .systemLibrary(name: "CVescCustomConfiguration"),
@@ -32,6 +33,7 @@ let package = Package(
       name: "FloatViewBackend",
       dependencies: [
         "CSQLite",
+        "CFloatViewApplicationRuntime",
         "CVescBmsValues",
         "CVescControllerData",
         "CVescCustomConfiguration",
@@ -47,6 +49,7 @@ let package = Package(
       ],
       linkerSettings: [
         .unsafeFlags(["-L", rustLibraryPath]),
+        .linkedLibrary("float_view_application_runtime_apple_ffi"),
         .linkedLibrary("float_view_vesc_frame_apple_ffi"),
         .linkedLibrary("float_view_vesc_firmware_identity_apple_ffi"),
         .linkedLibrary("float_view_vesc_custom_configuration_apple_ffi"),
@@ -68,7 +71,7 @@ let package = Package(
     .testTarget(
       name: "FloatViewBackendTests",
       dependencies: [
-        "CSQLite", "CVescBmsValues", "CVescControllerData", "CVescCustomConfiguration", "CVescFrame",
+        "CSQLite", "CFloatViewApplicationRuntime", "CVescBmsValues", "CVescControllerData", "CVescCustomConfiguration", "CVescFrame",
         "CVescFirmwareIdentity",
         "CVescRefloatCompatibility",
         "CVescRefloatConfigurationCodec",

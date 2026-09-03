@@ -11,6 +11,10 @@ public final class ApplicationService: @unchecked Sendable {
   private let scheduler: (any SchedulerPort)?
   private let locationProvider: (any LocationProviderPort)?
   private let events: EventSink
+  private let rustRuntime: RustApplicationRuntime
+  private var rustGeneration: UInt64 = 0
+  private var rustDeadlines: [UInt64: any CancellationPort] = [:]
+  private var rustTimers: [UInt64: any CancellationPort] = [:]
   private var reconnectDurationMs: Int64
   private var idleProbeIntervalMs: Int64
   private let lock = NSRecursiveLock()
@@ -128,6 +132,11 @@ public final class ApplicationService: @unchecked Sendable {
     samplingSettings: SamplingSettings = .init(),
     locationProvider: (any LocationProviderPort)? = nil
   ) {
+    do {
+      rustRuntime = try RustApplicationRuntime()
+    } catch {
+      preconditionFailure("Unified Rust application runtime is unavailable: \(error)")
+    }
     self.bluetooth = bluetooth
     self.clock = clock
     self.logStore = logStore

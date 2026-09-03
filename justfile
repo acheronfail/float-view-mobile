@@ -99,6 +99,13 @@ apple-rust-codec configuration="Debug":
       macosx "$(uname -m)" "{{ configuration }}" \
       "$PWD/backends/core/target/apple/macos"
 
+apple-rust-runtime configuration="Debug":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    backends/core/build-apple-runtime.sh \
+      macosx "$(uname -m)" "{{ configuration }}" \
+      "$PWD/backends/core/target/apple/macos"
+
 apple-rust-firmware-identity configuration="Debug":
     #!/usr/bin/env bash
     set -euo pipefail
@@ -163,6 +170,7 @@ apple-rust-refloat-configuration-codec configuration="Debug":
       "$PWD/backends/core/target/apple/macos"
 
 apple-rust-bridges configuration="Debug":
+    just apple-rust-runtime "{{ configuration }}"
     just apple-rust-codec "{{ configuration }}"
     just apple-rust-firmware-identity "{{ configuration }}"
     just apple-rust-custom-configuration "{{ configuration }}"

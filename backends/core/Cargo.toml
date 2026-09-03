@@ -2,6 +2,7 @@
 members = [
     "android-jni-support",
     "application-runtime",
+    "application-runtime-apple-ffi",
     "apple-ffi-support",
     "auxiliary-node-discovery",
     "connection-application-coordinator",

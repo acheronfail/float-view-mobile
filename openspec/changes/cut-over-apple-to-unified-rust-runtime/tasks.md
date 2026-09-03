@@ -1,6 +1,6 @@
 ## 1. Coarse Apple boundary
 
-- [ ] 1.1 Add one `application-runtime-apple-ffi` workspace crate with a registry-backed runtime handle, fixed ABI statuses, bounded versioned command/effect envelopes, two-pass caller-owned results, panic containment, and no callbacks.
+- [x] 1.1 Add one `application-runtime-apple-ffi` workspace crate with a registry-backed runtime handle, fixed ABI statuses, bounded versioned command/effect envelopes, two-pass caller-owned results, panic containment, and no callbacks.
 - [ ] 1.2 Map connection, notification, deadline/timer, activation, control, configuration, session/location, reader, interruption, and prune operations to existing safe Rust owners without copying algorithms.
 - [ ] 1.3 Add exact and adversarial ABI tests for lifecycle, ordering, tokens, malformed/oversized envelopes, UTF-8/numeric/path bounds, stale/foreign handles, insufficient/overlapping buffers, concurrency rejection, panic containment, and redacted diagnostics.
 
