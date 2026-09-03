@@ -116,6 +116,16 @@ name = "float-view-apple-ffi-support"
 version = "0.1.0"
 
 [[package]]
+name = "float-view-application-runtime"
+version = "0.1.0"
+dependencies = [
+ "float-view-connection-application-coordinator",
+ "float-view-refloat-telemetry-service",
+ "float-view-session-sqlite",
+ "float-view-vesc-frame",
+]
+
+[[package]]
 name = "float-view-auxiliary-node-discovery"
 version = "0.1.0"
 dependencies = [

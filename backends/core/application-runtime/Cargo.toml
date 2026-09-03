@@ -1,0 +1,12 @@
+[package]
+name = "float-view-application-runtime"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+float-view-connection-application-coordinator = { path = "../connection-application-coordinator" }
+float-view-refloat-telemetry-service = { path = "../refloat-telemetry-service" }
+float-view-session-sqlite = { path = "../session-sqlite" }
+float-view-vesc-frame = { path = "../vesc-frame" }

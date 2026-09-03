@@ -8,14 +8,14 @@
 
 use std::collections::VecDeque;
 
-use float_view_controller_discovery as discovery;
+pub use float_view_controller_discovery as discovery;
 use float_view_device_mutation_coordinator as mutation;
 use float_view_refloat_compatibility as compatibility;
 use float_view_refloat_configuration_codec as configuration_codec;
 use float_view_refloat_configuration_service as configuration;
 use float_view_refloat_dynamic_telemetry as dynamic;
 use float_view_refloat_legacy_telemetry as legacy;
-use float_view_refloat_telemetry_service as telemetry;
+pub use float_view_refloat_telemetry_service as telemetry;
 use float_view_vesc_bms_telemetry_service as bms;
 use float_view_vesc_controller_data as controller_data;
 use float_view_vesc_custom_configuration as custom_configuration;

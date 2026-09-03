@@ -1,6 +1,7 @@
 [workspace]
 members = [
     "android-jni-support",
+    "application-runtime",
     "apple-ffi-support",
     "auxiliary-node-discovery",
     "connection-application-coordinator",

@@ -4,10 +4,11 @@
 ownership. It is a locked Cargo workspace, not another backend and not a
 production runtime.
 
-The workspace currently has forty-three members:
+The workspace currently has forty-four members:
 
 | Component               | Scope                                                                 | Integration state                                                                             |
 | ----------------------- | --------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
+| `application-runtime/` | Safe bounded VESC stream, connection/application composition, session-writer lifetime, and historical reader/pruner entry points | Final unselected composition candidate; no host bridge or package selection until a deletion-bearing host cutover |
 | `android-jni-support/`   | Checked call-local JNI environments, primitive-array copies, alias validation, and panic containment | Shared internally by the ten Android bridges; exports no JNI symbol and owns no protocol behavior |
 | `apple-ffi-support/`     | Dependency-free checked regions, panic containment, and bounded C output publication | Shared internally by the ten Apple bridges; exports no C symbol and owns no protocol behavior |
 | `auxiliary-node-discovery/` | Safe bounded exact-VBMS admission, inventory reuse, preferred/automatic routing, availability, and observation-retention decisions | Exhaustively tested candidate; deliberately unselected by every production host |
@@ -215,6 +216,33 @@ production application owners while this candidate provides the deterministic
 spine for a later platform-neutral runtime. That runtime will add persistence
 and local-server ports through separate changes before either host cutover.
 
+The application runtime is the final unselected composition candidate. It owns
+one bounded VESC stream, frames coordinator writes exactly once, preserves all
+other ordered coordinator effects, and makes durable telemetry/location commits
+visible before publication. It exposes safe direct session reader and pruner
+construction while hosts retain file presentation and interruption policy. It
+has no bridge, callback, executor, thread, transport, server, package selection,
+or OS service. The only remaining migration stages are a deletion-bearing Apple
+cutover, a deletion-bearing Android cutover, and retirement of every temporary
+per-protocol bridge and its build matrix. No further sideways candidate is
+permitted.
+
+`migration-baseline.txt` records the pre-runtime production-source, workspace,
+candidate, selected-family, and bridge inventory at commit `fae1acb`, plus the
+paths that later cutovers must delete. `audit-migration-convergence.sh` reports
+the same measures from tracked and proposed source while excluding tests and
+generated output. It fails if the candidate set, selected family count, bridge
+count, or expected 43-to-44-member transition drifts. Each remaining host
+proposal must quote its before/after report and reduce both native duplication
+and temporary bridge artifacts; bridge retirement must leave no migration
+scaffolding.
+
+The completed unselected-runtime slice reports 34,070 Rust production-source
+lines (+724 from baseline), unchanged Apple/Android counts of 17,924/16,227,
+44 workspace members, and all 20 temporary protocol bridge crates. Its
+production-isolation diff contains no selected frontend, contract, schema,
+Apple, or Android implementation change.
+
 The session-history kernel owns the duplicated platform-neutral work directly
 above future persistence: ordered M4 first/minimum/maximum/last reduction,
 continuity generations, and elapsed-zero-aligned prune selection with protected
@@ -280,9 +308,9 @@ adapters on both host families; the superseded Swift and Kotlin wire parsers are
 gone. Both bridges are migration scaffolding and are deleted when the unified
 Rust application runtime no longer needs native protocol boundaries.
 
-Do not add empty future crates, generated bindings, a general runtime, host
-callbacks, or OS-owned Bluetooth, location, lifecycle, permission, native-file,
-theme, or UI behavior here. Unsafe code belongs only in named audited host
+Do not add empty future crates, generated bindings, another runtime or candidate,
+host callbacks, or OS-owned Bluetooth, location, lifecycle, permission,
+native-file, theme, or UI behavior here. Unsafe code belongs only in named audited host
 boundary crates: exported operations remain in each bridge, shared Apple and
 Android primitives remain in their support components, and every safe
 algorithm crate continues to forbid unsafe code.

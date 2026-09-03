@@ -498,6 +498,34 @@ apple-packaging:
 core-test: core-abi-test core-identity-abi-test core-custom-configuration-abi-test core-bms-values-abi-test core-controller-data-abi-test core-refloat-control-abi-test core-refloat-compatibility-abi-test core-refloat-dynamic-telemetry-abi-test core-refloat-legacy-telemetry-abi-test core-refloat-configuration-codec-abi-test
     cd backends/core && cargo test --locked --offline
 
+core-application-runtime-test:
+    cd backends/core && cargo test --locked --offline \
+      --package float-view-application-runtime
+
+core-application-runtime-audit:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    crate='backends/core/application-runtime'
+    [[ -f "$crate/Cargo.toml" && -f "$crate/src/lib.rs" ]]
+    [[ -x backends/core/audit-migration-convergence.sh ]]
+    [[ -f backends/core/migration-baseline.txt ]]
+    rg -q '^#!\[forbid\(unsafe_code\)\]$' "$crate/src/lib.rs"
+    [[ "$(sed -n '/^\[dependencies\]$/,$p' "$crate/Cargo.toml")" == \
+      $'[dependencies]\nfloat-view-connection-application-coordinator = { path = "../connection-application-coordinator" }\nfloat-view-refloat-telemetry-service = { path = "../refloat-telemetry-service" }\nfloat-view-session-sqlite = { path = "../session-sqlite" }\nfloat-view-vesc-frame = { path = "../vesc-frame" }' ]]
+    [[ "$(cd backends/core && cargo tree --locked --offline \
+      --package float-view-application-runtime --edges normal \
+      --depth 1 --prefix none | wc -l | tr -d ' ')" == 5 ]]
+    ! rg -n 'unsafe[[:space:]]*(\{|fn|impl|trait)|extern[[:space:]]+"(C|system)"|no_mangle|Java_|cbindgen|bindgen|uniffi|jni|host_callback|Box<dyn[[:space:]]+Fn|std::thread|tokio|async_std|TcpListener|UdpSocket|std::net' \
+      "$crate/src"
+    ! rg -n 'application-runtime' \
+      backends/apple backends/android backends/core/bridge-build-catalog.sh \
+      backends/core/build-apple-bridge.sh backends/core/build-android-bridge.sh
+    [[ ! -d backends/core/application-runtime-apple-ffi ]]
+    [[ ! -d backends/core/application-runtime-android-jni ]]
+    [[ "$(git ls-files "$crate" | rg '\.(h|a|so|dylib|xcframework|jar)$' || true)" == "" ]]
+    backends/core/audit-migration-convergence.sh
+    just core-application-runtime-test
+
 core-refloat-configuration-codec-test:
     cd backends/core && cargo test --locked --offline \
       --package float-view-refloat-configuration-codec
@@ -1519,6 +1547,7 @@ fixture action port="":
 audit:
     #!/usr/bin/env bash
     set -euo pipefail
+    just core-application-runtime-audit
     for removed in api web apple ios android logging fixtures; do
       [[ ! -e "$removed" ]] || { echo "Obsolete path remains: $removed" >&2; exit 1; }
     done
@@ -1580,6 +1609,7 @@ audit:
     [[ -f backends/core/session-history-kernel/Cargo.toml ]]
     [[ -f backends/core/session-sqlite/Cargo.toml ]]
     [[ -f backends/core/device-mutation-coordinator/Cargo.toml ]]
+    [[ -f backends/core/application-runtime/Cargo.toml ]]
     [[ -f backends/apple/Sources/CVescFrame/include/CVescFrame.h ]]
     [[ -f backends/apple/Sources/CVescFrame/module.modulemap ]]
     [[ -f backends/apple/Sources/CVescCustomConfiguration/include/CVescCustomConfiguration.h ]]
@@ -1632,7 +1662,8 @@ audit:
       ! -name connection-application-coordinator \
       ! -name session-history-kernel \
       ! -name session-sqlite \
-      ! -name device-mutation-coordinator -print -quit)"
+      ! -name device-mutation-coordinator \
+      ! -name application-runtime -print -quit)"
     [[ -z "$unexpected_core" ]] || {
       echo "Unexpected Rust core workspace member: $unexpected_core" >&2
       exit 1
