@@ -8,9 +8,14 @@ import type {
   RefloatConfigurationValues,
 } from '$lib/backend/contract';
 import RefloatConfigurationFieldView from './RefloatConfigurationField.svelte';
+import RefloatConfigurationEditor from './RefloatConfigurationEditor.svelte';
 import {
   RefloatConfigurationController,
   formatRefloatValue,
+  refloatConfigurationFieldHelp,
+  refloatConfigurationFieldLabel,
+  refloatConfigurationSectionKey,
+  resolveRefloatConfigurationSection,
   validateRefloatField,
   type RefloatConfigurationBackend,
 } from './refloat-configuration.svelte';
@@ -93,15 +98,12 @@ class FakeBackend implements RefloatConfigurationBackend {
 }
 
 describe('generated Refloat configuration', () => {
-  it('loads deterministic pages, tracks source and dirty state, searches, and writes exactly once', async () => {
+  it('loads deterministic pages, tracks source and dirty state, and writes exactly once', async () => {
     const backend = new FakeBackend();
     const controller = new RefloatConfigurationController(backend);
     await controller.open();
     expect(controller.pages).toHaveLength(2);
     expect(controller.loaded?.revision).toBe(4);
-    controller.search = 'other';
-    expect(controller.filteredPages).toHaveLength(1);
-    controller.search = '';
     controller.setValue('gain', { type: 'double', value: 1.2 });
     expect(controller.diff.map((item) => item.name)).toEqual(['gain']);
     expect(controller.canWrite).toBe(true);
@@ -109,6 +111,88 @@ describe('generated Refloat configuration', () => {
     expect(backend.writes).toHaveLength(1);
     expect(backend.writes[0]).toMatchObject({ identity, revision: 4 });
     expect(controller.diff).toHaveLength(0);
+  });
+
+  it('projects ordered logical sections, merges transport chunks, and qualifies duplicate subgroup labels', () => {
+    const controller = new RefloatConfigurationController(new FakeBackend());
+    controller.pages = [
+      { identity, group: 'General', subgroup: 'Tune', fields: fields.slice(0, 2), nextCursor: 'page-2' },
+      { identity, group: 'General', subgroup: 'Other', fields: fields.slice(4, 5), nextCursor: 'page-3' },
+      { identity, group: 'General', subgroup: 'Tune', fields: fields.slice(2, 4), nextCursor: 'page-4' },
+      { identity, group: 'Internal', subgroup: 'Other', fields: fields.slice(5), nextCursor: null },
+    ];
+
+    expect(controller.sections.map(({ key, label }) => ({ key, label }))).toEqual([
+      { key: refloatConfigurationSectionKey('General', 'Tune'), label: 'Tune' },
+      { key: refloatConfigurationSectionKey('General', 'Other'), label: 'General · Other' },
+      { key: refloatConfigurationSectionKey('Internal', 'Other'), label: 'Internal · Other' },
+    ]);
+    expect(controller.sections[0]?.fields.map((item) => item.name)).toEqual(['gain', 'count', 'mode', 'enabled']);
+    expect(controller.fields).toHaveLength(fields.length);
+  });
+
+  it('searches only the selected section without weakening complete-editor state', async () => {
+    const controller = new RefloatConfigurationController(new FakeBackend());
+    await controller.open();
+    const ride = controller.sections[0]!;
+    const other = controller.sections[1]!;
+
+    controller.search = 'other';
+    expect(controller.filteredSectionFields(ride)).toEqual([]);
+    expect(controller.filteredSectionFields(other)).toEqual(other.fields);
+    controller.search = 'enabled help';
+    expect(controller.filteredSectionFields(ride).map((item) => item.name)).toEqual(['enabled']);
+    controller.setValue('gain', { type: 'double', value: 1.2 });
+    controller.setValue('label', { type: 'string', value: 'x'.repeat(4_097) });
+    expect(controller.diff.map((item) => item.name)).toEqual(['gain', 'label']);
+    expect(controller.validationErrors.label).toContain('long');
+    expect(controller.canWrite).toBe(false);
+  });
+
+  it('resolves retained navigation identities and falls back when a schema replaces them', () => {
+    const controller = new RefloatConfigurationController(new FakeBackend());
+    controller.pages = new FakeBackend().pages;
+    const sections = controller.sections;
+    const selected = sections[1]!;
+
+    expect(resolveRefloatConfigurationSection(sections, selected.key)).toBe(selected);
+    expect(resolveRefloatConfigurationSection(sections, 'missing')?.key).toBe(sections[0]?.key);
+    expect(resolveRefloatConfigurationSection([], selected.key)).toBeNull();
+  });
+
+  it('renders a native selector and exactly one selected logical section with scoped empty search results', async () => {
+    const controller = new RefloatConfigurationController(new FakeBackend());
+    await controller.open();
+    const initial = render(RefloatConfigurationEditor, { props: { controller } }).body.replace(/\s+/g, ' ');
+
+    expect(initial).toContain('<span class="font-medium">Section</span>');
+    expect(initial).toContain('<option value="[&quot;General&quot;,&quot;Ride&quot;]" selected>Ride</option>');
+    expect(initial).toContain('<option value="[&quot;General&quot;,&quot;Other&quot;]">Other</option>');
+    expect(initial).toContain('General · Ride');
+    expect(initial).toContain('Show help for gain');
+    expect(initial).not.toContain('Show help for label');
+
+    controller.search = 'not present anywhere';
+    const empty = render(RefloatConfigurationEditor, { props: { controller } }).body;
+    expect(empty).toContain('No fields match this search.');
+    expect(empty).toContain('General · Ride');
+    expect(empty).not.toContain('General · Other</h3>');
+  });
+
+  it('renders fields from every transport chunk of the selected logical section', () => {
+    const controller = new RefloatConfigurationController(new FakeBackend());
+    controller.pages = [
+      { identity, group: 'General', subgroup: 'Tune', fields: fields.slice(0, 2), nextCursor: 'page-2' },
+      { identity, group: 'General', subgroup: 'Other', fields: fields.slice(4), nextCursor: 'page-3' },
+      { identity, group: 'General', subgroup: 'Tune', fields: fields.slice(2, 4), nextCursor: null },
+    ];
+    controller.draft = structuredClone(values);
+
+    const body = render(RefloatConfigurationEditor, { props: { controller } }).body;
+    expect(body.match(/>Tune<\/option>/g)).toHaveLength(1);
+    expect(body).toContain('Show help for gain');
+    expect(body).toContain('Show help for enabled');
+    expect(body).not.toContain('Show help for label');
   });
 
   it('validates every generated field family and formats enum/suffix values', () => {
@@ -136,7 +220,7 @@ describe('generated Refloat configuration', () => {
       .map(
         (item) =>
           render(RefloatConfigurationFieldView, {
-            props: { field: item, value: item.defaultValue, onchange: () => {} },
+            props: { field: item, value: item.defaultValue, onchange: () => {}, onhelp: () => {} },
           }).body
       )
       .join('');
@@ -145,5 +229,10 @@ describe('generated Refloat configuration', () => {
     expect(markup).toContain('type="checkbox"');
     expect(markup).toContain('type="text"');
     expect(markup).toContain('persistent startup default');
+    expect(markup.match(/>\(\?\)<\/button>/g)).toHaveLength(fields.length);
+    expect(markup).toContain('aria-label="Show help for gain"');
+    expect(markup).not.toContain('gain help');
+    expect(refloatConfigurationFieldLabel(fields.at(-1)!)).toBe('LEDs On (persistent startup default)');
+    expect(refloatConfigurationFieldHelp({ ...fields[0]!, description: '' })).toBe('gain');
   });
 });

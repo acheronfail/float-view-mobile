@@ -25,6 +25,35 @@ export type RefloatConfigurationDiff = {
   after: RefloatConfigurationValue;
 };
 
+export type RefloatConfigurationSection = {
+  key: string;
+  group: string;
+  subgroup: string;
+  label: string;
+  fields: RefloatConfigurationField[];
+};
+
+export function refloatConfigurationSectionKey(group: string, subgroup: string): string {
+  return JSON.stringify([group, subgroup]);
+}
+
+export function refloatConfigurationFieldLabel(field: RefloatConfigurationField): string {
+  return field.name === 'leds.on' || field.name === 'leds.headlights_on'
+    ? `${field.label} (persistent startup default)`
+    : field.label;
+}
+
+export function refloatConfigurationFieldHelp(field: RefloatConfigurationField): string {
+  return field.description || field.name;
+}
+
+export function resolveRefloatConfigurationSection(
+  sections: readonly RefloatConfigurationSection[],
+  selectedKey: string
+): RefloatConfigurationSection | null {
+  return sections.find((section) => section.key === selectedKey) ?? sections[0] ?? null;
+}
+
 export class RefloatConfigurationController {
   summary = $state<RefloatConfigurationSummary | null>(null);
   pages = $state<RefloatConfigurationSchemaPage[]>([]);
@@ -45,19 +74,32 @@ export class RefloatConfigurationController {
     return this.pages.flatMap((page) => page.fields);
   }
 
-  get filteredPages(): RefloatConfigurationSchemaPage[] {
+  get sections(): RefloatConfigurationSection[] {
+    const sections: Array<Omit<RefloatConfigurationSection, 'label'>> = [];
+    for (const page of this.pages) {
+      const key = refloatConfigurationSectionKey(page.group, page.subgroup);
+      const section = sections.find((item) => item.key === key);
+      if (section) section.fields.push(...page.fields);
+      else sections.push({ key, group: page.group, subgroup: page.subgroup, fields: [...page.fields] });
+    }
+    return sections.map((section) => ({
+      ...section,
+      label:
+        sections.filter((item) => item.subgroup === section.subgroup).length === 1
+          ? section.subgroup
+          : `${section.group} · ${section.subgroup}`,
+    }));
+  }
+
+  filteredSectionFields(section: RefloatConfigurationSection | null): RefloatConfigurationField[] {
+    if (!section) return [];
     const query = this.search.trim().toLocaleLowerCase();
-    if (!query) return this.pages;
-    return this.pages
-      .map((page) => ({
-        ...page,
-        fields: page.fields.filter((field) =>
-          [page.group, page.subgroup, field.name, field.label, field.description].some((value) =>
-            value.toLocaleLowerCase().includes(query)
-          )
-        ),
-      }))
-      .filter((page) => page.fields.length > 0);
+    if (!query) return section.fields;
+    return section.fields.filter((field) =>
+      [section.group, section.subgroup, field.name, field.label, field.description].some((value) =>
+        value.toLocaleLowerCase().includes(query)
+      )
+    );
   }
 
   get validationErrors(): Record<string, string> {

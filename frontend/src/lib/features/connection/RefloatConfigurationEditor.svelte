@@ -1,13 +1,33 @@
 <script lang="ts">
   import { onMount } from 'svelte';
+  import type { RefloatConfigurationField as RefloatConfigurationFieldContract } from '$lib/backend/contract';
   import { backendState } from '$lib/backend/state.svelte';
   import ConfirmDialog from '$lib/ui/ConfirmDialog.svelte';
+  import InformationDialog from '$lib/ui/InformationDialog.svelte';
   import { activateFromKeyboardOrAssistiveClick, activateFromPointer } from '$lib/ui/activation';
   import RefloatConfigurationField from './RefloatConfigurationField.svelte';
-  import { formatRefloatValue, type RefloatConfigurationController } from './refloat-configuration.svelte';
+  import {
+    formatRefloatValue,
+    refloatConfigurationFieldHelp,
+    refloatConfigurationFieldLabel,
+    resolveRefloatConfigurationSection,
+    type RefloatConfigurationController,
+  } from './refloat-configuration.svelte';
 
   let { controller }: { controller: RefloatConfigurationController } = $props();
   let writeConfirmation = $state(false);
+  let selectedSectionKey = $state('');
+  let helpField = $state<RefloatConfigurationFieldContract | null>(null);
+  let helpTrigger = $state<HTMLButtonElement>();
+  const selectedSection = $derived(resolveRefloatConfigurationSection(controller.sections, selectedSectionKey));
+  const visibleFields = $derived(controller.filteredSectionFields(selectedSection));
+
+  $effect(() => {
+    const sections = controller.sections;
+    if (!sections.some((section) => section.key === selectedSectionKey)) {
+      selectedSectionKey = sections[0]?.key ?? '';
+    }
+  });
 
   onMount(() => {
     void controller.open();
@@ -20,35 +40,63 @@
   async function write() {
     if (await controller.write()) writeConfirmation = false;
   }
+
+  function showHelp(field: RefloatConfigurationFieldContract, trigger: HTMLButtonElement) {
+    helpField = field;
+    helpTrigger = trigger;
+  }
+
+  function closeHelp() {
+    helpField = null;
+  }
 </script>
 
 <section class="flex min-h-[70vh] flex-col gap-3" aria-labelledby="refloat-configuration-title">
-  <div class="sticky top-0 z-10 grid gap-2 bg-surface pb-2 sm:grid-cols-[1fr_auto_auto]">
-    <label class="text-sm">
-      <span class="sr-only">Search configuration fields</span>
-      <input
-        type="search"
-        placeholder="Search fields"
-        class="w-full rounded-md border border-outline bg-elevated px-3 py-2"
-        bind:value={controller.search}
-      />
-    </label>
-    <button
-      type="button"
-      class="touch-manipulation rounded-md border border-outline px-3 py-2 disabled:opacity-50"
-      disabled={controller.loading || backendState.busy || controller.summary?.pendingOperation !== null}
-      onpointerdown={(event) => activateFromPointer(event, () => controller.load('current'))}
-      onclick={(event) => activateFromKeyboardOrAssistiveClick(event, () => controller.load('current'))}
-      >Read current</button
-    >
-    <button
-      type="button"
-      class="touch-manipulation rounded-md border border-outline px-3 py-2 disabled:opacity-50"
-      disabled={controller.loading || backendState.busy || controller.summary?.pendingOperation !== null}
-      onpointerdown={(event) => activateFromPointer(event, () => controller.load('default'))}
-      onclick={(event) => activateFromKeyboardOrAssistiveClick(event, () => controller.load('default'))}
-      >Read defaults</button
-    >
+  <div class="sticky top-0 z-10 grid gap-2 bg-surface pb-2">
+    <div class="grid gap-2 sm:grid-cols-2">
+      <label class="grid gap-1 text-sm">
+        <span class="font-medium">Section</span>
+        <select
+          class="w-full rounded-md border border-outline bg-elevated px-3 py-2"
+          disabled={controller.loading || !controller.sections.length}
+          value={selectedSection?.key ?? ''}
+          onchange={(event) => {
+            selectedSectionKey = event.currentTarget.value;
+          }}
+        >
+          {#each controller.sections as section (section.key)}
+            <option value={section.key}>{section.label}</option>
+          {/each}
+        </select>
+      </label>
+      <label class="grid gap-1 text-sm">
+        <span class="font-medium">Search this section</span>
+        <input
+          type="search"
+          placeholder="Search fields"
+          class="w-full rounded-md border border-outline bg-elevated px-3 py-2"
+          bind:value={controller.search}
+        />
+      </label>
+    </div>
+    <div class="flex flex-wrap justify-end gap-2">
+      <button
+        type="button"
+        class="touch-manipulation rounded-md border border-outline px-3 py-2 disabled:opacity-50"
+        disabled={controller.loading || backendState.busy || controller.summary?.pendingOperation !== null}
+        onpointerdown={(event) => activateFromPointer(event, () => controller.load('current'))}
+        onclick={(event) => activateFromKeyboardOrAssistiveClick(event, () => controller.load('current'))}
+        >Read current</button
+      >
+      <button
+        type="button"
+        class="touch-manipulation rounded-md border border-outline px-3 py-2 disabled:opacity-50"
+        disabled={controller.loading || backendState.busy || controller.summary?.pendingOperation !== null}
+        onpointerdown={(event) => activateFromPointer(event, () => controller.load('default'))}
+        onclick={(event) => activateFromKeyboardOrAssistiveClick(event, () => controller.load('default'))}
+        >Read defaults</button
+      >
+    </div>
   </div>
 
   {#if controller.loading && !controller.pages.length}
@@ -69,26 +117,29 @@
         Persistent writes are unavailable. The board may be read-only, reconnecting, unsafe, or in flywheel mode.
       </p>
     {/if}
-    <div class="grid gap-4">
-      {#each controller.filteredPages as page (page.group + page.subgroup)}
-        <section class="grid gap-2" aria-labelledby={`refloat-${page.group}-${page.subgroup}`}>
-          <h3 id={`refloat-${page.group}-${page.subgroup}`} class="text-lg font-semibold">
-            {page.group} · {page.subgroup}
-          </h3>
+    {#if selectedSection}
+      <section class="grid gap-2" aria-labelledby="refloat-selected-section">
+        <h3 id="refloat-selected-section" class="text-lg font-semibold">
+          {selectedSection.group} · {selectedSection.subgroup}
+        </h3>
+        {#if visibleFields.length}
           <div class="grid gap-2 md:grid-cols-2">
-            {#each page.fields as field (field.name)}
+            {#each visibleFields as field (field.name)}
               <RefloatConfigurationField
                 {field}
                 value={controller.draft[field.name]}
                 error={controller.validationErrors[field.name]}
                 disabled={controller.loading || backendState.busy}
                 onchange={(value) => controller.setValue(field.name, value)}
+                onhelp={showHelp}
               />
             {/each}
           </div>
-        </section>
-      {/each}
-    </div>
+        {:else}
+          <p class="rounded-lg border border-outline p-3 text-sm text-muted">No fields match this search.</p>
+        {/if}
+      </section>
+    {/if}
     <div class="sticky bottom-0 flex items-center justify-end gap-2 border-t border-outline bg-surface py-3">
       <button
         type="button"
@@ -114,6 +165,15 @@
     </div>
   {/if}
 </section>
+
+<InformationDialog
+  open={helpField !== null}
+  titleId="refloat-field-help-title"
+  title={helpField ? refloatConfigurationFieldLabel(helpField) : ''}
+  description={helpField ? refloatConfigurationFieldHelp(helpField) : ''}
+  returnFocus={helpTrigger}
+  onclose={closeHelp}
+/>
 
 <ConfirmDialog
   open={writeConfirmation}
