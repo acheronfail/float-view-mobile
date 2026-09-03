@@ -105,13 +105,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "float-view-android-jni-support"
-version = "0.1.0"
-dependencies = [
- "jni-sys",
-]
-
-[[package]]
 name = "float-view-application-runtime"
 version = "0.1.0"
 dependencies = [
@@ -123,7 +116,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "float-view-application-runtime-android-jni"
+version = "0.1.0"
+dependencies = [
+ "float-view-application-runtime-host",
+ "jni-sys",
+]
+
+[[package]]
 name = "float-view-application-runtime-apple-ffi"
+version = "0.1.0"
+dependencies = [
+ "float-view-application-runtime-host",
+ "serde_json",
+]
+
+[[package]]
+name = "float-view-application-runtime-host"
 version = "0.1.0"
 dependencies = [
  "float-view-application-runtime",
@@ -187,29 +196,12 @@ dependencies = [
 ]
 
 [[package]]
-name = "float-view-refloat-compatibility-android-jni"
-version = "0.1.0"
-dependencies = [
- "float-view-android-jni-support",
- "float-view-refloat-compatibility",
- "float-view-refloat-dynamic-telemetry",
-]
-
-[[package]]
 name = "float-view-refloat-configuration-codec"
 version = "0.1.0"
 dependencies = [
  "flate2",
  "quick-xml",
  "sha2",
-]
-
-[[package]]
-name = "float-view-refloat-configuration-codec-android-jni"
-version = "0.1.0"
-dependencies = [
- "float-view-android-jni-support",
- "float-view-refloat-configuration-codec",
 ]
 
 [[package]]
@@ -224,36 +216,12 @@ name = "float-view-refloat-control"
 version = "0.1.0"
 
 [[package]]
-name = "float-view-refloat-control-android-jni"
-version = "0.1.0"
-dependencies = [
- "float-view-android-jni-support",
- "float-view-refloat-control",
-]
-
-[[package]]
 name = "float-view-refloat-dynamic-telemetry"
 version = "0.1.0"
 
 [[package]]
-name = "float-view-refloat-dynamic-telemetry-android-jni"
-version = "0.1.0"
-dependencies = [
- "float-view-android-jni-support",
- "float-view-refloat-dynamic-telemetry",
-]
-
-[[package]]
 name = "float-view-refloat-legacy-telemetry"
 version = "0.1.0"
-
-[[package]]
-name = "float-view-refloat-legacy-telemetry-android-jni"
-version = "0.1.0"
-dependencies = [
- "float-view-android-jni-support",
- "float-view-refloat-legacy-telemetry",
-]
 
 [[package]]
 name = "float-view-refloat-telemetry-service"
@@ -293,14 +261,6 @@ name = "float-view-vesc-bms-values"
 version = "0.1.0"
 
 [[package]]
-name = "float-view-vesc-bms-values-android-jni"
-version = "0.1.0"
-dependencies = [
- "float-view-android-jni-support",
- "float-view-vesc-bms-values",
-]
-
-[[package]]
 name = "float-view-vesc-compatibility"
 version = "0.1.0"
 dependencies = [
@@ -313,24 +273,8 @@ name = "float-view-vesc-controller-data"
 version = "0.1.0"
 
 [[package]]
-name = "float-view-vesc-controller-data-android-jni"
-version = "0.1.0"
-dependencies = [
- "float-view-android-jni-support",
- "float-view-vesc-controller-data",
-]
-
-[[package]]
 name = "float-view-vesc-custom-configuration"
 version = "0.1.0"
-
-[[package]]
-name = "float-view-vesc-custom-configuration-android-jni"
-version = "0.1.0"
-dependencies = [
- "float-view-android-jni-support",
- "float-view-vesc-custom-configuration",
-]
 
 [[package]]
 name = "float-view-vesc-firmware-identity"
@@ -340,24 +284,8 @@ dependencies = [
 ]
 
 [[package]]
-name = "float-view-vesc-firmware-identity-android-jni"
-version = "0.1.0"
-dependencies = [
- "float-view-android-jni-support",
- "float-view-vesc-firmware-identity",
-]
-
-[[package]]
 name = "float-view-vesc-frame"
 version = "0.1.0"
-
-[[package]]
-name = "float-view-vesc-frame-android-jni"
-version = "0.1.0"
-dependencies = [
- "float-view-android-jni-support",
- "float-view-vesc-frame",
-]
 
 [[package]]
 name = "float-view-vesc-request-scheduler"

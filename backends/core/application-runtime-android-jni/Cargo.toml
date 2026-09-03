@@ -1,0 +1,13 @@
+[package]
+name = "float-view-application-runtime-android-jni"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+
+[lib]
+crate-type = ["rlib", "cdylib"]
+
+[dependencies]
+float-view-application-runtime-host = { path = "../application-runtime-host" }
+jni-sys = "=0.4.1"

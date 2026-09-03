@@ -1,87 +1,58 @@
 # Android backend layout
 
-Android remains one native Kotlin Gradle application module. Package names
-mirror the Apple capability names for navigation. Rust owns VESC CRC, frame
-encoding, exact frame decoding, and stream-boundary decisions through the
-four-function `../core/vesc-frame-android-jni/` bridge. Rust also owns
-firmware-identity structure, commands 92–95 custom-configuration envelopes,
-command-96 BMS values, Refloat INFO compatibility policy, command-10 legacy,
-command-31/32 dynamic telemetry, and Refloat configuration schema/value wire
-semantics through separate focused JNI bridges. Kotlin retains
-bounded caller-owned storage, primitive-result validation, error mapping,
-observation-time attachment, and the remaining VESC, BMS application, and
-Refloat polling, cache merging, and application semantics.
-The command-10, command-31/32, and configuration adapters strictly validate Rust's canonical
-records and preserve the existing Kotlin model API; there is no generated API or Gradle module per
-capability.
-The firmware-identity domain crate also owns the single platform-neutral
-version-1 record layout and serialization used by both host families. Its JNI
-crate retains only the independent two-symbol boundary, call-local array
-validation and copies, fixed status/metadata mapping, and caller-owned
-publication; Kotlin loading and model validation remain explicit here.
-All ten JNI crates remain separate migration boundaries. Each depends on its
-domain crate and the
-protocol-neutral `../core/android-jni-support/` crate for call-scoped JVM
-exception, array, alias, copy, publication, and panic safety. The support owns
-no JNI export or protocol behavior and is the only direct `jni-sys` consumer.
-Gradle has one closed typed ten-entry integration catalog beside the application
-build. Each entry supplies the stable shell-builder identifier plus the existing
-task suffix, domain/JNI source roots, generated directories, host library, and
-JVM test property. Two generic factories register the twenty Android package
-tasks and ten host-test tasks, and the same entries drive JNI source sets, test
-dependencies, runtime properties, merge dependencies, and clean ordering. This
-catalog intentionally remains separate from the shell build catalog: Gradle owns
-task integration metadata, while the shell catalog owns Cargo packages,
-artifacts, and JNI symbols. Adding a later selected bridge requires one entry in
-each relevant catalog rather than another task-registration block.
-The per-platform JNI and FFI crates are deleted after the unified Rust runtime
-can call these domain components directly.
+Android is one native Kotlin Gradle application module. The shared Rust
+`application-runtime` owns VESC framing and decoding, discovery, request
+scheduling, Refloat and BMS behavior, configuration and mutation policy,
+session writes, historical reads/reduction, and pruning. Kotlin reaches it
+through one callback-free `application-runtime-android-jni` library.
+
+The JNI boundary is deliberately coarse and versioned. Kotlin submits bounded
+JSON commands and facts, drains ordered effects, and copies results into
+caller-owned byte arrays. The binding retains no JVM references and exports
+only lifecycle, command, result, and interruption operations. It does not expose
+the Rust allocator, internal records, or per-protocol entry points.
 
 Production Kotlin lives under
 `app/src/main/java/fail/acheron/floatview/`:
 
-| Capability                                                             | Package                               |
-| ---------------------------------------------------------------------- | ------------------------------------- |
-| Domain, application coordination, and process runtime                  | `application/`                        |
-| BLE adapter, GATT policy, and Bluetooth permission presentation        | `bluetooth/`                          |
-| Native file chooser, bounded import read, and export share sheet       | `files/`                              |
-| Application/process lifetime and foreground background-logging service | `lifecycle/`                          |
-| Location provider and location permission presentation                 | `location/`                           |
-| VESC and Refloat wire protocol                                         | `protocol/vesc/`, `protocol/refloat/` |
-| SQLite, archive validation, and storage policy                         | `storage/`                            |
-| Native system-bar and WebView-canvas appearance synchronization        | `theme/`                              |
-| Authenticated loopback server and port/startup policy                  | `transport/`                          |
-| Disposable Activity and WebView composition                            | `ui/`                                 |
+| Capability | Package |
+| --- | --- |
+| Runtime adapter, effect execution, and authoritative state projection | `application/` |
+| BLE adapter, GATT policy, and Bluetooth permission presentation | `bluetooth/` |
+| Native file chooser, bounded import read, and export share sheet | `files/` |
+| Application/process lifetime and foreground background-logging service | `lifecycle/` |
+| Location provider and location permission presentation | `location/` |
+| Software-fixture VESC peripheral used by emulator conformance | `protocol/vesc/` |
+| SQLite catalogue, archive validation, and Android storage policy | `storage/` |
+| Native system-bar and WebView-canvas appearance synchronization | `theme/` |
+| Authenticated loopback server and port/startup policy | `transport/` |
+| Disposable Activity and WebView composition | `ui/` |
 
-The application ID remains `fail.acheron.floatview`; the deeper packages are
-implementation ownership, not separate applications. Tests mirror the owning
-production package when Kotlin package visibility matters.
+Kotlin continues to own Android OS work: Bluetooth and location adapters,
+lifecycle, permissions, foreground work, file presentation, the session
+catalogue, loopback transport, and UI composition. It does not contain a second
+protocol or application state machine. The software peripheral is a private
+test fixture, not a production fallback.
 
-Dependencies point down from lifecycle/UI composition through transport and
-application coordination to Bluetooth, location, storage, and protocol code.
-Bluetooth and protocol components emit typed events and do not know about
-WebViews, HTTP, Activities, or native presentation. The lifecycle foreground
-service keeps the process-level BLE/logger owner eligible without becoming a
-second application-service owner.
+The application ID remains `fail.acheron.floatview`; packages express ownership,
+not separate applications. Dependencies point down from lifecycle and UI
+composition through transport and the application adapter to OS services and
+storage. WebViews remain disposable and never own native state.
 
 Addresses, launch tokens, private device identity, raw packets, and full
 telemetry or location data stay out of ordinary logs and diagnostics. File and
 location data cross the UI boundary only through bounded authenticated reads or
 an explicit user import/export action.
 
-For a compatible VESC or Refloat version, extend the exact compatibility entry
-and source-derived fixtures in both native backends. For a new wire family,
-change or add the focused codec below `protocol/vesc` or `protocol/refloat` and
-map exact versions to it; do not fork application coordination or polling.
+Gradle pins NDK `28.2.13676358`. Local JVM tests build the runtime host library
+from the locked Rust workspace. Application builds source-build and package
+exactly one `libfloat_view_application_runtime.so` for each of `arm64-v8a`,
+`armeabi-v7a`, `x86`, and `x86_64` from ignored outputs below
+`../core/target/android`. Builds are offline and fail when the pinned Rust
+toolchain, targets, NDK, or linkers are absent.
 
-Gradle pins NDK `28.2.13676358`. Local JVM tests build the host JNI library from
-the locked Rust workspace and load its exact absolute path; application builds
-source-build and package `arm64-v8a`, `armeabi-v7a`, `x86`, and `x86_64` from
-ignored outputs below `../core/target/android`. These builds are offline and
-fail when the pinned Rust toolchain, targets, NDK, or linkers are absent.
-
-Use `just test android` for the complete linked JVM suite and
+Use `just test android` for the linked JVM suite and
 `just android-rust-packaging` for clean Debug/Release four-ABI package
-inspection. The scanner JNI call is stateless and retains no JVM reference or
-Rust-owned stream lifetime; broader protocol and application migration remains
-separately scoped.
+inspection. Add new cross-platform behavior to the safe runtime or one of its
+domain dependencies; do not add another JNI bridge or parallel Kotlin decision
+owner.

@@ -57,6 +57,32 @@ fn creates_the_exact_canonical_database_and_reopens_it() {
 }
 
 #[test]
+fn reopens_the_exact_bounded_android_framework_metadata_shape() {
+    let directory = TestDirectory::new();
+    let path = directory.file("android-session.sqlite3");
+    SessionWriter::create(&path, metadata())
+        .expect("create writer")
+        .close()
+        .expect("close writer");
+    Connection::open(&path)
+        .expect("open Android-shaped database")
+        .execute_batch(
+            "CREATE TABLE android_metadata (locale TEXT); INSERT INTO android_metadata(locale) VALUES ('en_US');",
+        )
+        .expect("add exact Android framework metadata");
+    SessionWriter::open(&path).expect("reopen Android framework database");
+
+    Connection::open(&path)
+        .expect("open malformed Android metadata")
+        .execute_batch("ALTER TABLE android_metadata ADD COLUMN unexpected INTEGER;")
+        .expect("malform Android metadata");
+    assert_eq!(
+        SessionWriter::open(&path).expect_err("reject extended Android metadata"),
+        WriterError::Incompatible
+    );
+}
+
+#[test]
 fn preserves_an_existing_target_and_rejects_malformed_files() {
     let directory = TestDirectory::new();
     let target = directory.file("existing.sqlite3");

@@ -3,9 +3,6 @@ package fail.acheron.floatview.application
 import java.time.Instant
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
-import fail.acheron.floatview.protocol.vesc.ControllerRoute
-import fail.acheron.floatview.protocol.refloat.RefloatCommand
-import fail.acheron.floatview.protocol.refloat.RefloatCompatibilityDecision
 
 @JvmInline
 value class DeviceId(val value: String)
@@ -274,27 +271,6 @@ data class FirmwareRecord(
     val hardwareConfigurationCrc: Long? = null,
 )
 
-sealed interface VescProtocolMessage {
-    data class Firmware(val value: FirmwareRecord) : VescProtocolMessage
-    data class CurrentLimits(val value: ControllerCurrentLimits) : VescProtocolMessage
-    data class CanDevices(val canIds: List<Int>) : VescProtocolMessage
-    data class BmsValuesPayload(val payload: ByteArray) : VescProtocolMessage
-    data class RefloatInfo(val decision: RefloatCompatibilityDecision) : VescProtocolMessage
-    data class RefloatTelemetryLayout(
-        val fields: List<String>,
-        val runtimeFields: List<String>,
-        val supported: Boolean,
-    ) : VescProtocolMessage
-    data class RefloatTelemetry(val value: RefloatTelemetryRecord) : VescProtocolMessage
-    data class RefloatLighting(
-        val command: RefloatCommand,
-        val state: fail.acheron.floatview.protocol.refloat.RefloatLightingState,
-    ) : VescProtocolMessage
-    data class CustomConfiguration(
-        val value: fail.acheron.floatview.protocol.vesc.VescCustomConfigurationResponse,
-    ) : VescProtocolMessage
-}
-
 data class RefloatTelemetryRecord(
     val rideState: RideState,
     val kind: RefloatTelemetryKind = RefloatTelemetryKind.REALTIME,
@@ -441,6 +417,20 @@ data class SessionPublishedSnapshotRecord(
     val recordedLocationCount: Long = 0,
     val storedLocationCount: Long = 0,
     val locationStatus: String = "disabled",
+)
+
+data class SessionCommitMarkerRecord(
+    val snapshot: SessionPublishedSnapshotRecord,
+    val committedEventCount: Long,
+    val committedAt: Instant,
+    val ridingElapsedMs: Long,
+    val distanceM: Double?,
+    val maximumSpeedKph: Double?,
+    val maximumSpeedSourceSequence: Long?,
+    val maximumDutyCycle: Double?,
+    val maximumDutySourceSequence: Long?,
+    val lastSpeedKph: Double?,
+    val lastRideState: String?,
 )
 
 data class SessionLocationPointRecord(
@@ -657,33 +647,6 @@ interface BluetoothPort {
     fun configureSavedDeviceIds(deviceIds: Set<DeviceId>) = Unit
 }
 
-interface VescProtocolPort {
-    val supportsBmsTelemetry: Boolean get() = false
-    fun reset()
-    fun firmwareRequest(route: ControllerRoute): ByteArray
-    fun motorConfigurationRequest(route: ControllerRoute): ByteArray =
-        throw UnsupportedOperationException("Motor configuration reads are unavailable")
-    fun canPingRequest(): ByteArray
-    fun controllerShutdownRequest(route: ControllerRoute): ByteArray =
-        throw UnsupportedOperationException("Controller shutdown is unavailable")
-    fun refloatInfoRequest(route: ControllerRoute): ByteArray
-    fun refloatTelemetryIdsRequest(route: ControllerRoute): ByteArray
-    fun refloatTelemetryRequest(route: ControllerRoute): ByteArray
-    fun refloatLegacyTelemetryRequest(route: ControllerRoute): ByteArray =
-        refloatTelemetryRequest(route)
-    fun refloatCompactTelemetryRequest(route: ControllerRoute): ByteArray =
-        refloatLegacyTelemetryRequest(route)
-    fun customConfigurationSchemaRequest(route: ControllerRoute, length: Int, offset: Int): ByteArray =
-        throw UnsupportedOperationException("Custom configuration schema reads are unavailable")
-    fun customConfigurationValuesRequest(route: ControllerRoute, defaults: Boolean): ByteArray =
-        throw UnsupportedOperationException("Custom configuration value reads are unavailable")
-    fun customConfigurationWriteRequest(route: ControllerRoute, values: ByteArray): ByteArray =
-        throw UnsupportedOperationException("Custom configuration writes are unavailable")
-    fun receive(bytes: ByteArray): List<VescProtocolMessage>
-    fun bmsValuesRequest(connection: BmsConnection): ByteArray =
-        throw UnsupportedOperationException("BMS values reads are unavailable")
-}
-
 fun interface CancellationPort {
     fun cancel()
 }
@@ -725,8 +688,10 @@ interface LogStorePort {
     fun create(deviceId: DeviceId, advertisedName: String?, at: Instant): SessionRecord
     fun append(jobId: JobId, samples: List<TelemetrySample>)
     fun appendLocations(jobId: JobId, observations: List<LocationObservation>) = Unit
+    fun releaseActiveSessionWriter() = Unit
     fun close(jobId: JobId, at: Instant, reason: String): SessionRecord
     fun active(): SessionRecord?
+    fun activeSessionPath(): String? = null
 }
 
 data class SavedDeviceRecord(
@@ -935,6 +900,9 @@ class SessionReadCancellation {
 }
 
 interface SessionStorePort {
+    fun sessionPath(sessionId: String): String = throw SessionStoreException.SessionNotFound
+    fun reconcileSession(sessionId: String) = Unit
+    fun applySessionCommitMarker(sessionId: String, marker: SessionCommitMarkerRecord) = Unit
     fun sessions(query: SessionListQuery): SessionPage
     fun session(sessionId: String): SessionSummaryRecord
     fun sessionSnapshot(sessionId: String): SessionPublishedSnapshotRecord =

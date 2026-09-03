@@ -10,7 +10,6 @@ import fail.acheron.floatview.files.ExportPresentationBroker
 import fail.acheron.floatview.lifecycle.FloatViewApplication
 import fail.acheron.floatview.lifecycle.LoggingForegroundService
 import fail.acheron.floatview.location.LocationPermissionBroker
-import fail.acheron.floatview.protocol.VescProtocolService
 import fail.acheron.floatview.protocol.vesc.SoftwareVescPeripheral
 import fail.acheron.floatview.location.AndroidLocationProvider
 import fail.acheron.floatview.location.LocationPermissionRequester
@@ -56,7 +55,6 @@ class BackendRuntime(application: FloatViewApplication) {
         logStore,
         productStore = logStore,
         sessionStore = logStore,
-        protocol = VescProtocolService(),
         scheduler = SystemScheduler(),
         locationProvider = locationProvider,
         samplingSettings = logStore.settings().let { settings ->

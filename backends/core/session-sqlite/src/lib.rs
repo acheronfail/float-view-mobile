@@ -1060,8 +1060,55 @@ fn validate_database(connection: &Connection) -> Result<(), WriterError> {
         return Err(WriterError::Incompatible);
     }
 
+    // Android's framework SQLite creates this one OS-owned metadata table even
+    // when the application executes the canonical schema itself. Admit only
+    // its exact bounded shape; it is not part of Float View's SQL contract and
+    // is never read or written by the runtime.
+    let has_android_metadata: bool = connection
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'android_metadata')",
+            [],
+            |row| row.get(0),
+        )
+        .map_err(map_validation_sqlite)?;
+    if has_android_metadata {
+        let columns = connection
+            .prepare("PRAGMA table_info(android_metadata)")
+            .map_err(map_validation_sqlite)?
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, i64>(3)?,
+                    row.get::<_, i64>(5)?,
+                ))
+            })
+            .map_err(map_validation_sqlite)?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(map_validation_sqlite)?;
+        let row_count: i64 = connection
+            .query_row("SELECT COUNT(*) FROM android_metadata", [], |row| {
+                row.get(0)
+            })
+            .map_err(map_validation_sqlite)?;
+        let longest_locale: Option<i64> = connection
+            .query_row(
+                "SELECT MAX(length(locale)) FROM android_metadata",
+                [],
+                |row| row.get(0),
+            )
+            .map_err(map_validation_sqlite)?;
+        if columns != [(0, "locale".to_owned(), "TEXT".to_owned(), 0, 0)]
+            || !(0..=1).contains(&row_count)
+            || longest_locale.is_some_and(|length| !(0..=256).contains(&length))
+        {
+            return Err(WriterError::Incompatible);
+        }
+    }
+
     let mut statement = connection
-        .prepare("SELECT type, name FROM sqlite_master WHERE type IN ('table', 'index') AND name NOT LIKE 'sqlite_autoindex_%'")
+        .prepare("SELECT type, name FROM sqlite_master WHERE type IN ('table', 'index') AND name NOT LIKE 'sqlite_autoindex_%' AND name <> 'android_metadata'")
         .map_err(map_validation_sqlite)?;
     let objects = statement
         .query_map([], |row| {

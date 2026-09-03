@@ -23,7 +23,7 @@ import fail.acheron.floatview.application.RefloatConfigurationSummary
 import fail.acheron.floatview.application.RefloatConfigurationIdentityRecord
 import fail.acheron.floatview.application.RefloatConfigurationRecord
 import fail.acheron.floatview.application.RefloatMutationException
-import fail.acheron.floatview.protocol.refloat.RefloatBooleanControl
+import fail.acheron.floatview.application.RefloatBooleanControl
 import fail.acheron.floatview.application.SessionExportRecord
 import fail.acheron.floatview.application.SessionEventRecord
 import fail.acheron.floatview.application.SessionElapsedRange
@@ -43,14 +43,13 @@ import fail.acheron.floatview.application.SessionSummaryRecord
 import fail.acheron.floatview.application.SettingsRecord
 import fail.acheron.floatview.application.TelemetrySample
 import fail.acheron.floatview.application.TrackingMode
-import fail.acheron.floatview.application.VescProtocolMessage
-import fail.acheron.floatview.protocol.refloat.RefloatConfigurationField
-import fail.acheron.floatview.protocol.refloat.RefloatConfigurationFieldType
-import fail.acheron.floatview.protocol.refloat.RefloatConfigurationLimits
-import fail.acheron.floatview.protocol.refloat.RefloatConfigurationValue
-import fail.acheron.floatview.protocol.refloat.RefloatConfigurationValues
-import fail.acheron.floatview.protocol.vesc.ControllerRoute
-import fail.acheron.floatview.protocol.vesc.VescCompatibility
+import fail.acheron.floatview.application.RefloatConfigurationField
+import fail.acheron.floatview.application.RefloatConfigurationFieldType
+import fail.acheron.floatview.application.RefloatConfigurationLimits
+import fail.acheron.floatview.application.RefloatConfigurationValue
+import fail.acheron.floatview.application.RefloatConfigurationValues
+import fail.acheron.floatview.application.RefloatConfigurationOperation
+import fail.acheron.floatview.application.ControllerRoute
 import io.ktor.http.ContentType
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
@@ -928,16 +927,13 @@ class LoopbackServer(
                         .put("hardwareName", firmware.hardwareName ?: JSONObject.NULL)
                         .put(
                             "accessMode",
-                            when (VescCompatibility.accessMode(firmware)) {
-                                fail.acheron.floatview.protocol.vesc.VescAccessMode.READ_ONLY -> "readOnly"
-                                fail.acheron.floatview.protocol.vesc.VescAccessMode.READ_WRITE -> "readWrite"
-                                null -> "readOnly"
+                            if (applicationService.refloatConfigurationSummarySnapshot().writable) {
+                                "readWrite"
+                            } else {
+                                "readOnly"
                             },
                         )
-                        .put(
-                            "supported",
-                            VescCompatibility.supports(firmware),
-                        )
+                        .put("supported", true)
                 } else {
                     JSONObject.NULL
                 },
@@ -980,11 +976,11 @@ class LoopbackServer(
         .put("currentLoaded", value.currentLoaded)
         .put("defaultLoaded", value.defaultLoaded)
         .put("pendingOperation", when (value.pendingOperation) {
-            fail.acheron.floatview.protocol.refloat.RefloatConfigurationOperation.SCHEMA -> "schema"
-            fail.acheron.floatview.protocol.refloat.RefloatConfigurationOperation.READ_CURRENT -> "readCurrent"
-            fail.acheron.floatview.protocol.refloat.RefloatConfigurationOperation.READ_DEFAULT -> "readDefault"
-            fail.acheron.floatview.protocol.refloat.RefloatConfigurationOperation.WRITE -> "write"
-            fail.acheron.floatview.protocol.refloat.RefloatConfigurationOperation.APPLY_TUNE -> "applyTune"
+            RefloatConfigurationOperation.SCHEMA -> "schema"
+            RefloatConfigurationOperation.READ_CURRENT -> "readCurrent"
+            RefloatConfigurationOperation.READ_DEFAULT -> "readDefault"
+            RefloatConfigurationOperation.WRITE -> "write"
+            RefloatConfigurationOperation.APPLY_TUNE -> "applyTune"
             null -> JSONObject.NULL
         })
 
@@ -1761,11 +1757,7 @@ class LoopbackServer(
             this is fail.acheron.floatview.application.BmsSnapshot ||
             this is RefloatControls ||
             this === LocationUpdated ||
-            this === SessionCatalogChanged ||
-            this is VescProtocolMessage.Firmware ||
-            this is VescProtocolMessage.CurrentLimits ||
-            this is VescProtocolMessage.RefloatInfo ||
-            this is VescProtocolMessage.RefloatLighting
+            this === SessionCatalogChanged
 
     private object SessionCatalogChanged
 

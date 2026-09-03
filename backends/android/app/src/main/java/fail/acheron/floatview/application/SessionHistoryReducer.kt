@@ -5,26 +5,6 @@ import java.util.Base64
 import kotlin.math.max
 import kotlin.math.min
 
-data class SessionElapsedRange(val startElapsedMs: Long, val endElapsedMs: Long)
-
-data class SessionGapPolicyRecord(val thresholdSeconds: Double?)
-
-data class SessionSeriesColumnRecord(
-    val elapsedMs: List<Long>,
-    val sequence: List<Long>,
-    val values: List<Double?>,
-    val generations: List<Int>,
-)
-
-data class SessionHistoryCursor(
-    val sessionId: String,
-    val snapshot: SessionPublishedSnapshotRecord,
-    val range: SessionElapsedRange,
-    val elapsedMs: Long,
-    val sequence: Long,
-    val version: Int = 1,
-)
-
 object SessionHistoryReducer {
     const val MAX_SERIES_OBSERVATIONS = 65_536
     private const val MAX_CURSOR_BYTES = 4_096

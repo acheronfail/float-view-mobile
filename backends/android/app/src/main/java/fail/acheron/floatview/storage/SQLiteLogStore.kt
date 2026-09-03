@@ -31,6 +31,7 @@ import fail.acheron.floatview.application.SessionRecord
 import fail.acheron.floatview.application.SessionSeriesPoint
 import fail.acheron.floatview.application.SessionSeriesReductionRecord
 import fail.acheron.floatview.application.SessionPublishedSnapshotRecord
+import fail.acheron.floatview.application.SessionCommitMarkerRecord
 import fail.acheron.floatview.application.SessionLocationGapRecord
 import fail.acheron.floatview.application.SessionLocationPageRecord
 import fail.acheron.floatview.application.SessionLocationPointRecord
@@ -179,6 +180,13 @@ class SQLiteLogStore(
     }
 
     fun create(deviceId: DeviceId, at: Instant): SessionRecord = create(deviceId, null, at)
+
+    @Synchronized
+    override fun releaseActiveSessionWriter() {
+        sessionDb?.let { executePragma(it, "PRAGMA wal_checkpoint(FULL)") }
+        sessionDb?.close()
+        sessionDb = null
+    }
 
     @Synchronized
     override fun ensureSavedDevice(
@@ -502,13 +510,14 @@ class SQLiteLogStore(
         val record = requireNotNull(current) { "No active session" }
         require(record.jobId == jobId) { "Wrong logging job" }
         reconcileDirtyCatalog(record.jobId.value)
-        val enteredRiding = sessionDb?.let {
-            android.database.DatabaseUtils.longForQuery(
-                it,
-                "SELECT EXISTS(SELECT 1 FROM sample WHERE ride_state = 'riding')",
+        val activeFile = File(root, "session-${record.sessionId.value}.sqlite")
+        val enteredRiding = sessionDb?.let(::sessionEnteredRiding) ?: run {
+            if (!activeFile.exists()) false else SQLiteDatabase.openDatabase(
+                activeFile.path,
                 null,
-            ) == 1L
-        } ?: false
+                SQLiteDatabase.OPEN_READONLY,
+            ).use(::sessionEnteredRiding)
+        }
         val distance = catalog.writableDatabase.rawQuery(
             "SELECT COALESCE(distance_m, 0) FROM session_catalog WHERE job_id = ?",
             arrayOf(jobId.value),
@@ -540,8 +549,18 @@ class SQLiteLogStore(
         return record.copy(active = false)
     }
 
+    private fun sessionEnteredRiding(database: SQLiteDatabase): Boolean =
+        android.database.DatabaseUtils.longForQuery(
+            database,
+            "SELECT EXISTS(SELECT 1 FROM sample WHERE ride_state = 'riding')",
+            null,
+        ) == 1L
+
     @Synchronized
     override fun active(): SessionRecord? = current
+
+    @Synchronized
+    override fun activeSessionPath(): String? = current?.let { File(root, "session-${it.sessionId.value}.sqlite").path }
 
     @Synchronized
     override fun sessions(query: SessionListQuery): SessionPage {
@@ -664,6 +683,61 @@ class SQLiteLogStore(
                 locationStatus = cursor.getString(11),
             )
         }
+    }
+
+    @Synchronized
+    override fun sessionPath(sessionId: String): String = catalog.writableDatabase.rawQuery(
+        "SELECT file_name FROM session_catalog WHERE session_id = ? AND pending_delete = 0",
+        arrayOf(sessionId),
+    ).use { cursor ->
+        if (!cursor.moveToFirst()) throw SessionStoreException.SessionNotFound
+        File(root, cursor.getString(0)).path
+    }
+
+    @Synchronized
+    override fun reconcileSession(sessionId: String) {
+        val row = catalog.writableDatabase.rawQuery(
+            "SELECT job_id, file_name FROM session_catalog WHERE session_id = ? AND pending_delete = 0",
+            arrayOf(sessionId),
+        ).use { cursor ->
+            if (!cursor.moveToFirst()) throw SessionStoreException.SessionNotFound
+            cursor.getString(0) to cursor.getString(1)
+        }
+        reconcileSessionCatalog(sessionId, row.first, row.second)
+    }
+
+    @Synchronized
+    override fun applySessionCommitMarker(sessionId: String, marker: SessionCommitMarkerRecord) {
+        val record = current?.takeIf { it.sessionId.value == sessionId }
+            ?: throw SessionStoreException.SessionNotFound
+        val snapshot = marker.snapshot
+        catalog.writableDatabase.execSQL(
+            """
+            UPDATE session_catalog SET integrity = 'complete', committed_sequence = ?,
+              committed_event_sequence = ?, sample_count = ?, stored_sample_count = ?,
+              event_count = ?, committed_elapsed_ms = ?, history_revision = ?,
+              riding_elapsed_ms = ?, total_elapsed_ms = ?, distance_m = ?, max_speed_mps = ?,
+              max_duty_cycle = ?, max_speed_source_sequence = ?, max_duty_source_sequence = ?,
+              last_sample_elapsed_ms = ?, last_speed_mps = ?, committed_location_sequence = ?,
+              committed_location_elapsed_ms = ?, location_count = ?, recorded_location_count = ?,
+              stored_location_count = ?, location_status = ?
+            WHERE session_id = ? AND job_id = ? AND state = 'active' AND pending_delete = 0
+            """.trimIndent(),
+            arrayOf(
+                snapshot.committedSampleSequence, snapshot.committedEventSequence,
+                snapshot.recordedSampleCount, snapshot.storedSampleCount, marker.committedEventCount,
+                snapshot.committedElapsedMs, snapshot.historyRevision, marker.ridingElapsedMs,
+                snapshot.committedElapsedMs, marker.distanceM,
+                marker.maximumSpeedKph?.let { kotlin.math.abs(it) / 3.6 },
+                marker.maximumDutyCycle?.let { kotlin.math.abs(it) }, marker.maximumSpeedSourceSequence,
+                marker.maximumDutySourceSequence, snapshot.committedElapsedMs,
+                marker.lastSpeedKph?.div(3.6), snapshot.committedLocationSequence,
+                snapshot.committedLocationElapsedMs, snapshot.recordedLocationCount,
+                snapshot.recordedLocationCount, snapshot.storedLocationCount, snapshot.locationStatus,
+                sessionId, record.jobId.value,
+            ),
+        )
+        current = record.copy(committedSequence = snapshot.committedSampleSequence)
     }
 
     override fun sessionHistoryConfiguration(sessionId: String): SessionHistoryConfiguration =

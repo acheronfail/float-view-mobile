@@ -32,9 +32,12 @@ members="$(awk '
   END { print count+0 }
 ' backends/core/Cargo.toml)"
 
-bridge_crates="$(find backends/core -mindepth 2 -maxdepth 2 \
+binding_crates="$(find backends/core -mindepth 2 -maxdepth 2 \
   \( -path '*-apple-ffi/Cargo.toml' -o -path '*-android-jni/Cargo.toml' \) \
   | wc -l | tr -d ' ')"
+temporary_bridge_crates="$(find backends/core -mindepth 2 -maxdepth 2 \
+  \( -path '*-apple-ffi/Cargo.toml' -o -path '*-android-jni/Cargo.toml' \) \
+  ! -path '*/application-runtime-*' | wc -l | tr -d ' ')"
 apple_bridge_artifacts="$(find backends/core -mindepth 2 -maxdepth 2 \
   -path '*-apple-ffi/Cargo.toml' | wc -l | tr -d ' ')"
 android_bridge_artifacts="$(find backends/core -mindepth 2 -maxdepth 2 \
@@ -54,18 +57,21 @@ rust_production_source_lines=$rust_lines
 apple_production_source_lines=$apple_lines
 android_production_source_lines=$android_lines
 workspace_members=$members
-temporary_protocol_bridge_crates=$bridge_crates
+host_binding_crates=$binding_crates
+temporary_protocol_bridge_crates=$temporary_bridge_crates
 selected_protocol_families=$selected_families
 apple_bridge_family_artifacts=$apple_bridge_artifacts
 android_bridge_crates=$android_bridge_artifacts
-android_bridge_target_artifacts=$((android_bridge_artifacts * 4 * 2))
+android_runtime_target_artifacts=$((android_bridge_artifacts * 4 * 2))
 EOF
 
-[[ "$bridge_crates" == 11 ]]
+[[ "$binding_crates" == 2 ]]
+[[ "$temporary_bridge_crates" == 0 ]]
 [[ "$apple_bridge_artifacts" == 1 ]]
-[[ "$android_bridge_artifacts" == 10 ]]
+[[ "$android_bridge_artifacts" == 1 ]]
 [[ "$selected_families" == 10 ]]
-[[ "$members" == 34 ]]
+[[ "$members" -lt 34 ]]
+((rust_lines + apple_lines + android_lines < 59280))
 
 expected_candidates='application-runtime auxiliary-node-discovery connection-application-coordinator controller-discovery device-mutation-coordinator refloat-configuration-service refloat-telemetry-service session-history-kernel session-sqlite vesc-bms-telemetry-service vesc-compatibility vesc-request-scheduler'
 actual_candidates="$(awk -F'|' '/^candidate\|/ { print $2 }' backends/core/migration-baseline.txt | sort | xargs)"

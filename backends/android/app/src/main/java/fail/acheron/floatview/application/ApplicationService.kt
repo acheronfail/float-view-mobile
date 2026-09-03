@@ -1,21 +1,11 @@
 package fail.acheron.floatview.application
 
-import fail.acheron.floatview.protocol.refloat.RefloatTelemetryFamily
-import fail.acheron.floatview.protocol.refloat.RefloatCommand
-import fail.acheron.floatview.protocol.refloat.RefloatBooleanControl
-import fail.acheron.floatview.protocol.refloat.RefloatControlCodec
-import fail.acheron.floatview.protocol.refloat.RefloatControlProfile
-import fail.acheron.floatview.protocol.refloat.RefloatLightingState
-import fail.acheron.floatview.protocol.refloat.RefloatConfigurationValues
-import fail.acheron.floatview.protocol.vesc.ControllerRoute
-import fail.acheron.floatview.protocol.vesc.VescCommandRouter
-import fail.acheron.floatview.protocol.vesc.VescCompatibility
-import fail.acheron.floatview.protocol.VescFrameCodec
-import fail.acheron.floatview.protocol.vesc.VescCommand
-import fail.acheron.floatview.protocol.vesc.VescAccessMode
+import android.util.Base64
 import java.security.MessageDigest
+import java.time.Instant
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
+import org.json.JSONArray
 import org.json.JSONObject
 
 class ApplicationService(
@@ -24,22 +14,33 @@ class ApplicationService(
     private val logStore: LogStorePort,
     private val productStore: ProductStorePort? = null,
     private val sessionStore: SessionStorePort? = null,
-    private val protocol: VescProtocolPort? = null,
     private val scheduler: SchedulerPort? = null,
     samplingSettings: SamplingSettings = SamplingSettings(),
     private val locationProvider: LocationProviderPort? = null,
     private val events: EventSink,
 ) {
-    init {
-        val savedIds = runCatching {
-            productStore?.savedDevices().orEmpty()
-                .mapNotNull { it.bluetoothIdentifier?.let(::DeviceId) }
-                .toSet()
-        }.getOrDefault(emptySet())
-        bluetooth.configureSavedDeviceIds(savedIds)
-    }
-    private var sampling = AdaptiveSamplingPolicy(samplingSettings)
-    private var postRideTailMs = samplingSettings.postRideTailMs
+    private val rustRuntime = RustApplicationRuntime()
+    private var rustGeneration = 0L
+    private val rustDeadlines = mutableMapOf<Long, CancellationPort>()
+    private val rustTimers = mutableMapOf<Long, CancellationPort>()
+    private val rustTimerIntervals = mutableMapOf<Long, Long>()
+    private var rustSessionAttached = false
+    private var rustControllerRoute: ControllerRoute? = null
+    private var rustControllerCandidates = emptyList<ControllerCandidate>()
+    private var rustConnectionIssue: ConnectionIssue? = null
+    private var rustFirmware: FirmwareRecord? = null
+    private var rustRefloatPackageVersion: String? = null
+    private var rustControls: RefloatControls? = null
+    private var rustControllerActions = ControllerActions()
+    private var rustBmsState = BmsState()
+    private var rustConfigurationSummary = RefloatConfigurationSummary(
+        RefloatConfigurationAvailability.UNAVAILABLE, false, null, null, null, false, false, null,
+    )
+    private var rustConfigurationSchema: RefloatConfigurationSchema? = null
+    private var rustConfigurationCurrent: RefloatConfigurationValues? = null
+    private var rustConfigurationDefaults: RefloatConfigurationValues? = null
+    private var rustSessionResult: JSONObject? = null
+    private var samplingSettings = samplingSettings
     private var reconnectDurationMs = samplingSettings.reconnectDurationMs
     private var idleProbeIntervalMs = samplingSettings.idleProbeIntervalMs
     private var explicitDisconnect = false
@@ -47,72 +48,24 @@ class ApplicationService(
     private val knownDevicesById = linkedMapOf<DeviceId, DiscoveredDevice>()
     private var discoveryExpiryTimer: CancellationPort? = null
     private var discoveryExpiryGeneration = 0L
-    private val controllerDiscovery = ControllerDiscovery()
-    private val auxiliaryDiscovery = AuxiliaryNodeDiscovery()
     private var deviceKind: DeviceKind? = null
     private var trackingMode = TrackingMode.SAVED
     private var currentSavedDevice: SavedDeviceRecord? = null
-    private var identificationTimer: CancellationPort? = null
-    private var canProbeTimer: CancellationPort? = null
-    private var bmsPollTimer: CancellationPort? = null
-    private var bmsFailureCount = 0
     private var sessionControllerRoute: ControllerRoute? = null
     private var sessionControllerUuid: ByteArray? = null
-    private var sessionFirmware: FirmwareRecord? = null
-    private var sessionRefloatPackageVersion: String? = null
-    private var latestLocation: LiveLocation? = null
-    private var vescGeneration = VescRequestGeneration(0)
-    private val vescRequests: VescRequestScheduler by lazy {
-        VescRequestScheduler(
-            clock,
-            scheduler ?: SystemScheduler(),
-            write = { bytes -> activeDeviceId?.let { bluetooth.write(it, bytes) } },
-            diagnostic = events::publish,
-        )
-    }
-    private val telemetryPolling = TelemetryPolling(
-        clock = clock,
-        scheduler = scheduler,
-        protocol = protocol,
-        submit = ::submitVescRequest,
-        onSample = ::ingest,
-        onFailure = { reason ->
-            synchronized(this) {
-                events.publish(reason)
-                if (refloatMutations.controllerActions(false).pendingAction == ControllerPendingAction.SHUTDOWN) {
-                    shutdownIntentTimer?.cancel()
-                    shutdownIntentTimer = null
-                    refloatMutations.clearShutdown(vescGeneration)
-                    finishReconnect("controller_shutdown")
-                    return@synchronized
-                }
-                failIdentification(
-                    ConnectionIssueCode.IDENTIFICATION_TIMEOUT,
-                    "Refloat telemetry negotiation timed out.",
-                )
-            }
-        },
-        onDiagnostic = events::publish,
-    )
-    private var reconnectTimer: CancellationPort? = null
-    private var reconnectStartedAtMs: Long? = null
-    private var reconnectAttempt = 0
     private var latestPersistedSample: TelemetrySample? = null
+    private var latestLocation: LiveLocation? = null
     private var locationCaptureStartedMonotonicMs: Long? = null
     private var locationCaptureBaseElapsedMs = 0L
     private var locationCaptureActive = false
     private var currentLimits: ControllerCurrentLimits? = null
-    private val refloatMutations = DeviceMutationCoordinator()
-    private val refloatConfiguration = RefloatConfigurationService(productStore)
-    private var refloatProfile: RefloatControlProfile? = null
-    private var latestRefloatTelemetry: RefloatTelemetryRecord? = null
-    private var latestRefloatTelemetryMonotonicMs: Long? = null
-    private var refloatRefreshTimer: CancellationPort? = null
-    private var refloatMutationTimer: CancellationPort? = null
-    private var shutdownIntentTimer: CancellationPort? = null
     private var refloatWaiter: RefloatMutationWaiter? = null
     private var refloatConfigurationWaiter: RefloatConfigurationRequestWaiter? = null
-    private val refloatScheduler: SchedulerPort by lazy { scheduler ?: SystemScheduler() }
+    private var refloatConfigurationObservedPending = false
+    private var reconnectTimer: CancellationPort? = null
+    private var reconnectStartedAtMs: Long? = null
+    private var reconnectAttempt = 0
+
     var activeDeviceId: DeviceId? = null
         private set
     private var activeDeviceName: String? = null
@@ -125,6 +78,15 @@ class ApplicationService(
     val knownDevices: List<DiscoveredDevice>
         get() = knownDevicesById.values.sortedBy { it.id.value }
 
+    init {
+        val savedIds = runCatching {
+            productStore?.savedDevices().orEmpty().mapNotNull {
+                it.bluetoothIdentifier?.let(::DeviceId)
+            }.toSet()
+        }.getOrDefault(emptySet())
+        bluetooth.configureSavedDeviceIds(savedIds)
+    }
+
     @Synchronized
     fun requestBluetoothPermission(): BluetoothState {
         bluetooth.requestPermission()
@@ -132,82 +94,57 @@ class ApplicationService(
         return bluetoothState
     }
 
-    fun savedDevices(): List<SavedDeviceRecord> =
-        requireNotNull(productStore) { "Product store is unavailable" }.savedDevices()
+    fun savedDevices(): List<SavedDeviceRecord> = product().savedDevices()
 
     fun updateSavedDevice(
         savedDeviceId: String,
         expectedRevision: Int,
         customDisplayName: String?,
-    ): SavedDeviceRecord =
-        requireNotNull(productStore) { "Product store is unavailable" }
-            .updateSavedDevice(savedDeviceId, expectedRevision, customDisplayName, clock.now())
-            .also(events::publish)
+    ): SavedDeviceRecord = product()
+        .updateSavedDevice(savedDeviceId, expectedRevision, customDisplayName, clock.now())
+        .also(events::publish)
 
     @Synchronized
     fun deleteSavedDevice(savedDeviceId: String) {
         if (activeConnectionSnapshot()?.savedDevice?.savedDeviceId == savedDeviceId) {
             throw ProductStoreException.SavedDeviceActive
         }
-        requireNotNull(productStore) { "Product store is unavailable" }.deleteSavedDevice(savedDeviceId)
+        product().deleteSavedDevice(savedDeviceId)
+        events.publish("saved device deleted")
     }
 
-    fun boardProfile(savedDeviceId: String): BoardProfileRecord =
-        requireNotNull(productStore) { "Product store is unavailable" }
-            .boardProfile(savedDeviceId)
+    fun boardProfile(savedDeviceId: String): BoardProfileRecord = product().boardProfile(savedDeviceId)
 
     @Synchronized
     fun updateBoardProfile(
         savedDeviceId: String,
         expectedRevision: Int,
         patchJson: String,
-    ): BoardProfileRecord =
-        requireNotNull(productStore) { "Product store is unavailable" }
-            .updateBoardProfile(savedDeviceId, expectedRevision, patchJson, clock.now())
-            .also { profile ->
-                events.publish(profile)
-                if (
-                    connectionState == ConnectionState.READY &&
-                    currentSavedDevice?.savedDeviceId == savedDeviceId
-                ) {
-                    bmsPollTimer?.cancel()
-                    bmsPollTimer = null
-                    startAuxiliaryDiscovery()
-                }
-            }
+    ): BoardProfileRecord = product()
+        .updateBoardProfile(savedDeviceId, expectedRevision, patchJson, clock.now())
+        .also(events::publish)
 
     @Synchronized
     fun selectController(deviceId: DeviceId, canId: Int) {
-        check(
-            activeDeviceId == deviceId &&
-                connectionState == ConnectionState.SELECTING_CONTROLLER,
-        ) { "Controller selection is not valid for the current state" }
-        val effect = controllerDiscovery.selectController(canId)
-        val selectedFirmware =
-            (effect as ControllerDiscoveryEffect.RequestRefloatInfo).rememberController
-                ?: error("Selected controller identity is unavailable")
+        check(activeDeviceId == deviceId && connectionState == ConnectionState.SELECTING_CONTROLLER &&
+            rustControllerCandidates.any { it.canId == canId })
         if (trackingMode == TrackingMode.SAVED) {
-            val store = requireNotNull(productStore) { "Product store is unavailable" }
-            val savedDevice = requireNotNull(currentSavedDevice) { "Saved board is unavailable" }
-            store.selectController(
-                savedDevice.savedDeviceId,
-                canId,
-                ControllerDiscoveryPolicy.meaningfulUuid(selectedFirmware.controllerUuid),
-                clock.now(),
+            product().selectController(
+                requireNotNull(currentSavedDevice).savedDeviceId, canId, null, clock.now(),
             ).also(events::publish)
         }
-        controllerDiscovery.clearIssue()
         transition(ConnectionState.IDENTIFYING)
-        performDiscoveryEffect(effect.copy(rememberController = null))
+        performRustCommand(json(
+            "command" to "select_controller", "generation" to rustGeneration,
+            "can_id" to canId, "now_ms" to clock.monotonicMillis(),
+        ))
     }
 
-    fun settings(): SettingsRecord =
-        requireNotNull(productStore) { "Product store is unavailable" }.settings()
+    fun settings(): SettingsRecord = product().settings()
 
     @Synchronized
     fun locationState(): LocationProviderState {
-        val enabled = runCatching { settings().locationRecordingEnabled }.getOrDefault(false)
-        if (!enabled) {
+        if (!runCatching { settings().locationRecordingEnabled }.getOrDefault(false)) {
             return LocationProviderState(
                 LocationProviderAuthorization.UNAVAILABLE,
                 LocationProviderBackgroundCapture.UNAVAILABLE,
@@ -234,179 +171,193 @@ class ApplicationService(
 
     @Synchronized
     fun updateSettings(expectedRevision: Int, patchJson: String): SettingsRecord =
-        requireNotNull(productStore) { "Product store is unavailable" }
-            .updateSettings(expectedRevision, patchJson)
-            .also { value ->
-                idleProbeIntervalMs = value.idleProbeIntervalMs
-                postRideTailMs = value.postRideTailMs
-                reconnectDurationMs = value.reconnectDurationMs
-                sampling = AdaptiveSamplingPolicy(
-                    SamplingSettings(
-                        idleProbeIntervalMs = value.idleProbeIntervalMs,
-                        idlePersistIntervalMs = value.idlePersistIntervalMs,
-                        ridingPersistIntervalMs = value.ridingPersistIntervalMs,
-                        postRideTailMs = value.postRideTailMs,
-                        reconnectDurationMs = value.reconnectDurationMs,
-                    ),
-                )
-                telemetryPolling.updateSettings(value.idleProbeIntervalMs, value.postRideTailMs)
-                if (!value.locationRecordingEnabled) stopLocationCapture()
-                else locationProvider?.requestPermission()
-                events.publish(value)
-            }
+        product().updateSettings(expectedRevision, patchJson).also { value ->
+            idleProbeIntervalMs = value.idleProbeIntervalMs
+            reconnectDurationMs = value.reconnectDurationMs
+            samplingSettings = SamplingSettings(
+                idleProbeIntervalMs = value.idleProbeIntervalMs,
+                idlePersistIntervalMs = value.idlePersistIntervalMs,
+                ridingPersistIntervalMs = value.ridingPersistIntervalMs,
+                postRideTailMs = value.postRideTailMs,
+                reconnectDurationMs = value.reconnectDurationMs,
+            )
+            runCatching { performRustCommand(json(
+                "command" to "update_settings", "generation" to rustGeneration,
+                "idle_interval_ms" to value.idleProbeIntervalMs,
+                "post_ride_tail_ms" to value.postRideTailMs,
+                "now_ms" to clock.monotonicMillis(),
+            )) }
+            if (!value.locationRecordingEnabled) stopLocationCapture() else locationProvider?.requestPermission()
+            events.publish(value)
+        }
 
-    fun sessions(query: SessionListQuery): SessionPage =
-        requireNotNull(sessionStore) { "Session store is unavailable" }.sessions(query)
-
-    fun session(sessionId: String): SessionSummaryRecord =
-        requireNotNull(sessionStore) { "Session store is unavailable" }.session(sessionId)
-
-    fun sessionSnapshot(sessionId: String): SessionPublishedSnapshotRecord =
-        requireNotNull(sessionStore) { "Session store is unavailable" }.sessionSnapshot(sessionId)
+    fun sessions(query: SessionListQuery): SessionPage = sessions().sessions(query)
+    fun session(sessionId: String): SessionSummaryRecord = sessions().session(sessionId)
+    fun sessionSnapshot(sessionId: String): SessionPublishedSnapshotRecord = sessions().sessionSnapshot(sessionId)
+    fun maintenanceJob(): SessionMaintenanceJobRecord? = sessions().maintenanceJob()
+    fun saveMaintenanceJob(job: SessionMaintenanceJobRecord) = sessions().saveMaintenanceJob(job)
+    fun cancelMaintenanceJob(operationId: String): SessionMaintenanceJobRecord? =
+        sessions().cancelMaintenanceJob(operationId)
+    fun deleteSession(sessionId: String) = sessions().deleteSession(sessionId)
+    fun cancelPendingDelete(operationId: String): Boolean = sessions().cancelPendingDelete(operationId)
+    fun exportSession(sessionId: String, format: String): SessionExportRecord =
+        sessions().exportSession(sessionId, format)
+    fun importSessionArchive(data: ByteArray): String = sessions().importSessionArchive(data)
 
     fun querySessionSeries(
-        sessionId: String,
-        startElapsedMs: Long,
-        endElapsedMs: Long,
-        fields: List<String>,
-        maxPoints: Int,
-        publishedSampleSequence: Long? = null,
-    ): List<SessionSeriesPoint> =
-        requireNotNull(sessionStore) { "Session store is unavailable" }
-            .querySeries(sessionId, startElapsedMs, endElapsedMs, fields, maxPoints, publishedSampleSequence)
+        sessionId: String, startElapsedMs: Long, endElapsedMs: Long, fields: List<String>,
+        maxPoints: Int, publishedSampleSequence: Long? = null,
+    ) = rustSessionSamples(
+        sessionId, startElapsedMs, endElapsedMs, fields, maxPoints, publishedSampleSequence,
+    )
 
     fun querySessionSeriesSource(
-        sessionId: String,
-        startElapsedMs: Long,
-        endElapsedMs: Long,
-        fields: List<String>,
-        maxRows: Int,
-        publishedSampleSequence: Long? = null,
-    ): List<SessionSeriesPoint> =
-        requireNotNull(sessionStore) { "Session store is unavailable" }
-            .querySeriesSource(sessionId, startElapsedMs, endElapsedMs, fields, maxRows, publishedSampleSequence)
+        sessionId: String, startElapsedMs: Long, endElapsedMs: Long, fields: List<String>,
+        maxRows: Int, publishedSampleSequence: Long? = null,
+    ) = rustSessionSamples(
+        sessionId, startElapsedMs, endElapsedMs, fields, maxRows, publishedSampleSequence,
+    )
 
     fun reduceSessionSeries(
-        sessionId: String,
-        startElapsedMs: Long,
-        endElapsedMs: Long,
-        fields: List<String>,
-        buckets: Int,
-        gapPolicy: SessionGapPolicyRecord,
-        expectedPersistenceMs: Long,
-        expectedRidingPersistenceMs: Long?,
-        expectedIdlePersistenceMs: Long?,
-        retainedResolutionSeconds: Long,
-        publishedSampleSequence: Long? = null,
-    ): SessionSeriesReductionRecord =
-        requireNotNull(sessionStore) { "Session store is unavailable" }
-            .reduceSeries(
-                sessionId = sessionId,
-                startElapsedMs = startElapsedMs,
-                endElapsedMs = endElapsedMs,
-                fields = fields,
-                buckets = buckets,
-                gapPolicy = gapPolicy,
-                expectedPersistenceMs = expectedPersistenceMs,
-                expectedRidingPersistenceMs = expectedRidingPersistenceMs,
-                expectedIdlePersistenceMs = expectedIdlePersistenceMs,
-                retainedResolutionSeconds = retainedResolutionSeconds,
-                publishedSampleSequence = publishedSampleSequence,
-            )
+        sessionId: String, startElapsedMs: Long, endElapsedMs: Long, fields: List<String>,
+        buckets: Int, gapPolicy: SessionGapPolicyRecord, expectedPersistenceMs: Long,
+        expectedRidingPersistenceMs: Long?, expectedIdlePersistenceMs: Long?,
+        retainedResolutionSeconds: Long, publishedSampleSequence: Long? = null,
+    ): SessionSeriesReductionRecord {
+        @Suppress("UNUSED_VARIABLE") val ignored = arrayOf(
+            expectedPersistenceMs, expectedRidingPersistenceMs, expectedIdlePersistenceMs,
+            retainedResolutionSeconds,
+        )
+        val started = System.nanoTime()
+        val value = rustSessionQuery(json(
+            "command" to "session_reduce", "path" to sessionPath(sessionId), "fields" to fields,
+            "start_elapsed_ms" to startElapsedMs, "end_elapsed_ms" to endElapsedMs,
+            "buckets" to buckets, "gap_seconds" to gapPolicy.thresholdSeconds,
+            "boundary" to boundary(sessionSnapshot(sessionId), sampleSequence = publishedSampleSequence),
+        ))
+        val columns = value.array("columns").objects().mapNotNull { item ->
+            val field = item.string("field") ?: return@mapNotNull null
+            val elapsed = item.longList("elapsed_ms") ?: return@mapNotNull null
+            val sequences = item.longList("sequences") ?: return@mapNotNull null
+            val values = item.optionalDoubleList("values") ?: return@mapNotNull null
+            val generations = item.intList("generations") ?: return@mapNotNull null
+            field to SessionSeriesColumnRecord(elapsed, sequences, values, generations)
+        }.toMap()
+        val elapsed = (System.nanoTime() - started) / 1_000_000.0
+        return SessionSeriesReductionRecord(columns, value.optInt("source_rows"), elapsed, 0.0, elapsed)
+    }
 
     fun sessionEvents(
-        sessionId: String,
-        startElapsedMs: Long,
-        endElapsedMs: Long,
+        sessionId: String, startElapsedMs: Long, endElapsedMs: Long,
         publishedEventSequence: Long? = null,
-    ): List<SessionEventRecord> =
-        requireNotNull(sessionStore) { "Session store is unavailable" }
-            .sessionEvents(sessionId, startElapsedMs, endElapsedMs, publishedEventSequence)
+    ): List<SessionEventRecord> {
+        val value = rustSessionQuery(json(
+            "command" to "session_events", "path" to sessionPath(sessionId),
+            "start_elapsed_ms" to startElapsedMs, "end_elapsed_ms" to endElapsedMs,
+            "limit" to 500, "after_elapsed_ms" to null, "after_sequence" to null,
+            "boundary" to boundary(sessionSnapshot(sessionId), eventSequence = publishedEventSequence),
+        ))
+        return value.array("rows").objects().mapNotNull { row ->
+            SessionEventRecord(
+                row.long("sequence")?.toString() ?: return@mapNotNull null,
+                row.long("elapsed_ms") ?: return@mapNotNull null,
+                row.string("kind") ?: return@mapNotNull null,
+                row.string("details_json") ?: return@mapNotNull null,
+                row.long("source_sample_sequence"),
+            )
+        }
+    }
 
     fun querySessionLocations(
-        sessionId: String,
-        startElapsedMs: Long,
-        endElapsedMs: Long,
-        limit: Int,
-        cursor: String?,
-        publishedLocationSequence: Long?,
-    ): SessionLocationPageRecord =
-        requireNotNull(sessionStore) { "Session store is unavailable" }
-            .queryLocations(sessionId, startElapsedMs, endElapsedMs, limit, cursor, publishedLocationSequence)
+        sessionId: String, startElapsedMs: Long, endElapsedMs: Long, limit: Int,
+        cursor: String?, publishedLocationSequence: Long?,
+    ): SessionLocationPageRecord {
+        val snapshot = sessionSnapshot(sessionId)
+        val after = cursor?.let { encoded -> runCatching {
+            JSONObject(String(Base64.decode(encoded, Base64.DEFAULT), Charsets.UTF_8))
+                .long("locationSequence")
+        }.getOrNull() }
+        val value = rustSessionQuery(json(
+            "command" to "session_locations", "path" to sessionPath(sessionId),
+            "start_elapsed_ms" to startElapsedMs, "end_elapsed_ms" to endElapsedMs,
+            "limit" to limit, "after_location_sequence" to after,
+            "boundary" to boundary(snapshot, locationSequence = publishedLocationSequence),
+        ))
+        val points = value.array("rows").objects().mapNotNull { row ->
+            SessionLocationPointRecord(
+                row.long("location_sequence") ?: return@mapNotNull null,
+                row.long("elapsed_ms") ?: return@mapNotNull null,
+                row.double("latitude") ?: return@mapNotNull null,
+                row.double("longitude") ?: return@mapNotNull null,
+                row.double("accuracy_m"),
+                Instant.ofEpochMilli(row.long("observed_at_epoch_ms") ?: return@mapNotNull null),
+            )
+        }
+        val gaps = value.array("gaps").objects().mapNotNull { row ->
+            SessionLocationGapRecord(
+                row.long("start_elapsed_ms") ?: return@mapNotNull null,
+                row.long("end_elapsed_ms") ?: return@mapNotNull null,
+                "noFix",
+            )
+        }
+        val next = value.long("next_location_sequence")?.let { sequence ->
+            Base64.encodeToString(json(
+                "sessionId" to sessionId, "startElapsedMs" to startElapsedMs,
+                "endElapsedMs" to endElapsedMs, "historyRevision" to snapshot.historyRevision,
+                "locationSequence" to sequence,
+            ).toString().toByteArray(), Base64.NO_WRAP)
+        }
+        return SessionLocationPageRecord(points, gaps, next, snapshot)
+    }
 
     fun sessionExtensionFields(sessionId: String): List<String> =
-        requireNotNull(sessionStore) { "Session store is unavailable" }
-            .sessionExtensionFields(sessionId)
+        rustSessionQuery(json("command" to "session_fields", "path" to sessionPath(sessionId)))
+            .array("rows").objects().mapNotNull { row ->
+                row.string("name")?.takeIf { row.string("source") == "extension" }
+            }
 
-    fun sessionHistoryConfiguration(sessionId: String): SessionHistoryConfiguration =
-        requireNotNull(sessionStore) { "Session store is unavailable" }
-            .sessionHistoryConfiguration(sessionId)
+    fun sessionHistoryConfiguration(sessionId: String): SessionHistoryConfiguration {
+        val value = rustSessionQuery(json("command" to "session_metadata", "path" to sessionPath(sessionId)))
+        return SessionHistoryConfiguration(
+            value.requireLong("expected_riding_persistence_ms"),
+            value.requireLong("expected_idle_persistence_ms"),
+            value.requireLong("retained_resolution_seconds"),
+        )
+    }
 
-    fun sessionPruneMetadata(sessionId: String): SessionPruneMetadataRecord =
-        requireNotNull(sessionStore) { "Session store is unavailable" }
-            .sessionPruneMetadata(sessionId)
+    fun sessionPruneMetadata(sessionId: String): SessionPruneMetadataRecord {
+        val value = rustSessionQuery(json("command" to "session_metadata", "path" to sessionPath(sessionId)))
+        return SessionPruneMetadataRecord(
+            value.long("retained_resolution_seconds")?.takeUnless { it == 0L },
+            value.optLong("recorded_sample_count"), value.optLong("stored_sample_count"),
+            value.string("prune_policy"),
+        )
+    }
 
     fun <T> withSessionReadCancellation(cancellation: SessionReadCancellation, body: () -> T): T =
-        requireNotNull(sessionStore) { "Session store is unavailable" }
-            .withSessionReadCancellation(cancellation, body)
+        cancellation.register(rustRuntime::interrupt).use { body() }
 
-    fun cancelHistoricalReads(sessionId: String) {
-        sessionStore?.cancelHistoricalReads(sessionId)
+    fun cancelHistoricalReads(sessionId: String) = sessions().cancelHistoricalReads(sessionId)
+    fun prunePreview(sessionId: String, targetResolutionSeconds: Long) =
+        rustPrune(sessionId, targetResolutionSeconds, false)
+    fun pruneSession(sessionId: String, targetResolutionSeconds: Long): SessionPrunePreviewRecord {
+        sessions().cancelHistoricalReads(sessionId)
+        return rustPrune(sessionId, targetResolutionSeconds, true).also { sessions().reconcileSession(sessionId) }
     }
-
-    fun prunePreview(sessionId: String, targetResolutionSeconds: Long): SessionPrunePreviewRecord =
-        requireNotNull(sessionStore) { "Session store is unavailable" }
-            .prunePreview(sessionId, targetResolutionSeconds)
-
-    fun pruneSession(sessionId: String, targetResolutionSeconds: Long): SessionPrunePreviewRecord =
-        requireNotNull(sessionStore) { "Session store is unavailable" }
-            .pruneSession(sessionId, targetResolutionSeconds)
-
-    fun maintenanceJob(): SessionMaintenanceJobRecord? = sessionStore?.maintenanceJob()
-
-    fun saveMaintenanceJob(job: SessionMaintenanceJobRecord) {
-        requireNotNull(sessionStore) { "Session store is unavailable" }.saveMaintenanceJob(job)
-    }
-
-    fun cancelMaintenanceJob(operationId: String): SessionMaintenanceJobRecord? =
-        requireNotNull(sessionStore) { "Session store is unavailable" }.cancelMaintenanceJob(operationId)
-
     fun querySampleWindow(
-        sessionId: String,
-        centerElapsedMs: Long,
-        beforeMs: Long,
-        afterMs: Long,
-        fields: List<String>,
-        publishedSampleSequence: Long? = null,
-    ): List<SessionSeriesPoint> =
-        requireNotNull(sessionStore) { "Session store is unavailable" }
-            .querySampleWindow(sessionId, centerElapsedMs, beforeMs, afterMs, fields, publishedSampleSequence)
-
-    fun deleteSession(sessionId: String) =
-        requireNotNull(sessionStore) { "Session store is unavailable" }.deleteSession(sessionId)
-
-    fun cancelPendingDelete(operationId: String): Boolean =
-        requireNotNull(sessionStore) { "Session store is unavailable" }.cancelPendingDelete(operationId)
-
-    fun exportSession(sessionId: String, format: String): SessionExportRecord =
-        requireNotNull(sessionStore) { "Session store is unavailable" }
-            .exportSession(sessionId, format)
-
-    fun importSessionArchive(data: ByteArray): String =
-        requireNotNull(sessionStore) { "Session store is unavailable" }
-            .importSessionArchive(data)
+        sessionId: String, centerElapsedMs: Long, beforeMs: Long, afterMs: Long,
+        fields: List<String>, publishedSampleSequence: Long? = null,
+    ) = rustSessionSamples(
+        sessionId, maxOf(0, centerElapsedMs - beforeMs), centerElapsedMs + afterMs,
+        fields, 2_000, publishedSampleSequence,
+    )
 
     @Synchronized
     fun startDiscovery(): String {
-        check(bluetoothState.radio == BluetoothRadioState.POWERED_ON) {
-            "Bluetooth is unavailable"
-        }
-        check(
-            bluetoothState.scanPermission == BluetoothPermissionState.GRANTED ||
-                bluetoothState.scanPermission == BluetoothPermissionState.NOT_REQUIRED,
-        ) {
-            "Bluetooth scan permission is required"
-        }
+        check(bluetoothState.radio == BluetoothRadioState.POWERED_ON)
+        check(bluetoothState.scanPermission in setOf(
+            BluetoothPermissionState.GRANTED, BluetoothPermissionState.NOT_REQUIRED,
+        ))
         activeScanId?.let { return it }
         val scanId = "scan-${++scanSequence}"
         activeScanId = scanId
@@ -418,7 +369,7 @@ class ApplicationService(
     @Synchronized
     fun stopDiscovery(scanId: String) {
         val active = activeScanId ?: return
-        require(scanId == active) { "Unknown scan" }
+        require(scanId == active)
         bluetooth.stopDiscovery()
         activeScanId = null
         events.publish(discoverySnapshot())
@@ -426,12 +377,10 @@ class ApplicationService(
 
     @Synchronized
     fun connect(deviceId: DeviceId, trackingMode: TrackingMode = TrackingMode.SAVED) {
-        require(knownDevicesById.containsKey(deviceId)) { "Unknown device" }
-        require(activeDeviceId == null || activeDeviceId == deviceId) {
-            "Only one board can be active"
-        }
-        if (activeDeviceId == deviceId && connectionState == ConnectionState.FAILED && this.trackingMode != trackingMode) {
-            error("A retry must keep the active tracking mode")
+        require(knownDevicesById.containsKey(deviceId))
+        require(activeDeviceId == null || activeDeviceId == deviceId)
+        if (activeDeviceId == deviceId && connectionState == ConnectionState.FAILED) {
+            require(this.trackingMode == trackingMode)
         }
         if (activeScanId != null) {
             bluetooth.stopDiscovery()
@@ -444,15 +393,12 @@ class ApplicationService(
         if (logStore.active() == null) {
             sessionControllerRoute = null
             sessionControllerUuid = null
-            sessionFirmware = null
-            sessionRefloatPackageVersion = null
         }
-        latestPersistedSample = null
-        latestLocation = null
         explicitDisconnect = false
         cancelReconnect()
-        telemetryPolling.resetSession()
-        resetFirmwareDiscovery()
+        latestPersistedSample = null
+        latestLocation = null
+        performRustCommand(json("command" to "reset", "now_ms" to clock.monotonicMillis()))
         transition(ConnectionState.CONNECTING)
         bluetooth.connect(deviceId)
     }
@@ -460,346 +406,30 @@ class ApplicationService(
     @Synchronized
     fun onBluetoothEvent(event: BluetoothEvent) {
         when (event) {
-            is BluetoothEvent.StateChanged -> {
-                bluetoothState = event.state
-                if (
-                    (
-                        event.state.radio != BluetoothRadioState.POWERED_ON ||
-                            !permissionAllowsUse(event.state.scanPermission)
-                        ) &&
-                    activeScanId != null
-                ) {
-                    bluetooth.stopDiscovery()
-                    activeScanId = null
-                }
-                if (
-                    permissionIsTerminal(event.state.connectPermission) &&
-                    activeDeviceId != null &&
-                    !explicitDisconnect
-                ) {
-                    finishReconnect("bluetooth_permission_denied")
-                } else if (
-                    event.state.radio != BluetoothRadioState.POWERED_ON &&
-                    activeDeviceId != null &&
-                    (trackingMode == TrackingMode.SAVED || trackingMode == TrackingMode.GUEST) &&
-                    !explicitDisconnect
-                ) {
-                    beginReconnect()
-                }
-                events.publish(event.state)
-            }
+            is BluetoothEvent.StateChanged -> handleBluetoothState(event.state)
             is BluetoothEvent.DeviceFound -> {
                 val device = DiscoveredDevice(
-                    event.deviceId,
-                    event.advertisedName,
-                    event.rssi,
-                    clock.now(),
-                    savedDeviceId = savedDeviceIdFor(event.deviceId),
+                    event.deviceId, event.advertisedName, event.rssi, clock.now(),
+                    savedDeviceIdFor(event.deviceId),
                 )
                 knownDevicesById[event.deviceId] = device
                 scheduleDiscoveryExpiry()
                 events.publish(device)
+                events.publish(discoverySnapshot())
             }
             is BluetoothEvent.ScanFailed -> {
                 activeScanId = null
                 events.publish(event.reason)
             }
-            is BluetoothEvent.ConnectionChanged -> {
-                if (event.deviceId != activeDeviceId) return
-                if (
-                    (event.state == ConnectionState.FAILED || event.state == ConnectionState.DISCONNECTED) &&
-                    refloatMutations.controllerActions(false).pendingAction == ControllerPendingAction.SHUTDOWN
-                ) {
-                    shutdownIntentTimer?.cancel()
-                    shutdownIntentTimer = null
-                    refloatMutations.clearShutdown(vescGeneration)
-                    finishReconnect("controller_shutdown")
-                    return
-                }
-                if (event.state == ConnectionState.READY) {
-                    if (protocol == null) {
-                        completeWithoutProtocol()
-                        return
-                    }
-                    transition(ConnectionState.IDENTIFYING)
-                    startFirmwareDiscovery(event.deviceId)
-                    return
-                }
-                if (
-                    (event.state == ConnectionState.FAILED ||
-                        event.state == ConnectionState.DISCONNECTED) &&
-                    !explicitDisconnect &&
-                    (trackingMode == TrackingMode.SAVED || trackingMode == TrackingMode.GUEST)
-                ) {
-                    beginReconnect()
-                    return
-                }
-                if (
-                    event.state == ConnectionState.FAILED &&
-                    logStore.active() == null &&
-                    !explicitDisconnect
-                ) {
-                    controllerDiscovery.markFailure(
-                        ConnectionIssueCode.TRANSPORT_SETUP_FAILED,
-                        "The VESC Bluetooth transport could not be prepared.",
-                    )
-                    transition(ConnectionState.FAILED)
-                    return
-                }
-                if (
-                    event.state == ConnectionState.DISCONNECTED &&
-                    connectionState == ConnectionState.FAILED &&
-                    !explicitDisconnect
-                ) {
-                    return
-                }
-                if (event.state == ConnectionState.DISCONNECTED) {
-                    cancelReconnect()
-                    activeDeviceId = null
-                    activeDeviceName = null
-                    latestPersistedSample = null
-                    latestLocation = null
-                    resetFirmwareDiscovery()
-                }
-                transition(event.state)
-            }
-            is BluetoothEvent.Notification -> {
-                if (event.deviceId != activeDeviceId) return
-                val decoder = protocol
-                if (decoder == null) {
-                    events.publish(event)
-                    return
-                }
-                try {
-                    decoder.receive(event.bytes).forEach { message ->
-                        val requestContext = vescRequests.inFlightRequest()?.context
-                        val identity = when (message) {
-                            is VescProtocolMessage.Firmware -> VescCommand.GET_FIRMWARE_VERSION.id to null
-                            is VescProtocolMessage.CurrentLimits -> VescCommand.GET_MOTOR_CONFIGURATION.id to null
-                            is VescProtocolMessage.CanDevices -> VescCommand.PING_CAN.id to null
-                            is VescProtocolMessage.BmsValuesPayload -> VescCommand.BMS_GET_VALUES.id to null
-                            is VescProtocolMessage.RefloatInfo -> VescCommand.CUSTOM_APP_DATA.id to RefloatCommand.INFO.id
-                            is VescProtocolMessage.RefloatTelemetryLayout ->
-                                VescCommand.CUSTOM_APP_DATA.id to RefloatCommand.REALTIME_DATA_INTERNAL_IDS.id
-                            is VescProtocolMessage.RefloatTelemetry -> VescCommand.CUSTOM_APP_DATA.id to
-                                if (message.value.kind == RefloatTelemetryKind.REALTIME) {
-                                    RefloatCommand.REALTIME_DATA_INTERNAL.id
-                                } else {
-                                    RefloatCommand.GET_ALL_DATA.id
-                                }
-                            is VescProtocolMessage.RefloatLighting ->
-                                VescCommand.CUSTOM_APP_DATA.id to message.command.id
-                            is VescProtocolMessage.CustomConfiguration -> when (val response = message.value) {
-                                is fail.acheron.floatview.protocol.vesc.VescCustomConfigurationResponse.SchemaChunk ->
-                                    VescCommand.GET_CUSTOM_CONFIGURATION_XML.id to null
-                                is fail.acheron.floatview.protocol.vesc.VescCustomConfigurationResponse.Values -> response.command.id to null
-                                fail.acheron.floatview.protocol.vesc.VescCustomConfigurationResponse.WriteAcknowledgement ->
-                                    VescCommand.SET_CUSTOM_CONFIGURATION.id to null
-                            }
-                        }
-                        val deferNext = message is VescProtocolMessage.RefloatTelemetry
-                        var deferredResumed = false
-                        if (
-                            !vescRequests.receive(
-                                event.bytes,
-                                identity.first,
-                                identity.second,
-                                validContext = { context -> matchesCustomConfiguration(message, context) },
-                                deferNext = deferNext,
-                            )
-                        ) return@forEach
-                        when (message) {
-                            is VescProtocolMessage.Firmware -> {
-                                val attributed = attributedFirmware(message.value, requestContext)
-                                if (requestContext is VescRequestContext.AuxiliaryFirmware) {
-                                    events.publish(
-                                        "bms_discovery_identity:${bmsRouteDiagnostic(attributed.canId)}:" +
-                                            "type=${attributed.hardwareType}:" +
-                                            "version=${attributed.major}.${attributed.minor}:" +
-                                            "hardware=${bmsHardwareDiagnostic(attributed.hardwareName)}",
-                                    )
-                                    performAuxiliaryEffect(
-                                        auxiliaryDiscovery.acceptFirmware(
-                                            attributed, auxiliaryDiscovery.generation,
-                                        ),
-                                    )
-                                } else {
-                                    handleFirmware(attributed)
-                                }
-                            }
-                            is VescProtocolMessage.CurrentLimits -> {
-                                if (connectionState == ConnectionState.READY) {
-                                    currentLimits = message.value
-                                }
-                            }
-                            is VescProtocolMessage.CanDevices -> {
-                                if (requestContext == VescRequestContext.AuxiliaryCanPing) {
-                                    events.publish("bms_discovery_scan_result:count=${message.canIds.size}")
-                                    performAuxiliaryEffect(
-                                        auxiliaryDiscovery.acceptCanIds(
-                                            message.canIds, auxiliaryDiscovery.generation,
-                                        ),
-                                    )
-                                } else {
-                                    handleCanDevices(message.canIds)
-                                }
-                            }
-                            is VescProtocolMessage.BmsValuesPayload -> {
-                                val route = (requestContext as? VescRequestContext.BmsValues)?.route
-                                    ?: return@forEach
-                                val expectedCanId = (route as? VescRequestRoute.Can)?.canId
-                                try {
-                                    val snapshot = fail.acheron.floatview.protocol.VescPayloadDecoder.bmsValues(
-                                        message.payload, expectedCanId, clock.now(),
-                                    )
-                                    bmsFailureCount = 0
-                                    auxiliaryDiscovery.acceptSnapshot(snapshot)
-                                    events.publish("bms_values_attached:${bmsRouteDiagnostic(expectedCanId)}")
-                                    events.publish(snapshot)
-                                } catch (_: Exception) {
-                                    events.publish("bms_values_decode_failed:${bmsRouteDiagnostic(expectedCanId)}")
-                                    recordBmsFailure()
-                                }
-                            }
-                            is VescProtocolMessage.RefloatInfo -> {
-                                if (connectionState != ConnectionState.IDENTIFYING) return@forEach
-                                performDiscoveryEffect(
-                                    controllerDiscovery.acceptRefloatInfo(message.decision),
-                                )
-                            }
-                            is VescProtocolMessage.RefloatTelemetryLayout -> {
-                                telemetryPolling.layoutEstablished()
-                                performDiscoveryEffect(
-                                    controllerDiscovery.acceptTelemetryLayout(
-                                        message.fields,
-                                        message.runtimeFields,
-                                        message.supported,
-                                    ),
-                                )
-                            }
-                            is VescProtocolMessage.RefloatTelemetry -> {
-                                latestRefloatTelemetry = message.value
-                                latestRefloatTelemetryMonotonicMs = clock.monotonicMillis()
-                                val pending = refloatMutations.snapshot()?.pendingAction
-                                val updated = refloatMutations.observeTelemetry(message.value)
-                                if (pending != null && updated?.pendingAction == null) {
-                                    refloatConfiguration.invalidateCurrent()
-                                    finishRefloatMutation(Result.success(updated!!))
-                                }
-                                message.value.packageMode?.let {
-                                    if (it == PackageMode.FLYWHEEL) {
-                                        cancelFlywheelProhibitedRequests(
-                                            updated?.pendingAction == RefloatPendingAction.FLYWHEEL,
-                                        )
-                                        if (updated?.pendingAction != null && updated.pendingAction != RefloatPendingAction.FLYWHEEL) {
-                                            failRefloatMutation(vescGeneration)
-                                        }
-                                        refloatMutations.clearShutdown(vescGeneration)
-                                        refloatMutations.finishConfiguration(vescGeneration)
-                                    }
-                                    performRefloatConfigurationEffect(
-                                        refloatConfiguration.setFlywheel(it == PackageMode.FLYWHEEL),
-                                    )
-                                }
-                                vescRequests.resume()
-                                deferredResumed = true
-                                telemetryPolling.receive(message.value)
-                            }
-                            is VescProtocolMessage.RefloatLighting -> {
-                                val pending = refloatMutations.snapshot()?.pendingAction
-                                val updated = refloatMutations.observeLighting(message.state)
-                                if (pending != null && updated?.pendingAction == null) {
-                                    refloatConfiguration.invalidateCurrent()
-                                    finishRefloatMutation(Result.success(updated!!))
-                                }
-                            }
-                            is VescProtocolMessage.CustomConfiguration -> {
-                                val context = requestContext ?: return@forEach
-                                runCatching {
-                                    refloatConfiguration.accept(message.value, context, vescGeneration)
-                                }.onSuccess {
-                                    performRefloatConfigurationEffect(it)
-                                    if (context is VescRequestContext.RefloatConfigurationVerification) {
-                                        refloatMutations.finishConfiguration(vescGeneration)
-                                        telemetryPolling.refresh()
-                                        val route = controllerDiscovery.controllerRoute
-                                        val profile = refloatProfile
-                                        if (route != null && profile != null) requestRefloatLighting(route, profile)
-                                    }
-                                    events.publish(refloatConfiguration.summary())
-                                    if (
-                                        context is VescRequestContext.RefloatConfigurationValues ||
-                                        context is VescRequestContext.RefloatConfigurationVerification
-                                    ) finishRefloatConfigurationRequest(Result.success(Unit))
-                                }.onFailure {
-                                    if (
-                                        context is VescRequestContext.RefloatConfigurationWrite ||
-                                        context is VescRequestContext.RefloatConfigurationVerification
-                                    ) refloatMutations.finishConfiguration(vescGeneration)
-                                    finishRefloatConfigurationRequest(Result.failure(it))
-                                    events.publish(it)
-                                }
-                            }
-                        }
-                        if (deferNext && !deferredResumed) vescRequests.resume()
-                        if (message !is VescProtocolMessage.BmsValuesPayload) events.publish(message)
-                    }
-                } catch (error: Exception) {
-                    events.publish(error)
-                }
+            is BluetoothEvent.ConnectionChanged -> handleConnection(event.deviceId, event.state)
+            is BluetoothEvent.Notification -> if (event.deviceId == activeDeviceId) {
+                performRustCommand(json(
+                    "command" to "receive_bytes", "generation" to rustGeneration,
+                    "bytes" to event.bytes.unsigned(), "now_ms" to clock.monotonicMillis(),
+                    "observed_at_epoch_ms" to clock.now().toEpochMilli(),
+                ))
             }
         }
-    }
-
-    private fun matchesCustomConfiguration(
-        message: VescProtocolMessage,
-        context: VescRequestContext,
-    ): Boolean {
-        val response = (message as? VescProtocolMessage.CustomConfiguration)?.value ?: return true
-        return when {
-            response is fail.acheron.floatview.protocol.vesc.VescCustomConfigurationResponse.SchemaChunk &&
-                context is VescRequestContext.RefloatConfigurationSchema ->
-                response.index == context.index && response.offset == context.offset
-            response is fail.acheron.floatview.protocol.vesc.VescCustomConfigurationResponse.Values &&
-                context is VescRequestContext.RefloatConfigurationValues ->
-                response.index == context.index && response.command == if (context.defaults) {
-                    VescCommand.GET_CUSTOM_CONFIGURATION_DEFAULT
-                } else {
-                    VescCommand.GET_CUSTOM_CONFIGURATION
-                }
-            response is fail.acheron.floatview.protocol.vesc.VescCustomConfigurationResponse.Values &&
-                context is VescRequestContext.RefloatConfigurationVerification ->
-                response.index == context.index && response.command == VescCommand.GET_CUSTOM_CONFIGURATION
-            response is fail.acheron.floatview.protocol.vesc.VescCustomConfigurationResponse.WriteAcknowledgement &&
-                context is VescRequestContext.RefloatConfigurationWrite -> true
-            else -> false
-        }
-    }
-
-    private fun cancelFlywheelProhibitedRequests(preservingRefloatControl: Boolean) {
-        vescRequests.cancelMatching(
-            predicate = { context ->
-                when (context) {
-                    is VescRequestContext.RefloatControl -> !preservingRefloatControl
-                    is VescRequestContext.ControllerShutdown,
-                    is VescRequestContext.RefloatConfigurationWrite,
-                    is VescRequestContext.RefloatConfigurationVerification,
-                    -> true
-                    is VescRequestContext.RefloatConfigurationValues -> !context.defaults
-                    else -> false
-                }
-            },
-            resume = false,
-        )
-    }
-
-    private fun attributedFirmware(value: FirmwareRecord, context: VescRequestContext?): FirmwareRecord {
-        val canId = when (context) {
-            is VescRequestContext.ControllerFirmware -> (context.route as? VescRequestRoute.Can)?.canId
-            is VescRequestContext.AuxiliaryFirmware -> (context.route as? VescRequestRoute.Can)?.canId
-            else -> null
-        }
-        return value.copy(canId = canId ?: value.canId)
     }
 
     @Synchronized
@@ -808,14 +438,15 @@ class ApplicationService(
         transition(ConnectionState.DISCONNECTING)
         explicitDisconnect = true
         cancelReconnect()
-        telemetryPolling.cancelLayout()
-        telemetryPolling.stop()
         stopLocationCapture()
         if (trackingMode == TrackingMode.SAVED) {
-            logStore.active()?.let {
-                events.publish(logStore.close(it.jobId, clock.now(), "explicit_disconnect"))
+            logStore.active()?.let { active ->
+                performRustCommand(json("command" to "detach_session"))
+                rustSessionAttached = false
+                events.publish(logStore.close(active.jobId, clock.now(), "explicit_disconnect"))
             }
         }
+        cancelRustTimers()
         bluetooth.disconnect(deviceId)
     }
 
@@ -829,40 +460,335 @@ class ApplicationService(
         }
         val active = logStore.active() ?: return
         updateLocationCapture(sample.rideState)
-        if (sampling.shouldPersist(sample.rideState, sample.elapsedMs)) {
-            logStore.append(active.jobId, listOf(sample))
-            latestPersistedSample = sample
-            events.publish(sample)
-        }
+        // Rust commits telemetry before publishing it; this method remains for test/software hosts.
+        if (!rustSessionAttached) logStore.append(active.jobId, listOf(sample))
+        latestPersistedSample = sample
+        events.publish(sample)
     }
 
     @Synchronized
+    fun discoverySnapshot() = DiscoverySnapshot(bluetoothState, activeScanId, knownDevices)
+
+    @Synchronized
+    fun activeConnectionSnapshot(): ActiveConnectionSnapshot? {
+        val deviceId = activeDeviceId ?: return null
+        val activeSession = if (trackingMode == TrackingMode.SAVED) {
+            logStore.active()?.let { runCatching { session(it.sessionId.value) }.getOrNull() }
+        } else null
+        return ActiveConnectionSnapshot(
+            deviceId, activeDeviceName, connectionState, deviceKind, trackingMode,
+            if (trackingMode == TrackingMode.SAVED) currentSavedDevice else null,
+            activeSession, latestPersistedSample, latestLocation, currentLimits,
+            rustControllerRoute, rustControllerCandidates, rustConnectionIssue,
+            rustBmsState, rustControls, rustControllerActions,
+        )
+    }
+
+    @Synchronized
+    fun shutdownController() = performRustCommand(json(
+        "command" to "shutdown_controller", "generation" to rustGeneration,
+        "now_ms" to clock.monotonicMillis(),
+    ))
+
+    fun firmwareSnapshot(): FirmwareRecord? = synchronized(this) { rustFirmware }
+    fun refloatPackageVersionSnapshot(): String? = synchronized(this) { rustRefloatPackageVersion }
+    fun refloatConfigurationSummarySnapshot() = synchronized(this) { rustConfigurationSummary }
+    fun refloatConfigurationSchemaSnapshot() = synchronized(this) { rustConfigurationSchema }
+    fun refloatConfigurationValuesSnapshot(defaults: Boolean) = synchronized(this) {
+        if (defaults) rustConfigurationDefaults else rustConfigurationCurrent
+    }
+
+    fun setRefloatControl(control: RefloatBooleanControl, enabled: Boolean): RefloatControls {
+        val waiter = synchronized(this) {
+            RefloatMutationWaiter().also {
+                refloatWaiter = it
+                performRustCommand(json(
+                    "command" to "set_control", "generation" to rustGeneration,
+                    "control" to control.wireValue, "enabled" to enabled,
+                    "now_ms" to clock.monotonicMillis(),
+                ))
+            }
+        }
+        synchronized(this) { rustControls }?.takeIf { it.pendingAction == null }?.let { return it }
+        return waiter.await()
+    }
+
+    fun clearRefloatFatalError(): RefloatControls {
+        val waiter = synchronized(this) {
+            RefloatMutationWaiter().also {
+                refloatWaiter = it
+                performRustCommand(json(
+                    "command" to "clear_fatal_error", "generation" to rustGeneration,
+                    "now_ms" to clock.monotonicMillis(),
+                ))
+            }
+        }
+        synchronized(this) { rustControls }?.takeIf { it.pendingAction == null }?.let { return it }
+        return waiter.await()
+    }
+
+    fun readRefloatConfiguration(defaults: Boolean): RefloatConfigurationValues {
+        val waiter = synchronized(this) {
+            RefloatConfigurationRequestWaiter().also {
+                refloatConfigurationWaiter = it
+                refloatConfigurationObservedPending = false
+                performRustCommand(json(
+                    "command" to "read_configuration", "generation" to rustGeneration,
+                    "defaults" to defaults, "now_ms" to clock.monotonicMillis(),
+                ))
+            }
+        }
+        waiter.await()
+        return synchronized(this) {
+            if (defaults) rustConfigurationDefaults else rustConfigurationCurrent
+        } ?: throw RefloatConfigurationServiceException(RefloatConfigurationServiceError.INVALID_STATE)
+    }
+
+    fun writeRefloatConfiguration(
+        packageVersion: String, fingerprint: String, wireSignature: Long,
+        baseRevision: Long, values: Map<String, RefloatConfigurationValue>,
+    ): RefloatConfigurationValues = writeRefloatConfiguration(
+        "write", packageVersion, fingerprint, wireSignature, baseRevision, values,
+    )
+
+    private fun writeRefloatConfiguration(
+        mutation: String, packageVersion: String, fingerprint: String, wireSignature: Long,
+        baseRevision: Long, values: Map<String, RefloatConfigurationValue>,
+    ): RefloatConfigurationValues {
+        val waiter = synchronized(this) {
+            RefloatConfigurationRequestWaiter().also {
+                refloatConfigurationWaiter = it
+                refloatConfigurationObservedPending = false
+                performRustCommand(json(
+                    "command" to "write_configuration", "generation" to rustGeneration,
+                    "mutation" to mutation, "package_version" to packageVersion,
+                    "fingerprint" to fingerprint, "wire_signature" to wireSignature,
+                    "base_revision" to baseRevision, "values" to configurationValuesJson(values),
+                    "now_ms" to clock.monotonicMillis(),
+                ))
+            }
+        }
+        waiter.await()
+        return synchronized(this) { rustConfigurationCurrent }
+            ?: throw RefloatConfigurationServiceException(RefloatConfigurationServiceError.INVALID_STATE)
+    }
+
+    fun refloatTunes(
+        identity: RefloatConfigurationIdentityRecord, limit: Int, cursor: String?,
+    ) = product().refloatConfigurations(identity, limit, cursor)
+
+    fun refloatTune(configurationId: String) = product().refloatConfiguration(configurationId)
+
+    fun createRefloatTune(
+        name: String, description: String?, identity: RefloatConfigurationIdentityRecord,
+        sourceRevision: Long, values: Map<String, RefloatConfigurationValue>,
+    ): RefloatConfigurationRecord {
+        validateRefloatTuneValues(identity, sourceRevision, values)
+        return product().createRefloatConfiguration(
+            name, description, identity, configurationValuesString(values), clock.now(),
+        )
+    }
+
+    fun updateRefloatTune(
+        configurationId: String, expectedRevision: Int, name: String,
+        description: String?, values: Map<String, RefloatConfigurationValue>,
+    ): RefloatConfigurationRecord {
+        val record = product().refloatConfiguration(configurationId)
+        validateRefloatTuneValues(record.identity, rustConfigurationCurrent?.revision, values)
+        return product().updateRefloatConfiguration(
+            configurationId, expectedRevision, name, description,
+            configurationValuesString(values), clock.now(),
+        )
+    }
+
+    fun deleteRefloatTune(configurationId: String, expectedRevision: Int) =
+        product().deleteRefloatConfiguration(configurationId, expectedRevision)
+
+    fun applyRefloatTune(
+        configurationId: String, expectedRevision: Int, baseRevision: Long,
+    ): RefloatConfigurationValues {
+        val record = product().refloatConfiguration(configurationId)
+        if (record.revision != expectedRevision) {
+            throw ProductStoreException.RefloatConfigurationRevisionConflict(record.revision)
+        }
+        return writeRefloatConfiguration(
+            "tune_apply", record.identity.packageVersion, record.identity.schemaFingerprint,
+            record.identity.wireSignature, baseRevision,
+            configurationValues(JSONObject(record.valuesJson)),
+        )
+    }
+
+    private fun validateRefloatTuneValues(
+        identity: RefloatConfigurationIdentityRecord,
+        sourceRevision: Long?,
+        values: Map<String, RefloatConfigurationValue>,
+    ) {
+        val summary = rustConfigurationSummary
+        val valid = identity.packageName == "refloat" &&
+            summary.packageVersion == identity.packageVersion &&
+            summary.schemaFingerprint == identity.schemaFingerprint &&
+            summary.wireSignature == identity.wireSignature &&
+            sourceRevision != null && rustConfigurationCurrent?.revision == sourceRevision &&
+            rustConfigurationSchema != null && values.values.all {
+                it !is RefloatConfigurationValue.Decimal || it.value.isFinite()
+            }
+        if (!valid) throw RefloatConfigurationServiceException(RefloatConfigurationServiceError.INVALID_STATE)
+    }
+
+    private fun handleBluetoothState(state: BluetoothState) {
+        bluetoothState = state
+        if ((state.radio != BluetoothRadioState.POWERED_ON || !permissionAllowsUse(state.scanPermission)) &&
+            activeScanId != null
+        ) {
+            bluetooth.stopDiscovery()
+            activeScanId = null
+        }
+        if (permissionIsTerminal(state.connectPermission) && activeDeviceId != null && !explicitDisconnect) {
+            finishReconnect("bluetooth_permission_denied")
+        } else if (state.radio != BluetoothRadioState.POWERED_ON && activeDeviceId != null && !explicitDisconnect) {
+            beginReconnect()
+        }
+        events.publish(state)
+    }
+
+    private fun handleConnection(deviceId: DeviceId, state: ConnectionState) {
+        if (deviceId != activeDeviceId) return
+        if (state in setOf(ConnectionState.FAILED, ConnectionState.DISCONNECTED) &&
+            rustControllerActions.pendingAction == ControllerPendingAction.SHUTDOWN
+        ) {
+            finishReconnect("controller_shutdown")
+            return
+        }
+        if (state == ConnectionState.READY) {
+            transition(ConnectionState.IDENTIFYING)
+            beginRustApplication()
+            return
+        }
+        if (state in setOf(ConnectionState.FAILED, ConnectionState.DISCONNECTED) &&
+            !explicitDisconnect && trackingMode in setOf(TrackingMode.SAVED, TrackingMode.GUEST)
+        ) {
+            beginReconnect()
+            return
+        }
+        if (state == ConnectionState.DISCONNECTED) {
+            cancelReconnect()
+            activeDeviceId = null
+            activeDeviceName = null
+            latestPersistedSample = null
+            latestLocation = null
+        }
+        transition(state)
+    }
+
+    private fun beginReconnect() {
+        if (reconnectDurationMs <= 0) return finishReconnect("unexpected_disconnect")
+        if (reconnectStartedAtMs == null) {
+            reconnectStartedAtMs = clock.monotonicMillis()
+            reconnectAttempt = 0
+        }
+        transition(ConnectionState.RECONNECTING)
+        scheduleReconnectAttempt()
+    }
+
+    private fun scheduleReconnectAttempt() {
+        val activeScheduler = scheduler ?: return finishReconnect("reconnect_unavailable")
+        if (reconnectTimer != null || reconnectStartedAtMs == null) return
+        val remaining = reconnectDurationMs - (clock.monotonicMillis() - (reconnectStartedAtMs ?: 0))
+        if (remaining <= 0) return finishReconnect("reconnect_timeout")
+        val delay = minOf(1_000L shl minOf(reconnectAttempt, 5), MAX_RECONNECT_BACKOFF_MS, remaining)
+        reconnectTimer = activeScheduler.schedule(delay, ::performReconnectAttempt)
+    }
+
+    @Synchronized
+    private fun performReconnectAttempt() {
+        reconnectTimer = null
+        val deviceId = activeDeviceId ?: return
+        if (connectionState != ConnectionState.RECONNECTING) return
+        if (clock.monotonicMillis() - (reconnectStartedAtMs ?: 0) >= reconnectDurationMs) {
+            return finishReconnect("reconnect_timeout")
+        }
+        if (bluetoothState.radio != BluetoothRadioState.POWERED_ON) return scheduleReconnectAttempt()
+        reconnectAttempt += 1
+        bluetooth.connect(deviceId)
+    }
+
+    private fun finishReconnect(reason: String) {
+        val deviceId = activeDeviceId
+        cancelReconnect()
+        if (rustSessionAttached) {
+            runCatching { performRustCommand(json("command" to "detach_session")) }
+            rustSessionAttached = false
+        }
+        if (trackingMode == TrackingMode.SAVED) {
+            logStore.active()?.let { active ->
+                runCatching { events.publish(logStore.close(active.jobId, clock.now(), reason)) }
+            }
+        }
+        stopLocationCapture()
+        cancelRustTimers()
+        deviceId?.let(bluetooth::disconnect)
+        activeDeviceId = null
+        activeDeviceName = null
+        currentSavedDevice = null
+        latestPersistedSample = null
+        latestLocation = null
+        rustConnectionIssue = null
+        transition(ConnectionState.DISCONNECTED)
+    }
+
+    private fun cancelReconnect() {
+        reconnectTimer?.cancel()
+        reconnectTimer = null
+        reconnectStartedAtMs = null
+        reconnectAttempt = 0
+    }
+
+    private fun transition(state: ConnectionState) {
+        connectionState = state
+        events.publish(state)
+    }
+
+    private fun scheduleDiscoveryExpiry() {
+        discoveryExpiryTimer?.cancel()
+        val generation = ++discoveryExpiryGeneration
+        discoveryExpiryTimer = scheduler?.schedule(DISCOVERY_EXPIRY_MS) {
+            synchronized(this) {
+                if (generation == discoveryExpiryGeneration) {
+                    knownDevicesById.clear()
+                    events.publish(discoverySnapshot())
+                }
+            }
+        }
+    }
+
+    private fun savedDeviceIdFor(deviceId: DeviceId): String? = runCatching {
+        productStore?.savedDevices()?.firstOrNull { it.bluetoothIdentifier == deviceId.value }?.savedDeviceId
+    }.getOrNull()
+
+    private fun product() = requireNotNull(productStore) { "Product store is unavailable" }
+    private fun sessions() = requireNotNull(sessionStore) { "Session store is unavailable" }
+
     private fun updateLocationCapture(rideState: RideState) {
         val provider = locationProvider
+        val enabled = runCatching { productStore?.settings()?.locationRecordingEnabled }.getOrDefault(false)
         val active = logStore.active()
-        val enabled = trackingMode == TrackingMode.SAVED &&
-            runCatching { settings().locationRecordingEnabled }.getOrDefault(false)
-        val providerState = provider?.state()
-        val eligible = enabled && rideState == RideState.RIDING && active != null &&
-            (providerState?.authorization == LocationProviderAuthorization.AUTHORIZED ||
-                providerState?.authorization == LocationProviderAuthorization.FOREGROUND_ONLY)
-        if (!eligible) {
+        if (trackingMode != TrackingMode.SAVED || provider == null || enabled != true ||
+            rideState != RideState.RIDING || active == null ||
+            provider.state().authorization !in setOf(
+                LocationProviderAuthorization.AUTHORIZED,
+                LocationProviderAuthorization.FOREGROUND_ONLY,
+            )
+        ) {
             stopLocationCapture()
             return
         }
         if (locationCaptureActive) return
-        val activeSession = requireNotNull(active)
-        val activeProvider = requireNotNull(provider)
         locationCaptureActive = true
         locationCaptureStartedMonotonicMs = clock.monotonicMillis()
-        locationCaptureBaseElapsedMs = latestPersistedSample?.elapsedMs ?: 0L
-        val jobId = activeSession.jobId
-        activeProvider.startUpdates { observation ->
-            ingestLocation(observation, jobId)
-        }
+        locationCaptureBaseElapsedMs = latestPersistedSample?.elapsedMs ?: 0
+        provider.startUpdates { observation -> ingestLocation(observation, active.jobId) }
     }
 
-    @Synchronized
     private fun stopLocationCapture() {
         if (!locationCaptureActive) return
         locationCaptureActive = false
@@ -874,1310 +800,772 @@ class ApplicationService(
     private fun ingestLocation(observation: LocationProviderObservation, jobId: JobId) {
         val started = locationCaptureStartedMonotonicMs ?: return
         if (!locationCaptureActive || logStore.active()?.jobId != jobId) return
-        val elapsedMs = locationCaptureBaseElapsedMs +
-            (clock.monotonicMillis() - started).coerceAtLeast(0L)
+        val elapsed = locationCaptureBaseElapsedMs + maxOf(0, clock.monotonicMillis() - started)
         runCatching {
-            logStore.appendLocations(
-                jobId,
-                listOf(
-                    LocationObservation(
-                        observation.observedAt,
-                        elapsedMs,
-                        observation.latitude,
-                        observation.longitude,
-                        observation.accuracyM,
-                    ),
-                ),
-            )
-        }.onSuccess {
+            performRustCommand(json(
+                "command" to "append_locations",
+                "locations" to listOf(json(
+                    "observed_at_epoch_ms" to observation.observedAt.toEpochMilli(),
+                    "elapsed_ms" to elapsed, "latitude" to observation.latitude,
+                    "longitude" to observation.longitude, "accuracy_m" to observation.accuracyM,
+                )),
+            ))
             latestLocation = LiveLocation(
-                latitude = observation.latitude,
-                longitude = observation.longitude,
-                accuracyM = observation.accuracyM,
-                observedAt = observation.observedAt,
+                observation.latitude, observation.longitude, observation.accuracyM, observation.observedAt,
             )
             events.publish(LocationUpdated)
-        }.onFailure(events::publish)
+        }.onFailure { events.publish(it) }
     }
 
-    @Synchronized
-    fun discoverySnapshot() = DiscoverySnapshot(bluetoothState, activeScanId, knownDevices)
+    private fun sessionPath(sessionId: String) = sessions().sessionPath(sessionId)
 
-    @Synchronized
-    fun activeConnectionSnapshot(): ActiveConnectionSnapshot? {
-        val deviceId = activeDeviceId ?: return null
-        val savedDevice = if (trackingMode == TrackingMode.SAVED) productStore?.savedDevices()
-            ?.firstOrNull { it.bluetoothIdentifier == deviceId.value }
-        else null
-        val activeSession = if (trackingMode == TrackingMode.SAVED) logStore.active()?.sessionId?.value?.let { sessionId ->
-            runCatching { sessionStore?.session(sessionId) }.getOrNull()
-        } else null
-        return ActiveConnectionSnapshot(
-            deviceId = deviceId,
-            advertisedName = activeDeviceName,
-            state = connectionState,
-            deviceKind = deviceKind,
-            trackingMode = trackingMode,
-            savedDevice = if (trackingMode == TrackingMode.SAVED) currentSavedDevice ?: savedDevice else null,
-            activeSession = activeSession,
-            latestSample = latestPersistedSample,
-            latestLocation = latestLocation,
-            currentLimits = currentLimits,
-            controllerRoute = controllerDiscovery.controllerRoute,
-            controllerCandidates = controllerDiscovery.controllerCandidates,
-            connectionIssue = controllerDiscovery.connectionIssue,
-            bms = auxiliaryDiscovery.state,
-            refloatControls = refloatMutations.snapshot(),
-            controllerActions = controllerActionsSnapshot(),
+    private fun rustSessionQuery(command: JSONObject): JSONObject = synchronized(this) {
+        rustSessionResult = null
+        performRustCommand(command)
+        val result = rustSessionResult ?: throw runtimeFailure()
+        rustSessionResult = null
+        result
+    }
+
+    private fun boundary(
+        snapshot: SessionPublishedSnapshotRecord,
+        sampleSequence: Long? = null,
+        eventSequence: Long? = null,
+        locationSequence: Long? = null,
+    ) = json(
+        "history_revision" to snapshot.historyRevision,
+        "sample_sequence" to (sampleSequence ?: snapshot.committedSampleSequence),
+        "event_sequence" to (eventSequence ?: snapshot.committedEventSequence),
+        "location_sequence" to (locationSequence ?: snapshot.committedLocationSequence),
+    )
+
+    private fun rustSessionSamples(
+        sessionId: String, startElapsedMs: Long, endElapsedMs: Long,
+        fields: List<String>, maxRows: Int, publishedSampleSequence: Long?,
+    ): List<SessionSeriesPoint> {
+        if (maxRows <= 0) throw SessionStoreException.InvalidRange
+        val snapshot = sessionSnapshot(sessionId)
+        val path = sessionPath(sessionId)
+        val rows = mutableListOf<SessionSeriesPoint>()
+        var afterElapsed: Long? = null
+        var afterSequence: Long? = null
+        while (rows.size < maxRows) {
+            val value = rustSessionQuery(json(
+                "command" to "session_samples", "path" to path, "fields" to fields,
+                "start_elapsed_ms" to startElapsedMs, "end_elapsed_ms" to endElapsedMs,
+                "limit" to minOf(2_000, maxRows - rows.size),
+                "after_elapsed_ms" to afterElapsed, "after_sequence" to afterSequence,
+                "boundary" to boundary(snapshot, sampleSequence = publishedSampleSequence),
+            ))
+            rows += value.array("rows").objects().mapNotNull { row ->
+                val elapsed = row.long("elapsed_ms") ?: return@mapNotNull null
+                val sequence = row.long("sequence") ?: return@mapNotNull null
+                val rawValues = row.array("values")
+                if (rawValues.length() != fields.size) return@mapNotNull null
+                SessionSeriesPoint(
+                    elapsed,
+                    fields.indices.associate { index ->
+                        fields[index] to if (rawValues.isNull(index)) null else rawValues.optDouble(index)
+                    },
+                    sequence,
+                    row.string("ride_state"),
+                )
+            }
+            val next = value.objectOrNull("next") ?: break
+            afterElapsed = next.long("elapsed_ms") ?: break
+            afterSequence = next.long("sequence") ?: break
+        }
+        return rows
+    }
+
+    private fun rustPrune(
+        sessionId: String, targetResolutionSeconds: Long, commit: Boolean,
+    ): SessionPrunePreviewRecord {
+        val value = rustSessionQuery(json(
+            "command" to "session_prune", "path" to sessionPath(sessionId),
+            "target_resolution_seconds" to targetResolutionSeconds, "commit" to commit,
+            "committed_at_epoch_ms" to clock.now().toEpochMilli(),
+        ))
+        val skipped = value.optBoolean("skipped")
+        return SessionPrunePreviewRecord(
+            value.requireLong("recorded_sample_count"), value.requireLong("retained_sample_count"),
+            value.requireLong("estimated_reclaimable_bytes"), skipped,
+            if (skipped) "already_at_or_below_target" else null,
         )
     }
 
-    @Synchronized
-    fun shutdownController() {
-        val codec = protocol ?: throw RefloatMutationException()
-        val route = controllerDiscovery.controllerRoute ?: throw RefloatMutationException()
-        val firmware = controllerDiscovery.firmware ?: throw RefloatMutationException()
-        val telemetry = latestRefloatTelemetry ?: throw RefloatMutationException()
-        val context = ControllerShutdownContext(
-            vescGeneration,
-            connectionState == ConnectionState.READY,
-            VescCompatibility.supportsShutdown(firmware),
-            telemetry.rideState,
-            telemetry.packageMode,
-        )
-        val actions = refloatMutations.authorizeShutdown(context)
-        try {
-            events.publish(actions)
-            vescRequests.enqueueOneWay(
-                codec.controllerShutdownRequest(route),
-                VescExpectedResponse(VescCommand.SHUTDOWN.id),
-                VescRequestPriority.RIDING_TELEMETRY,
-                VescRequestContext.ControllerShutdown(route.toRequestRoute()),
-                SHUTDOWN_INTENT_TIMEOUT_MS,
-                vescGeneration,
-            ) { _, outcome ->
-                if (outcome != VescRequestCompletion.Sent) {
-                    synchronized(this) { expireShutdownIntent(context.generation) }
-                }
-            }
-            shutdownIntentTimer?.cancel()
-            shutdownIntentTimer = refloatScheduler.schedule(SHUTDOWN_INTENT_TIMEOUT_MS) {
-                synchronized(this) { expireShutdownIntent(context.generation) }
-            }
-        } catch (error: Exception) {
-            refloatMutations.clearShutdown(context.generation)
-            throw error
-        }
+    private fun beginRustApplication() {
+        val saved = runCatching {
+            productStore?.savedDevices()?.firstOrNull { it.bluetoothIdentifier == activeDeviceId?.value }
+        }.getOrNull()
+        currentSavedDevice = saved
+        val profile = saved?.let { runCatching { productStore?.boardProfile(it.savedDeviceId) }.getOrNull() }
+        val hint = saved?.let { runCatching { productStore?.controllerRoutingHint(it.savedDeviceId) }.getOrNull() }
+        performRustCommand(json(
+            "command" to "begin", "now_ms" to clock.monotonicMillis(),
+            "idle_interval_ms" to idleProbeIntervalMs,
+            "post_ride_tail_ms" to samplingSettings.postRideTailMs,
+            "preferred_controller_can_id" to profile?.valuesJson?.let { preferredCanId(it, "preferredCanId") },
+            "preferred_bms_can_id" to profile?.valuesJson?.let { preferredCanId(it, "preferredBmsCanId") },
+            "routing_hint_can_id" to hint?.canId,
+            "routing_hint_controller_uuid" to hint?.controllerUuid?.unsigned(),
+            "has_active_session" to (trackingMode == TrackingMode.SAVED && logStore.active() != null),
+            "continuity_can_id" to routeCanId(sessionControllerRoute),
+            "continuity_controller_uuid" to sessionControllerUuid?.unsigned(),
+        ))
     }
 
-    @Synchronized
-    fun firmwareSnapshot(): FirmwareRecord? = controllerDiscovery.firmware
-
-    @Synchronized
-    fun refloatPackageVersionSnapshot(): String? = controllerDiscovery.refloatPackageVersion
-
-    @Synchronized fun refloatConfigurationSummarySnapshot() = refloatConfiguration.summary()
-    @Synchronized fun refloatConfigurationSchemaSnapshot() = refloatConfiguration.loadedSchema()
-    @Synchronized fun refloatConfigurationValuesSnapshot(defaults: Boolean) = refloatConfiguration.loadedValues(defaults)
-
-    fun readRefloatConfiguration(defaults: Boolean): RefloatConfigurationValues {
-        val waiter = synchronized(this) {
-            RefloatConfigurationRequestWaiter().also {
-                refloatConfigurationWaiter = it
-                performRefloatConfigurationEffect(refloatConfiguration.requestValues(defaults))
-                events.publish(refloatConfiguration.summary())
+    private fun performRustCommand(command: JSONObject) {
+        val result = try {
+            rustRuntime.apply(command)
+        } catch (error: RustApplicationRuntimeException) {
+            events.publish("rust_runtime_apply_failure_${command.optString("command", "invalid")}")
+            throw when {
+                error.reason == RustApplicationRuntimeError.INVALID_STATE &&
+                    command.optString("command") in setOf("set_control", "clear_fatal_error", "shutdown_controller") ->
+                    RefloatMutationException()
+                error.reason == RustApplicationRuntimeError.INVALID_STATE &&
+                    command.optString("command") in setOf("read_configuration", "write_configuration") ->
+                    RefloatConfigurationServiceException(RefloatConfigurationServiceError.INVALID_STATE)
+                error.reason == RustApplicationRuntimeError.CONFLICT ->
+                    RefloatConfigurationServiceException(RefloatConfigurationServiceError.CONFLICT)
+                error.reason == RustApplicationRuntimeError.UNAVAILABLE ->
+                    RefloatConfigurationServiceException(RefloatConfigurationServiceError.UNAVAILABLE)
+                else -> error
             }
         }
-        waiter.await()
-        return requireNotNull(refloatConfiguration.loadedValues(defaults))
-    }
-
-    fun writeRefloatConfiguration(
-        packageVersion: String,
-        fingerprint: String,
-        wireSignature: Long,
-        baseRevision: Long,
-        values: Map<String, fail.acheron.floatview.protocol.refloat.RefloatConfigurationValue>,
-    ): RefloatConfigurationValues {
-        val waiter = synchronized(this) {
-            val telemetry = latestRefloatTelemetry ?: throw RefloatMutationException()
-            val firmware = controllerDiscovery.firmware ?: throw RefloatMutationException()
-            val observed = latestRefloatTelemetryMonotonicMs ?: throw RefloatMutationException()
-            if (clock.monotonicMillis() - observed > maxOf(3_000, idleProbeIntervalMs * 2)) {
-                throw RefloatMutationException()
-            }
-            val context = RefloatConfigurationMutationContext(
-                vescGeneration,
-                connectionState == ConnectionState.READY,
-                VescCompatibility.accessMode(firmware) == VescAccessMode.READ_WRITE,
-                telemetry.rideState,
-                telemetry.footpadState,
-                telemetry.packageState,
-                telemetry.packageMode,
-            )
-            refloatMutations.authorizeConfiguration(context)
+        rustGeneration = result.generation
+        result.effects.forEach { effect ->
             try {
-                RefloatConfigurationRequestWaiter().also {
-                    refloatConfigurationWaiter = it
-                    performRefloatConfigurationEffect(
-                        refloatConfiguration.requestWrite(
-                            packageVersion, fingerprint, wireSignature, baseRevision, values,
-                        ),
-                    )
-                    events.publish(refloatConfiguration.summary())
-                }
+                performRustEffect(effect)
             } catch (error: Exception) {
-                refloatMutations.finishConfiguration(context.generation)
+                events.publish("rust_runtime_effect_failure_${effect.optString("effect", "invalid")}")
                 throw error
             }
         }
-        waiter.await()
-        return requireNotNull(refloatConfiguration.loadedValues(false))
     }
 
-    fun refloatTunes(
-        identity: RefloatConfigurationIdentityRecord,
-        limit: Int,
-        cursor: String?,
-    ): RefloatConfigurationListPage = productStore?.refloatConfigurations(identity, limit, cursor)
-        ?: throw IllegalStateException("Product store unavailable")
-
-    fun refloatTune(configurationId: String): RefloatConfigurationRecord =
-        productStore?.refloatConfiguration(configurationId)
-            ?: throw IllegalStateException("Product store unavailable")
-
-    fun createRefloatTune(
-        name: String,
-        description: String?,
-        identity: RefloatConfigurationIdentityRecord,
-        sourceRevision: Long,
-        values: Map<String, fail.acheron.floatview.protocol.refloat.RefloatConfigurationValue>,
-    ): RefloatConfigurationRecord {
-        val store = productStore ?: throw IllegalStateException("Product store unavailable")
-        validateRefloatTuneValues(identity, sourceRevision, values)
-        return store.createRefloatConfiguration(
-            name, description, identity, refloatConfigurationValuesJson(values), clock.now(),
-        )
-    }
-
-    fun updateRefloatTune(
-        configurationId: String,
-        expectedRevision: Int,
-        name: String,
-        description: String?,
-        values: Map<String, fail.acheron.floatview.protocol.refloat.RefloatConfigurationValue>,
-    ): RefloatConfigurationRecord {
-        val store = productStore ?: throw IllegalStateException("Product store unavailable")
-        val record = store.refloatConfiguration(configurationId)
-        validateRefloatTuneValues(record.identity, refloatConfiguration.loadedValues(false)?.revision, values)
-        return store.updateRefloatConfiguration(
-            configurationId, expectedRevision, name, description,
-            refloatConfigurationValuesJson(values), clock.now(),
-        )
-    }
-
-    fun deleteRefloatTune(configurationId: String, expectedRevision: Int) {
-        (productStore ?: throw IllegalStateException("Product store unavailable"))
-            .deleteRefloatConfiguration(configurationId, expectedRevision)
-    }
-
-    fun applyRefloatTune(
-        configurationId: String,
-        expectedRevision: Int,
-        baseRevision: Long,
-    ): RefloatConfigurationValues {
-        val store = productStore ?: throw IllegalStateException("Product store unavailable")
-        val record = store.refloatConfiguration(configurationId)
-        if (record.revision != expectedRevision) {
-            throw ProductStoreException.RefloatConfigurationRevisionConflict(record.revision)
-        }
-        return writeRefloatConfiguration(
-            record.identity.packageVersion, record.identity.schemaFingerprint,
-            record.identity.wireSignature, baseRevision,
-            refloatConfigurationValues(record.valuesJson),
-        )
-    }
-
-    private fun validateRefloatTuneValues(
-        identity: RefloatConfigurationIdentityRecord,
-        sourceRevision: Long?,
-        values: Map<String, fail.acheron.floatview.protocol.refloat.RefloatConfigurationValue>,
-    ) {
-        val summary = refloatConfiguration.summary()
-        val schema = refloatConfiguration.loadedSchema()
-        if (
-            identity.packageName != "refloat" || summary.packageVersion != identity.packageVersion ||
-            summary.schemaFingerprint != identity.schemaFingerprint || summary.wireSignature != identity.wireSignature ||
-            sourceRevision == null || refloatConfiguration.loadedValues(false)?.revision != sourceRevision || schema == null
-        ) throw RefloatConfigurationServiceException(RefloatConfigurationServiceError.INVALID_STATE)
-        fail.acheron.floatview.protocol.refloat.RefloatConfigurationValueCodec.encode(values, schema)
-    }
-
-    private fun refloatConfigurationValuesJson(
-        values: Map<String, fail.acheron.floatview.protocol.refloat.RefloatConfigurationValue>,
-    ) = JSONObject().also { result ->
-        values.toSortedMap().forEach { (name, value) ->
-            result.put(name, when (value) {
-                is fail.acheron.floatview.protocol.refloat.RefloatConfigurationValue.Decimal ->
-                    JSONObject().put("type", "double").put("value", value.value)
-                is fail.acheron.floatview.protocol.refloat.RefloatConfigurationValue.Integer ->
-                    JSONObject().put("type", "integer").put("value", value.value)
-                is fail.acheron.floatview.protocol.refloat.RefloatConfigurationValue.BooleanValue ->
-                    JSONObject().put("type", "boolean").put("value", value.value)
-                is fail.acheron.floatview.protocol.refloat.RefloatConfigurationValue.StringValue ->
-                    JSONObject().put("type", "string").put("value", value.value)
-            })
-        }
-    }.toString()
-
-    private fun refloatConfigurationValues(
-        json: String,
-    ): Map<String, fail.acheron.floatview.protocol.refloat.RefloatConfigurationValue> {
-        val objectValue = runCatching { JSONObject(json) }.getOrElse {
-            throw ProductStoreException.InvalidRefloatConfiguration
-        }
-        val result = linkedMapOf<String, fail.acheron.floatview.protocol.refloat.RefloatConfigurationValue>()
-        objectValue.keys().forEach { name ->
-            val typed = objectValue.optJSONObject(name) ?: throw ProductStoreException.InvalidRefloatConfiguration
-            result[name] = when (typed.optString("type")) {
-                "double" -> {
-                    val value = (typed.opt("value") as? Number)?.toDouble()?.takeIf(Double::isFinite)
-                        ?: throw ProductStoreException.InvalidRefloatConfiguration
-                    fail.acheron.floatview.protocol.refloat.RefloatConfigurationValue.Decimal(value)
-                }
-                "integer" -> {
-                    val value = (typed.opt("value") as? Number)?.toDouble()
-                        ?: throw ProductStoreException.InvalidRefloatConfiguration
-                    if (!value.isFinite() || value % 1.0 != 0.0) throw ProductStoreException.InvalidRefloatConfiguration
-                    fail.acheron.floatview.protocol.refloat.RefloatConfigurationValue.Integer(value.toLong())
-                }
-                "boolean" -> fail.acheron.floatview.protocol.refloat.RefloatConfigurationValue.BooleanValue(
-                    typed.opt("value") as? Boolean ?: throw ProductStoreException.InvalidRefloatConfiguration,
-                )
-                "string" -> fail.acheron.floatview.protocol.refloat.RefloatConfigurationValue.StringValue(
-                    typed.opt("value") as? String ?: throw ProductStoreException.InvalidRefloatConfiguration,
-                )
-                else -> throw ProductStoreException.InvalidRefloatConfiguration
-            }
-        }
-        return result
-    }
-
-    @Synchronized
-    private fun finishRefloatConfigurationRequest(result: Result<Unit>) {
-        refloatConfigurationWaiter?.finish(result)
-        refloatConfigurationWaiter = null
-    }
-
-    fun setRefloatControl(control: RefloatBooleanControl, enabled: Boolean): RefloatControls {
-        var immediate: RefloatControls? = null
-        var waiter: RefloatMutationWaiter? = null
-        synchronized(this) {
-            val context = refloatMutationContext()
-            when (val authorization = refloatMutations.authorizeSet(control, enabled, context)) {
-                is RefloatMutationAuthorization.Idempotent -> immediate = authorization.controls
-                is RefloatMutationAuthorization.Mutation -> {
-                    waiter = RefloatMutationWaiter().also { refloatWaiter = it }
-                    events.publish(authorization.controls)
-                    submitRefloatMutation(authorization.mutation, context.route, context.generation)
-                    armRefloatMutationTimeout(context.generation)
-                }
-            }
-        }
-        return immediate ?: waiter!!.await()
-    }
-
-    fun clearRefloatFatalError(): RefloatControls {
-        var immediate: RefloatControls? = null
-        var waiter: RefloatMutationWaiter? = null
-        synchronized(this) {
-            val context = refloatMutationContext()
-            when (val authorization = refloatMutations.authorizeFatalClear(context)) {
-                is RefloatMutationAuthorization.Idempotent -> immediate = authorization.controls
-                is RefloatMutationAuthorization.Mutation -> {
-                    waiter = RefloatMutationWaiter().also { refloatWaiter = it }
-                    events.publish(authorization.controls)
-                    submitRefloatMutation(authorization.mutation, context.route, context.generation)
-                    armRefloatMutationTimeout(context.generation)
-                }
-            }
-        }
-        return immediate ?: waiter!!.await()
-    }
-
-    private fun startFirmwareDiscovery(deviceId: DeviceId) {
-        if (protocol == null || activeDeviceId != deviceId) return
-        vescGeneration = vescRequests.beginGeneration()
-        val (generation, effect) = controllerDiscovery.begin()
-        if (effect == ControllerDiscoveryEffect.None) return
-        identificationTimer?.cancel()
-        identificationTimer = scheduler?.schedule(IDENTIFICATION_TIMEOUT_MS) {
-            identificationTimedOut(generation)
-        }
-        performDiscoveryEffect(effect)
-    }
-
-    private fun submitVescRequest(
-        payload: ByteArray,
-        expected: VescExpectedResponse,
-        priority: VescRequestPriority,
-        context: VescRequestContext,
-        timeoutMs: Long,
-        completion: (VescRequestCompletion) -> Unit = {},
-    ) = submitVescRequestWithDiagnostic(
-        payload, expected, priority, context, timeoutMs, null, completion,
-    )
-
-    private fun submitVescRequestWithDiagnostic(
-        payload: ByteArray,
-        expected: VescExpectedResponse,
-        priority: VescRequestPriority,
-        context: VescRequestContext,
-        timeoutMs: Long,
-        diagnosticAttempt: Int?,
-        completion: (VescRequestCompletion) -> Unit,
-    ) {
-        if (priority == VescRequestPriority.CONTROLLER_IDENTIFICATION) {
-            events.publish(identificationDiagnostic(context, diagnosticAttempt, "submitted"))
-        }
-        vescRequests.enqueue(payload, expected, priority, context, timeoutMs, vescGeneration) { _, outcome ->
-            if (priority == VescRequestPriority.CONTROLLER_IDENTIFICATION) {
-                events.publish(
-                    identificationDiagnostic(context, diagnosticAttempt, requestOutcomeDiagnostic(outcome)),
-                )
-            }
-            completion(outcome)
-        }
-    }
-
-    private fun requestInitialFirmware(
-        attempt: Int,
-        identificationGeneration: Long,
-        requestGeneration: VescRequestGeneration,
-    ) {
-        if (
-            activeDeviceId == null ||
-            connectionState != ConnectionState.IDENTIFYING ||
-            controllerDiscovery.identificationGeneration != identificationGeneration ||
-            vescGeneration != requestGeneration
-        ) return
-        val decoder = protocol ?: return
-        try {
-            submitVescRequestWithDiagnostic(
-                decoder.firmwareRequest(ControllerRoute.Direct),
-                VescExpectedResponse(VescCommand.GET_FIRMWARE_VERSION.id),
-                VescRequestPriority.CONTROLLER_IDENTIFICATION,
-                VescRequestContext.ControllerFirmware(VescRequestRoute.Direct),
-                if (attempt == 1) {
-                    INITIAL_IDENTIFICATION_ATTEMPT_TIMEOUT_MS
-                } else {
-                    IDENTIFICATION_TIMEOUT_MS - INITIAL_IDENTIFICATION_ATTEMPT_TIMEOUT_MS
-                },
-                diagnosticAttempt = attempt,
-            ) { outcome ->
-                if (outcome == VescRequestCompletion.TimedOut && attempt == 1) synchronized(this) {
-                    requestInitialFirmware(2, identificationGeneration, requestGeneration)
-                }
-            }
-        } catch (error: Exception) {
-            failIdentification(
-                ConnectionIssueCode.TRANSPORT_SETUP_FAILED,
-                "Unable to request VESC firmware.",
+    private fun performRustEffect(effect: JSONObject) {
+        when (effect.string("effect") ?: throw runtimeFailure()) {
+            "write_bytes" -> bluetooth.write(
+                activeDeviceId ?: throw runtimeFailure(),
+                effect.intList("bytes")?.map(Int::toByte)?.toByteArray() ?: throw runtimeFailure(),
             )
-            events.publish(error)
+            "arm_deadline" -> armRustTimer(effect, repeating = false, deadline = true)
+            "replace_timer" -> armRustTimer(effect, repeating = true, deadline = false)
+            "cancel_deadline" -> {
+                val token = effect.long("token") ?: throw runtimeFailure()
+                rustDeadlines.remove(token)?.cancel()
+            }
+            "cancel_timer" -> {
+                val token = effect.long("token") ?: throw runtimeFailure()
+                rustTimers.remove(token)?.cancel()
+                rustTimerIntervals.remove(token)
+            }
+            "clear_routing_hint" -> currentSavedDevice?.savedDeviceId?.let {
+                runCatching { productStore?.clearControllerRoutingHint(it) }
+            }
+            "store_routing_hint" -> storeRustRoutingHint(effect)
+            "prepare_activation" -> prepareRustActivation(effect)
+            "publish_state" -> publishRustState(effect)
+            "publish_telemetry" -> publishRustTelemetry(effect)
+            "publish_bms_state" -> publishRustBmsState(effect)
+            "publish_bms_observation" -> publishRustBmsObservation(effect)
+            "publish_session_marker" -> {
+                applyRustSessionMarker(effect)
+                events.publish("rust_session_commit")
+            }
+            "session_result" -> {
+                rustSessionResult = effect.objectOrNull("value")
+                    ?: effect.arrayOrNull("value")?.let { json("rows" to it) }
+            }
+            "store_configuration_cache" -> {
+                val identity = cacheIdentity(effect.objectOrNull("identity"))
+                val bytes = effect.intList("bytes")?.map(Int::toByte)?.toByteArray()
+                if (identity != null && bytes != null) productStore?.storeRefloatSchema(bytes, identity)
+            }
+            "remove_configuration_cache" -> cacheIdentity(effect.objectOrNull("identity"))?.let {
+                productStore?.removeCachedRefloatSchema(it)
+            }
+            "mutation" -> finishMutation(effect.optString("value"))
+            "failure" -> finishRuntimeFailure(effect.optString("kind"))
+            "diagnostic" -> events.publish("rust_runtime_diagnostic")
+            else -> throw runtimeFailure()
         }
     }
 
-    private fun handleFirmware(value: FirmwareRecord) {
-        if (value.canId == null) {
-            if (trackingMode == TrackingMode.SAVED) {
-                currentSavedDevice = try {
-                    val deviceId = activeDeviceId ?: return
-                    productStore?.ensureSavedDevice(
-                        deviceId,
-                        activeDeviceName,
-                        stableBoardIdentity(value.controllerUuid),
-                        clock.now(),
-                    )
-                } catch (_: Exception) {
-                    failIdentification(
-                        ConnectionIssueCode.TRANSPORT_SETUP_FAILED,
-                        "Unable to save the VESC device.",
-                    )
-                    return
-                }
-            }
-            if (trackingMode == TrackingMode.SAVED) currentSavedDevice?.let { savedDevice ->
-                val savedIds = runCatching {
-                    productStore?.savedDevices().orEmpty()
-                        .mapNotNull { it.bluetoothIdentifier?.let(::DeviceId) }
-                        .toSet()
-                }.getOrDefault(setOfNotNull(savedDevice.bluetoothIdentifier?.let(::DeviceId)))
-                bluetooth.configureSavedDeviceIds(savedIds)
-            }
-            if (BmsIdentityPolicy.supports(value)) {
-                if (trackingMode == TrackingMode.SAVED && logStore.active() != null) {
-                    failIdentification(
-                        ConnectionIssueCode.CONTROLLER_CHANGED,
-                        "The connected device is a BMS, not the controller for the active session.",
-                    )
-                    return
-                }
-                completeBmsReady(value)
-                return
-            }
-            val profile = currentSavedDevice?.let {
-                runCatching { productStore?.boardProfile(it.savedDeviceId) }.getOrNull()
-            }
-            val hint = currentSavedDevice?.let {
-                runCatching { productStore?.controllerRoutingHint(it.savedDeviceId) }.getOrNull()
-            }
-            performDiscoveryEffect(
-                controllerDiscovery.acceptTransport(
-                    value,
-                    ControllerDiscoveryPolicy.preferredCanId(profile?.valuesJson),
-                    hint,
-                ),
-            )
-            return
-        }
-        if (controllerDiscovery.activeCanProbeId != value.canId) return
-        cancelCanProbeTimeout()
-        performDiscoveryEffect(
-            controllerDiscovery.acceptCanFirmware(value, controllerContinuity()),
-        )
-    }
-
-    private fun handleCanDevices(rawCanIds: List<Int>) {
-        performDiscoveryEffect(
-            controllerDiscovery.acceptCanIds(rawCanIds, controllerContinuity()),
-        )
-    }
-
-    private fun controllerContinuity() = ControllerContinuity(
-        hasActiveSession = trackingMode == TrackingMode.SAVED && logStore.active() != null,
-        route = sessionControllerRoute,
-        controllerUuid = sessionControllerUuid,
-    )
-
-    private fun performDiscoveryEffect(effect: ControllerDiscoveryEffect) {
-        when (effect) {
-            is ControllerDiscoveryEffect.ProbeFirmware -> {
-                if (activeDeviceId == null) return
-                val decoder = protocol ?: return
-                val route = effect.route
-                if (route == ControllerRoute.Direct) {
-                    requestInitialFirmware(
-                        1,
-                        controllerDiscovery.identificationGeneration,
-                        vescGeneration,
-                    )
-                    return
-                }
-                if (route is ControllerRoute.Can) scheduleCanProbeTimeout(route.canId)
-                try {
-                    submitVescRequest(
-                        decoder.firmwareRequest(route),
-                        VescExpectedResponse(fail.acheron.floatview.protocol.vesc.VescCommand.GET_FIRMWARE_VERSION.id),
-                        VescRequestPriority.CONTROLLER_IDENTIFICATION,
-                        VescRequestContext.ControllerFirmware(route.toRequestRoute()),
-                        if (route == ControllerRoute.Direct) IDENTIFICATION_TIMEOUT_MS else CAN_PROBE_TIMEOUT_MS,
-                    )
-                } catch (error: Exception) {
-                    if (route == ControllerRoute.Direct) {
-                        failIdentification(
-                            ConnectionIssueCode.TRANSPORT_SETUP_FAILED,
-                            "Unable to request VESC firmware.",
-                        )
-                        events.publish(error)
-                    } else {
-                        failIdentification(
-                            ConnectionIssueCode.TRANSPORT_SETUP_FAILED,
-                            "Unable to probe the CAN controller.",
-                        )
-                    }
-                }
-            }
-            ControllerDiscoveryEffect.PingCan -> {
-                cancelCanProbeTimeout()
-                if (activeDeviceId == null) return
-                val decoder = protocol ?: return
-                try {
-                    submitVescRequest(
-                        decoder.canPingRequest(),
-                        VescExpectedResponse(fail.acheron.floatview.protocol.vesc.VescCommand.PING_CAN.id),
-                        VescRequestPriority.CONTROLLER_IDENTIFICATION,
-                        VescRequestContext.CanPing,
-                        IDENTIFICATION_TIMEOUT_MS,
-                    )
-                } catch (_: Exception) {
-                    failIdentification(
-                        ConnectionIssueCode.TRANSPORT_SETUP_FAILED,
-                        "Unable to discover CAN controllers.",
-                    )
-                }
-            }
-            is ControllerDiscoveryEffect.ClearHintThen -> {
-                invalidateAutomaticHint()
-                restartIdentificationTimeout()
-                performDiscoveryEffect(effect.next)
-            }
-            is ControllerDiscoveryEffect.RequestRefloatInfo -> {
-                val selected = effect.rememberController
-                val savedDevice = if (trackingMode == TrackingMode.SAVED) currentSavedDevice else null
-                val canId = selected?.canId
-                val uuid = ControllerDiscoveryPolicy.meaningfulUuid(selected?.controllerUuid)
-                if (savedDevice != null && canId != null && uuid != null) {
-                    runCatching {
-                        productStore?.storeControllerRoutingHint(
-                            ControllerRoutingHint(savedDevice.savedDeviceId, canId, uuid),
-                            clock.now(),
-                        )
-                    }
-                }
-                if (activeDeviceId == null) return
-                val decoder = protocol ?: return
-                submitVescRequest(
-                    decoder.refloatInfoRequest(effect.route),
-                    VescExpectedResponse(
-                        fail.acheron.floatview.protocol.vesc.VescCommand.CUSTOM_APP_DATA.id,
-                        fail.acheron.floatview.protocol.refloat.RefloatCommand.INFO.id,
-                    ),
-                    VescRequestPriority.CONTROLLER_IDENTIFICATION,
-                    VescRequestContext.RefloatInfo(effect.route.toRequestRoute()),
-                    IDENTIFICATION_TIMEOUT_MS,
-                )
-            }
-            ControllerDiscoveryEffect.RequestTelemetryLayout -> {
-                val deviceId = activeDeviceId ?: return
-                val route = controllerDiscovery.controllerRoute ?: return
-                telemetryPolling.beginLayout(deviceId, route)
-            }
-            ControllerDiscoveryEffect.Ready -> completeApplicationReady()
-            ControllerDiscoveryEffect.SelectingController -> {
-                cancelIdentificationTimeout()
-                transition(ConnectionState.SELECTING_CONTROLLER)
-            }
-            is ControllerDiscoveryEffect.Failed ->
-                failIdentification(effect.issue.code, effect.issue.message)
-            ControllerDiscoveryEffect.None -> Unit
-        }
-    }
-
-    private fun completeApplicationReady() {
-        val deviceId = activeDeviceId ?: return
-        val route = controllerDiscovery.controllerRoute ?: return
-        val selectedFirmware = controllerDiscovery.firmware ?: return
-        cancelIdentificationTimeout()
-        if (trackingMode == TrackingMode.SAVED && logStore.active() != null) {
-            if (!controllerContinuityIsProven(route, selectedFirmware)) {
-                failIdentification(
-                    ConnectionIssueCode.CONTROLLER_CHANGED,
-                    "The connected controller no longer matches the active session.",
-                )
-                return
-            }
-        } else if (trackingMode == TrackingMode.SAVED) {
-            try {
-                events.publish(
-                    logStore.create(
-                        deviceId,
-                        activeDeviceName,
-                        clock.now(),
-                    ),
-                )
-                telemetryPolling.markSessionStarted()
-                sessionControllerRoute = route
-                sessionControllerUuid = ControllerDiscoveryPolicy.meaningfulUuid(
-                    selectedFirmware.controllerUuid,
-                )
-                sessionFirmware = selectedFirmware
-                sessionRefloatPackageVersion = controllerDiscovery.refloatPackageVersion
-            } catch (_: Exception) {
-                failIdentification(
-                    ConnectionIssueCode.TRANSPORT_SETUP_FAILED,
-                    "Unable to start durable telemetry.",
-                )
-                return
-            }
-        }
-        cancelReconnect()
-        deviceKind = DeviceKind.BOARD
-        controllerDiscovery.clearIssue()
-        clearDiscoveredDevices(publish = false)
-        transition(ConnectionState.READY)
-        configureRefloatControls(selectedFirmware)
-        performRefloatConfigurationEffect(
-            refloatConfiguration.begin(
-                route,
-                vescGeneration,
-                selectedFirmware,
-                controllerDiscovery.refloatPackageVersion ?: "",
-                VescCompatibility.accessMode(selectedFirmware) == VescAccessMode.READ_WRITE,
-                latestRefloatTelemetry?.packageMode == PackageMode.FLYWHEEL,
-            ),
-        )
-        events.publish(refloatConfiguration.summary())
-        protocol?.let { decoder ->
-            runCatching {
-                submitVescRequest(
-                    decoder.motorConfigurationRequest(route),
-                    VescExpectedResponse(fail.acheron.floatview.protocol.vesc.VescCommand.GET_MOTOR_CONFIGURATION.id),
-                    VescRequestPriority.CONTROLLER_WORK,
-                    VescRequestContext.CurrentLimits(route.toRequestRoute()),
-                    CAN_PROBE_TIMEOUT_MS,
-                )
-            }.onFailure(events::publish)
-        }
-        telemetryPolling.start(
-            deviceId,
-            route,
-            controllerDiscovery.refloatFamily ?: RefloatTelemetryFamily.DYNAMIC,
-            idleProbeIntervalMs,
-            postRideTailMs,
-        )
-        startAuxiliaryDiscovery()
-    }
-
-    private fun completeBmsReady(localIdentity: FirmwareRecord) {
-        cancelIdentificationTimeout()
-        cancelCanProbeTimeout()
-        cancelReconnect()
-        clearDiscoveredDevices(publish = false)
-        deviceKind = DeviceKind.BMS
-        val effect = auxiliaryDiscovery.begin(localIdentity, null, null)
-        transition(ConnectionState.READY)
-        events.publish("standalone_bms_ready")
-        events.publish(auxiliaryDiscovery.state)
-        performAuxiliaryEffect(effect)
-    }
-
-    private fun startAuxiliaryDiscovery() {
-        if (protocol?.supportsBmsTelemetry != true) return
-        val localIdentity = controllerDiscovery.transportFirmware ?: return
-        val profile = currentSavedDevice?.savedDeviceId?.let { savedDeviceId ->
-            runCatching { productStore?.boardProfile(savedDeviceId) }.getOrNull()
-        }
-        performAuxiliaryEffect(
-            auxiliaryDiscovery.begin(
-                localIdentity,
-                controllerDiscovery.classifiedInventory.takeIf { controllerDiscovery.inventoryComplete },
-                ControllerDiscoveryPolicy.preferredBmsCanId(profile?.valuesJson),
-            ),
-        )
-    }
-
-    private fun performAuxiliaryEffect(effect: AuxiliaryDiscoveryEffect) {
-        if (connectionState != ConnectionState.READY) return
-        val decoder = protocol ?: return
-        when (effect) {
-            AuxiliaryDiscoveryEffect.PingCan -> runCatching {
-                events.publish("bms_discovery_scan_started")
-                submitVescRequest(
-                    decoder.canPingRequest(),
-                    VescExpectedResponse(VescCommand.PING_CAN.id),
-                    VescRequestPriority.AUXILIARY,
-                    VescRequestContext.AuxiliaryCanPing,
-                    CAN_SCAN_TIMEOUT_MS,
-                ) { completion ->
-                    if (completion == VescRequestCompletion.TimedOut) synchronized(this) {
-                        auxiliaryDiscovery.markUnavailable()
-                    }
-                }
-            }.onFailure { auxiliaryDiscovery.markUnavailable() }
-            is AuxiliaryDiscoveryEffect.ProbeFirmware -> {
-                events.publish(
-                    "bms_discovery_probe:" +
-                        bmsRouteDiagnostic((effect.route as? ControllerRoute.Can)?.canId),
-                )
-                val generation = auxiliaryDiscovery.generation
-                val canId = (effect.route as? ControllerRoute.Can)?.canId
-                runCatching {
-                    submitVescRequest(
-                        decoder.firmwareRequest(effect.route),
-                        VescExpectedResponse(VescCommand.GET_FIRMWARE_VERSION.id),
-                        VescRequestPriority.AUXILIARY,
-                        VescRequestContext.AuxiliaryFirmware(effect.route.toRequestRoute()),
-                        CAN_PROBE_TIMEOUT_MS,
-                    ) { completion ->
-                        if (completion == VescRequestCompletion.TimedOut && canId != null) synchronized(this) {
-                            performAuxiliaryEffect(
-                                auxiliaryDiscovery.probeTimedOut(canId, generation),
-                            )
-                        }
-                    }
-                }.onFailure { auxiliaryDiscovery.markUnavailable() }
-            }
-            is AuxiliaryDiscoveryEffect.RequestValues -> {
-                events.publish(
-                    "bms_values_requested:${bmsRouteDiagnostic((effect.connection as? BmsConnection.Can)?.canId)}",
-                )
-                requestBmsValues(effect.connection)
-            }
-            AuxiliaryDiscoveryEffect.None -> {
-                events.publish("bms_discovery_complete:${auxiliaryDiscovery.state.status.wireValue}")
-                events.publish(auxiliaryDiscovery.state)
-            }
-        }
-    }
-
-    private fun requestBmsValues(connection: BmsConnection) {
-        if (connectionState != ConnectionState.READY) return
-        val decoder = protocol ?: return
-        bmsPollTimer?.cancel()
-        bmsPollTimer = null
-        val route = when (connection) {
-            BmsConnection.Direct -> VescRequestRoute.Direct
-            is BmsConnection.Can -> VescRequestRoute.Can(connection.canId)
-        }
-        runCatching {
-            submitVescRequest(
-                decoder.bmsValuesRequest(connection),
-                VescExpectedResponse(VescCommand.BMS_GET_VALUES.id),
-                VescRequestPriority.AUXILIARY,
-                VescRequestContext.BmsValues(route),
-                1_000,
-            ) { completion ->
-                synchronized(this) {
-                    if (connectionState != ConnectionState.READY) return@synchronized
-                    when (completion) {
-                        VescRequestCompletion.TimedOut, VescRequestCompletion.QueueFull ->
-                            recordBmsFailure()
-                        is VescRequestCompletion.Response,
-                        VescRequestCompletion.Sent,
-                        -> Unit
-                        VescRequestCompletion.Cancelled, VescRequestCompletion.StaleGeneration ->
-                            return@synchronized
-                    }
-                    bmsPollTimer = scheduler?.schedule(1_000) {
-                        synchronized(this) {
-                            auxiliaryDiscovery.selectedConnection?.let(::requestBmsValues)
-                        }
-                    }
-                }
-            }
-        }.onFailure { recordBmsFailure() }
-    }
-
-    private fun recordBmsFailure() {
-        bmsFailureCount++
-        if (bmsFailureCount >= 3) {
-            auxiliaryDiscovery.markUnavailable()
-            events.publish(auxiliaryDiscovery.state)
-        }
-    }
-
-    /** Production hosts always provide a VESC codec and never take this path. */
-    private fun completeWithoutProtocol() {
-        val deviceId = activeDeviceId ?: return
-        if (trackingMode == TrackingMode.SAVED && logStore.active() == null) {
-            try {
-                events.publish(
-                    logStore.create(
-                        deviceId,
-                        activeDeviceName,
-                        clock.now(),
-                    ),
-                )
-                telemetryPolling.markSessionStarted()
-            } catch (error: Exception) {
-                transition(ConnectionState.FAILED)
-                explicitDisconnect = true
-                bluetooth.disconnect(deviceId)
-                events.publish(error)
-                return
-            }
-        }
-        cancelReconnect()
-        clearDiscoveredDevices(publish = false)
-        transition(ConnectionState.READY)
-    }
-
-    private fun controllerContinuityIsProven(
-        route: ControllerRoute,
-        selectedFirmware: FirmwareRecord,
-    ): Boolean {
-        val previousRoute = sessionControllerRoute ?: return true
-        val previousUuid = sessionControllerUuid
-        val currentUuid = ControllerDiscoveryPolicy.meaningfulUuid(selectedFirmware.controllerUuid)
-        if (previousUuid != null) return currentUuid?.contentEquals(previousUuid) == true
-        return previousRoute == route &&
-            sessionFirmware?.let {
-                ControllerDiscoveryPolicy.samePublicIdentity(it, selectedFirmware)
-            } == true &&
-            sessionRefloatPackageVersion == controllerDiscovery.refloatPackageVersion
-    }
-
-    @Synchronized
-    private fun identificationTimedOut(generation: Long) {
-        if (connectionState != ConnectionState.IDENTIFYING) return
-        performDiscoveryEffect(controllerDiscovery.identificationTimedOut(generation))
-    }
-
-    private fun failIdentification(code: ConnectionIssueCode, message: String) {
-        events.publish("connection_identification outcome=failed code=${code.name.lowercase()}")
-        cancelIdentificationTimeout()
-        cancelCanProbeTimeout()
-        vescRequests.cancel(vescGeneration)
-        telemetryPolling.cancelLayout()
-        telemetryPolling.stop()
-        controllerDiscovery.markFailure(code, message)
-        if (trackingMode == TrackingMode.SAVED && code == ConnectionIssueCode.CONTROLLER_CHANGED) {
-            logStore.active()?.let {
-                runCatching { logStore.close(it.jobId, clock.now(), code.name.lowercase()) }
-            }
-        }
-        transition(ConnectionState.FAILED)
-    }
-
-    private fun cancelIdentificationTimeout() {
-        identificationTimer?.cancel()
-        identificationTimer = null
-    }
-
-    private fun restartIdentificationTimeout() {
-        identificationTimer?.cancel()
-        val generation = controllerDiscovery.identificationGeneration
-        identificationTimer = scheduler?.schedule(IDENTIFICATION_TIMEOUT_MS) {
-            identificationTimedOut(generation)
-        }
-    }
-
-    private fun invalidateAutomaticHint() {
-        currentSavedDevice?.savedDeviceId?.let { savedDeviceId ->
-            runCatching { productStore?.clearControllerRoutingHint(savedDeviceId) }
-        }
-    }
-
-    private fun scheduleCanProbeTimeout(canId: Int) {
-        cancelCanProbeTimeout()
-        val generation = controllerDiscovery.canProbeGeneration
-        canProbeTimer = scheduler?.schedule(CAN_PROBE_TIMEOUT_MS) {
-            canProbeTimedOut(canId, generation)
-        }
-    }
-
-    @Synchronized
-    private fun canProbeTimedOut(canId: Int, generation: Long) {
-        if (connectionState != ConnectionState.IDENTIFYING) return
-        val effect = controllerDiscovery.canProbeTimedOut(canId, generation)
-        if (effect == ControllerDiscoveryEffect.None) return
-        cancelCanProbeTimeout()
-        performDiscoveryEffect(effect)
-    }
-
-    private fun cancelCanProbeTimeout() {
-        canProbeTimer?.cancel()
-        canProbeTimer = null
-    }
-
-    private fun scheduleDiscoveryExpiry() {
-        if (activeScanId == null) return
-        val timer = scheduler ?: return
-        discoveryExpiryTimer?.cancel()
-        val generation = ++discoveryExpiryGeneration
-        discoveryExpiryTimer = timer.schedule(DISCOVERY_EXPIRY_MS) {
+    private fun armRustTimer(effect: JSONObject, repeating: Boolean, deadline: Boolean) {
+        val token = effect.long("token") ?: throw runtimeFailure()
+        val interval = effect.long(if (effect.has("timeout_ms")) "timeout_ms" else "interval_ms")
+            ?.takeIf { it > 0 } ?: throw runtimeFailure()
+        if (repeating && rustTimerIntervals[token] == interval && rustTimers[token] != null) return
+        val command = if (deadline) "deadline_fired" else "timer_fired"
+        val action = {
             synchronized(this) {
-                if (discoveryExpiryGeneration != generation) return@synchronized
-                discoveryExpiryTimer = null
-                clearDiscoveredDevices(publish = true)
+                runCatching { performRustCommand(json(
+                    "command" to command, "generation" to rustGeneration,
+                    "token" to token, "now_ms" to clock.monotonicMillis(),
+                )) }.onFailure { events.publish("rust_runtime_timer_failure") }
+                if (deadline) rustDeadlines.remove(token)?.cancel()
             }
         }
-    }
-
-    private fun clearDiscoveredDevices(publish: Boolean) {
-        discoveryExpiryGeneration++
-        discoveryExpiryTimer?.cancel()
-        discoveryExpiryTimer = null
-        if (knownDevicesById.isEmpty()) return
-        knownDevicesById.clear()
-        if (publish) events.publish(discoverySnapshot())
-    }
-
-    private fun beginReconnect() {
-        if (reconnectDurationMs <= 0) {
-            finishReconnect("unexpected_disconnect")
-            return
-        }
-        if (reconnectStartedAtMs == null) {
-            reconnectStartedAtMs = clock.monotonicMillis()
-            reconnectAttempt = 0
-        }
-        transition(ConnectionState.RECONNECTING)
-        resetFirmwareDiscovery()
-        scheduleReconnectAttempt()
-    }
-
-    private fun scheduleReconnectAttempt() {
-        val timer = scheduler
-        if (timer == null) {
-            finishReconnect("reconnect_unavailable")
-            return
-        }
-        if (reconnectTimer != null || reconnectStartedAtMs == null) return
-        val elapsed = clock.monotonicMillis() - requireNotNull(reconnectStartedAtMs)
-        val remaining = reconnectDurationMs - elapsed
-        if (remaining <= 0) {
-            finishReconnect("reconnect_timeout")
-            return
-        }
-        val delay = minOf(1_000L shl minOf(reconnectAttempt, 5), MAX_RECONNECT_BACKOFF_MS, remaining)
-        reconnectTimer = timer.schedule(delay, ::performReconnectAttempt)
-    }
-
-    @Synchronized
-    private fun performReconnectAttempt() {
-        reconnectTimer = null
-        val deviceId = activeDeviceId ?: return
-        if (connectionState != ConnectionState.RECONNECTING) return
-        val elapsed = clock.monotonicMillis() - (reconnectStartedAtMs ?: return)
-        if (elapsed >= reconnectDurationMs) {
-            finishReconnect("reconnect_timeout")
-            return
-        }
-        if (bluetoothState.radio != BluetoothRadioState.POWERED_ON) {
-            scheduleReconnectAttempt()
-            return
-        }
-        reconnectAttempt += 1
-        bluetooth.connect(deviceId)
-    }
-
-    private fun finishReconnect(reason: String) {
-        val deviceId = activeDeviceId
-        cancelReconnect()
-        if (trackingMode == TrackingMode.SAVED) logStore.active()?.let {
-            events.publish(logStore.close(it.jobId, clock.now(), reason))
-        }
-        explicitDisconnect = true
-        if (deviceId != null) bluetooth.disconnect(deviceId)
-        activeDeviceId = null
-        activeDeviceName = null
-        latestPersistedSample = null
-        latestLocation = null
-        resetFirmwareDiscovery()
-        transition(ConnectionState.DISCONNECTED)
-        events.publish(reason)
-    }
-
-    private fun cancelReconnect() {
-        reconnectTimer?.cancel()
-        reconnectTimer = null
-        reconnectStartedAtMs = null
-        reconnectAttempt = 0
-    }
-
-    private fun configureRefloatControls(firmware: FirmwareRecord) {
-        val profile = controllerDiscovery.refloatControlProfile
-        val access = VescCompatibility.accessMode(firmware)
-        if (profile == null || access == null) { refloatProfile = null; return }
-        refloatProfile = profile
-        latestRefloatTelemetry = null
-        latestRefloatTelemetryMonotonicMs = null
-        events.publish(refloatMutations.configure(
-            vescGeneration, profile,
-            access == fail.acheron.floatview.protocol.vesc.VescAccessMode.READ_WRITE,
-        ))
-        scheduleRefloatLightingRefresh()
-    }
-
-    private fun performRefloatConfigurationEffect(effect: RefloatConfigurationEffect) {
-        val protocol = protocol ?: return
-        runCatching {
-            val payload: ByteArray
-            val expected: VescExpectedResponse
-            val context: VescRequestContext
-            when (effect) {
-                RefloatConfigurationEffect.None -> return
-                is RefloatConfigurationEffect.SchemaChunk -> {
-                    payload = protocol.customConfigurationSchemaRequest(effect.route, effect.length, effect.offset)
-                    expected = VescExpectedResponse(VescCommand.GET_CUSTOM_CONFIGURATION_XML.id)
-                    context = VescRequestContext.RefloatConfigurationSchema(
-                        effect.route.toRequestRoute(), RefloatConfigurationService.INDEX,
-                        effect.offset, effect.operation,
-                    )
-                }
-                is RefloatConfigurationEffect.Values -> {
-                    payload = protocol.customConfigurationValuesRequest(effect.route, effect.defaults)
-                    expected = VescExpectedResponse(
-                        if (effect.defaults) VescCommand.GET_CUSTOM_CONFIGURATION_DEFAULT.id
-                        else VescCommand.GET_CUSTOM_CONFIGURATION.id,
-                    )
-                    context = VescRequestContext.RefloatConfigurationValues(
-                        effect.route.toRequestRoute(), RefloatConfigurationService.INDEX,
-                        effect.defaults, effect.operation,
-                    )
-                }
-                is RefloatConfigurationEffect.Write -> {
-                    payload = protocol.customConfigurationWriteRequest(effect.route, effect.payload)
-                    expected = VescExpectedResponse(VescCommand.SET_CUSTOM_CONFIGURATION.id)
-                    context = VescRequestContext.RefloatConfigurationWrite(
-                        effect.route.toRequestRoute(), RefloatConfigurationService.INDEX, effect.operation,
-                    )
-                }
-                is RefloatConfigurationEffect.Verification -> {
-                    payload = protocol.customConfigurationValuesRequest(effect.route, false)
-                    expected = VescExpectedResponse(VescCommand.GET_CUSTOM_CONFIGURATION.id)
-                    context = VescRequestContext.RefloatConfigurationVerification(
-                        effect.route.toRequestRoute(), RefloatConfigurationService.INDEX, effect.operation,
-                    )
-                }
-            }
-            val requestGeneration = vescGeneration
-            submitVescRequest(
-                payload, expected, VescRequestPriority.CONTROLLER_WORK, context,
-                RefloatConfigurationService.REQUEST_TIMEOUT_MS,
-            ) { outcome ->
-                when (outcome) {
-                    is VescRequestCompletion.Response, VescRequestCompletion.Sent -> Unit
-                    else -> {
-                        refloatConfiguration.requestFailed(context, requestGeneration)
-                        finishRefloatConfigurationRequest(Result.failure(
-                            RefloatConfigurationServiceException(RefloatConfigurationServiceError.UNAVAILABLE),
-                        ))
-                        if (
-                            context is VescRequestContext.RefloatConfigurationWrite ||
-                            context is VescRequestContext.RefloatConfigurationVerification
-                        ) refloatMutations.finishConfiguration(requestGeneration)
-                    }
-                }
-            }
-        }.onFailure { error ->
-            refloatConfiguration.abortActiveOperation(vescGeneration)
-            if (
-                effect is RefloatConfigurationEffect.Write ||
-                effect is RefloatConfigurationEffect.Verification
-            ) refloatMutations.finishConfiguration(vescGeneration)
-            events.publish(error)
-        }
-    }
-
-    private fun requestRefloatLighting(route: ControllerRoute, profile: RefloatControlProfile) {
-        if (connectionState != ConnectionState.READY || refloatMutations.snapshot()?.pendingAction != null) return
-        runCatching {
-            val snapshot = refloatMutations.snapshot()
-            val command = RefloatControlCodec.lightingRequest(
-                profile, null, current = RefloatLightingState(
-                    snapshot?.ledsEnabled ?: false, snapshot?.headlightsEnabled ?: false,
-                ),
-            )
-            submitVescRequest(
-                VescFrameCodec.encode(VescCommandRouter.route(command, route)),
-                VescExpectedResponse(VescCommand.CUSTOM_APP_DATA.id, command[2].toInt() and 0xff),
-                VescRequestPriority.AUXILIARY, VescRequestContext.RefloatLighting(route.toRequestRoute()),
-                CAN_PROBE_TIMEOUT_MS,
-            )
-        }.onFailure { events.publish("refloat_lighting_refresh_failed") }
-    }
-
-    private fun scheduleRefloatLightingRefresh() {
-        refloatRefreshTimer?.cancel()
-        refloatRefreshTimer = refloatScheduler.schedule(REFLOAT_REFRESH_MS) {
-            synchronized(this) {
-                val route = controllerDiscovery.controllerRoute
-                val profile = refloatProfile
-                if (route != null && profile != null) {
-                    requestRefloatLighting(route, profile)
-                    scheduleRefloatLightingRefresh()
-                }
-            }
-        }
-    }
-
-    private fun refloatMutationContext(): RefloatMutationContext {
-        val route = controllerDiscovery.controllerRoute
-        val profile = refloatProfile
-        val telemetry = latestRefloatTelemetry
-        val firmware = controllerDiscovery.firmware
-        if (connectionState != ConnectionState.READY || route == null || profile == null || telemetry == null || firmware == null) throw RefloatMutationException()
-        return RefloatMutationContext(
-            vescGeneration, route, profile, true,
-            VescCompatibility.accessMode(firmware) == fail.acheron.floatview.protocol.vesc.VescAccessMode.READ_WRITE,
-            telemetry.rideState, telemetry.packageState, telemetry.packageMode,
-        )
-    }
-
-    private fun submitRefloatMutation(
-        mutation: AuthorizedRefloatMutation,
-        route: ControllerRoute,
-        generation: VescRequestGeneration,
-    ) {
-        val payload = VescFrameCodec.encode(VescCommandRouter.route(mutation.payload, route))
-        val completion: (VescScheduledRequest, VescRequestCompletion) -> Unit = { _, outcome ->
-            when (outcome) {
-                is VescRequestCompletion.Response, VescRequestCompletion.Sent -> Unit
-                else -> synchronized(this) { failRefloatMutation(generation) }
-            }
-        }
-        if (mutation.oneWay) {
-            vescRequests.enqueueOneWay(
-                payload, mutation.expectedResponse, VescRequestPriority.RIDING_TELEMETRY,
-                VescRequestContext.RefloatControl(route.toRequestRoute()), REFLOAT_MUTATION_TIMEOUT_MS,
-                generation, completion,
-            )
+        val timer = scheduler ?: SystemScheduler()
+        val cancellation = if (repeating || deadline) timer.scheduleRepeating(interval, action)
+            else timer.schedule(interval, action)
+        if (deadline) {
+            rustDeadlines.remove(token)?.cancel()
+            rustDeadlines[token] = cancellation
         } else {
-            vescRequests.enqueue(
-                payload, mutation.expectedResponse, VescRequestPriority.RIDING_TELEMETRY,
-                VescRequestContext.RefloatControl(route.toRequestRoute()), REFLOAT_MUTATION_TIMEOUT_MS,
-                generation, completion,
+            rustTimers.remove(token)?.cancel()
+            rustTimers[token] = cancellation
+            rustTimerIntervals[token] = interval
+        }
+    }
+
+    private fun cancelRustTimers() {
+        rustDeadlines.values.forEach(CancellationPort::cancel)
+        rustDeadlines.clear()
+        rustTimers.values.forEach(CancellationPort::cancel)
+        rustTimers.clear()
+        rustTimerIntervals.clear()
+    }
+
+    private fun prepareRustActivation(effect: JSONObject) {
+        val generation = effect.long("generation") ?: throw runtimeFailure()
+        val route = controllerRoute(effect.objectOrNull("selected_route")) ?: throw runtimeFailure()
+        val firmware = firmware(effect.objectOrNull("selected_identity"), route) ?: throw runtimeFailure()
+        val packageVersion = effect.string("refloat_version") ?: throw runtimeFailure()
+        rustGeneration = generation
+        rustControllerRoute = route
+        rustFirmware = firmware
+        rustRefloatPackageVersion = packageVersion
+        if (trackingMode == TrackingMode.SAVED) {
+            activeDeviceId?.let { deviceId ->
+                currentSavedDevice = productStore?.ensureSavedDevice(
+                    deviceId, activeDeviceName, stableBoardIdentity(firmware.controllerUuid), clock.now(),
+                )
+            }
+        }
+        var sessionStarted = false
+        if (trackingMode == TrackingMode.SAVED && logStore.active() == null) {
+            activeDeviceId?.let { deviceId ->
+                events.publish(logStore.create(deviceId, activeDeviceName, clock.now()))
+                sessionStarted = true
+                sessionControllerRoute = route
+                sessionControllerUuid = firmware.controllerUuid
+            }
+        }
+        val activePath = if (trackingMode == TrackingMode.SAVED) logStore.activeSessionPath() else null
+        if (!rustSessionAttached && activePath != null) {
+            // Android framework SQLite and bundled Rust SQLite must not retain
+            // concurrent writer handles to the same WAL database. Creation is
+            // native catalogue work; transfer the session writer before Rust
+            // validates and opens the canonical file.
+            logStore.releaseActiveSessionWriter()
+            performRustCommand(json(
+                "command" to "attach_session", "path" to activePath, "mode" to "open",
+                "expected_riding_persistence_ms" to samplingSettings.ridingPersistIntervalMs,
+                "expected_idle_persistence_ms" to samplingSettings.idlePersistIntervalMs,
+                "committed_at_epoch_ms" to clock.now().toEpochMilli(),
+            ))
+            rustSessionAttached = true
+        }
+        var cached: Any? = null
+        cacheIdentity(effect.objectOrNull("configuration_cache_identity"))?.let { identity ->
+            cached = productStore?.cachedRefloatSchema(identity)?.unsigned()
+        }
+        performRustCommand(json(
+            "command" to "activate", "generation" to generation,
+            "now_ms" to clock.monotonicMillis(), "session_started" to sessionStarted,
+            "cached_configuration_schema" to cached,
+        ))
+    }
+
+    private fun storeRustRoutingHint(effect: JSONObject) {
+        if (trackingMode != TrackingMode.SAVED) return
+        val savedId = currentSavedDevice?.savedDeviceId ?: return
+        val route = controllerRoute(effect.objectOrNull("route")) as? ControllerRoute.Can ?: return
+        val uuid = effect.objectOrNull("identity")?.intList("controller_uuid")
+            ?.map(Int::toByte)?.toByteArray() ?: return
+        productStore?.storeControllerRoutingHint(
+            ControllerRoutingHint(savedId, route.canId, uuid), clock.now(),
+        )
+    }
+
+    private fun publishRustState(effect: JSONObject) {
+        rustGeneration = effect.long("generation") ?: throw runtimeFailure()
+        val phase = effect.string("phase") ?: throw runtimeFailure()
+        rustControllerRoute = controllerRoute(effect.objectOrNull("controller_route"))
+        rustFirmware = firmware(effect.objectOrNull("selected_firmware"), rustControllerRoute)
+        rustControllerCandidates = effect.array("controller_candidates").objects().mapNotNull { item ->
+            ControllerCandidate(
+                item.int("can_id") ?: return@mapNotNull null,
+                item.string("hardware_name"), item.string("firmware_name"),
+                item.string("vesc_version") ?: return@mapNotNull null,
+                item.boolean("vesc_supported") ?: return@mapNotNull null,
             )
         }
+        rustConnectionIssue = effect.objectOrNull("connection_issue")?.let { issue ->
+            val code = connectionIssueCode(issue.string("code")) ?: return@let null
+            ConnectionIssue(code, issue.string("message") ?: return@let null)
+        }
+        currentLimits = effect.objectOrNull("current_limits")?.let { limits ->
+            ControllerCurrentLimits(
+                limits.double("motor_current_max_a") ?: 0.0,
+                limits.double("motor_current_min_a") ?: 0.0,
+                limits.double("battery_current_max_a") ?: 0.0,
+                limits.double("battery_current_min_a") ?: 0.0,
+                limits.int("battery_series_cells"),
+            )
+        }
+        rustControls = controls(effect.objectOrNull("controls"))
+        effect.objectOrNull("configuration")?.let(::updateRustConfiguration)
+        effect.objectOrNull("controller_actions")?.let { actions ->
+            rustControllerActions = ControllerActions(
+                actions.optBoolean("shutdown_available"),
+                if (actions.optBoolean("shutdown_pending")) ControllerPendingAction.SHUTDOWN else null,
+            )
+        }
+        deviceKind = if (effect.optBoolean("standalone_bms")) DeviceKind.BMS
+            else if (rustFirmware == null) null else DeviceKind.BOARD
+        transition(when (phase) {
+            "identifying", "awaitingactivation" -> ConnectionState.IDENTIFYING
+            "selectingcontroller" -> ConnectionState.SELECTING_CONTROLLER
+            "ready" -> ConnectionState.READY
+            "failed" -> ConnectionState.FAILED
+            else -> ConnectionState.DISCONNECTED
+        })
     }
 
-    private fun armRefloatMutationTimeout(generation: VescRequestGeneration) {
-        refloatMutationTimer?.cancel()
-        refloatMutationTimer = refloatScheduler.schedule(REFLOAT_MUTATION_TIMEOUT_MS) {
-            synchronized(this) { failRefloatMutation(generation) }
+    private fun publishRustTelemetry(effect: JSONObject) {
+        val ride = rideState(effect.string("ride_state")) ?: throw runtimeFailure()
+        val extensions = effect.array("extensions").objects().mapNotNull { item ->
+            val name = item.string("name") ?: return@mapNotNull null
+            name to (item.double("value") ?: return@mapNotNull null)
+        }.toMap()
+        val sample = TelemetrySample(
+            sequence = effect.requireLong("sequence"),
+            observedAt = Instant.ofEpochMilli(effect.requireLong("observed_at_epoch_ms")),
+            elapsedMs = effect.requireLong("elapsed_ms"),
+            rideState = ride,
+            slowObservedAt = effect.long("slow_observed_at_epoch_ms")?.let(Instant::ofEpochMilli),
+            packageState = wireEnum<PackageState>(effect.string("package_state")),
+            packageMode = wireEnum<PackageMode>(normalized(effect.string("package_mode"))),
+            footpadState = wireEnum<FootpadState>(effect.string("footpad_state")),
+            stopCondition = wireEnum<StopCondition>(normalized(effect.string("stop_condition"))),
+            setpointAdjustment = wireEnum<SetpointAdjustment>(normalized(effect.string("setpoint_adjustment"))),
+            wheelslip = effect.boolean("wheelslip"), darkride = effect.boolean("darkride"),
+            charging = effect.boolean("charging"),
+            alertReason = wireEnum<AlertReason>(normalized(effect.string("alert_reason"))),
+            firmwareFault = wireEnum<FirmwareFault>(normalized(effect.string("firmware_fault"))),
+            packVoltageV = effect.double("pack_voltage_v"), dutyCycle = effect.double("duty_cycle"),
+            controllerTempC = effect.double("controller_temp_c"), motorTempC = effect.double("motor_temp_c"),
+            motorCurrentA = effect.double("motor_current_a"), batteryCurrentA = effect.double("battery_current_a"),
+            erpm = effect.double("erpm"), speedKph = effect.double("speed_kph"),
+            pitchDeg = effect.double("pitch_deg"), balancePitchDeg = effect.double("balance_pitch_deg"),
+            rollDeg = effect.double("roll_deg"),
+            directionalMotorCurrentA = effect.double("directional_motor_current_a"),
+            filteredMotorCurrentA = effect.double("filtered_motor_current_a"),
+            requestedBalanceCurrentA = effect.double("requested_balance_current_a"),
+            boosterCurrentA = effect.double("booster_current_a"),
+            fieldWeakeningCurrentA = effect.double("field_weakening_current_a"),
+            footpadAdc1V = effect.double("footpad_adc1_v"), footpadAdc2V = effect.double("footpad_adc2_v"),
+            remoteInput = effect.double("remote_input"), setpointDeg = effect.double("setpoint_deg"),
+            atrSetpointDeg = effect.double("atr_setpoint_deg"),
+            brakeTiltSetpointDeg = effect.double("brake_tilt_setpoint_deg"),
+            torqueTiltSetpointDeg = effect.double("torque_tilt_setpoint_deg"),
+            turnTiltSetpointDeg = effect.double("turn_tilt_setpoint_deg"),
+            remoteSetpointDeg = effect.double("remote_setpoint_deg"),
+            atrAccelerationDifferenceErpmPerSecond = effect.double("atr_acceleration_difference_erpm_per_second"),
+            atrSpeedBoost = effect.double("atr_speed_boost"), distanceM = effect.double("distance_m"),
+            odometerM = effect.double("odometer_m"), ampHoursDrawnAh = effect.double("amp_hours_drawn_ah"),
+            ampHoursChargedAh = effect.double("amp_hours_charged_ah"),
+            wattHoursDrawnWh = effect.double("watt_hours_drawn_wh"),
+            wattHoursChargedWh = effect.double("watt_hours_charged_wh"),
+            batteryLevel = effect.double("battery_level"),
+            chargingCurrentA = effect.double("charging_current_a"),
+            chargingVoltageV = effect.double("charging_voltage_v"), extension = extensions,
+        )
+        latestPersistedSample = sample
+        updateLocationCapture(ride)
+        events.publish(sample)
+    }
+
+    private fun publishRustBmsState(effect: JSONObject) {
+        val status = BmsStatus.entries.firstOrNull { it.wireValue == effect.string("status") }
+            ?: throw runtimeFailure()
+        val candidates = effect.array("candidates").objects().mapNotNull { item ->
+            val route = item.int("can_id")?.let(BmsConnection::Can) ?: BmsConnection.Direct
+            BmsCandidate(route, item.string("hardware_name"), item.string("version") ?: return@mapNotNull null)
+        }
+        rustBmsState = BmsState(status, bmsConnection(effect.objectOrNull("route")), candidates,
+            rustBmsState.latestSnapshot)
+        events.publish(rustBmsState)
+    }
+
+    private fun publishRustBmsObservation(effect: JSONObject) {
+        val snapshot = BmsSnapshot(
+            Instant.ofEpochMilli(effect.requireLong("observed_at_epoch_ms")),
+            effect.requireDouble("total_voltage_v"), effect.requireDouble("charge_voltage_v"),
+            effect.requireDouble("input_current_a"), effect.requireDouble("input_ic_current_a"),
+            effect.requireDouble("session_amp_hours_ah"), effect.requireDouble("session_watt_hours_wh"),
+            effect.doubleList("cell_voltages_v") ?: throw runtimeFailure(),
+            effect.booleanList("balancing") ?: throw runtimeFailure(),
+            effect.doubleList("temperatures_c") ?: throw runtimeFailure(),
+            effect.requireDouble("ic_temperature_c"), effect.requireDouble("humidity_sensor_temperature_c"),
+            effect.requireDouble("humidity_percent"), effect.requireDouble("highest_cell_temperature_c"),
+            effect.requireDouble("state_of_charge"), effect.requireDouble("state_of_health"),
+            effect.int("reported_can_id") ?: throw runtimeFailure(),
+            effect.requireDouble("lifetime_charge_amp_hours_ah"),
+            effect.requireDouble("lifetime_charge_watt_hours_wh"),
+            effect.requireDouble("lifetime_discharge_amp_hours_ah"),
+            effect.requireDouble("lifetime_discharge_watt_hours_wh"), effect.requireDouble("pressure_pa"),
+            effect.int("data_version"), effect.string("status"),
+        )
+        rustBmsState = BmsState(
+            BmsStatus.ATTACHED, bmsConnection(effect.objectOrNull("route")),
+            rustBmsState.candidates, snapshot,
+        )
+        events.publish(snapshot)
+    }
+
+    private fun applyRustSessionMarker(effect: JSONObject) {
+        val active = logStore.active() ?: throw runtimeFailure()
+        val snapshot = SessionPublishedSnapshotRecord(
+            effect.requireLong("history_revision"), effect.requireLong("committed_sample_sequence"),
+            effect.requireLong("committed_event_sequence"), effect.requireLong("committed_elapsed_ms"),
+            effect.requireLong("recorded_sample_count"), effect.requireLong("stored_sample_count"),
+            effect.requireLong("committed_location_sequence"),
+            effect.requireLong("committed_location_elapsed_ms"),
+            effect.requireLong("recorded_location_count"), effect.requireLong("stored_location_count"),
+            effect.string("last_location_status") ?: throw runtimeFailure(),
+        )
+        sessions().applySessionCommitMarker(
+            active.sessionId.value,
+            SessionCommitMarkerRecord(
+                snapshot, effect.requireLong("committed_event_count"),
+                Instant.ofEpochMilli(effect.requireLong("committed_at_epoch_ms")),
+                effect.requireLong("riding_elapsed_ms"), effect.double("distance_m"),
+                effect.double("maximum_speed_kph"), effect.long("maximum_speed_source_sequence"),
+                effect.double("maximum_duty_cycle"), effect.long("maximum_duty_source_sequence"),
+                effect.double("last_speed_kph"), effect.string("last_ride_state"),
+            ),
+        )
+    }
+
+    private fun updateRustConfiguration(value: JSONObject) {
+        val availability = wireEnum<RefloatConfigurationAvailability>(value.string("availability"))
+            ?: throw runtimeFailure()
+        val pending = when (normalized(value.string("pending"))) {
+            "schema" -> RefloatConfigurationOperation.SCHEMA
+            "readcurrent" -> RefloatConfigurationOperation.READ_CURRENT
+            "readdefault" -> RefloatConfigurationOperation.READ_DEFAULT
+            "write" -> RefloatConfigurationOperation.WRITE
+            null -> null
+            else -> throw runtimeFailure()
+        }
+        val identity = value.objectOrNull("identity")
+        rustConfigurationSchema = configurationSchema(value.objectOrNull("schema"))
+        rustConfigurationCurrent = configurationValues(
+            value.objectOrNull("current_values"), value.long("current_revision"), "current",
+        )
+        rustConfigurationDefaults = configurationValues(
+            value.objectOrNull("default_values"), value.long("default_revision"), "default",
+        )
+        rustConfigurationSummary = RefloatConfigurationSummary(
+            availability, value.boolean("writable") ?: throw runtimeFailure(),
+            identity?.string("package_version"), identity?.string("fingerprint"),
+            identity?.long("wire_signature"), rustConfigurationCurrent != null,
+            rustConfigurationDefaults != null, pending,
+        )
+        events.publish(rustConfigurationSummary)
+        if (pending != null && refloatConfigurationWaiter != null) {
+            refloatConfigurationObservedPending = true
+        } else if (pending == null && refloatConfigurationObservedPending) {
+            finishRefloatConfigurationRequest(Result.success(Unit))
         }
     }
 
-    private fun failRefloatMutation(generation: VescRequestGeneration) {
-        val updated = refloatMutations.failPending(generation) ?: return
-        events.publish("refloat_control_confirmation_timeout")
-        events.publish(updated)
-        finishRefloatMutation(Result.failure(RefloatMutationException(unavailable = true)))
+    private fun configurationSchema(value: JSONObject?): RefloatConfigurationSchema? {
+        value ?: return null
+        val fields = value.array("fields").objects().map { field ->
+            val fieldType = when (normalized(field.string("field_type"))) {
+                "decimal" -> RefloatConfigurationFieldType.DOUBLE
+                "integer" -> RefloatConfigurationFieldType.INTEGER
+                "string" -> RefloatConfigurationFieldType.STRING
+                "enumeration" -> RefloatConfigurationFieldType.ENUMERATION
+                "boolean" -> RefloatConfigurationFieldType.BOOLEAN
+                "bitfield" -> RefloatConfigurationFieldType.BITFIELD
+                else -> throw runtimeFailure()
+            }
+            val wireType = when (normalized(field.string("wire_type"))) {
+                "uint8" -> RefloatConfigurationWireType.UINT8
+                "int8" -> RefloatConfigurationWireType.INT8
+                "uint16" -> RefloatConfigurationWireType.UINT16
+                "int16" -> RefloatConfigurationWireType.INT16
+                "uint32" -> RefloatConfigurationWireType.UINT32
+                "int32" -> RefloatConfigurationWireType.INT32
+                "decimal16" -> RefloatConfigurationWireType.DOUBLE16
+                "decimal32" -> RefloatConfigurationWireType.DOUBLE32
+                "decimal32auto" -> RefloatConfigurationWireType.DOUBLE32_AUTO
+                null -> null
+                else -> throw runtimeFailure()
+            }
+            RefloatConfigurationField(
+                field.string("name") ?: throw runtimeFailure(),
+                field.string("long_name") ?: throw runtimeFailure(),
+                fieldType, wireType,
+                configurationValue(field.objectOrNull("default_value") ?: throw runtimeFailure()),
+                field.double("minimum"), field.double("maximum"), field.double("step"),
+                field.int("precision"), field.double("scale"),
+                field.string("suffix") ?: throw runtimeFailure(),
+                field.array("choices").strings(),
+                field.string("description") ?: throw runtimeFailure(),
+            )
+        }
+        val groups = value.array("groups").objects().map { group ->
+            RefloatConfigurationGroup(
+                group.string("name") ?: throw runtimeFailure(),
+                group.array("subgroups").objects().map { subgroup ->
+                    RefloatConfigurationSubgroup(
+                        subgroup.string("name") ?: throw runtimeFailure(),
+                        subgroup.array("fields").strings(),
+                    )
+                },
+            )
+        }
+        return RefloatConfigurationSchema(
+            value.string("fingerprint") ?: throw runtimeFailure(),
+            value.long("wire_signature") ?: throw runtimeFailure(), fields, groups,
+        )
     }
 
-    private fun finishRefloatMutation(result: Result<RefloatControls>) {
-        refloatMutationTimer?.cancel(); refloatMutationTimer = null
-        val waiter = refloatWaiter; refloatWaiter = null
+    private fun configurationValues(
+        value: JSONObject?, revision: Long?, source: String,
+    ): RefloatConfigurationValues? {
+        value ?: return null
+        val actualRevision = revision ?: throw runtimeFailure()
+        val values = value.keys().asSequence().associateWith { name ->
+            configurationValue(value.optJSONObject(name) ?: throw runtimeFailure())
+        }
+        return RefloatConfigurationValues(actualRevision, source, values)
+    }
+
+    private fun configurationValue(value: JSONObject): RefloatConfigurationValue = when (value.string("type")) {
+        "double" -> RefloatConfigurationValue.Decimal(value.double("value") ?: throw runtimeFailure())
+        "integer" -> RefloatConfigurationValue.Integer(value.long("value") ?: throw runtimeFailure())
+        "boolean" -> RefloatConfigurationValue.BooleanValue(value.boolean("value") ?: throw runtimeFailure())
+        "string" -> RefloatConfigurationValue.StringValue(value.string("value") ?: throw runtimeFailure())
+        else -> throw runtimeFailure()
+    }
+
+    private fun configurationValuesJson(values: Map<String, RefloatConfigurationValue>): JSONObject =
+        JSONObject().also { result -> values.toSortedMap().forEach { (name, value) ->
+            result.put(name, when (value) {
+                is RefloatConfigurationValue.Decimal -> json("type" to "double", "value" to value.value)
+                is RefloatConfigurationValue.Integer -> json("type" to "integer", "value" to value.value)
+                is RefloatConfigurationValue.BooleanValue -> json("type" to "boolean", "value" to value.value)
+                is RefloatConfigurationValue.StringValue -> json("type" to "string", "value" to value.value)
+            })
+        } }
+
+    private fun configurationValuesString(values: Map<String, RefloatConfigurationValue>) =
+        configurationValuesJson(values).toString()
+
+    private fun configurationValues(value: JSONObject): Map<String, RefloatConfigurationValue> =
+        value.keys().asSequence().associateWith { name ->
+            configurationValue(value.optJSONObject(name) ?: throw ProductStoreException.InvalidRefloatConfiguration)
+        }
+
+    private fun finishMutation(value: String) {
+        when {
+            value.contains("Failed") -> {
+                refloatWaiter?.finish(Result.failure(RefloatMutationException(unavailable = true)))
+                refloatWaiter = null
+            }
+            listOf("Idempotent", "Confirmed", "Released").any(value::contains) -> {
+                rustControls?.let { refloatWaiter?.finish(Result.success(it)) }
+                refloatWaiter = null
+            }
+        }
+    }
+
+    private fun finishRuntimeFailure(failure: String) {
+        events.publish("rust_runtime_failure")
+        if (failure.startsWith("Mutation")) {
+            refloatWaiter?.finish(Result.failure(RefloatMutationException(unavailable = true)))
+            refloatWaiter = null
+        }
+        if (failure.startsWith("Configuration") || failure.contains("ConfigurationWrite") ||
+            failure.contains("TuneApply")
+        ) {
+            finishRefloatConfigurationRequest(Result.failure(configurationFailure(failure)))
+        }
+    }
+
+    private fun finishRefloatConfigurationRequest(result: Result<Unit>) {
+        val waiter = refloatConfigurationWaiter
+        refloatConfigurationWaiter = null
+        refloatConfigurationObservedPending = false
         waiter?.finish(result)
     }
 
-    private fun cancelRefloatControls() {
-        refloatRefreshTimer?.cancel(); refloatRefreshTimer = null
-        refloatMutationTimer?.cancel(); refloatMutationTimer = null
-        shutdownIntentTimer?.cancel(); shutdownIntentTimer = null
-        refloatProfile = null; latestRefloatTelemetry = null
-        refloatMutations.cancel()
-        finishRefloatMutation(Result.failure(RefloatMutationException(unavailable = true)))
+    private fun configurationFailure(value: String): Throwable = RefloatConfigurationServiceException(when {
+        value.contains("Conflict") -> RefloatConfigurationServiceError.CONFLICT
+        value.contains("StaleResponse") -> RefloatConfigurationServiceError.STALE_RESPONSE
+        value.contains("UnauditedSchema") -> RefloatConfigurationServiceError.UNAUDITED_SCHEMA
+        value.contains("MalformedResponse") || value.contains("Codec") ->
+            RefloatConfigurationServiceError.MALFORMED_RESPONSE
+        value.contains("InvalidState") -> RefloatConfigurationServiceError.INVALID_STATE
+        else -> RefloatConfigurationServiceError.UNAVAILABLE
+    })
+
+    private fun cacheIdentity(value: JSONObject?): RefloatSchemaCacheIdentity? = value?.let {
+        RefloatSchemaCacheIdentity(
+            it.string("firmware_version") ?: return null,
+            it.string("hardware_name") ?: return null,
+            it.string("package_version") ?: return null,
+            it.int("custom_index") ?: return null,
+            it.long("hardware_configuration_crc") ?: return null,
+        )
     }
 
-    private fun controllerActionsSnapshot(): ControllerActions {
-        val supported = controllerDiscovery.firmware?.let(VescCompatibility::supportsShutdown) ?: false
-        val telemetry = latestRefloatTelemetry
-        val available = connectionState == ConnectionState.READY && supported &&
-            telemetry?.rideState == RideState.IDLE && telemetry.packageMode != PackageMode.FLYWHEEL &&
-            refloatMutations.snapshot()?.pendingAction == null
-        return refloatMutations.controllerActions(available)
+    private fun firmware(value: JSONObject?, route: ControllerRoute?): FirmwareRecord? = value?.let {
+        FirmwareRecord(
+            it.int("major") ?: return null, it.int("minor") ?: return null,
+            it.string("hardware_name"), it.string("firmware_name"),
+            it.int("hardware_type") ?: return null, routeCanId(route),
+            it.intList("controller_uuid")?.map(Int::toByte)?.toByteArray(),
+            it.int("test_version") ?: return null,
+            it.int("custom_configuration_count") ?: return null,
+            it.long("hardware_configuration_crc"),
+        )
     }
 
-    private fun expireShutdownIntent(generation: VescRequestGeneration) {
-        val actions = refloatMutations.clearShutdown(generation) ?: return
-        shutdownIntentTimer?.cancel(); shutdownIntentTimer = null
-        events.publish("controller_shutdown_unconfirmed")
-        events.publish(actions)
+    private fun controllerRoute(value: JSONObject?): ControllerRoute? = when (value?.string("kind")) {
+        "direct" -> ControllerRoute.Direct
+        "can" -> value.int("can_id")?.let(ControllerRoute::Can)
+        else -> null
     }
 
-    private fun transition(state: ConnectionState) {
-        connectionState = state
-        events.publish(state)
+    private fun routeCanId(route: ControllerRoute?): Int? = (route as? ControllerRoute.Can)?.canId
+
+    private fun bmsConnection(value: JSONObject?): BmsConnection? = when (val route = controllerRoute(value)) {
+        ControllerRoute.Direct -> BmsConnection.Direct
+        is ControllerRoute.Can -> BmsConnection.Can(route.canId)
+        null -> null
     }
 
-    private fun resetFirmwareDiscovery() {
-        finishRefloatConfigurationRequest(Result.failure(
-            RefloatConfigurationServiceException(RefloatConfigurationServiceError.UNAVAILABLE),
-        ))
-        refloatConfiguration.reset()
-        vescGeneration = vescRequests.beginGeneration()
-        telemetryPolling.cancelLayout()
-        telemetryPolling.stop()
-        controllerDiscovery.reset()
-        auxiliaryDiscovery.reset()
-        deviceKind = null
-        bmsPollTimer?.cancel()
-        bmsPollTimer = null
-        bmsFailureCount = 0
-        currentLimits = null
-        cancelRefloatControls()
-        currentSavedDevice = null
-        cancelIdentificationTimeout()
-        cancelCanProbeTimeout()
-        protocol?.reset()
+    private fun controls(value: JSONObject?): RefloatControls? = value?.let {
+        val status = wireEnum<RefloatControlStatus>(it.string("status")) ?: return null
+        val pending = wireEnum<RefloatPendingAction>(normalized(it.string("pending_action")))
+        RefloatControls(
+            status, it.boolean("writable") ?: return null,
+            it.boolean("package_enabled"), it.boolean("flywheel_enabled"),
+            it.boolean("lighting_available") ?: return null,
+            it.boolean("leds_enabled"), it.boolean("headlights_enabled"),
+            it.boolean("fatal_error_clear_available") ?: return null,
+            it.boolean("fatal_error_latched"), it.boolean("fatal_error_active"),
+            it.boolean("fatal_error_clearable"), pending,
+        )
     }
 
-    private fun savedDeviceIdFor(deviceId: DeviceId): String? =
-        runCatching {
-            productStore?.savedDevices()?.firstOrNull { it.bluetoothIdentifier == deviceId.value }?.savedDeviceId
-        }.getOrNull()
-
-    private fun stableBoardIdentity(value: ByteArray?): String? {
-        val meaningful = ControllerDiscoveryPolicy.meaningfulUuid(value) ?: return null
-        val input = ByteArray("float-view-board-v1\u0000".toByteArray().size + meaningful.size).also {
-            val prefix = "float-view-board-v1\u0000".toByteArray()
-            prefix.copyInto(it)
-            meaningful.copyInto(it, prefix.size)
-        }
-        val digest = MessageDigest.getInstance("SHA-256").digest(input)
-        return "vesc-v1-" + digest.joinToString("") { byte -> "%02x".format(byte.toInt() and 0xff) }
+    private fun stableBoardIdentity(value: ByteArray?): String? = value?.takeIf { it.size == 12 }?.let {
+        MessageDigest.getInstance("SHA-256").digest(it).joinToString("") { byte -> "%02x".format(byte) }
     }
 
-    private fun permissionAllowsUse(state: BluetoothPermissionState): Boolean =
-        state == BluetoothPermissionState.GRANTED ||
-            state == BluetoothPermissionState.NOT_REQUIRED
+    private fun preferredCanId(valuesJson: String, key: String): Int? = runCatching {
+        JSONObject(valuesJson).takeIf { !it.isNull(key) }?.getInt(key)?.takeIf { it in 0..253 }
+    }.getOrNull()
 
-    private fun permissionIsTerminal(state: BluetoothPermissionState): Boolean =
-        state == BluetoothPermissionState.DENIED ||
-            state == BluetoothPermissionState.RESTRICTED
+    private fun permissionAllowsUse(value: BluetoothPermissionState) =
+        value in setOf(BluetoothPermissionState.GRANTED, BluetoothPermissionState.NOT_REQUIRED)
 
-    private fun bmsRouteDiagnostic(canId: Int?): String = canId?.let { "can=$it" } ?: "direct"
+    private fun permissionIsTerminal(value: BluetoothPermissionState) =
+        value in setOf(BluetoothPermissionState.DENIED, BluetoothPermissionState.RESTRICTED)
 
-    private fun bmsHardwareDiagnostic(value: String?): String =
-        value.orEmpty().take(32).map { character ->
-            if (character.isLetterOrDigit() || character == '-' || character == '_') character else '_'
-        }.joinToString("").ifEmpty { "unknown" }
+    private fun connectionIssueCode(value: String?): ConnectionIssueCode? =
+        ConnectionIssueCode.entries.firstOrNull { normalized(it.name) == normalized(value) }
 
-    private fun identificationDiagnostic(
-        context: VescRequestContext,
-        attempt: Int?,
-        outcome: String,
-    ): String {
-        val stage = when (context) {
-            is VescRequestContext.ControllerFirmware -> "firmware"
-            VescRequestContext.CanPing -> "can_ping"
-            is VescRequestContext.RefloatInfo -> "refloat_info"
-            is VescRequestContext.RefloatLayout -> "telemetry_layout"
-            else -> "other"
-        }
-        val route = when (val value = context.route) {
-            VescRequestRoute.Direct -> "direct"
-            is VescRequestRoute.Can -> "can:${value.canId}"
-            null -> "none"
-        }
-        return "connection_identification stage=$stage route=$route " +
-            "attempt=${attempt ?: 1} outcome=$outcome"
-    }
+    private fun rideState(value: String?): RideState? = wireEnum<RideState>(value)
 
-    private fun requestOutcomeDiagnostic(outcome: VescRequestCompletion): String = when (outcome) {
-        is VescRequestCompletion.Response -> "response"
-        VescRequestCompletion.Sent -> "sent"
-        VescRequestCompletion.TimedOut -> "timed_out"
-        VescRequestCompletion.QueueFull -> "queue_full"
-        VescRequestCompletion.Cancelled -> "cancelled"
-        VescRequestCompletion.StaleGeneration -> "stale_generation"
-    }
+    private inline fun <reified T : Enum<T>> wireEnum(value: String?): T? =
+        enumValues<T>().firstOrNull { normalized(it.name) == normalized(value) }
 
-    private companion object {
-        const val MAX_RECONNECT_BACKOFF_MS = 30_000L
-        const val DISCOVERY_EXPIRY_MS = 120_000L
-        const val IDENTIFICATION_TIMEOUT_MS = 10_000L
-        const val INITIAL_IDENTIFICATION_ATTEMPT_TIMEOUT_MS = 2_000L
-        // COMM_PING_CAN can synchronously probe all 255 CAN IDs at 10 ms per ID.
-        const val CAN_SCAN_TIMEOUT_MS = 10_000L
-        const val CAN_PROBE_TIMEOUT_MS = 1_000L
-        const val REFLOAT_REFRESH_MS = 1_000L
-        const val REFLOAT_MUTATION_TIMEOUT_MS = 3_000L
-        // Android can surface controller power loss only after the BLE link
-        // supervision timeout (GATT status 8), well after the command write.
-        const val SHUTDOWN_INTENT_TIMEOUT_MS = 30_000L
+    private fun normalized(value: String?): String? = value?.replace("_", "")?.lowercase()
+
+    private fun runtimeFailure() = RustApplicationRuntimeException(RustApplicationRuntimeError.INTERNAL_FAILURE)
+
+    companion object {
+        private const val DISCOVERY_EXPIRY_MS = 15_000L
+        private const val MAX_RECONNECT_BACKOFF_MS = 30_000L
     }
 }
 
+private fun json(vararg values: Pair<String, Any?>): JSONObject = JSONObject().also { objectValue ->
+    values.forEach { (name, value) -> objectValue.put(name, jsonValue(value)) }
+}
+
+private fun jsonValue(value: Any?): Any = when (value) {
+    null -> JSONObject.NULL
+    is ByteArray -> JSONArray(value.unsigned())
+    is Iterable<*> -> JSONArray().also { array -> value.forEach { array.put(jsonValue(it)) } }
+    else -> value
+}
+
+private fun ByteArray.unsigned() = map { it.toInt() and 0xff }
+private fun JSONObject.string(name: String): String? = if (isNull(name)) null else opt(name) as? String
+private fun JSONObject.long(name: String): Long? = if (isNull(name) || !has(name)) null else runCatching {
+    val value = get(name)
+    when (value) {
+        is Byte, is Short, is Int, is Long -> (value as Number).toLong()
+        is Number -> value.toDouble().takeIf { it.isFinite() && it % 1.0 == 0.0 }?.toLong()
+        else -> null
+    }
+}.getOrNull()
+private fun JSONObject.int(name: String): Int? = long(name)?.takeIf { it in Int.MIN_VALUE..Int.MAX_VALUE }?.toInt()
+private fun JSONObject.double(name: String): Double? = if (isNull(name) || !has(name)) null else runCatching {
+    (get(name) as? Number)?.toDouble()?.takeIf(Double::isFinite)
+}.getOrNull()
+private fun JSONObject.boolean(name: String): Boolean? = if (isNull(name) || !has(name)) null else
+    (opt(name) as? Boolean)
+private fun JSONObject.objectOrNull(name: String): JSONObject? = if (isNull(name)) null else optJSONObject(name)
+private fun JSONObject.arrayOrNull(name: String): JSONArray? = if (isNull(name)) null else optJSONArray(name)
+private fun JSONObject.array(name: String): JSONArray = arrayOrNull(name) ?: JSONArray()
+private fun JSONObject.requireLong(name: String) = long(name) ?: error("Missing integer $name")
+private fun JSONObject.requireDouble(name: String) = double(name) ?: error("Missing number $name")
+private fun JSONObject.longList(name: String): List<Long>? = arrayOrNull(name)?.let { array ->
+    (0 until array.length()).map { index ->
+        json("value" to array.opt(index)).long("value") ?: return null
+    }
+}
+private fun JSONObject.intList(name: String): List<Int>? = longList(name)?.map { value ->
+    value.takeIf { it in Int.MIN_VALUE..Int.MAX_VALUE }?.toInt() ?: return null
+}
+private fun JSONObject.doubleList(name: String): List<Double>? = arrayOrNull(name)?.let { array ->
+    (0 until array.length()).map { index ->
+        json("value" to array.opt(index)).double("value") ?: return null
+    }
+}
+private fun JSONObject.optionalDoubleList(name: String): List<Double?>? = arrayOrNull(name)?.let { array ->
+    (0 until array.length()).map { index ->
+        if (array.isNull(index)) null else json("value" to array.opt(index)).double("value") ?: return null
+    }
+}
+private fun JSONObject.booleanList(name: String): List<Boolean>? = arrayOrNull(name)?.let { array ->
+    (0 until array.length()).map { index -> array.opt(index) as? Boolean ?: return null }
+}
+private fun JSONArray.objects(): List<JSONObject> =
+    (0 until length()).mapNotNull(::optJSONObject)
+private fun JSONArray.strings(): List<String> =
+    (0 until length()).mapNotNull { index -> opt(index) as? String }
+
 private class RefloatMutationWaiter {
     private val latch = CountDownLatch(1)
-    @Volatile private var result: Result<RefloatControls>? = null
+    private var result: Result<RefloatControls>? = null
 
-    @Synchronized fun finish(value: Result<RefloatControls>) {
+    @Synchronized
+    fun finish(value: Result<RefloatControls>) {
         if (result != null) return
         result = value
         latch.countDown()
@@ -2185,24 +1573,25 @@ private class RefloatMutationWaiter {
 
     fun await(): RefloatControls {
         if (!latch.await(3_250, TimeUnit.MILLISECONDS)) throw RefloatMutationException(unavailable = true)
-        return result!!.getOrThrow()
+        return requireNotNull(synchronized(this) { result }).getOrThrow()
     }
 }
 
 private class RefloatConfigurationRequestWaiter {
     private val latch = CountDownLatch(1)
-    @Volatile private var result: Result<Unit>? = null
+    private var result: Result<Unit>? = null
 
-    @Synchronized fun finish(value: Result<Unit>) {
+    @Synchronized
+    fun finish(value: Result<Unit>) {
         if (result != null) return
         result = value
         latch.countDown()
     }
 
     fun await() {
-        if (!latch.await(3_250, TimeUnit.MILLISECONDS)) {
+        if (!latch.await(3_750, TimeUnit.MILLISECONDS)) {
             throw RefloatConfigurationServiceException(RefloatConfigurationServiceError.UNAVAILABLE)
         }
-        result!!.getOrThrow()
+        requireNotNull(synchronized(this) { result }).getOrThrow()
     }
 }

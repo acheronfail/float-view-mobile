@@ -9,6 +9,7 @@ publish = false
 crate-type = ["rlib", "staticlib"]
 
 [dependencies]
-float-view-application-runtime = { path = "../application-runtime" }
-serde = { version = "1", features = ["derive"] }
+float-view-application-runtime-host = { path = "../application-runtime-host" }
+
+[dev-dependencies]
 serde_json = "1"

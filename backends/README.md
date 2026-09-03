@@ -1,8 +1,10 @@
 # Native backend architecture
 
 Apple and Android implement the authenticated loopback contract by hand. The
-frontend is disposable; native application services own Bluetooth, protocol
-requests, lifecycle, persistence, background work, and authoritative state.
+frontend is disposable. Their native application services select the shared
+Rust application runtime, execute its OS effects, and own Bluetooth, lifecycle,
+background work, catalogue/file presentation, loopback transport, and
+authoritative state publication.
 
 Both native source trees use the capability names `application`, `bluetooth`,
 `files`, `lifecycle`, `location`, `protocol`, `storage`, `theme`, `transport`,
@@ -13,10 +15,11 @@ are navigation and ownership boundaries, not shared implementation layers.
 
 ## VESC request ownership
 
-Each active Bluetooth connection has one bounded `VescRequestScheduler`. It is
-the only production owner allowed to write framed VESC requests after UART setup,
-keeps at most one request in flight, attributes responses to an exact route and
-expected command, and rejects late work from older connection generations.
+Each active Bluetooth connection has one bounded Rust `VescRequestScheduler`.
+It is the only production decision owner allowed to emit framed VESC writes
+after UART setup, keeps at most one request in flight, attributes responses to
+an exact route and expected command, and rejects late work from older connection
+generations. Native Bluetooth adapters execute those ordered writes.
 Controller identification has the highest priority, riding telemetry precedes
 ordinary controller work, and auxiliary BMS traffic has the lowest priority.
 
@@ -138,7 +141,7 @@ raw packets, full cell arrays, tokens, or Bluetooth addresses.
    fixed-point scales, auto-float behavior, and optional tail byte for byte.
 3. Add immutable source-derived fixtures with provenance under
    `backends/fixtures/vesc-bms/`.
-4. Update strict Swift and Kotlin decoders together, including identical valid
+4. Update the shared Rust decoder and source-derived vectors, including valid
    and malformed tables, bounds, error classification, and route checks.
 5. Update the frontend contract/mock and canonical `conformance/` scenarios if
    public semantics change; do not add a generated or platform-specific API.
