@@ -209,9 +209,24 @@ class SQLiteBoardProfileInstrumentedTest {
         assertEquals(7, hint?.canId)
         assertTrue(requireNotNull(hint?.controllerUuid).contentEquals(uuid))
 
+        assertThrows(ProductStoreException.InvalidProfilePatch::class.java) {
+            store.storeControllerRoutingHint(
+                ControllerRoutingHint(saved.savedDeviceId, 7, ByteArray(12)),
+                Instant.EPOCH,
+            )
+        }
+        val selectedWithoutIdentity = store.selectController(
+            saved.savedDeviceId,
+            8,
+            null,
+            Instant.EPOCH,
+        )
+        assertTrue(selectedWithoutIdentity.valuesJson.contains("\"preferredCanId\":8"))
+        assertEquals(null, store.controllerRoutingHint(saved.savedDeviceId))
+
         store.updateBoardProfile(
             saved.savedDeviceId,
-            selected.revision,
+            selectedWithoutIdentity.revision,
             """{"preferredCanId":null}""",
             Instant.EPOCH,
         )

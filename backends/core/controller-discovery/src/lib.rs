@@ -810,9 +810,13 @@ impl ControllerDiscovery {
                 "Controller firmware is not supported.",
             );
         }
+        let remember_controller = route
+            .can_id()
+            .and_then(|_| meaningful_uuid(value.identity.controller_uuid))
+            .map(|_| value);
         Transition::one(Effect::RequestRefloatInfo {
             route,
-            remember_controller: route.can_id().map(|_| value),
+            remember_controller,
         })
     }
 

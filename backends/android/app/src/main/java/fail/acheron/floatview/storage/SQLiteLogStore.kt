@@ -1557,11 +1557,15 @@ class SQLiteLogStore(
             if (changed != 1L) {
                 throw ProductStoreException.ProfileRevisionConflict(current.revision)
             }
-            storeControllerRoutingHint(
-                db,
-                ControllerRoutingHint(savedDeviceId, canId, controllerUuid),
-                at,
-            )
+            if (isMeaningfulControllerUuid(controllerUuid)) {
+                storeControllerRoutingHint(
+                    db,
+                    ControllerRoutingHint(savedDeviceId, canId, controllerUuid),
+                    at,
+                )
+            } else {
+                clearControllerRoutingHint(db, savedDeviceId)
+            }
             BoardProfileRecord(
                 savedDeviceId,
                 revision,
@@ -1594,6 +1598,9 @@ class SQLiteLogStore(
 
     @Synchronized
     override fun storeControllerRoutingHint(hint: ControllerRoutingHint, at: Instant) {
+        if (hint.canId !in 0..253 || !isMeaningfulControllerUuid(hint.controllerUuid)) {
+            throw ProductStoreException.InvalidProfilePatch
+        }
         storeControllerRoutingHint(catalog.writableDatabase, hint, at)
     }
 
@@ -3327,6 +3334,10 @@ class SQLiteLogStore(
 
     private companion object {
         val INITIAL_MISSING_FIELDS = listOf("seriesCount", "parallelCount", "motor")
+        fun isMeaningfulControllerUuid(value: ByteArray?): Boolean =
+            value != null && value.size == 12 &&
+                value.any { it != 0.toByte() } && value.any { it != 0xff.toByte() }
+
         fun isValidDeviceHistoryId(value: String): Boolean {
             val bytes = value.toByteArray(Charsets.UTF_8)
             return bytes.isNotEmpty() && bytes.size <= 128 && bytes.all { byte ->

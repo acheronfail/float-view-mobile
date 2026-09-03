@@ -43,6 +43,36 @@ private func makeStore(_ root: URL) throws -> SQLiteLogStore {
   )
 }
 
+@Test func controllerRoutingHintsRequireMeaningfulIdentity() throws {
+  let root = FileManager.default.temporaryDirectory.appending(path: "float-view-routing-\(UUID())")
+  defer { try? FileManager.default.removeItem(at: root) }
+  let store = try makeStore(root)
+  let saved = try store.ensureSavedDevice(
+    deviceID: DeviceID("fixture"), advertisedName: "Fixture", at: TestClock().date
+  )
+  let meaningful = Data(1 ... 12)
+  let hint = ControllerRoutingHint(
+    savedDeviceID: saved.savedDeviceID, canID: 7, controllerUUID: meaningful
+  )
+  try store.storeControllerRoutingHint(hint, at: TestClock().date)
+  #expect(try store.controllerRoutingHint(savedDeviceID: saved.savedDeviceID) == hint)
+
+  let selected = try store.selectController(
+    savedDeviceID: saved.savedDeviceID, canID: 8, controllerUUID: nil, at: TestClock().date
+  )
+  #expect(selected.valuesJSON.contains("\"preferredCanId\":8"))
+  #expect(try store.controllerRoutingHint(savedDeviceID: saved.savedDeviceID) == nil)
+
+  #expect(throws: ProductStoreError.invalidProfilePatch) {
+    try store.storeControllerRoutingHint(
+      ControllerRoutingHint(
+        savedDeviceID: saved.savedDeviceID, canID: 8, controllerUUID: Data(repeating: 0, count: 12)
+      ),
+      at: TestClock().date
+    )
+  }
+}
+
 @Test func sqliteCatalogueOwnsLifecycleAndExports() throws {
   let root = FileManager.default.temporaryDirectory.appending(path: "float-view-catalog-\(UUID())")
   defer { try? FileManager.default.removeItem(at: root) }

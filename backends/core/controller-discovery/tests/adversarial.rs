@@ -183,6 +183,34 @@ fn candidate_limit_selection_and_private_projection_are_exact() {
 }
 
 #[test]
+fn can_controller_without_meaningful_uuid_is_selected_but_never_remembered() {
+    for uuid_byte in [0, u8::MAX] {
+        let mut discovery = enumerating();
+        assert_eq!(
+            probe_route(&discovery.accept_can_ids(&[7], Continuity::default())),
+            Some(Route::Can(7))
+        );
+        assert!(matches!(
+            effect(&discovery.accept_can_identity(
+                7,
+                identity(0, 6, uuid_byte, 0),
+                Continuity::default(),
+            )),
+            Some(Effect::RequestRefloatInfo {
+                route: Route::Can(7),
+                remember_controller: None,
+            })
+        ));
+
+        let mut reconnect = begun();
+        assert!(matches!(
+            effect(&reconnect.accept_transport(identity(5, 6, 0, 0), None, None)),
+            Some(Effect::PingCan)
+        ));
+    }
+}
+
+#[test]
 fn unsupported_candidate_is_visible_but_never_selectable() {
     let continuity = Continuity::default();
     let mut discovery = enumerating();

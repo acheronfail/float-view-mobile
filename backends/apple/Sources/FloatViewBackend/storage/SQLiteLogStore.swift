@@ -1228,14 +1228,18 @@ public final class SQLiteLogStore: LogStorePort, ProductStorePort, SessionStoreP
           currentRevision: currentProfile.revision
         )
       }
-      try storeControllerRoutingHintLocked(
-        ControllerRoutingHint(
-          savedDeviceID: savedDeviceID,
-          canID: canID,
-          controllerUUID: controllerUUID
-        ),
-        at: at
-      )
+      if Self.isMeaningfulControllerUUID(controllerUUID) {
+        try storeControllerRoutingHintLocked(
+          ControllerRoutingHint(
+            savedDeviceID: savedDeviceID,
+            canID: canID,
+            controllerUUID: controllerUUID
+          ),
+          at: at
+        )
+      } else {
+        try clearControllerRoutingHintLocked(savedDeviceID: savedDeviceID)
+      }
       try catalog.execute("COMMIT")
       let updated = BoardProfileRecord(
         savedDeviceID: savedDeviceID,
@@ -1264,7 +1268,7 @@ public final class SQLiteLogStore: LogStorePort, ProductStorePort, SessionStoreP
     at: Date
   ) throws {
     guard hint.canID <= 253,
-          hint.controllerUUID == nil || hint.controllerUUID?.count == 12
+          Self.isMeaningfulControllerUUID(hint.controllerUUID)
     else { throw ProductStoreError.invalidProfilePatch }
     lock.lock()
     defer { lock.unlock() }
@@ -3004,6 +3008,11 @@ public final class SQLiteLogStore: LogStorePort, ProductStorePort, SessionStoreP
           let number = raw as? NSNumber
     else { return nil }
     return number.intValue
+  }
+
+  private static func isMeaningfulControllerUUID(_ value: Data?) -> Bool {
+    guard let value, value.count == 12 else { return false }
+    return value.contains { $0 != 0 } && value.contains { $0 != UInt8.max }
   }
 
   private static func hexString(_ data: Data) -> String {

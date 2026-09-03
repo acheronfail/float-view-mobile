@@ -27,8 +27,8 @@ usage() {
 
 profile_arguments() {
   case "$1" in
-    debug) profile='debug'; cargo_release=() ;;
-    release) profile='release'; cargo_release=(--release) ;;
+    debug) profile='debug'; cargo_release=0 ;;
+    release) profile='release'; cargo_release=1 ;;
     *) usage ;;
   esac
 }
@@ -106,8 +106,10 @@ build_host() {
     *-linux-*) extension='so' ;;
     *) echo "Unsupported host-JVM Rust target: $host_target" >&2; exit 1 ;;
   esac
-  cargo +"$rust_toolchain" build --manifest-path "$core_root/Cargo.toml" \
-    --package "$package" --locked --offline "${cargo_release[@]}"
+  local cargo_arguments=(+"$rust_toolchain" build --manifest-path "$core_root/Cargo.toml" \
+    --package "$package" --locked --offline)
+  if [[ $cargo_release -eq 1 ]]; then cargo_arguments+=(--release); fi
+  cargo "${cargo_arguments[@]}"
   artifact="$core_root/target/$profile/lib$library_stem.$extension"
   [[ -f "$artifact" ]] || { echo "Host runtime library was not produced: $artifact" >&2; exit 1; }
   mkdir -p "$output_directory"
@@ -139,10 +141,12 @@ build_android() {
   [[ -x "$linker" ]] || { echo "Pinned NDK linker is unavailable: $linker" >&2; exit 1; }
   target_environment="$(printf '%s' "$target" | tr '[:lower:]-' '[:upper:]_')"
   cargo_linker="CARGO_TARGET_${target_environment}_LINKER"
-  env "$cargo_linker=$linker" "CC_$target=$linker" "AR_$target=$llvm_bin/llvm-ar" \
-    cargo +"$rust_toolchain" build \
+  local cargo_arguments=(+"$rust_toolchain" build \
     --manifest-path "$core_root/Cargo.toml" --package "$package" --target "$target" \
-    --locked --offline "${cargo_release[@]}"
+    --locked --offline)
+  if [[ $cargo_release -eq 1 ]]; then cargo_arguments+=(--release); fi
+  env "$cargo_linker=$linker" "CC_$target=$linker" "AR_$target=$llvm_bin/llvm-ar" \
+    cargo "${cargo_arguments[@]}"
   artifact="$core_root/target/$target/$profile/lib$library_stem.so"
   [[ -f "$artifact" ]] || { echo "Android runtime library was not produced: $artifact" >&2; exit 1; }
   mkdir -p "$output_directory/$abi"
