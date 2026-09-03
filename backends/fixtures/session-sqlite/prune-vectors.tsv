@@ -1,0 +1,13 @@
+# sequence	elapsed_ms	ride_state	speed_kph	pack_voltage_v
+1	0	idle	0	100
+2	100	idle	1	99
+3	200	idle	2	98
+4	300	idle	3	97
+5	400	idle	4	96
+6	500	idle	5	95
+7	600	riding	6	94
+8	700	riding	7	93
+9	800	riding	8	92
+10	900	riding	9	91
+11	1000	riding	10	90
+12	1100	riding	11	89

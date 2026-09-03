@@ -21,11 +21,12 @@ None.
 
 - `native-core-migration`: Extend the consolidated Rust per-session SQLite candidate with bounded, race-safe prune preview and atomic mutation behavior.
 - `platform-hosts`: Preserve selected Swift/Kotlin stores and all platform ownership while the new Rust mutation remains unselected.
-- `backend-conformance`: Require exact/adversarial SQLite pruning evidence, production-isolation audits, the complete software gate, and unchanged all-host physical behavior.
+- `backend-conformance`: Require exact/adversarial SQLite pruning evidence, production-isolation audits, the complete software gate, unchanged available-host physical behavior, and an explicit migration-final Android hardware gate when no handset is available for this unselected slice.
 
 ## Impact
 
 - Affects `backends/core/session-sqlite`, its fixtures, root verification recipes/audits, and OpenSpec ownership documentation.
 - Reuses the existing locked `rusqlite` and `session-history-kernel` graph; no new dependency, runtime, bridge, generated binding, or cross-platform API is introduced.
 - Changes no frontend contract, canonical SQL schema, production native source/package input, catalog, durable production database, or selected host behavior in this step.
+- Runs the macOS and iOS ESP32 matrices now; records Android hardware as unavailable and defers that physical matrix to the migration-final gate before any Rust runtime selection.
 - Non-goals are host cutover, native pruning-code deletion, catalog/recovery ownership, maintenance scheduling, imports/exports, local serving, application behavior, and bridge removal; those remain later independently gated changes.

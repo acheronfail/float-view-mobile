@@ -2,7 +2,7 @@
 
 ### Requirement: Rust session SQLite pruning candidate evidence
 
-The Rust session-pruning extraction SHALL be backed by exact canonical-database fixtures, exhaustive transaction and adversarial behavior, dependency and production-isolation audits, the complete software gate, and unchanged Android, iOS, and macOS physical behavior before later catalog/runtime selection.
+The Rust session-pruning extraction SHALL be backed by exact canonical-database fixtures, exhaustive transaction and adversarial behavior, dependency and production-isolation audits, the complete software gate, and unchanged available-device physical behavior. Android physical behavior SHALL pass the canonical fixture matrix before any later Rust catalog/runtime selection; an unavailable handset MAY be recorded and deferred from this unselected slice but MUST NOT be replaced by emulator evidence.
 
 #### Scenario: Replay exact preview and commit vectors
 
@@ -28,3 +28,8 @@ The Rust session-pruning extraction SHALL be backed by exact canonical-database 
 
 - **WHEN** the connected Android device, connected iOS device, and macOS host run the canonical ESP32 fixture matrix
 - **THEN** every non-location checkpoint SHALL pass through unchanged production BLE, discovery, configuration, controls, shutdown, telemetry, BMS, session SQLite/history/pruning, background, files, theme, recovery, and cleanup behavior, while bounded location acquisition MAY be recorded for later manual verification
+
+#### Scenario: Defer unavailable Android hardware honestly
+
+- **WHEN** macOS and iOS pass their canonical ESP32 matrices but no physical Android handset is connected for an unselected, production-isolated extraction
+- **THEN** the change SHALL record Android as unavailable, SHALL NOT claim emulator results as physical evidence, and SHALL retain the complete Android ESP32 matrix as a mandatory migration-final gate before Rust runtime selection

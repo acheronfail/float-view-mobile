@@ -19,8 +19,13 @@ use rusqlite::{
     params,
 };
 
+mod pruner;
 mod reader;
 
+pub use pruner::{
+    MAX_PRUNE_SOURCE_ROWS, PruneError, PruneInterrupter, PrunePlan, PrunePreview, PruneResult,
+    SessionPruner,
+};
 pub use reader::{
     EventPage, EventRecord, FieldDescriptor, FieldSource, LocationGap, LocationPage,
     LocationRecord, PublishedBoundary, ReadInterrupter, ReaderError, ReaderMetadata, SampleKey,

@@ -826,9 +826,9 @@ core-session-sqlite-audit:
     set -euo pipefail
     crate='backends/core/session-sqlite'
     fixtures='backends/fixtures/session-sqlite'
-    [[ -f "$crate/Cargo.toml" && -f "$crate/src/lib.rs" && -f "$crate/src/reader.rs" ]]
-    [[ -f "$crate/tests/vectors.rs" && -f "$crate/tests/adversarial.rs" && -f "$crate/tests/reader.rs" && -f "$crate/tests/support/mod.rs" ]]
-    for fixture in samples.tsv samples-expected.tsv locations.tsv locations-expected.tsv reader-requests.tsv reader-expected.tsv; do
+    [[ -f "$crate/Cargo.toml" && -f "$crate/src/lib.rs" && -f "$crate/src/reader.rs" && -f "$crate/src/pruner.rs" ]]
+    [[ -f "$crate/tests/vectors.rs" && -f "$crate/tests/adversarial.rs" && -f "$crate/tests/reader.rs" && -f "$crate/tests/pruner.rs" && -f "$crate/tests/support/mod.rs" ]]
+    for fixture in samples.tsv samples-expected.tsv locations.tsv locations-expected.tsv reader-requests.tsv reader-expected.tsv prune-vectors.tsv prune-expected.tsv; do
       [[ -f "$fixtures/$fixture" ]]
     done
     rg -q '^#!\[forbid\(unsafe_code\)\]$' "$crate/src/lib.rs"
@@ -841,6 +841,8 @@ core-session-sqlite-audit:
     ! rg -n 'unsafe[[:space:]]*\(|extern[[:space:]]+"(C|system)"|no_mangle|Java_|cbindgen|bindgen|uniffi|jni|host_callback|Box<dyn Fn|TcpListener|UdpSocket|std::net|Swift|Kotlin|Catalog|Loopback|WebSocket|Generated' \
       "$crate/src" "$crate/tests"
     ! rg -n 'std::thread|tokio|async_std' "$crate/src"
+    rg -q 'session_history_kernel::.*Prune|session_history_kernel::\{' "$crate/src/pruner.rs"
+    ! rg -n 'pub fn [^(]*\([^)]*(sql|query)|pub (struct|enum) .*Sql|pub (fn|type|use).*rusqlite|pub [a-z_]+:.*rusqlite' "$crate/src"
     ! rg -n 'session-sqlite(-writer)?' \
       backends/apple/Package.swift \
       backends/apple/ios/float-view.xcodeproj/project.pbxproj \
@@ -851,6 +853,8 @@ core-session-sqlite-audit:
     [[ ! -e backends/fixtures/session-sqlite-writer ]]
     [[ ! -e backends/core/session-sqlite-apple-ffi ]]
     [[ ! -e backends/core/session-sqlite-android-jni ]]
+    [[ ! -e backends/core/session-pruning-apple-ffi ]]
+    [[ ! -e backends/core/session-pruning-android-jni ]]
     git diff --quiet HEAD -- backends/apple backends/android frontend backends/sql \
       ':(exclude)backends/apple/ios/float-view.xcodeproj/project.pbxproj'
     [[ "$(git ls-files "$crate" | rg '\.(h|a|so|dylib|xcframework|jar)$' || true)" == "" ]]

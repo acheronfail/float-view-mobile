@@ -2,7 +2,7 @@
 
 `session-history-kernel::PruneSelector` already performs bounded platform-neutral selection, and `session-sqlite` already validates canonical databases and owns safe reader/writer connections. The selected Swift and Kotlin stores still duplicate the glue between them: reading protected facts and ordered samples, materializing the keep set, deleting rows in one SQLite transaction, and updating metadata and the commit marker. Their surrounding activity/read-lease locks, catalog reconciliation, maintenance jobs, and reclamation calls remain host-runtime concerns.
 
-This change adds an unselected Rust persistence operation only. It changes neither the canonical schema nor a production package, so exact Rust SQLite evidence is the correctness gate and the physical matrix proves absence of host regressions.
+This change adds an unselected Rust persistence operation only. It changes neither the canonical schema nor a production package, so exact Rust SQLite evidence is the correctness gate and available-device physical matrices prove absence of host regressions. If Android hardware is unavailable, that fact is recorded rather than substituted with an emulator, and Android remains a mandatory migration-final gate before any Rust runtime selection.
 
 ## Goals / Non-Goals
 
@@ -54,14 +54,14 @@ The pruner exposes a cloneable SQLite interrupt handle equivalent to the reader'
 - **[State can advance between preview and commit]** → Bind the plan to complete relevant marker/resolution facts and revalidate inside `BEGIN IMMEDIATE` before mutation.
 - **[Foreign-key evidence could be deleted]** → Treat every field/event/summary source as protected and test foreign keys enabled with exact evidence preservation.
 - **[Interrupted or failed deletion could corrupt counts]** → Keep all logical mutations and marker updates in one rollback-tested transaction; omit reclamation pragmas.
-- **[Physical tests do not execute the unselected candidate]** → Use exact/adversarial Rust SQLite tests for correctness and treat the device matrix only as production-isolation evidence.
+- **[Physical tests do not execute the unselected candidate]** → Use exact/adversarial Rust SQLite tests for correctness and treat available-device matrices only as production-isolation evidence; an unavailable Android matrix remains explicitly outstanding for the migration-final gate.
 
 ## Migration Plan
 
 1. Commit this proposal, design, delta specs, and task plan.
 2. Add prune values/errors/lifecycle, streaming preview, atomic commit, fixtures, and focused audits without changing selected production sources or schema.
 3. Pass locked focused tests, warnings-denied workspace linting, strict OpenSpec validation, `git diff --check`, and `just verify`.
-4. Run the canonical ESP32 matrix on macOS, Android, and iOS, deferring only timed location acquisition.
+4. Run the canonical ESP32 matrix on macOS and iOS, deferring only timed location acquisition; when no physical Android handset is available, record that fact and defer its unchanged matrix to the migration-final gate before runtime selection.
 5. Commit implementation, sync canonical specs, and archive the change.
 6. Next extract Rust session catalog/recovery ownership, then compose persistence under the Rust application/local-server runtime before host cutovers and deletion of obsolete native and bridge paths.
 
