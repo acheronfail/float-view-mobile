@@ -252,3 +252,22 @@ test('canonical safety matrix covers motion, fault, idempotence, flywheel exclus
   assert.equal(flywheel.state.flywheelEnabled, false);
   assert.equal(new RefloatControlModel('1.2.3').state.flywheelEnabled, false, 'reconnect creates fresh state');
 });
+
+test('selectable telemetry confirms package and fatal-clear transitions over direct and CAN', () => {
+  for (const topology of ['direct', 'express'] as const) {
+    const simulator = new VescSimulator(composeBoard({ firmware: '6.06', refloat: '1.3.0', topology, canId: 42 }));
+    const prefix = topology === 'express' ? [34, 42] : [];
+    const send = (bytes: number[]) => simulator.receive(encodeFrame(Uint8Array.from([...prefix, ...bytes])));
+    const flags = () => {
+      const payload = decode(send([36, 101, 33, 1, 0, 0, 0, 2, 0, 0, 0, 0])[0]!.frame);
+      return new DataView(payload.buffer, payload.byteOffset, payload.byteLength).getUint32(16, false);
+    };
+    assert.ok(flags() & (1 << 20));
+    send([36, 101, 36, 1]);
+    assert.equal(flags() & (1 << 20), 0);
+    send([36, 101, 12, 1]);
+    assert.equal((flags() >>> 24) & 3, 0);
+    send([36, 101, 12, 0]);
+    assert.equal((flags() >>> 24) & 3, 2);
+  }
+});

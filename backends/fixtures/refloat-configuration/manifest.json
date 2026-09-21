@@ -323,16 +323,50 @@
         "acceptedWrite": "values/1.2.3-write.bin",
         "expectedReadback": "values/1.2.3-readback.bin"
       }
+    },
+    {
+      "version": "1.3.0",
+      "tag": "v1.3.0",
+      "commit": "47a2c5ce69f0bba4ef634990a8e53a1c07e07e93",
+      "sourcePath": "src/conf/settings.xml",
+      "sourceSha256": "62681208dc609eb19420c89df65105f018499aa9f5741f295f00d62ea5a1bceb",
+      "compressedBytes": 27463,
+      "expandedBytes": 368316,
+      "compressedSha256": "8d616d680635554cf73770468de2bf823fcc826ec8576cb1f347576eb9d4c443",
+      "schemaFingerprintSha256": "62681208dc609eb19420c89df65105f018499aa9f5741f295f00d62ea5a1bceb",
+      "normalizedExpectationSha256": "16d74df979359f1f6547e39bc549870cb1cd63615344880818b46d0fef51b90c",
+      "wireSignature": 421162011,
+      "wireSignatureHex": "191a6c1b",
+      "parameterCount": 174,
+      "serializedFieldCount": 172,
+      "groupCount": 2,
+      "defaultPayloadBytes": 282,
+      "defaultPayloadSha256": "d669664b79b96711c4e1a1ba2550e7b8ac1c60d2eaf7463fbae9f5bf36d5ac19",
+      "representativeWrite": {
+        "field": "kp",
+        "value": 21.0
+      },
+      "writeNormalization": [
+        {
+          "field": "meta.is_default",
+          "value": 0
+        }
+      ],
+      "files": {
+        "schema": "schemas/1.3.0.qcompress",
+        "values": "values/1.3.0.json",
+        "default": "values/1.3.0-default.bin",
+        "current": "values/1.3.0-current.bin",
+        "acceptedWrite": "values/1.3.0-write.bin",
+        "expectedReadback": "values/1.3.0-readback.bin"
+      }
     }
   ],
   "identityCases": [
     {
       "name": "legacy-info-and-signature-collision",
       "reportedVersion": "1.0",
-      "versions": [
-        "1.0.0",
-        "1.0.1"
-      ],
+      "versions": ["1.0.0", "1.0.1"],
       "wireSignatureHex": "f3d49d76",
       "distinctSchemaFingerprints": [
         "324e7f5ef1ea1b2038478af7e6f43c91d63ec06a6caf2907c5b7e6c812382ad9",
@@ -348,7 +382,8 @@
         "1.2.0",
         "1.2.1",
         "1.2.2",
-        "1.2.3"
+        "1.2.3",
+        "1.3.0"
       ],
       "rule": "reported exact version and its audited schema fingerprint must both match"
     }

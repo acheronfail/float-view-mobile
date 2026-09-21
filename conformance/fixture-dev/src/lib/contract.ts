@@ -167,6 +167,7 @@ export const refloatOptions: readonly RefloatVersion[] = [
   '1.2.1',
   '1.2.2',
   '1.2.3',
+  '1.3.0',
 ];
 export const topologyOptions: readonly FixtureTopology[] = ['direct', 'express'];
 export const bmsTopologyOptions: readonly BmsTopology[] = ['none', 'can', 'direct'];

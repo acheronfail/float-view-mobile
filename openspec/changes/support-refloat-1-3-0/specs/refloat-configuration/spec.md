@@ -9,7 +9,7 @@ For each audited stable Refloat 1.0.0–1.3.0 connection, the native backend and
 - **WHEN** a supported Refloat 1.3.0 controller supplies the complete source-derived compressed schema with fingerprint `62681208dc609eb19420c89df65105f018499aa9f5741f295f00d62ea5a1bceb` and wire signature `0x191a6c1b` in sequential chunks
 - **THEN** the backend publishes the exact 172 serialized fields with their ordered groups, defaults, constraints, encodings, and computed identity
 
-#### Scenario: Valid older dynamic schema
+#### Scenario: Valid dynamic schema
 
 - **WHEN** a supported Refloat 1.1.x or 1.2.x controller supplies its complete audited source-derived compressed schema
 - **THEN** the backend publishes that release's unchanged normalized schema and exact identity without substituting 1.3.0 fields

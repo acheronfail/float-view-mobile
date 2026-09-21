@@ -16,6 +16,7 @@ use float_view_vesc_request_scheduler::{
 
 pub const RIDING_INTERVAL_MS: u64 = 100;
 pub const COMPACT_INTERVAL_MS: u64 = 1_000;
+pub const FAULT_PROBE_INTERVAL_MS: u64 = 1_000;
 pub const REQUEST_TIMEOUT_MS: u64 = 900;
 pub const LAYOUT_RETRY_INTERVAL_MS: u64 = 1_000;
 pub const MAX_LAYOUT_ATTEMPTS: u8 = 5;
@@ -36,6 +37,7 @@ const DETAIL_LEVEL_FOUR: u8 = 4;
 pub enum TelemetryFamily {
     LegacyFixed,
     Dynamic,
+    Selectable,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -71,6 +73,7 @@ pub struct Configuration {
     pub scheduler_generation: Generation,
     pub route: Route,
     pub family: TelemetryFamily,
+    pub selectable_gnss: bool,
     pub settings: Settings,
 }
 
@@ -100,6 +103,9 @@ pub enum RequestKind {
     Legacy,
     Realtime,
     Compact,
+    SelectableFast,
+    SelectableSlow,
+    SelectableFault,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -116,6 +122,8 @@ pub enum RequestOutcome {
 pub enum DecodedTelemetry {
     Legacy(legacy::LegacyTelemetry),
     Dynamic(dynamic::DynamicSample),
+    Selectable(dynamic::SelectableSample),
+    SelectableFault(Option<legacy::ActiveFirmwareFault>),
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -407,6 +415,7 @@ pub struct Snapshot {
     pub pending_request: Option<RequestKind>,
     pub polling_interval_ms: Option<u64>,
     pub next_compact_due_ms: Option<u64>,
+    pub next_fault_due_ms: Option<u64>,
     pub has_compact_cache: bool,
     pub sequence: u64,
     pub previous_ride_state: RideState,
@@ -488,6 +497,7 @@ struct SlowCache {
     battery_level: Option<f64>,
     charging_current_a: Option<f64>,
     charging_voltage_v: Option<f64>,
+    extensions: Vec<ExtensionValue>,
 }
 
 impl SlowCache {
@@ -504,6 +514,7 @@ impl SlowCache {
             battery_level: value.battery_level,
             charging_current_a: value.charging_current_a,
             charging_voltage_v: value.charging_voltage_v,
+            extensions: value.extensions.clone(),
         }
     }
 }
@@ -524,7 +535,10 @@ pub struct RefloatTelemetryService {
     post_ride_probe_until_ms: Option<u64>,
     pending_request: Option<RequestKind>,
     next_compact_due_ms: Option<u64>,
+    next_fault_due_ms: Option<u64>,
     latest_compact: Option<SlowCache>,
+    selectable_gnss: bool,
+    latest_firmware_fault: Option<FirmwareFault>,
     active: bool,
     next_timer_nonce: u64,
 }
@@ -559,7 +573,10 @@ impl Default for RefloatTelemetryService {
             post_ride_probe_until_ms: None,
             pending_request: None,
             next_compact_due_ms: None,
+            next_fault_due_ms: None,
             latest_compact: None,
+            selectable_gnss: false,
+            latest_firmware_fault: None,
             active: false,
             next_timer_nonce: 0,
         }
@@ -578,6 +595,7 @@ impl RefloatTelemetryService {
             pending_request: self.pending_request,
             polling_interval_ms: self.polling_interval_ms,
             next_compact_due_ms: self.next_compact_due_ms,
+            next_fault_due_ms: self.next_fault_due_ms,
             has_compact_cache: self.latest_compact.is_some(),
             sequence: self.sequence,
             previous_ride_state: self.previous_ride_state,
@@ -673,12 +691,21 @@ impl RefloatTelemetryService {
     ) -> Result<Vec<Effect>, ServiceError> {
         configuration.validate()?;
         let next_compact_due = match configuration.family {
-            TelemetryFamily::Dynamic => Some(
+            TelemetryFamily::Dynamic | TelemetryFamily::Selectable => Some(
                 now_ms
                     .checked_add(COMPACT_INTERVAL_MS)
                     .ok_or(ServiceError::MonotonicOverflow)?,
             ),
             TelemetryFamily::LegacyFixed => None,
+        };
+        let next_fault_due = if configuration.family == TelemetryFamily::Selectable {
+            Some(
+                now_ms
+                    .checked_add(FAULT_PROBE_INTERVAL_MS)
+                    .ok_or(ServiceError::MonotonicOverflow)?,
+            )
+        } else {
+            None
         };
         self.service_generation = Some(configuration.service_generation);
         self.scheduler_generation = Some(configuration.scheduler_generation);
@@ -688,6 +715,9 @@ impl RefloatTelemetryService {
         self.pending_request = None;
         self.latest_compact = None;
         self.next_compact_due_ms = next_compact_due;
+        self.next_fault_due_ms = next_fault_due;
+        self.selectable_gnss = configuration.selectable_gnss;
+        self.latest_firmware_fault = None;
         self.active = true;
         let interval = if self.previous_ride_state == RideState::Riding {
             RIDING_INTERVAL_MS
@@ -821,6 +851,14 @@ impl RefloatTelemetryService {
                 DecodedTelemetry::Dynamic(_),
                 TelemetryFamily::Dynamic,
                 Some(RequestKind::Realtime)
+            ) | (
+                DecodedTelemetry::Selectable(_),
+                TelemetryFamily::Selectable,
+                Some(RequestKind::SelectableFast | RequestKind::SelectableSlow)
+            ) | (
+                DecodedTelemetry::SelectableFault(_),
+                TelemetryFamily::Selectable,
+                Some(RequestKind::SelectableFault)
             )
         );
         if !matched {
@@ -828,11 +866,25 @@ impl RefloatTelemetryService {
                 Diagnostic::UnexpectedTelemetryResponse,
             )]);
         }
-        let record = common_record(telemetry)?;
-        if self.family == TelemetryFamily::Dynamic && pending == Some(RequestKind::Compact) {
+        if let DecodedTelemetry::SelectableFault(fault) = telemetry {
+            self.pending_request = None;
+            self.latest_firmware_fault = fault.map(|value| map_legacy_firmware_fault(value.fault));
+            return Ok(Vec::new());
+        }
+        let mut record = common_record(telemetry)?;
+        if matches!(
+            pending,
+            Some(RequestKind::Compact | RequestKind::SelectableSlow)
+        ) {
             self.pending_request = None;
             self.latest_compact = Some(SlowCache::from_record(&record, observed_at_epoch_ms));
-            return Ok(Vec::new());
+            return self.selectable_followup(now_ms, false);
+        }
+        if self.family == TelemetryFamily::Selectable {
+            record.firmware_fault = self.latest_firmware_fault;
+            if record.firmware_fault.is_some() {
+                record.alert_reason = Some(AlertReason::FirmwareFault);
+            }
         }
 
         let started_at_ms = self.started_at_ms.unwrap_or(now_ms);
@@ -873,6 +925,7 @@ impl RefloatTelemetryService {
         if self.polling_interval_ms != Some(target_interval) {
             effects.extend(self.restart_polling(target_interval, now_ms)?);
         }
+        effects.extend(self.selectable_followup(now_ms, true)?);
         Ok(effects)
     }
 
@@ -906,7 +959,10 @@ impl RefloatTelemetryService {
         self.post_ride_probe_until_ms = None;
         self.pending_request = None;
         self.next_compact_due_ms = None;
+        self.next_fault_due_ms = None;
         self.latest_compact = None;
+        self.selectable_gnss = false;
+        self.latest_firmware_fault = None;
         effects
     }
 
@@ -955,6 +1011,7 @@ impl RefloatTelemetryService {
                 RequestKind::Compact
             }
             TelemetryFamily::Dynamic => RequestKind::Realtime,
+            TelemetryFamily::Selectable => RequestKind::SelectableFast,
         };
         let riding_priority = self.previous_ride_state == RideState::Riding
             || self
@@ -968,6 +1025,48 @@ impl RefloatTelemetryService {
                 Priority::ControllerWork
             },
         )?;
+        self.pending_request = Some(kind);
+        Ok(vec![Effect::Enqueue { kind, facts }])
+    }
+
+    // Successful fast samples may be followed by the due slow/fault probes on
+    // the same scheduler lane. Timer ticks always start with fast state so an
+    // idle interval at or above one second cannot starve control confirmation.
+    fn selectable_followup(
+        &mut self,
+        now_ms: u64,
+        allow_slow: bool,
+    ) -> Result<Vec<Effect>, ServiceError> {
+        if self.family != TelemetryFamily::Selectable || self.pending_request.is_some() {
+            return Ok(Vec::new());
+        }
+        let kind = if allow_slow && self.next_compact_due_ms.is_some_and(|due| now_ms >= due) {
+            self.next_compact_due_ms = Some(
+                now_ms
+                    .checked_add(COMPACT_INTERVAL_MS)
+                    .ok_or(ServiceError::MonotonicOverflow)?,
+            );
+            RequestKind::SelectableSlow
+        } else if self.next_fault_due_ms.is_some_and(|due| now_ms >= due) {
+            self.next_fault_due_ms = Some(
+                now_ms
+                    .checked_add(FAULT_PROBE_INTERVAL_MS)
+                    .ok_or(ServiceError::MonotonicOverflow)?,
+            );
+            RequestKind::SelectableFault
+        } else {
+            return Ok(Vec::new());
+        };
+        let priority = if self.previous_ride_state == RideState::Riding
+            || self
+                .post_ride_probe_until_ms
+                .is_some_and(|until| now_ms <= until)
+        {
+            Priority::RidingTelemetry
+        } else {
+            Priority::ControllerWork
+        };
+        let facts = self.request_facts(kind, priority)?;
         self.pending_request = Some(kind);
         Ok(vec![Effect::Enqueue { kind, facts }])
     }
@@ -1004,8 +1103,23 @@ impl RefloatTelemetryService {
                 REALTIME_DATA_COMMAND,
                 RequestContext::RefloatTelemetry(route),
             ),
+            RequestKind::SelectableFast | RequestKind::SelectableSlow => (
+                dynamic::SELECTABLE_REALTIME_DATA_COMMAND,
+                RequestContext::RefloatTelemetry(route),
+            ),
+            RequestKind::SelectableFault => (
+                GET_ALL_DATA_COMMAND,
+                RequestContext::RefloatTelemetry(route),
+            ),
         };
-        let mut payload = vec![CUSTOM_APP_DATA_COMMAND, REFLOAT_PACKAGE_ID, command];
+        let mut payload = match kind {
+            RequestKind::SelectableFast => dynamic::selectable_fast_request().to_vec(),
+            RequestKind::SelectableSlow => {
+                dynamic::selectable_slow_request(self.selectable_gnss).to_vec()
+            }
+            RequestKind::SelectableFault => legacy::FAULT_ONLY_REQUEST.to_vec(),
+            _ => vec![CUSTOM_APP_DATA_COMMAND, REFLOAT_PACKAGE_ID, command],
+        };
         if matches!(kind, RequestKind::Legacy | RequestKind::Compact) {
             payload.push(DETAIL_LEVEL_FOUR);
         }
@@ -1045,7 +1159,10 @@ impl RefloatTelemetryService {
     ) -> Result<(), ServiceError> {
         if self.active
             && (self.pending_request.is_none() || pending_will_clear)
-            && self.family == TelemetryFamily::Dynamic
+            && matches!(
+                self.family,
+                TelemetryFamily::Dynamic | TelemetryFamily::Selectable
+            )
             && self.next_compact_due_ms.is_some_and(|due| now_ms >= due)
         {
             now_ms
@@ -1063,7 +1180,7 @@ impl RefloatTelemetryService {
         elapsed_ms: u64,
     ) -> NormalizedSample {
         let slow = match self.family {
-            TelemetryFamily::Dynamic => self.latest_compact.clone(),
+            TelemetryFamily::Dynamic | TelemetryFamily::Selectable => self.latest_compact.clone(),
             TelemetryFamily::LegacyFixed => {
                 Some(SlowCache::from_record(&value, observed_at_epoch_ms))
             }
@@ -1124,7 +1241,20 @@ impl RefloatTelemetryService {
             battery_level: slow.as_ref().and_then(|value| value.battery_level),
             charging_current_a: slow.as_ref().and_then(|value| value.charging_current_a),
             charging_voltage_v: slow.as_ref().and_then(|value| value.charging_voltage_v),
-            extensions: value.extensions,
+            extensions: {
+                let mut extensions = value.extensions;
+                if let Some(slow) = &slow {
+                    for extension in &slow.extensions {
+                        if extensions.len() == MAX_EXTENSIONS {
+                            break;
+                        }
+                        if !extensions.iter().any(|value| value.name == extension.name) {
+                            extensions.push(extension.clone());
+                        }
+                    }
+                }
+                extensions
+            },
         }
     }
 }
@@ -1138,9 +1268,86 @@ fn common_record(value: DecodedTelemetry) -> Result<CommonRecord, ServiceError> 
             common_active_fault(value)
         }
         DecodedTelemetry::Dynamic(value) => common_dynamic_sample(value)?,
+        DecodedTelemetry::Selectable(value) => common_selectable_sample(value)?,
+        DecodedTelemetry::SelectableFault(_) => return Err(ServiceError::InvalidTelemetry),
     };
     validate_common_record(&record)?;
     Ok(record)
+}
+
+fn common_selectable_sample(
+    value: dynamic::SelectableSample,
+) -> Result<CommonRecord, ServiceError> {
+    if value.extensions.len() > MAX_EXTENSIONS
+        || value.extensions.iter().any(|item| {
+            item.name.is_empty()
+                || item.name.len() > dynamic::MAX_FIELD_BYTES
+                || !item.value.is_finite()
+        })
+    {
+        return Err(ServiceError::InvalidTelemetry);
+    }
+    let package_state = value.package_state.map(map_dynamic_package_state);
+    Ok(CommonRecord {
+        ride_state: package_state.map_or(RideState::Unknown, ride_state),
+        package_state,
+        package_mode: value.package_mode.map(map_dynamic_package_mode),
+        footpad_state: value.footpad_state.map(map_dynamic_footpad_state),
+        stop_condition: value.stop_condition.map(map_dynamic_stop_condition),
+        setpoint_adjustment: value
+            .setpoint_adjustment
+            .map(map_dynamic_setpoint_adjustment),
+        wheelslip: value.wheelslip,
+        darkride: value.darkride,
+        charging: value.charging,
+        alert_reason: value.alert_reason.map(map_dynamic_alert_reason),
+        firmware_fault: None,
+        fatal_error_latched: value.fatal_error_latched,
+        pack_voltage_v: value.values.pack_voltage_v,
+        duty_cycle: value.values.duty_cycle,
+        controller_temp_c: value.values.controller_temp_c,
+        motor_temp_c: value.values.motor_temp_c,
+        motor_current_a: value.values.motor_current_a,
+        battery_current_a: value.values.battery_current_a,
+        erpm: value.values.erpm,
+        speed_kph: value.values.speed_kph,
+        pitch_deg: value.values.pitch_deg,
+        balance_pitch_deg: value.values.balance_pitch_deg,
+        roll_deg: value.values.roll_deg,
+        directional_motor_current_a: value.values.directional_motor_current_a,
+        filtered_motor_current_a: value.values.filtered_motor_current_a,
+        requested_balance_current_a: value.values.requested_balance_current_a,
+        booster_current_a: None,
+        field_weakening_current_a: value.field_weakening_current_a,
+        footpad_adc1_v: value.values.footpad_adc1_v,
+        footpad_adc2_v: value.values.footpad_adc2_v,
+        remote_input: value.values.remote_input,
+        setpoint_deg: value.values.setpoint_deg,
+        atr_setpoint_deg: value.values.atr_setpoint_deg,
+        brake_tilt_setpoint_deg: value.values.brake_tilt_setpoint_deg,
+        torque_tilt_setpoint_deg: value.values.torque_tilt_setpoint_deg,
+        turn_tilt_setpoint_deg: value.values.turn_tilt_setpoint_deg,
+        remote_setpoint_deg: value.values.remote_setpoint_deg,
+        atr_acceleration_difference_erpm_per_second: None,
+        atr_speed_boost: None,
+        distance_m: value.distance_m,
+        odometer_m: value.odometer_m,
+        amp_hours_drawn_ah: value.amp_hours_drawn_ah,
+        amp_hours_charged_ah: value.amp_hours_charged_ah,
+        watt_hours_drawn_wh: value.watt_hours_drawn_wh,
+        watt_hours_charged_wh: value.watt_hours_charged_wh,
+        battery_level: value.battery_level,
+        charging_current_a: value.charging_current_a,
+        charging_voltage_v: value.charging_voltage_v,
+        extensions: value
+            .extensions
+            .into_iter()
+            .map(|item| ExtensionValue {
+                name: item.name,
+                value: item.value,
+            })
+            .collect(),
+    })
 }
 
 fn common_legacy_sample(value: legacy::LegacySample) -> CommonRecord {
@@ -1466,6 +1673,7 @@ mod tests {
             scheduler_generation: Generation(11),
             route,
             family,
+            selectable_gnss: false,
             settings: settings(),
         }
     }
@@ -1613,6 +1821,50 @@ mod tests {
         }
     }
 
+    fn selectable_sample(
+        state: Option<dynamic::PackageState>,
+        base: f64,
+    ) -> dynamic::SelectableSample {
+        dynamic::SelectableSample {
+            source_ticks: 43,
+            package_state: state,
+            package_mode: state.map(|_| dynamic::PackageMode::Normal),
+            footpad_state: state.map(|_| dynamic::FootpadState::Both),
+            stop_condition: state.map(|_| dynamic::StopCondition::None),
+            setpoint_adjustment: state.map(|_| dynamic::SetpointAdjustment::None),
+            wheelslip: state.map(|_| false),
+            darkride: state.map(|_| false),
+            charging: state.map(|_| false),
+            alert_reason: state.map(|_| dynamic::AlertReason::None),
+            fatal_error_latched: state.map(|_| false),
+            values: dynamic::DynamicValues {
+                speed_kph: state.map(|_| base),
+                pack_voltage_v: state.map(|_| base + 1.0),
+                requested_balance_current_a: state.map(|_| base + 2.0),
+                ..dynamic::DynamicValues::default()
+            },
+            battery_level: state.is_none().then_some(base + 3.0),
+            distance_m: state.is_none().then_some(base + 4.0),
+            odometer_m: state.is_none().then_some(base + 5.0),
+            charging_voltage_v: None,
+            charging_current_a: None,
+            amp_hours_drawn_ah: None,
+            amp_hours_charged_ah: None,
+            watt_hours_drawn_wh: None,
+            watt_hours_charged_wh: None,
+            field_weakening_current_a: state.is_none().then_some(base + 6.0),
+            extensions: vec![dynamic::ExtensionValue {
+                name: if state.is_some() {
+                    "refloat.loop_frequency_hz"
+                } else {
+                    "refloat.gnss.latitude"
+                }
+                .into(),
+                value: base + 7.0,
+            }],
+        }
+    }
+
     fn receive(
         service: &mut RefloatTelemetryService,
         telemetry: DecodedTelemetry,
@@ -1627,6 +1879,110 @@ mod tests {
                 observed_at_epoch_ms,
             })
             .expect("receive")
+    }
+
+    #[test]
+    fn selectable_cycles_fast_slow_and_fault_without_publishing_probe_payloads() {
+        let mut service = RefloatTelemetryService::default();
+        let mut config = configuration(TelemetryFamily::Selectable, Route::Direct);
+        config.selectable_gnss = true;
+        let effects = service
+            .apply(Command::Start {
+                configuration: config,
+                now_ms: 0,
+            })
+            .unwrap();
+        let (kind, facts) = enqueue(&effects);
+        assert_eq!(kind, RequestKind::SelectableFast);
+        assert_eq!(facts.payload, dynamic::selectable_fast_request());
+        assert!(
+            receive(
+                &mut service,
+                DecodedTelemetry::Selectable(selectable_sample(
+                    Some(dynamic::PackageState::Ready),
+                    1.0
+                )),
+                1,
+                1_001,
+            )
+            .iter()
+            .any(|effect| matches!(effect, Effect::Publish(_)))
+        );
+
+        let effects = service
+            .apply(Command::Refresh {
+                service_generation: 7,
+                now_ms: COMPACT_INTERVAL_MS,
+            })
+            .unwrap();
+        assert_eq!(enqueue(&effects).0, RequestKind::SelectableFast);
+        let effects = receive(
+            &mut service,
+            DecodedTelemetry::Selectable(selectable_sample(
+                Some(dynamic::PackageState::Ready),
+                2.0,
+            )),
+            1_000,
+            2_000,
+        );
+        assert!(
+            effects
+                .iter()
+                .any(|effect| matches!(effect, Effect::Publish(_)))
+        );
+        let (kind, facts) = enqueue(&effects);
+        assert_eq!(kind, RequestKind::SelectableSlow);
+        assert_eq!(facts.payload, dynamic::selectable_slow_request(true));
+        let effects = receive(
+            &mut service,
+            DecodedTelemetry::Selectable(selectable_sample(None, 10.0)),
+            1_001,
+            2_001,
+        );
+        assert!(
+            !effects
+                .iter()
+                .any(|effect| matches!(effect, Effect::Publish(_)))
+        );
+        let (kind, facts) = enqueue(&effects);
+        assert_eq!(kind, RequestKind::SelectableFault);
+        assert_eq!(facts.payload, legacy::FAULT_ONLY_REQUEST);
+        assert!(
+            receive(
+                &mut service,
+                DecodedTelemetry::SelectableFault(Some(legacy::ActiveFirmwareFault {
+                    raw_code: 1,
+                    fault: legacy::FirmwareFault::OverVoltage,
+                })),
+                1_001,
+                2_001,
+            )
+            .is_empty()
+        );
+
+        let effects = service
+            .apply(Command::Refresh {
+                service_generation: 7,
+                now_ms: 1_002,
+            })
+            .unwrap();
+        assert_eq!(enqueue(&effects).0, RequestKind::SelectableFast);
+        let effects = receive(
+            &mut service,
+            DecodedTelemetry::Selectable(selectable_sample(
+                Some(dynamic::PackageState::Ready),
+                20.0,
+            )),
+            1_002,
+            2_002,
+        );
+        let sample = published(&effects);
+        assert_eq!(sample.firmware_fault, Some(FirmwareFault::OverVoltage));
+        assert_eq!(sample.alert_reason, Some(AlertReason::FirmwareFault));
+        assert_eq!(sample.battery_level, Some(13.0));
+        assert_eq!(sample.field_weakening_current_a, Some(16.0));
+        assert_eq!(sample.booster_current_a, None);
+        assert_eq!(sample.extensions.len(), 2);
     }
 
     #[test]

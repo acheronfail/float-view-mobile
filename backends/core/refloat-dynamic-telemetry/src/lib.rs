@@ -13,6 +13,95 @@ pub const CUSTOM_APP_DATA_COMMAND: u8 = 36;
 pub const REFLOAT_PACKAGE_ID: u8 = 101;
 pub const REALTIME_DATA_COMMAND: u8 = 31;
 pub const REALTIME_DATA_IDS_COMMAND: u8 = 32;
+pub const SELECTABLE_REALTIME_DATA_COMMAND: u8 = 33;
+pub const SELECTABLE_FLOAT32_FLAG: u8 = 1;
+
+pub const SELECTABLE_EXTRA_FLAGS: u32 = 1 << 0;
+pub const SELECTABLE_STATE_FLAGS: u32 = 1 << 1;
+pub const SELECTABLE_SPEED: u32 = 1 << 6;
+pub const SELECTABLE_ERPM: u32 = 1 << 7;
+pub const SELECTABLE_CURRENT: u32 = 1 << 8;
+pub const SELECTABLE_DIR_CURRENT: u32 = 1 << 9;
+pub const SELECTABLE_FILT_CURRENT: u32 = 1 << 10;
+pub const SELECTABLE_DUTY_CYCLE: u32 = 1 << 11;
+pub const SELECTABLE_BATTERY_VOLTAGE: u32 = 1 << 12;
+pub const SELECTABLE_BATTERY_CURRENT: u32 = 1 << 13;
+pub const SELECTABLE_BATTERY_SOC: u32 = 1 << 14;
+pub const SELECTABLE_MOSFET_TEMP: u32 = 1 << 15;
+pub const SELECTABLE_MOTOR_TEMP: u32 = 1 << 16;
+pub const SELECTABLE_PITCH: u32 = 1 << 17;
+pub const SELECTABLE_BALANCE_PITCH: u32 = 1 << 18;
+pub const SELECTABLE_ROLL: u32 = 1 << 19;
+pub const SELECTABLE_ADC_LEFT: u32 = 1 << 20;
+pub const SELECTABLE_ADC_RIGHT: u32 = 1 << 21;
+pub const SELECTABLE_REMOTE_INPUT: u32 = 1 << 22;
+pub const SELECTABLE_SETPOINT: u32 = 1 << 23;
+pub const SELECTABLE_ATR_SETPOINT: u32 = 1 << 24;
+pub const SELECTABLE_BRAKE_TILT_SETPOINT: u32 = 1 << 25;
+pub const SELECTABLE_TORQUE_TILT_SETPOINT: u32 = 1 << 26;
+pub const SELECTABLE_TURN_TILT_SETPOINT: u32 = 1 << 27;
+pub const SELECTABLE_REMOTE_SETPOINT: u32 = 1 << 28;
+pub const SELECTABLE_BALANCE_CURRENT: u32 = 1 << 29;
+pub const SELECTABLE_LOOP_FREQUENCY: u32 = 1 << 30;
+
+pub const SELECTABLE_ODOMETER: u32 = 1 << 0;
+pub const SELECTABLE_DISTANCE: u32 = 1 << 1;
+pub const SELECTABLE_CHARGING_VOLTAGE: u32 = 1 << 2;
+pub const SELECTABLE_CHARGING_CURRENT: u32 = 1 << 3;
+pub const SELECTABLE_AMP_HOURS: u32 = 1 << 4;
+pub const SELECTABLE_AMP_HOURS_CHARGED: u32 = 1 << 5;
+pub const SELECTABLE_WATT_HOURS: u32 = 1 << 6;
+pub const SELECTABLE_WATT_HOURS_CHARGED: u32 = 1 << 7;
+pub const SELECTABLE_MOTOR_ID: u32 = 1 << 8;
+pub const SELECTABLE_GNSS_LATITUDE: u32 = 1 << 9;
+pub const SELECTABLE_GNSS_LONGITUDE: u32 = 1 << 10;
+pub const SELECTABLE_GNSS_ALTITUDE: u32 = 1 << 11;
+pub const SELECTABLE_GNSS_SPEED: u32 = 1 << 12;
+pub const SELECTABLE_GNSS_ACCURACY: u32 = 1 << 13;
+pub const SELECTABLE_GNSS_LAST_UPDATE: u32 = 1 << 14;
+
+pub const SELECTABLE_FAST_MASK1: u32 = SELECTABLE_EXTRA_FLAGS
+    | SELECTABLE_STATE_FLAGS
+    | SELECTABLE_SPEED
+    | SELECTABLE_ERPM
+    | SELECTABLE_CURRENT
+    | SELECTABLE_DIR_CURRENT
+    | SELECTABLE_FILT_CURRENT
+    | SELECTABLE_DUTY_CYCLE
+    | SELECTABLE_BATTERY_VOLTAGE
+    | SELECTABLE_BATTERY_CURRENT
+    | SELECTABLE_MOSFET_TEMP
+    | SELECTABLE_MOTOR_TEMP
+    | SELECTABLE_PITCH
+    | SELECTABLE_BALANCE_PITCH
+    | SELECTABLE_ROLL
+    | SELECTABLE_ADC_LEFT
+    | SELECTABLE_ADC_RIGHT
+    | SELECTABLE_REMOTE_INPUT
+    | SELECTABLE_SETPOINT
+    | SELECTABLE_ATR_SETPOINT
+    | SELECTABLE_BRAKE_TILT_SETPOINT
+    | SELECTABLE_TORQUE_TILT_SETPOINT
+    | SELECTABLE_TURN_TILT_SETPOINT
+    | SELECTABLE_REMOTE_SETPOINT
+    | SELECTABLE_BALANCE_CURRENT
+    | SELECTABLE_LOOP_FREQUENCY;
+pub const SELECTABLE_SLOW_MASK1: u32 = SELECTABLE_BATTERY_SOC;
+pub const SELECTABLE_SLOW_MASK2: u32 = SELECTABLE_ODOMETER
+    | SELECTABLE_DISTANCE
+    | SELECTABLE_CHARGING_VOLTAGE
+    | SELECTABLE_CHARGING_CURRENT
+    | SELECTABLE_AMP_HOURS
+    | SELECTABLE_AMP_HOURS_CHARGED
+    | SELECTABLE_WATT_HOURS
+    | SELECTABLE_WATT_HOURS_CHARGED
+    | SELECTABLE_MOTOR_ID;
+pub const SELECTABLE_GNSS_MASK2: u32 = SELECTABLE_GNSS_LATITUDE
+    | SELECTABLE_GNSS_LONGITUDE
+    | SELECTABLE_GNSS_ALTITUDE
+    | SELECTABLE_GNSS_SPEED
+    | SELECTABLE_GNSS_ACCURACY
+    | SELECTABLE_GNSS_LAST_UPDATE;
 
 pub const MAX_FIELDS: usize = 64;
 pub const MAX_FIELD_BYTES: usize = 64;
@@ -22,6 +111,13 @@ pub const MAX_EXTENSIONS: usize = 32;
 pub const RECORD_VERSION: u8 = 1;
 pub const LAYOUT_RECORD_KIND: u8 = 1;
 pub const SAMPLE_RECORD_KIND: u8 = 2;
+pub const SELECTABLE_RECORD_KIND: u8 = 3;
+pub const SELECTABLE_RECORD_HEADER_BYTES: usize = 24;
+pub const SELECTABLE_FIXED_VALUE_COUNT: usize = 36;
+pub const SELECTABLE_FIXED_BYTES: usize =
+    SELECTABLE_RECORD_HEADER_BYTES + SELECTABLE_FIXED_VALUE_COUNT * size_of::<f64>();
+pub const MAX_SELECTABLE_RECORD_BYTES: usize =
+    SELECTABLE_FIXED_BYTES + MAX_EXTENSIONS * (1 + MAX_FIELD_BYTES + size_of::<f64>());
 pub const LAYOUT_RECORD_HEADER_BYTES: usize = 8;
 pub const SAMPLE_RECORD_HEADER_BYTES: usize = 32;
 pub const SAMPLE_FIXED_VALUE_COUNT: usize = 28;
@@ -261,6 +357,34 @@ pub struct DynamicSample {
     pub extensions: Vec<ExtensionValue>,
 }
 
+/// One strict command-33 response. Fields absent from the echoed masks remain `None`.
+#[derive(Clone, Debug, PartialEq)]
+pub struct SelectableSample {
+    pub source_ticks: u32,
+    pub package_state: Option<PackageState>,
+    pub package_mode: Option<PackageMode>,
+    pub footpad_state: Option<FootpadState>,
+    pub stop_condition: Option<StopCondition>,
+    pub setpoint_adjustment: Option<SetpointAdjustment>,
+    pub wheelslip: Option<bool>,
+    pub darkride: Option<bool>,
+    pub charging: Option<bool>,
+    pub alert_reason: Option<AlertReason>,
+    pub fatal_error_latched: Option<bool>,
+    pub values: DynamicValues,
+    pub battery_level: Option<f64>,
+    pub distance_m: Option<f64>,
+    pub odometer_m: Option<f64>,
+    pub charging_voltage_v: Option<f64>,
+    pub charging_current_a: Option<f64>,
+    pub amp_hours_drawn_ah: Option<f64>,
+    pub amp_hours_charged_ah: Option<f64>,
+    pub watt_hours_drawn_wh: Option<f64>,
+    pub watt_hours_charged_wh: Option<f64>,
+    pub field_weakening_current_a: Option<f64>,
+    pub extensions: Vec<ExtensionValue>,
+}
+
 impl Debug for DynamicSample {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
         formatter
@@ -298,6 +422,24 @@ pub struct SampleRecord(Vec<u8>);
 impl SampleRecord {
     pub fn as_bytes(&self) -> &[u8] {
         &self.0
+    }
+}
+
+#[derive(Clone, PartialEq, Eq)]
+pub struct SelectableRecord(Vec<u8>);
+
+impl SelectableRecord {
+    pub fn as_bytes(&self) -> &[u8] {
+        &self.0
+    }
+}
+
+impl Debug for SelectableRecord {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("SelectableRecord")
+            .field("length", &self.0.len())
+            .finish_non_exhaustive()
     }
 }
 
@@ -534,6 +676,440 @@ pub fn decode_realtime(
         charging_voltage_v,
         extensions,
     })
+}
+
+/// Encode an exact float32 command-33 request for the supplied masks.
+#[must_use]
+pub fn selectable_request(mask1: u32, mask2: u32) -> [u8; 12] {
+    let mut request = [0_u8; 12];
+    request[..4].copy_from_slice(&[
+        CUSTOM_APP_DATA_COMMAND,
+        REFLOAT_PACKAGE_ID,
+        SELECTABLE_REALTIME_DATA_COMMAND,
+        SELECTABLE_FLOAT32_FLAG,
+    ]);
+    request[4..8].copy_from_slice(&mask1.to_be_bytes());
+    request[8..12].copy_from_slice(&mask2.to_be_bytes());
+    request
+}
+
+#[must_use]
+pub fn selectable_fast_request() -> [u8; 12] {
+    selectable_request(SELECTABLE_FAST_MASK1, 0)
+}
+
+#[must_use]
+pub fn selectable_slow_request(include_gnss: bool) -> [u8; 12] {
+    selectable_request(
+        SELECTABLE_SLOW_MASK1,
+        SELECTABLE_SLOW_MASK2
+            | if include_gnss {
+                SELECTABLE_GNSS_MASK2
+            } else {
+                0
+            },
+    )
+}
+
+/// Decode a command-33 response only when it exactly echoes the requested masks.
+#[allow(clippy::field_reassign_with_default)] // Assignments must retain upstream wire order.
+pub fn decode_selectable(
+    expected_mask1: u32,
+    expected_mask2: u32,
+    payload: &[u8],
+) -> Result<SelectableSample, DynamicTelemetryError> {
+    validate_envelope(payload, SELECTABLE_REALTIME_DATA_COMMAND)?;
+    if payload.len() < 16 {
+        return Err(DynamicTelemetryError::TruncatedPayload);
+    }
+    if payload[3] != SELECTABLE_FLOAT32_FLAG {
+        return Err(DynamicTelemetryError::InvalidTelemetry);
+    }
+    let mask1 = read_u32(payload, 4);
+    let mask2 = read_u32(payload, 8);
+    let supported1 = SELECTABLE_EXTRA_FLAGS | SELECTABLE_STATE_FLAGS | (0x01ff_ffff << 6);
+    let supported2 = (1 << 15) - 1;
+    if mask1 != expected_mask1
+        || mask2 != expected_mask2
+        || mask1 & !supported1 != 0
+        || mask2 & !supported2 != 0
+    {
+        return Err(DynamicTelemetryError::InvalidTelemetry);
+    }
+
+    let numeric1 = mask1 & !(SELECTABLE_EXTRA_FLAGS | SELECTABLE_STATE_FLAGS);
+    let regular2 = mask2
+        & !(SELECTABLE_ODOMETER
+            | SELECTABLE_GNSS_LATITUDE
+            | SELECTABLE_GNSS_LONGITUDE
+            | SELECTABLE_GNSS_LAST_UPDATE);
+    let expected = 16usize
+        + usize::from(mask1 & SELECTABLE_EXTRA_FLAGS != 0)
+        + 4 * usize::try_from((mask1 & SELECTABLE_STATE_FLAGS != 0) as u32).unwrap()
+        + 4 * usize::try_from(numeric1.count_ones()).unwrap()
+        + 4 * usize::try_from(regular2.count_ones()).unwrap()
+        + 4 * usize::from(mask2 & SELECTABLE_ODOMETER != 0)
+        + 8 * usize::from(mask2 & SELECTABLE_GNSS_LATITUDE != 0)
+        + 8 * usize::from(mask2 & SELECTABLE_GNSS_LONGITUDE != 0)
+        + 4 * usize::from(mask2 & SELECTABLE_GNSS_LAST_UPDATE != 0);
+    if payload.len() < expected {
+        return Err(DynamicTelemetryError::TruncatedPayload);
+    }
+    if payload.len() != expected {
+        return Err(DynamicTelemetryError::InvalidTelemetry);
+    }
+
+    let mut index = 16;
+    let mut extensions = Vec::new();
+    if mask1 & SELECTABLE_EXTRA_FLAGS != 0 {
+        extensions.push(ExtensionValue {
+            name: "refloat.data_recording".to_owned(),
+            value: f64::from(payload[index]),
+        });
+        index += 1;
+    }
+    let mut package_state_value = None;
+    let mut package_mode_value = None;
+    let mut footpad_state_value = None;
+    let mut stop_condition_value = None;
+    let mut setpoint_adjustment_value = None;
+    let mut wheelslip = None;
+    let mut darkride = None;
+    let mut charging = None;
+    let mut alert_reason_value = None;
+    let mut fatal_error_latched = None;
+    if mask1 & SELECTABLE_STATE_FLAGS != 0 {
+        let flags = read_u32(payload, index);
+        index += 4;
+        if flags & 0x0c0c_0000 != 0 {
+            return Err(DynamicTelemetryError::InvalidTelemetry);
+        }
+        package_mode_value = Some(package_mode(((flags >> 28) & 0x03) as u8));
+        package_state_value = Some(package_state(((flags >> 24) & 0x03) as u8));
+        footpad_state_value = Some(footpad_state(((flags >> 22) & 0x03) as u8));
+        charging = Some(flags & (1 << 21) != 0);
+        fatal_error_latched = Some(flags & (1 << 20) != 0);
+        darkride = Some(flags & (1 << 17) != 0);
+        wheelslip = Some(flags & (1 << 16) != 0);
+        setpoint_adjustment_value = Some(setpoint_adjustment(((flags >> 12) & 0x0f) as u8));
+        stop_condition_value = Some(stop_condition(((flags >> 8) & 0x0f) as u8));
+        alert_reason_value = Some(alert_reason((flags & 0xff) as u8));
+    }
+
+    macro_rules! take_f32 {
+        ($mask:expr, $bit:expr) => {{
+            if $mask & $bit != 0 {
+                let value = f32::from_bits(read_u32(payload, index)) as f64;
+                index += 4;
+                if !value.is_finite() {
+                    return Err(DynamicTelemetryError::InvalidTelemetry);
+                }
+                Some(value)
+            } else {
+                None
+            }
+        }};
+    }
+    let mut values = DynamicValues::default();
+    values.speed_kph = take_f32!(mask1, SELECTABLE_SPEED);
+    values.erpm = take_f32!(mask1, SELECTABLE_ERPM);
+    values.motor_current_a = take_f32!(mask1, SELECTABLE_CURRENT);
+    values.directional_motor_current_a = take_f32!(mask1, SELECTABLE_DIR_CURRENT);
+    values.filtered_motor_current_a = take_f32!(mask1, SELECTABLE_FILT_CURRENT);
+    values.duty_cycle = take_f32!(mask1, SELECTABLE_DUTY_CYCLE);
+    values.pack_voltage_v = take_f32!(mask1, SELECTABLE_BATTERY_VOLTAGE);
+    values.battery_current_a = take_f32!(mask1, SELECTABLE_BATTERY_CURRENT);
+    let battery_level = take_f32!(mask1, SELECTABLE_BATTERY_SOC);
+    values.controller_temp_c = take_f32!(mask1, SELECTABLE_MOSFET_TEMP);
+    values.motor_temp_c = take_f32!(mask1, SELECTABLE_MOTOR_TEMP);
+    values.pitch_deg = take_f32!(mask1, SELECTABLE_PITCH);
+    values.balance_pitch_deg = take_f32!(mask1, SELECTABLE_BALANCE_PITCH);
+    values.roll_deg = take_f32!(mask1, SELECTABLE_ROLL);
+    values.footpad_adc1_v = take_f32!(mask1, SELECTABLE_ADC_LEFT);
+    values.footpad_adc2_v = take_f32!(mask1, SELECTABLE_ADC_RIGHT);
+    values.remote_input = take_f32!(mask1, SELECTABLE_REMOTE_INPUT);
+    values.setpoint_deg = take_f32!(mask1, SELECTABLE_SETPOINT);
+    values.atr_setpoint_deg = take_f32!(mask1, SELECTABLE_ATR_SETPOINT);
+    values.brake_tilt_setpoint_deg = take_f32!(mask1, SELECTABLE_BRAKE_TILT_SETPOINT);
+    values.torque_tilt_setpoint_deg = take_f32!(mask1, SELECTABLE_TORQUE_TILT_SETPOINT);
+    values.turn_tilt_setpoint_deg = take_f32!(mask1, SELECTABLE_TURN_TILT_SETPOINT);
+    values.remote_setpoint_deg = take_f32!(mask1, SELECTABLE_REMOTE_SETPOINT);
+    values.requested_balance_current_a = take_f32!(mask1, SELECTABLE_BALANCE_CURRENT);
+    if let Some(value) = take_f32!(mask1, SELECTABLE_LOOP_FREQUENCY) {
+        extensions.push(ExtensionValue {
+            name: "refloat.loop_frequency_hz".to_owned(),
+            value,
+        });
+    }
+
+    let odometer_m = if mask2 & SELECTABLE_ODOMETER != 0 {
+        let value = f64::from(read_u32(payload, index));
+        index += 4;
+        Some(value)
+    } else {
+        None
+    };
+    let distance_m = take_f32!(mask2, SELECTABLE_DISTANCE);
+    let charging_voltage_v = take_f32!(mask2, SELECTABLE_CHARGING_VOLTAGE);
+    let charging_current_a = take_f32!(mask2, SELECTABLE_CHARGING_CURRENT);
+    let amp_hours_drawn_ah = take_f32!(mask2, SELECTABLE_AMP_HOURS);
+    let amp_hours_charged_ah = take_f32!(mask2, SELECTABLE_AMP_HOURS_CHARGED);
+    let watt_hours_drawn_wh = take_f32!(mask2, SELECTABLE_WATT_HOURS);
+    let watt_hours_charged_wh = take_f32!(mask2, SELECTABLE_WATT_HOURS_CHARGED);
+    let field_weakening_current_a = take_f32!(mask2, SELECTABLE_MOTOR_ID);
+    for (bit, name) in [
+        (SELECTABLE_GNSS_LATITUDE, "refloat.gnss.latitude"),
+        (SELECTABLE_GNSS_LONGITUDE, "refloat.gnss.longitude"),
+    ] {
+        if mask2 & bit != 0 {
+            let value = f64::from_bits(read_u64_checked(payload, index)?);
+            index += 8;
+            if !value.is_finite() {
+                return Err(DynamicTelemetryError::InvalidTelemetry);
+            }
+            extensions.push(ExtensionValue {
+                name: name.to_owned(),
+                value,
+            });
+        }
+    }
+    for (bit, name) in [
+        (SELECTABLE_GNSS_ALTITUDE, "refloat.gnss.altitude_m"),
+        (SELECTABLE_GNSS_SPEED, "refloat.gnss.speed_kph"),
+        (SELECTABLE_GNSS_ACCURACY, "refloat.gnss.accuracy"),
+    ] {
+        if let Some(value) = take_f32!(mask2, bit) {
+            extensions.push(ExtensionValue {
+                name: name.to_owned(),
+                value,
+            });
+        }
+    }
+    if mask2 & SELECTABLE_GNSS_LAST_UPDATE != 0 {
+        extensions.push(ExtensionValue {
+            name: "refloat.gnss.last_update_ms".to_owned(),
+            value: f64::from(read_u32(payload, index)),
+        });
+        index += 4;
+    }
+    debug_assert_eq!(index, payload.len());
+
+    Ok(SelectableSample {
+        source_ticks: read_u32(payload, 12),
+        package_state: package_state_value,
+        package_mode: package_mode_value,
+        footpad_state: footpad_state_value,
+        stop_condition: stop_condition_value,
+        setpoint_adjustment: setpoint_adjustment_value,
+        wheelslip,
+        darkride,
+        charging,
+        alert_reason: alert_reason_value,
+        fatal_error_latched,
+        values,
+        battery_level,
+        distance_m,
+        odometer_m,
+        charging_voltage_v,
+        charging_current_a,
+        amp_hours_drawn_ah,
+        amp_hours_charged_ah,
+        watt_hours_drawn_wh,
+        watt_hours_charged_wh,
+        field_weakening_current_a,
+        extensions,
+    })
+}
+
+pub fn serialize_selectable_record(
+    sample: &SelectableSample,
+) -> Result<SelectableRecord, DynamicTelemetryError> {
+    if sample.extensions.len() > MAX_EXTENSIONS {
+        return Err(DynamicTelemetryError::InvalidTelemetry);
+    }
+    let mut record = vec![0_u8; SELECTABLE_RECORD_HEADER_BYTES];
+    record[0] = RECORD_VERSION;
+    record[1] = SELECTABLE_RECORD_KIND;
+    record[2] = sample.package_state.map_or(0, package_state_record_code);
+    record[3] = sample.package_mode.map_or(0, package_mode_record_code);
+    record[4] = sample.footpad_state.map_or(0, footpad_state_record_code);
+    record[5] = sample.stop_condition.map_or(0, stop_condition_record_code);
+    record[6] = sample
+        .setpoint_adjustment
+        .map_or(0, setpoint_adjustment_record_code);
+    for (index, value) in [
+        sample.wheelslip,
+        sample.darkride,
+        sample.charging,
+        sample.fatal_error_latched,
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        if let Some(value) = value {
+            record[7] |= 1 << index;
+            record[8] |= u8::from(value) << index;
+        }
+    }
+    record[9] = sample.alert_reason.map_or(0, alert_reason_record_code);
+    record[10] = sample.extensions.len() as u8;
+    record[12..16].copy_from_slice(&sample.source_ticks.to_be_bytes());
+    let fixed = selectable_fixed_values(sample);
+    let mut presence = 0_u64;
+    for (index, value) in fixed.into_iter().enumerate() {
+        let bits = if let Some(value) = value {
+            if !value.is_finite() {
+                return Err(DynamicTelemetryError::InvalidTelemetry);
+            }
+            presence |= 1 << index;
+            value.to_bits()
+        } else {
+            0
+        };
+        record.extend_from_slice(&bits.to_be_bytes());
+    }
+    record[16..24].copy_from_slice(&presence.to_be_bytes());
+    let mut names = 0usize;
+    for extension in &sample.extensions {
+        if extension.name.is_empty()
+            || extension.name.len() > MAX_FIELD_BYTES
+            || !extension.value.is_finite()
+            || sample
+                .extensions
+                .iter()
+                .filter(|candidate| candidate.name == extension.name)
+                .count()
+                != 1
+        {
+            return Err(DynamicTelemetryError::InvalidTelemetry);
+        }
+        names = names
+            .checked_add(extension.name.len())
+            .filter(|value| *value <= MAX_AGGREGATE_FIELD_BYTES)
+            .ok_or(DynamicTelemetryError::InvalidTelemetry)?;
+        record.push(extension.name.len() as u8);
+        record.extend_from_slice(extension.name.as_bytes());
+        record.extend_from_slice(&extension.value.to_bits().to_be_bytes());
+    }
+    Ok(SelectableRecord(record))
+}
+
+pub fn parse_selectable_record(record: &[u8]) -> Result<SelectableSample, DynamicTelemetryError> {
+    if record.len() < SELECTABLE_FIXED_BYTES {
+        return Err(DynamicTelemetryError::TruncatedPayload);
+    }
+    if record.len() > MAX_SELECTABLE_RECORD_BYTES
+        || record[0] != RECORD_VERSION
+        || record[1] != SELECTABLE_RECORD_KIND
+        || record[7] & !0x0f != 0
+        || record[8] & !record[7] != 0
+        || record[11] != 0
+    {
+        return Err(DynamicTelemetryError::InvalidTelemetry);
+    }
+    let package_state = (record[2] != 0)
+        .then(|| record_package_state(record[2]))
+        .transpose()?;
+    let package_mode = (record[3] != 0)
+        .then(|| record_package_mode(record[3]))
+        .transpose()?;
+    let footpad_state = (record[4] != 0)
+        .then(|| record_footpad_state(record[4]))
+        .transpose()?;
+    let stop_condition = (record[5] != 0)
+        .then(|| record_stop_condition(record[5]))
+        .transpose()?;
+    let setpoint_adjustment = (record[6] != 0)
+        .then(|| record_setpoint_adjustment(record[6]))
+        .transpose()?;
+    let alert_reason = (record[9] != 0)
+        .then(|| record_alert_reason(record[9]))
+        .transpose()?;
+    let optional_bool =
+        |index: usize| (record[7] & (1 << index) != 0).then_some(record[8] & (1 << index) != 0);
+    let presence = read_u64_checked(record, 16)?;
+    if presence >> SELECTABLE_FIXED_VALUE_COUNT != 0 {
+        return Err(DynamicTelemetryError::InvalidTelemetry);
+    }
+    let mut fixed = [None; SELECTABLE_FIXED_VALUE_COUNT];
+    let mut index = SELECTABLE_RECORD_HEADER_BYTES;
+    for (value_index, slot) in fixed.iter_mut().enumerate() {
+        let bits = read_u64_checked(record, index)?;
+        index += 8;
+        if presence & (1 << value_index) == 0 {
+            if bits != 0 {
+                return Err(DynamicTelemetryError::InvalidTelemetry);
+            }
+        } else {
+            let value = f64::from_bits(bits);
+            if !value.is_finite() {
+                return Err(DynamicTelemetryError::InvalidTelemetry);
+            }
+            *slot = Some(value);
+        }
+    }
+    let extension_count = usize::from(record[10]);
+    if extension_count > MAX_EXTENSIONS {
+        return Err(DynamicTelemetryError::InvalidTelemetry);
+    }
+    let mut extensions = Vec::with_capacity(extension_count);
+    let mut name_bytes = 0usize;
+    for _ in 0..extension_count {
+        let length = usize::from(
+            *record
+                .get(index)
+                .ok_or(DynamicTelemetryError::TruncatedPayload)?,
+        );
+        index += 1;
+        if length == 0 || length > MAX_FIELD_BYTES {
+            return Err(DynamicTelemetryError::InvalidTelemetry);
+        }
+        let end = index
+            .checked_add(length)
+            .ok_or(DynamicTelemetryError::InvalidTelemetry)?;
+        let name = std::str::from_utf8(
+            record
+                .get(index..end)
+                .ok_or(DynamicTelemetryError::TruncatedPayload)?,
+        )
+        .map_err(|_| DynamicTelemetryError::InvalidTelemetry)?
+        .to_owned();
+        index = end;
+        name_bytes = name_bytes
+            .checked_add(length)
+            .filter(|value| *value <= MAX_AGGREGATE_FIELD_BYTES)
+            .ok_or(DynamicTelemetryError::InvalidTelemetry)?;
+        if extensions
+            .iter()
+            .any(|value: &ExtensionValue| value.name == name)
+        {
+            return Err(DynamicTelemetryError::InvalidTelemetry);
+        }
+        let value = f64::from_bits(read_u64_checked(record, index)?);
+        index += 8;
+        if !value.is_finite() {
+            return Err(DynamicTelemetryError::InvalidTelemetry);
+        }
+        extensions.push(ExtensionValue { name, value });
+    }
+    if index != record.len() {
+        return Err(DynamicTelemetryError::InvalidTelemetry);
+    }
+    Ok(selectable_from_fixed(
+        read_u32(record, 12),
+        package_state,
+        package_mode,
+        footpad_state,
+        stop_condition,
+        setpoint_adjustment,
+        optional_bool(0),
+        optional_bool(1),
+        optional_bool(2),
+        alert_reason,
+        optional_bool(3),
+        fixed,
+        extensions,
+    ))
 }
 
 pub fn decode_layout_to_record(payload: &[u8]) -> LayoutRecordOutcome {
@@ -910,6 +1486,120 @@ fn sample_fixed_values(sample: &DynamicSample) -> [Option<f64>; SAMPLE_FIXED_VAL
         sample.charging_current_a,
         sample.charging_voltage_v,
     ]
+}
+
+fn selectable_fixed_values(
+    sample: &SelectableSample,
+) -> [Option<f64>; SELECTABLE_FIXED_VALUE_COUNT] {
+    let dynamic = &sample.values;
+    [
+        dynamic.speed_kph,
+        dynamic.erpm,
+        dynamic.motor_current_a,
+        dynamic.directional_motor_current_a,
+        dynamic.filtered_motor_current_a,
+        dynamic.duty_cycle,
+        dynamic.pack_voltage_v,
+        dynamic.battery_current_a,
+        dynamic.controller_temp_c,
+        dynamic.motor_temp_c,
+        dynamic.pitch_deg,
+        dynamic.balance_pitch_deg,
+        dynamic.roll_deg,
+        dynamic.footpad_adc1_v,
+        dynamic.footpad_adc2_v,
+        dynamic.remote_input,
+        dynamic.setpoint_deg,
+        dynamic.atr_setpoint_deg,
+        dynamic.brake_tilt_setpoint_deg,
+        dynamic.torque_tilt_setpoint_deg,
+        dynamic.turn_tilt_setpoint_deg,
+        dynamic.remote_setpoint_deg,
+        dynamic.requested_balance_current_a,
+        dynamic.atr_acceleration_difference_erpm_per_second,
+        dynamic.atr_speed_boost,
+        dynamic.booster_current_a,
+        sample.battery_level,
+        sample.distance_m,
+        sample.odometer_m,
+        sample.charging_voltage_v,
+        sample.charging_current_a,
+        sample.amp_hours_drawn_ah,
+        sample.amp_hours_charged_ah,
+        sample.watt_hours_drawn_wh,
+        sample.watt_hours_charged_wh,
+        sample.field_weakening_current_a,
+    ]
+}
+
+#[allow(clippy::too_many_arguments)]
+fn selectable_from_fixed(
+    source_ticks: u32,
+    package_state: Option<PackageState>,
+    package_mode: Option<PackageMode>,
+    footpad_state: Option<FootpadState>,
+    stop_condition: Option<StopCondition>,
+    setpoint_adjustment: Option<SetpointAdjustment>,
+    wheelslip: Option<bool>,
+    darkride: Option<bool>,
+    charging: Option<bool>,
+    alert_reason: Option<AlertReason>,
+    fatal_error_latched: Option<bool>,
+    fixed: [Option<f64>; SELECTABLE_FIXED_VALUE_COUNT],
+    extensions: Vec<ExtensionValue>,
+) -> SelectableSample {
+    SelectableSample {
+        source_ticks,
+        package_state,
+        package_mode,
+        footpad_state,
+        stop_condition,
+        setpoint_adjustment,
+        wheelslip,
+        darkride,
+        charging,
+        alert_reason,
+        fatal_error_latched,
+        values: DynamicValues {
+            speed_kph: fixed[0],
+            erpm: fixed[1],
+            motor_current_a: fixed[2],
+            directional_motor_current_a: fixed[3],
+            filtered_motor_current_a: fixed[4],
+            duty_cycle: fixed[5],
+            pack_voltage_v: fixed[6],
+            battery_current_a: fixed[7],
+            controller_temp_c: fixed[8],
+            motor_temp_c: fixed[9],
+            pitch_deg: fixed[10],
+            balance_pitch_deg: fixed[11],
+            roll_deg: fixed[12],
+            footpad_adc1_v: fixed[13],
+            footpad_adc2_v: fixed[14],
+            remote_input: fixed[15],
+            setpoint_deg: fixed[16],
+            atr_setpoint_deg: fixed[17],
+            brake_tilt_setpoint_deg: fixed[18],
+            torque_tilt_setpoint_deg: fixed[19],
+            turn_tilt_setpoint_deg: fixed[20],
+            remote_setpoint_deg: fixed[21],
+            requested_balance_current_a: fixed[22],
+            atr_acceleration_difference_erpm_per_second: fixed[23],
+            atr_speed_boost: fixed[24],
+            booster_current_a: fixed[25],
+        },
+        battery_level: fixed[26],
+        distance_m: fixed[27],
+        odometer_m: fixed[28],
+        charging_voltage_v: fixed[29],
+        charging_current_a: fixed[30],
+        amp_hours_drawn_ah: fixed[31],
+        amp_hours_charged_ah: fixed[32],
+        watt_hours_drawn_wh: fixed[33],
+        watt_hours_charged_wh: fixed[34],
+        field_weakening_current_a: fixed[35],
+        extensions,
+    }
 }
 
 fn validate_envelope(payload: &[u8], command: u8) -> Result<(), DynamicTelemetryError> {
@@ -1899,6 +2589,110 @@ mod tests {
         assert_eq!(
             DynamicTelemetryError::InvalidTelemetry.to_string(),
             "invalid Refloat dynamic telemetry"
+        );
+    }
+
+    #[test]
+    fn command_33_requests_and_float32_responses_are_exact() {
+        assert_eq!(
+            selectable_fast_request(),
+            selectable_request(SELECTABLE_FAST_MASK1, 0)
+        );
+        assert_eq!(
+            selectable_slow_request(false),
+            selectable_request(SELECTABLE_SLOW_MASK1, SELECTABLE_SLOW_MASK2)
+        );
+        assert_eq!(
+            selectable_slow_request(true),
+            selectable_request(
+                SELECTABLE_SLOW_MASK1,
+                SELECTABLE_SLOW_MASK2 | SELECTABLE_GNSS_MASK2
+            )
+        );
+
+        let mut fast = vec![36, 101, 33, 1];
+        fast.extend_from_slice(&SELECTABLE_FAST_MASK1.to_be_bytes());
+        fast.extend_from_slice(&0_u32.to_be_bytes());
+        fast.extend_from_slice(&1234_u32.to_be_bytes());
+        fast.push(1);
+        // normal/running/both, fatal latch, darkride and wheelslip, no alert.
+        fast.extend_from_slice(&0x03f3_0000_u32.to_be_bytes());
+        for value in 1..=24 {
+            fast.extend_from_slice(&(value as f32).to_bits().to_be_bytes());
+        }
+        let sample = decode_selectable(SELECTABLE_FAST_MASK1, 0, &fast).unwrap();
+        assert_eq!(sample.source_ticks, 1234);
+        assert_eq!(sample.package_state, Some(PackageState::Running));
+        assert_eq!(sample.footpad_state, Some(FootpadState::Both));
+        assert_eq!(sample.fatal_error_latched, Some(true));
+        assert_eq!(sample.values.speed_kph, Some(1.0));
+        assert_eq!(sample.values.requested_balance_current_a, Some(23.0));
+        assert_eq!(sample.values.booster_current_a, None);
+        assert_eq!(sample.extensions.len(), 2);
+        assert_eq!(sample.extensions[1].name, "refloat.loop_frequency_hz");
+        let record = serialize_selectable_record(&sample).unwrap();
+        assert_eq!(
+            parse_selectable_record(record.as_bytes()),
+            Ok(sample.clone())
+        );
+
+        let mask2 = SELECTABLE_SLOW_MASK2 | SELECTABLE_GNSS_MASK2;
+        let mut slow = vec![36, 101, 33, 1];
+        slow.extend_from_slice(&SELECTABLE_SLOW_MASK1.to_be_bytes());
+        slow.extend_from_slice(&mask2.to_be_bytes());
+        slow.extend_from_slice(&4321_u32.to_be_bytes());
+        slow.extend_from_slice(&0.75_f32.to_bits().to_be_bytes());
+        slow.extend_from_slice(&42_u32.to_be_bytes());
+        for value in 2..=9 {
+            slow.extend_from_slice(&(value as f32).to_bits().to_be_bytes());
+        }
+        slow.extend_from_slice(&(-33.86_f64).to_bits().to_be_bytes());
+        slow.extend_from_slice(&(151.21_f64).to_bits().to_be_bytes());
+        for value in 10..=12 {
+            slow.extend_from_slice(&(value as f32).to_bits().to_be_bytes());
+        }
+        slow.extend_from_slice(&999_u32.to_be_bytes());
+        let sample = decode_selectable(SELECTABLE_SLOW_MASK1, mask2, &slow).unwrap();
+        assert_eq!(sample.battery_level, Some(0.75));
+        assert_eq!(sample.odometer_m, Some(42.0));
+        assert_eq!(sample.field_weakening_current_a, Some(9.0));
+        assert_eq!(sample.extensions.len(), 6);
+        let record = serialize_selectable_record(&sample).unwrap();
+        assert_eq!(parse_selectable_record(record.as_bytes()), Ok(sample));
+
+        let mut wrong_mask = fast.clone();
+        wrong_mask[7] ^= 1;
+        assert_eq!(
+            decode_selectable(SELECTABLE_FAST_MASK1, 0, &wrong_mask),
+            Err(DynamicTelemetryError::InvalidTelemetry)
+        );
+        let mut wrong_flag = fast.clone();
+        wrong_flag[3] = 0;
+        assert_eq!(
+            decode_selectable(SELECTABLE_FAST_MASK1, 0, &wrong_flag),
+            Err(DynamicTelemetryError::InvalidTelemetry)
+        );
+        let mut nonfinite = fast.clone();
+        nonfinite[21..25].copy_from_slice(&f32::INFINITY.to_bits().to_be_bytes());
+        assert_eq!(
+            decode_selectable(SELECTABLE_FAST_MASK1, 0, &nonfinite),
+            Err(DynamicTelemetryError::InvalidTelemetry)
+        );
+        let reserved = SELECTABLE_FAST_MASK1 | (1 << 2);
+        let mut reserved_payload = fast.clone();
+        reserved_payload[4..8].copy_from_slice(&reserved.to_be_bytes());
+        assert_eq!(
+            decode_selectable(reserved, 0, &reserved_payload),
+            Err(DynamicTelemetryError::InvalidTelemetry)
+        );
+        assert_eq!(
+            decode_selectable(SELECTABLE_FAST_MASK1, 0, &fast[..fast.len() - 1]),
+            Err(DynamicTelemetryError::TruncatedPayload)
+        );
+        fast.push(0);
+        assert_eq!(
+            decode_selectable(SELECTABLE_FAST_MASK1, 0, &fast),
+            Err(DynamicTelemetryError::InvalidTelemetry)
         );
     }
 

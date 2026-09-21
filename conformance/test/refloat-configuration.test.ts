@@ -17,6 +17,7 @@ const versions: readonly StableRefloatConfigurationVersion[] = [
   '1.2.1',
   '1.2.2',
   '1.2.3',
+  '1.3.0',
 ];
 const fixtureRoot = new URL('../../backends/fixtures/refloat-configuration/', import.meta.url);
 const manifest = JSON.parse(readFileSync(new URL('manifest.json', fixtureRoot), 'utf8')) as {
@@ -37,6 +38,13 @@ test('semantic model serves every exact stable release and applies disposable wr
     const write = bytes(release.files.acceptedWrite);
     assert.deepEqual(model.respond(Uint8Array.from([95, 0, ...write]), true), Uint8Array.of(95));
     assert.deepEqual(model.respond(Uint8Array.of(93, 0), true), response(93, release.files.expectedReadback));
+    assert.deepEqual(model.respond(Uint8Array.from([95, 0, ...bytes(release.files.current)]), true), Uint8Array.of(95));
+    const restored = response(93, release.files.current);
+    const readback = bytes(release.files.expectedReadback);
+    for (let index = 0; index < write.length; index += 1) {
+      if (write[index] !== readback[index]) restored[index + 2] = readback[index]!;
+    }
+    assert.deepEqual(model.respond(Uint8Array.of(93, 0), true), restored);
     assert.equal(model.snapshot().fingerprint, release.schemaFingerprintSha256);
     assert.equal(model.snapshot().wireSignature, release.wireSignature);
     model.reset();
@@ -46,10 +54,10 @@ test('semantic model serves every exact stable release and applies disposable wr
 
 test('commands 92–95 preserve exact bytes over direct and once-forwarded CAN routes', () => {
   for (const topology of ['direct', 'express'] as const) {
-    const board = composeBoard({ firmware: '6.06', refloat: '1.2.3', topology, canId: 42, requestPolicy: 'strict' });
+    const board = composeBoard({ firmware: '6.06', refloat: '1.3.0', topology, canId: 42, requestPolicy: 'strict' });
     const simulator = new VescSimulator(board);
     const route = (payload: Uint8Array) => (topology === 'direct' ? payload : Uint8Array.from([34, 42, ...payload]));
-    const schema = bytes('schemas/1.2.3.qcompress');
+    const schema = bytes('schemas/1.3.0.qcompress');
     const first = decode(simulator, route(Uint8Array.from([92, 0, ...i32(400), ...i32(0)])));
     assert.deepEqual(first, Uint8Array.from([92, 0, ...i32(schema.length), ...i32(0), ...schema.slice(0, 400)]));
     const tailOffset = schema.length - 17;
@@ -58,13 +66,13 @@ test('commands 92–95 preserve exact bytes over direct and once-forwarded CAN r
       tail,
       Uint8Array.from([92, 0, ...i32(schema.length), ...i32(tailOffset), ...schema.slice(tailOffset)])
     );
-    assert.deepEqual(decode(simulator, route(Uint8Array.of(93, 0))), response(93, 'values/1.2.3-current.bin'));
-    assert.deepEqual(decode(simulator, route(Uint8Array.of(94, 0))), response(94, 'values/1.2.3-default.bin'));
+    assert.deepEqual(decode(simulator, route(Uint8Array.of(93, 0))), response(93, 'values/1.3.0-current.bin'));
+    assert.deepEqual(decode(simulator, route(Uint8Array.of(94, 0))), response(94, 'values/1.3.0-default.bin'));
     assert.deepEqual(
-      decode(simulator, route(Uint8Array.from([95, 0, ...bytes('values/1.2.3-write.bin')]))),
+      decode(simulator, route(Uint8Array.from([95, 0, ...bytes('values/1.3.0-write.bin')]))),
       Uint8Array.of(95)
     );
-    assert.deepEqual(decode(simulator, route(Uint8Array.of(93, 0))), response(93, 'values/1.2.3-readback.bin'));
+    assert.deepEqual(decode(simulator, route(Uint8Array.of(93, 0))), response(93, 'values/1.3.0-readback.bin'));
     assert.ok(simulator.requests.every((request) => request.canId === (topology === 'direct' ? undefined : 42)));
     assert.deepEqual(
       simulator.requests.map((request) => request.kind),
@@ -87,7 +95,7 @@ test('physical control boards advertise and serve the required configuration own
     assert.ok(controller.refloatConfiguration, `${name} configuration model`);
     assert.deepEqual(
       controller.refloatConfiguration.respond(Uint8Array.of(93, 0), true),
-      response(93, 'values/1.2.3-current.bin')
+      response(93, 'values/1.3.0-current.bin')
     );
   }
 });

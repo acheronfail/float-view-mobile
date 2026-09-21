@@ -50,12 +50,12 @@ The backends and conformance simulator SHALL implement source-faithful telemetry
 - **WHEN** the simulator receives command 1 for Refloat 1.0.x
 - **THEN** it returns the source-faithful high-precision legacy realtime layout while the native backends continue polling command 10
 
-#### Scenario: Complete negotiated dynamic response
+#### Scenario: Complete dynamic response
 
 - **WHEN** a supported Refloat 1.1.x or 1.2.x controller advertises the complete known always-present and running-only realtime IDs
 - **THEN** the backend decodes all known values, state flags, and version-applicable tails in their negotiated order
 
-#### Scenario: Audited negotiated release
+#### Scenario: Audited dynamic release
 
 - **WHEN** INFO reports one of 1.1.0–1.1.2 or 1.2.0–1.2.3 and command 32 supplies the complete required profile baseline plus bounded additional IDs
 - **THEN** discovery accepts the controller under its audited wire profile and retains additional numeric values as bounded extensions
@@ -65,7 +65,7 @@ The backends and conformance simulator SHALL implement source-faithful telemetry
 - **WHEN** INFO reports exact stable Refloat 1.3.0
 - **THEN** discovery accepts the selectable profile without command-32 negotiation and begins bounded command-33 polling
 
-#### Scenario: Incomplete or renamed negotiated profile
+#### Scenario: Incomplete or renamed dynamic profile
 
 - **WHEN** a Refloat 1.1.x, 1.2.x, or unknown package responds to command 32 without one or more required semantic IDs
 - **THEN** discovery reports unsupported Refloat and does not mark the controller ready
@@ -128,7 +128,7 @@ Both backends SHALL normalize supported wire families into the exact stable cata
 
 Every detailed telemetry request SHALL use the one selected verified direct-or-CAN controller route and the single serialized VESC request stream. Negotiated command 31 SHALL use the existing adaptive fast/idle cadence for Refloat 1.1.0–1.2.3, while command 10 detail level 4 becomes due once per second for those dynamic releases. Refloat 1.3.0 command 33 SHALL use the same adaptive cadence for its canonical fast mask and a once-per-second cadence for its canonical slow mask; a once-per-second command-10 mode-0 request SHALL serve only as the retained active firmware-fault probe. Slow and fault requests SHALL occupy the next available request slot without a parallel lane or queue, and a timeout SHALL NOT trigger an immediate retry. Reconnect or controller change SHALL clear route-scoped fast, slow, fault, and merge state; commands 31/32 releases SHALL renegotiate their layout, while exact 1.3.0 SHALL restart its fixed audited masks without command 32.
 
-#### Scenario: Negotiated dynamic and compact telemetry
+#### Scenario: Dynamic and slow telemetry
 
 - **WHEN** a Refloat 1.1.x or 1.2.x session requires fast realtime values and compact slow-changing values
 - **THEN** one detail-level-4 compact request uses the next free slot after its one-second deadline and command-31 polling resumes after its response or timeout

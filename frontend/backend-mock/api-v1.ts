@@ -37,9 +37,9 @@ import {
 
 const refloatIdentity: RefloatConfigurationIdentity = {
   packageName: 'refloat',
-  packageVersion: '1.2.3',
-  schemaFingerprint: 'fa40717969d1d86b429d7c78b59144b8387b4850be83a72fd3c7cf15ffecd01c',
-  wireSignature: 2_427_955_642,
+  packageVersion: '1.3.0',
+  schemaFingerprint: '62681208dc609eb19420c89df65105f018499aa9f5741f295f00d62ea5a1bceb',
+  wireSignature: 421_162_011,
 };
 
 const refloatFields: RefloatConfigurationField[] = [
@@ -449,7 +449,7 @@ export class MockBackend {
               firmware: {
                 vescVersion: '6.06',
                 packageName: 'refloat',
-                packageVersion: '1.2.3',
+                packageVersion: '1.3.0',
                 hardwareName: 'Express',
                 accessMode: 'readWrite',
                 supported: true,

@@ -75,7 +75,7 @@ fn load_current(version: &str, route: Route, generation: Generation) -> Configur
 
 #[test]
 fn every_catalogue_release_and_legacy_patch_is_admitted_from_exact_cache() {
-    assert_eq!(CATALOG.len(), 9);
+    assert_eq!(CATALOG.len(), 10);
     for entry in CATALOG {
         let compressed = bytes(&format!("schemas/{}.qcompress", entry.version));
         let schema = decode_qt_compressed(&compressed).expect("schema");

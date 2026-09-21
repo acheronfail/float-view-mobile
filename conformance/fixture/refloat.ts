@@ -9,7 +9,8 @@ import type {
   TelemetrySample,
 } from './telemetry.ts';
 
-export type RefloatVersion = '1.0.0' | '1.0.1' | '1.1.0' | '1.1.1' | '1.1.2' | '1.2.0' | '1.2.1' | '1.2.2' | '1.2.3';
+export type RefloatVersion =
+  '1.0.0' | '1.0.1' | '1.1.0' | '1.1.1' | '1.1.2' | '1.2.0' | '1.2.1' | '1.2.2' | '1.2.3' | '1.3.0';
 type DynamicRefloatVersion = Exclude<RefloatVersion, '1.0.0' | '1.0.1'>;
 export type RefloatRequestKind = 'info' | 'layout' | 'telemetry' | 'compact';
 
@@ -64,7 +65,7 @@ export const runtimeRealtimeFields = [
 ] as const;
 
 const provenance =
-  'Immutable read-only wire profiles audited from stable https://github.com/lukash/refloat tags v1.0.0 through v1.2.3';
+  'Immutable read-only wire profiles audited from stable https://github.com/lukash/refloat tags v1.0.0 through v1.3.0';
 
 export const refloatCodecs: Readonly<Record<RefloatVersion, RefloatCodec>> = {
   '1.0.0': legacyCodec('1.0.0'),
@@ -76,9 +77,13 @@ export const refloatCodecs: Readonly<Record<RefloatVersion, RefloatCodec>> = {
   '1.2.1': dynamicCodec('1.2.1', true),
   '1.2.2': dynamicCodec('1.2.2', true),
   '1.2.3': dynamicCodec('1.2.3', true),
+  '1.3.0': selectableCodec(),
 };
 
 export function encodeRefloatTelemetry(version: RefloatVersion, sample: TelemetrySample): Uint8Array {
+  if (version === '1.3.0') {
+    return encodeSelectableTelemetry(Uint8Array.from([36, 101, 33, 1, 0x7f, 0xff, 0xbf, 0xc3, 0, 0, 0, 0]), sample);
+  }
   return version.startsWith('1.0.')
     ? encodeLegacyCompact(sample, 4)
     : encodeDynamicTelemetry(sample, version.startsWith('1.2.'));
@@ -299,6 +304,100 @@ function dynamicCodec(version: DynamicRefloatVersion, alertTail: boolean): Reflo
   };
 }
 
+function selectableCodec(): RefloatCodec {
+  const version = '1.3.0' as const;
+  const infoPayload = encodeInfoV2(version);
+  infoPayload[59] = 0x04;
+  return {
+    version,
+    provenance,
+    infoPayload,
+    respond(payload, sample) {
+      const packet = packagePacket(payload);
+      if (packet === 0) return { kind: 'info', payload: infoPayload };
+      if (packet === 33 && payload.length === 12 && payload[3] === 1) {
+        return { kind: 'telemetry', payload: encodeSelectableTelemetry(payload, sample) };
+      }
+      if (packet === 10 && payload.length === 4 && payload[3] === 0) {
+        const response = encodeLegacyCompact(sample, 1);
+        if (sample.firmwareFault === null) response[3] = 0;
+        return { kind: 'compact', payload: response };
+      }
+      return undefined;
+    },
+  };
+}
+
+export function encodeSelectableTelemetry(request: Uint8Array, sample: TelemetrySample): Uint8Array {
+  const view = new DataView(request.buffer, request.byteOffset, request.byteLength);
+  const mask1 = view.getUint32(4, false);
+  const mask2 = view.getUint32(8, false);
+  const bytes: number[] = [36, 101, 33, 1];
+  pushU32(bytes, mask1);
+  pushU32(bytes, mask2);
+  pushU32(bytes, 0);
+  if (mask1 & (1 << 0)) bytes.push(0);
+  if (mask1 & (1 << 1)) {
+    let state = packageModeCode(sample.packageMode) << 28;
+    state |= packageStateCode(sample.packageState) << 24;
+    state |= footpadStateCode(sample.footpadState) << 22;
+    if (sample.charging) state |= 1 << 21;
+    if (sample.darkride) state |= 1 << 17;
+    if (sample.wheelslip) state |= 1 << 16;
+    state |= setpointAdjustmentCode(sample.setpointAdjustment) << 12;
+    state |= stopConditionCode(sample.stopCondition) << 8;
+    state |= alertReasonCode(sample.alertReason);
+    pushU32(bytes, state >>> 0);
+  }
+  const values1: ReadonlyArray<readonly [number, number]> = [
+    [6, sample.speedKph],
+    [7, sample.erpm],
+    [8, sample.motorCurrentA],
+    [9, sample.directionalMotorCurrentA],
+    [10, sample.filteredMotorCurrentA],
+    [11, sample.dutyCycle],
+    [12, sample.packVoltageV],
+    [13, sample.batteryCurrentA],
+    [14, sample.batteryLevel],
+    [15, sample.controllerTempC],
+    [16, sample.motorTempC],
+    [17, sample.pitchDeg],
+    [18, sample.balancePitchDeg],
+    [19, sample.rollDeg],
+    [20, sample.footpadAdc1V],
+    [21, sample.footpadAdc2V],
+    [22, sample.remoteInput],
+    [23, sample.setpointDeg],
+    [24, sample.atrSetpointDeg],
+    [25, sample.brakeTiltSetpointDeg],
+    [26, sample.torqueTiltSetpointDeg],
+    [27, sample.turnTiltSetpointDeg],
+    [28, sample.remoteSetpointDeg],
+    [29, sample.requestedBalanceCurrentA],
+    [30, 1000],
+  ];
+  for (const [bit, value] of values1) if (mask1 & (1 << bit)) pushF32(bytes, value);
+  if (mask2 & (1 << 0)) pushU32(bytes, sample.odometerM);
+  const values2: ReadonlyArray<readonly [number, number]> = [
+    [1, sample.distanceM],
+    [2, sample.chargingVoltageV],
+    [3, sample.chargingCurrentA],
+    [4, sample.ampHoursDrawnAh],
+    [5, sample.ampHoursChargedAh],
+    [6, sample.wattHoursDrawnWh],
+    [7, sample.wattHoursChargedWh],
+    [8, sample.fieldWeakeningCurrentA],
+  ];
+  for (const [bit, value] of values2) if (mask2 & (1 << bit)) pushF32(bytes, value);
+  if (mask2 & (1 << 9)) pushF64(bytes, -33.8688);
+  if (mask2 & (1 << 10)) pushF64(bytes, 151.2093);
+  if (mask2 & (1 << 11)) pushF32(bytes, 10);
+  if (mask2 & (1 << 12)) pushF32(bytes, sample.speedKph);
+  if (mask2 & (1 << 13)) pushF32(bytes, 0.8);
+  if (mask2 & (1 << 14)) pushU32(bytes, 1);
+  return Uint8Array.from(bytes);
+}
+
 function packagePacket(payload: Uint8Array): number | undefined {
   if (payload[0] !== 36 || payload[1] !== 101) return undefined;
   return payload[2];
@@ -516,6 +615,26 @@ function u32(destination: Uint8Array, offset: number, value: number) {
   destination[offset + 1] = bounded >>> 16;
   destination[offset + 2] = bounded >>> 8;
   destination[offset + 3] = bounded;
+}
+
+function pushU32(destination: number[], value: number) {
+  const bytes = new Uint8Array(4);
+  new DataView(bytes.buffer).setUint32(0, Math.max(0, Math.min(0xffffffff, Math.trunc(value))) >>> 0, false);
+  destination.push(...bytes);
+}
+
+function pushF32(destination: number[], value: number) {
+  if (!Number.isFinite(value)) throw new Error('Float32 value must be finite');
+  const bytes = new Uint8Array(4);
+  new DataView(bytes.buffer).setFloat32(0, value, false);
+  destination.push(...bytes);
+}
+
+function pushF64(destination: number[], value: number) {
+  if (!Number.isFinite(value)) throw new Error('Float64 value must be finite');
+  const bytes = new Uint8Array(8);
+  new DataView(bytes.buffer).setFloat64(0, value, false);
+  destination.push(...bytes);
 }
 
 function clamp(value: number, minimum: number, maximum: number) {

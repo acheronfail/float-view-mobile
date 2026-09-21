@@ -78,6 +78,13 @@ const RELEASES: &[Release] = &[
         fields: 167,
         groups: 2,
     },
+    Release {
+        version: "1.3.0",
+        fingerprint: "62681208dc609eb19420c89df65105f018499aa9f5741f295f00d62ea5a1bceb",
+        signature: 0x191a_6c1b,
+        fields: 172,
+        groups: 2,
+    },
 ];
 
 fn fixture_root() -> PathBuf {

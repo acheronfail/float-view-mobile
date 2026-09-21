@@ -135,6 +135,15 @@ pub fn dynamic_info_payload() -> Vec<u8> {
     payload
 }
 
+pub fn selectable_info_payload() -> Vec<u8> {
+    let mut payload = vec![0; 61];
+    payload[..5].copy_from_slice(&[36, 101, 0, 2, 0]);
+    payload[5..12].copy_from_slice(b"refloat");
+    payload[25..28].copy_from_slice(&[1, 3, 0]);
+    payload[59] = 4;
+    payload
+}
+
 pub fn dynamic_layout_payload() -> Vec<u8> {
     let mut payload = vec![36, 101, 32, REQUIRED_FIELDS.len() as u8];
     for field in REQUIRED_FIELDS {
@@ -160,6 +169,24 @@ pub fn dynamic_idle_payload() -> Vec<u8> {
     fixture_payload(
         include_str!("../../../../fixtures/refloat/rtdata-1.2.3-android-hardware.json"),
         "idle-realtime-data",
+    )
+}
+
+pub fn selectable_fast_payload() -> Vec<u8> {
+    let document = include_str!("../../../../fixtures/refloat/detailed-source-provenance.json");
+    let marker = "\"name\": \"1.3.0-command-33-fast-float32\"";
+    let case = document.split_once(marker).expect("selectable fixture").1;
+    hex_bytes(string_field(case, "payloadHex"))
+}
+
+pub fn configuration_schema_1_3_0() -> Vec<u8> {
+    include_bytes!("../../../../fixtures/refloat-configuration/schemas/1.3.0.qcompress").to_vec()
+}
+
+pub fn configuration_current_response_1_3_0() -> Vec<u8> {
+    configuration_values_response(
+        93,
+        include_bytes!("../../../../fixtures/refloat-configuration/values/1.3.0-current.bin"),
     )
 }
 

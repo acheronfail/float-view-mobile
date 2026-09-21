@@ -63,6 +63,7 @@ export function androidPhysicalTarget(deviceSerial: string): PhysicalTarget {
       launch(deviceSerial, false);
     },
     async stop() {
+      await dismissAndroidExportChooser(deviceSerial);
       adbBestEffort(deviceSerial, 'shell', 'am', 'force-stop', applicationId);
     },
     async finishSuite(report) {
@@ -146,6 +147,24 @@ function adbBestEffort(serial: string, ...args: string[]) {
   try {
     execFileSync('adb', ['-s', serial, ...args], { stdio: 'ignore' });
   } catch {}
+}
+
+async function dismissAndroidExportChooser(serial: string) {
+  // Older Android hosts the chooser in android:ui, not com.android.intentresolver.
+  // Dismiss it before killing its FileProvider to avoid a provider-start timeout
+  // terminating the next physical scenario's process.
+  const deadline = performance.now() + 5_000;
+  while (performance.now() < deadline) {
+    const activities = adbOutput(serial, 'shell', 'dumpsys', 'activity', 'activities');
+    if (!androidExportChooserIsResumed(activities)) return;
+    adb(serial, 'shell', 'input', 'keyevent', 'KEYCODE_BACK');
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  throw new Error('Android export chooser did not close');
+}
+
+export function androidExportChooserIsResumed(activities: string) {
+  return /(?:mResumedActivity|topResumedActivity)[^\n]*(?:ChooserActivity|ResolverActivity)/.test(activities);
 }
 
 async function waitForAndroidBackground(serial: string) {

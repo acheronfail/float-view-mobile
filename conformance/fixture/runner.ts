@@ -17,6 +17,7 @@ export class FixtureRunner {
   private injectedReconnect = false;
   private disconnectInjected = false;
   private connected = false;
+  private advertisingRetries = 0;
   private telemetryResponses = 0;
   private telemetryPhase?: string;
   private readyWaiter?: {
@@ -149,6 +150,20 @@ export class FixtureRunner {
         }
         break;
       case 'ERROR':
+        // RESET acknowledges before the asynchronous BLE disconnect completes.
+        // Only retry advertising during startup, before any scenario traffic.
+        if (
+          event.code === 'ADVERTISE_FAILED' &&
+          !this.connected &&
+          this.simulator.requests.length === 0 &&
+          this.advertisingRetries < 3
+        ) {
+          this.advertisingRetries += 1;
+          this.report(`ESP: waiting for reset disconnect before advertising (${this.advertisingRetries}/3)`);
+          await new Promise((resolve) => setTimeout(resolve, this.readyRetryMs));
+          if (this.running) await this.sendCommand('ADVERTISE');
+          break;
+        }
         // A peer may disconnect after writing a request but before the
         // queued notification command reaches the fixture.
         if (event.code === 'NOT_CONNECTED' && !this.connected) {

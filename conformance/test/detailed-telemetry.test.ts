@@ -8,6 +8,7 @@ import {
   encodeLegacyCompact,
   encodeLegacyRealtime,
   encodeRefloatLayout,
+  encodeSelectableTelemetry,
   MAX_REFLOAT_FIELD_BYTES,
   realtimeFields,
   refloatCodecs,
@@ -79,6 +80,22 @@ test('charging and active firmware fault tails are source-faithful and distinct'
   const sample = fault.next();
   assert.equal(hex(encodeDynamicTelemetry(sample, true)), expected('1.2.3-command-31-active-firmware-fault'));
   assert.equal(hex(encodeLegacyCompact(sample, 4)), expected('1.2.3-command-10-active-firmware-fault'));
+});
+
+test('Refloat 1.3.0 serves fixed command-33 masks and keeps command 10 fault-only', () => {
+  const source = new InteractiveTelemetrySource(7);
+  source.setScene('acceleration');
+  const sample = source.next();
+  for (const [name, requestHex] of [
+    ['1.3.0-command-33-fast-float32', '246521017fffbfc300000000'],
+    ['1.3.0-command-33-slow-gnss-float32', '246521010000400000007fff'],
+  ] as const) {
+    const request = Uint8Array.from(Buffer.from(requestHex, 'hex'));
+    assert.equal(hex(encodeSelectableTelemetry(request, sample)), expected(name));
+  }
+  const response = refloatCodecs['1.3.0'].respond(Uint8Array.of(36, 101, 10, 0), sample);
+  assert.equal(hex(response!.payload), expected('1.3.0-command-10-mode-0-normal'));
+  assert.equal(refloatCodecs['1.3.0'].layoutPayload, undefined);
 });
 
 test('layout, extension, JSON, message, diagnostic, point, and event bounds are concrete', () => {

@@ -266,6 +266,7 @@ fn continuity_prefers_meaningful_uuid_then_supported_prior_route() {
 fn refloat_readiness_is_family_exact_and_fail_closed() {
     let legacy = compatibility(WireVersion::legacy(1, 0)).unwrap();
     let dynamic = compatibility(WireVersion::patched(1, 2, 3)).unwrap();
+    let selectable = compatibility(WireVersion::patched(1, 3, 0)).unwrap();
 
     let mut legacy_discovery = selected_direct();
     assert!(matches!(
@@ -282,6 +283,16 @@ fn refloat_readiness_is_family_exact_and_fail_closed() {
         effect(&dynamic_discovery.accept_telemetry_layout(true)),
         Some(Effect::Ready)
     ));
+
+    let mut selectable_discovery = selected_direct();
+    assert!(matches!(
+        effect(&selectable_discovery.accept_refloat_profile(selectable)),
+        Some(Effect::Ready)
+    ));
+    assert_eq!(
+        selectable_discovery.snapshot().refloat_profile,
+        Some(selectable)
+    );
 
     let mut rejected = selected_direct();
     rejected.accept_refloat_profile(dynamic);

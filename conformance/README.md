@@ -13,6 +13,12 @@ npm run physical -- android <fixture-port> <adb-serial>
 npm run physical -- ios <fixture-port> <device-id>
 ```
 
+Set `FLOAT_VIEW_PHYSICAL_REFLOAT_VERSION=1.3.0` to run the controller scenarios
+with the audited selectable-telemetry package, including ride, reconnect, and
+background coverage. The explicit legacy and standalone-BMS scenarios retain
+their original identities. Without this selection the older regression matrix
+is retained, with the control/shutdown scenarios using 1.3.0.
+
 When a connected mobile device cannot acquire location promptly, rerun the
 background scenario with
 `FLOAT_VIEW_PHYSICAL_SCENARIOS=background FLOAT_VIEW_DEFER_PHYSICAL_LOCATION=1`.
@@ -42,7 +48,7 @@ controllers, unsupported/non-motor nodes, distinct controller UUIDs, malformed
 or excessive ping lists, silent targets, and route-specific responses. The
 compatibility matrix covers every direct/Express combination of VESC
 6.02/6.05/6.06/7.00 and stable Refloat 1.0.0–1.0.1, 1.1.0–1.1.2, and
-1.2.0–1.2.3; legacy 1.0.x reports wire version
+1.2.0–1.2.3, and selectable command-33 Refloat 1.3.0; legacy 1.0.x reports wire version
 `1.0` and uses fixed packet 10.
 
 VBMS simulation is independent of controller routing. Canonical CAN-BMS

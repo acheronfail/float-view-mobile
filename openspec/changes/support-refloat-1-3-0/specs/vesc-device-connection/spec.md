@@ -33,7 +33,7 @@ The connection-scoped device mutation coordinator SHALL be the only path that ma
 - **WHEN** a direct or CAN-routed controller returns legacy Refloat INFO wire byte `10` from an audited source-package-1.0.x protocol family
 - **THEN** the backend reports package version `1.0`, uses the fixed legacy telemetry and legacy lighting profile, and reaches `ready` without requesting dynamic layouts or claiming that the device reported patch `.0`
 
-#### Scenario: Negotiated dynamic Refloat sessions
+#### Scenario: Dynamic Refloat sessions
 
 - **WHEN** a direct or CAN-routed controller reports an audited Refloat 1.1.x or 1.2.x release
 - **THEN** the backend negotiates commands 31/32 and the exact control profile without inferring support from a broad version range

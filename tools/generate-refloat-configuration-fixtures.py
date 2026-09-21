@@ -19,7 +19,18 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 REFLOAT = ROOT / "vendor" / "refloat"
 OUTPUT = ROOT / "backends" / "fixtures" / "refloat-configuration"
-VERSIONS = ("1.0.0", "1.0.1", "1.1.0", "1.1.1", "1.1.2", "1.2.0", "1.2.1", "1.2.2", "1.2.3")
+VERSIONS = (
+    "1.0.0",
+    "1.0.1",
+    "1.1.0",
+    "1.1.1",
+    "1.1.2",
+    "1.2.0",
+    "1.2.1",
+    "1.2.2",
+    "1.2.3",
+    "1.3.0",
+)
 SOURCE_PATH = "src/conf/settings.xml"
 MAX_COMPRESSED_BYTES = 32 * 1024
 MAX_EXPANDED_BYTES = 384 * 1024
@@ -323,8 +334,8 @@ def main() -> None:
             {"name": "write-prefix", "route": "direct", "requestPrefixHex": hex_bytes(95, 0) + signature_bytes.hex()},
             {"name": "acknowledgement", "responseHex": hex_bytes(95)},
             {"name": "write-rejected", "acknowledged": True, "readback": "unchanged", "result": "conflict"},
-            {"name": "write-readback-match", "acknowledged": True, "readbackFile": "values/1.2.3-readback.bin", "result": "success"},
-            {"name": "write-readback-mismatch", "acknowledged": True, "readbackFile": "values/1.2.3-current.bin", "result": "conflict"},
+            {"name": "write-readback-match", "acknowledged": True, "readbackFile": "values/1.3.0-readback.bin", "result": "success"},
+            {"name": "write-readback-mismatch", "acknowledged": True, "readbackFile": "values/1.3.0-current.bin", "result": "conflict"},
             {"name": "wrong-index", "responsePrefixHex": hex_bytes(92, 1), "error": "unexpectedIndex"},
             {"name": "wrong-offset", "responsePrefixHex": hex_bytes(92, 0, 0, 0, 0, 1, 0, 0, 0, 1), "error": "unexpectedOffset"},
             {"name": "wrong-route", "expectedRoute": {"canId": 42}, "actualRoute": "direct", "error": "unexpectedRoute"},

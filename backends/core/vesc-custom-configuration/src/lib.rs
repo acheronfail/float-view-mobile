@@ -285,7 +285,7 @@ mod tests {
         };
     }
 
-    const RELEASES: [ReleaseFixtures; 9] = [
+    const RELEASES: [ReleaseFixtures; 10] = [
         release!("1.0.0"),
         release!("1.0.1"),
         release!("1.1.0"),
@@ -295,6 +295,7 @@ mod tests {
         release!("1.2.1"),
         release!("1.2.2"),
         release!("1.2.3"),
+        release!("1.3.0"),
     ];
 
     #[test]

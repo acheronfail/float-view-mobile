@@ -8,7 +8,9 @@ Exact Refloat release/fingerprint/signature: record from the audited UI
 
 This checkpoint is intentionally outside `just verify`. Run it only with a
 fixture-safe, non-actuating schema field and retain the full original
-configuration until restoration has been verified.
+configuration until restoration has been verified. Compare every restored field
+against the original plus documented firmware normalization (for example,
+`meta.is_default` is cleared by a write); record any such normalization explicitly.
 
 ## Required evidence
 

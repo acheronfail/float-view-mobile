@@ -589,12 +589,13 @@ export async function exerciseRefloatConfiguration(
     !requireAvailable || currentKp?.type === 'double',
     'physical configuration fixture requires a numeric kp field'
   );
-  const draftValues = currentKp?.type === 'double'
-    ? {
-        ...current.values,
-        kp: { type: 'double' as const, value: currentKp.value + 1 },
-      }
-    : current.values;
+  const draftValues =
+    currentKp?.type === 'double'
+      ? {
+          ...current.values,
+          kp: { type: 'double' as const, value: currentKp.value + 1 },
+        }
+      : current.values;
 
   const tune = await client.request('refloat.tune.create', {
     name: 'Conformance configuration',
@@ -626,20 +627,42 @@ export async function exerciseRefloatConfiguration(
 
   const idle = client.currentState()?.activeConnection?.latestSample?.rideState === 'idle';
   if (idle && ready.writable) {
-    const written = await client.request('refloat.configuration.write', {
-      packageVersion: current.identity.packageVersion,
-      schemaFingerprint: current.identity.schemaFingerprint,
-      wireSignature: current.identity.wireSignature,
-      baseRevision: current.revision,
-      values: draftValues,
-    });
-    assert.deepEqual(written.identity, current.identity);
-    const applied = await client.request('refloat.tune.apply', {
-      tuneId: updated.tuneId,
-      expectedRevision: updated.revision,
-      baseRevision: written.revision,
-    });
-    assert.deepEqual(applied.identity, current.identity);
+    try {
+      const written = await client.request('refloat.configuration.write', {
+        packageVersion: current.identity.packageVersion,
+        schemaFingerprint: current.identity.schemaFingerprint,
+        wireSignature: current.identity.wireSignature,
+        baseRevision: current.revision,
+        values: draftValues,
+      });
+      assert.deepEqual(written.identity, current.identity);
+      const applied = await client.request('refloat.tune.apply', {
+        tuneId: updated.tuneId,
+        expectedRevision: updated.revision,
+        baseRevision: written.revision,
+      });
+      assert.deepEqual(applied.identity, current.identity);
+    } finally {
+      if (requireAvailable) {
+        // Physical writes must leave the fixture's complete original configuration restored,
+        // including when the write or subsequent Tune application fails.
+        const latest = await client.request('refloat.configuration.read', { source: 'current' });
+        await client.request('refloat.configuration.write', {
+          packageVersion: current.identity.packageVersion,
+          schemaFingerprint: current.identity.schemaFingerprint,
+          wireSignature: current.identity.wireSignature,
+          baseRevision: latest.revision,
+          values: current.values,
+        });
+        const restored = await client.request('refloat.configuration.read', { source: 'current' });
+        assert.deepEqual(restored.identity, current.identity);
+        const expectedOriginal = { ...current.values };
+        if (!current.identity.packageVersion.startsWith('1.0.') && 'meta.is_default' in expectedOriginal) {
+          expectedOriginal['meta.is_default'] = { type: 'boolean', value: false };
+        }
+        assert.deepEqual(restored.values, expectedOriginal, 'physical configuration restore did not verify');
+      }
+    }
   } else {
     await expectError(
       client.request('refloat.tune.apply', {

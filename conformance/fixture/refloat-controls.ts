@@ -39,6 +39,7 @@ const profiles = new Map<RefloatVersion, RefloatControlProfile>([
   ['1.2.1', { version: '1.2.1', family: 'stable', fatalClearAvailable: true }],
   ['1.2.2', { version: '1.2.2', family: 'stable', fatalClearAvailable: true }],
   ['1.2.3', { version: '1.2.3', family: 'stable', fatalClearAvailable: true }],
+  ['1.3.0', { version: '1.3.0', family: 'stable', fatalClearAvailable: true }],
 ]);
 
 export function refloatControlProfile(version: RefloatVersion): RefloatControlProfile {
@@ -165,7 +166,7 @@ export class RefloatControlModel {
       ledsEnabled: true,
       headlightsEnabled: true,
       fatalErrorActive: false,
-      fatalErrorLatched: version.startsWith('1.2.'),
+      fatalErrorLatched: version.startsWith('1.2.') || version === '1.3.0',
       ...initial,
     };
   }
@@ -189,8 +190,7 @@ export class RefloatControlModel {
         ),
       };
     }
-    const activeFlywheelDisable =
-      this.state.flywheelEnabled && value.control === 'flywheel' && value.enabled === false;
+    const activeFlywheelDisable = this.state.flywheelEnabled && value.control === 'flywheel' && value.enabled === false;
     if (this.state.flywheelEnabled && !activeFlywheelDisable) {
       return { accepted: false, reason: 'invalid_state' };
     }
@@ -256,6 +256,18 @@ export class RefloatControlModel {
   }
 
   decorateTelemetry(payload: Uint8Array): Uint8Array {
+    if (this.version === '1.3.0' && payload[0] === 36 && payload[2] === 33 && payload.length >= 20) {
+      const view = new DataView(payload.buffer, payload.byteOffset, payload.byteLength);
+      const mask = view.getUint32(4, false);
+      if ((mask & 2) === 0) return payload;
+      const offset = 16 + (mask & 1);
+      if (payload.length < offset + 4) return payload;
+      const result = payload.slice();
+      const state = new DataView(result.buffer);
+      const flags = state.getUint32(offset, false);
+      state.setUint32(offset, this.state.fatalErrorLatched ? flags | (1 << 20) : flags & ~(1 << 20), false);
+      return result;
+    }
     if (!this.version.startsWith('1.2.') || payload[0] !== 36 || payload[2] !== 31 || payload.length < 5)
       return payload;
     const result = payload.slice();

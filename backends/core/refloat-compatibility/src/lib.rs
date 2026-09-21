@@ -40,6 +40,9 @@ const INFO_V2_RESPONSE_BYTES: usize = 61;
 const INFO_V2_MAJOR_OFFSET: usize = 25;
 const INFO_V2_MINOR_OFFSET: usize = 26;
 const INFO_V2_PATCH_OFFSET: usize = 27;
+const INFO_V2_CAPABILITIES_OFFSET: usize = 56;
+/// Refloat INFO capability bit for command-33 GNSS values.
+pub const INFO_CAPABILITY_GNSS: u32 = 1 << 2;
 
 /// Exact unframed INFO request selected by both native hosts.
 pub const INFO_REQUEST: [u8; 5] = [
@@ -158,6 +161,8 @@ pub enum TelemetryProfile {
     Dynamic,
     /// Negotiated dynamic telemetry with the active-alert tail.
     DynamicAlerts,
+    /// Fixed-mask selectable command-33 telemetry introduced by Refloat 1.3.0.
+    Selectable,
 }
 
 /// High-level telemetry family selected for discovery.
@@ -167,6 +172,8 @@ pub enum TelemetryFamily {
     LegacyFixed,
     /// Negotiated dynamic telemetry.
     Dynamic,
+    /// Fixed-mask selectable telemetry; no command-32 layout negotiation.
+    Selectable,
 }
 
 impl TelemetryProfile {
@@ -176,6 +183,7 @@ impl TelemetryProfile {
         match self {
             Self::LegacyFixed => TelemetryFamily::LegacyFixed,
             Self::Dynamic | Self::DynamicAlerts => TelemetryFamily::Dynamic,
+            Self::Selectable => TelemetryFamily::Selectable,
         }
     }
 }
@@ -221,7 +229,7 @@ const STABLE_CONTROL: ControlProfile = ControlProfile {
 };
 
 /// Exact audited source-release compatibility catalogue.
-pub const COMPATIBILITY_ENTRIES: [CompatibilityEntry; 9] = [
+pub const COMPATIBILITY_ENTRIES: [CompatibilityEntry; 10] = [
     CompatibilityEntry {
         source: SourceVersion::new(1, 0, 0),
         wire: WireVersion::legacy(1, 0),
@@ -274,6 +282,12 @@ pub const COMPATIBILITY_ENTRIES: [CompatibilityEntry; 9] = [
         source: SourceVersion::new(1, 2, 3),
         wire: WireVersion::patched(1, 2, 3),
         telemetry: TelemetryProfile::DynamicAlerts,
+        control: STABLE_CONTROL,
+    },
+    CompatibilityEntry {
+        source: SourceVersion::new(1, 3, 0),
+        wire: WireVersion::patched(1, 3, 0),
+        telemetry: TelemetryProfile::Selectable,
         control: STABLE_CONTROL,
     },
 ];
@@ -431,6 +445,19 @@ pub fn decode_info(payload: &[u8]) -> Result<WireVersion, CompatibilityError> {
     ))
 }
 
+/// Decode the INFO-v2 capability word without interpreting device identity.
+pub fn decode_info_capabilities(payload: &[u8]) -> Result<u32, CompatibilityError> {
+    let _ = decode_info(payload)?;
+    if payload[3] != INFO_PROTOCOL_VERSION {
+        return Ok(0);
+    }
+    Ok(u32::from_be_bytes(
+        payload[INFO_V2_CAPABILITIES_OFFSET..INFO_V2_CAPABILITIES_OFFSET + 4]
+            .try_into()
+            .expect("validated INFO-v2 extent"),
+    ))
+}
+
 /// Parse only exact canonical wire-identity text, without semantic-version ranges.
 #[must_use]
 pub fn parse_wire_version(text: &str) -> Option<WireVersion> {
@@ -443,6 +470,7 @@ pub fn parse_wire_version(text: &str) -> Option<WireVersion> {
         "1.2.1" => Some(WireVersion::patched(1, 2, 1)),
         "1.2.2" => Some(WireVersion::patched(1, 2, 2)),
         "1.2.3" => Some(WireVersion::patched(1, 2, 3)),
+        "1.3.0" => Some(WireVersion::patched(1, 3, 0)),
         _ => None,
     }
 }
@@ -503,11 +531,13 @@ pub fn parse_compatibility_record(
         1 => TelemetryProfile::LegacyFixed,
         2 => TelemetryProfile::Dynamic,
         3 => TelemetryProfile::DynamicAlerts,
+        4 => TelemetryProfile::Selectable,
         _ => return Err(CompatibilityError::InvalidCompatibilityRecord),
     };
     let family = match record[7] {
         1 => TelemetryFamily::LegacyFixed,
         2 => TelemetryFamily::Dynamic,
+        3 => TelemetryFamily::Selectable,
         _ => return Err(CompatibilityError::InvalidCompatibilityRecord),
     };
     let lighting = match record[8] {
@@ -554,10 +584,12 @@ fn serialize_compatibility(
         TelemetryProfile::LegacyFixed => 1,
         TelemetryProfile::Dynamic => 2,
         TelemetryProfile::DynamicAlerts => 3,
+        TelemetryProfile::Selectable => 4,
     };
     let family = match profile.telemetry.family() {
         TelemetryFamily::LegacyFixed => 1,
         TelemetryFamily::Dynamic => 2,
+        TelemetryFamily::Selectable => 3,
     };
     let lighting = match profile.control.lighting {
         LightingProfile::LegacyCommand202 => 1,
@@ -703,6 +735,9 @@ mod tests {
         );
         assert_eq!(WireVersion::legacy(1, 0).to_string(), "1.0");
         assert_eq!(WireVersion::patched(1, 2, 3).to_string(), "1.2.3");
+        let mut current = info_v2(1, 3, 0);
+        current[INFO_V2_CAPABILITIES_OFFSET + 3] = INFO_CAPABILITY_GNSS as u8;
+        assert_eq!(decode_info_capabilities(&current), Ok(INFO_CAPABILITY_GNSS));
     }
 
     #[test]
@@ -751,6 +786,7 @@ mod tests {
             SourceVersion::new(1, 2, 1),
             SourceVersion::new(1, 2, 2),
             SourceVersion::new(1, 2, 3),
+            SourceVersion::new(1, 3, 0),
         ];
         assert_eq!(
             COMPATIBILITY_ENTRIES.map(|entry| entry.source),
@@ -774,12 +810,16 @@ mod tests {
             assert_eq!(profile.telemetry.family(), TelemetryFamily::Dynamic);
             assert_eq!(profile.control, STABLE_CONTROL);
         }
+        let selectable = compatibility(WireVersion::patched(1, 3, 0)).unwrap();
+        assert_eq!(selectable.telemetry, TelemetryProfile::Selectable);
+        assert_eq!(selectable.telemetry.family(), TelemetryFamily::Selectable);
+        assert_eq!(selectable.control, STABLE_CONTROL);
     }
 
     #[test]
     fn exact_wire_text_and_structural_lookup_reject_ranges_and_prereleases() {
         for text in [
-            "1.0", "1.1.0", "1.1.1", "1.1.2", "1.2.0", "1.2.1", "1.2.2", "1.2.3",
+            "1.0", "1.1.0", "1.1.1", "1.1.2", "1.2.0", "1.2.1", "1.2.2", "1.2.3", "1.3.0",
         ] {
             let version = parse_wire_version(text).unwrap();
             assert_eq!(version.to_string(), text);
@@ -792,7 +832,7 @@ mod tests {
             WireVersion::legacy(1, 1),
             WireVersion::patched(1, 0, 0),
             WireVersion::patched(1, 2, 4),
-            WireVersion::patched(1, 3, 0),
+            WireVersion::patched(1, 3, 1),
         ] {
             assert_eq!(compatibility(version), None);
         }

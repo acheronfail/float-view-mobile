@@ -156,6 +156,11 @@ pub const CATALOG: &[CatalogEntry] = &[
         fingerprint: "fa40717969d1d86b429d7c78b59144b8387b4850be83a72fd3c7cf15ffecd01c",
         wire_signature: 2_427_955_642,
     },
+    CatalogEntry {
+        version: "1.3.0",
+        fingerprint: "62681208dc609eb19420c89df65105f018499aa9f5741f295f00d62ea5a1bceb",
+        wire_signature: 421_162_011,
+    },
 ];
 
 /// Resolve a reported release only when its complete audited identity matches.

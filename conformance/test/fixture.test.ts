@@ -149,6 +149,21 @@ test('fixture runner retries reset when serial-open reboot loses initial command
   await runner.stop(true);
 });
 
+test('fixture startup advertising retry is bounded and preserves persistent failure', async () => {
+  const fixture = new FakeFixture();
+  const runner = new FixtureRunner(fixtureScenarios.identity, fixture, undefined, 5);
+  await runner.start();
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    fixture.emit({ kind: 'ERROR', code: 'ADVERTISE_FAILED' });
+    await eventually(() => fixture.commands.filter((command) => command === 'ADVERTISE').length === attempt + 1);
+  }
+  fixture.emit({ kind: 'ERROR', code: 'ADVERTISE_FAILED' });
+  await eventually(() => fixture.colors.includes(led.failed));
+  assert.equal(fixture.commands.filter((command) => command === 'ADVERTISE').length, 4);
+  assert.throws(() => runner.verify(), /ADVERTISE_FAILED/);
+  await runner.stop(false);
+});
+
 test('physical scenario matrix excludes desktop backgrounding', () => {
   const connectionScenarios = [
     'identity',

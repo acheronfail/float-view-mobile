@@ -14,7 +14,7 @@ import { ControllerShutdownModel } from './controller-shutdown.ts';
 import { RefloatControlModel } from './refloat-controls.ts';
 import { RefloatConfigurationModel } from './refloat-configuration.ts';
 import { refloatCodecs } from './refloat.ts';
-import { idleTelemetry, type TelemetrySource } from './telemetry.ts';
+import { idleTelemetry, InteractiveTelemetrySource, type TelemetrySource } from './telemetry.ts';
 import {
   encodeBmsFirmwarePayload,
   encodeVbms32FirmwarePayload,
@@ -61,9 +61,12 @@ const controlDirectControllers = directThor.controllers.map((controller) => ({
     ...controller.firmware,
     payload: encodeFirmwarePayload(thor300, 6, 6, Uint8Array.of(0, 0, 0, 0), 0, 1),
   },
-  refloat: refloatCodecs['1.2.3'],
-  refloatControls: new RefloatControlModel('1.2.3'),
-  refloatConfiguration: new RefloatConfigurationModel('1.2.3'),
+  refloatVersion: '1.3.0',
+  refloatInfoPayload: refloatCodecs['1.3.0'].infoPayload,
+  telemetryLayoutPayload: new Uint8Array(),
+  refloat: refloatCodecs['1.3.0'],
+  refloatControls: new RefloatControlModel('1.3.0'),
+  refloatConfiguration: new RefloatConfigurationModel('1.3.0'),
   telemetry: idleControlTelemetry(),
 }));
 
@@ -83,9 +86,12 @@ const controlCanBoard: BoardConfiguration = {
       ...controller.firmware,
       payload: encodeFirmwarePayload(thor300, 6, 6, Uint8Array.of(0, 0, 0, 0), 0, 1),
     },
-    refloat: refloatCodecs['1.2.3'],
-    refloatControls: new RefloatControlModel('1.2.3'),
-    refloatConfiguration: new RefloatConfigurationModel('1.2.3'),
+    refloatVersion: '1.3.0',
+    refloatInfoPayload: refloatCodecs['1.3.0'].infoPayload,
+    telemetryLayoutPayload: new Uint8Array(),
+    refloat: refloatCodecs['1.3.0'],
+    refloatControls: new RefloatControlModel('1.3.0'),
+    refloatConfiguration: new RefloatConfigurationModel('1.3.0'),
     telemetry: idleControlTelemetry(),
   })),
 };
@@ -758,3 +764,32 @@ export const softwareConnectionScenarios: Record<SoftwareConnectionScenarioName,
     lifecycle: 'frontend-recovery',
   },
 };
+
+/** Select the audited package without replacing the older physical regression matrix. */
+export function physicalScenario(name: PhysicalScenarioName, refloatVersion?: string): FixtureScenario {
+  const scenario = fixtureScenarios[name];
+  if (!refloatVersion) return scenario;
+  if (refloatVersion !== '1.3.0') throw new Error('Physical Refloat override must be exactly 1.3.0');
+  if (name === 'direct-legacy' || name === 'bms-standalone') return scenario;
+  const codec = refloatCodecs['1.3.0'];
+  return {
+    ...scenario,
+    board: {
+      ...scenario.board,
+      controllers: scenario.board.controllers.map((controller) => {
+        const telemetry = new InteractiveTelemetrySource();
+        if (!name.startsWith('control-') && !name.startsWith('shutdown-')) telemetry.start();
+        return {
+          ...controller,
+          refloatVersion: codec.version,
+          refloatInfoPayload: codec.infoPayload,
+          telemetryLayoutPayload: new Uint8Array(),
+          refloat: codec,
+          refloatControls: new RefloatControlModel('1.3.0'),
+          refloatConfiguration: new RefloatConfigurationModel('1.3.0'),
+          telemetry,
+        };
+      }),
+    },
+  };
+}

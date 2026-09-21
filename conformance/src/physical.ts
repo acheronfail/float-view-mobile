@@ -2,7 +2,12 @@ import assert from 'node:assert/strict';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { FixtureRunner } from '../fixture/runner.ts';
-import { fixtureScenarios, physicalScenarioMatrix, type PhysicalScenarioName } from '../fixture/scenarios.ts';
+import {
+  fixtureScenarios,
+  physicalScenario,
+  physicalScenarioMatrix,
+  type PhysicalScenarioName,
+} from '../fixture/scenarios.ts';
 import { FixtureClient } from '../fixture/serial.ts';
 import { ConformanceClient } from './client.ts';
 import type { AppState, LocationState } from '../../frontend/src/lib/backend/contract.ts';
@@ -68,7 +73,13 @@ export async function runPhysicalConformance(
         throw error;
       }
     }
-    const result = { target: target.name, fixturePath, generatedAt: new Date().toISOString(), scenarios: results };
+    const result = {
+      target: target.name,
+      fixturePath,
+      refloatVersion: process.env.FLOAT_VIEW_PHYSICAL_REFLOAT_VERSION ?? null,
+      generatedAt: new Date().toISOString(),
+      scenarios: results,
+    };
     const reportPath = process.env.FLOAT_VIEW_PHYSICAL_REPORT;
     if (reportPath) {
       mkdirSync(dirname(reportPath), { recursive: true });
@@ -100,7 +111,7 @@ async function runPhysicalScenario(
   name: PhysicalScenarioName,
   report: Progress
 ) {
-  const scenario = fixtureScenarios[name];
+  const scenario = physicalScenario(name, process.env.FLOAT_VIEW_PHYSICAL_REFLOAT_VERSION);
   const fixture = await FixtureClient.open(fixturePath);
   const runner = new FixtureRunner(scenario, fixture, undefined, 1_000, (message) => report(`  ${message}`));
   let client: ConformanceClient | undefined;
@@ -270,7 +281,7 @@ async function runPhysicalScenario(
 
     if (name === 'control-direct' || name === 'control-can') {
       await exerciseRefloatConfiguration(client, ready, true);
-      await runRefloatControlCheckpoint(client, runner, ready);
+      await runRefloatControlCheckpoint(client, runner, ready, report);
       const beforeDisconnect = await client.request('state.get', {});
       await client.request('device.disconnect', {}, 10_000);
       await client.waitForState((state) => state.activeConnection === null, {
@@ -280,7 +291,7 @@ async function runPhysicalScenario(
     } else if (name === 'shutdown-direct' || name === 'shutdown-can' || name === 'shutdown-no-op') {
       await runControllerShutdownCheckpoint(client, runner, ready, name === 'shutdown-no-op');
     } else if (name === 'ride') {
-      await runRide(client, runner, device.deviceId, activeSession.sessionId, target.platform !== 'android');
+      await runRide(client, runner, device.deviceId, activeSession.sessionId);
     } else if (name === 'unexpected-disconnect') {
       await runReconnect(client, runner, device.deviceId, activeSession.sessionId, ready.revision, false);
     } else if (name === 'background') {
@@ -342,7 +353,12 @@ async function runPhysicalScenario(
   }
 }
 
-async function runRefloatControlCheckpoint(client: ConformanceClient, runner: FixtureRunner, ready: AppState) {
+async function runRefloatControlCheckpoint(
+  client: ConformanceClient,
+  runner: FixtureRunner,
+  ready: AppState,
+  report: Progress
+) {
   let state = ready;
   if (
     state.activeConnection?.refloatControls?.status !== 'ready' ||
@@ -361,6 +377,7 @@ async function runRefloatControlCheckpoint(client: ConformanceClient, runner: Fi
   const requestOffset = runner.simulator.requests.length;
 
   const set = async (control: 'package' | 'flywheel' | 'leds' | 'headlights', enabled: boolean) => {
+    report(`  Control: ${control}=${enabled}`);
     const result = await client.request('refloat.control.set', { control, enabled }, 10_000);
     assert.equal(result.pendingAction, null, `${control} did not confirm`);
     const field = `${control}Enabled` as 'packageEnabled' | 'flywheelEnabled' | 'ledsEnabled' | 'headlightsEnabled';
@@ -374,6 +391,7 @@ async function runRefloatControlCheckpoint(client: ConformanceClient, runner: Fi
   await set('flywheel', true);
   await set('flywheel', false);
   if (initial.fatalErrorClearable) {
+    report('  Control: clear fatal latch');
     const cleared = await client.request('refloat.fatalError.clear', {}, 10_000);
     assert.equal(cleared.fatalErrorLatched, false);
     assert.equal(cleared.pendingAction, null);
@@ -593,7 +611,7 @@ async function runBackground(
       );
     }
   }
-  await completeSession(replacement, deviceId, sessionId, target.platform !== 'android');
+  await completeSession(replacement, deviceId, sessionId, true);
   return { client: replacement, locationCheckpoint };
 }
 

@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 
 export type StableRefloatConfigurationVersion =
-  '1.0.0' | '1.0.1' | '1.1.0' | '1.1.1' | '1.1.2' | '1.2.0' | '1.2.1' | '1.2.2' | '1.2.3';
+  '1.0.0' | '1.0.1' | '1.1.0' | '1.1.1' | '1.1.2' | '1.2.0' | '1.2.1' | '1.2.2' | '1.2.3' | '1.3.0';
 
 export type RefloatConfigurationOperation = 'schema' | 'current' | 'default' | 'write';
 
@@ -100,8 +100,18 @@ export class RefloatConfigurationModel {
     if (command === 95) {
       if (!safe || payload.length < 3 || payload[1] !== 0) return this.reject();
       const values = payload.slice(2);
-      if (!equal(values, this.acceptedWrite)) return this.reject();
-      this.current = this.expectedReadback.slice();
+      const restore = equal(values, this.initialCurrent);
+      if (!restore && !equal(values, this.acceptedWrite)) return this.reject();
+      this.current = (restore ? this.initialCurrent : this.expectedReadback).slice();
+      if (restore) {
+        // Apply only the audited firmware normalization bytes from the golden
+        // write/readback pair (meta.is_default is cleared after a write).
+        for (let index = 0; index < this.current.length; index += 1) {
+          if (this.acceptedWrite[index] !== this.expectedReadback[index]) {
+            this.current[index] = this.expectedReadback[index]!;
+          }
+        }
+      }
       this.counters.write += 1;
       return Uint8Array.of(95);
     }

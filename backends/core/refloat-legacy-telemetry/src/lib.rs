@@ -13,6 +13,13 @@ pub const CUSTOM_APP_DATA_COMMAND: u8 = 36;
 pub const REFLOAT_PACKAGE_ID: u8 = 101;
 pub const GET_ALL_DATA_COMMAND: u8 = 10;
 pub const ACTIVE_FIRMWARE_FAULT_FORM: u8 = 69;
+/// Exact command-10 mode-zero request used by Refloat 1.3.0 only as a fault probe.
+pub const FAULT_ONLY_REQUEST: [u8; 4] = [
+    CUSTOM_APP_DATA_COMMAND,
+    REFLOAT_PACKAGE_ID,
+    GET_ALL_DATA_COMMAND,
+    0,
+];
 
 /// Version of the platform-neutral legacy telemetry bridge record.
 pub const RECORD_VERSION: u32 = 1;
@@ -287,6 +294,43 @@ impl Display for LegacyTelemetryError {
 }
 
 impl Error for LegacyTelemetryError {}
+
+/// Decode Refloat 1.3.0 command-10 mode-zero strictly as an active-fault probe.
+///
+/// A normal mode-zero sample is validated and ignored so its repurposed booster
+/// torque byte can never be projected as booster current.
+pub fn decode_fault_only(
+    payload: &[u8],
+) -> Result<Option<ActiveFirmwareFault>, LegacyTelemetryError> {
+    if payload.len() < 4 {
+        return Err(LegacyTelemetryError::TruncatedPayload);
+    }
+    if payload[..3]
+        != [
+            CUSTOM_APP_DATA_COMMAND,
+            REFLOAT_PACKAGE_ID,
+            GET_ALL_DATA_COMMAND,
+        ]
+    {
+        return Err(LegacyTelemetryError::UnsupportedEnvelope);
+    }
+    match payload[3] {
+        ACTIVE_FIRMWARE_FAULT_FORM => match decode_active_fault(payload)? {
+            LegacyTelemetry::ActiveFirmwareFault(fault) => Ok(Some(fault)),
+            LegacyTelemetry::Sample(_) => unreachable!("active-fault form is closed"),
+        },
+        0 => {
+            if payload.len() < DETAIL_LENGTHS[0] {
+                Err(LegacyTelemetryError::TruncatedPayload)
+            } else if payload.len() != DETAIL_LENGTHS[0] {
+                Err(LegacyTelemetryError::InvalidPayload)
+            } else {
+                Ok(None)
+            }
+        }
+        _ => Err(LegacyTelemetryError::InvalidPayload),
+    }
+}
 
 pub fn decode(payload: &[u8]) -> Result<LegacyTelemetry, LegacyTelemetryError> {
     if payload.len() < 3 {
@@ -782,6 +826,29 @@ mod tests {
                 raw_code: 1,
                 fault: FirmwareFault::OverVoltage,
             }))
+        );
+    }
+
+    #[test]
+    fn mode_zero_is_fault_only_and_never_projects_repurposed_sample_bytes() {
+        let mut normal = fixture_payload("1.0.0-command-10-detail-1");
+        normal[3] = 0;
+        assert_eq!(decode_fault_only(&normal), Ok(None));
+        assert_eq!(
+            decode_fault_only(&fixture_payload("1.2.3-command-10-active-firmware-fault")),
+            Ok(Some(ActiveFirmwareFault {
+                raw_code: 1,
+                fault: FirmwareFault::OverVoltage,
+            }))
+        );
+        assert_eq!(
+            decode_fault_only(&normal[..normal.len() - 1]),
+            Err(LegacyTelemetryError::TruncatedPayload)
+        );
+        normal.push(0);
+        assert_eq!(
+            decode_fault_only(&normal),
+            Err(LegacyTelemetryError::InvalidPayload)
         );
     }
 

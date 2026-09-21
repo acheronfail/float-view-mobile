@@ -42,7 +42,7 @@
     {
       "name": "write-prefix",
       "route": "direct",
-      "requestPrefixHex": "5f0090b7a9ba"
+      "requestPrefixHex": "5f00191a6c1b"
     },
     {
       "name": "acknowledgement",
@@ -57,13 +57,13 @@
     {
       "name": "write-readback-match",
       "acknowledged": true,
-      "readbackFile": "values/1.2.3-readback.bin",
+      "readbackFile": "values/1.3.0-readback.bin",
       "result": "success"
     },
     {
       "name": "write-readback-mismatch",
       "acknowledged": true,
-      "readbackFile": "values/1.2.3-current.bin",
+      "readbackFile": "values/1.3.0-current.bin",
       "result": "conflict"
     },
     {

@@ -389,6 +389,7 @@ pub struct ConnectionApplicationCoordinator {
     awaiting_activation: Option<ActivationFacts>,
     direct_firmware_attempt: u8,
     refloat_version: Option<compatibility::WireVersion>,
+    refloat_gnss: bool,
     dynamic_layout: Option<dynamic::DynamicLayout>,
     configuration_token: Option<mutation::MutationToken>,
     discovery: discovery::ControllerDiscovery,
@@ -417,6 +418,7 @@ impl Default for ConnectionApplicationCoordinator {
             awaiting_activation: None,
             direct_firmware_attempt: 0,
             refloat_version: None,
+            refloat_gnss: false,
             dynamic_layout: None,
             configuration_token: None,
             discovery: discovery::ControllerDiscovery::new(),
@@ -740,6 +742,7 @@ impl ConnectionApplicationCoordinator {
             scheduler_generation,
             route,
             family,
+            selectable_gnss: self.refloat_gnss,
             settings: self.settings,
         };
         configuration.validate()?;
@@ -1010,6 +1013,7 @@ impl ConnectionApplicationCoordinator {
         self.awaiting_activation = None;
         self.direct_firmware_attempt = 0;
         self.refloat_version = None;
+        self.refloat_gnss = false;
         self.dynamic_layout = None;
         self.preferred_controller_can_id = None;
         self.routing_hint = None;
@@ -1557,6 +1561,10 @@ impl ConnectionApplicationCoordinator {
                 match admitted {
                     Some((version, profile)) => {
                         self.refloat_version = Some(version);
+                        self.refloat_gnss = compatibility::decode_info_capabilities(&payload)
+                            .is_ok_and(|capabilities| {
+                                capabilities & compatibility::INFO_CAPABILITY_GNSS != 0
+                            });
                         let transition = self.discovery.accept_refloat_profile(profile);
                         self.process_discovery(transition, now_ms, effects)
                     }
@@ -1652,6 +1660,26 @@ impl ConnectionApplicationCoordinator {
                     .ok()
                     .map(telemetry::DecodedTelemetry::Legacy)
             }
+            telemetry::RequestKind::SelectableFast => {
+                dynamic::decode_selectable(dynamic::SELECTABLE_FAST_MASK1, 0, &payload)
+                    .ok()
+                    .map(telemetry::DecodedTelemetry::Selectable)
+            }
+            telemetry::RequestKind::SelectableSlow => dynamic::decode_selectable(
+                dynamic::SELECTABLE_SLOW_MASK1,
+                dynamic::SELECTABLE_SLOW_MASK2
+                    | if self.refloat_gnss {
+                        dynamic::SELECTABLE_GNSS_MASK2
+                    } else {
+                        0
+                    },
+                &payload,
+            )
+            .ok()
+            .map(telemetry::DecodedTelemetry::Selectable),
+            telemetry::RequestKind::SelectableFault => legacy::decode_fault_only(&payload)
+                .ok()
+                .map(telemetry::DecodedTelemetry::SelectableFault),
             telemetry::RequestKind::Layout => None,
         };
         let Some(decoded) = decoded else {
@@ -2132,6 +2160,7 @@ fn telemetry_family(profile: compatibility::TelemetryProfile) -> telemetry::Tele
     match profile.family() {
         compatibility::TelemetryFamily::LegacyFixed => telemetry::TelemetryFamily::LegacyFixed,
         compatibility::TelemetryFamily::Dynamic => telemetry::TelemetryFamily::Dynamic,
+        compatibility::TelemetryFamily::Selectable => telemetry::TelemetryFamily::Selectable,
     }
 }
 

@@ -179,3 +179,25 @@ test('physical CLI fails before touching hardware when required arguments are ab
   assert.notEqual(result.status, 0);
   assert.match(result.stderr, /Android ADB serial is required/);
 });
+
+test('Android export cleanup recognizes old and new resumed system choosers only', async () => {
+  const { androidExportChooserIsResumed } = await import('../targets/android.ts');
+  assert.equal(
+    androidExportChooserIsResumed(
+      'mResumedActivity: ActivityRecord{ u0 android/com.android.internal.app.ChooserActivity t1}'
+    ),
+    true
+  );
+  assert.equal(
+    androidExportChooserIsResumed(
+      'topResumedActivity=ActivityRecord{ u0 com.android.intentresolver/.ChooserActivity t1}'
+    ),
+    true
+  );
+  assert.equal(
+    androidExportChooserIsResumed(
+      'mResumedActivity: ActivityRecord{ u0 fail.acheron.floatview/.ui.MainActivity t1}\nHist #1: ChooserActivity'
+    ),
+    false
+  );
+});

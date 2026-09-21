@@ -288,7 +288,7 @@ export class VescSimulator {
         request: { at, command, canId, kind: 'refloat-control' },
       };
     }
-    const isTelemetry = packet === 1 || packet === 10 || packet === 31;
+    const isTelemetry = packet === 1 || packet === 10 || packet === 31 || packet === 33;
     const phase = board.telemetry.phase();
     const sample = isTelemetry ? board.refloatControls.applyToSample(board.telemetry.next()) : idleTelemetry;
     const response = board.refloat.respond(payload, sample);
@@ -393,7 +393,7 @@ export class VescSimulator {
       };
     }
     if (controller.refloat && controller.telemetry) {
-      const isTelemetry = packet === 1 || packet === 10 || packet === 31;
+      const isTelemetry = packet === 1 || packet === 10 || packet === 31 || packet === 33;
       const phase = controller.telemetry.phase();
       const sample = isTelemetry
         ? (controller.refloatControls?.applyToSample(controller.telemetry.next()) ?? controller.telemetry.next())
@@ -528,7 +528,13 @@ function requestAttempt(payload: Uint8Array): FixtureRequestAttempt {
   const packetOffset = forwarded ? 4 : 2;
   const packet = command === 36 && payload[forwarded ? 3 : 1] === 101 ? payload[packetOffset] : undefined;
   const telemetryCommand =
-    packet === 1 ? 'legacy-realtime' : packet === 10 ? 'compact' : packet === 31 ? 'realtime' : undefined;
+    packet === 1
+      ? 'legacy-realtime'
+      : packet === 10
+        ? 'compact'
+        : packet === 31 || packet === 33
+          ? 'realtime'
+          : undefined;
   return {
     command,
     ...(canId === undefined ? {} : { canId }),
