@@ -7,12 +7,17 @@ Define bounded, exact-version discovery, editing, persistence, and verification 
 ## Requirements
 ### Requirement: Bounded runtime custom-configuration schema
 
-For each audited stable Refloat 1.0.0–1.2.3 connection, the native backend and conformance simulator SHALL discover custom configuration index `0`, retrieve its Qt-compressed `ConfigParams` document through source-correct VESC command 92 chunks, and normalize the exact active schema. The normalized schema SHALL contain the exact source package version, SHA-256 fingerprint of canonical validated full-schema metadata, computed wire configuration signature, ordered writable parameter identity, supported type and wire encoding, default, bounds, precision, scale, suffix, enum choices, sanitized description, and General group/subgroup ordering. Refloat wire INFO `1.0` SHALL resolve to exact 1.0.0 or 1.0.1 only by matching this fingerprint to the corresponding immutable audited schema; later exact INFO versions SHALL also require their matching audited fingerprint. Compressed and expanded bytes, chunks, retries, XML depth/elements, parameters, groups, enum choices, names, descriptions, and serialized fields MUST be bounded. DTDs, entities, duplicate names or order entries, missing referenced parameters, unsupported types or encodings, invalid metadata, trailing data, and unaudited fingerprints MUST fail closed for configuration.
+For each audited stable Refloat 1.0.0–1.3.0 connection, the native backend and conformance simulator SHALL discover custom configuration index `0`, retrieve its Qt-compressed `ConfigParams` document through source-correct VESC command 92 chunks, and normalize the exact active schema. The normalized schema SHALL contain the exact source package version, SHA-256 fingerprint of canonical validated full-schema metadata, computed wire configuration signature, ordered writable parameter identity, supported type and wire encoding, default, bounds, precision, scale, suffix, enum choices, sanitized description, and General group/subgroup ordering. Refloat wire INFO `1.0` SHALL resolve to exact 1.0.0 or 1.0.1 only by matching this fingerprint to the corresponding immutable audited schema; later exact INFO versions SHALL also require their matching audited fingerprint. Compressed and expanded bytes, chunks, retries, XML depth/elements, parameters, groups, enum choices, names, descriptions, and serialized fields MUST be bounded. DTDs, entities, duplicate names or order entries, missing referenced parameters, unsupported types or encodings, invalid metadata, trailing data, and unaudited fingerprints MUST fail closed for configuration.
+
+#### Scenario: Valid Refloat 1.3.0 schema
+
+- **WHEN** a supported Refloat 1.3.0 controller supplies the complete source-derived compressed schema with fingerprint `62681208dc609eb19420c89df65105f018499aa9f5741f295f00d62ea5a1bceb` and wire signature `0x191a6c1b` in sequential chunks
+- **THEN** the backend publishes the exact 172 serialized fields with their ordered groups, defaults, constraints, encodings, and computed identity
 
 #### Scenario: Valid dynamic schema
 
-- **WHEN** a supported Refloat 1.2.3 controller supplies its complete source-derived compressed schema in sequential chunks
-- **THEN** the backend publishes one normalized schema with the exact ordered fields, groups, defaults, constraints, encodings, and computed signature
+- **WHEN** a supported Refloat 1.1.x or 1.2.x controller supplies its complete audited source-derived compressed schema
+- **THEN** the backend publishes that release's unchanged normalized schema and exact identity without substituting 1.3.0 fields
 
 #### Scenario: Valid legacy schema
 
@@ -103,8 +108,8 @@ Native persistence SHALL store bounded application-wide named complete Refloat c
 
 #### Scenario: Save current configuration
 
-- **WHEN** a user saves a complete validated Refloat 1.2.3 value set under a bounded name
-- **THEN** native storage creates one revisioned record keyed to that exact package version and schema signature
+- **WHEN** a user saves a complete validated Refloat 1.3.0 value set under a bounded name
+- **THEN** native storage creates one revisioned record keyed to exact version 1.3.0, its full schema fingerprint, and wire signature
 
 #### Scenario: Exact-version list
 
@@ -113,8 +118,8 @@ Native persistence SHALL store bounded application-wide named complete Refloat c
 
 #### Scenario: Package upgrade
 
-- **WHEN** a board changes from Refloat 1.2.2 to 1.2.3
-- **THEN** 1.2.2 configurations are not applied, migrated, or shown as compatible with 1.2.3
+- **WHEN** a board changes from Refloat 1.2.3 to 1.3.0
+- **THEN** 1.2.3 configurations are not applied, migrated, or shown as compatible with 1.3.0
 
 #### Scenario: Revision conflict
 
@@ -149,4 +154,3 @@ Configuration state SHALL be connection-generation scoped and independent of Web
 
 - **WHEN** telemetry enters flywheel mode and later confirms return to normal mode
 - **THEN** loaded current values and their write authority are invalidated on entry and remain unavailable after exit until a fresh normal-mode command-93 read succeeds
-
