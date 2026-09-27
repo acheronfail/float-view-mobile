@@ -29,15 +29,39 @@ Passing checks:
 - `OPENSPEC_TELEMETRY=0 openspec validate share-rust-loopback-server --strict`.
 - Existing convergence audit and `git diff --check`.
 
-## Still incomplete
+## Shared candidate (in progress)
 
-Task 2.2 remains unchecked: the exchange is a generic lifecycle primitive, not
-the versioned typed native protocol. Payload byte validation and the closed
-operation/completion/fact records still need implementation. Registry/buffer and
-panic-boundary integration, transfer storage cleanup and worker integration are
-not implemented. No public routes, serializers or state publisher have moved.
-Both native production servers and their dependencies remain selected.
+Tasks 2.2 and 4.1 now have passing evidence. The closed versioned protocol,
+process registry, listener, complete-state publisher, public dispatcher and
+bounded binary archive exchange are implemented. Both existing binding families
+now depend on the candidate. Native production still selects the original
+servers; the new adapters are exercised only by focused tests.
 
-The final `just verify`, shared-server canonical conformance, linked production
-packaging, final source/size reduction and physical checkpoint have not passed.
-Do not archive or interpret the baseline packaging as migration verification.
+Passing checks so far:
+
+- 12 Rust exchange/transport tests, including listener restart/token continuity,
+  failed bind, authentication before host admission, bounded transfers, malformed
+  envelopes and large typed completion framing.
+- C buffer overlap/extent/invalid handle/idempotent destruction tests and existing
+  JNI null-environment/panic tests.
+- Linked JVM publication, stale sequence, undersized buffer and private firmware
+  identity tests (`ServerFactsTest`).
+- Swift linked `SharedServerTests.canonicalCandidate` uses the existing SQLite,
+  application service and software BLE fixture with canonical conformance.
+- Candidate conformance also exercises chunked HTTP bounds, exact/+1 fragmented
+  WebSocket bounds, authentication failures and subscriber-independent revisions.
+- Warnings-denied focused Rust lint and unchanged mock conformance.
+
+Pre-selection packaging passed after adding the shared read-only worker path:
+macOS Release, iOS simulator Release/device Debug, Android four-ABI Debug/Release,
+exact C/JNI symbols and linked JVM tests. Intel macOS/iOS target checks also pass.
+Canonical candidate coverage includes a 15,000-sample archive larger than the
+host envelope, identity-preserving import, abandoned uploads followed by successful
+transfer, and continued saved recording across listener stop/restart under two seconds.
+SQLite cancellation is sticky and isolated from another reader. Decoded response
+boundary and gzip/read-admission recovery tests pass.
+
+Native production still selects its original servers at this checkpoint.
+Remaining gates include native selection/deletions, final source/package measurements,
+physical ESP32 checkpoints and `just verify`. Android is currently unauthorized in
+ADB; iOS and the ESP32 were discovered successfully.

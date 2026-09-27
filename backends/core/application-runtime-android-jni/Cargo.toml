@@ -9,5 +9,6 @@ publish = false
 crate-type = ["rlib", "cdylib"]
 
 [dependencies]
+float-view-loopback-server = { path = "../loopback-server" }
 float-view-application-runtime-host = { path = "../application-runtime-host" }
 jni-sys = "=0.4.1"

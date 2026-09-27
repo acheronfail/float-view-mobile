@@ -1,7 +1,10 @@
 use std::collections::BTreeSet;
 use std::fmt::{self, Debug, Display, Formatter};
 use std::path::Path;
-use std::sync::Arc;
+use std::sync::{
+    Arc,
+    atomic::{AtomicBool, Ordering},
+};
 use std::time::Duration;
 
 use float_view_session_history_kernel::{
@@ -238,6 +241,17 @@ impl Debug for SessionReader {
 
 impl SessionReader {
     pub fn open(path: impl AsRef<Path>) -> Result<Self, ReaderError> {
+        Self::open_cancellable(path, Arc::new(AtomicBool::new(false)))
+    }
+
+    /// Read-only lease with cancellation active during validation and SQL work.
+    pub fn open_cancellable(
+        path: impl AsRef<Path>,
+        cancelled: Arc<AtomicBool>,
+    ) -> Result<Self, ReaderError> {
+        if cancelled.load(Ordering::Acquire) {
+            return Err(ReaderError::Cancelled);
+        }
         let path = path.as_ref();
         if !path.is_file() {
             return Err(ReaderError::NotFound);
@@ -250,6 +264,7 @@ impl SessionReader {
         connection
             .busy_timeout(Duration::from_millis(250))
             .map_err(map_sqlite)?;
+        connection.progress_handler(1000, Some(move || cancelled.load(Ordering::Acquire)));
         validate_database(&connection).map_err(map_writer)?;
         validate_reader_state(&connection)?;
         let interrupter = ReadInterrupter(Arc::new(connection.get_interrupt_handle()));

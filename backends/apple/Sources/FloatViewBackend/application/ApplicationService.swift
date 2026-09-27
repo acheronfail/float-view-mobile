@@ -313,11 +313,13 @@ public final class ApplicationService: @unchecked Sendable {
     endElapsedMs: Int64,
     fields: [String],
     maxRows: Int,
-    publishedSampleSequence: Int64? = nil
+    publishedSampleSequence: Int64? = nil, afterElapsedMs: Int64? = nil, afterSequence: Int64? = nil
   ) throws -> [SessionSeriesPoint] {
     try rustSessionSamples(
       sessionID: sessionID, startElapsedMs: startElapsedMs, endElapsedMs: endElapsedMs,
-      fields: fields, maxRows: maxRows, publishedSampleSequence: publishedSampleSequence
+      fields: fields, maxRows: maxRows, publishedSampleSequence: publishedSampleSequence,
+      initialElapsed: afterElapsedMs,
+      initialSequence: afterSequence
     )
   }
 
@@ -373,13 +375,13 @@ public final class ApplicationService: @unchecked Sendable {
     sessionID: String,
     startElapsedMs: Int64,
     endElapsedMs: Int64,
-    publishedEventSequence: Int64? = nil
+    publishedEventSequence: Int64? = nil, limit: Int = 500, afterElapsedMs: Int64? = nil, afterSequence: Int64? = nil
   ) throws -> [SessionEventRecord] {
     let snapshot = try sessionSnapshot(sessionID: sessionID)
     let value = try rustSessionQuery([
       "command": "session_events", "path": sessionPath(sessionID),
-      "start_elapsed_ms": startElapsedMs, "end_elapsed_ms": endElapsedMs, "limit": 500,
-      "after_elapsed_ms": NSNull(), "after_sequence": NSNull(),
+      "start_elapsed_ms": startElapsedMs, "end_elapsed_ms": endElapsedMs, "limit": limit,
+      "after_elapsed_ms": afterElapsedMs as Any? ?? NSNull(), "after_sequence": afterSequence as Any? ?? NSNull(),
       "boundary": Self.boundary(snapshot, eventSequence: publishedEventSequence),
     ])
     return (value["rows"] as? [[String: Any]] ?? []).compactMap {
@@ -528,7 +530,9 @@ public final class ApplicationService: @unchecked Sendable {
     guard bluetoothState.radio == .poweredOn else {
       throw ApplicationError.bluetoothUnavailable
     }
-    if let activeScanID { return activeScanID }
+    if let activeScanID {
+      return activeScanID
+    }
     scanSequence += 1
     let scanID = "scan-\(scanSequence)"
     activeScanID = scanID
@@ -562,7 +566,7 @@ public final class ApplicationService: @unchecked Sendable {
     guard knownDevicesByID[deviceID] != nil else {
       throw ApplicationError.unknownDevice
     }
-    guard activeDeviceID == nil || activeDeviceID == deviceID else {
+    guard activeDeviceID == nil || (activeDeviceID == deviceID && connectionState == .failed) else {
       throw ApplicationError.activeDeviceConflict
     }
     if activeDeviceID == deviceID, connectionState == .failed, self.trackingMode != trackingMode {
@@ -785,6 +789,10 @@ public final class ApplicationService: @unchecked Sendable {
     } catch {
       events.publish(String(describing: error))
     }
+  }
+
+  public func withSnapshot<T>(_ body: () throws -> T) rethrows -> T {
+    try lock.withLock(body)
   }
 
   public func discoverySnapshot() -> DiscoverySnapshot {
@@ -1019,7 +1027,9 @@ public final class ApplicationService: @unchecked Sendable {
           sourceRevision != nil, rustConfigurationCurrent?.revision == sourceRevision,
           rustConfigurationSchema != nil,
           values.values.allSatisfy({
-            if case let .double(value) = $0 { return value.isFinite }
+            if case let .double(value) = $0 {
+              return value.isFinite
+            }
             return true
           })
     else { throw RefloatConfigurationServiceError.invalidState }
@@ -1095,7 +1105,9 @@ public final class ApplicationService: @unchecked Sendable {
           reconnectTimer == nil,
           reconnectStartedAtMs != nil
     else {
-      if scheduler == nil { finishReconnect(reason: "reconnect_unavailable") }
+      if scheduler == nil {
+        finishReconnect(reason: "reconnect_unavailable")
+      }
       return
     }
     let elapsed = clock.monotonicMilliseconds() - (reconnectStartedAtMs ?? 0)
@@ -1146,7 +1158,9 @@ public final class ApplicationService: @unchecked Sendable {
       }
     }
     explicitDisconnect = true
-    if let deviceID { bluetooth.disconnect(deviceID) }
+    if let deviceID {
+      bluetooth.disconnect(deviceID)
+    }
     activeDeviceID = nil
     activeDeviceName = nil
     latestPersistedSample = nil
@@ -1247,10 +1261,12 @@ public final class ApplicationService: @unchecked Sendable {
     cancelPendingDiscoveryPublish()
     guard !knownDevicesByID.isEmpty else { return }
     knownDevicesByID.removeAll()
-    if publish { events.publish(discoverySnapshot()) }
+    if publish {
+      events.publish(discoverySnapshot())
+    }
   }
 
-  private func sessionPath(_ sessionID: String) throws -> String {
+  func sessionPath(_ sessionID: String) throws -> String {
     guard let sessionStore else { throw ApplicationError.productStoreUnavailable }
     return try sessionStore.sessionURL(sessionID: sessionID).path
   }
@@ -1285,14 +1301,14 @@ public final class ApplicationService: @unchecked Sendable {
     endElapsedMs: Int64,
     fields: [String],
     maxRows: Int,
-    publishedSampleSequence: Int64?
+    publishedSampleSequence: Int64?, initialElapsed: Int64? = nil, initialSequence: Int64? = nil
   ) throws -> [SessionSeriesPoint] {
     guard maxRows > 0 else { throw SessionStoreError.invalidRange }
     let snapshot = try sessionSnapshot(sessionID: sessionID)
     let path = try sessionPath(sessionID)
     var rows: [SessionSeriesPoint] = []
-    var afterElapsed: Any = NSNull()
-    var afterSequence: Any = NSNull()
+    var afterElapsed: Any = initialElapsed as Any? ?? NSNull()
+    var afterSequence: Any = initialSequence as Any? ?? NSNull()
     while rows.count < maxRows {
       let value = try rustSessionQuery([
         "command": "session_samples", "path": path, "fields": fields,
@@ -1485,7 +1501,9 @@ public final class ApplicationService: @unchecked Sendable {
         refloatWaiter?.finish(.failure(.unavailable))
         refloatWaiter = nil
       } else if value.contains("Idempotent") || value.contains("Confirmed") || value.contains("Released") {
-        if let rustControls { refloatWaiter?.finish(.success(rustControls)) }
+        if let rustControls {
+          refloatWaiter?.finish(.success(rustControls))
+        }
         refloatWaiter = nil
       }
     case "failure":
@@ -1514,7 +1532,9 @@ public final class ApplicationService: @unchecked Sendable {
           interval > 0
     else { throw RustApplicationRuntimeError.internalFailure }
     let command = deadline ? "deadline_fired" : "timer_fired"
-    if repeating, rustTimerIntervals[token] == interval, rustTimers[token] != nil { return }
+    if repeating, rustTimerIntervals[token] == interval, rustTimers[token] != nil {
+      return
+    }
     let action: @Sendable () -> Void = { [weak self] in
       self?.lock.withLock {
         guard let self else { return }
@@ -1526,7 +1546,9 @@ public final class ApplicationService: @unchecked Sendable {
         } catch {
           self.events.publish("rust_runtime_timer_failure")
         }
-        if deadline { self.rustDeadlines.removeValue(forKey: token)?.cancel() }
+        if deadline {
+          self.rustDeadlines.removeValue(forKey: token)?.cancel()
+        }
       }
     }
     let timer = scheduler ?? SystemScheduler()
@@ -1580,7 +1602,9 @@ public final class ApplicationService: @unchecked Sendable {
     var cached: Any = NSNull()
     if let identity = Self.cacheIdentity(effect["configuration_cache_identity"]),
        let bytes = productStore?.cachedRefloatSchema(identity: identity)
-    { cached = Array(bytes) }
+    {
+      cached = Array(bytes)
+    }
     try performRustCommand([
       "command": "activate", "generation": generation,
       "now_ms": clock.monotonicMilliseconds(), "session_started": sessionStarted,
@@ -1618,7 +1642,9 @@ public final class ApplicationService: @unchecked Sendable {
        let message = issue["message"] as? String
     {
       rustConnectionIssue = ConnectionIssue(code: code, message: message)
-    } else { rustConnectionIssue = nil }
+    } else {
+      rustConnectionIssue = nil
+    }
     if let limits = effect["current_limits"] as? [String: Any] {
       currentLimits = ControllerCurrentLimits(
         motorCurrentMaxA: Self.double(limits["motor_current_max_a"]) ?? 0,
@@ -1627,7 +1653,9 @@ public final class ApplicationService: @unchecked Sendable {
         batteryCurrentMinA: Self.double(limits["battery_current_min_a"]) ?? 0,
         batterySeriesCells: Self.uint8(limits["battery_series_cells"])
       )
-    } else { currentLimits = nil }
+    } else {
+      currentLimits = nil
+    }
     rustControls = Self.controls(effect["controls"])
     if let configuration = effect["configuration"] as? [String: Any] {
       try updateRustConfiguration(configuration)
@@ -1657,7 +1685,9 @@ public final class ApplicationService: @unchecked Sendable {
           let ride = Self.rideState(effect["ride_state"])
     else { throw RustApplicationRuntimeError.internalFailure }
     let extensions = (effect["extensions"] as? [[String: Any]] ?? []).reduce(into: [String: Double]()) {
-      if let name = $1["name"] as? String, let value = Self.double($1["value"]) { $0[name] = value }
+      if let name = $1["name"] as? String, let value = Self.double($1["value"]) {
+        $0[name] = value
+      }
     }
     let sample = TelemetrySample(
       sequence: sequence, observedAt: Date(timeIntervalSince1970: Double(observed) / 1_000),
@@ -1922,8 +1952,12 @@ public final class ApplicationService: @unchecked Sendable {
 
   private static func controllerRoute(_ value: Any?) -> ControllerRoute? {
     guard let value = value as? [String: Any], let kind = value["kind"] as? String else { return nil }
-    if kind == "direct" { return .direct }
-    if kind == "can", let canID = uint8(value["can_id"]) { return .can(canID) }
+    if kind == "direct" {
+      return .direct
+    }
+    if kind == "can", let canID = uint8(value["can_id"]) {
+      return .can(canID)
+    }
     return nil
   }
 
@@ -1973,11 +2007,21 @@ public final class ApplicationService: @unchecked Sendable {
   }
 
   private static func configurationFailure(_ value: String) -> RefloatConfigurationServiceError {
-    if value.contains("Conflict") { return .conflict }
-    if value.contains("StaleResponse") { return .staleResponse }
-    if value.contains("UnauditedSchema") { return .unauditedSchema }
-    if value.contains("MalformedResponse") || value.contains("Codec") { return .malformedResponse }
-    if value.contains("InvalidState") { return .invalidState }
+    if value.contains("Conflict") {
+      return .conflict
+    }
+    if value.contains("StaleResponse") {
+      return .staleResponse
+    }
+    if value.contains("UnauditedSchema") {
+      return .unauditedSchema
+    }
+    if value.contains("MalformedResponse") || value.contains("Codec") {
+      return .malformedResponse
+    }
+    if value.contains("InvalidState") {
+      return .invalidState
+    }
     return .unavailable
   }
 
@@ -2132,7 +2176,9 @@ private final class RefloatMutationWaiter: @unchecked Sendable {
       self.result = result
       return true
     }
-    if shouldSignal { semaphore.signal() }
+    if shouldSignal {
+      semaphore.signal()
+    }
   }
 
   func wait(timeout: TimeInterval) throws -> RefloatControls {
@@ -2154,7 +2200,9 @@ private final class RefloatConfigurationRequestWaiter: @unchecked Sendable {
       self.result = result
       return true
     }
-    if shouldSignal { semaphore.signal() }
+    if shouldSignal {
+      semaphore.signal()
+    }
   }
 
   func wait(timeout: TimeInterval) throws {

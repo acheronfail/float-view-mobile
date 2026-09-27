@@ -14,7 +14,10 @@ use crate::limits::{MAX_CLIENT_OPERATIONS, MAX_HOST_BATCH, MAX_HOST_WAIT, MAX_OP
 // Process-wide uniqueness also rejects completions routed to a foreign handle.
 static GENERATION: AtomicU64 = AtomicU64::new(0);
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd)]
+#[derive(
+    Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, serde::Serialize, serde::Deserialize,
+)]
+#[serde(deny_unknown_fields)]
 pub struct OperationId {
     pub generation: u64,
     pub sequence: u64,
@@ -38,6 +41,7 @@ pub enum ExchangeError {
     Poisoned,
 }
 
+#[derive(serde::Serialize)]
 pub struct HostOperation<T> {
     pub id: OperationId,
     pub operation: T,
@@ -101,6 +105,20 @@ impl<T, R> Exchange<T, R> {
         state.next_sequence = 0;
         state.running = true;
         Ok(state.generation)
+    }
+
+    pub fn cancelled(&self, generation: u64) -> Result<Vec<OperationId>, ExchangeError> {
+        let state = self.state.lock().map_err(|_| ExchangeError::Poisoned)?;
+        state.validate(generation)?;
+        Ok(state
+            .pending
+            .iter()
+            .filter(|(_, p)| p.cancelled)
+            .map(|(sequence, _)| OperationId {
+                generation,
+                sequence: *sequence,
+            })
+            .collect())
     }
 
     pub fn submit(
@@ -188,6 +206,15 @@ impl<T, R> Exchange<T, R> {
             }
         }
         Ok(operations)
+    }
+
+    pub fn accepts_completion(&self, id: OperationId) -> bool {
+        self.state.lock().is_ok_and(|state| {
+            state.validate(id.generation).is_ok()
+                && state.pending.get(&id.sequence).is_some_and(|p| {
+                    p.operation.is_none() && p.completion.is_none() && !p.cancelled
+                })
+        })
     }
 
     pub fn complete(&self, id: OperationId, completion: R) -> Result<(), ExchangeError> {

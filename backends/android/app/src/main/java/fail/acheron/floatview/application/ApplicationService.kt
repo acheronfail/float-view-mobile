@@ -213,9 +213,9 @@ class ApplicationService(
 
     fun querySessionSeriesSource(
         sessionId: String, startElapsedMs: Long, endElapsedMs: Long, fields: List<String>,
-        maxRows: Int, publishedSampleSequence: Long? = null,
+        maxRows: Int, publishedSampleSequence: Long? = null, afterElapsedMs: Long? = null, afterSequence: Long? = null,
     ) = rustSessionSamples(
-        sessionId, startElapsedMs, endElapsedMs, fields, maxRows, publishedSampleSequence,
+        sessionId, startElapsedMs, endElapsedMs, fields, maxRows, publishedSampleSequence, afterElapsedMs, afterSequence,
     )
 
     fun reduceSessionSeries(
@@ -249,12 +249,12 @@ class ApplicationService(
 
     fun sessionEvents(
         sessionId: String, startElapsedMs: Long, endElapsedMs: Long,
-        publishedEventSequence: Long? = null,
+        publishedEventSequence: Long? = null, limit: Int = 500, afterElapsedMs: Long? = null, afterSequence: Long? = null,
     ): List<SessionEventRecord> {
         val value = rustSessionQuery(json(
             "command" to "session_events", "path" to sessionPath(sessionId),
             "start_elapsed_ms" to startElapsedMs, "end_elapsed_ms" to endElapsedMs,
-            "limit" to 500, "after_elapsed_ms" to null, "after_sequence" to null,
+            "limit" to limit, "after_elapsed_ms" to afterElapsedMs, "after_sequence" to afterSequence,
             "boundary" to boundary(sessionSnapshot(sessionId), eventSequence = publishedEventSequence),
         ))
         return value.array("rows").objects().mapNotNull { row ->
@@ -378,7 +378,7 @@ class ApplicationService(
     @Synchronized
     fun connect(deviceId: DeviceId, trackingMode: TrackingMode = TrackingMode.SAVED) {
         require(knownDevicesById.containsKey(deviceId))
-        require(activeDeviceId == null || activeDeviceId == deviceId)
+        check(activeDeviceId == null || (activeDeviceId == deviceId && connectionState == ConnectionState.FAILED))
         if (activeDeviceId == deviceId && connectionState == ConnectionState.FAILED) {
             require(this.trackingMode == trackingMode)
         }
@@ -817,7 +817,7 @@ class ApplicationService(
         }.onFailure { events.publish(it) }
     }
 
-    private fun sessionPath(sessionId: String) = sessions().sessionPath(sessionId)
+    internal fun sessionPath(sessionId: String) = sessions().sessionPath(sessionId)
 
     private fun rustSessionQuery(command: JSONObject): JSONObject = synchronized(this) {
         rustSessionResult = null
@@ -841,14 +841,14 @@ class ApplicationService(
 
     private fun rustSessionSamples(
         sessionId: String, startElapsedMs: Long, endElapsedMs: Long,
-        fields: List<String>, maxRows: Int, publishedSampleSequence: Long?,
+        fields: List<String>, maxRows: Int, publishedSampleSequence: Long?, initialElapsedMs: Long? = null, initialSequence: Long? = null,
     ): List<SessionSeriesPoint> {
         if (maxRows <= 0) throw SessionStoreException.InvalidRange
         val snapshot = sessionSnapshot(sessionId)
         val path = sessionPath(sessionId)
         val rows = mutableListOf<SessionSeriesPoint>()
-        var afterElapsed: Long? = null
-        var afterSequence: Long? = null
+        var afterElapsed: Long? = initialElapsedMs
+        var afterSequence: Long? = initialSequence
         while (rows.size < maxRows) {
             val value = rustSessionQuery(json(
                 "command" to "session_samples", "path" to path, "fields" to fields,

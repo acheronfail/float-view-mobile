@@ -86,3 +86,14 @@ else
   xcrun lipo -create "${archives[@]}" -output "$destination"
 fi
 [[ -f "$destination" ]]
+
+expected_symbols="$(printf '%s\n' \
+  abi_version create destroy interrupt apply copy_result \
+  server_create server_destroy server_command server_read_transfer server_write_transfer \
+  | sed 's/^/float_view_application_runtime_/' | sort)"
+actual_symbols="$(nm -gU "$destination" 2>/dev/null | awk '{print $NF}' \
+  | sed 's/^_//' | rg '^float_view_application_runtime_[a-z_]+$' | sort -u)"
+[[ "$actual_symbols" == "$expected_symbols" ]] || {
+  echo 'Unexpected application-runtime C symbols in Apple archive' >&2
+  exit 1
+}

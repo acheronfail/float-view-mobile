@@ -1831,6 +1831,9 @@ public final class SQLiteLogStore: LogStorePort, ProductStorePort, SessionStoreP
       let effectiveRidingMs = max(1, integer("effectiveRidingMs", fallback: requestedRidingMs))
       let closeReason = (manifest["closeReason"] as? String).map(SQLiteValue.text) ?? .null
 
+      // The archive manifest is packaging metadata, not part of the session schema.
+      try archive.execute("DROP TABLE float_view_archive_metadata")
+      try archive.execute("PRAGMA journal_mode = WAL")
       archive.close()
       removeSQLiteSidecars(temporary)
       try FileManager.default.moveItem(at: temporary, to: destination)

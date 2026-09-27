@@ -2047,7 +2047,11 @@ class SQLiteLogStore(
                 if (formatVersion != "1" || manifestText.isNullOrEmpty() || !healthy || !hasMarker || sampleCount == 0L) {
                     throw SessionStoreException.InvalidArchive
                 }
-                JSONObject(manifestText)
+                val manifest = JSONObject(manifestText)
+                // Strip packaging metadata before handing the session to the shared reader.
+                archive.execSQL("DROP TABLE float_view_archive_metadata")
+                archive.rawQuery("PRAGMA journal_mode = WAL", null).use { it.moveToFirst() }
+                manifest
             }
             removeSQLiteSidecars(temporary)
 

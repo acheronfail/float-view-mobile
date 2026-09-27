@@ -469,3 +469,43 @@ fn data_lines(input: &str) -> Vec<&str> {
         .filter(|line| !line.is_empty() && !line.starts_with('#'))
         .collect()
 }
+
+#[test]
+fn cancellation_flag_is_sticky_and_does_not_interrupt_another_reader() {
+    use std::sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    };
+    let directory = TestDirectory::new();
+    let (path, boundary) = large_database(&directory, "cancellable.sqlite3", 10_000);
+    let cancelled = Arc::new(AtomicBool::new(true));
+    assert_eq!(
+        SessionReader::open_cancellable(&path, cancelled.clone()).unwrap_err(),
+        ReaderError::Cancelled
+    );
+    cancelled.store(false, Ordering::Release);
+    let mut reader = SessionReader::open_cancellable(&path, cancelled.clone()).unwrap();
+    let mut independent = SessionReader::open(&path).unwrap();
+    cancelled.store(true, Ordering::Release);
+    assert_eq!(
+        reader
+            .reduce_series(
+                &["speedKph".into()],
+                0,
+                10_000,
+                1024,
+                GapPolicy::Automatic,
+                boundary
+            )
+            .unwrap_err(),
+        ReaderError::Cancelled
+    );
+    assert_eq!(
+        independent
+            .sample_page(&["speedKph".into()], 0, 10_000, 2, None, boundary)
+            .unwrap()
+            .rows
+            .len(),
+        2
+    );
+}

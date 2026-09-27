@@ -169,9 +169,248 @@ fn contain(operation: impl FnOnce() -> Status) -> i32 {
     catch_unwind(AssertUnwindSafe(operation)).unwrap_or(Status::Internal) as i32
 }
 
+use float_view_loopback_server::{host as server_host, limits as server_limits};
+
+/// Creates a server without creating an application runtime.
+/// # Safety
+/// HTML must be readable for length bytes and out_handle must be aligned,
+/// writable and disjoint from that region.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn float_view_application_runtime_server_create(
+    platform: u32,
+    html: *const u8,
+    length: usize,
+    out_handle: *mut u64,
+) -> i32 {
+    catch_unwind(AssertUnwindSafe(|| {
+        if length == 0
+            || length > 8 * 1024 * 1024
+            || !valid_region(html, length)
+            || !valid_scalar(out_handle)
+            || regions_overlap(html, length, out_handle.cast(), 8)
+        {
+            return 1;
+        }
+        unsafe { out_handle.write(0) };
+        match server_host::create(platform, unsafe { slice::from_raw_parts(html, length) }) {
+            Ok(handle) => {
+                unsafe { out_handle.write(handle) };
+                0
+            }
+            Err(status) => status as i32,
+        }
+    }))
+    .unwrap_or(8)
+}
+#[unsafe(no_mangle)]
+pub extern "C" fn float_view_application_runtime_server_destroy(handle: u64) -> i32 {
+    catch_unwind(AssertUnwindSafe(|| server_host::destroy(handle) as i32)).unwrap_or(8)
+}
+
+/// Executes a closed versioned command into caller-owned output.
+/// # Safety
+/// Input and output regions and the aligned writable out_written scalar must
+/// be valid and mutually disjoint. No pointer is retained.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn float_view_application_runtime_server_command(
+    handle: u64,
+    input: *const u8,
+    length: usize,
+    output: *mut u8,
+    capacity: usize,
+    out_written: *mut usize,
+) -> i32 {
+    catch_unwind(AssertUnwindSafe(|| {
+        if length == 0
+            || length > server_limits::MAX_HOST_ENVELOPE_BYTES
+            || !valid_region(input, length)
+            || !valid_scalar(out_written)
+            || capacity != server_limits::MAX_HOST_ENVELOPE_BYTES
+            || !valid_region(output, capacity)
+            || regions_overlap(input, length, output, capacity)
+            || regions_overlap(
+                input,
+                length,
+                out_written.cast(),
+                std::mem::size_of::<usize>(),
+            )
+            || regions_overlap(
+                output,
+                capacity,
+                out_written.cast(),
+                std::mem::size_of::<usize>(),
+            )
+        {
+            return 1;
+        }
+        unsafe { out_written.write(0) };
+        match server_host::command(handle, unsafe { slice::from_raw_parts(input, length) }) {
+            Ok(bytes) => {
+                unsafe {
+                    std::ptr::copy_nonoverlapping(bytes.as_ptr(), output, bytes.len());
+                    out_written.write(bytes.len());
+                }
+                0
+            }
+            Err(status) => status as i32,
+        }
+    }))
+    .unwrap_or(8)
+}
+/// Copies one incoming archive chunk into caller-owned storage.
+/// # Safety
+/// Output and out_written must be valid, aligned where applicable and disjoint.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn float_view_application_runtime_server_read_transfer(
+    handle: u64,
+    generation: u64,
+    transfer: u64,
+    output: *mut u8,
+    capacity: usize,
+    out_written: *mut usize,
+) -> i32 {
+    catch_unwind(AssertUnwindSafe(|| {
+        if capacity != server_limits::MAX_TRANSFER_CHUNK_BYTES
+            || !valid_region(output, capacity)
+            || !valid_scalar(out_written)
+            || regions_overlap(
+                output,
+                capacity,
+                out_written.cast(),
+                std::mem::size_of::<usize>(),
+            )
+        {
+            return 1;
+        }
+        unsafe { out_written.write(0) };
+        match server_host::read_chunk(handle, generation, transfer) {
+            Ok(bytes) => {
+                unsafe {
+                    std::ptr::copy_nonoverlapping(bytes.as_ptr(), output, bytes.len());
+                    out_written.write(bytes.len());
+                }
+                0
+            }
+            Err(status) => status as i32,
+        }
+    }))
+    .unwrap_or(8)
+}
+/// Copies one outgoing archive chunk from caller-owned storage.
+/// # Safety
+/// Input must remain readable for length bytes for the duration of this call.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn float_view_application_runtime_server_write_transfer(
+    handle: u64,
+    generation: u64,
+    transfer: u64,
+    offset: u64,
+    input: *const u8,
+    length: usize,
+) -> i32 {
+    catch_unwind(AssertUnwindSafe(|| {
+        if length == 0
+            || length > server_limits::MAX_TRANSFER_CHUNK_BYTES
+            || !valid_region(input, length)
+        {
+            return 1;
+        }
+        server_host::write_chunk(handle, generation, transfer, offset, unsafe {
+            slice::from_raw_parts(input, length)
+        }) as i32
+    }))
+    .unwrap_or(8)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn server_buffers_validate_before_mutation_and_destroy_is_idempotent() {
+        let mut handle = 0;
+        let html = b"html";
+        assert_eq!(
+            unsafe {
+                float_view_application_runtime_server_create(
+                    0,
+                    html.as_ptr(),
+                    html.len(),
+                    &mut handle,
+                )
+            },
+            0
+        );
+        let command = br#"{"version":1,"action":{"command":"stop"}}"#;
+        let mut output = vec![0; server_limits::MAX_HOST_ENVELOPE_BYTES];
+        let mut written = 0;
+        assert_eq!(
+            unsafe {
+                float_view_application_runtime_server_command(
+                    handle,
+                    command.as_ptr(),
+                    command.len(),
+                    output.as_mut_ptr(),
+                    1,
+                    &mut written,
+                )
+            },
+            1
+        );
+        assert_eq!(
+            unsafe {
+                float_view_application_runtime_server_command(
+                    handle,
+                    output.as_ptr(),
+                    output.len(),
+                    output.as_mut_ptr(),
+                    output.len(),
+                    &mut written,
+                )
+            },
+            1
+        );
+        assert_eq!(
+            unsafe {
+                float_view_application_runtime_server_command(
+                    handle,
+                    command.as_ptr(),
+                    command.len(),
+                    output.as_mut_ptr(),
+                    output.len(),
+                    &mut written,
+                )
+            },
+            0
+        );
+        assert!(written > 0);
+        assert_eq!(float_view_application_runtime_server_destroy(handle), 0);
+        assert_eq!(float_view_application_runtime_server_destroy(handle), 0);
+        assert_eq!(
+            unsafe {
+                float_view_application_runtime_server_command(
+                    handle,
+                    command.as_ptr(),
+                    command.len(),
+                    output.as_mut_ptr(),
+                    output.len(),
+                    &mut written,
+                )
+            },
+            2
+        );
+        assert_eq!(
+            unsafe {
+                float_view_application_runtime_server_create(
+                    0,
+                    std::ptr::null(),
+                    html.len(),
+                    &mut handle,
+                )
+            },
+            1
+        );
+    }
 
     #[test]
     fn overlap_detection_is_half_open_and_overflow_safe() {

@@ -9,6 +9,7 @@ publish = false
 crate-type = ["rlib", "staticlib"]
 
 [dependencies]
+float-view-loopback-server = { path = "../loopback-server" }
 float-view-application-runtime-host = { path = "../application-runtime-host" }
 
 [dev-dependencies]

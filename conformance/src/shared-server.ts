@@ -1,0 +1,9 @@
+// Candidate host launch/setup lives in native tests. Assertions stay canonical.
+import { runConformance } from './suite.ts';
+import { exerciseTransport } from './transport.ts';
+import { externalTarget } from '../targets/external.ts';
+const target = externalTarget('macos', 'FLOAT_VIEW_SHARED_WS_URL');
+const endpoint = await target.start();
+await runConformance(target);
+await exerciseTransport(endpoint);
+console.log('Shared-server canonical conformance passed');

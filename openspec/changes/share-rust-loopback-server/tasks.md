@@ -10,28 +10,28 @@
 ## 2. Shared host exchange
 
 - [x] 2.1 Add the safe shared server crate above the application runtime. Check dependency direction and confirm no networking dependency enters domain crates.
-- [ ] 2.2 Add versioned start/stop, operation drain/wait, completion, publication, and cancellation records. Test malformed envelopes, stale generations, duplicate completions, queue saturation, and idempotent destruction.
-- [ ] 2.3 Extend the existing Apple and Android binding families with caller-owned bounded exchange. Test invalid handles, buffer extents, panic containment, interruption, and exact exported symbols.
-- [ ] 2.4 Add bounded archive transfer handles and chunks with host-owned temporary storage. Test envelope-size independence, cancellation, cleanup, and stale or foreign handle rejection.
+- [x] 2.2 Add versioned start/stop, operation drain/wait, completion, publication, and cancellation records. Test malformed envelopes, stale generations, duplicate completions, queue saturation, and idempotent destruction.
+- [x] 2.3 Extend the existing Apple and Android binding families with caller-owned bounded exchange. Test invalid handles, buffer extents, panic containment, interruption, and exact exported symbols.
+- [x] 2.4 Add bounded archive transfer handles and chunks with host-owned temporary storage. Test envelope-size independence, cancellation, cleanup, and stale or foreign handle rejection.
 - [ ] 2.5 Add worker integration without callbacks or UI waits. Test concurrent completion, runtime re-entry, publication, and stop for deadlocks and bounded termination.
 
 ## 3. Shared server and public contract
 
-- [ ] 3.1 Implement loopback bind, root HTML, bootstrap, token lifetime, and startup failure. Test fixed ports, byte-identical HTML, unknown paths, and failed-bind cleanup.
-- [ ] 3.2 Implement authenticated HTTP/WebSocket admission and streaming limits. Test missing/wrong Origin or token, fragmented frames, absent Content-Length, exact bounds, and redacted errors.
-- [ ] 3.3 Implement control dispatch for state, Bluetooth, connection, permissions, settings, saved boards, and profiles through typed host operations. Run canonical success and failure scenarios for each method.
-- [ ] 3.4 Implement control dispatch for Refloat controls, shutdown, configuration, and Tunes. Test revisions, confirmation, stale requests, and disconnect without duplicate mutations.
-- [ ] 3.5 Implement session list/get/delete/cancel, prune preview/start/cancel, and export control operations. Test existing pagination, job, conflict, and cancellation semantics.
+- [x] 3.1 Implement loopback bind, root HTML, bootstrap, token lifetime, and startup failure. Test fixed ports, byte-identical HTML, unknown paths, and failed-bind cleanup.
+- [x] 3.2 Implement authenticated HTTP/WebSocket admission and streaming limits. Test missing/wrong Origin or token, fragmented frames, absent Content-Length, exact bounds, and redacted errors.
+- [x] 3.3 Implement control dispatch for state, Bluetooth, connection, permissions, settings, saved boards, and profiles through typed host operations. Run canonical success and failure scenarios for each method.
+- [x] 3.4 Implement control dispatch for Refloat controls, shutdown, configuration, and Tunes. Test revisions, confirmation, stale requests, and disconnect without duplicate mutations.
+- [x] 3.5 Implement session list/get/delete/cancel, prune preview/start/cancel, and export control operations. Test existing pagination, job, conflict, and cancellation semantics.
 - [ ] 3.6 Implement all session-data kinds, serialization, and compression. Test published boundaries, decoded response limits, two-read admission, and interruption during read/encode/compress.
-- [ ] 3.7 Implement HTTP import/export through bounded host transfers and existing archive validation. Test valid large archives, malformed inputs, identity preservation, and abandoned transfer cleanup.
-- [ ] 3.8 Implement complete shared state projection and process-owned revision tracking. Test multiple/slow clients, response correlation, stale facts, committed saved samples, and guest isolation.
-- [ ] 3.9 Implement listener stop/restart independently of the application runtime. Test worker shutdown, old completions, token continuity, revision continuity, and ongoing recording.
+- [x] 3.7 Implement HTTP import/export through bounded host transfers and existing archive validation. Test valid large archives, malformed inputs, identity preservation, and abandoned transfer cleanup.
+- [x] 3.8 Implement complete shared state projection and process-owned revision tracking. Test multiple/slow clients, response correlation, stale facts, committed saved samples, and guest isolation.
+- [x] 3.9 Implement listener stop/restart independently of the application runtime. Test worker shutdown, old completions, token continuity, revision continuity, and ongoing recording.
 
 ## 4. Canonical parity before host selection
 
-- [ ] 4.1 Add shared-server coverage to canonical scenarios with test-only host facts where needed. Keep the fixture adapter limited to launch/setup and reuse `conformance` assertions.
+- [x] 4.1 Add shared-server coverage to canonical scenarios with test-only host facts where needed. Keep the fixture adapter limited to launch/setup and reuse `conformance` assertions.
 - [ ] 4.2 Add adversarial transport and lifecycle scenarios for all routes. Check rejected input performs no storage lookup or board mutation and accepted connected requests receive one terminal result.
-- [ ] 4.3 Run focused locked Rust tests, warnings-denied linting, mock conformance, and cross-target packaging. Confirm native production still selects its current server at this checkpoint.
+- [x] 4.3 Run focused locked Rust tests, warnings-denied linting, mock conformance, and cross-target packaging. Confirm native production still selects its current server at this checkpoint.
 
 ## 5. Apple migration and deletion
 

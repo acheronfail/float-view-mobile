@@ -10,6 +10,11 @@ readonly android_ndk_version='28.2.13676358'
 readonly android_api='29'
 readonly jni_prefix='Java_fail_acheron_floatview_application_RustApplicationRuntime'
 readonly symbols=(
+  "${jni_prefix}_serverCreate"
+  "${jni_prefix}_serverDestroy"
+  "${jni_prefix}_serverCommand"
+  "${jni_prefix}_serverReadTransfer"
+  "${jni_prefix}_serverWriteTransfer"
   "${jni_prefix}_abiVersion"
   "${jni_prefix}_apply"
   "${jni_prefix}_copyResult"

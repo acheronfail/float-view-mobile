@@ -6,9 +6,13 @@ rust-version.workspace = true
 publish = false
 
 [dependencies]
+float-view-application-runtime = { path = "../application-runtime" }
+time = { version = "=0.3.53", default-features = false, features = ["std", "formatting"] }
 axum = { version = "=0.8.9", default-features = false, features = ["http1", "tokio", "ws"] }
 flate2 = { version = "=1.1.9", default-features = false, features = ["rust_backend"] }
 getrandom = "=0.3.4"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tokio = { version = "=1.53.1", default-features = false, features = ["rt", "net", "sync", "time"] }
+base64 = "=0.22.1"
+futures-util = { version = "=0.3.34", default-features = false, features = ["sink", "std"] }

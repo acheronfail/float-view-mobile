@@ -89,6 +89,12 @@ internal class RustApplicationRuntime : Closeable {
     private external fun copyResult(handle: Long, output: ByteArray?, written: IntArray?): Int
 
     companion object {
+        @JvmStatic external fun serverCreate(platform: Int, html: ByteArray): Long
+        @JvmStatic external fun serverDestroy(handle: Long): Int
+        @JvmStatic external fun serverCommand(handle: Long, input: ByteArray, output: ByteArray, written: IntArray): Int
+        @JvmStatic external fun serverReadTransfer(handle: Long, generation: Long, transfer: Long, output: ByteArray, written: IntArray): Int
+        @JvmStatic external fun serverWriteTransfer(handle: Long, generation: Long, transfer: Long, offset: Long, input: ByteArray): Int
+
         private const val ABI_VERSION = 1
         private const val MAXIMUM_COMMAND_BYTES = 1_048_576
         private const val MAXIMUM_RESULT_BYTES = 4_194_304
@@ -112,7 +118,7 @@ internal class RustApplicationRuntime : Closeable {
         private var loaded = false
 
         @Synchronized
-        private fun ensureLoaded() {
+        fun ensureLoaded() {
             if (loaded) return
             val explicitHostLibrary = System.getProperty(HOST_LIBRARY_PROPERTY)
             if (explicitHostLibrary == null) {
