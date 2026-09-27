@@ -49,14 +49,14 @@
 
 ## 7. Ownership and physical checkpoint
 
-- [ ] 7.1 Update ownership docs, OpenSpec context, build/symbol checks, and root audits for the selected shared server. Check that no duplicate dispatch, old dependency, temporary bridge, or fallback remains.
-- [ ] 7.2 Record final source/dependency/package deltas. Require a net production-source reduction and passing existing convergence limits, with no public contract or SQL schema change.
+- [x] 7.1 Update ownership docs, OpenSpec context, build/symbol checks, and root audits for the selected shared server. Check that no duplicate dispatch, old dependency, temporary bridge, or fallback remains.
+- [x] 7.2 Record final source/dependency/package deltas. Require a net production-source reduction and passing existing convergence limits, with no public contract or SQL schema change.
 - [ ] 7.3 Run the explicit Android, iOS, and macOS ESP32 physical checkpoint for telemetry, saved recording, reconnect, and frontend/lifecycle recovery. Record each result and any user-authorized coverage deferral accurately.
 
 ## 8. Final verification
 
-- [ ] 8.1 Run focused boundary, cancellation, archive, state ordering, shutdown, and host integration checks after all deletions. Check that every added requirement has passing evidence.
-- [ ] 8.2 Run strict OpenSpec validation, formatting, dependency/source audits, and `git diff --check`. Resolve findings without removing required coverage.
-- [ ] 8.3 Run `just verify` with both hosts selecting the shared server. Commit the final verified implementation and matching task updates.
+- [x] 8.1 Run focused boundary, cancellation, archive, state ordering, shutdown, and host integration checks after all deletions. Check that every added requirement has passing evidence.
+- [x] 8.2 Run strict OpenSpec validation, formatting, dependency/source audits, and `git diff --check`. Resolve findings without removing required coverage.
+- [x] 8.3 Run `just verify` with both hosts selecting the shared server. Commit the final verified implementation and matching task updates.
 
 After all required gates pass, sync the delta specs and archive this change in one final commit, as required by the repository workflow.

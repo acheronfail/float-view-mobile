@@ -18,9 +18,15 @@ The runtime owns:
   interruption, and pruning.
 
 Hosts submit versioned bounded commands and facts and execute ordered effects.
-Rust has no Bluetooth, location provider, clock, thread, HTTP server, UI,
-permission, lifecycle, or native-file implementation. Those remain native OS
-responsibilities. The frontend contract and canonical SQL schema remain shared
+The application runtime has no Bluetooth, location provider, clock, UI,
+permission, lifecycle or native-file presentation implementation. Those remain
+native OS responsibilities. The separate `loopback-server` crate owns HTTP and
+WebSocket admission, public dispatch/projection, history reads and compression.
+It runs one socket executor and two bounded historical workers, reusing the
+existing read-only SessionReader without constructing another application runtime.
+Native workers drain closed typed operations and publish complete domain facts
+through the same C/JNI artifacts. Listener generations, launch token and public
+revisions are independent of the application and disposable frontend lifetime. The frontend contract and canonical SQL schema remain shared
 external contracts rather than generated bindings.
 
 `application-runtime-host` provides the safe platform-neutral envelope,

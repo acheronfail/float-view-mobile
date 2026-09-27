@@ -9,7 +9,8 @@ through one callback-free `application-runtime-android-jni` library.
 The JNI boundary is deliberately coarse and versioned. Kotlin submits bounded
 JSON commands and facts, drains ordered effects, and copies results into
 caller-owned byte arrays. The binding retains no JVM references and exports
-only lifecycle, command, result, and interruption operations. It does not expose
+only lifecycle, command, result, interruption, server exchange and bounded
+transfer operations. It does not expose
 the Rust allocator, internal records, or per-protocol entry points.
 
 Production Kotlin lives under

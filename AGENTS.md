@@ -26,8 +26,8 @@ package sources, for example:
 Frontend code follows the ownership-first layout documented in
 `frontend/src/lib/README.md`.
 The UI uses only its authenticated request/result/error envelopes and complete,
-monotonic `state.changed` snapshots. Apple and Android implement that contract
-by hand. Contract changes must update the frontend client/mock, both backends,
+monotonic `state.changed` snapshots. The shared server implements that contract
+by hand for Apple and Android. Contract changes must update the frontend client/mock, both backends,
 and the canonical `conformance/` suite together.
 
 Native services own Bluetooth, background work, logging, persistence,
@@ -41,13 +41,13 @@ service; OS Bluetooth adapter; VESC protocol; persistence/background work.
 Bluetooth and protocol code emit typed events and do not know about WebSockets
 or views.
 
-`backends/core/` contains bounded Rust candidate components, not a supported
-backend or production runtime. A candidate may coexist with Swift and Kotlin
-only for the slice named by its active OpenSpec change. Apple and Android keep
-production ownership until separate host-cutover changes pass their complete
-gates; each cutover then deletes that host's superseded implementation. Keep OS
-Bluetooth, location, lifecycle, permissions, native file presentation, theme,
-and UI integration in the platform backend.
+`backends/core/` contains the selected shared application runtime and loopback
+server, composed through the existing C/JNI binding families. Native hosts own
+OS Bluetooth, location, lifecycle, permissions, native file presentation, theme,
+and UI integration. Transport workers must reuse the existing application owner;
+read-only session workers use bounded independent readers without creating a
+second runtime. Keep public dispatch and projection in the shared server, and
+native adapters limited to typed operations and complete domain facts.
 
 ## Frontend interaction
 

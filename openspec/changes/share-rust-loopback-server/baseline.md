@@ -4,14 +4,14 @@ Captured before implementation at `fae1a4d4` on 2026-09-27. This is an inventory
 
 ## Routes
 
-| Route | Authentication | Payload and result |
-| --- | --- | --- |
-| GET / | None | Identical embedded HTML; text/html; no-store |
-| GET /api/bootstrap | None | webSocketUrl, sessionDataUrl, sessionExportUrl, sessionImportUrl, sessionToken, platform; application/json; no-store |
-| GET /api/ws | Exact Origin and query token | Correlated id/result/error and complete state.changed; 65,536-byte messages |
-| POST /api/session-data | Exact Origin and X-Float-View-Token | 16,384-byte request; 4 MiB decoded JSON response; optional gzip |
-| POST /api/session-import | Same header authentication | 128 MiB archive; JSON sessionId on success |
-| POST /api/session-export | Same header authentication | 16,384-byte JSON request; CSV or application/octet-stream with attachment filename |
+| Route                    | Authentication                      | Payload and result                                                                                                   |
+| ------------------------ | ----------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| GET /                    | None                                | Identical embedded HTML; text/html; no-store                                                                         |
+| GET /api/bootstrap       | None                                | webSocketUrl, sessionDataUrl, sessionExportUrl, sessionImportUrl, sessionToken, platform; application/json; no-store |
+| GET /api/ws              | Exact Origin and query token        | Correlated id/result/error and complete state.changed; 65,536-byte messages                                          |
+| POST /api/session-data   | Exact Origin and X-Float-View-Token | 16,384-byte request; 4 MiB decoded JSON response; optional gzip                                                      |
+| POST /api/session-import | Same header authentication          | 128 MiB archive; JSON sessionId on success                                                                           |
+| POST /api/session-export | Same header authentication          | 16,384-byte JSON request; CSV or application/octet-stream with attachment filename                                   |
 
 Ports: macOS 11010, iOS 11011, Android 11012; bind 127.0.0.1. Protected HTTP rejection is 403; size rejection is 413; invalid session request is 400. Unexpected session-data failures use 500. Unknown content paths must return 404.
 
@@ -19,42 +19,42 @@ Ports: macOS 11010, iOS 11011, Android 11012; bind 127.0.0.1. Protected HTTP rej
 
 All 34 BackendMethods keys occur in both native dispatchers and canonical mandatoryMethods. Presence in mandatoryMethods is not proof that every failure path is exercised. Calls below are mechanically extracted from each complete dispatch branch, including reads used for validation; private helpers are inventoried separately.
 
-| Method | Swift application calls | Kotlin application calls |
-| --- | --- | --- |
-| `state.get` | Shared projection/private helper | Shared projection/private helper |
-| `bluetooth.requestPermission` | `requestBluetoothPermission` | `requestBluetoothPermission` |
-| `bluetooth.scan` | `startDiscovery`, `stopDiscovery` | `startDiscovery`, `stopDiscovery` |
-| `location.requestPermission` | `requestLocationPermission` | `requestLocationPermission` |
-| `location.openSettings` | `openLocationSettings` | `openLocationSettings` |
-| `device.connect` | `activeConnectionSnapshot`, `connect` | `activeConnectionSnapshot`, `connect` |
-| `device.selectController` | `selectController` | `selectController` |
-| `device.disconnect` | `disconnect` | `disconnect` |
-| `controller.shutdown` | `shutdownController` | `shutdownController` |
-| `refloat.control.set` | `setRefloatControl` | `setRefloatControl` |
-| `refloat.fatalError.clear` | `clearRefloatFatalError` | `clearRefloatFatalError` |
-| `refloat.configuration.open` | `refloatConfigurationSummarySnapshot` | `refloatConfigurationSummarySnapshot` |
-| `refloat.configuration.schema` | Shared projection/private helper | Shared projection/private helper |
-| `refloat.configuration.read` | `readRefloatConfiguration` | `readRefloatConfiguration` |
-| `refloat.configuration.write` | `writeRefloatConfiguration` | `writeRefloatConfiguration` |
-| `refloat.tune.list` | `refloatTunes` | `refloatTunes` |
-| `refloat.tune.get` | `refloatTune` | `refloatTune` |
-| `refloat.tune.create` | `createRefloatTune` | `createRefloatTune` |
-| `refloat.tune.update` | `updateRefloatTune` | `updateRefloatTune` |
-| `refloat.tune.delete` | `deleteRefloatTune` | `deleteRefloatTune` |
-| `refloat.tune.apply` | `applyRefloatTune` | `applyRefloatTune` |
-| `savedDevice.update` | `updateSavedDevice` | `updateSavedDevice` |
-| `savedDevice.delete` | `deleteSavedDevice` | `deleteSavedDevice` |
-| `settings.update` | `updateSettings` | `updateSettings` |
-| `boardProfile.get` | `boardProfile` | `boardProfile` |
-| `boardProfile.update` | `updateBoardProfile` | `updateBoardProfile` |
-| `session.list` | `savedDevices`, `sessions` | `savedDevices`, `sessions` |
-| `session.get` | `session`, `sessionExtensionFields`, `sessionPruneMetadata`, `sessionSnapshot` | `session`, `sessionExtensionFields`, `sessionPruneMetadata`, `sessionSnapshot` |
-| `session.export` | `exportSession` | `exportSession` |
-| `session.delete` | `deleteSession` | `deleteSession` |
-| `session.delete.cancel` | `cancelPendingDelete` | `cancelPendingDelete` |
-| `session.prune.preview` | `maintenanceJob`, `prunePreview`, `saveMaintenanceJob` | `maintenanceJob`, `prunePreview`, `saveMaintenanceJob` |
-| `session.prune.start` | `maintenanceJob`, `pruneSession`, `saveMaintenanceJob` | `maintenanceJob`, `pruneSession`, `saveMaintenanceJob` |
-| `session.prune.cancel` | `cancelMaintenanceJob` | `cancelMaintenanceJob` |
+| Method                         | Swift application calls                                                        | Kotlin application calls                                                       |
+| ------------------------------ | ------------------------------------------------------------------------------ | ------------------------------------------------------------------------------ |
+| `state.get`                    | Shared projection/private helper                                               | Shared projection/private helper                                               |
+| `bluetooth.requestPermission`  | `requestBluetoothPermission`                                                   | `requestBluetoothPermission`                                                   |
+| `bluetooth.scan`               | `startDiscovery`, `stopDiscovery`                                              | `startDiscovery`, `stopDiscovery`                                              |
+| `location.requestPermission`   | `requestLocationPermission`                                                    | `requestLocationPermission`                                                    |
+| `location.openSettings`        | `openLocationSettings`                                                         | `openLocationSettings`                                                         |
+| `device.connect`               | `activeConnectionSnapshot`, `connect`                                          | `activeConnectionSnapshot`, `connect`                                          |
+| `device.selectController`      | `selectController`                                                             | `selectController`                                                             |
+| `device.disconnect`            | `disconnect`                                                                   | `disconnect`                                                                   |
+| `controller.shutdown`          | `shutdownController`                                                           | `shutdownController`                                                           |
+| `refloat.control.set`          | `setRefloatControl`                                                            | `setRefloatControl`                                                            |
+| `refloat.fatalError.clear`     | `clearRefloatFatalError`                                                       | `clearRefloatFatalError`                                                       |
+| `refloat.configuration.open`   | `refloatConfigurationSummarySnapshot`                                          | `refloatConfigurationSummarySnapshot`                                          |
+| `refloat.configuration.schema` | Shared projection/private helper                                               | Shared projection/private helper                                               |
+| `refloat.configuration.read`   | `readRefloatConfiguration`                                                     | `readRefloatConfiguration`                                                     |
+| `refloat.configuration.write`  | `writeRefloatConfiguration`                                                    | `writeRefloatConfiguration`                                                    |
+| `refloat.tune.list`            | `refloatTunes`                                                                 | `refloatTunes`                                                                 |
+| `refloat.tune.get`             | `refloatTune`                                                                  | `refloatTune`                                                                  |
+| `refloat.tune.create`          | `createRefloatTune`                                                            | `createRefloatTune`                                                            |
+| `refloat.tune.update`          | `updateRefloatTune`                                                            | `updateRefloatTune`                                                            |
+| `refloat.tune.delete`          | `deleteRefloatTune`                                                            | `deleteRefloatTune`                                                            |
+| `refloat.tune.apply`           | `applyRefloatTune`                                                             | `applyRefloatTune`                                                             |
+| `savedDevice.update`           | `updateSavedDevice`                                                            | `updateSavedDevice`                                                            |
+| `savedDevice.delete`           | `deleteSavedDevice`                                                            | `deleteSavedDevice`                                                            |
+| `settings.update`              | `updateSettings`                                                               | `updateSettings`                                                               |
+| `boardProfile.get`             | `boardProfile`                                                                 | `boardProfile`                                                                 |
+| `boardProfile.update`          | `updateBoardProfile`                                                           | `updateBoardProfile`                                                           |
+| `session.list`                 | `savedDevices`, `sessions`                                                     | `savedDevices`, `sessions`                                                     |
+| `session.get`                  | `session`, `sessionExtensionFields`, `sessionPruneMetadata`, `sessionSnapshot` | `session`, `sessionExtensionFields`, `sessionPruneMetadata`, `sessionSnapshot` |
+| `session.export`               | `exportSession`                                                                | `exportSession`                                                                |
+| `session.delete`               | `deleteSession`                                                                | `deleteSession`                                                                |
+| `session.delete.cancel`        | `cancelPendingDelete`                                                          | `cancelPendingDelete`                                                          |
+| `session.prune.preview`        | `maintenanceJob`, `prunePreview`, `saveMaintenanceJob`                         | `maintenanceJob`, `prunePreview`, `saveMaintenanceJob`                         |
+| `session.prune.start`          | `maintenanceJob`, `pruneSession`, `saveMaintenanceJob`                         | `maintenanceJob`, `pruneSession`, `saveMaintenanceJob`                         |
+| `session.prune.cancel`         | `cancelMaintenanceJob`                                                         | `cancelMaintenanceJob`                                                         |
 
 ## Historical data and serializers
 
@@ -140,10 +140,10 @@ Observed migration hazards:
 
 The existing convergence audit reports Rust 28,550 + Apple 11,338 + Android 10,635 = **50,523 production lines**. Its exclusion rules apply to the final comparison. Workspace members: 25; binding crates: 2; temporary protocol bridges: 0. Existing convergence ceiling: combined source <59,280 and members <34; this change additionally requires final combined source <50,523.
 
-| Complete deletion/replacement target | Lines | SHA-256 |
-| --- | ---: | --- |
-| backends/apple/Sources/FloatViewBackend/transport/LoopbackServer.swift | 1905 | 3d01dc741ff0a1771592143a078625cd0ef687c60989c8d3cf7a8fa258a7f494 |
-| backends/android/app/src/main/java/fail/acheron/floatview/transport/LoopbackServer.kt | 1794 | 9a1056d0e57f1f33f2254dbf57cad2c2f19f18a8ef6d75ad301f0fd7f0e0eb47 |
+| Complete deletion/replacement target                                                  | Lines | SHA-256                                                          |
+| ------------------------------------------------------------------------------------- | ----: | ---------------------------------------------------------------- |
+| backends/apple/Sources/FloatViewBackend/transport/LoopbackServer.swift                |  1905 | 3d01dc741ff0a1771592143a078625cd0ef687c60989c8d3cf7a8fa258a7f494 |
+| backends/android/app/src/main/java/fail/acheron/floatview/transport/LoopbackServer.kt |  1794 | 9a1056d0e57f1f33f2254dbf57cad2c2f19f18a8ef6d75ad301f0fd7f0e0eb47 |
 
 Delete superseded route/dispatch/payload/auth/gzip/cursor helpers and tests of their internals; retain native integration and fixed-port tests adapted to the shared implementation. Thin adapters may keep the LoopbackServer type name.
 
@@ -155,17 +155,17 @@ Binding artifacts remain libfloat_view_application_runtime_apple_ffi.a and libfl
 
 These are existing local artifacts, not freshly rebuilt baseline packages; compare only after confirming equivalent build configurations. Missing macOS/iOS packages require fresh baseline measurement before claiming a package delta. Old protocol archives still present in ignored target directories are not selected or packaged artifacts.
 
-| Artifact | Bytes | SHA-256 |
-| --- | ---: | --- |
-| backends/android/app/build/outputs/apk/debug/app-debug.apk | 35831485 | 064e50e273bac3e6418556b62f294ae8aae2f27e29d72e47825d7ffc278251d9 |
-| backends/android/app/build/outputs/apk/release/app-release-unsigned.apk | 23999306 | 5d355d743d0392eb12314d33be54b2194b95f6c64c47861b0631dadf002b49bd |
-| backends/core/target/apple/macos/cargo/aarch64-apple-darwin/debug/libfloat_view_application_runtime_apple_ffi.a | 66985496 | 55be1ec4b911fa4bd6cc66f99abb18a8cd58ebe550b7a5c15ff96c06f01f8875 |
+| Artifact                                                                                                          |    Bytes | SHA-256                                                          |
+| ----------------------------------------------------------------------------------------------------------------- | -------: | ---------------------------------------------------------------- |
+| backends/android/app/build/outputs/apk/debug/app-debug.apk                                                        | 35831485 | 064e50e273bac3e6418556b62f294ae8aae2f27e29d72e47825d7ffc278251d9 |
+| backends/android/app/build/outputs/apk/release/app-release-unsigned.apk                                           | 23999306 | 5d355d743d0392eb12314d33be54b2194b95f6c64c47861b0631dadf002b49bd |
+| backends/core/target/apple/macos/cargo/aarch64-apple-darwin/debug/libfloat_view_application_runtime_apple_ffi.a   | 66985496 | 55be1ec4b911fa4bd6cc66f99abb18a8cd58ebe550b7a5c15ff96c06f01f8875 |
 | backends/core/target/apple/macos/cargo/aarch64-apple-darwin/release/libfloat_view_application_runtime_apple_ffi.a | 23110480 | 1001f8772d095a93301e84e86dc839c50cf789e46405acc2b3da1be04c761631 |
 
 Fresh Apple baseline packaging passed with `just apple-packaging` (Swift/Xcode cache access required outside sandbox). The recipe built macOS Release, iOS simulator Release and iOS device Debug without signing, then restored the macOS Debug archive. Existing deprecation/actor-isolation warnings remain.
 
-| Fresh artifact | Bytes | SHA-256 |
-| --- | ---: | --- |
-| /tmp/float-view-swift-release/out/Products/Release/FloatViewMac | 8448416 | c39a6d96cd00e86498fe00ad08895423fb22225e5142edffbb4ecb0717c727a2 |
+| Fresh artifact                                                                               |    Bytes | SHA-256                                                          |
+| -------------------------------------------------------------------------------------------- | -------: | ---------------------------------------------------------------- |
+| /tmp/float-view-swift-release/out/Products/Release/FloatViewMac                              |  8448416 | c39a6d96cd00e86498fe00ad08895423fb22225e5142edffbb4ecb0717c727a2 |
 | /tmp/float-view-ios-release/Build/Products/Release-iphonesimulator/float-view.app/float-view | 20388264 | b6a98d3797d44455a1c902a1fb26450bb51ec3c585cad44e47b042f610bb57c5 |
-| /tmp/float-view-ios-device/Build/Products/Debug-iphoneos/float-view.app/float-view | 72552 | e03439f8a350b36c870590ac7778db65c4195cfc3eb4dab522fc55f990d8d032 |
+| /tmp/float-view-ios-device/Build/Products/Debug-iphoneos/float-view.app/float-view           |    72552 | e03439f8a350b36c870590ac7778db65c4195cfc3eb4dab522fc55f990d8d032 |

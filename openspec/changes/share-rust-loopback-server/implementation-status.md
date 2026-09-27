@@ -99,5 +99,14 @@ via heartbeats; peers ignoring pings are closed within the inactivity deadline.
 
 iOS and macOS physical checkpoints passed in full; see physical-results.md.
 Android physical coverage still requires USB-debugging authorization on the
-connected phone. The final root software gate is running; no final gate or
-physical Android pass is claimed yet.
+connected phone. The final `just verify` software gate passed with both hosts
+selecting the shared server, including frontend and Rust checks, linked native
+tests, clean Apple/Android packaging, canonical mock/macOS/iOS/Android conformance
+and root ownership/source audits. The log is
+`/tmp/float-view-loopback-verify.log`. Strict OpenSpec validation, formatting and
+`git diff --check` also pass. Final source/dependency/package measurements are
+recorded in final-inventory.md.
+
+Only task 7.3 remains open: the connected Samsung phone still reports
+`unauthorized` in ADB. No physical Android pass or coverage deferral is claimed;
+spec synchronization and archival remain pending that required checkpoint.

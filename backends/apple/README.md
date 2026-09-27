@@ -5,13 +5,14 @@ below match Android. `../core/application-runtime/` is the production owner of
 VESC and Refloat protocol behavior, connection coordination, telemetry,
 configuration, mutations, session writing, historical reduction, and pruning.
 Swift reaches it through the single bounded, callback-free
-`application-runtime-apple-ffi` registry and maps complete runtime snapshots and
-effects into the hand-written frontend contract. There is no generated API,
+`application-runtime-apple-ffi` registry, executes native effects and supplies
+complete domain facts to the shared loopback server. Rust projects the
+hand-written frontend contract. There is no generated API,
 per-protocol Apple bridge, Swift protocol fallback, or duplicated application
 decision owner.
 
 Swift retains OS capabilities: Bluetooth transport and permissions, lifecycle
-and background work, loopback HTTP, logging, location acquisition, native session
+and background work, logging, location acquisition, native session
 catalog and archive presentation, and disposable WebViews. Session file queries
 and mutations execute in Rust; Swift supplies validated file paths and reconciles
 the native catalog after a prune. Runtime interruption is an explicit bounded FFI
@@ -41,7 +42,7 @@ owns:
 | VESC and Refloat wire protocol        | Rust runtime; `protocol/` contains fixture facts only | —              | —                                              |
 | SQLite and archive validation         | `storage/`                                            | —              | —                                              |
 | Native appearance synchronization     | —                                                     | `theme/`       | system appearance is consumed by the WebView   |
-| Authenticated loopback transport      | `transport/`                                          | —              | `transport/` for host readiness only           |
+| Shared transport host adapter         | `transport/`                                          | —              | `transport/` for host readiness only           |
 | Disposable WebView/window composition | —                                                     | `ui/`          | `ui/` plus the lifecycle-owned window delegate |
 
 Session archives are validated and imported by `storage/SQLiteLogStore.swift`.
@@ -61,10 +62,12 @@ location data cross the UI boundary only through bounded authenticated reads or
 an explicit user import/export action.
 
 For a compatible VESC or Refloat version, extend the exact Rust compatibility
-entry, Android's retained entry until its cutover, and source-derived fixtures.
+entry and source-derived fixtures.
 For a new wire family, add it below the coarse Rust runtime and map exact versions
 to it; do not fork application coordination or polling in Swift.
 
-Moving an OS capability such as Bluetooth, background execution, archive
-presentation, or the loopback server into Rust requires a separate incremental
-OpenSpec change. Android integration remains independent of this Apple cutover.
+The thin transport adapter supplies HTML, platform launch metadata, native
+operations and complete domain facts to `backends/core/loopback-server`. Rust owns
+routes, authentication, public projection, historical reads and compression;
+FlyingFox and the Swift history payload builders have been removed. Moving an
+additional OS capability requires a separate incremental OpenSpec change.

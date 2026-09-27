@@ -5,8 +5,10 @@ context: |
   Android. frontend/src/lib/backend/contract.ts is the small hand-written
   contract source of truth. Backends implement it without generated models;
   conformance/ owns the canonical black-box suite and VESC simulation.
-  Native services own Bluetooth, background execution, durable SQLite logging,
-  permissions, lifecycle, exports, and the authenticated loopback server.
+  Native services own Bluetooth, background execution, permissions, lifecycle,
+  exports and the session catalog. The selected Rust runtime owns protocol and
+  durable session work; loopback-server owns authenticated HTTP/WebSocket routes,
+  public projection and bounded history reads through the existing C/JNI bindings.
   The project is still in test-stage: incompatible databases are deleted and
   recreated from the current schema rather than migrated.
   Prefer deletion, standard libraries, and small maintained dependencies.

@@ -5,29 +5,29 @@ assigned coverage, not claims that those tests already exist or pass. Public
 field/page/cursor/schema limits remain exactly those inventoried in baseline.md.
 All counts include in-flight work; draining a queue does not release admission.
 
-| Resource                                                |           Maximum | Enforcement and assigned boundary test                                                                       |
-| ------------------------------------------------------- | ----------------: | ------------------------------------------------------------------------------------------------------------ |
-| Accepted sockets (HTTP and upgraded WebSocket combined) |                16 | Acquire before connection task creation; `connection_admission` accepts 16, rejects 17, recovers after close |
-| Accepted host operations per server generation          |                64 | Queued and executing combined; `operation_admission` accepts 64, rejects 65 before host execution            |
-| Outstanding operations per client                       |                 8 | `client_admission` verifies ninth rejection does not affect another client                                   |
-| Correlated replies per client                           |                 8 | Separate FIFO; `slow_client_replies` checks correlation/no conflation; close on sustained inability to send  |
-| Pending complete state per client                       |                 1 | `slow_client_state` replaces latest only, never replies                                                      |
-| Host drain batch                                        |      8 operations | `drain_boundary` verifies size and FIFO; byte ceiling may produce a smaller batch                            |
-| Host command/completion envelope                        |   1,048,576 bytes | `envelope_boundary` checks exact/+1, malformed/unknown/version rejection before admission                    |
-| WebSocket assembled message                             |      65,536 bytes | `fragmented_message_boundary` checks exact/+1 across fragments, not just individual frames                   |
-| Session-data/export request                             |      16,384 bytes | `streamed_request_boundary` checks exact/+1 with and without Content-Length                                  |
-| Decoded historical response                             |   4,194,304 bytes | `decoded_response_boundary` checks encoded output before gzip; oversized result releases read lease          |
-| Historical reads                                        |                 2 | `history_read_admission` holds two and rejects third; cancellation releases capacity                         |
-| Active archive transfers                                |                 2 | `transfer_admission` checks third rejection before temporary storage creation                                |
-| Archive chunk                                           |  65,536 raw bytes | `transfer_chunk_boundary` checks exact/+1 and generation/handle/offset; caller-owned binary copy, no base64  |
-| Pending chunks per transfer                             |                 1 | `transfer_backpressure` prevents further socket/host reads until consumption                                 |
-| Import total                                            | 134,217,728 bytes | `streamed_import_boundary` exact/+1, absent Content-Length, cumulative checked arithmetic and cleanup        |
-| Shared async executor threads                           |                 1 | Current-thread Tokio runtime on dedicated server thread; `executor_ownership` excludes UI/runtime executors  |
-| Blocking response workers                               |                 2 | Admission before scheduling; `worker_admission` verifies no unbounded blocking-task queue                    |
-| Dedicated native host drain workers                     |                 1 | `host_reentry` races complete/publish/runtime read/stop; serialized mutations retain application ordering    |
-| Native drain wait                                       |            250 ms | `wait_and_stop` exact maximum, interruption, stop wakeup; never called on UI executor                        |
-| Socket read/write inactivity                            | 30 s; ping every 10 s | Canonical transport holds responsive and non-pong peers for 32 s and verifies survival/closure                               |
-| Listener stop                                           |               2 s | `stop_deadline` races reads, gzip, transfer and host completion; all transport tasks join within deadline    |
+| Resource                                                |               Maximum | Enforcement and assigned boundary test                                                                       |
+| ------------------------------------------------------- | --------------------: | ------------------------------------------------------------------------------------------------------------ |
+| Accepted sockets (HTTP and upgraded WebSocket combined) |                    16 | Acquire before connection task creation; `connection_admission` accepts 16, rejects 17, recovers after close |
+| Accepted host operations per server generation          |                    64 | Queued and executing combined; `operation_admission` accepts 64, rejects 65 before host execution            |
+| Outstanding operations per client                       |                     8 | `client_admission` verifies ninth rejection does not affect another client                                   |
+| Correlated replies per client                           |                     8 | Separate FIFO; `slow_client_replies` checks correlation/no conflation; close on sustained inability to send  |
+| Pending complete state per client                       |                     1 | `slow_client_state` replaces latest only, never replies                                                      |
+| Host drain batch                                        |          8 operations | `drain_boundary` verifies size and FIFO; byte ceiling may produce a smaller batch                            |
+| Host command/completion envelope                        |       1,048,576 bytes | `envelope_boundary` checks exact/+1, malformed/unknown/version rejection before admission                    |
+| WebSocket assembled message                             |          65,536 bytes | `fragmented_message_boundary` checks exact/+1 across fragments, not just individual frames                   |
+| Session-data/export request                             |          16,384 bytes | `streamed_request_boundary` checks exact/+1 with and without Content-Length                                  |
+| Decoded historical response                             |       4,194,304 bytes | `decoded_response_boundary` checks encoded output before gzip; oversized result releases read lease          |
+| Historical reads                                        |                     2 | `history_read_admission` holds two and rejects third; cancellation releases capacity                         |
+| Active archive transfers                                |                     2 | `transfer_admission` checks third rejection before temporary storage creation                                |
+| Archive chunk                                           |      65,536 raw bytes | `transfer_chunk_boundary` checks exact/+1 and generation/handle/offset; caller-owned binary copy, no base64  |
+| Pending chunks per transfer                             |                     1 | `transfer_backpressure` prevents further socket/host reads until consumption                                 |
+| Import total                                            |     134,217,728 bytes | `streamed_import_boundary` exact/+1, absent Content-Length, cumulative checked arithmetic and cleanup        |
+| Shared async executor threads                           |                     1 | Current-thread Tokio runtime on dedicated server thread; `executor_ownership` excludes UI/runtime executors  |
+| Blocking response workers                               |                     2 | Admission before scheduling; `worker_admission` verifies no unbounded blocking-task queue                    |
+| Dedicated native host drain workers                     |                     1 | `host_reentry` races complete/publish/runtime read/stop; serialized mutations retain application ordering    |
+| Native drain wait                                       |                250 ms | `wait_and_stop` exact maximum, interruption, stop wakeup; never called on UI executor                        |
+| Socket read/write inactivity                            | 30 s; ping every 10 s | Canonical transport holds responsive and non-pong peers for 32 s and verifies survival/closure               |
+| Listener stop                                           |                   2 s | `stop_deadline` races reads, gzip, transfer and host completion; all transport tasks join within deadline    |
 
 There are no new archive content/identity limits. Export length is the immutable,
 validated host file length and is streamed in bounded chunks; it must not be

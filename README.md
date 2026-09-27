@@ -20,10 +20,11 @@ small hand-written contract in `frontend/src/lib/backend/contract.ts`.
 - `tools/vesc-test-device/` — pure ESP-IDF firmware, built with PlatformIO, that
   only bridges a serial line protocol to a fixed BLE GATT service.
 
-Native backends own Bluetooth, protocol decoding, durable sessions, permissions,
-exports, lifecycle, and the authenticated loopback server. They serve only the
-embedded HTML at `/`, bootstrap data at `/api/bootstrap`, and the contract
-WebSocket at `/api/ws`.
+Native hosts own Bluetooth, permissions, exports, lifecycle and the session
+catalog. The shared Rust runtime owns protocol processing and durable session
+work. `backends/core/loopback-server` owns authenticated HTTP/WebSocket transport,
+complete state projection and historical responses through the existing C/JNI
+binding families. Hosts provide embedded HTML and execute typed native operations.
 
 ## Commands
 

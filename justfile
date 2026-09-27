@@ -235,6 +235,10 @@ audit:
     [[ ! -e backends/core/bridge-build-catalog.sh ]]
     [[ ! -e backends/core/build-android-bridge.sh ]]
     ! git ls-files | rg '\.(a|so|dylib|xcframework)$'
+    ! rg -n 'FlyingFox|io\.ktor|libs\.ktor|ktor-server' backends/apple backends/android \
+      -g '*.swift' -g '*.kt' -g '*.kts' -g '*.toml' -g '*.pbxproj' -g 'Package.resolved'
+    ! rg -n 'case "state.get"|"state.get" ->|GZIPOutputStream|SessionHistoryReducer' \
+      backends/apple/Sources backends/android/app/src/main
     backends/core/audit-migration-convergence.sh
     git diff --check
 

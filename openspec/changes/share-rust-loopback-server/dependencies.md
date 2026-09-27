@@ -85,13 +85,12 @@ Lockfile delta: 62 external package/version entries, including platform-specific
 | wit-bindgen       | 0.57.1                        | Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT |
 | zerocopy          | 0.8.57                        | BSD-2-Clause OR Apache-2.0 OR MIT                   |
 | zerocopy-derive   | 0.8.57                        | BSD-2-Clause OR Apache-2.0 OR MIT                   |
-
-| deranged | 0.5.8 | MIT OR Apache-2.0 |
-| num-conv | 0.2.2 | MIT OR Apache-2.0 |
-| powerfmt | 0.2.0 | MIT OR Apache-2.0 |
-| time | 0.3.53 | MIT OR Apache-2.0 |
-| time-core | 0.1.9 | MIT OR Apache-2.0 |
-| time-macros | 0.2.31 | MIT OR Apache-2.0 |
+| deranged          | 0.5.8                         | MIT OR Apache-2.0                                   |
+| num-conv          | 0.2.2                         | MIT OR Apache-2.0                                   |
+| powerfmt          | 0.2.0                         | MIT OR Apache-2.0                                   |
+| time              | 0.3.53                        | MIT OR Apache-2.0                                   |
+| time-core         | 0.1.9                         | MIT OR Apache-2.0                                   |
+| time-macros       | 0.2.31                        | MIT OR Apache-2.0                                   |
 
 ## Compile evidence
 
