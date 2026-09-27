@@ -72,7 +72,7 @@ The runtime component SHALL make the existing session reader and pruner operatio
 
 ### Requirement: Platform responsibilities remain outside the runtime
 
-The runtime MUST express Bluetooth I/O, clocks, timers, persistence paths, cache access, routing-hint storage, and activation as caller facts or returned effects. Bluetooth adapters, location acquisition, lifecycle/background execution, permissions, native file presentation, theme, WebViews, and loopback authentication/transport SHALL remain platform-owned.
+The runtime MUST express Bluetooth I/O, clocks, timers, persistence paths, cache access, routing-hint storage, and activation as caller facts or returned effects. Bluetooth adapters, location acquisition, lifecycle/background execution, permissions, native file presentation, theme, and WebViews SHALL remain platform-owned. Shared Rust transport SHALL own loopback authentication and the frontend API above the application runtime. The application runtime MUST remain independent of HTTP, sockets, and server executors.
 
 #### Scenario: Execute runtime effects
 

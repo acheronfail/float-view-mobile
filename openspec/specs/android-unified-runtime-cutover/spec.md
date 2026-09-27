@@ -1,11 +1,11 @@
 # android-unified-runtime-cutover Specification
 
 ## Purpose
-TBD - created by archiving change cut-over-android-to-unified-rust-runtime. Update Purpose after archive.
+Define Android's selection of the unified Rust runtime, retained native responsibilities, and required deletion, packaging, and verification evidence.
 ## Requirements
 ### Requirement: Android selects one unified Rust runtime
 
-The Android backend SHALL select one process-owned unified Rust application runtime through one bounded callback-free JNI boundary and SHALL retain Bluetooth, execution, lifecycle/background service, permissions, location acquisition, native file presentation, theme/UI, loopback transport/authentication, product catalogue, and import/export presentation as Kotlin-owned OS responsibilities.
+The Android backend SHALL select one process-owned unified Rust application runtime through one bounded callback-free JNI boundary and SHALL retain Bluetooth, execution, lifecycle/background service, permissions, location acquisition, native file presentation, theme/UI, product catalogue, and import/export presentation as Kotlin-owned OS responsibilities. Shared Rust SHALL own loopback transport, authentication, frontend dispatch, and serialization. Kotlin SHALL supply typed facts and execute bounded host operations without duplicating the frontend API.
 
 #### Scenario: Execute an ordered runtime result
 

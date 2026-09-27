@@ -1,7 +1,7 @@
 # apple-unified-runtime-cutover Specification
 
 ## Purpose
-TBD - created by archiving change cut-over-apple-to-unified-rust-runtime. Update Purpose after archive.
+Define the shared Apple backend's selection of the unified Rust runtime, bounded native integration, and required ownership and verification evidence.
 ## Requirements
 ### Requirement: Apple selects one coarse runtime boundary
 
@@ -24,7 +24,7 @@ iOS and macOS SHALL use one process-owned Rust application runtime as the sole p
 
 ### Requirement: Apple retains OS and contract ownership
 
-Swift SHALL retain Bluetooth execution, clocks/timers, lifecycle/background work, permissions, location acquisition, native file presentation, theme/UI integration, WebView ownership, authenticated loopback transport, product catalogue metadata, and export/import presentation. Runtime state and durable session data SHALL survive disposable WebView replacement and remain exposed only through the existing authenticated frontend contract.
+Swift SHALL retain Bluetooth execution, clocks/timers, lifecycle/background work, permissions, location acquisition, native file presentation, theme/UI integration, WebView ownership, product catalogue metadata, and export/import presentation. Shared Rust SHALL own loopback transport, authentication, frontend dispatch, and serialization. Swift SHALL supply typed facts and execute bounded host operations without duplicating the frontend API. Runtime state and durable session data SHALL survive disposable WebView replacement and remain exposed only through the existing authenticated frontend contract.
 
 #### Scenario: Execute an effect
 
@@ -101,4 +101,3 @@ Apple production ownership SHALL transfer only after focused Rust/Swift tests, p
 
 - **WHEN** Apple physical verification completes
 - **THEN** Android hardware verification remains explicitly deferred while Android software checks and production behavior remain unchanged
-

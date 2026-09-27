@@ -2,7 +2,7 @@
 
 ## Purpose
 
-TBD - created by archiving change saved-board-sessions-and-guest-mode. Update Purpose after archive.
+Define saved-board session history, its bounded navigation and persistence, and the separation between saved recording and guest connections.
 
 ## Requirements
 

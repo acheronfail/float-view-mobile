@@ -17,7 +17,7 @@ The repository SHALL place the frontend under `/frontend`, the shared Apple impl
 
 ### Requirement: One shared Apple backend
 
-iOS and macOS under `/backends/apple` SHALL use the same Apple backend implementation for application state, Bluetooth, VESC protocol, storage, loopback transport, and contract dispatch.
+iOS and macOS under `/backends/apple` SHALL use the same Apple adapters for Bluetooth, storage, lifecycle, and OS integration. Apple and Android SHALL select the same Rust application runtime and shared Rust loopback server. The shared server SHALL own transport, authentication, contract dispatch, and frontend serialization while platform adapters retain OS execution and catalog storage.
 
 #### Scenario: Apple behavior change
 
