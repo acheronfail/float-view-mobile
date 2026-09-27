@@ -13,7 +13,6 @@ let package = Package(
     .executable(name: "FloatViewMac", targets: ["FloatViewMac"]),
   ],
   dependencies: [
-    .package(url: "https://github.com/swhitty/FlyingFox.git", from: "0.27.1"),
     .package(path: "../fixtures/refloat-configuration"),
   ],
   targets: [
@@ -25,7 +24,6 @@ let package = Package(
         "CSQLite",
         "CFloatViewApplicationRuntime",
         .product(name: "RefloatConfigurationFixtures", package: "refloat-configuration"),
-        .product(name: "FlyingFox", package: "FlyingFox"),
       ],
       linkerSettings: [
         .unsafeFlags(["-L", rustLibraryPath]),

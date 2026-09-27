@@ -18,6 +18,13 @@ enum ServerFacts {
     if let value = value as? NSNumber {
       return value
     }
+    if let value = value as? ConnectionState {
+      switch value {
+      case .discoveringServices: return "discovering_services"
+      case .enablingNotifications: return "enabling_notifications"
+      default: return value.rawValue
+      }
+    }
     if let value = value as? FirmwareRecord {
       return ["major": value.major, "minor": value.minor,
               "hardwareName": value.hardwareName as Any? ?? NSNull()] as [String: Any]
@@ -76,9 +83,6 @@ enum ServerFacts {
         }
         if value is RefloatConfigurationField, label == "type" {
           name = "fieldType"
-        }
-        if value is SessionSeriesPoint, label == "rideState" {
-          continue
         }
         result[name] = try encode(child.value)
       }

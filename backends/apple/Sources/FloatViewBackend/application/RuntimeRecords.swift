@@ -113,59 +113,6 @@ public enum RefloatConfigurationAvailability: String, Sendable, Codable {
   case loading, ready, unavailable
 }
 
-public struct SessionElapsedRange: Sendable, Codable, Equatable {
-  public let startElapsedMs: Int64
-  public let endElapsedMs: Int64
-
-  public init(startElapsedMs: Int64, endElapsedMs: Int64) {
-    self.startElapsedMs = startElapsedMs
-    self.endElapsedMs = endElapsedMs
-  }
-}
-
-public struct SessionGapPolicyRecord: Sendable, Codable, Equatable {
-  public let thresholdSeconds: Double?
-
-  public init(thresholdSeconds: Double?) {
-    self.thresholdSeconds = thresholdSeconds
-  }
-}
-
-public struct SessionSeriesColumnRecord: Sendable, Codable, Equatable {
-  public let elapsedMs: [Int64]
-  public let sequence: [Int64]
-  public let values: [Double?]
-  public let generations: [Int]
-
-  public init(elapsedMs: [Int64], sequence: [Int64], values: [Double?], generations: [Int]) {
-    self.elapsedMs = elapsedMs
-    self.sequence = sequence
-    self.values = values
-    self.generations = generations
-  }
-}
-
-public struct SessionHistoryCursor: Sendable, Codable, Equatable {
-  public let version: Int
-  public let sessionID: String
-  public let snapshot: SessionPublishedSnapshotRecord
-  public let range: SessionElapsedRange
-  public let elapsedMs: Int64
-  public let sequence: Int64
-
-  public init(
-    sessionID: String, snapshot: SessionPublishedSnapshotRecord,
-    range: SessionElapsedRange, elapsedMs: Int64, sequence: Int64
-  ) {
-    version = 1
-    self.sessionID = sessionID
-    self.snapshot = snapshot
-    self.range = range
-    self.elapsedMs = elapsedMs
-    self.sequence = sequence
-  }
-}
-
 /// Host scheduling values passed into the shared runtime. The policy itself is Rust-owned.
 public struct SamplingSettings: Equatable, Sendable {
   public var idleProbeIntervalMs: Int64

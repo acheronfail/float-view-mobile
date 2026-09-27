@@ -21,6 +21,11 @@ private struct ServerClock: ClockPort {
 
 @Suite(.serialized)
 struct SharedServerTests {
+  @Test func nativeConnectionPhasesUseSharedDomainNames() throws {
+    #expect(try ServerFacts.encode(ConnectionState.discoveringServices) as? String == "discovering_services")
+    #expect(try ServerFacts.encode(ConnectionState.enablingNotifications) as? String == "enabling_notifications")
+  }
+
   @Test func canonicalCandidate() throws {
     let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
       .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()

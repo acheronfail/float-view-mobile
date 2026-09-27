@@ -95,7 +95,7 @@ private func makeStore(_ root: URL) throws -> SQLiteLogStore {
   #expect(try FileManager.default.fileExists(atPath: store.sessionURL(sessionID: record.sessionID.value).path))
 }
 
-@Test func unifiedRuntimeReadsReducesLocationsAndPrunesSQLiteSessions() throws {
+@Test func unifiedRuntimePrunesNativeSQLiteSessions() throws {
   let root = FileManager.default.temporaryDirectory.appending(path: "float-view-runtime-session-\(UUID())")
   defer { try? FileManager.default.removeItem(at: root) }
   let store = try makeStore(root)
@@ -128,30 +128,6 @@ private func makeStore(_ root: URL) throws -> SQLiteLogStore {
     bluetooth: TestBluetooth(), clock: TestClock(), logStore: store,
     productStore: store, sessionStore: store, events: EventHub()
   )
-  let snapshot = try service.sessionSnapshot(sessionID: record.sessionID.value)
-  let rows = try service.querySessionSeriesSource(
-    sessionID: record.sessionID.value, startElapsedMs: 0, endElapsedMs: 30_000,
-    fields: ["packVoltageV", "future.energy"], maxRows: 2_000,
-    publishedSampleSequence: snapshot.committedSampleSequence
-  )
-  #expect(rows.count == 31)
-  #expect(rows.last?.values["future.energy"] == 30)
-  let reduced = try service.reduceSessionSeries(
-    sessionID: record.sessionID.value, startElapsedMs: 0, endElapsedMs: 30_000,
-    fields: ["packVoltageV"], buckets: 8, gapPolicy: .init(thresholdSeconds: nil),
-    expectedPersistenceMs: 1_000, expectedRidingPersistenceMs: 1_000,
-    expectedIdlePersistenceMs: 1_000, retainedResolutionSeconds: 0,
-    publishedSampleSequence: snapshot.committedSampleSequence
-  )
-  #expect(reduced.sourceRows == 31)
-  #expect(!(reduced.columns["packVoltageV"]?.values.isEmpty ?? true))
-  #expect(try service.sessionExtensionFields(sessionID: record.sessionID.value) == ["future.energy"])
-  let locations = try service.querySessionLocations(
-    sessionID: record.sessionID.value, startElapsedMs: 0, endElapsedMs: 30_000,
-    limit: 10, cursor: nil, publishedLocationSequence: snapshot.committedLocationSequence
-  )
-  #expect(locations.points.count == 2)
-  #expect(locations.gaps.count == 1)
   let preview = try service.prunePreview(sessionID: record.sessionID.value, targetResolutionSeconds: 5)
   #expect(preview.recordedSampleCount == 31)
   _ = try service.pruneSession(sessionID: record.sessionID.value, targetResolutionSeconds: 5)

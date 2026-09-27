@@ -279,188 +279,11 @@ public final class ApplicationService: @unchecked Sendable {
     return try sessionStore.sessionSnapshot(sessionID: sessionID)
   }
 
-  public func sessionHistoryConfiguration(sessionID: String) throws -> SessionHistoryConfiguration {
-    let value = try rustSessionQuery([
-      "command": "session_metadata", "path": sessionPath(sessionID),
-    ])
-    guard let riding = Self.int64(value["expected_riding_persistence_ms"]),
-          let idle = Self.int64(value["expected_idle_persistence_ms"]),
-          let resolution = Self.int64(value["retained_resolution_seconds"])
-    else { throw SessionStoreError.sessionNotFound }
-    return SessionHistoryConfiguration(
-      expectedRidingPersistenceMs: riding, expectedIdlePersistenceMs: idle,
-      retainedResolutionSeconds: resolution
-    )
-  }
-
-  public func querySessionSeries(
-    sessionID: String,
-    startElapsedMs: Int64,
-    endElapsedMs: Int64,
-    fields: [String],
-    maxPoints: Int,
-    publishedSampleSequence: Int64? = nil
-  ) throws -> [SessionSeriesPoint] {
-    try rustSessionSamples(
-      sessionID: sessionID, startElapsedMs: startElapsedMs, endElapsedMs: endElapsedMs,
-      fields: fields, maxRows: maxPoints, publishedSampleSequence: publishedSampleSequence
-    )
-  }
-
-  public func querySessionSeriesSource(
-    sessionID: String,
-    startElapsedMs: Int64,
-    endElapsedMs: Int64,
-    fields: [String],
-    maxRows: Int,
-    publishedSampleSequence: Int64? = nil, afterElapsedMs: Int64? = nil, afterSequence: Int64? = nil
-  ) throws -> [SessionSeriesPoint] {
-    try rustSessionSamples(
-      sessionID: sessionID, startElapsedMs: startElapsedMs, endElapsedMs: endElapsedMs,
-      fields: fields, maxRows: maxRows, publishedSampleSequence: publishedSampleSequence,
-      initialElapsed: afterElapsedMs,
-      initialSequence: afterSequence
-    )
-  }
-
-  public func reduceSessionSeries(
-    sessionID: String,
-    startElapsedMs: Int64,
-    endElapsedMs: Int64,
-    fields: [String],
-    buckets: Int,
-    gapPolicy: SessionGapPolicyRecord,
-    expectedPersistenceMs _: Int64,
-    expectedRidingPersistenceMs _: Int64?,
-    expectedIdlePersistenceMs _: Int64?,
-    retainedResolutionSeconds _: Int64,
-    publishedSampleSequence: Int64? = nil
-  ) throws -> SessionSeriesReductionRecord {
-    let snapshot = try sessionSnapshot(sessionID: sessionID)
-    let started = DispatchTime.now().uptimeNanoseconds
-    let value = try rustSessionQuery([
-      "command": "session_reduce", "path": sessionPath(sessionID), "fields": fields,
-      "start_elapsed_ms": startElapsedMs, "end_elapsed_ms": endElapsedMs, "buckets": buckets,
-      "gap_seconds": gapPolicy.thresholdSeconds ?? NSNull(),
-      "boundary": Self.boundary(snapshot, sampleSequence: publishedSampleSequence),
-    ])
-    let columns = (value["columns"] as? [[String: Any]] ?? []).reduce(into: [String: SessionSeriesColumnRecord]()) {
-      guard let field = $1["field"] as? String,
-            let elapsed = Self.int64s($1["elapsed_ms"]),
-            let sequences = Self.int64s($1["sequences"]),
-            let values = Self.optionalDoubles($1["values"]),
-            let generations = Self.ints($1["generations"])
-      else { return }
-      $0[field] = SessionSeriesColumnRecord(
-        elapsedMs: elapsed, sequence: sequences, values: values, generations: generations
-      )
-    }
-    let elapsed = Double(DispatchTime.now().uptimeNanoseconds - started) / 1_000_000
-    return SessionSeriesReductionRecord(
-      columns: columns, sourceRows: Int(Self.int64(value["source_rows"]) ?? 0),
-      sourceMs: elapsed, reducerMs: 0, elapsedMs: elapsed
-    )
-  }
-
-  public func withSessionReadCancellation<T>(
-    _ cancellation: SessionReadCancellation,
-    body: () throws -> T
-  ) rethrows -> T {
-    let registration = cancellation.register { [rustRuntime] in rustRuntime.interrupt() }
-    defer { cancellation.unregister(registration) }
-    return try body()
-  }
-
-  public func sessionEvents(
-    sessionID: String,
-    startElapsedMs: Int64,
-    endElapsedMs: Int64,
-    publishedEventSequence: Int64? = nil, limit: Int = 500, afterElapsedMs: Int64? = nil, afterSequence: Int64? = nil
-  ) throws -> [SessionEventRecord] {
-    let snapshot = try sessionSnapshot(sessionID: sessionID)
-    let value = try rustSessionQuery([
-      "command": "session_events", "path": sessionPath(sessionID),
-      "start_elapsed_ms": startElapsedMs, "end_elapsed_ms": endElapsedMs, "limit": limit,
-      "after_elapsed_ms": afterElapsedMs as Any? ?? NSNull(), "after_sequence": afterSequence as Any? ?? NSNull(),
-      "boundary": Self.boundary(snapshot, eventSequence: publishedEventSequence),
-    ])
-    return (value["rows"] as? [[String: Any]] ?? []).compactMap {
-      guard let sequence = Self.int64($0["sequence"]), let elapsed = Self.int64($0["elapsed_ms"]),
-            let kind = $0["kind"] as? String, let details = $0["details_json"] as? String
-      else { return nil }
-      return SessionEventRecord(
-        eventID: String(sequence), elapsedMs: elapsed, kind: kind, detailsJSON: details,
-        sourceSampleSequence: Self.int64($0["source_sample_sequence"])
-      )
-    }
-  }
-
-  public func querySessionLocations(
-    sessionID: String,
-    startElapsedMs: Int64,
-    endElapsedMs: Int64,
-    limit: Int,
-    cursor: String?,
-    publishedLocationSequence: Int64?
-  ) throws -> SessionLocationPageRecord {
-    let snapshot = try sessionSnapshot(sessionID: sessionID)
-    let after = cursor.flatMap { Data(base64Encoded: $0) }
-      .flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
-      .flatMap { Self.int64($0["locationSequence"]) }
-    let value = try rustSessionQuery([
-      "command": "session_locations", "path": sessionPath(sessionID),
-      "start_elapsed_ms": startElapsedMs, "end_elapsed_ms": endElapsedMs, "limit": limit,
-      "after_location_sequence": after ?? NSNull(),
-      "boundary": Self.boundary(snapshot, locationSequence: publishedLocationSequence),
-    ])
-    let points: [SessionLocationPointRecord] = (value["rows"] as? [[String: Any]] ?? []).compactMap {
-      guard let sequence = Self.int64($0["location_sequence"]), let elapsed = Self.int64($0["elapsed_ms"]),
-            let observed = Self.int64($0["observed_at_epoch_ms"]),
-            let latitude = Self.double($0["latitude"]), let longitude = Self.double($0["longitude"])
-      else { return nil }
-      return SessionLocationPointRecord(
-        locationSequence: sequence, elapsedMs: elapsed, latitude: latitude, longitude: longitude,
-        accuracyM: Self.double($0["accuracy_m"]),
-        observedAt: Date(timeIntervalSince1970: Double(observed) / 1_000)
-      )
-    }
-    let gaps: [SessionLocationGapRecord] = (value["gaps"] as? [[String: Any]] ?? []).compactMap {
-      guard let start = Self.int64($0["start_elapsed_ms"]), let end = Self.int64($0["end_elapsed_ms"])
-      else { return nil }
-      return SessionLocationGapRecord(startElapsedMs: start, endElapsedMs: end, reason: "noFix")
-    }
-    let next = Self.int64(value["next_location_sequence"]).flatMap { sequence in
-      try? JSONSerialization.data(withJSONObject: [
-        "sessionId": sessionID, "startElapsedMs": startElapsedMs, "endElapsedMs": endElapsedMs,
-        "historyRevision": snapshot.historyRevision, "locationSequence": sequence,
-      ]).base64EncodedString()
-    }
-    return SessionLocationPageRecord(points: points, gaps: gaps, nextCursor: next, snapshot: snapshot)
-  }
-
-  public func sessionExtensionFields(sessionID: String) throws -> [String] {
-    let value = try rustSessionQuery(["command": "session_fields", "path": sessionPath(sessionID)])
-    return (value["rows"] as? [[String: Any]] ?? []).compactMap {
-      ($0["source"] as? String) == "extension" ? $0["name"] as? String : nil
-    }
-  }
-
-  public func sessionPruneMetadata(sessionID: String) throws -> SessionPruneMetadataRecord {
-    let value = try rustSessionQuery(["command": "session_metadata", "path": sessionPath(sessionID)])
-    return SessionPruneMetadataRecord(
-      targetResolutionSeconds: Self.int64(value["retained_resolution_seconds"]).flatMap { $0 == 0 ? nil : $0 },
-      recordedSampleCount: Self.int64(value["recorded_sample_count"]) ?? 0,
-      storedSampleCount: Self.int64(value["stored_sample_count"]) ?? 0,
-      policy: value["prune_policy"] as? String
-    )
-  }
-
   public func prunePreview(sessionID: String, targetResolutionSeconds: Int64) throws -> SessionPrunePreviewRecord {
     try rustPrune(sessionID: sessionID, targetResolutionSeconds: targetResolutionSeconds, commit: false)
   }
 
   public func pruneSession(sessionID: String, targetResolutionSeconds: Int64) throws -> SessionPrunePreviewRecord {
-    sessionStore?.cancelHistoricalReads(sessionID: sessionID)
     let value = try rustPrune(sessionID: sessionID, targetResolutionSeconds: targetResolutionSeconds, commit: true)
     try sessionStore?.reconcileSession(sessionID: sessionID)
     return value
@@ -479,21 +302,6 @@ public final class ApplicationService: @unchecked Sendable {
   public func cancelMaintenanceJob(operationID: String) throws -> SessionMaintenanceJobRecord? {
     guard let sessionStore else { throw ApplicationError.productStoreUnavailable }
     return try sessionStore.cancelMaintenanceJob(operationID: operationID)
-  }
-
-  public func querySampleWindow(
-    sessionID: String,
-    centerElapsedMs: Int64,
-    beforeMs: Int64,
-    afterMs: Int64,
-    fields: [String],
-    publishedSampleSequence: Int64? = nil
-  ) throws -> [SessionSeriesPoint] {
-    try rustSessionSamples(
-      sessionID: sessionID, startElapsedMs: max(0, centerElapsedMs - beforeMs),
-      endElapsedMs: centerElapsedMs + afterMs, fields: fields, maxRows: 2_000,
-      publishedSampleSequence: publishedSampleSequence
-    )
   }
 
   public func deleteSession(sessionID: String) throws {
@@ -1281,66 +1089,6 @@ public final class ApplicationService: @unchecked Sendable {
     }
   }
 
-  private static func boundary(
-    _ snapshot: SessionPublishedSnapshotRecord,
-    sampleSequence: Int64? = nil,
-    eventSequence: Int64? = nil,
-    locationSequence: Int64? = nil
-  ) -> [String: Any] {
-    [
-      "history_revision": snapshot.historyRevision,
-      "sample_sequence": sampleSequence ?? snapshot.committedSampleSequence,
-      "event_sequence": eventSequence ?? snapshot.committedEventSequence,
-      "location_sequence": locationSequence ?? snapshot.committedLocationSequence,
-    ]
-  }
-
-  private func rustSessionSamples(
-    sessionID: String,
-    startElapsedMs: Int64,
-    endElapsedMs: Int64,
-    fields: [String],
-    maxRows: Int,
-    publishedSampleSequence: Int64?, initialElapsed: Int64? = nil, initialSequence: Int64? = nil
-  ) throws -> [SessionSeriesPoint] {
-    guard maxRows > 0 else { throw SessionStoreError.invalidRange }
-    let snapshot = try sessionSnapshot(sessionID: sessionID)
-    let path = try sessionPath(sessionID)
-    var rows: [SessionSeriesPoint] = []
-    var afterElapsed: Any = initialElapsed as Any? ?? NSNull()
-    var afterSequence: Any = initialSequence as Any? ?? NSNull()
-    while rows.count < maxRows {
-      let value = try rustSessionQuery([
-        "command": "session_samples", "path": path, "fields": fields,
-        "start_elapsed_ms": startElapsedMs, "end_elapsed_ms": endElapsedMs,
-        "limit": min(2_000, maxRows - rows.count),
-        "after_elapsed_ms": afterElapsed, "after_sequence": afterSequence,
-        "boundary": Self.boundary(snapshot, sampleSequence: publishedSampleSequence),
-      ])
-      let page = (value["rows"] as? [[String: Any]] ?? []).compactMap { row -> SessionSeriesPoint? in
-        guard let elapsed = Self.int64(row["elapsed_ms"]), let sequence = Self.int64(row["sequence"]),
-              let rawValues = row["values"] as? [Any], rawValues.count == fields.count
-        else { return nil }
-        var values: [String: Double?] = [:]
-        for (field, raw) in zip(fields, rawValues) {
-          values[field] = raw is NSNull ? nil : Self.double(raw)
-        }
-        return SessionSeriesPoint(
-          elapsedMs: elapsed, values: values, sequence: sequence,
-          rideState: row["ride_state"] as? String
-        )
-      }
-      rows.append(contentsOf: page)
-      guard let next = value["next"] as? [String: Any],
-            let elapsed = Self.int64(next["elapsed_ms"]),
-            let sequence = Self.int64(next["sequence"])
-      else { break }
-      afterElapsed = elapsed
-      afterSequence = sequence
-    }
-    return rows
-  }
-
   private func rustPrune(
     sessionID: String, targetResolutionSeconds: Int64, commit: Bool
   ) throws -> SessionPrunePreviewRecord {
@@ -1359,19 +1107,6 @@ public final class ApplicationService: @unchecked Sendable {
       estimatedReclaimableBytes: reclaimable, skipped: skipped,
       skipReason: skipped ? "already_at_or_below_target" : nil
     )
-  }
-
-  private static func int64s(_ value: Any?) -> [Int64]? {
-    (value as? [Any])?.compactMap(int64)
-  }
-
-  private static func ints(_ value: Any?) -> [Int]? {
-    int64s(value).map { $0.map(Int.init) }
-  }
-
-  private static func optionalDoubles(_ value: Any?) -> [Double?]? {
-    guard let values = value as? [Any] else { return nil }
-    return values.map { $0 is NSNull ? nil : Self.double($0) }
   }
 
   private func beginRustApplication() throws {

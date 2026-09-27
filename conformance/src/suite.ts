@@ -8,6 +8,7 @@ import type {
   RefloatConfigurationSchemaPage,
 } from '../../frontend/src/lib/backend/contract.ts';
 import { ConformanceClient, ConformanceError } from './client.ts';
+import { exerciseTransport } from './transport.ts';
 
 export interface Target {
   name: string;
@@ -62,6 +63,9 @@ export async function runConformance(target: Target) {
     );
 
     await exerciseProductMethods(client, restored, ['android', 'ios', 'macos'].includes(target.name));
+    if (['android', 'ios', 'macos'].includes(target.name)) {
+      await exerciseTransport(await target.endpoint());
+    }
     return {
       target: target.name,
       revision: (await client.request('state.get', {})).revision,

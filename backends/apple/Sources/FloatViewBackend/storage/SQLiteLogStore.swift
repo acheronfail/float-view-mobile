@@ -17,7 +17,6 @@ public enum SQLiteLogStoreError: Error {
 
 private final class Database: @unchecked Sendable {
   private var handle: OpaquePointer?
-  private var cancellation: SQLiteCancellation?
 
   init(url: URL, readOnly: Bool = false) throws {
     let flags = (readOnly ? SQLITE_OPEN_READONLY : SQLITE_OPEN_CREATE | SQLITE_OPEN_READWRITE)
@@ -76,7 +75,6 @@ private final class Database: @unchecked Sendable {
     bind(values, to: statement)
     var result: [T] = []
     while true {
-      if cancellation?.isCancelled == true { throw SQLiteLogStoreError.cancelled }
       switch sqlite3_step(statement) {
       case SQLITE_ROW: try result.append(map(statement))
       case SQLITE_DONE: return result
@@ -100,7 +98,6 @@ private final class Database: @unchecked Sendable {
     defer { sqlite3_finalize(statement) }
     bind(values, to: statement)
     while true {
-      if cancellation?.isCancelled == true { throw SQLiteLogStoreError.cancelled }
       switch sqlite3_step(statement) {
       case SQLITE_ROW: try body(statement)
       case SQLITE_DONE: return
@@ -123,15 +120,6 @@ private final class Database: @unchecked Sendable {
     return Int(sqlite3_column_int64(statement, 0))
   }
 
-  func interrupt() {
-    cancellation?.cancel()
-    sqlite3_interrupt(handle)
-  }
-
-  func installCancellation(_ value: SQLiteCancellation) {
-    cancellation = value
-  }
-
   private func bind(_ values: [SQLiteValue], to statement: OpaquePointer?) {
     for (index, value) in values.enumerated() {
       let position = Int32(index + 1)
@@ -146,19 +134,6 @@ private final class Database: @unchecked Sendable {
   }
 }
 
-private final class SQLiteCancellation: @unchecked Sendable {
-  private let lock = NSLock()
-  private var value = false
-
-  var isCancelled: Bool {
-    lock.withLock { value }
-  }
-
-  func cancel() {
-    lock.withLock { value = true }
-  }
-}
-
 private let SQLITE_TRANSIENT = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
 
 private enum SQLiteValue {
@@ -166,10 +141,6 @@ private enum SQLiteValue {
   case real(Double)
   case text(String)
   case null
-}
-
-private enum SessionReadCancellationContext {
-  @TaskLocal static var current: SessionReadCancellation?
 }
 
 public final class SQLiteLogStore: LogStorePort, ProductStorePort, SessionStorePort, @unchecked Sendable {
@@ -188,12 +159,6 @@ public final class SQLiteLogStore: LogStorePort, ProductStorePort, SessionStoreP
   private var current: SessionRecord?
   private var session: Database?
   private let lock = NSLock()
-  private var activeReadLeases: [String: Int] = [:]
-  private var maintenanceSessions: Set<String> = []
-  private var historicalConnections: [String: [Database]] = [:]
-  private var historicalCancellations: [String: [SQLiteCancellation]] = [:]
-  private let historicalReadSlots = DispatchSemaphore(value: 2)
-  var onHistoricalReadRegisteredForTesting: (@Sendable (SessionReadCancellation?) -> Void)?
   /// A deletion is marked in the catalog before touching the session file. The
   /// in-memory set closes the small window between the file removal and the
   /// catalog transaction so cancellation cannot resurrect a session after the
@@ -253,7 +218,9 @@ public final class SQLiteLogStore: LogStorePort, ProductStorePort, SessionStoreP
   ) throws -> SessionRecord {
     lock.lock()
     defer { lock.unlock() }
-    if let current { return current }
+    if let current {
+      return current
+    }
     guard StoragePolicy.level(availableBytes: availableBytes()) != .stop else {
       throw SQLiteLogStoreError.storageFull
     }
@@ -470,7 +437,9 @@ public final class SQLiteLogStore: LogStorePort, ProductStorePort, SessionStoreP
           )
         }
         for (kind, value) in Self.transitionValues(sample) {
-          if previousTransitions[kind] == value { continue }
+          if previousTransitions[kind] == value {
+            continue
+          }
           let detailsJSON = try Self.jsonString(["value": value])
           try session.statement(
             """
@@ -576,7 +545,9 @@ public final class SQLiteLogStore: LogStorePort, ProductStorePort, SessionStoreP
     guard let record = current, record.jobID == jobID, let session else {
       throw SQLiteLogStoreError.noActiveSession
     }
-    if observations.isEmpty { return }
+    if observations.isEmpty {
+      return
+    }
     let ordered = observations.sorted { left, right in
       left.elapsedMs < right.elapsedMs || (left.elapsedMs == right.elapsedMs && left.observedAt < right.observedAt)
     }
@@ -594,7 +565,9 @@ public final class SQLiteLogStore: LogStorePort, ProductStorePort, SessionStoreP
           "SELECT EXISTS(SELECT 1 FROM location WHERE monotonic_elapsed_ms = ? AND latitude = ? AND longitude = ?)",
           values: [.integer(observation.elapsedMs), .real(observation.latitude), .real(observation.longitude)]
         ) == 1
-        if duplicate { continue }
+        if duplicate {
+          continue
+        }
         sequence += 1
         try session.statement(
           "INSERT INTO location(location_sequence, observed_at_ms, monotonic_elapsed_ms, latitude, longitude, accuracy_m) VALUES (?, ?, ?, ?, ?, ?)",
@@ -709,7 +682,9 @@ public final class SQLiteLogStore: LogStorePort, ProductStorePort, SessionStoreP
       throw SessionStoreError.invalidRange
     }
     let cursor = try query.cursor.map(Self.decodeCursor)
-    if let cursor, cursor.field != query.sortField { throw SessionStoreError.invalidCursor }
+    if let cursor, cursor.field != query.sortField {
+      throw SessionStoreError.invalidCursor
+    }
     var conditions = ["pending_delete = 0"]
     var values: [SQLiteValue] = []
     if let cursor {
@@ -769,7 +744,9 @@ public final class SQLiteLogStore: LogStorePort, ProductStorePort, SessionStoreP
       map: Self.sessionSummary
     )
     let hasMore = rows.count > query.limit
-    if hasMore { rows.removeLast() }
+    if hasMore {
+      rows.removeLast()
+    }
     let next = hasMore ? rows.last.map { Self.encodeCursor($0, field: query.sortField) } : nil
     return SessionPage(items: rows, nextCursor: next)
   }
@@ -957,7 +934,6 @@ public final class SQLiteLogStore: LogStorePort, ProductStorePort, SessionStoreP
       reclaimableBytes: job.reclaimableBytes, error: job.error
     )
     try saveMaintenanceJob(updated)
-    if let sessionID = job.sessionID { cancelHistoricalReads(sessionID: sessionID) }
     return updated
   }
 
@@ -1342,7 +1318,9 @@ public final class SQLiteLogStore: LogStorePort, ProductStorePort, SessionStoreP
             value["fingerprint"] as? String == identity.schemaFingerprint
       else { throw ProductStoreError.invalidRefloatConfiguration }
       cursorValue = (updated.int64Value, identifier)
-    } else { cursorValue = nil }
+    } else {
+      cursorValue = nil
+    }
     lock.lock()
     defer { lock.unlock() }
     var sql = """
@@ -1363,7 +1341,9 @@ public final class SQLiteLogStore: LogStorePort, ProductStorePort, SessionStoreP
     values.append(.integer(Int64(limit + 1)))
     var records = try catalog.query(sql, values: values, map: Self.refloatConfigurationRecord)
     let hasMore = records.count > limit
-    if hasMore { records.removeLast(records.count - limit) }
+    if hasMore {
+      records.removeLast(records.count - limit)
+    }
     let next = hasMore ? records.last.flatMap { record -> String? in
       let value: [String: Any] = [
         "updatedAtMs": Int64(record.updatedAt.timeIntervalSince1970 * 1_000),
@@ -1568,7 +1548,9 @@ public final class SQLiteLogStore: LogStorePort, ProductStorePort, SessionStoreP
   }
 
   private func deleteSessionLocked(sessionID: String) throws {
-    if current?.sessionID.value == sessionID { throw SessionStoreError.sessionActive }
+    if current?.sessionID.value == sessionID {
+      throw SessionStoreError.sessionActive
+    }
     guard let sessionRow = try catalog.query(
       "SELECT file_name, state, pending_delete FROM session_catalog WHERE session_id = ?",
       values: [.text(sessionID)],
@@ -1578,21 +1560,20 @@ public final class SQLiteLogStore: LogStorePort, ProductStorePort, SessionStoreP
     ).first else {
       return
     }
-    if sessionRow.1 == "active" { throw SessionStoreError.sessionActive }
-    if sessionRow.2 { return }
+    if sessionRow.1 == "active" {
+      throw SessionStoreError.sessionActive
+    }
+    if sessionRow.2 {
+      return
+    }
     try catalog.statement(
       "UPDATE session_catalog SET pending_delete = 1 WHERE session_id = ?",
       values: [.text(sessionID)]
     )
-    // Existing readers retain their WAL snapshot. New readers observe the
-    // pending flag under the same lock and are rejected until cancellation or
-    // the final release completes the deletion.
-    if activeReadLeases[sessionID, default: 0] > 0 { return }
     try finalizePendingDeleteLocked(sessionID: sessionID, fileName: sessionRow.0)
   }
 
   private func finalizePendingDeleteLocked(sessionID: String, fileName: String) throws {
-    guard activeReadLeases[sessionID, default: 0] == 0 else { return }
     guard deletingSessions.insert(sessionID).inserted else { return }
     defer { deletingSessions.remove(sessionID) }
     try removeSessionFiles(fileName: fileName)
@@ -1639,7 +1620,9 @@ public final class SQLiteLogStore: LogStorePort, ProductStorePort, SessionStoreP
     guard format == "float-view-archive" || format == "csv" else {
       throw SessionStoreError.invalidExportFormat
     }
-    if current?.sessionID.value == sessionID { throw SessionStoreError.sessionActive }
+    if current?.sessionID.value == sessionID {
+      throw SessionStoreError.sessionActive
+    }
     guard let sessionRow = try catalog.query(
       """
       SELECT file_name, state FROM session_catalog
@@ -1650,7 +1633,9 @@ public final class SQLiteLogStore: LogStorePort, ProductStorePort, SessionStoreP
     ).first else {
       throw SessionStoreError.sessionNotFound
     }
-    if sessionRow.1 == "active" { throw SessionStoreError.sessionActive }
+    if sessionRow.1 == "active" {
+      throw SessionStoreError.sessionActive
+    }
     let fileName = sessionRow.0
     let exports = root.appending(path: "Exports", directoryHint: .isDirectory)
     try FileManager.default.createDirectory(at: exports, withIntermediateDirectories: true)
@@ -1764,7 +1749,9 @@ public final class SQLiteLogStore: LogStorePort, ProductStorePort, SessionStoreP
     lock.lock()
     defer { lock.unlock() }
     guard data.count <= 128 * 1024 * 1024 else { throw SessionStoreError.invalidArchive }
-    if current != nil { throw SessionStoreError.sessionActive }
+    if current != nil {
+      throw SessionStoreError.sessionActive
+    }
 
     let importID = UUID().uuidString
     let sessionID = importID
@@ -2209,7 +2196,9 @@ public final class SQLiteLogStore: LogStorePort, ProductStorePort, SessionStoreP
     for row in rows {
       if let previousElapsed {
         let delta = max(0, row.elapsed - previousElapsed)
-        if row.riding { ridingElapsed += delta }
+        if row.riding {
+          ridingElapsed += delta
+        }
         if let speed = row.speed {
           distance += ((previousSpeed ?? speed) + speed) * 0.5 * Double(delta) / 1_000
         }
@@ -2317,208 +2306,6 @@ public final class SQLiteLogStore: LogStorePort, ProductStorePort, SessionStoreP
     return try Database(url: root.appending(path: fileName))
   }
 
-  private struct ReadLease {
-    let sessionID: String
-    let fileURL: URL
-  }
-
-  /// Resolve a historical file under the short store lock, then let the
-  /// caller scan it on a dedicated query-only WAL connection. The lease keeps
-  /// deletion from removing a file while a reader is still opening or using
-  /// it, and the deferred transaction gives the request one stable snapshot.
-  private func acquireReadLeaseLocked(sessionID: String) throws -> ReadLease {
-    guard !maintenanceSessions.contains(sessionID) else {
-      throw SessionStoreError.maintenanceInProgress
-    }
-    try reconcileDirtyCatalogLocked()
-    guard let fileName = try catalog.query(
-      """
-      SELECT file_name FROM session_catalog
-      WHERE session_id = ? AND pending_delete = 0
-      """,
-      values: [.text(sessionID)],
-      map: { Self.columnText($0, 0)! }
-    ).first else { throw SessionStoreError.sessionNotFound }
-    activeReadLeases[sessionID, default: 0] += 1
-    return ReadLease(sessionID: sessionID, fileURL: root.appending(path: fileName))
-  }
-
-  private func releaseReadLease(_ lease: ReadLease) {
-    lock.lock()
-    defer { lock.unlock() }
-    guard let count = activeReadLeases[lease.sessionID] else { return }
-    if count <= 1 {
-      activeReadLeases.removeValue(forKey: lease.sessionID)
-      // Deletion is deliberately best-effort here: if the file operation is
-      // interrupted the durable pending marker is retried at the next store
-      // open, and the session remains hidden from new readers meanwhile.
-      if let fileName = try? catalog.query(
-        "SELECT file_name FROM session_catalog WHERE session_id = ? AND pending_delete = 1",
-        values: [.text(lease.sessionID)],
-        map: { Self.columnText($0, 0)! }
-      ).first {
-        try? finalizePendingDeleteLocked(sessionID: lease.sessionID, fileName: fileName)
-      }
-    } else {
-      activeReadLeases[lease.sessionID] = count - 1
-    }
-  }
-
-  private func withReadLease<T>(
-    sessionID: String,
-    body: (Database, SQLiteCancellation) throws -> T
-  ) throws -> T {
-    // Keep historical work bounded independently from the loopback request
-    // executor. The slot is acquired before the lease so a queued request
-    // cannot make deletion appear blocked while it waits for a reader slot.
-    historicalReadSlots.wait()
-    defer { historicalReadSlots.signal() }
-    lock.lock()
-    let lease: ReadLease
-    do {
-      lease = try acquireReadLeaseLocked(sessionID: sessionID)
-    } catch {
-      lock.unlock()
-      throw error
-    }
-    lock.unlock()
-    defer { releaseReadLease(lease) }
-
-    let database = try Database(url: lease.fileURL, readOnly: true)
-    let cancellation = SQLiteCancellation()
-    database.installCancellation(cancellation)
-    let requestCancellation = SessionReadCancellationContext.current
-    lock.lock()
-    historicalConnections[sessionID, default: []].append(database)
-    historicalCancellations[sessionID, default: []].append(cancellation)
-    lock.unlock()
-    let requestRegistration = requestCancellation?.register { database.interrupt() }
-    defer {
-      requestCancellation?.unregister(requestRegistration)
-      lock.lock()
-      historicalConnections[sessionID]?.removeAll { $0 === database }
-      if historicalConnections[sessionID]?.isEmpty == true {
-        historicalConnections.removeValue(forKey: sessionID)
-      }
-      historicalCancellations[sessionID]?.removeAll { $0 === cancellation }
-      if historicalCancellations[sessionID]?.isEmpty == true {
-        historicalCancellations.removeValue(forKey: sessionID)
-      }
-      lock.unlock()
-    }
-    onHistoricalReadRegisteredForTesting?(requestCancellation)
-    try database.execute("PRAGMA query_only = ON; PRAGMA busy_timeout = 1000; BEGIN DEFERRED")
-    defer { try? database.execute("ROLLBACK") }
-    return try body(database, cancellation)
-  }
-
-  private func readSeries(
-    sessionID: String,
-    start: Int64,
-    end: Int64,
-    fields: [String],
-    maxPoints: Int,
-    lossless: Bool,
-    maximumSequence: Int64?
-  ) throws -> [SessionSeriesPoint] {
-    let uniqueFields = Array(NSOrderedSet(array: fields)) as? [String] ?? fields
-    guard !uniqueFields.isEmpty else { throw SessionStoreError.invalidRange }
-    let columns = try uniqueFields.map { field -> String in
-      if let column = Self.seriesColumns[field] { return column }
-      guard !field.isEmpty, field.lengthOfBytes(using: .utf8) <= 64 else {
-        throw SessionStoreError.unsupportedField(field)
-      }
-      let encoded = try JSONSerialization.data(
-        withJSONObject: field,
-        options: [.fragmentsAllowed]
-      )
-      let jsonKey = String(decoding: encoded, as: UTF8.self)
-      let path = ("$." + jsonKey).replacingOccurrences(of: "'", with: "''")
-      return "json_extract(extension_json, '\(path)')"
-    }
-    return try withReadLease(sessionID: sessionID) { database, _ in
-      let selected = columns.enumerated().map { index, column in
-        "\(column) AS value_\(index)"
-      }.joined(separator: ", ")
-      let sql: String
-      var values: [SQLiteValue] = [.integer(start), .integer(end)]
-      let sequencePredicate: String
-      if let maximumSequence {
-        sequencePredicate = " AND sequence <= ?"
-        values.append(.integer(maximumSequence))
-      } else {
-        sequencePredicate = ""
-      }
-      if lossless {
-        sql = """
-        SELECT sequence, monotonic_elapsed_ms, ride_state, \(selected) FROM sample
-        WHERE monotonic_elapsed_ms BETWEEN ? AND ?\(sequencePredicate)
-        ORDER BY monotonic_elapsed_ms, sequence LIMIT ?
-        """
-        values.append(.integer(Int64(maxPoints)))
-      } else {
-        sql = """
-        SELECT sequence, monotonic_elapsed_ms, ride_state, \(selected) FROM sample
-        WHERE monotonic_elapsed_ms BETWEEN ? AND ?\(sequencePredicate)
-        ORDER BY monotonic_elapsed_ms, sequence LIMIT ?
-        """
-        values.append(.integer(Int64(maxPoints)))
-      }
-      return try database.query(sql, values: values) { statement in
-        var result: [String: Double?] = [:]
-        for (index, field) in uniqueFields.enumerated() {
-          result[field] = .some(Self.columnDouble(statement, Int32(index + 3)))
-        }
-        return SessionSeriesPoint(
-          elapsedMs: sqlite3_column_int64(statement, 1),
-          values: result,
-          sequence: sqlite3_column_int64(statement, 0),
-          rideState: Self.columnText(statement, 2)
-        )
-      }
-    }
-  }
-
-  private static let seriesColumns = [
-    "packVoltageV": "raw_pack_voltage_v",
-    "dutyCycle": "duty_cycle",
-    "controllerTempC": "controller_temp_c",
-    "motorTempC": "motor_temp_c",
-    "motorCurrentA": "motor_current_a",
-    "batteryCurrentA": "battery_current_a",
-    "erpm": "erpm",
-    "speedKph": "speed_kph",
-    "pitchDeg": "pitch_deg",
-    "balancePitchDeg": "balance_pitch_deg",
-    "rollDeg": "roll_deg",
-    "directionalMotorCurrentA": "directional_motor_current_a",
-    "filteredMotorCurrentA": "filtered_motor_current_a",
-    "requestedBalanceCurrentA": "requested_balance_current_a",
-    "boosterCurrentA": "booster_current_a",
-    "fieldWeakeningCurrentA": "field_weakening_current_a",
-    "footpadAdc1V": "footpad_adc_1_v",
-    "footpadAdc2V": "footpad_adc_2_v",
-    "remoteInput": "remote_input",
-    "setpointDeg": "setpoint_deg",
-    "atrSetpointDeg": "atr_setpoint_deg",
-    "brakeTiltSetpointDeg": "brake_tilt_setpoint_deg",
-    "torqueTiltSetpointDeg": "torque_tilt_setpoint_deg",
-    "turnTiltSetpointDeg": "turn_tilt_setpoint_deg",
-    "remoteSetpointDeg": "remote_setpoint_deg",
-    "atrAccelerationDifferenceErpmPerSecond":
-      "atr_acceleration_difference_erpm_per_second",
-    "atrSpeedBoost": "atr_speed_boost",
-    "distanceM": "distance_m",
-    "odometerM": "odometer_m",
-    "ampHoursDrawnAh": "amp_hours_drawn_ah",
-    "ampHoursChargedAh": "amp_hours_charged_ah",
-    "wattHoursDrawnWh": "watt_hours_drawn_wh",
-    "wattHoursChargedWh": "watt_hours_charged_wh",
-    "batteryLevel": "battery_level",
-    "chargingCurrentA": "charging_current_a",
-    "chargingVoltageV": "charging_voltage_v",
-  ]
-
   private static func numericValues(_ sample: TelemetrySample) -> [String: Double?] {
     [
       "packVoltageV": sample.packVoltageV, "dutyCycle": sample.dutyCycle,
@@ -2561,16 +2348,30 @@ public final class SQLiteLogStore: LogStorePort, ProductStorePort, SessionStoreP
 
   private static func transitionValues(_ sample: TelemetrySample) -> [(String, String)] {
     var values: [(String, String)] = []
-    if let value = sample.packageState { values.append(("packageState", value.rawValue)) }
-    if let value = sample.packageMode { values.append(("packageMode", value.rawValue)) }
-    if let value = sample.footpadState { values.append(("footpadState", value.rawValue)) }
-    if let value = sample.stopCondition { values.append(("stopCondition", value.rawValue)) }
+    if let value = sample.packageState {
+      values.append(("packageState", value.rawValue))
+    }
+    if let value = sample.packageMode {
+      values.append(("packageMode", value.rawValue))
+    }
+    if let value = sample.footpadState {
+      values.append(("footpadState", value.rawValue))
+    }
+    if let value = sample.stopCondition {
+      values.append(("stopCondition", value.rawValue))
+    }
     if let value = sample.setpointAdjustment {
       values.append(("setpointAdjustment", value.rawValue))
     }
-    if let value = sample.wheelslip { values.append(("wheelslip", value ? "active" : "cleared")) }
-    if let value = sample.darkride { values.append(("darkride", value ? "active" : "cleared")) }
-    if let value = sample.charging { values.append(("charging", value ? "active" : "cleared")) }
+    if let value = sample.wheelslip {
+      values.append(("wheelslip", value ? "active" : "cleared"))
+    }
+    if let value = sample.darkride {
+      values.append(("darkride", value ? "active" : "cleared"))
+    }
+    if let value = sample.charging {
+      values.append(("charging", value ? "active" : "cleared"))
+    }
     values.append(("alertReason", sample.alertReason?.rawValue ?? "none"))
     values.append(("firmwareFault", sample.firmwareFault?.rawValue ?? "none"))
     return values
@@ -2590,7 +2391,9 @@ public final class SQLiteLogStore: LogStorePort, ProductStorePort, SessionStoreP
         (3, "stopCondition"), (4, "setpointAdjustment"),
       ]
       for (index, key) in textFields {
-        if let value = columnText(statement, Int32(index)) { values[key] = value }
+        if let value = columnText(statement, Int32(index)) {
+          values[key] = value
+        }
       }
       for (index, key) in [(5, "wheelslip"), (6, "darkride"), (7, "charging")] {
         if sqlite3_column_type(statement, Int32(index)) != SQLITE_NULL {
@@ -2672,7 +2475,9 @@ public final class SQLiteLogStore: LogStorePort, ProductStorePort, SessionStoreP
     }
     func historyGapThresholdSeconds(_ key: String) throws -> Double? {
       guard let raw = values[key] else { throw ProductStoreError.invalidSettingsPatch }
-      if raw is NSNull { return nil }
+      if raw is NSNull {
+        return nil
+      }
       guard let number = raw as? NSNumber,
             CFGetTypeID(number) != CFBooleanGetTypeID(),
             number.doubleValue.isFinite

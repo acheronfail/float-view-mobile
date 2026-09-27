@@ -35,10 +35,10 @@
 
 ## 5. Apple migration and deletion
 
-- [ ] 5.1 Replace the shared Swift server with a thin adapter to Rust. Test typed host operations, native executor selection, runtime identity, and catalog/file integration on iOS and macOS.
-- [ ] 5.2 Connect shared publication and transport lifecycle to Apple application facts. Test frontend recreation and listener stop/restart without resetting BLE, recording, or revisions.
-- [ ] 5.3 Delete superseded Swift routes, payload builders, auth/compression helpers, and obsolete private tests. Remove unused FlyingFox package references and check forbidden imports and source inventory.
-- [ ] 5.4 Run focused Swift/FFI tests, clean macOS/iOS simulator/device packaging, and macOS/iOS canonical software conformance. Commit the verified Apple slice with its task updates.
+- [x] 5.1 Replace the shared Swift server with a thin adapter to Rust. Test typed host operations, native executor selection, runtime identity, and catalog/file integration on iOS and macOS.
+- [x] 5.2 Connect shared publication and transport lifecycle to Apple application facts. Test frontend recreation and listener stop/restart without resetting BLE, recording, or revisions.
+- [x] 5.3 Delete superseded Swift routes, payload builders, auth/compression helpers, and obsolete private tests. Remove unused FlyingFox package references and check forbidden imports and source inventory.
+- [x] 5.4 Run focused Swift/FFI tests, clean macOS/iOS simulator/device packaging, and macOS/iOS canonical software conformance. Commit the verified Apple slice with its task updates.
 
 ## 6. Android migration and deletion
 

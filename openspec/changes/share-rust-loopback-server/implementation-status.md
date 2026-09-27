@@ -65,3 +65,17 @@ Native production still selects its original servers at this checkpoint.
 Remaining gates include native selection/deletions, final source/package measurements,
 physical ESP32 checkpoints and `just verify`. Android is currently unauthorized in
 ADB; iOS and the ESP32 were discovered successfully.
+
+## Apple selection
+
+Apple production now selects the shared server through its process-owned thin
+adapter. The complete Swift route/dispatch implementation, FlyingFox package
+references and obsolete native history projection/read machinery were deleted.
+Native catalog, archive validation, file presentation and pruning integration
+remain. Shared connection phase encoding has a focused native regression test.
+
+Passing evidence: all Swift tests, clean macOS Release/iOS simulator Release/iOS
+device Debug packaging and canonical macOS/iOS conformance. Canonical native
+runs now include transport authentication, chunking, fragmentation, multi-client
+revision and archive checks. SQLite/catalog/prune host tests remain; historical
+reader and cancellation checks exercise the selected Rust implementation.

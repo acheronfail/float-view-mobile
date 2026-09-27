@@ -1,6 +1,6 @@
 import Foundation
 
-/// Unselected candidate adapter: lifecycle and native execution, no public dispatch.
+/// Native lifecycle and execution for the shared transport.
 final class RustLoopbackHost: @unchecked Sendable {
   private let app: ApplicationService
   private let exchange: ServerExchange
@@ -77,6 +77,7 @@ final class RustLoopbackHost: @unchecked Sendable {
           "settings": ServerFacts.encode(app.settings()), "location": ServerFacts.encode(app.locationState()),
           "maintenance": ServerFacts.encode(app.maintenanceJob() as Any),
         ]) }
+        guard sequence < UInt64.max else { return }
         sequence += 1
         _ = try exchange.command(
           "publish",
@@ -115,7 +116,6 @@ final class RustLoopbackHost: @unchecked Sendable {
             } catch { outcome = ["status": "failed", "value": Self.failure(error)] }
             let name = work.operation["operation"] as? String ?? ""
             if ![
-              "read_history",
               "configuration_schema",
               "list_tunes",
               "get_tune",
@@ -162,6 +162,11 @@ final class RustLoopbackHost: @unchecked Sendable {
 
   private static func failure(_ error: any Error) -> String {
     switch error {
+    case ApplicationError.unknownDevice: "not_found"
+    case ApplicationError.bluetoothUnavailable, ApplicationError.productStoreUnavailable: "unavailable"
+    case ApplicationError.permissionRequired: "permission_required"
+    case ApplicationError.invalidScan, ApplicationError.invalidControllerSelection: "invalid_request"
+    case ApplicationError.activeDeviceConflict, ApplicationError.deviceNotReady: "invalid_state"
     case RefloatMutationError.invalidState: "invalid_state"
     case RefloatMutationError.unavailable, RefloatConfigurationServiceError.unavailable: "unavailable"
     case RefloatConfigurationServiceError.conflict: "conflict"

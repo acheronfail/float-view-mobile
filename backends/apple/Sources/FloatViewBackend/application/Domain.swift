@@ -745,62 +745,6 @@ public struct SessionCommitMarkerRecord: Sendable, Equatable {
   }
 }
 
-public struct SessionLocationPointRecord: Sendable, Codable, Equatable {
-  public let locationSequence: Int64
-  public let elapsedMs: Int64
-  public let latitude: Double
-  public let longitude: Double
-  public let accuracyM: Double?
-  public let observedAt: Date
-
-  public init(
-    locationSequence: Int64,
-    elapsedMs: Int64,
-    latitude: Double,
-    longitude: Double,
-    accuracyM: Double?,
-    observedAt: Date
-  ) {
-    self.locationSequence = locationSequence
-    self.elapsedMs = elapsedMs
-    self.latitude = latitude
-    self.longitude = longitude
-    self.accuracyM = accuracyM
-    self.observedAt = observedAt
-  }
-}
-
-public struct SessionLocationGapRecord: Sendable, Codable, Equatable {
-  public let startElapsedMs: Int64
-  public let endElapsedMs: Int64
-  public let reason: String
-
-  public init(startElapsedMs: Int64, endElapsedMs: Int64, reason: String) {
-    self.startElapsedMs = startElapsedMs
-    self.endElapsedMs = endElapsedMs
-    self.reason = reason
-  }
-}
-
-public struct SessionLocationPageRecord: Sendable, Codable, Equatable {
-  public let points: [SessionLocationPointRecord]
-  public let gaps: [SessionLocationGapRecord]
-  public let nextCursor: String?
-  public let snapshot: SessionPublishedSnapshotRecord
-
-  public init(
-    points: [SessionLocationPointRecord],
-    gaps: [SessionLocationGapRecord],
-    nextCursor: String?,
-    snapshot: SessionPublishedSnapshotRecord
-  ) {
-    self.points = points
-    self.gaps = gaps
-    self.nextCursor = nextCursor
-    self.snapshot = snapshot
-  }
-}
-
 public struct LocationObservation: Sendable, Codable, Equatable {
   public let observedAt: Date
   public let elapsedMs: Int64
@@ -934,82 +878,6 @@ public struct SessionListQuery: Sendable, Equatable {
   }
 }
 
-public struct SessionSeriesPoint: Sendable, Equatable {
-  public let elapsedMs: Int64
-  public let values: [String: Double?]
-  public let sequence: Int64
-  public let rideState: String?
-
-  public init(
-    elapsedMs: Int64,
-    values: [String: Double?],
-    sequence: Int64 = 0,
-    rideState: String? = nil
-  ) {
-    self.elapsedMs = elapsedMs
-    self.values = values
-    self.sequence = sequence
-    self.rideState = rideState
-  }
-}
-
-public struct SessionSeriesReductionRecord: Sendable {
-  public let columns: [String: SessionSeriesColumnRecord]
-  public let sourceRows: Int
-  public let sourceMs: Double
-  public let reducerMs: Double
-  public let elapsedMs: Double
-
-  public init(
-    columns: [String: SessionSeriesColumnRecord],
-    sourceRows: Int,
-    sourceMs: Double,
-    reducerMs: Double,
-    elapsedMs: Double
-  ) {
-    self.columns = columns
-    self.sourceRows = sourceRows
-    self.sourceMs = sourceMs
-    self.reducerMs = reducerMs
-    self.elapsedMs = elapsedMs
-  }
-}
-
-public struct SessionHistoryConfiguration: Sendable, Equatable {
-  public let expectedRidingPersistenceMs: Int64
-  public let expectedIdlePersistenceMs: Int64
-  public let retainedResolutionSeconds: Int64
-
-  public init(
-    expectedRidingPersistenceMs: Int64,
-    expectedIdlePersistenceMs: Int64,
-    retainedResolutionSeconds: Int64 = 0
-  ) {
-    self.expectedRidingPersistenceMs = expectedRidingPersistenceMs
-    self.expectedIdlePersistenceMs = expectedIdlePersistenceMs
-    self.retainedResolutionSeconds = retainedResolutionSeconds
-  }
-}
-
-public struct SessionPruneMetadataRecord: Sendable, Equatable {
-  public let targetResolutionSeconds: Int64?
-  public let recordedSampleCount: Int64
-  public let storedSampleCount: Int64
-  public let policy: String?
-
-  public init(
-    targetResolutionSeconds: Int64?,
-    recordedSampleCount: Int64,
-    storedSampleCount: Int64,
-    policy: String?
-  ) {
-    self.targetResolutionSeconds = targetResolutionSeconds
-    self.recordedSampleCount = recordedSampleCount
-    self.storedSampleCount = storedSampleCount
-    self.policy = policy
-  }
-}
-
 public struct SessionPrunePreviewRecord: Sendable, Equatable {
   public let recordedSampleCount: Int64
   public let estimatedStoredSampleCount: Int64
@@ -1075,28 +943,6 @@ public struct SessionMaintenanceJobRecord: Sendable, Equatable {
     self.retainedSamples = retainedSamples
     self.reclaimableBytes = reclaimableBytes
     self.error = error
-  }
-}
-
-public struct SessionEventRecord: Sendable, Equatable {
-  public let eventID: String
-  public let elapsedMs: Int64
-  public let kind: String
-  public let detailsJSON: String
-  public let sourceSampleSequence: Int64?
-
-  public init(
-    eventID: String,
-    elapsedMs: Int64,
-    kind: String,
-    detailsJSON: String,
-    sourceSampleSequence: Int64? = nil
-  ) {
-    self.eventID = eventID
-    self.elapsedMs = elapsedMs
-    self.kind = kind
-    self.detailsJSON = detailsJSON
-    self.sourceSampleSequence = sourceSampleSequence
   }
 }
 
@@ -1608,46 +1454,6 @@ public enum SessionStoreError: Error, Equatable {
   case invalidArchive
 }
 
-/// Cancellation owned by one session-data request. Storage adapters register
-/// only the native work started by that request, so sibling requests for the
-/// same session remain independent.
-public final class SessionReadCancellation: @unchecked Sendable {
-  private let lock = NSLock()
-  private var callbacks: [UUID: @Sendable () -> Void] = [:]
-  private var cancelled = false
-
-  public init() {}
-
-  public func cancel() {
-    let pending = lock.withLock { () -> [@Sendable () -> Void] in
-      guard !cancelled else { return [] }
-      cancelled = true
-      defer { callbacks.removeAll() }
-      return Array(callbacks.values)
-    }
-    pending.forEach { $0() }
-  }
-
-  public func register(_ callback: @escaping @Sendable () -> Void) -> UUID? {
-    let registration = UUID()
-    let invokeImmediately = lock.withLock {
-      guard !cancelled else { return true }
-      callbacks[registration] = callback
-      return false
-    }
-    if invokeImmediately {
-      callback()
-      return nil
-    }
-    return registration
-  }
-
-  public func unregister(_ registration: UUID?) {
-    guard let registration else { return }
-    _ = lock.withLock { callbacks.removeValue(forKey: registration) }
-  }
-}
-
 public protocol SessionStorePort: AnyObject, Sendable {
   func sessionURL(sessionID: String) throws -> URL
   func reconcileSession(sessionID: String) throws
@@ -1655,7 +1461,6 @@ public protocol SessionStorePort: AnyObject, Sendable {
   func sessions(_ query: SessionListQuery) throws -> SessionPage
   func session(sessionID: String) throws -> SessionSummaryRecord
   func sessionSnapshot(sessionID: String) throws -> SessionPublishedSnapshotRecord
-  func cancelHistoricalReads(sessionID: String)
   func maintenanceJob() throws -> SessionMaintenanceJobRecord?
   func saveMaintenanceJob(_ job: SessionMaintenanceJobRecord) throws
   func cancelMaintenanceJob(operationID: String) throws -> SessionMaintenanceJobRecord?
@@ -1670,7 +1475,6 @@ public extension SessionStorePort {
     throw SessionStoreError.sessionNotFound
   }
 
-  func cancelHistoricalReads(sessionID _: String) {}
 
   func maintenanceJob() throws -> SessionMaintenanceJobRecord? {
     nil

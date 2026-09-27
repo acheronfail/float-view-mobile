@@ -382,3 +382,32 @@ fn connection_admission_rejects_seventeenth_and_recovers() {
     status(&http(&server, "/", "", b""), "200");
     server.stop().unwrap();
 }
+
+#[test]
+fn malformed_history_cursor_is_rejected_before_catalog_lookup() {
+    use base64::Engine;
+    let server = Server::new(Platform::Macos, b"html").unwrap();
+    server.start(0).unwrap();
+    let generation = server
+        .backend
+        .generation
+        .load(std::sync::atomic::Ordering::Acquire);
+    let cursor = base64::engine::general_purpose::STANDARD.encode(br#"{"sessionId":"foreign","startElapsedMs":0,"endElapsedMs":1000,"historyRevision":1,"locationSequence":1}"#);
+    let body = serde_json::to_vec(&serde_json::json!({"kind":"locations","sessionId":"owned","snapshot":{"historyRevision":1,"committedSampleSequence":1,"committedEventSequence":1,"committedElapsedMs":1000,"committedLocationSequence":1,"committedLocationElapsedMs":1000},"range":{"startElapsedMs":0,"endElapsedMs":1000},"limit":10,"cursor":cursor})).unwrap();
+    let headers = format!(
+        "Origin: http://127.0.0.1:{}\r\nX-Float-View-Token: {}\r\nContent-Length: {}\r\n",
+        server.port(),
+        server.token(),
+        body.len()
+    );
+    status(&http(&server, "/api/session-data", &headers, &body), "400");
+    assert!(
+        server
+            .backend
+            .exchange
+            .drain(generation, Duration::ZERO)
+            .unwrap()
+            .is_empty()
+    );
+    server.stop().unwrap();
+}
