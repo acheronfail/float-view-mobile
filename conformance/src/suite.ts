@@ -16,6 +16,7 @@ export interface Target {
   endpoint(): Promise<{ url: string; origin: string }>;
   background?(): Promise<void>;
   foreground?(): Promise<void>;
+  recreateFrontend?(): Promise<void>;
   stop(): Promise<void>;
 }
 
@@ -62,7 +63,12 @@ export async function runConformance(target: Target) {
       'frontend recreation lost backend-owned state'
     );
 
-    await exerciseProductMethods(client, restored, ['android', 'ios', 'macos'].includes(target.name));
+    await exerciseProductMethods(
+      client,
+      restored,
+      ['android', 'ios', 'macos'].includes(target.name),
+      target.recreateFrontend
+    );
     if (['android', 'ios', 'macos'].includes(target.name)) {
       await exerciseTransport(await target.endpoint());
     }
@@ -76,7 +82,12 @@ export async function runConformance(target: Target) {
   }
 }
 
-async function exerciseProductMethods(client: ConformanceClient, state: AppState, expectSoftwareBms: boolean) {
+async function exerciseProductMethods(
+  client: ConformanceClient,
+  state: AppState,
+  expectSoftwareBms: boolean,
+  recreateFrontend?: () => Promise<void>
+) {
   const device = required(state.discoveredDevices[0], 'scan did not create a discovered device');
   const settings = await client.request('settings.update', {
     expectedRevision: state.settings.revision,
@@ -127,7 +138,7 @@ async function exerciseProductMethods(client: ConformanceClient, state: AppState
     patch: { minimumSessionDistance: 0 },
   });
 
-  await createCompletedSession(client, device.deviceId, expectSoftwareBms);
+  await createCompletedSession(client, device.deviceId, expectSoftwareBms, recreateFrontend);
   await createCompletedSession(client, device.deviceId, expectSoftwareBms);
 
   const prepared = await client.request('state.get', {});
@@ -369,7 +380,12 @@ async function expectSessionDataFailure(
   await assert.rejects(client.sessionData(request), () => true, label);
 }
 
-async function createCompletedSession(client: ConformanceClient, deviceId: string, expectSoftwareBms: boolean) {
+async function createCompletedSession(
+  client: ConformanceClient,
+  deviceId: string,
+  expectSoftwareBms: boolean,
+  recreateFrontend?: () => Promise<void>
+) {
   await client.request('bluetooth.scan', { timeoutMs: 100 });
   const before = await client.request('state.get', {});
   assert.ok(
@@ -397,6 +413,22 @@ async function createCompletedSession(client: ConformanceClient, deviceId: strin
   assert.equal(connected.activeConnection.displayName, connected.activeConnection.name);
   assert.ok(connected.activeConnection.savedDeviceId);
   assert.ok(connected.activeConnection.activeSession);
+  if (recreateFrontend) {
+    const beforeRecreation = await client.request('state.get', {});
+    await recreateFrontend();
+    const afterRecreation = await client.waitForState(
+      (state) =>
+        (state.activeConnection?.latestSample?.sequence ?? 0) >
+        (beforeRecreation.activeConnection?.latestSample?.sequence ?? 0),
+      { afterRevision: beforeRecreation.revision, timeoutMs: 10_000 }
+    );
+    assert.equal(
+      afterRecreation.activeConnection?.activeSession?.sessionId,
+      beforeRecreation.activeConnection?.activeSession?.sessionId,
+      'frontend recreation replaced the recording session'
+    );
+    assert.equal(afterRecreation.activeConnection?.state, 'ready');
+  }
   assert.ok(connected.activeConnection.controllerConnection);
   assert.ok(
     connected.activeConnection.controllerConnection.kind === 'direct' ||

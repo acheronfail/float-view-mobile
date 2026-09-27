@@ -122,20 +122,3 @@ enum class RefloatConfigurationServiceError {
 class RefloatConfigurationServiceException(
     val reason: RefloatConfigurationServiceError,
 ) : Exception(reason.name)
-
-data class SessionElapsedRange(val startElapsedMs: Long, val endElapsedMs: Long)
-data class SessionGapPolicyRecord(val thresholdSeconds: Double?)
-data class SessionSeriesColumnRecord(
-    val elapsedMs: List<Long>,
-    val sequence: List<Long>,
-    val values: List<Double?>,
-    val generations: List<Int>,
-)
-data class SessionHistoryCursor(
-    val sessionId: String,
-    val snapshot: SessionPublishedSnapshotRecord,
-    val range: SessionElapsedRange,
-    val elapsedMs: Long,
-    val sequence: Long,
-    val version: Int = 1,
-)

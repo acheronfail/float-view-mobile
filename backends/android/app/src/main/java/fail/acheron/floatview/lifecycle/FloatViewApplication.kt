@@ -31,7 +31,7 @@ class FloatViewApplication : Application() {
     }
 
     override fun onTerminate() {
-        backend.stop()
+        backend.close()
         super.onTerminate()
     }
 }

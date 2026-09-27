@@ -77,7 +77,7 @@ final class RustLoopbackHost: @unchecked Sendable {
           "settings": ServerFacts.encode(app.settings()), "location": ServerFacts.encode(app.locationState()),
           "maintenance": ServerFacts.encode(app.maintenanceJob() as Any),
         ]) }
-        guard sequence < UInt64.max else { return }
+        guard sequence < 9_007_199_254_740_991 else { return }
         sequence += 1
         _ = try exchange.command(
           "publish",

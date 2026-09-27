@@ -26,7 +26,7 @@ All counts include in-flight work; draining a queue does not release admission.
 | Blocking response workers                               |                 2 | Admission before scheduling; `worker_admission` verifies no unbounded blocking-task queue                    |
 | Dedicated native host drain workers                     |                 1 | `host_reentry` races complete/publish/runtime read/stop; serialized mutations retain application ordering    |
 | Native drain wait                                       |            250 ms | `wait_and_stop` exact maximum, interruption, stop wakeup; never called on UI executor                        |
-| Socket read/write inactivity                            |              30 s | `stalled_client_timeout` uses controlled time and checks release of all leases                               |
+| Socket read/write inactivity                            | 30 s; ping every 10 s | Canonical transport holds responsive and non-pong peers for 32 s and verifies survival/closure                               |
 | Listener stop                                           |               2 s | `stop_deadline` races reads, gzip, transfer and host completion; all transport tasks join within deadline    |
 
 There are no new archive content/identity limits. Export length is the immutable,

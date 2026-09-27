@@ -1,6 +1,6 @@
 //! Shared loopback transport above the application runtime.
 //!
-//! This candidate is unselected until the host migration gates pass. It must
+//! Selected by Apple and Android through their existing binding families. It must
 //! never construct or own a second application runtime. Native workers execute
 //! application operations outside transport locks through the existing bindings.
 

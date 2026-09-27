@@ -79,3 +79,25 @@ device Debug packaging and canonical macOS/iOS conformance. Canonical native
 runs now include transport authentication, chunking, fragmentation, multi-client
 revision and archive checks. SQLite/catalog/prune host tests remain; historical
 reader and cancellation checks exercise the selected Rust implementation.
+
+## Android selection and lifecycle fixes
+
+Android production selects the Rust server. Ktor, Kotlin route/projection code,
+native historical reducer/readers and their obsolete private tests were removed.
+The selected read-only Rust path owns historical cancellation; native catalogue,
+archive and file UI integration remain. The original two binding libraries are
+retained with exact-symbol audits. Clean four-ABI Debug/Release packaging, linked
+JVM tests and instrumentation compilation passed. Canonical Android conformance
+passes, including Activity replacement during saved recording and the same
+session ID with advancing samples.
+
+Regression fixes and coverage include Android's telemetry extension-field mapping,
+redacted publication failure containment, two bounded readers, exact decoded
+response limits, rejected history cursors before catalogue lookup and terminal
+correlated errors for oversized host results. Responsive idle WebSockets survive
+via heartbeats; peers ignoring pings are closed within the inactivity deadline.
+
+iOS and macOS physical checkpoints passed in full; see physical-results.md.
+Android physical coverage still requires USB-debugging authorization on the
+connected phone. The final root software gate is running; no final gate or
+physical Android pass is claimed yet.

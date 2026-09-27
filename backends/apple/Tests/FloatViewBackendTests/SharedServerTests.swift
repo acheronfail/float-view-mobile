@@ -26,7 +26,7 @@ struct SharedServerTests {
     #expect(try ServerFacts.encode(ConnectionState.enablingNotifications) as? String == "enabling_notifications")
   }
 
-  @Test func canonicalCandidate() throws {
+  @Test func canonicalHost() throws {
     let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
       .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
     let temporary = FileManager.default.temporaryDirectory

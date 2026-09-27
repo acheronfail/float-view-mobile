@@ -53,8 +53,10 @@ export async function exerciseTransport(endpoint: { url: string; origin: string 
     const states = await Promise.all(
       Array.from({ length: 8 }, (_, i) => (i % 2 ? first : second).request('state.get', {}))
     );
+    const initial = states[0];
+    assert.ok(initial);
     assert.ok(
-      states.every((state) => state.revision === states[0].revision),
+      states.every((state) => state.revision === initial.revision),
       'subscriber count changed the revision'
     );
     const left = await first.request('state.get', {});
@@ -146,4 +148,31 @@ export async function exerciseTransport(endpoint: { url: string; origin: string 
       ws.on('error', reject);
     });
   }
+  await Promise.all(
+    [true, false].map(
+      (autoPong) =>
+        new Promise<void>((resolve, reject) => {
+          const ws = new WebSocket(endpoint.url, { origin: endpoint.origin, autoPong });
+          let pings = 0;
+          let finished = false;
+          const timer = setTimeout(() => {
+            finished = true;
+            ws.close();
+            if (!autoPong) reject(new Error('Unresponsive WebSocket retained its connection beyond the idle deadline'));
+            else if (pings < 2) reject(new Error('Idle WebSocket did not receive heartbeats'));
+            else resolve();
+          }, 32_000);
+          ws.on('ping', () => pings++);
+          ws.on('error', (error) => {
+            clearTimeout(timer);
+            reject(error);
+          });
+          ws.on('close', () => {
+            clearTimeout(timer);
+            if (!finished && autoPong) reject(new Error('Responsive idle WebSocket closed during BLE wait'));
+            else if (!autoPong) resolve();
+          });
+        })
+    )
+  );
 }

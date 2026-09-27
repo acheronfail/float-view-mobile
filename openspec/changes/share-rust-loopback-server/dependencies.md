@@ -1,9 +1,10 @@
 # Server dependency selection
 
-The unselected `float-view-loopback-server` owns the network stack above the
-application runtime. Existing bindings will compose it during integration;
-application-runtime and domain crates do not depend on it. The server forbids
-unsafe Rust. Native production still selects FlyingFox/Ktor until cutover.
+The selected `float-view-loopback-server` owns the network stack above the
+application runtime. Both existing binding families compose it; application-runtime
+and domain crates do not depend on it. The server forbids unsafe Rust. FlyingFox
+and Ktor have been removed from native production dependencies. Android retains
+kotlinx-coroutines-core 1.9.0 explicitly for native file imports.
 
 | Dependency         | Features                         | Replacement rationale                                                         |
 | ------------------ | -------------------------------- | ----------------------------------------------------------------------------- |

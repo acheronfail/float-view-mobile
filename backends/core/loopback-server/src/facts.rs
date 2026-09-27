@@ -223,6 +223,10 @@ pub enum Completion {
     },
     Imported(String),
     TransferReady,
+}
+
+/// Shared reader results never cross the native host exchange.
+pub enum HistoryResult {
     HistoryPoints(Vec<HistoryPoint>),
     HistoryEvents(Vec<HistoryEvent>),
     SeriesColumns(BTreeMap<String, SeriesColumn>),

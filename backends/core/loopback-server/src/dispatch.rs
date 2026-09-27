@@ -158,7 +158,13 @@ impl Backend {
             _ => Err(Failure::InvalidRequest),
         };
         match result {
-            Ok(result) => json!({"id":id.unwrap_or(0),"result":result}),
+            Ok(result)
+                if serde_json::to_vec(&result)
+                    .is_ok_and(|bytes| bytes.len() + 64 <= crate::limits::MAX_MESSAGE_BYTES) =>
+            {
+                json!({"id":id.unwrap_or(0),"result":result})
+            }
+            Ok(_) => json!({"id":id.unwrap_or(0),"error":projection::error(&Failure::Unavailable)}),
             Err(failure) => json!({"id":id.unwrap_or(0),"error":projection::error(&failure)}),
         }
     }

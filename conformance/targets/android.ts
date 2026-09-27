@@ -106,6 +106,9 @@ function makeAndroidTarget(configuredSerial?: string): Target {
     async foreground() {
       launch(serial, false);
     },
+    async recreateFrontend() {
+      adb(serial, 'shell', 'am', 'start', '-W', '-f', '0x10008000', '-n', activity);
+    },
     async stop() {
       if (!serial) return;
       adbBestEffort(serial, 'shell', 'am', 'force-stop', applicationId);

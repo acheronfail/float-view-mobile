@@ -411,3 +411,47 @@ fn malformed_history_cursor_is_rejected_before_catalog_lookup() {
     );
     server.stop().unwrap();
 }
+
+#[test]
+fn oversized_host_result_returns_one_correlated_error() {
+    use float_view_loopback_server::{
+        backend::Backend,
+        facts::Completion,
+        protocol::{CompletionRecord, Outcome},
+    };
+    use std::sync::Arc;
+    let backend = Arc::new(Backend::default());
+    let generation = backend.start().unwrap();
+    let host = backend.clone();
+    let worker = std::thread::spawn(move || {
+        let work = host
+            .exchange
+            .drain(generation, MAX_HOST_WAIT)
+            .unwrap()
+            .remove(0);
+        let tune = serde_json::from_value(serde_json::json!({
+            "configurationId":"tune","revision":1,"name":"test","description":null,
+            "identity":{"packageName":"refloat","packageVersion":"1","schemaFingerprint":"a".repeat(64),"wireSignature":1},
+            "valuesJson":serde_json::json!({"text":{"type":"string","value":"a".repeat(MAX_MESSAGE_BYTES)}}).to_string(),
+            "createdAt":"2026-01-01T00:00:00Z","updatedAt":"2026-01-01T00:00:00Z"
+        })).unwrap();
+        host.complete(CompletionRecord {
+            id: work.id,
+            outcome: Outcome::Completed(Box::new(Completion::Tune(tune))),
+        })
+        .unwrap();
+    });
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    let reply = runtime.block_on(backend.request(
+        1,
+        serde_json::json!({"id":73,"method":"refloat.tune.get","params":{"tuneId":"tune"}}),
+    ));
+    assert_eq!(reply["id"], 73);
+    assert_eq!(reply["error"]["code"], "unavailable");
+    assert!(reply.get("result").is_none());
+    worker.join().unwrap();
+    backend.stop();
+}

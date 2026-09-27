@@ -359,9 +359,15 @@ async fn serve_websocket(app: Arc<App>, socket: WebSocket) {
         }
     };
     tokio::pin!(reader);
+    let mut heartbeat = tokio::time::interval(IO_TIMEOUT / 3);
+    heartbeat.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     loop {
         let message = tokio::select! {
             _=&mut reader=>break,
+            _=heartbeat.tick()=>{
+                if !matches!(tokio::time::timeout(IO_TIMEOUT, sink.send(Message::Ping(Vec::new().into()))).await, Ok(Ok(()))) { break; }
+                continue;
+            },
             result=response_rx.recv()=>match result{Some(value)=>value,None=>break},
             changed=snapshots.changed()=>{if changed.is_err(){break;}let current=snapshots.borrow_and_update().clone();let Some(current)=current else{continue};json!({"event":"state.changed","data":current.as_ref()})},
         };

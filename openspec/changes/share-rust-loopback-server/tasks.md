@@ -13,7 +13,7 @@
 - [x] 2.2 Add versioned start/stop, operation drain/wait, completion, publication, and cancellation records. Test malformed envelopes, stale generations, duplicate completions, queue saturation, and idempotent destruction.
 - [x] 2.3 Extend the existing Apple and Android binding families with caller-owned bounded exchange. Test invalid handles, buffer extents, panic containment, interruption, and exact exported symbols.
 - [x] 2.4 Add bounded archive transfer handles and chunks with host-owned temporary storage. Test envelope-size independence, cancellation, cleanup, and stale or foreign handle rejection.
-- [ ] 2.5 Add worker integration without callbacks or UI waits. Test concurrent completion, runtime re-entry, publication, and stop for deadlocks and bounded termination.
+- [x] 2.5 Add worker integration without callbacks or UI waits. Test concurrent completion, runtime re-entry, publication, and stop for deadlocks and bounded termination.
 
 ## 3. Shared server and public contract
 
@@ -22,7 +22,7 @@
 - [x] 3.3 Implement control dispatch for state, Bluetooth, connection, permissions, settings, saved boards, and profiles through typed host operations. Run canonical success and failure scenarios for each method.
 - [x] 3.4 Implement control dispatch for Refloat controls, shutdown, configuration, and Tunes. Test revisions, confirmation, stale requests, and disconnect without duplicate mutations.
 - [x] 3.5 Implement session list/get/delete/cancel, prune preview/start/cancel, and export control operations. Test existing pagination, job, conflict, and cancellation semantics.
-- [ ] 3.6 Implement all session-data kinds, serialization, and compression. Test published boundaries, decoded response limits, two-read admission, and interruption during read/encode/compress.
+- [x] 3.6 Implement all session-data kinds, serialization, and compression. Test published boundaries, decoded response limits, two-read admission, and interruption during read/encode/compress.
 - [x] 3.7 Implement HTTP import/export through bounded host transfers and existing archive validation. Test valid large archives, malformed inputs, identity preservation, and abandoned transfer cleanup.
 - [x] 3.8 Implement complete shared state projection and process-owned revision tracking. Test multiple/slow clients, response correlation, stale facts, committed saved samples, and guest isolation.
 - [x] 3.9 Implement listener stop/restart independently of the application runtime. Test worker shutdown, old completions, token continuity, revision continuity, and ongoing recording.
@@ -30,7 +30,7 @@
 ## 4. Canonical parity before host selection
 
 - [x] 4.1 Add shared-server coverage to canonical scenarios with test-only host facts where needed. Keep the fixture adapter limited to launch/setup and reuse `conformance` assertions.
-- [ ] 4.2 Add adversarial transport and lifecycle scenarios for all routes. Check rejected input performs no storage lookup or board mutation and accepted connected requests receive one terminal result.
+- [x] 4.2 Add adversarial transport and lifecycle scenarios for all routes. Check rejected input performs no storage lookup or board mutation and accepted connected requests receive one terminal result.
 - [x] 4.3 Run focused locked Rust tests, warnings-denied linting, mock conformance, and cross-target packaging. Confirm native production still selects its current server at this checkpoint.
 
 ## 5. Apple migration and deletion
@@ -42,10 +42,10 @@
 
 ## 6. Android migration and deletion
 
-- [ ] 6.1 Replace the Kotlin server with a thin adapter to Rust. Test host operation ordering, native executor selection, runtime identity, and catalog/file integration through linked JVM tests.
-- [ ] 6.2 Connect shared publication and listener lifecycle to Android application and foreground-service ownership. Test activity recreation, cancellation, reconnect, and continued recording.
-- [ ] 6.3 Delete superseded Kotlin routes, payload builders, auth/compression helpers, and obsolete private tests. Remove unused Ktor server declarations and check forbidden imports and source inventory.
-- [ ] 6.4 Run Android canonical software conformance and clean host/four-ABI Debug/Release packaging. Check one binding library per ABI and commit the verified Android slice with task updates.
+- [x] 6.1 Replace the Kotlin server with a thin adapter to Rust. Test host operation ordering, native executor selection, runtime identity, and catalog/file integration through linked JVM tests.
+- [x] 6.2 Connect shared publication and listener lifecycle to Android application and foreground-service ownership. Test activity recreation, cancellation, reconnect, and continued recording.
+- [x] 6.3 Delete superseded Kotlin routes, payload builders, auth/compression helpers, and obsolete private tests. Remove unused Ktor server declarations and check forbidden imports and source inventory.
+- [x] 6.4 Run Android canonical software conformance and clean host/four-ABI Debug/Release packaging. Check one binding library per ABI and commit the verified Android slice with task updates.
 
 ## 7. Ownership and physical checkpoint
 

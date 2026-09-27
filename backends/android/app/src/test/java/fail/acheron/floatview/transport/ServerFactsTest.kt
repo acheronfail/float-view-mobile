@@ -14,7 +14,7 @@ class ServerFactsTest {
         try {
             val facts=ServerFacts.objectOf(
                 "discovery" to DiscoverySnapshot(BluetoothState(BluetoothRadioState.POWERED_ON,BluetoothPermissionState.GRANTED,BluetoothPermissionState.GRANTED),null,listOf(DiscoveredDevice(DeviceId("test"),"Board",-45,Instant.EPOCH))),
-                "active" to null,"firmware" to null,"packageVersion" to null,
+                "active" to ActiveConnectionSnapshot(DeviceId("test"),"Board",ConnectionState.READY, trackingMode = TrackingMode.GUEST, latestSample = TelemetrySample(1,Instant.EPOCH,0,RideState.RIDING,extension=mapOf("future.energy" to 1.0))),"firmware" to null,"packageVersion" to null,
                 "configuration" to RefloatConfigurationSummary(RefloatConfigurationAvailability.UNAVAILABLE,false,null,null,null,false,false,null),
                 "savedBoards" to emptyList<SavedDeviceRecord>(),"settings" to SettingsRecord(),
                 "location" to LocationProviderState(LocationProviderAuthorization.NOT_DETERMINED,LocationProviderBackgroundCapture.UNAVAILABLE),"maintenance" to null,

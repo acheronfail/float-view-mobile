@@ -6,7 +6,7 @@ import java.util.concurrent.*
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
 
-/** Candidate host adapter. No listener is selected by production until parity gates pass. */
+/** Native lifecycle and serialized application execution for the shared transport. */
 internal class RustLoopbackHost(
     html: ByteArray,
     private val app: ApplicationService,
@@ -39,7 +39,8 @@ internal class RustLoopbackHost(
         val input=ServerFacts.objectOf("version" to 1,"action" to action).toString().toByteArray()
         require(input.size<=1048576)
         val output=ByteArray(1048576); val written=IntArray(1)
-        check(RustApplicationRuntime.serverCommand(handle,input,output,written)==0) { "Shared server exchange failed" }
+        val status = RustApplicationRuntime.serverCommand(handle,input,output,written)
+        check(status == 0) { "Shared server $name exchange failed (status=$status)" }
         return JSONObject(String(output,0,written[0],Charsets.UTF_8)).getJSONObject("data")
     }
     @Synchronized fun start() {
@@ -55,13 +56,19 @@ internal class RustLoopbackHost(
         if(dirty.compareAndSet(false,true)) publication.execute {
             dirty.set(false)
             val changed=catalog.getAndSet(false)
+            try {
             val facts=synchronized(app) { ServerFacts.objectOf(
                 "discovery" to app.discoverySnapshot(), "active" to app.activeConnectionSnapshot(),
                 "firmware" to app.firmwareSnapshot(), "packageVersion" to app.refloatPackageVersionSnapshot(),
                 "configuration" to app.refloatConfigurationSummarySnapshot(), "savedBoards" to app.savedDevices().take(50),
                 "settings" to app.settings(), "location" to app.locationState(), "maintenance" to app.maintenanceJob(),
             ) }
-            command("publish",ServerFacts.objectOf("generation" to generation,"sequence" to sequence.incrementAndGet(),"catalogChanged" to changed,"facts" to facts))
+            command("publish",ServerFacts.objectOf("generation" to generation,"sequence" to sequence.updateAndGet { check(it < 9_007_199_254_740_991); it + 1 },"catalogChanged" to changed,"facts" to facts))
+            } catch (_: Exception) {
+                // A stale or rejected publication cannot terminate the process or recording.
+                // Preserve catalog invalidation for the next domain update.
+                if (changed) catalog.set(true)
+            }
         }
     }
     private fun drain() {
@@ -80,7 +87,7 @@ internal class RustLoopbackHost(
                         ServerFacts.objectOf("status" to "completed","value" to result)
                     } catch(error:Exception) { ServerFacts.objectOf("status" to "failed","value" to failure(error)) }
                     val name=op.getString("operation")
-                    if(name !in setOf("read_history","configuration_schema","list_tunes","get_tune","get_profile","list_sessions","get_session","get_maintenance","export_session","begin_import","write_transfer","read_transfer","cleanup_transfer")) {
+                    if(name !in setOf("configuration_schema","list_tunes","get_tune","get_profile","list_sessions","get_session","get_maintenance","export_session","begin_import","write_transfer","read_transfer","cleanup_transfer")) {
                         publish(name in setOf("delete_session","delete_saved_board","finish_import","save_maintenance","prune_session"))
                         publication.submit {}.get()
                     }

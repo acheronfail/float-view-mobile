@@ -144,9 +144,7 @@ tasks.configureEach {
 
 dependencies {
     implementation(libs.androidx.core.ktx)
-    implementation(libs.ktor.server.cio)
-    implementation(libs.ktor.server.core)
-    implementation(libs.ktor.server.websockets)
+    implementation(libs.kotlinx.coroutines.core)
     testImplementation(libs.junit)
     testImplementation("org.json:json:20240303")
     androidTestImplementation(libs.androidx.junit)

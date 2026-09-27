@@ -2,7 +2,7 @@
 use crate::{
     backend::Backend,
     dispatch::{Params, cursor, decode_cursor},
-    facts::Completion,
+    facts::{Completion, HistoryResult},
     projection,
     protocol::{Failure, HistoryQuery, Operation, PublishedBoundary, Range},
 };
@@ -171,7 +171,7 @@ impl Backend {
             Ok(encoded)
         };
         match (kind.as_str(), result) {
-            ("series", Completion::SeriesColumns(columns)) => {
+            ("series", HistoryResult::SeriesColumns(columns)) => {
                 let mut count = 0;
                 for field in &fields {
                     let column = columns.get(field).ok_or(Failure::Internal)?;
@@ -191,7 +191,7 @@ impl Backend {
                 response["gapPolicy"] = request["gapPolicy"].clone();
                 response["fields"] = projection::descriptors(&fields, &metadata.extension_fields);
             }
-            ("samples", Completion::HistoryPoints(mut points)) => {
+            ("samples", HistoryResult::HistoryPoints(mut points)) => {
                 points.truncate(limit);
                 response["mode"] = json!("window");
                 response["fields"] = projection::descriptors(&fields, &metadata.extension_fields);
@@ -217,7 +217,7 @@ impl Backend {
                     Value::Null
                 };
             }
-            ("events", Completion::HistoryEvents(mut events)) => {
+            ("events", HistoryResult::HistoryEvents(mut events)) => {
                 events.truncate(limit);
                 let sequence = |e: &crate::facts::HistoryEvent| {
                     e.event_id.parse::<u64>().map_err(|_| Failure::Internal)
@@ -230,7 +230,7 @@ impl Backend {
                     Value::Null
                 };
             }
-            ("locations", Completion::Locations(page)) => {
+            ("locations", HistoryResult::Locations(page)) => {
                 if page.points.len() > limit
                     || page.gaps.len() > 2000
                     || page.next_cursor.as_ref().is_some_and(|c| c.len() > 512)

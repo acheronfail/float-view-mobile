@@ -1475,7 +1475,6 @@ public extension SessionStorePort {
     throw SessionStoreError.sessionNotFound
   }
 
-
   func maintenanceJob() throws -> SessionMaintenanceJobRecord? {
     nil
   }

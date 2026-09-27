@@ -39,9 +39,10 @@ internal object ServerFacts {
                         value is DiscoveredDevice && field.name == "id" -> "deviceId"
                         (value is DiscoveredDevice || value is ActiveConnectionSnapshot) && field.name == "advertisedName" -> "name"
                         value is RefloatConfigurationField && field.name == "type" -> "fieldType"
+                        value is TelemetrySample && field.name == "extension" -> "extensionFields"
                         else -> field.name
                     }
-                    if (!(value is SessionSeriesPoint && name == "rideState")) result.put(name, encode(field.get(value)))
+                    result.put(name, encode(field.get(value)))
                 }
             }
         }

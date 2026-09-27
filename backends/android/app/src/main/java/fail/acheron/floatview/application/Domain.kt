@@ -433,28 +433,6 @@ data class SessionCommitMarkerRecord(
     val lastRideState: String?,
 )
 
-data class SessionLocationPointRecord(
-    val locationSequence: Long,
-    val elapsedMs: Long,
-    val latitude: Double,
-    val longitude: Double,
-    val accuracyM: Double?,
-    val observedAt: Instant,
-)
-
-data class SessionLocationGapRecord(
-    val startElapsedMs: Long,
-    val endElapsedMs: Long,
-    val reason: String,
-)
-
-data class SessionLocationPageRecord(
-    val points: List<SessionLocationPointRecord>,
-    val gaps: List<SessionLocationGapRecord>,
-    val nextCursor: String?,
-    val snapshot: SessionPublishedSnapshotRecord,
-)
-
 data class LocationObservation(
     val observedAt: Instant,
     val elapsedMs: Long,
@@ -501,19 +479,6 @@ interface LocationProviderPort {
     fun stopUpdates()
 }
 
-data class SessionHistoryConfiguration(
-    val expectedRidingPersistenceMs: Long,
-    val expectedIdlePersistenceMs: Long,
-    val retainedResolutionSeconds: Long = 0,
-)
-
-data class SessionPruneMetadataRecord(
-    val targetResolutionSeconds: Long?,
-    val recordedSampleCount: Long,
-    val storedSampleCount: Long,
-    val policy: String?,
-)
-
 data class SessionPrunePreviewRecord(
     val recordedSampleCount: Long,
     val estimatedStoredSampleCount: Long,
@@ -559,29 +524,6 @@ data class SessionListQuery(
     val integrity: String? = null,
     val sortField: String = "startedAt",
     val sortDescending: Boolean = true,
-)
-
-data class SessionSeriesPoint(
-    val elapsedMs: Long,
-    val values: Map<String, Double?>,
-    val sequence: Long = 0,
-    val rideState: String? = null,
-)
-
-data class SessionSeriesReductionRecord(
-    val columns: Map<String, SessionSeriesColumnRecord>,
-    val sourceRows: Int,
-    val sourceMs: Double,
-    val reducerMs: Double,
-    val elapsedMs: Double,
-)
-
-data class SessionEventRecord(
-    val eventId: String,
-    val elapsedMs: Long,
-    val kind: String,
-    val detailsJson: String,
-    val sourceSampleSequence: Long? = null,
 )
 
 data class SessionExportRecord(
@@ -871,34 +813,6 @@ sealed class SessionStoreException(message: String) : RuntimeException(message) 
  * only the native work started by that request, so cancelling it cannot abort
  * sibling requests that happen to read the same session.
  */
-class SessionReadCancellation {
-    private val lock = Any()
-    private val callbacks = linkedSetOf<() -> Unit>()
-    private var cancelled = false
-
-    fun cancel() {
-        val pending = synchronized(lock) {
-            if (cancelled) return
-            cancelled = true
-            callbacks.toList().also { callbacks.clear() }
-        }
-        pending.forEach { callback -> runCatching(callback) }
-    }
-
-    fun register(callback: () -> Unit): AutoCloseable {
-        val invokeImmediately = synchronized(lock) {
-            if (cancelled) {
-                true
-            } else {
-                callbacks += callback
-                false
-            }
-        }
-        if (invokeImmediately) runCatching(callback)
-        return AutoCloseable { synchronized(lock) { callbacks.remove(callback) } }
-    }
-}
-
 interface SessionStorePort {
     fun sessionPath(sessionId: String): String = throw SessionStoreException.SessionNotFound
     fun reconcileSession(sessionId: String) = Unit
@@ -907,116 +821,9 @@ interface SessionStorePort {
     fun session(sessionId: String): SessionSummaryRecord
     fun sessionSnapshot(sessionId: String): SessionPublishedSnapshotRecord =
         throw SessionStoreException.SessionNotFound
-    fun sessionHistoryConfiguration(sessionId: String): SessionHistoryConfiguration =
-        SessionHistoryConfiguration(1_000, 1_000)
-    fun sessionPruneMetadata(sessionId: String): SessionPruneMetadataRecord =
-        SessionPruneMetadataRecord(null, 0, 0, null)
-    fun <T> withSessionReadCancellation(cancellation: SessionReadCancellation, body: () -> T): T = body()
-    fun cancelHistoricalReads(sessionId: String) = Unit
-    fun prunePreview(sessionId: String, targetResolutionSeconds: Long): SessionPrunePreviewRecord =
-        throw SessionStoreException.SessionNotFound
-    fun pruneSession(sessionId: String, targetResolutionSeconds: Long): SessionPrunePreviewRecord =
-        throw SessionStoreException.SessionNotFound
     fun maintenanceJob(): SessionMaintenanceJobRecord? = null
     fun saveMaintenanceJob(job: SessionMaintenanceJobRecord) = Unit
     fun cancelMaintenanceJob(operationId: String): SessionMaintenanceJobRecord? = null
-    fun querySeries(
-        sessionId: String,
-        startElapsedMs: Long,
-        endElapsedMs: Long,
-        fields: List<String>,
-        maxPoints: Int,
-    ): List<SessionSeriesPoint>
-    fun querySeries(
-        sessionId: String,
-        startElapsedMs: Long,
-        endElapsedMs: Long,
-        fields: List<String>,
-        maxPoints: Int,
-        publishedSampleSequence: Long?,
-    ): List<SessionSeriesPoint> = querySeries(
-        sessionId, startElapsedMs, endElapsedMs, fields, maxPoints,
-    )
-    fun querySeriesSource(
-        sessionId: String,
-        startElapsedMs: Long,
-        endElapsedMs: Long,
-        fields: List<String>,
-        maxRows: Int,
-        publishedSampleSequence: Long?,
-    ): List<SessionSeriesPoint> = querySeries(
-        sessionId, startElapsedMs, endElapsedMs, fields, maxRows.coerceAtMost(2_000),
-        publishedSampleSequence,
-    )
-    fun reduceSeries(
-        sessionId: String,
-        startElapsedMs: Long,
-        endElapsedMs: Long,
-        fields: List<String>,
-        buckets: Int,
-        gapPolicy: SessionGapPolicyRecord,
-        expectedPersistenceMs: Long,
-        expectedRidingPersistenceMs: Long?,
-        expectedIdlePersistenceMs: Long?,
-        retainedResolutionSeconds: Long,
-        publishedSampleSequence: Long?,
-    ): SessionSeriesReductionRecord {
-        val started = System.nanoTime()
-        val rows = querySeriesSource(
-            sessionId, startElapsedMs, endElapsedMs, fields, 200_000, publishedSampleSequence,
-        )
-        val columns = SessionHistoryReducer.reduceSeries(
-            rows,
-            fields,
-            SessionElapsedRange(startElapsedMs, endElapsedMs),
-            buckets,
-            gapPolicy,
-            expectedPersistenceMs,
-            expectedRidingPersistenceMs,
-            expectedIdlePersistenceMs,
-            retainedResolutionSeconds,
-            rowsAreOrdered = true,
-        )
-        val elapsedMs = (System.nanoTime() - started) / 1_000_000.0
-        return SessionSeriesReductionRecord(columns, rows.size, 0.0, elapsedMs, elapsedMs)
-    }
-    fun sessionEvents(
-        sessionId: String,
-        startElapsedMs: Long,
-        endElapsedMs: Long,
-    ): List<SessionEventRecord>
-    fun queryLocations(
-        sessionId: String,
-        startElapsedMs: Long,
-        endElapsedMs: Long,
-        limit: Int,
-        cursor: String?,
-        publishedLocationSequence: Long?,
-    ): SessionLocationPageRecord = throw SessionStoreException.SessionNotFound
-    fun sessionEvents(
-        sessionId: String,
-        startElapsedMs: Long,
-        endElapsedMs: Long,
-        publishedEventSequence: Long?,
-    ): List<SessionEventRecord> = sessionEvents(sessionId, startElapsedMs, endElapsedMs)
-    fun sessionExtensionFields(sessionId: String): List<String> = emptyList()
-    fun querySampleWindow(
-        sessionId: String,
-        centerElapsedMs: Long,
-        beforeMs: Long,
-        afterMs: Long,
-        fields: List<String>,
-    ): List<SessionSeriesPoint>
-    fun querySampleWindow(
-        sessionId: String,
-        centerElapsedMs: Long,
-        beforeMs: Long,
-        afterMs: Long,
-        fields: List<String>,
-        publishedSampleSequence: Long?,
-    ): List<SessionSeriesPoint> = querySampleWindow(
-        sessionId, centerElapsedMs, beforeMs, afterMs, fields,
-    )
     fun deleteSession(sessionId: String) {
         throw SessionStoreException.SessionNotFound
     }
