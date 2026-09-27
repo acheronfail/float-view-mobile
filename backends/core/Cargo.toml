@@ -8,6 +8,7 @@ members = [
     "connection-application-coordinator",
     "controller-discovery",
     "device-mutation-coordinator",
+    "loopback-server",
     "refloat-compatibility",
     "refloat-configuration-codec",
     "refloat-configuration-service",

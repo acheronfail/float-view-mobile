@@ -1,0 +1,14 @@
+[package]
+name = "float-view-loopback-server"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+axum = { version = "=0.8.9", default-features = false, features = ["http1", "tokio", "ws"] }
+flate2 = { version = "=1.1.9", default-features = false, features = ["rust_backend"] }
+getrandom = "=0.3.4"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "=1.53.1", default-features = false, features = ["rt", "net", "sync", "time"] }

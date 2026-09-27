@@ -2,14 +2,14 @@
 
 ## 1. Baseline and dependency selection
 
-- [ ] 1.1 Inventory every current route, control method, session-data kind, serializer, host call, and limit. Check the inventory against the TypeScript contract and canonical scenarios.
-- [ ] 1.2 Record production source, dependencies, package sizes, binding artifacts, and deletion targets. Check that the baseline includes both complete native server files.
-- [ ] 1.3 Select and lock the Rust server dependencies with required features only. Record licenses and replacement rationale, then compile for all supported Apple and Android targets.
-- [ ] 1.4 Document numeric connection, queue, worker, transfer, and shutdown bounds. Check that every bound has an assigned boundary test and preserves existing contract limits.
+- [x] 1.1 Inventory every current route, control method, session-data kind, serializer, host call, and limit. Check the inventory against the TypeScript contract and canonical scenarios.
+- [x] 1.2 Record production source, dependencies, package sizes, binding artifacts, and deletion targets. Check that the baseline includes both complete native server files.
+- [x] 1.3 Select and lock the Rust server dependencies with required features only. Record licenses and replacement rationale, then compile for all supported Apple and Android targets.
+- [x] 1.4 Document numeric connection, queue, worker, transfer, and shutdown bounds. Check that every bound has an assigned boundary test and preserves existing contract limits.
 
 ## 2. Shared host exchange
 
-- [ ] 2.1 Add the safe shared server crate above the application runtime. Check dependency direction and confirm no networking dependency enters domain crates.
+- [x] 2.1 Add the safe shared server crate above the application runtime. Check dependency direction and confirm no networking dependency enters domain crates.
 - [ ] 2.2 Add versioned start/stop, operation drain/wait, completion, publication, and cancellation records. Test malformed envelopes, stale generations, duplicate completions, queue saturation, and idempotent destruction.
 - [ ] 2.3 Extend the existing Apple and Android binding families with caller-owned bounded exchange. Test invalid handles, buffer extents, panic containment, interruption, and exact exported symbols.
 - [ ] 2.4 Add bounded archive transfer handles and chunks with host-owned temporary storage. Test envelope-size independence, cancellation, cleanup, and stale or foreign handle rejection.
