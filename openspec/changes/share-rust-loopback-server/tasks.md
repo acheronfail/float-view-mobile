@@ -51,7 +51,7 @@
 
 - [x] 7.1 Update ownership docs, OpenSpec context, build/symbol checks, and root audits for the selected shared server. Check that no duplicate dispatch, old dependency, temporary bridge, or fallback remains.
 - [x] 7.2 Record final source/dependency/package deltas. Require a net production-source reduction and passing existing convergence limits, with no public contract or SQL schema change.
-- [ ] 7.3 Run the explicit Android, iOS, and macOS ESP32 physical checkpoint for telemetry, saved recording, reconnect, and frontend/lifecycle recovery. Record each result and any user-authorized coverage deferral accurately.
+- [x] 7.3 Run the explicit Android, iOS, and macOS ESP32 physical checkpoint for telemetry, saved recording, reconnect, and frontend/lifecycle recovery. Record each result and any user-authorized coverage deferral accurately.
 
 ## 8. Final verification
 

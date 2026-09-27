@@ -31,7 +31,7 @@ internal object ServerFacts {
         is Map<*, *> -> JSONObject().also { result -> value.forEach { (key, item) -> result.put(key as String, encode(item)) } }
         is Iterable<*> -> JSONArray(value.map(::encode))
         else -> {
-            require(value.javaClass.packageName == "fail.acheron.floatview.application")
+            require(value.javaClass.name.substringBeforeLast('.') == "fail.acheron.floatview.application")
             JSONObject().also { result ->
                 value.javaClass.declaredFields.filterNot { Modifier.isStatic(it.modifiers) || it.isSynthetic }.forEach { field ->
                     field.isAccessible = true
