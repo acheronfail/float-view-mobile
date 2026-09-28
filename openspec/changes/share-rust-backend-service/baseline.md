@@ -113,4 +113,5 @@ The schema marker is `11` on both hosts; archive metadata format is `1`.
 
 The behavior audit found a pre-existing board-identity mismatch resolved by the user’s
 pre-release disposable-data policy; see [behavior-audit.md](behavior-audit.md).
-Tasks 1.2 and 1.3 remain incomplete. No production owner has changed.
+Tasks 1.2 and 1.3 are now recorded in the behavior audit and resource matrix.
+The shared storage slice is implemented but native production selection is unchanged.

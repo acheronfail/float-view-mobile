@@ -1,5 +1,5 @@
 {
-  "purpose": "Source-derived diagnostic vectors, not yet wired into a production regression test. Shared policy is pending a legacy-identity decision.",
+  "purpose": "Historical source-derived diagnostic vectors. User policy selects the versioned hash with disposable development storage reset; current production regression coverage is in product-store/tests/store.rs. No legacy identity implementation is retained in the shared store.",
   "vectors": [
     {
       "case": "meaningful",

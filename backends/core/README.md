@@ -90,3 +90,16 @@ audit, and the applicable physical fixture matrix.
 - There is one production application runtime and no native protocol fallback.
 - New shared behavior extends the runtime or a downward dependency; it does not
   create sideways candidates, generated APIs, or another temporary bridge.
+
+## Shared backend service change in progress
+
+`product-store` implements shared catalog startup, settings, boards/profiles,
+private routing hints, Tunes/schema cache, session catalogs and recovery/deletion.
+`backend-service` establishes the safe one-store/one-runtime constructor. These
+components are not yet selected by native production; the current native owners
+stay selected until service OS exchange, direct-host proof and each host cutover
+are complete. See `share-rust-backend-service` for the remaining tasks.
+
+Shared storage uses marker `12` and resets incompatible owned development data.
+No migration, earlier-development identity alias or legacy data reader is needed
+before the first release; AGENTS.md is the persistent compatibility policy.

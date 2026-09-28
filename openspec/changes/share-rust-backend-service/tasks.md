@@ -1,17 +1,17 @@
 ## 1. Baseline and behavior inventory
 
 - [x] 1.1 Inventory native product/storage/application policy and map every retained native responsibility to an OS capability. Verify both hosts' call paths and record exact deletion targets, source/package/dependency baseline and ownership exceptions.
-- [ ] 1.2 Record validation, defaults, identity/revision, cursor, cache, recovery, retention, archive/CSV and lifecycle semantics against contract/SQL/conformance evidence. Resolve Swift/Kotlin differences with regression fixtures and an explicit behavior table.
-- [ ] 1.3 Inventory numeric limits for all queues, collections, bytes, staging/cache retention, SQLite waits and shutdown. Deliver a boundary-test matrix with exact ceilings, admission points, cleanup capacity and any proposed observable changes before implementation.
+- [x] 1.2 Record validation, defaults, identity/revision, cursor, cache, recovery, retention, archive/CSV and lifecycle semantics against contract/SQL/conformance evidence. Resolve Swift/Kotlin differences with regression fixtures and an explicit behavior table.
+- [x] 1.3 Inventory numeric limits for all queues, collections, bytes, staging/cache retention, SQLite waits and shutdown. Deliver a boundary-test matrix with exact ceilings, admission points, cleanup capacity and any proposed observable changes before implementation.
 
 ## 2. Shared product storage
 
-- [ ] 2.1 Establish cohesive shared storage/service components with existing locked dependencies. Verify downward dependencies, no second runtime, at most 28 members and no new binding artifact or generated API.
-- [ ] 2.2 Implement catalog startup, canonical schema loading, root confinement and existing schema-marker reset behavior. Test valid reopen, incompatible disposable storage, corruption, unavailable/protected roots and symlink/path escape without deleting unrelated files.
-- [ ] 2.3 Move settings, saved-board identity/association, profiles and routing hints. Verify canonical defaults, patch bounds, optimistic conflicts, nullable imported associations and private identifier exclusion.
-- [ ] 2.4 Move Tune persistence and schema caches. Test exact compatibility identity, complete values, record conflicts, pagination, digest/size rejection and bounded eviction against recorded fixtures.
-- [ ] 2.5 Move session creation/catalog queries and marker reconciliation. Test keyset ordering/cursor binding, immutable snapshots and fault injection before/after session commit and catalog update.
-- [ ] 2.6 Move close/retention, interrupted-session recovery, board forgetting and pending-delete/cancel behavior. Test active-board rejection, idempotent restart, retained committed data and reader/export lease races.
+- [x] 2.1 Establish cohesive shared storage/service components with existing locked dependencies. Verify downward dependencies, no second runtime, at most 28 members and no new binding artifact or generated API.
+- [x] 2.2 Implement catalog startup, canonical schema loading, root confinement and existing schema-marker reset behavior. Test valid reopen, incompatible disposable storage, corruption, unavailable/protected roots and symlink/path escape without deleting unrelated files.
+- [x] 2.3 Move settings, saved-board identity/association, profiles and routing hints. Verify canonical defaults, patch bounds, optimistic conflicts, nullable imported associations and private identifier exclusion.
+- [x] 2.4 Move Tune persistence and schema caches. Test exact compatibility identity, complete values, record conflicts, pagination, digest/size rejection and bounded eviction against recorded fixtures.
+- [x] 2.5 Move session creation/catalog queries and marker reconciliation. Test keyset ordering/cursor binding, immutable snapshots and fault injection before/after session commit and catalog update.
+- [x] 2.6 Move close/retention, interrupted-session recovery, board forgetting and pending-delete/cancel behavior. Test active-board rejection, idempotent restart, retained committed data and reader/export lease races.
 - [ ] 2.7 Move persisted maintenance coordination into the shared service using existing prune kernels. Test bounded batch cursors, cancellation, process restart and committed logical prune with interrupted compaction.
 
 ## 3. Shared archive and file lifecycle

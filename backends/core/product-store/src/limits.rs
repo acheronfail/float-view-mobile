@@ -1,0 +1,23 @@
+//! Admission bounds; see the change's resource-boundary matrix.
+pub const SQLITE_BUSY_MS: u64 = 250;
+pub const MAX_REVISION: u64 = 9_007_199_254_740_991;
+pub const MAX_SETTINGS_BYTES: usize = 4_096;
+pub const MAX_PROFILE_BYTES: usize = 16_384;
+pub const MAX_NAME_BYTES: usize = 128;
+pub const MAX_IDENTIFIER_BYTES: usize = 128;
+pub const MAX_BOARDS: usize = 50;
+pub const MAX_TUNE_VALUES_BYTES: usize = 49_152;
+pub const MAX_TUNE_PAGE: usize = 50;
+pub const MAX_SESSION_PAGE: usize = 100;
+pub const MAX_SCHEMA_CACHE_ENTRIES: usize = 8;
+pub const MAX_SCHEMA_CACHE_BYTES: usize = 65_536;
+pub const MAX_SCHEMA_BYTES: usize = 32_768;
+pub const MAX_IMPORT_BYTES: u64 = 134_217_728;
+pub const MAX_TRANSFER_BYTES: usize = 65_536;
+pub const MAX_TRANSFERS: usize = 2;
+pub const MAX_EXPORTS: usize = 20;
+pub const EXPORT_RETENTION_MS: i64 = 86_400_000;
+pub const MAX_STAGING_BYTES: u64 = 536_870_912;
+pub const MAX_EXPORT_BYTES: u64 = 134_217_728;
+pub const MAX_DIRECTORY_ENTRIES: usize = 100_000;
+pub const RECOVERY_BATCH: usize = 100;

@@ -1,0 +1,10 @@
+[package]
+name = "float-view-backend-service"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+float-view-application-runtime = { path = "../application-runtime" }
+float-view-product-store = { path = "../product-store" }

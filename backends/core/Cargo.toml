@@ -1,6 +1,8 @@
 [workspace]
 members = [
     "application-runtime",
+    "backend-service",
+    "product-store",
     "application-runtime-android-jni",
     "application-runtime-apple-ffi",
     "application-runtime-host",

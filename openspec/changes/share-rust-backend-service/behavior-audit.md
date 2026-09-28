@@ -1,7 +1,10 @@
-# Behavior audit in progress
+# Behavior audit
 
-This records source evidence at `fae1776b` for tasks 1.2/1.3. It is not a claim
-that the full behavior/limit inventory or regression coverage is complete.
+This records source evidence at `fae1776b` for tasks 1.2/1.3.
+The shared bounds and remaining execution tests are specified in
+[resource-boundaries.md](resource-boundaries.md). Product regression cases now
+live in `backends/core/product-store/tests/store.rs`; later service/host checks
+remain required by their implementation tasks.
 
 ## Resolved identity decision
 
@@ -99,9 +102,49 @@ cleanup tests where applicable. This list is not yet the complete task 1.3 matri
 | Native catalog waits                         | Swift sets no busy timeout in its Database wrapper; Android delegates to framework SQLite              | Choose/document explicit shared timeout; do not claim a numeric Android default without platform evidence.                      |
 | Free storage thresholds                      | Warning below 1,073,741,824; critical below 524,288,000; stop below 262,144,000 bytes                  | Exact boundary does not enter lower state; native supplies availability, shared service decides.                                |
 
-Still to settle before task 1.3 completion: discovery/saved-board admission,
-aggregate cache/staging bytes, bounded directory/startup scans, profile/settings
-serialized limits, worker shutdown/retained-handle policy, cleanup-reserved
-capacity, all waiter maps and completion queues. New caps must be recorded as
-observable behavior changes before selecting either host. No new cap has been
-silently chosen by this audit.
+The completed proposed matrix is in resource-boundaries.md. Decisions that
+resolve native differences: canonical versioned identity with development reset;
+SQL settings revision authority; reject corrupt current settings instead of
+silently replacing them; typed cache identity equality; update last-seen on saved
+connection; 16-KiB merged profile cap; bind Tune cursors to all identity fields;
+validate archive profile contents before attachment. Profile-change session events
+must be ordered by the shared service after catalog persistence, with failure
+reported independently of the already committed profile. No legacy data fallback
+is part of these choices.
+
+Product tests exercise conflicting SQL/JSON revisions, cross-platform identity
+vectors, import/explicit association, profile route invalidation, exact/+1 UTF-8
+name bounds, complete/exact-identity Tunes, cursor rebinding and cache corruption.
+Session split-commit, retention, CSV and lifecycle regression tests remain part of
+tasks 2.5–4.8; the audit does not mark that implementation complete.
+
+## First shared-storage checkpoint
+
+The safe `product-store` crate now implements marker-12 startup, canonical catalog
+SQL, settings, boards/profiles/private routing hints, complete Tunes and bounded
+schema caches. `backend-service` establishes one runtime/store composition but
+has not yet replaced native production. The workspace contains 28 members;
+external package versions and both binding families are unchanged.
+
+Focused tests cover tasks 2.1–2.6. Settings/profile updates use immediate SQLite
+transactions and SQL revision authority. New profiles retain bounded unknown
+fields as before, validate known fields strictly, and clear routing hints in the
+same transaction. Native selection, profile-change session events and active
+configuration source-revision validation remain in the later service integration
+tasks; no native implementation has been removed prematurely.
+
+Checkpoint validation (2026-09-28): all 28 new focused tests, locked/offline
+workspace tests and warnings-denied lint passed. The new crates compile for
+`aarch64-apple-ios` and `aarch64-linux-android`. Public contract and canonical
+SQL hashes are unchanged, as are all 105 external locked package versions and
+checksums. Clean Apple packaging and Android four-ABI Debug/Release packaging
+passed. Frontend (188), conformance/fixture (185), Swift (16), Android unit tests
+and mock/macOS conformance passed in the full gate run.
+
+The full `just verify` invocation stopped at iOS's first `state.get` with
+`unavailable`. A clean standalone iOS rerun passed (revision 60); standalone
+Android conformance passed (revision 50). This is not recorded as a passing full
+gate. The existing listener starts before its initial publication, so bootstrap
+readiness must be tested during shared-service integration. No native selection
+has changed. Direct-host proof, complete service behavior and final acceptance
+remain unchecked.

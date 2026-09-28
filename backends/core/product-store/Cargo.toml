@@ -1,0 +1,19 @@
+[package]
+name = "float-view-product-store"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+float-view-session-sqlite = { path = "../session-sqlite" }
+float-view-refloat-configuration-codec = { path = "../refloat-configuration-codec" }
+rusqlite = { version = "0.37.0", features = ["bundled", "hooks"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = { version = "=0.11.0", default-features = false }
+getrandom = "=0.3.4"
+base64 = "=0.22.1"
+
+[dev-dependencies]
+float-view-refloat-telemetry-service = { path = "../refloat-telemetry-service" }

@@ -268,6 +268,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "float-view-backend-service"
+version = "0.1.0"
+dependencies = [
+ "float-view-application-runtime",
+ "float-view-product-store",
+]
+
+[[package]]
 name = "float-view-connection-application-coordinator"
 version = "0.1.0"
 dependencies = [
@@ -321,6 +329,21 @@ dependencies = [
  "serde_json",
  "time",
  "tokio",
+]
+
+[[package]]
+name = "float-view-product-store"
+version = "0.1.0"
+dependencies = [
+ "base64",
+ "float-view-refloat-configuration-codec",
+ "float-view-refloat-telemetry-service",
+ "float-view-session-sqlite",
+ "getrandom",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "sha2",
 ]
 
 [[package]]
