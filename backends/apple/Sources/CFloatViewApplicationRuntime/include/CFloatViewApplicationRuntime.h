@@ -10,7 +10,7 @@ extern "C" {
 
 #define FLOAT_VIEW_APPLICATION_RUNTIME_ABI_VERSION UINT32_C(1)
 #define FLOAT_VIEW_APPLICATION_RUNTIME_MAX_COMMAND_BYTES ((size_t)1048576)
-#define FLOAT_VIEW_APPLICATION_RUNTIME_MAX_RESULT_BYTES ((size_t)4194304)
+#define FLOAT_VIEW_APPLICATION_RUNTIME_MAX_RESULT_BYTES ((size_t)1048576)
 
 typedef int32_t FloatViewApplicationRuntimeStatus;
 
@@ -37,36 +37,9 @@ enum {
  */
 uint32_t float_view_application_runtime_abi_version(void);
 
-FloatViewApplicationRuntimeStatus float_view_application_runtime_create(
-    uint64_t *out_handle);
-
-FloatViewApplicationRuntimeStatus float_view_application_runtime_destroy(
-    uint64_t handle);
-
-/* Thread-safe cooperative interruption for an active reader or pruner. */
-FloatViewApplicationRuntimeStatus float_view_application_runtime_interrupt(
-    uint64_t handle);
-
-FloatViewApplicationRuntimeStatus float_view_application_runtime_apply(
-    uint64_t handle,
-    const uint8_t *command,
-    size_t command_length,
-    size_t *out_required);
-
-FloatViewApplicationRuntimeStatus float_view_application_runtime_copy_result(
-    uint64_t handle,
-    uint8_t *output,
-    size_t output_capacity,
-    size_t *out_written);
-
-/* Shared loopback server: independent process handle, same binding artifact.
- * Commands use a 1 MiB caller-owned output. Binary chunks use 64 KiB buffers. */
-int32_t float_view_application_runtime_server_create(uint32_t platform, const uint8_t *html, size_t length, uint64_t *out_handle);
+/* Listener commands borrow the process owner and use 1-MiB caller buffers. */
 int32_t float_view_application_runtime_server_destroy(uint64_t handle);
 int32_t float_view_application_runtime_server_command(uint64_t handle, const uint8_t *input, size_t length, uint8_t *output, size_t capacity, size_t *out_written);
-int32_t float_view_application_runtime_server_read_transfer(uint64_t handle, uint64_t generation, uint64_t transfer, uint8_t *output, size_t capacity, size_t *out_written);
-int32_t float_view_application_runtime_server_write_transfer(uint64_t handle, uint64_t generation, uint64_t transfer, uint64_t offset, const uint8_t *input, size_t length);
-
 int32_t float_view_application_runtime_service_create(const uint8_t *root, size_t length, uint64_t *out_handle);
 int32_t float_view_application_runtime_service_destroy(uint64_t handle);
 int32_t float_view_application_runtime_service_apply(uint64_t handle, const uint8_t *command, size_t command_length, size_t *out_required);

@@ -54,6 +54,8 @@ pub(crate) struct Capture {
     pub start: u64,
     pub elapsed: u64,
 }
+#[derive(PartialEq)]
+struct HostStatus(bool, bool, String, Option<String>, Vec<String>);
 pub(crate) struct Policy {
     pub exchange: os::Exchange,
     pub settings: Settings,
@@ -73,7 +75,8 @@ pub(crate) struct Policy {
     pub available_bytes: u64,
     pub revision: u64,
     pub boards: Vec<crate::facts::SavedBoard>,
-    host_status: Option<(bool, bool, String, Option<String>)>,
+    pub saved_device_ids: Vec<String>,
+    host_status: Option<HostStatus>,
 }
 impl Policy {
     pub fn new(settings: Settings) -> Self {
@@ -96,6 +99,7 @@ impl Policy {
             available_bytes: 0,
             revision: 0,
             boards: Vec::new(),
+            saved_device_ids: Vec::new(),
             host_status: None,
         }
     }
@@ -252,7 +256,20 @@ impl BackendService {
                     .is_some_and(|a| a.generation == generation)
                 {
                     match state {
-                        LinkState::Disconnected | LinkState::Failed => self.reconnect()?,
+                        LinkState::Disconnected | LinkState::Failed => {
+                            if self
+                                .runtime
+                                .snapshot()
+                                .application
+                                .mutations
+                                .controller_actions
+                                .shutdown_pending
+                            {
+                                self.disconnect("controller_shutdown")?;
+                            } else {
+                                self.reconnect()?;
+                            }
+                        }
                         LinkState::Ready => {
                             if self
                                 .policy
@@ -355,7 +372,7 @@ impl BackendService {
         }
     }
     pub(crate) fn changed(&mut self) -> Result<(), Failure> {
-        let status = (
+        let status = HostStatus(
             self.policy.active.is_some(),
             self.policy
                 .active
@@ -369,6 +386,7 @@ impl BackendService {
                     .or(a.device.name.clone())
                     .unwrap_or_else(|| a.device.id.clone())
             }),
+            self.policy.saved_device_ids.clone(),
         );
         if self.policy.host_status.as_ref() != Some(&status) {
             self.policy.exchange.status = Some(Effect::HostState {
@@ -376,6 +394,7 @@ impl BackendService {
                 recording: status.1,
                 theme_preference: status.2.clone(),
                 display_name: status.3.clone(),
+                saved_device_ids: status.4.clone(),
             });
             self.policy.host_status = Some(status);
         }
@@ -1134,6 +1153,91 @@ mod tests {
         ));
         assert!(t.service.policy.active.is_none());
         assert!(t.service.store.boards().unwrap().is_empty());
+    }
+    #[test]
+    fn shutdown_is_accepted_immediately_and_link_loss_does_not_reconnect() {
+        let mut t = Test::new();
+        t.activate(false);
+        let document: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../fixtures/refloat/protocol-1.0.0.json"
+        ))
+        .unwrap();
+        let hex = document["cases"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|v| v["name"] == "legacy-idle-all-data")
+            .unwrap()["frameHex"]
+            .as_str()
+            .unwrap();
+        let bytes: Vec<u8> = (0..hex.len())
+            .step_by(2)
+            .map(|i| u8::from_str_radix(&hex[i..i + 2], 16).unwrap())
+            .collect();
+        let generation = t.service.policy.active.as_ref().unwrap().generation;
+        for now in (1000..=10000).step_by(1000) {
+            let due: Vec<_> = t
+                .service
+                .policy
+                .timers
+                .iter()
+                .filter(|(_, timer)| timer.due <= now)
+                .map(|(id, _)| *id)
+                .collect();
+            for id in due {
+                t.fact(Fact::Timer { id }, now).unwrap();
+            }
+            t.fact(
+                Fact::Bytes {
+                    generation,
+                    bytes: bytes.clone(),
+                },
+                now,
+            )
+            .unwrap();
+            t.drain();
+            if t.service
+                .runtime
+                .snapshot()
+                .application
+                .mutations
+                .controller_actions
+                .shutdown_available
+            {
+                break;
+            }
+        }
+        assert!(matches!(
+            t.service
+                .dispatch(1, crate::operations::Operation::ShutdownController)
+                .unwrap(),
+            crate::Dispatch::Complete(_)
+        ));
+        assert!(
+            t.service
+                .runtime
+                .snapshot()
+                .application
+                .mutations
+                .controller_actions
+                .shutdown_pending
+        );
+        t.fact(
+            Fact::Link {
+                generation,
+                state: LinkState::Disconnected,
+            },
+            10001,
+        )
+        .unwrap();
+        assert!(t.service.policy.active.is_none());
+        assert!(
+            !t.service
+                .policy
+                .timers
+                .values()
+                .any(|timer| timer.kind == Timer::Reconnect)
+        );
     }
     #[test]
     fn reconnect_deadline_expires_even_without_an_os_failure_callback() {

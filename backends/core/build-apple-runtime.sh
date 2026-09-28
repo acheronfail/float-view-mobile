@@ -58,6 +58,7 @@ for apple_architecture in $apple_architectures; do
 done
 
 mkdir -p "$apple_output_dir"
+apple_output_dir="$(cd "$apple_output_dir" && pwd)"
 cargo_target_dir="$apple_output_dir/cargo"
 archives=()
 for rust_target in "${rust_targets[@]}"; do
@@ -88,9 +89,9 @@ fi
 [[ -f "$destination" ]]
 
 expected_symbols="$(printf '%s\n' \
-  abi_version create destroy interrupt apply copy_result \
+  abi_version \
   service_create service_destroy service_apply service_copy_result service_server_create \
-  server_create server_destroy server_command server_read_transfer server_write_transfer \
+  server_destroy server_command \
   | sed 's/^/float_view_application_runtime_/' | sort)"
 actual_symbols="$(nm -gU "$destination" 2>/dev/null | awk '{print $NF}' \
   | sed 's/^_//' | rg '^float_view_application_runtime_[a-z_]+$' | sort -u)"

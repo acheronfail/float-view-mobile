@@ -19,7 +19,6 @@ pub(crate) enum PendingKind {
     Location,
     Settings,
     Controls,
-    Shutdown,
     Read(bool),
     Write,
 }
@@ -129,14 +128,11 @@ impl BackendService {
                 );
             }
             Operation::ShutdownController => {
-                return self.kernel_request(
-                    owner,
-                    PendingKind::Shutdown,
-                    c::Command::ShutdownController {
-                        generation,
-                        now_ms: now,
-                    },
-                );
+                self.runtime_command(Command::Application(c::Command::ShutdownController {
+                    generation,
+                    now_ms: now,
+                }))?;
+                f::Completion::Unit
             }
             Operation::ConfigurationSchema => f::Completion::ConfigurationSchema(schema(
                 self.runtime
@@ -509,10 +505,7 @@ impl BackendService {
         if self.pending.values().any(|p| {
             matches!(
                 p.kind,
-                PendingKind::Controls
-                    | PendingKind::Shutdown
-                    | PendingKind::Read(_)
-                    | PendingKind::Write
+                PendingKind::Controls | PendingKind::Read(_) | PendingKind::Write
             )
         }) {
             return Err(Failure::InvalidState);
@@ -549,12 +542,11 @@ impl BackendService {
         }
     }
     pub(crate) fn complete_mutation(&mut self, success: bool) {
-        if let Some((&id, p)) = self.pending.iter().find(|(_, p)| {
-            matches!(
-                p.kind,
-                PendingKind::Controls | PendingKind::Shutdown | PendingKind::Write
-            )
-        }) {
+        if let Some((&id, p)) = self
+            .pending
+            .iter()
+            .find(|(_, p)| matches!(p.kind, PendingKind::Controls | PendingKind::Write))
+        {
             let result = if !success {
                 Err(Failure::Unavailable)
             } else {
@@ -569,7 +561,6 @@ impl BackendService {
                         .map(p::controls)
                         .map(f::Completion::Controls)
                         .ok_or(Failure::InvalidState),
-                    PendingKind::Shutdown => Ok(f::Completion::Unit),
                     _ => self.configuration_result(false),
                 }
             };
@@ -623,10 +614,7 @@ impl BackendService {
             .filter(|(_, p)| {
                 matches!(
                     p.kind,
-                    PendingKind::Controls
-                        | PendingKind::Shutdown
-                        | PendingKind::Read(_)
-                        | PendingKind::Write
+                    PendingKind::Controls | PendingKind::Read(_) | PendingKind::Write
                 )
             })
             .map(|(id, _)| *id)

@@ -84,9 +84,12 @@ pub(crate) fn boundary(s: &store::Session) -> f::Boundary {
 }
 impl BackendService {
     pub(crate) fn refresh_boards(&mut self) -> store::Result<()> {
-        self.policy.boards = self
-            .store
-            .boards()?
+        let boards = self.store.boards()?;
+        self.policy.saved_device_ids = boards
+            .iter()
+            .filter_map(|b| b.local_identifier.clone())
+            .collect();
+        self.policy.boards = boards
             .iter()
             .map(|b| self.board_facts(b))
             .collect::<store::Result<_>>()?;

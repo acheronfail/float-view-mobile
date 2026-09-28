@@ -244,3 +244,27 @@ compilation passed. Exact binding symbol audits include the new service calls in
 the existing families. Superseded calls remain temporarily used by the native
 hosts and will be removed at selection. Native production selection is unchanged
 at this checkpoint. Physical acceptance and final software gates remain pending.
+
+## Apple selection checkpoint
+
+macOS and iOS now create the shared process service in their protected private
+root. The Swift executor only maps OS callbacks and executes Bluetooth, native
+timers, location, permission, theme and file-presentation effects. It keeps at
+most 64 queued callbacks and 2,048 timers in a bounded table, with fixed/coalesced
+cleanup slots. Listener restart borrows the existing process owner. iOS reports
+foreground changes independently of disposable WebViews and protects new files
+until first device unlock. Presentation dismissal releases shared file leases.
+
+Deleted Swift catalog/session/archive stores, product models, application policy,
+runtime reconstruction, operation dispatch, waiters and snapshot publication.
+Removed CSQLite and bundled SQL resources; SQL remains embedded by Rust. Removed
+unused C runtime and native transfer entry points from the existing Apple family,
+with updated caller-buffer regression tests and exact symbol audit.
+
+Validation: nine Swift OS/host tests passed, including canonical conformance and
+listener recreation; production macOS conformance passed at revision 648 and iOS
+simulator at revision 653. Clean macOS Release, iOS simulator Release and iOS
+device Debug packaging passed. Shared service/C tests and warnings-denied lint
+passed. A deterministic shutdown regression additionally verifies immediate
+acceptance and terminal link-loss classification without reconnect. Real-device
+background access and file presentation remain part of physical task 8.3.

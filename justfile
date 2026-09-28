@@ -114,9 +114,6 @@ emulate platform:
 build:
     cd frontend && npm run build
     cp frontend/build/index.html backends/apple/macos/Resources/index.html
-    mkdir -p backends/apple/macos/Resources/sql
-    cp backends/sql/catalog.sql backends/apple/macos/Resources/sql/catalog.sql
-    cp backends/sql/session.sql backends/apple/macos/Resources/sql/session.sql
 
 run platform target="": build
     #!/usr/bin/env bash

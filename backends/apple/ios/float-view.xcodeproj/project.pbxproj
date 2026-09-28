@@ -8,7 +8,6 @@
 
 /* Begin PBXBuildFile section */
 		BA3A10B12E5C0EED005406DA /* index.html in Resources */ = {isa = PBXBuildFile; fileRef = BA3A10B02E5C0EED005406DA /* index.html */; };
-		F10A00052F00000000000005 /* sql in Resources */ = {isa = PBXBuildFile; fileRef = F10A00042F00000000000004 /* sql */; };
 		F10A00072F00000000000007 /* schemas in Resources */ = {isa = PBXBuildFile; fileRef = F10A00062F00000000000006 /* schemas */; };
 		F10A00092F00000000000009 /* values in Resources */ = {isa = PBXBuildFile; fileRef = F10A00082F00000000000008 /* values */; };
 /* End PBXBuildFile section */
@@ -16,7 +15,6 @@
 /* Begin PBXFileReference section */
 		BA3A10B02E5C0EED005406DA /* index.html */ = {isa = PBXFileReference; lastKnownFileType = text.html; path = ../../../frontend/build/index.html; sourceTree = "<group>"; };
 		BA4ABF1C2E5BDF4600B47684 /* float-view.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "float-view.app"; sourceTree = BUILT_PRODUCTS_DIR; };
-		F10A00042F00000000000004 /* sql */ = {isa = PBXFileReference; lastKnownFileType = folder; path = ../../sql; sourceTree = "<group>"; };
 		F10A00062F00000000000006 /* schemas */ = {isa = PBXFileReference; lastKnownFileType = folder; path = ../../fixtures/refloat-configuration/schemas; sourceTree = "<group>"; };
 		F10A00082F00000000000008 /* values */ = {isa = PBXFileReference; lastKnownFileType = folder; path = ../../fixtures/refloat-configuration/values; sourceTree = "<group>"; };
 		F20A00012F00000000000001 /* float-view-lifecycle-tests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "float-view-lifecycle-tests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -63,7 +61,6 @@
 			isa = PBXGroup;
 			children = (
 				BA3A10B02E5C0EED005406DA /* index.html */,
-				F10A00042F00000000000004 /* sql */,
 				F10A00062F00000000000006 /* schemas */,
 				F10A00082F00000000000008 /* values */,
 				F10A00012F00000000000001 /* FloatViewBackend */,
@@ -189,7 +186,6 @@
 			buildActionMask = 2147483647;
 			files = (
 				BA3A10B12E5C0EED005406DA /* index.html in Resources */,
-				F10A00052F00000000000005 /* sql in Resources */,
 				F10A00072F00000000000007 /* schemas in Resources */,
 				F10A00092F00000000000009 /* values in Resources */,
 			);

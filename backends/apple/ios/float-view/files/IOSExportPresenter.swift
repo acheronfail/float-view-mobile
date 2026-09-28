@@ -2,25 +2,26 @@ import Foundation
 import UIKit
 
 enum IOSExportPresenter {
-  static func schedule(_ value: SessionExportRecord) -> Bool {
+  static func schedule(_ value: NativeFilePresentation) -> Bool {
     DispatchQueue.main.async {
-      present(value.fileURL)
+      present(value)
     }
     return true
   }
 
   @MainActor
-  private static func present(_ fileURL: URL) {
+  private static func present(_ value: NativeFilePresentation) {
     guard let scene = UIApplication.shared.connectedScenes
       .compactMap({ $0 as? UIWindowScene })
       .first(where: { $0.activationState == .foregroundActive }),
       let root = scene.windows.first(where: \.isKeyWindow)?.rootViewController
-    else { return }
+    else { value.finish(); return }
     var presenter = root
     while let presented = presenter.presentedViewController {
       presenter = presented
     }
-    let controller = UIActivityViewController(activityItems: [fileURL], applicationActivities: nil)
+    let controller = UIActivityViewController(activityItems: [value.fileURL], applicationActivities: nil)
+    controller.completionWithItemsHandler = { _, _, _, _ in value.finish() }
     if let popover = controller.popoverPresentationController {
       popover.sourceView = presenter.view
       popover.sourceRect = CGRect(

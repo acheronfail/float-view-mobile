@@ -32,9 +32,7 @@ public final class LoopbackServer: @unchecked Sendable {
   public init(
     html: Data,
     port: UInt16 = 0,
-    applicationService: ApplicationService,
-    exportPresenter: (@Sendable (SessionExportRecord) -> Bool)? = nil,
-    events: EventHub,
+    service: SharedService,
     platform: String = "macos"
   ) {
     host = Result {
@@ -42,8 +40,7 @@ public final class LoopbackServer: @unchecked Sendable {
       guard platform == "ios" || platform == "macos", port == 0 || port == expected else {
         throw CocoaError(.validationMissingMandatoryProperty)
       }
-      return try RustLoopbackHost(html: html, applicationService: applicationService,
-                                  events: events, platform: platform, presenter: exportPresenter)
+      return try RustLoopbackHost(html: html, service: service, platform: platform)
     }
   }
 

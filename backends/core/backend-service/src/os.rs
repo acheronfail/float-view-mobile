@@ -160,6 +160,7 @@ pub enum Effect {
         recording: bool,
         theme_preference: String,
         display_name: Option<String>,
+        saved_device_ids: Vec<String>,
     },
 }
 #[derive(Clone, Debug, Serialize)]

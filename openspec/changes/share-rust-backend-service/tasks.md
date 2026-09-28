@@ -39,9 +39,9 @@
 
 ## 6. Apple selection and deletion
 
-- [ ] 6.1 Wire Apple startup/root protection, Bluetooth, timers, permission/location adapters, background execution and file presentation to the service. Test OS-effect ordering, runtime identity, scoped file lifetime and background file access.
-- [ ] 6.2 Delete Swift portable stores, policy/waiters, domain dispatch and snapshot reconstruction, retaining only OS adapters/composition. Verify deletion inventory, imports, exact symbols and absence of native catalog/archive policy.
-- [ ] 6.3 Run focused Swift/FFI tests, clean macOS/iOS simulator/device packaging and canonical macOS/iOS software conformance. Verify recording survives frontend/listener recreation and commit the buildable Apple slice with task updates.
+- [x] 6.1 Wire Apple startup/root protection, Bluetooth, timers, permission/location adapters, background execution and file presentation to the service. Test OS-effect ordering, runtime identity, scoped file lifetime and background file access.
+- [x] 6.2 Delete Swift portable stores, policy/waiters, domain dispatch and snapshot reconstruction, retaining only OS adapters/composition. Verify deletion inventory, imports, exact symbols and absence of native catalog/archive policy.
+- [x] 6.3 Run focused Swift/FFI tests, clean macOS/iOS simulator/device packaging and canonical macOS/iOS software conformance. Verify recording survives frontend/listener recreation and commit the buildable Apple slice with task updates.
 
 ## 7. Android selection and deletion
 

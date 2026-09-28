@@ -28,16 +28,13 @@ function makeMacosTarget(physical: boolean): Target & Partial<Pick<PhysicalTarge
       const env: NodeJS.ProcessEnv = {
         ...process.env,
         FLOAT_VIEW_FRONTEND_HTML: `${root}/frontend/build/index.html`,
-        FLOAT_VIEW_SQL_ROOT: `${root}/backends/sql`,
         FLOAT_VIEW_LOG_ROOT: logRoot,
         FLOAT_VIEW_CONFORMANCE_PORT: '0',
       };
       if (physical) {
         delete env.FLOAT_VIEW_SOFTWARE_BACKEND;
-        delete env.FLOAT_VIEW_TEST_SEED_PROFILE;
       } else {
         env.FLOAT_VIEW_SOFTWARE_BACKEND = '1';
-        env.FLOAT_VIEW_TEST_SEED_PROFILE = '1';
       }
       child = spawn(executable, macosLaunchArguments(), {
         cwd: root,

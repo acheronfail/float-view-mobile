@@ -16,12 +16,10 @@ let package = Package(
     .package(path: "../fixtures/refloat-configuration"),
   ],
   targets: [
-    .systemLibrary(name: "CSQLite"),
     .systemLibrary(name: "CFloatViewApplicationRuntime"),
     .target(
       name: "FloatViewBackend",
       dependencies: [
-        "CSQLite",
         "CFloatViewApplicationRuntime",
         .product(name: "RefloatConfigurationFixtures", package: "refloat-configuration"),
       ],
@@ -39,7 +37,7 @@ let package = Package(
     .testTarget(
       name: "FloatViewBackendTests",
       dependencies: [
-        "CSQLite", "CFloatViewApplicationRuntime",
+        "CFloatViewApplicationRuntime",
         "FloatViewBackend",
       ]
     ),

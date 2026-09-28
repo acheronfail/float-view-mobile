@@ -7,7 +7,7 @@ import Foundation
 #endif
 
 /// Native location ownership for both Apple hosts. The WebView receives only
-/// the mapped status; observations are forwarded directly to ApplicationService.
+/// the mapped status; observations are forwarded directly to the shared service.
 public final class CoreLocationAdapter: NSObject, LocationProviderPort, CLLocationManagerDelegate, @unchecked Sendable {
   private let manager = CLLocationManager()
   private let lock = NSLock()
@@ -158,7 +158,10 @@ public final class CoreLocationAdapter: NSObject, LocationProviderPort, CLLocati
   }
 
   private func performOnMain(_ action: @escaping @Sendable () -> Void) {
-    if Thread.isMainThread { action() }
-    else { DispatchQueue.main.async(execute: action) }
+    if Thread.isMainThread {
+      action()
+    } else {
+      DispatchQueue.main.async(execute: action)
+    }
   }
 }
