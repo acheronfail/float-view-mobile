@@ -1,8 +1,10 @@
+import { unreachableFixtureEnvironment } from '../fixture/selection.ts';
 import { execFileSync, spawn, type ChildProcess } from 'node:child_process';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { startFixtureRelay, type FixtureRelay } from '../fixture/relay.ts';
 import type { PhysicalTarget, Target } from '../src/suite.ts';
 
 export const IOS_BACKEND_PORT = 11011;
@@ -196,6 +198,7 @@ export function iosPhysicalBuildArguments(project: string, destination: string, 
     '-derivedDataPath',
     derived,
     '-allowProvisioningUpdates',
+    'clean',
     'build-for-testing',
   ];
 }
@@ -210,6 +213,7 @@ export function iosPhysicalLaunchArguments(deviceId: string, jsonOutput: string,
     deviceId,
     '--environment-variables',
     JSON.stringify({
+      ...unreachableFixtureEnvironment,
       FLOAT_VIEW_CONFORMANCE_PORT: String(devicePort),
       ...(reset ? { FLOAT_VIEW_CONFORMANCE_RESET: '1' } : {}),
     }),
@@ -240,6 +244,7 @@ export function iosDeviceIsPreparingFailure(error: unknown) {
 }
 
 function makeSimulatorTarget(): Target {
+  let fixture: FixtureRelay | undefined;
   let device = '';
   return {
     name: 'ios',
@@ -270,6 +275,8 @@ function makeSimulatorTarget(): Target {
           '-derivedDataPath',
           derived,
           'CODE_SIGNING_ALLOWED=NO',
+          'SWIFT_ACTIVE_COMPILATION_CONDITIONS=DEBUG FLOAT_VIEW_CONFORMANCE',
+          'clean',
           'build',
         ],
         { stdio: 'inherit' }
@@ -287,13 +294,21 @@ function makeSimulatorTarget(): Target {
         device,
         `${derived}/Build/Products/Debug-iphonesimulator/float-view.app`,
       ]);
+      fixture = await startFixtureRelay();
       execFileSync('xcrun', ['simctl', 'launch', '--terminate-running-process', device, bundleId], {
         env: {
           ...process.env,
+          SIMCTL_CHILD_FLOAT_VIEW_FIXTURE_ENDPOINT: fixture.endpoint,
+          SIMCTL_CHILD_FLOAT_VIEW_FIXTURE_TOKEN: fixture.token,
+          SIMCTL_CHILD_FLOAT_VIEW_FIXTURE_RUN: fixture.run,
+          SIMCTL_CHILD_FLOAT_VIEW_FIXTURE_SESSION: fixture.session,
           SIMCTL_CHILD_FLOAT_VIEW_CONFORMANCE_PORT: String(devicePort),
         },
       });
       return bootstrap(devicePort, devicePort, 'iOS Simulator');
+    },
+    async loseFixture() {
+      await fixture?.close();
     },
     endpoint: () => bootstrap(devicePort, devicePort, 'iOS Simulator'),
     async stop() {
@@ -302,6 +317,8 @@ function makeSimulatorTarget(): Target {
         stdio: 'ignore',
       });
       device = '';
+      await fixture?.close();
+      fixture = undefined;
     },
   };
 }

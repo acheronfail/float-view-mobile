@@ -15,12 +15,8 @@ final class AppBackend: ObservableObject {
       _ = Self.conformanceStorageReset
     #endif
     let relay = BluetoothEventRelay()
-    #if targetEnvironment(simulator)
-      let peripheral = SoftwareVescPeripheral()
-      let bluetooth: any BluetoothPort = SoftwareBluetoothAdapter(
-        eventHandler: { @Sendable event in relay.emit(event) },
-        responseHandler: { @Sendable bytes in peripheral.response(to: bytes) }
-      )
+    #if FLOAT_VIEW_CONFORMANCE && DEBUG && targetEnvironment(simulator)
+      let bluetooth: any BluetoothPort = FixtureBluetoothAdapter(eventHandler: { @Sendable event in relay.emit(event) })
     #else
       let bluetooth: any BluetoothPort = CoreBluetoothAdapter(
         eventHandler: { @Sendable event in relay.emit(event) },

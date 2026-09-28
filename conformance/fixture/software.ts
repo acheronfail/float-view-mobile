@@ -17,11 +17,16 @@ export class SoftwarePeripheral {
     copy.configuration = this.configuration.fork();
     return copy;
   }
-  receive(bytes: Uint8Array): Uint8Array[] {
-    return this.frames.append(bytes).flatMap((request) => {
+  receive(bytes: Uint8Array, consume?: (frame: Uint8Array) => void): Uint8Array[] {
+    const responses: Uint8Array[] = [];
+    for (const request of this.frames.append(bytes)) {
       const payload = this.respond(request);
-      return payload ? [encodeFrame(payload)] : [];
-    });
+      if (!payload) continue;
+      const frame = encodeFrame(payload);
+      if (consume) consume(frame);
+      else responses.push(frame);
+    }
+    return responses;
   }
   private respond(request: Uint8Array): Uint8Array | undefined {
     const hex = (s: string) => new Uint8Array(Buffer.from(s, 'hex'));

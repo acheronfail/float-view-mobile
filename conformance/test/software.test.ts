@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import { readFileSync } from 'node:fs';
 import { SoftwarePeripheral } from '../fixture/software.ts';
 import { encodeFrame, FrameAssembler } from '../fixture/frame.ts';
-import { FixtureRun, decodeBytes, LIMITS, type FixtureCommand } from '../fixture/session.ts';
+import { FixtureRun, decodeBytes, checkEventCapacity, LIMITS, type FixtureCommand } from '../fixture/session.ts';
 import { startFixtureRelay, validateRelayEndpoint } from '../fixture/relay.ts';
 
 const fixture = (path: string) => readFileSync(new URL(`../../backends/fixtures/${path}`, import.meta.url));
@@ -151,5 +151,166 @@ test('HTTP authorization, endpoint selection, body limits and bounded shutdown',
     const start = performance.now();
     await relay.close();
     assert.ok(performance.now() - start < 5_000);
+  }
+});
+
+test('HTTP sessions stay isolated and duplicate writes do not advance protocol state', async () => {
+  const relay = await startFixtureRelay();
+  try {
+    const other = relay.createSession();
+    const send = (session: string, operation: number, command: string, generation = 0, extra = {}) =>
+      fetch(relay.endpoint, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${relay.token}`, 'X-Fixture-Session': session },
+        body: JSON.stringify({ run: relay.run, session, operation, generation, command, ...extra }),
+      });
+    assert.equal((await send(relay.session, 1, 'connect', 1, { device: 'software-vesc' })).status, 200);
+    const bytes = Buffer.from(request(95, 0, ...fixture('refloat-configuration/values/1.0.0-write.bin'))).toString(
+      'base64'
+    );
+    assert.equal((await send(relay.session, 1, 'write', 1, { device: 'software-vesc', bytes })).status, 400);
+    const result = await send(relay.session, 2, 'write', 1, {
+      device: 'software-vesc',
+      bytes: Buffer.from(request(93, 0)).toString('base64'),
+    });
+    assert.equal(result.status, 200);
+    const reply = await result.json();
+    assert.deepEqual(
+      Buffer.from(payload(Buffer.from(reply.events[0].bytes, 'base64'))).subarray(2),
+      fixture('refloat-configuration/values/1.0.0-current.bin')
+    );
+    assert.equal((await send(other, 1, 'scan')).status, 200);
+  } finally {
+    await relay.close();
+  }
+});
+
+test('64 pending commands admit the exact limit, reject +1, and reserve close and shutdown', async () => {
+  const { createConnection } = await import('node:net');
+  const relay = await startFixtureRelay();
+  const sockets: import('node:net').Socket[] = [];
+  const port = Number(new URL(relay.endpoint).port);
+  const stalled = async () => {
+    const socket = createConnection({ host: '127.0.0.1', port });
+    socket.on('error', () => {});
+    sockets.push(socket);
+    await new Promise<void>((resolve) => socket.once('connect', resolve));
+    socket.write(
+      `POST / HTTP/1.1\r\nHost: 127.0.0.1:${port}\r\nAuthorization: Bearer ${relay.token}\r\nX-Fixture-Session: ${relay.session}\r\nContent-Length: 100\r\n\r\n{`
+    );
+    await new Promise((resolve) => setTimeout(resolve, 2));
+  };
+  const send = (operation: number, command: string, cleanup = false) =>
+    fetch(relay.endpoint, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${relay.token}`,
+        'X-Fixture-Session': relay.session,
+        ...(cleanup ? { 'X-Fixture-Close': '1' } : {}),
+      },
+      body: JSON.stringify({ run: relay.run, session: relay.session, operation, generation: 0, command }),
+    });
+  try {
+    for (let i = 0; i < 63; i++) await stalled();
+    assert.equal((await send(1, 'poll')).status, 200);
+    await stalled();
+    assert.equal((await send(2, 'poll')).status, 429);
+    assert.equal((await send(2, 'close', true)).status, 200);
+  } finally {
+    const began = performance.now();
+    await relay.close();
+    for (const socket of sockets) socket.destroy();
+    assert.ok(performance.now() - began < 5_000);
+  }
+});
+
+test('aggregate event bytes, encoded reply boundary, and old-generation queued events', () => {
+  checkEventCapacity(128, 65_536);
+  assert.throws(() => checkEventCapacity(129, 65_536), /capacity/);
+  assert.throws(() => checkEventCapacity(128, 65_537), /capacity/);
+  const c = client();
+  c.send('connect');
+  const schema = request(92, 0, 0, 0, 1, 144, 0, 0, 0, 0);
+  const bytes = Buffer.concat(Array.from({ length: 128 }, () => schema)).toString('base64');
+  const first = c.send('write', { bytes });
+  assert.ok(Buffer.byteLength(JSON.stringify(first)) <= LIMITS.message);
+  assert.ok(first.events.length < 128);
+  const rest = c.send('poll');
+  assert.equal(first.events.length + rest.events.length, 128);
+  assert.ok(rest.events[0]!.sequence > first.events.at(-1)!.sequence);
+  c.send('write', { bytes });
+  c.send('disconnect');
+  c.send('connect');
+  assert.deepEqual(c.send('poll').events, []);
+  assert.throws(
+    () =>
+      c.run.execute({
+        run: c.run.id,
+        session: c.session.id,
+        operation: 8,
+        generation: 1,
+        command: 'write',
+        device: 'software-vesc',
+        bytes,
+      }),
+    /Stale/
+  );
+  c.send('reset');
+  assert.deepEqual(c.send('poll').events, []);
+  c.run.close();
+});
+
+test('stalled input expires before five seconds and cannot mutate another session', async () => {
+  const { createConnection } = await import('node:net');
+  const relay = await startFixtureRelay();
+  const port = Number(new URL(relay.endpoint).port);
+  const socket = createConnection({ host: '127.0.0.1', port });
+  socket.on('error', () => {});
+  socket.resume();
+  try {
+    await new Promise<void>((resolve) => socket.once('connect', resolve));
+    const began = performance.now();
+    const closed = new Promise<void>((resolve) => socket.once('close', () => resolve()));
+    socket.write(
+      `POST / HTTP/1.1\r\nHost: 127.0.0.1:${port}\r\nAuthorization: Bearer ${relay.token}\r\nX-Fixture-Session: ${relay.session}\r\nContent-Length: 100\r\n\r\n{`
+    );
+    await closed;
+    assert.ok(performance.now() - began < 5_000);
+  } finally {
+    socket.destroy();
+    await relay.close();
+  }
+});
+
+test('aggregate pending input is bounded and reserved close works with its byte budget exhausted', async () => {
+  const { createConnection } = await import('node:net');
+  const relay = await startFixtureRelay();
+  const port = Number(new URL(relay.endpoint).port);
+  const sockets: import('node:net').Socket[] = [];
+  try {
+    for (let i = 0; i < 2; i++) {
+      const socket = createConnection({ host: '127.0.0.1', port });
+      sockets.push(socket);
+      socket.on('error', () => {});
+      socket.resume();
+      await new Promise<void>((resolve) => socket.once('connect', resolve));
+      socket.write(
+        `POST / HTTP/1.1\r\nHost: 127.0.0.1:${port}\r\nAuthorization: Bearer ${relay.token}\r\nX-Fixture-Session: ${relay.session}\r\nContent-Length: 65536\r\n\r\n${' '.repeat(32768)}`
+      );
+    }
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    const closed = await fetch(relay.endpoint, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${relay.token}`,
+        'X-Fixture-Session': relay.session,
+        'X-Fixture-Close': '1',
+      },
+      body: JSON.stringify({ run: relay.run, session: relay.session, operation: 1, generation: 0, command: 'close' }),
+    });
+    assert.equal(closed.status, 200);
+  } finally {
+    for (const socket of sockets) socket.destroy();
+    await relay.close();
   }
 });

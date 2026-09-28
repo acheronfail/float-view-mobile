@@ -101,6 +101,10 @@ android {
     }
 
     buildTypes {
+        create("conformance") {
+            initWith(getByName("debug"))
+            matchingFallbacks += listOf("debug")
+        }
         release {
             isMinifyEnabled = false
             proguardFiles(
@@ -118,7 +122,9 @@ android {
     }
     sourceSets {
         getByName("main").assets.srcDir("../../../frontend/build")
-        getByName("main").assets.srcDir("../../fixtures")
+        getByName("conformance").jniLibs.srcDir(rustRuntimeAndroidRoot.resolve("debug"))
+        getByName("debug").java.srcDir("src/ordinary/java")
+        getByName("release").java.srcDir("src/ordinary/java")
         getByName("debug").jniLibs.srcDir(rustRuntimeAndroidRoot.resolve("debug"))
         getByName("release").jniLibs.srcDir(rustRuntimeAndroidRoot.resolve("release"))
     }
@@ -126,16 +132,13 @@ android {
         unitTests.all {
             it.dependsOn(rustRuntimeHost)
             it.systemProperty(rustRuntimeProperty, rustRuntimeHostLibrary.absolutePath)
-            it.systemProperty(
-                "floatViewFixtureRoot",
-                rootProject.file("../fixtures").absolutePath,
-            )
         }
     }
 }
 
 tasks.configureEach {
     when (name) {
+        "mergeConformanceJniLibFolders" -> dependsOn(rustRuntimeDebug)
         "mergeDebugJniLibFolders" -> dependsOn(rustRuntimeDebug)
         "mergeReleaseJniLibFolders" -> dependsOn(rustRuntimeRelease)
     }

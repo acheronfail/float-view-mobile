@@ -20,9 +20,11 @@ export function validateRelayEndpoint(endpoint: string) {
 
 export async function startFixtureRelay() {
   const run = new FixtureRun();
+  let closed = false;
   const session = run.create();
   const sockets = new Set<Socket>();
   const active = new Map<string, number>();
+  const buffered = new Map<string, number>();
   const polls = new Set<string>();
   const server = createServer(async (request, response) => {
     response.setHeader('Content-Type', 'application/json');
@@ -40,6 +42,7 @@ export async function startFixtureRelay() {
       fail(403);
       return;
     }
+    let dispatched = false;
     let admitted = false,
       poll = false;
     const sessionId = request.headers['x-fixture-session'];
@@ -58,19 +61,26 @@ export async function startFixtureRelay() {
       active.set(sessionId, (active.get(sessionId) ?? 0) + 1);
       admitted = true;
     }
+    let retained = 0;
     const timer = setTimeout(() => {
       run.fail(sessionId);
       fail(408);
       request.destroy();
-    }, 5_000);
+    }, 4_500);
     try {
       const length = Number(request.headers['content-length']);
-      if (!Number.isSafeInteger(length) || length < 0 || length > LIMITS.message) throw new Error('Message bound');
+      const maximum = cleanup ? 1024 : LIMITS.message;
+      if (!Number.isSafeInteger(length) || length < 0 || length > maximum) throw new Error('Message bound');
       const chunks: Buffer[] = [];
       let bytes = 0;
       for await (const chunk of request) {
         bytes += chunk.length;
-        if (bytes > LIMITS.message) throw new Error('Message bound');
+        if (bytes > maximum || (!cleanup && (buffered.get(sessionId) ?? 0) + chunk.length > LIMITS.bytes))
+          throw new Error('Message/session buffer bound');
+        if (!cleanup) {
+          retained += chunk.length;
+          buffered.set(sessionId, (buffered.get(sessionId) ?? 0) + chunk.length);
+        }
         chunks.push(chunk);
       }
       const input = JSON.parse(Buffer.concat(chunks, bytes).toString()) as FixtureCommand;
@@ -80,14 +90,22 @@ export async function startFixtureRelay() {
         polls.add(sessionId);
         poll = true;
       }
+      dispatched = true;
       const result = run.execute(input);
       response.end(JSON.stringify(result));
     } catch {
-      run.fail(sessionId);
+      if (!dispatched) run.fail(sessionId);
       fail(400);
     } finally {
       clearTimeout(timer);
-      if (admitted) active.set(sessionId, Math.max(0, (active.get(sessionId) ?? 1) - 1));
+      if (admitted) {
+        const remaining = (active.get(sessionId) ?? 1) - 1;
+        if (remaining) active.set(sessionId, remaining);
+        else active.delete(sessionId);
+      }
+      const remainingBytes = (buffered.get(sessionId) ?? 0) - retained;
+      if (remainingBytes) buffered.set(sessionId, remainingBytes);
+      else buffered.delete(sessionId);
       if (poll) polls.delete(sessionId);
     }
   });
@@ -112,6 +130,8 @@ export async function startFixtureRelay() {
       return run.create().id;
     },
     async close() {
+      if (closed) return;
+      closed = true;
       run.close();
       for (const socket of sockets) socket.destroy();
       await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));

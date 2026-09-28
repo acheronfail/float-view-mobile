@@ -1,3 +1,4 @@
+import { unreachableFixtureEnvironment } from '../fixture/selection.ts';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import test from 'node:test';
@@ -76,6 +77,7 @@ test('physical target command construction uses normal Debug app paths', () => {
     '-derivedDataPath',
     '/tmp/dd',
     '-allowProvisioningUpdates',
+    'clean',
     'build-for-testing',
   ]);
   assert.deepEqual(iosPhysicalLaunchArguments('device', '/tmp/launch.json'), [
@@ -86,7 +88,11 @@ test('physical target command construction uses normal Debug app paths', () => {
     '--device',
     'device',
     '--environment-variables',
-    '{"FLOAT_VIEW_CONFORMANCE_PORT":"11011","FLOAT_VIEW_CONFORMANCE_RESET":"1"}',
+    JSON.stringify({
+      ...unreachableFixtureEnvironment,
+      FLOAT_VIEW_CONFORMANCE_PORT: '11011',
+      FLOAT_VIEW_CONFORMANCE_RESET: '1',
+    }),
     '--terminate-existing',
     '--quiet',
     '--json-output',
@@ -101,7 +107,7 @@ test('physical target command construction uses normal Debug app paths', () => {
     '--device',
     'device',
     '--environment-variables',
-    '{"FLOAT_VIEW_CONFORMANCE_PORT":"11011"}',
+    JSON.stringify({ ...unreachableFixtureEnvironment, FLOAT_VIEW_CONFORMANCE_PORT: '11011' }),
     '--terminate-existing',
     '--quiet',
     '--json-output',

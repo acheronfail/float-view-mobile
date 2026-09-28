@@ -28,6 +28,10 @@ export type FixtureReply = Pick<FixtureCommand, 'run' | 'session' | 'operation' 
 const identity = () => randomBytes(24).toString('hex');
 const integer = (v: unknown) => Number.isSafeInteger(v) && (v as number) >= 0;
 
+export function checkEventCapacity(count: number, bytes: number) {
+  if (count > LIMITS.events || bytes > LIMITS.bytes) throw new Error('Fixture event capacity exceeded');
+}
+
 export class FixtureSession {
   readonly id = identity();
   private model = new SoftwarePeripheral();
@@ -65,7 +69,19 @@ export class FixtureSession {
     if (input.generation !== this.generation + (connecting ? 1 : 0)) throw new Error('Stale generation');
     const next = this.model.fork();
     const events: FixtureEvent[] = [];
-    const emit = (event: Omit<FixtureEvent, 'sequence' | 'operation' | 'generation' | 'device'>) =>
+    let stagedBytes = 0;
+    const replacing = connecting || input.command === 'disconnect' || input.command === 'reset';
+    const emit = (event: Omit<FixtureEvent, 'sequence' | 'operation' | 'generation' | 'device'>) => {
+      stagedBytes += event.bytes ? Buffer.byteLength(event.bytes, 'base64') : 0;
+      try {
+        checkEventCapacity(
+          (replacing ? 0 : this.events.length) + events.length + 1,
+          (replacing ? 0 : this.byteCount) + stagedBytes
+        );
+      } catch (error) {
+        this.close();
+        throw error;
+      }
       events.push({
         ...event,
         sequence: this.sequence + events.length + 1,
@@ -73,6 +89,7 @@ export class FixtureSession {
         generation: input.generation,
         device: 'software-vesc',
       });
+    };
     switch (input.command) {
       case 'scan':
         emit({ event: 'discovered', name: 'Software VESC', rssi: -42 });
@@ -92,8 +109,7 @@ export class FixtureSession {
         if (!this.connected || input.device !== 'software-vesc') throw new Error('No fixture connection');
         try {
           const inputBytes = decodeBytes(input.bytes);
-          for (const bytes of next.receive(inputBytes))
-            emit({ event: 'bytes', bytes: Buffer.from(bytes).toString('base64') });
+          next.receive(inputBytes, (bytes) => emit({ event: 'bytes', bytes: Buffer.from(bytes).toString('base64') }));
         } catch (error) {
           this.close();
           throw error;
@@ -108,23 +124,18 @@ export class FixtureSession {
       default:
         throw new Error('Unknown fixture command');
     }
-    const byteCount = events.reduce((n, e) => n + (e.bytes ? Buffer.byteLength(e.bytes, 'base64') : 0), 0);
-    if (this.events.length + events.length > LIMITS.events || this.byteCount + byteCount > LIMITS.bytes) {
-      this.close();
-      throw new Error('Fixture event capacity exceeded');
-    }
     this.model = next;
     this.operation = input.operation;
     this.generation = input.generation;
     this.sequence += events.length;
-    if (connecting || input.command === 'disconnect') {
+    if (replacing) {
       // Undelivered traffic never crosses a connection boundary.
       this.events = [];
       this.byteCount = 0;
-      this.connected = connecting;
+      if (connecting || input.command === 'disconnect') this.connected = connecting;
     }
     this.events.push(...events);
-    this.byteCount += byteCount;
+    this.byteCount += stagedBytes;
     return this.drain(input);
   }
 

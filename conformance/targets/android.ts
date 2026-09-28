@@ -1,4 +1,7 @@
-import { execFileSync } from 'node:child_process';
+import { unreachableFixture } from '../fixture/selection.ts';
+import { startFixtureRelay, type FixtureRelay } from '../fixture/relay.ts';
+import { execFileSync, execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 import { fileURLToPath } from 'node:url';
 import type { PhysicalTarget, Target } from '../src/suite.ts';
 
@@ -25,6 +28,20 @@ export function androidPhysicalTarget(deviceSerial: string): PhysicalTarget {
     report('Android: installing application...');
     adb(deviceSerial, 'install', '-r', `${root}/backends/android/app/build/outputs/apk/debug/app-debug.apk`);
     report('Android: application installed');
+    execFileSync(
+      'adb',
+      [
+        '-s',
+        deviceSerial,
+        'shell',
+        'run-as',
+        applicationId,
+        'sh',
+        '-c',
+        "'mkdir -p files && cat > files/fixture-run.json'",
+      ],
+      { input: JSON.stringify(unreachableFixture) }
+    );
     const apiLevel = androidApiLevel(deviceSerial);
     for (const permission of androidRuntimePermissions(apiLevel)) {
       adb(deviceSerial, 'shell', 'pm', 'grant', applicationId, permission);
@@ -81,6 +98,7 @@ export function androidPhysicalTarget(deviceSerial: string): PhysicalTarget {
     async finishSuite(report) {
       report('Android: stopping application...');
       adbBestEffort(deviceSerial, 'shell', 'am', 'force-stop', applicationId);
+      adbBestEffort(deviceSerial, 'shell', 'run-as', applicationId, 'rm', '-f', 'files/fixture-run.json');
       report('Android: removing loopback forwarding...');
       adbBestEffort(deviceSerial, 'forward', '--remove', `tcp:${hostPort}`);
       prepared = false;
@@ -91,15 +109,16 @@ export function androidPhysicalTarget(deviceSerial: string): PhysicalTarget {
 
 function makeAndroidTarget(configuredSerial?: string): Target {
   let serial = '';
+  let fixture: FixtureRelay | undefined;
   return {
     name: 'android',
     async start() {
       serial = configuredSerial ?? process.env.FLOAT_VIEW_ANDROID_EMULATOR ?? findEmulator();
       const root = fileURLToPath(new URL('../../', import.meta.url));
-      execFileSync(`${root}/backends/android/gradlew`, androidBuildArguments(root), {
+      execFileSync(`${root}/backends/android/gradlew`, ['-p', `${root}/backends/android`, 'assembleConformance'], {
         stdio: 'inherit',
       });
-      adb(serial, 'install', '-r', `${root}/backends/android/app/build/outputs/apk/debug/app-debug.apk`);
+      adb(serial, 'install', '-r', `${root}/backends/android/app/build/outputs/apk/conformance/app-conformance.apk`);
       adb(serial, 'shell', 'pm', 'clear', applicationId);
       const apiLevel = androidApiLevel(serial);
       for (const permission of androidRuntimePermissions(apiLevel)) {
@@ -107,8 +126,35 @@ function makeAndroidTarget(configuredSerial?: string): Target {
       }
       adb(serial, 'forward', `tcp:${hostPort}`, `tcp:${devicePort}`);
       adb(serial, 'shell', 'am', 'force-stop', 'com.android.intentresolver');
-      launch(serial);
+      fixture = await startFixtureRelay();
+      const port = new URL(fixture.endpoint).port;
+      adb(serial, 'reverse', `tcp:${port}`, `tcp:${port}`);
+      execFileSync(
+        'adb',
+        [
+          '-s',
+          serial,
+          'shell',
+          'run-as',
+          applicationId,
+          'sh',
+          '-c',
+          "'mkdir -p files && cat > files/fixture-run.json'",
+        ],
+        {
+          input: JSON.stringify({
+            endpoint: fixture.endpoint,
+            token: fixture.token,
+            run: fixture.run,
+            session: fixture.session,
+          }),
+        }
+      );
+      await promisify(execFile)('adb', ['-s', serial, ...androidLaunchArguments(false)]);
       return bootstrap();
+    },
+    async loseFixture() {
+      await fixture?.close();
     },
     endpoint: bootstrap,
     async background() {
@@ -116,15 +162,29 @@ function makeAndroidTarget(configuredSerial?: string): Target {
       await waitForAndroidBackground(serial);
     },
     async foreground() {
-      launch(serial, false);
+      await promisify(execFile)('adb', ['-s', serial, ...androidLaunchArguments(false)]);
     },
     async recreateFrontend() {
-      adb(serial, 'shell', 'am', 'start', '-W', '-f', '0x10008000', '-n', activity);
+      await promisify(execFile)('adb', [
+        '-s',
+        serial,
+        'shell',
+        'am',
+        'start',
+        '-W',
+        '-f',
+        '0x10008000',
+        '-n',
+        activity,
+      ]);
     },
     async stop() {
       if (!serial) return;
       adbBestEffort(serial, 'shell', 'am', 'force-stop', applicationId);
       adbBestEffort(serial, 'forward', '--remove', `tcp:${hostPort}`);
+      if (fixture) adbBestEffort(serial, 'reverse', '--remove', `tcp:${new URL(fixture.endpoint).port}`);
+      await fixture?.close();
+      fixture = undefined;
       serial = '';
     },
   };

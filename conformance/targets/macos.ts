@@ -1,8 +1,10 @@
+import { unreachableFixtureEnvironment } from '../fixture/selection.ts';
 import { copyFileSync, mkdirSync, mkdtempSync, readdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { execFileSync, spawn, type ChildProcess } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { startFixtureRelay, type FixtureRelay } from '../fixture/relay.ts';
 import type { PhysicalTarget, Target } from '../src/suite.ts';
 
 export const MACOS_BACKEND_PORT = 11010;
@@ -19,6 +21,7 @@ function makeMacosTarget(
   physical: boolean
 ): Target & Partial<Pick<PhysicalTarget, 'finishSuite' | 'verifyFilePresentation'>> {
   let child: ChildProcess | undefined;
+  let fixture: FixtureRelay | undefined;
   let logRoot: string | undefined;
   let uiRoot: string | undefined;
   let currentEndpoint: { url: string; origin: string } | undefined;
@@ -26,7 +29,7 @@ function makeMacosTarget(
     name: physical ? 'macos-physical' : 'macos',
     async start() {
       const root = fileURLToPath(new URL('../../', import.meta.url));
-      let executable = process.env.FLOAT_VIEW_MACOS_EXECUTABLE ?? buildMacosExecutable(root);
+      let executable = process.env.FLOAT_VIEW_MACOS_EXECUTABLE ?? buildMacosExecutable(root, physical);
       if (physical) {
         uiRoot ??= mkdtempSync(join(tmpdir(), 'float-view-macos-ui-'));
         const bundle = join(uiRoot, 'FloatViewConformance.app');
@@ -46,10 +49,15 @@ function makeMacosTarget(
         FLOAT_VIEW_LOG_ROOT: logRoot,
         FLOAT_VIEW_CONFORMANCE_PORT: '0',
       };
-      if (physical) {
-        delete env.FLOAT_VIEW_SOFTWARE_BACKEND;
-      } else {
-        env.FLOAT_VIEW_SOFTWARE_BACKEND = '1';
+      if (physical) Object.assign(env, unreachableFixtureEnvironment);
+      if (!physical) {
+        fixture = await startFixtureRelay();
+        Object.assign(env, {
+          FLOAT_VIEW_FIXTURE_ENDPOINT: fixture.endpoint,
+          FLOAT_VIEW_FIXTURE_TOKEN: fixture.token,
+          FLOAT_VIEW_FIXTURE_RUN: fixture.run,
+          FLOAT_VIEW_FIXTURE_SESSION: fixture.session,
+        });
       }
       child = spawn(executable, macosLaunchArguments(physical), {
         cwd: root,
@@ -68,12 +76,17 @@ function makeMacosTarget(
       };
       return currentEndpoint;
     },
+    async loseFixture() {
+      await fixture?.close();
+    },
     async endpoint() {
       if (!currentEndpoint) throw new Error('macOS backend is not running');
       return currentEndpoint;
     },
     async stop() {
       child?.kill('SIGTERM');
+      await fixture?.close();
+      fixture = undefined;
       child = undefined;
       currentEndpoint = undefined;
       if (!physical && logRoot) {
@@ -121,9 +134,10 @@ export function macosLaunchArguments(physical = false) {
   return [physical ? '--browser-host' : '--test-host'];
 }
 
-function buildMacosExecutable(root: string) {
+function buildMacosExecutable(root: string, physical: boolean) {
   const cwd = `${root}/backends/apple`;
-  const scratch = '/tmp/float-view-swift-build';
+  const scratch = physical ? '/tmp/float-view-swift-build' : '/tmp/float-view-swift-conformance';
+  const flags = physical ? [] : ['-Xswiftc', '-DFLOAT_VIEW_CONFORMANCE'];
   execFileSync('just', ['apple-rust-runtime', 'Debug'], { cwd: root, stdio: 'inherit' });
   const binaryRoot = execFileSync('swift', ['build', '--scratch-path', scratch, '--show-bin-path'], {
     cwd,
@@ -132,7 +146,7 @@ function buildMacosExecutable(root: string) {
   // SwiftPM does not model externally linked static archives as inputs. Remove
   // only the disposable executable so a changed Rust archive is always relinked.
   rmSync(join(binaryRoot, 'FloatViewMac'), { force: true });
-  execFileSync('swift', ['build', '--scratch-path', scratch, '--product', 'FloatViewMac'], {
+  execFileSync('swift', ['build', '--scratch-path', scratch, '--product', 'FloatViewMac', ...flags], {
     cwd,
     stdio: 'inherit',
   });

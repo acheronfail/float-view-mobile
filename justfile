@@ -244,6 +244,7 @@ verify: build
     cd backends/apple && swift build --scratch-path /tmp/float-view-swift-build --product FloatViewMac
     xcodebuild -project backends/apple/ios/float-view.xcodeproj -scheme float-view \
       -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' \
-      -derivedDataPath /tmp/float-view-ios CODE_SIGNING_ALLOWED=NO build
+      -derivedDataPath /tmp/float-view-ios CODE_SIGNING_ALLOWED=NO clean build
     cd conformance && npm run direct && npm run macos && npm run ios && npm run android
     just audit
+    cd conformance && node --strip-types src/audit-simulation.ts

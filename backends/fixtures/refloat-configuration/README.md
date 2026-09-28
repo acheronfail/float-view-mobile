@@ -27,12 +27,10 @@ firmware serialization code. Add the tag/commit to the generator allowlist,
 regenerate, then review the manifest diff: source and compressed digests,
 normalized fingerprint, CRC32C signature, field counts, complete defaults,
 representative write, and expected normalization/readback must all be explained.
-Update the mirrored Swift/Kotlin audited catalogs and run their full valid and
-adversarial fixture tables. Never reuse a nearby patch's fingerprint, infer a
+Update the shared Rust audited catalog and run its full valid and adversarial
+fixture tables. Never reuse a nearby patch's fingerprint, infer a
 release from INFO alone, or hand-edit generated schema/value bytes.
 
-`Package.swift` and `FixtureResources.swift` expose these same immutable bytes
-to the Apple software conformance peripheral as a local resource package.
-Android packages the directory as read-only test assets. Neither mechanism is a
-production schema trust shortcut: native decoders still fingerprint and audit
-the complete schema before exposing configuration.
+The conformance-owned TypeScript model reads these immutable bytes directly.
+Native application packages do not contain these fixtures. Rust codec tests
+continue to use them as independent protocol evidence.

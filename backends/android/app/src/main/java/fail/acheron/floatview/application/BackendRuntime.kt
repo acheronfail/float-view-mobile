@@ -1,16 +1,13 @@
 package fail.acheron.floatview.application
 
 import android.content.pm.ApplicationInfo
-import android.os.Build
 import android.util.Log
-import fail.acheron.floatview.bluetooth.AndroidBluetoothAdapter
+import fail.acheron.floatview.bluetooth.hostBluetooth
 import fail.acheron.floatview.bluetooth.BluetoothPermissionBroker
-import fail.acheron.floatview.bluetooth.SoftwareBluetoothAdapter
 import fail.acheron.floatview.files.ExportPresentationBroker
 import fail.acheron.floatview.lifecycle.FloatViewApplication
 import fail.acheron.floatview.lifecycle.LoggingForegroundService
 import fail.acheron.floatview.location.LocationPermissionBroker
-import fail.acheron.floatview.protocol.vesc.SoftwareVescPeripheral
 import fail.acheron.floatview.location.AndroidLocationProvider
 import fail.acheron.floatview.location.LocationPermissionRequester
 
@@ -22,21 +19,9 @@ class BackendRuntime(application: FloatViewApplication) {
     val locationPermissionBroker = LocationPermissionBroker(application)
     val exportPresentationBroker = ExportPresentationBroker(application)
     private val relay = BluetoothEventRelay()
-    val bluetooth: BluetoothPort =
-        if (isEmulator()) {
-            val peripheral = SoftwareVescPeripheral { path ->
-                application.assets.open("refloat-configuration/$path").use { it.readBytes() }
-            }
-            SoftwareBluetoothAdapter(relay::emit, peripheral::response)
-        } else {
-            AndroidBluetoothAdapter(
-                application,
-                permissionBroker,
-                relay::emit,
-            ) { diagnostic ->
-                if (debuggable) Log.d("FloatViewState", "adapter $diagnostic")
-            }
-        }
+    val bluetooth: BluetoothPort = hostBluetooth(application, permissionBroker, relay::emit) { diagnostic ->
+        if (debuggable) Log.d("FloatViewState", "adapter $diagnostic")
+    }
     private val locationProvider = AndroidLocationProvider(
         applicationContext,
         LocationPermissionRequester(locationPermissionBroker::request),
@@ -56,13 +41,6 @@ class BackendRuntime(application: FloatViewApplication) {
     }
 
 }
-
-internal fun isEmulator(): Boolean =
-    Build.HARDWARE == "ranchu" ||
-        Build.HARDWARE == "goldfish" ||
-        Build.PRODUCT.startsWith("sdk_") ||
-        Build.FINGERPRINT.contains("generic") ||
-        Build.FINGERPRINT.contains("emulator")
 
 private class BluetoothEventRelay {
     @Volatile

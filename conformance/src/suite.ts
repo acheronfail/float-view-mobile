@@ -17,6 +17,7 @@ export interface Target {
   background?(): Promise<void>;
   foreground?(): Promise<void>;
   recreateFrontend?(): Promise<void>;
+  loseFixture?(): Promise<void>;
   stop(): Promise<void>;
 }
 
@@ -31,9 +32,10 @@ export interface PhysicalTarget extends Target {
 }
 
 export async function runConformance(target: Target) {
-  const endpoint = await target.start();
-  let client = await ConformanceClient.open(endpoint.url, endpoint.origin);
+  let client!: ConformanceClient;
   try {
+    const endpoint = await target.start();
+    client = await ConformanceClient.open(endpoint.url, endpoint.origin);
     const initial = await client.request('state.get', {});
     assertState(initial);
     await expectError(
@@ -75,12 +77,32 @@ export async function runConformance(target: Target) {
     if (['android', 'ios', 'macos', 'direct'].includes(target.name)) {
       await exerciseTransport(await target.endpoint());
     }
+    if (target.loseFixture) {
+      await client.request('bluetooth.scan', { timeoutMs: 100 });
+      const observed = await client.waitForState((s) => s.discoveredDevices.length > 0, { afterRevision: 0 });
+      const deviceId = observed.discoveredDevices[0]!.deviceId;
+      await client.request('device.connect', { deviceId, trackingMode: 'saved' });
+      const recording = await client.waitForState(
+        (s) =>
+          s.activeConnection?.state === 'ready' &&
+          !!s.activeConnection.latestSample &&
+          !!s.activeConnection.activeSession,
+        { afterRevision: observed.revision }
+      );
+      const began = performance.now();
+      await target.loseFixture();
+      await client.waitForState((s) => s.activeConnection?.state !== 'ready', {
+        afterRevision: recording.revision,
+        timeoutMs: 5_000,
+      });
+      assert.ok(performance.now() - began < 5_000, 'fixture loss was not bounded');
+    }
     return {
       target: target.name,
       revision: (await client.request('state.get', {})).revision,
     };
   } finally {
-    client.close();
+    client?.close();
     await target.stop();
   }
 }

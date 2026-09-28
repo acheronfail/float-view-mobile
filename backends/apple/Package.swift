@@ -12,16 +12,13 @@ let package = Package(
     .library(name: "FloatViewBackend", targets: ["FloatViewBackend"]),
     .executable(name: "FloatViewMac", targets: ["FloatViewMac"]),
   ],
-  dependencies: [
-    .package(path: "../fixtures/refloat-configuration"),
-  ],
+  dependencies: [],
   targets: [
     .systemLibrary(name: "CFloatViewApplicationRuntime"),
     .target(
       name: "FloatViewBackend",
       dependencies: [
         "CFloatViewApplicationRuntime",
-        .product(name: "RefloatConfigurationFixtures", package: "refloat-configuration"),
       ],
       linkerSettings: [
         .unsafeFlags(["-L", rustLibraryPath]),

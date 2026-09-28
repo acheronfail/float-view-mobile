@@ -14,6 +14,7 @@ type Effect = {
   connection?: boolean;
   generation?: number;
   scan_id?: number;
+  device_id?: string;
   bytes?: number[];
 };
 export function makeDirectTarget(): Target {
@@ -23,23 +24,30 @@ export function makeDirectTarget(): Target {
   let lifetime = 0,
     sequence = 0,
     request = 0;
-  const pending = new Map<number, { resolve: (v: unknown) => void; reject: (e: Error) => void }>();
+  const pending = new Map<
+    number,
+    { resolve: (v: unknown) => void; reject: (e: Error) => void; timer: NodeJS.Timeout }
+  >();
   const timers = new Map<number, { timer: NodeJS.Timeout; connection: boolean }>();
   let polling: NodeJS.Timeout | undefined;
   let busy = false;
   let fixture = new FixtureRun();
   let session = fixture.create();
+  let fixtureDevice: string | undefined;
   let operation = 0,
     generation = 0;
   async function simulate(command: FixtureCommand['command'], e: Effect) {
-    if (command === 'connect') generation++;
+    if (command === 'connect') {
+      generation++;
+      fixtureDevice = e.device_id;
+    }
     const reply = fixture.execute({
       run: fixture.id,
       session: session.id,
       operation: ++operation,
       generation,
       command,
-      device: 'software-vesc',
+      ...(fixtureDevice ? { device: fixtureDevice } : {}),
       ...(e.bytes ? { bytes: Buffer.from(e.bytes).toString('base64') } : {}),
     });
     for (const event of reply.events) {
@@ -60,7 +68,11 @@ export function makeDirectTarget(): Target {
     if (pending.size >= 64) return Promise.reject(new Error('OS relay capacity'));
     const id = ++request;
     return new Promise((resolve, reject) => {
-      pending.set(id, { resolve, reject });
+      const timer = setTimeout(() => {
+        pending.delete(id);
+        reject(new Error('Direct OS command deadline'));
+      }, 4_500);
+      pending.set(id, { resolve, reject, timer });
       child!.stdin.write(JSON.stringify({ id, command, ...extra }) + '\n');
     });
   }
@@ -130,7 +142,10 @@ export function makeDirectTarget(): Target {
     }
   }
   function fail(error: unknown) {
-    for (const p of pending.values()) p.reject(error instanceof Error ? error : new Error(String(error)));
+    for (const p of pending.values()) {
+      clearTimeout(p.timer);
+      p.reject(error instanceof Error ? error : new Error(String(error)));
+    }
     pending.clear();
   }
   return {
@@ -160,6 +175,7 @@ export function makeDirectTarget(): Target {
       session = fixture.create();
       operation = 0;
       generation = 0;
+      fixtureDevice = undefined;
       child = spawn(join(repo, 'backends/core/target/debug/examples/shared-service'), [root], { stdio: 'pipe' });
       child.stderr.pipe(process.stderr);
       const ready = new Promise<void>((resolve, reject) => {
@@ -181,6 +197,7 @@ export function makeDirectTarget(): Target {
             return;
           }
           const waiter = pending.get(value.id);
+          clearTimeout(waiter?.timer);
           pending.delete(value.id);
           if (value.result.Err) waiter?.reject(new Error(value.result.Err));
           else waiter?.resolve(value.result.Ok);
