@@ -419,17 +419,7 @@ impl BackendService {
             Operation::CancelMaintenance { id } => f::Completion::Maintenance(Some(
                 p::maintenance(&self.cancel_maintenance(&id, epoch).map_err(store_failure)?),
             )),
-            Operation::PruneSession {
-                id,
-                resolution,
-                preview,
-            } => f::Completion::Maintenance(Some(p::maintenance(
-                &self
-                    .begin_maintenance(Some(&id), resolution, preview, epoch)
-                    .map_err(store_failure)?,
-            ))),
-            Operation::SaveMaintenance { .. }
-            | Operation::ExportSession { .. }
+            Operation::ExportSession { .. }
             | Operation::WriteTransfer { .. }
             | Operation::ReadTransfer { .. }
             | Operation::BeginImport { .. }

@@ -24,6 +24,7 @@ struct Transfer {
     deadline: u64,
     cancelled: bool,
     state: State,
+    presentation_reply: Option<tokio::sync::oneshot::Sender<bool>>,
 }
 enum State {
     Import(ImportSink),
@@ -155,6 +156,7 @@ impl BackendService {
                 owner,
                 deadline: now_ms.saturating_add(IDLE_MS),
                 cancelled: false,
+                presentation_reply: None,
                 state: State::Import(sink),
             },
         );
@@ -219,6 +221,7 @@ impl BackendService {
                 owner,
                 deadline: now_ms.saturating_add(IDLE_MS),
                 cancelled: false,
+                presentation_reply: None,
                 state: State::Working {
                     cancel: cancel.clone(),
                     live: Arc::downgrade(&live),
@@ -319,7 +322,12 @@ impl BackendService {
         transfer.deadline = now_ms.saturating_add(PRESENTATION_MS);
         Ok(path)
     }
-    pub fn present_file(&mut self, owner: u64, id: u64, file_name: &str) -> Result<()> {
+    pub fn present_file(
+        &mut self,
+        owner: u64,
+        id: u64,
+        file_name: &str,
+    ) -> Result<tokio::sync::oneshot::Receiver<bool>> {
         if file_name.is_empty() || file_name.len() > 128 || file_name.contains(['/', '\\', '\0']) {
             return Err(Error::InvalidInput);
         }
@@ -332,7 +340,36 @@ impl BackendService {
                 path: path.to_str().ok_or(Error::UnsafePath)?.into(),
                 file_name: file_name.into(),
             })
-            .map_err(|_| Error::Capacity)
+            .map_err(|_| Error::Capacity)?;
+        let (reply, receiver) = tokio::sync::oneshot::channel();
+        let transfer = self.files.owned(owner, id)?;
+        transfer.presentation_reply = Some(reply);
+        transfer.deadline = self.policy.exchange.now.saturating_add(IDLE_MS);
+        Ok(receiver)
+    }
+    pub fn presentation_started(&mut self, id: u64, accepted: bool) -> Result<()> {
+        let transfer = self.files.entries.get_mut(&id).ok_or(Error::NotFound)?;
+        let reply = transfer.presentation_reply.take().ok_or(Error::NotFound)?;
+        if !accepted {
+            let state = std::mem::replace(
+                &mut transfer.state,
+                State::Working {
+                    cancel: FileCancellation::default(),
+                    live: Weak::new(),
+                },
+            );
+            let State::Presenting(file) = state else {
+                return Err(Error::InvalidInput);
+            };
+            transfer.state = State::Export(file);
+        }
+        transfer.deadline = self.policy.exchange.now.saturating_add(if accepted {
+            PRESENTATION_MS
+        } else {
+            IDLE_MS
+        });
+        let _ = reply.send(accepted);
+        Ok(())
     }
     pub fn finish_presentation(&mut self, id: u64) -> Result<()> {
         if !self
@@ -494,6 +531,42 @@ mod tests {
         s.expire_file_transfers(PRESENTATION_MS + 2);
         assert!(!path.exists());
         assert!(dir.file("catalog.sqlite").exists());
+    }
+    #[test]
+    fn presentation_acceptance_is_correlated_single_use_and_bounded() {
+        let (_dir, mut s, id) = setup();
+        let transfer = export(&mut s, &id, 1);
+        let mut reply = s.present_file(1, transfer, "session.csv").unwrap();
+        assert!(matches!(
+            reply.try_recv(),
+            Err(tokio::sync::oneshot::error::TryRecvError::Empty)
+        ));
+        assert_eq!(
+            s.presentation_started(transfer + 1, true),
+            Err(Error::NotFound)
+        );
+        s.presentation_started(transfer, false).unwrap();
+        assert!(!reply.try_recv().unwrap());
+        assert_eq!(s.presentation_started(transfer, true), Err(Error::NotFound));
+        assert_eq!(s.finish_presentation(transfer), Err(Error::NotFound));
+        s.cancel_file_transfer(1, transfer).unwrap();
+
+        let transfer = export(&mut s, &id, 1);
+        let mut reply = s.present_file(1, transfer, "session.csv").unwrap();
+        s.expire_file_transfers(IDLE_MS);
+        assert!(matches!(
+            reply.try_recv(),
+            Err(tokio::sync::oneshot::error::TryRecvError::Closed)
+        ));
+        assert_eq!(s.presentation_started(transfer, true), Err(Error::NotFound));
+
+        let transfer = export(&mut s, &id, 1);
+        let mut reply = s.present_file(1, transfer, "session.csv").unwrap();
+        s.presentation_started(transfer, true).unwrap();
+        assert!(reply.try_recv().unwrap());
+        s.disconnect_file_client(1);
+        s.expire_file_transfers(IDLE_MS);
+        s.finish_presentation(transfer).unwrap();
     }
     #[test]
     fn cancellation_retains_admission_until_worker_actually_finishes() {

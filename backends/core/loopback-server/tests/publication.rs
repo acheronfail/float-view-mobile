@@ -1,62 +1,119 @@
-use float_view_loopback_server::{backend::Backend, protocol::Publication};
-use serde_json::json;
+use float_view_backend_service::os::{Envelope, Fact};
+use float_view_loopback_server::protocol::Platform;
 mod support;
-use support::facts;
 #[test]
 fn process_publication_is_monotonic_conflated_and_survives_listener_generations() {
-    let backend = Backend::default();
+    let server = support::server(Platform::Macos, b"html").unwrap();
+    let backend = &server.backend;
     let generation = backend.start().unwrap();
-    let publish = |sequence, catalog_changed, facts| Publication {
-        generation,
-        sequence,
-        catalog_changed,
-        facts,
-    };
-    backend.publish(publish(1, false, facts())).unwrap();
+    backend.sync_service().unwrap();
+    let initial = backend.snapshot().unwrap()["revision"].as_u64().unwrap();
     let slow = backend.snapshots.subscribe();
     let other = backend.snapshots.subscribe();
-    backend.publish(publish(2, false, facts())).unwrap();
-    assert_eq!(backend.snapshot().unwrap()["revision"], 1);
-    assert!(backend.publish(publish(2, false, facts())).is_err());
-    for sequence in 3..=100 {
-        let mut f = facts();
-        f.settings.revision = sequence;
-        backend.publish(publish(sequence, false, f)).unwrap();
+    for sequence in 1..=100 {
+        let mut service = backend.service.lock().unwrap();
+        let envelope = Envelope {
+            lifetime: service.lifetime(),
+            sequence,
+            monotonic_ms: sequence,
+            epoch_ms: 1700000000000 + sequence as i64,
+            fact: Fact::Foreground {
+                foreground: sequence % 2 == 0,
+            },
+        };
+        service.apply_os(envelope).unwrap();
+        drop(service);
+        backend.sync_service().unwrap();
     }
-    assert_eq!(slow.borrow().as_ref().unwrap()["revision"], 99);
-    assert_eq!(other.borrow().as_ref().unwrap()["revision"], 99);
-    assert_eq!(backend.catalog_revision().unwrap(), 0);
-    backend.publish(publish(101, true, facts())).unwrap();
-    assert_eq!(backend.catalog_revision().unwrap(), 1);
-    backend.stop();
-    let next = backend.start().unwrap();
-    assert!(next > generation);
-    assert_eq!(backend.snapshot().unwrap()["revision"], 100);
-    assert!(backend.publish(publish(102, false, facts())).is_err());
-    backend
-        .publish(Publication {
-            generation: next,
-            sequence: 102,
-            catalog_changed: false,
-            facts: facts(),
-        })
-        .unwrap();
-    assert_eq!(backend.snapshot().unwrap()["revision"], 100);
+    assert_eq!(slow.borrow().as_ref().unwrap()["revision"], initial + 100);
+    assert_eq!(other.borrow().as_ref().unwrap()["revision"], initial + 100);
+    backend.sync_service().unwrap();
+    assert_eq!(backend.snapshot().unwrap()["revision"], initial + 100);
+    // Late private file-UI cleanup must not race public state reads or invent
+    // a product revision simply because an export requester disconnected.
+    {
+        let mut service = backend.service.lock().unwrap();
+        let lifetime = service.lifetime();
+        for (sequence, fact) in [
+            (
+                101,
+                Fact::PresentationStarted {
+                    id: 99,
+                    accepted: false,
+                },
+            ),
+            (102, Fact::PresentationFinished { id: 99 }),
+        ] {
+            service
+                .apply_os(Envelope {
+                    lifetime,
+                    sequence,
+                    monotonic_ms: sequence,
+                    epoch_ms: 1700000000000 + sequence as i64,
+                    fact,
+                })
+                .unwrap();
+        }
+    }
+    backend.sync_service().unwrap();
+    assert_eq!(backend.snapshot().unwrap()["revision"], initial + 100);
+    server.stop().unwrap();
+    assert!(backend.start().unwrap() > generation);
+    backend.sync_service().unwrap();
+    assert_eq!(backend.snapshot().unwrap()["revision"], initial + 100);
 }
+
 #[test]
-fn malformed_guest_facts_cannot_publish_a_saved_session_even_without_a_sample() {
-    let mut f = serde_json::to_value(facts()).unwrap();
-    f["active"] = json!({"deviceId":"guest","name":null,"state":"ready","deviceKind":"board","trackingMode":"guest","savedDevice":null,"activeSession":{"sessionId":"saved","deviceHistoryId":"history","displayName":"Board","startedAt":"2026-01-01T00:00:00Z","endedAt":null,"state":"active","integrity":"complete","sampleCount":0,"eventCount":0,"ridingElapsedMs":0,"totalElapsedMs":0,"distanceM":null,"maxSpeedMps":null,"maxDutyCycle":null},"latestSample":null,"latestLocation":null,"currentLimits":null,"controllerRoute":null,"controllerCandidates":[],"connectionIssue":null,"bms":{"status":"not_found","connection":null,"candidates":[],"latestSnapshot":null},"refloatControls":null,"controllerActions":{"shutdownAvailable":false,"pendingAction":null}});
-    let backend = Backend::default();
-    assert!(
-        backend
-            .publish(Publication {
-                generation: 0,
-                sequence: 1,
-                catalog_changed: false,
-                facts: serde_json::from_value(f).unwrap()
+fn periodic_os_observations_do_not_invent_public_revisions() {
+    use float_view_backend_service::os::{LocationAuthorization, Permission, Radio};
+    let server = support::server(Platform::Android, b"html").unwrap();
+    let backend = &server.backend;
+    backend.start().unwrap();
+    let bluetooth = || Fact::Bluetooth {
+        radio: Radio::PoweredOn,
+        scan: Permission::Granted,
+        connect: Permission::NotRequired,
+    };
+    let location = || Fact::LocationCapability {
+        authorization: LocationAuthorization::Authorized,
+        background: true,
+    };
+    let facts = [
+        bluetooth(),
+        location(),
+        bluetooth(),
+        location(),
+        Fact::Storage {
+            available_bytes: 1_000_000_000,
+        },
+        Fact::Storage {
+            available_bytes: 2_000_000_000,
+        },
+        Fact::Foreground { foreground: true },
+        Fact::Timer { id: u64::MAX },
+    ];
+    let mut expected = None;
+    for (index, fact) in facts.into_iter().enumerate() {
+        let mut service = backend.service.lock().unwrap();
+        let lifetime = service.lifetime();
+        let sequence = index as u64 + 1;
+        service
+            .apply_os(Envelope {
+                lifetime,
+                sequence,
+                monotonic_ms: sequence,
+                epoch_ms: 1700000000000 + sequence as i64,
+                fact,
             })
-            .is_err()
-    );
-    assert!(backend.snapshot().is_err());
+            .unwrap();
+        drop(service);
+        backend.sync_service().unwrap();
+        let snapshot = backend.snapshot().unwrap();
+        if index == 1 {
+            expected = Some(snapshot.clone());
+        }
+        if index > 1 {
+            assert_eq!(Some(snapshot), expected);
+        }
+    }
 }

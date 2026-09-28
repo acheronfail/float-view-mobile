@@ -43,11 +43,6 @@ apple_bridge_artifacts="$(find backends/core -mindepth 2 -maxdepth 2 \
 android_bridge_artifacts="$(find backends/core -mindepth 2 -maxdepth 2 \
   -path '*-android-jni/Cargo.toml' | wc -l | tr -d ' ')"
 
-selected_families="$(awk '
-  /^bridge_family\|/ { count++ }
-  END { print count+0 }
-' backends/core/migration-baseline.txt)"
-
 rust_lines="$(count_lines backends/core)"
 apple_lines="$(count_lines backends/apple)"
 android_lines="$(count_lines backends/android)"
@@ -59,7 +54,6 @@ android_production_source_lines=$android_lines
 workspace_members=$members
 host_binding_crates=$binding_crates
 temporary_protocol_bridge_crates=$temporary_bridge_crates
-selected_protocol_families=$selected_families
 apple_bridge_family_artifacts=$apple_bridge_artifacts
 android_bridge_crates=$android_bridge_artifacts
 android_runtime_target_artifacts=$((android_bridge_artifacts * 4 * 2))
@@ -69,10 +63,17 @@ EOF
 [[ "$temporary_bridge_crates" == 0 ]]
 [[ "$apple_bridge_artifacts" == 1 ]]
 [[ "$android_bridge_artifacts" == 1 ]]
-[[ "$selected_families" == 10 ]]
-[[ "$members" -lt 34 ]]
-((rust_lines + apple_lines + android_lines < 59280))
+[[ "$members" -le 28 ]]
+((rust_lines + apple_lines + android_lines < 49922))
 
-expected_candidates='application-runtime auxiliary-node-discovery connection-application-coordinator controller-discovery device-mutation-coordinator refloat-configuration-service refloat-telemetry-service session-history-kernel session-sqlite vesc-bms-telemetry-service vesc-compatibility vesc-request-scheduler'
-actual_candidates="$(awk -F'|' '/^candidate\|/ { print $2 }' backends/core/migration-baseline.txt | sort | xargs)"
-[[ "$actual_candidates" == "$expected_candidates" ]]
+# Native code owns OS capabilities; product SQL and dispatch stay shared.
+! rg -n 'SQLiteLogStore|LogSchema|class ApplicationService|class ServerOperations|class ServerFacts|enum ServerFacts|class RuntimeRecords' \
+  backends/apple/Sources backends/apple/macos backends/apple/ios/float-view backends/android/app/src/main
+! rg -n 'sqlite3_|android.database.sqlite|CREATE TABLE|session_catalog' \
+  backends/apple/Sources backends/apple/macos backends/apple/ios/float-view backends/android/app/src/main -g '*.swift' -g '*.kt'
+[[ ! -e backends/core/loopback-server/src/exchange.rs ]]
+[[ ! -e backends/core/loopback-server/src/completion.rs ]]
+! rg -n 'CommandEnvelope|pub fn create\(\)|pub fn apply\(handle' backends/core/application-runtime-host/src/lib.rs
+rg -q 'SharedService\(' backends/apple/ios/float-view/application/AppBackend.swift
+rg -q 'SharedService\(' backends/apple/macos/application/MacBackendRuntime.swift
+rg -q 'SharedService\(' backends/android/app/src/main/java/fail/acheron/floatview/application/BackendRuntime.kt

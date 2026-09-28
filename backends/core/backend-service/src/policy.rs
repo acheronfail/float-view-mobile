@@ -10,7 +10,7 @@ use float_view_application_runtime::{
 use float_view_product_store::{Board, SchemaIdentity, Session, Settings};
 use std::collections::{BTreeMap, VecDeque};
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 pub(crate) struct Device {
     pub id: String,
     pub name: Option<String>,
@@ -175,7 +175,10 @@ impl BackendService {
         }
         if !matches!(
             envelope.fact,
-            Fact::UiCompleted { .. }
+            Fact::StopRequested {}
+                | Fact::PresentationStarted { .. }
+                | Fact::PresentationFinished { .. }
+                | Fact::UiCompleted { .. }
                 | Fact::Foreground { foreground: false }
                 | Fact::Bluetooth {
                     radio: Radio::PoweredOff,
@@ -191,11 +194,49 @@ impl BackendService {
         self.policy.exchange.sequence = envelope.sequence;
         self.policy.exchange.now = envelope.monotonic_ms;
         self.policy.exchange.epoch = envelope.epoch_ms;
+        // Periodic capability observations are facts, not product mutations.
+        // Consume their sequence/time without inventing public revisions.
+        let unchanged_capability = match &envelope.fact {
+            Fact::Bluetooth {
+                radio,
+                scan,
+                connect,
+            } => {
+                *radio == self.policy.radio
+                    && *scan == self.policy.scan_permission
+                    && *connect == self.policy.connect_permission
+            }
+            Fact::LocationCapability {
+                authorization,
+                background,
+            } => {
+                *authorization == self.policy.location_authorization
+                    && *background == self.policy.location_background
+            }
+            Fact::Foreground { foreground } => *foreground == self.policy.foreground,
+            _ => false,
+        };
+        if unchanged_capability {
+            return Ok(());
+        }
+        let discovery_timer = matches!(&envelope.fact, Fact::Timer { id }
+            if self.policy.timers.get(id).is_some_and(|t| t.kind == Timer::Discovery));
+        let discovery_before =
+            discovery_timer.then(|| (self.policy.scan, self.policy.visible_devices.clone()));
+        let inactive_timer = matches!(&envelope.fact, Fact::Timer { id }
+            if self.policy.timers.get(id).is_none_or(|t| envelope.monotonic_ms < t.due));
         let discovery_only = matches!(envelope.fact, Fact::Discovered { .. } | Fact::Clock {});
+        let private_completion = matches!(
+            envelope.fact,
+            Fact::PresentationStarted { .. }
+                | Fact::PresentationFinished { .. }
+                | Fact::Storage { .. }
+        );
         let first_discovery = matches!(envelope.fact, Fact::Discovered { .. })
             && self.policy.visible_devices.is_empty();
         match envelope.fact {
             Fact::Clock {} => {}
+            Fact::StopRequested {} => self.disconnect("native_stop_requested")?,
             Fact::Bluetooth {
                 radio,
                 scan,
@@ -349,6 +390,9 @@ impl BackendService {
                     });
                 }
             }
+            Fact::PresentationStarted { id, accepted } => {
+                let _ = self.presentation_started(id, accepted);
+            }
             Fact::PresentationFinished { id } => {
                 let _ = self.finish_presentation(id);
             }
@@ -358,7 +402,12 @@ impl BackendService {
         if first_discovery {
             self.policy.visible_devices = self.policy.devices.clone();
         }
-        if !discovery_only || first_discovery {
+        let unchanged_discovery = discovery_before.is_some_and(|(scan, devices)| {
+            scan == self.policy.scan && devices == self.policy.visible_devices
+        });
+        if (!discovery_only && !private_completion && !inactive_timer && !unchanged_discovery)
+            || first_discovery
+        {
             self.changed()?;
         }
         Ok(())
@@ -1433,6 +1482,29 @@ mod tests {
                 .is_err()
         );
     }
+    #[test]
+    fn unchanged_discovery_ticks_preserve_revision_but_scan_expiry_publishes() {
+        let mut t = Test::new();
+        t.discover();
+        let revision = t.service.service_revision();
+        for now in [253, 503, 753, 10_003] {
+            let id = *t
+                .service
+                .policy
+                .timers
+                .iter()
+                .find(|(_, timer)| timer.kind == Timer::Discovery)
+                .unwrap()
+                .0;
+            t.fact(Fact::Timer { id }, now).unwrap();
+            if now < 10_003 {
+                assert_eq!(t.service.service_revision(), revision);
+            }
+        }
+        assert!(t.service.service_revision() > revision);
+        assert!(t.service.policy.scan.is_none());
+    }
+
     #[test]
     fn discovery_is_bounded_and_scan_deadline_is_service_owned() {
         let mut t = Test::new();

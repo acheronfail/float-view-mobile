@@ -47,6 +47,18 @@ export function androidPhysicalTarget(deviceSerial: string): PhysicalTarget {
     productionBluetooth: true,
     prepareSuite,
     prepareLocation,
+    async verifyFilePresentation() {
+      const deadline = performance.now() + 5_000;
+      while (performance.now() < deadline) {
+        const activities = adbOutput(deviceSerial, 'shell', 'dumpsys', 'activity', 'activities');
+        if (androidDocumentPickerIsResumed(activities)) {
+          await dismissAndroidFilePicker(deviceSerial);
+          return;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      }
+      throw new Error('Android scoped save picker did not appear');
+    },
     async start() {
       await prepareSuite();
       adb(deviceSerial, 'shell', 'am', 'force-stop', applicationId);
@@ -63,7 +75,7 @@ export function androidPhysicalTarget(deviceSerial: string): PhysicalTarget {
       launch(deviceSerial, false);
     },
     async stop() {
-      await dismissAndroidExportChooser(deviceSerial);
+      await dismissAndroidFilePicker(deviceSerial);
       adbBestEffort(deviceSerial, 'shell', 'am', 'force-stop', applicationId);
     },
     async finishSuite(report) {
@@ -152,22 +164,21 @@ function adbBestEffort(serial: string, ...args: string[]) {
   } catch {}
 }
 
-async function dismissAndroidExportChooser(serial: string) {
-  // Older Android hosts the chooser in android:ui, not com.android.intentresolver.
-  // Dismiss it before killing its FileProvider to avoid a provider-start timeout
-  // terminating the next physical scenario's process.
+async function dismissAndroidFilePicker(serial: string) {
+  // Dismiss the scoped save picker before terminating the application so the
+  // native presentation lease receives its cancellation callback.
   const deadline = performance.now() + 5_000;
   while (performance.now() < deadline) {
     const activities = adbOutput(serial, 'shell', 'dumpsys', 'activity', 'activities');
-    if (!androidExportChooserIsResumed(activities)) return;
+    if (!androidDocumentPickerIsResumed(activities)) return;
     adb(serial, 'shell', 'input', 'keyevent', 'KEYCODE_BACK');
     await new Promise((resolve) => setTimeout(resolve, 100));
   }
-  throw new Error('Android export chooser did not close');
+  throw new Error('Android document picker did not close');
 }
 
-export function androidExportChooserIsResumed(activities: string) {
-  return /(?:mResumedActivity|topResumedActivity)[^\n]*(?:ChooserActivity|ResolverActivity)/.test(activities);
+export function androidDocumentPickerIsResumed(activities: string) {
+  return /(?:mResumedActivity|topResumedActivity)[^\n]*(?:DocumentsActivity|PickActivity)/.test(activities);
 }
 
 async function waitForAndroidBackground(serial: string) {

@@ -118,7 +118,6 @@ android {
     }
     sourceSets {
         getByName("main").assets.srcDir("../../../frontend/build")
-        getByName("main").assets.srcDir("../../sql")
         getByName("main").assets.srcDir("../../fixtures")
         getByName("debug").jniLibs.srcDir(rustRuntimeAndroidRoot.resolve("debug"))
         getByName("release").jniLibs.srcDir(rustRuntimeAndroidRoot.resolve("release"))

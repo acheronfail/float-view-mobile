@@ -1,62 +1,36 @@
-# Android backend layout
+# Android host
 
-Android is one native Kotlin Gradle application module. The shared Rust
-`application-runtime` owns VESC framing and decoding, discovery, request
-scheduling, Refloat and BMS behavior, configuration and mutation policy,
-session writes, historical reads/reduction, and pruning. Kotlin reaches it
-through one callback-free `application-runtime-android-jni` library.
+Android is one Kotlin Gradle module. `SharedService` creates the process-owned
+Rust service and executes a closed, bounded OS fact/effect exchange through the
+existing `application-runtime-android-jni` family. The binding retains no JVM
+references or callbacks. Listener handles borrow this service; Activities and
+WebViews are disposable.
 
-The JNI boundary is deliberately coarse and versioned. Kotlin submits bounded
-JSON commands and facts, drains ordered effects, and copies results into
-caller-owned byte arrays. The binding retains no JVM references and exports
-only lifecycle, command, result, interruption, server exchange and bounded
-transfer operations. It does not expose
-the Rust allocator, internal records, or per-protocol entry points.
+Kotlin owns BLE/GATT, permissions, location acquisition, the foreground service,
+scoped file access, theme and UI integration. All product CRUD, identity,
+reconnect, recording, configuration, archives, public dispatch and projection
+live in Rust. There is no native SQL catalog or domain-operation bridge.
 
-Production Kotlin lives under
-`app/src/main/java/fail/acheron/floatview/`:
+| Package          | Responsibility                                                |
+| ---------------- | ------------------------------------------------------------- |
+| `application/`   | Process composition, bounded OS executor and JNI declarations |
+| `bluetooth/`     | BLE/GATT, permission presentation and test adapter            |
+| `files/`         | Scoped URI import stream and export destination picker/copy   |
+| `lifecycle/`     | Application lifetime and foreground recording service         |
+| `location/`      | Location acquisition and permission broker                    |
+| `protocol/vesc/` | Emulator conformance fixture only                             |
+| `theme/`         | System bars and WebView appearance                            |
+| `transport/`     | Listener lifetime and authenticated native URI upload         |
+| `ui/`            | Disposable Activity and WebView                               |
 
-| Capability                                                             | Package          |
-| ---------------------------------------------------------------------- | ---------------- |
-| Runtime adapter, effect execution, and authoritative state projection  | `application/`   |
-| BLE adapter, GATT policy, and Bluetooth permission presentation        | `bluetooth/`     |
-| Native file chooser, bounded import read, and export share sheet       | `files/`         |
-| Application/process lifetime and foreground background-logging service | `lifecycle/`     |
-| Location provider and location permission presentation                 | `location/`      |
-| Software-fixture VESC peripheral used by emulator conformance          | `protocol/vesc/` |
-| SQLite catalogue, archive validation, and Android storage policy       | `storage/`       |
-| Native system-bar and WebView-canvas appearance synchronization        | `theme/`         |
-| Shared transport host adapter and port/startup policy                  | `transport/`     |
-| Disposable Activity and WebView composition                            | `ui/`            |
+The URI importer streams at most 128 MiB through 64-KiB buffers into the same
+shared HTTP importer used by the frontend. Exports retain their service lease
+until the scoped destination stream closes. Native file callbacks have bounded
+admission; no entire archive is materialized in Kotlin memory.
 
-Kotlin continues to own Android OS work: Bluetooth and location adapters,
-lifecycle, permissions, foreground work, file presentation, the session
-catalogue and UI composition. Rust owns loopback routes, authentication, public
-projection and historical reads. The native transport adapter executes typed
-operations and publishes complete facts through the existing JNI library. It does not contain a second
-protocol or application state machine. Ktor and the native historical reducer have been removed. Coroutines remain
-for the native file importer. The software peripheral is a private
-test fixture, not a production fallback.
-
-The application ID remains `fail.acheron.floatview`; packages express ownership,
-not separate applications. Dependencies point down from lifecycle and UI
-composition through transport and the application adapter to OS services and
-storage. WebViews remain disposable and never own native state.
-
-Addresses, launch tokens, private device identity, raw packets, and full
-telemetry or location data stay out of ordinary logs and diagnostics. File and
-location data cross the UI boundary only through bounded authenticated reads or
-an explicit user import/export action.
-
-Gradle pins NDK `28.2.13676358`. Local JVM tests build the runtime host library
-from the locked Rust workspace. Application builds source-build and package
-exactly one `libfloat_view_application_runtime.so` for each of `arm64-v8a`,
-`armeabi-v7a`, `x86`, and `x86_64` from ignored outputs below
-`../core/target/android`. Builds are offline and fail when the pinned Rust
-toolchain, targets, NDK, or linkers are absent.
-
-Use `just test android` for the linked JVM suite and
-`just android-rust-packaging` for clean Debug/Release four-ABI package
-inspection. Add new cross-platform behavior to the safe runtime or one of its
-domain dependencies; do not add another JNI bridge or parallel Kotlin decision
-owner.
+Gradle pins NDK `28.2.13676358` and minimum API 29. Builds package one
+`libfloat_view_application_runtime_android_jni.so` for each of `arm64-v8a`,
+`armeabi-v7a`, `x86`, and `x86_64`. `just test android` runs linked JVM checks;
+`just android-rust-packaging` verifies clean Debug/Release packages and exact
+JNI exports. The physical checkpoint covers BLE, background work, Activity
+recreation and file presentation on a real Android device.

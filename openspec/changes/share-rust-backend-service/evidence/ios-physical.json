@@ -1,0 +1,107 @@
+{
+  "target": "ios-physical",
+  "fixturePath": "/dev/cu.usbmodem111401",
+  "refloatVersion": null,
+  "generatedAt": "2026-09-28T14:59:40.883Z",
+  "scenarios": [
+    {
+      "scenario": "identity",
+      "revision": 134,
+      "durationMs": 6444.79175
+    },
+    {
+      "scenario": "guest",
+      "revision": 133,
+      "durationMs": 5399.933832999999
+    },
+    {
+      "scenario": "direct",
+      "revision": 132,
+      "durationMs": 5199.351749999998
+    },
+    {
+      "scenario": "direct-legacy",
+      "revision": 106,
+      "durationMs": 4919.8968749999985
+    },
+    {
+      "scenario": "control-direct",
+      "revision": 2601,
+      "durationMs": 51561.122292
+    },
+    {
+      "scenario": "control-can",
+      "revision": 2589,
+      "durationMs": 50821.325792
+    },
+    {
+      "scenario": "shutdown-direct",
+      "revision": 130,
+      "durationMs": 3819.8754999999946
+    },
+    {
+      "scenario": "shutdown-can",
+      "revision": 137,
+      "durationMs": 4480.484999999986
+    },
+    {
+      "scenario": "shutdown-no-op",
+      "revision": 1714,
+      "durationMs": 34240.54120799998
+    },
+    {
+      "scenario": "explicit-can",
+      "revision": 136,
+      "durationMs": 5339.649000000005
+    },
+    {
+      "scenario": "generic-gateway",
+      "revision": 137,
+      "durationMs": 5479.910917000001
+    },
+    {
+      "scenario": "ambiguous",
+      "revision": 141,
+      "durationMs": 5481.057165999984
+    },
+    {
+      "scenario": "bms-direct-controller",
+      "revision": 143,
+      "durationMs": 5299.872833000001
+    },
+    {
+      "scenario": "bms-express",
+      "revision": 148,
+      "durationMs": 5499.46858299998
+    },
+    {
+      "scenario": "bms-standalone",
+      "revision": 37,
+      "durationMs": 2120.0840000000026
+    },
+    {
+      "scenario": "ride",
+      "revision": 287,
+      "durationMs": 18125.475875000004
+    },
+    {
+      "scenario": "unexpected-disconnect",
+      "revision": 229,
+      "durationMs": 10395.099124999979
+    },
+    {
+      "scenario": "background",
+      "revision": 820,
+      "locationCheckpoint": {
+        "authorization": "authorized",
+        "backgroundCapture": "available",
+        "beforeCount": 0,
+        "afterCount": 2,
+        "persistedDelta": 2,
+        "beforeSequence": 0,
+        "afterSequence": 2
+      },
+      "durationMs": 42625.33266700004
+    }
+  ]
+}

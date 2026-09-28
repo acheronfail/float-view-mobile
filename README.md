@@ -1,6 +1,6 @@
 # Float View
 
-Float View has one responsive SvelteKit frontend and three native backends. The
+Float View has one responsive SvelteKit frontend and a shared Rust backend with native OS hosts. The
 frontend knows nothing about Apple or Android: every backend implements the
 small hand-written contract in `frontend/src/lib/backend/contract.ts`.
 
@@ -24,7 +24,8 @@ Native hosts own Bluetooth, permissions, exports, lifecycle and the session
 catalog. The shared Rust runtime owns protocol processing and durable session
 work. `backends/core/loopback-server` owns authenticated HTTP/WebSocket transport,
 complete state projection and historical responses through the existing C/JNI
-binding families. Hosts provide embedded HTML and execute typed native operations.
+binding families. Hosts provide embedded HTML and execute bounded OS capabilities; Rust owns
+product storage, application policy, dispatch and complete state projection.
 
 ## Commands
 

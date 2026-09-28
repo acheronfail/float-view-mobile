@@ -60,7 +60,9 @@ OS Bluetooth, location, lifecycle, permissions, native file presentation, theme,
 and UI integration. Transport workers must reuse the existing application owner;
 read-only session workers use bounded independent readers without creating a
 second runtime. Keep public dispatch and projection in the shared server, and
-native adapters limited to typed operations and complete domain facts.
+native adapters limited to closed OS facts, effects and completions. Product
+CRUD, catalog/archive policy, reconnect decisions, waiters and public snapshot
+construction belong in the shared Rust service.
 
 ## Frontend interaction
 

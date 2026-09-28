@@ -1,0 +1,88 @@
+{
+  "target": "macos-physical",
+  "fixturePath": "/dev/cu.usbmodem111401",
+  "refloatVersion": null,
+  "generatedAt": "2026-09-28T14:01:01.448Z",
+  "scenarios": [
+    {
+      "scenario": "identity",
+      "revision": 154,
+      "durationMs": 23120.760917
+    },
+    {
+      "scenario": "direct",
+      "revision": 134,
+      "durationMs": 10479.98875
+    },
+    {
+      "scenario": "direct-legacy",
+      "revision": 107,
+      "durationMs": 18361.751708000003
+    },
+    {
+      "scenario": "control-direct",
+      "revision": 2619,
+      "durationMs": 62945.04075000001
+    },
+    {
+      "scenario": "control-can",
+      "revision": 2639,
+      "durationMs": 59902.251000000004
+    },
+    {
+      "scenario": "shutdown-direct",
+      "revision": 131,
+      "durationMs": 10219.947791000013
+    },
+    {
+      "scenario": "shutdown-can",
+      "revision": 143,
+      "durationMs": 16520.362332999997
+    },
+    {
+      "scenario": "shutdown-no-op",
+      "revision": 1707,
+      "durationMs": 38160.938083999994
+    },
+    {
+      "scenario": "explicit-can",
+      "revision": 143,
+      "durationMs": 10500.190624999988
+    },
+    {
+      "scenario": "generic-gateway",
+      "revision": 141,
+      "durationMs": 10200.487832999992
+    },
+    {
+      "scenario": "ambiguous",
+      "revision": 146,
+      "durationMs": 10459.918999999965
+    },
+    {
+      "scenario": "bms-direct-controller",
+      "revision": 145,
+      "durationMs": 9940.606207999983
+    },
+    {
+      "scenario": "bms-express",
+      "revision": 153,
+      "durationMs": 19680.230290999985
+    },
+    {
+      "scenario": "bms-standalone",
+      "revision": 46,
+      "durationMs": 8719.976792000001
+    },
+    {
+      "scenario": "ride",
+      "revision": 210,
+      "durationMs": 12559.887832999986
+    },
+    {
+      "scenario": "unexpected-disconnect",
+      "revision": 230,
+      "durationMs": 13920.88612500002
+    }
+  ]
+}

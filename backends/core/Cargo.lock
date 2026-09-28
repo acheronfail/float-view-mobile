@@ -254,7 +254,6 @@ dependencies = [
 name = "float-view-application-runtime-host"
 version = "0.1.0"
 dependencies = [
- "float-view-application-runtime",
  "float-view-backend-service",
  "serde",
  "serde_json",

@@ -94,7 +94,7 @@ public final class CoreLocationAdapter: NSObject, LocationProviderPort, CLLocati
   }
 
   public func openSettings() {
-    performOnMain {
+    DispatchQueue.main.async {
       #if os(iOS)
         guard let url = URL(string: UIApplication.openSettingsURLString) else { return }
         UIApplication.shared.open(url)

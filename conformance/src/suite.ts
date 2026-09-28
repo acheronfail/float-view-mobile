@@ -27,6 +27,7 @@ export interface PhysicalTarget extends Target {
   /** Prepare OS-level location permissions without changing app settings. */
   prepareLocation?(report: (message: string) => void): Promise<void>;
   finishSuite?(report: (message: string) => void): Promise<void>;
+  verifyFilePresentation?(): Promise<void>;
 }
 
 export async function runConformance(target: Target) {

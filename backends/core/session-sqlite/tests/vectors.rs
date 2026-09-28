@@ -57,7 +57,7 @@ fn creates_the_exact_canonical_database_and_reopens_it() {
 }
 
 #[test]
-fn reopens_the_exact_bounded_android_framework_metadata_shape() {
+fn rejects_superseded_android_framework_metadata() {
     let directory = TestDirectory::new();
     let path = directory.file("android-session.sqlite3");
     SessionWriter::create(&path, metadata())
@@ -70,14 +70,8 @@ fn reopens_the_exact_bounded_android_framework_metadata_shape() {
             "CREATE TABLE android_metadata (locale TEXT); INSERT INTO android_metadata(locale) VALUES ('en_US');",
         )
         .expect("add exact Android framework metadata");
-    SessionWriter::open(&path).expect("reopen Android framework database");
-
-    Connection::open(&path)
-        .expect("open malformed Android metadata")
-        .execute_batch("ALTER TABLE android_metadata ADD COLUMN unexpected INTEGER;")
-        .expect("malform Android metadata");
     assert_eq!(
-        SessionWriter::open(&path).expect_err("reject extended Android metadata"),
+        SessionWriter::open(&path).expect_err("reject superseded Android metadata"),
         WriterError::Incompatible
     );
 }

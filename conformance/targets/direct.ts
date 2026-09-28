@@ -97,6 +97,7 @@ export function makeDirectTarget(): Target {
         await fact({ fact: 'ui_completed', id: e.id, success: true });
         break;
       case 'present_file':
+        await fact({ fact: 'presentation_started', id: e.id, accepted: false });
         await fact({ fact: 'presentation_finished', id: e.id });
         break;
     }

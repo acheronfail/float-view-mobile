@@ -34,7 +34,7 @@ export function iosPhysicalTarget(deviceId: string): PhysicalTarget {
   const project = `${root}/backends/apple/ios/float-view.xcodeproj`;
   const derived = '/tmp/float-view-ios-physical-conformance';
   const destination = `platform=iOS,id=${deviceId}`;
-  const lifecycle = (method: 'testBackground' | 'testForeground') =>
+  const lifecycle = (method: 'testBackground' | 'testForeground' | 'testFilePresentation') =>
     runBuffered(
       'xcodebuild',
       [
@@ -174,6 +174,7 @@ export function iosPhysicalTarget(deviceId: string): PhysicalTarget {
     endpoint: () => bootstrap(hostPort, devicePort, 'iOS device', checkProxy),
     background: () => lifecycle('testBackground'),
     foreground: () => lifecycle('testForeground'),
+    verifyFilePresentation: () => lifecycle('testFilePresentation'),
     async stop() {
       await terminateApp();
     },

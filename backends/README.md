@@ -1,17 +1,13 @@
 # Native backend architecture
 
-Apple and Android implement the authenticated loopback contract by hand. The
-frontend is disposable. Their native application services select the shared
-Rust application runtime, execute its OS effects, and own Bluetooth, lifecycle,
-background work, catalogue/file presentation, loopback transport, and
-authoritative state publication.
+Apple and Android compose one process-owned Rust backend service. Native hosts
+execute bounded OS capabilities: Bluetooth, permissions, location, lifecycle,
+background execution, scoped file presentation, theme and UI. Rust owns product
+storage/policy and authenticated loopback dispatch/projection. The frontend and
+listener are disposable and borrow the existing application owner.
 
-Both native source trees use the capability names `application`, `bluetooth`,
-`files`, `lifecycle`, `location`, `protocol`, `storage`, `theme`, `transport`,
-and `ui` wherever they own that responsibility. See
-[`apple/README.md`](apple/README.md) and [`android/README.md`](android/README.md)
-for the build-system-specific source roots and exact mappings. Matching names
-are navigation and ownership boundaries, not shared implementation layers.
+See [`core/README.md`](core/README.md), [`apple/README.md`](apple/README.md) and
+[`android/README.md`](android/README.md) for the ownership and build boundaries.
 
 ## VESC request ownership
 
@@ -74,11 +70,11 @@ are refreshed after verified writes rather than projected optimistically.
 
 Tunes are bounded application-wide records in the catalog database, keyed and
 filtered by exact package version, schema fingerprint, and wire signature with
-optimistic revisions. The schema cache lives beside native storage and is keyed
+optimistic revisions. The schema cache lives in shared product storage and is keyed
 by private connection identity, custom index, and a nonzero hardware CRC; every
 hit is digest-checked, bounded, decoded, and audited again. Cache identity is
-never public and never authorizes a write by itself. Apple and Android share
-storage marker `11`; incompatible development databases are recreated.
+never public and never authorizes a write by itself. Both hosts select the shared store with
+storage marker `12`; incompatible development databases are recreated.
 
 ## Controller shutdown boundary
 

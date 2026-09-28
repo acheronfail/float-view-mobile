@@ -15,17 +15,8 @@ readonly symbols=(
   "${jni_prefix}_serviceApply"
   "${jni_prefix}_serviceCopyResult"
   "${jni_prefix}_serviceServerCreate"
-  "${jni_prefix}_serverCreate"
   "${jni_prefix}_serverDestroy"
   "${jni_prefix}_serverCommand"
-  "${jni_prefix}_serverReadTransfer"
-  "${jni_prefix}_serverWriteTransfer"
-  "${jni_prefix}_abiVersion"
-  "${jni_prefix}_apply"
-  "${jni_prefix}_copyResult"
-  "${jni_prefix}_create"
-  "${jni_prefix}_destroy"
-  "${jni_prefix}_interrupt"
 )
 
 usage() {

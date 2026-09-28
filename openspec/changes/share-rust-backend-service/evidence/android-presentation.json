@@ -1,0 +1,27 @@
+{
+  "target": "android-physical",
+  "fixturePath": "/dev/cu.usbmodem111401",
+  "refloatVersion": null,
+  "generatedAt": "2026-09-28T14:36:39.079Z",
+  "scenarios": [
+    {
+      "scenario": "ride",
+      "revision": 243,
+      "durationMs": 12756.948084000003
+    },
+    {
+      "scenario": "background",
+      "revision": 470,
+      "locationCheckpoint": {
+        "authorization": "authorized",
+        "backgroundCapture": "available",
+        "beforeCount": 0,
+        "afterCount": 1,
+        "persistedDelta": 1,
+        "beforeSequence": 0,
+        "afterSequence": 1
+      },
+      "durationMs": 20463.789083000003
+    }
+  ]
+}

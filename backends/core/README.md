@@ -1,105 +1,50 @@
 # Shared Rust backend
 
-`backends/core` is the locked Rust workspace shared by the native hosts. Safe
-domain crates point downward into protocol codecs and deterministic state
-machines. `application-runtime` composes them into the one selected application
-owner used by Apple and Android.
+`backend-service::Process` owns one application runtime, product store and
+maintenance executor. Both native hosts select this constructor through the
+existing C/JNI binding families. Listeners borrow the same service; stopping a
+listener or replacing a WebView does not stop recording or maintenance.
 
-## Selected boundary
+`product-store` owns catalog startup, settings, board identity and profiles,
+Tunes, schema caches, session lifecycle/recovery, archive validation and CSV.
+`application-runtime` owns protocol coordination and the sole session writer.
+Read-only history, archive and maintenance workers use bounded independent
+readers and service-issued leases. An exclusive root lock prevents a second
+process owner from recovering or deleting resources still in use.
 
-The runtime owns:
+`loopback-server` owns authenticated HTTP/WebSocket routes, public dispatch and
+projection, bounded historical reads and compression. It calls the shared
+service directly. There is no native domain-operation exchange, native catalog,
+second runtime, generated API or per-protocol binding.
 
-- bounded VESC streams, framing, decoding, discovery, routing, and scheduling;
-- Refloat telemetry, configuration, controls, Tunes, and mutation policy;
-- auxiliary BMS discovery and live state;
-- connection generations, timers, activation, recovery, and authoritative
-  snapshots;
-- canonical per-session SQLite writes, commit markers, reads, reduction,
-  interruption, and pruning.
+Native hosts supply the private root, HTML and closed OS facts; they execute
+Bluetooth, timer, location, permission, lifecycle, theme and file-presentation
+effects. The OS exchange validates lifetime, sequence, generations and byte
+bounds. Queues, timers, workers, files and correlated requests have explicit
+limits, with reserved cleanup capacity. Native presentation retains an export
+lease until dismissal or completion of a scoped destination copy.
 
-Hosts submit versioned bounded commands and facts and execute ordered effects.
-The application runtime has no Bluetooth, location provider, clock, UI,
-permission, lifecycle or native-file presentation implementation. Those remain
-native OS responsibilities. The separate `loopback-server` crate owns HTTP and
-WebSocket admission, public dispatch/projection, history reads and compression.
-It runs one socket executor and two bounded historical workers, reusing the
-existing read-only SessionReader without constructing another application runtime.
-Native workers drain closed typed operations and publish complete domain facts
-through the same C/JNI artifacts. Listener generations, launch token and public
-revisions are independent of the application and disposable frontend lifetime. The frontend contract and canonical SQL schema remain shared
-external contracts rather than generated bindings.
+`application-runtime-host` is the safe process registry and bounded result
+buffer. Exactly two unsafe bindings sit above it:
 
-`application-runtime-host` provides the safe platform-neutral envelope,
-registry, handles, tokens, pending results, interruption, statuses, and bounds.
-It contains no raw host pointers or JNI operations. Exactly two unsafe binding
-crates sit above it:
+- `application-runtime-apple-ffi`: caller-owned C buffers for iOS/macOS;
+- `application-runtime-android-jni`: call-local JVM arrays, without retained JNI
+  references or callbacks.
 
-- `application-runtime-apple-ffi` validates the stable caller-owned C ABI used
-  by the shared iOS/macOS adapter;
-- `application-runtime-android-jni` validates call-local JNI inputs and
-  caller-owned primitive arrays without retaining JVM references.
+The build scripts audit exact exported symbols and use the locked dependency
+set. Android packages one library for each supported ABI. Generated output stays
+under `target/`. The workspace contains at most 28 members; protocol codecs and
+state machines remain downward dependencies, not separate host runtimes.
 
-The bindings expose the same coarse lifecycle/command/result/interruption model.
-They do not expose individual protocol crates, Rust allocation, callbacks, or
-generated records. Adding Windows or Linux later should add a similarly thin
-host binding or direct safe host integration, not fork the application runtime.
+`audit-ownership.sh` checks production source below 49,922 lines, two binding
+families, the workspace ceiling and absence of native portable implementations.
+Use focused Cargo tests during development and `just verify` as the complete
+software gate. Conformance includes a direct Rust host with synthetic OS facts
+and the same canonical product scenarios used by native hosts. The connected
+Android/iOS devices and ESP32 are required for the explicit physical checkpoint.
 
-## Workspace organization
-
-The remaining crates fall into four groups:
-
-- protocol codecs and records (`vesc-*`, `refloat-*`);
-- deterministic services (`*-discovery`, schedulers, telemetry,
-  configuration, and mutation coordinators);
-- persistence and history (`session-sqlite`, `session-history-kernel`);
-- the selected composition and its two host bindings.
-
-Domain crates remain independently tested because this keeps protocol and state
-machine behavior small and reusable. They are implementation dependencies, not
-separate production runtimes or host integration surfaces. There are no
-per-protocol Apple FFI or Android JNI crates, no JNI support layer, no bridge
-catalog, and no per-protocol native build matrix.
-
-`build-apple-runtime.sh` produces the one Apple archive and audits its public
-symbols. `build-android-runtime.sh` produces one host-test library plus one
-library for each supported Android ABI and audits the six exact JNI exports.
-Generated build output stays below `target/` and is never committed.
-
-## Migration evidence and gates
-
-`migration-baseline.txt` records the pre-runtime and cutover checkpoints.
-`audit-migration-convergence.sh` measures tracked and proposed production source,
-workspace members, bindings, temporary bridges, and Android target artifacts.
-The final cutover must keep combined Rust, Apple, and Android production source
-below 59,280 lines, workspace members below 34, exactly two runtime bindings,
-and zero temporary protocol bridges.
-
-Use the focused Cargo tests while changing a domain crate. Before committing a
-host cutover, run warnings-denied workspace linting, both native test suites,
-clean host/device/simulator/ABI packaging, software conformance, the convergence
-audit, and the applicable physical fixture matrix.
-
-## Invariants
-
-- Safe algorithm crates forbid unsafe code.
-- Unsafe code is confined to the named host binding crates and bundled SQLite
-  boundary where required.
-- Every input, collection, queue, retry, result, and retained observation has an
-  explicit bound.
-- Hosts own OS effects; Rust owns cross-platform decisions.
-- There is one production application runtime and no native protocol fallback.
-- New shared behavior extends the runtime or a downward dependency; it does not
-  create sideways candidates, generated APIs, or another temporary bridge.
-
-## Shared backend service change in progress
-
-`product-store` implements shared catalog startup, settings, boards/profiles,
-private routing hints, Tunes/schema cache, session catalogs and recovery/deletion.
-`backend-service` establishes the safe one-store/one-runtime constructor. These
-components are not yet selected by native production; the current native owners
-stay selected until service OS exchange, direct-host proof and each host cutover
-are complete. See `share-rust-backend-service` for the remaining tasks.
-
-Shared storage uses marker `12` and resets incompatible owned development data.
-No migration, earlier-development identity alias or legacy data reader is needed
-before the first release; AGENTS.md is the persistent compatibility policy.
+The application has no users or release version. Storage marker `12` resets
+incompatible owned development data; ordinary corruption or I/O errors never
+trigger a reset. Do not retain migrations, legacy identity aliases, previous
+format readers or fallback implementations before the first release. See
+AGENTS.md for the persistent policy.

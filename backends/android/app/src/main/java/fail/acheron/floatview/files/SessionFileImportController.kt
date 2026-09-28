@@ -8,8 +8,9 @@ import android.webkit.ValueCallback
 import android.webkit.WebChromeClient
 import android.webkit.WebView
 import fail.acheron.floatview.lifecycle.FloatViewApplication
-import fail.acheron.floatview.transport.MAX_SESSION_IMPORT_BYTES
-import java.io.ByteArrayOutputStream
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.ensureActive
+import kotlin.coroutines.coroutineContext
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -23,6 +24,7 @@ class SessionFileImportController(
     private val application: FloatViewApplication,
     private val webView: () -> WebView?,
 ) : AutoCloseable {
+    private var importJob: Job? = null
     private var fileChooserCallback: ValueCallback<Array<Uri>>? = null
     private val importScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
@@ -74,13 +76,15 @@ class SessionFileImportController(
     }
 
     private fun importSelectedSession(uri: Uri) {
+        if (importJob?.isActive == true) return
         dispatchFrontendImport("floatview:session-import-started", JSONObject())
-        importScope.launch {
+        importJob = importScope.launch {
             try {
                 val sessionId = withContext(Dispatchers.IO) {
-                    application.runtime.applicationService.importSessionArchive(readImportUri(uri))
+                    val context = coroutineContext
+                    val input = activity.contentResolver.openInputStream(uri) ?: error("Selected file cannot be opened")
+                    input.use { application.backend.importStream(it) { context.ensureActive() } }
                 }
-                application.backend.publishSessionCatalogChanged()
                 Log.d("FloatViewImport", "complete")
                 dispatchFrontendImport(
                     "floatview:session-imported",
@@ -93,24 +97,6 @@ class SessionFileImportController(
                     JSONObject().put("message", "Session import failed"),
                 )
             }
-        }
-    }
-
-    private fun readImportUri(uri: Uri): ByteArray {
-        val input = activity.contentResolver.openInputStream(uri)
-            ?: error("Selected file cannot be opened")
-        input.use { stream ->
-            val output = ByteArrayOutputStream()
-            val buffer = ByteArray(64 * 1024)
-            var total = 0
-            while (true) {
-                val count = stream.read(buffer)
-                if (count < 0) break
-                total += count
-                check(total <= MAX_SESSION_IMPORT_BYTES) { "Selected file is too large" }
-                output.write(buffer, 0, count)
-            }
-            return output.toByteArray()
         }
     }
 

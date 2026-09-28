@@ -1,4 +1,4 @@
-//! Bounded, unselected access to one canonical Float View session database.
+//! Bounded access to one canonical Float View session database.
 
 #![forbid(unsafe_code)]
 
@@ -201,14 +201,31 @@ impl SessionWriter {
             .map_err(map_sqlite)?;
         connection.close().map_err(|(_, error)| map_sqlite(error))?;
 
-        match fs::hard_link(&temporary, target) {
-            Ok(()) => fs::remove_file(&temporary).map_err(|_| WriterError::Io)?,
+        // Android app sandboxes prohibit hard links. Reserve the destination
+        // exclusively, then atomically replace our own empty reservation. The
+        // process-owned storage root excludes other writers; no catalog entry
+        // exposes the target until creation succeeds.
+        match fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(target)
+        {
+            Ok(file) => drop(file),
             Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
                 return Err(WriterError::TargetExists);
             }
             Err(_) => return Err(WriterError::Io),
         }
+        let reservation = TemporaryDatabase::new(target.to_path_buf());
+        fs::rename(&temporary, target).map_err(|_| WriterError::Io)?;
         guard.disarm();
+        fs::File::open(target)
+            .and_then(|file| file.sync_all())
+            .map_err(|_| WriterError::Io)?;
+        fs::File::open(parent)
+            .and_then(|file| file.sync_all())
+            .map_err(|_| WriterError::Io)?;
+        reservation.disarm();
         Self::open(target)
     }
 
@@ -1100,55 +1117,8 @@ fn validate_database(connection: &Connection) -> Result<(), WriterError> {
         return Err(WriterError::Incompatible);
     }
 
-    // Android's framework SQLite creates this one OS-owned metadata table even
-    // when the application executes the canonical schema itself. Admit only
-    // its exact bounded shape; it is not part of Float View's SQL contract and
-    // is never read or written by the runtime.
-    let has_android_metadata: bool = connection
-        .query_row(
-            "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'android_metadata')",
-            [],
-            |row| row.get(0),
-        )
-        .map_err(map_validation_sqlite)?;
-    if has_android_metadata {
-        let columns = connection
-            .prepare("PRAGMA table_info(android_metadata)")
-            .map_err(map_validation_sqlite)?
-            .query_map([], |row| {
-                Ok((
-                    row.get::<_, i64>(0)?,
-                    row.get::<_, String>(1)?,
-                    row.get::<_, String>(2)?,
-                    row.get::<_, i64>(3)?,
-                    row.get::<_, i64>(5)?,
-                ))
-            })
-            .map_err(map_validation_sqlite)?
-            .collect::<Result<Vec<_>, _>>()
-            .map_err(map_validation_sqlite)?;
-        let row_count: i64 = connection
-            .query_row("SELECT COUNT(*) FROM android_metadata", [], |row| {
-                row.get(0)
-            })
-            .map_err(map_validation_sqlite)?;
-        let longest_locale: Option<i64> = connection
-            .query_row(
-                "SELECT MAX(length(locale)) FROM android_metadata",
-                [],
-                |row| row.get(0),
-            )
-            .map_err(map_validation_sqlite)?;
-        if columns != [(0, "locale".to_owned(), "TEXT".to_owned(), 0, 0)]
-            || !(0..=1).contains(&row_count)
-            || longest_locale.is_some_and(|length| !(0..=256).contains(&length))
-        {
-            return Err(WriterError::Incompatible);
-        }
-    }
-
     let mut statement = connection
-        .prepare("SELECT type, name FROM sqlite_master WHERE type IN ('table', 'index') AND name NOT LIKE 'sqlite_autoindex_%' AND name <> 'android_metadata'")
+        .prepare("SELECT type, name FROM sqlite_master WHERE type IN ('table', 'index') AND name NOT LIKE 'sqlite_autoindex_%'")
         .map_err(map_validation_sqlite)?;
     let objects = statement
         .query_map([], |row| {

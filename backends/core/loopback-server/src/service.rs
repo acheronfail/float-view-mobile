@@ -1,13 +1,12 @@
-//! Direct service selection. Removed native dispatch remains temporarily selectable
-//! only until both native cutovers have passed their checkpoints.
+//! Direct service dispatch and publication; native hosts execute OS effects only.
 use crate::{
     backend::Backend,
     facts::*,
     protocol::{Failure, Operation},
     transfer::Direction,
 };
-use float_view_backend_service::{BackendService, Dispatch, ExportFormat, FileResult};
-use std::sync::{Arc, Mutex, atomic::Ordering};
+use float_view_backend_service::{Dispatch, ExportFormat, FileResult};
+use std::sync::{Arc, atomic::Ordering};
 
 impl Backend {
     pub(crate) async fn prune_service(
@@ -20,7 +19,7 @@ impl Backend {
             .service_permits
             .try_acquire()
             .map_err(|_| Failure::Unavailable)?;
-        let service = self.service.as_ref().ok_or(Failure::Internal)?;
+        let service = &self.service;
         let mut changes = service.lock().map_err(|_| Failure::Internal)?.subscribe();
         let mut job = {
             let mut s = service.lock().map_err(|_| Failure::Internal)?;
@@ -82,27 +81,13 @@ impl Backend {
         id: &str,
     ) -> Result<Option<float_view_backend_service::SessionLease>, Failure> {
         self.service
-            .as_ref()
-            .map(|s| {
-                s.lock()
-                    .map_err(|_| Failure::Internal)?
-                    .source(id)
-                    .map(|s| s.1)
-            })
-            .transpose()
-    }
-
-    pub fn with_service(service: Arc<Mutex<BackendService>>) -> Self {
-        Self {
-            service: Some(service),
-            ..Self::default()
-        }
+            .lock()
+            .map_err(|_| Failure::Internal)?
+            .source(id)
+            .map(|v| Some(v.1))
     }
     pub fn sync_service(&self) -> Result<(), Failure> {
-        let Some(service) = &self.service else {
-            return Ok(());
-        };
-        let service = service.lock().map_err(|_| Failure::Internal)?;
+        let service = self.service.lock().map_err(|_| Failure::Internal)?;
         let facts = service.published_snapshot();
         let revision = service.service_revision();
         let catalog_revision = service.catalog_revision();
@@ -114,6 +99,15 @@ impl Backend {
         {
             return Ok(());
         }
+        // Reserve the complete state.changed envelope, not just its payload.
+        let envelope = serde_json::json!({"event":"state.changed", "data":value.as_ref()});
+        if serde_json::to_vec(&envelope)
+            .map_err(|_| Failure::Internal)?
+            .len()
+            > crate::limits::MAX_MESSAGE_BYTES
+        {
+            return Err(Failure::Unavailable);
+        }
         publisher.facts = Some(facts);
         publisher.revision = revision;
         publisher.catalog_revision = catalog_revision;
@@ -121,10 +115,7 @@ impl Backend {
         Ok(())
     }
     pub(crate) fn watch_service(self: &Arc<Self>) {
-        let Some(service) = &self.service else {
-            return;
-        };
-        let Ok(service) = service.lock() else {
+        let Ok(service) = self.service.lock() else {
             return;
         };
         let mut changes = service.subscribe();
@@ -139,9 +130,7 @@ impl Backend {
         });
     }
     pub(crate) fn disconnect_service_client(&self, client: u64) {
-        if let Some(service) = &self.service
-            && let Ok(mut service) = service.lock()
-        {
+        if let Ok(mut service) = self.service.lock() {
             service.disconnect_client(client);
         }
         if let Ok(mut mapping) = self.service_transfers.lock() {
@@ -161,8 +150,7 @@ impl Backend {
     pub(crate) fn cleanup_service_transfer(&self, id: u64) {
         if let Ok(mut mapping) = self.service_transfers.lock()
             && let Some((owner, local)) = mapping.remove(&id)
-            && let Some(service) = &self.service
-            && let Ok(mut service) = service.lock()
+            && let Ok(mut service) = self.service.lock()
         {
             let _ = service.cancel_file_transfer(owner, local);
         }
@@ -179,7 +167,7 @@ impl Backend {
             .service_permits
             .try_acquire()
             .map_err(|_| Failure::Unavailable)?;
-        let service = self.service.as_ref().ok_or(Failure::Internal)?;
+        let service = &self.service;
         match operation {
             Operation::BeginImport { transfer_id } => {
                 let mut mapping = self
@@ -268,23 +256,38 @@ impl Backend {
                 let completion = tokio::task::spawn_blocking(move || work.run())
                     .await
                     .map_err(|_| Failure::Internal)?;
-                let mut s = service.lock().map_err(|_| Failure::Internal)?;
-                let now = s.monotonic_ms();
-                let FileResult::Exported {
-                    file_name, length, ..
-                } = s
-                    .complete_file_work(completion, now)
-                    .map_err(|_| Failure::Unavailable)?
-                else {
-                    return Err(Failure::Internal);
+                let (file_name, length, presentation) = {
+                    let mut s = service.lock().map_err(|_| Failure::Internal)?;
+                    let now = s.monotonic_ms();
+                    let FileResult::Exported {
+                        file_name, length, ..
+                    } = s
+                        .complete_file_work(completion, now)
+                        .map_err(|_| Failure::Unavailable)?
+                    else {
+                        return Err(Failure::Internal);
+                    };
+                    let presentation = if present {
+                        Some(
+                            s.present_file(client, local, &file_name)
+                                .map_err(|_| Failure::Unavailable)?,
+                        )
+                    } else {
+                        None
+                    };
+                    (file_name, length, presentation)
                 };
-                if present {
-                    s.present_file(client, local, &file_name)
-                        .map_err(|_| Failure::Unavailable)?;
-                }
+                let presented = if let Some(reply) = presentation {
+                    tokio::time::timeout(crate::limits::IO_TIMEOUT, reply)
+                        .await
+                        .map_err(|_| Failure::Unavailable)?
+                        .map_err(|_| Failure::Unavailable)?
+                } else {
+                    false
+                };
                 Ok(Completion::Export {
                     file_name,
-                    presented: present,
+                    presented,
                     transfer_id,
                     length,
                 })

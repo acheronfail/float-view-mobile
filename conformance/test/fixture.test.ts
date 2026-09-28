@@ -167,6 +167,7 @@ test('fixture startup advertising retry is bounded and preserves persistent fail
 test('physical scenario matrix excludes desktop backgrounding', () => {
   const connectionScenarios = [
     'identity',
+    'guest',
     'direct',
     'direct-legacy',
     'control-direct',

@@ -132,6 +132,7 @@ test('physical target command construction uses normal Debug app paths', () => {
   );
   assert.equal(iosDeviceIsPreparingFailure(new Error('Signing certificate is invalid')), false);
   assert.deepEqual(macosLaunchArguments(), ['--test-host']);
+  assert.deepEqual(macosLaunchArguments(true), ['--browser-host']);
 });
 
 test('Android physical permissions follow the device API level', () => {
@@ -180,23 +181,23 @@ test('physical CLI fails before touching hardware when required arguments are ab
   assert.match(result.stderr, /Android ADB serial is required/);
 });
 
-test('Android export cleanup recognizes old and new resumed system choosers only', async () => {
-  const { androidExportChooserIsResumed } = await import('../targets/android.ts');
+test('Android export cleanup recognizes only resumed document pickers', async () => {
+  const { androidDocumentPickerIsResumed } = await import('../targets/android.ts');
   assert.equal(
-    androidExportChooserIsResumed(
-      'mResumedActivity: ActivityRecord{ u0 android/com.android.internal.app.ChooserActivity t1}'
+    androidDocumentPickerIsResumed(
+      'mResumedActivity: ActivityRecord{ u0 com.android.documentsui/.picker.PickActivity t1}'
     ),
     true
   );
   assert.equal(
-    androidExportChooserIsResumed(
-      'topResumedActivity=ActivityRecord{ u0 com.android.intentresolver/.ChooserActivity t1}'
+    androidDocumentPickerIsResumed(
+      'topResumedActivity=ActivityRecord{ u0 com.google.android.documentsui/.DocumentsActivity t1}'
     ),
     true
   );
   assert.equal(
-    androidExportChooserIsResumed(
-      'mResumedActivity: ActivityRecord{ u0 fail.acheron.floatview/.ui.MainActivity t1}\nHist #1: ChooserActivity'
+    androidDocumentPickerIsResumed(
+      'mResumedActivity: ActivityRecord{ u0 fail.acheron.floatview/.ui.MainActivity t1}\nHist #1: DocumentsActivity'
     ),
     false
   );

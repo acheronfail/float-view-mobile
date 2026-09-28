@@ -22,7 +22,7 @@ pub struct SessionLease {
     id: String,
     path: PathBuf,
     leases: Leases,
-    _root_lock: std::sync::Arc<std::fs::File>,
+    _root_lock: crate::root::RootLock,
 }
 impl SessionLease {
     pub fn path(&self) -> &std::path::Path {

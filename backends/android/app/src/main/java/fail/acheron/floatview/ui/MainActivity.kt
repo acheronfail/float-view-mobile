@@ -15,7 +15,6 @@ import android.webkit.WebView
 import android.webkit.WebChromeClient
 import android.widget.FrameLayout
 import fail.acheron.floatview.application.BluetoothEvent
-import fail.acheron.floatview.application.SettingsRecord
 import fail.acheron.floatview.bluetooth.BluetoothPermissionBroker
 import fail.acheron.floatview.files.SessionFileImportController
 import fail.acheron.floatview.lifecycle.FloatViewApplication
@@ -43,11 +42,8 @@ class MainActivity : Activity() {
         app.runtime.permissionBroker.attach(this)
         app.runtime.locationPermissionBroker.attach(this)
         app.runtime.exportPresentationBroker.attach(this)
-        themeController.apply(app.runtime.applicationService.settings().themePreference)
-        themeSubscription = app.runtime.events.subscribe { event ->
-            if (event is SettingsRecord) {
-                runOnUiThread { themeController.apply(event.themePreference) }
-            }
+        themeSubscription = app.runtime.service.observeTheme { preference ->
+            runOnUiThread { themeController.apply(preference) }
         }
         setContentView(frontendContainer)
         createFrontend()
@@ -55,6 +51,7 @@ class MainActivity : Activity() {
 
     override fun onStart() {
         super.onStart()
+        (application as FloatViewApplication).runtime.service.setForeground(true)
         handler.removeCallbacks(delayedTeardown)
         createFrontend()
     }
@@ -62,11 +59,12 @@ class MainActivity : Activity() {
     override fun onResume() {
         super.onResume()
         val preference =
-            (application as FloatViewApplication).runtime.applicationService.settings().themePreference
+            (application as FloatViewApplication).runtime.service.theme
         themeController.apply(preference)
     }
 
     override fun onStop() {
+        (application as FloatViewApplication).runtime.service.setForeground(false)
         handler.removeCallbacks(delayedTeardown)
         handler.postDelayed(delayedTeardown, FRONTEND_BACKGROUND_GRACE_MS)
         super.onStop()
@@ -150,6 +148,7 @@ class MainActivity : Activity() {
 
     @Deprecated("Android WebView file chooser uses the legacy activity result callback")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: android.content.Intent?) {
+        (application as FloatViewApplication).runtime.exportPresentationBroker.onActivityResult(requestCode, resultCode, data)
         sessionFiles.handleActivityResult(requestCode, resultCode, data)
         super.onActivityResult(requestCode, resultCode, data)
     }
@@ -163,7 +162,7 @@ class MainActivity : Activity() {
         if (requestCode == BluetoothPermissionBroker.BLUETOOTH_PERMISSION_REQUEST) {
             val runtime = (application as FloatViewApplication).runtime
             runtime.permissionBroker.recordResult(permissions)
-            runtime.applicationService.onBluetoothEvent(
+            runtime.service.receive(
                 BluetoothEvent.StateChanged(
                     runtime.bluetooth.currentState(),
                 ),
@@ -171,7 +170,7 @@ class MainActivity : Activity() {
         } else if (requestCode == LocationPermissionBroker.LOCATION_PERMISSION_REQUEST) {
             val runtime = (application as FloatViewApplication).runtime
             runtime.locationPermissionBroker.recordResult(permissions)
-            runtime.events.publish(runtime.applicationService.locationState())
+            runtime.service.refreshCapabilities()
         }
     }
 

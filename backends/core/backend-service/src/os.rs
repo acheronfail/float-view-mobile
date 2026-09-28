@@ -54,6 +54,7 @@ pub enum LinkState {
 #[serde(tag = "fact", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Fact {
     Clock {},
+    StopRequested {},
     Bluetooth {
         radio: Radio,
         scan: Permission,
@@ -92,6 +93,10 @@ pub enum Fact {
     },
     Storage {
         available_bytes: u64,
+    },
+    PresentationStarted {
+        id: u64,
+        accepted: bool,
     },
     PresentationFinished {
         id: u64,

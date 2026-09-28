@@ -33,7 +33,7 @@ class LoggingForegroundService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_STOP) {
-            (application as FloatViewApplication).runtime.applicationService.disconnect()
+            (application as FloatViewApplication).runtime.service.requestStop()
             stopSelf()
             return START_NOT_STICKY
         }

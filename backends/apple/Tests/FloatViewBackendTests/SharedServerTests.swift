@@ -40,7 +40,12 @@ struct SharedServerTests {
     )
     let service = try SharedService(root: temporary, bluetooth: bluetooth, location: UnavailableLocation())
     relay.bind(service)
-    try service.start()
+    try service.start(presenter: { value in
+      // Native UI cancellation/completion may race; only the first wins.
+      value.finish()
+      value.finish()
+      return true
+    })
     defer { service.shutdown() }
     let server = try RustLoopbackHost(html: Data("<html>candidate</html>".utf8), service: service, platform: "macos")
     try server.start()

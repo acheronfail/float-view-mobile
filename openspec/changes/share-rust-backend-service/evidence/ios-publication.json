@@ -1,0 +1,32 @@
+{
+  "target": "ios-physical",
+  "fixturePath": "/dev/cu.usbmodem111401",
+  "refloatVersion": null,
+  "generatedAt": "2026-09-28T15:09:26.349Z",
+  "scenarios": [
+    {
+      "scenario": "guest",
+      "revision": 97,
+      "durationMs": 6317.4283749999995
+    },
+    {
+      "scenario": "ride",
+      "revision": 167,
+      "durationMs": 15515.120458999998
+    },
+    {
+      "scenario": "background",
+      "revision": 511,
+      "locationCheckpoint": {
+        "authorization": "authorized",
+        "backgroundCapture": "available",
+        "beforeCount": 0,
+        "afterCount": 2,
+        "persistedDelta": 2,
+        "beforeSequence": 0,
+        "afterSequence": 2
+      },
+      "durationMs": 34975.579333
+    }
+  ]
+}

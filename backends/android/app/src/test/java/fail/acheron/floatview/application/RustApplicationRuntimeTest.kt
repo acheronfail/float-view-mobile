@@ -1,42 +1,53 @@
 package fail.acheron.floatview.application
 
+import java.nio.file.Files
 import org.json.JSONObject
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertTrue
+import org.junit.Assert.*
 import org.junit.Test
 
 class RustApplicationRuntimeTest {
-    @Test
-    fun coarseRuntimePublishesOneOrderedResult() {
-        RustApplicationRuntime().use { runtime ->
-            val result = runtime.apply(JSONObject()
-                .put("command", "begin")
-                .put("now_ms", 10)
-                .put("idle_interval_ms", 1_000)
-                .put("post_ride_tail_ms", 5_000)
-                .put("preferred_controller_can_id", JSONObject.NULL)
-                .put("preferred_bms_can_id", JSONObject.NULL)
-                .put("routing_hint_can_id", JSONObject.NULL)
-                .put("routing_hint_controller_uuid", JSONObject.NULL)
-                .put("has_active_session", false)
-                .put("continuity_can_id", JSONObject.NULL)
-                .put("continuity_controller_uuid", JSONObject.NULL))
-
-            assertEquals(1, result.generation)
-            assertEquals("publish_state", result.effects.first().getString("effect"))
-            assertTrue(result.effects.any { it.getString("effect") == "write_bytes" })
-            assertTrue(result.effects.any { it.getString("effect") == "arm_deadline" })
-            assertEquals("publish_state", result.effects.last().getString("effect"))
+    private fun withService(action: (Long) -> Unit) {
+        RustApplicationRuntime.ensureLoaded()
+        val root = Files.createTempDirectory("float-view-linked-jni").toFile().canonicalFile
+        val handle = RustApplicationRuntime.serviceCreate(root.path.toByteArray())
+        assertTrue(handle > 0)
+        try { action(handle) } finally {
+            assertEquals(0, RustApplicationRuntime.serviceDestroy(handle))
+            root.deleteRecursively()
         }
     }
-
-    @Test
-    fun rejectsOpenEnvelope() {
-        RustApplicationRuntime().use { runtime ->
-            val error = runCatching {
-                runtime.apply(JSONObject().put("command", "reset").put("now_ms", 1).put("extra", true))
-            }.exceptionOrNull() as RustApplicationRuntimeException
-            assertEquals(RustApplicationRuntimeError.INVALID_COMMAND, error.reason)
-        }
+    @Test fun retryableCopyAndClosedEnvelope() = withService { handle ->
+        val command = "{\"command\":\"drain\"}".toByteArray()
+        val required = IntArray(1)
+        assertEquals(0, RustApplicationRuntime.serviceApply(handle, command, required))
+        assertTrue(required[0] > 0)
+        assertEquals(5, RustApplicationRuntime.serviceApply(handle, command, IntArray(1)))
+        val written = IntArray(1)
+        assertEquals(6, RustApplicationRuntime.serviceCopyResult(handle, ByteArray(0), written))
+        assertEquals(required[0], written[0])
+        val output = ByteArray(written[0])
+        assertEquals(0, RustApplicationRuntime.serviceCopyResult(handle, output, written))
+        val result = JSONObject(String(output))
+        assertTrue(result.getLong("lifetime") > 0)
+        assertEquals("host_state", result.getJSONArray("effects").getJSONObject(0).getString("effect"))
+        assertEquals(3, RustApplicationRuntime.serviceApply(handle, "{\"command\":\"drain\",\"extra\":1}".toByteArray(), required))
+        assertEquals(1, RustApplicationRuntime.serviceApply(handle, null, required))
+        assertEquals(1, RustApplicationRuntime.serviceApply(handle, command, IntArray(2)))
+        assertEquals(1, RustApplicationRuntime.serviceApply(handle, ByteArray(1048577), required))
+        assertEquals(2, RustApplicationRuntime.serviceApply(Long.MAX_VALUE, command, required))
+    }
+    @Test fun listenerBorrowsServiceAndDestructionInvalidatesHandle() = withService { handle ->
+        val server = RustApplicationRuntime.serviceServerCreate(handle, 2, "<html/>".toByteArray())
+        assertTrue(server > 0)
+        val input = "{\"version\":1,\"action\":{\"command\":\"stop\"}}".toByteArray()
+        val output = ByteArray(1048576)
+        val written = IntArray(1)
+        assertEquals(1, RustApplicationRuntime.serverCommand(server, input, ByteArray(1), written))
+        assertEquals(0, RustApplicationRuntime.serverCommand(server, input, output, written))
+        assertEquals(0, RustApplicationRuntime.serverDestroy(server))
+        assertEquals(0, RustApplicationRuntime.serverDestroy(server))
+        assertEquals(2, RustApplicationRuntime.serverCommand(server, input, output, written))
+        assertEquals(0, RustApplicationRuntime.serviceApply(handle, "{\"command\":\"drain\"}".toByteArray(), written))
+        assertEquals(0, RustApplicationRuntime.serviceCopyResult(handle, output, written))
     }
 }

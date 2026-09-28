@@ -15,9 +15,6 @@ apple-rust-runtime configuration="Debug":
       macosx "$(uname -m)" "{{ configuration }}" \
       "$PWD/backends/core/target/apple/macos"
 
-apple-rust-bridges configuration="Debug":
-    just apple-rust-runtime "{{ configuration }}"
-
 apple-packaging:
     just apple-rust-runtime Release
     cd backends/apple && swift build -c release \
@@ -236,7 +233,7 @@ audit:
       -g '*.swift' -g '*.kt' -g '*.kts' -g '*.toml' -g '*.pbxproj' -g 'Package.resolved'
     ! rg -n 'case "state.get"|"state.get" ->|GZIPOutputStream|SessionHistoryReducer' \
       backends/apple/Sources backends/android/app/src/main
-    backends/core/audit-migration-convergence.sh
+    backends/core/audit-ownership.sh
     git diff --check
 
 verify: build
@@ -248,5 +245,5 @@ verify: build
     xcodebuild -project backends/apple/ios/float-view.xcodeproj -scheme float-view \
       -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' \
       -derivedDataPath /tmp/float-view-ios CODE_SIGNING_ALLOWED=NO build
-    cd conformance && npm run macos && npm run ios && npm run android
+    cd conformance && npm run direct && npm run macos && npm run ios && npm run android
     just audit

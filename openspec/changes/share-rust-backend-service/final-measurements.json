@@ -1,0 +1,126 @@
+{
+  "measured_at": "2026-09-28T15:10:57.408188+00:00",
+  "baseline_commit": "fae1776ba5840f22e4d79173e913aa2f200a0d44",
+  "provenance": "Fresh software-gate outputs for the final implementation worktree; bundle byte counts exclude symlinks. Baseline outputs were not rebuilt, so package deltas are observational rather than a controlled size benchmark.",
+  "production_source_lines": {
+    "rust": 37979,
+    "apple": 2408,
+    "android": 2529,
+    "total": 42916
+  },
+  "workspace_members": 28,
+  "binding_families": 2,
+  "temporary_binding_crates": 0,
+  "external_locked_packages": 105,
+  "external_package_identity_unchanged": true,
+  "input_sha256": {
+    "backends/core/Cargo.lock": "7ab25f5d346e025435a7b19a5bc475fc1b11cf0f5834a7f0cd342e99aca4ce50",
+    "backends/sql/catalog.sql": "ee34c2c3f70e5b5bcc01fb2a5e7e1f8a9a528af9b0c2caafc3ad1af02aa89faf",
+    "backends/sql/session.sql": "909c67d2bd70fdd254ceb22d0a27f7909fe4ecbbb83b829592071a3a035d7692",
+    "frontend/src/lib/backend/contract.ts": "b55a3d099e650492f402eadab73644b3d40250b301df3534250a8c943973c714",
+    "backends/apple/Package.swift": "20808d98894bbd9e612331301ebfcd7959cdb1fa57d2866f1a104e8716c22daf",
+    "backends/android/app/build.gradle.kts": "460b20568ee86dcf61aabe502f8b39c6bd2ec5c435b5a8adbbd2e6d103419a5b",
+    "backends/android/gradle/libs.versions.toml": "27ce92b91b58a13ff04adbf7c671b1f1c9a1f6283ae9030b7a4e048ff5972641"
+  },
+  "artifacts": [
+    {
+      "path": "backends/android/app/build/outputs/apk/debug/app-debug.apk",
+      "bytes": 52427719,
+      "baseline_bytes": 56030089,
+      "delta_bytes": -3602370,
+      "sha256": "90e2f88e1e31d6981c8d2e89098406202baffa449513b9c6444807cc73ee5f95"
+    },
+    {
+      "path": "backends/android/app/build/outputs/apk/release/app-release-unsigned.apk",
+      "bytes": 28539593,
+      "baseline_bytes": 29571840,
+      "delta_bytes": -1032247,
+      "sha256": "c4cc022d2e638d4c765081cf1169e59bf7055a204a9423cd2f13aae88c430ccc"
+    },
+    {
+      "path": "backends/core/target/apple/macos/libfloat_view_application_runtime_apple_ffi.a",
+      "bytes": 158685248,
+      "baseline_bytes": 144625624,
+      "delta_bytes": 14059624,
+      "sha256": "c982fb97a58b97c0cf8aea37a0b6c29f9662e1ca63d7bb4a7c71849ca50d4749"
+    },
+    {
+      "path": "/tmp/float-view-swift-build/out/Products/Debug/FloatViewMac",
+      "bytes": 28894080,
+      "baseline_bytes": 32340096,
+      "delta_bytes": -3446016,
+      "sha256": "c72aa1648a046c78d057b11d5d9a7542740f0fba9349d70af3d5d4b7fc5764d5"
+    },
+    {
+      "path": "backends/core/target/android/applicationRuntimeJniLibs/debug/arm64-v8a/libfloat_view_application_runtime_android_jni.so",
+      "bytes": 86108472,
+      "baseline_bytes": 80922096,
+      "delta_bytes": 5186376,
+      "sha256": "45853d0457e167a4961ffc0af3a5b543c53b415deed2ac44c3882e6fdf68c01c"
+    },
+    {
+      "path": "backends/core/target/android/applicationRuntimeJniLibs/debug/armeabi-v7a/libfloat_view_application_runtime_android_jni.so",
+      "bytes": 75957092,
+      "baseline_bytes": 70715828,
+      "delta_bytes": 5241264,
+      "sha256": "b114dbd6985e4493fe2abe83934e6cc9ac72bdcccea7416045ee0ffb3a53b75f"
+    },
+    {
+      "path": "backends/core/target/android/applicationRuntimeJniLibs/debug/x86/libfloat_view_application_runtime_android_jni.so",
+      "bytes": 81545944,
+      "baseline_bytes": 76703088,
+      "delta_bytes": 4842856,
+      "sha256": "2bc1e431b3b66ab98f7f63dd54e7ae60be05385ff0c2c206764c0d7ad728d86b"
+    },
+    {
+      "path": "backends/core/target/android/applicationRuntimeJniLibs/debug/x86_64/libfloat_view_application_runtime_android_jni.so",
+      "bytes": 85770616,
+      "baseline_bytes": 80926888,
+      "delta_bytes": 4843728,
+      "sha256": "e8f45a07eb77ce65c67cdb5b02c6eda5030acbb8ee01d9201a396d280230e6a1"
+    },
+    {
+      "path": "backends/core/target/android/applicationRuntimeJniLibs/release/arm64-v8a/libfloat_view_application_runtime_android_jni.so",
+      "bytes": 7910112,
+      "baseline_bytes": 8028056,
+      "delta_bytes": -117944,
+      "sha256": "8eaf995da6c46bb01602280c57ddf395eaa0c202f3390144ead699ecac0d8b95"
+    },
+    {
+      "path": "backends/core/target/android/applicationRuntimeJniLibs/release/armeabi-v7a/libfloat_view_application_runtime_android_jni.so",
+      "bytes": 6067496,
+      "baseline_bytes": 6160292,
+      "delta_bytes": -92796,
+      "sha256": "e0c5e21f56ee8aebe86945f497b34e96b21d95a23c0f3ad984900dc28f4ff6f1"
+    },
+    {
+      "path": "backends/core/target/android/applicationRuntimeJniLibs/release/x86/libfloat_view_application_runtime_android_jni.so",
+      "bytes": 8105256,
+      "baseline_bytes": 8263928,
+      "delta_bytes": -158672,
+      "sha256": "60fd905b763c41b146271530c787c44c1a85ba80548100d5698d5e27e76d3d4c"
+    },
+    {
+      "path": "backends/core/target/android/applicationRuntimeJniLibs/release/x86_64/libfloat_view_application_runtime_android_jni.so",
+      "bytes": 7728616,
+      "baseline_bytes": 7918744,
+      "delta_bytes": -190128,
+      "sha256": "e3eec75eafa1cb1cdbdf13ab6b7f7018af93a50835e3c3bb1b74c6a64c3c7815"
+    },
+    {
+      "path": "/tmp/float-view-ios-release/Build/Products/Release-iphonesimulator/float-view.app",
+      "bytes": 16702168,
+      "files": 67,
+      "tree_sha256": "0a93a94a06183b26ba82916aac5d6c9a59845022c463c7acbb5c9a6c9afbf4e1",
+      "signing": "disabled packaging check"
+    },
+    {
+      "path": "/tmp/float-view-ios-device/Build/Products/Debug-iphoneos/float-view.app",
+      "bytes": 30437448,
+      "files": 69,
+      "tree_sha256": "abe20598d7c48dce3bb4fa82b49be8e90a71487431ff1aeb5d28742935d17ba9",
+      "signing": "disabled packaging check"
+    }
+  ],
+  "tree_hash_method": "SHA-256 of sorted relative-path, NUL, content SHA-256, newline records; symlinks excluded."
+}

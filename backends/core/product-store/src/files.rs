@@ -40,7 +40,7 @@ pub struct StagedFile {
     pub(crate) budget: FileBudgets,
     pub(crate) reserved: u64,
     pub(crate) owned: bool,
-    _root_lock: Arc<File>,
+    _root_lock: crate::root::RootLock,
 }
 impl StagedFile {
     pub fn path(&self) -> &Path {
@@ -169,10 +169,11 @@ impl ProductStore {
             let entry = entry?;
             let name = entry.file_name();
             let Some(name) = name.to_str() else { continue };
-            if name.starts_with("import-")
-                && [".floatview.tmp", ".floatview.tmp-wal", ".floatview.tmp-shm"]
-                    .iter()
-                    .any(|s| name.ends_with(s))
+            if root::owned_session_temporary(name)
+                || name.starts_with("import-")
+                    && [".floatview.tmp", ".floatview.tmp-wal", ".floatview.tmp-shm"]
+                        .iter()
+                        .any(|s| name.ends_with(s))
             {
                 root::require_kind(&entry.path(), false)?;
                 fs::remove_file(entry.path())?;

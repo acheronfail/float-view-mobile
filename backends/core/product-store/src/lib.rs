@@ -77,7 +77,7 @@ pub type Result<T> = std::result::Result<T, Error>;
 /// One ordered catalog owner. Long session operations use independent readers.
 pub struct ProductStore {
     root: PathBuf,
-    root_lock: std::sync::Arc<std::fs::File>,
+    root_lock: crate::root::RootLock,
     catalog: Connection,
     catalog_revision: u64,
     cursor_epoch: String,

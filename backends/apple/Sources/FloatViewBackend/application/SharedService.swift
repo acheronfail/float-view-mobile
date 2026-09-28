@@ -255,13 +255,18 @@ public final class SharedService: @unchecked Sendable {
     case "open_location_settings": location.openSettings(); completeUI(id)
     case "present_file":
       guard let path = value["path"] as? String, let name = value["file_name"] as? String else { return }
+      let once = PresentationCompletion()
       let finish: @Sendable () -> Void = { [weak self] in
-        guard let self else { return }
+        guard once.claim(), let self else { return }
         _ = self.callbackLock.withLock { self.completedPresentations.insert(id) }
       }
-      if presenter?(NativeFilePresentation(fileURL: URL(fileURLWithPath: path), fileName: name, finish: finish)) !=
-        true
-      {
+      let accepted = presenter?(NativeFilePresentation(
+        fileURL: URL(fileURLWithPath: path),
+        fileName: name,
+        finish: finish
+      )) == true
+      fact(["fact": "presentation_started", "id": id, "accepted": accepted])
+      if !accepted {
         finish()
       }
     case "host_state":
@@ -302,4 +307,16 @@ public final class SharedService: @unchecked Sendable {
   }
 
   deinit { shutdown() }
+}
+
+private final class PresentationCompletion: @unchecked Sendable {
+  private let lock = NSLock()
+  private var completed = false
+  func claim() -> Bool {
+    lock.withLock {
+      guard !completed else { return false }
+      completed = true
+      return true
+    }
+  }
 }

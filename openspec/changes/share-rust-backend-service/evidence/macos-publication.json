@@ -1,0 +1,18 @@
+{
+  "target": "macos-physical",
+  "fixturePath": "/dev/cu.usbmodem111401",
+  "refloatVersion": null,
+  "generatedAt": "2026-09-28T15:07:55.824Z",
+  "scenarios": [
+    {
+      "scenario": "guest",
+      "revision": 97,
+      "durationMs": 15801.124292
+    },
+    {
+      "scenario": "ride",
+      "revision": 160,
+      "durationMs": 70254.522583
+    }
+  ]
+}

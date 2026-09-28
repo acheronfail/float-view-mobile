@@ -45,28 +45,15 @@ fn status(response: &[u8], code: &str) {
 #[test]
 fn listener_lifecycle_preserves_assets_token_and_rejects_failed_bind() {
     let html = b"<!doctype html>\n<body>\xF0\x9F\x9A\xB2</body>";
-    let server = Server::new(Platform::Macos, html).unwrap();
+    let server = support::server(Platform::Macos, html).unwrap();
     let token = server.token().to_owned();
     let port = server.start(0).unwrap();
     assert_eq!(server.start(port), Err(ServerError::AlreadyRunning));
-    let second = Server::new(Platform::Macos, html).unwrap();
+    let second = support::server(Platform::Macos, html).unwrap();
     assert_eq!(second.start(port), Err(ServerError::Bind));
     let response = http(&server, "/", "", b"");
     status(&response, "200");
     assert!(response.ends_with(html));
-    status(&http(&server, "/api/bootstrap", "", b""), "503");
-    server
-        .backend
-        .publish(float_view_loopback_server::protocol::Publication {
-            generation: server
-                .backend
-                .generation
-                .load(std::sync::atomic::Ordering::Acquire),
-            sequence: 1,
-            catalog_changed: false,
-            facts: support::facts(),
-        })
-        .unwrap();
     let response = http(&server, "/api/bootstrap", "", b"");
     status(&response, "200");
     let offset = response.windows(4).position(|w| w == b"\r\n\r\n").unwrap() + 4;
@@ -85,12 +72,9 @@ fn listener_lifecycle_preserves_assets_token_and_rejects_failed_bind() {
 
 #[test]
 fn authentication_precedes_body_and_host_admission() {
-    let server = Server::new(Platform::Android, b"html").unwrap();
+    let server = support::server(Platform::Android, b"html").unwrap();
     server.start(0).unwrap();
-    let generation = server
-        .backend
-        .generation
-        .load(std::sync::atomic::Ordering::Acquire);
+    let revision = server.backend.service.lock().unwrap().service_revision();
     for route in [
         "/api/session-data",
         "/api/session-import",
@@ -124,13 +108,9 @@ fn authentication_precedes_body_and_host_admission() {
             );
         }
     }
-    assert!(
-        server
-            .backend
-            .exchange
-            .drain(generation, Duration::ZERO)
-            .unwrap()
-            .is_empty()
+    assert_eq!(
+        server.backend.service.lock().unwrap().service_revision(),
+        revision
     );
     let headers = format!(
         "Origin: http://127.0.0.1:{}\r\nX-Float-View-Token: {}\r\nContent-Length: {}\r\n",
@@ -139,13 +119,9 @@ fn authentication_precedes_body_and_host_admission() {
         MAX_SESSION_DATA_REQUEST_BYTES + 1
     );
     status(&http(&server, "/api/session-data", &headers, b"x"), "413");
-    assert!(
-        server
-            .backend
-            .exchange
-            .drain(generation, Duration::ZERO)
-            .unwrap()
-            .is_empty()
+    assert_eq!(
+        server.backend.service.lock().unwrap().service_revision(),
+        revision
     );
     server.stop().unwrap();
 }
@@ -162,7 +138,8 @@ fn host_envelopes_are_closed_versioned_and_bounded() {
         assert!(Envelope::decode(invalid.as_bytes()).is_err());
     }
     assert!(Envelope::decode(&vec![b' '; MAX_HOST_ENVELOPE_BYTES + 1]).is_err());
-    let handle = host::create(1, b"html").unwrap();
+    let owner = support::server(Platform::Ios, b"html").unwrap();
+    let handle = host::create_shared(1, b"html", owner.backend.service.clone()).unwrap();
     assert_eq!(host::command(handle,br#"{"version":1,"action":{"command":"start","parameters":{"platform":"macos","port":11010}}}"#),Err(host::Status::InvalidEnvelope));
     assert_eq!(host::destroy(handle), host::Status::Ok);
     assert_eq!(host::destroy(handle), host::Status::Ok);
@@ -255,116 +232,8 @@ fn transfers_bound_memory_and_reject_replays_foreign_generations_and_directions(
 }
 
 #[test]
-fn large_typed_results_are_framed_without_opening_the_domain_schema() {
-    use float_view_loopback_server::{
-        completion::{Completions, Fragment},
-        exchange::OperationId,
-    };
-    let mut completions = Completions::default();
-    let id = OperationId {
-        generation: 1,
-        sequence: 1,
-    };
-    assert!(
-        completions
-            .append(Fragment {
-                id,
-                offset: 1,
-                text: "x".into(),
-                last: false
-            })
-            .is_err()
-    );
-    let result = r#"{"status":"completed","value":{"kind":"imported","facts":"large result"}}"#;
-    let middle = 32;
-    assert!(
-        completions
-            .append(Fragment {
-                id,
-                offset: 0,
-                text: result[..middle].into(),
-                last: false
-            })
-            .unwrap()
-            .is_none()
-    );
-    assert!(
-        completions
-            .append(Fragment {
-                id,
-                offset: 0,
-                text: "replay".into(),
-                last: false
-            })
-            .is_err()
-    );
-    assert!(
-        completions
-            .append(Fragment {
-                id,
-                offset: middle,
-                text: result[middle..].into(),
-                last: true
-            })
-            .unwrap()
-            .is_some()
-    );
-    assert!(
-        completions
-            .append(Fragment {
-                id,
-                offset: 0,
-                text: r#"{"status":"completed","value":{"frontendResponse":{}}}"#.into(),
-                last: true
-            })
-            .is_err()
-    );
-    for sequence in 1..=2 {
-        assert!(
-            completions
-                .append(Fragment {
-                    id: OperationId {
-                        generation: 1,
-                        sequence
-                    },
-                    offset: 0,
-                    text: "{".into(),
-                    last: false
-                })
-                .unwrap()
-                .is_none()
-        );
-    }
-    assert!(
-        completions
-            .append(Fragment {
-                id: OperationId {
-                    generation: 1,
-                    sequence: 3
-                },
-                offset: 0,
-                text: "{".into(),
-                last: false
-            })
-            .is_err()
-    );
-    completions.clear();
-    assert!(
-        completions
-            .append(Fragment {
-                id,
-                offset: 0,
-                text: result.into(),
-                last: true
-            })
-            .unwrap()
-            .is_some()
-    );
-}
-
-#[test]
 fn connection_admission_rejects_seventeenth_and_recovers() {
-    let server = Server::new(Platform::Macos, b"html").unwrap();
+    let server = support::server(Platform::Macos, b"html").unwrap();
     server.start(0).unwrap();
     let mut sockets = Vec::new();
     for _ in 0..MAX_CONNECTIONS {
@@ -401,12 +270,9 @@ fn connection_admission_rejects_seventeenth_and_recovers() {
 #[test]
 fn malformed_history_cursor_is_rejected_before_catalog_lookup() {
     use base64::Engine;
-    let server = Server::new(Platform::Macos, b"html").unwrap();
+    let server = support::server(Platform::Macos, b"html").unwrap();
     server.start(0).unwrap();
-    let generation = server
-        .backend
-        .generation
-        .load(std::sync::atomic::Ordering::Acquire);
+    let revision = server.backend.service.lock().unwrap().service_revision();
     let cursor = base64::engine::general_purpose::STANDARD.encode(br#"{"sessionId":"foreign","startElapsedMs":0,"endElapsedMs":1000,"historyRevision":1,"locationSequence":1}"#);
     let body = serde_json::to_vec(&serde_json::json!({"kind":"locations","sessionId":"owned","snapshot":{"historyRevision":1,"committedSampleSequence":1,"committedEventSequence":1,"committedElapsedMs":1000,"committedLocationSequence":1,"committedLocationElapsedMs":1000},"range":{"startElapsedMs":0,"endElapsedMs":1000},"limit":10,"cursor":cursor})).unwrap();
     let headers = format!(
@@ -416,57 +282,9 @@ fn malformed_history_cursor_is_rejected_before_catalog_lookup() {
         body.len()
     );
     status(&http(&server, "/api/session-data", &headers, &body), "400");
-    assert!(
-        server
-            .backend
-            .exchange
-            .drain(generation, Duration::ZERO)
-            .unwrap()
-            .is_empty()
+    assert_eq!(
+        server.backend.service.lock().unwrap().service_revision(),
+        revision
     );
     server.stop().unwrap();
-}
-
-#[test]
-fn oversized_host_result_returns_one_correlated_error() {
-    use float_view_loopback_server::{
-        backend::Backend,
-        facts::Completion,
-        protocol::{CompletionRecord, Outcome},
-    };
-    use std::sync::Arc;
-    let backend = Arc::new(Backend::default());
-    let generation = backend.start().unwrap();
-    let host = backend.clone();
-    let worker = std::thread::spawn(move || {
-        let work = host
-            .exchange
-            .drain(generation, MAX_HOST_WAIT)
-            .unwrap()
-            .remove(0);
-        let tune = serde_json::from_value(serde_json::json!({
-            "configurationId":"tune","revision":1,"name":"test","description":null,
-            "identity":{"packageName":"refloat","packageVersion":"1","schemaFingerprint":"a".repeat(64),"wireSignature":1},
-            "valuesJson":serde_json::json!({"text":{"type":"string","value":"a".repeat(MAX_MESSAGE_BYTES)}}).to_string(),
-            "createdAt":"2026-01-01T00:00:00Z","updatedAt":"2026-01-01T00:00:00Z"
-        })).unwrap();
-        host.complete(CompletionRecord {
-            id: work.id,
-            outcome: Outcome::Completed(Box::new(Completion::Tune(tune))),
-        })
-        .unwrap();
-    });
-    let runtime = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .unwrap();
-    let reply = runtime.block_on(backend.request(
-        1,
-        serde_json::json!({"id":73,"method":"refloat.tune.get","params":{"tuneId":"tune"}}),
-    ));
-    assert_eq!(reply["id"], 73);
-    assert_eq!(reply["error"]["code"], "unavailable");
-    assert!(reply.get("result").is_none());
-    worker.join().unwrap();
-    backend.stop();
 }

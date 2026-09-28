@@ -13,9 +13,6 @@ import fail.acheron.floatview.location.LocationPermissionBroker
 import fail.acheron.floatview.protocol.vesc.SoftwareVescPeripheral
 import fail.acheron.floatview.location.AndroidLocationProvider
 import fail.acheron.floatview.location.LocationPermissionRequester
-import fail.acheron.floatview.storage.SQLiteLogStore
-import java.time.Instant
-import java.util.concurrent.atomic.AtomicInteger
 
 class BackendRuntime(application: FloatViewApplication) {
     private val applicationContext = application.applicationContext
@@ -25,11 +22,6 @@ class BackendRuntime(application: FloatViewApplication) {
     val locationPermissionBroker = LocationPermissionBroker(application)
     val exportPresentationBroker = ExportPresentationBroker(application)
     private val relay = BluetoothEventRelay()
-    val events = EventHub()
-    private val logStore = SQLiteLogStore(application).also { store ->
-        val recovered = store.recoverInterrupted()
-        if (debuggable) Log.d("FloatViewState", "recovery interruptedSessions=$recovered")
-    }
     val bluetooth: BluetoothPort =
         if (isEmulator()) {
             val peripheral = SoftwareVescPeripheral { path ->
@@ -49,77 +41,20 @@ class BackendRuntime(application: FloatViewApplication) {
         applicationContext,
         LocationPermissionRequester(locationPermissionBroker::request),
     )
-    val applicationService = ApplicationService(
-        bluetooth,
-        SystemClock,
-        logStore,
-        productStore = logStore,
-        sessionStore = logStore,
-        scheduler = SystemScheduler(),
-        locationProvider = locationProvider,
-        samplingSettings = logStore.settings().let { settings ->
-            SamplingSettings(
-                idlePersistIntervalMs = settings.idlePersistIntervalMs,
-                ridingPersistIntervalMs = settings.ridingPersistIntervalMs,
-                postRideTailMs = settings.postRideTailMs,
-                reconnectDurationMs = settings.reconnectDurationMs,
-                idleProbeIntervalMs = settings.idleProbeIntervalMs,
-            )
+    val service = SharedService(
+        java.io.File(application.filesDir, "float-view/logs"), bluetooth, locationProvider,
+        exportPresentationBroker::present,
+        recordingChanged = { active ->
+            if (active) LoggingForegroundService.start(applicationContext)
+            else LoggingForegroundService.stop(applicationContext)
         },
-    ) { event -> events.publish(event) }
-
-    private val eventSubscription = events.subscribe { event ->
-        // Stable diagnostic only; never log device identifiers or telemetry.
-        if (event is Throwable) {
-            Log.e("FloatViewBackend", "Native backend operation failed", event)
-        }
-        if (debuggable) {
-            when (event) {
-                is BluetoothState -> Log.d(
-                    "FloatViewState",
-                    "bluetooth radio=${event.radio.name.lowercase()} " +
-                        "scanPermission=${event.scanPermission.name.lowercase()} " +
-                        "connectPermission=${event.connectPermission.name.lowercase()}",
-                )
-                is ConnectionState -> Log.d(
-                    "FloatViewState",
-                    "connection state=${event.name.lowercase()}",
-                )
-                is SessionRecord -> Log.d(
-                    "FloatViewState",
-                    "session active=${event.active}",
-                )
-                is String -> Log.d("FloatViewBackend", event)
-            }
-        }
-        if (event is SessionRecord) {
-            if (event.active) {
-                LoggingForegroundService.start(applicationContext)
-            } else {
-                LoggingForegroundService.stop(applicationContext)
-            }
-        }
-        if (event is LocationProviderState) {
-            LoggingForegroundService.refreshForegroundType(applicationContext)
-        }
-    }
-
+        locationChanged = { LoggingForegroundService.refreshForegroundType(applicationContext) },
+    )
     init {
-        val remainingDebugNotifications = AtomicInteger(64)
-        relay.handler = { event ->
-            if (
-                debuggable &&
-                event is BluetoothEvent.Notification &&
-                remainingDebugNotifications.getAndDecrement() > 0
-            ) {
-                Log.d(
-                    "FloatViewProtocol",
-                    "notification_bytes=${event.bytes.size}",
-                )
-            }
-            applicationService.onBluetoothEvent(event)
-        }
+        relay.handler = service::receive
+        service.start()
     }
+
 }
 
 internal fun isEmulator(): Boolean =
@@ -135,9 +70,4 @@ private class BluetoothEventRelay {
     fun emit(event: BluetoothEvent) {
         handler?.invoke(event)
     }
-}
-
-private object SystemClock : ClockPort {
-    override fun monotonicMillis(): Long = android.os.SystemClock.elapsedRealtime()
-    override fun now(): Instant = Instant.now()
 }

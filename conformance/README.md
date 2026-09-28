@@ -126,3 +126,16 @@ in this directory.
 
 Retained observations live under `physical-checkpoints/`. The Thor301/VBMS32
 capture is recorded in `physical-checkpoints/2026-08-06-thor301-vbms32.md`.
+
+`npm run direct` runs the canonical suite against the production Rust service
+constructor with conformance-owned protocol simulation and synthetic OS facts.
+It contains no product CRUD, SQL, archive or reconnect policy and is included in
+`just verify` alongside native conformance.
+
+The macOS physical target runs the production save presenter in a disposable app
+bundle. Its ride checkpoint pauses for at most 120 seconds: inspect and dismiss
+the native Save panel, then press Enter to acknowledge that visual check. Android
+asserts and dismisses its scoped document picker; iOS uses its lifecycle UI test
+runner to inspect and dismiss the share sheet. Background-location acceptance
+requires a persisted observation during the background dwell; lack of a sample
+is incomplete physical coverage, not an automatic deferral.

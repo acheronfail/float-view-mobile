@@ -116,6 +116,7 @@ async function runPhysicalScenario(
   const runner = new FixtureRunner(scenario, fixture, undefined, 1_000, (message) => report(`  ${message}`));
   let client: ConformanceClient | undefined;
   let passed = false;
+  let fixtureStopped = false;
   let locationCheckpoint: LocationCheckpoint | undefined;
   try {
     await runner.start();
@@ -161,7 +162,11 @@ async function runPhysicalScenario(
         beforeConnect = await client.request('state.get', {});
       }
     }
-    await client.request('device.connect', { deviceId: device.deviceId, trackingMode: 'saved' }, 15_000);
+    await client.request(
+      'device.connect',
+      { deviceId: device.deviceId, trackingMode: name === 'guest' ? 'guest' : 'saved' },
+      15_000
+    );
     let afterConnectRevision = beforeConnect.revision;
     if (scenario.selectCanId !== undefined) {
       const selecting = await client.waitForState(
@@ -276,6 +281,33 @@ async function runPhysicalScenario(
           : scenario.expectedBmsConnection.canId
       );
     }
+    if (name === 'guest') {
+      assert.equal(ready.activeConnection?.activeSession, null);
+      assert.equal(ready.sessionCatalogRevision, initial.sessionCatalogRevision);
+      assert.deepEqual(ready.savedDevices, beforeConnect.savedDevices);
+      await runner.waitForRequests(
+        (requests) => requests.filter((request) => request.kind === 'telemetry').length >= 5,
+        15_000
+      );
+      const sample = await client.waitForState(
+        (state) => state.activeConnection?.latestSample?.rideState === 'riding',
+        {
+          afterRevision: ready.revision,
+          timeoutMs: 15_000,
+        }
+      );
+      assert.equal(sample.activeConnection?.activeSession, null);
+      assert.equal(sample.sessionCatalogRevision, initial.sessionCatalogRevision);
+      await client.request('device.disconnect', {}, 10_000);
+      const finalState = await client.waitForState((state) => state.activeConnection === null, {
+        afterRevision: sample.revision,
+        timeoutMs: 15_000,
+      });
+      assert.equal(finalState.sessionCatalogRevision, initial.sessionCatalogRevision);
+      runner.verify();
+      passed = true;
+      return { scenario: name, revision: finalState.revision, locationCheckpoint };
+    }
     const activeSession = ready.activeConnection?.activeSession;
     assert.ok(activeSession, 'Ready connection did not create an active provisional session');
 
@@ -336,6 +368,13 @@ async function runPhysicalScenario(
       }
     }
 
+    if ((name === 'ride' || name === 'background') && target.verifyFilePresentation) {
+      runner.verify();
+      await runner.stop(true);
+      fixtureStopped = true;
+      await target.verifyFilePresentation();
+      report('  Native file presentation appeared and cancellation completed');
+    }
     runner.verify();
     const finalState = await client.request('state.get', {});
     passed = true;
@@ -349,7 +388,7 @@ async function runPhysicalScenario(
   } finally {
     client?.close();
     await target.stop().catch(() => undefined);
-    await runner.stop(passed);
+    if (!fixtureStopped) await runner.stop(passed);
   }
 }
 
@@ -603,13 +642,8 @@ async function runBackground(
     afterMetadata.snapshot.committedLocationSequence >= beforeMetadata.snapshot.committedLocationSequence,
     'Location boundary regressed after foreground recovery'
   );
-  if (target.platform === 'android' && location.backgroundCapture === 'available') {
-    if (persistedDelta === 0) {
-      report(
-        '  Location: no sample arrived during the automated background dwell; ' +
-          'persistence coverage is deferred to manual end-to-end verification'
-      );
-    }
+  if (!deferPhysicalLocation) {
+    assert.ok(persistedDelta > 0, 'No physical location observation persisted during background dwell');
   }
   await completeSession(replacement, deviceId, sessionId, true);
   return { client: replacement, locationCheckpoint };

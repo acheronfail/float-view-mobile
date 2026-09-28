@@ -557,3 +557,49 @@ fn cache_checks_size_digest_identity_and_bounded_eviction() {
     disabled.hardware_configuration_crc = 0;
     assert_eq!(store.cached_schema(&disabled).unwrap(), None);
 }
+
+#[test]
+fn exclusive_root_owner_excludes_another_process_and_releases_on_exit() {
+    const KEY: &str = "FLOAT_VIEW_TEST_LOCK_ROOT";
+    if let Some(path) = std::env::var_os(KEY) {
+        assert!(matches!(
+            ProductStore::open(std::path::Path::new(&path)),
+            Err(Error::Busy)
+        ));
+        return;
+    }
+    let root = Root::new();
+    let owner = root.open();
+    let status = std::process::Command::new(std::env::current_exe().unwrap())
+        .args([
+            "--exact",
+            "exclusive_root_owner_excludes_another_process_and_releases_on_exit",
+        ])
+        .env(KEY, &root.0)
+        .status()
+        .unwrap();
+    assert!(status.success());
+    drop(owner);
+    assert!(ProductStore::open(&root.0).is_ok());
+}
+
+#[test]
+fn crash_during_session_creation_removes_only_issued_temporary_names() {
+    let root = Root::new();
+    drop(root.open());
+    let base = ".session-00112233-4455-6677-8899-aabbccddeeff.sqlite.float-view-12.3.tmp";
+    for suffix in ["", "-wal", "-shm", "-journal"] {
+        fs::write(
+            root.0.join(format!("{base}{suffix}")),
+            "interrupted creation",
+        )
+        .unwrap();
+    }
+    let unrelated = root.0.join(".session-personal.sqlite.float-view-12.3.tmp");
+    fs::write(&unrelated, "keep").unwrap();
+    drop(root.open());
+    for suffix in ["", "-wal", "-shm", "-journal"] {
+        assert!(!root.0.join(format!("{base}{suffix}")).exists());
+    }
+    assert_eq!(fs::read_to_string(unrelated).unwrap(), "keep");
+}

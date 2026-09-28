@@ -18,7 +18,7 @@
 
 - [x] 3.1 Implement shared archive staging, manifest validation and import attachment through bounded file streams. Test exact/+1 import bounds, malformed schema/metadata, local session IDs versus portable board identity, WAL/manifest normalization and failure cleanup.
 - [x] 3.2 Implement shared archive and CSV exports using existing session readers. Compare semantic archive fixtures and exact CSV columns/escaping/GPS matching with canonical expectations; verify long exports do not block recording.
-- [ ] 3.3 Implement service-issued import/export leases and bounded native external-file transfer/presentation. Test stale/foreign handles, cancellation, frontend disconnect during presentation, abandonment expiry and next-launch cleanup.
+- [x] 3.3 Implement service-issued import/export leases and bounded native external-file transfer/presentation. Test stale/foreign handles, cancellation, frontend disconnect during presentation, abandonment expiry and next-launch cleanup.
 
 ## 4. Shared application policy and OS boundary
 
@@ -29,7 +29,7 @@
 - [x] 4.5 Move configuration/control request completion and Tune validation/apply coordination. Test stale schema/revisions, concurrent requests, disconnect/cancellation and exactly-once board mutations through existing kernels.
 - [x] 4.6 Implement the closed OS fact/effect/completion exchange and bounded admission. Test malformed envelopes, generations, duplicates, cleanup under saturation, late UI outcomes, worker contention and bounded shutdown.
 - [x] 4.7 Connect shared server dispatch and publication directly to the service. Verify no native domain-operation round trip, monotonic revisions independent of client count and historical/transport limits with recording under load.
-- [ ] 4.8 Adapt the existing C/JNI families to the service lifetime and OS exchange. Test caller-buffer bounds, invalid handles, panic containment, destruction and exact symbols; remove superseded entry points when unused.
+- [x] 4.8 Adapt the existing C/JNI families to the service lifetime and OS exchange. Test caller-buffer bounds, invalid handles, panic containment, destruction and exact symbols; remove superseded entry points when unused.
 
 ## 5. Direct-host proof before native selection
 
@@ -45,17 +45,17 @@
 
 ## 7. Android selection and deletion
 
-- [ ] 7.1 Wire Android startup/storage roots, BLE, timers, permission/location brokers, foreground service and scoped file presentation to the service. Test effect ordering and supported minimum-API behavior through linked and device checks.
-- [ ] 7.2 Delete Kotlin portable stores, policy/waiters, domain dispatch and snapshot reconstruction, retaining only OS adapters/composition. Verify deletion inventory, dependencies, exact JNI symbols and absence of native catalog/archive policy.
-- [ ] 7.3 Run linked JVM tests, clean host/four-ABI Debug/Release packaging and canonical Android conformance. Verify Activity recreation, reconnect and background execution retain shared state and commit the buildable Android slice with task updates.
+- [x] 7.1 Wire Android startup/storage roots, BLE, timers, permission/location brokers, foreground service and scoped file presentation to the service. Test effect ordering and supported minimum-API behavior through linked and device checks.
+- [x] 7.2 Delete Kotlin portable stores, policy/waiters, domain dispatch and snapshot reconstruction, retaining only OS adapters/composition. Verify deletion inventory, dependencies, exact JNI symbols and absence of native catalog/archive policy.
+- [x] 7.3 Run linked JVM tests, clean host/four-ABI Debug/Release packaging and canonical Android conformance. Verify Activity recreation, reconnect and background execution retain shared state and commit the buildable Android slice with task updates.
 
 ## 8. Ownership and physical acceptance
 
-- [ ] 8.1 Update AGENTS.md, ownership/SQL docs, OpenSpec context and build/source audits. Verify only OS capability implementations remain native, both hosts select one service and obsolete compatibility paths/dependencies are removed.
-- [ ] 8.2 Record final source, workspace, bindings, dependencies and package sizes. Verify net production source below 49,922, at most 28 workspace members, exactly two binding families, zero temporary bridges and unchanged public contract/SQL/archive formats.
-- [ ] 8.3 Run Android, iOS and macOS ESP32 physical checkpoints, including saved/guest telemetry, recording, reconnect, permitted background location, frontend/lifecycle recovery and native file presentation. Record exact results and keep any unavailable coverage incomplete unless explicitly deferred by the user.
+- [x] 8.1 Update AGENTS.md, ownership/SQL docs, OpenSpec context and build/source audits. Verify only OS capability implementations remain native, both hosts select one service and obsolete compatibility paths/dependencies are removed.
+- [x] 8.2 Record final source, workspace, bindings, dependencies and package sizes. Verify net production source below 49,922, at most 28 workspace members, exactly two binding families, zero temporary bridges and unchanged public contract/SQL/archive formats.
+- [x] 8.3 Run Android, iOS and macOS ESP32 physical checkpoints, including saved/guest telemetry, recording, reconnect, permitted background location, frontend/lifecycle recovery and native file presentation. Record exact results and keep any unavailable coverage incomplete unless explicitly deferred by the user.
 
 ## 9. Final verification and completion
 
-- [ ] 9.1 Run focused boundary, crash/recovery, archive, contention, shutdown and host integration checks after all deletions, then formatting, strict OpenSpec validation and `git diff --check`. Verify every requirement has passing evidence.
+- [x] 9.1 Run focused boundary, crash/recovery, archive, contention, shutdown and host integration checks after all deletions, then formatting, strict OpenSpec validation and `git diff --check`. Verify every requirement has passing evidence.
 - [ ] 9.2 Run `just verify` with both hosts selecting the complete shared service and direct-host proof included in the software gate. Commit verified implementation and matching task updates; after every required gate passes, sync delta specs and archive together in the final commit.

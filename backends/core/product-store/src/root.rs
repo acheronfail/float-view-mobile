@@ -6,7 +6,9 @@ use std::{
     path::{Component, Path, PathBuf},
 };
 
-pub(crate) fn prepare(root: &Path) -> Result<(PathBuf, std::sync::Arc<fs::File>)> {
+pub(crate) type RootLock = std::sync::Arc<std::sync::Mutex<Connection>>;
+
+pub(crate) fn prepare(root: &Path) -> Result<(PathBuf, RootLock)> {
     if !root.is_absolute() || root.components().any(|c| matches!(c, Component::ParentDir)) {
         return Err(Error::UnsafePath);
     }
@@ -24,17 +26,20 @@ pub(crate) fn prepare(root: &Path) -> Result<(PathBuf, std::sync::Arc<fs::File>)
     if lock_path.symlink_metadata().is_ok() {
         require_kind(&lock_path, false)?;
     }
-    let lock = fs::OpenOptions::new()
-        .read(true)
-        .write(true)
-        .create(true)
-        .truncate(false)
-        .open(&lock_path)?;
+    // SQLite's platform VFS supplies process-safe locking on every target,
+    // including Android where std::fs::File::try_lock is unsupported. Keep
+    // the exclusive transaction alive through every reader and staged lease.
+    // No product data is written into this dedicated lock database.
+    for suffix in ["-journal", "-wal", "-shm"] {
+        let path = root.join(format!(".service.lock{suffix}"));
+        if path.symlink_metadata().is_ok() {
+            require_kind(&path, false)?;
+        }
+    }
+    let lock = Connection::open(&lock_path)?;
     require_kind(&lock_path, false)?;
-    lock.try_lock().map_err(|e| match e {
-        std::fs::TryLockError::WouldBlock => Error::Busy,
-        std::fs::TryLockError::Error(_) => Error::Io,
-    })?;
+    lock.busy_timeout(std::time::Duration::ZERO)?;
+    lock.execute_batch("PRAGMA trusted_schema=OFF; BEGIN EXCLUSIVE")?;
     for name in [
         "catalog.sqlite",
         "catalog.sqlite-wal",
@@ -83,7 +88,7 @@ pub(crate) fn prepare(root: &Path) -> Result<(PathBuf, std::sync::Arc<fs::File>)
         fs::rename(temporary, marker)?;
         fs::File::open(&root)?.sync_all()?;
     }
-    Ok((root, std::sync::Arc::new(lock)))
+    Ok((root, std::sync::Arc::new(std::sync::Mutex::new(lock))))
 }
 pub(crate) fn require_kind(path: &Path, directory: bool) -> Result<()> {
     let meta = path.symlink_metadata()?;
@@ -126,13 +131,18 @@ fn visit_owned(root: &Path, delete: bool) -> Result<()> {
             if delete {
                 fs::remove_dir(path)?;
             }
-        } else if matches!(
-            name,
-            "catalog.sqlite" | "catalog.sqlite-wal" | "catalog.sqlite-shm" | ".schema-version.tmp"
-        ) || (name.starts_with("session-")
-            && [".sqlite", ".sqlite-wal", ".sqlite-shm"]
-                .iter()
-                .any(|s| name.ends_with(s)))
+        } else if owned_session_temporary(name)
+            || matches!(
+                name,
+                "catalog.sqlite"
+                    | "catalog.sqlite-wal"
+                    | "catalog.sqlite-shm"
+                    | ".schema-version.tmp"
+            )
+            || (name.starts_with("session-")
+                && [".sqlite", ".sqlite-wal", ".sqlite-shm"]
+                    .iter()
+                    .any(|s| name.ends_with(s)))
             || (name.starts_with("import-")
                 && [".floatview.tmp", ".floatview.tmp-wal", ".floatview.tmp-shm"]
                     .iter()
@@ -167,4 +177,41 @@ pub(crate) fn validate_catalog(catalog: &Connection, fresh: bool) -> Result<()> 
         return Err(Error::Corrupt);
     }
     Ok(())
+}
+
+// SessionWriter's unpublished SQLite files and their sidecars are disposable
+// after the exclusive root owner has been acquired. Match only issued names.
+pub(crate) fn owned_session_temporary(name: &str) -> bool {
+    let base = name
+        .strip_suffix("-wal")
+        .or_else(|| name.strip_suffix("-shm"))
+        .or_else(|| name.strip_suffix("-journal"))
+        .unwrap_or(name);
+    let Some(base) = base
+        .strip_prefix(".session-")
+        .and_then(|s| s.strip_suffix(".tmp"))
+    else {
+        return false;
+    };
+    let Some((id, sequence)) = base.split_once(".sqlite.float-view-") else {
+        return false;
+    };
+    if id.len() != 36
+        || !id.bytes().enumerate().all(|(i, b)| {
+            if [8, 13, 18, 23].contains(&i) {
+                b == b'-'
+            } else {
+                b.is_ascii_hexdigit()
+            }
+        })
+    {
+        return false;
+    }
+    let Some((pid, sequence)) = sequence.split_once('.') else {
+        return false;
+    };
+    !pid.is_empty()
+        && !sequence.is_empty()
+        && pid.bytes().all(|b| b.is_ascii_digit())
+        && sequence.bytes().all(|b| b.is_ascii_digit())
 }

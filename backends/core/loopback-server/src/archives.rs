@@ -23,16 +23,7 @@ struct Lease {
 }
 impl Drop for Lease {
     fn drop(&mut self) {
-        if self.backend.service.is_some() {
-            self.backend.cleanup_service_transfer(self.id);
-            return;
-        }
-        if let Ok(mut cleanup) = self.backend.cleanup.lock()
-            && !cleanup.contains(&self.id)
-        {
-            cleanup.push(self.id);
-        }
-        self.backend.changed.notify_waiters();
+        self.backend.cleanup_service_transfer(self.id);
     }
 }
 fn lease(client: &Client, direction: Direction, maximum: u64) -> Result<Lease, StatusCode> {

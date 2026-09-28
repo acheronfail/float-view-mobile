@@ -121,16 +121,8 @@ pub enum Operation {
         id: String,
     },
     GetMaintenance,
-    SaveMaintenance {
-        job: Maintenance,
-    },
     CancelMaintenance {
         id: String,
-    },
-    PruneSession {
-        id: String,
-        resolution: u64,
-        preview: bool,
     },
     WriteTransfer {
         transfer_id: u64,
@@ -150,18 +142,4 @@ pub enum Operation {
     CleanupTransfer {
         transfer_id: u64,
     },
-}
-impl Operation {
-    pub fn is_read(&self) -> bool {
-        matches!(
-            self,
-            Self::ConfigurationSchema
-                | Self::ListTunes { .. }
-                | Self::GetTune { .. }
-                | Self::GetProfile { .. }
-                | Self::ListSessions { .. }
-                | Self::GetSession { .. }
-                | Self::GetMaintenance
-        )
-    }
 }

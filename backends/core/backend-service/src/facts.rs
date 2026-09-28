@@ -67,10 +67,7 @@ record!(Maintenance {
     target_resolution_seconds: u64, upper_session_id: Option<String>, last_session_id: Option<String>,
     completed_sessions: u64, skipped_sessions: u64, retained_samples: u64, reclaimable_bytes: u64, error: Option<String>,
 });
-record!(PrunePreview {
-    recorded_sample_count: u64, estimated_stored_sample_count: u64,
-    estimated_reclaimable_bytes: Option<u64>, skipped: bool, skip_reason: Option<String>,
-});
+
 record!(Controls {
     status: String, writable: bool, package_enabled: Option<bool>, flywheel_enabled: Option<bool>,
     lighting_available: bool, leds_enabled: Option<bool>, headlights_enabled: Option<bool>,
@@ -212,7 +209,6 @@ pub enum Completion {
     Sessions(SessionPage),
     Session(SessionSource),
     Maintenance(Option<Maintenance>),
-    PrunePreview(PrunePreview),
     CancelDelete(bool),
     Export {
         file_name: String,

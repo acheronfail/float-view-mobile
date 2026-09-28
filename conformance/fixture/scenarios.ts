@@ -24,6 +24,7 @@ import {
 
 export type PhysicalScenarioName =
   | 'identity'
+  | 'guest'
   | 'direct'
   | 'direct-legacy'
   | 'control-direct'
@@ -161,6 +162,14 @@ export const fixtureScenarios: Record<PhysicalScenarioName, FixtureScenario> = {
     board: expressThor,
     fragmentBytes: 20,
     minimumTelemetryResponses: 0,
+    preferredCanId: null,
+    requiresMobileLifecycle: false,
+  },
+  guest: {
+    name: 'guest',
+    board: directThor,
+    fragmentBytes: 20,
+    minimumTelemetryResponses: 5,
     preferredCanId: null,
     requiresMobileLifecycle: false,
   },
@@ -313,6 +322,7 @@ export const fixtureScenarios: Record<PhysicalScenarioName, FixtureScenario> = {
 export const physicalScenarioMatrix = {
   macos: [
     'identity',
+    'guest',
     'direct',
     'direct-legacy',
     'control-direct',
@@ -331,6 +341,7 @@ export const physicalScenarioMatrix = {
   ],
   android: [
     'identity',
+    'guest',
     'direct',
     'direct-legacy',
     'control-direct',
@@ -350,6 +361,7 @@ export const physicalScenarioMatrix = {
   ],
   ios: [
     'identity',
+    'guest',
     'direct',
     'direct-legacy',
     'control-direct',

@@ -56,11 +56,6 @@ impl Client {
 impl Drop for Client {
     fn drop(&mut self) {
         self.backend.disconnect_service_client(self.id);
-        let _ = self
-            .backend
-            .exchange
-            .detach_client(self.generation, self.id);
-        self.backend.changed.notify_waiters();
     }
 }
 pub(crate) struct App {
@@ -91,9 +86,6 @@ pub enum ServerError {
     Poisoned,
 }
 impl Server {
-    pub fn new(platform: Platform, html: &[u8]) -> Result<Self, ServerError> {
-        Self::with_backend(platform, html, Arc::new(Backend::default()))
-    }
     pub fn with_backend(
         platform: Platform,
         html: &[u8],
@@ -179,12 +171,10 @@ impl Server {
             }) {
             Ok(thread) => thread,
             Err(_) => {
-                self.backend.stop();
                 return Err(ServerError::Executor);
             }
         };
         if started.recv_timeout(SHUTDOWN_TIMEOUT) != Ok(true) {
-            self.backend.stop();
             let _ = stop.send(());
             if done.recv_timeout(SHUTDOWN_TIMEOUT).is_ok() {
                 let _ = thread.join();
@@ -200,7 +190,6 @@ impl Server {
     }
     pub fn stop(&self) -> Result<Vec<u64>, ServerError> {
         let mut running = self.running.lock().map_err(|_| ServerError::Poisoned)?;
-        self.backend.stop();
         if let Some(worker) = running.as_mut() {
             if let Some(stop) = worker.stop.take() {
                 let _ = stop.send(());
@@ -213,21 +202,15 @@ impl Server {
                 worker.thread.join().map_err(|_| ServerError::Executor)?;
             }
         }
-        let mut ids = self
+        let ids = self
             .backend
             .transfers
             .lock()
             .map_err(|_| ServerError::Poisoned)?
             .clear();
-        ids.extend(
-            self.backend
-                .cleanup
-                .lock()
-                .map_err(|_| ServerError::Poisoned)?
-                .drain(..),
-        );
-        ids.sort_unstable();
-        ids.dedup();
+        for id in &ids {
+            self.backend.cleanup_service_transfer(*id);
+        }
         Ok(ids)
     }
     pub fn platform(&self) -> &Platform {

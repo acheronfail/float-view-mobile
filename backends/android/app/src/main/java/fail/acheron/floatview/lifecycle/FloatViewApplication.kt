@@ -19,9 +19,7 @@ class FloatViewApplication : Application() {
         backend = try {
             LoopbackServer(
                 assets,
-                runtime.applicationService,
-                runtime.exportPresentationBroker::present,
-                runtime.events,
+                runtime.service,
                 requestedPort = ANDROID_BACKEND_PORT,
                 performanceDiagnostics = applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0,
             ).also { it.start() }
@@ -32,6 +30,7 @@ class FloatViewApplication : Application() {
 
     override fun onTerminate() {
         backend.close()
+        runtime.service.close()
         super.onTerminate()
     }
 }
