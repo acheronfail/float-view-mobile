@@ -58,4 +58,4 @@
 ## 9. Final verification and completion
 
 - [x] 9.1 Run focused boundary, crash/recovery, archive, contention, shutdown and host integration checks after all deletions, then formatting, strict OpenSpec validation and `git diff --check`. Verify every requirement has passing evidence.
-- [ ] 9.2 Run `just verify` with both hosts selecting the complete shared service and direct-host proof included in the software gate. Commit verified implementation and matching task updates; after every required gate passes, sync delta specs and archive together in the final commit.
+- [x] 9.2 Run `just verify` with both hosts selecting the complete shared service and direct-host proof included in the software gate. Commit verified implementation and matching task updates; after every required gate passes, sync delta specs and archive together in the final commit.

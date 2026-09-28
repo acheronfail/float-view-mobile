@@ -17,7 +17,7 @@ The repository SHALL place the frontend under `/frontend`, the shared Apple impl
 
 ### Requirement: One shared Apple backend
 
-iOS and macOS under `/backends/apple` SHALL use the same Apple adapters for Bluetooth, storage, lifecycle, and OS integration. Apple and Android SHALL select the same Rust application runtime and shared Rust loopback server. The shared server SHALL own transport, authentication, contract dispatch, and frontend serialization while platform adapters retain OS execution and catalog storage.
+iOS and macOS under `/backends/apple` SHALL use the same Apple adapters for Bluetooth, storage, lifecycle, and OS integration. Apple and Android SHALL select the same complete Rust backend service composing one application runtime, product/session storage and shared loopback server. The shared server SHALL own transport, authentication, contract dispatch, and frontend serialization while platform adapters retain only OS execution and integration.
 
 #### Scenario: Apple behavior change
 
@@ -54,7 +54,7 @@ Android under `/backends/android` SHALL use one Gradle application module. Backe
 
 ### Requirement: Native backend ownership
 
-Each native process SHALL own Bluetooth state, application state, background work, durable logging, and the loopback server independently of the WebView. The WebView SHALL own no durable or Bluetooth state.
+Each native process SHALL own Bluetooth state, application state, background work, durable logging, and the loopback server independently of the WebView. The WebView SHALL own no durable or Bluetooth state. The process SHALL delegate portable application policy, product persistence, archive formats and state publication to the shared Rust service; native host code SHALL execute OS capabilities only.
 
 #### Scenario: Frontend termination
 
@@ -180,7 +180,7 @@ Each native platform SHALL provide only the launch, readiness, forwarding, proce
 
 The Apple and Android backends SHALL use the same capability-oriented source vocabulary for `application`, `bluetooth`, `files`, `lifecycle`, `location`, `protocol`, `storage`, `theme`, `transport`, and `ui` ownership beneath their native build-system source roots. Protocol code SHALL retain matching `protocol/vesc` and `protocol/refloat` subtrees while a platform owns those implementations. Apple MAY divide those capabilities among its shared backend, iOS host, and macOS host targets, while Android SHALL retain one Gradle application module; a target that owns a capability MUST use the canonical capability name rather than an ambiguous root source or platform-specific synonym.
 
-Swift and Kotlin SHALL remain the production owners until a bounded Rust migration change explicitly cuts over a named host. A focused candidate implementation MAY coexist under `backends/core` without transferring production ownership. A host-cutover change MAY introduce one narrow audited bridge only when it names the selected Rust component, platform packaging, complete verification, and superseded-code deletion checkpoint; generated general-purpose API layers and modules per capability remain prohibited. Dependencies SHALL point downward from host/UI composition and lifecycle, through transport and application coordination, to Bluetooth, location, storage, and protocol owners. Bluetooth and protocol components MUST continue to emit typed events without depending on WebViews or loopback transport. Native Bluetooth, location, file presentation, background execution, theme synchronization, permission handling, and UI integration SHALL remain owned by the platform implementation.
+Apple and Android SHALL select the complete shared Rust service for portable application, storage, protocol and transport behavior; Swift and Kotlin SHALL retain only OS capability execution and host composition. A focused candidate implementation MAY coexist under `backends/core` without transferring production ownership. A host-cutover change MAY introduce one narrow audited bridge only when it names the selected Rust component, platform packaging, complete verification, and superseded-code deletion checkpoint; generated general-purpose API layers and modules per capability remain prohibited. Dependencies SHALL point downward from host/UI composition and lifecycle, through transport and application coordination, to Bluetooth, location, storage, and protocol owners. Bluetooth and protocol components MUST continue to emit typed events without depending on WebViews or loopback transport. Native Bluetooth, location, file presentation, background execution, theme synchronization, permission handling, and UI integration SHALL remain owned by the platform implementation.
 
 #### Scenario: Locate a native capability
 
@@ -190,7 +190,7 @@ Swift and Kotlin SHALL remain the production owners until a bounded Rust migrati
 #### Scenario: Locate controller discovery
 
 - **WHEN** a developer needs to change direct-or-CAN route selection
-- **THEN** each native backend has one clearly named controller-discovery owner under `application` rather than route decisions spread through transport, polling, and view code
+- **THEN** each native backend points to the same shared controller-discovery owner, without native route decisions in transport, polling or view code
 
 #### Scenario: Locate a protocol family
 
@@ -200,7 +200,7 @@ Swift and Kotlin SHALL remain the production owners until a bounded Rust migrati
 #### Scenario: Locate platform file handling
 
 - **WHEN** a developer needs to change session archive selection, bounded native import reading, save-panel presentation, or share-sheet presentation
-- **THEN** the platform integration is found under `files` and storage archive validation remains under `storage`
+- **THEN** the platform integration is found under `files` and archive validation is owned by shared Rust storage
 
 #### Scenario: Locate background logging ownership
 
@@ -225,7 +225,7 @@ Swift and Kotlin SHALL remain the production owners until a bounded Rust migrati
 #### Scenario: Candidate extraction
 
 - **WHEN** a bounded Rust component has parity evidence but no host bridge
-- **THEN** Swift and Kotlin remain the production owners and the Rust component is documented as a candidate only
+- **THEN** the candidate remains unselected and cannot replace the already selected shared service or introduce native portable fallbacks
 
 #### Scenario: Platform-specific cutover
 
@@ -291,7 +291,7 @@ Detailed realtime polling, the one-second compact due time, normalization, and d
 
 ### Requirement: Native standalone session catalog and grouping removal
 
-Apple and Android SHALL expose the same bounded `session.list` control operation over their existing native session stores. The query SHALL use the catalog's `(started_at_ms, session_id)` keyset order, return at most the requested page size, encode the query shape/catalog revision/last-key context in its opaque cursor, and avoid offset scans. Complete state snapshot construction SHALL not query or serialize session summaries during telemetry-driven publication; it SHALL expose only the bounded session-catalog revision marker. The canonical schema, settings store, application service, loopback handlers, and mock SHALL contain no session-group tables, group-member tables, automatic-linking fields, group mutation ports, or linked-ride payloads. Since storage remains disposable test-stage data, incompatible group-bearing schemas SHALL be recreated without migration.
+Apple and Android SHALL expose the same bounded `session.list` control operation over the same shared Rust session catalog. The query SHALL use the catalog's `(started_at_ms, session_id)` keyset order, return at most the requested page size, encode the query shape/catalog revision/last-key context in its opaque cursor, and avoid offset scans. Complete state snapshot construction SHALL not query or serialize session summaries during telemetry-driven publication; it SHALL expose only the bounded session-catalog revision marker. The canonical schema, settings store, application service, loopback handlers, and mock SHALL contain no session-group tables, group-member tables, automatic-linking fields, group mutation ports, or linked-ride payloads. Since storage remains disposable test-stage data, incompatible group-bearing schemas SHALL be recreated without migration.
 
 #### Scenario: Indexed session page
 
@@ -420,12 +420,12 @@ Each host SHALL implement the same cancellable one-ride and all-completed-rides 
 
 ### Requirement: Mirrored native location ownership
 
-Apple and Android SHALL implement equivalent application-service location ownership, permission mapping, session-clock assignment, durable append, bounded reads, export, and lifecycle behavior. Location adapters SHALL not depend on WebSocket, Svelte, or browser geolocation code.
+Apple and Android SHALL execute OS location acquisition, permission prompts and lifecycle capabilities. The shared service SHALL own capture eligibility, normalized permission-state interpretation, session-clock assignment, durable append, bounded reads, export and product lifecycle policy. Location adapters SHALL not depend on WebSocket, Svelte, or browser geolocation code.
 
 #### Scenario: Native ownership
 
 - **WHEN** the frontend WebView is destroyed or replaced
-- **THEN** the native application service remains the sole owner of location capture and the active session's recorder state
+- **THEN** the process-owned shared service retains capture policy and recorder state while native adapters continue permitted OS acquisition
 
 #### Scenario: Cross-platform result
 
@@ -519,7 +519,7 @@ Apple and Android SHALL expose equivalent board-scoped session pages and bounded
 
 ### Requirement: Native board identity, archive, and forget parity
 
-Apple and Android SHALL derive the same versioned stable opaque board identity from the same meaningful VESC identity, keep raw firmware and local platform identifiers out of portable archives, and allow imported boards to exist with a nullable local platform association. Archive import SHALL merge sessions into a matching `deviceHistoryId` or create a configurable board entry before attaching them. Both hosts SHALL implement `savedDevice.delete` with the same all-owned-history cleanup and SHALL reject deletion while that board is actively connected.
+The shared Rust service selected by Apple and Android SHALL derive the same versioned stable opaque board identity from the same meaningful VESC identity, keep raw firmware and local platform identifiers out of portable archives, and allow imported boards to exist with a nullable local platform association. Archive import SHALL merge sessions into a matching `deviceHistoryId` or create a configurable board entry before attaching them. The shared service SHALL implement `savedDevice.delete` with the same all-owned-history cleanup and SHALL reject deletion while that board is actively connected.
 
 #### Scenario: Cross-platform board identity
 
@@ -1626,27 +1626,33 @@ The unselected Rust Refloat configuration service candidate SHALL live at `backe
 
 - **WHEN** later host cutovers select the Rust service and the unified runtime absorbs scheduling and application behavior
 - **THEN** they SHALL delete the Swift/Kotlin state machines, both configuration codec bridge crates, both canonical-record adapters, and their build catalogue entries rather than preserve parallel or generated APIs
+
 ### Requirement: Rust VESC request scheduler candidate ownership
 
 The unselected safe Rust request scheduler candidate SHALL live at `backends/core/vesc-request-scheduler` below native application coordination and above host BLE/timer execution. Apple and Android SHALL retain their selected Swift and Kotlin connection-wide schedulers until later host or unified-runtime cutovers prove production Rust execution and delete the superseded decision logic.
 
 #### Scenario: Locate candidate and selected owners
+
 - **WHEN** a maintainer traces request arbitration, response attribution, cancellation, or deadline behavior
 - **THEN** the safe candidate SHALL be plainly identified under `backends/core` while selected production owners remain in each backend's `application` tree
 
 #### Scenario: Keep the candidate out of host packages
+
 - **WHEN** Apple and Android packages build with the candidate present in the workspace
 - **THEN** the candidate SHALL add no native library, bridge symbol, Gradle task, SwiftPM product, Xcode phase, runtime fallback, or generated artifact to either host
 
 #### Scenario: Preserve application ownership
+
 - **WHEN** production discovery, telemetry, BMS, control, configuration, reconnect, or session work submits and receives VESC requests
 - **THEN** the existing native schedulers and application services SHALL retain all selected execution, publication, and failure behavior during this change
 
 #### Scenario: Preserve OS capability ownership
+
 - **WHEN** the scheduler candidate is built and tested
 - **THEN** Bluetooth, background work, location, lifecycle, permissions, native files, theme, WebViews, SQLite, loopback transport, and UI integration SHALL remain unchanged in their existing platform owners
 
 #### Scenario: Prepare bridge deletion rather than another bridge
+
 - **WHEN** maintainers inspect the migration path after this extraction
 - **THEN** the candidate SHALL be documented for direct composition in one unified Rust runtime and SHALL introduce no `vesc-request-scheduler-apple-ffi` or `vesc-request-scheduler-android-jni` crate
 
@@ -1655,22 +1661,27 @@ The unselected safe Rust request scheduler candidate SHALL live at `backends/cor
 The unselected safe Rust Refloat telemetry-service candidate SHALL live at `backends/core/refloat-telemetry-service` above the safe telemetry decoders and request scheduler and below future runtime execution. Apple and Android SHALL retain their selected Swift and Kotlin telemetry services until a later unified-runtime cutover proves production Rust execution and deletes the superseded application policy.
 
 #### Scenario: Locate candidate and selected owners
+
 - **WHEN** a maintainer traces layout retries, telemetry request cadence, compact-cache merging, or normalized sequencing
 - **THEN** the safe candidate SHALL be plainly identified under `backends/core` while selected production owners remain in each backend's `application` tree
 
 #### Scenario: Keep the candidate out of host packages
+
 - **WHEN** Apple and Android packages build with the candidate present in the workspace
 - **THEN** it SHALL add no native library, FFI/JNI symbol, Gradle task, SwiftPM product, Xcode phase, generated binding, packaged artifact, runtime fallback, or host callback
 
 #### Scenario: Preserve selected application behavior
+
 - **WHEN** production discovery establishes telemetry, receives decoded records, changes settings, reconnects, backgrounds, stops, or resets a session
 - **THEN** the existing native services SHALL retain all timer execution, scheduler submission, state publication, persistence, and failure behavior during this change
 
 #### Scenario: Preserve OS capability ownership
+
 - **WHEN** the candidate is built and tested
 - **THEN** Bluetooth, background execution, location, lifecycle, permissions, native files, theme, WebViews, SQLite, loopback transport, and UI integration SHALL remain unchanged in their existing platform owners
 
 #### Scenario: Prepare bridge deletion instead of another bridge
+
 - **WHEN** maintainers inspect the migration path after this extraction
 - **THEN** the candidate SHALL be documented for direct composition in one unified Rust runtime and no telemetry-service-specific Apple FFI or Android JNI crate SHALL exist
 
@@ -1679,22 +1690,27 @@ The unselected safe Rust Refloat telemetry-service candidate SHALL live at `back
 The unselected safe Rust VESC compatibility candidate SHALL live at `backends/core/vesc-compatibility` immediately above the safe firmware-identity component and below future controller discovery and mutation coordination. Apple and Android SHALL retain their selected Swift and Kotlin compatibility owners until later unified-runtime cutover deletes them.
 
 #### Scenario: Locate candidate and selected owners
+
 - **WHEN** a maintainer traces supported VESC versions, test-build access, read/write authorization, or shutdown availability
 - **THEN** the safe candidate SHALL be plainly identified under `backends/core` while selected production policy remains in each backend's `protocol/vesc` tree
 
 #### Scenario: Keep the candidate out of host packages
+
 - **WHEN** Apple and Android packages build with the candidate in the workspace
 - **THEN** it SHALL add no native library, C/JNI symbol, Gradle task, SwiftPM product, Xcode phase, generated binding, packaged artifact, runtime fallback, or host callback
 
 #### Scenario: Preserve selected application ownership
+
 - **WHEN** production discovery evaluates identities or application code authorizes reads, writes, and shutdown
 - **THEN** existing native compatibility, discovery, routing, scheduling, mutation, state publication, and failure owners SHALL remain selected during this change
 
 #### Scenario: Preserve OS capability ownership
+
 - **WHEN** the candidate is built and tested
 - **THEN** Bluetooth, background execution, location, lifecycle, permissions, native files, theme, WebViews, SQLite, loopback transport, and UI integration SHALL remain unchanged in their existing platform owners
 
 #### Scenario: Prepare bridge deletion rather than another bridge
+
 - **WHEN** maintainers inspect the migration path
 - **THEN** the candidate SHALL be documented for direct Rust controller-discovery composition and no `vesc-compatibility-apple-ffi` or `vesc-compatibility-android-jni` crate SHALL exist
 
@@ -1703,22 +1719,27 @@ The unselected safe Rust VESC compatibility candidate SHALL live at `backends/co
 The unselected safe Rust controller-discovery candidate SHALL live at `backends/core/controller-discovery` above safe firmware and compatibility components and below future unified runtime execution. Apple and Android SHALL retain their selected `application/ControllerDiscovery` owners until later runtime cutover proves production Rust execution and deletes both native state machines.
 
 #### Scenario: Locate candidate and selected owners
+
 - **WHEN** a maintainer traces direct/CAN selection, preferred or learned route recovery, enumeration, continuity, candidates, or readiness
 - **THEN** the safe candidate SHALL be plainly identified under `backends/core` while production behavior remains in each backend's existing `application/ControllerDiscovery` source
 
 #### Scenario: Keep the candidate out of host packages
+
 - **WHEN** Apple and Android packages build with the candidate in the workspace
 - **THEN** it SHALL add no native library, C/JNI symbol, Gradle task, SwiftPM product, Xcode phase, generated binding, packaged artifact, runtime fallback, or host callback
 
 #### Scenario: Preserve selected application ownership
+
 - **WHEN** production connections identify a transport, probe CAN, recover continuity, publish candidates, select a route, negotiate Refloat, or fail
 - **THEN** existing Swift and Kotlin discovery/application services SHALL retain all selected execution, persistence, publication, and failure behavior during this change
 
 #### Scenario: Preserve OS capability ownership
+
 - **WHEN** the candidate is built and tested
 - **THEN** Bluetooth, background execution, location, lifecycle, permissions, native files, theme, WebViews, SQLite, loopback transport, and UI integration SHALL remain unchanged in their existing platform owners
 
 #### Scenario: Prepare bridge deletion rather than another bridge
+
 - **WHEN** maintainers inspect the migration path
 - **THEN** the candidate SHALL be documented for direct unified-runtime composition and no `controller-discovery-apple-ffi` or `controller-discovery-android-jni` crate SHALL exist
 
@@ -1750,6 +1771,7 @@ The unselected safe Rust auxiliary-node discovery candidate SHALL live at `backe
 
 - **WHEN** maintainers inspect the migration path
 - **THEN** the candidate SHALL be documented for direct unified-runtime composition and no `auxiliary-node-discovery-apple-ffi` or `auxiliary-node-discovery-android-jni` crate SHALL exist
+
 ### Requirement: Rust VESC BMS telemetry service candidate ownership
 
 The unselected safe Rust VESC BMS telemetry-service candidate SHALL live at `backends/core/vesc-bms-telemetry-service` above auxiliary discovery, BMS values decoding, and request-scheduler facts and below future unified runtime execution. Apple and Android SHALL retain their selected application-service discovery and polling owners until later runtime cutover proves production Rust execution and deletes both native lifecycles.
@@ -1810,17 +1832,17 @@ The unselected safe Rust connection application coordinator candidate SHALL live
 
 ### Requirement: Runtime activation preserves native persistence boundary
 
-The coordinator candidate SHALL separate supported-controller readiness from application activation so the selected native persistence/session owners remain authoritative until their own Rust migration changes.
+The shared backend service SHALL separate supported-controller readiness from application activation and SHALL prepare shared catalog/session storage before authorizing activation of the existing runtime. Native hosts SHALL execute OS effects without implementing persistence or activation policy.
 
 #### Scenario: Await current persistence confirmation
 
 - **WHEN** controller discovery reaches a supported ready decision
-- **THEN** the candidate SHALL expose the exact selected facts and SHALL NOT start telemetry, attached BMS work, durable session behavior, or ready publication until a current generation-qualified activation command arrives
+- **THEN** the shared service SHALL expose the exact selected facts and SHALL NOT start telemetry, attached BMS work, durable session behavior, or ready publication until a current generation-qualified activation command arrives
 
 #### Scenario: Reject failed or stale activation
 
 - **WHEN** persistence/session preparation fails or activation belongs to an old, reset, failed, standalone-BMS, or already-active generation
-- **THEN** the candidate SHALL start no child service and SHALL leave current state unchanged apart from a bounded error or stale diagnostic
+- **THEN** the shared service SHALL start no child service and SHALL leave current state unchanged apart from a bounded error or stale diagnostic
 
 ### Requirement: Rust device mutation coordinator candidate ownership
 

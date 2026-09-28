@@ -1,8 +1,11 @@
 # apple-unified-runtime-cutover Specification
 
 ## Purpose
+
 Define the shared Apple backend's selection of the unified Rust runtime, bounded native integration, and required ownership and verification evidence.
+
 ## Requirements
+
 ### Requirement: Apple selects one coarse runtime boundary
 
 iOS and macOS SHALL use one process-owned Rust application runtime as the sole production owner of VESC stream/framing, connection discovery, request scheduling, controller/BMS/Refloat interpretation, telemetry normalization/cadence, mutation/configuration coordination, active-session writes, bounded history reduction, and prune decisions. Swift MUST NOT retain a production fallback for those decisions.
@@ -24,12 +27,12 @@ iOS and macOS SHALL use one process-owned Rust application runtime as the sole p
 
 ### Requirement: Apple retains OS and contract ownership
 
-Swift SHALL retain Bluetooth execution, clocks/timers, lifecycle/background work, permissions, location acquisition, native file presentation, theme/UI integration, WebView ownership, product catalogue metadata, and export/import presentation. Shared Rust SHALL own loopback transport, authentication, frontend dispatch, and serialization. Swift SHALL supply typed facts and execute bounded host operations without duplicating the frontend API. Runtime state and durable session data SHALL survive disposable WebView replacement and remain exposed only through the existing authenticated frontend contract.
+Swift SHALL retain Bluetooth execution, clocks/timers, lifecycle/background work, permissions, location acquisition, native file presentation, theme/UI integration, WebView ownership, storage-root protection, and export/import presentation. Shared Rust SHALL own loopback transport, authentication, frontend dispatch, and serialization. The shared backend service SHALL own product/catalog persistence, archive formats and portable application policy. Swift SHALL supply typed OS facts and execute bounded OS effects without duplicating domain records, frontend dispatch or portable decisions. Runtime state and durable session data SHALL survive disposable WebView replacement and remain exposed only through the existing authenticated frontend contract.
 
 #### Scenario: Execute an effect
 
 - **WHEN** Rust emits a bounded host effect
-- **THEN** Swift executes only the corresponding OS/cache/catalogue/publication work in order and reports later facts without adding application policy
+- **THEN** Swift executes only the corresponding OS capability work in order and reports later facts without adding application policy
 
 #### Scenario: Replace the WebView
 
@@ -38,8 +41,8 @@ Swift SHALL retain Bluetooth execution, clocks/timers, lifecycle/background work
 
 #### Scenario: Acquire a location
 
-- **WHEN** native location policy provides an authorized finite observation for an attached session
-- **THEN** Swift supplies it to Rust and publishes location state only after the Rust session marker advances
+- **WHEN** the native location provider supplies an authorized finite observation for an attached session
+- **THEN** Swift supplies it to the shared service, which applies capture policy and publishes location state only after the Rust session marker advances
 
 ### Requirement: Apple coarse ABI is bounded and callback-free
 

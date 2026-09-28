@@ -3,7 +3,9 @@
 ## Purpose
 
 Define the single canonical software and physical acceptance suite required of every supported backend.
+
 ## Requirements
+
 ### Requirement: One canonical suite
 
 The repository SHALL contain one top-level `/conformance` TypeScript black-box suite that imports the hand-written frontend contract and is not copied into Swift or Kotlin implementations.
@@ -2089,27 +2091,33 @@ The Rust Refloat configuration service candidate SHALL NOT be treated as a produ
 
 - **WHEN** candidate parity and regression checks pass
 - **THEN** the change SHALL record extraction readiness only and SHALL require separate Apple and Android changes to prove adapter mapping, production selection, physical Rust execution, and native-service deletion
+
 ### Requirement: Rust VESC request scheduler candidate evidence
 
 The Rust request scheduler extraction SHALL be backed by source-derived parity, adversarial bounds, production-isolation audits, the complete software gate, and unchanged Android, iOS, and macOS physical BLE behavior with the ESP32 fixture before the candidate may be treated as ready for later composition.
 
 #### Scenario: Replay source-derived scheduler behavior
+
 - **WHEN** the focused Rust suite runs vectors derived from the complete Swift and Kotlin scheduler tests and implementations
 - **THEN** every priority, FIFO, route/context match, generation, deadline, timeout, cancellation, one-way, deferred, diagnostic, and completion transition SHALL match the selected behavior
 
 #### Scenario: Exercise adversarial scheduler bounds
+
 - **WHEN** focused tests reach maximum queue and payload bounds, invalid facts, stale or repeated events, cancellation races, deferred pumping, and counter rollover
 - **THEN** the candidate SHALL remain bounded, deterministic, panic-free for public inputs, and free of duplicate or misattributed completions
 
 #### Scenario: Prove production isolation
+
 - **WHEN** dependency, symbol, package, build-catalogue, source, and generated-artifact audits run
 - **THEN** neither host SHALL select or package the candidate and no new Apple FFI, Android JNI, callback, or opaque runtime boundary SHALL exist
 
 #### Scenario: Pass complete software verification
+
 - **WHEN** the extraction is ready for implementation commit
 - **THEN** `just verify` and strict OpenSpec validation SHALL pass with the native schedulers still selected
 
 #### Scenario: Preserve all-host physical behavior
+
 - **WHEN** the connected Android device, connected iOS device, and macOS host run the canonical ESP32 fixture matrix
 - **THEN** every non-location checkpoint SHALL pass with unchanged BLE, connection, protocol, session, background, import/export, and theme behavior, while bounded location acquisition MAY be recorded for later manual verification
 
@@ -2118,22 +2126,27 @@ The Rust request scheduler extraction SHALL be backed by source-derived parity, 
 The Rust Refloat telemetry-service extraction SHALL be backed by source-derived parity, adversarial bounds, dependency and production-isolation audits, the complete software gate, and unchanged Android, iOS, and macOS physical BLE behavior with the ESP32 fixture before it may be treated as ready for later unified-runtime composition.
 
 #### Scenario: Replay complete native telemetry policy
+
 - **WHEN** focused Rust tests run vectors derived from the complete Swift and Kotlin telemetry services, protocol models, and canonical telemetry requirements
 - **THEN** layout retry, exact request facts/bytes, pending attribution, timeout recovery, cadence, compact replacement/merge, normalization, sequence, elapsed time, reset, and ordered effects SHALL match selected behavior
 
 #### Scenario: Exercise adversarial service bounds
+
 - **WHEN** tests reach invalid settings/time arithmetic, maximum routes/generations/tokens/sequences/extensions, stale or repeated timers/completions/responses, active faults, cache replacement, decreasing totals, stop/reset races, and counter rollover
 - **THEN** the candidate SHALL remain bounded, deterministic, panic-free for public inputs, and free of duplicate, stale, or misattributed publication
 
 #### Scenario: Prove direct composition and production isolation
+
 - **WHEN** dependency, symbol, package, build-catalogue, source, callback, and generated-artifact audits run
 - **THEN** the candidate SHALL depend only on the three named safe Rust components, neither host SHALL select or package it, and no new Apple FFI, Android JNI, callback, generated binding, or opaque runtime boundary SHALL exist
 
 #### Scenario: Pass complete software verification
+
 - **WHEN** the extraction is ready for implementation commit
 - **THEN** focused tests/audits, warnings-denied workspace linting, `just verify`, and strict OpenSpec validation SHALL pass with native services still selected
 
 #### Scenario: Preserve all-host physical behavior
+
 - **WHEN** the connected Android device, connected iOS device, and macOS host run the canonical ESP32 fixture matrix
 - **THEN** every non-location checkpoint SHALL pass with unchanged BLE, connection, telemetry cadence, session, background, import/export, and theme behavior, while bounded location acquisition MAY be recorded for later manual verification
 
@@ -2142,22 +2155,27 @@ The Rust Refloat telemetry-service extraction SHALL be backed by source-derived 
 The Rust VESC compatibility extraction SHALL be backed by immutable fixture composition, exhaustive source-policy parity, dependency and production-isolation audits, the complete software gate, and unchanged Android, iOS, and macOS physical BLE behavior before it may be used by later Rust application services.
 
 #### Scenario: Compose immutable firmware fixtures
+
 - **WHEN** focused Rust tests unwrap and decode the audited THOR300 6.02, 6.05, 6.06, and 7.00 firmware fixtures
 - **THEN** each exact stable identity SHALL receive the expected read/write and shutdown decisions through the safe identity and compatibility components
 
 #### Scenario: Exhaust the finite compatibility policy
+
 - **WHEN** focused tests enumerate every major/minor pair, hardware-type and test-marker boundaries, both operations, exact shutdown releases, adjacent versions, and unrelated identity-field changes
 - **THEN** every decision SHALL match the complete selected Swift/Kotlin policy without inference or partial admission
 
 #### Scenario: Prove direct composition and production isolation
+
 - **WHEN** dependency, source-selection, bridge-catalogue, symbol, package, callback, and generated-artifact audits run
 - **THEN** the candidate SHALL depend only on the safe firmware-identity component, neither host SHALL select or package it, and no new FFI/JNI, callback, generated binding, or opaque runtime boundary SHALL exist
 
 #### Scenario: Pass complete software verification
+
 - **WHEN** the extraction is ready for implementation commit
 - **THEN** focused tests and audits, warnings-denied workspace linting, `just verify`, and strict OpenSpec validation SHALL pass with native compatibility owners still selected
 
 #### Scenario: Preserve all-host physical behavior
+
 - **WHEN** the connected Android device, connected iOS device, and macOS host run the canonical ESP32 fixture matrix
 - **THEN** every non-location checkpoint SHALL pass with unchanged BLE, direct/CAN discovery, compatibility, access, controls, shutdown, telemetry, sessions, background, files, and theme behavior, while bounded location acquisition MAY be recorded for later manual verification
 
@@ -2166,22 +2184,27 @@ The Rust VESC compatibility extraction SHALL be backed by immutable fixture comp
 The Rust controller-discovery extraction SHALL be backed by shared source-derived vectors, exhaustive and adversarial parity, dependency and production-isolation audits, the complete software gate, and unchanged Android, iOS, and macOS physical BLE behavior before later unified-runtime composition.
 
 #### Scenario: Replay shared discovery vectors
+
 - **WHEN** focused Rust tests run every committed controller-discovery TSV vector and source-derived native lifecycle case
 - **THEN** route, ordered effects, candidates, inventory, generations, readiness, and stable issue outcomes SHALL match the selected Swift and Kotlin state machines
 
 #### Scenario: Exercise finite bounds and adversarial order
+
 - **WHEN** tests cover every CAN ID boundary, duplicate/order normalization, 64/65 devices, 16/17 controllers, supported/unsupported/test firmware, meaningful and sentinel UUIDs, configured/hinted/continuity paths, timeouts, stale facts, invalid selections, reset, and counter rollover
 - **THEN** the candidate SHALL remain bounded, deterministic, panic-free for public input, and free of stale or private-data publication
 
 #### Scenario: Prove direct composition and production isolation
+
 - **WHEN** dependency, source-selection, bridge-catalogue, symbol, package, callback, and generated-artifact audits run
 - **THEN** the candidate SHALL depend only on the three named safe components, neither host SHALL select or package it, and no new FFI/JNI, callback, generated binding, or opaque runtime boundary SHALL exist
 
 #### Scenario: Pass complete software verification
+
 - **WHEN** the extraction is ready for implementation commit
 - **THEN** focused tests/audits, warnings-denied workspace linting, `just verify`, and strict OpenSpec validation SHALL pass with native discovery owners still selected
 
 #### Scenario: Preserve all-host physical behavior
+
 - **WHEN** the connected Android device, connected iOS device, and macOS host run the canonical ESP32 fixture matrix
 - **THEN** every non-location checkpoint SHALL pass with unchanged BLE, direct/CAN discovery, compatibility, candidate selection, continuity, controls, shutdown, telemetry, sessions, background, files, and theme behavior, while bounded location acquisition MAY be recorded for later manual verification
 
@@ -2213,6 +2236,7 @@ The Rust auxiliary-node discovery extraction SHALL be backed by shared source-de
 
 - **WHEN** the connected Android device, connected iOS device, and macOS host run the canonical ESP32 fixture matrix
 - **THEN** every non-location checkpoint SHALL pass with unchanged BLE, direct/CAN discovery, BMS behavior, compatibility, controls, shutdown, telemetry, sessions, background, files, and theme behavior, while bounded location acquisition MAY be recorded for later manual verification
+
 ### Requirement: Rust VESC BMS telemetry service candidate evidence
 
 The Rust VESC BMS telemetry-service extraction SHALL be backed by shared source-derived lifecycle vectors, exhaustive and adversarial behavior, dependency and production-isolation audits, the complete software gate, and unchanged Android, iOS, and macOS physical BLE behavior before later unified-runtime composition.
@@ -2570,3 +2594,36 @@ The change SHALL include a separate Android, iOS, and macOS physical checkpoint 
 
 - **WHEN** a required device or fixture is unavailable
 - **THEN** software verification completes independently and the missing physical result is recorded without claiming completion
+
+### Requirement: Complete shared service acceptance
+
+The shared service change SHALL pass direct-host and native canonical conformance, focused storage/ABI/lifecycle fault tests, warnings-denied checks, clean Apple host/simulator/device and Android host/four-ABI packaging, strict OpenSpec validation, deletion audits and the complete `just verify` gate. Assertions and protocol simulation SHALL remain in conformance; target adapters SHALL contain only launch and OS-capability integration.
+
+#### Scenario: Direct host exercises product behavior
+
+- **WHEN** canonical product, archive, recording and reconnect scenarios run through the direct Rust test host
+- **THEN** they use the same selected service as native production without test-host product policy, SQL or archive implementations
+
+#### Scenario: Fault and saturation coverage
+
+- **WHEN** storage faults occur between session commit and catalog publication, or cancellation races with saturated queues and worker shutdown
+- **THEN** the suite verifies durable recovery, bounded resources, monotonic publication and no duplicate accepted mutation
+
+#### Scenario: Delete selected native ownership
+
+- **WHEN** each host migration completes
+- **THEN** its software/package checks pass and audits reject remaining portable stores, policy, domain dispatch or snapshot reconstruction in native production
+
+### Requirement: Shared service physical checkpoint
+
+The change SHALL pass explicit Android, iOS and macOS physical conformance with the ESP32 fixture through the selected shared service. It SHALL cover saved/guest connection, telemetry, recording, reconnect, permitted background location, frontend/lifecycle recovery and applicable native file presentation. Unavailable hardware or coverage SHALL remain incomplete unless the user explicitly authorizes a narrower checkpoint; physical availability MUST NOT weaken the software gate.
+
+#### Scenario: Exercise production OS adapters
+
+- **WHEN** the flashed fixture drives each native host and mobile lifecycle transitions occur during recording
+- **THEN** shared policy preserves current authenticated state and durable progress while real OS adapters execute Bluetooth, location and background work
+
+#### Scenario: Hardware unavailable
+
+- **WHEN** a required phone, platform or fixture cannot run its checkpoint
+- **THEN** its result remains explicitly incomplete while independent software verification continues

@@ -3,7 +3,9 @@
 ## Purpose
 
 Define the safe coarse application boundary that composes proven portable backend owners and the evidence and convergence gates required before native hosts select it.
+
 ## Requirements
+
 ### Requirement: One portable application runtime owner
 
 The core workspace SHALL contain one safe application-runtime component that directly composes the existing VESC framing, connection/application coordinator, normalized telemetry, and canonical session-SQLite components. It MUST own connection-scoped stream and application state without owning an OS service, callback, executor, thread, loopback transport, catalog database, filesystem discovery, or platform object.
@@ -72,12 +74,12 @@ The runtime component SHALL make the existing session reader and pruner operatio
 
 ### Requirement: Platform responsibilities remain outside the runtime
 
-The runtime MUST express Bluetooth I/O, clocks, timers, persistence paths, cache access, routing-hint storage, and activation as caller facts or returned effects. Bluetooth adapters, location acquisition, lifecycle/background execution, permissions, native file presentation, theme, and WebViews SHALL remain platform-owned. Shared Rust transport SHALL own loopback authentication and the frontend API above the application runtime. The application runtime MUST remain independent of HTTP, sockets, and server executors.
+The runtime MUST express Bluetooth I/O, clocks, timers, persistence paths, cache access, routing-hint storage, and activation as caller facts or returned effects. Bluetooth adapters, location acquisition, lifecycle/background execution, permissions, native file presentation, theme, and WebViews SHALL remain platform-owned. Shared Rust transport SHALL own loopback authentication and the frontend API above the application runtime. The shared backend service SHALL satisfy portable cache, routing-hint, storage and activation effects directly, forwarding only OS effects to native adapters. The application runtime MUST remain independent of HTTP, sockets, and server executors.
 
 #### Scenario: Execute runtime effects
 
 - **WHEN** the runtime returns writes, timers, cache work, activation, or publication effects
-- **THEN** the host executes them using its OS-owned services and reports resulting facts through later runtime commands
+- **THEN** the shared backend service executes portable work, dispatches OS work to native adapters and reports resulting facts through later runtime commands
 
 #### Scenario: Replace a WebView
 

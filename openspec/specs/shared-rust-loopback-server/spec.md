@@ -41,11 +41,11 @@ The shared server SHALL bind only to loopback, preserve assigned ports, and use 
 
 ### Requirement: Bounded asynchronous host operations
 
-Native OS and catalog operations SHALL use a versioned, closed, callback-free exchange of bounded operations, typed facts, and completions. Operations SHALL carry lifetime and correlation identity. Host work MUST execute without a shared transport lock or a blocked UI executor. Each accepted request SHALL receive exactly one terminal result unless its client is cancelled. The shared server MUST NOT create a second application runtime or bypass existing mutation ordering.
+Only native OS operations SHALL use a versioned, closed, callback-free exchange of bounded operations, typed facts, and completions. Operations SHALL carry lifetime and correlation identity. Host work MUST execute without a shared transport lock or a blocked UI executor. Each accepted request SHALL receive exactly one terminal result unless its client is cancelled. Portable catalog, product, archive and application operations SHALL execute directly in the shared backend service, without domain-operation round trips through native code. The shared server MUST NOT create a second application runtime or bypass existing mutation ordering.
 
 #### Scenario: Complete an OS operation
 
-- **WHEN** an authorized request needs permission presentation, Bluetooth, native file presentation, or catalog work
+- **WHEN** an authorized request needs permission presentation, Bluetooth, or native file presentation
 - **THEN** the owning host executes that operation and shared Rust converts its completion into the canonical response
 
 #### Scenario: Late or duplicate completion
@@ -65,7 +65,7 @@ Native OS and catalog operations SHALL use a versioned, closed, callback-free ex
 
 ### Requirement: One monotonic state publisher
 
-The shared publisher SHALL construct complete frontend snapshots from ordered host facts and committed runtime state. It SHALL advance the state revision once per accepted application update and advance catalog revision only for catalog-visible changes. Publication MUST remain independent of client count. Each client SHALL retain only its newest pending state snapshot, with separately bounded correlated responses.
+The shared publisher SHALL construct complete frontend snapshots directly from shared service state, ordered OS facts and committed runtime/storage state without native domain snapshot reconstruction. It SHALL advance the state revision once per accepted application update and advance catalog revision only for catalog-visible changes. Publication MUST remain independent of client count. Each client SHALL retain only its newest pending state snapshot, with separately bounded correlated responses.
 
 #### Scenario: Multiple or slow clients
 
@@ -103,7 +103,7 @@ Listener stop, client cancellation, and disposable WebView replacement MUST NOT 
 
 ### Requirement: Historical and archive work remains bounded
 
-Shared transport SHALL preserve published-boundary reads, compression, read interruption, archive validation, and native export presentation. Historical work SHALL retain at most two concurrent reads and SHALL not block the recording executor. Large archives SHALL cross host boundaries as bounded transfers rather than oversized control envelopes. Hosts SHALL own temporary storage and archive validation, and rejected or abandoned transfers SHALL release their resources.
+Shared transport SHALL preserve published-boundary reads, compression, read interruption, archive validation, and native export presentation. Historical work SHALL retain at most two concurrent reads and SHALL not block the recording executor. Large archives SHALL use bounded streams; any required OS file-access boundary SHALL use bounded transfers rather than oversized control envelopes. The shared backend service SHALL own app-private staging, archive validation, import/export encoding and cleanup. Native hosts SHALL retain only authorized external file access and file presentation. Rejected or abandoned transfers SHALL release their resources while active OS presentation leases remain valid.
 
 #### Scenario: Cancel a history response
 
