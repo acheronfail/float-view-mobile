@@ -184,3 +184,30 @@ workspace warnings-denied lint and iOS/Android target checks passed. Tasks
 2.1–2.7 are complete as the shared storage/maintenance foundation. This is a
 verified implementation checkpoint, not final acceptance: the complete service,
 direct-host proof, native selection/deletion and physical checks remain pending.
+
+## Shared archive and CSV checkpoint
+
+The shared store now streams bounded imports, validates the exact canonical
+schema and manifest, normalizes WAL state, and attaches a new local session
+with portable board identity in one catalog transaction. Failed attachment
+cleans owned files; uncertain commits leave files for reference-aware startup
+recovery. Export workers retain source leases and use independent SQLite
+readers, allowing another session to keep recording. CSV uses the canonical
+52-column fixture, native numeric text, bounded escaping and nearest GPS
+matching with deterministic sequence ties.
+
+The existing locked rusqlite package enables its backup feature for bounded
+page-wise snapshot copying, replacing both native archive-copy implementations
+at cutover; external package versions and checksums remain unchanged.
+
+The service file API admits two transfers with two shared archive/maintenance
+worker permits. Cancellation retains worker admission until actual completion.
+Idle transfers expire after 30 seconds; presentation retains files across client
+disconnect until acknowledgement or 24-hour expiry. Native integration of this
+API remains task 3.3 and the host cutovers. Typed service facts and operations
+now belong to backend-service, with temporary server reexports until cutover.
+
+Validation: 45 focused store/service tests and warnings-denied workspace lint
+passed. Eight archive tests cover exact 128-MiB import, malformed input, SQL
+rollback, startup cleanup, foreign leases, CSV fixtures, pruned location
+boundaries and recording during export. Native selection is unchanged.

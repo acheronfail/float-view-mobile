@@ -160,10 +160,7 @@ impl ProductStore {
         } else {
             self.catalog_revision
         };
-        let n=self.catalog.execute("UPDATE session_catalog SET committed_sequence=?,committed_event_sequence=?,committed_elapsed_ms=?,stored_sample_count=?,sample_count=?,event_count=?,history_revision=?,riding_elapsed_ms=?,total_elapsed_ms=?,distance_m=?,max_speed_mps=?,max_duty_cycle=?,max_speed_source_sequence=?,max_duty_source_sequence=?,last_sample_elapsed_ms=?,last_speed_mps=?,committed_location_sequence=?,committed_location_elapsed_ms=?,location_count=?,recorded_location_count=?,stored_location_count=?,location_status=?,integrity=CASE WHEN integrity='dirty' THEN 'complete' ELSE integrity END WHERE session_id=? AND pending_delete=0 AND committed_sequence<=? AND history_revision<=? AND committed_event_sequence<=? AND committed_location_sequence<=?",params![m.committed_sample_sequence,m.committed_event_sequence,m.committed_elapsed_ms,m.stored_sample_count,m.recorded_sample_count,m.committed_event_count,m.history_revision,m.riding_elapsed_ms,m.committed_elapsed_ms,m.distance_m,m.maximum_speed_kph.map(|v|v.abs()/3.6),m.maximum_duty_cycle.map(f64::abs),m.maximum_speed_source_sequence,m.maximum_duty_source_sequence,m.committed_elapsed_ms,m.last_speed_kph.map(|v|v.abs()/3.6),m.committed_location_sequence,m.committed_location_elapsed_ms,m.recorded_location_count,m.recorded_location_count,m.stored_location_count,m.last_location_status,id,m.committed_sample_sequence,m.history_revision,m.committed_event_sequence,m.committed_location_sequence])?;
-        if n != 1 {
-            return Err(Error::NotFound);
-        }
+        apply_marker(&self.catalog, id, m)?;
         self.catalog_revision = revision;
         Ok(())
     }
@@ -286,7 +283,7 @@ fn row(r: &rusqlite::Row<'_>) -> rusqlite::Result<Session> {
     })
 }
 pub(crate) fn remove_session_files(path: &std::path::Path) -> Result<()> {
-    for suffix in ["-wal", "-shm", ""] {
+    for suffix in ["-wal", "-shm", "-journal", ""] {
         let p = PathBuf::from(format!("{}{suffix}", path.display()));
         if p.symlink_metadata().is_ok() {
             root::require_kind(&p, false)?;
@@ -319,4 +316,12 @@ impl From<ReaderError> for Error {
             ReaderError::Database => Self::Database,
         }
     }
+}
+
+pub(crate) fn apply_marker(db: &rusqlite::Connection, id: &str, m: &CommitMarker) -> Result<()> {
+    let n=db.execute("UPDATE session_catalog SET committed_sequence=?,committed_event_sequence=?,committed_elapsed_ms=?,stored_sample_count=?,sample_count=?,event_count=?,history_revision=?,riding_elapsed_ms=?,total_elapsed_ms=?,distance_m=?,max_speed_mps=?,max_duty_cycle=?,max_speed_source_sequence=?,max_duty_source_sequence=?,last_sample_elapsed_ms=?,last_speed_mps=?,committed_location_sequence=?,committed_location_elapsed_ms=?,location_count=?,recorded_location_count=?,stored_location_count=?,location_status=?,integrity=CASE WHEN integrity='dirty' THEN 'complete' ELSE integrity END WHERE session_id=? AND pending_delete=0 AND committed_sequence<=? AND history_revision<=? AND committed_event_sequence<=? AND committed_location_sequence<=?",params![m.committed_sample_sequence,m.committed_event_sequence,m.committed_elapsed_ms,m.stored_sample_count,m.recorded_sample_count,m.committed_event_count,m.history_revision,m.riding_elapsed_ms,m.committed_elapsed_ms,m.distance_m,m.maximum_speed_kph.map(|v|v.abs()/3.6),m.maximum_duty_cycle.map(f64::abs),m.maximum_speed_source_sequence,m.maximum_duty_source_sequence,m.committed_elapsed_ms,m.last_speed_kph.map(|v|v.abs()/3.6),m.committed_location_sequence,m.committed_location_elapsed_ms,m.recorded_location_count,m.recorded_location_count,m.stored_location_count,m.last_location_status,id,m.committed_sample_sequence,m.history_revision,m.committed_event_sequence,m.committed_location_sequence])?;
+    if n != 1 {
+        return Err(Error::NotFound);
+    }
+    Ok(())
 }

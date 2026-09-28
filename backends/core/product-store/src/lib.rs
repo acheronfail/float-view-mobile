@@ -4,7 +4,12 @@
 use rusqlite::Connection;
 use std::path::{Path, PathBuf};
 
+mod archive;
 mod boards;
+mod csv;
+mod files;
+pub use archive::{ArchiveExport, ArchiveImport, ExportFormat};
+pub use files::{FileCancellation, ImportSink, StagedFile};
 mod cache;
 mod lifecycle;
 mod maintenance;
@@ -76,6 +81,7 @@ pub struct ProductStore {
     catalog_revision: u64,
     cursor_epoch: String,
     leases: lifecycle::Leases,
+    file_budget: files::FileBudgets,
 }
 impl ProductStore {
     pub fn open(root: &Path) -> Result<Self> {
@@ -94,9 +100,12 @@ impl ProductStore {
             catalog_revision: 0,
             cursor_epoch: identifier()?,
             leases: std::sync::Arc::default(),
+            file_budget: std::sync::Arc::default(),
         };
+        store.cleanup_staging()?;
         store.initialize_settings()?;
         store.recover()?;
+        store.cleanup_orphan_sessions()?;
         Ok(store)
     }
     /// Only host-prepared app-private storage is exposed to shared composition.

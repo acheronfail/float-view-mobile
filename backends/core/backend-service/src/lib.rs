@@ -2,17 +2,21 @@
 #![forbid(unsafe_code)]
 
 use float_view_application_runtime::ApplicationRuntime;
-use float_view_product_store::{
-    Maintenance, MaintenanceCancellation, MaintenanceCompletion, MaintenanceWork, ProductStore,
-    Result,
-};
+use float_view_product_store::{Maintenance, MaintenanceCancellation, ProductStore, Result};
 use std::path::Path;
+pub mod facts;
+mod files;
+pub mod operations;
+pub use files::{
+    FileCompletion, FileResult, FileWork, MaintenanceJobCompletion, MaintenanceJobWork,
+};
 
 /// One store and one runtime. Listener handles must borrow this owner, never
 /// construct another runtime. OS exchange and command admission live here.
 pub struct BackendService {
     runtime: ApplicationRuntime,
     store: ProductStore,
+    files: files::Files,
     maintenance_worker: Option<MaintenanceCancellation>,
 }
 impl BackendService {
@@ -21,6 +25,7 @@ impl BackendService {
         Ok(Self {
             runtime: ApplicationRuntime::new(),
             store,
+            files: files::Files::default(),
             maintenance_worker: None,
         })
     }
@@ -37,27 +42,12 @@ impl BackendService {
     pub fn maintenance(&self) -> Result<Option<Maintenance>> {
         self.store.maintenance()
     }
-    /// The caller runs the returned work outside the ordered service owner lock.
-    pub fn next_maintenance_work(&mut self, at_ms: i64) -> Result<Option<MaintenanceWork>> {
-        let work = self.store.next_maintenance_work(at_ms)?;
-        self.maintenance_worker = work.as_ref().map(MaintenanceWork::cancellation);
-        Ok(work)
-    }
     pub fn cancel_maintenance(&mut self, id: &str, at_ms: i64) -> Result<Maintenance> {
         let job = self.store.cancel_maintenance(id, at_ms)?;
         if let Some(worker) = &self.maintenance_worker {
             worker.cancel();
         }
         Ok(job)
-    }
-    pub fn complete_maintenance_work(
-        &mut self,
-        completion: MaintenanceCompletion,
-        at_ms: i64,
-    ) -> Result<Maintenance> {
-        let job = self.store.complete_maintenance_work(completion, at_ms);
-        self.maintenance_worker = None;
-        job
     }
     pub fn snapshot(&self) -> float_view_application_runtime::Snapshot {
         self.runtime.snapshot()

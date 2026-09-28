@@ -139,31 +139,10 @@ impl ProductStore {
         profile: &str,
         at_ms: i64,
     ) -> Result<Board> {
-        validate_history(history)?;
-        timestamp(at_ms)?;
-        let display = name(display)?;
-        let values = object(profile, limits::MAX_PROFILE_BYTES)?;
-        validate_profile(&values)?;
         let tx = self
             .catalog
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
-        let existing: Option<String> = tx
-            .query_row(
-                "SELECT saved_device_id FROM saved_device WHERE device_history_id=?",
-                [history],
-                |r| r.get(0),
-            )
-            .optional()?;
-        let id = if let Some(id) = existing {
-            id
-        } else {
-            admit_board(&tx)?;
-            let id = identifier()?;
-            tx.execute("INSERT INTO saved_device(saved_device_id,device_history_id,advertised_name,created_at_ms) VALUES (?,?,?,?)",params![id,history,display,at_ms])?;
-            tx.execute("INSERT INTO board_profile(saved_device_id,revision,json,updated_at_ms) VALUES (?,0,?,?)",params![id,json(&values,limits::MAX_PROFILE_BYTES)?,at_ms])?;
-            id
-        };
-        let result = board(&tx, &id)?;
+        let result = import_board_on(&tx, history, display, profile, at_ms)?;
         tx.commit()?;
         Ok(result)
     }
@@ -318,7 +297,7 @@ fn profile(db: &Connection, id: &str) -> Result<Profile> {
         values,
     })
 }
-fn admit_board(db: &Connection) -> Result<()> {
+pub(crate) fn admit_board(db: &Connection) -> Result<()> {
     let count: usize = db.query_row(
         "SELECT COUNT(*) FROM (SELECT 1 FROM saved_device LIMIT ?)",
         [limits::MAX_BOARDS],
@@ -366,7 +345,7 @@ pub(crate) fn check_revision(actual: u64, expected: u64) -> Result<()> {
         Ok(())
     }
 }
-fn validate_profile(values: &Map<String, Value>) -> Result<()> {
+pub(crate) fn validate_profile(values: &Map<String, Value>) -> Result<()> {
     for (key, min, max) in [
         ("seriesCount", 1., 36.),
         ("parallelCount", 1., 20.),
@@ -391,4 +370,35 @@ fn validate_profile(values: &Map<String, Value>) -> Result<()> {
     }
     json(values, limits::MAX_PROFILE_BYTES)?;
     Ok(())
+}
+
+pub(crate) fn import_board_on(
+    db: &Connection,
+    history: &str,
+    display: Option<&str>,
+    profile: &str,
+    at_ms: i64,
+) -> Result<Board> {
+    validate_history(history)?;
+    timestamp(at_ms)?;
+    let display = name(display)?;
+    let values = object(profile, limits::MAX_PROFILE_BYTES)?;
+    validate_profile(&values)?;
+    let existing: Option<String> = db
+        .query_row(
+            "SELECT saved_device_id FROM saved_device WHERE device_history_id=?",
+            [history],
+            |r| r.get(0),
+        )
+        .optional()?;
+    let id = if let Some(id) = existing {
+        id
+    } else {
+        admit_board(db)?;
+        let id = identifier()?;
+        db.execute("INSERT INTO saved_device(saved_device_id,device_history_id,advertised_name,created_at_ms) VALUES (?,?,?,?)",params![id,history,display,at_ms])?;
+        db.execute("INSERT INTO board_profile(saved_device_id,revision,json,updated_at_ms) VALUES (?,0,?,?)",params![id,json(&values,limits::MAX_PROFILE_BYTES)?,at_ms])?;
+        id
+    };
+    board(db, &id)
 }

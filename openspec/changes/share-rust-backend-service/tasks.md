@@ -16,8 +16,8 @@
 
 ## 3. Shared archive and file lifecycle
 
-- [ ] 3.1 Implement shared archive staging, manifest validation and import attachment through bounded file streams. Test exact/+1 import bounds, malformed schema/metadata, local session IDs versus portable board identity, WAL/manifest normalization and failure cleanup.
-- [ ] 3.2 Implement shared archive and CSV exports using existing session readers. Compare semantic archive fixtures and exact CSV columns/escaping/GPS matching with canonical expectations; verify long exports do not block recording.
+- [x] 3.1 Implement shared archive staging, manifest validation and import attachment through bounded file streams. Test exact/+1 import bounds, malformed schema/metadata, local session IDs versus portable board identity, WAL/manifest normalization and failure cleanup.
+- [x] 3.2 Implement shared archive and CSV exports using existing session readers. Compare semantic archive fixtures and exact CSV columns/escaping/GPS matching with canonical expectations; verify long exports do not block recording.
 - [ ] 3.3 Implement service-issued import/export leases and bounded native external-file transfer/presentation. Test stale/foreign handles, cancellation, frontend disconnect during presentation, abandonment expiry and next-launch cleanup.
 
 ## 4. Shared application policy and OS boundary

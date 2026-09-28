@@ -273,6 +273,10 @@ version = "0.1.0"
 dependencies = [
  "float-view-application-runtime",
  "float-view-product-store",
+ "serde",
+ "serde_json",
+ "time",
+ "tokio",
 ]
 
 [[package]]
@@ -323,6 +327,7 @@ dependencies = [
  "base64",
  "flate2",
  "float-view-application-runtime",
+ "float-view-backend-service",
  "futures-util",
  "getrandom",
  "serde",
