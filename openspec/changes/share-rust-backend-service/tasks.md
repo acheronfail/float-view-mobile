@@ -12,7 +12,7 @@
 - [x] 2.4 Move Tune persistence and schema caches. Test exact compatibility identity, complete values, record conflicts, pagination, digest/size rejection and bounded eviction against recorded fixtures.
 - [x] 2.5 Move session creation/catalog queries and marker reconciliation. Test keyset ordering/cursor binding, immutable snapshots and fault injection before/after session commit and catalog update.
 - [x] 2.6 Move close/retention, interrupted-session recovery, board forgetting and pending-delete/cancel behavior. Test active-board rejection, idempotent restart, retained committed data and reader/export lease races.
-- [ ] 2.7 Move persisted maintenance coordination into the shared service using existing prune kernels. Test bounded batch cursors, cancellation, process restart and committed logical prune with interrupted compaction.
+- [x] 2.7 Move persisted maintenance coordination into the shared service using existing prune kernels. Test bounded batch cursors, cancellation, process restart and committed logical prune with interrupted compaction.
 
 ## 3. Shared archive and file lifecycle
 

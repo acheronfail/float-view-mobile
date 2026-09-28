@@ -48,3 +48,5 @@ schema and 12,000 XML-element / depth-32 bounds.
 Validation remains staged: product tests cover root/settings/identity/profile/
 Tune/cache admission; subsequent session, archive, service, host and saturation
 checks must prove their respective rows before task completion.
+
+Maintenance admits one session per turn and at most one running maintenance job. Incremental compaction requests at most 256 pages per turn after logical commit. Cancellation retains the exclusive file lease until the worker completion is reconciled.

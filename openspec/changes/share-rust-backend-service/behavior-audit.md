@@ -148,3 +148,39 @@ gate. The existing listener starts before its initial publication, so bootstrap
 readiness must be tested during shared-service integration. No native selection
 has changed. Direct-host proof, complete service behavior and final acceptance
 remain unchecked.
+
+## Persisted maintenance checkpoint
+
+Maintenance now admits one session per worker turn using an internal lexical
+keyset and a fixed upper session ID. It does not reuse public cursors invalidated
+by pruning. Exclusive per-session leases coordinate readers, deletion, forgetting
+and pruning; workers retain leases through owner-side reconciliation. Long worker
+execution occurs outside the service owner lock. A cancellation request persists
+before interrupting the worker; restart turns `cancel_requested` into `cancelled`
+rather than reviving cancelled work. This intentionally corrects the old native
+restart behavior. Running jobs resume as pending.
+
+A committed session prune remains authoritative if catalog reconciliation fails.
+Replay detects the durable retained resolution and advances the job without
+pruning again. A recovered replay reports zero additional reclaimable bytes;
+that field is an estimate, not a durable physical-space accounting ledger.
+Incremental compaction is bounded to 256 pages per turn and best effort after the
+logical commit. Failure or interruption cannot roll back the logical prune.
+History revision changes invalidate public catalog cursors; ordinary sample
+commits do not. Worker-pool dispatch and public request wiring remain part of the
+later complete-service integration.
+
+The startup race found in the first full-gate attempt is now guarded in the
+shared listener: `/api/bootstrap` returns HTTP 503 before the first complete
+snapshot. The transport regression verifies readiness before/after publication
+and preservation across listener restart. The public bootstrap document and wire
+contract are unchanged.
+
+The subsequent full `just verify` run passed on 2026-09-28 after the readiness
+fix, including clean Apple/Android packaging, all software tests, native
+conformance (macOS revision 50, iOS revision 60, Android revision 50) and the
+repository ownership/source audit. The focused three-crate run passed 53 tests;
+workspace warnings-denied lint and iOS/Android target checks passed. Tasks
+2.1–2.7 are complete as the shared storage/maintenance foundation. This is a
+verified implementation checkpoint, not final acceptance: the complete service,
+direct-host proof, native selection/deletion and physical checks remain pending.

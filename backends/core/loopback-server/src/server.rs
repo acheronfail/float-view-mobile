@@ -250,6 +250,11 @@ async fn root(State(app): State<Arc<App>>) -> Response {
         .into_response()
 }
 async fn bootstrap(State(app): State<Arc<App>>) -> Response {
+    // Binding the socket does not mean the process owner has published its
+    // initial state. Clients must never receive a ready endpoint before that.
+    if app.backend.snapshots.borrow().is_none() {
+        return status(StatusCode::SERVICE_UNAVAILABLE);
+    }
     let origin = app.origin();
     json_response(
         json!({"webSocketUrl":format!("ws://127.0.0.1:{}/api/ws",app.port.load(Ordering::Acquire)),

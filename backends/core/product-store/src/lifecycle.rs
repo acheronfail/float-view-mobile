@@ -11,7 +11,12 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-pub(crate) type Leases = Arc<Mutex<BTreeMap<String, usize>>>;
+pub(crate) type Leases = Arc<Mutex<BTreeMap<String, LeaseCount>>>;
+#[derive(Default)]
+pub(crate) struct LeaseCount {
+    pub readers: usize,
+    pub exclusive: bool,
+}
 /// A worker retains this lease until its file access has actually ended.
 pub struct SessionLease {
     id: String,
@@ -28,8 +33,8 @@ impl Drop for SessionLease {
         if let Ok(mut leases) = self.leases.lock()
             && let Some(n) = leases.get_mut(&self.id)
         {
-            *n -= 1;
-            if *n == 0 {
+            n.readers -= 1;
+            if n.readers == 0 {
                 leases.remove(&self.id);
             }
         }
@@ -37,12 +42,20 @@ impl Drop for SessionLease {
 }
 impl ProductStore {
     pub fn lease_session(&self, id: &str) -> Result<SessionLease> {
+        self.acquire_session_lease(id, false)
+    }
+    pub(crate) fn acquire_session_lease(&self, id: &str, exclusive: bool) -> Result<SessionLease> {
         let path = self.session_path(id)?;
         let mut leases = self.leases.lock().map_err(|_| Error::Database)?;
-        if leases.values().sum::<usize>() >= 6 {
+        if leases.values().map(|n| n.readers).sum::<usize>() >= 6 {
             return Err(Error::Capacity);
         }
-        *leases.entry(id.into()).or_default() += 1;
+        if leases.get(id).is_some_and(|n| exclusive || n.exclusive) {
+            return Err(Error::Busy);
+        }
+        let count = leases.entry(id.into()).or_default();
+        count.readers += 1;
+        count.exclusive = exclusive;
         Ok(SessionLease {
             id: id.into(),
             path,
@@ -88,6 +101,15 @@ impl ProductStore {
     }
     pub fn delete_session(&mut self, id: &str) -> Result<()> {
         validate_id(id)?;
+        if self
+            .leases
+            .lock()
+            .map_err(|_| Error::Database)?
+            .get(id)
+            .is_some_and(|n| n.exclusive)
+        {
+            return Err(Error::Busy);
+        }
         let current: Option<(String, bool)> = self
             .catalog
             .query_row(
@@ -140,6 +162,13 @@ impl ProductStore {
     }
     pub fn forget_board(&mut self, id: &str) -> Result<()> {
         let board = self.board(id)?;
+        let leases = self.leases.lock().map_err(|_| Error::Database)?;
+        for (session, _) in leases.iter().filter(|(_, lease)| lease.exclusive) {
+            if self.session(session)?.device_history_id == board.device_history_id {
+                return Err(Error::Busy);
+            }
+        }
+        drop(leases);
         let tx = self
             .catalog
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
@@ -224,7 +253,7 @@ impl ProductStore {
                 }
             }
         }
-        self.catalog.execute("UPDATE session_maintenance_job SET state='pending' WHERE singleton=1 AND state IN ('running','cancel_requested')",[])?;
+        self.catalog.execute("UPDATE session_maintenance_job SET state=CASE state WHEN 'cancel_requested' THEN 'cancelled' ELSE 'pending' END WHERE singleton=1 AND state IN ('running','cancel_requested')",[])?;
         Ok(())
     }
 }

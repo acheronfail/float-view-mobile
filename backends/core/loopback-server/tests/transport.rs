@@ -1,3 +1,4 @@
+mod support;
 use float_view_loopback_server::{
     host,
     limits::*,
@@ -53,6 +54,19 @@ fn listener_lifecycle_preserves_assets_token_and_rejects_failed_bind() {
     let response = http(&server, "/", "", b"");
     status(&response, "200");
     assert!(response.ends_with(html));
+    status(&http(&server, "/api/bootstrap", "", b""), "503");
+    server
+        .backend
+        .publish(float_view_loopback_server::protocol::Publication {
+            generation: server
+                .backend
+                .generation
+                .load(std::sync::atomic::Ordering::Acquire),
+            sequence: 1,
+            catalog_changed: false,
+            facts: support::facts(),
+        })
+        .unwrap();
     let response = http(&server, "/api/bootstrap", "", b"");
     status(&response, "200");
     let offset = response.windows(4).position(|w| w == b"\r\n\r\n").unwrap() + 4;
@@ -65,6 +79,7 @@ fn listener_lifecycle_preserves_assets_token_and_rejects_failed_bind() {
     second.stop().unwrap();
     server.start(port).unwrap();
     assert_eq!(server.token(), token);
+    status(&http(&server, "/api/bootstrap", "", b""), "200");
     server.stop().unwrap();
 }
 

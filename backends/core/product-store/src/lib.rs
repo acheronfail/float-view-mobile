@@ -7,6 +7,10 @@ use std::path::{Path, PathBuf};
 mod boards;
 mod cache;
 mod lifecycle;
+mod maintenance;
+pub use maintenance::{
+    Maintenance, MaintenanceCancellation, MaintenanceCompletion, MaintenanceWork,
+};
 pub mod limits;
 mod root;
 mod sessions;
@@ -26,6 +30,7 @@ pub const CATALOG_SCHEMA: &str = include_str!("../../../sql/catalog.sql");
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Error {
     InvalidInput,
+    Cancelled,
     ActiveSession,
     NotFound,
     Conflict { revision: u64 },
