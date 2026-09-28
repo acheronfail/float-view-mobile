@@ -24,4 +24,4 @@
 - [x] 4.1 Test attempted simulation activation in ordinary, Release and physical builds; inspect packaged symbols/assets and verify production network policy and frontend routes remain unchanged.
 - [x] 4.2 Run explicit macOS/iOS/Android ESP32 smoke checkpoints for discovery, saved telemetry and reconnect with no simulator process; record proof that real OS adapters are selected, leaving unavailable coverage incomplete unless explicitly deferred.
 - [x] 4.3 Run focused simulator/relay/native regression tests, formatting, strict OpenSpec validation and `git diff --check`; verify every new scenario has passing evidence and document the Linux test-adapter contract.
-- [ ] 4.4 Run `just verify` across all software targets, record results and commit implementation/task updates; once required checks pass, sync delta specs and archive together in the final commit.
+- [x] 4.4 Run `just verify` across all software targets, record results and commit implementation/task updates; once required checks pass, sync delta specs and archive together in the final commit.

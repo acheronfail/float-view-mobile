@@ -39,3 +39,7 @@ ESP32 `/dev/cu.usbmodem111401`, iPhone `00008101-00195021268B001E`, Android `1cf
 Injected unreachable software credentials were ignored while real ESP32 telemetry passed on macOS Release and ordinary physical iOS/Android. Reports: `evidence/macos-release-selection.json`, `evidence/ios-selection.json`, `evidence/android-selection.json`. The first Release activation probe overlapped an existing software host on the fixed backend port; it was rerun successfully after that host exited (no timeout increase).
 
 `openspec validate share-conformance-simulation --strict` and `git diff --check`: pass. Scoped Prettier checks and native Swift formatting: pass. Whole-repository Prettier reports 40 pre-existing/generated files outside this change (archived specs, existing main specs, `conformance/src/client.ts`, one historical physical report and generated HTML); these were not reformatted. The Linux adapter contract is documented in `conformance/fixture/RELAY.md`.
+
+## Final software gate
+
+Final `just verify` passed on implementation commit `fae12cbf`, with no deferred software target: mock revision 31, direct Rust 354, macOS 355, iOS simulator 369, Android emulator 384. Clean Apple ordinary/Release/device builds and Android Debug/Release four-ABI builds passed, as did frontend/conformance/native/Rust/ESP32 firmware tests, ownership audit, diff checks, and packaged simulation exclusion. The final focused relay suite passed 10/10. Main spec sync and archival are recorded in the final commit.
