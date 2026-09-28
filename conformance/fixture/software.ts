@@ -1,9 +1,22 @@
-// The existing software-host protocol fixture, shared by the direct OS relay.
+// Independent software-host protocol fixture. No production codec imports.
 import { FrameAssembler, encodeFrame } from './frame.ts';
 import { RefloatConfigurationModel } from './refloat-configuration.ts';
 export class SoftwarePeripheral {
   private frames = new FrameAssembler();
   private configuration = new RefloatConfigurationModel('1.0.0');
+  reset() {
+    this.frames = new FrameAssembler();
+    this.configuration.reset();
+  }
+  disconnect() {
+    this.frames = new FrameAssembler();
+  }
+  fork(): SoftwarePeripheral {
+    const copy = Object.create(SoftwarePeripheral.prototype) as SoftwarePeripheral;
+    copy.frames = this.frames.fork();
+    copy.configuration = this.configuration.fork();
+    return copy;
+  }
   receive(bytes: Uint8Array): Uint8Array[] {
     return this.frames.append(bytes).flatMap((request) => {
       const payload = this.respond(request);
@@ -37,8 +50,8 @@ export class SoftwarePeripheral {
       return hex(
         '6003010b0003412140ff43a158ff445120000004e20000f424031068105e10540100010209f60a410abe09ab14820b6d036b03b62a428000004480000042000000440000002794014f4b00'
       );
-    if (request[0] === 36 && request[1] === 101 && request[2] === 0) return Uint8Array.of(36, 101, 0, 10);
-    if (request[0] === 36 && request[1] === 101 && request[2] === 10) {
+    if (same(36, 101, 0, 2, 0)) return Uint8Array.of(36, 101, 0, 10);
+    if (same(36, 101, 10) || same(36, 101, 10, 4)) {
       const payload = new Uint8Array(55);
       payload.set([36, 101, 10, 3]);
       payload[10] = 1;

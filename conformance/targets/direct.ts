@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { execFileSync, spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { createInterface } from 'node:readline';
 import { fileURLToPath } from 'node:url';
-import { SoftwarePeripheral } from '../fixture/software.ts';
+import { FixtureRun, type FixtureCommand } from '../fixture/session.ts';
 import type { Target } from '../src/suite.ts';
 
 type Effect = {
@@ -27,7 +27,35 @@ export function makeDirectTarget(): Target {
   const timers = new Map<number, { timer: NodeJS.Timeout; connection: boolean }>();
   let polling: NodeJS.Timeout | undefined;
   let busy = false;
-  let peripheral = new SoftwarePeripheral();
+  let fixture = new FixtureRun();
+  let session = fixture.create();
+  let operation = 0,
+    generation = 0;
+  async function simulate(command: FixtureCommand['command'], e: Effect) {
+    if (command === 'connect') generation++;
+    const reply = fixture.execute({
+      run: fixture.id,
+      session: session.id,
+      operation: ++operation,
+      generation,
+      command,
+      device: 'software-vesc',
+      ...(e.bytes ? { bytes: Buffer.from(e.bytes).toString('base64') } : {}),
+    });
+    for (const event of reply.events) {
+      if (event.event === 'discovered')
+        await fact({
+          fact: 'discovered',
+          scan_id: e.scan_id,
+          device_id: event.device,
+          name: event.name,
+          rssi: event.rssi,
+        });
+      if (event.event === 'link') await fact({ fact: 'link', generation: e.generation, state: event.state });
+      if (event.event === 'bytes')
+        await fact({ fact: 'bytes', generation: e.generation, bytes: Array.from(Buffer.from(event.bytes!, 'base64')) });
+    }
+  }
   function command(command: string, extra: object = {}): Promise<unknown> {
     if (pending.size >= 64) return Promise.reject(new Error('OS relay capacity'));
     const id = ++request;
@@ -50,20 +78,19 @@ export function makeDirectTarget(): Target {
   async function effect(e: Effect) {
     switch (e.effect) {
       case 'scan':
-        await fact({
-          fact: 'discovered',
-          scan_id: e.scan_id,
-          device_id: 'software-vesc',
-          name: 'Software VESC',
-          rssi: -42,
-        });
+        await simulate('scan', e);
+        break;
+      case 'stop_scan':
+        await simulate('stopScan', e);
         break;
       case 'connect':
-        await fact({ fact: 'link', generation: e.generation, state: 'ready' });
+        await simulate('connect', e);
+        break;
+      case 'disconnect':
+        await simulate('disconnect', e);
         break;
       case 'write':
-        for (const bytes of peripheral.receive(Uint8Array.from(e.bytes!)))
-          await fact({ fact: 'bytes', generation: e.generation, bytes: Array.from(bytes) });
+        await simulate('write', e);
         break;
       case 'arm_timer': {
         const id = e.id!;
@@ -128,7 +155,11 @@ export function makeDirectTarget(): Target {
       root = mkdtempSync(join(tmpdir(), 'float-view-direct-'));
       sequence = 0;
       request = 0;
-      peripheral = new SoftwarePeripheral();
+      fixture.close();
+      fixture = new FixtureRun();
+      session = fixture.create();
+      operation = 0;
+      generation = 0;
       child = spawn(join(repo, 'backends/core/target/debug/examples/shared-service'), [root], { stdio: 'pipe' });
       child.stderr.pipe(process.stderr);
       const ready = new Promise<void>((resolve, reject) => {
@@ -189,6 +220,7 @@ export function makeDirectTarget(): Target {
     },
     async stop() {
       clearInterval(polling);
+      fixture.close();
       for (const t of timers.values()) clearTimeout(t.timer);
       timers.clear();
       child?.stdin.end();

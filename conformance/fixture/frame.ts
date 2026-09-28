@@ -24,12 +24,18 @@ export function encodeFrame(payload: Uint8Array) {
 export class FrameAssembler {
   private bytes: number[] = [];
 
+  fork(): FrameAssembler {
+    const copy = new FrameAssembler();
+    copy.bytes = this.bytes.slice();
+    return copy;
+  }
+
   append(chunk: Uint8Array) {
-    this.bytes.push(...chunk);
-    if (this.bytes.length > MAX_PAYLOAD_BYTES * 2) {
+    if (this.bytes.length + chunk.length > MAX_PAYLOAD_BYTES * 2) {
       this.bytes = [];
       throw new Error('VESC stream exceeds bound');
     }
+    this.bytes.push(...chunk);
     const payloads: Uint8Array[] = [];
     while (this.bytes.length) {
       while (this.bytes.length && this.bytes[0] !== 2 && this.bytes[0] !== 3) this.bytes.shift();

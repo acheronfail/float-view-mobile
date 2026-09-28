@@ -1,15 +1,15 @@
 ## 1. Inventory and independent evidence
 
-- [ ] 1.1 Inventory native/direct simulator call sites, build selection and packaged assets; deliver a deletion list and baseline source/package counts, including helpers used outside simulation.
-- [ ] 1.2 Reconcile Swift/Kotlin/TypeScript discovery, firmware, CAN/BMS, configuration and telemetry transcripts against immutable vectors and vendored source; record intentional differences and passing golden transcript tests.
+- [x] 1.1 Inventory native/direct simulator call sites, build selection and packaged assets; deliver a deletion list and baseline source/package counts, including helpers used outside simulation.
+- [x] 1.2 Reconcile Swift/Kotlin/TypeScript discovery, firmware, CAN/BMS, configuration and telemetry transcripts against immutable vectors and vendored source; record intentional differences and passing golden transcript tests.
 
 ## 2. Canonical simulator and bounded relay
 
-- [ ] 2.1 Consolidate software protocol behavior in conformance-owned models; verify fragmented, malformed, multiple-frame, configuration write/readback and reset cases without production codec imports.
+- [x] 2.1 Consolidate software protocol behavior in conformance-owned models; verify fragmented, malformed, multiple-frame, configuration write/readback and reset cases without production codec imports.
 - [ ] 2.2 Implement the loopback HTTP relay with independent run authentication and isolated sessions; verify wrong credentials, non-loopback selection, foreign session and duplicate-operation rejection before mutation.
 - [ ] 2.3 Enforce message/payload, command/event/byte/session bounds, deadlines and reserved cleanup; verify exact-limit/+1, stalled polls, saturation and shutdown within five seconds.
 - [ ] 2.4 Add generation-qualified event ordering and explicit model reset; verify reconnect, late notifications, run isolation, frontend recreation and harness-loss behavior.
-- [ ] 2.5 Route direct Rust software conformance through the same session dispatcher; verify canonical direct conformance and retained independent protocol-vector tests pass.
+- [x] 2.5 Route direct Rust software conformance through the same session dispatcher; verify canonical direct conformance and retained independent protocol-vector tests pass.
 
 ## 3. Native software host selection and deletion
 

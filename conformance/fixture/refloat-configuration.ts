@@ -67,6 +67,14 @@ export class RefloatConfigurationModel {
     this.current = this.initialCurrent.slice();
   }
 
+  fork(): RefloatConfigurationModel {
+    const copy = Object.assign(Object.create(RefloatConfigurationModel.prototype), this, {
+      current: this.current.slice(),
+      counters: { ...this.counters },
+    }) as RefloatConfigurationModel;
+    return copy;
+  }
+
   reset() {
     this.current = this.initialCurrent.slice();
     Object.assign(this.counters, { schema: 0, current: 0, default: 0, write: 0, rejected: 0 });
