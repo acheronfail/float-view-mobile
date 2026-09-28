@@ -4,7 +4,15 @@
 use float_view_application_runtime::ApplicationRuntime;
 use float_view_product_store::{Maintenance, MaintenanceCancellation, ProductStore, Result};
 use std::path::Path;
+mod dispatch;
 pub mod facts;
+pub mod os;
+mod policy;
+mod process;
+mod projection;
+pub use dispatch::Dispatch;
+pub use float_view_product_store::{ExportFormat, SessionLease};
+pub use process::Process;
 mod files;
 pub mod operations;
 pub use files::{
@@ -15,19 +23,32 @@ pub use files::{
 /// construct another runtime. OS exchange and command admission live here.
 pub struct BackendService {
     runtime: ApplicationRuntime,
+    stopping: bool,
     store: ProductStore,
     files: files::Files,
+    policy: policy::Policy,
+    pending: std::collections::BTreeMap<u64, dispatch::Pending>,
     maintenance_worker: Option<MaintenanceCancellation>,
+    notifications: tokio::sync::watch::Sender<u64>,
 }
 impl BackendService {
     pub fn open(root: &Path) -> Result<Self> {
         let store = ProductStore::open(root)?;
-        Ok(Self {
+        let mut service = Self {
             runtime: ApplicationRuntime::new(),
+            stopping: false,
+            policy: policy::Policy::new(store.settings()?),
+            pending: std::collections::BTreeMap::new(),
             store,
             files: files::Files::default(),
             maintenance_worker: None,
-        })
+            notifications: tokio::sync::watch::channel(0).0,
+        };
+        service.refresh_boards()?;
+        service
+            .changed()
+            .map_err(|_| float_view_product_store::Error::Capacity)?;
+        Ok(service)
     }
     pub fn begin_maintenance(
         &mut self,
@@ -36,8 +57,15 @@ impl BackendService {
         preview: bool,
         at_ms: i64,
     ) -> Result<Maintenance> {
-        self.store
-            .begin_maintenance(session_id, resolution, preview, at_ms)
+        let job = self
+            .store
+            .begin_maintenance(session_id, resolution, preview, at_ms)?;
+        self.changed()
+            .map_err(|_| float_view_product_store::Error::Capacity)?;
+        Ok(job)
+    }
+    pub fn maintenance_recorded_samples(&self) -> Result<u64> {
+        self.store.maintenance_recorded_samples()
     }
     pub fn maintenance(&self) -> Result<Option<Maintenance>> {
         self.store.maintenance()
@@ -47,10 +75,44 @@ impl BackendService {
         if let Some(worker) = &self.maintenance_worker {
             worker.cancel();
         }
+        self.changed()
+            .map_err(|_| float_view_product_store::Error::Capacity)?;
         Ok(job)
     }
     pub fn snapshot(&self) -> float_view_application_runtime::Snapshot {
         self.runtime.snapshot()
+    }
+    pub fn subscribe(&self) -> tokio::sync::watch::Receiver<u64> {
+        self.notifications.subscribe()
+    }
+    pub fn catalog_revision(&self) -> u64 {
+        self.store.catalog_revision()
+    }
+    pub fn monotonic_ms(&self) -> u64 {
+        self.policy.exchange.now
+    }
+    pub fn epoch_ms(&self) -> i64 {
+        self.policy.exchange.epoch
+    }
+    pub fn source(
+        &self,
+        id: &str,
+    ) -> std::result::Result<
+        (facts::SessionSource, float_view_product_store::SessionLease),
+        operations::Failure,
+    > {
+        let s = self.store.session(id).map_err(store_failure)?;
+        let lease = self.store.lease_session(id).map_err(store_failure)?;
+        let source = facts::SessionSource {
+            summary: projection::session(&s),
+            boundary: projection::boundary(&s),
+            path: lease
+                .path()
+                .to_str()
+                .ok_or(operations::Failure::Internal)?
+                .into(),
+        };
+        Ok((source, lease))
     }
     pub fn settings(&self) -> Result<float_view_product_store::Settings> {
         self.store.settings()
@@ -62,6 +124,19 @@ impl Drop for BackendService {
         if let Some(worker) = &self.maintenance_worker {
             worker.cancel();
         }
+    }
+}
+
+fn store_failure(error: float_view_product_store::Error) -> operations::Failure {
+    use float_view_product_store::Error as E;
+    use operations::Failure as F;
+    match error {
+        E::InvalidInput => F::InvalidRequest,
+        E::NotFound => F::NotFound,
+        E::Conflict { .. } => F::Conflict,
+        E::ActiveSession => F::InvalidState,
+        E::Capacity | E::Busy | E::Full | E::Cancelled => F::Unavailable,
+        _ => F::Internal,
     }
 }
 

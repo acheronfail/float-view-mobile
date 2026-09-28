@@ -6,7 +6,7 @@ use std::{
     path::{Component, Path, PathBuf},
 };
 
-pub(crate) fn prepare(root: &Path) -> Result<PathBuf> {
+pub(crate) fn prepare(root: &Path) -> Result<(PathBuf, std::sync::Arc<fs::File>)> {
     if !root.is_absolute() || root.components().any(|c| matches!(c, Component::ParentDir)) {
         return Err(Error::UnsafePath);
     }
@@ -20,6 +20,21 @@ pub(crate) fn prepare(root: &Path) -> Result<PathBuf> {
     } else {
         fs::create_dir(&root)?;
     }
+    let lock_path = root.join(".service.lock");
+    if lock_path.symlink_metadata().is_ok() {
+        require_kind(&lock_path, false)?;
+    }
+    let lock = fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .open(&lock_path)?;
+    require_kind(&lock_path, false)?;
+    lock.try_lock().map_err(|e| match e {
+        std::fs::TryLockError::WouldBlock => Error::Busy,
+        std::fs::TryLockError::Error(_) => Error::Io,
+    })?;
     for name in [
         "catalog.sqlite",
         "catalog.sqlite-wal",
@@ -68,7 +83,7 @@ pub(crate) fn prepare(root: &Path) -> Result<PathBuf> {
         fs::rename(temporary, marker)?;
         fs::File::open(&root)?.sync_all()?;
     }
-    Ok(root)
+    Ok((root, std::sync::Arc::new(lock)))
 }
 pub(crate) fn require_kind(path: &Path, directory: bool) -> Result<()> {
     let meta = path.symlink_metadata()?;

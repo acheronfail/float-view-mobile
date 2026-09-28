@@ -40,6 +40,7 @@ pub struct StagedFile {
     pub(crate) budget: FileBudgets,
     pub(crate) reserved: u64,
     pub(crate) owned: bool,
+    _root_lock: Arc<File>,
 }
 impl StagedFile {
     pub fn path(&self) -> &Path {
@@ -157,6 +158,7 @@ impl ProductStore {
             budget: self.file_budget.clone(),
             reserved,
             owned: true,
+            _root_lock: self.root_lock.clone(),
         })
     }
     pub(crate) fn cleanup_staging(&self) -> Result<()> {

@@ -18,6 +18,9 @@ pub struct Publisher {
     pub facts: Option<Snapshot>,
 }
 pub struct Backend {
+    pub service: Option<Arc<Mutex<float_view_backend_service::BackendService>>>,
+    pub(crate) service_permits: tokio::sync::Semaphore,
+    pub(crate) service_transfers: Mutex<std::collections::BTreeMap<u64, (u64, u64)>>,
     pub exchange: Exchange<Operation, Outcome>,
     pub history: Arc<tokio::sync::Semaphore>,
     pub changed: Notify,
@@ -31,6 +34,9 @@ pub struct Backend {
 impl Default for Backend {
     fn default() -> Self {
         Self {
+            service: None,
+            service_permits: tokio::sync::Semaphore::new(64),
+            service_transfers: Mutex::default(),
             exchange: Exchange::default(),
             history: Arc::new(tokio::sync::Semaphore::new(MAX_HISTORY_READS)),
             changed: Notify::new(),
@@ -127,6 +133,9 @@ impl Backend {
             .catalog_revision)
     }
     pub async fn call(&self, client: u64, operation: Operation) -> Result<Completion, Failure> {
+        if self.service.is_some() {
+            return self.call_service(client, operation).await;
+        }
         let generation = self.generation.load(Ordering::Acquire);
         let kind = if operation.is_read() {
             OperationKind::Read

@@ -47,7 +47,9 @@ export async function runConformance(target: Target) {
     const permission = await client.request('bluetooth.requestPermission', {});
     assert.equal(typeof permission.radio, 'string');
     await client.request('bluetooth.scan', { timeoutMs: 100 });
-    const scanned = await client.request('state.get', {});
+    const scanned = await client.waitForState((state) => state.discoveredDevices.length > 0, {
+      afterRevision: initial.revision,
+    });
     assertState(scanned);
     assert.ok(scanned.revision >= initial.revision);
 
@@ -66,10 +68,10 @@ export async function runConformance(target: Target) {
     await exerciseProductMethods(
       client,
       restored,
-      ['android', 'ios', 'macos'].includes(target.name),
+      ['android', 'ios', 'macos', 'direct'].includes(target.name),
       target.recreateFrontend
     );
-    if (['android', 'ios', 'macos'].includes(target.name)) {
+    if (['android', 'ios', 'macos', 'direct'].includes(target.name)) {
       await exerciseTransport(await target.endpoint());
     }
     return {

@@ -26,3 +26,5 @@ pub mod completion;
 mod encoding;
 
 mod reading;
+
+mod service;

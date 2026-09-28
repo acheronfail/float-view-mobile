@@ -55,6 +55,7 @@ impl Client {
 }
 impl Drop for Client {
     fn drop(&mut self) {
+        self.backend.disconnect_service_client(self.id);
         let _ = self
             .backend
             .exchange
@@ -91,13 +92,19 @@ pub enum ServerError {
 }
 impl Server {
     pub fn new(platform: Platform, html: &[u8]) -> Result<Self, ServerError> {
+        Self::with_backend(platform, html, Arc::new(Backend::default()))
+    }
+    pub fn with_backend(
+        platform: Platform,
+        html: &[u8],
+        backend: Arc<Backend>,
+    ) -> Result<Self, ServerError> {
         if html.is_empty() || html.len() > 8 * 1024 * 1024 {
             return Err(ServerError::InvalidAsset);
         }
         let mut bytes = [0_u8; 32];
         getrandom::fill(&mut bytes).map_err(|_| ServerError::Entropy)?;
         let token = bytes.iter().map(|b| format!("{b:02x}")).collect();
-        let backend = Arc::new(Backend::default());
         Ok(Self {
             backend: backend.clone(),
             app: Arc::new(App {
@@ -127,6 +134,9 @@ impl Server {
             .build()
             .map_err(|_| ServerError::Executor)?;
         self.backend.start().map_err(|_| ServerError::Executor)?;
+        self.backend
+            .sync_service()
+            .map_err(|_| ServerError::Executor)?;
         self.app.port.store(port as u64, Ordering::Release);
         let (ready, started) = mpsc::sync_channel(1);
         let (stop, stopped) = oneshot::channel();
@@ -136,6 +146,7 @@ impl Server {
             .name("float-view-loopback".into())
             .spawn(move || {
                 runtime.block_on(async move {
+                    app.backend.watch_service();
                     let listener = match TcpListener::from_std(listener) {
                         Ok(listener) => listener,
                         Err(_) => {

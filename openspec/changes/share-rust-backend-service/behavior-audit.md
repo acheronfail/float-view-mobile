@@ -211,3 +211,36 @@ Validation: 45 focused store/service tests and warnings-denied workspace lint
 passed. Eight archive tests cover exact 128-MiB import, malformed input, SQL
 rollback, startup cleanup, foreign leases, CSV fixtures, pruned location
 boundaries and recording during export. Native selection is unchanged.
+
+## Shared service and direct-host checkpoint
+
+The process constructor composes one runtime, one catalog and an independent
+maintenance executor. An exclusive OS file lock prevents a second process owner;
+worker, reader and presentation leases retain that lock until resources close.
+Listener creation borrows the existing owner. Direct dispatch and complete
+publication use shared product facts without a native operation exchange.
+
+Portable policy now owns discovery expiry/coalescing, saved/guest activation,
+reconnect and attempt deadlines, durable session continuity, location eligibility,
+configuration/control/Tune completion and correlated UI requests. Profile-change
+events allocate session event sequence numbers transactionally instead of reusing
+profile revisions, preserving telemetry events and the canonical schema.
+
+The closed OS exchange has 2,048 effect slots with 1,024 slots reserved for a
+runtime burst, eight effects per drain, a 1-MiB serialized bound and 8-KiB input
+notification bound. Fixed cleanup slots remain available under saturation.
+Request admission reserves revision capacity before mutation. Root locking,
+worker cancellation and five-second contended shutdown are covered by focused
+regressions. Existing store/kernel tests cover storage exhaustion, split commits,
+restart recovery, SQLite contention, stale/cancelled workers and ongoing recording.
+
+The test-only Rust host uses the production process constructor. Its TypeScript
+relay provides clocks, synthetic OS callbacks and conformance-owned protocol
+simulation; it contains no CRUD, SQL, archive, identity or reconnect policy.
+Canonical direct conformance passed at revision 532; mock passed at revision 31.
+The full locked Rust workspace tests (including C bounds and destruction),
+warnings-denied lint, TypeScript check, iOS device compilation and Android arm64
+compilation passed. Exact binding symbol audits include the new service calls in
+the existing families. Superseded calls remain temporarily used by the native
+hosts and will be removed at selection. Native production selection is unchanged
+at this checkpoint. Physical acceptance and final software gates remain pending.

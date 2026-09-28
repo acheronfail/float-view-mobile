@@ -154,7 +154,7 @@ fn symlinks_and_hardlinks_never_authorize_reset_or_catalog_access() {
 fn settings_validate_atomically_and_cas_across_connections() {
     let root = Root::new();
     let mut a = root.open();
-    let mut b = root.open();
+    assert!(matches!(ProductStore::open(&root.0), Err(Error::Busy)));
     let first=a.update_settings(0,r#"{"idleProbeIntervalMs":-1,"ridingPersistIntervalMs":100000,"historyGapThresholdSeconds":0.01}"#).unwrap();
     assert_eq!(
         (
@@ -165,7 +165,7 @@ fn settings_validate_atomically_and_cas_across_connections() {
         (100, 10_000, Some(0.1))
     );
     assert_eq!(
-        b.update_settings(0, "{}"),
+        a.update_settings(0, "{}"),
         Err(Error::Conflict { revision: 1 })
     );
     for invalid in [
@@ -190,6 +190,14 @@ fn settings_validate_atomically_and_cas_across_connections() {
             .unwrap()
             .revision,
         2
+    );
+    let external = Connection::open(root.0.join("catalog.sqlite")).unwrap();
+    external
+        .execute("UPDATE settings SET revision=3", [])
+        .unwrap();
+    assert_eq!(
+        a.update_settings(2, "{}"),
+        Err(Error::Conflict { revision: 3 })
     );
 }
 #[test]

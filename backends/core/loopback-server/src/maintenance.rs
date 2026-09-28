@@ -26,6 +26,15 @@ impl Backend {
         if !(1..=300).contains(&resolution) {
             return Err(Failure::InvalidRequest);
         }
+        if self.service.is_some() {
+            return self
+                .prune_service(
+                    session_id.as_deref().filter(|_| scope == "one"),
+                    resolution,
+                    preview,
+                )
+                .await;
+        }
         let kind = if preview { "prune_preview" } else { "prune" };
         let previous = match self.call(client, Operation::GetMaintenance).await? {
             Completion::Maintenance(job) => job,

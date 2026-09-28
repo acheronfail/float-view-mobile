@@ -254,9 +254,12 @@ impl BackendService {
             return Err(Error::Cancelled);
         }
         match completion.result? {
-            FileValue::Import(value) => Ok(FileResult::Imported(
-                self.store.attach_import(*value)?.session_id,
-            )),
+            FileValue::Import(value) => {
+                let id = self.store.attach_import(*value)?.session_id;
+                self.refresh_boards()?;
+                self.changed().map_err(|_| Error::Capacity)?;
+                Ok(FileResult::Imported(id))
+            }
             FileValue::Export(file) => {
                 let length = file.len()?;
                 let file_name = file
@@ -316,6 +319,21 @@ impl BackendService {
         transfer.deadline = now_ms.saturating_add(PRESENTATION_MS);
         Ok(path)
     }
+    pub fn present_file(&mut self, owner: u64, id: u64, file_name: &str) -> Result<()> {
+        if file_name.is_empty() || file_name.len() > 128 || file_name.contains(['/', '\\', '\0']) {
+            return Err(Error::InvalidInput);
+        }
+        self.policy.exchange.admit().map_err(|_| Error::Capacity)?;
+        let path = self.present_export(owner, id, self.policy.exchange.now)?;
+        self.policy
+            .exchange
+            .push(crate::os::Effect::PresentFile {
+                id,
+                path: path.to_str().ok_or(Error::UnsafePath)?.into(),
+                file_name: file_name.into(),
+            })
+            .map_err(|_| Error::Capacity)
+    }
     pub fn finish_presentation(&mut self, id: u64) -> Result<()> {
         if !self
             .files
@@ -370,9 +388,27 @@ impl BackendService {
             }
         });
     }
+    pub(crate) fn active_workers(&self) -> usize {
+        self.files.workers.load(Ordering::Acquire)
+    }
+    pub(crate) fn cancel_workers(&mut self) {
+        if let Some(worker) = &self.maintenance_worker {
+            worker.cancel();
+        }
+        for transfer in self.files.entries.values_mut() {
+            if let State::Working { cancel, .. } = &transfer.state {
+                cancel.cancel();
+                transfer.cancelled = true;
+            }
+        }
+    }
     pub fn next_maintenance_work(&mut self, at_ms: i64) -> Result<Option<MaintenanceJobWork>> {
         let permit = self.files.permit()?;
+        let previous = self.store.maintenance()?;
         let work = self.store.next_maintenance_work(at_ms)?;
+        if previous != self.store.maintenance()? {
+            self.changed().map_err(|_| Error::Capacity)?;
+        }
         self.maintenance_worker = work.as_ref().map(MaintenanceWork::cancellation);
         Ok(work.map(|work| MaintenanceJobWork { work, permit }))
     }
@@ -383,6 +419,8 @@ impl BackendService {
     ) -> Result<Maintenance> {
         let job = self.store.complete_maintenance_work(completion.work, at_ms);
         self.maintenance_worker = None;
+        self.refresh_boards()?;
+        self.changed().map_err(|_| Error::Capacity)?;
         job
     }
 }

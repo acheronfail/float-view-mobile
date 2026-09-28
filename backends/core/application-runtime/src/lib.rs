@@ -44,6 +44,12 @@ pub enum Command {
         metadata: SessionMetadata,
     },
     AppendLocations(Vec<LocationObservation>),
+    ProfileChanged {
+        saved_device_id: String,
+        revision: u64,
+        values_json: String,
+        at_ms: i64,
+    },
     DetachSession,
 }
 
@@ -197,6 +203,25 @@ impl ApplicationRuntime {
                 metadata,
             } => self.attach_session(&path, mode, metadata),
             Command::AppendLocations(locations) => self.append_locations(&locations),
+            Command::ProfileChanged {
+                saved_device_id,
+                revision,
+                values_json,
+                at_ms,
+            } => {
+                let writer = self
+                    .session
+                    .as_mut()
+                    .ok_or(RuntimeError::SessionNotAttached)?;
+                let marker = writer.append_profile_change(
+                    &saved_device_id,
+                    revision,
+                    &values_json,
+                    at_ms,
+                )?;
+                self.session_marker = Some(marker.clone());
+                Ok(vec![Effect::PublishSessionMarker(marker)])
+            }
             Command::DetachSession => self.detach_session(),
         }
     }
@@ -584,6 +609,50 @@ mod tests {
             1
         );
         reader.close().expect("close reader");
+    }
+
+    #[test]
+    fn profile_events_allocate_session_sequences_without_overwriting_telemetry() {
+        let directory = tempfile_directory("profile-events");
+        let mut runtime = ApplicationRuntime::new();
+        runtime
+            .apply(Command::AttachSession {
+                path: directory.join("session.sqlite"),
+                mode: SessionMode::Create,
+                metadata: session_metadata(),
+            })
+            .unwrap();
+        runtime
+            .translate(vec![CoordinatorEffect::PublishTelemetry(Box::new(sample(
+                1,
+            )))])
+            .unwrap();
+        let before = runtime.snapshot().session_marker.unwrap();
+        for revision in [1, 2] {
+            runtime
+                .apply(Command::ProfileChanged {
+                    saved_device_id: "board".into(),
+                    revision,
+                    values_json: "{}".into(),
+                    at_ms: 1_700_000_000_002,
+                })
+                .unwrap();
+        }
+        let after = runtime.snapshot().session_marker.unwrap();
+        assert_eq!(
+            after.committed_event_count,
+            before.committed_event_count + 2
+        );
+        assert_eq!(
+            after.committed_event_sequence,
+            before.committed_event_sequence + 2
+        );
+        assert_eq!(
+            after.committed_sample_sequence,
+            before.committed_sample_sequence
+        );
+        runtime.apply(Command::DetachSession).unwrap();
+        std::fs::remove_dir_all(directory).unwrap();
     }
 
     #[test]

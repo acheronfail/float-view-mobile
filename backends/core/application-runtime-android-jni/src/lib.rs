@@ -157,6 +157,142 @@ pub unsafe extern "system" fn Java_fail_acheron_floatview_application_RustApplic
     })
 }
 
+/// Exchanges a bounded process-service value.
+/// # Safety
+/// The JVM supplies call-local primitive arrays and environment references.
+#[unsafe(no_mangle)]
+pub unsafe extern "system" fn Java_fail_acheron_floatview_application_RustApplicationRuntime_serviceApply(
+    env: *mut JNIEnv,
+    _receiver: jobject,
+    handle: jlong,
+    command: jbyteArray,
+    required: jintArray,
+) -> jint {
+    contain(STATUS_INTERNAL, || unsafe {
+        with_environment(env, |environment| {
+            environment.require_references(&[command.cast(), required.cast()])?;
+            environment.require_distinct(command.cast(), required.cast())?;
+            environment.require_length(required.cast(), 1)?;
+            let bytes = environment.read_bytes(command, host::MAX_COMMAND_BYTES)?;
+            environment.write_int(required, 0)?;
+            match host::service::apply(handle as u64, &bytes) {
+                Ok(length) => {
+                    let length = jint::try_from(length).map_err(|_| ())?;
+                    environment.write_int(required, length)?;
+                    Ok(host::Status::Ok as jint)
+                }
+                Err(error) => Ok(error as jint),
+            }
+        })
+        .unwrap_or(STATUS_INVALID_ARGUMENT)
+    })
+}
+
+/// Exchanges a bounded process-service value.
+/// # Safety
+/// The JVM supplies call-local primitive arrays and environment references.
+#[unsafe(no_mangle)]
+pub unsafe extern "system" fn Java_fail_acheron_floatview_application_RustApplicationRuntime_serviceCopyResult(
+    env: *mut JNIEnv,
+    _receiver: jobject,
+    handle: jlong,
+    output: jbyteArray,
+    written: jintArray,
+) -> jint {
+    contain(STATUS_INTERNAL, || unsafe {
+        with_environment(env, |environment| {
+            environment.require_references(&[output.cast(), written.cast()])?;
+            environment.require_distinct(output.cast(), written.cast())?;
+            environment.require_length(written.cast(), 1)?;
+            let capacity = environment.length(output.cast())?;
+            if capacity > host::MAX_RESULT_BYTES {
+                return Err(());
+            }
+            environment.write_int(written, 0)?;
+            let mut bytes = vec![0_u8; capacity];
+            match host::service::copy_result(handle as u64, &mut bytes) {
+                Ok(length) => {
+                    environment.write_bytes(output, &bytes[..length])?;
+                    environment.write_int(written, jint::try_from(length).map_err(|_| ())?)?;
+                    Ok(host::Status::Ok as jint)
+                }
+                Err((error, length)) => {
+                    environment.write_int(written, jint::try_from(length).map_err(|_| ())?)?;
+                    Ok(error as jint)
+                }
+            }
+        })
+        .unwrap_or(STATUS_INVALID_ARGUMENT)
+    })
+}
+
+/// Exchanges a bounded process-service value.
+/// # Safety
+/// The JVM supplies call-local primitive arrays and environment references.
+#[unsafe(no_mangle)]
+pub unsafe extern "system" fn Java_fail_acheron_floatview_application_RustApplicationRuntime_serviceDestroy(
+    env: *mut JNIEnv,
+    _receiver: jobject,
+    handle: jlong,
+) -> jint {
+    contain(STATUS_INTERNAL, || unsafe {
+        with_environment(env, |environment| {
+            environment.ensure_no_exception()?;
+            Ok(host::service::destroy(handle as u64) as jint)
+        })
+        .unwrap_or(STATUS_INVALID_ARGUMENT)
+    })
+}
+
+/// Creates a process service from a prepared root.
+/// # Safety
+/// Root is a JVM-supplied byte array and env is call-local.
+#[unsafe(no_mangle)]
+pub unsafe extern "system" fn Java_fail_acheron_floatview_application_RustApplicationRuntime_serviceCreate(
+    env: *mut JNIEnv,
+    _receiver: jobject,
+    root: jbyteArray,
+) -> jlong {
+    contain(0, || unsafe {
+        with_environment(env, |environment| {
+            environment.ensure_no_exception()?;
+            {
+                let bytes = environment.read_bytes(root, 4096)?;
+                host::service::create(&bytes)
+                    .map(|handle| handle as jlong)
+                    .map_err(|_| ())
+            }
+        })
+        .unwrap_or(0)
+    })
+}
+
+/// Creates a listener that borrows the process service.
+/// # Safety
+/// Arrays and env are JVM-supplied call-local values.
+#[unsafe(no_mangle)]
+pub unsafe extern "system" fn Java_fail_acheron_floatview_application_RustApplicationRuntime_serviceServerCreate(
+    env: *mut JNIEnv,
+    _receiver: jobject,
+    service: jlong,
+    platform: jint,
+    html: jbyteArray,
+) -> jlong {
+    contain(0, || unsafe {
+        with_environment(env, |e| {
+            e.require_references(&[html.cast()])?;
+            let bytes = e.read_bytes(html, 8 * 1024 * 1024)?;
+            server_host::create_shared(
+                platform as u32,
+                &bytes,
+                host::service::owner(service as u64).map_err(|_| ())?,
+            )
+            .map(|id| id as jlong)
+            .map_err(|_| ())
+        })
+        .unwrap_or(0)
+    })
+}
 fn contain<T>(fallback: T, operation: impl FnOnce() -> T) -> T {
     catch_unwind(AssertUnwindSafe(operation)).unwrap_or(fallback)
 }

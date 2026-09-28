@@ -17,6 +17,7 @@ impl Drop for Cancel {
 }
 async fn run<T: Send + 'static>(
     source: SessionSource,
+    lease: Option<float_view_backend_service::SessionLease>,
     permit: Arc<tokio::sync::OwnedSemaphorePermit>,
     operation: impl FnOnce(&mut SessionReader, SessionMetadata) -> Result<T, Failure> + Send + 'static,
 ) -> Result<T, Failure> {
@@ -27,6 +28,7 @@ async fn run<T: Send + 'static>(
     let _guard = Cancel(cancelled.clone());
     tokio::task::spawn_blocking(move || {
         let _permit = permit;
+        let _lease = lease;
         let mut reader = SessionReader::open_cancellable(&source.path, cancelled)
             .map_err(|_| Failure::Unavailable)?;
         let metadata = reader.metadata().map_err(|_| Failure::Unavailable)?;
@@ -60,16 +62,18 @@ async fn run<T: Send + 'static>(
 }
 pub async fn metadata(
     source: SessionSource,
+    lease: Option<float_view_backend_service::SessionLease>,
     permit: Arc<tokio::sync::OwnedSemaphorePermit>,
 ) -> Result<SessionMetadata, Failure> {
-    run(source, permit, |_, metadata| Ok(metadata)).await
+    run(source, lease, permit, |_, metadata| Ok(metadata)).await
 }
 pub async fn read(
     source: SessionSource,
+    lease: Option<float_view_backend_service::SessionLease>,
     query: HistoryQuery,
     permit: Arc<tokio::sync::OwnedSemaphorePermit>,
 ) -> Result<(SessionMetadata, HistoryResult, bool), Failure> {
-    run(source, permit, move |reader, metadata| {
+    run(source, lease, permit, move |reader, metadata| {
         if query.fields.iter().any(|field| {
             !projection::NUMERIC_FIELDS.contains(&field.as_str())
                 && !metadata.extension_fields.contains(field)

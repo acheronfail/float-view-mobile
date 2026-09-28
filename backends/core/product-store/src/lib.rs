@@ -23,7 +23,7 @@ pub use lifecycle::SessionLease;
 mod settings;
 pub use sessions::{Session, SessionPage};
 mod tunes;
-pub use boards::{Board, Profile, RoutingHint, board_identity};
+pub use boards::{Board, BoardHistory, Profile, RoutingHint, board_identity};
 pub use cache::SchemaIdentity;
 pub use settings::Settings;
 pub use tunes::{Tune, TuneIdentity, TunePage, TuneValue, TuneValues, validate_tune_values};
@@ -77,6 +77,7 @@ pub type Result<T> = std::result::Result<T, Error>;
 /// One ordered catalog owner. Long session operations use independent readers.
 pub struct ProductStore {
     root: PathBuf,
+    root_lock: std::sync::Arc<std::fs::File>,
     catalog: Connection,
     catalog_revision: u64,
     cursor_epoch: String,
@@ -85,7 +86,7 @@ pub struct ProductStore {
 }
 impl ProductStore {
     pub fn open(root: &Path) -> Result<Self> {
-        let root = root::prepare(root)?;
+        let (root, root_lock) = root::prepare(root)?;
         let fresh = !root.join("catalog.sqlite").try_exists()?;
         let catalog = Connection::open(root.join("catalog.sqlite"))?;
         catalog.busy_timeout(std::time::Duration::from_millis(limits::SQLITE_BUSY_MS))?;
@@ -96,6 +97,7 @@ impl ProductStore {
         root::validate_catalog(&catalog, false)?;
         let mut store = Self {
             root,
+            root_lock,
             catalog,
             catalog_revision: 0,
             cursor_epoch: identifier()?,

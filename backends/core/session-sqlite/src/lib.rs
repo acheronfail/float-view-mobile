@@ -399,6 +399,46 @@ impl SessionWriter {
         self.marker()
     }
 
+    /// Append a product event through the sole session writer. Profile revisions
+    /// are payload, never event sequence IDs (which would overwrite telemetry).
+    pub fn append_profile_change(
+        &mut self,
+        saved_device_id: &str,
+        revision: u64,
+        values_json: &str,
+        at_ms: i64,
+    ) -> Result<CommitMarker, WriterError> {
+        if saved_device_id.is_empty()
+            || saved_device_id.len() > 128
+            || saved_device_id.contains('\0')
+            || values_json.len() > 16_384
+            || at_ms < 0
+        {
+            return Err(WriterError::InvalidInput);
+        }
+        sqlite_integer(revision)?;
+        let values: serde_json::Map<String, serde_json::Value> =
+            serde_json::from_str(values_json).map_err(|_| WriterError::InvalidInput)?;
+        let details=serde_json::to_string(&serde_json::json!({"savedDeviceId":saved_device_id,"revision":revision,"values":values})).map_err(|_|WriterError::InvalidInput)?;
+        let tx = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(map_sqlite)?;
+        let marker = read_marker(&tx)?;
+        let sequence = marker
+            .committed_event_sequence
+            .checked_add(1)
+            .ok_or(WriterError::InvalidInput)?;
+        let count = marker
+            .committed_event_count
+            .checked_add(1)
+            .ok_or(WriterError::InvalidInput)?;
+        tx.execute("INSERT INTO session_event(sequence,observed_at_ms,monotonic_elapsed_ms,kind,details_json) VALUES (?,?,?,'board_profile_changed',?)",params![sqlite_integer(sequence)?,at_ms,sqlite_integer(marker.committed_elapsed_ms)?,details]).map_err(map_sqlite)?;
+        tx.execute("UPDATE commit_marker SET committed_event_sequence=?,committed_event_count=?,committed_at_ms=? WHERE singleton=1",params![sqlite_integer(sequence)?,sqlite_integer(count)?,at_ms]).map_err(map_sqlite)?;
+        tx.commit().map_err(map_sqlite)?;
+        self.marker()
+    }
+
     pub fn append_locations(
         &mut self,
         observations: &[LocationObservation],

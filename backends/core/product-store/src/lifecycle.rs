@@ -22,6 +22,7 @@ pub struct SessionLease {
     id: String,
     path: PathBuf,
     leases: Leases,
+    _root_lock: std::sync::Arc<std::fs::File>,
 }
 impl SessionLease {
     pub fn path(&self) -> &std::path::Path {
@@ -60,6 +61,7 @@ impl ProductStore {
             id: id.into(),
             path,
             leases: self.leases.clone(),
+            _root_lock: self.root_lock.clone(),
         })
     }
     /// Call after the runtime has detached/checkpointed its writer.

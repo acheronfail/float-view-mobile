@@ -499,7 +499,12 @@ impl Backend {
                     .try_acquire_owned()
                     .map_err(|_| Failure::Unavailable)?;
                 Ok(projection::metadata(
-                    &crate::reading::metadata(f, std::sync::Arc::new(permit)).await?,
+                    &crate::reading::metadata(
+                        f.clone(),
+                        self.service_lease(&f.summary.session_id)?,
+                        std::sync::Arc::new(permit),
+                    )
+                    .await?,
                 ))
             }
             Completion::Export {

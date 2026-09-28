@@ -1,5 +1,7 @@
 //! Safe platform-neutral host envelope for the unified application runtime.
 
+pub mod service;
+
 use std::collections::BTreeMap;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::path::PathBuf;

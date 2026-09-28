@@ -1,3 +1,4 @@
+import { directTarget } from '../targets/direct.ts';
 import { runConformance } from './suite.ts';
 import { externalTarget } from '../targets/external.ts';
 import { mockTarget } from '../targets/mock.ts';
@@ -30,15 +31,17 @@ if (name === 'physical') {
   process.exit(0);
 }
 const target =
-  name === 'mock'
-    ? mockTarget
-    : name === 'macos'
-      ? macosTarget
-      : name === 'ios'
-        ? iosTarget
-        : name === 'android'
-          ? androidTarget
-          : externalTarget(name, `FLOAT_VIEW_${name.toUpperCase()}_WS_URL`);
+  name === 'direct'
+    ? directTarget
+    : name === 'mock'
+      ? mockTarget
+      : name === 'macos'
+        ? macosTarget
+        : name === 'ios'
+          ? iosTarget
+          : name === 'android'
+            ? androidTarget
+            : externalTarget(name, `FLOAT_VIEW_${name.toUpperCase()}_WS_URL`);
 const result = await runConformance(target);
 console.log(`Conformance passed: ${result.target} revision=${result.revision}`);
 

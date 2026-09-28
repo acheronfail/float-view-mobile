@@ -159,7 +159,8 @@ impl Backend {
                 None
             },
         };
-        let (metadata, result, more) = crate::reading::read(source, query, permit).await?;
+        let (metadata, result, more) =
+            crate::reading::read(source, self.service_lease(&id)?, query, permit).await?;
         let mut response = json!({"kind":kind,"sessionId":id,"snapshot":request["snapshot"],"range":request["range"]});
         let make_cursor = |elapsed: u64, sequence: u64| -> Result<String, Failure> {
             let encoded = cursor(

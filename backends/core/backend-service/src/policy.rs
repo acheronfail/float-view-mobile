@@ -1,0 +1,1514 @@
+//! Portable discovery, connection, recording and location policy.
+use crate::{
+    BackendService,
+    operations::Failure,
+    os::{self, Effect, Fact, LinkState, Permission, Radio},
+};
+use float_view_application_runtime::{
+    Command, Effect as RuntimeEffect, SessionMode, coordinator as c, session, telemetry,
+};
+use float_view_product_store::{Board, SchemaIdentity, Session, Settings};
+use std::collections::{BTreeMap, VecDeque};
+
+#[derive(Clone)]
+pub(crate) struct Device {
+    pub id: String,
+    pub name: Option<String>,
+    pub rssi: Option<i32>,
+    pub seen: u64,
+    pub epoch: i64,
+}
+pub(crate) struct Connection {
+    pub device: Device,
+    pub saved: bool,
+    pub generation: u64,
+    pub state: LinkState,
+    pub board: Option<Board>,
+    pub session: Option<Session>,
+    pub continuity: c::discovery::Continuity,
+    pub package_version: Option<String>,
+    pub latest: Option<telemetry::NormalizedSample>,
+    pub bms: Option<c::bms::BmsObservation>,
+    pub reconnect_started: Option<u64>,
+    pub reconnect_attempt: u32,
+    pub selected_can_id: Option<u8>,
+}
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Timer {
+    Deadline(c::scheduler::DeadlineToken),
+    Kernel(c::TimerToken),
+    Reconnect,
+    Discovery,
+    Request(u64),
+    ReconnectLimit,
+    ConnectionAttempt,
+}
+pub(crate) struct TimerEntry {
+    pub kind: Timer,
+    pub generation: c::Generation,
+    pub repeat: Option<u64>,
+    pub due: u64,
+}
+pub(crate) struct Capture {
+    pub id: u64,
+    pub start: u64,
+    pub elapsed: u64,
+}
+pub(crate) struct Policy {
+    pub exchange: os::Exchange,
+    pub settings: Settings,
+    pub radio: Radio,
+    pub scan_permission: Permission,
+    pub connect_permission: Permission,
+    pub devices: BTreeMap<String, Device>,
+    pub visible_devices: BTreeMap<String, Device>,
+    pub scan: Option<(u64, u64)>,
+    pub active: Option<Connection>,
+    pub timers: BTreeMap<u64, TimerEntry>,
+    pub location_authorization: os::LocationAuthorization,
+    pub location_background: bool,
+    pub foreground: bool,
+    pub capture: Option<Capture>,
+    pub latest_location: Option<crate::facts::LiveLocation>,
+    pub available_bytes: u64,
+    pub revision: u64,
+    pub boards: Vec<crate::facts::SavedBoard>,
+    host_status: Option<(bool, bool, String, Option<String>)>,
+}
+impl Policy {
+    pub fn new(settings: Settings) -> Self {
+        Self {
+            exchange: os::Exchange::default(),
+            settings,
+            radio: Radio::Unknown,
+            scan_permission: Permission::Unknown,
+            connect_permission: Permission::Unknown,
+            devices: BTreeMap::new(),
+            visible_devices: BTreeMap::new(),
+            scan: None,
+            active: None,
+            timers: BTreeMap::new(),
+            location_authorization: os::LocationAuthorization::NotDetermined,
+            location_background: false,
+            foreground: true,
+            capture: None,
+            latest_location: None,
+            available_bytes: 0,
+            revision: 0,
+            boards: Vec::new(),
+            host_status: None,
+        }
+    }
+}
+fn allowed(p: Permission) -> bool {
+    matches!(p, Permission::Granted | Permission::NotRequired)
+}
+fn checked_device(id: &str, name: Option<&str>) -> Result<(), Failure> {
+    if id.is_empty()
+        || id.len() > 128
+        || id.contains('\0')
+        || name.is_some_and(|s| s.len() > 128 || s.contains('\0'))
+    {
+        Err(Failure::InvalidRequest)
+    } else {
+        Ok(())
+    }
+}
+impl BackendService {
+    pub fn lifetime(&self) -> u64 {
+        self.policy.exchange.lifetime
+    }
+    pub fn drain_os(&mut self) -> os::Drain {
+        self.policy.exchange.drain()
+    }
+    pub fn apply_os_json(&mut self, bytes: &[u8]) -> Result<(), Failure> {
+        if bytes.len() > os::MAX_ENVELOPE_BYTES {
+            return Err(Failure::InvalidRequest);
+        }
+        let envelope = serde_json::from_slice(bytes).map_err(|_| Failure::InvalidRequest)?;
+        self.apply_os(envelope)
+    }
+    pub fn apply_os(&mut self, envelope: os::Envelope) -> Result<(), Failure> {
+        if self.stopping {
+            return Err(Failure::Unavailable);
+        }
+        self.admit_revision()?;
+        let e = &self.policy.exchange;
+        if envelope.lifetime != e.lifetime || envelope.sequence <= e.sequence {
+            return Err(Failure::InvalidState);
+        }
+        if envelope.monotonic_ms < e.now
+            || envelope.monotonic_ms > 9_007_199_254_740_991
+            || envelope.sequence > 9_007_199_254_740_991
+            || envelope.epoch_ms < 0
+            || envelope.epoch_ms > 253_402_300_799_999
+        {
+            return Err(Failure::InvalidRequest);
+        }
+        match &envelope.fact {
+            Fact::Discovered {
+                device_id, name, ..
+            } => checked_device(device_id, name.as_deref())?,
+            Fact::Bytes { bytes, .. } if bytes.len() > 8_192 => {
+                return Err(Failure::InvalidRequest);
+            }
+            Fact::Location {
+                latitude,
+                longitude,
+                accuracy_m,
+                observed_at_ms,
+                ..
+            } if !latitude.is_finite()
+                || !longitude.is_finite()
+                || latitude.abs() > 90.
+                || longitude.abs() > 180.
+                || accuracy_m.is_some_and(|v| !v.is_finite() || v < 0.)
+                || *observed_at_ms < 0 =>
+            {
+                return Err(Failure::InvalidRequest);
+            }
+            _ => {}
+        }
+        if !matches!(
+            envelope.fact,
+            Fact::UiCompleted { .. }
+                | Fact::Foreground { foreground: false }
+                | Fact::Bluetooth {
+                    radio: Radio::PoweredOff,
+                    ..
+                }
+                | Fact::Link {
+                    state: LinkState::Disconnected | LinkState::Failed,
+                    ..
+                }
+        ) {
+            self.policy.exchange.admit()?;
+        }
+        self.policy.exchange.sequence = envelope.sequence;
+        self.policy.exchange.now = envelope.monotonic_ms;
+        self.policy.exchange.epoch = envelope.epoch_ms;
+        let discovery_only = matches!(envelope.fact, Fact::Discovered { .. } | Fact::Clock {});
+        let first_discovery = matches!(envelope.fact, Fact::Discovered { .. })
+            && self.policy.visible_devices.is_empty();
+        match envelope.fact {
+            Fact::Clock {} => {}
+            Fact::Bluetooth {
+                radio,
+                scan,
+                connect,
+            } => {
+                self.policy.radio = radio;
+                self.policy.scan_permission = scan;
+                self.policy.connect_permission = connect;
+                if radio != Radio::PoweredOn || !allowed(scan) {
+                    self.stop_scan();
+                }
+                if self.policy.active.is_some() {
+                    if !allowed(connect) {
+                        self.disconnect("permission_denied")?;
+                    } else if radio != Radio::PoweredOn {
+                        self.reconnect()?;
+                    }
+                }
+            }
+            Fact::Discovered {
+                scan_id,
+                device_id,
+                name,
+                rssi,
+            } => {
+                if self.policy.scan.is_some_and(|s| s.0 == scan_id) {
+                    self.expire_discovery();
+                    if !self.policy.devices.contains_key(&device_id)
+                        && self.policy.devices.len() >= 50
+                    {
+                        let oldest = self
+                            .policy
+                            .devices
+                            .values()
+                            .min_by_key(|d| (d.seen, d.rssi.unwrap_or(-127)))
+                            .map(|d| d.id.clone());
+                        if let Some(id) = oldest {
+                            self.policy.devices.remove(&id);
+                        }
+                    }
+                    self.policy.devices.insert(
+                        device_id.clone(),
+                        Device {
+                            id: device_id,
+                            name,
+                            rssi,
+                            seen: envelope.monotonic_ms,
+                            epoch: envelope.epoch_ms,
+                        },
+                    );
+                }
+            }
+            Fact::Link { generation, state } => {
+                if self
+                    .policy
+                    .active
+                    .as_ref()
+                    .is_some_and(|a| a.generation == generation)
+                {
+                    match state {
+                        LinkState::Disconnected | LinkState::Failed => self.reconnect()?,
+                        LinkState::Ready => {
+                            if self
+                                .policy
+                                .active
+                                .as_ref()
+                                .is_some_and(|a| a.state != LinkState::Ready)
+                            {
+                                self.policy.active.as_mut().unwrap().state = state;
+                                self.begin_runtime()?;
+                            }
+                        }
+                        _ => self.policy.active.as_mut().unwrap().state = state,
+                    }
+                }
+            }
+            Fact::Bytes { generation, bytes } => {
+                if self
+                    .policy
+                    .active
+                    .as_ref()
+                    .is_some_and(|a| a.generation == generation && a.state == LinkState::Ready)
+                {
+                    if self
+                        .policy
+                        .active
+                        .as_ref()
+                        .is_some_and(|a| a.session.is_some())
+                        && self.policy.available_bytes < 262_144_000
+                    {
+                        self.disconnect("storage_full")?;
+                    } else {
+                        let generation = self.runtime.snapshot().application.generation;
+                        self.runtime_command(Command::ReceiveBytes {
+                            generation,
+                            bytes,
+                            now_ms: envelope.monotonic_ms,
+                            observed_at_epoch_ms: envelope.epoch_ms,
+                        })?;
+                    }
+                }
+            }
+            Fact::Timer { id } => self.fire_timer(id)?,
+            Fact::LocationCapability {
+                authorization,
+                background,
+            } => {
+                self.policy.location_authorization = authorization;
+                self.policy.location_background = background;
+            }
+            Fact::Foreground { foreground } => self.policy.foreground = foreground,
+            Fact::Storage { available_bytes } => self.policy.available_bytes = available_bytes,
+            Fact::Location {
+                capture_id,
+                latitude,
+                longitude,
+                accuracy_m,
+                observed_at_ms,
+            } => {
+                if let Some(capture) = self.policy.capture.as_ref().filter(|c| c.id == capture_id) {
+                    let elapsed_ms = capture
+                        .elapsed
+                        .saturating_add(envelope.monotonic_ms.saturating_sub(capture.start));
+                    self.runtime_command(Command::AppendLocations(vec![
+                        session::LocationObservation {
+                            observed_at_epoch_ms: observed_at_ms,
+                            elapsed_ms,
+                            latitude,
+                            longitude,
+                            accuracy_m,
+                        },
+                    ]))?;
+                    self.policy.latest_location = Some(crate::facts::LiveLocation {
+                        latitude,
+                        longitude,
+                        accuracy_m,
+                        observed_at: crate::projection::date(observed_at_ms),
+                    });
+                }
+            }
+            Fact::PresentationFinished { id } => {
+                let _ = self.finish_presentation(id);
+            }
+            Fact::UiCompleted { id, success } => self.complete_ui(id, success),
+        }
+        self.location_eligibility()?;
+        if first_discovery {
+            self.policy.visible_devices = self.policy.devices.clone();
+        }
+        if !discovery_only || first_discovery {
+            self.changed()?;
+        }
+        Ok(())
+    }
+    pub(crate) fn admit_revision(&self) -> Result<(), Failure> {
+        // Leave a fixed reserve for accepted work and mandatory shutdown cleanup.
+        if self.policy.revision >= 9_007_199_254_740_991 - 65_536 {
+            Err(Failure::Unavailable)
+        } else {
+            Ok(())
+        }
+    }
+    pub(crate) fn changed(&mut self) -> Result<(), Failure> {
+        let status = (
+            self.policy.active.is_some(),
+            self.policy
+                .active
+                .as_ref()
+                .is_some_and(|a| a.session.is_some()),
+            self.policy.settings.theme_preference.clone(),
+            self.policy.active.as_ref().map(|a| {
+                a.board
+                    .as_ref()
+                    .map(|b| b.display_name().to_owned())
+                    .or(a.device.name.clone())
+                    .unwrap_or_else(|| a.device.id.clone())
+            }),
+        );
+        if self.policy.host_status.as_ref() != Some(&status) {
+            self.policy.exchange.status = Some(Effect::HostState {
+                connected: status.0,
+                recording: status.1,
+                theme_preference: status.2.clone(),
+                display_name: status.3.clone(),
+            });
+            self.policy.host_status = Some(status);
+        }
+
+        self.policy.revision = self
+            .policy
+            .revision
+            .checked_add(1)
+            .filter(|v| *v <= 9_007_199_254_740_991)
+            .ok_or(Failure::Unavailable)?;
+        self.notifications.send_replace(self.policy.revision);
+        Ok(())
+    }
+    pub fn start_scan(&mut self, timeout_ms: u32) -> Result<u64, Failure> {
+        self.admit_revision()?;
+        if !(1..=60_000).contains(&timeout_ms) {
+            return Err(Failure::InvalidRequest);
+        }
+        if self.policy.radio != Radio::PoweredOn {
+            return Err(Failure::Unavailable);
+        }
+        if !allowed(self.policy.scan_permission) {
+            return Err(Failure::PermissionRequired);
+        }
+        if let Some((id, _)) = self.policy.scan {
+            return Ok(id);
+        }
+        self.policy.exchange.admit()?;
+        let id = self.policy.exchange.id()?;
+        self.policy.scan = Some((id, self.policy.exchange.now + u64::from(timeout_ms)));
+        self.policy.exchange.push(Effect::Scan { scan_id: id })?;
+        self.arm_timer(Timer::Discovery, 250, Some(250))?;
+        self.changed()?;
+        Ok(id)
+    }
+    fn stop_scan(&mut self) {
+        if self.policy.scan.take().is_some() {
+            self.policy.exchange.request_stop_scan();
+        }
+    }
+    fn expire_discovery(&mut self) {
+        let now = self.policy.exchange.now;
+        self.policy
+            .devices
+            .retain(|_, d| now.saturating_sub(d.seen) < 120_000);
+    }
+    pub fn connect(&mut self, id: &str, saved: bool) -> Result<(), Failure> {
+        self.admit_revision()?;
+        checked_device(id, None)?;
+        self.policy.exchange.admit()?;
+        if let Some(active) = &self.policy.active {
+            if active.device.id != id
+                || self.runtime.snapshot().application.phase != c::Phase::Failed
+            {
+                return Err(Failure::InvalidState);
+            }
+            self.disconnect("replaced_failed_connection")?;
+        }
+        if self.policy.radio != Radio::PoweredOn {
+            return Err(Failure::Unavailable);
+        }
+        if !allowed(self.policy.connect_permission) {
+            return Err(Failure::PermissionRequired);
+        }
+        let device = self.policy.devices.get(id).ok_or(Failure::NotFound)?;
+        let device = Device {
+            id: device.id.clone(),
+            name: device.name.clone(),
+            rssi: device.rssi,
+            seen: device.seen,
+            epoch: device.epoch,
+        };
+        let board = if saved {
+            self.store
+                .boards()
+                .map_err(crate::store_failure)?
+                .into_iter()
+                .find(|b| b.local_identifier.as_deref() == Some(id))
+        } else {
+            None
+        };
+        self.stop_scan();
+        let generation = self.policy.exchange.id()?;
+        self.policy.active = Some(Connection {
+            device,
+            saved,
+            generation,
+            state: LinkState::Connecting,
+            board,
+            session: None,
+            continuity: c::discovery::Continuity::default(),
+            package_version: None,
+            latest: None,
+            bms: None,
+            reconnect_started: None,
+            reconnect_attempt: 0,
+            selected_can_id: None,
+        });
+        self.policy.exchange.push(Effect::Connect {
+            generation,
+            device_id: id.into(),
+        })?;
+        self.arm_timer(Timer::ConnectionAttempt, 10_000, None)?;
+        self.changed()
+    }
+    fn begin_runtime(&mut self) -> Result<(), Failure> {
+        let a = self.policy.active.as_ref().ok_or(Failure::InvalidState)?;
+        let profile = a
+            .board
+            .as_ref()
+            .map(|b| self.store.profile(&b.saved_device_id))
+            .transpose()
+            .map_err(crate::store_failure)?;
+        let hint = a
+            .board
+            .as_ref()
+            .map(|b| self.store.routing_hint(&b.saved_device_id))
+            .transpose()
+            .map_err(crate::store_failure)?
+            .flatten();
+        let preference = |key: &str| {
+            profile
+                .as_ref()
+                .and_then(|p| p.values.get(key))
+                .and_then(|v| v.as_u64())
+                .and_then(|v| u8::try_from(v).ok())
+        };
+        self.runtime_command(Command::Application(c::Command::Begin(c::BeginFacts {
+            now_ms: self.policy.exchange.now,
+            settings: telemetry::Settings::new(
+                self.policy.settings.idle_probe_interval_ms,
+                self.policy.settings.post_ride_tail_ms,
+            )
+            .map_err(|_| Failure::InvalidRequest)?,
+            preferred_controller_can_id: preference("preferredCanId"),
+            preferred_bms_can_id: preference("preferredBmsCanId"),
+            routing_hint: hint.and_then(|h| {
+                h.controller_uuid
+                    .and_then(|uuid| c::discovery::RoutingHint::new(h.can_id, uuid).ok())
+            }),
+            continuity: a.continuity,
+        })))
+    }
+    pub fn disconnect(&mut self, reason: &str) -> Result<(), Failure> {
+        self.fail_kernel_requests();
+        let Some(a) = self.policy.active.as_ref() else {
+            return Ok(());
+        };
+        let generation = a.generation;
+        self.policy.exchange.clear_connection(generation);
+        self.policy
+            .timers
+            .retain(|_, t| matches!(t.kind, Timer::Request(_) | Timer::Discovery));
+        self.policy.capture = None;
+        if self.runtime.snapshot().session_attached {
+            self.runtime
+                .apply(Command::DetachSession)
+                .map_err(|_| Failure::Internal)?;
+        }
+        if let Some(session) = self.policy.active.as_ref().and_then(|a| a.session.as_ref()) {
+            self.store
+                .close_session(&session.session_id, self.policy.exchange.epoch, reason)
+                .map_err(crate::store_failure)?;
+        }
+        self.runtime
+            .apply(Command::Application(c::Command::Reset {
+                now_ms: self.policy.exchange.now,
+            }))
+            .map_err(|_| Failure::Internal)?;
+        self.policy.active = None;
+        self.policy.latest_location = None;
+        self.refresh_boards().map_err(crate::store_failure)?;
+        self.changed()
+    }
+    fn reconnect(&mut self) -> Result<(), Failure> {
+        self.fail_kernel_requests();
+        let Some(a) = self.policy.active.as_mut() else {
+            return Ok(());
+        };
+        if a.reconnect_started.is_none() {
+            a.reconnect_started = Some(self.policy.exchange.now);
+        }
+        let elapsed = self
+            .policy
+            .exchange
+            .now
+            .saturating_sub(a.reconnect_started.unwrap());
+        if elapsed >= self.policy.settings.reconnect_duration_ms {
+            return self.disconnect("reconnect_timeout");
+        }
+        a.state = LinkState::Disconnected;
+        self.policy.exchange.clear_connection(a.generation);
+        self.policy
+            .timers
+            .retain(|_, t| matches!(t.kind, Timer::Request(_) | Timer::Discovery));
+        self.policy.capture = None;
+        let delay = (1_000u64 << a.reconnect_attempt.min(5))
+            .min(30_000)
+            .min(self.policy.settings.reconnect_duration_ms - elapsed);
+        self.arm_timer(Timer::Reconnect, delay, None)?;
+        self.arm_timer(
+            Timer::ReconnectLimit,
+            self.policy.settings.reconnect_duration_ms - elapsed,
+            None,
+        )
+    }
+    pub(crate) fn arm_timer(
+        &mut self,
+        kind: Timer,
+        delay_ms: u64,
+        repeat: Option<u64>,
+    ) -> Result<(), Failure> {
+        self.cancel_timer(kind);
+        if self.policy.timers.len() >= 2_048 {
+            return Err(Failure::Unavailable);
+        }
+        let id = self.policy.exchange.id()?;
+        self.policy.timers.insert(
+            id,
+            TimerEntry {
+                kind,
+                generation: self.runtime.snapshot().application.generation,
+                repeat,
+                due: self.policy.exchange.now.saturating_add(delay_ms),
+            },
+        );
+        self.policy.exchange.push(Effect::ArmTimer {
+            id,
+            delay_ms,
+            connection: !matches!(kind, Timer::Request(_) | Timer::Discovery),
+        })
+    }
+    pub(crate) fn cancel_timer(&mut self, kind: Timer) {
+        if let Some(id) = self
+            .policy
+            .timers
+            .iter()
+            .find(|(_, t)| t.kind == kind)
+            .map(|(id, _)| *id)
+        {
+            self.policy.timers.remove(&id);
+            // Cancelled IDs can never fire a logical timer even if the OS queue is full.
+            let _ = self.policy.exchange.push(Effect::CancelTimer { id });
+        }
+    }
+    fn fire_timer(&mut self, id: u64) -> Result<(), Failure> {
+        let Some(timer) = self.policy.timers.remove(&id) else {
+            return Ok(());
+        };
+        if self.policy.exchange.now < timer.due {
+            let delay_ms = timer.due - self.policy.exchange.now;
+            self.policy.exchange.push(Effect::ArmTimer {
+                id,
+                delay_ms,
+                connection: !matches!(timer.kind, Timer::Request(_) | Timer::Discovery),
+            })?;
+            self.policy.timers.insert(id, timer);
+            return Ok(());
+        }
+        match timer.kind {
+            Timer::Request(request) => {
+                if let Some(p) = self.pending.get(&request) {
+                    if self.policy.exchange.now < p.deadline {
+                        self.arm_timer(
+                            Timer::Request(request),
+                            p.deadline - self.policy.exchange.now,
+                            None,
+                        )?;
+                    } else {
+                        self.finish_pending(request, Err(Failure::Unavailable));
+                    }
+                }
+            }
+            Timer::Discovery => {
+                self.expire_discovery();
+                self.policy.visible_devices = self.policy.devices.clone();
+                if self
+                    .policy
+                    .scan
+                    .is_some_and(|(_, until)| self.policy.exchange.now >= until)
+                {
+                    self.stop_scan();
+                }
+                if self.policy.scan.is_some() || !self.policy.devices.is_empty() {
+                    self.arm_timer(Timer::Discovery, 250, Some(250))?;
+                }
+            }
+            Timer::ReconnectLimit => self.disconnect("reconnect_timeout")?,
+            Timer::ConnectionAttempt => self.reconnect()?,
+            Timer::Reconnect => {
+                if self
+                    .policy
+                    .active
+                    .as_ref()
+                    .and_then(|a| a.reconnect_started)
+                    .is_some_and(|start| {
+                        self.policy.exchange.now.saturating_sub(start)
+                            >= self.policy.settings.reconnect_duration_ms
+                    })
+                {
+                    return self.disconnect("reconnect_timeout");
+                }
+                if self.policy.radio != Radio::PoweredOn {
+                    return self.reconnect();
+                }
+                if let Some(a) = self.policy.active.as_mut() {
+                    a.reconnect_attempt += 1;
+                    a.generation = self.policy.exchange.id()?;
+                    a.state = LinkState::Connecting;
+                    self.policy.exchange.push(Effect::Connect {
+                        generation: a.generation,
+                        device_id: a.device.id.clone(),
+                    })?;
+                    self.arm_timer(Timer::ConnectionAttempt, 10_000, None)?;
+                }
+            }
+            Timer::Deadline(token) => {
+                self.runtime_command(Command::Application(c::Command::DeadlineFired {
+                    generation: timer.generation,
+                    token,
+                    now_ms: self.policy.exchange.now,
+                }))?
+            }
+            Timer::Kernel(token) => {
+                if let Some(interval) = timer.repeat {
+                    self.arm_timer(timer.kind, interval, Some(interval))?;
+                }
+                self.runtime_command(Command::Application(c::Command::TimerFired {
+                    generation: timer.generation,
+                    token,
+                    now_ms: self.policy.exchange.now,
+                }))?;
+            }
+        }
+        Ok(())
+    }
+    pub(crate) fn runtime_command(&mut self, command: Command) -> Result<(), Failure> {
+        let mut effects: VecDeque<_> = self
+            .runtime
+            .apply(command)
+            .map_err(|_| Failure::InvalidState)?
+            .into();
+        let mut count = 0;
+        while let Some(effect) = effects.pop_front() {
+            count += 1;
+            if count > os::RUNTIME_RESERVE {
+                return Err(Failure::Unavailable);
+            }
+            match effect {
+                RuntimeEffect::WriteBytes(bytes) => {
+                    let generation = self
+                        .policy
+                        .active
+                        .as_ref()
+                        .ok_or(Failure::InvalidState)?
+                        .generation;
+                    self.policy
+                        .exchange
+                        .push(Effect::Write { generation, bytes })?;
+                }
+                RuntimeEffect::PublishSessionMarker(marker) => {
+                    if let Some(session) =
+                        self.policy.active.as_mut().and_then(|a| a.session.as_mut())
+                    {
+                        self.store
+                            .apply_session_marker(&session.session_id, &marker)
+                            .map_err(crate::store_failure)?;
+                        let old = session.clone();
+                        *session = self
+                            .store
+                            .session(&session.session_id)
+                            .map_err(crate::store_failure)?;
+                        if let Some(board) = self
+                            .policy
+                            .boards
+                            .iter_mut()
+                            .find(|b| b.device_history_id == session.device_history_id)
+                        {
+                            board.summary.total_riding_elapsed_ms = board
+                                .summary
+                                .total_riding_elapsed_ms
+                                .saturating_sub(old.riding_elapsed_ms)
+                                .saturating_add(session.riding_elapsed_ms);
+                            if let Some(distance) = session.distance_m {
+                                board.summary.total_distance_m = Some(
+                                    board.summary.total_distance_m.unwrap_or(0.)
+                                        - old.distance_m.unwrap_or(0.)
+                                        + distance,
+                                );
+                            }
+                        }
+                    }
+                }
+                RuntimeEffect::Failure(_) => {
+                    self.disconnect("storage_failure")?;
+                    return Err(Failure::Unavailable);
+                }
+                RuntimeEffect::Application(effect) => match effect {
+                    c::Effect::ArmDeadline { token, timeout_ms } => {
+                        self.arm_timer(Timer::Deadline(token), timeout_ms, None)?
+                    }
+                    c::Effect::CancelDeadline(token) => self.cancel_timer(Timer::Deadline(token)),
+                    c::Effect::ReplaceTimer { token, interval_ms } => {
+                        self.arm_timer(Timer::Kernel(token), interval_ms, Some(interval_ms))?
+                    }
+                    c::Effect::CancelTimer(token) => self.cancel_timer(Timer::Kernel(token)),
+                    c::Effect::PrepareActivation(facts) => {
+                        let command = match self.prepare_activation(facts) {
+                            Ok(c) => c,
+                            Err(e) => {
+                                self.disconnect("activation_failed")?;
+                                return Err(e);
+                            }
+                        };
+                        effects.extend(self.runtime.apply(command).map_err(|_| Failure::Internal)?);
+                    }
+                    c::Effect::PublishState(state) => {
+                        if state.phase == c::Phase::Ready {
+                            if let Some(a) = self.policy.active.as_mut() {
+                                a.reconnect_started = None;
+                                a.reconnect_attempt = 0;
+                            }
+                            self.cancel_timer(Timer::Reconnect);
+                            self.cancel_timer(Timer::ReconnectLimit);
+                            self.cancel_timer(Timer::ConnectionAttempt);
+                        }
+                    }
+                    c::Effect::PublishTelemetry(sample) => {
+                        if let Some(a) = self.policy.active.as_mut() {
+                            a.latest = Some(*sample);
+                        }
+                    }
+                    c::Effect::PublishBmsObservation(sample) => {
+                        if let Some(a) = self.policy.active.as_mut() {
+                            a.bms = Some(*sample);
+                        }
+                    }
+                    c::Effect::StoreRoutingHint(identity) => {
+                        if let Some(b) = self.policy.active.as_ref().and_then(|a| a.board.as_ref())
+                            && let Some(can_id) = identity.route.can_id()
+                        {
+                            self.store
+                                .set_routing_hint(
+                                    &b.saved_device_id,
+                                    Some(&float_view_product_store::RoutingHint {
+                                        can_id,
+                                        controller_uuid: Some(identity.identity.controller_uuid),
+                                    }),
+                                    self.policy.exchange.epoch,
+                                )
+                                .map_err(crate::store_failure)?;
+                        }
+                    }
+                    c::Effect::ClearRoutingHint => {
+                        if let Some(b) = self.policy.active.as_ref().and_then(|a| a.board.as_ref())
+                        {
+                            self.store
+                                .set_routing_hint(
+                                    &b.saved_device_id,
+                                    None,
+                                    self.policy.exchange.epoch,
+                                )
+                                .map_err(crate::store_failure)?;
+                        }
+                    }
+                    c::Effect::ApplyConfigurationCache(cache) => match cache.into_inner() {
+                        c::configuration::CacheEffect::Store { identity, bytes } => self
+                            .store
+                            .store_schema(&cache_identity(identity), &bytes)
+                            .map_err(crate::store_failure)?,
+                        c::configuration::CacheEffect::Remove { identity } => self
+                            .store
+                            .remove_schema(&cache_identity(identity))
+                            .map_err(crate::store_failure)?,
+                    },
+                    c::Effect::Failure(c::Failure::Discovery(_)) => {}
+                    c::Effect::Mutation(event) => match event {
+                        c::MutationEvent::Idempotent | c::MutationEvent::Confirmed(_) => {
+                            self.complete_mutation(true)
+                        }
+                        c::MutationEvent::Failed { .. } => self.complete_mutation(false),
+                        c::MutationEvent::Released(_) => {}
+                    },
+                    c::Effect::Failure(_) => self.fail_kernel_requests(),
+                    c::Effect::PublishBmsState(_) | c::Effect::Diagnostic(_) => {}
+                    c::Effect::Write(_) => return Err(Failure::Internal),
+                },
+            }
+        }
+        self.complete_configuration();
+        Ok(())
+    }
+    fn prepare_activation(&mut self, facts: c::ActivationFacts) -> Result<Command, Failure> {
+        if facts.generation != self.runtime.snapshot().application.generation {
+            return Err(Failure::InvalidState);
+        }
+        let a = self.policy.active.as_mut().ok_or(Failure::InvalidState)?;
+        let mut session_started = false;
+        if a.saved {
+            let board = self
+                .store
+                .ensure_board(
+                    &a.device.id,
+                    a.device.name.as_deref(),
+                    Some(&facts.selected.identity.controller_uuid),
+                    self.policy.exchange.epoch,
+                )
+                .map_err(crate::store_failure)?;
+            a.board = Some(board.clone());
+            if let Some(can_id) = a.selected_can_id.take() {
+                let profile = self
+                    .store
+                    .profile(&board.saved_device_id)
+                    .map_err(crate::store_failure)?;
+                self.store
+                    .update_profile(
+                        &board.saved_device_id,
+                        profile.revision,
+                        &format!("{{\"preferredCanId\":{can_id}}}"),
+                        self.policy.exchange.epoch,
+                    )
+                    .map_err(crate::store_failure)?;
+            }
+            if a.session.is_none() {
+                a.session = Some(
+                    self.store
+                        .create_session(
+                            &board.saved_device_id,
+                            self.policy.exchange.epoch,
+                            self.policy.available_bytes,
+                        )
+                        .map_err(crate::store_failure)?,
+                );
+                a.continuity = c::discovery::Continuity::new(
+                    true,
+                    Some(facts.selected.route),
+                    Some(facts.selected.identity.controller_uuid),
+                );
+                session_started = true;
+            }
+            if !self.runtime.snapshot().session_attached {
+                let id = &a.session.as_ref().ok_or(Failure::Internal)?.session_id;
+                self.runtime
+                    .apply(Command::AttachSession {
+                        path: self.store.session_path(id).map_err(crate::store_failure)?,
+                        mode: SessionMode::Open,
+                        metadata: session::SessionMetadata {
+                            expected_riding_persistence_ms: self
+                                .policy
+                                .settings
+                                .riding_persist_interval_ms,
+                            expected_idle_persistence_ms: self
+                                .policy
+                                .settings
+                                .idle_persist_interval_ms,
+                            committed_at_epoch_ms: self.policy.exchange.epoch,
+                        },
+                    })
+                    .map_err(|_| Failure::Internal)?;
+            }
+        }
+        a.package_version = Some(facts.refloat_version.to_string());
+        self.refresh_boards().map_err(crate::store_failure)?;
+        let cached = facts
+            .configuration_cache_identity
+            .map(|i| self.store.cached_schema(&cache_identity(i)))
+            .transpose()
+            .map_err(crate::store_failure)?
+            .flatten();
+        Ok(Command::Application(c::Command::Activate {
+            generation: facts.generation,
+            now_ms: self.policy.exchange.now,
+            session_started,
+            cached_configuration_schema: cached,
+        }))
+    }
+    pub(crate) fn location_eligibility(&mut self) -> Result<(), Failure> {
+        let enabled = self.policy.settings.location_recording_enabled
+            && self.policy.active.as_ref().is_some_and(|a| {
+                a.saved
+                    && a.session.is_some()
+                    && a.state == LinkState::Ready
+                    && a.latest
+                        .as_ref()
+                        .is_some_and(|s| s.ride_state == telemetry::RideState::Riding)
+            })
+            && matches!(
+                self.policy.location_authorization,
+                os::LocationAuthorization::Authorized | os::LocationAuthorization::ForegroundOnly
+            )
+            && (self.policy.foreground
+                || (self.policy.location_background
+                    && self.policy.location_authorization
+                        == os::LocationAuthorization::Authorized));
+        if enabled && self.policy.capture.is_none() {
+            let id = self.policy.exchange.id()?;
+            let elapsed = self.runtime.snapshot().session_marker.map_or(0, |m| {
+                m.committed_elapsed_ms.max(m.committed_location_elapsed_ms)
+            });
+            self.policy.capture = Some(Capture {
+                id,
+                start: self.policy.exchange.now,
+                elapsed,
+            });
+            self.policy
+                .exchange
+                .push(Effect::StartLocation { capture_id: id })?;
+        } else if !enabled && self.policy.capture.take().is_some() {
+            self.policy.exchange.request_stop_location();
+            self.policy.latest_location = None;
+        }
+        Ok(())
+    }
+}
+fn cache_identity(i: c::configuration::CacheIdentity) -> SchemaIdentity {
+    SchemaIdentity {
+        firmware_version: i.firmware_version,
+        hardware_name: i.hardware_name,
+        package_version: i.package_version,
+        custom_index: i.custom_index,
+        hardware_configuration_crc: i.hardware_configuration_crc,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::{
+        path::PathBuf,
+        sync::atomic::{AtomicU64, Ordering},
+    };
+    static SEQUENCE: AtomicU64 = AtomicU64::new(0);
+    struct Test {
+        service: BackendService,
+        root: PathBuf,
+    }
+    impl Test {
+        fn new() -> Self {
+            let root = std::env::temp_dir().canonicalize().unwrap().join(format!(
+                "float-view-policy-{}-{}",
+                std::process::id(),
+                SEQUENCE.fetch_add(1, Ordering::Relaxed)
+            ));
+            std::fs::create_dir(&root).unwrap();
+            Self {
+                service: BackendService::open(&root).unwrap(),
+                root,
+            }
+        }
+        fn fact(&mut self, fact: Fact, now: u64) -> Result<(), Failure> {
+            let p = &self.service.policy.exchange;
+            let e = os::Envelope {
+                lifetime: p.lifetime,
+                sequence: p.sequence + 1,
+                monotonic_ms: now,
+                epoch_ms: 1_700_000_000_000 + now as i64,
+                fact,
+            };
+            self.service.apply_os(e)
+        }
+        fn drain(&mut self) {
+            while !self.service.drain_os().effects.is_empty() {}
+        }
+        fn discover(&mut self) {
+            self.fact(
+                Fact::Bluetooth {
+                    radio: Radio::PoweredOn,
+                    scan: Permission::Granted,
+                    connect: Permission::Granted,
+                },
+                1,
+            )
+            .unwrap();
+            self.fact(
+                Fact::Storage {
+                    available_bytes: 1_000_000_000,
+                },
+                2,
+            )
+            .unwrap();
+            let scan_id = self.service.start_scan(10_000).unwrap();
+            self.fact(
+                Fact::Discovered {
+                    scan_id,
+                    device_id: "test-device".into(),
+                    name: Some("Board".into()),
+                    rssi: Some(-40),
+                },
+                3,
+            )
+            .unwrap();
+            self.drain();
+        }
+        fn activate(&mut self, saved: bool) {
+            self.discover();
+            self.service.connect("test-device", saved).unwrap();
+            let generation = self.service.policy.active.as_ref().unwrap().generation;
+            self.fact(
+                Fact::Link {
+                    generation,
+                    state: LinkState::Ready,
+                },
+                4,
+            )
+            .unwrap();
+            self.identify();
+        }
+        fn identify(&mut self) {
+            let mut payload = vec![0, 6, 6];
+            payload.extend_from_slice(b"THOR300\0");
+            payload.extend_from_slice(&[7; 12]);
+            payload.extend_from_slice(&[1, 0, 0, 0, 1, 0, 1, 0]);
+            payload.extend_from_slice(b"Float\0");
+            let generation = self.service.runtime.snapshot().application.generation;
+            for payload in [payload, vec![36, 101, 0, 10]] {
+                self.service
+                    .runtime_command(Command::Application(c::Command::Receive {
+                        generation,
+                        payload,
+                        now_ms: self.service.policy.exchange.now,
+                        observed_at_epoch_ms: self.service.policy.exchange.epoch,
+                    }))
+                    .unwrap();
+            }
+            self.drain();
+        }
+    }
+    impl Drop for Test {
+        fn drop(&mut self) {
+            let _ = self.service.disconnect("test");
+            let _ = std::fs::remove_dir_all(&self.root);
+        }
+    }
+    #[test]
+    fn revision_exhaustion_and_oversize_notifications_reject_before_mutation() {
+        let mut t = Test::new();
+        t.discover();
+        let revision = t.service.service_revision();
+        let sequence = t.service.policy.exchange.sequence;
+        assert!(matches!(
+            t.fact(
+                Fact::Bytes {
+                    generation: 0,
+                    bytes: vec![0; 8193]
+                },
+                4
+            ),
+            Err(Failure::InvalidRequest)
+        ));
+        assert_eq!(t.service.policy.exchange.sequence, sequence);
+        assert_eq!(t.service.service_revision(), revision);
+        t.service.policy.revision = 9_007_199_254_740_991 - 65_536;
+        assert!(matches!(
+            t.service.connect("test-device", true),
+            Err(Failure::Unavailable)
+        ));
+        assert!(t.service.policy.active.is_none());
+        assert!(t.service.store.boards().unwrap().is_empty());
+    }
+    #[test]
+    fn reconnect_deadline_expires_even_without_an_os_failure_callback() {
+        let mut t = Test::new();
+        t.activate(true);
+        let generation = t.service.policy.active.as_ref().unwrap().generation;
+        t.fact(
+            Fact::Link {
+                generation,
+                state: LinkState::Disconnected,
+            },
+            100,
+        )
+        .unwrap();
+        let deadline = *t
+            .service
+            .policy
+            .timers
+            .iter()
+            .find(|(_, v)| v.kind == Timer::ReconnectLimit)
+            .unwrap()
+            .0;
+        t.fact(Fact::Timer { id: deadline }, 300_100).unwrap();
+        assert!(t.service.policy.active.is_none());
+        assert!(!t.service.runtime.snapshot().session_attached);
+    }
+    #[test]
+    fn location_capture_uses_session_clock_and_revocation_rejects_late_observations() {
+        #[allow(dead_code)]
+        mod samples {
+            use float_view_application_runtime::telemetry as float_view_refloat_telemetry_service;
+            include!("../../session-sqlite/tests/support/mod.rs");
+        }
+        let mut t = Test::new();
+        t.activate(true);
+        t.service.policy.settings.location_recording_enabled = true;
+        let mut sample = samples::sample(1, 100);
+        sample.ride_state = telemetry::RideState::Riding;
+        t.service.policy.active.as_mut().unwrap().latest = Some(sample);
+        t.fact(
+            Fact::LocationCapability {
+                authorization: os::LocationAuthorization::Authorized,
+                background: true,
+            },
+            100,
+        )
+        .unwrap();
+        let capture_id = t.service.policy.capture.as_ref().unwrap().id;
+        t.fact(
+            Fact::Location {
+                capture_id,
+                latitude: -33.8,
+                longitude: 151.2,
+                accuracy_m: Some(5.),
+                observed_at_ms: 1_700_000_000_110,
+            },
+            110,
+        )
+        .unwrap();
+        assert_eq!(
+            t.service
+                .runtime
+                .snapshot()
+                .session_marker
+                .unwrap()
+                .recorded_location_count,
+            1
+        );
+        assert!(t.service.policy.latest_location.is_some());
+        t.fact(Fact::Foreground { foreground: false }, 111).unwrap();
+        assert!(t.service.policy.capture.is_some());
+        t.fact(
+            Fact::LocationCapability {
+                authorization: os::LocationAuthorization::ForegroundOnly,
+                background: false,
+            },
+            112,
+        )
+        .unwrap();
+        assert!(t.service.policy.capture.is_none());
+        t.fact(
+            Fact::Location {
+                capture_id,
+                latitude: -33.9,
+                longitude: 151.3,
+                accuracy_m: None,
+                observed_at_ms: 1_700_000_000_113,
+            },
+            113,
+        )
+        .unwrap();
+        assert_eq!(
+            t.service
+                .runtime
+                .snapshot()
+                .session_marker
+                .unwrap()
+                .recorded_location_count,
+            1
+        );
+        assert!(t.service.policy.latest_location.is_none());
+    }
+    #[test]
+    fn ui_admission_cancellation_and_duplicate_completions_are_bounded() {
+        use crate::{Dispatch, operations::Operation};
+        let mut t = Test::new();
+        t.discover();
+        let mut replies = Vec::new();
+        for _ in 0..8 {
+            let Dispatch::Pending(reply) = t
+                .service
+                .dispatch(1, Operation::RequestBluetoothPermission)
+                .unwrap()
+            else {
+                panic!("pending");
+            };
+            replies.push(reply);
+        }
+        assert!(matches!(
+            t.service.dispatch(1, Operation::RequestBluetoothPermission),
+            Err(Failure::Unavailable)
+        ));
+        let id = *t.service.pending.keys().next().unwrap();
+        t.fact(Fact::UiCompleted { id, success: true }, 5).unwrap();
+        assert!(matches!(
+            replies[0].try_recv(),
+            Ok(Ok(crate::facts::Completion::Bluetooth(_)))
+        ));
+        t.fact(Fact::UiCompleted { id, success: true }, 6).unwrap();
+        assert_eq!(t.service.pending.len(), 7);
+        t.service.disconnect_client(1);
+        assert!(t.service.pending.is_empty());
+        for reply in &mut replies[1..] {
+            assert!(matches!(reply.try_recv(), Ok(Err(Failure::Unavailable))));
+        }
+    }
+    #[test]
+    fn saved_activation_attaches_before_ready_and_guest_never_creates_storage() {
+        for saved in [false, true] {
+            let mut t = Test::new();
+            t.activate(saved);
+            assert_eq!(
+                t.service.runtime.snapshot().application.phase,
+                c::Phase::Ready
+            );
+            assert_eq!(t.service.runtime.snapshot().session_attached, saved);
+            assert_eq!(t.service.store.boards().unwrap().len(), usize::from(saved));
+            assert_eq!(
+                t.service
+                    .store
+                    .sessions(None, 100, None, false)
+                    .unwrap()
+                    .items
+                    .len(),
+                usize::from(saved)
+            );
+        }
+    }
+    #[test]
+    fn stale_os_lifetimes_sequences_connections_and_timers_do_not_activate() {
+        let mut t = Test::new();
+        t.discover();
+        t.service.connect("test-device", true).unwrap();
+        let generation = t.service.policy.active.as_ref().unwrap().generation;
+        t.fact(
+            Fact::Link {
+                generation: generation + 1,
+                state: LinkState::Ready,
+            },
+            4,
+        )
+        .unwrap();
+        assert_eq!(
+            t.service.runtime.snapshot().application.phase,
+            c::Phase::Disconnected
+        );
+        let e = os::Envelope {
+            lifetime: 0,
+            sequence: 100,
+            monotonic_ms: 100,
+            epoch_ms: 100,
+            fact: Fact::Link {
+                generation,
+                state: LinkState::Ready,
+            },
+        };
+        assert!(t.service.apply_os(e).is_err());
+        t.fact(Fact::Timer { id: u64::MAX }, 5).unwrap();
+        assert!(!t.service.runtime.snapshot().session_attached);
+        assert!(
+            t.service
+                .apply_os_json(br#"{"lifetime":1,"unexpected":true}"#)
+                .is_err()
+        );
+    }
+    #[test]
+    fn discovery_is_bounded_and_scan_deadline_is_service_owned() {
+        let mut t = Test::new();
+        t.discover();
+        let scan_id = t.service.policy.scan.unwrap().0;
+        for n in 0..60 {
+            t.fact(
+                Fact::Discovered {
+                    scan_id,
+                    device_id: format!("device-{n}"),
+                    name: None,
+                    rssi: Some(-60),
+                },
+                10 + n,
+            )
+            .unwrap();
+        }
+        assert_eq!(t.service.policy.devices.len(), 50);
+        let id = *t
+            .service
+            .policy
+            .timers
+            .iter()
+            .find(|(_, v)| v.kind == Timer::Discovery)
+            .unwrap()
+            .0;
+        t.fact(Fact::Timer { id }, 10_002).unwrap();
+        assert!(t.service.policy.scan.is_none());
+        assert!(
+            t.service
+                .drain_os()
+                .effects
+                .iter()
+                .any(|e| matches!(e, Effect::StopScan))
+        );
+    }
+    #[test]
+    fn storage_failure_never_publishes_ready_or_attaches_guest_writer() {
+        let mut t = Test::new();
+        t.discover();
+        t.fact(Fact::Storage { available_bytes: 0 }, 4).unwrap();
+        t.service.connect("test-device", true).unwrap();
+        let generation = t.service.policy.active.as_ref().unwrap().generation;
+        t.fact(
+            Fact::Link {
+                generation,
+                state: LinkState::Ready,
+            },
+            5,
+        )
+        .unwrap();
+        let mut payload = vec![0, 6, 6];
+        payload.extend_from_slice(b"THOR300\0");
+        payload.extend_from_slice(&[7; 12]);
+        payload.extend_from_slice(&[1, 0, 0, 0, 1, 0, 1, 0]);
+        payload.extend_from_slice(b"Float\0");
+        let generation = t.service.runtime.snapshot().application.generation;
+        t.service
+            .runtime_command(Command::Application(c::Command::Receive {
+                generation,
+                payload,
+                now_ms: 5,
+                observed_at_epoch_ms: 1_700_000_000_005,
+            }))
+            .unwrap();
+        assert!(
+            t.service
+                .runtime_command(Command::Application(c::Command::Receive {
+                    generation,
+                    payload: vec![36, 101, 0, 10],
+                    now_ms: 5,
+                    observed_at_epoch_ms: 1_700_000_000_005
+                }))
+                .is_err()
+        );
+        assert!(!t.service.runtime.snapshot().session_attached);
+        assert!(t.service.policy.active.is_none());
+        assert!(
+            t.service
+                .store
+                .sessions(None, 100, None, false)
+                .unwrap()
+                .items
+                .is_empty()
+        );
+    }
+    #[test]
+    fn reconnect_preserves_session_identity_and_old_timer_cannot_disconnect_new_connection() {
+        let mut t = Test::new();
+        t.activate(true);
+        let session = t
+            .service
+            .policy
+            .active
+            .as_ref()
+            .unwrap()
+            .session
+            .as_ref()
+            .unwrap()
+            .session_id
+            .clone();
+        let generation = t.service.policy.active.as_ref().unwrap().generation;
+        t.fact(
+            Fact::Link {
+                generation,
+                state: LinkState::Disconnected,
+            },
+            100,
+        )
+        .unwrap();
+        let timer = *t
+            .service
+            .policy
+            .timers
+            .iter()
+            .find(|(_, t)| t.kind == Timer::Reconnect)
+            .unwrap()
+            .0;
+        t.fact(Fact::Timer { id: timer }, 1_100).unwrap();
+        let next = t.service.policy.active.as_ref().unwrap().generation;
+        assert_ne!(next, generation);
+        t.fact(
+            Fact::Link {
+                generation: next,
+                state: LinkState::Ready,
+            },
+            1_101,
+        )
+        .unwrap();
+        t.identify();
+        assert_eq!(
+            t.service
+                .policy
+                .active
+                .as_ref()
+                .unwrap()
+                .session
+                .as_ref()
+                .unwrap()
+                .session_id,
+            session
+        );
+        t.fact(Fact::Timer { id: timer }, 1_102).unwrap();
+        t.fact(
+            Fact::Link {
+                generation,
+                state: LinkState::Disconnected,
+            },
+            1_103,
+        )
+        .unwrap();
+        assert!(
+            t.service
+                .policy
+                .active
+                .as_ref()
+                .unwrap()
+                .reconnect_started
+                .is_none()
+        );
+    }
+    #[test]
+    fn cleanup_reserve_remains_available_at_effect_saturation() {
+        let mut t = Test::new();
+        t.activate(true);
+        while t.service.policy.exchange.push(Effect::StopScan).is_ok() {}
+        assert!(t.service.policy.exchange.admit().is_err());
+        t.service.disconnect("explicit").unwrap();
+        assert!(!t.service.runtime.snapshot().session_attached);
+        let effects = t.service.drain_os().effects;
+        assert!(
+            effects
+                .iter()
+                .any(|e| matches!(e, Effect::Disconnect { .. }))
+        );
+        assert!(effects.iter().any(|e| matches!(e, Effect::StopLocation)));
+        assert!(
+            effects
+                .iter()
+                .any(|e| matches!(e, Effect::CancelConnectionTimers))
+        );
+    }
+}

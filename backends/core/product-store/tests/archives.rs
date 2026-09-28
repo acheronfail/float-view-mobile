@@ -347,3 +347,15 @@ fn pruned_archives_preserve_recorded_location_boundary_after_rows_are_removed() 
     assert_eq!(imported.recorded_location_count, 3);
     assert_eq!(imported.stored_location_count, 2);
 }
+
+#[test]
+fn a_live_worker_lease_prevents_a_second_owner_from_running_startup_cleanup() {
+    let (dir, source, id) = setup();
+    let export = source.prepare_export(&id, ExportFormat::Archive).unwrap();
+    drop(source);
+    assert!(matches!(ProductStore::open(dir.path()), Err(Error::Busy)));
+    let file = export.run(&FileCancellation::default()).unwrap();
+    assert!(matches!(ProductStore::open(dir.path()), Err(Error::Busy)));
+    drop(file);
+    assert!(ProductStore::open(dir.path()).is_ok());
+}

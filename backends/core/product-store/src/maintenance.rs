@@ -148,6 +148,12 @@ fn map_prune(e: PruneError) -> Error {
     }
 }
 impl ProductStore {
+    pub fn maintenance_recorded_samples(&self) -> Result<u64> {
+        let Some(job) = self.maintenance()? else {
+            return Ok(0);
+        };
+        Ok(self.catalog.query_row("SELECT COALESCE(SUM(sample_count),0) FROM session_catalog WHERE pending_delete=0 AND state<>'active' AND ((?='one' AND session_id=?) OR (?='all' AND session_id<=?))",params![job.scope,job.session_id,job.scope,job.upper_session_id],|r|r.get(0))?)
+    }
     pub fn maintenance(&self) -> Result<Option<Maintenance>> {
         Ok(self.catalog.query_row("SELECT operation_id,kind,scope,session_id,state,target_resolution_seconds,upper_session_id,last_session_id,completed_sessions,skipped_sessions,retained_samples,reclaimable_bytes,error FROM session_maintenance_job WHERE singleton=1", [], |r| Ok(Maintenance {
             operation_id:r.get(0)?,kind:r.get(1)?,scope:r.get(2)?,session_id:r.get(3)?,state:r.get(4)?,target_resolution_seconds:r.get(5)?,upper_session_id:r.get(6)?,last_session_id:r.get(7)?,completed_sessions:r.get(8)?,skipped_sessions:r.get(9)?,retained_samples:r.get(10)?,reclaimable_bytes:r.get(11)?,error:r.get(12)?

@@ -22,20 +22,20 @@
 
 ## 4. Shared application policy and OS boundary
 
-- [ ] 4.1 Compose one process-owned service with one application runtime and store. Test construction/destruction, ordered mutations, independent listener lifetime and runtime identity through the safe constructor.
-- [ ] 4.2 Move discovery expiry, board identity and saved/guest activation. Test bounded discovery, failed storage preparation, stale activation and guest isolation before any ready publication.
-- [ ] 4.3 Move reconnect/backoff, session attach/close/retention and terminal failure policy. Test radio changes, configured deadlines, reset/replacement, stale timers and uninterrupted saved-session identity on recovery.
-- [ ] 4.4 Move location capture eligibility and session-clock assignment while retaining native acquisition. Test permission/settings/ride-state changes, background capability loss, stale observations and commit-before-publication.
-- [ ] 4.5 Move configuration/control request completion and Tune validation/apply coordination. Test stale schema/revisions, concurrent requests, disconnect/cancellation and exactly-once board mutations through existing kernels.
-- [ ] 4.6 Implement the closed OS fact/effect/completion exchange and bounded admission. Test malformed envelopes, generations, duplicates, cleanup under saturation, late UI outcomes, worker contention and bounded shutdown.
-- [ ] 4.7 Connect shared server dispatch and publication directly to the service. Verify no native domain-operation round trip, monotonic revisions independent of client count and historical/transport limits with recording under load.
+- [x] 4.1 Compose one process-owned service with one application runtime and store. Test construction/destruction, ordered mutations, independent listener lifetime and runtime identity through the safe constructor.
+- [x] 4.2 Move discovery expiry, board identity and saved/guest activation. Test bounded discovery, failed storage preparation, stale activation and guest isolation before any ready publication.
+- [x] 4.3 Move reconnect/backoff, session attach/close/retention and terminal failure policy. Test radio changes, configured deadlines, reset/replacement, stale timers and uninterrupted saved-session identity on recovery.
+- [x] 4.4 Move location capture eligibility and session-clock assignment while retaining native acquisition. Test permission/settings/ride-state changes, background capability loss, stale observations and commit-before-publication.
+- [x] 4.5 Move configuration/control request completion and Tune validation/apply coordination. Test stale schema/revisions, concurrent requests, disconnect/cancellation and exactly-once board mutations through existing kernels.
+- [x] 4.6 Implement the closed OS fact/effect/completion exchange and bounded admission. Test malformed envelopes, generations, duplicates, cleanup under saturation, late UI outcomes, worker contention and bounded shutdown.
+- [x] 4.7 Connect shared server dispatch and publication directly to the service. Verify no native domain-operation round trip, monotonic revisions independent of client count and historical/transport limits with recording under load.
 - [ ] 4.8 Adapt the existing C/JNI families to the service lifetime and OS exchange. Test caller-buffer bounds, invalid handles, panic containment, destruction and exact symbols; remove superseded entry points when unused.
 
 ## 5. Direct-host proof before native selection
 
-- [ ] 5.1 Add a test-only direct Rust launcher with synthetic OS capabilities and conformance-owned protocol simulation. Audit it for absence of product CRUD/SQL/archive/identity/reconnect policy and run canonical product scenarios through the production service constructor.
-- [ ] 5.2 Add deterministic restart, storage exhaustion, split-commit, lock-contention and queue-saturation scenarios. Verify recovery, cancellation, cleanup, terminal results and continued permitted recording with bounded assertions.
-- [ ] 5.3 Run focused locked Rust tests, warnings-denied lint, mock/direct conformance and target compilation. Verify production native selection remains unchanged at this checkpoint and commit the verified shared slice with task updates.
+- [x] 5.1 Add a test-only direct Rust launcher with synthetic OS capabilities and conformance-owned protocol simulation. Audit it for absence of product CRUD/SQL/archive/identity/reconnect policy and run canonical product scenarios through the production service constructor.
+- [x] 5.2 Add deterministic restart, storage exhaustion, split-commit, lock-contention and queue-saturation scenarios. Verify recovery, cancellation, cleanup, terminal results and continued permitted recording with bounded assertions.
+- [x] 5.3 Run focused locked Rust tests, warnings-denied lint, mock/direct conformance and target compilation. Verify production native selection remains unchanged at this checkpoint and commit the verified shared slice with task updates.
 
 ## 6. Apple selection and deletion
 

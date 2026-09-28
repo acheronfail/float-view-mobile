@@ -34,13 +34,37 @@ static REGISTRY: LazyLock<Mutex<Registry>> = LazyLock::new(|| {
     })
 });
 pub fn create(platform: u32, html: &[u8]) -> Result<u64, Status> {
+    create_backend(platform, html, None)
+}
+pub fn create_shared(
+    platform: u32,
+    html: &[u8],
+    service: Arc<Mutex<float_view_backend_service::BackendService>>,
+) -> Result<u64, Status> {
+    create_backend(platform, html, Some(service))
+}
+fn create_backend(
+    platform: u32,
+    html: &[u8],
+    service: Option<Arc<Mutex<float_view_backend_service::BackendService>>>,
+) -> Result<u64, Status> {
     let platform = match platform {
         0 => Platform::Macos,
         1 => Platform::Ios,
         2 => Platform::Android,
         _ => return Err(Status::InvalidArgument),
     };
-    let server = Arc::new(Server::new(platform, html).map_err(|_| Status::InvalidArgument)?);
+    let server = Arc::new(
+        match service {
+            Some(s) => Server::with_backend(
+                platform,
+                html,
+                Arc::new(crate::backend::Backend::with_service(s)),
+            ),
+            None => Server::new(platform, html),
+        }
+        .map_err(|_| Status::InvalidArgument)?,
+    );
     let mut registry = REGISTRY.lock().map_err(|_| Status::Internal)?;
     if registry.servers.len() >= 8 {
         return Err(Status::Busy);

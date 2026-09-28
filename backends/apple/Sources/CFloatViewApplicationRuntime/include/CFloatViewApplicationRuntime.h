@@ -67,6 +67,12 @@ int32_t float_view_application_runtime_server_command(uint64_t handle, const uin
 int32_t float_view_application_runtime_server_read_transfer(uint64_t handle, uint64_t generation, uint64_t transfer, uint8_t *output, size_t capacity, size_t *out_written);
 int32_t float_view_application_runtime_server_write_transfer(uint64_t handle, uint64_t generation, uint64_t transfer, uint64_t offset, const uint8_t *input, size_t length);
 
+int32_t float_view_application_runtime_service_create(const uint8_t *root, size_t length, uint64_t *out_handle);
+int32_t float_view_application_runtime_service_destroy(uint64_t handle);
+int32_t float_view_application_runtime_service_apply(uint64_t handle, const uint8_t *command, size_t command_length, size_t *out_required);
+int32_t float_view_application_runtime_service_copy_result(uint64_t handle, uint8_t *output, size_t capacity, size_t *out_written);
+int32_t float_view_application_runtime_service_server_create(uint64_t service, uint32_t platform, const uint8_t *html, size_t length, uint64_t *out_handle);
+
 #ifdef __cplusplus
 }
 #endif

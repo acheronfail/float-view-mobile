@@ -402,3 +402,17 @@ pub(crate) fn import_board_on(
     };
     board(db, &id)
 }
+
+#[derive(Clone, Debug, Default)]
+pub struct BoardHistory {
+    pub session_count: u64,
+    pub total_riding_elapsed_ms: u64,
+    pub total_distance_m: Option<f64>,
+    pub most_recent_session_at_ms: Option<i64>,
+}
+impl ProductStore {
+    pub fn board_history(&self, history: &str) -> Result<BoardHistory> {
+        validate_history(history)?;
+        Ok(self.catalog.query_row("SELECT COUNT(*),COALESCE(SUM(riding_elapsed_ms),0),SUM(distance_m),MAX(started_at_ms) FROM session_catalog WHERE device_history_id=? AND pending_delete=0",[history],|r|Ok(BoardHistory{session_count:r.get(0)?,total_riding_elapsed_ms:r.get(1)?,total_distance_m:r.get(2)?,most_recent_session_at_ms:r.get(3)?}))?)
+    }
+}

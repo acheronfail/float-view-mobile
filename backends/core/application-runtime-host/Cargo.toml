@@ -6,6 +6,7 @@ rust-version.workspace = true
 publish = false
 
 [dependencies]
+float-view-backend-service = { path = "../backend-service" }
 float-view-application-runtime = { path = "../application-runtime" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
