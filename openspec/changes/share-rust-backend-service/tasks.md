@@ -1,6 +1,6 @@
 ## 1. Baseline and behavior inventory
 
-- [ ] 1.1 Inventory native product/storage/application policy and map every retained native responsibility to an OS capability. Verify both hosts' call paths and record exact deletion targets, source/package/dependency baseline and ownership exceptions.
+- [x] 1.1 Inventory native product/storage/application policy and map every retained native responsibility to an OS capability. Verify both hosts' call paths and record exact deletion targets, source/package/dependency baseline and ownership exceptions.
 - [ ] 1.2 Record validation, defaults, identity/revision, cursor, cache, recovery, retention, archive/CSV and lifecycle semantics against contract/SQL/conformance evidence. Resolve Swift/Kotlin differences with regression fixtures and an explicit behavior table.
 - [ ] 1.3 Inventory numeric limits for all queues, collections, bytes, staging/cache retention, SQLite waits and shutdown. Deliver a boundary-test matrix with exact ceilings, admission points, cleanup capacity and any proposed observable changes before implementation.
 

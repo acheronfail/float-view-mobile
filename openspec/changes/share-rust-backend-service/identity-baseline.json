@@ -1,0 +1,23 @@
+{
+  "purpose": "Source-derived diagnostic vectors, not yet wired into a production regression test. Shared policy is pending a legacy-identity decision.",
+  "vectors": [
+    {
+      "case": "meaningful",
+      "synthetic_firmware_uuid_hex": "0102030405060708090a0b0c",
+      "observed_apple": "vesc-v1-3ad3f33d03efba4de40aeb78f4513d6b5480595764b3a9e46dcc694025fa28ec",
+      "observed_android": "206402cab345415716d9a33469feba57a90dc200c064bc0190b4191af058b0eb"
+    },
+    {
+      "case": "zero",
+      "synthetic_firmware_uuid_hex": "000000000000000000000000",
+      "observed_apple": null,
+      "observed_android": "15ec7bf0b50732b49f8228e07d24365338f9e3ab994b00af08e5a3bffe55fd8b"
+    },
+    {
+      "case": "all_ff",
+      "synthetic_firmware_uuid_hex": "ffffffffffffffffffffffff",
+      "observed_apple": "vesc-v1-c54ba83d74ac51e99e0370e9f11c8247136ef10a5c51b2aa2b814eb7b692c397",
+      "observed_android": "8688d249e9d047b4fc2fb89ce05afe9ec89252ffccdd969de6eef260dd7ffb21"
+    }
+  ]
+}
