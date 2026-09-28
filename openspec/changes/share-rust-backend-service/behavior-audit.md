@@ -3,7 +3,7 @@
 This records source evidence at `fae1776b` for tasks 1.2/1.3. It is not a claim
 that the full behavior/limit inventory or regression coverage is complete.
 
-## Blocking identity decision
+## Resolved identity decision
 
 Apple `application/ApplicationService.swift:988` hashes
 `UTF8("float-view-board-v1\0") || firmwareUUID` and prefixes the hexadecimal
@@ -41,19 +41,16 @@ host; `src/suite.ts` exercises the product flows. Neither check specifies the
 cross-platform digest for this synthetic UUID. SQL only constrains the identity
 to be unique text. Those sources cannot decide the legacy behavior.
 
-**Proposed resolution, pending user decision:** select Apple's versioned
-derivation for newly identified boards; preserve existing catalog/archive IDs
-as opaque legacy identities; explicitly document that legacy Android history
-does not automatically merge into a newly created canonical board. Do not rewrite
-history or reset a same-version catalog. An alternative is a separately specified
-identity alias/migration policy, including collision, reconnection and archive
-behavior. That expands the current no-migration scope.
+**User resolution, 2026-09-28:** the application has no users or released
+versions. Earlier development data is disposable. Use the versioned Apple hash
+on both hosts, reject all-zero/all-FF UUIDs as non-meaningful, and reset incompatible
+owned storage with marker `12`. Do not implement legacy aliases or migrations.
+Current-format opaque imported identities stay opaque; no automatic conversion
+is attempted. This policy is persistent in AGENTS.md and OpenSpec context.
 
-Required regression cases after the decision: equivalent Apple/Android UUID
-input; zero/all-FF normalization; same local association with legacy history;
-legacy archive import before/after canonical discovery; canonical imported board
-coexisting with legacy local association; repeated import and retained session
-ownership. No identity-dependent implementation has been selected yet.
+Regression cases: equivalent platform UUID input; zero/all-FF/absent identity;
+marker-11 reset; current-marker reopen/corruption without reset; canonical import
+before/after discovery; repeated import and nullable platform association.
 
 ## Established behavior and discrepancies
 
@@ -63,7 +60,7 @@ Paths below refer to the mirrored native capability paths named in baseline.md.
 | --------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | Settings        | `Domain.SettingsRecord`: revision 0, probe 500 ms, idle persistence 1,000 ms, riding 100 ms, tail 5,000 ms, reconnect 300,000 ms, minimum distance 100 m, system theme, metric units, null gap threshold, both GPS switches false. Stores merge allowed patches, check revision and clamp numeric ranges. | Apple reads revision from the SQL column; Android reads the JSON revision. Shared authority should be the canonical SQL revision; add inconsistent-column/JSON fixture.                                |
 | Profile         | Nullable series 1–36, parallel 1–20, CAN preferences 0–253, nonempty motor up to 128 UTF-8 bytes; missing fields are series/parallel/motor. Profiles start revision 0 with null preferred BMS. Preferred controller changes clear routing hints.                                                          | Inventory all unknown-field, JSON size and profile-event split-commit behavior before porting.                                                                                                         |
-| Saved boards    | Name trimmed, empty becomes null, 128 UTF-8 byte limit, optimistic revision; imported board has null platform association; immutable session snapshot separate from mutable profile.                                                                                                                      | Apple updates last-seen on reconnect while Android does not. Identity policy above remains unresolved.                                                                                                 |
+| Saved boards    | Name trimmed, empty becomes null, 128 UTF-8 byte limit, optimistic revision; imported board has null platform association; immutable session snapshot separate from mutable profile.                                                                                                                      | Apple updates last-seen on reconnect while Android does not. Canonical identity policy is resolved above; update last-seen on each observed connection.                                                |
 | Tune            | Canonical SQL exact package/version/fingerprint/wire signature; revisions start at 1; bounded complete values validated by application configuration owner before storage/apply.                                                                                                                          | Record full compatibility/conflict fixtures; list cursor's store identity binding is narrower than the complete identity.                                                                              |
 | Schema cache    | CRC must be nonzero; exact identity and SHA-256 digest; compressed data at most 32 KiB, envelope at most 64 KiB; retain eight newest files.                                                                                                                                                               | Kotlin compares serialized identity objects while Swift uses typed equality. Use typed field equality in shared code; malformed/digest/size/eviction tests required.                                   |
 | Session list    | Shared server `dispatch.session_list` binds cursor to history ID, query shape, catalog revision; max 100. Native store uses sort-key/session-ID keyset plus one lookahead row.                                                                                                                            | Preserve outer cursor validation when removing native inner cursor dispatch; do not copy the weaker store-only cursor as the public cursor.                                                            |

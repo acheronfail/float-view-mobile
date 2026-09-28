@@ -4,6 +4,19 @@ Float View contains one SvelteKit frontend and native backends for Apple
 (iOS/macOS) and Android. Keep the repository small and delete superseded paths;
 there is no generated API layer or platform-specific frontend code.
 
+## Pre-release compatibility policy
+
+Float View has not shipped a release and has no users yet. Until the first
+release is cut, persisted data and archives are disposable development data.
+Do not add or retain database migrations, legacy identity aliases, old-format
+readers, compatibility shims, or fallback paths solely to preserve earlier
+development versions. Replace superseded code and reset incompatible owned
+storage with an explicit format/schema marker when needed. Preserve current
+data on ordinary corruption or operational failure; those are not version
+mismatches. This policy does not remove support for intentionally supported
+VESC/Refloat firmware wire families. Revisit compatibility guarantees when the
+first release is cut, not when a development version number changes.
+
 ## Researching definitive upstream source
 
 Prefer using the following offline copies of upstream information relating to

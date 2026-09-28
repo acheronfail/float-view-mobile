@@ -14,6 +14,20 @@ Important remaining policy includes native exponential reconnect scheduling; sav
 
 ## Decisions
 
+### Pre-release data policy (user decision, 2026-09-28)
+
+There are no released versions or users. No legacy data migration, identity
+aliasing, or earlier-development archive compatibility is required. Select the
+versioned `vesc-v1-` identity derived from SHA-256 of
+`UTF8("float-view-board-v1\0") || meaningfulFirmwareUUID` on both hosts. Treat
+all-zero/all-FF or absent UUIDs as unavailable and generate a random opaque
+identity instead. Reset incompatible development stores through marker `12`
+when the shared store is selected; preserve the canonical SQL layout and current
+archive encoding. Do not add an old Android hash lookup or an identity migration.
+Current-format opaque imported identities remain valid; import must not invent a
+firmware identity from them. Ordinary corruption or failed I/O never authorizes
+a reset. AGENTS.md records this policy until the first actual release.
+
 ### 1. Compose a shared service above existing owners
 
 Introduce at most two cohesive safe crates: `backend-service` for portable application orchestration, and `product-store` for catalog/product persistence and archives. Reuse `application-runtime`, `session-sqlite` and existing protocol/policy crates directly. Do not create a crate or FFI module per product feature.

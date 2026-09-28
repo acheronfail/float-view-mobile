@@ -9,8 +9,12 @@ context: |
   exports and the session catalog. The selected Rust runtime owns protocol and
   durable session work; loopback-server owns authenticated HTTP/WebSocket routes,
   public projection and bounded history reads through the existing C/JNI bindings.
-  The project is still in test-stage: incompatible databases are deleted and
-  recreated from the current schema rather than migrated.
+  The application has no users and has not cut its first release. Until that
+  release, data and archives are disposable development data: delete superseded
+  migration, legacy-identity, old-format and fallback code rather than preserve
+  earlier development versions. Reset incompatible owned storage using explicit
+  schema/format markers, never on ordinary corruption or operational failure.
+  Supported VESC/Refloat firmware wire families are not legacy application data.
   Prefer deletion, standard libraries, and small maintained dependencies.
   Keep the development loop centered on the root justfile. `just verify` is
   the complete software gate.

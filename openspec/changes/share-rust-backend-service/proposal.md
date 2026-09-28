@@ -10,6 +10,7 @@ The shared loopback server removed a third frontend API implementation from a fu
 - Replace domain operations sent back to native application services with bounded OS facts/effects. Hosts retain Bluetooth and location acquisition, clocks/timer execution, permissions, background execution, storage-root/file-protection setup, native import/export presentation, theme and WebView integration.
 - Delete superseded native stores, product records/projections, policy branches, domain-operation dispatch and redundant Rust-to-native-to-Rust conversions as each host selects the service. Keep the two existing binding artifact families.
 - Preserve the public frontend contract, canonical SQL and archive format, existing identity/revision rules and bounded-resource behavior. Internal C/JNI envelopes may change together with both hosts; no public API or persistence-format break is intended.
+- Apply the repository's pre-release policy: select one canonical board hash and reset incompatible development storage with marker `12`, without legacy identity aliases or migrations. SQL layout and current archive encoding stay unchanged; earlier development data need not be preserved.
 - Prove the OS-only boundary using a direct Rust test host, deletion audits, canonical conformance, native packaging and the Android/iOS/macOS ESP32 checkpoint.
 
 ### Non-goals

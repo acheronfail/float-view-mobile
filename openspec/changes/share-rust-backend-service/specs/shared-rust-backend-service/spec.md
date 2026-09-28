@@ -61,6 +61,11 @@ The shared service SHALL own settings, saved boards, profiles, private routing a
 - **WHEN** an archive introduces a known board identity without a local Bluetooth association
 - **THEN** its history and profile are available while connecting still requires a valid locally discovered association
 
+#### Scenario: Replace incompatible development storage before first release
+
+- **WHEN** the shared service encounters an earlier development storage marker before the first application release
+- **THEN** it resets only owned incompatible storage and uses the current canonical identity algorithm without migrations, legacy aliases or fallback readers; ordinary corruption or I/O failure does not trigger a version reset
+
 ### Requirement: Shared session catalog and recovery
 
 The shared service SHALL own session creation, catalog summaries, keyset queries, close/retention, recovery, pending deletion and persisted maintenance coordination. The session commit marker SHALL remain authoritative across catalog/session failures. Existing schemas and formats SHALL remain unchanged, and ordinary interruption MUST NOT invoke incompatible-schema deletion. Recovery SHALL be bounded, restartable and complete required reconciliation before exposing affected sessions.
