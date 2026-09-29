@@ -1,0 +1,52 @@
+# Startup presentation acceptance
+
+Status: accepted within the user-approved connected-device scope.
+Implementation: `fae10ebbddf1201f68acdd0659d1744d8269b180`. Baseline: `fae1dff3`. Planning: `fae14389`.
+
+## Scope and environments
+
+Required device acceptance used the USB-connected iPhone 12 on iOS 18.7.8 (22H352), and Samsung SM-G965F on Android 10/API 29 with WebView 153.0.8010.36. All other device/version matrices, simulator/emulator visual matrices, manual macOS launch/lifecycle recordings, and fault injection requiring unavailable device tooling are out of scope by user direction. Those exclusions are not claimed as passed. Implementation and supported OS versions remain unchanged across iOS, macOS and Android.
+
+The existing automated software gate remains required. There is no new physical BLE checkpoint and no ESP32 test was needed. Both physical apps presented the frontend without a connected BLE device.
+
+## Requirement-to-evidence mapping
+
+| Requirement                           | Result and evidence                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| ------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Stable initial appearance             | Pass: 28 Chromium/WebKit tests execute the actual bootstrap, compiled CSS and production theme controller, covering missing/invalid/inaccessible hints, delayed modules, stale reconciliation, OS changes and listener cleanup. Actual built frontend HTTP 503 tests preserve visible errors and navigation.                                                                                                                                                                                              |
+| Continuous startup appearance         | Pass on both phones: system light/dark × app system/light/dark, three cold launches for every combination. Recorded matching-theme handoffs remain on the app canvas. Opposite saved preferences produce an intentional system-to-app transition without later oscillation.                                                                                                                                                                                                                               |
+| Native startup presentation           | Pass: iOS launch asset and native/WebKit canvas, Android window/splash resources and transparent WebView, and macOS theme-owned appearance propagation. Native packaging and existing macOS automated appearance tests pass. Manual macOS testing is excluded.                                                                                                                                                                                                                                            |
+| Frontend lifecycle                    | Pass: each iPhone theme combination includes three foreground returns with reachable navigation and no stale native startup error. Android instrumentation verifies retained-view identity, actual 30-second disposal, memory-pressure reconstruction, three Activity recreations, one runtime and one attached WebView. Real light/dark short and 32-second background recordings preserve the Android process and correct appearance. Existing canonical conformance covers service/session continuity. |
+| Failure visibility                    | Pass: real built frontend HTTP 503 errors remain visible in both browser engines; delayed bootstrap-module rendering is covered. Both phones launch without BLE readiness. Prior iOS simulator bind-failure/foreground-recovery screenshots are retained as supplemental evidence. Additional device renderer/bind/navigation fault injection requiring unavailable tooling is excluded.                                                                                                                  |
+| Acceptance evidence and software gate | Pass: device recordings and timing observations below, `just verify`, strict OpenSpec validation, changed-file formatting, frontend lint and SwiftFormat.                                                                                                                                                                                                                                                                                                                                                 |
+
+## Retained evidence
+
+Evidence directory: `/Users/cosmotherly/Desktop/codex/visualizations/2026/09/29/01a0eaca-e976-7aa0-ae44-df57a22ddc30/startup/`.
+
+- `phone-acceptance-manifest.json` identifies the final 24 candidate recordings: six iPhone videos containing three cold launches and three foreground returns each, plus eighteen Android cold-launch clips.
+- `ios-phone-baseline-{light,dark}-system.mp4`: three baseline cold launches per mode. `ios-phone-candidate-{light,dark}-{system,light,dark}.mp4` and corresponding XCTest logs/attachments cover all six candidate combinations. `FloatViewLifecycleTests/testStartupAndForegroundPresentation` passed in each run.
+- `android-phone-baseline-{light,dark}-{1,2,3}.mp4` and `android-phone-candidate-{system,light,dark}-{light,dark}-{1,2,3}.mp4`: baseline and candidate cold launches. Candidate filenames place app preference before system appearance; iPhone filenames place system appearance before app preference. The manifest resolves this explicitly.
+- `android-phone-clean-install.mp4`: candidate launch after reinstalling the owned development app. Location permissions were granted before recording to separate launch assets from the OS permission prompt.
+- `android-phone-{short,disposed}-resume-{light,dark}.mp4` and `android-phone-lifecycle.json`: actual background/foreground captures and same-process checks, with 32 seconds in the background for disposed resume.
+- `android-phone-lifecycle-test.log`: expanded native instrumentation passed on the physical phone. Deterministic lifecycle callbacks isolate retained resume from the OS memory policy; real background observations are separate.
+- `phone-frame-analysis.json` and `float-view-analyze-phones.py`: approximate canvas/navigation landmarks from 60 Hz sampling of encoded video. Contact sheets support inspection; padded cells after end of video are not captured black app frames.
+- `completion-verify.log`, `final-browser.log`, and `swiftformat.log`: final software results. Capture scripts and `android-corrected-capture.log` document recording operations.
+
+## Visual and timing findings
+
+The Android baseline shows a gray dark-launch surface and a short white document flash in light mode. The candidate removes those intermediate document surfaces. In representative light baseline footage the white interval is about 0.18 seconds; the corresponding candidate remains on the application canvas.
+
+Android median first-navigation appearance from recording start is approximately 1.30 seconds for both baseline and candidate light trials, and 1.35 versus 1.37 seconds for dark trials (three launches each). Recording starts about half a second before the launch command. iPhone median matching-canvas-to-navigation time is approximately 0.57 versus 0.53 seconds in light mode, and 0.62 versus 0.57 seconds in dark mode. XCTest recordings include runner/OS activity, so these canvas landmarks exclude that variable pre-launch interval. These are visual observations, not calibrated touch-response latency or a statistically established speedup. No fixed dwell or new readiness wait was added.
+
+The physical iPhone baseline did not reproduce the simulator's white flash in sampled frames. Earlier unobstructed simulator baseline recordings did reproduce it in all three dark trials, while candidate trials had no sampled white frames. Those simulator results are supplemental; physical acceptance rests on the phone recordings.
+
+System launch animation, dimmed app-switcher snapshots, Samsung's edge-panel handle and temporary OS navigation-bar contrast scrim are identified separately from app-controlled document backgrounds. Saved preferences opposite to system appearance intentionally reconcile once the app preference is available. These transitions were not treated as failures or hidden behind a splash overlay.
+
+## Tooling limitations and cleanup
+
+- Samsung firmware locks the standard `cmd uimode night` setter. Earlier light-labeled clips without verified system configuration are diagnostic only (`diagnostic-unverified-mode-*`). Final light runs select the actual Display settings control and assert `Night mode: no`; dark mode was confirmed as `Night mode: yes`. Only the manifest's final filenames count toward acceptance.
+- Intermittent Android USB disconnects required retries and a few user reconnects. A temporary authenticated wireless attempt was unreachable; USB debugging was restored and `service.adb.tcp.port` was confirmed as `0`. Captures ultimately completed over USB.
+- The iPhone did not support `devicectl` video recording, and USB AVFoundation capture was unavailable. XCTest screen recordings supplied the evidence. An initial test run used a button selector for link navigation; that diagnostic run is excluded. Corrected link-selector runs passed.
+- Both phones were returned to dark system appearance and app preference `system`.
+- Additional whole-repository `just lint` reports 39 unrelated/generated Prettier findings, including historical specs and the generated macOS HTML resource. These files are outside the implementation diff. Changed-file Prettier, frontend lint and SwiftFormat pass; the required `just verify` gate passed in full without weakened assertions. `whole-repo-lint.log` retains that separate result.
