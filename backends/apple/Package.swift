@@ -32,6 +32,11 @@ let package = Package(
       resources: [.copy("Resources")]
     ),
     .testTarget(
+      name: "FloatViewMacTests",
+      dependencies: ["FloatViewMac"],
+      path: "macos-tests"
+    ),
+    .testTarget(
       name: "FloatViewBackendTests",
       dependencies: [
         "CFloatViewApplicationRuntime",

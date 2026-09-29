@@ -62,6 +62,7 @@ android-rust-packaging:
 setup:
     cd frontend && npm ci
     cd conformance && npm ci
+    cd conformance && npx playwright install chromium webkit
     pio pkg install -d tools/vesc-test-device
     mkdir -p vendor
     [ -e "vendor/bldc" ] || git clone https://github.com/vedderb/bldc "vendor/bldc"
@@ -240,6 +241,7 @@ verify: build
     just core-lint
     just apple-packaging
     just test all
+    cd conformance && npm run startup && npm run startup:android
     just android-rust-packaging
     cd backends/apple && swift build --scratch-path /tmp/float-view-swift-build --product FloatViewMac
     xcodebuild -project backends/apple/ios/float-view.xcodeproj -scheme float-view \

@@ -86,6 +86,8 @@ class MainActivity : Activity() {
         if (webView != null || isFinishing || isDestroyed) return
         val origin = (application as FloatViewApplication).backend.origin
         webView = WebView(this).also {
+            // The native container owns the canvas while the document is loading.
+            it.setBackgroundColor(android.graphics.Color.TRANSPARENT)
             it.settings.javaScriptEnabled = true
             it.settings.domStorageEnabled = true
             it.settings.setSupportZoom(false)

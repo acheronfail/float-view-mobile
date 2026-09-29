@@ -6,15 +6,14 @@ struct ContentView: View {
   @Environment(\.scenePhase) private var scenePhase
 
   var body: some View {
-    Group {
+    ZStack {
+      Color("Canvas").ignoresSafeArea()
       if let frontend = backend.frontend {
         WebView(url: frontend.origin, onContentProcessTerminated: backend.recoverFrontend)
           .id(frontend.generation)
           .ignoresSafeArea()
-      } else if scenePhase == .background {
-        Color(uiColor: .systemBackground).ignoresSafeArea()
-      } else {
-        ContentUnavailableView("Just a sec mate...", systemImage: "gauge.with.dots.needle.33percent")
+      } else if backend.frontendStartupFailed, scenePhase == .active {
+        ContentUnavailableView("Unable to start Float View", systemImage: "exclamationmark.triangle")
       }
     }
     .preferredColorScheme(backend.themePreference.preferredColorScheme)

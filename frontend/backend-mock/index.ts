@@ -262,7 +262,6 @@ function mockSessionDataResult(request: SessionDataRequest): Record<string, unkn
     };
   }
   if (request.kind === 'samples') {
-    let rows: ReferenceSample[];
     let nextCursor: string | null = null;
     const cursor = request.cursor ? decodeCursor(request.cursor) : null;
     if (
@@ -274,7 +273,7 @@ function mockSessionDataResult(request: SessionDataRequest): Record<string, unkn
       throw new Error('Cursor does not match the requested snapshot');
     }
     const page = paginateSamples(source, request.limit, cursor);
-    rows = page.rows;
+    const rows = page.rows;
     if (rows.length && rows.length < source.length) {
       const last = rows.at(-1)!;
       nextCursor = encodeCursor({

@@ -48,12 +48,13 @@ final class MacBackendRuntime: @unchecked Sendable {
   }
 
   func makeServer(
-    exportPresenter: (@Sendable (NativeFilePresentation) -> Bool)? = nil
+    exportPresenter: (@Sendable (NativeFilePresentation) -> Bool)? = nil,
+    theme: (@Sendable (ThemePreference) -> Void)? = nil
   ) -> LoopbackServer {
     let port = ProcessInfo.processInfo.environment["FLOAT_VIEW_CONFORMANCE_PORT"]
       .flatMap(UInt16.init)
       ?? PlatformLoopbackPort.macOS
-    try! service.start(presenter: exportPresenter)
+    try! service.start(presenter: exportPresenter, theme: theme)
     return LoopbackServer(html: html, port: port, service: service)
   }
 

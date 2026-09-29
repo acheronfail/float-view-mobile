@@ -2,7 +2,7 @@
 
 ### Requirement: Startup presentation acceptance evidence
 
-Startup presentation changes SHALL include executable early-theme and lifecycle regressions plus recorded visual evidence for iOS, macOS and Android. Evidence SHALL distinguish native build success, frontend/backend behavior, and the actual visible handoff. The complete `just verify` gate SHALL pass before the change is accepted; unavailable environments or failing checks SHALL remain explicitly unverified.
+Startup presentation changes SHALL include executable early-theme and lifecycle regressions plus recorded visual evidence on the connected physical iOS and Android devices identified in the design. Additional device/version matrices and manual macOS visual/lifecycle testing are outside this change’s acceptance scope. Evidence SHALL distinguish native build success, frontend/backend behavior, and the actual visible handoff. The complete `just verify` gate SHALL pass before the change is accepted; failing or missing required checks SHALL remain incomplete, while excluded environments SHALL be identified as out of scope. Acceptance SHALL use the explicitly approved environment matrix in the design; out-of-scope environments SHALL NOT be reported as passed or change the supported OS range.
 
 #### Scenario: Early theme behavior
 
@@ -12,15 +12,16 @@ Startup presentation changes SHALL include executable early-theme and lifecycle 
 #### Scenario: Platform visual matrix
 
 - **WHEN** startup presentation is assessed for acceptance
-- **THEN** transition recordings cover cold launch on each supported platform in light and dark, including saved preferences opposite to system appearance
-- **AND** evidence includes both mobile launch behavior families and minimum/current supported OS coverage identified in the design
-- **AND** current-platform representative launches are repeated to detect intermittent flashes
+- **THEN** transition recordings cover cold launch on each of the two connected devices in light and dark, including saved preferences opposite to system appearance
+- **AND** evidence records the devices’ installed OS/WebView versions without requiring other devices, versions or launch behavior families
+- **AND** representative launches on each connected device are repeated to detect intermittent flashes
 
 #### Scenario: Lifecycle and failure coverage
 
 - **WHEN** startup regression checks run
-- **THEN** they cover retained and disposed frontend resume, activity/window recreation, existing renderer recovery, startup failure and recovery, delayed web loading, and backend unavailability as applicable to each host
-- **AND** native service/session continuity and bounded presentation resources remain verified
+- **THEN** they retain existing automated coverage and exercise foreground/background resume, theme changes, Activity recreation, and safely reproducible failure/recovery paths on the connected devices
+- **AND** native service/session continuity and bounded presentation resources remain verified through existing checks and applicable device assertions
+- **AND** manual desktop checks and fault injection requiring unavailable tooling are recorded as out of scope rather than blocking acceptance
 
 #### Scenario: Visual result is assessed
 
@@ -31,12 +32,20 @@ Startup presentation changes SHALL include executable early-theme and lifecycle 
 
 #### Scenario: Evidence is incomplete
 
-- **WHEN** a platform runtime, visual recording, or required gate result is missing or failing
+- **WHEN** a runtime or visual recording required by the approved matrix, or the required gate result, is missing or failing
 - **THEN** the corresponding acceptance item stays incomplete with its limitation recorded
 - **AND** a build result, final screenshot or unrelated successful test does not substitute for that evidence
 
-#### Scenario: Physical hardware is not part of the change
+#### Scenario: Device scope is bounded explicitly
+
+- **WHEN** the user limits device acceptance to the currently connected iOS and Android devices
+- **THEN** other devices, OS versions, simulator/emulator visual matrices and macOS manual visual/lifecycle checks are out of scope, not pending completion requirements
+- **AND** existing automated checks and the complete software gate remain required
+- **AND** earlier evidence is retained as supplemental without claiming verification of excluded environments
+- **AND** supported backends and OS versions remain unchanged
+
+#### Scenario: Presentation checks do not require a BLE fixture
 
 - **WHEN** only startup presentation changes and existing software lifecycle/protocol behavior remains unchanged
-- **THEN** simulator/emulator and desktop acceptance does not require a new physical BLE checkpoint
-- **AND** optional real-device visual observations are recorded separately from required software evidence
+- **THEN** startup acceptance, on the connected iOS and Android devices, does not require a new physical BLE checkpoint
+- **AND** required phone startup observations are distinguished from the hardware-independent software gate

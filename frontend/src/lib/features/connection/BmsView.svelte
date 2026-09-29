@@ -43,7 +43,7 @@
         Set Preferred BMS CAN ID in Board configuration. Controller selection is unaffected.
       </p>
       <ul class="mt-2 grid gap-1">
-        {#each candidates as candidate}
+        {#each candidates as candidate (bmsRouteLabel(candidate.connection))}
           <li>{bmsRouteLabel(candidate.connection)} · {candidate.hardwareName ?? 'VBMS'} · {candidate.vescVersion}</li>
         {/each}
       </ul>
@@ -82,7 +82,7 @@
     <section aria-labelledby="bms-cells-title">
       <h3 id="bms-cells-title" class="mb-2 font-semibold">Cells and balancing</h3>
       <ol class="grid grid-cols-2 gap-1 sm:grid-cols-4">
-        {#each snapshot.cellVoltagesV as voltage, index}
+        {#each snapshot.cellVoltagesV as voltage, index (index)}
           <li class="flex justify-between rounded border border-outline px-2 py-1">
             <span>Cell {index + 1}</span><span
               >{voltage.toFixed(3)} V {snapshot.balancing[index] ? '· balancing' : ''}</span
@@ -95,7 +95,7 @@
     <section aria-labelledby="bms-temperature-title">
       <h3 id="bms-temperature-title" class="mb-2 font-semibold">Temperatures</h3>
       <ul class="grid grid-cols-2 gap-1 sm:grid-cols-3">
-        {#each snapshot.temperaturesC as temperature, index}
+        {#each snapshot.temperaturesC as temperature, index (index)}
           <li class="rounded border border-outline px-2 py-1">
             Sensor {index + 1}: {formatTemperatureC(temperature, units)}
           </li>

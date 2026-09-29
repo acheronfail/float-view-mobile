@@ -3,6 +3,25 @@ import XCTest
 final class FloatViewLifecycleTests: XCTestCase {
   private let application = XCUIApplication(bundleIdentifier: "fail.acheron.float-view")
 
+  func testStartupAndForegroundPresentation() {
+    for _ in 0 ..< 3 {
+      application.terminate()
+      application.launch()
+      XCTAssertTrue(
+        application.links["settings"].waitForExistence(timeout: 15),
+        "Startup did not expose frontend navigation"
+      )
+      XCTAssertFalse(application.staticTexts["Unable to start Float View"].exists)
+      XCUIDevice.shared.press(.home)
+      application.activate()
+      XCTAssertTrue(
+        application.links["settings"].waitForExistence(timeout: 15),
+        "Foreground reconstruction did not expose navigation"
+      )
+      XCTAssertFalse(application.staticTexts["Unable to start Float View"].exists)
+    }
+  }
+
   func testBackground() {
     application.activate()
     XCUIDevice.shared.press(.home)

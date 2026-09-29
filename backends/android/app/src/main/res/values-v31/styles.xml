@@ -1,0 +1,6 @@
+<resources>
+    <!-- Keep the platform splash animation and icon; match its canvas to the app. -->
+    <style name="Theme.FloatView.Launch" parent="Theme.FloatView">
+        <item name="android:windowSplashScreenBackground">@color/canvas</item>
+    </style>
+</resources>

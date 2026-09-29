@@ -6,6 +6,7 @@ final class AppBackend: ObservableObject {
   let bluetooth: any BluetoothPort
   let service: SharedService
   @Published var frontend: FrontendEndpoint?
+  @Published private(set) var frontendStartupFailed = false
   @Published private(set) var themePreference: ThemePreference
   var frontendServer: LoopbackServer?
   var frontendGeneration = 0
@@ -51,6 +52,7 @@ final class AppBackend: ObservableObject {
   }
 
   func activateFrontend() {
+    frontendStartupFailed = false
     do {
       guard let frontendServer else { return }
       try frontendServer.start()
@@ -63,6 +65,7 @@ final class AppBackend: ObservableObject {
         print("[FloatViewState] frontend state=ready generation=\(frontend!.generation)")
       #endif
     } catch {
+      frontendStartupFailed = true
       frontend = nil
       #if DEBUG
         let message = loopbackStartupFailure(

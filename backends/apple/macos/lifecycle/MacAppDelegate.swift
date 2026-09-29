@@ -64,11 +64,16 @@ final class MacAppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
       return
     }
     do {
-      let server = runtime.makeServer(exportPresenter: MacExportPresenter.schedule)
+      let server = runtime.makeServer(exportPresenter: MacExportPresenter.schedule) { preference in
+        DispatchQueue.main.async {
+          MacTheme.apply(preference, to: NSApplication.shared)
+        }
+      }
       try server.start()
       self.server = server
       generation += 1
       let webView = WKWebView(frame: .zero)
+      webView.underPageBackgroundColor = MacTheme.canvasColor
       webView.navigationDelegate = self
       webView.allowsMagnification = false
       webView.load(URLRequest(url: URL(string: server.origin)!))
@@ -78,6 +83,7 @@ final class MacAppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
         backing: .buffered,
         defer: false
       )
+      window.backgroundColor = MacTheme.canvasColor
       window.title = "Float View"
       window.isReleasedWhenClosed = false
       window.contentView = webView

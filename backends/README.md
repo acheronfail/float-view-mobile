@@ -9,6 +9,35 @@ listener are disposable and borrow the existing application owner.
 See [`core/README.md`](core/README.md), [`apple/README.md`](apple/README.md) and
 [`android/README.md`](android/README.md) for the ownership and build boundaries.
 
+## Startup presentation
+
+The launch surface, native window/container, WebView and early HTML canvas use
+`#f8fafc` (light) and `#020617` (dark), matching `frontend/src/app.css`.
+iOS uses the adaptive `Canvas` asset for its system launch screen and SwiftUI
+background. Android keeps its platform splash behavior, with matching window
+and Android 12+ splash backgrounds. macOS shows its normal application window
+with an adaptive canvas and applies the service's theme preference to AppKit.
+Do not add minimum splash durations or hide the WebView while awaiting backend
+connectivity; the frontend must remain able to show connection errors.
+
+The OS launch surface follows system appearance before the application can read
+its saved theme. Native theme effects and the early HTML theme hint then apply
+the user's preference. Keep these canvas values aligned when changing the palette.
+
+Focused real-browser startup checks run with `cd conformance && npm run startup`
+after `just build`; install their development-only engines with
+`cd conformance && npx playwright install chromium webkit`. Native macOS appearance
+checks run with `just test apple`. Android canvas/recreation instrumentation runs
+on the configured emulator with `cd conformance && npm run startup:android`.
+These checks are included in `just verify`; recordings remain a separate visual
+acceptance requirement.
+
+For visual startup checks, cold-launch in system light and dark appearances,
+then repeat with a saved opposite app theme. Check iOS background/foreground,
+Android activity recreation and WebView teardown, and macOS window close/reopen.
+The transition should contain no default white flash in dark mode or temporary
+loading message. A loopback startup failure on iOS must still show an error.
+
 ## VESC request ownership
 
 Each active Bluetooth connection has one bounded Rust `VescRequestScheduler`.
@@ -147,3 +176,13 @@ raw packets, full cell arrays, tokens, or Bluetooth addresses.
 Never broaden an existing entry by major version, hardware type, prefix match,
 or successful command-96 probing. Add a new exact compatibility entry only
 after all six audit steps pass.
+
+For connected-iPhone startup acceptance, the existing UI test target includes
+`FloatViewLifecycleTests/testStartupAndForegroundPresentation`. It checks three
+cold launches and foreground reconstructions with visible frontend navigation
+and no stale native startup error. Run it against the connected device with
+`xcodebuild test -project backends/apple/ios/float-view.xcodeproj -scheme float-view -destination 'platform=iOS,id=<device-id>' -allowProvisioningUpdates -only-testing:float-view-lifecycle-tests/FloatViewLifecycleTests/testStartupAndForegroundPresentation`.
+Retain XCTest screen recordings by setting `SystemAttachmentLifetime` to
+`keepAlways` in the generated `.xctestrun` when collecting visual evidence.
+These physical UI observations are separate from the software gate and do not
+require an ESP32/BLE fixture.

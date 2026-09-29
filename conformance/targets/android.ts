@@ -339,3 +339,33 @@ async function bootstrap() {
   }
   throw new Error('Android backend did not become ready');
 }
+
+/** Run the ordinary app's native UI tests on the configured emulator only. */
+export function androidStartupPresentationTests(): string {
+  const serial = process.env.FLOAT_VIEW_ANDROID_EMULATOR ?? findEmulator();
+  if (!serial.startsWith('emulator-')) throw new Error('Startup software gate requires an emulator serial');
+  const root = fileURLToPath(new URL('../../', import.meta.url));
+  execFileSync(
+    `${root}/backends/android/gradlew`,
+    ['-p', `${root}/backends/android`, 'assembleDebug', 'assembleDebugAndroidTest'],
+    { stdio: 'inherit' }
+  );
+  adb(serial, 'install', '-r', `${root}/backends/android/app/build/outputs/apk/debug/app-debug.apk`);
+  adb(
+    serial,
+    'install',
+    '-r',
+    `${root}/backends/android/app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk`
+  );
+  return adbOutput(
+    serial,
+    'shell',
+    'am',
+    'instrument',
+    '-w',
+    '-e',
+    'class',
+    'fail.acheron.floatview.ui.StartupPresentationInstrumentedTest',
+    'fail.acheron.floatview.test/androidx.test.runner.AndroidJUnitRunner'
+  );
+}

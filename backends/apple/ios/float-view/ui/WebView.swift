@@ -45,11 +45,12 @@ struct WebView: UIViewRepresentable {
   }
 
   private func applyCanvasColor(to webView: WKWebView) {
-    let color = colorScheme == .dark
-      ? UIColor(red: 2 / 255, green: 6 / 255, blue: 23 / 255, alpha: 1)
-      : UIColor(red: 248 / 255, green: 250 / 255, blue: 252 / 255, alpha: 1)
-    webView.isOpaque = true
+    let traits = UITraitCollection(userInterfaceStyle: colorScheme == .dark ? .dark : .light)
+    let color = UIColor(named: "Canvas")!.resolvedColor(with: traits)
+    // Let the matching native canvas show through before WebKit paints the document.
+    webView.isOpaque = false
     webView.backgroundColor = color
+    webView.underPageBackgroundColor = color
     webView.scrollView.backgroundColor = color
   }
 

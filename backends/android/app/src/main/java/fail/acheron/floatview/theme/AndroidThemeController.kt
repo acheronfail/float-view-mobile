@@ -26,6 +26,7 @@ class AndroidThemeController(
         activity.window.navigationBarColor = background
         activity.window.navigationBarDividerColor = background
         activity.window.isNavigationBarContrastEnforced = false
+        activity.window.setBackgroundDrawable(android.graphics.drawable.ColorDrawable(background))
         frontendContainer.setBackgroundColor(background)
         WindowInsetsControllerCompat(activity.window, activity.window.decorView).apply {
             isAppearanceLightStatusBars = !dark
