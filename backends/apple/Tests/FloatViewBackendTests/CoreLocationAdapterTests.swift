@@ -4,6 +4,28 @@ import Foundation
 import Testing
 
 @Test
+func coreLocationRidePermissions() throws {
+  // Core Location's When In Use case (4) is unavailable by name on macOS;
+  // exercise its mapping here as well as on iOS.
+  let whenInUse = try #require(CLAuthorizationStatus(rawValue: 4))
+  for authorization in [whenInUse, .authorizedAlways] {
+    #expect(CoreLocationAdapter.providerState(servicesEnabled: true, authorization: authorization)
+      == LocationProviderState(authorization: .authorized, backgroundCapture: .available))
+    #expect(CoreLocationAdapter.providerState(servicesEnabled: false, authorization: authorization)
+      .authorization == .unavailable)
+  }
+  for (authorization, expected) in [
+    (CLAuthorizationStatus.notDetermined, LocationProviderAuthorization.notDetermined),
+    (.denied, .denied),
+    (.restricted, .restricted),
+  ] {
+    let state = CoreLocationAdapter.providerState(servicesEnabled: true, authorization: authorization)
+    #expect(state.authorization == expected)
+    #expect(state.backgroundCapture == .unavailable)
+  }
+}
+
+@Test
 func coreLocationObservationDeliveryLeavesTheDelegateThread() {
   let adapter = CoreLocationAdapter()
   let delivery = LocationDeliveryCapture()

@@ -112,7 +112,10 @@
           {#each backendState.discoveredDevices as device (device.deviceId)}
             <li>
               <ListItem
-                title={device.name || device.deviceId}
+                title={backendState.savedDevices.find((saved) => saved.savedDeviceId === device.savedDeviceId)
+                  ?.displayName ||
+                  device.name ||
+                  device.deviceId}
                 subtitle={device.deviceId}
                 onactivate={() => chooseDevice(device)}
                 disabled={backendState.busy}

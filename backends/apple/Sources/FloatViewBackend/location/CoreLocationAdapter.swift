@@ -34,14 +34,26 @@ public final class CoreLocationAdapter: NSObject, LocationProviderPort, CLLocati
     let cached = lock.withLock {
       (servicesEnabled: servicesEnabled, authorization: authorization, reason: lastReason)
     }
-    guard cached.servicesEnabled else {
+    return Self.providerState(
+      servicesEnabled: cached.servicesEnabled,
+      authorization: cached.authorization,
+      reason: cached.reason
+    )
+  }
+
+  static func providerState(
+    servicesEnabled: Bool,
+    authorization: CLAuthorizationStatus,
+    reason: String? = nil
+  ) -> LocationProviderState {
+    guard servicesEnabled else {
       return LocationProviderState(
         authorization: .unavailable,
         backgroundCapture: .unavailable,
         reason: "Location services are disabled."
       )
     }
-    switch cached.authorization {
+    switch authorization {
     case .notDetermined:
       return LocationProviderState(
         authorization: .notDetermined,
@@ -52,26 +64,19 @@ public final class CoreLocationAdapter: NSObject, LocationProviderPort, CLLocati
       return LocationProviderState(
         authorization: .denied,
         backgroundCapture: .unavailable,
-        reason: cached.reason ?? "Location permission was denied."
+        reason: reason ?? "Location permission was denied."
       )
     case .restricted:
       return LocationProviderState(
         authorization: .restricted,
         backgroundCapture: .unavailable,
-        reason: cached.reason ?? "Location permission is restricted."
+        reason: reason ?? "Location permission is restricted."
       )
-    case .authorizedAlways:
+    case .authorizedAlways, .authorizedWhenInUse:
+      // Rides start while the app is in use. With background location updates
+      // enabled and automatic pauses disabled, When In Use authorization also
+      // supports continuing that capture after the app enters the background.
       return LocationProviderState(authorization: .authorized, backgroundCapture: .available)
-    case .authorizedWhenInUse:
-      #if os(iOS)
-        return LocationProviderState(
-          authorization: .foregroundOnly,
-          backgroundCapture: .foregroundOnly,
-          reason: "Background location access is not enabled."
-        )
-      #else
-        return LocationProviderState(authorization: .authorized, backgroundCapture: .available)
-      #endif
     @unknown default:
       return LocationProviderState(
         authorization: .unavailable,
