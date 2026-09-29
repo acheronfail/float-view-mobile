@@ -58,7 +58,7 @@
 
 <svelte:window onpointerdown={(event) => gesture.observePointer(event)} />
 
-{#if pulse}<div class="marker-pulse pointer-events-none absolute inset-1 rounded-full" aria-hidden="true"></div>{/if}
+{#if pulse}<div class="marker-pulse pointer-events-none absolute inset-0" aria-hidden="true"></div>{/if}
 <button
   type="button"
   aria-label="Save ride marker"
@@ -84,32 +84,48 @@
     >Double-tap to mark</span
   >{/if}
 <div role="status" aria-live="polite" class="pointer-events-none absolute top-2 left-1/2 z-10 -translate-x-1/2">
-  {#if message}<span class="rounded-lg border border-outline bg-surface px-3 py-2 text-sm whitespace-nowrap shadow"
+  {#if message}<span
+      class="marker-toast inline-block rounded-xl border px-3 py-2 text-sm font-semibold whitespace-nowrap"
       >{message}</span
     >{/if}
 </div>
 
 <style>
   .marker-pulse {
+    background: radial-gradient(
+      ellipse closest-side at 50% 53%,
+      rgb(255 237 186 / 0.8) 0%,
+      rgb(253 186 116 / 0.6) 18%,
+      rgb(249 115 22 / 0.35) 42%,
+      rgb(249 115 22 / 0.12) 65%,
+      transparent 100%
+    );
+    filter: blur(10px);
+    transform-origin: 50% 53%;
+    animation: marker-pulse 250ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  }
+  .marker-toast {
+    color: #fff7ed;
+    background: linear-gradient(135deg, #7c2d12, #431407);
+    border-color: #fb923c;
     box-shadow:
-      inset 0 0 24px #f97316,
-      0 0 12px #f97316;
-    animation: marker-pulse 250ms ease-out;
+      0 4px 16px rgb(0 0 0 / 0.3),
+      0 0 18px rgb(249 115 22 / 0.3);
   }
   @keyframes marker-pulse {
-    0% {
-      opacity: 0.3;
-    }
-    35% {
+    from {
       opacity: 1;
+      transform: scale(0.35);
     }
-    100% {
+    to {
       opacity: 0;
+      transform: scale(1.15);
     }
   }
   @media (prefers-reduced-motion: reduce) {
     .marker-pulse {
       animation: none;
+      opacity: 0.65;
     }
   }
 </style>
