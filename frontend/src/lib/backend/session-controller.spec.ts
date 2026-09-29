@@ -4,6 +4,7 @@ import { SessionDataClient } from './session-data-client';
 import type { SessionMetadata } from './contract';
 
 const metadata: SessionMetadata = {
+  markerCount: 0,
   summary: {
     sessionId: 'controller-session',
     deviceHistoryId: 'history',

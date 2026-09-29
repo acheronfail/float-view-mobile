@@ -1,4 +1,7 @@
 <script lang="ts">
+  import type { SessionRideMarker } from '$lib/backend/contract';
+  import { ApiRequestError } from '$lib/backend/client';
+  import SessionMarkers from './SessionMarkers.svelte';
   import { getContext, onDestroy, onMount, tick } from 'svelte';
   import { goto } from '$app/navigation';
   import { APP_HEADER_CONTEXT, type AppHeaderContext } from '$lib/app/header';
@@ -20,6 +23,56 @@
   let deleting = $state(false);
   let locationMapHeight = $state(0);
   let selectedElapsedMs = $state(0);
+  let markers = $state<SessionRideMarker[]>([]);
+  let selectedMarker = $state<SessionRideMarker | null>(null);
+  let markerError = $state('');
+  let markerRetry = '';
+  function selectMarker(marker: SessionRideMarker) {
+    selectedMarker = marker;
+    selectedElapsedMs = marker.elapsedMs;
+  }
+  $effect(() => {
+    const metadata = backendState.sessionMetadata;
+    if (!metadata || metadata.summary.sessionId !== sessionId) return;
+    const controller = backendState.createSessionReviewController(metadata);
+    let active = true;
+    markers = [];
+    selectedMarker = null;
+    markerError = '';
+    void (async () => {
+      const loaded: SessionRideMarker[] = [];
+      let cursor: string | null = null;
+      for (let page = 0; page < 4 && metadata.markerCount; page++) {
+        const result = await controller.loadMarkers({
+          kind: 'markers',
+          range: { startElapsedMs: 0, endElapsedMs: metadata.summary.totalElapsedMs },
+          limit: 256,
+          cursor,
+        });
+        if (!active) return;
+        loaded.push(...result.markers);
+        cursor = result.nextCursor;
+        if (!cursor) break;
+      }
+      if (cursor || loaded.length !== metadata.markerCount || loaded.length > 1000)
+        throw new Error('Incomplete marker history');
+      if (active) markers = loaded;
+    })().catch((error) => {
+      if (!active) return;
+      if (
+        error instanceof ApiRequestError &&
+        ['conflict', 'invalid_request'].includes(error.code) &&
+        markerRetry !== metadata.summary.sessionId
+      ) {
+        markerRetry = metadata.summary.sessionId;
+        void backendState.openSession(metadata.summary.sessionId);
+      } else markerError = 'Markers could not be loaded.';
+    });
+    return () => {
+      active = false;
+      controller.dispose();
+    };
+  });
   let chartViewport = $state<Viewport | null>(null);
   const appHeader = getContext<AppHeaderContext>(APP_HEADER_CONTEXT);
   const headerOwner = '/sessions/[sessionId]';
@@ -78,7 +131,7 @@
   onDestroy(() => appHeader.clear(headerOwner));
 
   $effect(() => {
-    if (!backendState.sessionMetadata?.location.available) locationMapHeight = 0;
+    if (!backendState.sessionMetadata?.location.available && !markers.some((m) => m.location)) locationMapHeight = 0;
   });
 
   $effect(() => {
@@ -140,13 +193,20 @@
 >
   {#if backendState.selectedSession}
     {#if backendState.sessionMetadata}
-      {#if backendState.sessionMetadata.location.available}
-        <SessionLocationMap
-          metadata={backendState.sessionMetadata}
-          {selectedElapsedMs}
-          viewport={chartViewport}
-          bind:height={locationMapHeight}
-        />
+      <SessionMarkers {markers} selected={selectedMarker?.sequence ?? null} onselect={selectMarker} />
+      {#if markerError}<p role="alert" class="text-warning">{markerError}</p>{/if}
+      {#if backendState.sessionMetadata.location.available || markers.some((m) => m.location)}
+        {#key `${backendState.sessionMetadata.summary.sessionId}:${backendState.sessionMetadata.snapshot.historyRevision}`}
+          <SessionLocationMap
+            metadata={backendState.sessionMetadata}
+            {selectedElapsedMs}
+            {markers}
+            {selectedMarker}
+            onmarkerselect={selectMarker}
+            viewport={chartViewport}
+            bind:height={locationMapHeight}
+          />
+        {/key}
       {:else}
         <div class="rounded-lg border border-outline bg-elevated p-3">No location data was saved for this ride.</div>
       {/if}
@@ -155,7 +215,13 @@
         {#key backendState.sessionMetadata.snapshot.historyRevision}
           <SessionHistory
             metadata={backendState.sessionMetadata}
-            onselectionchange={(elapsedMs) => (selectedElapsedMs = elapsedMs)}
+            {markers}
+            {selectedMarker}
+            onmarkerselect={selectMarker}
+            onselectionchange={(elapsedMs) => {
+              selectedElapsedMs = elapsedMs;
+              if (selectedMarker?.elapsedMs !== elapsedMs) selectedMarker = null;
+            }}
             onviewportchange={(viewport) => (chartViewport = viewport)}
           />
         {/key}

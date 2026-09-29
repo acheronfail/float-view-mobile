@@ -408,6 +408,13 @@ impl Backend {
                 p.only(&["savedDeviceId", "limit", "cursor"])?;
                 return self.session_list(client, p).await;
             }
+            "session.marker.add" => {
+                p.only(&["sessionId", "operationId"])?;
+                Operation::AddRideMarker {
+                    session_id: p.text("sessionId")?,
+                    operation_id: p.text("operationId")?,
+                }
+            }
             "session.get" => {
                 p.only(&["sessionId"])?;
                 Operation::GetSession {
@@ -472,6 +479,9 @@ impl Backend {
                 Ok(projection::location(&f, enabled))
             }
             Completion::Settings(f) => Ok(projection::value(&f)),
+            Completion::RideMarker { marker, boundary } => {
+                Ok(json!({"marker":marker,"snapshot":projection::boundary(&boundary)}))
+            }
             Completion::SavedBoard(f) => Ok(projection::value(&f)),
             Completion::Profile(f) => Ok(
                 json!({"savedDeviceId":f.saved_device_id,"revision":f.revision,"missingFields":f.missing_fields,"values":serde_json::from_str::<Value>(&f.values_json).map_err(|_|Failure::Internal)?}),

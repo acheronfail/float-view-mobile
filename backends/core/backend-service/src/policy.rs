@@ -25,6 +25,7 @@ pub(crate) struct Connection {
     pub state: LinkState,
     pub board: Option<Board>,
     pub session: Option<Session>,
+    pub session_start: Option<u64>,
     pub continuity: c::discovery::Continuity,
     pub package_version: Option<String>,
     pub latest: Option<telemetry::NormalizedSample>,
@@ -615,6 +616,7 @@ impl BackendService {
             state: LinkState::Connecting,
             board,
             session: None,
+            session_start: None,
             continuity: c::discovery::Continuity::default(),
             package_version: None,
             latest: None,
@@ -1062,6 +1064,7 @@ impl BackendService {
                     .map_err(crate::store_failure)?;
             }
             if a.session.is_none() {
+                a.session_start = Some(self.policy.exchange.now);
                 a.session = Some(
                     self.store
                         .create_session(
@@ -1294,6 +1297,63 @@ mod tests {
             self.drain();
         }
     }
+    #[test]
+    fn ride_markers_are_session_scoped_and_survive_reconnect_and_close() {
+        use crate::{dispatch::Dispatch, facts::Completion, operations::Operation};
+        let mut t = Test::new();
+        t.activate(true);
+        let id = t
+            .service
+            .policy
+            .active
+            .as_ref()
+            .unwrap()
+            .session
+            .as_ref()
+            .unwrap()
+            .session_id
+            .clone();
+        let operation = || Operation::AddRideMarker {
+            session_id: id.clone(),
+            operation_id: "00000000-0000-4000-8000-000000000001".into(),
+        };
+        let Dispatch::Complete(first) = t.service.dispatch(1, operation()).unwrap() else {
+            panic!("pending")
+        };
+        let Completion::RideMarker { marker, .. } = *first else {
+            panic!("marker")
+        };
+        let Dispatch::Complete(retry) = t.service.dispatch(1, operation()).unwrap() else {
+            panic!("pending")
+        };
+        let Completion::RideMarker {
+            marker: repeated, ..
+        } = *retry
+        else {
+            panic!("marker")
+        };
+        assert_eq!(marker, repeated);
+        t.service.reconnect().unwrap();
+        assert!(t.service.dispatch(1, operation()).is_ok());
+        assert!(
+            t.service
+                .dispatch(
+                    1,
+                    Operation::AddRideMarker {
+                        session_id: "other".into(),
+                        operation_id: marker.operation_id.clone()
+                    }
+                )
+                .is_err()
+        );
+        t.service.disconnect("test").unwrap();
+        assert!(
+            t.service.store.session(&id).is_ok(),
+            "An idle marked session is retained"
+        );
+        assert!(t.service.dispatch(1, operation()).is_err());
+    }
+
     impl Drop for Test {
         fn drop(&mut self) {
             let _ = self.service.disconnect("test");
@@ -1479,6 +1539,36 @@ mod tests {
             1
         );
         assert!(t.service.policy.latest_location.is_some());
+        let session_id = t
+            .service
+            .policy
+            .active
+            .as_ref()
+            .unwrap()
+            .session
+            .as_ref()
+            .unwrap()
+            .session_id
+            .clone();
+        let save = |service: &mut BackendService, n: u64| {
+            let crate::dispatch::Dispatch::Complete(result) = service
+                .dispatch(
+                    1,
+                    crate::operations::Operation::AddRideMarker {
+                        session_id: session_id.clone(),
+                        operation_id: format!("00000000-0000-4000-8000-{n:012x}"),
+                    },
+                )
+                .unwrap()
+            else {
+                panic!("pending")
+            };
+            let crate::facts::Completion::RideMarker { marker, .. } = *result else {
+                panic!("marker")
+            };
+            marker
+        };
+        assert!(save(&mut t.service, 1).location.is_some());
         t.fact(Fact::Foreground { foreground: false }, 111).unwrap();
         assert!(t.service.policy.capture.is_some());
         t.fact(
@@ -1511,6 +1601,12 @@ mod tests {
             1
         );
         assert!(t.service.policy.latest_location.is_none());
+        t.fact(Fact::Foreground { foreground: false }, 700).unwrap();
+        assert!(save(&mut t.service, 2).location.is_none());
+        t.service.policy.settings.location_recording_enabled = false;
+        t.fact(Fact::Foreground { foreground: true }, 1_300)
+            .unwrap();
+        assert!(save(&mut t.service, 3).location.is_none());
     }
     #[test]
     fn ui_admission_cancellation_and_duplicate_completions_are_bounded() {

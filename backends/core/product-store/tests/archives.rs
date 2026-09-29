@@ -191,7 +191,7 @@ fn malformed_schema_metadata_and_attachment_failure_leave_no_catalog_changes() {
     for sql in [
         "CREATE TRIGGER hostile AFTER INSERT ON sample BEGIN DELETE FROM sample; END",
         "UPDATE float_view_archive_metadata SET value='{}' WHERE key='session'",
-        "UPDATE float_view_archive_metadata SET value='2' WHERE key='format_version'",
+        "UPDATE float_view_archive_metadata SET value='99' WHERE key='format_version'",
     ] {
         let export = store
             .prepare_export(&id, ExportFormat::Archive)
@@ -358,4 +358,76 @@ fn a_live_worker_lease_prevents_a_second_owner_from_running_startup_cleanup() {
     assert!(matches!(ProductStore::open(dir.path()), Err(Error::Busy)));
     drop(file);
     assert!(ProductStore::open(dir.path()).is_ok());
+}
+
+#[test]
+fn idle_marker_only_session_survives_recovery_and_archive_roundtrip() {
+    let dir = TestDirectory::new();
+    let mut store = ProductStore::open(dir.path()).unwrap();
+    let board = store
+        .ensure_board("marker-board", None, Some(&[8; 12]), 1)
+        .unwrap();
+    let session = store
+        .create_session(&board.saved_device_id, 1, u64::MAX)
+        .unwrap();
+    let path = store.session_path(&session.session_id).unwrap();
+    let mut writer = SessionWriter::open(&path).unwrap();
+    writer
+        .append_locations(&[LocationObservation {
+            elapsed_ms: 0,
+            observed_at_epoch_ms: 1,
+            latitude: 2.,
+            longitude: 3.,
+            accuracy_m: Some(4.),
+        }])
+        .unwrap();
+    let (marker, _) = writer
+        .append_ride_marker("00000000-0000-4000-8000-000000000001", 500, 501, true)
+        .unwrap();
+    writer.close().unwrap();
+    drop(store);
+    let store = ProductStore::open(dir.path()).unwrap();
+    assert_eq!(
+        store.session(&session.session_id).unwrap().state,
+        "interrupted"
+    );
+    let cancel = FileCancellation::default();
+    let export = store
+        .prepare_export(&session.session_id, ExportFormat::Archive)
+        .unwrap()
+        .run(&cancel)
+        .unwrap();
+    let target = TestDirectory::new();
+    let mut target_store = ProductStore::open(target.path()).unwrap();
+    let imported = target_store
+        .attach_import(
+            sink(&target_store, export.path())
+                .validate(&cancel)
+                .unwrap(),
+        )
+        .unwrap();
+    let mut reader =
+        SessionReader::open(target_store.session_path(&imported.session_id).unwrap()).unwrap();
+    let boundary = reader.marker().unwrap();
+    assert_eq!(
+        reader.ride_markers((&boundary).into()).unwrap(),
+        vec![marker]
+    );
+    drop(reader);
+    let archive = Connection::open(export.path()).unwrap();
+    archive
+        .execute(
+            "UPDATE session_event SET details_json='{}' WHERE kind='session_marker'",
+            [],
+        )
+        .unwrap();
+    drop(archive);
+    assert!(
+        sink(&target_store, export.path())
+            .validate(&cancel)
+            .is_err()
+    );
+    assert!(target_store.session(&imported.session_id).is_ok());
+    target_store.delete_session(&imported.session_id).unwrap();
+    assert!(target_store.session(&imported.session_id).is_err());
 }

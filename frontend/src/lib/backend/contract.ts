@@ -549,7 +549,25 @@ export interface SessionPruneMetadata {
   policy: string | null;
 }
 
+export const MAX_SESSION_MARKERS = 1_000;
+export const MAX_SESSION_MARKER_ROWS = 256;
+export interface SessionRideMarker {
+  sequence: number;
+  elapsedMs: number;
+  observedAtMs: number;
+  operationId: string;
+  location: {
+    locationSequence: number;
+    elapsedMs: number;
+    observedAtMs: number;
+    latitude: number;
+    longitude: number;
+    accuracyM: number | null;
+  } | null;
+}
+
 export interface SessionMetadata {
+  markerCount: number;
   summary: SessionSummary;
   fields: SessionFieldDescriptor[];
   eventCount: number;
@@ -736,6 +754,10 @@ export interface BackendMethods {
   'session.list': {
     params: { savedDeviceId: string; limit: number; cursor?: string | null };
     result: SessionListPage;
+  };
+  'session.marker.add': {
+    params: { sessionId: string; operationId: string };
+    result: { marker: SessionRideMarker; snapshot: SessionPublishedSnapshot };
   };
   'session.get': { params: { sessionId: string }; result: SessionMetadata };
   'session.export': {

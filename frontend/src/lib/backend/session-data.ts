@@ -1,5 +1,7 @@
 import {
   MAX_SESSION_CURSOR_BYTES,
+  MAX_SESSION_MARKER_ROWS,
+  type SessionRideMarker,
   MAX_SESSION_DATA_FIELDS,
   MAX_SESSION_DATA_REQUEST_BYTES,
   MAX_SESSION_DATA_RESPONSE_BYTES,
@@ -13,7 +15,7 @@ import {
   type SessionPublishedSnapshot,
 } from './contract.ts';
 
-export type SessionDataKind = 'series' | 'samples' | 'events' | 'locations';
+export type SessionDataKind = 'series' | 'samples' | 'events' | 'locations' | 'markers';
 export type SessionDataRange = { startElapsedMs: number; endElapsedMs: number };
 export type SessionGapPolicy = { thresholdSeconds: number | null };
 
@@ -45,6 +47,20 @@ export interface SessionEventsRequest extends SessionDataRequestBase {
   cursor?: string | null;
 }
 
+export interface SessionMarkersRequest extends SessionDataRequestBase {
+  kind: 'markers';
+  limit: number;
+  cursor?: string | null;
+}
+export interface SessionMarkersResult {
+  kind: 'markers';
+  sessionId: string;
+  snapshot: SessionPublishedSnapshot;
+  range: SessionDataRange;
+  markers: SessionRideMarker[];
+  nextCursor: string | null;
+}
+
 export interface SessionLocationsRequest extends SessionDataRequestBase {
   kind: 'locations';
   limit: number;
@@ -55,7 +71,8 @@ export type SessionDataRequest =
   | SessionSeriesRequest
   | SessionSamplesRequest
   | SessionEventsRequest
-  | SessionLocationsRequest;
+  | SessionLocationsRequest
+  | SessionMarkersRequest;
 
 export interface SessionSeriesColumn {
   elapsedMs: number[];
@@ -133,7 +150,8 @@ export type SessionDataResult =
   | SessionSeriesResult
   | SessionSamplesResult
   | SessionEventsResult
-  | SessionLocationsResult;
+  | SessionLocationsResult
+  | SessionMarkersResult;
 
 export class SessionDataProtocolError extends Error {
   constructor(message: string) {
@@ -187,7 +205,8 @@ export function validateSessionDataRequest(value: unknown): SessionDataRequest {
     request.kind !== 'series' &&
     request.kind !== 'samples' &&
     request.kind !== 'events' &&
-    request.kind !== 'locations'
+    request.kind !== 'locations' &&
+    request.kind !== 'markers'
   ) {
     throw new SessionDataProtocolError('Unsupported session-data request kind');
   }
@@ -224,6 +243,12 @@ export function validateSessionDataRequest(value: unknown): SessionDataRequest {
     if (request.cursor !== undefined && request.cursor !== null) validateCursor(request.cursor);
     return { ...request, fields, limit } as SessionSamplesRequest;
   }
+  if (request.kind === 'markers') {
+    if (!finiteInteger(request.limit) || request.limit < 1 || request.limit > MAX_SESSION_MARKER_ROWS)
+      throw new SessionDataProtocolError('Marker page size is out of bounds');
+    if (request.cursor !== undefined && request.cursor !== null) validateCursor(request.cursor);
+    return request as SessionMarkersRequest;
+  }
   if (request.kind === 'locations') {
     const limit = request.limit;
     if (!finiteInteger(limit) || limit < 1 || limit > MAX_SESSION_LOCATION_ROWS) {
@@ -256,6 +281,27 @@ export function validateSessionDataResult(value: unknown, request: SessionDataRe
     result.range.endElapsedMs !== request.range.endElapsedMs
   ) {
     throw new SessionDataProtocolError('Session-data range does not match the request');
+  }
+  if (result.kind === 'markers') {
+    if (!Array.isArray(result.markers) || result.markers.length > (request as SessionMarkersRequest).limit)
+      throw new SessionDataProtocolError('Invalid marker page');
+    let previous: SessionRideMarker | undefined;
+    for (const marker of result.markers) {
+      validateRideMarker(marker);
+      if (
+        marker.elapsedMs < request.range.startElapsedMs ||
+        marker.elapsedMs > request.range.endElapsedMs ||
+        marker.sequence > request.snapshot.committedEventSequence ||
+        (marker.location && marker.location.locationSequence > request.snapshot.committedLocationSequence) ||
+        (previous &&
+          (marker.elapsedMs < previous.elapsedMs ||
+            (marker.elapsedMs === previous.elapsedMs && marker.sequence <= previous.sequence)))
+      )
+        throw new SessionDataProtocolError('Invalid marker ordering');
+      previous = marker;
+    }
+    if (result.nextCursor !== null) validateCursor(result.nextCursor);
+    return result as SessionMarkersResult;
   }
   if (result.kind === 'series')
     return validateSeriesResult(result as Partial<SessionSeriesResult>, request as SessionSeriesRequest);
@@ -543,4 +589,38 @@ function validateFieldDescriptors(
       throw new SessionDataProtocolError('Field descriptor does not match the request');
     }
   });
+}
+
+export function validateRideMarker(value: unknown): asserts value is SessionRideMarker {
+  const m = value as SessionRideMarker | null;
+  if (
+    !m ||
+    !finiteInteger(m.sequence) ||
+    m.sequence === 0 ||
+    !finiteInteger(m.elapsedMs) ||
+    !finiteInteger(m.observedAtMs) ||
+    typeof m.operationId !== 'string' ||
+    !/^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(m.operationId)
+  )
+    throw new SessionDataProtocolError('Invalid marker');
+  if (m.location !== null) {
+    const p = m.location;
+    if (
+      !p ||
+      !finiteInteger(p.locationSequence) ||
+      !p.locationSequence ||
+      !finiteInteger(p.elapsedMs) ||
+      p.elapsedMs > m.elapsedMs ||
+      m.elapsedMs - p.elapsedMs > 10_000 ||
+      !finiteInteger(p.observedAtMs) ||
+      p.observedAtMs > m.observedAtMs ||
+      m.observedAtMs - p.observedAtMs > 10_000 ||
+      !finiteNumber(p.latitude) ||
+      Math.abs(p.latitude) > 90 ||
+      !finiteNumber(p.longitude) ||
+      Math.abs(p.longitude) > 180 ||
+      (p.accuracyM !== null && (!finiteNumber(p.accuracyM) || p.accuracyM < 0))
+    )
+      throw new SessionDataProtocolError('Invalid marker location');
+  }
 }

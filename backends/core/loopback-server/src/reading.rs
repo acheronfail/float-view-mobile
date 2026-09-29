@@ -49,7 +49,17 @@ async fn run<T: Send + 'static>(
             stored_sample_count: source.boundary.stored_sample_count,
             policy: metadata.prune_policy,
         };
+        let marker_count = reader
+            .ride_markers(session::PublishedBoundary {
+                history_revision: source.boundary.history_revision,
+                sample_sequence: source.boundary.committed_sample_sequence,
+                event_sequence: source.boundary.committed_event_sequence,
+                location_sequence: source.boundary.committed_location_sequence,
+            })
+            .map_err(|_| Failure::Unavailable)?
+            .len();
         let metadata = SessionMetadata {
+            marker_count,
             summary: source.summary,
             extension_fields,
             boundary: source.boundary,
@@ -113,6 +123,23 @@ pub async fn read(
                         })
                         .collect(),
                 )
+            }
+            "markers" => {
+                let mut rows: Vec<_> = reader
+                    .ride_markers(boundary)
+                    .map_err(|_| Failure::InvalidRequest)?
+                    .into_iter()
+                    .filter(|m| {
+                        m.elapsed_ms >= start
+                            && m.elapsed_ms <= end
+                            && after.is_none_or(|a| {
+                                (m.elapsed_ms, m.sequence) > (a.elapsed_ms, a.sequence)
+                            })
+                    })
+                    .collect();
+                more = rows.len() > query.limit;
+                rows.truncate(query.limit);
+                HistoryResult::RideMarkers(rows)
             }
             "events" => {
                 let page = reader

@@ -250,6 +250,30 @@ function mockSessionDataResult(request: SessionDataRequest): Record<string, unkn
     { elapsedMs: 0, sequence: 0, values: { packVoltageV: 60, speedKph: 0 } },
     { elapsedMs: 60_000, sequence: 1, values: { packVoltageV: 55, speedKph: 20 } },
   ].filter((row) => row.elapsedMs >= request.range.startElapsedMs && row.elapsedMs <= request.range.endElapsedMs);
+  if (request.kind === 'markers') {
+    const key = JSON.stringify([request.sessionId, request.snapshot, request.range]);
+    const cursor = request.cursor ? JSON.parse(Buffer.from(request.cursor, 'base64url').toString()) : null;
+    if (
+      cursor &&
+      (cursor.key !== key || !Number.isSafeInteger(cursor.offset) || cursor.offset < 0 || cursor.offset > 1000)
+    )
+      throw new Error('Invalid marker cursor');
+    const rows = (activeMockBackend?.markerRows(request.sessionId) ?? []).filter(
+      (m) =>
+        m.sequence <= request.snapshot.committedEventSequence &&
+        m.elapsedMs >= request.range.startElapsedMs &&
+        m.elapsedMs <= request.range.endElapsedMs
+    );
+    const offset = cursor?.offset ?? 0;
+    return {
+      ...request,
+      markers: rows.slice(offset, offset + request.limit),
+      nextCursor:
+        offset + request.limit < rows.length
+          ? Buffer.from(JSON.stringify({ key, offset: offset + request.limit })).toString('base64url')
+          : null,
+    };
+  }
   if (request.kind === 'series') {
     return {
       kind: 'series',

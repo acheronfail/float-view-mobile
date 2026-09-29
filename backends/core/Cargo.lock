@@ -406,6 +406,7 @@ dependencies = [
  "float-view-refloat-telemetry-service",
  "float-view-session-history-kernel",
  "rusqlite",
+ "serde",
  "serde_json",
 ]
 

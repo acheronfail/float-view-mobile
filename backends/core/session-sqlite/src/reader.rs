@@ -298,6 +298,18 @@ impl SessionReader {
         Ok(value)
     }
 
+    pub fn ride_markers(
+        &mut self,
+        boundary: PublishedBoundary,
+    ) -> Result<Vec<super::RideMarker>, ReaderError> {
+        let tx = self.deferred()?;
+        validate_boundary(&tx, boundary)?;
+        let markers =
+            super::markers::read_markers(&tx, boundary.event_sequence).map_err(map_writer)?;
+        tx.commit().map_err(map_sqlite)?;
+        Ok(markers)
+    }
+
     pub fn fields(&mut self) -> Result<Vec<FieldDescriptor>, ReaderError> {
         let transaction = self.deferred()?;
         let value = read_fields(&transaction)?;

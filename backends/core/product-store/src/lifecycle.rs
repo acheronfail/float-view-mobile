@@ -99,7 +99,10 @@ impl ProductStore {
             [session.committed_sequence],
             |r| r.get(0),
         )?;
-        Ok(riding && session.distance_m.unwrap_or(0.) >= self.settings()?.minimum_session_distance)
+        let marked: bool = db.query_row("SELECT EXISTS(SELECT 1 FROM session_event WHERE kind='session_marker' AND sequence<=?)", [session.committed_event_sequence], |r| r.get(0))?;
+        Ok(marked
+            || (riding
+                && session.distance_m.unwrap_or(0.) >= self.settings()?.minimum_session_distance))
     }
     pub fn delete_session(&mut self, id: &str) -> Result<()> {
         validate_id(id)?;

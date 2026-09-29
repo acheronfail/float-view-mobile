@@ -9,6 +9,7 @@ publish = false
 float-view-refloat-telemetry-service = { path = "../refloat-telemetry-service" }
 float-view-session-history-kernel = { path = "../session-history-kernel" }
 rusqlite = { version = "0.37.0", features = ["bundled", "hooks"] }
+serde = { version = "1", features = ["derive"] }
 serde_json = "1.0.149"
 
 [dev-dependencies]

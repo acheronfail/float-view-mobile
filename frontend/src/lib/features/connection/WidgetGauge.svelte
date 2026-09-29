@@ -1,14 +1,17 @@
 <script lang="ts">
+  import MarkerCapture from './MarkerCapture.svelte';
   import { prefersReducedMotion, Tween } from 'svelte/motion';
   import type { ControllerCurrentLimits, LiveSample, UnitPreference } from '../../backend/contract';
   import { formatDistanceM, formatSpeedKph } from '../measurements/format';
   import { driveLoad } from './gauge';
 
   let {
+    sessionId = null,
     sample,
     currentLimits,
     units,
   }: {
+    sessionId?: string | null;
     sample: LiveSample | null | undefined;
     currentLimits: ControllerCurrentLimits | null | undefined;
     units: UnitPreference;
@@ -112,7 +115,7 @@
   }
 </script>
 
-<div class="flex h-full min-h-0 items-center justify-center overflow-hidden">
+<div class="relative flex h-full min-h-0 items-center justify-center overflow-hidden">
   <svg
     viewBox="0 0 320 300"
     class="mx-auto block h-full max-h-full w-auto max-w-full overflow-visible text-foreground"
@@ -241,4 +244,5 @@
       {textbox.value}
     </text>
   </svg>
+  <MarkerCapture {sessionId} />
 </div>

@@ -92,4 +92,10 @@ The ESP32 tool is pure ESP-IDF firmware. Scenario logic, serial orchestration,
 and VESC interpretation belong only to `conformance/`.
 
 Use `just verify` as the software gate. Real Android/iOS devices and the flashed
-fixture are required only for the explicit physical BLE checkpoint.
+fixture are required only for an explicit physical checkpoint when the change
+warrants it: OS Bluetooth adapters, permissions, lifecycle/background execution,
+radio timing, or firmware/wire interoperability that simulators cannot establish.
+Shared product logic, persistence, and frontend changes normally use the software
+gate, including simulator/emulator conformance, without extended physical suites.
+Record why a physical checkpoint is needed or why the software gate is sufficient;
+do not claim physical validation when only software checks ran.

@@ -28,7 +28,7 @@ impl Backend {
             "cursor",
         ])?;
         let kind = p.text("kind")?;
-        if !["series", "samples", "events", "locations"].contains(&kind.as_str()) {
+        if !["series", "samples", "events", "locations", "markers"].contains(&kind.as_str()) {
             return Err(Failure::InvalidRequest);
         }
         let id = p.text("sessionId")?;
@@ -91,7 +91,13 @@ impl Backend {
             }
         } else {
             limit = p.number("limit")? as usize;
-            let maximum = if kind == "events" { 500 } else { 2000 };
+            let maximum = if kind == "markers" {
+                256
+            } else if kind == "events" {
+                500
+            } else {
+                2000
+            };
             if !(1..=maximum).contains(&limit) {
                 return Err(Failure::InvalidRequest);
             }
@@ -109,7 +115,8 @@ impl Backend {
             && let Some(raw) = &raw_cursor
         {
             let c = decode_cursor(raw, 512)?;
-            if c["v"] != 1
+            if (kind == "markers" && c["k"] != kind)
+                || c["v"] != 1
                 || c["s"] != id
                 || c["b"] != request["snapshot"]
                 || c["r"] != request["range"]
@@ -164,7 +171,7 @@ impl Backend {
         let mut response = json!({"kind":kind,"sessionId":id,"snapshot":request["snapshot"],"range":request["range"]});
         let make_cursor = |elapsed: u64, sequence: u64| -> Result<String, Failure> {
             let encoded = cursor(
-                &json!({"v":1,"s":id,"b":request["snapshot"],"r":request["range"],"e":elapsed,"q":sequence}),
+                &json!({"v":1,"k":kind,"s":id,"b":request["snapshot"],"r":request["range"],"e":elapsed,"q":sequence}),
             )?;
             if encoded.len() > 512 {
                 return Err(Failure::Internal);
@@ -217,6 +224,15 @@ impl Backend {
                 } else {
                     Value::Null
                 };
+            }
+            ("markers", HistoryResult::RideMarkers(markers)) => {
+                response["nextCursor"] = if more {
+                    let last = markers.last().ok_or(Failure::Internal)?;
+                    json!(make_cursor(last.elapsed_ms, last.sequence)?)
+                } else {
+                    Value::Null
+                };
+                response["markers"] = projection::value(&markers);
             }
             ("events", HistoryResult::HistoryEvents(mut events)) => {
                 events.truncate(limit);

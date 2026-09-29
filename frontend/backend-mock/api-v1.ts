@@ -28,6 +28,7 @@ import {
   type RefloatPendingAction,
   type Response,
   type SessionMetadata,
+  type SessionRideMarker,
   type SessionListPage,
   type SessionOperationState,
   type SessionPrunePreview,
@@ -178,6 +179,7 @@ function sessionMetadata(summary: SessionSummary): SessionMetadata {
   const hasLocation = summary.sessionId === 'session-1';
   return {
     summary,
+    markerCount: 0,
     fields: sessionFields,
     eventCount: summary.eventCount,
     recordedSampleCount: summary.sampleCount,
@@ -245,6 +247,11 @@ function detailedSeriesValues(overrides: Record<string, number>): Record<string,
 }
 
 export class MockBackend {
+  private rideMarkers = new Map<string, SessionRideMarker[]>();
+  markerRows(sessionId: string) {
+    return structuredClone(this.rideMarkers.get(sessionId) ?? []);
+  }
+
   private readonly publish: (event: StateChanged) => void;
   readonly profiles = new Map([
     [
@@ -785,9 +792,39 @@ export class MockBackend {
         });
         return success(id, updated);
       }
+      case 'session.marker.add': {
+        const sessionId = string(params.sessionId);
+        const operationId = string(params.operationId);
+        const found = this.sessionCatalog.find((s) => s.sessionId === sessionId);
+        if (!found || sessionId !== this.activeSessionId)
+          return failure(id, 'invalid_state', 'No active saved session');
+        if (!operationId || !/^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(operationId))
+          return failure(id, 'invalid_request', 'Invalid operation ID');
+        const rows = this.rideMarkers.get(sessionId) ?? [];
+        let marker = rows.find((m) => m.operationId === operationId);
+        if (!marker) {
+          const elapsedMs = Math.max(found.totalElapsedMs, Date.now() - Date.parse(found.startedAt));
+          if (rows.length >= 1000 || (rows.length && elapsedMs - rows.at(-1)!.elapsedMs < 500))
+            return failure(id, 'invalid_request', 'Marker limit reached');
+          marker = { sequence: found.eventCount, elapsedMs, observedAtMs: Date.now(), operationId, location: null };
+          rows.push(marker);
+          this.rideMarkers.set(sessionId, rows);
+          found.eventCount++;
+          found.totalElapsedMs = elapsedMs;
+          this.change({
+            ...this.state,
+            activeConnection: this.state.activeConnection
+              ? { ...this.state.activeConnection, activeSession: found }
+              : null,
+          });
+        }
+        return success(id, { marker, snapshot: sessionMetadata(found).snapshot });
+      }
       case 'session.get': {
         const found = this.findSession(params);
-        return found ? success(id, sessionMetadata(found)) : failure(id, 'not_found', 'Session was not found');
+        return found
+          ? success(id, { ...sessionMetadata(found), markerCount: this.rideMarkers.get(found.sessionId)?.length ?? 0 })
+          : failure(id, 'not_found', 'Session was not found');
       }
       case 'session.list': {
         const savedDeviceId = string(params.savedDeviceId);
@@ -814,6 +851,7 @@ export class MockBackend {
         const found = this.findSession(params);
         if (!found) return accepted(id);
         this.sessionCatalog = this.sessionCatalog.filter((item) => item.sessionId !== found.sessionId);
+        this.rideMarkers.delete(found.sessionId);
         this.change(
           {
             ...this.state,

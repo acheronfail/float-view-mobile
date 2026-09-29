@@ -19,6 +19,8 @@ use rusqlite::{
     params,
 };
 
+mod markers;
+pub use markers::{MAX_MARKER_PAGE, MAX_RIDE_MARKERS, MarkerLocation, RideMarker};
 mod pruner;
 mod reader;
 
@@ -399,7 +401,7 @@ impl SessionWriter {
                     sqlite_integer(recorded_sample_count)?,
                     sqlite_integer(aggregate.sample_count)?,
                     sqlite_integer(aggregate.event_count)?,
-                    sqlite_integer(aggregate.elapsed_ms)?,
+                    sqlite_integer(aggregate.elapsed_ms.max(existing_marker.committed_elapsed_ms))?,
                     committed_at_epoch_ms,
                     sqlite_integer(aggregate.riding_elapsed_ms)?,
                     aggregate.distance_m,
@@ -1131,6 +1133,7 @@ fn validate_database(connection: &Connection) -> Result<(), WriterError> {
         ("index", "location_elapsed"),
         ("index", "sample_elapsed"),
         ("index", "session_event_elapsed"),
+        ("index", "session_ride_markers"),
         ("table", "commit_marker"),
         ("table", "location"),
         ("table", "riding_interval"),

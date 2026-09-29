@@ -1,7 +1,8 @@
 <script lang="ts">
-  import { onDestroy, onMount } from 'svelte';
+  import { chartMarkerGroups } from './marker-groups';
+  import { onDestroy, onMount, untrack } from 'svelte';
   import { SvelteMap, SvelteSet } from 'svelte/reactivity';
-  import { MAX_SESSION_DATA_FIELDS, type SessionMetadata } from '$lib/backend/contract';
+  import { MAX_SESSION_DATA_FIELDS, type SessionMetadata, type SessionRideMarker } from '$lib/backend/contract';
   import type { SessionReviewController } from '$lib/backend/session-controller';
   import type { SessionSeriesResult } from '$lib/backend/session-data';
   import { backendState } from '$lib/backend/state.svelte';
@@ -23,10 +24,16 @@
   import Spinner from '../../ui/Spinner.svelte';
 
   let {
+    markers = [],
+    selectedMarker = null,
+    onmarkerselect = () => {},
     metadata,
     onselectionchange = () => {},
     onviewportchange = () => {},
   }: {
+    markers?: SessionRideMarker[];
+    selectedMarker?: SessionRideMarker | null;
+    onmarkerselect?: (marker: SessionRideMarker) => void;
     metadata: SessionMetadata;
     onselectionchange?: (elapsedMs: number) => void;
     onviewportchange?: (viewport: Viewport) => void;
@@ -306,6 +313,22 @@
     await loadSeriesGroup(index, Math.max(1, Math.floor(width)));
     if (groupResults.has(index)) await loadSeriesGroup(index + 1, Math.max(1, Math.floor(width)));
   }
+
+  $effect(() => {
+    const marker = selectedMarker;
+    if (!marker) return;
+    untrack(() => {
+      if (marker.elapsedMs < viewport.startElapsedMs || marker.elapsedMs > viewport.endElapsedMs) {
+        const width = Math.max(1, viewport.endElapsedMs - viewport.startElapsedMs);
+        viewport = clampViewport(
+          { startElapsedMs: marker.elapsedMs - width / 2, endElapsedMs: marker.elapsedMs + width / 2 },
+          duration
+        );
+      }
+      inspectionMs = marker.elapsedMs;
+      exactStatus = 'exact';
+    });
+  });
 
   function queueInspection(elapsedMs: number) {
     if (!activeField) return;
@@ -658,7 +681,7 @@
 
           {#each chartGroupsForRequestGroup(groupIndex) as chartGroup (chartGroup.id)}
             {@const chartModel = chartModels.get(chartGroup.id)}
-            {@const domain = chartModel?.domain ?? null}
+            {@const domain = chartModel?.domain ?? (markers.length ? { min: 0, max: 1 } : null)}
             {@const hasColumns = chartModel?.hasColumns ?? false}
             {@const hasFiniteValues = chartModel?.hasFiniteValues ?? false}
             {@const yTicks = chartModel?.yTicks ?? []}
@@ -669,7 +692,7 @@
             <div>
               <SectionTitle title={chartGroup.title} detail={chartGroup.unit ?? 'value'} />
 
-              {#if hasColumns && domain && hasFiniteValues}
+              {#if domain && ((hasColumns && hasFiniteValues) || markers.length)}
                 <div class="mt-2 flex items-stretch gap-1">
                   <div
                     class="flex h-36 shrink-0 flex-col justify-between text-right text-[8px] leading-none text-muted"
@@ -680,6 +703,24 @@
                     {/each}
                   </div>
                   <div class="relative min-w-0 flex-1">
+                    {#each chartMarkerGroups(markers, visibleViewport, width) as group (group.marker.sequence)}
+                      {@const marker = group.marker}
+                      <button
+                        type="button"
+                        aria-label={`Select marker at ${(marker.elapsedMs / 1000).toFixed(1)} seconds`}
+                        title={`Marker · ${(marker.elapsedMs / 1000).toFixed(1)}s`}
+                        class="absolute top-0 z-20 h-36 w-3 -translate-x-1/2 touch-manipulation border-x border-transparent focus-visible:outline-2 focus-visible:outline-warning"
+                        style:left={`${group.percent}%`}
+                        onpointerdown={(event) => activateFromPointer(event, () => onmarkerselect(marker))}
+                        onclick={(event) => activateFromKeyboardOrAssistiveClick(event, () => onmarkerselect(marker))}
+                      >
+                        {#if group.count > 1}<span
+                            class="absolute top-0 left-1/2 -translate-x-1/2 rounded bg-orange-500 px-1 text-[10px] text-black"
+                            >{group.count}</span
+                          >{/if}
+                        <span class="mx-auto block h-full w-0.5 bg-orange-500 shadow-[0_0_0_1px_#0008]"></span>
+                      </button>
+                    {/each}
                     <svg
                       class="block h-36 w-full touch-pan-y rounded bg-canvas"
                       viewBox={`0 0 ${CHART_WIDTH} ${CHART_HEIGHT}`}
@@ -833,6 +874,7 @@
                     {/if}
                   </div>
                 </div>
+                {#if !hasFiniteValues}<p class="mt-1 text-xs text-muted">No finite samples in this range.</p>{/if}
                 {#if chartGroup.fields.some( (field) => result?.columns[field.name]?.values.some((value) => value === null) )}
                   <p class="text-[10px] text-muted">Null or time gaps are shown as breaks.</p>
                 {/if}

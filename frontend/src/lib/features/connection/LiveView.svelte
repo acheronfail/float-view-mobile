@@ -29,7 +29,12 @@
       </div>
 
       <div class:opacity-45={dimmed} class="min-h-0 overflow-hidden transition-opacity">
-        <WidgetGauge {sample} {currentLimits} {units} />
+        <WidgetGauge
+          sessionId={connection.trackingMode === 'saved' ? (connection.activeSession?.sessionId ?? null) : null}
+          {sample}
+          {currentLimits}
+          {units}
+        />
       </div>
 
       <div class:opacity-45={dimmed} class="min-h-0 overflow-hidden transition-opacity">

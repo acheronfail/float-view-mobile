@@ -17,7 +17,11 @@ context: |
   Supported VESC/Refloat firmware wire families are not legacy application data.
   Prefer deletion, standard libraries, and small maintained dependencies.
   Keep the development loop centered on the root justfile. `just verify` is
-  the complete software gate.
+  the complete software gate. Physical device/fixture suites are required only
+  when a change affects OS adapters, permissions, lifecycle/background behavior,
+  radio timing, or firmware/wire interoperability that software simulations cannot
+  establish. Record why a physical checkpoint is needed or skipped for each change;
+  shared product, persistence, and frontend changes normally use the software gate.
   Run every OpenSpec CLI command with `OPENSPEC_TELEMETRY=0`; OpenSpec work in
   this repository must not make telemetry requests.
   Use three git phases for each OpenSpec change. First, commit the completed

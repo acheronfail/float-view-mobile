@@ -1,7 +1,13 @@
 <script lang="ts">
   import { onMount, tick } from 'svelte';
   import Leaflet from 'leaflet';
-  import type { SessionLocationGap, SessionLocationPoint, SessionMetadata } from '$lib/backend/contract';
+  import type {
+    SessionLocationGap,
+    SessionLocationPoint,
+    SessionMetadata,
+    SessionRideMarker,
+  } from '$lib/backend/contract';
+  import type { SessionReviewController } from '$lib/backend/session-controller';
   import { backendState } from '$lib/backend/state.svelte';
   import { activateFromKeyboardOrAssistiveClick, activateFromPointer } from '$lib/ui/activation';
   import { iconClasses } from '$lib/ui/icon';
@@ -17,11 +23,17 @@
   const locationMarkerHtml = `<span class="${iconClasses['map-pin']}" aria-hidden="true"></span>`;
 
   let {
+    markers = [],
+    selectedMarker = null,
+    onmarkerselect = () => {},
     metadata,
     selectedElapsedMs = 0,
     viewport = null,
     height = $bindable(0),
   }: {
+    markers?: SessionRideMarker[];
+    selectedMarker?: SessionRideMarker | null;
+    onmarkerselect?: (marker: SessionRideMarker) => void;
     metadata: SessionMetadata;
     selectedElapsedMs?: number;
     viewport?: Viewport | null;
@@ -35,6 +47,8 @@
   let baseLayers: Leaflet.Polyline[] = [];
   let travelledLayers: Leaflet.Polyline[] = [];
   let locationMarker: Leaflet.Marker | null = null;
+  let rideLayers: Leaflet.Marker[] = [];
+  const locatedMarkers = $derived(markers.filter((m) => m.location !== null));
   let hasInitialView = false;
   let lastViewportKey: string | null = null;
   let mapLayoutReady = $state(false);
@@ -46,14 +60,18 @@
   let error = $state<string | null>(null);
   let hidden = $state(false);
 
+  let active = false;
+  let controller: SessionReviewController | null = null;
   onMount(() => {
-    let active = true;
-    if (!metadata.location.available) return;
+    active = true;
+
     void loadLocations().catch((reason) => {
       if (active) error = reason instanceof Error ? reason.message : String(reason);
     });
     return () => {
       active = false;
+      controller?.dispose();
+      rideLayers.forEach((layer) => layer.remove());
       locationMarker?.remove();
       map?.remove();
       map = null;
@@ -71,17 +89,18 @@
   async function loadLocations() {
     loading = true;
     try {
-      const controller = backendState.createSessionReviewController(metadata);
+      controller = backendState.createSessionReviewController(metadata);
       let cursor: string | null = null;
       const loaded: SessionLocationPoint[] = [];
       const loadedGaps: SessionLocationGap[] = [];
-      for (let page = 0; page < 4; page += 1) {
+      for (let page = 0; page < 4 && metadata.location.available; page += 1) {
         const result = await controller.loadLocations({
           kind: 'locations',
           range: { startElapsedMs: 0, endElapsedMs: metadata.summary.totalElapsedMs },
           limit: 2_000,
           cursor,
         });
+        if (!active) return;
         loaded.push(...result.points);
         loadedGaps.push(...result.gaps);
         cursor = result.nextCursor;
@@ -89,18 +108,19 @@
       }
       points = loaded;
       gaps = loadedGaps;
-      if (points.length) {
+      if (points.length || locatedMarkers.length) {
         await tick();
-        initialiseMap();
+        if (active) initialiseMap();
       }
     } finally {
-      loading = false;
+      if (active) loading = false;
     }
   }
 
   function initialiseMap() {
-    if (!node || map || !points.length) return;
+    if (!node || map || (!points.length && !locatedMarkers.length)) return;
     map = Leaflet.map(node, { preferCanvas: true, zoomControl: true });
+    map.on('zoomend', drawRideMarkers);
     Leaflet.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
       maxZoom: 19,
       attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
@@ -154,6 +174,7 @@
 
   $effect(() => {
     void points;
+    void markers;
     void selectedElapsedMs;
     void viewportKey;
     void hidden;
@@ -204,17 +225,78 @@
       }).addTo(map);
     }
     fitVisibleRoute(shouldRecenter);
+    drawRideMarkers();
     map.invalidateSize();
   }
 
   function fitVisibleRoute(force = false) {
-    if (!map || !visiblePoints.length) return;
+    if (!map || (!visiblePoints.length && !locatedMarkers.length)) return;
     const bounds = Leaflet.latLngBounds(
-      visiblePoints.map((point) => [point.latitude, point.longitude] as Leaflet.LatLngExpression)
+      [...visiblePoints, ...locatedMarkers.map((m) => m.location!)].map(
+        (point) => [point.latitude, point.longitude] as Leaflet.LatLngExpression
+      )
     );
     if (force || !hasInitialView || !map.getBounds().contains(bounds)) {
       map.fitBounds(bounds.pad(0.15));
       hasInitialView = true;
+    }
+  }
+
+  $effect(() => {
+    const location = selectedMarker?.location;
+    if (mapLayoutReady && map && location)
+      map.setView([location.latitude, location.longitude], map.getZoom(), { animate: false });
+  });
+
+  function drawRideMarkers() {
+    if (!map) return;
+    rideLayers.forEach((layer) => layer.remove());
+    rideLayers = [];
+    // Ephemeral grouping for this Leaflet redraw, not reactive component state.
+    // eslint-disable-next-line svelte/prefer-svelte-reactivity
+    const groups = new Map<string, SessionRideMarker[]>();
+    for (const marker of locatedMarkers) {
+      const p = map.latLngToLayerPoint([marker.location!.latitude, marker.location!.longitude]);
+      const key = `${Math.round(p.x / 24)}:${Math.round(p.y / 24)}`;
+      groups.set(key, [...(groups.get(key) ?? []), marker]);
+    }
+    for (const group of groups.values()) {
+      const marker = group[0]!;
+      const label =
+        group.length > 1
+          ? `${group.length} ride markers; use marker navigator to select each`
+          : `Ride marker at ${(marker.elapsedMs / 1000).toFixed(1)} seconds`;
+      const layer = Leaflet.marker([marker.location!.latitude, marker.location!.longitude], {
+        icon: Leaflet.divIcon({
+          className: 'ride-marker',
+          html: `<span style="display:grid;place-items:center;width:28px;height:28px;border:2px solid #111;border-radius:6px;background:#f97316;color:#111;box-shadow:0 0 0 2px white;font-weight:700">${group.length > 1 ? group.length : '⚑'}</span>`,
+          iconSize: [32, 32],
+          iconAnchor: [16, 16],
+        }),
+        title: label,
+        alt: label,
+        keyboard: true,
+      }).addTo(map);
+      const node = layer.getElement();
+      if (node) {
+        node.setAttribute('role', 'button');
+        node.setAttribute('aria-label', label);
+        node.style.touchAction = 'manipulation';
+        node.addEventListener('pointerdown', (event) => {
+          event.stopPropagation();
+          activateFromPointer(event, () => onmarkerselect(marker));
+        });
+        node.addEventListener('click', (event) => {
+          if (event.detail === 0) onmarkerselect(marker);
+        });
+        node.addEventListener('keydown', (event) => {
+          if (event.key === ' ' || event.key === 'Enter') {
+            event.preventDefault();
+            if (!event.repeat) onmarkerselect(marker);
+          }
+        });
+      }
+      rideLayers.push(layer);
     }
   }
 
@@ -261,7 +343,7 @@
 
   {#if error}
     <p role="alert" class="text-sm text-warning">{error}</p>
-  {:else if !points.length && !loading}
+  {:else if !points.length && !locatedMarkers.length && !loading}
     <p class="text-sm text-muted">No accepted location points were recorded.</p>
   {:else}
     <div class="flex flex-col gap-1">

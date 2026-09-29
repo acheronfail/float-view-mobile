@@ -60,7 +60,7 @@ record!(SessionSource {
     boundary: Boundary,
     path: String
 });
-record!(SessionMetadata { summary: Session, extension_fields: Vec<String>, boundary: Boundary, prune: PruneMetadata });
+record!(SessionMetadata { marker_count: usize, summary: Session, extension_fields: Vec<String>, boundary: Boundary, prune: PruneMetadata });
 record!(SessionPage { items: Vec<Session>, next_cursor: Option<String> });
 record!(Maintenance {
     operation_id: String, kind: String, scope: String, state: String, session_id: Option<String>,
@@ -194,6 +194,10 @@ record!(LocationPage { points: Vec<LocationPoint>, gaps: Vec<LocationGap>, next_
     deny_unknown_fields
 )]
 pub enum Completion {
+    RideMarker {
+        marker: float_view_application_runtime::session::RideMarker,
+        boundary: Boundary,
+    },
     Unit,
     Bluetooth(Bluetooth),
     Location(Location),
@@ -222,6 +226,7 @@ pub enum Completion {
 
 /// Shared reader results never cross the native host exchange.
 pub enum HistoryResult {
+    RideMarkers(Vec<float_view_application_runtime::session::RideMarker>),
     HistoryPoints(Vec<HistoryPoint>),
     HistoryEvents(Vec<HistoryEvent>),
     SeriesColumns(BTreeMap<String, SeriesColumn>),

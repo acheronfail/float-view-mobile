@@ -262,6 +262,15 @@ async function exerciseProductMethods(
   assert.ok(detail.storedSampleCount <= detail.recordedSampleCount);
   assert.doesNotMatch(JSON.stringify(detail), /controllerUuid|controllerUUID|launchToken|bluetoothIdentifier/);
   const historyRange = { startElapsedMs: 0, endElapsedMs: detail.snapshot.committedElapsedMs };
+  const originalMarkers = await client.sessionData({
+    kind: 'markers',
+    sessionId: session.sessionId,
+    snapshot: detail.snapshot,
+    range: historyRange,
+    limit: 256,
+  });
+  assert.equal(detail.markerCount, 2);
+
   const field = detail.fields[0]?.name;
   assert.ok(field, 'session metadata did not publish a numeric field');
   const overview = await client.sessionData({
@@ -384,6 +393,17 @@ async function exerciseProductMethods(
   assert.ok(Number.isSafeInteger(prune.completedSessions));
   const afterPrune = await client.request('session.get', { sessionId: session.sessionId });
   assert.ok(afterPrune.snapshot.historyRevision >= detail.snapshot.historyRevision);
+  const prunedMarkers = await client.sessionData({
+    kind: 'markers',
+    sessionId: session.sessionId,
+    snapshot: afterPrune.snapshot,
+    range: historyRange,
+    limit: 256,
+  });
+  assert.equal(afterPrune.markerCount, detail.markerCount);
+  if (originalMarkers.kind === 'markers' && prunedMarkers.kind === 'markers')
+    assert.deepEqual(prunedMarkers.markers, originalMarkers.markers);
+
   const cancelledPrune = await client.request('session.prune.cancel', { operationId: prune.operationId });
   assert.ok(['completed', 'cancelled'].includes(cancelledPrune.status));
   await client.request('session.export', {
@@ -578,10 +598,68 @@ async function createCompletedSession(
   }
   await expectError(client.request('controller.shutdown', {}), 'invalid_state');
   await expectError(client.request('device.connect', { deviceId, trackingMode: 'saved' }), 'invalid_state');
+  const markerSession = required(ridingState.activeConnection?.activeSession, 'No saved marker session');
+  const markerOperation = '00000000-0000-4000-8000-000000000001';
+  await expectError(
+    client.request('session.marker.add', { sessionId: 'missing-session', operationId: markerOperation }),
+    'invalid_state'
+  );
+  const savedMarker = await client.request('session.marker.add', {
+    sessionId: markerSession.sessionId,
+    operationId: markerOperation,
+  });
+  const retryMarker = await client.request('session.marker.add', {
+    sessionId: markerSession.sessionId,
+    operationId: markerOperation,
+  });
+  assert.deepEqual(retryMarker.marker, savedMarker.marker, 'Marker retries must be idempotent');
+  assert.ok(savedMarker.snapshot.committedEventSequence >= savedMarker.marker.sequence);
+  await new Promise((resolve) => setTimeout(resolve, 550));
+  const secondMarker = await client.request('session.marker.add', {
+    sessionId: markerSession.sessionId,
+    operationId: '00000000-0000-4000-8000-000000000002',
+  });
   await client.request('device.disconnect', {});
   await client.waitForState((value) => value.activeConnection === null, {
     afterRevision: ridingState.revision,
   });
+  const markerMetadata = await client.request('session.get', { sessionId: markerSession.sessionId });
+  assert.equal(markerMetadata.markerCount, 2);
+  const markerRequest = {
+    kind: 'markers' as const,
+    sessionId: markerSession.sessionId,
+    snapshot: markerMetadata.snapshot,
+    range: { startElapsedMs: 0, endElapsedMs: markerMetadata.summary.totalElapsedMs },
+    limit: 1,
+  };
+  const markerPage = await client.sessionData(markerRequest);
+  assert.equal(markerPage.kind, 'markers');
+  if (markerPage.kind === 'markers') {
+    assert.deepEqual(markerPage.markers, [savedMarker.marker]);
+    assert.ok(markerPage.nextCursor);
+    const next = await client.sessionData({ ...markerRequest, cursor: markerPage.nextCursor });
+    assert.equal(next.kind, 'markers');
+    if (next.kind === 'markers') {
+      assert.deepEqual(next.markers, [secondMarker.marker]);
+      assert.equal(next.nextCursor, null);
+    }
+    await assert.rejects(
+      client.sessionData({ ...markerRequest, sessionId: 'foreign', cursor: markerPage.nextCursor }),
+      /HTTP 400/
+    );
+    await assert.rejects(
+      client.sessionData({
+        ...markerRequest,
+        range: { startElapsedMs: 1, endElapsedMs: markerMetadata.summary.totalElapsedMs },
+        cursor: markerPage.nextCursor,
+      }),
+      /HTTP 400/
+    );
+  }
+  await expectError(
+    client.request('session.marker.add', { sessionId: markerSession.sessionId, operationId: markerOperation }),
+    'invalid_state'
+  );
   const completed = await client.request('state.get', {});
   assert.ok(savedDeviceId);
   const page = await client.request('session.list', { savedDeviceId, limit: 100 });
@@ -1013,6 +1091,7 @@ export const mandatoryMethods: BackendMethod[] = [
   'boardProfile.update',
   'session.list',
   'session.get',
+  'session.marker.add',
   'session.export',
   'session.delete',
   'session.delete.cancel',

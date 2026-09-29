@@ -44,6 +44,54 @@ impl BackendService {
         let epoch = self.policy.exchange.epoch;
         let generation = self.runtime.snapshot().application.generation;
         let result = match operation {
+            Operation::AddRideMarker {
+                session_id,
+                operation_id,
+            } => {
+                let active = self
+                    .policy
+                    .active
+                    .as_ref()
+                    .filter(|a| a.saved)
+                    .ok_or(Failure::InvalidState)?;
+                active
+                    .session
+                    .as_ref()
+                    .filter(|s| s.session_id == session_id)
+                    .ok_or(Failure::InvalidState)?;
+                let elapsed =
+                    now.saturating_sub(active.session_start.ok_or(Failure::InvalidState)?);
+                let capture = self.policy.settings.location_recording_enabled
+                    && (self.policy.foreground
+                        || (self.policy.location_background
+                            && self.policy.location_authorization
+                                == os::LocationAuthorization::Authorized))
+                    && matches!(
+                        self.policy.location_authorization,
+                        os::LocationAuthorization::Authorized
+                            | os::LocationAuthorization::ForegroundOnly
+                    );
+                let (marker, boundary) = self
+                    .runtime
+                    .save_ride_marker(&operation_id, elapsed, epoch, capture)
+                    .map_err(|e| match e {
+                        float_view_application_runtime::RuntimeError::Persistence(
+                            float_view_application_runtime::session::WriterError::InvalidInput,
+                        ) => Failure::InvalidRequest,
+                        _ => Failure::Unavailable,
+                    })?;
+                self.store
+                    .apply_session_marker(&session_id, &boundary)
+                    .map_err(store_failure)?;
+                let session = self.store.session(&session_id).map_err(store_failure)?;
+                let boundary = p::boundary(&session);
+                self.policy
+                    .active
+                    .as_mut()
+                    .ok_or(Failure::InvalidState)?
+                    .session = Some(session);
+                f::Completion::RideMarker { marker, boundary }
+            }
             Operation::RequestBluetoothPermission => {
                 return self.request_ui(owner, PendingKind::Bluetooth);
             }

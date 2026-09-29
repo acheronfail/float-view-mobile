@@ -28,7 +28,7 @@ pub use cache::SchemaIdentity;
 pub use settings::Settings;
 pub use tunes::{Tune, TuneIdentity, TunePage, TuneValue, TuneValues, validate_tune_values};
 
-pub const STORAGE_VERSION: &str = "12";
+pub const STORAGE_VERSION: &str = "13";
 pub const CATALOG_SCHEMA: &str = include_str!("../../../sql/catalog.sql");
 
 /// Errors intentionally exclude SQL, paths, identifiers and other private data.

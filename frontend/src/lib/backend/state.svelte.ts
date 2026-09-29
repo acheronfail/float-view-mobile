@@ -1,3 +1,4 @@
+import { validateRideMarker } from './session-data';
 import type {
   AppState,
   BluetoothState,
@@ -302,6 +303,13 @@ export class BackendState {
         if (this.snapshot) this.acceptState({ ...this.snapshot, location });
       }
     });
+  }
+
+  async saveRideMarker(sessionId: string, operationId: string) {
+    if (!this.client) throw new Error('Backend unavailable');
+    const result = await this.client.request('session.marker.add', { sessionId, operationId });
+    validateRideMarker(result.marker);
+    return result.marker;
   }
 
   async requestLocationPermission(): Promise<void> {

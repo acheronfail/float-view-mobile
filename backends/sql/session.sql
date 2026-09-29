@@ -97,6 +97,8 @@ CREATE TABLE IF NOT EXISTS session_event (
 );
 CREATE INDEX IF NOT EXISTS session_event_elapsed ON session_event(monotonic_elapsed_ms, sequence);
 
+CREATE INDEX IF NOT EXISTS session_ride_markers ON session_event(monotonic_elapsed_ms, sequence) WHERE kind = 'session_marker';
+
 CREATE TABLE IF NOT EXISTS riding_interval (
   interval_id INTEGER PRIMARY KEY AUTOINCREMENT,
   started_elapsed_ms INTEGER NOT NULL,

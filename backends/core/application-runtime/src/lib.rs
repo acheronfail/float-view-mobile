@@ -226,6 +226,22 @@ impl ApplicationRuntime {
         }
     }
 
+    pub fn save_ride_marker(
+        &mut self,
+        operation_id: &str,
+        elapsed_ms: u64,
+        at_ms: i64,
+        capture_location: bool,
+    ) -> Result<(session::RideMarker, CommitMarker), RuntimeError> {
+        let (marker, boundary) = self
+            .session
+            .as_mut()
+            .ok_or(RuntimeError::SessionNotAttached)?
+            .append_ride_marker(operation_id, elapsed_ms, at_ms, capture_location)?;
+        self.session_marker = Some(boundary.clone());
+        Ok((marker, boundary))
+    }
+
     pub fn open_reader(
         path: impl AsRef<Path>,
     ) -> Result<session::SessionReader, session::ReaderError> {

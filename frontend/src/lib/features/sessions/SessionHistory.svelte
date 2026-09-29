@@ -1,13 +1,19 @@
 <script lang="ts">
-  import type { SessionMetadata } from '$lib/backend/contract';
+  import type { SessionMetadata, SessionRideMarker } from '$lib/backend/contract';
   import type { Viewport } from './viewport';
   import SessionHistoryChart from './SessionHistoryChart.svelte';
 
   let {
+    markers = [],
+    selectedMarker = null,
+    onmarkerselect = () => {},
     metadata,
     onselectionchange,
     onviewportchange,
   }: {
+    markers?: SessionRideMarker[];
+    selectedMarker?: SessionRideMarker | null;
+    onmarkerselect?: (marker: SessionRideMarker) => void;
     metadata: SessionMetadata;
     onselectionchange?: (elapsedMs: number) => void;
     onviewportchange?: (viewport: Viewport) => void;
@@ -15,5 +21,5 @@
 </script>
 
 <section aria-labelledby="history-heading">
-  <SessionHistoryChart {metadata} {onselectionchange} {onviewportchange} />
+  <SessionHistoryChart {markers} {selectedMarker} {onmarkerselect} {metadata} {onselectionchange} {onviewportchange} />
 </section>

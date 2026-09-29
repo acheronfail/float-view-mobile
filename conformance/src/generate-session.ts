@@ -227,7 +227,7 @@ INSERT INTO commit_marker(
   ${SAMPLE_COUNT * 5.4}, 36, 240, 0.849, 1, 0, 'idle'
 );
 CREATE TABLE float_view_archive_metadata(key TEXT PRIMARY KEY NOT NULL, value TEXT NOT NULL);
-INSERT INTO float_view_archive_metadata(key, value) VALUES ('format_version', '1');
+INSERT INTO float_view_archive_metadata(key, value) VALUES ('format_version', '2');
 INSERT INTO float_view_archive_metadata(key, value) VALUES ('session', ${sqlString(archive)});
 PRAGMA wal_checkpoint(TRUNCATE);
 `;

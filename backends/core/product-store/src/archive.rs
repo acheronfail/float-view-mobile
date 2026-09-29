@@ -118,7 +118,7 @@ impl ImportSink {
             [],
             |r| r.get(0),
         )?;
-        if version != "1" || count != 2 {
+        if version != "2" || count != 2 {
             return Err(Error::InvalidInput);
         }
         let manifest: Manifest = serde_json::from_str(&text).map_err(|_| Error::InvalidInput)?;
@@ -129,6 +129,7 @@ impl ImportSink {
         let mut reader = SessionReader::open(&stage.path)?;
         let marker = reader.marker()?;
         let metadata = reader.metadata()?;
+        let reader_marker_count = reader.ride_markers((&marker).into())?.len();
         drop(reader);
         let db = open(&stage, cancel)?;
         let counts:(u64,u64,u64)=db.query_row("SELECT (SELECT COUNT(*) FROM sample),(SELECT COUNT(*) FROM session_event),(SELECT COUNT(*) FROM location)",[],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?)))?;
@@ -145,7 +146,7 @@ impl ImportSink {
             |r| r.get(0),
         )?;
         if fk
-            || marker.stored_sample_count == 0
+            || (marker.stored_sample_count == 0 && reader_marker_count == 0)
             || counts
                 != (
                     marker.stored_sample_count,
@@ -207,7 +208,7 @@ impl ArchiveExport {
                     }
                 }
                 dest.execute_batch(META)?;
-                dest.execute("INSERT INTO float_view_archive_metadata(key,value) VALUES ('format_version','1'),('session',?)",[json(&self.manifest,MAX_MANIFEST)?])?;
+                dest.execute("INSERT INTO float_view_archive_metadata(key,value) VALUES ('format_version','2'),('session',?)",[json(&self.manifest,MAX_MANIFEST)?])?;
                 dest.execute_batch("PRAGMA wal_checkpoint(TRUNCATE)")?;
                 dest.close().map_err(|(_, e)| Error::from(e))?;
             }

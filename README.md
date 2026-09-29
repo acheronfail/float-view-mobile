@@ -55,6 +55,10 @@ See `conformance/fixture-dev/README.md` for compatibility and ownership details.
 
 `just verify` is the software gate. Physical BLE conformance is intentionally a
 separate checkpoint because it requires a flashed ESP32 and real target devices.
+Require it when a change affects OS adapters, permissions, lifecycle/background
+behavior, radio timing, or firmware interoperability that software tests cannot
+establish. Shared product, persistence, and frontend changes normally need only
+the software gate. Record why physical testing is needed or skipped in the change.
 macOS runs identity, ride, and reconnect scenarios; Android and iOS additionally
 run mobile background-continuity coverage. VBMS physical checks cover each
 available direct-controller/CAN-VBMS, Express/controller/VBMS, and direct-VBMS
