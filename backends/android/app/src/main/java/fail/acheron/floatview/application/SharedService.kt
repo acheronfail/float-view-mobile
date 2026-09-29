@@ -25,7 +25,7 @@ class SharedService(
     private val callbackLock = Any()
     private var callbackGeneration = 0L
     private var callbackScan = 0L
-    private var overflow = false
+    private var overflow: BluetoothConnection? = null
     private var foreground: Boolean? = null
     private var stopRequested = false
     private val presentationsFinished = mutableSetOf<Long>()
@@ -63,12 +63,29 @@ class SharedService(
         return AutoCloseable { synchronized(this) { themeHandlers.remove(id) } }
     }
     fun receive(event: BluetoothEvent) {
-        val (generation, scan) = synchronized(callbackLock) { callbackGeneration to callbackScan }
-        enqueue {
+        val scan = synchronized(callbackLock) { callbackScan }
+        val generation = when (event) {
+            is BluetoothEvent.ConnectionChanged -> event.generation
+            is BluetoothEvent.Notification -> event.generation
+            is BluetoothEvent.Profile -> event.generation
+            is BluetoothEvent.Notifications -> event.generation
+            is BluetoothEvent.WriteProgress -> event.generation
+            else -> null
+        }
+        enqueue(generation) {
+            if (generation != null && generation.lifetime != lifetime) return@enqueue
             when (event) {
                 is BluetoothEvent.StateChanged -> bluetoothFact(event.state)
                 is BluetoothEvent.DeviceFound -> fact(json("fact" to "discovered", "scan_id" to scan,
-                    "device_id" to event.deviceId.value, "name" to event.advertisedName, "rssi" to event.rssi))
+                    "device_id" to event.deviceId.value, "name" to event.advertisedName, "rssi" to event.rssi, "advertises_uart" to event.uart))
+                is BluetoothEvent.Profile -> fact(json("fact" to "profile", "generation" to event.generation.generation,
+                    "operation" to event.generation.generation, "profile" to json("service" to event.profile.service,
+                        "notify" to event.profile.notify, "with_response" to event.profile.withResponse,
+                        "without_response" to event.profile.withoutResponse)))
+                is BluetoothEvent.Notifications -> fact(json("fact" to "notifications", "generation" to event.generation.generation,
+                    "operation" to event.operation, "success" to event.success))
+                is BluetoothEvent.WriteProgress -> fact(json("fact" to "write_progress", "generation" to event.generation.generation,
+                    "operation" to event.operation, "progress" to event.progress))
                 is BluetoothEvent.ScanFailed -> bluetoothFact(bluetooth.currentState())
                 is BluetoothEvent.ConnectionChanged -> if (event.deviceId == activeDevice) {
                     val state = when (event.state) {
@@ -80,18 +97,20 @@ class SharedService(
                         ConnectionState.FAILED -> "failed"
                         else -> null
                     }
-                    if (state != null) fact(json("fact" to "link", "generation" to generation, "state" to state))
+                    if (state != null) fact(json("fact" to "link", "generation" to event.generation.generation, "state" to state))
                 }
                 is BluetoothEvent.Notification -> if (event.deviceId == activeDevice && event.bytes.size <= 8192) {
-                    fact(json("fact" to "bytes", "generation" to generation,
+                    fact(json("fact" to "bytes", "generation" to event.generation.generation,
                         "bytes" to JSONArray(event.bytes.map { it.toInt() and 255 })))
                 }
             }
         }
     }
-    private fun enqueue(action: () -> Unit) {
+    private fun enqueue(generation: BluetoothConnection? = null, action: () -> Unit) {
         if (closed) return
-        if (!admission.tryAcquire()) { synchronized(callbackLock) { overflow = true }; return }
+        if (!admission.tryAcquire()) { synchronized(callbackLock) {
+            if (generation != null && generation.generation == callbackGeneration) overflow = generation
+        }; return }
         try {
             executor.execute { try { if (!closed) runCatching(action) } finally { admission.release() } }
         } catch (_: java.util.concurrent.RejectedExecutionException) { admission.release() }
@@ -100,7 +119,7 @@ class SharedService(
         if (closed) return
         val cleanup = synchronized(callbackLock) {
             val facts = mutableListOf<JSONObject>()
-            if (overflow) { overflow = false; facts.add(json("fact" to "link", "generation" to callbackGeneration, "state" to "failed")) }
+            overflow?.let { if (it.lifetime == lifetime) facts.add(json("fact" to "link", "generation" to it.generation, "state" to "failed")) }; overflow = null
             foreground?.let { foreground = null; facts.add(json("fact" to "foreground", "foreground" to it)) }
             if (stopRequested) { stopRequested = false; facts.add(json("fact" to "stop_requested")) }
             presentationsFinished.forEach { facts.add(json("fact" to "presentation_finished", "id" to it)) }
@@ -155,12 +174,14 @@ class SharedService(
             "connect" -> {
                 synchronized(callbackLock) { callbackGeneration = value.getLong("generation") }
                 activeDevice = DeviceId(value.getString("device_id"))
-                bluetooth.connect(activeDevice!!)
+                bluetooth.connect(activeDevice!!, BluetoothConnection(lifetime, value.getLong("generation")))
             }
             "disconnect" -> { activeDevice?.let(bluetooth::disconnect); activeDevice = null }
+            "enable_notifications" -> bluetooth.enableNotifications(BluetoothConnection(lifetime, value.getLong("generation")), value.getLong("operation"))
             "write" -> if (value.getLong("generation") == callbackGeneration) activeDevice?.let { device ->
                 val bytes = value.getJSONArray("bytes")
-                bluetooth.write(device, ByteArray(bytes.length()) { bytes.getInt(it).toByte() })
+                bluetooth.write(device, BluetoothConnection(lifetime, value.getLong("generation")), value.getLong("operation"),
+                    value.getString("mode") == "with_response", ByteArray(bytes.length()) { bytes.getInt(it).toByte() })
             }
             "arm_timer" -> { check(timers.containsKey(id) || timers.size < 2048)
                 timers[id] = SystemClock.elapsedRealtime() + value.getLong("delay_ms") to value.getBoolean("connection") }
@@ -189,8 +210,6 @@ class SharedService(
                 if (!accepted) finish()
             }
             "host_state" -> {
-                val ids = value.getJSONArray("saved_device_ids")
-                bluetooth.configureSavedDeviceIds((0 until ids.length()).map { DeviceId(ids.getString(it)) }.toSet())
                 val preference = ThemePreference.fromWire(value.getString("theme_preference")) ?: ThemePreference.SYSTEM
                 theme = preference
                 val handlers = synchronized(this) { themeHandlers.values.toList() }

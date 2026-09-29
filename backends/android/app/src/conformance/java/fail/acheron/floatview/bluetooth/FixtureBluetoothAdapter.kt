@@ -22,6 +22,7 @@ class FixtureBluetoothAdapter(config: JSONObject, private val emit: (BluetoothEv
     private val lock = Any()
     private var failed = false
     private var pendingBytes = 0
+    private var serviceGeneration = BluetoothConnection(0, 0)
     private var generation = 0
     private var operation = 0L
     private var sequence = 0L
@@ -44,13 +45,14 @@ class FixtureBluetoothAdapter(config: JSONObject, private val emit: (BluetoothEv
     override fun requestPermission() = emit(BluetoothEvent.StateChanged(state))
     override fun startDiscovery() = submit("scan")
     override fun stopDiscovery() = submit("stopScan")
-    override fun connect(deviceId: DeviceId) = submit("connect", deviceId)
+    override fun connect(deviceId: DeviceId, generation: BluetoothConnection) = submit("connect", deviceId, serviceGeneration = generation)
     override fun disconnect(deviceId: DeviceId) = submit("disconnect", deviceId)
-    override fun write(deviceId: DeviceId, bytes: ByteArray) {
+    override fun enableNotifications(generation: BluetoothConnection, operation: Long) = submit("enableNotifications", serviceGeneration = generation, transportOperation = operation)
+    override fun write(deviceId: DeviceId, generation: BluetoothConnection, operation: Long, response: Boolean, bytes: ByteArray) {
         if (bytes.size > 8192) { fail(); return }
-        submit("write", deviceId, bytes)
+        submit("write", deviceId, bytes, generation, operation, response)
     }
-    private fun submit(command: String, id: DeviceId? = null, bytes: ByteArray? = null) {
+    private fun submit(command: String, id: DeviceId? = null, bytes: ByteArray? = null, serviceGeneration: BluetoothConnection? = null, transportOperation: Long? = null, response: Boolean = false) {
         synchronized(lock) {
             if (failed) return
             val count = bytes?.size ?: 0
@@ -59,6 +61,8 @@ class FixtureBluetoothAdapter(config: JSONObject, private val emit: (BluetoothEv
             val payload = bytes?.copyOf()
             if (command == "connect") generation++
             if (id != null) device = id
+            if (serviceGeneration != null) this.serviceGeneration = serviceGeneration
+            val capturedGeneration = this.serviceGeneration
             val expectedGeneration = generation
             val deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(4500)
             try {
@@ -69,6 +73,7 @@ class FixtureBluetoothAdapter(config: JSONObject, private val emit: (BluetoothEv
                         val op = ++operation
                         val body = JSONObject().put("run", run).put("session", session).put("operation", op)
                             .put("generation", expectedGeneration).put("command", command)
+                            .put("transport_operation", transportOperation).put("response", response)
                         if (id != null) body.put("device", id.value)
                         if (payload != null) body.put("bytes", Base64.getEncoder().encodeToString(payload))
                         val connection = endpoint.openConnection() as HttpURLConnection
@@ -101,8 +106,18 @@ class FixtureBluetoothAdapter(config: JSONObject, private val emit: (BluetoothEv
                             val raw = event.getString("device"); require(raw.length <= 256)
                             val device = DeviceId(raw)
                             when (event.getString("event")) {
-                                "discovered" -> emit(BluetoothEvent.DeviceFound(device, event.optString("name"), event.getInt("rssi")))
-                                "link" -> emit(BluetoothEvent.ConnectionChanged(device, when(event.getString("state")) {
+                                "discovered" -> emit(BluetoothEvent.DeviceFound(device, event.optString("name"), event.getInt("rssi"), event.getBoolean("uart")))
+                                "profile" -> {
+                                    val p = event.getJSONObject("profile")
+                                    emit(BluetoothEvent.Profile(capturedGeneration, BluetoothProfile(p.getBoolean("service"), p.getBoolean("notify"), p.getInt("with_response"), p.getInt("without_response"))))
+                                }
+                                "notifications" -> emit(BluetoothEvent.Notifications(capturedGeneration, event.getLong("transport_operation"), event.getBoolean("success")))
+                                "writeProgress" -> {
+                                    val progress = event.getString("progress")
+                                    require(progress in listOf("submitted", "acknowledged", "available"))
+                                    emit(BluetoothEvent.WriteProgress(capturedGeneration, event.getLong("transport_operation"), progress))
+                                }
+                                "link" -> emit(BluetoothEvent.ConnectionChanged(device, capturedGeneration, when(event.getString("state")) {
                                     "ready" -> ConnectionState.READY
                                     "disconnected" -> ConnectionState.DISCONNECTED
                                     else -> error("Invalid fixture link")
@@ -110,7 +125,7 @@ class FixtureBluetoothAdapter(config: JSONObject, private val emit: (BluetoothEv
                                 "bytes" -> {
                                     val encodedBytes = event.getString("bytes"); require(encodedBytes.length <= 10924)
                                     val decoded = Base64.getDecoder().decode(encodedBytes); require(decoded.size <= 8192)
-                                    emit(BluetoothEvent.Notification(device, decoded))
+                                    emit(BluetoothEvent.Notification(device, capturedGeneration, decoded))
                                 }
                                 else -> error("Invalid fixture event")
                             }
@@ -127,6 +142,6 @@ class FixtureBluetoothAdapter(config: JSONObject, private val emit: (BluetoothEv
             failed = true; pendingBytes = 0; active?.disconnect(); worker.shutdownNow(); device
         }
         emit(BluetoothEvent.ScanFailed("Conformance fixture relay failed"))
-        if (id != null) emit(BluetoothEvent.ConnectionChanged(id, ConnectionState.DISCONNECTED))
+        if (id != null) emit(BluetoothEvent.ConnectionChanged(id, synchronized(lock) { serviceGeneration }, ConnectionState.DISCONNECTED))
     }
 }

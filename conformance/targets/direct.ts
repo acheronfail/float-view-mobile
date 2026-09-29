@@ -13,6 +13,8 @@ type Effect = {
   delay_ms?: number;
   connection?: boolean;
   generation?: number;
+  operation?: number;
+  mode?: string;
   scan_id?: number;
   device_id?: string;
   bytes?: number[];
@@ -47,6 +49,8 @@ export function makeDirectTarget(): Target {
       operation: ++operation,
       generation,
       command,
+      transport_operation: e.operation,
+      response: e.mode === 'with_response',
       ...(fixtureDevice ? { device: fixtureDevice } : {}),
       ...(e.bytes ? { bytes: Buffer.from(e.bytes).toString('base64') } : {}),
     });
@@ -58,6 +62,23 @@ export function makeDirectTarget(): Target {
           device_id: event.device,
           name: event.name,
           rssi: event.rssi,
+          advertises_uart: event.uart,
+        });
+      if (event.event === 'profile')
+        await fact({ fact: 'profile', generation: e.generation, operation: e.generation, profile: event.profile });
+      if (event.event === 'notifications')
+        await fact({
+          fact: 'notifications',
+          generation: e.generation,
+          operation: event.transport_operation,
+          success: event.success,
+        });
+      if (event.event === 'writeProgress')
+        await fact({
+          fact: 'write_progress',
+          generation: e.generation,
+          operation: event.transport_operation,
+          progress: event.progress,
         });
       if (event.event === 'link') await fact({ fact: 'link', generation: e.generation, state: event.state });
       if (event.event === 'bytes')
@@ -100,6 +121,9 @@ export function makeDirectTarget(): Target {
         break;
       case 'disconnect':
         await simulate('disconnect', e);
+        break;
+      case 'enable_notifications':
+        await simulate('enableNotifications', e);
         break;
       case 'write':
         await simulate('write', e);

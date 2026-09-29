@@ -113,12 +113,27 @@ public enum ThemePreference: String, Sendable, Codable, Equatable, CaseIterable 
   case dark
 }
 
+public struct BluetoothConnection: Sendable, Equatable {
+  public let lifetime: UInt64
+  public let generation: UInt64
+}
+
+public struct BluetoothProfile: Sendable {
+  public let service: Bool
+  public let notify: Bool
+  public let withResponse: Int
+  public let withoutResponse: Int
+}
+
 public enum BluetoothEvent: Sendable {
   case stateChanged(BluetoothState)
-  case deviceFound(DeviceID, name: String?, rssi: Int?)
+  case deviceFound(DeviceID, name: String?, rssi: Int?, uart: Bool)
   case scanFailed(String)
-  case connectionChanged(DeviceID, ConnectionState)
-  case notification(DeviceID, Data)
+  case connectionChanged(DeviceID, BluetoothConnection, ConnectionState)
+  case notification(DeviceID, BluetoothConnection, Data)
+  case profile(BluetoothConnection, BluetoothProfile)
+  case notifications(BluetoothConnection, UInt64, Bool)
+  case writeProgress(BluetoothConnection, UInt64, String)
 }
 
 public protocol BluetoothPort: AnyObject, Sendable {
@@ -126,12 +141,8 @@ public protocol BluetoothPort: AnyObject, Sendable {
   func requestPermission()
   func startDiscovery()
   func stopDiscovery()
-  func connect(_ deviceID: DeviceID)
-  func write(_ bytes: Data, to deviceID: DeviceID)
+  func connect(_ deviceID: DeviceID, generation: BluetoothConnection)
+  func enableNotifications(generation: BluetoothConnection, operation: UInt64)
+  func write(_ bytes: Data, to deviceID: DeviceID, generation: BluetoothConnection, operation: UInt64, response: Bool)
   func disconnect(_ deviceID: DeviceID)
-  func configureSavedDeviceIDs(_ deviceIDs: Set<DeviceID>)
-}
-
-public extension BluetoothPort {
-  func configureSavedDeviceIDs(_: Set<DeviceID>) {}
 }

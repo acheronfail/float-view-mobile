@@ -89,16 +89,24 @@ enum class ThemePreference(val wireValue: String) {
 }
 
 
+data class BluetoothConnection(val lifetime: Long, val generation: Long)
+
+data class BluetoothProfile(val service: Boolean, val notify: Boolean, val withResponse: Int, val withoutResponse: Int)
+
 sealed interface BluetoothEvent {
+    data class Profile(val generation: BluetoothConnection, val profile: BluetoothProfile) : BluetoothEvent
+    data class Notifications(val generation: BluetoothConnection, val operation: Long, val success: Boolean) : BluetoothEvent
+    data class WriteProgress(val generation: BluetoothConnection, val operation: Long, val progress: String) : BluetoothEvent
     data class StateChanged(val state: BluetoothState) : BluetoothEvent
     data class DeviceFound(
         val deviceId: DeviceId,
         val advertisedName: String?,
         val rssi: Int?,
+        val uart: Boolean,
     ) : BluetoothEvent
     data class ScanFailed(val reason: String) : BluetoothEvent
-    data class ConnectionChanged(val deviceId: DeviceId, val state: ConnectionState) : BluetoothEvent
-    data class Notification(val deviceId: DeviceId, val bytes: ByteArray) : BluetoothEvent
+    data class ConnectionChanged(val deviceId: DeviceId, val generation: BluetoothConnection, val state: ConnectionState) : BluetoothEvent
+    data class Notification(val deviceId: DeviceId, val generation: BluetoothConnection, val bytes: ByteArray) : BluetoothEvent
 }
 
 interface BluetoothPort {
@@ -106,8 +114,8 @@ interface BluetoothPort {
     fun requestPermission()
     fun startDiscovery()
     fun stopDiscovery()
-    fun connect(deviceId: DeviceId)
-    fun write(deviceId: DeviceId, bytes: ByteArray)
+    fun connect(deviceId: DeviceId, generation: BluetoothConnection)
+    fun enableNotifications(generation: BluetoothConnection, operation: Long)
+    fun write(deviceId: DeviceId, generation: BluetoothConnection, operation: Long, response: Boolean, bytes: ByteArray)
     fun disconnect(deviceId: DeviceId)
-    fun configureSavedDeviceIds(deviceIds: Set<DeviceId>) = Unit
 }

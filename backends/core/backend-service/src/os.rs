@@ -65,10 +65,26 @@ pub enum Fact {
         device_id: String,
         name: Option<String>,
         rssi: Option<i32>,
+        advertises_uart: bool,
     },
     Link {
         generation: u64,
         state: LinkState,
+    },
+    Profile {
+        generation: u64,
+        operation: u64,
+        profile: crate::ble::Profile,
+    },
+    Notifications {
+        generation: u64,
+        operation: u64,
+        success: bool,
+    },
+    WriteProgress {
+        generation: u64,
+        operation: u64,
+        progress: crate::ble::Progress,
     },
     Bytes {
         generation: u64,
@@ -129,8 +145,15 @@ pub enum Effect {
     Disconnect {
         generation: u64,
     },
+    EnableNotifications {
+        generation: u64,
+        operation: u64,
+        mode: crate::ble::WriteMode,
+    },
     Write {
         generation: u64,
+        operation: u64,
+        mode: crate::ble::WriteMode,
         bytes: Vec<u8>,
     },
     ArmTimer {
@@ -234,6 +257,7 @@ impl Exchange {
                 e,
                 Effect::Connect { .. }
                     | Effect::Write { .. }
+                    | Effect::EnableNotifications { .. }
                     | Effect::ArmTimer {
                         connection: true,
                         ..

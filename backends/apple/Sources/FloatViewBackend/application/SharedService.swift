@@ -19,7 +19,7 @@ public final class SharedService: @unchecked Sendable {
   private let callbackLock = NSLock()
   private var callbackGeneration: UInt64 = 0
   private var callbackScan: UInt64 = 0
-  private var overflow = false
+  private var overflow: BluetoothConnection?
   private var foreground: Bool?
   private var completedPresentations: Set<UInt64> = []
   private var lifetime: UInt64 = 0
@@ -75,15 +75,42 @@ public final class SharedService: @unchecked Sendable {
   }
 
   public func receive(_ event: BluetoothEvent) {
-    let (generation, scan) = callbackLock.withLock { (callbackGeneration, callbackScan) }
-    enqueue { service in
+    let scan = callbackLock.withLock { callbackScan }
+    let generation: BluetoothConnection? = switch event {
+    case let .connectionChanged(_, generation, _), let .notification(_, generation, _),
+         let .profile(generation, _), let .notifications(generation, _, _),
+         let .writeProgress(generation, _, _): generation
+    default: nil
+    }
+    enqueue(generation: generation) { service in
+      if let generation, generation.lifetime != service.lifetime {
+        return
+      }
       switch event {
       case let .stateChanged(state): service.bluetoothFact(state)
-      case let .deviceFound(id, name, rssi):
+      case let .deviceFound(id, name, rssi, uart):
         service.fact(["fact": "discovered", "scan_id": scan, "device_id": id.value,
-                      "name": name as Any? ?? NSNull(), "rssi": rssi as Any? ?? NSNull()])
+                      "advertises_uart": uart, "name": name as Any? ?? NSNull(), "rssi": rssi as Any? ?? NSNull()])
+      case let .profile(generation, profile):
+        service.fact(["fact": "profile", "generation": generation.generation, "operation": generation.generation,
+                      "profile": ["service": profile.service, "notify": profile.notify,
+                                  "with_response": profile.withResponse, "without_response": profile.withoutResponse]])
+      case let .notifications(generation, operation, success):
+        service.fact([
+          "fact": "notifications",
+          "generation": generation.generation,
+          "operation": operation,
+          "success": success,
+        ])
+      case let .writeProgress(generation, operation, progress):
+        service.fact([
+          "fact": "write_progress",
+          "generation": generation.generation,
+          "operation": operation,
+          "progress": progress,
+        ])
       case .scanFailed: service.bluetoothFact(service.bluetooth.currentState())
-      case let .connectionChanged(id, state):
+      case let .connectionChanged(id, generation, state):
         guard service.activeDevice == id else { return }
         let wire: String
         switch state {
@@ -95,17 +122,21 @@ public final class SharedService: @unchecked Sendable {
         case .failed: wire = "failed"
         default: return
         }
-        service.fact(["fact": "link", "generation": generation, "state": wire])
-      case let .notification(id, bytes):
+        service.fact(["fact": "link", "generation": generation.generation, "state": wire])
+      case let .notification(id, generation, bytes):
         guard service.activeDevice == id, bytes.count <= 8192 else { return }
-        service.fact(["fact": "bytes", "generation": generation, "bytes": Array(bytes)])
+        service.fact(["fact": "bytes", "generation": generation.generation, "bytes": Array(bytes)])
       }
     }
   }
 
-  private func enqueue(_ action: @escaping @Sendable (SharedService) -> Void) {
+  private func enqueue(generation: BluetoothConnection? = nil, _ action: @escaping @Sendable (SharedService) -> Void) {
     guard admission.wait(timeout: .now()) == .success else {
-      callbackLock.withLock { overflow = true }
+      callbackLock.withLock {
+        if let generation, generation.generation == callbackGeneration {
+          overflow = generation
+        }
+      }
       return
     }
     queue.async { [self] in
@@ -117,8 +148,12 @@ public final class SharedService: @unchecked Sendable {
 
   private func tick() {
     guard !stopped else { return }
-    if callbackLock.withLock({ let value = overflow; overflow = false; return value }) {
-      fact(["fact": "link", "generation": callbackLock.withLock { callbackGeneration }, "state": "failed"])
+    if let generation = callbackLock.withLock({ let value = overflow; overflow = nil; return value }) {
+      if generation
+        .lifetime == lifetime
+      {
+        fact(["fact": "link", "generation": generation.generation, "state": "failed"])
+      }
     }
     let cleanup = callbackLock.withLock { () -> (Bool?, Set<UInt64>) in
       let result = (foreground, completedPresentations)
@@ -220,16 +255,30 @@ public final class SharedService: @unchecked Sendable {
       guard let device = value["device_id"] as? String else { return }
       callbackLock.withLock { callbackGeneration = number("generation") }
       activeDevice = DeviceID(device)
-      bluetooth.connect(DeviceID(device))
+      bluetooth.connect(
+        DeviceID(device),
+        generation: BluetoothConnection(lifetime: lifetime, generation: number("generation"))
+      )
     case "disconnect":
       if let activeDevice {
         bluetooth.disconnect(activeDevice)
       }
       activeDevice = nil
+    case "enable_notifications":
+      bluetooth.enableNotifications(
+        generation: BluetoothConnection(lifetime: lifetime, generation: number("generation")),
+        operation: number("operation")
+      )
     case "write":
       guard number("generation") == callbackLock.withLock({ callbackGeneration }),
             let activeDevice, let bytes = value["bytes"] as? [UInt8] else { return }
-      bluetooth.write(Data(bytes), to: activeDevice)
+      bluetooth.write(
+        Data(bytes),
+        to: activeDevice,
+        generation: BluetoothConnection(lifetime: lifetime, generation: number("generation")),
+        operation: number("operation"),
+        response: value["mode"] as? String == "with_response"
+      )
     case "arm_timer":
       guard timers[id] != nil || timers.count < 2048 else { return }
       timers[id] = (
@@ -270,9 +319,6 @@ public final class SharedService: @unchecked Sendable {
         finish()
       }
     case "host_state":
-      if let ids = value["saved_device_ids"] as? [String] {
-        bluetooth.configureSavedDeviceIDs(Set(ids.map(DeviceID.init)))
-      }
       if let theme = value["theme_preference"] as? String,
          let preference = ThemePreference(rawValue: theme)
       {

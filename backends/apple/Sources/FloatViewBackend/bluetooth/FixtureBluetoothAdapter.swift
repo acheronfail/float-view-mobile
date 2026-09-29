@@ -13,6 +13,7 @@
     private var pending = 0
     private var pendingBytes = 0
     private var failed = false
+    private var serviceGeneration = BluetoothConnection(lifetime: 0, generation: 0)
     private var desiredGeneration = 0
     private var operation = 0
     private var sequence = 0
@@ -48,17 +49,34 @@
       submit("stopScan")
     }
 
-    public func connect(_ deviceID: DeviceID) {
-      submit("connect", device: deviceID)
+    public func connect(_ deviceID: DeviceID, generation: BluetoothConnection) {
+      submit("connect", device: deviceID, serviceGeneration: generation)
     }
 
     public func disconnect(_ deviceID: DeviceID) {
       submit("disconnect", device: deviceID)
     }
 
-    public func write(_ bytes: Data, to deviceID: DeviceID) {
+    public func enableNotifications(generation: BluetoothConnection, operation: UInt64) {
+      submit("enableNotifications", serviceGeneration: generation, transportOperation: operation)
+    }
+
+    public func write(
+      _ bytes: Data,
+      to deviceID: DeviceID,
+      generation: BluetoothConnection,
+      operation: UInt64,
+      response: Bool
+    ) {
       guard bytes.count <= 8192 else { fail(); return }
-      submit("write", device: deviceID, bytes: bytes)
+      submit(
+        "write",
+        device: deviceID,
+        bytes: bytes,
+        serviceGeneration: generation,
+        transportOperation: operation,
+        response: response
+      )
     }
 
     private func heartbeat() {
@@ -69,7 +87,14 @@
       }
     }
 
-    private func submit(_ command: String, device: DeviceID? = nil, bytes: Data? = nil) {
+    private func submit(
+      _ command: String,
+      device: DeviceID? = nil,
+      bytes: Data? = nil,
+      serviceGeneration: BluetoothConnection? = nil,
+      transportOperation: UInt64? = nil,
+      response: Bool = false
+    ) {
       lock.lock()
       let count = bytes?.count ?? 0
       guard !failed, pending < 64, pendingBytes + count <= 65536 else { lock.unlock(); fail(); return }
@@ -78,6 +103,10 @@
       if command == "connect" {
         desiredGeneration += 1
       }
+      if let serviceGeneration {
+        self.serviceGeneration = serviceGeneration
+      }
+      let capturedGeneration = self.serviceGeneration
       let generation = desiredGeneration
       if let device {
         self.device = device
@@ -94,6 +123,8 @@
         if let device {
           body["device"] = device.value
         }
+        body["transport_operation"] = transportOperation
+        body["response"] = response
         if let bytes {
           body["bytes"] = bytes.base64EncodedString()
         }
@@ -122,17 +153,45 @@
             guard eventGeneration == lock.withLock({ self.desiredGeneration }) else { continue }
             let id = DeviceID(rawID)
             switch value["event"] as? String {
-            case "discovered": event(.deviceFound(id, name: value["name"] as? String, rssi: value["rssi"] as? Int))
+            case "discovered": event(.deviceFound(
+                id,
+                name: value["name"] as? String,
+                rssi: value["rssi"] as? Int,
+                uart: value["uart"] as? Bool == true
+              ))
+            case "profile":
+              guard let profile = value["profile"] as? [String: Any], let service = profile["service"] as? Bool,
+                    let notify = profile["notify"] as? Bool, let withResponse = profile["with_response"] as? Int,
+                    let withoutResponse = profile["without_response"] as? Int
+              else { throw URLError(.badServerResponse) }
+              event(.profile(
+                capturedGeneration,
+                BluetoothProfile(
+                  service: service,
+                  notify: notify,
+                  withResponse: withResponse,
+                  withoutResponse: withoutResponse
+                )
+              ))
+            case "notifications":
+              guard let op = value["transport_operation"] as? UInt64,
+                    let success = value["success"] as? Bool else { throw URLError(.badServerResponse) }
+              event(.notifications(capturedGeneration, op, success))
+            case "writeProgress":
+              guard let op = value["transport_operation"] as? UInt64, let progress = value["progress"] as? String,
+                    ["submitted", "acknowledged", "available"].contains(progress)
+              else { throw URLError(.badServerResponse) }
+              event(.writeProgress(capturedGeneration, op, progress))
             case "link":
               guard let raw = value["state"] as? String, let state = ConnectionState(rawValue: raw) else {
                 throw URLError(.badServerResponse)
               }
-              event(.connectionChanged(id, state))
+              event(.connectionChanged(id, capturedGeneration, state))
             case "bytes":
               guard let raw = value["bytes"] as? String, raw.count <= 10924,
                     let bytes = Data(base64Encoded: raw), bytes.count <= 8192
               else { throw URLError(.badServerResponse) }
-              event(.notification(id, bytes))
+              event(.notification(id, capturedGeneration, bytes))
             default: throw URLError(.badServerResponse)
             }
           }
@@ -148,7 +207,7 @@
       guard result.0 else { return }
       event(.scanFailed("Conformance fixture relay failed"))
       if let device = result.1 {
-        event(.connectionChanged(device, .disconnected))
+        event(.connectionChanged(device, lock.withLock { serviceGeneration }, .disconnected))
       }
     }
   }

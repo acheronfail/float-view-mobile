@@ -77,3 +77,7 @@ EOF
 rg -q 'SharedService\(' backends/apple/ios/float-view/application/AppBackend.swift
 rg -q 'SharedService\(' backends/apple/macos/application/MacBackendRuntime.swift
 rg -q 'SharedService\(' backends/android/app/src/main/java/fail/acheron/floatview/application/BackendRuntime.kt
+
+# BLE policy and logical buffering are owned by the existing shared service.
+! rg -n 'VescBluetoothPolicy|pendingWrites|pendingWriteBytes|drainWriteQueue|scheduleSetupDeadline|scheduleConnectionTimeout' \
+  backends/apple/Sources backends/android/app/src/main -g '*.swift' -g '*.kt'

@@ -7,7 +7,10 @@ export type FixtureCommand = {
   session: string;
   operation: number;
   generation: number;
-  command: 'scan' | 'stopScan' | 'connect' | 'disconnect' | 'write' | 'poll' | 'reset' | 'close';
+  command:
+    'scan' | 'stopScan' | 'connect' | 'disconnect' | 'write' | 'enableNotifications' | 'poll' | 'reset' | 'close';
+  transport_operation?: number;
+  response?: boolean;
   device?: string;
   bytes?: string;
 };
@@ -15,7 +18,12 @@ export type FixtureEvent = {
   sequence: number;
   generation: number;
   operation: number;
-  event: 'discovered' | 'link' | 'bytes';
+  event: 'discovered' | 'link' | 'bytes' | 'profile' | 'notifications' | 'writeProgress';
+  transport_operation?: number;
+  profile?: { service: boolean; notify: boolean; with_response: number; without_response: number };
+  success?: boolean;
+  progress?: 'submitted' | 'acknowledged' | 'available';
+  uart?: boolean;
   device: string;
   name?: string;
   rssi?: number;
@@ -92,23 +100,36 @@ export class FixtureSession {
     };
     switch (input.command) {
       case 'scan':
-        emit({ event: 'discovered', name: 'Software VESC', rssi: -42 });
+        emit({ event: 'discovered', name: 'Software VESC', rssi: -42, uart: true });
         break;
       case 'stopScan':
         break;
       case 'connect':
         if (input.device !== 'software-vesc') throw new Error('Unknown device');
         next.disconnect();
-        emit({ event: 'link', state: 'ready' });
+        emit({ event: 'profile', profile: { service: true, notify: true, with_response: 20, without_response: 20 } });
         break;
       case 'disconnect':
         next.disconnect();
         emit({ event: 'link', state: 'disconnected' });
         break;
+      case 'enableNotifications':
+        if (!this.connected || !integer(input.transport_operation) || !input.transport_operation)
+          throw new Error('Invalid setup operation');
+        emit({ event: 'notifications', transport_operation: input.transport_operation, success: true });
+        break;
       case 'write': {
         if (!this.connected || input.device !== 'software-vesc') throw new Error('No fixture connection');
         try {
+          if (!integer(input.transport_operation) || !input.transport_operation || typeof input.response !== 'boolean')
+            throw new Error('Invalid write operation');
           const inputBytes = decodeBytes(input.bytes);
+          emit({ event: 'writeProgress', transport_operation: input.transport_operation, progress: 'submitted' });
+          emit({
+            event: 'writeProgress',
+            transport_operation: input.transport_operation,
+            progress: input.response ? 'acknowledged' : 'available',
+          });
           next.receive(inputBytes, (bytes) => emit({ event: 'bytes', bytes: Buffer.from(bytes).toString('base64') }));
         } catch (error) {
           this.close();

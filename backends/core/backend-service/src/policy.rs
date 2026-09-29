@@ -42,6 +42,7 @@ pub(crate) enum Timer {
     Request(u64),
     ReconnectLimit,
     ConnectionAttempt,
+    BleWrite,
 }
 pub(crate) struct TimerEntry {
     pub kind: Timer,
@@ -58,6 +59,7 @@ pub(crate) struct Capture {
 struct HostStatus(bool, bool, String, Option<String>, Vec<String>);
 pub(crate) struct Policy {
     pub exchange: os::Exchange,
+    pub ble: crate::ble::Transport,
     pub settings: Settings,
     pub radio: Radio,
     pub scan_permission: Permission,
@@ -82,6 +84,7 @@ impl Policy {
     pub fn new(settings: Settings) -> Self {
         Self {
             exchange: os::Exchange::default(),
+            ble: crate::ble::Transport::default(),
             settings,
             radio: Radio::Unknown,
             scan_permission: Permission::Unknown,
@@ -175,7 +178,12 @@ impl BackendService {
         }
         if !matches!(
             envelope.fact,
-            Fact::StopRequested {}
+            Fact::WriteProgress {
+                progress: crate::ble::Progress::Failed,
+                ..
+            } | Fact::Notifications { success: false, .. }
+                | Fact::Timer { .. }
+                | Fact::StopRequested {}
                 | Fact::PresentationStarted { .. }
                 | Fact::PresentationFinished { .. }
                 | Fact::UiCompleted { .. }
@@ -194,6 +202,15 @@ impl BackendService {
         self.policy.exchange.sequence = envelope.sequence;
         self.policy.exchange.now = envelope.monotonic_ms;
         self.policy.exchange.epoch = envelope.epoch_ms;
+        let connection_before = self.policy.active.as_ref().map(|a| (a.generation, a.state));
+        // Expire before accepting a delayed OS result, even when its timer fact is queued behind it.
+        let deadline_expired = self.policy.timers.values().any(|t| {
+            matches!(t.kind, Timer::ConnectionAttempt | Timer::BleWrite)
+                && t.due <= envelope.monotonic_ms
+        });
+        if deadline_expired {
+            self.reconnect()?;
+        }
         // Periodic capability observations are facts, not product mutations.
         // Consume their sequence/time without inventing public revisions.
         let unchanged_capability = match &envelope.fact {
@@ -216,7 +233,7 @@ impl BackendService {
             Fact::Foreground { foreground } => *foreground == self.policy.foreground,
             _ => false,
         };
-        if unchanged_capability {
+        if unchanged_capability && !deadline_expired {
             return Ok(());
         }
         let discovery_timer = matches!(&envelope.fact, Fact::Timer { id }
@@ -230,6 +247,10 @@ impl BackendService {
             envelope.fact,
             Fact::PresentationStarted { .. }
                 | Fact::PresentationFinished { .. }
+                | Fact::Profile { .. }
+                | Fact::Notifications { .. }
+                | Fact::WriteProgress { .. }
+                | Fact::Link { .. }
                 | Fact::Storage { .. }
         );
         let first_discovery = matches!(envelope.fact, Fact::Discovered { .. })
@@ -261,8 +282,15 @@ impl BackendService {
                 device_id,
                 name,
                 rssi,
+                advertises_uart,
             } => {
-                if self.policy.scan.is_some_and(|s| s.0 == scan_id) {
+                if self.policy.scan.is_some_and(|s| s.0 == scan_id)
+                    && crate::ble::eligible(
+                        advertises_uart,
+                        &device_id,
+                        &self.policy.saved_device_ids,
+                    )
+                {
                     self.expire_discovery();
                     if !self.policy.devices.contains_key(&device_id)
                         && self.policy.devices.len() >= 50
@@ -290,12 +318,9 @@ impl BackendService {
                 }
             }
             Fact::Link { generation, state } => {
-                if self
-                    .policy
-                    .active
-                    .as_ref()
-                    .is_some_and(|a| a.generation == generation)
-                {
+                if self.policy.active.as_ref().is_some_and(|a| {
+                    a.generation == generation && a.state != LinkState::Disconnected
+                }) {
                     match state {
                         LinkState::Disconnected | LinkState::Failed => {
                             if self
@@ -311,21 +336,76 @@ impl BackendService {
                                 self.reconnect()?;
                             }
                         }
-                        LinkState::Ready => {
-                            if self
-                                .policy
-                                .active
-                                .as_ref()
-                                .is_some_and(|a| a.state != LinkState::Ready)
-                            {
-                                self.policy.active.as_mut().unwrap().state = state;
-                                self.begin_runtime()?;
-                            }
+                        LinkState::Ready => {}
+                        _ if !self.policy.ble.ready => {
+                            self.policy.active.as_mut().unwrap().state = state
                         }
-                        _ => self.policy.active.as_mut().unwrap().state = state,
+                        _ => {}
                     }
                 }
             }
+            Fact::Profile {
+                generation,
+                operation,
+                profile,
+            } => {
+                if generation == operation
+                    && generation == self.policy.ble.generation
+                    && generation != 0
+                {
+                    let id = self.policy.exchange.id()?;
+                    match self.policy.ble.profile(generation, profile, id) {
+                        Ok(Some(mode)) => {
+                            self.policy
+                                .active
+                                .as_mut()
+                                .ok_or(Failure::InvalidState)?
+                                .state = LinkState::EnablingNotifications;
+                            self.policy.exchange.push(Effect::EnableNotifications {
+                                generation,
+                                operation: id,
+                                mode,
+                            })?;
+                        }
+                        Ok(None) => {}
+                        Err(()) => self.reconnect()?,
+                    }
+                }
+            }
+            Fact::Notifications {
+                generation,
+                operation,
+                success,
+            } => {
+                match self
+                    .policy
+                    .ble
+                    .notifications(generation, operation, success)
+                {
+                    Ok(true) => {
+                        self.policy
+                            .active
+                            .as_mut()
+                            .ok_or(Failure::InvalidState)?
+                            .state = LinkState::Ready;
+                        self.begin_runtime()?;
+                    }
+                    Ok(false) => {}
+                    Err(()) => self.reconnect()?,
+                }
+            }
+            Fact::WriteProgress {
+                generation,
+                operation,
+                progress,
+            } => match self.policy.ble.progress(generation, operation, progress) {
+                Ok(true) => {
+                    self.cancel_timer(Timer::BleWrite);
+                    self.emit_ble_write()?;
+                }
+                Ok(false) => {}
+                Err(()) => self.reconnect()?,
+            },
             Fact::Bytes { generation, bytes } => {
                 if self
                     .policy
@@ -407,6 +487,7 @@ impl BackendService {
         });
         if (!discovery_only && !private_completion && !inactive_timer && !unchanged_discovery)
             || first_discovery
+            || connection_before != self.policy.active.as_ref().map(|a| (a.generation, a.state))
         {
             self.changed()?;
         }
@@ -542,6 +623,7 @@ impl BackendService {
             reconnect_attempt: 0,
             selected_can_id: None,
         });
+        self.policy.ble.begin(generation);
         self.policy.exchange.push(Effect::Connect {
             generation,
             device_id: id.into(),
@@ -593,6 +675,7 @@ impl BackendService {
             return Ok(());
         };
         let generation = a.generation;
+        self.policy.ble.clear();
         self.policy.exchange.clear_connection(generation);
         self.policy
             .timers
@@ -634,6 +717,7 @@ impl BackendService {
         if elapsed >= self.policy.settings.reconnect_duration_ms {
             return self.disconnect("reconnect_timeout");
         }
+        self.policy.ble.clear();
         a.state = LinkState::Disconnected;
         self.policy.exchange.clear_connection(a.generation);
         self.policy
@@ -732,7 +816,7 @@ impl BackendService {
                 }
             }
             Timer::ReconnectLimit => self.disconnect("reconnect_timeout")?,
-            Timer::ConnectionAttempt => self.reconnect()?,
+            Timer::ConnectionAttempt | Timer::BleWrite => self.reconnect()?,
             Timer::Reconnect => {
                 if self
                     .policy
@@ -753,6 +837,7 @@ impl BackendService {
                     a.reconnect_attempt += 1;
                     a.generation = self.policy.exchange.id()?;
                     a.state = LinkState::Connecting;
+                    self.policy.ble.begin(a.generation);
                     self.policy.exchange.push(Effect::Connect {
                         generation: a.generation,
                         device_id: a.device.id.clone(),
@@ -780,6 +865,19 @@ impl BackendService {
         }
         Ok(())
     }
+    fn emit_ble_write(&mut self) -> Result<(), Failure> {
+        let operation = self.policy.exchange.id()?;
+        if let Some((mode, bytes)) = self.policy.ble.next(operation) {
+            self.arm_timer(Timer::BleWrite, crate::ble::DEADLINE_MS, None)?;
+            self.policy.exchange.push(Effect::Write {
+                generation: self.policy.ble.generation,
+                operation,
+                mode,
+                bytes,
+            })?;
+        }
+        Ok(())
+    }
     pub(crate) fn runtime_command(&mut self, command: Command) -> Result<(), Failure> {
         let mut effects: VecDeque<_> = self
             .runtime
@@ -794,15 +892,11 @@ impl BackendService {
             }
             match effect {
                 RuntimeEffect::WriteBytes(bytes) => {
-                    let generation = self
-                        .policy
-                        .active
-                        .as_ref()
-                        .ok_or(Failure::InvalidState)?
-                        .generation;
-                    self.policy
-                        .exchange
-                        .push(Effect::Write { generation, bytes })?;
+                    if self.policy.ble.admit(&bytes).is_err() {
+                        self.reconnect()?;
+                        return Ok(());
+                    }
+                    self.emit_ble_write()?;
                 }
                 RuntimeEffect::PublishSessionMarker(marker) => {
                     if let Some(session) =
@@ -1094,6 +1188,34 @@ mod tests {
             }
         }
         fn fact(&mut self, fact: Fact, now: u64) -> Result<(), Failure> {
+            if let Fact::Link {
+                generation,
+                state: LinkState::Ready,
+            } = fact
+            {
+                self.fact(
+                    Fact::Profile {
+                        generation,
+                        operation: generation,
+                        profile: crate::ble::Profile {
+                            service: true,
+                            notify: true,
+                            with_response: 244,
+                            without_response: 20,
+                        },
+                    },
+                    now,
+                )?;
+                let operation = self.service.policy.ble.setup;
+                return self.fact(
+                    Fact::Notifications {
+                        generation,
+                        operation,
+                        success: true,
+                    },
+                    now,
+                );
+            }
             let p = &self.service.policy.exchange;
             let e = os::Envelope {
                 lifetime: p.lifetime,
@@ -1127,6 +1249,7 @@ mod tests {
             let scan_id = self.service.start_scan(10_000).unwrap();
             self.fact(
                 Fact::Discovered {
+                    advertises_uart: true,
                     scan_id,
                     device_id: "test-device".into(),
                     name: Some("Board".into()),
@@ -1513,6 +1636,7 @@ mod tests {
         for n in 0..60 {
             t.fact(
                 Fact::Discovered {
+                    advertises_uart: true,
                     scan_id,
                     device_id: format!("device-{n}"),
                     name: None,
@@ -1685,6 +1809,176 @@ mod tests {
             effects
                 .iter()
                 .any(|e| matches!(e, Effect::CancelConnectionTimers))
+        );
+    }
+    #[test]
+    fn ble_setup_and_write_deadlines_reject_late_success_and_failure_is_once() {
+        let mut t = Test::new();
+        t.discover();
+        t.service.connect("test-device", false).unwrap();
+        let generation = t.service.policy.ble.generation;
+        t.fact(
+            Fact::Profile {
+                generation,
+                operation: generation,
+                profile: crate::ble::Profile {
+                    service: true,
+                    notify: true,
+                    with_response: 20,
+                    without_response: 20,
+                },
+            },
+            4,
+        )
+        .unwrap();
+        let operation = t.service.policy.ble.setup;
+        t.fact(
+            Fact::Notifications {
+                generation,
+                operation,
+                success: true,
+            },
+            10_003,
+        )
+        .unwrap();
+        assert!(!t.service.policy.ble.ready);
+        assert_eq!(
+            t.service.policy.active.as_ref().unwrap().state,
+            LinkState::Disconnected
+        );
+        let reconnect_due = t
+            .service
+            .policy
+            .timers
+            .values()
+            .find(|t| t.kind == Timer::Reconnect)
+            .unwrap()
+            .due;
+        t.fact(
+            Fact::Link {
+                generation,
+                state: LinkState::Failed,
+            },
+            10_004,
+        )
+        .unwrap();
+        assert_eq!(
+            t.service
+                .policy
+                .timers
+                .values()
+                .find(|t| t.kind == Timer::Reconnect)
+                .unwrap()
+                .due,
+            reconnect_due
+        );
+
+        let mut t = Test::new();
+        t.discover();
+        t.service.connect("test-device", false).unwrap();
+        let generation = t.service.policy.ble.generation;
+        t.fact(
+            Fact::Link {
+                generation,
+                state: LinkState::Ready,
+            },
+            4,
+        )
+        .unwrap();
+        t.service.cancel_timer(Timer::ConnectionAttempt);
+        let due = t
+            .service
+            .policy
+            .timers
+            .values()
+            .find(|t| t.kind == Timer::BleWrite)
+            .unwrap()
+            .due;
+        let mut write = None;
+        loop {
+            let effects = t.service.drain_os().effects;
+            if effects.is_empty() {
+                break;
+            }
+            for e in effects {
+                if let Effect::Write { operation, .. } = e {
+                    write = Some(operation);
+                }
+            }
+        }
+        let revision = t.service.policy.revision;
+        t.fact(Fact::Clock {}, due).unwrap();
+        assert!(t.service.policy.revision > revision);
+        t.fact(
+            Fact::WriteProgress {
+                generation,
+                operation: write.unwrap(),
+                progress: crate::ble::Progress::Acknowledged,
+            },
+            due,
+        )
+        .unwrap();
+        assert_eq!(t.service.policy.ble.generation, 0);
+        assert_eq!(
+            t.service.policy.active.as_ref().unwrap().state,
+            LinkState::Disconnected
+        );
+    }
+
+    #[test]
+    fn ble_failure_cleans_up_even_at_saturation_and_foreign_results_do_not_progress() {
+        let mut t = Test::new();
+        t.discover();
+        t.service.connect("test-device", false).unwrap();
+        let generation = t.service.policy.ble.generation;
+        t.fact(
+            Fact::Profile {
+                generation,
+                operation: generation,
+                profile: crate::ble::Profile {
+                    service: true,
+                    notify: true,
+                    with_response: 20,
+                    without_response: 20,
+                },
+            },
+            4,
+        )
+        .unwrap();
+        let operation = t.service.policy.ble.setup;
+        t.fact(
+            Fact::Notifications {
+                generation,
+                operation: operation + 1,
+                success: true,
+            },
+            5,
+        )
+        .unwrap();
+        assert!(!t.service.policy.ble.ready);
+        while t
+            .service
+            .policy
+            .exchange
+            .push(Effect::Scan { scan_id: 1 })
+            .is_ok()
+        {}
+        t.fact(
+            Fact::Notifications {
+                generation,
+                operation,
+                success: false,
+            },
+            6,
+        )
+        .unwrap();
+        assert_eq!(t.service.policy.ble.generation, 0);
+        assert!(
+            t.service
+                .drain_os()
+                .effects
+                .iter()
+                .any(|e| matches!(e, Effect::Disconnect { generation: g } if *g == generation))
         );
     }
 }

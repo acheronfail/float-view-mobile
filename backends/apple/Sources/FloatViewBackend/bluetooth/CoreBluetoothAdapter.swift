@@ -1,89 +1,68 @@
 import CoreBluetooth
 import Foundation
 
+private var uartService: CBUUID {
+  CBUUID(string: "6E400001-B5A3-F393-E0A9-E50E24DCCA9E")
+}
+
+private var uartWrite: CBUUID {
+  CBUUID(string: "6E400002-B5A3-F393-E0A9-E50E24DCCA9E")
+}
+
+private var uartNotify: CBUUID {
+  CBUUID(string: "6E400003-B5A3-F393-E0A9-E50E24DCCA9E")
+}
+
 public final class CoreBluetoothAdapter: NSObject, BluetoothPort, @unchecked Sendable {
   public typealias EventHandler = @Sendable (BluetoothEvent) -> Void
   public typealias DiagnosticHandler = @Sendable (String) -> Void
-
-  private static var serviceUUID: CBUUID {
-    CBUUID(string: "6E400001-B5A3-F393-E0A9-E50E24DCCA9E")
-  }
-
-  private static var writeUUID: CBUUID {
-    CBUUID(string: "6E400002-B5A3-F393-E0A9-E50E24DCCA9E")
-  }
-
-  private static var notifyUUID: CBUUID {
-    CBUUID(string: "6E400003-B5A3-F393-E0A9-E50E24DCCA9E")
-  }
-
-  private let eventHandler: EventHandler
-  private let diagnosticHandler: DiagnosticHandler
+  private let event: EventHandler
+  private let diagnostic: DiagnosticHandler
   private let queue: DispatchQueue
   private let restorationIdentifier: String?
-  private lazy var central = CBCentralManager(
-    delegate: self,
-    queue: queue,
-    options: restorationIdentifier.map {
-      [CBCentralManagerOptionRestoreIdentifierKey: $0]
-    }
-  )
-  private var peripheralsByID: [DeviceID: CBPeripheral] = [:]
-  private var activeDeviceID: DeviceID?
-  private var activePeripheral: CBPeripheral?
-  private var writeCharacteristic: CBCharacteristic?
-  private var notifyCharacteristic: CBCharacteristic?
-  private var pendingWrites: [Data] = []
-  private var pendingWriteBytes = 0
-  private var writeInFlight = false
-  private var savedDeviceIDs: Set<DeviceID> = []
-  private var setupDeadline: DispatchWorkItem?
-  private var connectionGeneration: UInt64 = 0
+  private lazy var central = CBCentralManager(delegate: self, queue: queue, options:
+    restorationIdentifier.map { [CBCentralManagerOptionRestoreIdentifierKey: $0] })
+  private var session: BluetoothSession?
 
-  public init(
-    queue: DispatchQueue = DispatchQueue(label: "fail.acheron.float-view.bluetooth"),
-    eventHandler: @escaping EventHandler,
-    diagnosticHandler: @escaping DiagnosticHandler = { _ in },
-    restorationIdentifier: String? = nil
-  ) {
-    self.queue = queue
-    self.eventHandler = eventHandler
-    self.diagnosticHandler = diagnosticHandler
+  public init(queue: DispatchQueue = DispatchQueue(label: "fail.acheron.float-view.bluetooth"),
+              eventHandler: @escaping EventHandler, diagnosticHandler: @escaping DiagnosticHandler = { _ in },
+              restorationIdentifier: String? = nil)
+  {
+    self.queue = queue; event = eventHandler; diagnostic = diagnosticHandler
     self.restorationIdentifier = restorationIdentifier
-    super.init()
-    _ = central
+    super.init(); _ = central
   }
 
   public func currentState() -> BluetoothState {
-    BluetoothState(
-      radio: Self.radioState(central.state),
-      scanPermission: Self.permissionState(),
-      connectPermission: Self.permissionState()
-    )
+    let radio: BluetoothRadioState = switch central.state {
+    case .poweredOn: .poweredOn
+    case .poweredOff: .poweredOff
+    case .unsupported: .unsupported
+    case .resetting: .resetting
+    default: .unknown
+    }
+    let permission: BluetoothPermissionState = switch CBManager.authorization {
+    case .allowedAlways: .granted
+    case .denied: .denied
+    case .restricted: .restricted
+    default: .notDetermined
+    }
+    return BluetoothState(radio: radio, scanPermission: permission, connectPermission: permission)
   }
 
   public func requestPermission() {
     queue.async { [self] in
-      guard central.state == .poweredOn else {
-        eventHandler(.stateChanged(currentState()))
-        return
+      if central.state == .poweredOn {
+        central.scanForPeripherals(withServices: [uartService]); central.stopScan()
       }
-      central.scanForPeripherals(withServices: [Self.serviceUUID])
-      central.stopScan()
-      eventHandler(.stateChanged(currentState()))
+      event(.stateChanged(currentState()))
     }
   }
 
   public func startDiscovery() {
     queue.async { [self] in
-      guard central.state == .poweredOn else {
-        eventHandler(.scanFailed("bluetooth_unavailable"))
-        return
-      }
-      central.scanForPeripherals(
-        withServices: nil,
-        options: [CBCentralManagerScanOptionAllowDuplicatesKey: true]
-      )
+      guard central.state == .poweredOn else { event(.scanFailed("bluetooth_unavailable")); return }
+      central.scanForPeripherals(withServices: nil, options: [CBCentralManagerScanOptionAllowDuplicatesKey: true])
     }
   }
 
@@ -91,387 +70,203 @@ public final class CoreBluetoothAdapter: NSObject, BluetoothPort, @unchecked Sen
     queue.async { [self] in central.stopScan() }
   }
 
-  public func configureSavedDeviceIDs(_ deviceIDs: Set<DeviceID>) {
-    queue.async { [self] in savedDeviceIDs = deviceIDs }
-  }
-
-  public func connect(_ deviceID: DeviceID) {
+  public func connect(_ deviceID: DeviceID, generation: BluetoothConnection) {
     queue.async { [self] in
-      guard activePeripheral == nil || activeDeviceID == deviceID,
-            let peripheral = peripheralsByID[deviceID]
-      else {
-        eventHandler(.connectionChanged(deviceID, .failed))
-        return
-      }
+      session?.cancel()
       central.stopScan()
-      activeDeviceID = deviceID
-      activePeripheral = peripheral
-      writeCharacteristic = nil
-      notifyCharacteristic = nil
-      pendingWrites.removeAll(keepingCapacity: true)
-      pendingWriteBytes = 0
-      writeInFlight = false
-      connectionGeneration &+= 1
-      scheduleSetupDeadline(for: deviceID, generation: connectionGeneration)
-      peripheral.delegate = self
-      diagnosticHandler("connect_requested peripheral_state=\(peripheral.state.rawValue)")
-      if peripheral.state == .connected {
-        eventHandler(.connectionChanged(deviceID, .connected))
-        eventHandler(.connectionChanged(deviceID, .discoveringServices))
-        peripheral.discoverServices([Self.serviceUUID])
-      } else {
-        central.connect(peripheral)
-      }
+      session = BluetoothSession(deviceID, generation: generation, queue: queue, event: event, diagnostic: diagnostic)
     }
   }
 
-  public func write(_ bytes: Data, to deviceID: DeviceID) {
+  public func enableNotifications(generation: BluetoothConnection, operation: UInt64) {
     queue.async { [self] in
-      guard deviceID == activeDeviceID,
-            activePeripheral != nil,
-            writeCharacteristic != nil
-      else { return }
-      let writeMode = VescBluetoothPolicy.writeMode(
-        supportsWriteWithResponse: writeCharacteristic?.properties.contains(.write) == true,
-        supportsWriteWithoutResponse:
-        writeCharacteristic?.properties.contains(.writeWithoutResponse) == true
-      )
-      guard writeMode != .unsupported else {
-        failConnection("vesc_write_characteristic_unavailable")
-        return
-      }
-      let writeType: CBCharacteristicWriteType =
-        writeMode == .withResponse ? .withResponse : .withoutResponse
-      let negotiated = activePeripheral?.maximumWriteValueLength(for: writeType) ?? 20
-      let chunkSize = max(1, min(negotiated, VescBluetoothPolicy.maximumWritePayloadBytes))
-      let chunks = VescBluetoothPolicy.chunks(bytes, maximumPayloadBytes: chunkSize)
-      guard VescBluetoothPolicy.acceptsQueuedWrite(
-        pendingWrites: pendingWrites.count,
-        pendingBytes: pendingWriteBytes,
-        newWrites: chunks.count,
-        newBytes: bytes.count
-      )
-      else {
-        failConnection("vesc_write_queue_full")
-        return
-      }
-      pendingWrites.append(contentsOf: chunks)
-      pendingWriteBytes += bytes.count
-      drainWriteQueue()
+      guard let session, session.generation == generation else { return }
+      session.enable(operation)
     }
   }
 
-  public func disconnect(_ deviceID: DeviceID) {
+  public func write(_ bytes: Data, to _: DeviceID, generation: BluetoothConnection, operation: UInt64, response: Bool) {
     queue.async { [self] in
-      guard deviceID == activeDeviceID, let peripheral = activePeripheral else {
-        eventHandler(.connectionChanged(deviceID, .disconnected))
-        return
-      }
-      if let notifyCharacteristic, notifyCharacteristic.isNotifying {
-        peripheral.setNotifyValue(false, for: notifyCharacteristic)
-      }
-      central.cancelPeripheralConnection(peripheral)
+      guard let session, session.generation == generation else { return }
+      session.write(bytes, operation: operation, response: response)
     }
   }
 
-  private func failConnection(_ reason: String) {
-    guard let deviceID = activeDeviceID else { return }
-    eventHandler(.scanFailed(reason))
-    eventHandler(.connectionChanged(deviceID, .failed))
-    if let activePeripheral {
-      central.cancelPeripheralConnection(activePeripheral)
-    } else {
-      clearConnection()
-      eventHandler(.connectionChanged(deviceID, .disconnected))
-    }
-  }
-
-  private func clearConnection() {
-    activeDeviceID = nil
-    activePeripheral?.delegate = nil
-    activePeripheral = nil
-    writeCharacteristic = nil
-    notifyCharacteristic = nil
-    pendingWrites.removeAll(keepingCapacity: true)
-    pendingWriteBytes = 0
-    writeInFlight = false
-    setupDeadline?.cancel()
-    setupDeadline = nil
-  }
-
-  private func drainWriteQueue() {
-    guard !writeInFlight, !pendingWrites.isEmpty,
-          let peripheral = activePeripheral,
-          let characteristic = writeCharacteristic
-    else { return }
-    if characteristic.properties.contains(.write) {
-      writeInFlight = true
-      let chunk = pendingWrites.removeFirst()
-      pendingWriteBytes -= chunk.count
-      peripheral.writeValue(
-        chunk,
-        for: characteristic,
-        type: .withResponse
-      )
-      return
-    }
-    guard characteristic.properties.contains(.writeWithoutResponse),
-          peripheral.canSendWriteWithoutResponse
-    else { return }
-    let chunk = pendingWrites.removeFirst()
-    pendingWriteBytes -= chunk.count
-    peripheral.writeValue(
-      chunk,
-      for: characteristic,
-      type: .withoutResponse
-    )
-    drainWriteQueue()
-  }
-
-  private func scheduleSetupDeadline(for deviceID: DeviceID, generation: UInt64) {
-    setupDeadline?.cancel()
-    let deadline = DispatchWorkItem { [weak self] in
-      guard let self, self.activeDeviceID == deviceID,
-            VescBluetoothPolicy.acceptsCallback(
-              callbackGeneration: generation,
-              activeGeneration: self.connectionGeneration,
-              isCancelled: false
-            ),
-            self.notifyCharacteristic?.isNotifying != true
-      else { return }
-      self.failConnection("vesc_setup_timeout")
-    }
-    setupDeadline = deadline
-    queue.asyncAfter(deadline: .now() + .seconds(10), execute: deadline)
-  }
-
-  private static func boundedTransportDiagnostic(_ event: String, error: Error?) -> String {
-    guard let error else { return "\(event):none" }
-    let value = error as NSError
-    return String("\(event):\(value.domain):\(value.code)".prefix(160))
-  }
-
-  private static func radioState(_ state: CBManagerState) -> BluetoothRadioState {
-    switch state {
-    case .unknown: .unknown
-    case .resetting: .resetting
-    case .unsupported: .unsupported
-    case .unauthorized: .unknown
-    case .poweredOff: .poweredOff
-    case .poweredOn: .poweredOn
-    @unknown default: .unknown
-    }
-  }
-
-  private static func permissionState() -> BluetoothPermissionState {
-    switch CBManager.authorization {
-    case .notDetermined: .notDetermined
-    case .restricted: .restricted
-    case .denied: .denied
-    case .allowedAlways: .granted
-    @unknown default: .unknown
-    }
+  public func disconnect(_: DeviceID) {
+    queue.async { [self] in session?.cancel(); session = nil }
   }
 }
 
 extension CoreBluetoothAdapter: CBCentralManagerDelegate {
-  public func centralManager(
-    _: CBCentralManager,
-    willRestoreState dictionary: [String: Any]
-  ) {
-    guard let restored = dictionary[CBCentralManagerRestoredStatePeripheralsKey]
-      as? [CBPeripheral],
-      let peripheral = restored.first
-    else {
-      diagnosticHandler("restoration_without_peripheral")
-      return
-    }
-    let deviceID = DeviceID(peripheral.identifier.uuidString)
-    peripheralsByID[deviceID] = peripheral
-    // The application service is constructed after CoreBluetooth restoration.
-    // Cache the binding here, but let an explicit application connect adopt it;
-    // otherwise a restored disconnect can be mistaken for an active-session loss.
-    diagnosticHandler(
-      peripheral.state == .connected
-        ? "peripheral_binding_cached_connected"
-        : "peripheral_binding_cached_pending"
-    )
-  }
-
   public func centralManagerDidUpdateState(_: CBCentralManager) {
-    eventHandler(.stateChanged(currentState()))
+    event(.stateChanged(currentState()))
   }
 
-  public func centralManager(
-    _: CBCentralManager,
-    didDiscover peripheral: CBPeripheral,
-    advertisementData: [String: Any],
-    rssi RSSI: NSNumber
-  ) {
-    let deviceID = DeviceID(peripheral.identifier.uuidString)
-    peripheralsByID[deviceID] = peripheral
-    let advertisedServices = advertisementData[CBAdvertisementDataServiceUUIDsKey]
-      as? [CBUUID] ?? []
-    guard VescBluetoothPolicy.shouldPublish(
-      advertisesUART: advertisedServices.contains(Self.serviceUUID),
-      deviceID: deviceID,
-      savedDeviceIDs: savedDeviceIDs
-    ) else {
-      return
-    }
-    let advertisedName = advertisementData[CBAdvertisementDataLocalNameKey] as? String
-    eventHandler(
-      .deviceFound(
-        deviceID,
-        name: advertisedName ?? peripheral.name,
-        rssi: RSSI.intValue
-      )
-    )
+  public func centralManager(_: CBCentralManager, willRestoreState _: [String: Any]) {
+    // The service explicitly adopts saved identity; restoration never publishes ready.
+    diagnostic("restoration_observed")
   }
 
-  public func centralManager(_: CBCentralManager, didConnect peripheral: CBPeripheral) {
-    guard let deviceID = activeDeviceID, peripheral == activePeripheral else { return }
-    diagnosticHandler("connected")
-    eventHandler(.connectionChanged(deviceID, .connected))
-    eventHandler(.connectionChanged(deviceID, .discoveringServices))
-    peripheral.discoverServices([Self.serviceUUID])
-  }
-
-  public func centralManager(
-    _: CBCentralManager,
-    didFailToConnect peripheral: CBPeripheral,
-    error: Error?
-  ) {
-    guard let deviceID = activeDeviceID, peripheral == activePeripheral else { return }
-    diagnosticHandler(Self.boundedTransportDiagnostic("connect_failed", error: error))
-    eventHandler(.connectionChanged(deviceID, .failed))
-    clearConnection()
-    eventHandler(.connectionChanged(deviceID, .disconnected))
-  }
-
-  public func centralManager(
-    _: CBCentralManager,
-    didDisconnectPeripheral peripheral: CBPeripheral,
-    error: Error?
-  ) {
-    guard let deviceID = activeDeviceID, peripheral == activePeripheral else { return }
-    diagnosticHandler(Self.boundedTransportDiagnostic("disconnected", error: error))
-    clearConnection()
-    eventHandler(.connectionChanged(deviceID, .disconnected))
+  public func centralManager(_: CBCentralManager, didDiscover peripheral: CBPeripheral,
+                             advertisementData: [String: Any], rssi: NSNumber)
+  {
+    let services = advertisementData[CBAdvertisementDataServiceUUIDsKey] as? [CBUUID] ?? []
+    event(.deviceFound(DeviceID(peripheral.identifier.uuidString),
+                       name: advertisementData[CBAdvertisementDataLocalNameKey] as? String ?? peripheral.name,
+                       rssi: rssi.intValue, uart: services.contains(uartService)))
   }
 }
 
-extension CoreBluetoothAdapter: CBPeripheralDelegate {
-  public func peripheral(_ peripheral: CBPeripheral, didDiscoverServices error: Error?) {
-    diagnosticHandler(Self.boundedTransportDiagnostic("services_discovered", error: error))
-    guard peripheral == activePeripheral, error == nil else {
-      failConnection("vesc_service_unavailable")
-      return
-    }
-    guard let service = peripheral.services?.first(where: { $0.uuid == Self.serviceUUID })
-    else {
-      failConnection(
-        VescBluetoothPolicy.setupFailure(
-          hasService: false,
-          hasWriteCharacteristic: false,
-          writeMode: .unsupported,
-          hasNotifyCharacteristic: false,
-          hasNotifyProperty: false
-        ) ?? "vesc_service_unavailable"
-      )
-      return
-    }
-    peripheral.discoverCharacteristics([Self.writeUUID, Self.notifyUUID], for: service)
+/// A separate OS delegate/object lifetime per attempt prevents an old callback from
+/// acquiring the identity of a replacement connection to the same peripheral.
+private final class BluetoothSession: NSObject, CBCentralManagerDelegate, CBPeripheralDelegate {
+  let generation: BluetoothConnection
+  private let device: DeviceID
+  private let event: CoreBluetoothAdapter.EventHandler
+  private let diagnostic: CoreBluetoothAdapter.DiagnosticHandler
+  private var central: CBCentralManager!
+  private var peripheral: CBPeripheral?
+  private var tx: CBCharacteristic?
+  private var rx: CBCharacteristic?
+  private var setup: UInt64?
+  private var current: (id: UInt64, bytes: Data, response: Bool, submitted: Bool)?
+  private var cancelled = false
+  private var reportedWrite = false
+
+  init(_ device: DeviceID, generation: BluetoothConnection, queue: DispatchQueue,
+       event: @escaping CoreBluetoothAdapter.EventHandler,
+       diagnostic: @escaping CoreBluetoothAdapter.DiagnosticHandler)
+  {
+    self.device = device; self.generation = generation; self.event = event; self.diagnostic = diagnostic
+    super.init(); central = CBCentralManager(delegate: self, queue: queue)
   }
 
-  public func peripheral(
-    _ peripheral: CBPeripheral,
-    didDiscoverCharacteristicsFor service: CBService,
-    error: Error?
-  ) {
-    diagnosticHandler(Self.boundedTransportDiagnostic("characteristics_discovered", error: error))
-    guard peripheral == activePeripheral, error == nil else {
-      failConnection("vesc_characteristic_discovery_failed")
-      return
+  func cancel() {
+    cancelled = true; current = nil; setup = nil
+    peripheral?.delegate = nil
+    if let peripheral {
+      central.cancelPeripheralConnection(peripheral)
     }
-    let write = service.characteristics?.first { $0.uuid == Self.writeUUID }
-    let notify = service.characteristics?.first { $0.uuid == Self.notifyUUID }
-    let writeMode = VescBluetoothPolicy.writeMode(
-      supportsWriteWithResponse: write?.properties.contains(.write) == true,
-      supportsWriteWithoutResponse: write?.properties.contains(.writeWithoutResponse) == true
-    )
-    if let failure = VescBluetoothPolicy.setupFailure(
-      hasService: true,
-      hasWriteCharacteristic: write != nil,
-      writeMode: writeMode,
-      hasNotifyCharacteristic: notify != nil,
-      hasNotifyProperty: notify?.properties.contains(.notify) == true
-    ) {
-      failConnection(failure)
-      return
-    }
-    let writeModeValue = switch writeMode {
-    case .withResponse: "with_response"
-    case .withoutResponse: "without_response"
-    case .unsupported: "unsupported"
-    }
-    diagnosticHandler("gatt_profile write_mode=\(writeModeValue) notify=true")
-    writeCharacteristic = write
-    notifyCharacteristic = notify
-    guard let notifyCharacteristic = notify else { return }
-    guard let deviceID = activeDeviceID else { return }
-    eventHandler(.connectionChanged(deviceID, .enablingNotifications))
-    peripheral.setNotifyValue(true, for: notifyCharacteristic)
+    central.delegate = nil; peripheral = nil; tx = nil; rx = nil
   }
 
-  public func peripheral(
+  private func link(_ state: ConnectionState) {
+    event(.connectionChanged(device, generation, state))
+  }
+
+  private func fail() {
+    guard !cancelled else { return }; link(.failed); cancel()
+  }
+
+  func centralManagerDidUpdateState(_ central: CBCentralManager) {
+    guard !cancelled, peripheral == nil else { return }
+    guard central.state == .poweredOn else {
+      if central.state != .unknown, central.state != .resetting {
+        fail()
+      }
+      return
+    }
+    guard let id = UUID(uuidString: device.value),
+          let found = central.retrievePeripherals(withIdentifiers: [id]).first else { fail(); return }
+    peripheral = found; found.delegate = self
+    // Acquire this manager's link even if another manager already knows it as connected.
+    central.connect(found)
+  }
+
+  func centralManager(_: CBCentralManager, didConnect peripheral: CBPeripheral) {
+    guard !cancelled, peripheral === self.peripheral else { return }
+    link(.discoveringServices); peripheral.discoverServices([uartService])
+  }
+
+  func centralManager(_: CBCentralManager, didFailToConnect _: CBPeripheral, error _: Error?) {
+    fail()
+  }
+
+  func centralManager(_: CBCentralManager, didDisconnectPeripheral _: CBPeripheral, error _: Error?) {
+    guard !cancelled else { return }; link(.disconnected); cancel()
+  }
+
+  func peripheral(_ peripheral: CBPeripheral, didDiscoverServices error: Error?) {
+    guard !cancelled, peripheral === self.peripheral else { return }
+    guard error == nil, let service = peripheral.services?.first(where: { $0.uuid == uartService }) else {
+      event(.profile(
+        generation,
+        BluetoothProfile(service: false, notify: false, withResponse: 0, withoutResponse: 0)
+      )); return
+    }
+    peripheral.discoverCharacteristics([uartWrite, uartNotify], for: service)
+  }
+
+  func peripheral(_ peripheral: CBPeripheral, didDiscoverCharacteristicsFor service: CBService, error: Error?) {
+    guard !cancelled, peripheral === self.peripheral else { return }
+    tx = service.characteristics?.first { $0.uuid == uartWrite }
+    rx = service.characteristics?.first { $0.uuid == uartNotify }
+    event(.profile(generation, BluetoothProfile(service: error == nil,
+                                                notify: rx?.properties.contains(.notify) == true,
+                                                withResponse: tx?.properties.contains(.write) == true ? peripheral
+                                                  .maximumWriteValueLength(for: .withResponse) : 0,
+                                                withoutResponse: tx?.properties
+                                                  .contains(.writeWithoutResponse) == true ? peripheral
+                                                  .maximumWriteValueLength(for: .withoutResponse) : 0)))
+  }
+
+  func enable(_ operation: UInt64) {
+    guard !cancelled, setup == nil, let peripheral, let rx else { return }
+    setup = operation; peripheral.setNotifyValue(true, for: rx)
+  }
+
+  func peripheral(
     _ peripheral: CBPeripheral,
     didUpdateNotificationStateFor characteristic: CBCharacteristic,
     error: Error?
   ) {
-    guard peripheral == activePeripheral, characteristic == notifyCharacteristic else { return }
-    diagnosticHandler(Self.boundedTransportDiagnostic("notifications_updated", error: error))
-    guard error == nil, characteristic.isNotifying else {
-      failConnection("vesc_notification_enable_failed")
-      return
+    guard !cancelled, peripheral === self.peripheral, characteristic === rx, let setup else { return }
+    event(.notifications(generation, setup, error == nil && characteristic.isNotifying))
+  }
+
+  func write(_ bytes: Data, operation: UInt64, response: Bool) {
+    guard !cancelled, current == nil, bytes.count <= 244 else { fail(); return }
+    current = (operation, bytes, response, false); submit()
+  }
+
+  private func progress(_ operation: UInt64, _ result: String) {
+    event(.writeProgress(generation, operation, result))
+  }
+
+  private func submit() {
+    guard let peripheral, let tx, let value = current else { return }
+    if !value.submitted {
+      guard value.response || peripheral.canSendWriteWithoutResponse else { return }
+      current?.submitted = true
+      peripheral.writeValue(value.bytes, for: tx, type: value.response ? .withResponse : .withoutResponse)
+      progress(value.id, "submitted")
+      if !reportedWrite {
+        diagnostic(
+          "gatt_write mode=\(value.response ? "with_response" : "without_response") negotiated=\(peripheral.maximumWriteValueLength(for: value.response ? .withResponse : .withoutResponse)) cap=244 payload=\(value.bytes.count)"
+        )
+        reportedWrite = true
+      }
     }
-    setupDeadline?.cancel()
-    setupDeadline = nil
-    if let deviceID = activeDeviceID {
-      eventHandler(.connectionChanged(deviceID, .ready))
+    if !value.response, peripheral.canSendWriteWithoutResponse {
+      current = nil; progress(value.id, "available")
     }
   }
 
-  public func peripheral(
-    _ peripheral: CBPeripheral,
-    didUpdateValueFor characteristic: CBCharacteristic,
-    error: Error?
-  ) {
-    guard peripheral == activePeripheral, characteristic == notifyCharacteristic,
-          error == nil, let bytes = characteristic.value, let deviceID = activeDeviceID
-    else { return }
-    eventHandler(.notification(deviceID, bytes))
+  func peripheralIsReady(toSendWriteWithoutResponse _: CBPeripheral) {
+    if !cancelled {
+      submit()
+    }
   }
 
-  public func peripheral(
-    _ peripheral: CBPeripheral,
-    didWriteValueFor characteristic: CBCharacteristic,
-    error: Error?
-  ) {
-    guard peripheral == activePeripheral, characteristic == writeCharacteristic else { return }
-    writeInFlight = false
-    if error != nil {
-      diagnosticHandler(Self.boundedTransportDiagnostic("write_failed", error: error))
-    }
-    guard error == nil else {
-      failConnection("vesc_write_failed")
-      return
-    }
-    drainWriteQueue()
+  func peripheral(_ peripheral: CBPeripheral, didWriteValueFor characteristic: CBCharacteristic, error: Error?) {
+    guard !cancelled, peripheral === self.peripheral, characteristic === tx, let value = current,
+          value.response else { return }
+    current = nil; progress(value.id, error == nil ? "acknowledged" : "failed")
   }
 
-  public func peripheralIsReady(toSendWriteWithoutResponse peripheral: CBPeripheral) {
-    guard peripheral == activePeripheral else { return }
-    drainWriteQueue()
+  func peripheral(_ peripheral: CBPeripheral, didUpdateValueFor characteristic: CBCharacteristic, error: Error?) {
+    guard !cancelled, peripheral === self.peripheral, characteristic === rx, error == nil,
+          let bytes = characteristic.value, bytes.count <= 8192 else { return }
+    event(.notification(device, generation, bytes))
   }
 }

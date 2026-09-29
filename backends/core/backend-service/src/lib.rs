@@ -4,6 +4,7 @@
 use float_view_application_runtime::ApplicationRuntime;
 use float_view_product_store::{Maintenance, MaintenanceCancellation, ProductStore, Result};
 use std::path::Path;
+pub mod ble;
 mod dispatch;
 pub mod facts;
 pub mod os;

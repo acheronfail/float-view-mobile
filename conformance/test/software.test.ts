@@ -69,6 +69,8 @@ function client(run = new FixtureRun()) {
         operation: ++operation,
         generation,
         command,
+        transport_operation: operation,
+        response: true,
         device: 'software-vesc',
         ...extra,
       });
@@ -109,11 +111,11 @@ test('exact byte/session/event limits and cleanup after saturation', () => {
   run.close();
   run.create();
   run.close();
-  for (const count of [128, 129]) {
+  for (const count of [126, 127]) {
     const c = client();
     c.send('connect');
     const bytes = Buffer.concat(Array.from({ length: count }, () => request(62))).toString('base64');
-    if (count === 128) assert.equal(c.send('write', { bytes }).events.length, count);
+    if (count === 126) assert.equal(c.send('write', { bytes }).events.length, count + 2);
     else assert.throws(() => c.send('write', { bytes }), /capacity/);
     c.session.close();
     c.run.close();
@@ -162,7 +164,16 @@ test('HTTP sessions stay isolated and duplicate writes do not advance protocol s
       fetch(relay.endpoint, {
         method: 'POST',
         headers: { Authorization: `Bearer ${relay.token}`, 'X-Fixture-Session': session },
-        body: JSON.stringify({ run: relay.run, session, operation, generation, command, ...extra }),
+        body: JSON.stringify({
+          run: relay.run,
+          session,
+          operation,
+          generation,
+          command,
+          transport_operation: operation,
+          response: true,
+          ...extra,
+        }),
       });
     assert.equal((await send(relay.session, 1, 'connect', 1, { device: 'software-vesc' })).status, 200);
     const bytes = Buffer.from(request(95, 0, ...fixture('refloat-configuration/values/1.0.0-write.bin'))).toString(
@@ -176,7 +187,9 @@ test('HTTP sessions stay isolated and duplicate writes do not advance protocol s
     assert.equal(result.status, 200);
     const reply = await result.json();
     assert.deepEqual(
-      Buffer.from(payload(Buffer.from(reply.events[0].bytes, 'base64'))).subarray(2),
+      Buffer.from(
+        payload(Buffer.from(reply.events.find((e: { event: string }) => e.event === 'bytes').bytes, 'base64'))
+      ).subarray(2),
       fixture('refloat-configuration/values/1.0.0-current.bin')
     );
     assert.equal((await send(other, 1, 'scan')).status, 200);
@@ -231,7 +244,7 @@ test('aggregate event bytes, encoded reply boundary, and old-generation queued e
   const c = client();
   c.send('connect');
   const schema = request(92, 0, 0, 0, 1, 144, 0, 0, 0, 0);
-  const bytes = Buffer.concat(Array.from({ length: 128 }, () => schema)).toString('base64');
+  const bytes = Buffer.concat(Array.from({ length: 126 }, () => schema)).toString('base64');
   const first = c.send('write', { bytes });
   assert.ok(Buffer.byteLength(JSON.stringify(first)) <= LIMITS.message);
   assert.ok(first.events.length < 128);
