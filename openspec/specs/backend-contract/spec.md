@@ -6,7 +6,7 @@ Define the complete platform-neutral contract implemented by every supported nat
 ## Requirements
 ### Requirement: Complete mandatory contract
 
-Every supported backend SHALL implement the WebSocket control methods `state.get`, `bluetooth.requestPermission`, `bluetooth.scan`, `device.connect`, `device.selectController`, `device.disconnect`, `controller.shutdown`, `refloat.control.set`, `refloat.fatalError.clear`, `savedDevice.update`, `savedDevice.delete`, `settings.update`, `boardProfile.get`, `boardProfile.update`, `session.list`, `session.get`, `session.export`, `session.delete`, `session.delete.cancel`, `session.prune.preview`, `session.prune.start`, and `session.prune.cancel`, plus the authenticated session-data request kinds `series`, `samples`, and `events`. Session-group methods SHALL NOT remain; `session.getDiagnostics` SHALL NOT remain; exact retained historical reads use `samples`. The frontend MUST NOT negotiate or branch on optional methods or platform capabilities.
+Every supported backend SHALL implement the WebSocket control methods `state.get`, `bluetooth.requestPermission`, `bluetooth.scan`, `device.connect`, `device.selectController`, `device.disconnect`, `controller.shutdown`, `refloat.control.set`, `refloat.fatalError.clear`, `savedDevice.update`, `savedDevice.delete`, `settings.update`, `boardProfile.get`, `boardProfile.update`, `session.list`, `session.get`, `session.marker.add`, `session.export`, `session.delete`, `session.delete.cancel`, `session.prune.preview`, `session.prune.start`, and `session.prune.cancel`, plus the authenticated session-data request kinds `series`, `samples`, `events`, `locations`, and `markers`. Session-group methods SHALL NOT remain; `session.getDiagnostics` SHALL NOT remain; exact retained historical reads use `samples`. The frontend MUST NOT negotiate or branch on optional methods or platform capabilities.
 
 #### Scenario: Supported backend
 
@@ -39,7 +39,7 @@ The backend SHALL bind only to loopback and expose `/`, `/api/bootstrap`, `/api/
 
 ### Requirement: Bounded request protocol
 
-WebSocket control requests SHALL use `{ id, method, params }`; successes SHALL use `{ id, result }`; and failures SHALL use `{ id, error }`. Session-data POST bodies and results SHALL use the bounded discriminated shapes defined for `series`, `samples`, and `events`, with bounded errors using the same frontend-visible error vocabulary. Every accepted WebSocket request ID and every accepted HTTP request MUST receive exactly one terminal result unless its client connection is cancelled, and IDs, messages, bodies, decoded responses, queues, timeouts, retries, cursors, and collections MUST be bounded.
+WebSocket control requests SHALL use `{ id, method, params }`; successes SHALL use `{ id, result }`; and failures SHALL use `{ id, error }`. Session-data POST bodies and results SHALL use the bounded discriminated shapes defined for `series`, `samples`, `events`, `locations`, and `markers`, with bounded errors using the same frontend-visible error vocabulary. Every accepted WebSocket request ID and every accepted HTTP request MUST receive exactly one terminal result unless its client connection is cancelled, and IDs, messages, bodies, decoded responses, queues, timeouts, retries, cursors, and collections MUST be bounded.
 
 #### Scenario: Successful request
 
@@ -164,7 +164,7 @@ The backend SHALL own permission resolution, bounded scanning, saved-board match
 
 ### Requirement: Backend-owned durable sessions
 
-A ready saved-mode connection SHALL automatically create one provisional durable session, and all saved-mode live display, review data reads, and persistence SHALL derive from one sequenced native sample pipeline. The latest saved-mode sample SHALL become frontend-visible only after the same sample is selected and successfully appended to that active session. A ready guest connection SHALL create no durable session and SHALL use a bounded in-memory live sample path. When a saved-mode session closes or is recovered after interruption, the backend SHALL retain it only if at least one persisted sample entered the `riding` state and its accumulated distance is greater than or equal to `minimumSessionDistance`; otherwise it SHALL delete the catalog entry and session files. Guest samples, locations, summaries, and ride metadata SHALL never enter that retention decision.
+A ready saved-mode connection SHALL automatically create one provisional durable session, and all saved-mode live display, review data reads, and persistence SHALL derive from one sequenced native sample pipeline. The latest saved-mode sample SHALL become frontend-visible only after the same sample is selected and successfully appended to that active session. A ready guest connection SHALL create no durable session and SHALL use a bounded in-memory live sample path. When a saved-mode session closes or is recovered after interruption, the backend SHALL retain it if it contains a committed ride marker, or if at least one persisted sample entered the `riding` state and its accumulated distance is greater than or equal to `minimumSessionDistance`; otherwise it SHALL delete the catalog entry and session files. Guest samples, locations, summaries, and ride metadata SHALL never enter that retention decision.
 
 #### Scenario: Ready saved board
 
@@ -178,12 +178,12 @@ A ready saved-mode connection SHALL automatically create one provisional durable
 
 #### Scenario: Idle-only saved connection
 
-- **WHEN** a provisional saved-mode session closes without any persisted sample entering `riding`
+- **WHEN** a provisional saved-mode session closes without a committed ride marker or any persisted sample entering `riding`
 - **THEN** the backend deletes the session even if idle telemetry accumulated distance
 
 #### Scenario: Ride below the configured minimum
 
-- **WHEN** a provisional saved-mode session entered `riding` but closes below `minimumSessionDistance`
+- **WHEN** a provisional saved-mode session has no committed ride marker and entered `riding` but closes below `minimumSessionDistance`
 - **THEN** the backend deletes the session instead of exposing it in session history
 
 #### Scenario: Live sample ordering
@@ -205,6 +205,11 @@ A ready saved-mode connection SHALL automatically create one provisional durable
 
 - **WHEN** the backend removes or replaces the active connection
 - **THEN** its retained live sample, tracking mode, and active-session association are cleared; no guest state is promoted to saved history
+
+#### Scenario: Explicitly marked session
+
+- **WHEN** a saved-mode session containing a committed ride marker closes or is recovered without riding or below the configured minimum distance
+- **THEN** the backend retains the session and its marker for review; explicit user deletion remains available
 
 ### Requirement: Current frontend product operations
 
