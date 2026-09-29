@@ -3,10 +3,12 @@
 ## Purpose
 
 Define bounded BLE discovery, direct and CAN controller identification, exact compatibility selection, route-correct connection lifecycles, and centralized device mutation authorization.
+
 ## Requirements
+
 ### Requirement: Bounded VESC BLE discovery and stream setup
 
-Each native backend SHALL mirror VESC Tool's saved-device discovery rule: it MAY observe BLE advertisements without a service filter but SHALL publish a device only when the advertisement contains the Nordic UART service UUID or its exact Apple peripheral UUID or Android Bluetooth address already belongs to a saved board. Saved status SHALL bypass only the advertisement check. Every connection SHALL still boundedly discover the required UART service and characteristics, enable notifications, and segment outbound frames to the available BLE write payload. Operation at the default ATT MTU SHALL remain supported; an increased MTU MUST be an optimization rather than a connection prerequisite.
+The shared BLE transport policy selected by every native backend SHALL mirror VESC Tool's saved-device discovery rule: it MAY observe BLE advertisements without a service filter but SHALL publish a device only when the advertisement contains the Nordic UART service UUID or its exact Apple peripheral UUID or Android Bluetooth address already belongs to a saved board. Saved status SHALL bypass only the advertisement check. Every connection SHALL still boundedly discover the required UART service and characteristics, enable notifications, and segment outbound frames to the available BLE write payload. Operation at the default ATT MTU SHALL remain supported; an increased MTU MUST be an optimization rather than a connection prerequisite. Native adapters SHALL supply OS capabilities and execute GATT operations while shared policy owns filtering, write-mode selection, bounded segmentation and ordered write admission. Platform payload restrictions and notification interoperability SHALL be preserved.
 
 #### Scenario: Default ATT MTU
 
