@@ -113,6 +113,26 @@ build:
     cd frontend && npm run build
     cp frontend/build/index.html backends/apple/macos/Resources/index.html
 
+# Build a device IPA for AltStore to sign and install; no connected device required.
+ipa: build
+    #!/usr/bin/env bash
+    set -euo pipefail
+    derived_data=/tmp/float-view-ios-ipa
+    output="$PWD/backends/apple/ios/.build/ipa/FloatView.ipa"
+    xcodebuild -project backends/apple/ios/float-view.xcodeproj \
+      -scheme float-view -configuration Debug -sdk iphoneos \
+      -destination 'generic/platform=iOS' -derivedDataPath "$derived_data" \
+      CODE_SIGNING_ALLOWED=NO build
+    staging="$(mktemp -d)"
+    trap 'rm -rf "$staging"' EXIT
+    mkdir -p "$staging/Payload" "$(dirname "$output")"
+    ditto --norsrc --noqtn "$derived_data/Build/Products/Debug-iphoneos/float-view.app" \
+      "$staging/Payload/float-view.app"
+    (cd "$staging" && ditto -c -k --norsrc --noqtn --keepParent Payload FloatView.ipa)
+    unzip -tq "$staging/FloatView.ipa"
+    mv -f "$staging/FloatView.ipa" "$output"
+    printf 'AltStore IPA: %s\n' "$output"
+
 run platform target="": build
     #!/usr/bin/env bash
     set -euo pipefail

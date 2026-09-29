@@ -32,3 +32,16 @@ Addresses, tokens, private identity and raw telemetry stay out of normal logs.
 `just test apple` covers OS adapters, C bounds and shared-service conformance.
 `just apple-packaging` checks clean macOS, iOS simulator and iOS device packages.
 Physical BLE/background and presentation checks use the connected hardware.
+
+## AltStore installation
+
+Run `just ipa` on macOS to build the frontend and iOS device app in Debug, as
+`just run ios <device>` does, and package
+`backends/apple/ios/.build/ipa/FloatView.ipa`. No connected device or Xcode signing
+account is required: AltStore signs the IPA when installing it. The archive omits
+macOS metadata files that can confuse AltStore's app detection.
+
+Transfer the IPA to Files on the iPhone and select it in AltStore's My Apps tab
+using the + button. If switching from a `just run ios` installation fails, export
+any recordings you want to keep, then remove that installation before retrying.
+Install future IPA updates through AltStore and use AltStore to refresh them.

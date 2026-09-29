@@ -34,6 +34,7 @@ just setup
 just dev
 just build
 just run android|ios|macos [target]
+just ipa # Build an IPA for AltStore; see backends/apple/README.md.
 just test frontend|conformance|apple|android|fixture|all
 just conformance mock|android|ios|macos
 just conformance-physical macos <fixture-port>
