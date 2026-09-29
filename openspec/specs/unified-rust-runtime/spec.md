@@ -4,6 +4,14 @@
 
 Define the safe coarse application boundary that composes proven portable backend owners and the evidence and convergence gates required before native hosts select it.
 
+## Verification scope
+
+Use the current [impact-based verification policy](../../../AGENTS.md#verification)
+for ongoing changes. Full-suite, all-platform packaging and physical acceptance
+gates below apply only to the original completed migration, refactor or feature
+change. They do not impose recurring gates on maintenance. Preserve behavioral
+coverage, selecting relevant tests and hardware checkpoints by actual impact.
+
 ## Requirements
 
 ### Requirement: One portable application runtime owner

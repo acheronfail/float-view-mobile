@@ -32,5 +32,7 @@ Gradle pins NDK `28.2.13676358` and minimum API 29. Builds package one
 `libfloat_view_application_runtime_android_jni.so` for each of `arm64-v8a`,
 `armeabi-v7a`, `x86`, and `x86_64`. `just test android` runs linked JVM checks;
 `just android-rust-packaging` verifies clean Debug/Release packages and exact
-JNI exports. The physical checkpoint covers BLE, background work, Activity
-recreation and file presentation on a real Android device.
+JNI exports. Select tests and packaging checks by impact using the root
+[verification policy](../../AGENTS.md#verification). Use a real Android device
+only for affected BLE, background, Activity or file-presentation behavior that
+software cannot establish; unrelated platforms need no regression run.

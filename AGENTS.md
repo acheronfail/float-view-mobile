@@ -91,11 +91,39 @@ activation behavior.
 The ESP32 tool is pure ESP-IDF firmware. Scenario logic, serial orchestration,
 and VESC interpretation belong only to `conformance/`.
 
-Use `just verify` as the software gate. Real Android/iOS devices and the flashed
-fixture are required only for an explicit physical checkpoint when the change
-warrants it: OS Bluetooth adapters, permissions, lifecycle/background execution,
-radio timing, or firmware/wire interoperability that simulators cannot establish.
-Shared product logic, persistence, and frontend changes normally use the software
-gate, including simulator/emulator conformance, without extended physical suites.
-Record why a physical checkpoint is needed or why the software gate is sufficient;
-do not claim physical validation when only software checks ran.
+## Verification
+
+Run checks for changed code and affected consumers, following dependencies and
+observable behavior rather than just the edited paths. Start with focused tests
+and relevant type, lint, build, or integration checks; broaden only when the
+impact or a failure warrants it. See [README.md](README.md#verification) for
+commands and examples. Documentation-only changes need documentation validation,
+not application builds or runtime suites.
+
+A frontend-only change needs relevant frontend checks, including browser or mock
+coverage when the affected interaction warrants it. It does not require Rust,
+native packaging, simulator/emulator suites, or physical devices. Shared Rust
+changes need affected crate and consumer tests; public contract changes also need
+client/mock and canonical conformance coverage for affected host integrations.
+Native-only changes need checks for the affected host and shared boundaries.
+
+`just verify` remains an optional comprehensive software check for broad changes,
+uncertain cross-cutting impact, or an explicitly requested full regression. It is
+not a prerequisite for every change, commit, spec sync, or archive.
+
+Require a physical checkpoint only for affected behavior that software cannot
+establish, such as OS Bluetooth integration, permission presentation, background
+execution, radio timing, or new firmware/wire interoperability. Scope it to the
+relevant platforms, routes and scenarios; do not require unaffected devices or
+the entire physical matrix. A UI change alone does not require physical BLE
+verification. Keep fixture safety and restore checks when running hardware tests.
+
+Briefly report checks run and their results. Explain omitted relevant coverage
+or unavailable required hardware; do not claim unrun or software-only checks as
+physical validation. No separate hardware-skip justification is needed for an
+ordinary web, product-logic, persistence, or documentation change.
+
+This policy governs ongoing work after the completed Rust migration. Full-suite,
+all-platform and physical acceptance gates in historical migration/cutover specs
+or archived changes apply only to those original changes, not subsequent edits.
+Preserve historical evidence without treating it as a recurring checklist.

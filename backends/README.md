@@ -170,8 +170,9 @@ raw packets, full cell arrays, tokens, or Bluetooth addresses.
    and malformed tables, bounds, error classification, and route checks.
 5. Update the frontend contract/mock and canonical `conformance/` scenarios if
    public semantics change; do not add a generated or platform-specific API.
-6. Run `just verify`, then the explicit physical BLE checkpoint without
-   weakening software coverage for unavailable hardware.
+6. Run affected decoder, consumer and canonical conformance checks, then the
+   relevant physical BLE interoperability checkpoint for the new wire version.
+   Record unavailable required hardware; `just verify` is optional broader coverage.
 
 Never broaden an existing entry by major version, hardware type, prefix match,
 or successful command-96 probing. Add a new exact compatibility entry only

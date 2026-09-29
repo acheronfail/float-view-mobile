@@ -89,15 +89,19 @@ state is normalized as riding, matching Refloat's stop-before-mode-change
 command behavior. The ESP32 remains a byte bridge and has no motor-motion
 command path.
 
-The separate physical control checkpoint must run each native backend against
-both direct and CAN fixture routes. Exercise idempotent reads/writes first, then
+Select physical checkpoints using the root [verification policy](../AGENTS.md#verification).
+The procedures below describe coverage when the corresponding behavior is affected;
+they do not require every checkpoint for every change.
+
+For a physical control checkpoint, run the affected native hosts and direct/CAN
+routes. Exercise idempotent reads/writes first, then
 package, lighting, flywheel enable/disable, and eligible fatal clear while the
 fixture reports idle. Record confirmation, timeout/recovery, and reconnect reset,
 and explicitly assert that no motor command or movement occurred. Unavailable
 hardware is recorded as unavailable rather than replaced with software evidence.
 
 The Refloat configuration checkpoint is also separate from `just verify`. For
-both native backends and both direct/CAN fixture routes, capture complete current
+the affected hosts and direct/CAN fixture routes, capture complete current
 and default values, change exactly one fixture-safe non-actuating field, verify
 the full readback, then restore and verify the complete original configuration.
 The run fails on an unverified restore and must record that no motor/remote,
@@ -117,8 +121,8 @@ retried; neither the simulator nor contract state asserts confirmed power-off.
 ## Physical BMS checkpoint
 
 The explicit hardware checkpoint remains separate from `just verify`. Run the
-available direct-controller-plus-CAN-VBMS, Express-plus-CAN-VBMS, and
-standalone-direct-VBMS combinations on both Apple and Android targets with the
+affected available direct-controller-plus-CAN-VBMS, Express-plus-CAN-VBMS, and
+standalone-direct-VBMS combinations on the relevant Apple or Android targets with the
 `npm run physical` commands above. Record unavailable hardware combinations as
 unavailable; do not replace them with weaker software assertions. The ESP32
 firmware stays a byte bridge—scenario composition and VBMS interpretation remain

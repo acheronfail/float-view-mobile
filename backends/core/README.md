@@ -38,10 +38,13 @@ state machines remain downward dependencies, not separate host runtimes.
 
 `audit-ownership.sh` checks production source below 49,922 lines, two binding
 families, the workspace ceiling and absence of native portable implementations.
-Use focused Cargo tests during development and `just verify` as the complete
-software gate. Conformance includes a direct Rust host with synthetic OS facts
-and the same canonical product scenarios used by native hosts. The connected
-Android/iOS devices and ESP32 are required for the explicit physical checkpoint.
+Use focused Cargo tests and lint checks for changed crates and affected consumers.
+Run direct Rust conformance for affected public service behavior, adding native
+integration or packaging checks when host boundaries change. The direct host uses
+synthetic OS facts and the same canonical product scenarios as native hosts.
+`just verify` is optional comprehensive coverage. Follow the root
+[verification policy](../../AGENTS.md#verification) for physical checkpoints;
+shared logic or persistence edits alone do not require devices or an ESP32.
 
 The application has no users or release version. Storage marker `12` resets
 incompatible owned development data; ordinary corruption or I/O errors never

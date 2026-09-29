@@ -35,8 +35,8 @@ just dev
 just build
 just run android|ios|macos [target]
 just ipa # Build an IPA for AltStore; see backends/apple/README.md.
-just test frontend|conformance|apple|android|fixture|all
-just conformance mock|android|ios|macos
+just test frontend|conformance|apple|android|core|fixture|all
+just conformance direct|mock|android|ios|macos
 just conformance-physical macos <fixture-port>
 just conformance-physical android <fixture-port> <adb-serial>
 just conformance-physical ios <fixture-port> <device-id>
@@ -54,17 +54,40 @@ select direct or VESC Express topology, configure one CAN ID, choose the
 THOR300 VESC/Refloat version composition, and switch power and riding state.
 See `conformance/fixture-dev/README.md` for compatibility and ownership details.
 
-`just verify` is the software gate. Physical BLE conformance is intentionally a
-separate checkpoint because it requires a flashed ESP32 and real target devices.
-Require it when a change affects OS adapters, permissions, lifecycle/background
-behavior, radio timing, or firmware interoperability that software tests cannot
-establish. Shared product, persistence, and frontend changes normally need only
-the software gate. Record why physical testing is needed or skipped in the change.
-macOS runs identity, ride, and reconnect scenarios; Android and iOS additionally
-run mobile background-continuity coverage. VBMS physical checks cover each
-available direct-controller/CAN-VBMS, Express/controller/VBMS, and direct-VBMS
-gateway topology; unavailable hardware combinations are recorded rather than
-replaced with weaker software coverage.
+## Verification
+
+Choose checks for the changed behavior and affected consumers. The policy in
+[AGENTS.md](AGENTS.md#verification) applies to implementation, review and OpenSpec
+completion. Existing test coverage stays available; running every suite is not
+required for each edit.
+
+| Change                                      | Relevant checks                                                                                                                                                                                                                                                                                      |
+| ------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Documentation or planning only              | Review links and commands, `git diff --check`, and strict OpenSpec validation when specs or plans change. No application tests or builds.                                                                                                                                                            |
+| Frontend UI only                            | Focused Vitest tests (`cd frontend && npm test -- <test-file>`), `npm run check`, and relevant formatting/lint checks. `just test frontend` runs the whole frontend suite when useful. Add `npm run build` for bundle/build changes and affected browser tests for interaction or rendering changes. |
+| Shared Rust logic or persistence            | From `backends/core`, run `cargo test --locked --offline -p <crate>` for affected crates and consumers, plus relevant formatting and warnings-denied Clippy checks. Use `just conformance direct` for affected public service behavior.                                                              |
+| Contract, client/mock or shared integration | Update the contract, client/mock, shared implementation, both host integrations and canonical scenarios together. Run affected frontend and Rust tests, mock/direct conformance, and affected native integration coverage.                                                                           |
+| Apple or Android host                       | `just test apple` or `just test android`, or focused Swift/Gradle tests; add the affected native conformance target, startup tests or packaging checks when that boundary changes.                                                                                                                   |
+| Conformance or fixture tooling              | Relevant TypeScript checks and focused runner/simulator tests; `just test conformance` for broader harness changes. `just test fixture` covers ESP32 firmware checks.                                                                                                                                |
+
+For browser checks, first build the current frontend with `cd frontend && npm run build`,
+then run the affected file from `conformance` with
+`node --strip-types --test test/<name>.browser.ts` (with its Playwright browsers installed). Use native simulator/emulator
+coverage when native integration is affected, not just because a frontend is
+also shipped in a WebView. Package/build changes need the relevant build checks;
+a pure component edit does not need clean packages for every architecture.
+
+`just verify` retains the complete software check as an option for broad changes,
+uncertain impact or an explicit full-regression request. `just test all` is also
+available; neither is a default completion gate.
+
+Physical testing is needed only for affected behavior that software cannot prove:
+OS Bluetooth, permissions, lifecycle/background execution, radio timing or new
+firmware interoperability. Select the relevant devices, routes and scenarios,
+without rerunning unrelated physical matrices. Native visual checks do not
+inherently require an ESP32/BLE run. Record missing required hardware and actual
+results honestly; ordinary software-only changes need no hardware-skip report.
+See [conformance/README.md](conformance/README.md) for checkpoint procedures.
 
 Supported BMS identities are deliberately exact: stock VESC BMS 6.00/type 1
 and VESC Express `VBMS32` 6.06/type 2. See `backends/README.md` for the

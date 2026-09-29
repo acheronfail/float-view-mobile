@@ -2,9 +2,43 @@
 
 ## Purpose
 
-Define the single canonical software and physical acceptance suite required of every supported backend.
+Define the canonical software and physical conformance coverage available for supported backends, with verification selected by change impact.
+
+## Verification scope
+
+Use the current [impact-based verification policy](../../../AGENTS.md#verification)
+for ongoing changes. Full-suite, all-platform packaging and physical acceptance
+gates below apply only to the original completed migration, refactor or feature
+change. They do not impose recurring gates on maintenance. Preserve behavioral
+coverage, selecting relevant tests and hardware checkpoints by actual impact.
 
 ## Requirements
+
+### Requirement: Verification follows change impact
+
+Ongoing changes SHALL run relevant checks for changed behavior and affected consumers, following the root [verification policy](../../../AGENTS.md#verification). Focused tests, type/lint checks, builds and integration scenarios SHALL be selected by dependency and behavioral impact. `just verify` and `just test all` SHALL remain available as comprehensive checks, but SHALL NOT be mandatory for every edit, commit, spec sync or archive. Broader checks SHALL be selected when cross-cutting impact, uncertainty or failures justify them, or when explicitly requested.
+
+This requirement supersedes recurring full-suite, all-platform packaging and physical-gate interpretations elsewhere in the canonical specs. Acceptance gates for completed Rust extractions, refactors, host cutovers and other completed changes describe their original acceptance only; they SHALL NOT be replayed for subsequent maintenance. Archived plans and recorded evidence remain historical. Behavioral requirements and test coverage SHALL remain intact.
+
+#### Scenario: Frontend-only edit
+
+- **WHEN** a change affects frontend presentation or interaction without changing the backend contract or native integration
+- **THEN** relevant frontend tests, type/lint checks and affected browser/build checks suffice, without Rust, native packaging, emulator/simulator or physical suites
+
+#### Scenario: Shared implementation or contract edit
+
+- **WHEN** a change affects Rust behavior, shared types, public projection or a host boundary
+- **THEN** verification includes affected crates and consumers plus relevant canonical and host integration coverage, rather than only tests adjacent to edited files
+
+#### Scenario: Documentation-only edit
+
+- **WHEN** a change only revises documentation, specifications or planning artifacts
+- **THEN** document consistency, links, commands and applicable strict OpenSpec validation are checked without application builds or runtime suites
+
+#### Scenario: Complete a scoped change
+
+- **WHEN** relevant checks pass and no required coverage remains outstanding
+- **THEN** the change can complete and its specs can be synced or archived without running `just verify` or producing a routine physical-test skip justification
 
 ### Requirement: One canonical suite
 
@@ -69,9 +103,9 @@ Each target adapter SHALL only build or locate its application, prepare isolated
 
 ### Requirement: Software and hardware execution
 
-The suite SHALL support deterministic software execution and physical execution through the programmable VESC fixture. Every change SHALL run the software gate. Extended physical suites SHALL be required only when the affected OS adapters, permissions, lifecycle/background behavior, radio timing, or firmware/wire interoperability cannot be established by software coverage. Each change SHALL record why physical testing is required or skipped; software/simulator evidence SHALL NOT be presented as physical evidence. Hardware scenarios SHALL exercise the production Bluetooth, protocol, application-service, and storage paths selected by each platform host. Component parity checks MAY exercise a candidate Rust implementation in the fast software gate but MUST NOT present that component as a supported backend or production path before host integration.
+The suite SHALL support deterministic software execution and physical execution through the programmable VESC fixture. Each change SHALL select software checks by affected behavior and consumers. Physical suites SHALL be required only for affected OS adapters, permissions, lifecycle/background behavior, radio timing, or firmware/wire interoperability that software coverage cannot establish. Physical coverage SHALL be scoped to relevant platforms, routes and scenarios; unrelated hardware matrices SHALL NOT be required. Results and missing required coverage SHALL be reported honestly; software/simulator evidence SHALL NOT be presented as physical evidence. Hardware scenarios SHALL exercise the production Bluetooth, protocol, application-service, and storage paths selected by each platform host. Component tests MUST NOT present an unselected candidate as a production path.
 
-#### Scenario: Fast software gate
+#### Scenario: Optional comprehensive software check
 
 - **WHEN** `just verify` runs without physical hardware
 - **THEN** the frontend, mock, native code, deterministic software conformance, and every retained Rust component's locked formatting, warnings-denied linting, unit tests, and parity tests are verified
@@ -94,7 +128,7 @@ The suite SHALL support deterministic software execution and physical execution 
 #### Scenario: Shared product or frontend change
 
 - **WHEN** a change affects shared product policy, persistence, or frontend behavior without changing an OS or hardware interaction that needs physical evidence
-- **THEN** passing the software gate and recording the scope-based physical-test skip satisfies verification
+- **THEN** passing the affected software checks satisfies verification without physical testing or a separate hardware-skip report
 
 #### Scenario: Hardware-sensitive change
 

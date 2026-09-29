@@ -4,6 +4,14 @@
 
 Define the shared Apple backend's selection of the unified Rust runtime, bounded native integration, and required ownership and verification evidence.
 
+## Verification scope
+
+Use the current [impact-based verification policy](../../../AGENTS.md#verification)
+for ongoing changes. Full-suite, all-platform packaging and physical acceptance
+gates below apply only to the original completed migration, refactor or feature
+change. They do not impose recurring gates on maintenance. Preserve behavioral
+coverage, selecting relevant tests and hardware checkpoints by actual impact.
+
 ## Requirements
 
 ### Requirement: Apple selects one coarse runtime boundary

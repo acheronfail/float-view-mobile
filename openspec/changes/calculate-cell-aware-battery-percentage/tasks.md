@@ -20,4 +20,4 @@
 ## 4. Integration gate
 
 - [ ] 4.1 Run focused cross-platform canonical conformance and frontend checks covering the complete configured-board flow and failure/reconnect scenarios; verify both hosts expose identical shared estimation behavior and resolve failures.
-- [ ] 4.2 Run `just verify` and resolve all failures before marking implementation complete; retain verification results for the implementation commit and subsequent spec sync/archive phase.
+- [ ] 4.2 Run affected Rust crate/consumer tests and relevant type, lint and build checks alongside task 4.1; resolve failures and retain verification results for implementation and spec sync/archive. Use `just verify` only if broader impact warrants it; no physical checkpoint is needed for this shared calculation and display change.

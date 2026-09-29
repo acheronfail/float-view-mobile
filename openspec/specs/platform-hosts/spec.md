@@ -4,6 +4,14 @@
 
 Define repository ownership and the minimal Android, iOS, and macOS host responsibilities around the shared frontend and native backends.
 
+## Verification scope
+
+Use the current [impact-based verification policy](../../../AGENTS.md#verification)
+for ongoing changes. Full-suite, all-platform packaging and physical acceptance
+gates below apply only to the original completed migration, refactor or feature
+change. They do not impose recurring gates on maintenance. Preserve behavioral
+coverage, selecting relevant tests and hardware checkpoints by actual impact.
+
 ## Requirements
 
 ### Requirement: Lowercase ownership layout

@@ -4,6 +4,14 @@
 
 Define the bounded, evidence-first process for incrementally moving portable backend behavior into Rust without conflating component parity with production host ownership.
 
+## Verification scope
+
+Use the current [impact-based verification policy](../../../AGENTS.md#verification)
+for ongoing changes. Full-suite, all-platform packaging and physical acceptance
+gates below apply only to the original completed migration, refactor or feature
+change. They do not impose recurring gates on maintenance. Preserve behavioral
+coverage, selecting relevant tests and hardware checkpoints by actual impact.
+
 ## Requirements
 
 ### Requirement: Bounded incremental Rust extraction
@@ -1206,27 +1214,33 @@ The bounded Rust candidate SHALL independently reproduce the selected native Ref
 
 - **WHEN** a future change moves configuration and application behavior behind the unified Rust runtime
 - **THEN** it SHALL delete the temporary Android and Apple codec bridges and both canonical-record adapters rather than preserve them as permanent internal APIs
+
 ### Requirement: Rust VESC request scheduler candidate parity
 
 The repository SHALL provide a safe, bounded Rust candidate for the complete connection-wide VESC request scheduling state machine while Apple and Android retain their selected native schedulers. The candidate SHALL preserve priority and FIFO arbitration, one response-bearing request in flight, one-way completion, typed response attribution, queue limits, generations, cancellation, explicit deadline expiry, deferred pumping, stable outcomes, and ordered host effects without depending on host execution.
 
 #### Scenario: Arbitrate bounded work
+
 - **WHEN** requests of every priority and equal-priority sequence are enqueued around one in-flight request
 - **THEN** the candidate SHALL preserve the non-preemptive in-flight request, select queued work by highest priority then FIFO order, and reject only work beyond the exact bounded queue capacity
 
 #### Scenario: Attribute a response exactly
+
 - **WHEN** a response, route, Refloat command, or typed operation context does not match the current request and generation
 - **THEN** the candidate SHALL leave that request in flight and SHALL NOT complete or advance unrelated work
 
 #### Scenario: Replace a connection generation
+
 - **WHEN** a new generation begins with queued or in-flight work and stale responses or deadlines arrive afterward
 - **THEN** the candidate SHALL cancel the old work exactly once, reject old-generation enqueue attempts, and prevent stale events from affecting new-generation work
 
 #### Scenario: Complete one-way and response work in order
+
 - **WHEN** one-way, response-bearing, cancelled, timed-out, queue-full, and deferred requests transition
 - **THEN** the candidate SHALL emit the same stable completion outcomes and ordered deadline, completion, diagnostic, and next-write effects as the source native behavior
 
 #### Scenario: Remain total at adversarial bounds
+
 - **WHEN** payload, queue, route, timing, sequence, generation, and operation values reach valid boundaries or malformed values exceed them
 - **THEN** the candidate SHALL remain bounded and deterministic, use explicit wrapping only for source-equivalent counters, and reject invalid facts without panicking or partially mutating accepted state
 
@@ -1235,10 +1249,12 @@ The repository SHALL provide a safe, bounded Rust candidate for the complete con
 The Rust scheduler candidate SHALL expose only safe Rust facts, commands, snapshots, and ordered effects. It MUST NOT own or call a clock, timer, Bluetooth writer, callback, foreign handle, protocol codec, persistence port, transport, frontend, thread, filesystem, network socket, or OS framework.
 
 #### Scenario: Emit host work without executing it
+
 - **WHEN** a transition requires bytes to be written, a deadline to change, a diagnostic to be recorded, or a request to complete
 - **THEN** the candidate SHALL return bounded typed effects in the required order and retain no host reference
 
 #### Scenario: Add a later unified runtime
+
 - **WHEN** later changes compose protocol and application services around the scheduler
 - **THEN** they SHALL use the safe Rust state API directly and SHALL NOT require a protocol-specific Apple FFI or Android JNI scheduler bridge
 
@@ -1247,26 +1263,32 @@ The Rust scheduler candidate SHALL expose only safe Rust facts, commands, snapsh
 The repository SHALL provide one safe bounded Rust candidate for the complete duplicated Refloat telemetry application service while Apple and Android retain their selected native services. The candidate SHALL compose the existing Rust legacy/dynamic decoded telemetry models and request-scheduler facts to own layout retry, route-correct request construction, legacy/realtime/compact selection, pending-response attribution, timeout recovery, adaptive cadence, compact-cache merging, normalized samples, session sequence and elapsed time, and ordered host effects.
 
 #### Scenario: Negotiate a dynamic layout
+
 - **WHEN** layout negotiation begins and receives timer ticks without establishment
 - **THEN** the candidate SHALL emit one immediate and at most four later route-correct command-32 requests at the established priority/deadline, then cancel retry work and report the stable timeout exactly once
 
 #### Scenario: Select serialized telemetry work
+
 - **WHEN** legacy or dynamic polling starts, repeats, times out, or makes compact data due
 - **THEN** the candidate SHALL retain at most one semantic telemetry request pending and emit exact direct/CAN request bytes and scheduler facts for the next legacy, realtime, or compact request without a parallel lane or immediate timeout retry
 
 #### Scenario: Adapt ride cadence
+
 - **WHEN** accepted samples transition among idle, riding, and the inclusive post-ride tail
 - **THEN** the candidate SHALL select the established 100 ms riding cadence or configured idle cadence and emit timer replacement plus immediate next-request effects in source-equivalent order
 
 #### Scenario: Merge normalized telemetry
+
 - **WHEN** legacy samples, dynamic compact samples, dynamic realtime samples, decreasing compact totals, bounded extensions, or active firmware faults are accepted
 - **THEN** legacy publishable data SHALL normalize directly, compact data SHALL replace the route-scoped cache without publication, realtime data SHALL merge only the latest slow fields and observation time, and published samples SHALL preserve every semantic field with monotonic source-equivalent sequence and nonnegative elapsed time
 
 #### Scenario: Reject stale or mismatched input
+
 - **WHEN** a response kind, scheduler completion, timer token, service generation, route, or telemetry family does not match current state
 - **THEN** the candidate SHALL not clear, publish, retry, or advance unrelated work and SHALL return only the stable bounded diagnostic where native behavior reports one
 
 #### Scenario: Remain total at public bounds
+
 - **WHEN** intervals, tail durations, monotonic or observation times, sequences, tokens, generations, routes, extensions, and decoded optional values reach valid limits or invalid input exceeds them
 - **THEN** the candidate SHALL remain bounded and deterministic, reject invalid input without partial mutation, and use explicit wrapping only for source-equivalent counters
 
@@ -1275,10 +1297,12 @@ The repository SHALL provide one safe bounded Rust candidate for the complete du
 The Rust Refloat telemetry-service candidate SHALL expose only safe Rust state, commands, snapshots, decoded-model input, normalized samples, scheduler facts, and ordered effects. It MUST NOT own or call a clock, timer, BLE writer, callback, foreign handle, bridge record, persistence port, SQLite connection, transport, local server, frontend, thread, filesystem, network socket, async runtime, or OS framework.
 
 #### Scenario: Return host work without executing it
+
 - **WHEN** a transition requires a timer change, scheduler enqueue, sample publication, failure, or diagnostic
 - **THEN** the candidate SHALL return the bounded typed effects in required order and retain no host reference
 
 #### Scenario: Compose a later unified runtime
+
 - **WHEN** a later Rust runtime owns scheduler execution, protocol decoding, application behavior, persistence, and loopback serving
 - **THEN** it SHALL call this safe API directly and SHALL NOT require `refloat-telemetry-service-apple-ffi` or `refloat-telemetry-service-android-jni`
 
@@ -1287,22 +1311,27 @@ The Rust Refloat telemetry-service candidate SHALL expose only safe Rust state, 
 The repository SHALL provide one safe bounded Rust candidate that consumes the existing safe firmware-identity model and owns the exact VESC motor-controller compatibility catalogue, access-mode decision, operation authorization, and shutdown availability while Apple and Android retain their selected native policy.
 
 #### Scenario: Admit only exact audited motor firmware
+
 - **WHEN** a structurally decoded identity has any hardware type and any major/minor pair, including the complete byte-domain boundaries
 - **THEN** the candidate SHALL admit only motor hardware type `0` at exactly 6.02, 6.05, 6.06, or 7.00 and SHALL reject every adjacent, unknown, gateway, BMS, or custom-module identity
 
 #### Scenario: Classify stable and test access
+
 - **WHEN** an admitted identity reports test marker zero or any nonzero byte
 - **THEN** the candidate SHALL classify zero as read/write and every nonzero value as read-only without using names, UUID, CRC, custom-configuration count, or other identity fields
 
 #### Scenario: Authorize operations
+
 - **WHEN** read or write authorization is requested for supported stable firmware, supported test firmware, or unsupported firmware
 - **THEN** reads SHALL be permitted for both supported access modes, writes SHALL be permitted only for read/write mode, and unsupported firmware SHALL permit neither
 
 #### Scenario: Authorize exact shutdown releases
+
 - **WHEN** shutdown availability is requested
 - **THEN** it SHALL be true only for stable motor firmware 6.05, 6.06, or 7.00 and false for 6.02, every test build, and every unsupported identity
 
 #### Scenario: Remain total over identity bounds
+
 - **WHEN** every compatibility input and unrelated bounded identity field reaches valid limits
 - **THEN** all public decisions SHALL remain deterministic and panic-free and private identity material SHALL remain absent from diagnostics
 
@@ -1311,10 +1340,12 @@ The repository SHALL provide one safe bounded Rust candidate that consumes the e
 The Rust VESC compatibility candidate SHALL expose only safe immutable catalogue and decision APIs over the safe firmware-identity model. It MUST NOT own framing, payload decoding, routing, discovery state, clocks, scheduling, BLE, mutation execution, callbacks, foreign records, bridges, persistence, SQLite, transport, local serving, threads, filesystem, sockets, async runtime, or OS frameworks.
 
 #### Scenario: Compose controller discovery directly
+
 - **WHEN** the next Rust controller-discovery candidate evaluates direct or forwarded identities
 - **THEN** it SHALL call this safe API directly without copying the catalogue or introducing a VESC-compatibility Apple FFI or Android JNI crate
 
 #### Scenario: Compose a unified runtime later
+
 - **WHEN** a later unified Rust runtime owns discovery and application mutation policy
 - **THEN** it SHALL retain this direct safe dependency while the temporary firmware-identity and protocol bridge crates are deleted
 
@@ -1323,38 +1354,47 @@ The Rust VESC compatibility candidate SHALL expose only safe immutable catalogue
 The repository SHALL provide one safe bounded Rust candidate for the complete duplicated direct/CAN controller-discovery decision state machine while Apple and Android retain their selected native owners. The candidate SHALL directly compose safe firmware identity, VESC compatibility, and Refloat compatibility models to own route admission, configured and learned recovery, enumeration, continuity, candidate selection, readiness, reset, and stable failure decisions without host execution.
 
 #### Scenario: Select a direct controller
+
 - **WHEN** the transport identity is a motor controller at an exactly supported stable or test firmware version
 - **THEN** the candidate SHALL select the direct route, retain the identity and access decision, and request Refloat identification without CAN discovery
 
 #### Scenario: Reject unsupported direct firmware
+
 - **WHEN** a direct motor identity has an unsupported version or a non-motor endpoint cannot establish a controller route
 - **THEN** the candidate SHALL return the exact stable unsupported/no-controller failure without admitting a different identity or exposing private fields
 
 #### Scenario: Recover configured and learned routes
+
 - **WHEN** a gateway has an authoritative preferred CAN ID or a meaningful learned UUID hint
 - **THEN** the candidate SHALL probe the exact route first, enforce configured UUID continuity, accept a matching learned hint, and clear then enumerate after a stale or timed-out learned hint without falling back from an authoritative preference
 
 #### Scenario: Enumerate a bounded CAN network
+
 - **WHEN** CAN discovery supplies duplicates, IDs outside `0...253`, mixed hardware, missing responses, and valid controller identities
 - **THEN** the candidate SHALL normalize and sort at most 64 unique valid IDs, probe each sequentially at most once, retain a complete bounded classified inventory, and never select a non-motor node
 
 #### Scenario: Enforce enumeration bounds
+
 - **WHEN** normalized discovery exceeds 64 CAN IDs or probing finds a seventeenth motor controller
 - **THEN** the candidate SHALL fail with `too_many_can_devices` or `too_many_controllers`, publish no truncated successful result, and retain no unbounded raw input
 
 #### Scenario: Resolve continuity and ambiguity
+
 - **WHEN** enumeration completes with zero, one, or multiple controllers during a fresh connection or active-session recovery
 - **THEN** the candidate SHALL reproduce UUID-first continuity, supported prior-route fallback only when UUID is absent, controller-changed failures, sole-controller admission/rejection, and sorted display-safe candidate publication
 
 #### Scenario: Select only a current supported candidate
+
 - **WHEN** selection names a current supported candidate, an unsupported candidate, an unknown ID, or stale state
 - **THEN** the candidate SHALL resume Refloat identification only for the valid candidate and return a stable invalid-state result without mutation for every invalid selection
 
 #### Scenario: Complete Refloat readiness
+
 - **WHEN** an admitted controller receives an audited legacy or dynamic Refloat profile and a dynamic-layout admission result
 - **THEN** legacy SHALL become ready directly, dynamic SHALL request layout then become ready only after successful admission, and unsupported input SHALL fail closed
 
 #### Scenario: Isolate generations and reset
+
 - **WHEN** begins, responses, probe timeouts, identification timeouts, selections, failures, and resets are repeated, reordered, stale, or reach counter rollover
 - **THEN** every public transition SHALL remain deterministic and panic-free, stale facts SHALL NOT alter current state, and reset SHALL clear all connection state while invalidating old work
 
@@ -1363,10 +1403,12 @@ The repository SHALL provide one safe bounded Rust candidate for the complete du
 The Rust controller-discovery candidate SHALL expose only safe bounded facts, state, snapshots, issues, and ordered effects. It MUST NOT own or call BLE, clocks, timers, schedulers, request-byte codecs, callbacks, foreign records, bridges, persistence, Board Profile JSON, SQLite, transport, local serving, threads, filesystem, sockets, async runtime, or OS frameworks.
 
 #### Scenario: Return host work without executing it
+
 - **WHEN** discovery requires a probe, CAN ping, routing-hint clear/store, Refloat request, layout request, readiness publication, candidate selection, or failure
 - **THEN** it SHALL return the corresponding bounded typed effect and retain no host reference
 
 #### Scenario: Compose the unified runtime directly
+
 - **WHEN** a later Rust runtime owns request scheduling, persistence, application publication, and protocol execution
 - **THEN** it SHALL call this safe discovery API directly without adding controller-discovery Apple FFI or Android JNI crates
 
@@ -1427,6 +1469,7 @@ The Rust auxiliary-node discovery candidate SHALL expose only safe bounded route
 
 - **WHEN** a later Rust runtime owns request scheduling, BMS decoding, application publication, and persistence
 - **THEN** it SHALL call this safe auxiliary-discovery API directly without adding auxiliary-discovery Apple FFI or Android JNI crates
+
 ### Requirement: Rust VESC BMS telemetry service candidate parity
 
 The repository SHALL provide one safe bounded Rust candidate for the complete duplicated VESC BMS polling/application lifecycle while Apple and Android retain their selected native owners. The candidate SHALL directly compose Rust auxiliary discovery, command-96 decoding, and request-scheduler facts to own discovery execution facts, selected-route polling, concrete observations, completion-driven cadence, failure accounting, unavailability, recovery, generation isolation, reset, and ordered host effects.

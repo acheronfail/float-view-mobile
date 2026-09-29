@@ -64,7 +64,7 @@ Shared policy SHALL bound setup by the existing ten-second connection-attempt de
 
 ### Requirement: Native selection and physical evidence
 
-Apple and Android SHALL select the shared policy through their existing binding families and remove superseded native logical policies and queues. Acceptance SHALL include deterministic boundary/fault coverage and real macOS, iOS and Android ESP32 checkpoints. Software simulation MUST NOT be counted as OS BLE coverage.
+Apple and Android SHALL select the shared policy through their existing binding families and remove superseded native logical policies and queues. Changes SHALL include affected deterministic boundary/fault coverage. Physical checkpoints SHALL cover only affected hosts and scenarios whose OS BLE or radio behavior cannot be established in software, following the root [verification policy](../../../AGENTS.md#verification). Software simulation MUST NOT be counted as OS BLE coverage.
 
 #### Scenario: Audit a future host's responsibilities
 

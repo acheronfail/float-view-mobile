@@ -31,7 +31,10 @@ Addresses, tokens, private identity and raw telemetry stay out of normal logs.
 
 `just test apple` covers OS adapters, C bounds and shared-service conformance.
 `just apple-packaging` checks clean macOS, iOS simulator and iOS device packages.
-Physical BLE/background and presentation checks use the connected hardware.
+Choose the affected tests and packages using the root
+[verification policy](../../AGENTS.md#verification). Physical BLE/background and
+presentation checks need connected hardware only when the changed behavior
+cannot be established in software; unrelated platforms need no regression run.
 
 ## AltStore installation
 

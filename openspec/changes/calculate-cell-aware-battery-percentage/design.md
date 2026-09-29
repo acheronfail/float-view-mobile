@@ -58,4 +58,4 @@ WidgetPower consumes only this estimate for fill, color, accessible label, and p
 
 ## Migration Plan
 
-Implement contract, shared service, and frontend as coherent buildable slices; existing optional JSON storage remains valid without migrations or aliases. Preserve raw recordings. Run canonical conformance and `just verify` before implementation completion. A rollback reverts implementation and optional fields remain inert data; do not add compatibility readers for this development-only change.
+Implement contract, shared service, and frontend as coherent buildable slices; existing optional JSON storage remains valid without migrations or aliases. Preserve raw recordings. Run affected estimator/product-store/service tests, frontend checks and canonical contract conformance for both host integrations before implementation completion. `just verify` is optional broader coverage. No physical checkpoint is required because this change adds no BLE requests or OS/device behavior. A rollback reverts implementation and optional fields remain inert data; do not add compatibility readers for this development-only change.

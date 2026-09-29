@@ -16,18 +16,20 @@ context: |
   schema/format markers, never on ordinary corruption or operational failure.
   Supported VESC/Refloat firmware wire families are not legacy application data.
   Prefer deletion, standard libraries, and small maintained dependencies.
-  Keep the development loop centered on the root justfile. `just verify` is
-  the complete software gate. Physical device/fixture suites are required only
-  when a change affects OS adapters, permissions, lifecycle/background behavior,
-  radio timing, or firmware/wire interoperability that software simulations cannot
-  establish. Record why a physical checkpoint is needed or skipped for each change;
-  shared product, persistence, and frontend changes normally use the software gate.
+  Follow the impact-based verification policy in AGENTS.md and README.md. Run
+  focused checks for changed behavior and affected consumers; frontend-only edits
+  need frontend checks, and documentation-only edits need documentation validation.
+  `just verify` is optional comprehensive coverage, not a per-change completion gate.
+  Physical checkpoints cover only affected OS/device/firmware behavior that software
+  cannot establish, on relevant platforms and scenarios. Report actual results and
+  missing required coverage; ordinary software-only edits need no hardware-skip report.
+  Historical Rust migration/cutover gates apply only to their original changes.
   Run every OpenSpec CLI command with `OPENSPEC_TELEMETRY=0`; OpenSpec work in
   this repository must not make telemetry requests.
   Use three git phases for each OpenSpec change. First, commit the completed
   proposal, design, delta specs, and tasks before implementation. Next, make
   one or more coherent implementation commits that include the corresponding
-  task updates and keep each verified slice buildable. After `just verify`
+  task updates and keep each verified slice buildable. After the relevant verification
   passes, sync the delta specs and archive the change together in one final
   commit. Split sync from archive only when the canonical spec update requires
   independent review. Do not create ceremonial commits for OpenSpec commands
@@ -47,4 +49,4 @@ rules:
     - Do not introduce database migrations while stored data remains disposable test data.
   tasks:
     - Keep tasks independently verifiable and avoid wrapper scripts for simple commands.
-    - End with focused checks followed by `just verify`.
+    - End with checks for changed code and affected consumers; require broader or physical coverage only when justified by impact.

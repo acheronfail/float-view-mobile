@@ -4,6 +4,14 @@
 
 Define Android's selection of the unified Rust runtime, retained native responsibilities, and required deletion, packaging, and verification evidence.
 
+## Verification scope
+
+Use the current [impact-based verification policy](../../../AGENTS.md#verification)
+for ongoing changes. Full-suite, all-platform packaging and physical acceptance
+gates below apply only to the original completed migration, refactor or feature
+change. They do not impose recurring gates on maintenance. Preserve behavioral
+coverage, selecting relevant tests and hardware checkpoints by actual impact.
+
 ## Requirements
 
 ### Requirement: Android selects one unified Rust runtime
