@@ -1,0 +1,38 @@
+{
+  "target": "macos-physical",
+  "fixturePath": "/dev/cu.usbmodem111401",
+  "refloatVersion": null,
+  "generatedAt": "2026-09-29T00:48:28.445Z",
+  "scenarios": [
+    {
+      "scenario": "identity",
+      "revision": 99,
+      "durationMs": 14043.076125
+    },
+    {
+      "scenario": "guest",
+      "revision": 99,
+      "durationMs": 10080.901042
+    },
+    {
+      "scenario": "direct",
+      "revision": 98,
+      "durationMs": 10498.927709000003
+    },
+    {
+      "scenario": "control-direct",
+      "revision": 2283,
+      "durationMs": 55240.652624999995
+    },
+    {
+      "scenario": "control-can",
+      "revision": 2256,
+      "durationMs": 56541.47666700001
+    },
+    {
+      "scenario": "unexpected-disconnect",
+      "revision": 172,
+      "durationMs": 15520.223834000004
+    }
+  ]
+}

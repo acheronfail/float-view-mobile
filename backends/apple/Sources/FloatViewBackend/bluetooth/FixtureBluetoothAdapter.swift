@@ -53,8 +53,9 @@
       submit("connect", device: deviceID, serviceGeneration: generation)
     }
 
-    public func disconnect(_ deviceID: DeviceID) {
-      submit("disconnect", device: deviceID)
+    public func disconnect(_ deviceID: DeviceID, generation: BluetoothConnection) {
+      guard lock.withLock({ serviceGeneration == generation }) else { return }
+      submit("disconnect", device: deviceID, serviceGeneration: generation)
     }
 
     public func enableNotifications(generation: BluetoothConnection, operation: UInt64) {

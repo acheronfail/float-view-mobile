@@ -50,6 +50,7 @@ export async function runPhysicalConformance(
     scenario: PhysicalScenarioName;
     revision: number;
     durationMs: number;
+    writePayloadMaximum: number;
     locationCheckpoint?: LocationCheckpoint;
   }> = [];
   let primaryFailure: unknown;
@@ -66,6 +67,10 @@ export async function runPhysicalConformance(
       try {
         const result = await runPhysicalScenario(target, fixturePath, name, report);
         const durationMs = performance.now() - started;
+        assert.ok(
+          result.writePayloadMaximum <= (target.platform === 'android' ? 20 : 244),
+          'Native write exceeded platform payload ceiling'
+        );
         results.push({ ...result, durationMs });
         report(`✓ ${name} (${formatDuration(durationMs)})`);
       } catch (error) {
@@ -234,7 +239,12 @@ async function runPhysicalScenario(
       runner.verify();
       const finalState = await client.request('state.get', {});
       passed = true;
-      return { scenario: name, revision: finalState.revision, locationCheckpoint };
+      return {
+        scenario: name,
+        revision: finalState.revision,
+        locationCheckpoint,
+        writePayloadMaximum: runner.writePayloadMaximum,
+      };
     }
     let ready = await client.waitForState(
       (state) =>
@@ -306,7 +316,12 @@ async function runPhysicalScenario(
       assert.equal(finalState.sessionCatalogRevision, initial.sessionCatalogRevision);
       runner.verify();
       passed = true;
-      return { scenario: name, revision: finalState.revision, locationCheckpoint };
+      return {
+        scenario: name,
+        revision: finalState.revision,
+        locationCheckpoint,
+        writePayloadMaximum: runner.writePayloadMaximum,
+      };
     }
     const activeSession = ready.activeConnection?.activeSession;
     assert.ok(activeSession, 'Ready connection did not create an active provisional session');
@@ -378,7 +393,12 @@ async function runPhysicalScenario(
     runner.verify();
     const finalState = await client.request('state.get', {});
     passed = true;
-    return { scenario: name, revision: finalState.revision, locationCheckpoint };
+    return {
+      scenario: name,
+      revision: finalState.revision,
+      locationCheckpoint,
+      writePayloadMaximum: runner.writePayloadMaximum,
+    };
   } catch (error) {
     const diagnostics = runner.diagnosticSnapshot();
     if (diagnostics.length) {

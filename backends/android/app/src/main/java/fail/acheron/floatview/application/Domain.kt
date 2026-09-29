@@ -117,5 +117,5 @@ interface BluetoothPort {
     fun connect(deviceId: DeviceId, generation: BluetoothConnection)
     fun enableNotifications(generation: BluetoothConnection, operation: Long)
     fun write(deviceId: DeviceId, generation: BluetoothConnection, operation: Long, response: Boolean, bytes: ByteArray)
-    fun disconnect(deviceId: DeviceId)
+    fun disconnect(deviceId: DeviceId, generation: BluetoothConnection)
 }

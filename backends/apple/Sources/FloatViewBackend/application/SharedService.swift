@@ -260,8 +260,12 @@ public final class SharedService: @unchecked Sendable {
         generation: BluetoothConnection(lifetime: lifetime, generation: number("generation"))
       )
     case "disconnect":
+      guard number("generation") == callbackLock.withLock({ callbackGeneration }) else { return }
       if let activeDevice {
-        bluetooth.disconnect(activeDevice)
+        bluetooth.disconnect(
+          activeDevice,
+          generation: BluetoothConnection(lifetime: lifetime, generation: number("generation"))
+        )
       }
       activeDevice = nil
     case "enable_notifications":
@@ -341,7 +345,10 @@ public final class SharedService: @unchecked Sendable {
       location.stopUpdates()
       bluetooth.stopDiscovery()
       if let activeDevice {
-        bluetooth.disconnect(activeDevice)
+        bluetooth.disconnect(
+          activeDevice,
+          generation: BluetoothConnection(lifetime: lifetime, generation: callbackLock.withLock { callbackGeneration })
+        )
       }
       stopped = float_view_application_runtime_service_destroy(handle) == 0
     }

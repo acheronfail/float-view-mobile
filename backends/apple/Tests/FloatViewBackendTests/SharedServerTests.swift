@@ -55,5 +55,5 @@ private final class IdleBluetooth: BluetoothPort, @unchecked Sendable {
   func connect(_: DeviceID, generation _: BluetoothConnection) {}
   func enableNotifications(generation _: BluetoothConnection, operation _: UInt64) {}
   func write(_: Data, to _: DeviceID, generation _: BluetoothConnection, operation _: UInt64, response _: Bool) {}
-  func disconnect(_: DeviceID) {}
+  func disconnect(_: DeviceID, generation _: BluetoothConnection) {}
 }

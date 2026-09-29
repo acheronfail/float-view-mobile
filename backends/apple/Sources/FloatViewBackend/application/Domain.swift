@@ -144,5 +144,5 @@ public protocol BluetoothPort: AnyObject, Sendable {
   func connect(_ deviceID: DeviceID, generation: BluetoothConnection)
   func enableNotifications(generation: BluetoothConnection, operation: UInt64)
   func write(_ bytes: Data, to deviceID: DeviceID, generation: BluetoothConnection, operation: UInt64, response: Bool)
-  func disconnect(_ deviceID: DeviceID)
+  func disconnect(_ deviceID: DeviceID, generation: BluetoothConnection)
 }

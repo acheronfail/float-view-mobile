@@ -23,7 +23,7 @@
 ## 4. Physical acceptance and completion
 
 - [x] 4.1 Add conformance-owned traces/fault scenarios for payload segmentation, write modes, queue failure and stale completion where observable; verify independent expected ordering and keep ESP32 firmware protocol-agnostic.
-- [ ] 4.2 Run explicit macOS, iOS and Android ESP32 checkpoints for saved/guest discovery, setup, controls/configuration writes, telemetry, reconnect and mobile background continuity; record actual mode/payload evidence and identify unexercised capabilities without claiming a pass or silently deferring required coverage.
+- [x] 4.2 Run explicit macOS, iOS and Android ESP32 checkpoints for saved/guest discovery, setup, controls/configuration writes, telemetry, reconnect and mobile background continuity; record actual mode/payload evidence and identify unexercised capabilities without claiming a pass or silently deferring required coverage.
 - [x] 4.3 Audit source, symbols, dependencies, native bounded state and unchanged public/persistent contracts; verify net production-source reduction across touched paths, at most 28 members, exactly two binding families and no native fallback.
-- [ ] 4.4 Run focused reducer/ABI/native boundary and lifecycle regressions, formatting, strict OpenSpec validation and `git diff --check`; verify each requirement has passing evidence and document the future Linux adapter boundary.
+- [x] 4.4 Run focused reducer/ABI/native boundary and lifecycle regressions, formatting, strict OpenSpec validation and `git diff --check`; verify each requirement has passing evidence and document the future Linux adapter boundary.
 - [ ] 4.5 Run `just verify`, record final results and commit verified implementation/task updates; once required checks pass, sync delta specs and archive together in the final commit.

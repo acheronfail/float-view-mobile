@@ -19,6 +19,11 @@ export class FixtureRunner {
   private connected = false;
   private advertisingRetries = 0;
   private telemetryResponses = 0;
+  private maximumWritePayload = 0;
+
+  get writePayloadMaximum() {
+    return this.maximumWritePayload;
+  }
   private telemetryPhase?: string;
   private readyWaiter?: {
     resolve: () => void;
@@ -173,6 +178,10 @@ export class FixtureRunner {
         this.report(`ESP < ERROR ${event.code}`);
         throw new Error(`Fixture error: ${event.code}`);
       case 'WRITE': {
+        if (event.bytes.length > this.maximumWritePayload) {
+          this.maximumWritePayload = event.bytes.length;
+          this.report(`ESP < WRITE payload_max=${this.maximumWritePayload}`);
+        }
         const requestOffset = this.simulator.requests.length;
         const responses = this.simulator.receive(event.bytes);
         for (const response of responses) {

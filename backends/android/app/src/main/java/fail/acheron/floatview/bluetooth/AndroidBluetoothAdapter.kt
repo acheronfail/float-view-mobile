@@ -167,8 +167,10 @@ class AndroidBluetoothAdapter(
             }
         }
     }
-    override fun disconnect(deviceId: DeviceId) {
-        handler.post { connection?.close(); connection = null }
+    override fun disconnect(deviceId: DeviceId, generation: BluetoothConnection) {
+        handler.post {
+            if (connection?.generation == generation) { connection?.close(); connection = null }
+        }
     }
     override fun enableNotifications(generation: BluetoothConnection, operation: Long) {
         handler.post { connection?.takeIf { it.generation == generation }?.enable(operation) }

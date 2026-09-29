@@ -176,7 +176,10 @@ class SharedService(
                 activeDevice = DeviceId(value.getString("device_id"))
                 bluetooth.connect(activeDevice!!, BluetoothConnection(lifetime, value.getLong("generation")))
             }
-            "disconnect" -> { activeDevice?.let(bluetooth::disconnect); activeDevice = null }
+            "disconnect" -> if (value.getLong("generation") == callbackGeneration) {
+                activeDevice?.let { bluetooth.disconnect(it, BluetoothConnection(lifetime, value.getLong("generation"))) }
+                activeDevice = null
+            }
             "enable_notifications" -> bluetooth.enableNotifications(BluetoothConnection(lifetime, value.getLong("generation")), value.getLong("operation"))
             "write" -> if (value.getLong("generation") == callbackGeneration) activeDevice?.let { device ->
                 val bytes = value.getJSONArray("bytes")
@@ -223,7 +226,7 @@ class SharedService(
     override fun close() {
         if (closed) return
         executor.submit {
-            location.stopUpdates(); bluetooth.stopDiscovery(); activeDevice?.let(bluetooth::disconnect)
+            location.stopUpdates(); bluetooth.stopDiscovery(); activeDevice?.let { bluetooth.disconnect(it, BluetoothConnection(lifetime, callbackGeneration)) }
             check(RustApplicationRuntime.serviceDestroy(handle) == 0)
             closed = true
         }.get(6, TimeUnit.SECONDS)

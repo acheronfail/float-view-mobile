@@ -37,7 +37,7 @@ The conformance relay now owns simulated profile/notification/progress facts.
 Native relay adapters only translate and correlate those facts; no protocol or
 capability simulation was added to the hosts or ESP32 firmware.
 
-## Checks recorded so far
+## Verification
 
 - `just verify` passed: clean Apple packages, four-ABI Android Debug/Release
   packages, all unit suites, direct/macOS/iOS/Android canonical conformance,
@@ -48,18 +48,21 @@ capability simulation was added to the hosts or ESP32 firmware.
 - Conformance TypeScript checking and all 195 software tests passed.
 - Workspace-wide warnings-denied Rust lint and strict OpenSpec validation passed.
 - Built Apple archive exports exactly the eight application-runtime C symbols.
-- A final focused Rust run covers removal of the redundant native-ready branch;
-  final full-gate rerun follows physical acceptance and the final Apple manager
-  acquisition refinement. Physical checkpoints are still in progress.
+- The final complete `just verify` rerun passed on the final implementation,
+  including generation-qualified cancellation and fixture payload measurement.
+  An earlier rerun timed out during Android emulator bootstrap; its standalone
+  retry and the subsequent complete gate passed without implementation changes.
+  Physical acceptance and final cancellation regressions passed on all hosts.
 
 ## Audit method
 
-Compare touched `.rs`, `.swift` and `.kt` implementation paths against `fae14c1f`,
-excluding native test directories, `ble/tests.rs`, and trailing Rust `cfg(test)`
-modules on both sides. This measures production source separately from added
-fault coverage; the coarse repository audit intentionally also counts inline
-Rust test bodies. Initial comparison after integration: 3,936 to 3,688 lines
-(-248), before the final removal of the superseded native-ready branch.
+Compare touched `.rs`, `.swift` and `.kt` production paths against `fae14c1f`,
+excluding native test directories, conformance-only relay adapters,
+`ble/tests.rs`, and trailing Rust `cfg(test)` modules on both sides. Final
+production source: **3,608 to 3,287 lines (-321)**. Including the gated relay
+adapters on both sides still reduces source from 3,936 to 3,692 (-244).
+The coarse repository audit also counts inline Rust test bodies; newly added
+fault coverage is deliberately separated from this production comparison.
 
 Workspace remains 28 members with exactly two binding families (eight C and seven
 JNI exported declarations). Cargo.lock, frontend contract, SQL and persistent
@@ -94,4 +97,18 @@ macOS physical acceptance passed six selected scenarios: identity, guest, direct
 control-direct, control-can and unexpected-disconnect. Both write routes included
 configuration readback/restoration. Initial second-launch radio initialization
 stayed unknown; a clean full retry passed. Actual first-write evidence was
-with-response, negotiated 512, shared cap 244. Mobile checkpoints remain pending.
+with-response, negotiated 512, shared cap 244. Android and iOS subsequently passed their seven selected checkpoints, including background continuity. Final generation-qualified disconnect regressions passed on all three hosts. Fixture-side maximum write measurements were 244 bytes on macOS/iOS and 20 on Android. Full reports and explicit coverage limits are in `conformance/physical-checkpoints/2026-09-29-share-ble-transport-policy.md`.
+
+## Requirement evidence
+
+| Requirement                      | Deterministic evidence                                                                                                           | Physical evidence                                                                              |
+| -------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
+| Shared capability-driven policy  | `filtering_and_profile_are_independent`, OS-exchange missing-notify trace                                                        | Saved/guest discovery and complete GATT setup on all hosts                                     |
+| Atomic bounded admission         | `atomic_admission_includes_current_chunk`, checked byte/chunk limits and no emitted prefix                                       | Long direct/CAN configuration writes; fixture-observed host payload limits                     |
+| Qualified completion and cleanup | Duplicate/foreign result traces, lifetime/sequence checks, saturation cleanup, write failure tests                               | Same-device reconnect on each host; final qualified-disconnect regressions                     |
+| Bounded setup and progress       | Late setup and write-result deadlines, clock-triggered snapshot publication                                                      | Normal setup and sustained telemetry; deliberate missing OS callbacks remain software coverage |
+| Native selection                 | Deleted portable helpers/queues/timers, tightened ownership audit, packaged simulation exclusion, unchanged symbols/dependencies | Production macOS, Android API 29 and iPhone BLE plus mobile background continuity              |
+
+No-response physical flow control, missing CCCD and deliberately duplicated or
+missing OS callbacks are not claimed as hardware passes. The fixture selected
+with-response; both modes and result ordering are covered deterministically.

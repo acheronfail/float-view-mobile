@@ -1,0 +1,14 @@
+{
+  "target": "android-physical",
+  "fixturePath": "/dev/cu.usbmodem111401",
+  "refloatVersion": null,
+  "generatedAt": "2026-09-29T00:54:17.740Z",
+  "scenarios": [
+    {
+      "scenario": "control-direct",
+      "revision": 2332,
+      "writePayloadMaximum": 20,
+      "durationMs": 65443.846584
+    }
+  ]
+}

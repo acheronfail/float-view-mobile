@@ -92,8 +92,11 @@ public final class CoreBluetoothAdapter: NSObject, BluetoothPort, @unchecked Sen
     }
   }
 
-  public func disconnect(_: DeviceID) {
-    queue.async { [self] in session?.cancel(); session = nil }
+  public func disconnect(_: DeviceID, generation: BluetoothConnection) {
+    queue.async { [self] in
+      guard session?.generation == generation else { return }
+      session?.cancel(); session = nil
+    }
   }
 }
 

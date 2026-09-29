@@ -46,7 +46,9 @@ class FixtureBluetoothAdapter(config: JSONObject, private val emit: (BluetoothEv
     override fun startDiscovery() = submit("scan")
     override fun stopDiscovery() = submit("stopScan")
     override fun connect(deviceId: DeviceId, generation: BluetoothConnection) = submit("connect", deviceId, serviceGeneration = generation)
-    override fun disconnect(deviceId: DeviceId) = submit("disconnect", deviceId)
+    override fun disconnect(deviceId: DeviceId, generation: BluetoothConnection) {
+        if (synchronized(lock) { serviceGeneration == generation }) submit("disconnect", deviceId, serviceGeneration = generation)
+    }
     override fun enableNotifications(generation: BluetoothConnection, operation: Long) = submit("enableNotifications", serviceGeneration = generation, transportOperation = operation)
     override fun write(deviceId: DeviceId, generation: BluetoothConnection, operation: Long, response: Boolean, bytes: ByteArray) {
         if (bytes.size > 8192) { fail(); return }

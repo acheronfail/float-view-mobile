@@ -96,6 +96,8 @@ test('fixture runner concurrently answers writes and re-advertises after injecti
   await eventually(() => fixture.notifications.length > responsesBeforeReconnect);
   assert.equal(fixture.commands.filter((item) => item === 'DISCONNECT').length, 1);
   assert.ok(fixture.notifications.length > 4);
+  assert.equal(runner.writePayloadMaximum, 12);
+  assert.ok(progress.includes('ESP < WRITE payload_max=12'));
   await runner.stop(true);
   assert.equal(fixture.commands.filter((item) => item === 'RESET').length, 2);
   assert.equal(fixture.colors.at(-1), led.off);

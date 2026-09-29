@@ -1,0 +1,59 @@
+{
+  "target": "ios-physical",
+  "fixturePath": "/dev/cu.usbmodem111401",
+  "refloatVersion": null,
+  "generatedAt": "2026-09-29T00:58:22.587Z",
+  "scenarios": [
+    {
+      "scenario": "identity",
+      "revision": 101,
+      "writePayloadMaximum": 15,
+      "durationMs": 6565.319457999998
+    },
+    {
+      "scenario": "guest",
+      "revision": 99,
+      "writePayloadMaximum": 13,
+      "durationMs": 5159.459624999996
+    },
+    {
+      "scenario": "direct",
+      "revision": 98,
+      "writePayloadMaximum": 13,
+      "durationMs": 5139.969417
+    },
+    {
+      "scenario": "control-direct",
+      "revision": 2258,
+      "writePayloadMaximum": 244,
+      "durationMs": 51942.25995800001
+    },
+    {
+      "scenario": "control-can",
+      "revision": 2260,
+      "writePayloadMaximum": 244,
+      "durationMs": 51280.17287499999
+    },
+    {
+      "scenario": "unexpected-disconnect",
+      "revision": 165,
+      "writePayloadMaximum": 15,
+      "durationMs": 8760.352665999992
+    },
+    {
+      "scenario": "background",
+      "revision": 514,
+      "locationCheckpoint": {
+        "authorization": "authorized",
+        "backgroundCapture": "available",
+        "beforeCount": 0,
+        "afterCount": 2,
+        "persistedDelta": 2,
+        "beforeSequence": 0,
+        "afterSequence": 2
+      },
+      "writePayloadMaximum": 15,
+      "durationMs": 34363.63062500002
+    }
+  ]
+}
