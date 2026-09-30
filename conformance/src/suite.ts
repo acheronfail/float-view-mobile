@@ -458,6 +458,7 @@ async function createCompletedSession(
   assert.equal(connected.activeConnection.displayName, connected.activeConnection.name);
   assert.ok(connected.activeConnection.savedDeviceId);
   assert.ok(connected.activeConnection.activeSession);
+  await exerciseBatteryEstimate(client, connected);
   if (recreateFrontend) {
     const beforeRecreation = await client.request('state.get', {});
     await recreateFrontend();
@@ -829,6 +830,29 @@ const stableConnectionIssueCodes = new Set<ConnectionIssueCode>([
 ]);
 
 export function assertState(state: AppState) {
+  assert.equal(state.batteryCellProfiles.length, 7);
+  assert.equal(new Set(state.batteryCellProfiles.map((p) => p.id)).size, 7);
+  assert.ok(state.batteryCellProfiles.every((p) => p.id.length > 0 && p.label.length > 0));
+  const active = state.activeConnection;
+  if (active) {
+    const estimate = active.batteryEstimate;
+    assert.equal(estimate.catalogVersion, 'floaty-2025-05-18-v1');
+    assert.equal(estimate.sampleSequence, active.latestSample?.sequence ?? null);
+    assert.ok(['load_compensated', 'load_clamped', 'voltage_only', 'unavailable'].includes(estimate.mode));
+    if (estimate.level === null) {
+      assert.equal(estimate.mode, 'unavailable');
+      assert.ok(
+        ['not_configured', 'series_mismatch', 'missing_voltage', 'not_applicable'].includes(estimate.unavailableReason!)
+      );
+    } else {
+      assert.ok(Number.isFinite(estimate.level) && estimate.level >= 0 && estimate.level <= 1);
+      assert.equal(estimate.unavailableReason, null);
+    }
+    if (active.trackingMode === 'guest' || active.deviceKind === 'bms') {
+      assert.equal(estimate.level, null);
+      assert.equal(estimate.unavailableReason, 'not_applicable');
+    }
+  }
   assert.ok(Number.isSafeInteger(state.revision));
   assert.ok(Array.isArray(state.discoveredDevices));
   assert.ok(Array.isArray(state.savedDevices));
@@ -882,7 +906,6 @@ export function assertState(state: AppState) {
   assert.ok(['system', 'light', 'dark'].includes(state.settings.themePreference));
   assert.ok(['metric', 'imperial'].includes(state.settings.unitPreference));
 
-  const active = state.activeConnection;
   if (!active) return;
   assert.ok(active.deviceKind === null || active.deviceKind === 'board' || active.deviceKind === 'bms');
   assert.ok(active.trackingMode === 'saved' || active.trackingMode === 'guest');
@@ -1099,3 +1122,65 @@ export const mandatoryMethods: BackendMethod[] = [
   'session.prune.start',
   'session.prune.cancel',
 ];
+
+async function exerciseBatteryEstimate(client: ConformanceClient, state: AppState) {
+  const id = state.activeConnection!.savedDeviceId!;
+  const original = await client.request('boardProfile.get', { savedDeviceId: id });
+  const series = state.activeConnection!.currentLimits?.batterySeriesCells ?? 18;
+  const configured = await client.request('boardProfile.update', {
+    savedDeviceId: id,
+    expectedRevision: original.revision,
+    patch: {
+      batteryCellProfileId: 'generic-linear',
+      batteryMinimumCellVoltageV: 3,
+      seriesCount: series,
+      parallelCount: 2,
+    },
+  });
+  const estimated = await client.waitForState(
+    (s) =>
+      s.activeConnection?.batteryEstimate.profileRevision === configured.revision &&
+      s.activeConnection.batteryEstimate.level != null,
+    { afterRevision: state.revision }
+  );
+  assertState(estimated);
+  const active = estimated.activeConnection!;
+  const expected = Math.max(0, Math.min(1, (active.latestSample!.packVoltageV! / series - 3) / 1.2));
+  assert.ok(Math.abs(active.batteryEstimate.level! - expected) < 1e-10);
+  assert.equal(active.batteryEstimate.seriesCount, series);
+  assert.equal(active.batteryEstimate.mode, 'voltage_only');
+  for (const patch of [
+    { batteryCellProfileId: 'unknown' },
+    { batteryMinimumCellVoltageV: 4.2 },
+    { batteryMinimumCellVoltageV: 2.69 },
+  ]) {
+    await expectError(
+      client.request('boardProfile.update', { savedDeviceId: id, expectedRevision: configured.revision, patch }),
+      'invalid_request'
+    );
+  }
+  await expectError(
+    client.request('boardProfile.update', {
+      savedDeviceId: id,
+      expectedRevision: original.revision,
+      patch: { batteryCellProfileId: 'molicel-p45b' },
+    }),
+    'conflict'
+  );
+  assert.deepEqual(await client.request('boardProfile.get', { savedDeviceId: id }), configured);
+  if (state.activeConnection!.currentLimits?.batterySeriesCells) {
+    const mismatch = await client.request('boardProfile.update', {
+      savedDeviceId: id,
+      expectedRevision: configured.revision,
+      patch: { seriesCount: series === 18 ? 20 : 18 },
+    });
+    const unavailable = await client.request('state.get', {});
+    assert.equal(unavailable.activeConnection!.batteryEstimate.unavailableReason, 'series_mismatch');
+    assert.equal(unavailable.activeConnection!.batteryEstimate.level, null);
+    await client.request('boardProfile.update', {
+      savedDeviceId: id,
+      expectedRevision: mismatch.revision,
+      patch: { seriesCount: series },
+    });
+  }
+}

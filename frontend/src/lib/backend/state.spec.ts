@@ -1,3 +1,4 @@
+import { emptyEstimate } from '../../../backend-mock/battery';
 import { describe, expect, it } from 'vitest';
 import type {
   AppState,
@@ -41,6 +42,7 @@ const initial: AppState = {
   ],
   activeConnection: null,
   sessionCatalogRevision: 0,
+  batteryCellProfiles: [],
   location: {
     status: 'disabled',
     permissionAction: 'requestPermission',
@@ -314,6 +316,7 @@ describe('BackendState', () => {
         controllerActions: { shutdownAvailable: true, pendingAction: null },
         activeSession: null,
         latestSample: null,
+        batteryEstimate: emptyEstimate(),
         latestLocation: null,
         currentLimits: null,
       },

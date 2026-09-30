@@ -29,6 +29,7 @@ pub(crate) struct Connection {
     pub continuity: c::discovery::Continuity,
     pub package_version: Option<String>,
     pub latest: Option<telemetry::NormalizedSample>,
+    pub battery: crate::battery::State,
     pub bms: Option<c::bms::BmsObservation>,
     pub reconnect_started: Option<u64>,
     pub reconnect_attempt: u32,
@@ -503,6 +504,7 @@ impl BackendService {
         }
     }
     pub(crate) fn changed(&mut self) -> Result<(), Failure> {
+        self.refresh_battery()?;
         let status = HostStatus(
             self.policy.active.is_some(),
             self.policy
@@ -620,6 +622,7 @@ impl BackendService {
             continuity: c::discovery::Continuity::default(),
             package_version: None,
             latest: None,
+            battery: crate::battery::State::default(),
             bms: None,
             reconnect_started: None,
             reconnect_attempt: 0,
@@ -708,6 +711,7 @@ impl BackendService {
         let Some(a) = self.policy.active.as_mut() else {
             return Ok(());
         };
+        a.battery.reset_filter();
         if a.reconnect_started.is_none() {
             a.reconnect_started = Some(self.policy.exchange.now);
         }
@@ -968,9 +972,7 @@ impl BackendService {
                         }
                     }
                     c::Effect::PublishTelemetry(sample) => {
-                        if let Some(a) = self.policy.active.as_mut() {
-                            a.latest = Some(*sample);
-                        }
+                        self.accept_battery_sample(*sample);
                     }
                     c::Effect::PublishBmsObservation(sample) => {
                         if let Some(a) = self.policy.active.as_mut() {
@@ -1641,6 +1643,137 @@ mod tests {
         for reply in &mut replies[1..] {
             assert!(matches!(reply.try_recv(), Ok(Err(Failure::Unavailable))));
         }
+    }
+    #[test]
+    fn battery_estimates_follow_accepted_samples_configuration_and_reconnect() {
+        #[allow(dead_code)]
+        mod samples {
+            use float_view_application_runtime::telemetry as float_view_refloat_telemetry_service;
+            include!("../../session-sqlite/tests/support/mod.rs");
+        }
+        use crate::battery_estimator::UnavailableReason;
+        let mut t = Test::new();
+        t.activate(true);
+        let id = t
+            .service
+            .policy
+            .active
+            .as_ref()
+            .unwrap()
+            .board
+            .as_ref()
+            .unwrap()
+            .saved_device_id
+            .clone();
+        let profile = t.service.store.update_profile(&id, 0,
+            r#"{"seriesCount":20.0,"parallelCount":2.0,"batteryCellProfileId":"molicel-p45b","batteryMinimumCellVoltageV":2.7}"#, 5).unwrap();
+        t.service.changed().unwrap();
+        let mut sample = samples::sample(1, 100);
+        sample.pack_voltage_v = Some(72.1);
+        sample.battery_current_a = Some(20.);
+        sample.battery_level = Some(0.8);
+        t.service.policy.exchange.now = 100;
+        t.service.accept_battery_sample(sample.clone());
+        t.service.changed().unwrap();
+        let first = t.service.published_snapshot().active.unwrap();
+        assert!((first.battery_estimate.level.unwrap() - 0.5).abs() < 1e-12);
+        assert_eq!(first.latest_sample.unwrap().battery_level, Some(0.8));
+        // Reading/recreating clients and unrelated publications never advance the filter.
+        t.service.changed().unwrap();
+        assert_eq!(
+            t.service
+                .published_snapshot()
+                .active
+                .unwrap()
+                .battery_estimate,
+            first.battery_estimate
+        );
+        sample.pack_voltage_v = Some(60.);
+        t.service.accept_battery_sample(sample.clone());
+        t.service.changed().unwrap();
+        assert_eq!(
+            t.service
+                .published_snapshot()
+                .active
+                .unwrap()
+                .battery_estimate,
+            first.battery_estimate
+        );
+        t.service.reconnect().unwrap();
+        t.service.changed().unwrap();
+        assert_eq!(
+            t.service
+                .published_snapshot()
+                .active
+                .unwrap()
+                .battery_estimate,
+            first.battery_estimate
+        );
+        // Edit during reconnect recomputes old sample, but next generation starts from its own current.
+        let edited = t
+            .service
+            .store
+            .update_profile(
+                &id,
+                profile.revision,
+                r#"{"batteryMinimumCellVoltageV":3.23}"#,
+                6,
+            )
+            .unwrap();
+        t.service.changed().unwrap();
+        assert_eq!(
+            t.service
+                .published_snapshot()
+                .active
+                .unwrap()
+                .battery_estimate
+                .profile_revision,
+            Some(edited.revision)
+        );
+        sample.sequence = 1;
+        sample.pack_voltage_v = Some(75.5);
+        sample.battery_current_a = None;
+        t.service.accept_battery_sample(sample.clone());
+        t.service.changed().unwrap();
+        assert!(
+            (t.service
+                .published_snapshot()
+                .active
+                .unwrap()
+                .battery_estimate
+                .level
+                .unwrap()
+                - 0.5)
+                .abs()
+                < 1e-12
+        );
+        sample.sequence = 2;
+        sample.pack_voltage_v = None;
+        t.service.accept_battery_sample(sample);
+        t.service.changed().unwrap();
+        assert_eq!(
+            t.service
+                .published_snapshot()
+                .active
+                .unwrap()
+                .battery_estimate
+                .unavailable_reason,
+            Some(UnavailableReason::MissingVoltage)
+        );
+        t.service.disconnect("test").unwrap();
+        t.service.connect("test-device", false).unwrap();
+        t.service.changed().unwrap();
+        let estimate = t
+            .service
+            .published_snapshot()
+            .active
+            .unwrap()
+            .battery_estimate;
+        assert_eq!(estimate.level, None);
+        assert_eq!(
+            estimate.unavailable_reason,
+            Some(UnavailableReason::NotApplicable)
+        );
     }
     #[test]
     fn saved_activation_attaches_before_ready_and_guest_never_creates_storage() {

@@ -42,7 +42,7 @@
       </div>
 
       <div class:opacity-45={dimmed} class="min-h-0 overflow-hidden transition-opacity">
-        <WidgetPower {sample} batterySeriesCells={currentLimits?.batterySeriesCells} />
+        <WidgetPower {sample} estimate={connection.batteryEstimate} />
       </div>
     </div>
   </section>

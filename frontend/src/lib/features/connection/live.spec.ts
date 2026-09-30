@@ -1,3 +1,4 @@
+import { emptyEstimate } from '../../../../backend-mock/battery';
 import { describe, expect, it } from 'vitest';
 import type { ActiveConnection } from '$lib/backend/contract';
 import {
@@ -47,6 +48,7 @@ const connection = (state: ActiveConnection['state']): ActiveConnection => ({
   controllerActions: { shutdownAvailable: false, pendingAction: null },
   activeSession: null,
   latestSample: null,
+  batteryEstimate: emptyEstimate(),
   latestLocation: null,
   currentLimits: null,
 });

@@ -368,6 +368,23 @@ pub(crate) fn validate_profile(values: &Map<String, Value>) -> Result<()> {
             return Err(Error::InvalidInput);
         }
     }
+    if let Some(value) = values.get("batteryCellProfileId").filter(|v| !v.is_null())
+        && value
+            .as_str()
+            .and_then(crate::battery_catalog::profile)
+            .is_none()
+    {
+        return Err(Error::InvalidInput);
+    }
+    if let Some(value) = values
+        .get("batteryMinimumCellVoltageV")
+        .filter(|v| !v.is_null())
+        && !value
+            .as_f64()
+            .is_some_and(|v| v.is_finite() && (2.7..4.2).contains(&v))
+    {
+        return Err(Error::InvalidInput);
+    }
     json(values, limits::MAX_PROFILE_BYTES)?;
     Ok(())
 }

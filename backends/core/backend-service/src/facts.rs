@@ -162,14 +162,20 @@ record!(LiveSample {
     amp_hours_charged_ah: Option<f64>, watt_hours_drawn_wh: Option<f64>, watt_hours_charged_wh: Option<f64>,
     battery_level: Option<f64>, charging_current_a: Option<f64>, charging_voltage_v: Option<f64>, extension_fields: BTreeMap<String, f64>,
 });
+record!(BatteryCellProfile {
+    id: String,
+    label: String
+});
 record!(Connection {
     device_id: String, name: Option<String>, state: String, device_kind: Option<String>, tracking_mode: String,
     saved_device: Option<SavedBoard>, active_session: Option<Session>, latest_sample: Option<LiveSample>,
+    battery_estimate: crate::battery_estimator::Estimate,
     latest_location: Option<LiveLocation>, current_limits: Option<CurrentLimits>, controller_route: Option<Route>,
     controller_candidates: Vec<ControllerCandidate>, connection_issue: Option<ConnectionIssue>, bms: Bms,
     refloat_controls: Option<Controls>, controller_actions: ControllerActions,
 });
 record!(Snapshot {
+    battery_cell_profiles: Vec<BatteryCellProfile>,
     discovery: Discovery, active: Option<Connection>, firmware: Option<Firmware>, package_version: Option<String>,
     configuration: ConfigurationSummary, saved_boards: Vec<SavedBoard>, settings: Settings,
     location: Location, maintenance: Option<Maintenance>,

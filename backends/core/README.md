@@ -8,6 +8,10 @@ listener or replacing a WebView does not stop recording or maintenance.
 `product-store` owns catalog startup, settings, board identity and profiles,
 Tunes, schema caches, session lifecycle/recovery, archive validation and CSV.
 `application-runtime` owns protocol coordination and the sole session writer.
+The product store owns the pinned battery cell catalog and validates saved profile
+choices. `backend-service::battery_estimator` calculates approximate state of charge;
+the process-owned connection filters accepted, persistence-gated samples. Snapshot
+reads and WebView recreation never advance that filter.
 Read-only history, archive and maintenance workers use bounded independent
 readers and service-issued leases. An exclusive root lock prevents a second
 process owner from recovering or deleting resources still in use.

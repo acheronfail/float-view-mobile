@@ -1,3 +1,4 @@
+import { emptyEstimate } from '../../../../backend-mock/battery';
 import { render } from 'svelte/server';
 import { describe, expect, it } from 'vitest';
 import type { ActiveConnection } from '$lib/backend/contract';
@@ -35,6 +36,7 @@ const connection: ActiveConnection = {
   controllerActions: { shutdownAvailable: false, pendingAction: null },
   firmware: null,
   latestSample: null,
+  batteryEstimate: emptyEstimate(),
   latestLocation: null,
   activeSession: null,
   currentLimits: null,

@@ -603,3 +603,42 @@ fn crash_during_session_creation_removes_only_issued_temporary_names() {
     }
     assert_eq!(fs::read_to_string(unrelated).unwrap(), "keep");
 }
+
+#[test]
+fn battery_profile_validation_boundaries_conflicts_and_reopen() {
+    let root = Root::new();
+    let mut store = root.open();
+    let b = store
+        .ensure_board("battery-board", None, Some(&[7; 12]), 1)
+        .unwrap();
+    let id = &b.saved_device_id;
+    let original = store.profile(id).unwrap();
+    for patch in [
+        r#"{"batteryCellProfileId":"unknown"}"#,
+        r#"{"batteryCellProfileId":4}"#,
+        r#"{"batteryMinimumCellVoltageV":2.699}"#,
+        r#"{"batteryMinimumCellVoltageV":4.2}"#,
+        r#"{"batteryMinimumCellVoltageV":"NaN"}"#,
+        r#"{"batteryMinimumCellVoltageV":1e999}"#,
+    ] {
+        assert!(
+            store
+                .update_profile(id, original.revision, patch, 2)
+                .is_err()
+        );
+        assert_eq!(store.profile(id).unwrap(), original);
+    }
+    let mut revision = original.revision;
+    for voltage in [2.7, 3., 4.199999] {
+        let updated = store.update_profile(id, revision, &format!(r#"{{"batteryCellProfileId":"molicel-p45b","batteryMinimumCellVoltageV":{voltage}}}"#), 3).unwrap();
+        assert_eq!(updated.missing_fields(), original.missing_fields());
+        revision = updated.revision;
+    }
+    assert!(matches!(
+        store.update_profile(id, 0, r#"{"batteryCellProfileId":"generic-linear"}"#, 4),
+        Err(Error::Conflict { .. })
+    ));
+    let expected = store.profile(id).unwrap();
+    drop(store);
+    assert_eq!(root.open().profile(id).unwrap(), expected);
+}

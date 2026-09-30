@@ -20,6 +20,9 @@
   let customDisplayName = $state('');
   let seriesCount = $state<number | undefined>();
   let parallelCount = $state<number | undefined>();
+  let batteryCellProfileId = $state('');
+  let batteryMinimumCellVoltageV = $state<number | undefined>();
+  const validMinimum = (v: number) => Number.isFinite(v) && v >= 2.7 && v < 4.2;
   let motor = $state('');
   let preferredCanId = $state<number | undefined>();
   let preferredBmsCanId = $state<number | undefined>();
@@ -57,6 +60,8 @@
       const values = backendState.selectedBoardProfile?.values;
       seriesCount = typeof values?.seriesCount === 'number' ? values.seriesCount : undefined;
       parallelCount = typeof values?.parallelCount === 'number' ? values.parallelCount : undefined;
+      batteryCellProfileId = values?.batteryCellProfileId ?? '';
+      batteryMinimumCellVoltageV = values?.batteryMinimumCellVoltageV ?? undefined;
       motor = typeof values?.motor === 'string' ? values.motor : '';
       preferredCanId = typeof values?.preferredCanId === 'number' ? values.preferredCanId : undefined;
       preferredBmsCanId = typeof values?.preferredBmsCanId === 'number' ? values.preferredBmsCanId : undefined;
@@ -156,6 +161,45 @@
           >{device.bluetoothIdentifier ?? 'Not locally associated'}</code
         >
       </div>
+      <label class="text-sm sm:col-span-2">
+        <span id="battery-cell-profile-label" class="mb-1 block text-muted">Battery cell profile</span>
+        <select
+          class="w-full touch-manipulation rounded-md border border-outline bg-elevated px-3 py-2"
+          aria-labelledby="battery-cell-profile-label"
+          bind:value={batteryCellProfileId}
+          onchange={() => saveProfile({ batteryCellProfileId: batteryCellProfileId || null })}
+        >
+          <option value="">Not configured</option>
+          {#each backendState.snapshot?.batteryCellProfiles ?? [] as profile (profile.id)}
+            <option value={profile.id}>{profile.label}</option>
+          {/each}
+        </select>
+      </label>
+      <label class="text-sm sm:col-span-2">
+        <span id="battery-empty-voltage-label" class="mb-1 block text-muted">Display empty voltage per cell</span>
+        <input
+          class="w-full touch-manipulation rounded-md border border-outline bg-elevated px-3 py-2"
+          type="number"
+          min="2.7"
+          max="4.199"
+          step="any"
+          inputmode="decimal"
+          placeholder="3.0"
+          aria-labelledby="battery-empty-voltage-label"
+          bind:value={batteryMinimumCellVoltageV}
+          aria-describedby="battery-estimate-help"
+          onblur={() => {
+            if (batteryMinimumCellVoltageV === undefined) saveProfile({ batteryMinimumCellVoltageV: null });
+            else if (validMinimum(batteryMinimumCellVoltageV)) saveProfile({ batteryMinimumCellVoltageV });
+          }}
+        />
+        <span id="battery-estimate-help" class="mt-1 block text-xs text-muted">
+          Defaults to 3.0 V. Changes the approximate displayed estimate, not controller protection settings.
+        </span>
+        {#if batteryMinimumCellVoltageV !== undefined && !validMinimum(batteryMinimumCellVoltageV)}
+          <span role="alert" class="mt-1 block text-xs text-warning">Enter a voltage from 2.7 V to below 4.2 V.</span>
+        {/if}
+      </label>
       <label class="text-sm">
         <span class="mb-1 block text-muted">Battery series cells (S)</span>
         <input

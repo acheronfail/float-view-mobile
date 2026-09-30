@@ -80,6 +80,7 @@ describe('deterministic mock backend', () => {
     const before = (backend.handle({ id: 3, method: 'state.get', params: {} }) as { result: AppState }).result;
     expect(before.activeConnection).toMatchObject({
       trackingMode: 'guest',
+      batteryEstimate: { level: null, mode: 'unavailable', unavailableReason: 'not_applicable' },
       savedDeviceId: null,
       activeSession: null,
     });
@@ -99,6 +100,7 @@ describe('deterministic mock backend', () => {
     const live = (backend.handle({ id: 5, method: 'state.get', params: {} }) as { result: AppState }).result;
     expect(live.activeConnection).toMatchObject({
       trackingMode: 'guest',
+      batteryEstimate: { level: null, mode: 'unavailable', unavailableReason: 'not_applicable' },
       savedDeviceId: null,
       activeSession: null,
       latestSample: expect.any(Object),
@@ -452,6 +454,7 @@ describe('deterministic mock backend', () => {
     expect(state.activeConnection).toMatchObject({
       state: 'ready',
       deviceKind: 'bms',
+      batteryEstimate: { level: null, mode: 'unavailable', unavailableReason: 'not_applicable' },
       firmware: null,
       controllerConnection: null,
       controllerCandidates: [],

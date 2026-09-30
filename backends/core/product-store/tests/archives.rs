@@ -17,6 +17,8 @@ fn setup() -> (TestDirectory, ProductStore, String) {
     let b = store
         .ensure_board("PRIVATE-LOCAL-ID", Some("Board"), Some(&[1; 12]), 1)
         .unwrap();
+    store.update_profile(&b.saved_device_id, 0,
+        r#"{"batteryCellProfileId":"molicel-p45b","batteryMinimumCellVoltageV":3.23,"seriesCount":20,"parallelCount":2}"#, 1).unwrap();
     let s = store
         .create_session(&b.saved_device_id, 1, u64::MAX)
         .unwrap();
@@ -99,6 +101,10 @@ fn archive_roundtrip_preserves_portable_identity_and_uses_new_local_ids() {
     let value = sink(&imported, export.path()).validate(&cancel).unwrap();
     let session = imported.attach_import(value).unwrap();
     assert_ne!(session.session_id, id);
+    let board = imported.boards().unwrap().remove(0);
+    let profile = imported.profile(&board.saved_device_id).unwrap();
+    assert_eq!(profile.values["batteryCellProfileId"], "molicel-p45b");
+    assert_eq!(profile.values["batteryMinimumCellVoltageV"], 3.23);
     assert_eq!(
         session.device_history_id,
         store.session(&id).unwrap().device_history_id
@@ -192,6 +198,8 @@ fn malformed_schema_metadata_and_attachment_failure_leave_no_catalog_changes() {
         "CREATE TRIGGER hostile AFTER INSERT ON sample BEGIN DELETE FROM sample; END",
         "UPDATE float_view_archive_metadata SET value='{}' WHERE key='session'",
         "UPDATE float_view_archive_metadata SET value='99' WHERE key='format_version'",
+        "UPDATE float_view_archive_metadata SET value=json_set(value,'$.boardProfileSnapshot.batteryCellProfileId','unknown') WHERE key='session'",
+        "UPDATE float_view_archive_metadata SET value=json_set(value,'$.boardProfileSnapshot.batteryMinimumCellVoltageV',4.2) WHERE key='session'",
     ] {
         let export = store
             .prepare_export(&id, ExportFormat::Archive)

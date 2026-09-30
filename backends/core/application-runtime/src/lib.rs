@@ -628,6 +628,37 @@ mod tests {
     }
 
     #[test]
+    fn rejected_persistence_never_reaches_service_estimator() {
+        let directory = tempfile_directory("battery-publication-gate");
+        let mut runtime = ApplicationRuntime::new();
+        runtime
+            .apply(Command::AttachSession {
+                path: directory.join("session.sqlite"),
+                mode: SessionMode::Create,
+                metadata: session_metadata(),
+            })
+            .unwrap();
+        let mut invalid = sample(1);
+        invalid.pack_voltage_v = Some(f64::NAN);
+        let effects = runtime
+            .translate(vec![CoordinatorEffect::PublishTelemetry(Box::new(invalid))])
+            .unwrap();
+        assert!(effects.iter().any(|e| matches!(e, Effect::Failure(_))));
+        assert!(!effects.iter().any(|e| matches!(
+            e,
+            Effect::Application(CoordinatorEffect::PublishTelemetry(_))
+        )));
+        assert_eq!(
+            runtime
+                .snapshot()
+                .session_marker
+                .unwrap()
+                .committed_sample_sequence,
+            0
+        );
+    }
+
+    #[test]
     fn profile_events_allocate_session_sequences_without_overwriting_telemetry() {
         let directory = tempfile_directory("profile-events");
         let mut runtime = ApplicationRuntime::new();

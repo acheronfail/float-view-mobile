@@ -1,13 +1,14 @@
 <script lang="ts">
-  import type { LiveSample } from '../../backend/contract';
+  import type { LiveSample, BatteryEstimate } from '../../backend/contract';
+  import { estimatedBatteryPercent } from './battery';
   import GaugeBar from './WidgetBar.svelte';
 
   let {
     sample,
-    batterySeriesCells,
+    estimate,
   }: {
     sample: LiveSample | null | undefined;
-    batterySeriesCells: number | null | undefined;
+    estimate: BatteryEstimate | null | undefined;
   } = $props();
 
   const green = [22, 163, 74];
@@ -15,9 +16,8 @@
   const red = [220, 38, 38];
   const labelValues = Array.from({ length: 6 }, (_, index) => index * 20);
 
-  const batteryPercent = $derived(
-    sample?.batteryLevel == null ? null : Math.min(Math.max(sample.batteryLevel * 100, 0), 100)
-  );
+  const batteryPercent = $derived(estimatedBatteryPercent(estimate));
+  const batterySeriesCells = $derived(estimate?.seriesCount);
   const charging = $derived(sample?.charging === true);
   const batteryColor = $derived(colorForBattery(batteryPercent));
 
@@ -74,7 +74,7 @@
       maximum={100}
       detail={batteryPercent == null ? '—' : `${batteryPercent.toFixed(0)}%`}
       detailClass={batteryPercent == null ? 'text-muted' : ''}
-      ariaLabel="Battery level"
+      ariaLabel="Estimated battery level"
       ariaValueText={batteryPercent == null ? 'Unavailable' : `${batteryPercent.toFixed(0)} percent`}
       showLabels
       tickValues={labelValues}

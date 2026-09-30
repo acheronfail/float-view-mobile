@@ -1,6 +1,7 @@
 <script lang="ts">
   import { backendState } from '$lib/backend/state.svelte';
   import { formatDistanceM, formatSpeedKph, formatTemperatureC } from '$lib/features/measurements/format';
+  import { estimatedBatteryPercent } from './battery';
   import TelemetrySection from './TelemetrySection.svelte';
   import { controllerRouteDescription, firmwareAccessDescription, readingsAreDimmed } from './live';
   import {
@@ -12,6 +13,7 @@
   } from './telemetry';
 
   const connection = $derived(backendState.snapshot?.activeConnection);
+  const batteryPercent = $derived(estimatedBatteryPercent(connection?.batteryEstimate));
   const sample = $derived(connection?.latestSample);
   const session = $derived(connection?.activeSession);
   const location = $derived(connection?.latestLocation);
@@ -146,7 +148,11 @@
         ['Amp-hours charged', measured(sample?.ampHoursChargedAh, 'Ah', 2)],
         ['Watt-hours drawn', measured(sample?.wattHoursDrawnWh, 'Wh', 1)],
         ['Watt-hours charged', measured(sample?.wattHoursChargedWh, 'Wh', 1)],
-        ['Battery level', sample?.batteryLevel == null ? 'Unavailable' : `${number(sample.batteryLevel * 100, 0)}%`],
+        ['Estimated battery level', batteryPercent == null ? 'Unavailable' : `${batteryPercent}%`],
+        [
+          'Controller-reported battery level',
+          sample?.batteryLevel == null ? 'Unavailable' : `${number(sample.batteryLevel * 100, 0)}%`,
+        ],
         ['Charging current', measured(sample?.chargingCurrentA, 'A')],
         ['Charging voltage', measured(sample?.chargingVoltageV, 'V', 2)],
       ] as [string, string][]}

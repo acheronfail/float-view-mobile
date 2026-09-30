@@ -240,6 +240,7 @@ export interface LiveSample {
   ampHoursChargedAh: number | null;
   wattHoursDrawnWh: number | null;
   wattHoursChargedWh: number | null;
+  /** Raw controller-reported fraction, preserved in recordings and exports. */
   batteryLevel: number | null;
   chargingCurrentA: number | null;
   chargingVoltageV: number | null;
@@ -407,6 +408,29 @@ export interface RefloatTuneListPage {
   nextCursor: string | null;
 }
 
+/** Shared voltage-based approximation. No view-local estimation or filtering.
+ * level is a nullable fraction [0,1]; seriesCount resolves pack volts to cell volts.
+ * sampleSequence/profileRevision identify the accepted sample and saved configuration.
+ * catalogVersion pins community curves; modes describe compensation, not accuracy.
+ */
+export interface BatteryEstimate {
+  level: number | null;
+  /** Null when unset or not applicable (guest/BMS). */
+  profileId: string | null;
+  /** Saved series count, null when absent or conflicting with the controller. */
+  seriesCount: number | null;
+  /** Null before the first accepted sample. */
+  sampleSequence: number | null;
+  /** Null without a saved profile. */
+  profileRevision: number | null;
+  catalogVersion: string;
+  mode: 'load_compensated' | 'load_clamped' | 'voltage_only' | 'unavailable';
+  unavailableReason: 'not_configured' | 'series_mismatch' | 'missing_voltage' | 'not_applicable' | null;
+}
+export interface BatteryCellProfile {
+  id: string;
+  label: string;
+}
 export interface ActiveConnection extends Device {
   deviceKind: 'board' | 'bms' | null;
   firmware: FirmwareInfo | null;
@@ -425,6 +449,7 @@ export interface ActiveConnection extends Device {
   controllerActions: ControllerActions;
   activeSession: SessionSummary | null;
   latestSample: LiveSample | null;
+  batteryEstimate: BatteryEstimate;
   latestLocation: LiveLocation | null;
   currentLimits: ControllerCurrentLimits | null;
 }
@@ -454,6 +479,9 @@ export interface SavedDevice {
 export interface BoardProfileValues extends Record<string, unknown> {
   seriesCount?: number;
   parallelCount?: number;
+  batteryCellProfileId?: string | null;
+  /** Display-empty volts per cell, [2.7,4.2); absent/null means 3.0 V. */
+  batteryMinimumCellVoltageV?: number | null;
   motor?: string;
   preferredCanId?: number | null;
   preferredBmsCanId?: number | null;
@@ -632,6 +660,8 @@ export interface ExportResult {
 }
 
 export interface AppState {
+  /** Seven shared-service choices; numeric curves never cross the contract. */
+  batteryCellProfiles: BatteryCellProfile[];
   revision: number;
   bluetooth: BluetoothState;
   discoveredDevices: DiscoveredDevice[];

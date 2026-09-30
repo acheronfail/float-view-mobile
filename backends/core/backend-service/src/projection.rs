@@ -168,6 +168,7 @@ impl BackendService {
                     .cloned(),
                 active_session: a.session.as_ref().map(session),
                 latest_sample: a.latest.as_ref().map(sample),
+                battery_estimate: a.battery.estimate.clone(),
                 latest_location: p.latest_location.clone(),
                 current_limits: runtime.current_limits.as_ref().map(|v| f::CurrentLimits {
                     motor_current_max_a: v.motor_current_max_a,
@@ -220,6 +221,13 @@ impl BackendService {
             }
         });
         f::Snapshot {
+            battery_cell_profiles: store::battery_catalog::PROFILES
+                .iter()
+                .map(|p| f::BatteryCellProfile {
+                    id: p.id.into(),
+                    label: p.label.into(),
+                })
+                .collect(),
             discovery: f::Discovery {
                 bluetooth_state: self.bluetooth_facts(),
                 active_scan_id: p.scan.map(|s| s.0.to_string()),

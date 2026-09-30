@@ -82,3 +82,13 @@ normal-mode return requires a fresh current read. Runtime LED/headlight controls
 remain live-only and distinct from similarly named persistent startup defaults
 in the editor. Tunes are application-wide complete configurations filtered by
 exact identity, not upstream QML curated or migrating presets.
+
+The live battery percentage is the shared service's approximate voltage-based
+estimate, using the saved cell profile, series/parallel counts and display-empty
+voltage (default 3.0 V per cell). These settings do not change firmware protection
+thresholds. Unconfigured boards, guests and BMS-only connections have no estimated
+percentage. Both live views round the same authoritative fraction; controller
+battery level remains a separately labelled raw detail and unchanged in recordings
+and exports. WebView recreation never resets or advances the native current filter.
+The service pins Floaty's community curves and exposes their catalog version and
+compensation mode; temperature, age and remaining range are not modeled.

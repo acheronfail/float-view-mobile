@@ -1,3 +1,4 @@
+import { batteryCellProfiles, emptyEstimate, MockBattery } from './battery.ts';
 import {
   MAX_MESSAGE_BYTES,
   MAX_REFLOAT_CONFIGURATION_CURSOR_BYTES,
@@ -253,6 +254,7 @@ export class MockBackend {
   }
 
   private readonly publish: (event: StateChanged) => void;
+  private readonly battery = new MockBattery();
   readonly profiles = new Map([
     [
       savedBoard.savedDeviceId,
@@ -290,6 +292,7 @@ export class MockBackend {
     savedDevices: [savedBoard],
     activeConnection: null,
     sessionCatalogRevision: 0,
+    batteryCellProfiles,
     settings: {
       revision: 0,
       idleProbeIntervalMs: 500,
@@ -445,6 +448,7 @@ export class MockBackend {
               controllerActions: { shutdownAvailable: false, pendingAction: null },
               activeSession,
               latestSample: null,
+              batteryEstimate: emptyEstimate(),
               latestLocation: null,
               currentLimits: {
                 motorCurrentMaxA: 100,
@@ -775,6 +779,16 @@ export class MockBackend {
         ) {
           return failure(id, 'invalid_request', 'Preferred BMS CAN ID must be 0 through 253');
         }
+        if (patch.batteryCellProfileId != null && !batteryCellProfiles.some((p) => p.id === patch.batteryCellProfileId))
+          return failure(id, 'invalid_request', 'Unknown battery cell profile');
+        if (
+          patch.batteryMinimumCellVoltageV != null &&
+          (typeof patch.batteryMinimumCellVoltageV !== 'number' ||
+            !Number.isFinite(patch.batteryMinimumCellVoltageV) ||
+            patch.batteryMinimumCellVoltageV < 2.7 ||
+            patch.batteryMinimumCellVoltageV >= 4.2)
+        )
+          return failure(id, 'invalid_request', 'Empty voltage must be from 2.7 V to below 4.2 V');
         const updated = {
           ...current,
           revision: current.revision + 1,
@@ -1125,6 +1139,7 @@ export class MockBackend {
           controllerActions: { shutdownAvailable: false, pendingAction: null },
           activeSession: null,
           latestSample: null,
+          batteryEstimate: emptyEstimate(),
           latestLocation: null,
           currentLimits: null,
         },
@@ -1692,6 +1707,12 @@ export class MockBackend {
   }
 
   private change(next: AppState, catalogChanged = false) {
+    const estimate = this.battery.update(
+      next.activeConnection,
+      this.profiles.get(next.activeConnection?.savedDeviceId ?? '')
+    );
+    if (next.activeConnection)
+      next = { ...next, activeConnection: { ...next.activeConnection, batteryEstimate: estimate } };
     this.state = {
       ...next,
       savedDevices: catalogChanged ? this.refreshSummaries(this.sessionCatalog, next.savedDevices) : next.savedDevices,

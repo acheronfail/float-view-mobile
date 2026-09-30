@@ -5,6 +5,7 @@ use rusqlite::Connection;
 use std::path::{Path, PathBuf};
 
 mod archive;
+pub mod battery_catalog;
 mod boards;
 mod csv;
 mod files;
