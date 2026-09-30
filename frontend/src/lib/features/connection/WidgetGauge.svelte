@@ -31,15 +31,17 @@
   const load = $derived(driveLoad(sample, currentLimits));
   const animatedSpeed = new Tween(0);
   const animatedLoad = new Tween(0);
+  const fieldWeakening = $derived(Math.abs(sample?.fieldWeakeningCurrentA ?? 0));
+  const animatedFieldWeakening = new Tween(0);
 
   let textbox = $derived.by(() => {
-    if (!sample || !sample.fieldWeakeningCurrentA) {
+    if (!fieldWeakening) {
       return { title: 'DISTANCE', value: formatDistanceM(sample?.distanceM, units), color: 'undefined' };
     }
 
     return {
       title: 'FIELD WEAKENING',
-      value: `${sample.fieldWeakeningCurrentA.toFixed(1)} A`,
+      value: `${animatedFieldWeakening.current.toFixed(1)} A`,
       color: 'success',
     };
   });
@@ -52,6 +54,12 @@
 
   $effect(() => {
     void animatedLoad.set(load?.percentage ?? 0, {
+      duration: prefersReducedMotion.current ? 0 : 150,
+    });
+  });
+
+  $effect(() => {
+    void animatedFieldWeakening.set(fieldWeakening, {
       duration: prefersReducedMotion.current ? 0 : 150,
     });
   });
