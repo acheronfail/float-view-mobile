@@ -96,3 +96,12 @@ the same selected fraction; controller battery level remains a separately labell
 and exports. WebView recreation never resets or advances the native current filter.
 The service pins Floaty's community curves and exposes their catalog version and
 compensation mode; temperature, age and remaining range are not modeled.
+
+Battery setup uses one Basic/Advanced form in both board editors. The service supplies
+the named preset catalog; the browser only renders it and sends serialized selection
+commands. Basic shows manufacturer-grouped variants and actual draft capacity;
+Advanced exposes counts, the actual curve, optional full-pack Ah and empty voltage.
+Mode changes preserve drafts without saving. Explicit selection/reset replaces
+battery defaults atomically; capacity/empty overrides retain the selected name,
+while departing counts/curve become Custom. Accepted snapshots alone change live
+estimates. Pending/failed saves remain visible, scoped to the opened board.

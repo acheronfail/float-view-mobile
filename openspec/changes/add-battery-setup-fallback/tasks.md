@@ -17,13 +17,13 @@
 
 ## 4. Basic and Advanced preset setup
 
-- [ ] 4.1 Integrate the shared preset catalog/identity/capacity contract after `stabilize-battery-state-of-charge` tasks 1.1–1.3; verify typed mock fixtures and snapshot consumption without a frontend-owned preset policy or duplicate catalog.
-- [ ] 4.2 Add accessible Basic/Advanced segments and manufacturer-grouped native select to the shared battery form; verify identical full-editor/modal behavior, initial mode for unconfigured/named/manual profiles, primary/non-primary/cancelled input, keyboard/assistive activation, and no duplicate activation under telemetry.
-- [ ] 4.3 Apply presets with one serialized revisioned selection request and pending/error feedback; verify complete defaults, successful persisted identity, rapid selections, conflicts, failed saves, no partial estimator configuration, and no queued edit reaching another board.
-- [ ] 4.4 Preserve drafts on mode changes without toggle-induced blur saves; add Custom behavior, actual-value summary, manual override handling, and optional Advanced capacity input. Verify toggles issue no requests, invalid drafts survive, 3.0 V help remains in Advanced, reopening keeps names, count edits invalidate prior capacity, and the explicit reset action restores preset defaults without relying on native select re-selection.
-- [ ] 4.5 Cover a known-curve preset and XR/Pint or P30B/RS50 preset mapped internally to generic; verify Basic has no generic/approximation label, missing-curve warning, or extra confirmation while Advanced exposes the actual profile and accepted setup removes only the missing-configuration warning.
-- [ ] 4.6 Update frontend ownership documentation and extend browser/mock coverage for both editors, touch/keyboard mode changes, reconnect, view recreation, custom/cleared capacity, and save failures; verify the shared catalog remains service-owned and reported fallback stays limited to `not_configured`.
-- [ ] 4.7 Run affected frontend unit/component tests, type checks, relevant formatting/lint checks, and battery browser scenarios; validate both OpenSpec changes and record new results separately from the completed implementation evidence below. Cross-platform contract verification belongs to the companion change.
+- [x] 4.1 Integrate the shared preset catalog/identity/capacity contract after `stabilize-battery-state-of-charge` tasks 1.1–1.3; verify typed mock fixtures and snapshot consumption without a frontend-owned preset policy or duplicate catalog.
+- [x] 4.2 Add accessible Basic/Advanced segments and manufacturer-grouped native select to the shared battery form; verify identical full-editor/modal behavior, initial mode for unconfigured/named/manual profiles, primary/non-primary/cancelled input, keyboard/assistive activation, and no duplicate activation under telemetry.
+- [x] 4.3 Apply presets with one serialized revisioned selection request and pending/error feedback; verify complete defaults, successful persisted identity, rapid selections, conflicts, failed saves, no partial estimator configuration, and no queued edit reaching another board.
+- [x] 4.4 Preserve drafts on mode changes without toggle-induced blur saves; add Custom behavior, actual-value summary, manual override handling, and optional Advanced capacity input. Verify toggles issue no requests, invalid drafts survive, 3.0 V help remains in Advanced, reopening keeps names, count edits invalidate prior capacity, and the explicit reset action restores preset defaults without relying on native select re-selection.
+- [x] 4.5 Cover a known-curve preset and XR/Pint or P30B/RS50 preset mapped internally to generic; verify Basic has no generic/approximation label, missing-curve warning, or extra confirmation while Advanced exposes the actual profile and accepted setup removes only the missing-configuration warning.
+- [x] 4.6 Update frontend ownership documentation and extend browser/mock coverage for both editors, touch/keyboard mode changes, reconnect, view recreation, custom/cleared capacity, and save failures; verify the shared catalog remains service-owned and reported fallback stays limited to `not_configured`.
+- [x] 4.7 Run affected frontend unit/component tests, type checks, relevant formatting/lint checks, and battery browser scenarios; validate both OpenSpec changes and record new results separately from the completed implementation evidence below. Cross-platform contract verification belongs to the companion change.
 
 ## Verification results — completed fallback/modal implementation
 
@@ -36,3 +36,10 @@ These results predate the Basic/Advanced preset extension and do not verify task
 - Conformance `tsc --noEmit`: passed.
 - `node --strip-types --test test/battery.browser.ts`: Chromium and WebKit passed against the final frontend build, with ongoing mock telemetry. Coverage includes fallback/missing reported values, pointer cancellation and keyboard/touch opening, modal subset and reopening, accepted profile changes, revision conflict recovery, save failure and explicit dismissal, retained drafts during projected reconnect snapshots, board-identity invalidation, focus restoration, and view recreation.
 - Shared-service algorithms, firmware protocols, public contract, and native host code are unchanged. Reconnect/board-switch browser cases exercise frontend snapshot reactions; they do not claim physical Bluetooth validation.
+
+## Verification — Basic/Advanced preset extension (2026-09-30)
+
+- Both editors consume the shared catalog; preset commands contain only identity and use the existing serialized revision queue. Drafts and failed saves stay board-scoped.
+- Chromium and WebKit: all four battery/preset browser scenarios pass, covering fallback, both editors, touch/keyboard, cancelled/right-button activation, unsaved valid/invalid mode switches, rapid atomic selections, generic mapping, failures, conflict recovery, custom count edits, cleared/overridden capacity, explicit reset, reconnect snapshot handling, board invalidation and recreation.
+- Focused frontend unit tests: 10 passed. Svelte check: zero errors/warnings. Frontend build, changed-component ESLint/Prettier and conformance TypeScript passed.
+- Empty number bindings in the installed Svelte return null; optional battery inputs accept null and undefined. Browser coverage verifies clearing persists.

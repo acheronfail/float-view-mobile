@@ -18,6 +18,9 @@
   let seriesCount = $state<number | undefined>();
   let parallelCount = $state<number | undefined>();
   let batteryCellProfileId = $state('');
+  let batteryPresetId = $state('');
+  let batteryCapacityAh = $state<number | undefined>();
+  let pendingSaves = $state(0);
   let batteryMinimumCellVoltageV = $state<number | undefined>();
   let motor = $state('');
   let preferredCanId = $state<number | undefined>();
@@ -62,6 +65,8 @@
       seriesCount = typeof values?.seriesCount === 'number' ? values.seriesCount : undefined;
       parallelCount = typeof values?.parallelCount === 'number' ? values.parallelCount : undefined;
       batteryCellProfileId = values?.batteryCellProfileId ?? '';
+      batteryPresetId = values?.batteryPresetId ?? '';
+      batteryCapacityAh = values?.batteryCapacityAh ?? undefined;
       batteryMinimumCellVoltageV = values?.batteryMinimumCellVoltageV ?? undefined;
       motor = typeof values?.motor === 'string' ? values.motor : '';
       preferredCanId = typeof values?.preferredCanId === 'number' ? values.preferredCanId : undefined;
@@ -96,9 +101,22 @@
 
   function saveProfile(patch: Record<string, unknown>) {
     enqueue(async () => {
+      pendingSaves++;
       const saved = await backendState.updateBoardProfile(savedDeviceId, patch);
+      pendingSaves--;
       if (!active) return;
       if (saved) {
+        if (patch.batteryPresetId) {
+          for (const key of [
+            'batteryPresetId',
+            'seriesCount',
+            'parallelCount',
+            'batteryCellProfileId',
+            'batteryCapacityAh',
+            'batteryMinimumCellVoltageV',
+          ])
+            delete failedPatch[key];
+        }
         for (const key of Object.keys(patch)) delete failedPatch[key];
         if (!Object.keys(failedPatch).length) saveError = null;
       } else {
@@ -204,6 +222,9 @@
       <BatteryFields
         bind:seriesCount
         bind:parallelCount
+        bind:batteryPresetId
+        bind:batteryCapacityAh
+        presets={backendState.snapshot?.batteryPresets ?? []}
         bind:batteryCellProfileId
         bind:batteryMinimumCellVoltageV
         profiles={backendState.snapshot?.batteryCellProfiles ?? []}
@@ -229,6 +250,9 @@
     </div>
   {:else}
     <p class="text-muted">Loading board configuration…</p>
+  {/if}
+  {#if pendingSaves}
+    <p role="status" class="mt-3 text-sm text-muted">Saving settings…</p>
   {/if}
   {#if saveError}
     <p role="alert" class="mt-3 text-warning">{saveError}</p>
