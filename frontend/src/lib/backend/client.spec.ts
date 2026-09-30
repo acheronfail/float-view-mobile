@@ -1,3 +1,4 @@
+import { permissionInventory } from '../../../backend-mock/permissions';
 import { describe, expect, it } from 'vitest';
 import type { AppState } from '$lib/backend/contract';
 import { ApiClient, ApiProtocolError } from './client';
@@ -45,8 +46,8 @@ describe('ApiClient', () => {
     const { socket, client } = setup();
     const result = client.request('state.get', {});
     expect(JSON.parse(socket.sent[0])).toEqual({ id: 1, method: 'state.get', params: {} });
-    socket.receive({ id: 1, result: { revision: 3 } });
-    socket.receive({ id: 1, result: { revision: 4 } });
+    socket.receive({ id: 1, result: { revision: 3, permissions: permissionInventory('ios') } });
+    socket.receive({ id: 1, result: { revision: 4, permissions: permissionInventory('ios') } });
     await expect(result).resolves.toMatchObject({ revision: 3 });
     client.close();
   });
@@ -63,9 +64,15 @@ describe('ApiClient', () => {
     const { socket, client } = setup();
     const revisions: number[] = [];
     const unsubscribe = client.onStateChanged((state) => revisions.push(state.revision));
-    socket.receive({ event: 'state.changed', data: { revision: 1 } as AppState });
+    socket.receive({
+      event: 'state.changed',
+      data: { revision: 1, permissions: permissionInventory('ios') } as AppState,
+    });
     unsubscribe();
-    socket.receive({ event: 'state.changed', data: { revision: 2 } as AppState });
+    socket.receive({
+      event: 'state.changed',
+      data: { revision: 2, permissions: permissionInventory('ios') } as AppState,
+    });
     expect(revisions).toEqual([1]);
     client.close();
   });
@@ -91,4 +98,15 @@ describe('ApiClient', () => {
     socket.receiveRaw('😀'.repeat(16_385));
     await expect(result).rejects.toThrow('oversized message');
   });
+});
+
+it('closes malformed permission inventories and notifies closure once', async () => {
+  const { client, socket } = setup();
+  let closed = 0;
+  client.onClosed(() => closed++);
+  const pending = client.request('state.get', {});
+  socket.receive({ id: 1, result: { revision: 1, permissions: [{ permission: 'arbitrary' }] } });
+  await expect(pending).rejects.toThrow('invalid permission inventory');
+  client.close();
+  expect(closed).toBe(1);
 });

@@ -1,3 +1,4 @@
+import { permissionInventory, locationSummary } from './permissions.ts';
 import { batteryPresets, batteryPresetCatalogVersion, applyBatteryPatch } from './battery-presets.ts';
 import { batteryCellProfiles, emptyEstimate, MockBattery } from './battery.ts';
 import {
@@ -310,6 +311,7 @@ export class MockBackend {
       locationRecordingEnabled: false,
       includeGpsLocationWhenExporting: false,
     },
+    permissions: permissionInventory('ios'),
     location: {
       status: 'disabled',
       permissionAction: 'requestPermission',
@@ -354,22 +356,32 @@ export class MockBackend {
     switch (request.method as BackendMethod) {
       case 'state.get':
         return success(id, this.state);
+      case 'permissions.recover': {
+        if (
+          Object.keys(params).some((key) => !['permission', 'action'].includes(key)) ||
+          !['bluetooth', 'location', 'backgroundLocation'].includes(String(params.permission)) ||
+          !['requestPermission', 'openSettings'].includes(String(params.action))
+        )
+          return failure(id, 'invalid_request', 'Unknown permission or action');
+        if (this.state.permissions.some((row) => row.pending))
+          return failure(id, 'conflict', 'Permission presentation is pending');
+        const row = this.state.permissions.find((row) => row.permission === params.permission);
+        if (!row || row.action !== params.action)
+          return failure(id, 'invalid_state', 'Permission action changed. Refresh and try again.');
+        // Presentation never invents an OS grant. Tests explicitly supply later observations.
+        return success(id, this.state.permissions);
+      }
       case 'bluetooth.requestPermission':
         return success(id, this.state.bluetooth);
-      case 'location.requestPermission': {
-        const location = {
-          ...this.state.location,
-          status: this.state.settings.locationRecordingEnabled ? ('authorized' as const) : ('disabled' as const),
-          permissionAction: this.state.settings.locationRecordingEnabled ? null : ('requestPermission' as const),
-          backgroundCapture: this.state.settings.locationRecordingEnabled
-            ? ('available' as const)
-            : ('unavailable' as const),
-          reason: null,
-        };
-        this.change({ ...this.state, location });
-        return success(id, location);
-      }
+      case 'location.requestPermission':
+        if (this.state.permissions.some((row) => row.pending))
+          return failure(id, 'conflict', 'Permission presentation is pending');
+        return success(id, this.state.location);
       case 'location.openSettings':
+        if (this.state.permissions.some((row) => row.pending))
+          return failure(id, 'conflict', 'Permission presentation is pending');
+        if (this.state.location.permissionAction !== 'openSettings')
+          return failure(id, 'invalid_state', 'Permission action changed');
         return success(id, this.state.location);
       case 'bluetooth.scan':
         this.change({
@@ -733,19 +745,7 @@ export class MockBackend {
           ...patch,
           revision: this.state.settings.revision + 1,
         };
-        const location = settings.locationRecordingEnabled
-          ? {
-              ...this.state.location,
-              status:
-                this.state.location.status === 'disabled' ? ('notDetermined' as const) : this.state.location.status,
-              permissionAction: this.state.location.status === 'authorized' ? null : ('requestPermission' as const),
-            }
-          : {
-              ...this.state.location,
-              status: 'disabled' as const,
-              permissionAction: 'requestPermission' as const,
-              backgroundCapture: 'unavailable' as const,
-            };
+        const location = locationSummary(this.state.permissions, settings.locationRecordingEnabled);
         this.change({ ...this.state, settings, location });
         return success(id, settings);
       }
@@ -1025,6 +1025,14 @@ export class MockBackend {
 
   get telemetryCadenceMs(): number {
     return this.state.settings.ridingPersistIntervalMs;
+  }
+
+  simulatePermissions(permissions: AppState['permissions']): void {
+    this.change({
+      ...this.state,
+      permissions,
+      location: locationSummary(permissions, this.state.settings.locationRecordingEnabled),
+    });
   }
 
   simulateConnectionState(state: 'ready' | 'reconnecting'): void {

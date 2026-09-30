@@ -3,6 +3,8 @@
   import { backendState } from '$lib/backend/state.svelte';
   import SectionTitle from '../../ui/SectionTitle.svelte';
 
+  import Permissions from './Permissions.svelte';
+
   const inputClass = 'mt-1 block w-full rounded border border-outline bg-elevated px-3 py-2 text-foreground';
 </script>
 
@@ -104,6 +106,8 @@
         >
       </label>
     </div>
+
+    <Permissions />
 
     <div>
       <SectionTitle title="Connection" />

@@ -1,3 +1,4 @@
+import { permissionInventory } from '../../../backend-mock/permissions';
 import { emptyEstimate } from '../../../backend-mock/battery';
 import { describe, expect, it, vi } from 'vitest';
 import type {
@@ -19,6 +20,7 @@ const bluetooth = (scanPermission: BluetoothPermissionState): BluetoothState => 
 });
 
 const initial: AppState = {
+  permissions: permissionInventory('ios'),
   revision: 1,
   bluetooth: bluetooth('granted'),
   discoveredDevices: [],
@@ -244,6 +246,9 @@ class FakeClient {
   }
   emitState() {
     this.handler?.(this.state);
+  }
+  onClosed() {
+    return () => {};
   }
   close() {
     this.isOpen = false;

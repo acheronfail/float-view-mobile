@@ -31,6 +31,7 @@ public final class SharedService: @unchecked Sendable {
   private var presenter: (@Sendable (NativeFilePresentation) -> Bool)?
   private var themeHandler: (@Sendable (ThemePreference) -> Void)?
   private var stopped = false
+  private var bluetoothPermissionCompletion: (UInt64, UInt64)?
 
   public init(root: URL, bluetooth: any BluetoothPort, location: any LocationProviderPort) throws {
     self.root = root
@@ -61,6 +62,7 @@ public final class SharedService: @unchecked Sendable {
       themeHandler = theme
       guard poll == nil else { return }
       try exchange(["command": "drain"])
+      location.refreshAuthorization { [weak self] in self?.enqueue { $0.capabilities() } }
       capabilities()
       let timer = DispatchSource.makeTimerSource(queue: queue)
       timer.schedule(deadline: .now(), repeating: .milliseconds(20), leeway: .milliseconds(5))
@@ -163,6 +165,9 @@ public final class SharedService: @unchecked Sendable {
     }
     if let foreground = cleanup.0 {
       fact(["fact": "foreground", "foreground": foreground])
+      if foreground {
+        location.refreshAuthorization { [weak self] in self?.enqueue { $0.capabilities() } }
+      }
     }
     for id in cleanup.1 {
       fact(["fact": "presentation_finished", "id": id])
@@ -183,9 +188,7 @@ public final class SharedService: @unchecked Sendable {
   private func capabilities() {
     lastCapabilities = Date()
     bluetoothFact(bluetooth.currentState())
-    let state = location.state()
-    fact(["fact": "location_capability", "authorization": state.authorization.rawValue,
-          "background": state.backgroundCapture == .available])
+    permissionFacts()
     let available = (try? root.resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey])
       .volumeAvailableCapacityForImportantUsage) ?? 0
     fact(["fact": "storage", "available_bytes": max(0, available)])
@@ -302,10 +305,26 @@ public final class SharedService: @unchecked Sendable {
         }
       }
     case "stop_location": location.stopUpdates()
-    case "request_bluetooth_permission":
-      bluetooth.requestPermission(); completeUI(id)
-    case "request_location_permission": location.requestPermission(); completeUI(id)
-    case "open_location_settings": location.openSettings(); completeUI(id)
+    case "recover_permission":
+      guard let permission = value["permission"] as? String, let action = value["action"] as? String else { return }
+      let operationLifetime = lifetime
+      let complete: @Sendable (Bool) -> Void = { [weak self] success in
+        self?.enqueue { service in
+          guard service.lifetime == operationLifetime else { return }
+          service.capabilities()
+          service.fact(["fact": "ui_completed", "id": id, "success": success])
+        }
+      }
+      if action == "openSettings" {
+        openPermissionSettings(permission, completion: complete)
+      } else if permission == "location" {
+        location.recoverAuthorization(complete)
+      } else if permission == "bluetooth" {
+        bluetoothPermissionCompletion = (id, UInt64(ProcessInfo.processInfo.systemUptime * 1000) + 30_000)
+        bluetooth.requestPermission()
+      } else {
+        complete(false)
+      }
     case "present_file":
       guard let path = value["path"] as? String, let name = value["file_name"] as? String else { return }
       let once = PresentationCompletion()
@@ -332,9 +351,40 @@ public final class SharedService: @unchecked Sendable {
     }
   }
 
-  private func completeUI(_ id: UInt64) {
-    capabilities()
-    fact(["fact": "ui_completed", "id": id, "success": true])
+  private func permissionFacts() {
+    let state = bluetooth.currentState()
+    let access = location.access()
+    func grant(_ value: String, _ requestable: Bool) -> [String: Any] {
+      ["access": value, "requestable": requestable, "rationale": false]
+    }
+    func permission(_ value: BluetoothPermissionState) -> String {
+      switch value { case .notDetermined: "notDetermined"; case .notRequired: "notRequired"; default: value.rawValue }
+    }
+    #if os(iOS)
+      let platform = "ios"
+    #else
+      let platform = "macos"
+    #endif
+    let service: Bool? = state.radio == .poweredOn ? true : state.radio == .poweredOff ? false : nil
+    let supported: Bool? = state.radio == .unsupported ? false : state.radio == .unknown ? nil : true
+    fact(["fact": "permissions", "observation": [
+      "platform": platform, "bluetooth_scan": grant(
+        permission(state.scanPermission),
+        state.scanPermission == .notDetermined
+      ),
+      "bluetooth_connect": grant(permission(state.connectPermission), state.connectPermission == .notDetermined),
+      "location": grant(access.grant, access.requestable), "background_location": grant("notRequired", false),
+      "accuracy": access.accuracy, "scope": access.scope, "location_services": access.services as Any? ?? NSNull(),
+      "bluetooth_service": service as Any? ?? NSNull(), "bluetooth_supported": supported as Any? ?? NSNull(),
+      "background_option_label": NSNull(),
+    ]])
+    if let (id, deadline) = bluetoothPermissionCompletion {
+      let expired = UInt64(ProcessInfo.processInfo.systemUptime * 1000) >= deadline
+      if state.scanPermission != .notDetermined && state.scanPermission != .unknown || expired {
+        bluetoothPermissionCompletion = nil
+        fact(["fact": "ui_completed", "id": id, "success": !expired])
+      }
+    }
   }
 
   public func shutdown() {

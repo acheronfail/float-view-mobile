@@ -14,7 +14,7 @@ record!(Bluetooth {
     scan_permission: String,
     connect_permission: String
 });
-record!(Location { authorization: String, background_capture: String, reason: Option<String> });
+record!(Location { authorization: String, background_capture: String, reason: Option<String>, permission_action: Option<crate::permissions::Action> });
 record!(Settings {
     revision: u64, idle_probe_interval_ms: u64, idle_persist_interval_ms: u64,
     riding_persist_interval_ms: u64, post_ride_tail_ms: u64, reconnect_duration_ms: u64,
@@ -180,6 +180,7 @@ record!(Snapshot {
     battery_preset_catalog_version: String,
     discovery: Discovery, active: Option<Connection>, firmware: Option<Firmware>, package_version: Option<String>,
     configuration: ConfigurationSummary, saved_boards: Vec<SavedBoard>, settings: Settings,
+    permissions: Vec<crate::permissions::Row>,
     location: Location, maintenance: Option<Maintenance>,
 });
 record!(HistoryPoint { elapsed_ms: u64, sequence: u64, values: BTreeMap<String, Option<f64>> });
@@ -202,6 +203,7 @@ record!(LocationPage { points: Vec<LocationPoint>, gaps: Vec<LocationGap>, next_
     deny_unknown_fields
 )]
 pub enum Completion {
+    Permissions(Vec<crate::permissions::Row>),
     RideMarker {
         marker: float_view_application_runtime::session::RideMarker,
         boundary: Boundary,

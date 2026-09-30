@@ -19,19 +19,13 @@ import fail.acheron.floatview.application.LocationProviderPort
 import fail.acheron.floatview.application.LocationProviderState
 import java.time.Instant
 
-fun interface LocationPermissionRequester {
-    fun request(permissions: Array<String>)
-}
-
 class AndroidLocationProvider(
     context: Context,
-    private val requester: LocationPermissionRequester,
+    private val wasResolved: (String) -> Boolean,
 ) : LocationProviderPort {
     private val applicationContext = context.applicationContext
     private val locationManager =
         applicationContext.getSystemService(Context.LOCATION_SERVICE) as LocationManager
-    private val preferences =
-        applicationContext.getSharedPreferences("location-permission-history", Context.MODE_PRIVATE)
     private var listener: LocationListener? = null
     private var handler: ((LocationProviderObservation) -> Unit)? = null
 
@@ -51,13 +45,13 @@ class AndroidLocationProvider(
         }
         if (!hasForegroundPermission()) {
             return LocationProviderState(
-                if (preferences.getBoolean("requested", false)) {
+                if (wasResolved(Manifest.permission.ACCESS_COARSE_LOCATION)) {
                     LocationProviderAuthorization.DENIED
                 } else {
                     LocationProviderAuthorization.NOT_DETERMINED
                 },
                 LocationProviderBackgroundCapture.UNAVAILABLE,
-                if (preferences.getBoolean("requested", false)) "Location permission was denied." else "Location permission has not been resolved.",
+                if (wasResolved(Manifest.permission.ACCESS_COARSE_LOCATION)) "Location permission was denied." else "Location permission has not been resolved.",
             )
         }
         val background = if (hasBackgroundPermission()) {
@@ -76,29 +70,6 @@ class AndroidLocationProvider(
                 "Background location access is not enabled."
             } else null,
         )
-    }
-
-    @Synchronized
-    override fun requestPermission() {
-        preferences.edit().putBoolean("requested", true).apply()
-        if (!hasForegroundPermission()) {
-            requester.request(
-                arrayOf(
-                    Manifest.permission.ACCESS_COARSE_LOCATION,
-                    Manifest.permission.ACCESS_FINE_LOCATION,
-                ),
-            )
-        } else if (Build.VERSION.SDK_INT >= 29 && !hasBackgroundPermission()) {
-            requester.request(arrayOf(Manifest.permission.ACCESS_BACKGROUND_LOCATION))
-        }
-    }
-
-    override fun openSettings() {
-        val intent = Intent(
-            Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
-            Uri.parse("package:${applicationContext.packageName}"),
-        ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        applicationContext.startActivity(intent)
     }
 
     @Synchronized

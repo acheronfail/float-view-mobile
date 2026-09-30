@@ -1,3 +1,4 @@
+import { validatePermissions } from '../../frontend/src/lib/backend/permissions.ts';
 import assert from 'node:assert/strict';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
@@ -128,6 +129,7 @@ async function runPhysicalScenario(
     const endpoint = await target.start();
     client = await ConformanceClient.open(endpoint.url, endpoint.origin, 10_000);
     const starting = await client.request('state.get', {});
+    validatePermissions(starting.permissions);
     const bluetoothReady =
       starting.bluetooth.radio === 'powered_on'
         ? starting

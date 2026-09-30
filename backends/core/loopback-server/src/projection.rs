@@ -7,16 +7,9 @@ pub fn value(record: &impl Serialize) -> Value {
     serde_json::to_value(record).expect("finite typed facts")
 }
 pub fn location(facts: &Location, enabled: bool) -> Value {
-    if !enabled {
-        return json!({"status":"disabled","permissionAction":"requestPermission","backgroundCapture":"unavailable","reason":null});
-    }
-    let action = match facts.authorization.as_str() {
-        "notDetermined" => Some("requestPermission"),
-        "denied" | "restricted" | "foregroundOnly" => Some("openSettings"),
-        _ => None,
-    };
-    json!({"status":facts.authorization,"permissionAction":action,"backgroundCapture":facts.background_capture,"reason":facts.reason})
+    json!({"status":if enabled { facts.authorization.as_str() } else { "disabled" }, "permissionAction":facts.permission_action,"backgroundCapture":facts.background_capture,"reason":facts.reason})
 }
+
 pub fn bluetooth(facts: &Bluetooth, scanning: bool) -> Value {
     let mut result = value(facts);
     result["scanning"] = json!(scanning);
@@ -56,7 +49,7 @@ pub fn state(facts: &Snapshot, revision: u64, catalog_revision: u64) -> Value {
     });
     json!({"batteryPresets":facts.battery_presets,"batteryPresetCatalogVersion":facts.battery_preset_catalog_version,"batteryCellProfiles":facts.battery_cell_profiles,"revision":revision,"bluetooth":bluetooth(&facts.discovery.bluetooth_state,facts.discovery.active_scan_id.is_some()),
         "discoveredDevices":discovered,"savedDevices":facts.saved_boards,"activeConnection":active,"sessionCatalogRevision":catalog_revision,
-        "settings":facts.settings,"location":location(&facts.location,facts.settings.location_recording_enabled),
+        "permissions":facts.permissions,"settings":facts.settings,"location":location(&facts.location,facts.settings.location_recording_enabled),
         "sessionOperation":facts.maintenance.as_ref().map(maintenance)})
 }
 pub fn error(failure: &Failure) -> Value {

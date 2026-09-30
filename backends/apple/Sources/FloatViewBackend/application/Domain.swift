@@ -101,8 +101,9 @@ public struct LocationProviderObservation: Sendable, Codable, Equatable {
 
 public protocol LocationProviderPort: AnyObject, Sendable {
   func state() -> LocationProviderState
-  func requestPermission()
-  func openSettings()
+  func access() -> LocationAccess
+  func refreshAuthorization(_ completion: @escaping @Sendable () -> Void)
+  func recoverAuthorization(_ completion: @escaping @Sendable (Bool) -> Void)
   func startUpdates(_ handler: @escaping @Sendable (LocationProviderObservation) -> Void)
   func stopUpdates()
 }

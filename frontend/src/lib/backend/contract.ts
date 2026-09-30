@@ -559,6 +559,41 @@ export type LocationAuthorizationStatus =
 
 export type LocationPermissionAction = 'requestPermission' | 'openSettings' | null;
 
+/** Complete native inventory, at most three unique rows. Labels are frontend-owned. */
+export type PermissionId = 'bluetooth' | 'location' | 'backgroundLocation';
+export type PermissionAction = 'requestPermission' | 'openSettings';
+export type PermissionGrant = 'unknown' | 'notDetermined' | 'granted' | 'denied' | 'restricted' | 'notRequired';
+export type PermissionGuidance =
+  | 'none'
+  | 'checking'
+  | 'restricted'
+  | 'servicesDisabled'
+  | 'unsupportedHardware'
+  | 'foregroundRequired'
+  | 'rationale'
+  | 'appSettings'
+  | 'iosSettings'
+  | 'macBluetooth'
+  | 'macLocation'
+  | 'backgroundSettings'
+  | 'alwaysAccess'
+  | 'fineLocationForScan';
+export interface PermissionRow {
+  permission: PermissionId;
+  status: 'notDetermined' | 'granted' | 'limited' | 'denied' | 'restricted' | 'unavailable';
+  action: PermissionAction | null;
+  guidance: PermissionGuidance;
+  pending: boolean;
+  optional: boolean;
+  servicesEnabled: boolean | null;
+  scan: PermissionGrant | null;
+  connect: PermissionGrant | null;
+  accuracy: 'unknown' | 'approximate' | 'precise';
+  scope: 'unknown' | 'whileInUse' | 'always';
+  /** OS-localized background setting label, at most 120 characters. */
+  optionLabel: string | null;
+}
+
 export interface LocationState {
   status: LocationAuthorizationStatus;
   permissionAction: LocationPermissionAction;
@@ -684,6 +719,7 @@ export interface AppState {
   batteryPresets: BatteryPreset[];
   batteryPresetCatalogVersion: string;
   revision: number;
+  permissions: PermissionRow[];
   bluetooth: BluetoothState;
   discoveredDevices: DiscoveredDevice[];
   savedDevices: SavedDevice[];
@@ -716,6 +752,7 @@ export interface Accepted {
 
 export interface BackendMethods {
   'state.get': { params: EmptyParams; result: AppState };
+  'permissions.recover': { params: { permission: PermissionId; action: PermissionAction }; result: PermissionRow[] };
   'bluetooth.requestPermission': { params: EmptyParams; result: BluetoothState };
   'bluetooth.scan': { params: { timeoutMs?: number }; result: Accepted };
   'location.requestPermission': { params: EmptyParams; result: LocationState };

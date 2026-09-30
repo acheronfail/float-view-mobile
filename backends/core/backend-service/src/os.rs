@@ -53,6 +53,9 @@ pub enum LinkState {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(tag = "fact", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Fact {
+    Permissions {
+        observation: crate::permissions::Observation,
+    },
     Clock {},
     StopRequested {},
     Bluetooth {
@@ -92,10 +95,6 @@ pub enum Fact {
     },
     Timer {
         id: u64,
-    },
-    LocationCapability {
-        authorization: LocationAuthorization,
-        background: bool,
     },
     Location {
         capture_id: u64,
@@ -169,14 +168,10 @@ pub enum Effect {
         capture_id: u64,
     },
     StopLocation,
-    RequestBluetoothPermission {
+    RecoverPermission {
         id: u64,
-    },
-    RequestLocationPermission {
-        id: u64,
-    },
-    OpenLocationSettings {
-        id: u64,
+        permission: crate::permissions::Id,
+        action: crate::permissions::Action,
     },
     PresentFile {
         id: u64,

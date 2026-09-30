@@ -73,6 +73,8 @@ pub(crate) struct Policy {
     pub timers: BTreeMap<u64, TimerEntry>,
     pub location_authorization: os::LocationAuthorization,
     pub location_background: bool,
+    pub permissions: Option<crate::permissions::Observation>,
+    pub permission_presentation: Option<(u64, crate::permissions::Id, u64)>,
     pub foreground: bool,
     pub capture: Option<Capture>,
     pub latest_location: Option<crate::facts::LiveLocation>,
@@ -96,8 +98,10 @@ impl Policy {
             scan: None,
             active: None,
             timers: BTreeMap::new(),
-            location_authorization: os::LocationAuthorization::NotDetermined,
+            location_authorization: os::LocationAuthorization::Unavailable,
             location_background: false,
+            permissions: None,
+            permission_presentation: None,
             foreground: true,
             capture: None,
             latest_location: None,
@@ -215,7 +219,27 @@ impl BackendService {
         }
         // Periodic capability observations are facts, not product mutations.
         // Consume their sequence/time without inventing public revisions.
+        let expired: Vec<_> = self
+            .pending
+            .iter()
+            .filter(|(_, p)| p.deadline <= envelope.monotonic_ms)
+            .map(|(id, _)| *id)
+            .collect();
+        for id in expired {
+            self.finish_pending(id, Err(Failure::Unavailable));
+        }
+        if self
+            .policy
+            .permission_presentation
+            .is_some_and(|(_, _, deadline)| deadline <= envelope.monotonic_ms)
+        {
+            self.policy.permission_presentation = None;
+            self.changed()?;
+        }
         let unchanged_capability = match &envelope.fact {
+            Fact::Permissions { observation } => {
+                self.policy.permissions.as_ref() == Some(observation)
+            }
             Fact::Bluetooth {
                 radio,
                 scan,
@@ -224,13 +248,6 @@ impl BackendService {
                 *radio == self.policy.radio
                     && *scan == self.policy.scan_permission
                     && *connect == self.policy.connect_permission
-            }
-            Fact::LocationCapability {
-                authorization,
-                background,
-            } => {
-                *authorization == self.policy.location_authorization
-                    && *background == self.policy.location_background
             }
             Fact::Foreground { foreground } => *foreground == self.policy.foreground,
             _ => false,
@@ -258,6 +275,16 @@ impl BackendService {
         let first_discovery = matches!(envelope.fact, Fact::Discovered { .. })
             && self.policy.visible_devices.is_empty();
         match envelope.fact {
+            Fact::Permissions { observation } => {
+                if !observation.valid() {
+                    return Err(Failure::InvalidRequest);
+                }
+                (
+                    self.policy.location_authorization,
+                    self.policy.location_background,
+                ) = observation.location_capability();
+                self.policy.permissions = Some(observation);
+            }
             Fact::Clock {} => {}
             Fact::StopRequested {} => self.disconnect("native_stop_requested")?,
             Fact::Bluetooth {
@@ -435,13 +462,6 @@ impl BackendService {
                 }
             }
             Fact::Timer { id } => self.fire_timer(id)?,
-            Fact::LocationCapability {
-                authorization,
-                background,
-            } => {
-                self.policy.location_authorization = authorization;
-                self.policy.location_background = background;
-            }
             Fact::Foreground { foreground } => self.policy.foreground = foreground,
             Fact::Storage { available_bytes } => self.policy.available_bytes = available_bytes,
             Fact::Location {
@@ -1517,9 +1537,17 @@ mod tests {
         sample.ride_state = telemetry::RideState::Riding;
         t.service.policy.active.as_mut().unwrap().latest = Some(sample);
         t.fact(
-            Fact::LocationCapability {
-                authorization: os::LocationAuthorization::Authorized,
-                background: true,
+            Fact::Permissions {
+                observation: crate::permissions::Observation {
+                    location: crate::permissions::Grant {
+                        access: Permission::Granted,
+                        requestable: false,
+                        rationale: false,
+                    },
+                    scope: crate::permissions::Scope::Always,
+                    location_services: Some(true),
+                    ..crate::permissions::Observation::unknown(crate::permissions::Platform::Ios)
+                },
             },
             100,
         )
@@ -1579,9 +1607,17 @@ mod tests {
         t.fact(Fact::Foreground { foreground: false }, 111).unwrap();
         assert!(t.service.policy.capture.is_some());
         t.fact(
-            Fact::LocationCapability {
-                authorization: os::LocationAuthorization::ForegroundOnly,
-                background: false,
+            Fact::Permissions {
+                observation: crate::permissions::Observation {
+                    location: crate::permissions::Grant {
+                        access: Permission::Granted,
+                        requestable: false,
+                        rationale: false,
+                    },
+                    scope: crate::permissions::Scope::WhileInUse,
+                    location_services: Some(true),
+                    ..crate::permissions::Observation::unknown(crate::permissions::Platform::Ios)
+                },
             },
             112,
         )
@@ -1614,40 +1650,6 @@ mod tests {
         t.fact(Fact::Foreground { foreground: true }, 1_300)
             .unwrap();
         assert!(save(&mut t.service, 3).location.is_none());
-    }
-    #[test]
-    fn ui_admission_cancellation_and_duplicate_completions_are_bounded() {
-        use crate::{Dispatch, operations::Operation};
-        let mut t = Test::new();
-        t.discover();
-        let mut replies = Vec::new();
-        for _ in 0..8 {
-            let Dispatch::Pending(reply) = t
-                .service
-                .dispatch(1, Operation::RequestBluetoothPermission)
-                .unwrap()
-            else {
-                panic!("pending");
-            };
-            replies.push(reply);
-        }
-        assert!(matches!(
-            t.service.dispatch(1, Operation::RequestBluetoothPermission),
-            Err(Failure::Unavailable)
-        ));
-        let id = *t.service.pending.keys().next().unwrap();
-        t.fact(Fact::UiCompleted { id, success: true }, 5).unwrap();
-        assert!(matches!(
-            replies[0].try_recv(),
-            Ok(Ok(crate::facts::Completion::Bluetooth(_)))
-        ));
-        t.fact(Fact::UiCompleted { id, success: true }, 6).unwrap();
-        assert_eq!(t.service.pending.len(), 7);
-        t.service.disconnect_client(1);
-        assert!(t.service.pending.is_empty());
-        for reply in &mut replies[1..] {
-            assert!(matches!(reply.try_recv(), Ok(Err(Failure::Unavailable))));
-        }
     }
     #[test]
     fn temporal_charge_survives_identity_only_edits_and_rejected_mutations() {

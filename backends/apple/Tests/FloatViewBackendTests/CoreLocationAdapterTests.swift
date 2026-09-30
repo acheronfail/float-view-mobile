@@ -89,3 +89,27 @@ func coreLocationAlwaysUpgrade() throws {
     #expect(request.authorizationChanged(whenInUse) == nil)
   }
 }
+
+@Test
+func permissionInventorySeparatesGrantFromDisabledServicesAndAccuracy() throws {
+  let whenInUse = try #require(CLAuthorizationStatus(rawValue: 4))
+  let access = CoreLocationAdapter.accessState(
+    servicesEnabled: false,
+    authorization: whenInUse,
+    accuracy: "approximate"
+  )
+  #expect(access.grant == "granted")
+  #expect(access.scope == "whileInUse")
+  #expect(access.accuracy == "approximate")
+  #expect(access.services == false)
+  #expect(access.requestable == false)
+  for authorization in [CLAuthorizationStatus.denied, .restricted, .notDetermined] {
+    let access = CoreLocationAdapter.accessState(
+      servicesEnabled: true,
+      authorization: authorization,
+      accuracy: "precise"
+    )
+    #expect(access.accuracy == "unknown")
+    #expect(access.requestable == (authorization == .notDetermined))
+  }
+}

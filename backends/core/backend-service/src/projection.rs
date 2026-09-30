@@ -259,6 +259,7 @@ impl BackendService {
             configuration: configuration(&runtime.configuration),
             saved_boards: p.boards.clone(),
             settings: settings(&p.settings),
+            permissions: self.permission_rows(),
             location: self.location_facts(),
             maintenance: self
                 .store
@@ -282,7 +283,9 @@ impl BackendService {
         }
     }
     pub(crate) fn location_facts(&self) -> f::Location {
+        let row = self.location_recovery_row();
         f::Location {
+            permission_action: row.as_ref().and_then(|r| r.action),
             authorization: camel(self.policy.location_authorization),
             background_capture: if self.policy.location_background {
                 "available"

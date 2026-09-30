@@ -20,6 +20,10 @@ pub enum Operation {
         session_id: String,
         operation_id: String,
     },
+    RecoverPermission {
+        permission: crate::permissions::Id,
+        action: crate::permissions::Action,
+    },
     RequestBluetoothPermission,
     RequestLocationPermission,
     OpenLocationSettings,

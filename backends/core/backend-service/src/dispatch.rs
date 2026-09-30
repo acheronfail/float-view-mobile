@@ -15,6 +15,7 @@ pub enum Dispatch {
 }
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) enum PendingKind {
+    Permission,
     Bluetooth,
     Location,
     Settings,
@@ -91,6 +92,9 @@ impl BackendService {
                     .ok_or(Failure::InvalidState)?
                     .session = Some(session);
                 f::Completion::RideMarker { marker, boundary }
+            }
+            Operation::RecoverPermission { permission, action } => {
+                return self.recover_permission(owner, permission, action, PendingKind::Permission);
             }
             Operation::RequestBluetoothPermission => {
                 return self.request_ui(owner, PendingKind::Bluetooth);
@@ -505,13 +509,76 @@ impl BackendService {
         Ok(())
     }
     fn request_ui(&mut self, owner: u64, kind: PendingKind) -> Result<Dispatch, Failure> {
-        let (id, receiver) = self.add_pending(owner, kind, 30_000)?;
-        let effect = match kind {
-            PendingKind::Bluetooth => os::Effect::RequestBluetoothPermission { id },
-            PendingKind::Location => os::Effect::RequestLocationPermission { id },
-            _ => os::Effect::OpenLocationSettings { id },
+        use crate::permissions::{Action, Id};
+        let permission = if kind == PendingKind::Bluetooth {
+            if self
+                .permission_rows()
+                .iter()
+                .any(|r| r.permission == Id::Bluetooth)
+            {
+                Id::Bluetooth
+            } else {
+                Id::Location
+            }
+        } else {
+            self.location_recovery_row()
+                .map(|r| r.permission)
+                .unwrap_or(Id::Location)
         };
-        self.policy.exchange.push(effect)?;
+        let row = self
+            .permission_rows()
+            .into_iter()
+            .find(|r| r.permission == permission)
+            .ok_or(Failure::Unavailable)?;
+        if row.action != Some(Action::RequestPermission) && kind != PendingKind::Settings {
+            return Ok(Dispatch::Complete(Box::new(
+                if kind == PendingKind::Bluetooth {
+                    f::Completion::Bluetooth(self.bluetooth_facts())
+                } else {
+                    f::Completion::Location(self.location_facts())
+                },
+            )));
+        }
+        let action = if kind == PendingKind::Settings {
+            Action::OpenSettings
+        } else {
+            row.action.ok_or(Failure::InvalidState)?
+        };
+        self.recover_permission(owner, permission, action, kind)
+    }
+    fn recover_permission(
+        &mut self,
+        owner: u64,
+        permission: crate::permissions::Id,
+        action: crate::permissions::Action,
+        kind: PendingKind,
+    ) -> Result<Dispatch, Failure> {
+        if self.policy.permission_presentation.is_some() {
+            return Err(Failure::Conflict);
+        }
+        let row = self
+            .permission_rows()
+            .into_iter()
+            .find(|r| r.permission == permission)
+            .ok_or(Failure::InvalidState)?;
+        if row.action != Some(action) {
+            return Err(Failure::InvalidState);
+        }
+        if !self.policy.foreground {
+            return Err(Failure::Unavailable);
+        }
+        let (id, receiver) = self.add_pending(owner, kind, 30_000)?;
+        self.policy.permission_presentation = Some((
+            id,
+            permission,
+            self.policy.exchange.now.saturating_add(30_000),
+        ));
+        self.policy.exchange.push(os::Effect::RecoverPermission {
+            id,
+            permission,
+            action,
+        })?;
+        self.changed()?;
         Ok(Dispatch::Pending(receiver))
     }
     fn add_pending(
@@ -564,11 +631,22 @@ impl BackendService {
         }
     }
     pub(crate) fn complete_ui(&mut self, id: u64, success: bool) {
+        if self
+            .policy
+            .permission_presentation
+            .is_none_or(|(active, _, _)| active != id)
+        {
+            return;
+        }
+        self.policy.permission_presentation = None;
         if let Some(p) = self.pending.get(&id) {
             let result = if !success {
                 Err(Failure::Unavailable)
             } else {
                 match p.kind {
+                    PendingKind::Permission => {
+                        Ok(f::Completion::Permissions(self.permission_rows()))
+                    }
                     PendingKind::Bluetooth => Ok(f::Completion::Bluetooth(self.bluetooth_facts())),
                     PendingKind::Location | PendingKind::Settings => {
                         Ok(f::Completion::Location(self.location_facts()))

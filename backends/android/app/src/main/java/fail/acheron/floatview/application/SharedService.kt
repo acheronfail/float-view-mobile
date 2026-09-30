@@ -15,6 +15,7 @@ class SharedService(
     private val root: File,
     private val bluetooth: BluetoothPort,
     private val location: LocationProviderPort,
+    private val permissions: fail.acheron.floatview.permissions.PermissionBroker,
     private val presenter: (NativeFilePresentation) -> Boolean,
     private val recordingChanged: (Boolean) -> Unit,
     private val locationChanged: () -> Unit,
@@ -49,10 +50,11 @@ class SharedService(
         check(handle > 0) { "Shared service startup failed" }
     }
     fun start() {
-        executor.execute { exchange(json("command" to "drain")); capabilities() }
+        // Publish the platform inventory before any listener can serve a complete snapshot.
+        executor.submit { exchange(json("command" to "drain")); capabilities() }.get(5, TimeUnit.SECONDS)
         executor.scheduleWithFixedDelay({ runCatching { tick() } }, 20, 20, TimeUnit.MILLISECONDS)
     }
-    fun setForeground(value: Boolean) { synchronized(callbackLock) { foreground = value } }
+    fun setForeground(value: Boolean) { synchronized(callbackLock) { foreground = value; lastCapabilities = 0 } }
     fun requestStop() { synchronized(callbackLock) { stopRequested = true } }
     fun refreshCapabilities() { synchronized(callbackLock) { lastCapabilities = 0 } }
     @Synchronized fun observeTheme(handler: (ThemePreference) -> Unit): AutoCloseable {
@@ -137,10 +139,11 @@ class SharedService(
     }
     private fun capabilities() {
         lastCapabilities = SystemClock.elapsedRealtime()
-        bluetoothFact(bluetooth.currentState())
+        val bluetoothState = bluetooth.currentState()
+        bluetoothFact(bluetoothState)
+        val enabled = when (bluetoothState.radio) { BluetoothRadioState.POWERED_ON -> true; BluetoothRadioState.POWERED_OFF -> false; else -> null }
+        fact(json("fact" to "permissions", "observation" to permissions.observation(enabled, when (bluetoothState.radio) { BluetoothRadioState.UNSUPPORTED -> false; BluetoothRadioState.UNKNOWN -> null; else -> true })))
         val state = location.state()
-        fact(json("fact" to "location_capability", "authorization" to wire(state.authorization.name),
-            "background" to (state.backgroundCapture == LocationProviderBackgroundCapture.AVAILABLE)))
         if (state != locationState) { locationState = state; locationChanged() }
         fact(json("fact" to "storage", "available_bytes" to root.usableSpace.coerceAtLeast(0)))
     }
@@ -199,9 +202,15 @@ class SharedService(
                 } }
             }
             "stop_location" -> location.stopUpdates()
-            "request_bluetooth_permission" -> { bluetooth.requestPermission(); completeUi(id) }
-            "request_location_permission" -> { location.requestPermission(); completeUi(id) }
-            "open_location_settings" -> { location.openSettings(); completeUi(id) }
+            "recover_permission" -> {
+                val operationLifetime = lifetime
+                permissions.recover(value.getString("permission"), value.getString("action")) { success -> enqueue {
+                    if (lifetime == operationLifetime) {
+                        capabilities()
+                        fact(json("fact" to "ui_completed", "id" to id, "success" to success))
+                    }
+                } }
+            }
             "present_file" -> {
                 val once = java.util.concurrent.atomic.AtomicBoolean(false)
                 val finish = {
@@ -222,7 +231,6 @@ class SharedService(
             }
         }
     }
-    private fun completeUi(id: Long) { capabilities(); fact(json("fact" to "ui_completed", "id" to id, "success" to true)) }
     override fun close() {
         if (closed) return
         executor.submit {

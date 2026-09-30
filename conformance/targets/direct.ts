@@ -150,14 +150,8 @@ export function makeDirectTarget(): Target {
             timers.delete(id);
           }
         break;
-      case 'request_bluetooth_permission':
-        await fact({ fact: 'bluetooth', radio: 'poweredOn', scan: 'granted', connect: 'granted' });
-        await fact({ fact: 'ui_completed', id: e.id, success: true });
-        break;
-      case 'request_location_permission':
-      case 'open_location_settings':
-        await fact({ fact: 'location_capability', authorization: 'unavailable', background: false });
-        await fact({ fact: 'ui_completed', id: e.id, success: true });
+      case 'recover_permission':
+        await fact({ fact: 'ui_completed', id: e.id, success: false });
         break;
       case 'present_file':
         await fact({ fact: 'presentation_started', id: e.id, accepted: false });
@@ -232,6 +226,24 @@ export function makeDirectTarget(): Target {
       });
       await ready;
       await fact({ fact: 'bluetooth', radio: 'poweredOn', scan: 'granted', connect: 'granted' });
+      const granted = { access: 'granted', requestable: false, rationale: false };
+      const unknown = { access: 'unknown', requestable: false, rationale: false };
+      await fact({
+        fact: 'permissions',
+        observation: {
+          platform: 'macos',
+          bluetooth_scan: granted,
+          bluetooth_connect: granted,
+          location: unknown,
+          background_location: unknown,
+          accuracy: 'unknown',
+          scope: 'unknown',
+          location_services: null,
+          bluetooth_service: true,
+          bluetooth_supported: true,
+          background_option_label: null,
+        },
+      });
       await fact({ fact: 'storage', available_bytes: 1_000_000_000 });
       polling = setInterval(() => {
         if (busy) return;

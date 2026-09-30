@@ -185,6 +185,15 @@ impl Backend {
                     .map(|f| projection::value(&f.configuration))
                     .ok_or(Failure::Unavailable);
             }
+            "permissions.recover" => {
+                p.only(&["permission", "action"])?;
+                Operation::RecoverPermission {
+                    permission: serde_json::from_value(json!(p.text("permission")?))
+                        .map_err(|_| Failure::InvalidRequest)?,
+                    action: serde_json::from_value(json!(p.text("action")?))
+                        .map_err(|_| Failure::InvalidRequest)?,
+                }
+            }
             "bluetooth.requestPermission" => {
                 p.only(&[])?;
                 Operation::RequestBluetoothPermission
@@ -466,6 +475,7 @@ impl Backend {
             _ => return Err(Failure::InvalidRequest),
         };
         match self.call(client, operation).await? {
+            Completion::Permissions(rows) => Ok(projection::value(&rows)),
             Completion::Unit => Ok(json!({"accepted":true})),
             Completion::Bluetooth(f) => Ok(projection::bluetooth(&f, false)),
             Completion::Location(f) => {

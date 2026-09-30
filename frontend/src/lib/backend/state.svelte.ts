@@ -1,6 +1,7 @@
 import { validateRideMarker } from './session-data';
 import type {
   AppState,
+  PermissionRow,
   BluetoothState,
   BoardProfile,
   SessionMetadata,
@@ -47,6 +48,8 @@ export class BackendState {
   status = $state<BackendConnectionStatus>('starting');
   snapshot = $state<AppState | null>(null);
   error = $state<string | null>(null);
+  permissionError = $state<string | null>(null);
+  permissionBusy = $state(false);
   selectedSession = $state<SessionSummary | null>(null);
   sessionMetadata = $state<SessionMetadata | null>(null);
   selectedBoardProfile = $state<BoardProfile | null>(null);
@@ -60,6 +63,7 @@ export class BackendState {
   private sessionExportClient: SessionExportClient | null = null;
   private sessionImportClient: SessionImportClient | null = null;
   private connecting: Promise<void> | null = null;
+  private unsubscribeClosed: (() => void) | null = null;
   private unsubscribeState: (() => void) | null = null;
 
   constructor(
@@ -107,6 +111,7 @@ export class BackendState {
 
   private async connectNow(): Promise<void> {
     this.status = this.client ? 'reconnecting' : 'starting';
+    this.unsubscribeClosed?.();
     this.unsubscribeState?.();
     this.client?.close();
     this.client = null;
@@ -117,9 +122,14 @@ export class BackendState {
       this.sessionExportClient = new SessionExportClient(bootstrap);
       this.sessionImportClient = new SessionImportClient(bootstrap);
       this.platform = bootstrap.platform ?? 'web';
+      this.unsubscribeClosed = this.client.onClosed(() => {
+        this.status = 'failed';
+        this.permissionError = 'Disconnected. Reconnect to update access.';
+      });
       this.unsubscribeState = this.client.onStateChanged((state) => this.acceptState(state));
       this.acceptState(await this.client.request('state.get', {}));
       this.status = 'connected';
+      this.permissionError = null;
       this.error = null;
     } catch (error) {
       this.status = 'failed';
@@ -133,7 +143,7 @@ export class BackendState {
         await client.request('bluetooth.scan', { timeoutMs: 5_000 });
       } catch (error) {
         if (!(error instanceof ApiRequestError) || error.code !== 'permission_required') throw error;
-        const bluetooth = await client.request('bluetooth.requestPermission', {});
+        const bluetooth = await client.request('bluetooth.requestPermission', {}, 35_000);
         if (permissionOutcome(bluetooth) !== 'ready') {
           throw new Error('Bluetooth permission is required before scanning.');
         }
@@ -299,8 +309,8 @@ export class BackendState {
         patch,
       });
       if (this.snapshot) this.acceptState({ ...this.snapshot, settings: updated });
-      if (patch.locationRecordingEnabled === true) {
-        const location = await client.request('location.requestPermission', {});
+      if (patch.locationRecordingEnabled === true && this.snapshot?.location.permissionAction === 'requestPermission') {
+        const location = await client.request('location.requestPermission', {}, 35_000);
         if (this.snapshot) this.acceptState({ ...this.snapshot, location });
       }
     });
@@ -313,13 +323,38 @@ export class BackendState {
     return result.marker;
   }
 
+  async recoverPermission(row: PermissionRow): Promise<void> {
+    if (
+      !this.client ||
+      this.status !== 'connected' ||
+      this.permissionBusy ||
+      !row.action ||
+      this.snapshot?.permissions.some((p) => p.pending)
+    )
+      return;
+    this.permissionBusy = true;
+    this.permissionError = null;
+    try {
+      await this.client.request('permissions.recover', { permission: row.permission, action: row.action }, 35_000);
+    } catch (error) {
+      this.permissionError = error instanceof Error ? error.message : 'Permission recovery failed. Try again.';
+    } finally {
+      try {
+        this.acceptState(await this.client.request('state.get', {}));
+      } catch {
+        /* Connection state handles reconnect. */
+      }
+      this.permissionBusy = false;
+    }
+  }
+
   async requestLocationPermission(): Promise<void> {
     await this.run(async (client) => {
       const action = this.snapshot?.location.permissionAction;
       const location =
         action === 'openSettings'
-          ? await client.request('location.openSettings', {})
-          : await client.request('location.requestPermission', {});
+          ? await client.request('location.openSettings', {}, 35_000)
+          : await client.request('location.requestPermission', {}, 35_000);
       if (this.snapshot) this.acceptState({ ...this.snapshot, location });
     });
   }
@@ -482,6 +517,7 @@ export class BackendState {
   }
 
   close() {
+    this.unsubscribeClosed?.();
     this.unsubscribeState?.();
     this.unsubscribeState = null;
     this.client?.close();

@@ -14,6 +14,10 @@ public final class CoreLocationAdapter: NSObject, LocationProviderPort, CLLocati
   private let observationQueue = DispatchQueue(label: "fail.acheron.float-view.location")
   private var handler: (@Sendable (LocationProviderObservation) -> Void)?
   private var permissionRequest = LocationPermissionRequest()
+  private var permissionCompletion: (@Sendable (Bool) -> Void)?
+  private var accuracy = "unknown"
+  private var permissionGeneration: UInt64 = 0
+  private var permissionInFlight = false
   private var lastReason: String?
   private var servicesEnabled = false
   private var authorization: CLAuthorizationStatus = .notDetermined
@@ -93,31 +97,59 @@ public final class CoreLocationAdapter: NSObject, LocationProviderPort, CLLocati
     }
   }
 
-  public func requestPermission() {
-    performOnMain { [weak self] in
-      guard let self else { return }
+  public func access() -> LocationAccess {
+    lock
+      .withLock { Self.accessState(servicesEnabled: servicesEnabled, authorization: authorization, accuracy: accuracy) }
+  }
+
+  static func accessState(servicesEnabled: Bool, authorization: CLAuthorizationStatus,
+                          accuracy: String) -> LocationAccess
+  {
+    let grant = switch authorization {
+    case .notDetermined: "notDetermined"
+    case .denied: "denied"
+    case .restricted: "restricted"
+    case .authorizedAlways, .authorizedWhenInUse: "granted"
+    @unknown default: "unknown"
+    }
+    return LocationAccess(grant: grant, accuracy: grant == "granted" ? accuracy : "unknown",
+                          scope: authorization == .authorizedAlways ? "always" : authorization
+                            .rawValue == 4 ? "whileInUse" : "unknown",
+                          services: servicesEnabled, requestable: authorization == .notDetermined)
+  }
+
+  public func refreshAuthorization(_ completion: @escaping @Sendable () -> Void) {
+    performOnMain { [weak self] in self?.refreshState(); completion() }
+  }
+
+  public func recoverAuthorization(_ completion: @escaping @Sendable (Bool) -> Void) {
+    DispatchQueue.main.async { [weak self] in
+      guard let self else { completion(false); return }
+      #if os(iOS)
+        guard UIApplication.shared.applicationState == .active else { completion(false); return }
+      #endif
+      guard !permissionInFlight else { completion(false); return }
       refreshState()
+      permissionCompletion = completion
+      permissionInFlight = true
+      permissionGeneration += 1
+      let generation = permissionGeneration
       #if os(iOS)
         switch permissionRequest.begin(authorization: manager.authorizationStatus) {
         case .whenInUse: manager.requestWhenInUseAuthorization()
-        case .always: manager.requestAlwaysAuthorization()
-        case nil: break
+        case .always:
+          manager.requestAlwaysAuthorization()
+        case nil: permissionCompletion = nil; permissionInFlight = false; completion(false)
         }
       #else
         manager.requestAlwaysAuthorization()
       #endif
-    }
-  }
-
-  public func openSettings() {
-    DispatchQueue.main.async {
-      #if os(iOS)
-        guard let url = URL(string: UIApplication.openSettingsURLString) else { return }
-        UIApplication.shared.open(url)
-      #elseif os(macOS)
-        NSWorkspace.shared
-          .open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_LocationServices")!)
-      #endif
+      // The OS can ignore an upgrade (e.g. Allow Once). Release native ownership
+      // after the shared deadline; a late delegate event remains only an OS fact.
+      DispatchQueue.main.asyncAfter(deadline: .now() + 30) { [weak self] in
+        guard let self, permissionGeneration == generation, let pending = permissionCompletion else { return }
+        permissionCompletion = nil; pending(false)
+      }
     }
   }
 
@@ -139,8 +171,14 @@ public final class CoreLocationAdapter: NSObject, LocationProviderPort, CLLocati
     #if os(iOS)
       if permissionRequest.authorizationChanged(manager.authorizationStatus) == .always {
         manager.requestAlwaysAuthorization()
+        return
       }
     #endif
+    if manager.authorizationStatus != .notDetermined {
+      permissionInFlight = false
+      let completion = permissionCompletion
+      permissionCompletion = nil; completion?(true)
+    }
   }
 
   public func locationManager(_: CLLocationManager, didFailWithError _: Error) {
@@ -172,6 +210,7 @@ public final class CoreLocationAdapter: NSObject, LocationProviderPort, CLLocati
     lock.withLock {
       self.servicesEnabled = servicesEnabled
       self.authorization = authorization
+      self.accuracy = manager.accuracyAuthorization == .fullAccuracy ? "precise" : "approximate"
       if authorization == .denied {
         lastReason = "Location permission was denied."
       }

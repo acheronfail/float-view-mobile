@@ -71,8 +71,6 @@ object LocationUpdated
 
 interface LocationProviderPort {
     fun state(): LocationProviderState
-    fun requestPermission()
-    fun openSettings()
     fun startUpdates(handler: (LocationProviderObservation) -> Unit)
     fun stopUpdates()
 }
@@ -111,7 +109,6 @@ sealed interface BluetoothEvent {
 
 interface BluetoothPort {
     fun currentState(): BluetoothState
-    fun requestPermission()
     fun startDiscovery()
     fun stopDiscovery()
     fun connect(deviceId: DeviceId, generation: BluetoothConnection)

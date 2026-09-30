@@ -30,11 +30,13 @@ public final class CoreBluetoothAdapter: NSObject, BluetoothPort, @unchecked Sen
   {
     self.queue = queue; event = eventHandler; diagnostic = diagnosticHandler
     self.restorationIdentifier = restorationIdentifier
-    super.init(); _ = central
+    super.init(); if CBManager.authorization != .notDetermined {
+      _ = central
+    }
   }
 
   public func currentState() -> BluetoothState {
-    let radio: BluetoothRadioState = switch central.state {
+    let radio: BluetoothRadioState = switch CBManager.authorization == .notDetermined ? .unknown : central.state {
     case .poweredOn: .poweredOn
     case .poweredOff: .poweredOff
     case .unsupported: .unsupported
@@ -45,16 +47,15 @@ public final class CoreBluetoothAdapter: NSObject, BluetoothPort, @unchecked Sen
     case .allowedAlways: .granted
     case .denied: .denied
     case .restricted: .restricted
-    default: .notDetermined
+    case .notDetermined: .notDetermined
+    @unknown default: .unknown
     }
     return BluetoothState(radio: radio, scanPermission: permission, connectPermission: permission)
   }
 
   public func requestPermission() {
     queue.async { [self] in
-      if central.state == .poweredOn {
-        central.scanForPeripherals(withServices: [uartService]); central.stopScan()
-      }
+      _ = central
       event(.stateChanged(currentState()))
     }
   }

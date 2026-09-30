@@ -1,3 +1,4 @@
+import { validatePermissions } from '../../frontend/src/lib/backend/permissions.ts';
 import assert from 'node:assert/strict';
 import type {
   AppState,
@@ -38,6 +39,22 @@ export async function runConformance(target: Target) {
     client = await ConformanceClient.open(endpoint.url, endpoint.origin);
     const initial = await client.request('state.get', {});
     assertState(initial);
+    for (const params of [
+      { permission: 'unknown', action: 'requestPermission' },
+      { permission: 'location', action: 'launchUrl' },
+      { permission: 'location', action: 'requestPermission', url: 'https://invalid.example' },
+    ]) {
+      await expectError(client.request('permissions.recover', params as never), 'invalid_request');
+    }
+    const row = initial.permissions.find((row) => row.action === null)!;
+    if (row)
+      await expectError(
+        client.request('permissions.recover', { permission: row.permission, action: 'requestPermission' }),
+        'invalid_state'
+      );
+    const afterInvalidRecovery = await client.request('state.get', {});
+    assert.equal(afterInvalidRecovery.settings.locationRecordingEnabled, initial.settings.locationRecordingEnabled);
+    assert.equal(afterInvalidRecovery.bluetooth.scanning, initial.bluetooth.scanning);
     await expectError(
       (
         client as unknown as {
@@ -830,6 +847,7 @@ const stableConnectionIssueCodes = new Set<ConnectionIssueCode>([
 ]);
 
 export function assertState(state: AppState) {
+  validatePermissions(state.permissions);
   assert.equal(state.batteryCellProfiles.length, 7);
   assert.equal(new Set(state.batteryCellProfiles.map((p) => p.id)).size, 7);
   assert.ok(state.batteryCellProfiles.every((p) => p.id.length > 0 && p.label.length > 0));
@@ -1100,6 +1118,7 @@ function required<T>(value: T | null | undefined, message: string): T {
 }
 
 export const mandatoryMethods: BackendMethod[] = [
+  'permissions.recover',
   'state.get',
   'bluetooth.requestPermission',
   'location.requestPermission',

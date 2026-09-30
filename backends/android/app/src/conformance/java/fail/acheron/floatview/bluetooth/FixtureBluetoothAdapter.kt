@@ -42,7 +42,6 @@ class FixtureBluetoothAdapter(config: JSONObject, private val emit: (BluetoothEv
         }, "fixture-heartbeat").apply { isDaemon = true; start() }
     }
     override fun currentState() = state
-    override fun requestPermission() = emit(BluetoothEvent.StateChanged(state))
     override fun startDiscovery() = submit("scan")
     override fun stopDiscovery() = submit("stopScan")
     override fun connect(deviceId: DeviceId, generation: BluetoothConnection) = submit("connect", deviceId, serviceGeneration = generation)

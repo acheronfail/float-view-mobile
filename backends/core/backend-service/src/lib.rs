@@ -10,6 +10,7 @@ pub mod ble;
 mod dispatch;
 pub mod facts;
 pub mod os;
+pub mod permissions;
 mod policy;
 mod process;
 mod projection;

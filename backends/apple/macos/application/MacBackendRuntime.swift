@@ -58,6 +58,10 @@ final class MacBackendRuntime: @unchecked Sendable {
     return LoopbackServer(html: html, port: port, service: service)
   }
 
+  func setForeground(_ foreground: Bool) {
+    service.setForeground(foreground)
+  }
+
   func shutdown() {
     service.shutdown()
   }

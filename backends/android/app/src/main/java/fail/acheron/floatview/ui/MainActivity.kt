@@ -15,10 +15,9 @@ import android.webkit.WebView
 import android.webkit.WebChromeClient
 import android.widget.FrameLayout
 import fail.acheron.floatview.application.BluetoothEvent
-import fail.acheron.floatview.bluetooth.BluetoothPermissionBroker
+import fail.acheron.floatview.permissions.PermissionBroker
 import fail.acheron.floatview.files.SessionFileImportController
 import fail.acheron.floatview.lifecycle.FloatViewApplication
-import fail.acheron.floatview.location.LocationPermissionBroker
 import fail.acheron.floatview.theme.AndroidThemeController
 
 class MainActivity : Activity() {
@@ -40,7 +39,6 @@ class MainActivity : Activity() {
         super.onCreate(savedInstanceState)
         val app = application as FloatViewApplication
         app.runtime.permissionBroker.attach(this)
-        app.runtime.locationPermissionBroker.attach(this)
         app.runtime.exportPresentationBroker.attach(this)
         themeSubscription = app.runtime.service.observeTheme { preference ->
             runOnUiThread { themeController.apply(preference) }
@@ -139,7 +137,6 @@ class MainActivity : Activity() {
         handler.removeCallbacks(delayedTeardown)
         val runtime = (application as FloatViewApplication).runtime
         runtime.permissionBroker.detach(this)
-        runtime.locationPermissionBroker.detach(this)
         runtime.exportPresentationBroker.detach(this)
         sessionFiles.close()
         themeSubscription?.close()
@@ -161,7 +158,7 @@ class MainActivity : Activity() {
         grantResults: IntArray,
     ) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
-        if (requestCode == BluetoothPermissionBroker.BLUETOOTH_PERMISSION_REQUEST) {
+        if (requestCode == PermissionBroker.PERMISSION_REQUEST) {
             val runtime = (application as FloatViewApplication).runtime
             runtime.permissionBroker.recordResult(permissions)
             runtime.service.receive(
@@ -169,9 +166,6 @@ class MainActivity : Activity() {
                     runtime.bluetooth.currentState(),
                 ),
             )
-        } else if (requestCode == LocationPermissionBroker.LOCATION_PERMISSION_REQUEST) {
-            val runtime = (application as FloatViewApplication).runtime
-            runtime.locationPermissionBroker.recordResult(permissions)
             runtime.service.refreshCapabilities()
         }
     }

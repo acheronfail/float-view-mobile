@@ -1,3 +1,4 @@
+import { validatePermissions } from './permissions';
 import type {
   AppState,
   BackendError,
@@ -10,6 +11,7 @@ import type {
 import { MAX_MESSAGE_BYTES } from '$lib/backend/contract';
 
 type PendingRequest = {
+  method: BackendMethod;
   resolve: (value: unknown) => void;
   reject: (reason: unknown) => void;
   timeout: ReturnType<typeof setTimeout>;
@@ -37,6 +39,7 @@ export class ApiClient {
   private nextId = 1;
   private readonly pending = new Map<number, PendingRequest>();
   private readonly stateHandlers = new Set<(state: AppState) => void>();
+  private readonly closedHandlers = new Set<() => void>();
   private closed = false;
 
   constructor(
@@ -67,7 +70,7 @@ export class ApiClient {
         this.pending.delete(id);
         reject(new ApiProtocolError(`Backend request timed out: ${method}`));
       }, timeoutMs);
-      this.pending.set(id, { resolve: resolve as (value: unknown) => void, reject, timeout });
+      this.pending.set(id, { method, resolve: resolve as (value: unknown) => void, reject, timeout });
       try {
         this.socket.send(payload);
       } catch (error) {
@@ -83,9 +86,20 @@ export class ApiClient {
     return () => this.stateHandlers.delete(handler);
   }
 
+  onClosed(handler: () => void): () => void {
+    this.closedHandlers.add(handler);
+    return () => this.closedHandlers.delete(handler);
+  }
+
+  private notifyClosed() {
+    for (const handler of this.closedHandlers) handler();
+    this.closedHandlers.clear();
+  }
+
   close(code = 1000, reason = 'Client closed'): void {
     if (this.closed) return;
     this.closed = true;
+    this.notifyClosed();
     this.detach();
     this.rejectPending(new ApiProtocolError(reason));
     this.socket.close(code, reason);
@@ -113,6 +127,12 @@ export class ApiClient {
         this.failProtocol('Backend sent an invalid state event');
         return;
       }
+      try {
+        validatePermissions(envelope.data.permissions);
+      } catch {
+        this.failProtocol('Backend sent an invalid permission inventory');
+        return;
+      }
       for (const handler of this.stateHandlers) handler(envelope.data);
       return;
     }
@@ -125,8 +145,16 @@ export class ApiClient {
     this.pending.delete(envelope.id!);
     clearTimeout(request.timeout);
     if ('error' in envelope && envelope.error) request.reject(new ApiRequestError(envelope.error));
-    else if ('result' in envelope) request.resolve(envelope.result);
-    else request.reject(new ApiProtocolError('Backend response has no result or error'));
+    else if ('result' in envelope) {
+      try {
+        if (request.method === 'state.get') validatePermissions((envelope.result as AppState)?.permissions);
+        if (request.method === 'permissions.recover') validatePermissions(envelope.result);
+        request.resolve(envelope.result);
+      } catch {
+        request.reject(new ApiProtocolError('Backend sent an invalid permission inventory'));
+        this.close(1002, 'Invalid permission inventory');
+      }
+    } else request.reject(new ApiProtocolError('Backend response has no result or error'));
   };
 
   private failProtocol(message: string) {
@@ -138,6 +166,7 @@ export class ApiClient {
   private readonly handleClose = (): void => {
     if (this.closed) return;
     this.closed = true;
+    this.notifyClosed();
     this.detach();
     this.rejectPending(new ApiProtocolError('Backend socket closed'));
   };

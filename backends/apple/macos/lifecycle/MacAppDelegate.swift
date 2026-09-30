@@ -21,6 +21,14 @@ final class MacAppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
     showFrontend()
   }
 
+  func applicationDidBecomeActive(_: Notification) {
+    runtime.setForeground(true)
+  }
+
+  func applicationDidResignActive(_: Notification) {
+    runtime.setForeground(false)
+  }
+
   func applicationShouldHandleReopen(
     _: NSApplication,
     hasVisibleWindows flag: Bool

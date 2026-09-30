@@ -31,15 +31,13 @@ import java.nio.charset.StandardCharsets
 import java.security.MessageDigest
 import java.util.UUID
 
-fun interface BluetoothPermissionRequester {
-    fun request(permissions: Array<String>)
-
-    fun wasResolved(permission: String): Boolean = false
+fun interface BluetoothPermissionHistory {
+    fun wasResolved(permission: String): Boolean
 }
 
 class AndroidBluetoothAdapter(
     context: Context,
-    private val permissionRequester: BluetoothPermissionRequester,
+    private val permissionHistory: BluetoothPermissionHistory,
     private val eventHandler: (BluetoothEvent) -> Unit,
     private val diagnosticHandler: (String) -> Unit = {},
 ) : BluetoothPort {
@@ -117,15 +115,6 @@ class AndroidBluetoothAdapter(
             }
         }
         return BluetoothState(radio, scanPermission, connectPermission)
-    }
-
-    override fun requestPermission() {
-        val policy = AndroidBluetoothPermissionPolicy.forApi(Build.VERSION.SDK_INT)
-        val required = listOfNotNull(policy.scanPermission, policy.connectPermission)
-            .distinct()
-            .filter { applicationContext.checkSelfPermission(it) != PackageManager.PERMISSION_GRANTED }
-        if (required.isNotEmpty()) permissionRequester.request(required.toTypedArray())
-        eventHandler(BluetoothEvent.StateChanged(currentState()))
     }
 
     override fun startDiscovery() {
@@ -299,7 +288,7 @@ class AndroidBluetoothAdapter(
             granted = permission != null &&
                 applicationContext.checkSelfPermission(permission) ==
                 PackageManager.PERMISSION_GRANTED,
-            requestResolved = permission?.let(permissionRequester::wasResolved) ?: false,
+            requestResolved = permission?.let(permissionHistory::wasResolved) ?: false,
         )
 
     companion object {

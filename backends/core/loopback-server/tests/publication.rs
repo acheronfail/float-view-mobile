@@ -65,7 +65,8 @@ fn process_publication_is_monotonic_conflated_and_survives_listener_generations(
 
 #[test]
 fn periodic_os_observations_do_not_invent_public_revisions() {
-    use float_view_backend_service::os::{LocationAuthorization, Permission, Radio};
+    use float_view_backend_service::os::{Permission, Radio};
+    use float_view_backend_service::permissions::{Observation, Platform as PermissionPlatform};
     let server = support::server(Platform::Android, b"html").unwrap();
     let backend = &server.backend;
     backend.start().unwrap();
@@ -74,9 +75,8 @@ fn periodic_os_observations_do_not_invent_public_revisions() {
         scan: Permission::Granted,
         connect: Permission::NotRequired,
     };
-    let location = || Fact::LocationCapability {
-        authorization: LocationAuthorization::Authorized,
-        background: true,
+    let location = || Fact::Permissions {
+        observation: Observation::unknown(PermissionPlatform::Android29),
     };
     let facts = [
         bluetooth(),
