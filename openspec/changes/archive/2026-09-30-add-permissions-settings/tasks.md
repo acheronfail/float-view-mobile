@@ -20,8 +20,8 @@
 
 - [x] 4.1 Extend canonical conformance cases for inventory completeness, authenticated recovery, bounds, monotonic snapshots, reconstruction and failures across affected host integrations; run affected frontend checks, Rust crate/consumer tests, Apple and Android tests/build checks and conformance cases, recording actual results.
 - [x] 4.2 Perform focused physical iOS, macOS and Android checks for permission presentation, denial recovery, settings routing and activation refresh; cover Android pre-31 and 31+ groups and API 29 background prompt versus 30+ Settings as available, explicitly recording unavailable required coverage rather than claiming mock results as physical validation.
-- [ ] 4.3 Review delivered behavior against delta scenarios, validate OpenSpec, then sync specs and archive together after acceptance; verify the final diff and retain verification evidence without running unrelated device/firmware matrices.
+- [x] 4.3 Review delivered behavior against delta scenarios, validate OpenSpec, then sync specs and archive together after acceptance; verify the final diff and retain verification evidence without running unrelated device/firmware matrices.
 
 ## Verification evidence
 
-See [the implementation and physical checkpoint record](../../../conformance/physical-checkpoints/2026-09-30-permissions-settings.md). Available-device acceptance is complete. Unavailable Android 30+/31+ hardware and macOS fresh prompt-denial completion are explicitly recorded as coverage limits; native macOS grant/revocation, Settings routing and unchanged-return recovery were verified.
+See [the implementation and physical checkpoint record](../../../../conformance/physical-checkpoints/2026-09-30-permissions-settings.md). Available-device acceptance is complete. Unavailable Android 30+/31+ hardware and macOS fresh prompt-denial completion are explicitly recorded as coverage limits; native macOS grant/revocation, Settings routing and unchanged-return recovery were verified.

@@ -118,4 +118,4 @@ unproven due to stale system dialogs; actual grant/revocation and Settings-retur
 recovery were verified through OS controls.
 
 The available-platform acceptance checkpoints are complete with these explicit
-coverage limits. Canonical spec sync and archive are the final remaining step.
+coverage limits. Canonical specs are synchronized and the change is archived.
