@@ -249,7 +249,7 @@ impl Bluetooth {
                 });
                 let input = self.input.clone();
                 let result = tokio::time::timeout(DEADLINE, async {
-                    device.connect().await?;
+                    connect_association(adapter, &device, address).await?;
                     let _ = input.send(Fact::Link {
                         generation,
                         state: LinkState::DiscoveringServices,
@@ -434,6 +434,27 @@ impl Bluetooth {
         });
     }
 }
+// BlueZ may discard an unpaired Device object when the adapter loses power.
+// Re-resolve only the saved address, within the caller's setup deadline.
+async fn connect_association(
+    adapter: &Adapter,
+    device: &Device,
+    address: Address,
+) -> bluer::Result<()> {
+    if adapter.device_addresses().await?.contains(&address) {
+        return device.connect().await;
+    }
+    let events = adapter.discover_devices().await?;
+    tokio::pin!(events);
+    while let Some(event) = events.next().await {
+        if matches!(event, bluer::AdapterEvent::DeviceAdded(found) if found == address) {
+            break;
+        }
+    }
+    // Keep this scoped discovery alive until BlueZ has accepted the connection.
+    device.connect().await
+}
+
 fn scan_failure(kind: Option<&bluer::ErrorKind>) -> (Radio, Permission) {
     match kind {
         Some(bluer::ErrorKind::NotAuthorized | bluer::ErrorKind::NotPermitted) => {

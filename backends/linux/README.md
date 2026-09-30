@@ -36,7 +36,9 @@ required. Run as your ordinary user. Float View does not install policy rules,
 power the adapter, change discoverability or unpair other devices. If Bluetooth
 is unavailable, configure it using your desktop's Bluetooth settings. Adapter
 selection prefers the first powered adapter in sorted name order, retaining
-that adapter during a connection. Linux cannot provide a universal OS permission
+that adapter during a connection. When a power cycle removes an unpaired BlueZ
+Device object, reconnect discovers the exact saved address again within the
+existing setup deadline. Linux cannot provide a universal OS permission
 prompt or settings link; unavailable actions are omitted. Authorization failures
 remain denied until the adapter is power-cycled or the daemon/app restarts;
 successful adapter property reads do not prove discovery authorization.
@@ -89,3 +91,18 @@ serial-controlled ESP32. Follow the fixture safety/restore procedures in the
 conformance README. Software results do not establish radio behavior, desktop
 suspend, native file dialogs or WebView visual correctness. Record those
 checkpoints separately and identify missing coverage.
+
+For the interactive native Save cancellation checkpoint, run physical conformance
+with `FLOAT_VIEW_LINUX_NATIVE_FILE_CHECK=1 FLOAT_VIEW_PHYSICAL_SCENARIOS=ride`.
+Inspect and cancel the GTK dialog, then press Enter when prompted. The checkpoint
+verifies that the staged export lease was released; it times out after two minutes.
+
+The separate interactive recording interruption checkpoint uses
+FLOAT_VIEW_LINUX_DESKTOP_INTERRUPTION_CHECK=1 FLOAT_VIEW_PHYSICAL_SCENARIOS=ride.
+Follow its minimize, Bluetooth off/on and machine suspend/resume prompts. These
+are user-operated system actions; the runner checks radio loss, actual suspend
+time, continued samples and preservation of the same active session.
+
+Select a subset of desktop interruption steps with
+FLOAT_VIEW_LINUX_DESKTOP_INTERRUPTION_STEPS=radio,suspend when resuming a
+checkpoint. Omit it to exercise minimize, radio and suspend in order.

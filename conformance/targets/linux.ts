@@ -1,5 +1,5 @@
 import { spawn, execFileSync, type ChildProcess } from 'node:child_process';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, readdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -17,7 +17,9 @@ export const linuxPhysicalTarget: PhysicalTarget = {
   platform: 'linux',
   productionBluetooth: true,
 };
-function makeLinuxTarget(physical: boolean): Target & Partial<Pick<PhysicalTarget, 'finishSuite'>> {
+function makeLinuxTarget(
+  physical: boolean
+): Target & Partial<Pick<PhysicalTarget, 'finishSuite' | 'verifyFilePresentation' | 'desktopCheckpoint'>> {
   let child: ChildProcess | undefined;
   let root: string | undefined;
   let relay: FixtureRelay | undefined;
@@ -103,6 +105,60 @@ function makeLinuxTarget(physical: boolean): Target & Partial<Pick<PhysicalTarge
       ? {
           async loseFixture() {
             await relay?.close();
+          },
+        }
+      : {}),
+    ...(physical && process.env.FLOAT_VIEW_LINUX_NATIVE_FILE_CHECK === '1'
+      ? {
+          async verifyFilePresentation() {
+            if (!root || !child?.pid) throw new Error('Linux host is not running');
+            process.stdout.write('Inspect and cancel the native Save dialog, then press Enter.\n');
+            await new Promise<void>((resolve, reject) => {
+              const finish = (error?: Error) => {
+                clearTimeout(timeout);
+                process.stdin.off('data', acknowledged);
+                process.stdin.pause();
+                if (error) reject(error);
+                else resolve();
+              };
+              const acknowledged = (data: Buffer) =>
+                finish(data.toString().trim() ? new Error('Native file checkpoint was not confirmed') : undefined);
+              const timeout = setTimeout(() => finish(new Error('Native file checkpoint timed out')), 120_000);
+              process.stdin.once('data', acknowledged);
+              process.stdin.resume();
+            });
+            const exports = join(root, 'float-view', 'Exports');
+            for (const deadline = Date.now() + 5_000; Date.now() < deadline;) {
+              if (readdirSync(exports).length === 0) return;
+              await new Promise((resolve) => setTimeout(resolve, 50));
+            }
+            throw new Error('Cancelled native presentation retained its export lease');
+          },
+        }
+      : {}),
+    ...(physical && process.env.FLOAT_VIEW_LINUX_DESKTOP_INTERRUPTION_CHECK === '1'
+      ? {
+          async desktopCheckpoint(step: 'minimize' | 'radio' | 'suspend') {
+            const instruction = {
+              minimize: 'Minimize Float View for 10 seconds, restore it, then press Enter.',
+              radio: 'Turn Bluetooth off for 5 seconds, turn it on, then press Enter.',
+              suspend: 'Suspend this machine for 10 seconds, resume it, then press Enter.',
+            }[step];
+            process.stdout.write('Desktop checkpoint: ' + instruction + '\n');
+            await new Promise<void>((resolve, reject) => {
+              const finish = (error?: Error) => {
+                clearTimeout(timeout);
+                process.stdin.off('data', acknowledged);
+                process.stdin.pause();
+                if (error) reject(error);
+                else resolve();
+              };
+              const acknowledged = (data: Buffer) =>
+                finish(data.toString().trim() ? new Error('Desktop checkpoint was not confirmed') : undefined);
+              const timeout = setTimeout(() => finish(new Error('Desktop checkpoint timed out')), 180_000);
+              process.stdin.once('data', acknowledged);
+              process.stdin.resume();
+            });
           },
         }
       : {}),

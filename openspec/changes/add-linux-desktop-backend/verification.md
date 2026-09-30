@@ -49,3 +49,56 @@ The user was asked to reconnect/reposition the fixture before another physical r
 ## Remaining coverage
 
 Unchecked adapter/runtime tasks still need their requested targeted fault coverage: multiple adapters, daemon/authorization changes, setup and write failures, saturation, stale operations, and timer/shutdown interruptions. Shared policy tests cover several invariants but do not establish all Linux OS adapter behavior. Native file-dialog and interruption checkpoints are also outstanding. Preserve unchecked tasks until their evidence exists.
+
+## Follow-up — 2026-10-01 (Adelaide)
+
+Reconnecting the fixture did not by itself resolve the problem. Identity, guest, direct, direct-legacy and control-direct passed; control-can again failed with the generic notification error. Cleanup completed. Log: /tmp/float-view-linux-physical-reconnected.log.
+
+Added numeric NimBLE error diagnostics, built with ESP-IDF 5.4.1 / PlatformIO espressif32 6.11.0, and flashed the fixture. A subsequent ambiguous-controller run reported NOTIFY_FAILED_6: BLE_HS_ENOMEM. The pinned upstream source confirms that ble_gatts_notify_custom consumes the supplied buffer on either result and its notification callback reports an enqueue attempt, not remote delivery.
+
+The fixture's configured FreeRTOS tick is 100 Hz. Its former pdMS_TO_TICKS(5) retry delay was zero, allowing all transient-buffer retries to run without waiting. Replaced that with at least one tick between rejected submissions and a one-second budget; removed the redundant enqueue-status semaphore. Accepted submissions are never replayed and retain 20 ms pacing. This is OS transport handling only; scenario logic stays in conformance.
+
+The corrected firmware built and flashed successfully. Its binary SHA-256 is 8bfeb8d8c231215b21939fc06b942fd2bead0c8612f14c3b39056bb5c02e9ec8. The C parser checks and TypeScript fixture tests passed.
+
+A first run with the fix encountered a guest disconnect without a notification error. The focused repeat then passed all nine selected scenarios: identity, control-can, guest, ambiguous, bms-direct-controller, bms-express, bms-standalone, ride, unexpected-disconnect. Report: /tmp/float-view-linux-physical-final-focused.json. Long configuration transfer and restore, recording/review/export, and reconnect passed. All 17 scenario names have now passed across the recorded runs, but this is not a claim that one complete 17-scenario invocation passed or that the separate radio/suspend checkpoints are complete.
+
+Additional software/desktop evidence:
+
+- Linux unit suite: ten passed, one explicit desktop test ignored by default; all-target/all-feature warnings-denied Clippy passed.
+- Real desktop test additionally passed a cold restart with saved light appearance and an initially dark native toolkit.
+- Duplicate presentation completion after cancellation is now ignored by the Linux UI adapter; the focused test passed.
+- Linux shutdown contention test passed: the ten-second OS deadline is enforced, ownership is retained on timeout, and shutdown/reopen succeed after releasing the lock. Together with independent cleanup admission and the existing shared stale-lifetime/sequence/timer and correlated-completion tests, this completes task 2.3.
+- Added an opt-in interactive native Save cancellation checkpoint; its result is recorded separately below.
+
+The real native Save cancellation checkpoint passed after the user confirmed the
+dialog appeared and was cancelled. The runner independently verified the Exports
+directory was empty, then cleaned up the fixture and host. Report:
+/tmp/float-view-linux-native-file-check.json. Native destination selection/copy
+success and failure still require separate evidence.
+
+The interactive minimize checkpoint passed: user-confirmed minimize/restore and
+authoritative state showed the same active session with increasing samples.
+Task 5.2 combines the earlier dev/proxy/HMR/occupied-port checks with the now
+verified native presentation path shared by browser and embedded modes.
+
+The first user-operated radio cycle exposed a Linux adapter defect: powered-on
+state returned but the session stayed reconnecting. A read-only BlueZ query
+confirmed its unpaired Device object had been removed. Linux now re-discovers
+the exact saved address when that object is absent, within the existing setup
+deadline. The repeated real radio off/on checkpoint passed: same session and
+advancing samples. Logs: /tmp/float-view-linux-desktop-interruptions.log (failure)
+and /tmp/float-view-linux-desktop-recovery.log (successful radio repeat).
+
+The user could not suspend the machine now. The suspend step was explicitly
+left unconfirmed; the runner reset the fixture, turned its LED off and stopped
+the owned host. No suspend/resume pass is claimed, and tasks 4.3 and 6.3 remain
+open. The radio pass preceding that deliberate stop is retained in its log.
+
+The final real desktop regression additionally passed fresh system appearance
+and cold light/dark starts with a persisted preference opposite to the toolkit
+initial appearance. Task 2.5 is complete. Task 3.4 is supported by canonical
+software loss/recovery checks plus physical saved-association restarts, guest
+telemetry, unexpected disconnect and the real radio recovery checkpoint. Task
+6.4 records the actual WebKit recovery, minimize, close/quit, appearance and
+Save-dialog observations above; untested copy/error/suspend paths remain
+explicit in their corresponding tasks.

@@ -200,6 +200,14 @@ fn apply_theme(
     css.load_from_data(&format!("window {{ background-color: {color}; }}"));
 }
 type Dialogs = Rc<RefCell<Vec<(u64, gio::Cancellable)>>>;
+fn finish_presentation(dialogs: &Dialogs, input: &Ingress, id: u64) {
+    let mut active = dialogs.borrow_mut();
+    let found = active.iter().any(|(key, _)| *key == id);
+    active.retain(|(key, _)| *key != id);
+    if found {
+        let _ = input.cleanup(Fact::PresentationFinished { id });
+    }
+}
 fn present(
     window: &gtk::ApplicationWindow,
     input: &Ingress,
@@ -232,14 +240,13 @@ fn present(
                 let final_input = input.clone(); let final_dialogs = dialogs.clone();
                 source.copy_async(&destination, gio::FileCopyFlags::OVERWRITE, glib::Priority::DEFAULT,
                     Some(&cancel), None, move |result| {
-                        if result.is_err() {
+                        if result.is_err() && parent.is_visible() {
                             gtk::AlertDialog::builder().message("Could not save export").detail("The source session remains available. Choose another destination and try again.").build().show(Some(&parent));
                         }
-                        final_dialogs.borrow_mut().retain(|(key, _)| *key != id);
-                        let _ = final_input.cleanup(Fact::PresentationFinished { id });
+                        finish_presentation(&final_dialogs, &final_input, id);
                     });
             }
-            Err(_) => { dialogs.borrow_mut().retain(|(key, _)| *key != id); let _ = input.cleanup(Fact::PresentationFinished { id }); }
+            Err(_) => finish_presentation(&dialogs, &input, id),
         }
     });
 }
@@ -300,6 +307,23 @@ fn subscribe_theme(
 mod tests {
     use super::*;
     #[test]
+    fn presentation_completion_after_cancel_is_single_use() {
+        let (ordinary, _ordinary_rx) = tokio::sync::mpsc::channel(1);
+        let (cleanup, mut cleanup_rx) = tokio::sync::mpsc::channel(2);
+        let input = Ingress { ordinary, cleanup };
+        let dialogs = Rc::new(RefCell::new(vec![(42, gio::Cancellable::new())]));
+        finish_presentation(&dialogs, &input, 41);
+        assert!(cleanup_rx.try_recv().is_err());
+        finish_presentation(&dialogs, &input, 42);
+        finish_presentation(&dialogs, &input, 42);
+        assert!(matches!(
+            cleanup_rx.try_recv(),
+            Ok(Fact::PresentationFinished { id: 42 })
+        ));
+        assert!(cleanup_rx.try_recv().is_err());
+        assert!(dialogs.borrow().is_empty());
+    }
+    #[test]
     fn navigation_requires_exact_origin_boundary() {
         let origin = "http://127.0.0.1:11013";
         assert!(allowed_navigation("http://127.0.0.1:11013/", origin));
@@ -338,7 +362,24 @@ mod desktop_tests {
             .unwrap(),
         );
         let lifetime = host.process.service.lock().unwrap().lifetime();
+        assert_eq!(
+            host.process
+                .service
+                .lock()
+                .unwrap()
+                .settings()
+                .unwrap()
+                .theme_preference,
+            "system"
+        );
+        let initially_dark = gtk::Settings::default()
+            .unwrap()
+            .is_gtk_application_prefer_dark_theme();
         let (window, web) = open(&app, host.clone(), false);
+        assert_eq!(
+            web.background_color(),
+            gtk::gdk::RGBA::parse(if initially_dark { "#020617" } else { "#f8fafc" }).unwrap()
+        );
         let context = glib::MainContext::default();
         context.block_on(async {
             for _ in 0..100 {
@@ -393,6 +434,80 @@ mod desktop_tests {
         }
         host.shutdown().unwrap();
         drop(host);
+        drop(window);
+        drop(web);
+        context.block_on(glib::timeout_future(Duration::from_millis(60)));
+        // A persisted explicit choice must win before the new document renders,
+        // even when the native toolkit initially reports the opposite appearance.
+        gtk::Settings::default()
+            .unwrap()
+            .set_gtk_application_prefer_dark_theme(true);
+        let restarted = Rc::new(
+            Host::open_on(
+                &root,
+                include_bytes!(concat!(env!("OUT_DIR"), "/index.html")),
+                false,
+                0,
+            )
+            .unwrap(),
+        );
+        let (window, web) = open(&app, restarted.clone(), false);
+        assert_eq!(
+            web.background_color(),
+            gtk::gdk::RGBA::parse("#f8fafc").unwrap()
+        );
+        assert!(
+            !gtk::Settings::default()
+                .unwrap()
+                .is_gtk_application_prefer_dark_theme()
+        );
+        {
+            let mut service = restarted.process.service.lock().unwrap();
+            let revision = service.settings().unwrap().revision;
+            service
+                .dispatch(
+                    1,
+                    float_view_backend_service::operations::Operation::UpdateSettings {
+                        revision,
+                        patch_json: r#"{"themePreference":"dark"}"#.into(),
+                    },
+                )
+                .unwrap();
+        }
+        window.close();
+        restarted.shutdown().unwrap();
+        drop(window);
+        drop(web);
+        drop(restarted);
+        context.block_on(glib::timeout_future(Duration::from_millis(60)));
+        gtk::Settings::default()
+            .unwrap()
+            .set_gtk_application_prefer_dark_theme(false);
+        let restarted = Rc::new(
+            Host::open_on(
+                &root,
+                include_bytes!(concat!(env!("OUT_DIR"), "/index.html")),
+                false,
+                0,
+            )
+            .unwrap(),
+        );
+        let (window, web) = open(&app, restarted.clone(), false);
+        assert_eq!(
+            web.background_color(),
+            gtk::gdk::RGBA::parse("#020617").unwrap()
+        );
+        assert!(
+            gtk::Settings::default()
+                .unwrap()
+                .is_gtk_application_prefer_dark_theme()
+        );
+        window.close();
+        restarted.shutdown().unwrap();
+        drop(window);
+        drop(web);
+        drop(restarted);
+        context.block_on(glib::timeout_future(Duration::from_millis(60)));
         std::fs::remove_dir_all(root).unwrap();
     }
 }

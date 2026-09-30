@@ -30,6 +30,7 @@ export interface PhysicalTarget extends Target {
   prepareLocation?(report: (message: string) => void): Promise<void>;
   finishSuite?(report: (message: string) => void): Promise<void>;
   verifyFilePresentation?(): Promise<void>;
+  desktopCheckpoint?(step: 'minimize' | 'radio' | 'suspend'): Promise<void>;
 }
 
 export async function runConformance(target: Target) {

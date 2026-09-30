@@ -340,6 +340,8 @@ async function runPhysicalScenario(
     } else if (name === 'shutdown-direct' || name === 'shutdown-can' || name === 'shutdown-no-op') {
       await runControllerShutdownCheckpoint(client, runner, ready, name === 'shutdown-no-op');
     } else if (name === 'ride') {
+      if (target.desktopCheckpoint)
+        await runDesktopCheckpoints(target, client, runner, device.deviceId, activeSession.sessionId, report);
       await runRide(client, runner, device.deviceId, activeSession.sessionId);
     } else if (name === 'unexpected-disconnect') {
       await runReconnect(client, runner, device.deviceId, activeSession.sessionId, ready.revision, false);
@@ -548,6 +550,58 @@ async function discoverFixture(client: ConformanceClient, advertisedName: string
     }
   }
   throw lastError ?? new Error(`Did not discover ${advertisedName}`);
+}
+
+async function runDesktopCheckpoints(
+  target: PhysicalTarget,
+  client: ConformanceClient,
+  runner: FixtureRunner,
+  deviceId: string,
+  sessionId: string,
+  report: Progress
+) {
+  const requested = process.env.FLOAT_VIEW_LINUX_DESKTOP_INTERRUPTION_STEPS?.split(',');
+  const steps = requested ?? ['minimize', 'radio', 'suspend'];
+  for (const step of steps) {
+    assert.ok(step === 'minimize' || step === 'radio' || step === 'suspend', 'Unknown desktop checkpoint');
+    const before = await client.request('state.get', {});
+    const sampleCount = before.activeConnection?.activeSession?.sampleCount ?? 0;
+    const cancelExpectedDisconnect = step === 'minimize' ? () => {} : runner.prepareExternalDisconnect();
+    const lost =
+      step === 'radio'
+        ? client.waitForState((state) => state.bluetooth.radio !== 'powered_on', {
+            afterRevision: before.revision,
+            timeoutMs: 180_000,
+          })
+        : undefined;
+    // Observe rejection immediately even while the manual prompt is pending.
+    void lost?.catch(() => undefined);
+    const wall = Date.now();
+    const monotonic = performance.now();
+    try {
+      await target.desktopCheckpoint!(step);
+      if (step === 'suspend') {
+        assert.ok(
+          Date.now() - wall - (performance.now() - monotonic) > 1_000,
+          'No machine suspend interval was observed'
+        );
+      }
+      if (lost) await lost;
+      const recovered = await client.waitForState(
+        (state) =>
+          state.bluetooth.radio === 'powered_on' &&
+          state.activeConnection?.deviceId === deviceId &&
+          state.activeConnection.state === 'ready' &&
+          state.activeConnection.activeSession?.sessionId === sessionId &&
+          state.activeConnection.activeSession.sampleCount > sampleCount,
+        { afterRevision: before.revision, timeoutMs: 30_000 }
+      );
+      assert.equal(recovered.activeConnection?.activeSession?.sessionId, sessionId);
+      report('  Desktop checkpoint passed: ' + step + '; same session and advancing samples');
+    } finally {
+      cancelExpectedDisconnect();
+    }
+  }
 }
 
 async function runRide(

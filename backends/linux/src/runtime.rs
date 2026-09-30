@@ -322,6 +322,29 @@ mod tests {
     }
 
     #[test]
+    fn shutdown_contention_is_bounded_and_retry_retains_storage_owner() {
+        let root = std::env::temp_dir().join(format!(
+            "float-view-linux-contention-{}",
+            std::process::id()
+        ));
+        let host = Host::open_on(&root, b"html", false, 0).unwrap();
+        let owner = host.process.service.clone();
+        let guard = owner.lock().unwrap();
+        assert!(host.ingress.send(Fact::Clock {}));
+        let start = std::time::Instant::now();
+        assert_eq!(host.shutdown(), Err("OS shutdown timed out"));
+        assert!(start.elapsed() < Duration::from_secs(12));
+        assert!(Host::open_on(&root, b"html", false, 0).is_err());
+        drop(guard);
+        host.shutdown().unwrap();
+        drop(owner);
+        drop(host);
+        let reopened = Host::open_on(&root, b"html", false, 0).unwrap();
+        reopened.shutdown().unwrap();
+        drop(reopened);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+    #[test]
     fn roots_are_absolute_and_xdg_has_priority() {
         assert_eq!(
             data_root(Some("/tmp/data"), Some("/home/test")).unwrap(),
