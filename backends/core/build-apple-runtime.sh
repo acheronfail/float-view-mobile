@@ -93,7 +93,8 @@ expected_symbols="$(printf '%s\n' \
   service_create service_destroy service_apply service_copy_result service_server_create \
   server_destroy server_command \
   | sed 's/^/float_view_application_runtime_/' | sort)"
-actual_symbols="$(nm -gU "$destination" 2>/dev/null | awk '{print $NF}' \
+# Inspect native symbols without parsing Rust's potentially newer LLVM bitcode.
+actual_symbols="$(nm --no-llvm-bc -gU "$destination" 2>/dev/null | awk '{print $NF}' \
   | sed 's/^_//' | rg '^float_view_application_runtime_[a-z_]+$' | sort -u)"
 [[ "$actual_symbols" == "$expected_symbols" ]] || {
   echo 'Unexpected application-runtime C symbols in Apple archive' >&2

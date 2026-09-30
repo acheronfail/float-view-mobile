@@ -40,7 +40,8 @@ cannot be established in software; unrelated platforms need no regression run.
 
 Run `just ipa` on macOS to build the frontend and iOS device app in Debug, as
 `just run ios <device>` does, and package
-`backends/apple/ios/.build/ipa/FloatView.ipa`. No connected device or Xcode signing
+`FloatView-YYYYMMDD-HHMMSS.ipa` in the directory where you invoke `just`, using
+the current local date and time. No connected device or Xcode signing
 account is required: AltStore signs the IPA when installing it. The archive omits
 macOS metadata files that can confuse AltStore's app detection.
 

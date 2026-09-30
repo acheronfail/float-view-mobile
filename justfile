@@ -118,7 +118,8 @@ ipa: build
     #!/usr/bin/env bash
     set -euo pipefail
     derived_data=/tmp/float-view-ios-ipa
-    output="$PWD/backends/apple/ios/.build/ipa/FloatView.ipa"
+    output_dir={{ quote(invocation_directory()) }}
+    output="$output_dir/FloatView-$(date '+%Y%m%d-%H%M%S').ipa"
     xcodebuild -project backends/apple/ios/float-view.xcodeproj \
       -scheme float-view -configuration Debug -sdk iphoneos \
       -destination 'generic/platform=iOS' -derivedDataPath "$derived_data" \
