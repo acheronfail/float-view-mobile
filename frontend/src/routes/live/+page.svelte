@@ -11,6 +11,7 @@
   import RefloatConfigurationEditor from '$lib/features/connection/RefloatConfigurationEditor.svelte';
   import RefloatTunes from '$lib/features/connection/RefloatTunes.svelte';
   import { RefloatConfigurationController } from '$lib/features/connection/refloat-configuration.svelte';
+  import { liveStatus } from '$lib/features/connection/live-status';
   import LiveView from '$lib/features/connection/LiveView.svelte';
   import BmsView from '$lib/features/connection/BmsView.svelte';
   import { bmsMenuVisible } from '$lib/features/connection/bms';
@@ -104,36 +105,7 @@
     }
   });
 
-  const deviceState = $derived.by(() => {
-    if (connection?.state !== 'ready')
-      return {
-        display: connection?.state.replaceAll('_', ' '),
-        safetyStateActive: false,
-      };
-
-    // eslint-disable-next-line svelte/prefer-svelte-reactivity
-    const states = new Set<string>();
-    if (sample) {
-      if (sample.wheelslip) states.add('Wheelslip');
-      if (sample.stopCondition && sample.stopCondition !== 'none') states.add(sample.stopCondition);
-      if (sample.setpointAdjustment && sample.setpointAdjustment !== 'none') states.add(sample.setpointAdjustment);
-      if (sample.alertReason && sample.alertReason !== 'none') states.add(sample.alertReason);
-      if (sample.firmwareFault) states.add('Firmware fault');
-    }
-
-    if (states.size === 2 && states.has('error') && isSafeState(states)) {
-      states.delete('error');
-      return {
-        display: states.keys().next().value,
-        safetyStateActive: false,
-      };
-    }
-
-    return {
-      display: [...states.keys()].join(' • ') || 'Connected',
-      safetyStateActive: states.size > 0,
-    };
-  });
+  const deviceState = $derived(liveStatus(connection?.state, sample));
 
   $effect(() => {
     if (!connection) {
@@ -146,7 +118,7 @@
       bottomBorder: view === 'detailed',
       subtitle: deviceState.display,
       subtitleClass: deviceState.safetyStateActive
-        ? 'text-sm capitalize text-danger'
+        ? 'text-sm text-danger'
         : live
           ? 'text-sm capitalize text-success'
           : 'text-sm capitalize text-warning',
@@ -235,10 +207,6 @@
     } else {
       void backendState.requestLocationPermission();
     }
-  }
-
-  function isSafeState(states: Set<string>) {
-    return states.has('switchHalf') || states.has('reverseStop') || states.has('quickStop');
   }
 
   function cycleView(closeMenu: () => void) {

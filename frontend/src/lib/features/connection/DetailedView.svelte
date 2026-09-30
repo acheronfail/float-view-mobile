@@ -2,6 +2,7 @@
   import { backendState } from '$lib/backend/state.svelte';
   import { formatDistanceM, formatSpeedKph, formatTemperatureC } from '$lib/features/measurements/format';
   import { estimatedBatteryPercent } from './battery';
+  import { beepReasonLabel, stopReasonLabel } from './live-status';
   import TelemetrySection from './TelemetrySection.svelte';
   import { controllerRouteDescription, firmwareAccessDescription, readingsAreDimmed } from './live';
   import {
@@ -72,9 +73,9 @@
         ['Wheelslip', telemetryFlag(sample?.wheelslip)],
         ['Darkride', telemetryFlag(sample?.darkride)],
         ['Charging', telemetryFlag(sample?.charging)],
-        ['Stop condition', telemetryState(sample?.stopCondition)],
+        ['Last stop reason', stopReasonLabel(sample?.stopCondition)],
         ['Setpoint adjustment / pushback', telemetryState(sample?.setpointAdjustment)],
-        ['Alert reason', telemetryState(sample?.alertReason)],
+        ['Last reported beep reason', beepReasonLabel(sample?.alertReason)],
         [
           'Active firmware fault',
           sample ? (sample.firmwareFault ? telemetryState(sample.firmwareFault) : 'None') : 'Unavailable',
@@ -82,6 +83,7 @@
         ['Session time', duration(sample?.elapsedMs)],
       ] as [string, string][]}
     />
+    <p class="px-2 text-xs text-muted">The board retains the last reported beep reason after the beep ends.</p>
     <TelemetrySection
       title="Motion"
       items={[
