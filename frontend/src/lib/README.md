@@ -87,8 +87,12 @@ The live battery percentage is the shared service's approximate voltage-based
 estimate, using the saved cell profile, series/parallel counts and display-empty
 voltage (default 3.0 V per cell). These settings do not change firmware protection
 thresholds. Unconfigured boards, guests and BMS-only connections have no estimated
-percentage. Both live views round the same authoritative fraction; controller
-battery level remains a separately labelled raw detail and unchanged in recordings
+percentage. For saved boards with missing estimation configuration, both live
+views show a valid controller-reported percentage with a battery setup warning.
+The warning opens the battery-only mode of the board editor; it shares cell
+profile, series/parallel counts and display-empty voltage controls with the full
+editor. Other unavailable reasons do not use the fallback. Both live views round
+the same selected fraction; controller battery level remains a separately labelled raw detail and unchanged in recordings
 and exports. WebView recreation never resets or advances the native current filter.
 The service pins Floaty's community curves and exposes their catalog version and
 compensation mode; temperature, age and remaining range are not modeled.

@@ -54,6 +54,7 @@ export class BackendState {
   busy = $state(false);
   sessionImporting = $state(false);
   platform = $state<FrontendPlatform>('web');
+  private boardProfileGeneration = 0;
   private client: ApiClient | null = null;
   private sessionDataClient: SessionDataClient | null = null;
   private sessionExportClient: SessionExportClient | null = null;
@@ -324,30 +325,40 @@ export class BackendState {
   }
 
   async openBoardProfile(savedDeviceId: string): Promise<boolean> {
-    return this.run(async (client) => {
-      this.selectedBoardProfile = await client.request('boardProfile.get', { savedDeviceId });
+    const generation = ++this.boardProfileGeneration;
+    this.selectedBoardProfile = null;
+    const opened = await this.run(async (client) => {
+      const profile = await client.request('boardProfile.get', { savedDeviceId });
+      if (generation === this.boardProfileGeneration) this.selectedBoardProfile = profile;
     });
+    return opened && generation === this.boardProfileGeneration;
   }
 
-  async updateBoardProfile(patch: Record<string, unknown>): Promise<void> {
+  async updateBoardProfile(savedDeviceId: string, patch: Record<string, unknown>): Promise<boolean> {
     const profile = this.selectedBoardProfile;
-    if (!profile) return;
-    await this.run(async (client) => {
+    const generation = this.boardProfileGeneration;
+    if (!profile || profile.savedDeviceId !== savedDeviceId) return false;
+    return this.run(async (client) => {
+      if (generation !== this.boardProfileGeneration) return;
+      let updated: BoardProfile;
       try {
-        this.selectedBoardProfile = await client.request('boardProfile.update', {
-          savedDeviceId: profile.savedDeviceId,
+        updated = await client.request('boardProfile.update', {
+          savedDeviceId,
           expectedRevision: profile.revision,
           patch,
         });
       } catch (error) {
         if (!(error instanceof ApiRequestError) || error.code !== 'conflict') throw error;
-        const current = await client.request('boardProfile.get', { savedDeviceId: profile.savedDeviceId });
-        this.selectedBoardProfile = await client.request('boardProfile.update', {
-          savedDeviceId: current.savedDeviceId,
+        if (generation !== this.boardProfileGeneration) return;
+        const current = await client.request('boardProfile.get', { savedDeviceId });
+        if (generation !== this.boardProfileGeneration) return;
+        updated = await client.request('boardProfile.update', {
+          savedDeviceId,
           expectedRevision: current.revision,
           patch,
         });
       }
+      if (generation === this.boardProfileGeneration) this.selectedBoardProfile = updated;
     });
   }
 
@@ -460,6 +471,7 @@ export class BackendState {
   }
 
   closeBoardProfile() {
+    this.boardProfileGeneration++;
     this.selectedBoardProfile = null;
   }
 

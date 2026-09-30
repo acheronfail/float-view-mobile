@@ -1,4 +1,5 @@
 <script lang="ts">
+  let { onconfigure }: { onconfigure?: (trigger: HTMLButtonElement) => void } = $props();
   import { backendState } from '$lib/backend/state.svelte';
   import { readingsAreDimmed } from './live';
   import WidgetGauge from './WidgetGauge.svelte';
@@ -42,7 +43,12 @@
       </div>
 
       <div class:opacity-45={dimmed} class="min-h-0 overflow-hidden transition-opacity">
-        <WidgetPower {sample} estimate={connection.batteryEstimate} />
+        <WidgetPower
+          {onconfigure}
+          savedBoard={!!connection?.savedDeviceId && connection?.deviceKind === 'board'}
+          {sample}
+          estimate={connection.batteryEstimate}
+        />
       </div>
     </div>
   </section>

@@ -38,7 +38,7 @@
 
   // TODO: persist this state
   let view = $state<View>('normal');
-  let configureOpen = $state(false);
+  let configuration = $state<{ savedDeviceId: string; batteryOnly: boolean; trigger?: HTMLButtonElement } | null>(null);
   let bmsOpen = $state(false);
   let refloatConfigurationOpen = $state(false);
   let refloatTunesOpen = $state(false);
@@ -313,16 +313,31 @@
 
   function openConfigure(closeMenu?: () => void) {
     closeMenu?.();
-    configureOpen = true;
+    if (connection?.savedDeviceId) configuration = { savedDeviceId: connection.savedDeviceId, batteryOnly: false };
   }
 
+  function openBatteryConfigure(trigger: HTMLButtonElement) {
+    if (connection?.savedDeviceId && !configuration) {
+      configuration = { savedDeviceId: connection.savedDeviceId, batteryOnly: true, trigger };
+    }
+  }
+
+  $effect(() => {
+    if (configuration && (connection?.savedDeviceId !== configuration.savedDeviceId || !savedDevice)) {
+      configuration = null;
+    }
+  });
+
   async function closeConfigure() {
+    const closingConfiguration = configuration;
     if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
     await tick();
-    await editor?.flush();
-    configureOpen = false;
+    if ((await editor?.flush()) === false) return;
+    if (configuration !== closingConfiguration) return;
+    configuration = null;
     await tick();
-    appHeader.focusMenu();
+    if (closingConfiguration?.trigger?.isConnected) closingConfiguration.trigger.focus();
+    else appHeader.focusMenu();
   }
 
   async function closeBms() {
@@ -381,11 +396,11 @@
 
     {#if view === 'normal'}
       <div class="h-full min-h-0 flex-1 overflow-hidden">
-        <LiveView />
+        <LiveView onconfigure={openBatteryConfigure} />
       </div>
     {:else}
       <div class="min-h-0 flex-1 overflow-y-auto overscroll-y-auto" style="--section-header-top: 0px">
-        <DetailedView />
+        <DetailedView onconfigure={openBatteryConfigure} />
       </div>
     {/if}
   {:else}
@@ -491,9 +506,21 @@
   oncancel={cancelControllerShutdown}
 />
 
-{#if configureOpen && connection?.savedDeviceId}
-  <BottomSheet title="Board configuration" titleId="configure-sheet-title" onclose={closeConfigure}>
-    <BoardEditor bind:this={editor} savedDeviceId={connection.savedDeviceId} embedded onclose={closeConfigure} />
+{#if configuration}
+  <BottomSheet
+    title={configuration.batteryOnly ? 'Battery configuration' : 'Board configuration'}
+    titleId="configure-sheet-title"
+    onclose={closeConfigure}
+  >
+    {#key configuration.savedDeviceId}
+      <BoardEditor
+        bind:this={editor}
+        savedDeviceId={configuration.savedDeviceId}
+        batteryOnly={configuration.batteryOnly}
+        embedded
+        onclose={closeConfigure}
+      />
+    {/key}
   </BottomSheet>
 {/if}
 

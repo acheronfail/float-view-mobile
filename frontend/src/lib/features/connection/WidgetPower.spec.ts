@@ -60,3 +60,19 @@ describe('battery power gauge', () => {
     expect(body.match(/>—<\/span>|>—<\/output>/g)).toHaveLength(1);
   });
 });
+
+it('renders reported fill and an actionable warning for missing configuration', () => {
+  const { body } = render(GaugePower, {
+    props: {
+      sample: { packVoltageV: 72, batteryLevel: 0.8 } as LiveSample,
+      estimate: { ...emptyEstimate(), unavailableReason: 'not_configured', seriesCount: 20 },
+      savedBoard: true,
+      onconfigure: () => {},
+    },
+  });
+  expect(body).toContain('aria-label="Controller-reported battery level"');
+  expect(body).toContain('aria-valuenow="80"');
+  expect(body).toContain('width: 80%');
+  expect(body).toContain('Battery setup required');
+  expect(body).toContain('3.60 V');
+});

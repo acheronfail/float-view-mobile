@@ -44,6 +44,7 @@
     try {
       await onclose();
     } finally {
+      dragOffset = 0;
       closing = false;
     }
   }

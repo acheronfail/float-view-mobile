@@ -1,5 +1,5 @@
 import { emptyEstimate } from '../../../backend-mock/battery';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type {
   AppState,
   BackendMethod,
@@ -413,6 +413,75 @@ describe('BackendState', () => {
     expect(store.sessionMetadata?.recordedSampleCount).toBe(2);
     store.closeSession();
     expect(store.sessionMetadata).toBeNull();
+    store.close();
+  });
+});
+
+describe('board profile ownership', () => {
+  it('ignores late profile reads after closure or another editor opens', async () => {
+    const client = new FakeClient();
+    const original = client.request.bind(client);
+    let resolveFirst!: (value: BackendResult<'boardProfile.get'>) => void;
+    vi.spyOn(client, 'request').mockImplementation(async (method, params) => {
+      if (method === 'boardProfile.get') {
+        const id = (params as BackendParams<'boardProfile.get'>).savedDeviceId;
+        if (id === 'first')
+          return new Promise((resolve) => {
+            resolveFirst = resolve;
+          }) as never;
+        return { savedDeviceId: id, revision: 1, values: {}, missingFields: [] } as never;
+      }
+      return original(method, params);
+    });
+    const store = new BackendState(
+      async () => ({ webSocketUrl: 'ws://test' }),
+      async () => client as unknown as ApiClient
+    );
+    await store.connect();
+    const first = store.openBoardProfile('first');
+    store.closeBoardProfile();
+    await store.openBoardProfile('second');
+    resolveFirst({ savedDeviceId: 'first', revision: 1, values: {}, missingFields: [] });
+    expect(await first).toBe(false);
+    expect(store.selectedBoardProfile?.savedDeviceId).toBe('second');
+    expect(await store.updateBoardProfile('first', { seriesCount: 20 })).toBe(false);
+    store.close();
+  });
+
+  it('keeps an in-flight save bound to its board and ignores its late response', async () => {
+    const client = new FakeClient();
+    const original = client.request.bind(client);
+    let resolveSave!: (value: BackendResult<'boardProfile.update'>) => void;
+    const requests: string[] = [];
+    vi.spyOn(client, 'request').mockImplementation(async (method, params) => {
+      if (method === 'boardProfile.get')
+        return {
+          savedDeviceId: (params as BackendParams<'boardProfile.get'>).savedDeviceId,
+          revision: 1,
+          values: {},
+          missingFields: [],
+        } as never;
+      if (method === 'boardProfile.update') {
+        requests.push((params as BackendParams<'boardProfile.update'>).savedDeviceId);
+        return new Promise((resolve) => {
+          resolveSave = resolve;
+        }) as never;
+      }
+      return original(method, params);
+    });
+    const store = new BackendState(
+      async () => ({ webSocketUrl: 'ws://test' }),
+      async () => client as unknown as ApiClient
+    );
+    await store.connect();
+    await store.openBoardProfile('first');
+    const save = store.updateBoardProfile('first', { seriesCount: 20 });
+    store.closeBoardProfile();
+    await store.openBoardProfile('second');
+    resolveSave({ savedDeviceId: 'first', revision: 2, values: { seriesCount: 20 }, missingFields: [] });
+    await save;
+    expect(requests).toEqual(['first']);
+    expect(store.selectedBoardProfile?.savedDeviceId).toBe('second');
     store.close();
   });
 });

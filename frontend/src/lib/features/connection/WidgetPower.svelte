@@ -1,12 +1,17 @@
 <script lang="ts">
   import type { LiveSample, BatteryEstimate } from '../../backend/contract';
-  import { estimatedBatteryPercent } from './battery';
+  import { batteryPresentation } from './battery';
+  import BatterySetupWarning from './BatterySetupWarning.svelte';
   import GaugeBar from './WidgetBar.svelte';
 
   let {
     sample,
     estimate,
+    savedBoard = false,
+    onconfigure,
   }: {
+    savedBoard?: boolean;
+    onconfigure?: (trigger: HTMLButtonElement) => void;
     sample: LiveSample | null | undefined;
     estimate: BatteryEstimate | null | undefined;
   } = $props();
@@ -16,7 +21,8 @@
   const red = [220, 38, 38];
   const labelValues = Array.from({ length: 6 }, (_, index) => index * 20);
 
-  const batteryPercent = $derived(estimatedBatteryPercent(estimate));
+  const battery = $derived(batteryPresentation(estimate, sample?.batteryLevel, savedBoard));
+  const batteryPercent = $derived(battery.percent);
   const batterySeriesCells = $derived(estimate?.seriesCount);
   const charging = $derived(sample?.charging === true);
   const batteryColor = $derived(colorForBattery(batteryPercent));
@@ -70,23 +76,26 @@
     </span>
   </div>
 
-  <div class="min-h-0 flex-1">
-    <GaugeBar
-      value={batteryPercent}
-      maximum={100}
-      detail={batteryPercent == null ? '—' : `${batteryPercent.toFixed(0)}%`}
-      detailClass={batteryPercent == null ? 'text-muted' : ''}
-      ariaLabel="Estimated battery level"
-      ariaValueText={batteryPercent == null ? 'Unavailable' : `${batteryPercent.toFixed(0)} percent`}
-      showLabels
-      tickValues={labelValues}
-      format={(value) => `${value}%`}
-      heightClass="h-5"
-      fillClass={charging
-        ? 'animate-[battery-charging-pulse_1s_ease-in-out_infinite_alternate] bg-linear-to-r from-orange-600 via-amber-500 to-orange-600 bg-[length:200%_100%] motion-reduce:animate-none'
-        : 'bg-[var(--battery-color)]'}
-      fillStyle={`--battery-color: ${batteryColor}`}
-    />
+  <div class="flex min-h-0 flex-1 items-start gap-1">
+    <div class="min-w-0 flex-1">
+      <GaugeBar
+        value={batteryPercent}
+        maximum={100}
+        detail={batteryPercent == null ? '—' : `${batteryPercent.toFixed(0)}%`}
+        detailClass={batteryPercent == null ? 'text-muted' : ''}
+        ariaLabel={battery.label}
+        ariaValueText={batteryPercent == null ? 'Unavailable' : `${batteryPercent.toFixed(0)} percent`}
+        showLabels
+        tickValues={labelValues}
+        format={(value) => `${value}%`}
+        heightClass="h-5"
+        fillClass={charging
+          ? 'animate-[battery-charging-pulse_1s_ease-in-out_infinite_alternate] bg-linear-to-r from-orange-600 via-amber-500 to-orange-600 bg-[length:200%_100%] motion-reduce:animate-none'
+          : 'bg-[var(--battery-color)]'}
+        fillStyle={`--battery-color: ${batteryColor}`}
+      />
+    </div>
+    {#if battery.needsSetup && onconfigure}<BatterySetupWarning {onconfigure} />{/if}
   </div>
 </section>
 

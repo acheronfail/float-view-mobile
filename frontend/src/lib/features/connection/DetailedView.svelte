@@ -1,8 +1,10 @@
 <script lang="ts">
   import { backendState } from '$lib/backend/state.svelte';
   import { formatDistanceM, formatSpeedKph, formatTemperatureC } from '$lib/features/measurements/format';
-  import { estimatedBatteryPercent } from './battery';
+  import { batteryPresentation } from './battery';
   import { beepReasonLabel, stopReasonLabel } from './live-status';
+  import BatterySetupWarning from './BatterySetupWarning.svelte';
+  let { onconfigure }: { onconfigure?: (trigger: HTMLButtonElement) => void } = $props();
   import TelemetrySection from './TelemetrySection.svelte';
   import { controllerRouteDescription, firmwareAccessDescription, readingsAreDimmed } from './live';
   import {
@@ -14,7 +16,14 @@
   } from './telemetry';
 
   const connection = $derived(backendState.snapshot?.activeConnection);
-  const batteryPercent = $derived(estimatedBatteryPercent(connection?.batteryEstimate));
+  const battery = $derived(
+    batteryPresentation(
+      connection?.batteryEstimate,
+      connection?.latestSample?.batteryLevel,
+      !!connection?.savedDeviceId && connection?.deviceKind === 'board'
+    )
+  );
+  const batteryPercent = $derived(battery.percent);
   const sample = $derived(connection?.latestSample);
   const session = $derived(connection?.activeSession);
   const location = $derived(connection?.latestLocation);
@@ -141,6 +150,13 @@
         ['ATR speed boost', scalar(sample?.atrSpeedBoost, 3)],
       ] as [string, string][]}
     />
+    <div class="flex items-center justify-between gap-2 rounded border border-outline px-2 py-1 font-mono text-xs">
+      <span class="text-muted uppercase">{battery.label}:</span>
+      <div class="flex items-center gap-1">
+        <span>{batteryPercent == null ? 'Unavailable' : `${batteryPercent}%`}</span>
+        {#if battery.needsSetup && onconfigure}<BatterySetupWarning {onconfigure} />{/if}
+      </div>
+    </div>
     <TelemetrySection
       title="Accumulated and charging"
       items={[
@@ -150,7 +166,6 @@
         ['Amp-hours charged', measured(sample?.ampHoursChargedAh, 'Ah', 2)],
         ['Watt-hours drawn', measured(sample?.wattHoursDrawnWh, 'Wh', 1)],
         ['Watt-hours charged', measured(sample?.wattHoursChargedWh, 'Wh', 1)],
-        ['Estimated battery level', batteryPercent == null ? 'Unavailable' : `${batteryPercent}%`],
         [
           'Controller-reported battery level',
           sample?.batteryLevel == null ? 'Unavailable' : `${number(sample.batteryLevel * 100, 0)}%`,
