@@ -1,6 +1,6 @@
 ## Context
 
-See proposal.md for motivation. SettingsView currently has no permission inventory. BluetoothState exposes scan/connect grants but no recovery action. LocationState mixes the recording preference and provider authorization; AndroidLocationProvider collapses coarse/fine access and uses a single requested flag. CoreLocationAdapter combines authorizedWhenInUse and authorizedAlways as adequate for the existing ride-scoped capture. Existing native UI effects complete on dispatch, not necessarily when the user chooses a grant.
+See proposal.md for motivation. SettingsView currently has no permission inventory. BluetoothState exposes scan/connect grants but no recovery action. LocationState mixes the recording preference and provider authorization; AndroidLocationProvider collapses coarse/fine access and uses a single requested flag. CoreLocationAdapter requires Always for capture that may start while locked; When In Use remains foreground-only. Existing native UI effects complete on dispatch, not necessarily when the user chooses a grant.
 
 ## Goals / Non-Goals
 
@@ -18,7 +18,7 @@ This avoids frontend platform sniffing and avoids adding arbitrary labels, URLs,
 
 | Platform | Inventory and recovery |
 | --- | --- |
-| iOS | Bluetooth and Location. Request unresolved access; denied access opens the app Settings URL. Show restricted access with an explanation, without promising an in-app fix. Preserve When In Use as sufficient for the existing foreground-started ride capture; no new Always request or separate background-permission row. Report reduced accuracy as limited detail without blocking usable capture. |
+| iOS | Bluetooth and Location. Request unresolved access; denied access opens the app Settings URL. Show restricted access with an explanation, without promising an in-app fix. Preserve the existing Always request flow and requirement for rides that begin while locked; show When In Use as foreground-only with an explicit upgrade action, without a separate background-permission row. Report reduced accuracy as limited detail without blocking usable capture. |
 | macOS | Bluetooth and Location. Report authorization independently of provider availability. Request unresolved authorization using existing native APIs; open the relevant Privacy & Security pane when possible, with explicit manual navigation guidance otherwise. No mobile background-permission row. |
 | Android 29–30 | Location (coarse/fine, also explaining fine-location dependency for BLE scanning), plus separate Background location. Bluetooth connect has no runtime grant on these versions; do not fabricate a requestable Bluetooth row. API 29 can request background separately after foreground; API 30 uses Settings guidance. |
 | Android 31+ | Nearby devices/Bluetooth (scan and connect), Location (coarse/fine), and Background location. Request missing nearby grants together because the OS groups them. Request foreground coarse/fine together; never request background in the same operation. |

@@ -46,7 +46,7 @@ Each recoverable permission SHALL offer the next supported action for that permi
 
 #### Scenario: Existing access sufficient
 - **WHEN** current authorization supports the existing ride-capture mode
-- **THEN** the UI does not require broader authorization solely to mark that mode ready
+- **THEN** the UI does not require broader authorization solely to mark that mode ready; iOS When In Use is foreground-only and Always remains required for rides that begin while locked
 
 ### Requirement: Authoritative lifecycle recovery
 

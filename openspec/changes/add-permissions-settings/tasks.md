@@ -6,7 +6,7 @@
 
 ## 2. Native adapters and lifecycle
 
-- [ ] 2.1 Implement Apple authorization/accuracy facts, unresolved permission requests, iOS app Settings and macOS pane/manual guidance with navigation completion; verify Apple adapter tests preserve existing When In Use ride eligibility and distinguish services disabled from denied grants.
+- [ ] 2.1 Implement Apple authorization/accuracy facts, unresolved permission requests, iOS app Settings and macOS pane/manual guidance with navigation completion; verify Apple adapter tests preserve existing Always-access ride eligibility and foreground-only When In Use behavior and distinguish services disabled from denied grants.
 - [ ] 2.2 Implement Android grant/rationale/resolved-history facts and grouped nearby/foreground requests with separate background recovery for API 29 versus 30+; verify Android unit tests cover first request, denial with retry, blocked retry, partial grants, prerequisite failure, and absent Activity.
 - [ ] 2.3 Refresh OS facts on startup, authorization callbacks and activation, independent of recording or connection state; verify lifecycle tests for Settings return, unchanged access, revocation, temporary grant expiry, failed refresh, and frontend recreation without duplicate prompts.
 - [ ] 2.4 Route existing Bluetooth/location permission entry points through the shared policy and remove superseded denial-only and single requested-flag routing; verify existing scan, recording-toggle and live-warning tests plus concurrent old/new entry-point coverage.
