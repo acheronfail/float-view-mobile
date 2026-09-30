@@ -33,7 +33,7 @@ The system SHALL derive a voltage observation from cell voltage and signed batte
 
 ### Requirement: Coherent bounded estimator lifecycle
 
-Estimation SHALL follow accepted sample ordering using constant-size process-owned state. Duplicate/out-of-order samples, snapshot reads, and rejected persistence SHALL NOT advance charge, smoothing, or settling. View recreation SHALL NOT restart or advance state. A same-board/controller reconnect or sample gap exceeding five seconds SHALL retain the last fraction as a provisional seed, clear the current integration pair and settling history, and never account for the unobserved interval. Board/controller identity changes, process restart, or estimation-configuration changes SHALL initialize a new provisional estimate from valid telemetry; unrelated profile edits SHALL NOT reset it. A configuration edit SHALL recompute against the latest accepted sample and accepted profile revision. Nonready connections SHALL retain their matching estimate under existing stale-display behavior. New invalid voltage SHALL produce unavailable rather than present an old fraction as current, and SHALL break integration continuity; valid recovery SHALL resume provisionally without integrating the invalid interval.
+Estimation SHALL follow accepted sample ordering using constant-size process-owned state. Duplicate/out-of-order samples, snapshot reads, and rejected persistence SHALL NOT advance charge, smoothing, or settling. View recreation SHALL NOT restart or advance state. A same-board/controller reconnect or sample gap exceeding five seconds SHALL retain the last fraction as a provisional seed, clear the current integration pair and settling history, and never account for the unobserved interval. Board/controller identity changes, process restart, or estimation-configuration changes SHALL initialize a new provisional estimate from valid telemetry; unrelated profile edits and preset-identity-only edits with unchanged effective estimation values SHALL NOT reset it. An atomic preset selection SHALL reconfigure estimation only once, from the complete accepted pack values. Changing setup modes SHALL NOT change estimator state. A configuration edit SHALL recompute against the latest accepted sample and accepted profile revision. Nonready connections SHALL retain their matching estimate under existing stale-display behavior. New invalid voltage SHALL produce unavailable rather than present an old fraction as current, and SHALL break integration continuity; valid recovery SHALL resume provisionally without integrating the invalid interval.
 
 #### Scenario: Reconnect and view recreation
 
@@ -102,3 +102,14 @@ With configured pack capacity and consecutive finite signed current samples no m
 - **WHEN** display-empty voltage is above the original curve's empty endpoint or very close to 4.2 V
 - **THEN** charge consumption is integrated on the original charge axis before reserve remapping, and the displayed result stays finite and bounded
 - **AND** voltage correction limits apply to displayed percentage rather than the unremapped fraction
+
+#### Scenario: Nominal preset capacity with a generic observation
+
+- **WHEN** an explicitly selected X7S P30B preset supplies 6 Ah, a generic curve, and consecutive finite battery-current samples
+- **THEN** charge integration uses the persisted 6 Ah and settled correction uses the generic zero-load observation without inventing P30B load curves
+- **AND** generic profile selection does not make configuration incomplete
+
+#### Scenario: Cleared capacity stays cleared
+
+- **WHEN** capacity is explicitly cleared for a named preset and telemetry resumes after reconnect
+- **THEN** the estimate uses voltage smoothing and no catalog read or mode switch restores nominal capacity

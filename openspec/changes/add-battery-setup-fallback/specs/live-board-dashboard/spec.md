@@ -35,7 +35,7 @@ The live power widget and detailed view SHALL prefer the authoritative estimated
 
 ### Requirement: Saved board battery estimation controls
 
-The saved-board editor SHALL offer the bounded cell-profile choices and a display-empty voltage per cell alongside existing series/parallel inputs. It SHALL explain the 3.0 V default and that the setting changes the displayed estimate, not firmware protection thresholds. Controls SHALL use existing revisioned save behavior, be accessible to keyboard and primary-pointer input on desktop and touch, and preserve configuration across view recreation. Missing estimation configuration SHALL NOT introduce a general profile-completeness warning or block unrelated board operations; the contextual live battery setup warning SHALL remain distinct.
+The saved-board editor SHALL provide a Basic/Advanced segmented control shared with the battery-only modal. Basic SHALL offer a manufacturer-grouped select of named battery variants and a concise summary of actual configured values. Advanced SHALL offer bounded cell-profile choices, series/parallel inputs, optional full-pack capacity, and display-empty voltage per cell, explaining the 3.0 V default and that it changes the displayed estimate, not firmware protection thresholds. Selecting a preset SHALL use its configured generic profile internally when a dedicated curve is absent; Basic SHALL NOT display a generic/approximation label, missing-curve warning, or extra confirmation for this case. Controls SHALL use existing revisioned save behavior, be accessible to keyboard and primary-pointer input on desktop and touch, and preserve configuration across view recreation. Missing estimation configuration SHALL NOT introduce a general profile-completeness warning or block unrelated board operations; the contextual live battery setup warning SHALL remain distinct.
 
 #### Scenario: Configure a saved board
 
@@ -51,7 +51,7 @@ The saved-board editor SHALL offer the bounded cell-profile choices and a displa
 
 ### Requirement: Contextual battery configuration modal
 
-Both live views SHALL provide a small warning icon button next to the primary battery percentage when the saved board is missing estimation configuration. Its accessible name SHALL communicate that battery setup is required. Activating it SHALL open a modal explaining the board-reported fallback and presenting only battery cell profile, series count, parallel count, and display-empty voltage from the full board editor, with identical validation and save semantics. The modal SHALL expose a title, focus containment, keyboard dismissal, and focus restoration. Only one board configuration modal SHALL be active at a time.
+Both live views SHALL provide a small warning icon button next to the primary battery percentage when the saved board is missing estimation configuration. Its accessible name SHALL communicate that battery setup is required. Activating it SHALL open a modal explaining the board-reported fallback and presenting the same Basic/Advanced battery form as the full board editor: named preset selection and summary in Basic; cell profile, series count, parallel count, optional pack capacity, and display-empty voltage in Advanced, with identical validation and save semantics. The modal SHALL expose a title, focus containment, keyboard dismissal, and focus restoration. Only one board configuration modal SHALL be active at a time.
 
 #### Scenario: Open battery setup
 
@@ -88,3 +88,42 @@ Both live views SHALL provide a small warning icon button next to the primary ba
 - **WHEN** telemetry refreshes or the same saved board reconnects while the modal is open
 - **THEN** unrelated updates do not erase in-progress input or multiply open editors
 - **AND** if the active board identity changes or the edited board is removed, the editor is invalidated without applying its queued edits to another board
+
+### Requirement: Named presets and non-destructive setup modes
+
+An unconfigured battery or saved named preset SHALL open in Basic; an existing partial or custom battery without preset identity SHALL open in Advanced. Changing modes SHALL preserve drafts and saved values without issuing a save or resetting defaults, including preventing a toggle-induced blur from committing a field. Custom selection SHALL open Advanced without changing stored settings. An explicit named preset selection SHALL apply all battery defaults as one revisioned operation, preserve unrelated profile values, and retain its selected name across reopening and view recreation. The system SHALL NOT infer a branded preset from matching electrical settings or controller identity. Advanced S/P/profile changes departing from the preset SHALL clear the preset identity atomically; capacity and display-empty overrides SHALL retain it. Effective manual S/P changes SHALL clear prior capacity unless the same patch explicitly replaces it; curve-only changes SHALL retain capacity. Advanced SHALL offer an explicit reset to a named battery's defaults without relying on selecting an unchanged option. Basic SHALL summarize actual saved/draft values, including blank or overridden capacity, rather than silently restore nominal values. Failed saves SHALL remain visible as unsaved drafts; authoritative percentage changes SHALL use accepted state only.
+
+#### Scenario: One-step named setup
+
+- **WHEN** an unconfigured saved board selects Floatwheel ADV2
+- **THEN** one save applies its identity, 20S2P counts, Samsung 50S profile, 10 Ah nominal capacity, and 3.0 V display-empty default
+- **AND** both editors reopen with that name and the accepted values
+
+#### Scenario: Preset without a dedicated curve
+
+- **WHEN** a rider selects Funwheel X7S with P30B cells
+- **THEN** setup applies 20S2P, 6 Ah nominal capacity, and the generic profile internally
+- **AND** Basic shows the battery name and summary without a generic/approximation label, warning, or additional confirmation
+- **AND** valid telemetry can produce an estimate without a missing-configuration warning
+
+#### Scenario: Switching modes with a draft
+
+- **WHEN** a user switches modes after entering a valid or invalid Advanced draft
+- **THEN** the draft remains available, no field or preset is saved because of the switch, and switching back restores the same input
+
+#### Scenario: Custom battery and overrides
+
+- **WHEN** a user chooses Custom, edits S/P/profile, or overrides capacity or empty voltage
+- **THEN** choosing Custom alone saves nothing, departing S/P/profile clears identity with the edit, effective count changes clear capacity unless explicitly replaced, and capacity/empty overrides retain identity
+- **AND** returning to Basic preserves all values and never automatically selects a brand or restores defaults
+
+#### Scenario: Equivalent packs and recreation
+
+- **WHEN** two presets share the same electrical configuration and one is selected successfully
+- **THEN** reopening identifies the selected preset by its persisted identity rather than substituting the other name
+
+#### Scenario: Pending selection and failure
+
+- **WHEN** a preset save is pending, rejected, or conflicts while telemetry continues
+- **THEN** the draft and save status remain visible, no partial defaults are published, and the live percentage remains tied to accepted configuration
+- **AND** rapid selections are serialized and board invalidation cannot redirect pending work

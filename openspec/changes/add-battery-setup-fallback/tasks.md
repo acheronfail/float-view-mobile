@@ -15,7 +15,20 @@
 - [x] 3.2 Update frontend ownership documentation to describe the conditional reported fallback and shared battery editor; verify it agrees with the delta spec and preserves native estimation ownership.
 - [x] 3.3 Run affected frontend Vitest tests, `npm run check`, and relevant formatting/lint checks from `frontend`; record results. Broaden checks only if implementation changes the expected frontend-only scope.
 
-## Verification results
+## 4. Basic and Advanced preset setup
+
+- [ ] 4.1 Integrate the shared preset catalog/identity/capacity contract after `stabilize-battery-state-of-charge` tasks 1.1–1.3; verify typed mock fixtures and snapshot consumption without a frontend-owned preset policy or duplicate catalog.
+- [ ] 4.2 Add accessible Basic/Advanced segments and manufacturer-grouped native select to the shared battery form; verify identical full-editor/modal behavior, initial mode for unconfigured/named/manual profiles, primary/non-primary/cancelled input, keyboard/assistive activation, and no duplicate activation under telemetry.
+- [ ] 4.3 Apply presets with one serialized revisioned selection request and pending/error feedback; verify complete defaults, successful persisted identity, rapid selections, conflicts, failed saves, no partial estimator configuration, and no queued edit reaching another board.
+- [ ] 4.4 Preserve drafts on mode changes without toggle-induced blur saves; add Custom behavior, actual-value summary, manual override handling, and optional Advanced capacity input. Verify toggles issue no requests, invalid drafts survive, 3.0 V help remains in Advanced, reopening keeps names, count edits invalidate prior capacity, and the explicit reset action restores preset defaults without relying on native select re-selection.
+- [ ] 4.5 Cover a known-curve preset and XR/Pint or P30B/RS50 preset mapped internally to generic; verify Basic has no generic/approximation label, missing-curve warning, or extra confirmation while Advanced exposes the actual profile and accepted setup removes only the missing-configuration warning.
+- [ ] 4.6 Update frontend ownership documentation and extend browser/mock coverage for both editors, touch/keyboard mode changes, reconnect, view recreation, custom/cleared capacity, and save failures; verify the shared catalog remains service-owned and reported fallback stays limited to `not_configured`.
+- [ ] 4.7 Run affected frontend unit/component tests, type checks, relevant formatting/lint checks, and battery browser scenarios; validate both OpenSpec changes and record new results separately from the completed implementation evidence below. Cross-platform contract verification belongs to the companion change.
+
+## Verification results — completed fallback/modal implementation
+
+These results predate the Basic/Advanced preset extension and do not verify tasks 4.1–4.7.
+
 
 - Frontend Vitest: 205 tests passed in the full run; the four loopback authentication tests were sandbox-blocked and then all passed in an elevated focused rerun (209 total).
 - `npm run check`: zero errors or warnings. `npm run build`: passed.
