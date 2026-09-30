@@ -6,17 +6,13 @@
   let { sessionId }: { sessionId: string | null } = $props();
   const gesture = new MarkerGesture();
   let pending = $state(false);
-  let pulse = $state(false);
   let message = $state('');
   let alive = true;
   let generation = 0;
-  let pulseTimer: ReturnType<typeof setTimeout> | undefined;
   let toastTimer: ReturnType<typeof setTimeout> | undefined;
   function clear() {
     gesture.cancel();
-    clearTimeout(pulseTimer);
     clearTimeout(toastTimer);
-    pulse = false;
     message = '';
     generation++;
   }
@@ -33,15 +29,10 @@
     const session = sessionId;
     const ticket = generation;
     pending = true;
-    clearTimeout(pulseTimer);
-    pulse = false;
     message = '';
     try {
       await backendState.saveRideMarker(session, crypto.randomUUID());
       if (!alive || session !== sessionId || ticket !== generation) return;
-      pulse = true;
-      clearTimeout(pulseTimer);
-      pulseTimer = setTimeout(() => (pulse = false), 250);
       message = 'Marker saved';
     } catch (error) {
       if (!alive || session !== sessionId || ticket !== generation) return;
@@ -58,7 +49,6 @@
 
 <svelte:window onpointerdown={(event) => gesture.observePointer(event)} />
 
-{#if pulse}<div class="marker-pulse pointer-events-none absolute inset-0" aria-hidden="true"></div>{/if}
 <button
   type="button"
   aria-label="Save ride marker"
@@ -91,19 +81,6 @@
 </div>
 
 <style>
-  .marker-pulse {
-    background: radial-gradient(
-      ellipse closest-side at 50% 53%,
-      rgb(255 237 186 / 0.8) 0%,
-      rgb(253 186 116 / 0.6) 18%,
-      rgb(249 115 22 / 0.35) 42%,
-      rgb(249 115 22 / 0.12) 65%,
-      transparent 100%
-    );
-    filter: blur(10px);
-    transform-origin: 50% 53%;
-    animation: marker-pulse 250ms cubic-bezier(0.16, 1, 0.3, 1) both;
-  }
   .marker-toast {
     color: #fff7ed;
     background: linear-gradient(135deg, #7c2d12, #431407);
@@ -111,21 +88,5 @@
     box-shadow:
       0 4px 16px rgb(0 0 0 / 0.3),
       0 0 18px rgb(249 115 22 / 0.3);
-  }
-  @keyframes marker-pulse {
-    from {
-      opacity: 1;
-      transform: scale(0.35);
-    }
-    to {
-      opacity: 0;
-      transform: scale(1.15);
-    }
-  }
-  @media (prefers-reduced-motion: reduce) {
-    .marker-pulse {
-      animation: none;
-      opacity: 0.65;
-    }
   }
 </style>
