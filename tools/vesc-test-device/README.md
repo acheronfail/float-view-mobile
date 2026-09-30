@@ -24,6 +24,12 @@ WRITE <HEX>
 ERROR <CODE>
 ```
 
+Notification failures report `NOTIFY_FAILED_<status>` with the NimBLE status
+number. Transient enqueue failures use a one-second retry budget, yielding at least
+one scheduler tick between attempts. Successful enqueues retain 20 ms pacing and
+are never replayed; NimBLE's notification callback reports enqueue status, not a
+remote acknowledgement.
+
 The target is the ESP32-S3 Super Mini with an ESP32-S3FH4R2: 4 MB QIO flash,
 2 MB QSPI PSRAM, and native USB. The firmware does not use PSRAM.
 

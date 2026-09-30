@@ -41,8 +41,6 @@ static const ble_uuid128_t notify_uuid = BLE_UUID128_INIT(
 
 static SemaphoreHandle_t output_mutex;
 static SemaphoreHandle_t state_mutex;
-static SemaphoreHandle_t notify_complete;
-static int notify_status;
 static uint16_t connection_handle = BLE_HS_CONN_HANDLE_NONE;
 static uint16_t notify_handle;
 static bool subscribed;
@@ -68,28 +66,30 @@ static void error(const char *code) {
 
 static int notify_bytes(
     uint16_t connection, const uint8_t *bytes, size_t length) {
-    int result = BLE_HS_ENOMEM;
-    for (int attempt = 0; attempt < 20; attempt++) {
-        while (xSemaphoreTake(notify_complete, 0) == pdTRUE) {}
+    const TickType_t started = xTaskGetTickCount();
+    const TickType_t budget = pdMS_TO_TICKS(1000);
+    // 5 ms rounded to zero on the fixture's 100 Hz tick, exhausting all retries
+    // without letting the controller drain. Always yield for at least one tick.
+    const TickType_t retry = pdMS_TO_TICKS(10) > 0 ? pdMS_TO_TICKS(10) : 1;
+    for (;;) {
         struct os_mbuf *buffer = ble_hs_mbuf_from_flat(bytes, length);
-        result = buffer == NULL
+        const int result = buffer == NULL
             ? BLE_HS_ENOMEM
             : ble_gatts_notify_custom(connection, notify_handle, buffer);
+        // NimBLE consumes the buffer on either outcome. Success is enqueue
+        // acceptance, not an over-the-air acknowledgement; never replay it.
         if (result == 0) {
-            if (xSemaphoreTake(notify_complete, pdMS_TO_TICKS(100)) != pdTRUE) {
-                return BLE_HS_ETIMEOUT;
-            }
-            if (notify_status == 0) vTaskDelay(pdMS_TO_TICKS(NOTIFY_PACE_MS));
-            return notify_status;
+            vTaskDelay(pdMS_TO_TICKS(NOTIFY_PACE_MS));
+            return 0;
         }
-        if (result != BLE_HS_EAGAIN &&
-            result != BLE_HS_EBUSY &&
-            result != BLE_HS_ENOMEM) {
+        if ((result != BLE_HS_EAGAIN &&
+             result != BLE_HS_EBUSY &&
+             result != BLE_HS_ENOMEM) ||
+            (TickType_t)(xTaskGetTickCount() - started) >= budget) {
             return result;
         }
-        vTaskDelay(pdMS_TO_TICKS(5));
+        vTaskDelay(retry);
     }
-    return result;
 }
 
 static int notify_access(
@@ -182,13 +182,6 @@ static int gap_event(struct ble_gap_event *event, void *argument) {
                 xSemaphoreGive(state_mutex);
             }
             return 0;
-        case BLE_GAP_EVENT_NOTIFY_TX:
-            if (event->notify_tx.attr_handle == notify_handle &&
-                !event->notify_tx.indication) {
-                notify_status = event->notify_tx.status;
-                xSemaphoreGive(notify_complete);
-            }
-            return 0;
         default:
             return 0;
     }
@@ -272,8 +265,11 @@ static void process(const char *line) {
                 error("NOT_SUBSCRIBED");
                 return;
             }
-            if (notify_bytes(connection, command.bytes, command.length) != 0) {
-                error("NOTIFY_FAILED");
+            const int result = notify_bytes(connection, command.bytes, command.length);
+            if (result != 0) {
+                char code[48];
+                snprintf(code, sizeof(code), "NOTIFY_FAILED_%u", (unsigned int)result);
+                error(code);
             }
             return;
         }
@@ -343,7 +339,6 @@ static void control_task(void *argument) {
 void app_main(void) {
     output_mutex = xSemaphoreCreateMutex();
     state_mutex = xSemaphoreCreateMutex();
-    notify_complete = xSemaphoreCreateBinary();
     ESP_ERROR_CHECK(status_led_init());
 
     esp_err_t result = nvs_flash_init();

@@ -48,6 +48,7 @@ test('simulator follows exact Express, CAN, Refloat, and telemetry sequence', ()
 
 test('serial events and diagnostic LED conventions are bounded', () => {
   assert.deepEqual(parseEvent('READY'), { kind: 'READY' });
+  assert.deepEqual(parseEvent('ERROR NOTIFY_FAILED_13'), { kind: 'ERROR', code: 'NOTIFY_FAILED_13' });
   assert.deepEqual(parseEvent('WRITE 00AFF0'), {
     kind: 'WRITE',
     bytes: Uint8Array.of(0, 0xaf, 0xf0),
@@ -117,6 +118,24 @@ test('fixture runner concurrently answers writes and re-advertises after injecti
       `Missing fixture progress: ${expected}`
     );
   }
+});
+
+test('external radio loss re-advertises only while the checkpoint is armed', async () => {
+  const fixture = new FakeFixture();
+  const runner = new FixtureRunner(fixtureScenarios.identity, fixture);
+  await runner.start();
+  fixture.emit({ kind: 'CONNECTED' });
+  runner.prepareExternalDisconnect();
+  fixture.emit({ kind: 'DISCONNECTED' });
+  await eventually(() => fixture.commands.filter((item) => item === 'ADVERTISE').length === 2);
+  assert.equal(fixture.commands.filter((item) => item === 'DISCONNECT').length, 0);
+  const disarm = runner.prepareExternalDisconnect();
+  disarm();
+  fixture.emit({ kind: 'CONNECTED' });
+  fixture.emit({ kind: 'DISCONNECTED' });
+  await eventually(() => runner.diagnosticSnapshot().filter((item) => item === 'DISCONNECTED').length === 2);
+  assert.equal(fixture.commands.filter((item) => item === 'ADVERTISE').length, 2);
+  await runner.stop(false);
 });
 
 test('fixture runner tolerates a late notification after the peer disconnects', async () => {

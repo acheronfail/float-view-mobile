@@ -79,6 +79,13 @@ export class FixtureRunner {
     });
   }
 
+  prepareExternalDisconnect() {
+    this.injectedReconnect = true;
+    return () => {
+      this.injectedReconnect = false;
+    };
+  }
+
   async injectDisconnectAndReadvertise() {
     this.injectedReconnect = true;
     this.disconnectInjected = true;
