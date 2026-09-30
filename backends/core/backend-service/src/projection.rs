@@ -221,6 +221,8 @@ impl BackendService {
             }
         });
         f::Snapshot {
+            battery_presets: store::battery_presets::PRESETS.clone(),
+            battery_preset_catalog_version: store::battery_presets::CATALOG_VERSION.into(),
             battery_cell_profiles: store::battery_catalog::PROFILES
                 .iter()
                 .map(|p| f::BatteryCellProfile {

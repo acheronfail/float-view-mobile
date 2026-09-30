@@ -17,8 +17,22 @@ fn setup() -> (TestDirectory, ProductStore, String) {
     let b = store
         .ensure_board("PRIVATE-LOCAL-ID", Some("Board"), Some(&[1; 12]), 1)
         .unwrap();
-    store.update_profile(&b.saved_device_id, 0,
-        r#"{"batteryCellProfileId":"molicel-p45b","batteryMinimumCellVoltageV":3.23,"seriesCount":20,"parallelCount":2}"#, 1).unwrap();
+    store
+        .update_profile(
+            &b.saved_device_id,
+            0,
+            r#"{"batteryPresetId":"indy-speed-control-20s2p-gt-pack-molicel-p45b"}"#,
+            1,
+        )
+        .unwrap();
+    store
+        .update_profile(
+            &b.saved_device_id,
+            1,
+            r#"{"batteryMinimumCellVoltageV":3.23,"batteryCapacityAh":8.7}"#,
+            1,
+        )
+        .unwrap();
     let s = store
         .create_session(&b.saved_device_id, 1, u64::MAX)
         .unwrap();
@@ -105,6 +119,11 @@ fn archive_roundtrip_preserves_portable_identity_and_uses_new_local_ids() {
     let profile = imported.profile(&board.saved_device_id).unwrap();
     assert_eq!(profile.values["batteryCellProfileId"], "molicel-p45b");
     assert_eq!(profile.values["batteryMinimumCellVoltageV"], 3.23);
+    assert_eq!(profile.values["batteryCapacityAh"], 8.7);
+    assert_eq!(
+        profile.values["batteryPresetId"],
+        "indy-speed-control-20s2p-gt-pack-molicel-p45b"
+    );
     assert_eq!(
         session.device_history_id,
         store.session(&id).unwrap().device_history_id

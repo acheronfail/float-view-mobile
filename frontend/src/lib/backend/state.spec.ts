@@ -43,6 +43,8 @@ const initial: AppState = {
   activeConnection: null,
   sessionCatalogRevision: 0,
   batteryCellProfiles: [],
+  batteryPresets: [],
+  batteryPresetCatalogVersion: 'test',
   location: {
     status: 'disabled',
     permissionAction: 'requestPermission',

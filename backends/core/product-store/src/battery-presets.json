@@ -1,0 +1,522 @@
+[
+  {
+    "id": "floatwheel-adv-lr2170la-dg40",
+    "label": "ADV (LR2170LA / DG40)",
+    "manufacturer": "Floatwheel",
+    "cellLabel": "LR2170LA / DG40",
+    "seriesCount": 20,
+    "parallelCount": 2,
+    "batteryCellProfileId": "dg-01-dg-40",
+    "nominalCapacityAh": 8.0
+  },
+  {
+    "id": "floatwheel-adv-pro-molicel-p42a",
+    "label": "ADV Pro (Molicel P42A)",
+    "manufacturer": "Floatwheel",
+    "cellLabel": "Molicel P42A",
+    "seriesCount": 20,
+    "parallelCount": 2,
+    "batteryCellProfileId": "molicel-p42a",
+    "nominalCapacityAh": 8.4
+  },
+  {
+    "id": "floatwheel-adv2-samsung-50s",
+    "label": "ADV2 (Samsung 50S)",
+    "manufacturer": "Floatwheel",
+    "cellLabel": "Samsung 50S",
+    "seriesCount": 20,
+    "parallelCount": 2,
+    "batteryCellProfileId": "samsung-50s",
+    "nominalCapacityAh": 10.0
+  },
+  {
+    "id": "floatwheel-atom-reliance-rs50",
+    "label": "Atom (Reliance RS50)",
+    "manufacturer": "Floatwheel",
+    "cellLabel": "Reliance RS50",
+    "seriesCount": 22,
+    "parallelCount": 1,
+    "batteryCellProfileId": "generic-linear",
+    "nominalCapacityAh": 5.0
+  },
+  {
+    "id": "fungineers-funwheel-x7-molicel-p28a",
+    "label": "Funwheel X7 (Molicel P28A)",
+    "manufacturer": "Fungineers",
+    "cellLabel": "Molicel P28A",
+    "seriesCount": 20,
+    "parallelCount": 2,
+    "batteryCellProfileId": "molicel-p28a",
+    "nominalCapacityAh": 5.6
+  },
+  {
+    "id": "fungineers-funwheel-x7s-molicel-p30b",
+    "label": "Funwheel X7S (Molicel P30B)",
+    "manufacturer": "Fungineers",
+    "cellLabel": "Molicel P30B",
+    "seriesCount": 20,
+    "parallelCount": 2,
+    "batteryCellProfileId": "generic-linear",
+    "nominalCapacityAh": 6.0
+  },
+  {
+    "id": "fungineers-funwheel-x7lr-samsung-50s",
+    "label": "Funwheel X7LR (Samsung 50S)",
+    "manufacturer": "Fungineers",
+    "cellLabel": "Samsung 50S",
+    "seriesCount": 20,
+    "parallelCount": 2,
+    "batteryCellProfileId": "samsung-50s",
+    "nominalCapacityAh": 10.0
+  },
+  {
+    "id": "fungineers-funwheel-x7hv-molicel-p45b",
+    "label": "Funwheel X7HV (Molicel P45B)",
+    "manufacturer": "Fungineers",
+    "cellLabel": "Molicel P45B",
+    "seriesCount": 32,
+    "parallelCount": 1,
+    "batteryCellProfileId": "molicel-p45b",
+    "nominalCapacityAh": 4.5
+  },
+  {
+    "id": "onewheel-gt-s-series-molicel-p45b",
+    "label": "GT S-Series (Molicel P45B)",
+    "manufacturer": "Onewheel",
+    "cellLabel": "Molicel P45B",
+    "seriesCount": 27,
+    "parallelCount": 1,
+    "batteryCellProfileId": "molicel-p45b",
+    "nominalCapacityAh": 4.5
+  },
+  {
+    "id": "onewheel-gt-molicel-p42a",
+    "label": "GT (Molicel P42A)",
+    "manufacturer": "Onewheel",
+    "cellLabel": "Molicel P42A",
+    "seriesCount": 18,
+    "parallelCount": 2,
+    "batteryCellProfileId": "molicel-p42a",
+    "nominalCapacityAh": 8.4
+  },
+  {
+    "id": "onewheel-xr-classic-molicel-p30b",
+    "label": "XR Classic (Molicel P30B)",
+    "manufacturer": "Onewheel",
+    "cellLabel": "Molicel P30B",
+    "seriesCount": 18,
+    "parallelCount": 2,
+    "batteryCellProfileId": "generic-linear",
+    "nominalCapacityAh": 6.0
+  },
+  {
+    "id": "onewheel-xr-vtc6-30q",
+    "label": "XR (VTC6 / 30Q)",
+    "manufacturer": "Onewheel",
+    "cellLabel": "VTC6 / 30Q",
+    "seriesCount": 15,
+    "parallelCount": 2,
+    "batteryCellProfileId": "generic-linear",
+    "nominalCapacityAh": 6.0
+  },
+  {
+    "id": "onewheel-pint-x-vtc6-30q",
+    "label": "Pint X (VTC6 / 30Q)",
+    "manufacturer": "Onewheel",
+    "cellLabel": "VTC6 / 30Q",
+    "seriesCount": 15,
+    "parallelCount": 2,
+    "batteryCellProfileId": "generic-linear",
+    "nominalCapacityAh": 6.0
+  },
+  {
+    "id": "onewheel-pint-murata-vtc5d",
+    "label": "Pint (Murata VTC5D)",
+    "manufacturer": "Onewheel",
+    "cellLabel": "Murata VTC5D",
+    "seriesCount": 15,
+    "parallelCount": 1,
+    "batteryCellProfileId": "generic-linear",
+    "nominalCapacityAh": 2.8
+  },
+  {
+    "id": "indy-speed-control-32s1p-molicel-p45b",
+    "label": "32s1p (Molicel P45B)",
+    "manufacturer": "Indy Speed Control",
+    "cellLabel": "Molicel P45B",
+    "seriesCount": 32,
+    "parallelCount": 1,
+    "batteryCellProfileId": "molicel-p45b",
+    "nominalCapacityAh": 4.5
+  },
+  {
+    "id": "indy-speed-control-30s1p-molicel-p45b",
+    "label": "30s1p (Molicel P45B)",
+    "manufacturer": "Indy Speed Control",
+    "cellLabel": "Molicel P45B",
+    "seriesCount": 30,
+    "parallelCount": 1,
+    "batteryCellProfileId": "molicel-p45b",
+    "nominalCapacityAh": 4.5
+  },
+  {
+    "id": "indy-speed-control-20s2p-gt-pack-molicel-p45b",
+    "label": "20s2p GT Pack (Molicel P45B)",
+    "manufacturer": "Indy Speed Control",
+    "cellLabel": "Molicel P45B",
+    "seriesCount": 20,
+    "parallelCount": 2,
+    "batteryCellProfileId": "molicel-p45b",
+    "nominalCapacityAh": 9.0
+  },
+  {
+    "id": "indy-speed-control-20s2p-xr-split-pack-molicel-p45b",
+    "label": "20s2p XR Split Pack (Molicel P45B)",
+    "manufacturer": "Indy Speed Control",
+    "cellLabel": "Molicel P45B",
+    "seriesCount": 20,
+    "parallelCount": 2,
+    "batteryCellProfileId": "molicel-p45b",
+    "nominalCapacityAh": 9.0
+  },
+  {
+    "id": "indy-speed-control-20s2p-battery-kit-molicel-p30b",
+    "label": "20s2p Battery Kit (Molicel P30B)",
+    "manufacturer": "Indy Speed Control",
+    "cellLabel": "Molicel P30B",
+    "seriesCount": 20,
+    "parallelCount": 2,
+    "batteryCellProfileId": "generic-linear",
+    "nominalCapacityAh": 6.0
+  },
+  {
+    "id": "indy-speed-control-xrv-pnp-kit-molicel-p45b",
+    "label": "XRV PnP Kit (Molicel P45B)",
+    "manufacturer": "Indy Speed Control",
+    "cellLabel": "Molicel P45B",
+    "seriesCount": 18,
+    "parallelCount": 2,
+    "batteryCellProfileId": "molicel-p45b",
+    "nominalCapacityAh": 9.0
+  },
+  {
+    "id": "indy-speed-control-18s2p-molicel-p45b",
+    "label": "18s2p (Molicel P45B)",
+    "manufacturer": "Indy Speed Control",
+    "cellLabel": "Molicel P45B",
+    "seriesCount": 18,
+    "parallelCount": 2,
+    "batteryCellProfileId": "molicel-p45b",
+    "nominalCapacityAh": 9.0
+  },
+  {
+    "id": "indy-speed-control-smart-link-32s2p-reliance-rs50",
+    "label": "Smart Link 32s2p (Reliance RS50)",
+    "manufacturer": "Indy Speed Control",
+    "cellLabel": "Reliance RS50",
+    "seriesCount": 32,
+    "parallelCount": 2,
+    "batteryCellProfileId": "generic-linear",
+    "nominalCapacityAh": 10.0
+  },
+  {
+    "id": "indy-speed-control-smart-link-30s2p-reliance-rs50",
+    "label": "Smart Link 30s2p (Reliance RS50)",
+    "manufacturer": "Indy Speed Control",
+    "cellLabel": "Reliance RS50",
+    "seriesCount": 30,
+    "parallelCount": 2,
+    "batteryCellProfileId": "generic-linear",
+    "nominalCapacityAh": 10.0
+  },
+  {
+    "id": "the-board-garage-fas-pack-molicel-p50b",
+    "label": "FAS Pack (Molicel P50B)",
+    "manufacturer": "The Board Garage",
+    "cellLabel": "Molicel P50B",
+    "seriesCount": 30,
+    "parallelCount": 1,
+    "batteryCellProfileId": "generic-linear",
+    "nominalCapacityAh": 5.0
+  },
+  {
+    "id": "the-board-garage-777-vow-gt-molicel-p45b",
+    "label": "'777' VOW GT (Molicel P45B)",
+    "manufacturer": "The Board Garage",
+    "cellLabel": "Molicel P45B",
+    "seriesCount": 24,
+    "parallelCount": 2,
+    "batteryCellProfileId": "molicel-p45b",
+    "nominalCapacityAh": 9.0
+  },
+  {
+    "id": "the-board-garage-gt-me4t-pack-samsung-50s",
+    "label": "GT ME4T Pack (Samsung 50S)",
+    "manufacturer": "The Board Garage",
+    "cellLabel": "Samsung 50S",
+    "seriesCount": 20,
+    "parallelCount": 2,
+    "batteryCellProfileId": "samsung-50s",
+    "nominalCapacityAh": 10.0
+  },
+  {
+    "id": "the-board-garage-extra-regular-pack-molicel-p30b",
+    "label": "Extra Regular Pack (Molicel P30B)",
+    "manufacturer": "The Board Garage",
+    "cellLabel": "Molicel P30B",
+    "seriesCount": 20,
+    "parallelCount": 2,
+    "batteryCellProfileId": "generic-linear",
+    "nominalCapacityAh": 6.0
+  },
+  {
+    "id": "the-board-garage-regular-pack-molicel-p28a",
+    "label": "Regular Pack (Molicel P28A)",
+    "manufacturer": "The Board Garage",
+    "cellLabel": "Molicel P28A",
+    "seriesCount": 20,
+    "parallelCount": 2,
+    "batteryCellProfileId": "molicel-p28a",
+    "nominalCapacityAh": 5.6
+  },
+  {
+    "id": "the-board-garage-19s2p-molicel-p45b",
+    "label": "19s2p (Molicel P45B)",
+    "manufacturer": "The Board Garage",
+    "cellLabel": "Molicel P45B",
+    "seriesCount": 19,
+    "parallelCount": 2,
+    "batteryCellProfileId": "molicel-p45b",
+    "nominalCapacityAh": 9.0
+  },
+  {
+    "id": "the-board-garage-xr-me4t-pack-samsung-50s",
+    "label": "XR ME4T Pack (Samsung 50S)",
+    "manufacturer": "The Board Garage",
+    "cellLabel": "Samsung 50S",
+    "seriesCount": 18,
+    "parallelCount": 2,
+    "batteryCellProfileId": "samsung-50s",
+    "nominalCapacityAh": 10.0
+  },
+  {
+    "id": "the-board-garage-power-pack-molicel-p45b",
+    "label": "Power Pack (Molicel P45B)",
+    "manufacturer": "The Board Garage",
+    "cellLabel": "Molicel P45B",
+    "seriesCount": 18,
+    "parallelCount": 2,
+    "batteryCellProfileId": "molicel-p45b",
+    "nominalCapacityAh": 9.0
+  },
+  {
+    "id": "z-battery-solutions-speed-pack-molicel-p28a",
+    "label": "Speed Pack (Molicel P28A)",
+    "manufacturer": "Z Battery Solutions",
+    "cellLabel": "Molicel P28A",
+    "seriesCount": 20,
+    "parallelCount": 2,
+    "batteryCellProfileId": "molicel-p28a",
+    "nominalCapacityAh": 5.6
+  },
+  {
+    "id": "z-battery-solutions-torque-pack-p42a-molicel-p42a",
+    "label": "Torque Pack [P42A] (Molicel P42A)",
+    "manufacturer": "Z Battery Solutions",
+    "cellLabel": "Molicel P42A",
+    "seriesCount": 18,
+    "parallelCount": 2,
+    "batteryCellProfileId": "molicel-p42a",
+    "nominalCapacityAh": 8.4
+  },
+  {
+    "id": "z-battery-solutions-torque-pack-p45b-molicel-p45b",
+    "label": "Torque Pack [P45B] (Molicel P45B)",
+    "manufacturer": "Z Battery Solutions",
+    "cellLabel": "Molicel P45B",
+    "seriesCount": 18,
+    "parallelCount": 2,
+    "batteryCellProfileId": "molicel-p45b",
+    "nominalCapacityAh": 9.0
+  },
+  {
+    "id": "chi-chi-ve-xr-gt-32-1-molicel-p50b",
+    "label": "CHI-VE XR/GT 32.1 (Molicel P50B)",
+    "manufacturer": "Chi",
+    "cellLabel": "Molicel P50B",
+    "seriesCount": 32,
+    "parallelCount": 1,
+    "batteryCellProfileId": "generic-linear",
+    "nominalCapacityAh": 5.0
+  },
+  {
+    "id": "chi-chi-ve-gt-20-2-molicel-p50b",
+    "label": "CHI-VE GT 20.2 (Molicel P50B)",
+    "manufacturer": "Chi",
+    "cellLabel": "Molicel P50B",
+    "seriesCount": 20,
+    "parallelCount": 2,
+    "batteryCellProfileId": "generic-linear",
+    "nominalCapacityAh": 10.0
+  },
+  {
+    "id": "chi-chi-ve-xr-20-2-molicel-p30b",
+    "label": "CHI-VE XR 20.2 (Molicel P30B)",
+    "manufacturer": "Chi",
+    "cellLabel": "Molicel P30B",
+    "seriesCount": 20,
+    "parallelCount": 2,
+    "batteryCellProfileId": "generic-linear",
+    "nominalCapacityAh": 6.0
+  },
+  {
+    "id": "chi-chi-ve-xr-18-2-molicel-p50b",
+    "label": "CHI-VE XR 18.2 (Molicel P50B)",
+    "manufacturer": "Chi",
+    "cellLabel": "Molicel P50B",
+    "seriesCount": 18,
+    "parallelCount": 2,
+    "batteryCellProfileId": "generic-linear",
+    "nominalCapacityAh": 10.0
+  },
+  {
+    "id": "chi-chi-ve-pintx-xr-24-1-molicel-p50b",
+    "label": "CHI-VE PintX/XR 24.1 (Molicel P50B)",
+    "manufacturer": "Chi",
+    "cellLabel": "Molicel P50B",
+    "seriesCount": 24,
+    "parallelCount": 1,
+    "batteryCellProfileId": "generic-linear",
+    "nominalCapacityAh": 5.0
+  },
+  {
+    "id": "chi-chi-ve-pint-x-20-1-molicel-p50b",
+    "label": "CHI-VE Pint X 20.1 (Molicel P50B)",
+    "manufacturer": "Chi",
+    "cellLabel": "Molicel P50B",
+    "seriesCount": 20,
+    "parallelCount": 1,
+    "batteryCellProfileId": "generic-linear",
+    "nominalCapacityAh": 5.0
+  },
+  {
+    "id": "chi-chi-ve-pint-20-1-molicel-p30b",
+    "label": "CHI-VE Pint 20.1 (Molicel P30B)",
+    "manufacturer": "Chi",
+    "cellLabel": "Molicel P30B",
+    "seriesCount": 20,
+    "parallelCount": 1,
+    "batteryCellProfileId": "generic-linear",
+    "nominalCapacityAh": 3.0
+  },
+  {
+    "id": "chi-cbcso-vtc6-30q",
+    "label": "CBCSO (VTC6 / 30Q)",
+    "manufacturer": "Chi",
+    "cellLabel": "VTC6 / 30Q",
+    "seriesCount": 20,
+    "parallelCount": 2,
+    "batteryCellProfileId": "generic-linear",
+    "nominalCapacityAh": 6.0
+  },
+  {
+    "id": "chi-cbxr-original-molicel-m35a",
+    "label": "CBXR - Original (Molicel M35A)",
+    "manufacturer": "Chi",
+    "cellLabel": "Molicel M35A",
+    "seriesCount": 15,
+    "parallelCount": 3,
+    "batteryCellProfileId": "molicel-m35a",
+    "nominalCapacityAh": 10.5
+  },
+  {
+    "id": "chi-cbxr-vesc-power-molicel-p28a",
+    "label": "CBXR - VESC Power (Molicel P28A)",
+    "manufacturer": "Chi",
+    "cellLabel": "Molicel P28A",
+    "seriesCount": 15,
+    "parallelCount": 3,
+    "batteryCellProfileId": "molicel-p28a",
+    "nominalCapacityAh": 8.4
+  },
+  {
+    "id": "chi-cbxr-mini-sanyo-20700b",
+    "label": "CBXR Mini (Sanyo 20700B)",
+    "manufacturer": "Chi",
+    "cellLabel": "Sanyo 20700B",
+    "seriesCount": 15,
+    "parallelCount": 2,
+    "batteryCellProfileId": "generic-linear",
+    "nominalCapacityAh": 8.0
+  },
+  {
+    "id": "chi-cbsp-molicel-p42a",
+    "label": "CBSP (Molicel P42A)",
+    "manufacturer": "Chi",
+    "cellLabel": "Molicel P42A",
+    "seriesCount": 15,
+    "parallelCount": 1,
+    "batteryCellProfileId": "molicel-p42a",
+    "nominalCapacityAh": 4.2
+  },
+  {
+    "id": "chi-quart-standard-molicel-p42a",
+    "label": "Quart - Standard (Molicel P42A)",
+    "manufacturer": "Chi",
+    "cellLabel": "Molicel P42A",
+    "seriesCount": 15,
+    "parallelCount": 1,
+    "batteryCellProfileId": "molicel-p42a",
+    "nominalCapacityAh": 4.2
+  },
+  {
+    "id": "chi-quart-s-edition-samsung-50s",
+    "label": "Quart - S Edition (Samsung 50S)",
+    "manufacturer": "Chi",
+    "cellLabel": "Samsung 50S",
+    "seriesCount": 15,
+    "parallelCount": 1,
+    "batteryCellProfileId": "samsung-50s",
+    "nominalCapacityAh": 5.0
+  },
+  {
+    "id": "indy-speed-control-18s2p-molicel-p50b",
+    "label": "18s2p (Molicel P50B)",
+    "manufacturer": "Indy Speed Control",
+    "cellLabel": "Molicel P50B",
+    "seriesCount": 18,
+    "parallelCount": 2,
+    "batteryCellProfileId": "generic-linear",
+    "nominalCapacityAh": 10
+  },
+  {
+    "id": "chi-chi-ve-xr-gt-32-1-molicel-p45b",
+    "label": "CHI-VE XR/GT 32.1 (Molicel P45B)",
+    "manufacturer": "Chi",
+    "cellLabel": "Molicel P45B",
+    "seriesCount": 32,
+    "parallelCount": 1,
+    "batteryCellProfileId": "molicel-p45b",
+    "nominalCapacityAh": 4.5
+  },
+  {
+    "id": "chi-chi-ve-xr-gt-32-1-samsung-50s",
+    "label": "CHI-VE XR/GT 32.1 (Samsung 50S)",
+    "manufacturer": "Chi",
+    "cellLabel": "Samsung 50S",
+    "seriesCount": 32,
+    "parallelCount": 1,
+    "batteryCellProfileId": "samsung-50s",
+    "nominalCapacityAh": 5
+  },
+  {
+    "id": "chi-cbxr-original-sanyo-ga",
+    "label": "CBXR - Original (Sanyo GA)",
+    "manufacturer": "Chi",
+    "cellLabel": "Sanyo GA",
+    "seriesCount": 15,
+    "parallelCount": 3,
+    "batteryCellProfileId": "generic-linear",
+    "nominalCapacityAh": 10.5
+  }
+]

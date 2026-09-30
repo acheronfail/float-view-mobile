@@ -642,3 +642,121 @@ fn battery_profile_validation_boundaries_conflicts_and_reopen() {
     drop(store);
     assert_eq!(root.open().profile(id).unwrap(), expected);
 }
+
+#[test]
+fn preset_selection_is_atomic_and_overrides_survive_reopen_and_import() {
+    let root = Root::new();
+    let mut store = root.open();
+    let b = store
+        .ensure_board("preset", None, Some(&[9; 12]), 1)
+        .unwrap();
+    let id = &b.saved_device_id;
+    let preset = "floatwheel-adv2-samsung-50s";
+    let first = store
+        .update_profile(
+            id,
+            0,
+            &format!(r#"{{"batteryPresetId":"{preset}","motor":"keep"}}"#),
+            2,
+        )
+        .unwrap();
+    assert_eq!(first.values["seriesCount"], 20);
+    assert_eq!(first.values["parallelCount"], 2);
+    assert_eq!(first.values["batteryCapacityAh"], 10.);
+    assert_eq!(first.values["batteryCellProfileId"], "samsung-50s");
+    let lock = Connection::open(root.0.join("catalog.sqlite")).unwrap();
+    lock.execute_batch("BEGIN IMMEDIATE").unwrap();
+    assert_eq!(
+        store.update_profile(
+            id,
+            1,
+            r#"{"batteryPresetId":"fungineers-funwheel-x7s-molicel-p30b"}"#,
+            3
+        ),
+        Err(Error::Busy)
+    );
+    lock.execute_batch("ROLLBACK").unwrap();
+    assert_eq!(store.profile(id).unwrap(), first);
+
+    for patch in [
+        r#"{"batteryPresetId":"unknown"}"#,
+        r#"{"batteryPresetId":7}"#,
+        r#"{"batteryPresetId":"floatwheel-adv2-samsung-50s","batteryCapacityAh":null}"#,
+        r#"{"batteryCapacityAh":0.09}"#,
+        r#"{"batteryCapacityAh":200.1}"#,
+        r#"{"batteryCapacityAh":"9"}"#,
+    ] {
+        assert!(store.update_profile(id, 1, patch, 3).is_err());
+        assert_eq!(store.profile(id).unwrap(), first);
+    }
+    assert!(matches!(
+        store.update_profile(
+            id,
+            0,
+            r#"{"batteryPresetId":"fungineers-funwheel-x7s-molicel-p30b"}"#,
+            3
+        ),
+        Err(Error::Conflict { .. })
+    ));
+    let override_ = store
+        .update_profile(
+            id,
+            1,
+            r#"{"batteryCapacityAh":8.7,"batteryMinimumCellVoltageV":3.2}"#,
+            3,
+        )
+        .unwrap();
+    assert_eq!(override_.values["batteryPresetId"], preset);
+    let imported = store
+        .import_board(
+            "imported-preset",
+            None,
+            &serde_json::to_string(&override_.values).unwrap(),
+            4,
+        )
+        .unwrap();
+    assert_eq!(
+        store.profile(&imported.saved_device_id).unwrap().values,
+        override_.values
+    );
+    assert!(
+        store
+            .import_board(
+                "invalid-preset",
+                None,
+                r#"{"batteryPresetId":"floatwheel-adv2-samsung-50s","seriesCount":18}"#,
+                4
+            )
+            .is_err()
+    );
+    let cleared = store
+        .update_profile(id, 2, r#"{"batteryCapacityAh":null}"#, 4)
+        .unwrap();
+    assert_eq!(cleared.values["batteryPresetId"], preset);
+    drop(store);
+    let mut store = root.open();
+    assert_eq!(store.profile(id).unwrap(), cleared);
+    let reset = store
+        .update_profile(id, 3, &format!(r#"{{"batteryPresetId":"{preset}"}}"#), 5)
+        .unwrap();
+    assert_eq!(reset.values["batteryCapacityAh"], 10.);
+    assert!(reset.values["batteryMinimumCellVoltageV"].is_null());
+    assert_eq!(reset.values["motor"], "keep");
+    let curve = store
+        .update_profile(id, 4, r#"{"batteryCellProfileId":"generic-linear"}"#, 6)
+        .unwrap();
+    assert!(curve.values["batteryPresetId"].is_null());
+    assert_eq!(curve.values["batteryCapacityAh"], 10.);
+    let count = store
+        .update_profile(id, 5, r#"{"parallelCount":3}"#, 7)
+        .unwrap();
+    assert!(count.values["batteryCapacityAh"].is_null());
+    let count = store
+        .update_profile(id, 6, r#"{"seriesCount":22,"batteryCapacityAh":0.1}"#, 8)
+        .unwrap();
+    assert_eq!(count.values["batteryCapacityAh"], 0.1);
+    let count = store
+        .update_profile(id, 7, r#"{"batteryCapacityAh":200}"#, 9)
+        .unwrap();
+    assert_eq!(count.values["batteryCapacityAh"], 200);
+}

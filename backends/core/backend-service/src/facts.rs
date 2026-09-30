@@ -176,6 +176,8 @@ record!(Connection {
 });
 record!(Snapshot {
     battery_cell_profiles: Vec<BatteryCellProfile>,
+    battery_presets: Vec<float_view_product_store::battery_presets::Preset>,
+    battery_preset_catalog_version: String,
     discovery: Discovery, active: Option<Connection>, firmware: Option<Firmware>, package_version: Option<String>,
     configuration: ConfigurationSummary, saved_boards: Vec<SavedBoard>, settings: Settings,
     location: Location, maintenance: Option<Maintenance>,

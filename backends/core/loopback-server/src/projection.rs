@@ -54,7 +54,7 @@ pub fn state(facts: &Snapshot, revision: u64, catalog_revision: u64) -> Value {
         object.insert("refloatConfiguration".into(), if facts.package_version.is_some() {value(&facts.configuration)} else {Value::Null});
         result
     });
-    json!({"batteryCellProfiles":facts.battery_cell_profiles,"revision":revision,"bluetooth":bluetooth(&facts.discovery.bluetooth_state,facts.discovery.active_scan_id.is_some()),
+    json!({"batteryPresets":facts.battery_presets,"batteryPresetCatalogVersion":facts.battery_preset_catalog_version,"batteryCellProfiles":facts.battery_cell_profiles,"revision":revision,"bluetooth":bluetooth(&facts.discovery.bluetooth_state,facts.discovery.active_scan_id.is_some()),
         "discoveredDevices":discovered,"savedDevices":facts.saved_boards,"activeConnection":active,"sessionCatalogRevision":catalog_revision,
         "settings":facts.settings,"location":location(&facts.location,facts.settings.location_recording_enabled),
         "sessionOperation":facts.maintenance.as_ref().map(maintenance)})

@@ -6,6 +6,7 @@ use std::path::{Path, PathBuf};
 
 mod archive;
 pub mod battery_catalog;
+pub mod battery_presets;
 mod boards;
 mod csv;
 mod files;

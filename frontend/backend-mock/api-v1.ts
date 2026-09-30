@@ -1,3 +1,4 @@
+import { batteryPresets, batteryPresetCatalogVersion, applyBatteryPatch } from './battery-presets.ts';
 import { batteryCellProfiles, emptyEstimate, MockBattery } from './battery.ts';
 import {
   MAX_MESSAGE_BYTES,
@@ -293,6 +294,8 @@ export class MockBackend {
     activeConnection: null,
     sessionCatalogRevision: 0,
     batteryCellProfiles,
+    batteryPresets,
+    batteryPresetCatalogVersion,
     settings: {
       revision: 0,
       idleProbeIntervalMs: 500,
@@ -789,11 +792,17 @@ export class MockBackend {
             patch.batteryMinimumCellVoltageV >= 4.2)
         )
           return failure(id, 'invalid_request', 'Empty voltage must be from 2.7 V to below 4.2 V');
+        let values;
+        try {
+          values = applyBatteryPatch(current.values, patch);
+        } catch {
+          return failure(id, 'invalid_request', 'Invalid battery configuration');
+        }
         const updated = {
           ...current,
           revision: current.revision + 1,
-          values: { ...current.values, ...patch },
-          missingFields: current.missingFields.filter((field) => !(field in patch)),
+          values,
+          missingFields: ['seriesCount', 'parallelCount', 'motor'].filter((field) => values[field] == null),
         };
         this.profiles.set(savedDeviceId, updated);
         this.change({

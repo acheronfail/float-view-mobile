@@ -833,6 +833,16 @@ export function assertState(state: AppState) {
   assert.equal(state.batteryCellProfiles.length, 7);
   assert.equal(new Set(state.batteryCellProfiles.map((p) => p.id)).size, 7);
   assert.ok(state.batteryCellProfiles.every((p) => p.id.length > 0 && p.label.length > 0));
+  assert.equal(state.batteryPresetCatalogVersion, 'packs-2026-09-30-v1');
+  assert.equal(state.batteryPresets.length, 52);
+  assert.equal(new Set(state.batteryPresets.map((p) => p.id)).size, 52);
+  for (const p of state.batteryPresets) {
+    assert.ok(p.id.length > 0 && p.id.length <= 64);
+    assert.ok([p.label, p.manufacturer, p.cellLabel].every((v) => v.length > 0 && v.length <= 128));
+    assert.ok(p.seriesCount >= 1 && p.seriesCount <= 36 && p.parallelCount >= 1 && p.parallelCount <= 20);
+    assert.ok(state.batteryCellProfiles.some((c) => c.id === p.batteryCellProfileId));
+    assert.ok(p.nominalCapacityAh === null || (p.nominalCapacityAh >= 0.1 && p.nominalCapacityAh <= 200));
+  }
   const active = state.activeConnection;
   if (active) {
     const estimate = active.batteryEstimate;
@@ -1125,6 +1135,7 @@ export const mandatoryMethods: BackendMethod[] = [
 
 async function exerciseBatteryEstimate(client: ConformanceClient, state: AppState) {
   const id = state.activeConnection!.savedDeviceId!;
+  await exerciseBatteryPresets(client, id);
   const original = await client.request('boardProfile.get', { savedDeviceId: id });
   const series = state.activeConnection!.currentLimits?.batterySeriesCells ?? 18;
   const configured = await client.request('boardProfile.update', {
@@ -1182,5 +1193,57 @@ async function exerciseBatteryEstimate(client: ConformanceClient, state: AppStat
       expectedRevision: mismatch.revision,
       patch: { seriesCount: series },
     });
+  }
+}
+
+async function exerciseBatteryPresets(client: ConformanceClient, id: string) {
+  let profile = await client.request('boardProfile.get', { savedDeviceId: id });
+  const update = async (patch: Record<string, unknown>) => {
+    profile = await client.request('boardProfile.update', {
+      savedDeviceId: id,
+      expectedRevision: profile.revision,
+      patch,
+    });
+  };
+  for (const [preset, curve, capacity] of [
+    ['floatwheel-adv2-samsung-50s', 'samsung-50s', 10],
+    ['fungineers-funwheel-x7s-molicel-p30b', 'generic-linear', 6],
+  ] as const) {
+    const revision = profile.revision;
+    await update({ batteryPresetId: preset });
+    assert.equal(profile.values.batteryPresetId, preset);
+    assert.equal(profile.values.seriesCount, 20);
+    assert.equal(profile.values.parallelCount, 2);
+    assert.equal(profile.values.batteryCellProfileId, curve);
+    assert.equal(profile.values.batteryCapacityAh, capacity);
+    assert.equal(profile.values.batteryMinimumCellVoltageV, null);
+    await expectError(
+      client.request('boardProfile.update', {
+        savedDeviceId: id,
+        expectedRevision: revision,
+        patch: { batteryPresetId: preset },
+      }),
+      'conflict'
+    );
+    for (const patch of [
+      { batteryPresetId: preset, batteryCapacityAh: null },
+      { batteryPresetId: 'unknown' },
+      { batteryCapacityAh: 0.09 },
+      { batteryCapacityAh: 201 },
+      { batteryCapacityAh: '9' },
+    ]) {
+      await expectError(
+        client.request('boardProfile.update', { savedDeviceId: id, expectedRevision: profile.revision, patch }),
+        'invalid_request'
+      );
+    }
+    assert.deepEqual(await client.request('boardProfile.get', { savedDeviceId: id }), profile);
+    await update({ batteryCapacityAh: null });
+    assert.equal(profile.values.batteryPresetId, preset);
+    await update({ batteryPresetId: preset });
+    assert.equal(profile.values.batteryCapacityAh, capacity);
+    await update({ parallelCount: 3 });
+    assert.equal(profile.values.batteryPresetId, null);
+    assert.equal(profile.values.batteryCapacityAh, null);
   }
 }

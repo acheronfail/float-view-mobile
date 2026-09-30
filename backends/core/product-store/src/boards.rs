@@ -182,7 +182,7 @@ impl ProductStore {
         check_revision(value.revision, expected_revision)?;
         let previous = value.values.get("preferredCanId").cloned();
         let changes_route = patch.contains_key("preferredCanId");
-        value.values.extend(patch);
+        crate::battery_presets::apply(&mut value.values, patch)?;
         validate_profile(&value.values)?;
         if changes_route
             && (value.values.get("preferredCanId") != previous.as_ref()
@@ -384,6 +384,22 @@ pub(crate) fn validate_profile(values: &Map<String, Value>) -> Result<()> {
             .is_some_and(|v| v.is_finite() && (2.7..4.2).contains(&v))
     {
         return Err(Error::InvalidInput);
+    }
+    if let Some(value) = values.get("batteryCapacityAh").filter(|v| !v.is_null())
+        && !value
+            .as_f64()
+            .is_some_and(|v| v.is_finite() && (0.1..=200.).contains(&v))
+    {
+        return Err(Error::InvalidInput);
+    }
+    if let Some(value) = values.get("batteryPresetId").filter(|v| !v.is_null()) {
+        let preset = value
+            .as_str()
+            .and_then(crate::battery_presets::preset)
+            .ok_or(Error::InvalidInput)?;
+        if !preset.matches(values) {
+            return Err(Error::InvalidInput);
+        }
     }
     json(values, limits::MAX_PROFILE_BYTES)?;
     Ok(())

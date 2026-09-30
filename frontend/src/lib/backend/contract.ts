@@ -427,6 +427,17 @@ export interface BatteryEstimate {
   mode: 'load_compensated' | 'load_clamped' | 'voltage_only' | 'unavailable';
   unavailableReason: 'not_configured' | 'series_mismatch' | 'missing_voltage' | 'not_applicable' | null;
 }
+/** Service-owned named pack variant. Selecting its ID atomically applies defaults. */
+export interface BatteryPreset {
+  id: string;
+  label: string;
+  manufacturer: string;
+  cellLabel: string;
+  seriesCount: number;
+  parallelCount: number;
+  batteryCellProfileId: string;
+  nominalCapacityAh: number | null;
+}
 export interface BatteryCellProfile {
   id: string;
   label: string;
@@ -480,6 +491,11 @@ export interface BoardProfileValues extends Record<string, unknown> {
   seriesCount?: number;
   parallelCount?: number;
   batteryCellProfileId?: string | null;
+  /** Full pack Ah, 0.1–200; null means voltage-only estimation. */
+  batteryCapacityAh?: number | null;
+  /** Non-null in a patch selects all defaults; cannot accompany battery overrides.
+   * Complete imported profiles preserve overrides and must match S/P/curve. */
+  batteryPresetId?: string | null;
   /** Display-empty volts per cell, [2.7,4.2); absent/null means 3.0 V. */
   batteryMinimumCellVoltageV?: number | null;
   motor?: string;
@@ -662,6 +678,8 @@ export interface ExportResult {
 export interface AppState {
   /** Seven shared-service choices; numeric curves never cross the contract. */
   batteryCellProfiles: BatteryCellProfile[];
+  batteryPresets: BatteryPreset[];
+  batteryPresetCatalogVersion: string;
   revision: number;
   bluetooth: BluetoothState;
   discoveredDevices: DiscoveredDevice[];
