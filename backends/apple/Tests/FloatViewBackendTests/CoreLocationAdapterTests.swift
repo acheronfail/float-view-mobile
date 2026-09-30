@@ -8,12 +8,16 @@ func coreLocationRidePermissions() throws {
   // Core Location's When In Use case (4) is unavailable by name on macOS;
   // exercise its mapping here as well as on iOS.
   let whenInUse = try #require(CLAuthorizationStatus(rawValue: 4))
+  #expect(CoreLocationAdapter.providerState(servicesEnabled: true, authorization: .authorizedAlways)
+    == LocationProviderState(authorization: .authorized, backgroundCapture: .available))
   for authorization in [whenInUse, .authorizedAlways] {
-    #expect(CoreLocationAdapter.providerState(servicesEnabled: true, authorization: authorization)
-      == LocationProviderState(authorization: .authorized, backgroundCapture: .available))
     #expect(CoreLocationAdapter.providerState(servicesEnabled: false, authorization: authorization)
       .authorization == .unavailable)
   }
+  let limited = CoreLocationAdapter.providerState(servicesEnabled: true, authorization: whenInUse)
+  #expect(limited.authorization == .foregroundOnly)
+  #expect(limited.backgroundCapture == .foregroundOnly)
+  #expect(limited.reason?.contains("Always") == true)
   for (authorization, expected) in [
     (CLAuthorizationStatus.notDetermined, LocationProviderAuthorization.notDetermined),
     (.denied, .denied),
@@ -64,5 +68,24 @@ private final class LocationDeliveryCapture: @unchecked Sendable {
 
   func wait() -> DispatchTimeoutResult {
     semaphore.wait(timeout: .now() + 2)
+  }
+}
+
+@Test
+func coreLocationAlwaysUpgrade() throws {
+  let whenInUse = try #require(CLAuthorizationStatus(rawValue: 4))
+  var request = LocationPermissionRequest()
+  #expect(request.authorizationChanged(whenInUse) == nil)
+  #expect(request.begin(authorization: .notDetermined) == .whenInUse)
+  #expect(request.authorizationChanged(.notDetermined) == nil)
+  #expect(request.authorizationChanged(whenInUse) == .always)
+  #expect(request.authorizationChanged(whenInUse) == nil)
+  #expect(request.authorizationChanged(.authorizedAlways) == nil)
+  #expect(request.begin(authorization: whenInUse) == .always)
+  for status in [CLAuthorizationStatus.denied, .restricted, .authorizedAlways] {
+    #expect(request.begin(authorization: status) == nil)
+    #expect(request.begin(authorization: .notDetermined) == .whenInUse)
+    #expect(request.authorizationChanged(status) == nil)
+    #expect(request.authorizationChanged(whenInUse) == nil)
   }
 }

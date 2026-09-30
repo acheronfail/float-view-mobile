@@ -13,6 +13,7 @@ public final class CoreLocationAdapter: NSObject, LocationProviderPort, CLLocati
   private let lock = NSLock()
   private let observationQueue = DispatchQueue(label: "fail.acheron.float-view.location")
   private var handler: (@Sendable (LocationProviderObservation) -> Void)?
+  private var permissionRequest = LocationPermissionRequest()
   private var lastReason: String?
   private var servicesEnabled = false
   private var authorization: CLAuthorizationStatus = .notDetermined
@@ -72,11 +73,17 @@ public final class CoreLocationAdapter: NSObject, LocationProviderPort, CLLocati
         backgroundCapture: .unavailable,
         reason: reason ?? "Location permission is restricted."
       )
-    case .authorizedAlways, .authorizedWhenInUse:
-      // Rides start while the app is in use. With background location updates
-      // enabled and automatic pauses disabled, When In Use authorization also
-      // supports continuing that capture after the app enters the background.
+    case .authorizedAlways:
       return LocationProviderState(authorization: .authorized, backgroundCapture: .available)
+    case .authorizedWhenInUse:
+      // Capture can start again when the board enters Riding while the phone
+      // is locked. Require Always rather than relying on a foreground-started
+      // When In Use session remaining active throughout the ride.
+      return LocationProviderState(
+        authorization: .foregroundOnly,
+        backgroundCapture: .foregroundOnly,
+        reason: "Choose Always in location settings to record ride routes while Float View is backgrounded or locked."
+      )
     @unknown default:
       return LocationProviderState(
         authorization: .unavailable,
@@ -91,7 +98,11 @@ public final class CoreLocationAdapter: NSObject, LocationProviderPort, CLLocati
       guard let self else { return }
       refreshState()
       #if os(iOS)
-        manager.requestWhenInUseAuthorization()
+        switch permissionRequest.begin(authorization: manager.authorizationStatus) {
+        case .whenInUse: manager.requestWhenInUseAuthorization()
+        case .always: manager.requestAlwaysAuthorization()
+        case nil: break
+        }
       #else
         manager.requestAlwaysAuthorization()
       #endif
@@ -125,6 +136,11 @@ public final class CoreLocationAdapter: NSObject, LocationProviderPort, CLLocati
 
   public func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
     refreshState(manager)
+    #if os(iOS)
+      if permissionRequest.authorizationChanged(manager.authorizationStatus) == .always {
+        manager.requestAlwaysAuthorization()
+      }
+    #endif
   }
 
   public func locationManager(_: CLLocationManager, didFailWithError _: Error) {
@@ -167,6 +183,32 @@ public final class CoreLocationAdapter: NSObject, LocationProviderPort, CLLocati
       action()
     } else {
       DispatchQueue.main.async(execute: action)
+    }
+  }
+}
+
+/// One user request can progress through both iOS permission stages. Never
+/// prompt from an unsolicited delegate callback (including manager creation).
+struct LocationPermissionRequest {
+  enum Step { case whenInUse, always }
+  private var awaitingWhenInUse = false
+
+  mutating func begin(authorization: CLAuthorizationStatus) -> Step? {
+    awaitingWhenInUse = authorization == .notDetermined
+    switch authorization {
+    case .notDetermined: return .whenInUse
+    case .authorizedWhenInUse: return .always
+    default: return nil
+    }
+  }
+
+  mutating func authorizationChanged(_ authorization: CLAuthorizationStatus) -> Step? {
+    guard awaitingWhenInUse, authorization != .notDetermined else { return nil }
+    awaitingWhenInUse = false
+    // Allow Once has the same status; iOS ignores the upgrade in that case.
+    switch authorization {
+    case .authorizedWhenInUse: return .always
+    default: return nil
     }
   }
 }
