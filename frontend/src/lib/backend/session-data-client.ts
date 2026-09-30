@@ -15,8 +15,63 @@ function timestamp(): number {
   return globalThis.performance?.now() ?? Date.now();
 }
 
+// Shared by every review controller through the connection's SessionDataClient.
+// Match the loopback server's MAX_HISTORY_READS; keep pending work bounded too.
+const MAX_ACTIVE_REQUESTS = 2;
+const MAX_PENDING_REQUESTS = 32;
+const RETRY_DELAYS_MS = [100, 250, 500, 1_000];
+
+function retryDelay(milliseconds: number, signal?: AbortSignal): Promise<void> {
+  signal?.throwIfAborted();
+  return new Promise((resolve, reject) => {
+    const cancel = () => {
+      clearTimeout(timer);
+      signal?.removeEventListener('abort', cancel);
+      reject(signal?.reason);
+    };
+    const timer = setTimeout(() => {
+      signal?.removeEventListener('abort', cancel);
+      resolve();
+    }, milliseconds);
+    signal?.addEventListener('abort', cancel, { once: true });
+  });
+}
+
 export class SessionDataClient {
   private readonly endpoint: URL;
+  private activeRequests = 0;
+  private readonly pending: (() => void)[] = [];
+
+  private acquire(signal?: AbortSignal): Promise<void> {
+    signal?.throwIfAborted();
+    if (this.activeRequests < MAX_ACTIVE_REQUESTS) {
+      this.activeRequests += 1;
+      return Promise.resolve();
+    }
+    if (this.pending.length >= MAX_PENDING_REQUESTS) {
+      return Promise.reject(new Error('Too many pending session-data requests'));
+    }
+    return new Promise((resolve, reject) => {
+      const start = () => {
+        signal?.removeEventListener('abort', cancel);
+        resolve();
+      };
+      const cancel = () => {
+        const index = this.pending.indexOf(start);
+        if (index !== -1) this.pending.splice(index, 1);
+        signal?.removeEventListener('abort', cancel);
+        reject(signal?.reason);
+      };
+      this.pending.push(start);
+      signal?.addEventListener('abort', cancel, { once: true });
+    });
+  }
+
+  private release() {
+    const next = this.pending.shift();
+    if (next) next();
+    else this.activeRequests -= 1;
+  }
 
   constructor(
     bootstrap: BootstrapDocument,
@@ -37,25 +92,48 @@ export class SessionDataClient {
     if (new TextEncoder().encode(body).byteLength > MAX_SESSION_DATA_REQUEST_BYTES) {
       throw new Error('Session-data request exceeds the body limit');
     }
-    const response = await this.fetcher(this.endpoint, {
-      method: 'POST',
-      body,
-      signal,
-      cache: 'no-store',
-      headers: {
-        Accept: 'application/json',
-        'Content-Type': 'application/json',
-        'X-Float-View-Token': this.token,
-      },
-    });
+    await this.acquire(signal);
+    try {
+      return await this.performRequest(validated, body, started, signal);
+    } finally {
+      this.release();
+    }
+  }
+
+  private async performRequest(
+    validated: SessionDataRequest,
+    body: string,
+    started: number,
+    signal?: AbortSignal
+  ): Promise<SessionDataResult> {
+    let response: Response;
+    for (let attempt = 0; ; attempt += 1) {
+      signal?.throwIfAborted();
+      response = await this.fetcher(this.endpoint, {
+        method: 'POST',
+        body,
+        signal,
+        cache: 'no-store',
+        headers: {
+          Accept: 'application/json',
+          'Content-Type': 'application/json',
+          'X-Float-View-Token': this.token,
+        },
+      });
+      if (response.status !== 503 || attempt >= RETRY_DELAYS_MS.length) break;
+      await response.body?.cancel();
+      // Keep the slot during backoff so queued work cannot amplify overload.
+      await retryDelay(RETRY_DELAYS_MS[attempt]!, signal);
+    }
+    signal?.throwIfAborted();
     if (!response.ok) throw new Error(`Session-data request failed: HTTP ${response.status}`);
     const readTiming: SessionDataReadTiming = { decodedBytes: 0, bodyMs: 0, parseMs: 0 };
     const value = await readBoundedJson(response, readTiming);
     const validationStarted = timestamp();
     const result = validateSessionDataResult(value, validated);
     reportFrontendPerformance('session-data', {
-      kind: request.kind,
-      fields: 'fields' in request ? request.fields.length : 0,
+      kind: validated.kind,
+      fields: 'fields' in validated ? validated.fields.length : 0,
       decodedBytes: readTiming.decodedBytes,
       fetchMs: Math.round((validationStarted - started - readTiming.bodyMs - readTiming.parseMs) * 100) / 100,
       bodyMs: Math.round(readTiming.bodyMs * 100) / 100,
