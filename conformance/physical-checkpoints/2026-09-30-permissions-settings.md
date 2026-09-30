@@ -86,18 +86,36 @@ complete permission inventory. Fixture safety checks, disconnect, RESET/READY,
 LED-off cleanup, and native tunnel cleanup completed. No firmware change or
 unrelated control/configuration matrix was needed.
 
-## Remaining physical acceptance
+## macOS native acceptance
 
-- macOS native inventory was observed (Bluetooth granted; Location unresolved).
-  An unanswered Location request returned `unavailable` after the bounded timeout,
-  cleared pending state and did not claim a grant. The desktop was locked and the
-  UI automation tool could not unlock it. Dialog inspection, Privacy & Security
-  pane navigation and interactive activation recovery remain pending an unlocked
-  desktop. The user has been asked to unlock it.
-- No connected Android API 30+ or 31+ hardware was available. Their background
-  Settings and nearby-device grouping paths have software coverage, not physical
-  validation. Approximate location and actual one-time-grant expiry were not
-  claimed as physical results.
+After the desktop was unlocked, the normal macOS app was launched in a disposable
+bundle with isolated storage. The accessory conformance host does not exercise
+the normal window activation lifecycle, so it was not used to claim that coverage.
 
-The change remains open until the remaining macOS checkpoint is resolved and
-acceptance is recorded; canonical spec sync and archive are deliberately pending.
+The native CoreLocationAgent prompt was inspected with the app's purpose string.
+The SDK-required When In Use and Always usage-description keys were added to the
+macOS plist alongside its existing macOS usage description; plist validation passes.
+Early unanswered requests reached the bounded timeout, released pending state and
+left authorization unresolved. Their delayed system dialogs could not all be
+dismissed by automation; fresh prompt-denial completion is not claimed.
+
+Using the real Location Services pane, an external grant appeared in the running
+app as Allowed / Precise location / Always. Revoking it appeared as Not allowed
+with the macOS manual instructions and Open settings action. That action opened
+Location Services, cleared the earlier timeout error, and returning without a
+change retained Not allowed. Recording stayed disabled throughout. The original
+access-off setting was restored and verified before closing the test app. OS
+request history is retained. A stale CoreLocationAgent dialog remained after app
+termination; the user was asked to dismiss it with Don't Allow.
+
+## Coverage limits and acceptance
+
+No connected Android API 30+ or 31+ hardware was available. Their background
+Settings and nearby-device grouping paths have software coverage, not physical
+validation. Approximate location and actual one-time-grant expiry were not
+claimed as physical results. macOS fresh dialog-denial completion remains
+unproven due to stale system dialogs; actual grant/revocation and Settings-return
+recovery were verified through OS controls.
+
+The available-platform acceptance checkpoints are complete with these explicit
+coverage limits. Canonical spec sync and archive are the final remaining step.
