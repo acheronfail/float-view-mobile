@@ -1,7 +1,7 @@
 # Float View
 
 Float View has one responsive SvelteKit frontend and a shared Rust backend with native OS hosts. The
-frontend knows nothing about Apple or Android: every backend implements the
+frontend uses the same product implementation on Apple, Android and Linux: every backend implements the
 small hand-written contract in `frontend/src/lib/backend/contract.ts`.
 
 ## Repository
@@ -13,6 +13,8 @@ small hand-written contract in `frontend/src/lib/backend/contract.ts`.
   thin iOS shell.
 - `backends/android/` — one Android application module containing the backend
   and thin WebView shell.
+- `backends/linux/` — Rust GTK4/WebKitGTK desktop host and BlueZ OS adapter; see
+  [Linux prerequisites and commands](backends/linux/README.md).
 - `backends/sql/` — the two current disposable-test-stage SQLite schemas.
 - `backends/fixtures/` — immutable VESC and Refloat protocol fixtures.
 - `conformance/` — the canonical black-box contract suite and programmable VESC
@@ -20,11 +22,10 @@ small hand-written contract in `frontend/src/lib/backend/contract.ts`.
 - `tools/vesc-test-device/` — pure ESP-IDF firmware, built with PlatformIO, that
   only bridges a serial line protocol to a fixed BLE GATT service.
 
-Native hosts own Bluetooth, permissions, exports, lifecycle and the session
-catalog. The shared Rust runtime owns protocol processing and durable session
+Native hosts own Bluetooth, permissions, file presentation and lifecycle. The shared Rust runtime owns protocol processing and durable session
 work. `backends/core/loopback-server` owns authenticated HTTP/WebSocket transport,
 complete state projection and historical responses through the existing C/JNI
-binding families. Hosts provide embedded HTML and execute bounded OS capabilities; Rust owns
+binding families on Apple/Android and direct Rust composition on Linux. Hosts provide embedded HTML and execute bounded OS capabilities; Rust owns
 product storage, application policy, dispatch and complete state projection.
 
 ## Commands
@@ -33,10 +34,13 @@ product storage, application policy, dispatch and complete state projection.
 just setup
 just dev
 just build
-just run android|ios|macos [target]
+just run android|ios|macos|linux [target]
+just build-linux
+just dev linux
 just ipa # Build an IPA for AltStore; see backends/apple/README.md.
-just test frontend|conformance|apple|android|core|fixture|all
-just conformance direct|mock|android|ios|macos
+just test frontend|conformance|apple|android|linux|core|fixture|all
+just conformance direct|mock|android|ios|macos|linux
+just conformance-physical linux <fixture-port>
 just conformance-physical macos <fixture-port>
 just conformance-physical android <fixture-port> <adb-serial>
 just conformance-physical ios <fixture-port> <device-id>

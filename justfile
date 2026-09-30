@@ -134,10 +134,18 @@ ipa: build
     mv -f "$staging/FloatView.ipa" "$output"
     printf 'AltStore IPA: %s\n' "$output"
 
+build-linux:
+    cd frontend && npm run build
+    cargo build --manifest-path backends/linux/Cargo.toml --locked --offline
+
 run platform target="": build
     #!/usr/bin/env bash
     set -euo pipefail
     case "{{ platform }}" in
+      linux)
+        cargo build --manifest-path backends/linux/Cargo.toml --locked --offline
+        exec backends/linux/target/debug/float-view-linux
+        ;;
       android)
         (cd backends/android && ./gradlew assembleDebug)
         serial="{{ target }}"
@@ -177,7 +185,7 @@ run platform target="": build
         (cd backends/apple && FLOAT_VIEW_FRONTEND_HTML="$frontend_html" \
           swift run --scratch-path /tmp/float-view-swift-build FloatViewMac)
         ;;
-      *) echo 'Usage: just run android|ios|macos [target]' >&2; exit 2 ;;
+      *) echo 'Usage: just run android|ios|macos|linux [target]' >&2; exit 2 ;;
     esac
 
 test suite="all":
@@ -192,6 +200,7 @@ test suite="all":
         ;;
       android) (cd backends/android && ./gradlew testDebugUnitTest) ;;
       core) just core-test ;;
+      linux) cargo test --manifest-path backends/linux/Cargo.toml --locked --offline ;;
       fixture) sh tools/vesc-test-device/test/run.sh ;;
       all)
         just test frontend
@@ -201,7 +210,7 @@ test suite="all":
         just test core
         just test fixture
         ;;
-      *) echo 'Usage: just test frontend|conformance|apple|android|core|fixture|all' >&2; exit 2 ;;
+      *) echo 'Usage: just test frontend|conformance|apple|android|linux|core|fixture|all' >&2; exit 2 ;;
     esac
 
 conformance target:

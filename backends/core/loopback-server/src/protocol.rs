@@ -9,6 +9,7 @@ pub enum Platform {
     Macos,
     Ios,
     Android,
+    Linux,
 }
 impl Platform {
     pub fn port(&self) -> u16 {
@@ -16,6 +17,7 @@ impl Platform {
             Self::Macos => 11010,
             Self::Ios => 11011,
             Self::Android => 11012,
+            Self::Linux => 11013,
         }
     }
 }

@@ -288,3 +288,32 @@ fn malformed_history_cursor_is_rejected_before_catalog_lookup() {
     );
     server.stop().unwrap();
 }
+
+#[test]
+fn linux_bootstrap_and_platform_registry_preserve_existing_ports() {
+    for (platform, port) in [
+        (Platform::Macos, 11010),
+        (Platform::Ios, 11011),
+        (Platform::Android, 11012),
+        (Platform::Linux, 11013),
+    ] {
+        assert_eq!(platform.port(), port);
+        let bytes = serde_json::to_vec(&serde_json::json!({
+            "version": 1, "action": {"command": "start", "parameters": {
+                "platform": platform, "port": port
+            }}
+        }))
+        .unwrap();
+        assert!(Envelope::decode(&bytes).is_ok());
+    }
+    let server = support::server(Platform::Linux, b"html").unwrap();
+    let port = server.start(0).unwrap();
+    let second = support::server(Platform::Linux, b"html").unwrap();
+    assert_eq!(second.start(port), Err(ServerError::Bind));
+    let response = http(&server, "/api/bootstrap", "", b"");
+    status(&response, "200");
+    let offset = response.windows(4).position(|w| w == b"\r\n\r\n").unwrap() + 4;
+    let bootstrap: serde_json::Value = serde_json::from_slice(&response[offset..]).unwrap();
+    assert_eq!(bootstrap["platform"], "linux");
+    server.stop().unwrap();
+}

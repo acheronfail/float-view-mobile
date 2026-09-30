@@ -1,7 +1,10 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { createServer } from 'node:net';
 import {
+  runDevelopment,
   ANDROID_PORT,
+  LINUX_PORT,
   IOS_PORT,
   MACOS_PORT,
   MOCK_PORT,
@@ -29,6 +32,9 @@ test('development endpoints use the stable registry', () => {
   assert.equal(MACOS_PORT, 11010);
   assert.equal(IOS_PORT, 11011);
   assert.equal(ANDROID_PORT, 11012);
+  assert.equal(LINUX_PORT, 11013);
+  assert.equal(backendOrigin('linux'), 'http://127.0.0.1:11013');
+  assert.equal(viteEnvironment('linux', {}).FLOAT_VIEW_DEV_BACKEND_ORIGIN, 'http://127.0.0.1:11013');
   assert.equal(backendOrigin('macos'), 'http://127.0.0.1:11010');
   assert.equal(backendOrigin('ios'), 'http://127.0.0.1:11011');
   assert.equal(backendOrigin('android'), 'http://127.0.0.1:11012');
@@ -119,4 +125,18 @@ test('readiness and supervised child failures are bounded and descriptive', asyn
   const childFailure = childExitFailure('iOS iproxy on 127.0.0.1:11011', 2, null);
   assert.match(childFailure?.message ?? '', /iproxy.*code 2/);
   assert.equal(childExitFailure('owned child', null, 'SIGTERM'), undefined);
+});
+
+test('Linux development refuses an occupied backend port before launching', async () => {
+  const guard = createServer();
+  await new Promise<void>((resolve, reject) => {
+    guard.once('error', reject);
+    guard.listen(LINUX_PORT, '127.0.0.1', resolve);
+  });
+  try {
+    await assert.rejects(runDevelopment('linux', '', { FLOAT_VIEW_DEV_NO_OPEN: '1' }), { code: 'EADDRINUSE' });
+    assert.equal(guard.listening, true);
+  } finally {
+    await new Promise<void>((resolve) => guard.close(() => resolve()));
+  }
 });

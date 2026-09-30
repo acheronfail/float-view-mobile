@@ -27,7 +27,7 @@ Linux SHALL display the shared embedded frontend in a native desktop window usin
 #### Scenario: Desktop launch
 
 - **WHEN** the application starts with its prerequisites available
-- **THEN** one native window loads the embedded frontend from `127.0.0.1:11013` with the current launch authentication context
+- **THEN** one native window loads the embedded frontend from `127.0.0.1:11013` with the current launch authentication context and additive `linux` bootstrap platform metadata; desktop exports use Save labeling
 
 #### Scenario: Startup failure
 

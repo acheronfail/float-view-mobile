@@ -1,5 +1,6 @@
 import { execFileSync, spawn, type ChildProcess } from 'node:child_process';
 import { platform } from 'node:os';
+import { createServer } from 'node:net';
 import { join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
@@ -8,12 +9,13 @@ export const MOCK_PORT = 11003;
 export const MACOS_PORT = 11010;
 export const IOS_PORT = 11011;
 export const ANDROID_PORT = 11012;
+export const LINUX_PORT = 11013;
 const ANDROID_APPLICATION = 'fail.acheron.floatview';
 const ANDROID_ACTIVITY = `${ANDROID_APPLICATION}/${ANDROID_APPLICATION}.ui.MainActivity`;
 const IOS_BUNDLE = 'fail.acheron.float-view';
 const READY_TIMEOUT_MS = 30_000;
 
-type TargetPlatform = 'mock' | 'macos' | 'ios' | 'android';
+type TargetPlatform = 'mock' | 'macos' | 'ios' | 'android' | 'linux';
 
 export function backendOrigin(targetPlatform: TargetPlatform) {
   switch (targetPlatform) {
@@ -23,6 +25,8 @@ export function backendOrigin(targetPlatform: TargetPlatform) {
       return `http://127.0.0.1:${MACOS_PORT}`;
     case 'ios':
       return `http://127.0.0.1:${IOS_PORT}`;
+    case 'linux':
+      return `http://127.0.0.1:${LINUX_PORT}`;
     case 'android':
       return `http://127.0.0.1:${ANDROID_PORT}`;
   }
@@ -135,6 +139,23 @@ export async function runDevelopment(targetPlatform: TargetPlatform, target = ''
         `macOS backend on 127.0.0.1:${MACOS_PORT}`
       );
       await waitForBootstrap(backendOrigin(targetPlatform), () => firstFailure);
+    } else if (targetPlatform === 'linux') {
+      const guard = createServer();
+      await new Promise<void>((resolve, reject) => {
+        guard.once('error', reject);
+        guard.listen(LINUX_PORT, '127.0.0.1', resolve);
+      });
+      await new Promise<void>((resolve) => guard.close(() => resolve()));
+      execFileSync('just', ['build-linux'], { cwd: root, stdio: 'inherit' });
+      track(
+        spawn(`${root}/backends/linux/target/debug/float-view-linux`, ['--browser-development'], {
+          cwd: root,
+          env: environment,
+          stdio: 'inherit',
+        }),
+        'Linux backend'
+      );
+      await waitForBootstrap(backendOrigin(targetPlatform), () => firstFailure);
     } else if (targetPlatform === 'android') {
       const serial = target || selectAndroidDevice();
       execFileSync(`${root}/backends/android/gradlew`, ['-p', `${root}/backends/android`, 'assembleDebug'], {
@@ -162,11 +183,15 @@ export async function runDevelopment(targetPlatform: TargetPlatform, target = ''
     }
 
     const vite = track(
-      spawn('npm', ['run', 'dev'], {
-        cwd: `${root}/frontend`,
-        env: viteEnvironment(targetPlatform, environment),
-        stdio: 'inherit',
-      }),
+      spawn(
+        targetPlatform === 'linux' ? process.execPath : 'npm',
+        targetPlatform === 'linux' ? ['node_modules/vite/bin/vite.js', 'dev'] : ['run', 'dev'],
+        {
+          cwd: `${root}/frontend`,
+          env: viteEnvironment(targetPlatform, environment),
+          stdio: 'inherit',
+        }
+      ),
       'Vite'
     );
     await waitForURL(`http://127.0.0.1:${VITE_PORT}/`, () => firstFailure);
@@ -184,7 +209,7 @@ export async function runDevelopment(targetPlatform: TargetPlatform, target = ''
     await waitForStop([vite, ...children.filter((child) => child !== vite)]);
     if (firstFailure) throw firstFailure;
   } finally {
-    for (const child of children.reverse()) await stopChild(child);
+    for (const child of children.reverse()) await stopChild(child, targetPlatform === 'linux' ? 12_000 : 2_000);
     for (const action of cleanup.reverse()) {
       try {
         await action();
@@ -394,10 +419,10 @@ function waitForStop(children: ChildProcess[]) {
   });
 }
 
-async function stopChild(child: ChildProcess) {
+async function stopChild(child: ChildProcess, timeout: number) {
   if (child.exitCode !== null || child.signalCode !== null) return;
   await new Promise<void>((resolve) => {
-    const timer = setTimeout(() => child.kill('SIGKILL'), 2_000);
+    const timer = setTimeout(() => child.kill('SIGKILL'), timeout);
     child.once('exit', () => {
       clearTimeout(timer);
       resolve();
@@ -409,8 +434,8 @@ async function stopChild(child: ChildProcess) {
 const isMain = !!process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href;
 if (isMain) {
   const targetPlatform = process.argv[2] as TargetPlatform | undefined;
-  if (!targetPlatform || !['mock', 'macos', 'ios', 'android'].includes(targetPlatform)) {
-    throw new Error('Usage: just dev mock|macos|ios|android [target]');
+  if (!targetPlatform || !['mock', 'macos', 'ios', 'android', 'linux'].includes(targetPlatform)) {
+    throw new Error('Usage: just dev mock|macos|ios|android|linux [target]');
   }
   await runDevelopment(targetPlatform, process.argv[3] ?? '');
 }

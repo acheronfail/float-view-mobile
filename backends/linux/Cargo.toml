@@ -1,0 +1,27 @@
+[package]
+name = "float-view-linux"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.93.0"
+publish = false
+
+[workspace]
+
+[features]
+software-bluetooth = ["dep:reqwest", "dep:base64"]
+
+[dependencies]
+float-view-backend-service = { path = "../core/backend-service" }
+float-view-loopback-server = { path = "../core/loopback-server" }
+gtk = { package = "gtk4", version = "=0.10.3", features = ["v4_10"] }
+webkit6 = "=0.5.0"
+bluer = { version = "=0.17.4", features = ["bluetoothd"] }
+futures-util = "=0.3.34"
+tokio = { version = "=1.53.1", features = ["rt", "sync", "time", "macros"] }
+serde_json = "1"
+reqwest = { version = "=0.12.28", default-features = false, features = ["json"], optional = true }
+base64 = { version = "=0.22.1", optional = true }
+rustix = { version = "1", features = ["time", "fs"] }
+
+[profile.dev]
+debug = 0

@@ -1,13 +1,13 @@
 # Native backend architecture
 
-Apple and Android compose one process-owned Rust backend service. Native hosts
+Apple, Android and Linux compose one process-owned Rust backend service. Native hosts
 execute bounded OS capabilities: Bluetooth, permissions, location, lifecycle,
 background execution, scoped file presentation, theme and UI. Rust owns product
 storage/policy and authenticated loopback dispatch/projection. The frontend and
 listener are disposable and borrow the existing application owner.
 
 See [`core/README.md`](core/README.md), [`apple/README.md`](apple/README.md) and
-[`android/README.md`](android/README.md) for the ownership and build boundaries.
+[`android/README.md`](android/README.md) and [`linux/README.md`](linux/README.md) for the ownership and build boundaries.
 
 ## Startup presentation
 

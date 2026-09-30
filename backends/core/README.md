@@ -1,8 +1,8 @@
 # Shared Rust backend
 
 `backend-service::Process` owns one application runtime, product store and
-maintenance executor. Both native hosts select this constructor through the
-existing C/JNI binding families. Listeners borrow the same service; stopping a
+maintenance executor. Apple and Android select this constructor through the
+existing C/JNI binding families; Linux composes it directly through safe Rust. Listeners borrow the same service; stopping a
 listener or replacing a WebView does not stop recording or maintenance.
 
 `product-store` owns catalog startup, settings, board identity and profiles,
@@ -52,7 +52,8 @@ buffer. Exactly two unsafe bindings sit above it:
 
 The build scripts audit exact exported symbols and use the locked dependency
 set. Android packages one library for each supported ABI. Generated output stays
-under `target/`. The workspace contains at most 28 members; protocol codecs and
+under `target/`. The Linux desktop package owns a separate workspace/lockfile and a 2,000-line OS adapter budget.
+The core workspace contains at most 28 members; protocol codecs and
 state machines remain downward dependencies, not separate host runtimes.
 
 `audit-ownership.sh` checks production source below 49,922 lines, two binding

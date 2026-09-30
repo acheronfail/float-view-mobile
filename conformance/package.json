@@ -10,6 +10,7 @@
     "test": "node --strip-types --test test/**/*.test.ts fixture-dev/src/lib/*.spec.ts fixture-dev/src/lib/coordinator/*.spec.ts fixture-dev/src/lib/control/*.spec.ts",
     "fixture:dev": "cd fixture-dev && vite dev",
     "fixture:check": "cd fixture-dev && svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
+    "linux": "node --strip-types src/run.ts linux",
     "direct": "node --strip-types src/run.ts direct",
     "mock": "node --strip-types src/run.ts mock",
     "macos": "node --strip-types src/run.ts macos",

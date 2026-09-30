@@ -14,7 +14,8 @@ enumeration!(Platform {
     Macos,
     Android29,
     Android30,
-    Android31
+    Android31,
+    Linux
 });
 enumeration!(Id {
     Bluetooth,
@@ -143,7 +144,7 @@ impl Observation {
     }
     pub fn location_capability(&self) -> (crate::os::LocationAuthorization, bool) {
         use crate::os::LocationAuthorization as L;
-        if self.location_services != Some(true) {
+        if self.platform == Platform::Linux || self.location_services != Some(true) {
             return (L::Unavailable, false);
         }
         match self.location.access {
@@ -308,6 +309,35 @@ impl Observation {
                 {
                     row.action = action(&self.bluetooth_scan);
                 }
+                // Linux has no portable OS permission prompt/settings destination.
+                // Live location acquisition is intentionally unavailable in this host.
+                if self.platform == Platform::Linux {
+                    row.action = None;
+                    row.pending = false;
+                    if id == Id::Location {
+                        row.status = Status::Unavailable;
+                        row.guidance = Guidance::None;
+                        row.accuracy = Accuracy::Unknown;
+                        row.scope = Scope::Unknown;
+                    } else {
+                        row.guidance = if self.bluetooth_supported == Some(false) {
+                            Guidance::UnsupportedHardware
+                        } else if grant.access == Permission::Restricted
+                            || grant.access == Permission::Denied
+                        {
+                            Guidance::Restricted
+                        } else if self.bluetooth_service == Some(false) {
+                            Guidance::ServicesDisabled
+                        } else if grant.access == Permission::Unknown {
+                            Guidance::Checking
+                        } else {
+                            Guidance::None
+                        };
+                        if self.bluetooth_supported == Some(false) {
+                            row.status = Status::Unavailable;
+                        }
+                    }
+                }
                 row
             })
             .collect()
@@ -364,6 +394,95 @@ mod tests {
             background_option_label: None,
         }
     }
+    #[test]
+    fn linux_inventory_has_no_fabricated_recovery_or_location_capability() {
+        let mut o = observation(Platform::Linux);
+        for access in [
+            Permission::Unknown,
+            Permission::NotDetermined,
+            Permission::Granted,
+            Permission::Denied,
+            Permission::Restricted,
+            Permission::NotRequired,
+        ] {
+            o.bluetooth_scan = grant(access, true);
+            o.bluetooth_connect = grant(access, true);
+            o.location = grant(Permission::Granted, true);
+            o.background_location = grant(Permission::Granted, true);
+            o.scope = Scope::Always;
+            let rows = o.rows(Some(Id::Bluetooth));
+            assert_eq!(rows.len(), 2);
+            assert!(rows.iter().all(|r| r.action.is_none() && !r.pending));
+            assert_eq!(rows[1].status, Status::Unavailable);
+            assert!(rows[1].optional);
+            assert_eq!(
+                o.location_capability(),
+                (crate::os::LocationAuthorization::Unavailable, false)
+            );
+        }
+        o.bluetooth_supported = Some(false);
+        assert_eq!(o.rows(None)[0].status, Status::Unavailable);
+        assert_eq!(o.rows(None)[0].guidance, Guidance::UnsupportedHardware);
+        o.bluetooth_supported = Some(true);
+        o.bluetooth_service = Some(false);
+        assert_eq!(o.rows(None)[0].guidance, Guidance::ServicesDisabled);
+        o.bluetooth_scan = grant(Permission::Denied, false);
+        o.bluetooth_connect = grant(Permission::Denied, false);
+        assert_eq!(o.rows(None)[0].status, Status::Denied);
+        assert_eq!(o.rows(None)[0].guidance, Guidance::Restricted);
+    }
+
+    #[test]
+    fn linux_unavailable_location_does_not_gate_bluetooth_or_offer_recovery() {
+        let root = std::env::temp_dir().join(format!("linux-permissions-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let mut service = BackendService::open(&root).unwrap();
+        let mut observation = Observation::unknown(Platform::Linux);
+        observation.bluetooth_scan = grant(Permission::NotRequired, false);
+        observation.bluetooth_connect = grant(Permission::NotRequired, false);
+        observation.bluetooth_supported = Some(true);
+        observation.bluetooth_service = Some(true);
+        observation.location_services = Some(false);
+        for (index, fact) in [
+            Fact::Permissions { observation },
+            Fact::Bluetooth {
+                radio: crate::os::Radio::PoweredOn,
+                scan: Permission::NotRequired,
+                connect: Permission::NotRequired,
+            },
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            service
+                .apply_os(Envelope {
+                    lifetime: service.lifetime(),
+                    sequence: index as u64 + 1,
+                    monotonic_ms: index as u64 + 1,
+                    epoch_ms: 1_000 + index as i64,
+                    fact,
+                })
+                .unwrap();
+        }
+        assert!(service.start_scan(1_000).is_ok());
+        let state = service.published_snapshot();
+        assert_eq!(state.location.authorization, "unavailable");
+        assert_eq!(state.location.background_capture, "unavailable");
+        assert!(state.location.permission_action.is_none());
+        assert!(matches!(
+            service.dispatch(
+                1,
+                Operation::RecoverPermission {
+                    permission: Id::Location,
+                    action: Action::RequestPermission
+                }
+            ),
+            Err(Failure::InvalidState)
+        ));
+        drop(service);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
     #[test]
     fn inventory_matrix_separates_authorization_services_accuracy_and_prerequisites() {
         for platform in [

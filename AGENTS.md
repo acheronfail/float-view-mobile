@@ -1,7 +1,7 @@
 # Float View agent guide
 
 Float View contains one SvelteKit frontend and native backends for Apple
-(iOS/macOS) and Android. Keep the repository small and delete superseded paths;
+(iOS/macOS), Android, and Linux desktop. Keep the repository small and delete superseded paths;
 there is no generated API layer or platform-specific frontend code.
 
 ## Pre-release compatibility policy
@@ -40,7 +40,7 @@ Frontend code follows the ownership-first layout documented in
 `frontend/src/lib/README.md`.
 The UI uses only its authenticated request/result/error envelopes and complete,
 monotonic `state.changed` snapshots. The shared server implements that contract
-by hand for Apple and Android. Contract changes must update the frontend client/mock, both backends,
+by hand for Apple, Android, and Linux. Contract changes must update the frontend client/mock, all native hosts,
 and the canonical `conformance/` suite together.
 
 Native services own Bluetooth, background work, logging, persistence,
@@ -55,7 +55,7 @@ Bluetooth and protocol code emit typed events and do not know about WebSockets
 or views.
 
 `backends/core/` contains the selected shared application runtime and loopback
-server, composed through the existing C/JNI binding families. Native hosts own
+server, composed through the existing C/JNI binding families on Apple/Android and safe Rust composition on Linux. Native hosts own
 OS Bluetooth, location, lifecycle, permissions, native file presentation, theme,
 and UI integration. Transport workers must reuse the existing application owner;
 read-only session workers use bounded independent readers without creating a
@@ -81,6 +81,7 @@ activation behavior.
 - `frontend/`
 - `backends/apple/`
 - `backends/android/`
+- `backends/linux/`
 - `backends/core/`
 - `backends/sql/`
 - `backends/fixtures/`

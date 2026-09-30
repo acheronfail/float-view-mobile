@@ -20,3 +20,5 @@ backends/core/target/
 # Native hosts embed this generated output; it is never source.
 backends/apple/Sources/FloatViewMac/Resources/index.html
 backends/apple/Sources/FloatViewMac/Resources/sql/
+
+backends/linux/target/

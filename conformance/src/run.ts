@@ -1,3 +1,4 @@
+import { linuxTarget, linuxPhysicalTarget } from '../targets/linux.ts';
 import { directTarget } from '../targets/direct.ts';
 import { runConformance } from './suite.ts';
 import { externalTarget } from '../targets/external.ts';
@@ -15,15 +16,17 @@ if (name === 'physical') {
   const platform = process.argv[3];
   const fixture = process.argv[4];
   const targetId = process.argv[5];
-  if (!fixture || !platform || !['android', 'ios', 'macos'].includes(platform)) {
-    throw new Error('Usage: run.ts physical android|ios|macos <fixture-port> [device-id]');
+  if (!fixture || !platform || !['android', 'ios', 'macos', 'linux'].includes(platform)) {
+    throw new Error('Usage: run.ts physical android|ios|macos|linux <fixture-port> [device-id]');
   }
   const target =
     platform === 'android'
       ? androidPhysicalTarget(requiredTarget(targetId, 'Android ADB serial'))
       : platform === 'ios'
         ? iosPhysicalTarget(requiredTarget(targetId, 'iOS device ID'))
-        : macosPhysicalTarget;
+        : platform === 'linux'
+          ? linuxPhysicalTarget
+          : macosPhysicalTarget;
   const result = await runPhysicalConformance(target, fixture);
   console.log(
     `Physical conformance passed: ${result.target} scenarios=${result.scenarios.map((item) => item.scenario).join(',')}`
@@ -31,17 +34,19 @@ if (name === 'physical') {
   process.exit(0);
 }
 const target =
-  name === 'direct'
-    ? directTarget
-    : name === 'mock'
-      ? mockTarget
-      : name === 'macos'
-        ? macosTarget
-        : name === 'ios'
-          ? iosTarget
-          : name === 'android'
-            ? androidTarget
-            : externalTarget(name, `FLOAT_VIEW_${name.toUpperCase()}_WS_URL`);
+  name === 'linux'
+    ? linuxTarget
+    : name === 'direct'
+      ? directTarget
+      : name === 'mock'
+        ? mockTarget
+        : name === 'macos'
+          ? macosTarget
+          : name === 'ios'
+            ? iosTarget
+            : name === 'android'
+              ? androidTarget
+              : externalTarget(name, `FLOAT_VIEW_${name.toUpperCase()}_WS_URL`);
 const result = await runConformance(target);
 console.log(`Conformance passed: ${result.target} revision=${result.revision}`);
 

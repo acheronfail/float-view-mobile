@@ -46,11 +46,13 @@ android_bridge_artifacts="$(find backends/core -mindepth 2 -maxdepth 2 \
 rust_lines="$(count_lines backends/core)"
 apple_lines="$(count_lines backends/apple)"
 android_lines="$(count_lines backends/android)"
+linux_lines="$(count_lines backends/linux)"
 
 cat <<EOF
 rust_production_source_lines=$rust_lines
 apple_production_source_lines=$apple_lines
 android_production_source_lines=$android_lines
+linux_production_source_lines=$linux_lines
 workspace_members=$members
 host_binding_crates=$binding_crates
 temporary_protocol_bridge_crates=$temporary_bridge_crates
@@ -65,6 +67,10 @@ EOF
 [[ "$android_bridge_artifacts" == 1 ]]
 [[ "$members" -le 28 ]]
 ((rust_lines + apple_lines + android_lines < 49922))
+# Linux OS execution has its own budget; portable code must not move here.
+((linux_lines < 2000))
+! rg -n 'CREATE TABLE|rusqlite|VescRequestScheduler|impl BackendService' backends/linux/src
+rg -q 'Process::open' backends/linux/src/runtime.rs
 
 # Native code owns OS capabilities; product SQL and dispatch stay shared.
 ! rg -n 'SQLiteLogStore|LogSchema|class ApplicationService|class ServerOperations|class ServerFacts|enum ServerFacts|class RuntimeRecords' \

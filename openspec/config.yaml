@@ -2,13 +2,14 @@ schema: spec-driven
 
 context: |
   Float View is one SvelteKit frontend and native backends for iOS, macOS, and
-  Android. frontend/src/lib/backend/contract.ts is the small hand-written
+  Android, and Linux desktop. frontend/src/lib/backend/contract.ts is the small hand-written
   contract source of truth. Backends implement it without generated models;
   conformance/ owns the canonical black-box suite and VESC simulation.
   Native services own Bluetooth, background execution, permissions, lifecycle,
   scoped file presentation and UI. The process-owned Rust service owns product
   storage, application policy, protocol and durable session work; loopback-server owns authenticated HTTP/WebSocket routes,
-  public projection and bounded history reads through the existing C/JNI bindings.
+  public projection and bounded history reads through the existing C/JNI bindings
+  on Apple/Android and direct safe Rust composition on Linux.
   The application has no users and has not cut its first release. Until that
   release, data and archives are disposable development data: delete superseded
   migration, legacy-identity, old-format and fallback code rather than preserve

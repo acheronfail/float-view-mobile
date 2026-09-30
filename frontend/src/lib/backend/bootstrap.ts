@@ -1,6 +1,6 @@
 import { connectApiClient, type ApiClient } from './client';
 
-export type FrontendPlatform = 'web' | 'ios' | 'android' | 'macos';
+export type FrontendPlatform = 'web' | 'ios' | 'android' | 'macos' | 'linux';
 
 export type BootstrapDocument = {
   webSocketUrl: string;

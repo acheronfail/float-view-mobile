@@ -23,7 +23,7 @@ export interface Target {
 }
 
 export interface PhysicalTarget extends Target {
-  platform: 'android' | 'ios' | 'macos';
+  platform: 'android' | 'ios' | 'macos' | 'linux';
   productionBluetooth: true;
   prepareSuite?(report: (message: string) => void): Promise<void>;
   /** Prepare OS-level location permissions without changing app settings. */
@@ -88,10 +88,10 @@ export async function runConformance(target: Target) {
     await exerciseProductMethods(
       client,
       restored,
-      ['android', 'ios', 'macos', 'direct'].includes(target.name),
+      ['android', 'ios', 'macos', 'linux', 'direct'].includes(target.name),
       target.recreateFrontend
     );
-    if (['android', 'ios', 'macos', 'direct'].includes(target.name)) {
+    if (['android', 'ios', 'macos', 'linux', 'direct'].includes(target.name)) {
       await exerciseTransport(await target.endpoint());
     }
     if (target.loseFixture) {
