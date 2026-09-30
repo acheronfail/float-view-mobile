@@ -1,7 +1,7 @@
 <script lang="ts">
   import { tick, untrack } from 'svelte';
   import { activateFromPointer, activateFromKeyboardOrAssistiveClick } from '$lib/ui/activation';
-  import type { BatteryCellProfile, BatteryPreset } from '$lib/backend/contract';
+  import type { BatteryCellProfile, BatteryPreset, BoardProfileValues } from '$lib/backend/contract';
   import { validSeriesCount, validParallelCount } from './autosave';
   let {
     seriesCount = $bindable(),
@@ -11,6 +11,7 @@
     batteryPresetId = $bindable(''),
     batteryCapacityAh = $bindable(),
     presets,
+    savedValues,
     profiles,
     saveProfile,
   }: {
@@ -21,6 +22,7 @@
     batteryPresetId?: string;
     batteryCapacityAh?: number;
     presets: BatteryPreset[];
+    savedValues: BoardProfileValues;
     profiles: BatteryCellProfile[];
     saveProfile: (patch: Record<string, unknown>) => void;
   } = $props();
@@ -82,14 +84,33 @@
   }
   function saveManual(patch: Record<string, unknown>) {
     if (
-      ('seriesCount' in patch && seriesCount !== lastSeries) ||
-      ('parallelCount' in patch && parallelCount !== lastParallel)
+      !('batteryCapacityAh' in patch) &&
+      (('seriesCount' in patch && (seriesCount ?? null) !== (lastSeries ?? null)) ||
+        ('parallelCount' in patch && (parallelCount ?? null) !== (lastParallel ?? null)))
     )
       batteryCapacityAh = undefined;
     if ('seriesCount' in patch) lastSeries = seriesCount;
     if ('parallelCount' in patch) lastParallel = parallelCount;
     if (!matchingPreset) batteryPresetId = '';
     saveProfile(patch);
+  }
+  // Mode changes suppress blur saves. Ordinary close still flushes valid hidden drafts.
+  export function flushDrafts() {
+    const patch: Record<string, unknown> = {};
+    for (const [key, value, valid] of [
+      ['seriesCount', seriesCount, seriesCount == null || validSeriesCount(seriesCount)],
+      ['parallelCount', parallelCount, parallelCount == null || validParallelCount(parallelCount)],
+      ['batteryCellProfileId', batteryCellProfileId || null, true],
+      [
+        'batteryMinimumCellVoltageV',
+        batteryMinimumCellVoltageV,
+        batteryMinimumCellVoltageV == null || validMinimum(batteryMinimumCellVoltageV),
+      ],
+      ['batteryCapacityAh', batteryCapacityAh, batteryCapacityAh == null || validCapacity(batteryCapacityAh)],
+    ] as const) {
+      if (valid && (value ?? null) !== (savedValues[key] ?? null)) patch[key] = value ?? null;
+    }
+    if (Object.keys(patch).length) saveManual(patch);
   }
 </script>
 
@@ -247,7 +268,8 @@
     />
     <span id="battery-capacity-help" class="mt-1 block text-xs text-muted">
       Full pack capacity: two parallel 4.5 Ah cells give 9 Ah. Series count does not multiply Ah. Leave blank if
-      unknown.
+      unknown. Capacity enables charge tracking with gradual settled-voltage correction; without it, the estimate
+      follows smoothed voltage.
     </span>
     {#if batteryCapacityAh != null && !validCapacity(batteryCapacityAh)}
       <span role="alert" class="mt-1 block text-xs text-warning">Enter a capacity from 0.1 to 200 Ah.</span>

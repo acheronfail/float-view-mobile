@@ -1,0 +1,129 @@
+[
+  {
+    "name": "9 Ah 60 A one second",
+    "capacityAh": 9,
+    "minimumV": 2.7,
+    "samples": [
+      {
+        "timeMs": 0,
+        "voltage": 78,
+        "current": 60
+      },
+      {
+        "timeMs": 1000,
+        "voltage": 63,
+        "current": 60
+      }
+    ],
+    "expectedAh": 0.016666666666666666,
+    "expectedCharge": 0.7981481481481482,
+    "expectedLevel": 0.7981481481481482
+  },
+  {
+    "name": "reserve remaps integrated original charge",
+    "capacityAh": 9,
+    "minimumV": 3,
+    "samples": [
+      {
+        "timeMs": 0,
+        "voltage": 78,
+        "current": 60
+      },
+      {
+        "timeMs": 1000,
+        "voltage": 63,
+        "current": 60
+      }
+    ],
+    "expectedAh": 0.016666666666666666,
+    "expectedCharge": 0.7981481481481482,
+    "expectedLevel": 0.7476851851851851
+  },
+  {
+    "name": "irregular signed trapezoids",
+    "capacityAh": 6,
+    "minimumV": 2.7,
+    "samples": [
+      {
+        "timeMs": 0,
+        "voltage": 78,
+        "current": 12
+      },
+      {
+        "timeMs": 1500,
+        "voltage": 63,
+        "current": 36
+      },
+      {
+        "timeMs": 4000,
+        "voltage": 80,
+        "current": -12
+      }
+    ],
+    "expectedAh": 0.018333333333333333,
+    "expectedCharge": 0.7969444444444445,
+    "expectedLevel": 0.7969444444444445
+  },
+  {
+    "name": "observed charging",
+    "capacityAh": 9,
+    "minimumV": 2.7,
+    "samples": [
+      {
+        "timeMs": 0,
+        "voltage": 78,
+        "current": -60,
+        "charging": true
+      },
+      {
+        "timeMs": 1000,
+        "voltage": 84,
+        "current": -60,
+        "charging": true
+      }
+    ],
+    "expectedAh": -0.016666666666666666,
+    "expectedCharge": 0.8018518518518519,
+    "expectedLevel": 0.8018518518518519
+  },
+  {
+    "name": "voltage only 80 to 30 step",
+    "capacityAh": null,
+    "minimumV": 2.7,
+    "samples": [
+      {
+        "timeMs": 0,
+        "voltage": 78,
+        "current": 0
+      },
+      {
+        "timeMs": 1000,
+        "voltage": 63,
+        "current": 0
+      }
+    ],
+    "expectedAh": 0,
+    "expectedCharge": 0.799,
+    "expectedLevel": 0.799
+  },
+  {
+    "name": "gap never invents consumption",
+    "capacityAh": 9,
+    "minimumV": 2.7,
+    "samples": [
+      {
+        "timeMs": 0,
+        "voltage": 78,
+        "current": 60
+      },
+      {
+        "timeMs": 6000,
+        "voltage": 63,
+        "current": 60
+      }
+    ],
+    "expectedAh": 0,
+    "expectedCharge": 0.8,
+    "expectedLevel": 0.8
+  }
+]

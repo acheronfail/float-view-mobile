@@ -849,12 +849,16 @@ export function assertState(state: AppState) {
     assert.equal(estimate.catalogVersion, 'floaty-2025-05-18-v1');
     assert.equal(estimate.sampleSequence, active.latestSample?.sequence ?? null);
     assert.ok(['load_compensated', 'load_clamped', 'voltage_only', 'unavailable'].includes(estimate.mode));
+    assert.equal(typeof estimate.provisional, 'boolean');
     if (estimate.level === null) {
+      assert.equal(estimate.method, null);
+      assert.equal(estimate.provisional, false);
       assert.equal(estimate.mode, 'unavailable');
       assert.ok(
         ['not_configured', 'series_mismatch', 'missing_voltage', 'not_applicable'].includes(estimate.unavailableReason!)
       );
     } else {
+      assert.ok(['voltage_smoothed', 'charge_integrated'].includes(estimate.method!));
       assert.ok(Number.isFinite(estimate.level) && estimate.level >= 0 && estimate.level <= 1);
       assert.equal(estimate.unavailableReason, null);
     }

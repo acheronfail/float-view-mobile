@@ -21,6 +21,7 @@
   let batteryPresetId = $state('');
   let batteryCapacityAh = $state<number | undefined>();
   let pendingSaves = $state(0);
+  let batteryFields: BatteryFields | undefined;
   let batteryMinimumCellVoltageV = $state<number | undefined>();
   let motor = $state('');
   let preferredCanId = $state<number | undefined>();
@@ -32,6 +33,7 @@
   let loaded = $state(false);
   let saveError = $state<string | null>(null);
   let failedPatch: Record<string, unknown> = {};
+  let discardDrafts = false;
 
   const device = $derived(backendState.savedDevices.find((value) => value.savedDeviceId === savedDeviceId));
   let name = $derived(
@@ -132,10 +134,13 @@
     await saveQueue.flush();
     failedPatch = {};
     saveError = null;
+    discardDrafts = true;
     onclose?.();
   }
 
   export async function flush() {
+    await saveQueue.flush();
+    if (!saveError && !discardDrafts) batteryFields?.flushDrafts();
     await saveQueue.flush();
     return saveError === null;
   }
@@ -152,7 +157,7 @@
     {#if batteryOnly}
       <p class="text-sm text-muted">
         Until battery setup is complete, the percentage reported by the board is shown when available. Configure the
-        cells and profile to use the approximate voltage-based estimate.
+        battery to use the shared charge estimate.
       </p>
     {/if}
     <div class="mt-4 grid gap-3 sm:grid-cols-2">
@@ -220,6 +225,8 @@
         </div>
       {/if}
       <BatteryFields
+        bind:this={batteryFields}
+        savedValues={backendState.selectedBoardProfile.values}
         bind:seriesCount
         bind:parallelCount
         bind:batteryPresetId

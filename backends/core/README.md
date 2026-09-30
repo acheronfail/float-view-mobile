@@ -10,8 +10,23 @@ Tunes, schema caches, session lifecycle/recovery, archive validation and CSV.
 `application-runtime` owns protocol coordination and the sole session writer.
 The product store owns the pinned battery cell catalog and validates saved profile
 choices. `backend-service::battery_estimator` calculates approximate state of charge;
-the process-owned connection filters accepted, persistence-gated samples. Snapshot
-reads and WebView recreation never advance that filter.
+the process-owned connection tracks accepted, persistence-gated samples. Signed
+trapezoidal current integration uses optional full-pack capacity in Ah (parallel,
+not series, multiplies cell Ah). The original charge axis is remapped using the
+zero-load reserve at the configured empty voltage. Without capacity or a valid
+current pair, voltage smoothing uses a 30-second EMA capped at 0.1 displayed
+percentage points per second. Integrated charge is not subject to that rate cap.
+Rest correction requires 30 seconds within 0.1 A per parallel cell and 0.01 V per
+cell, uses a 120-second EMA with the same display cap, and clears provisional only
+within two displayed percentage points. Charging does not qualify as rest.
+Gaps over five seconds, reconnects and invalid telemetry break current pairs and
+settling without invented consumption. Effective configuration/controller changes
+reseed; identity/name-only edits and WebView recreation preserve charge. Process
+restart has no durable estimator checkpoint. Method/provisional metadata describe
+this behavior without claiming measured accuracy. Raw voltage/alerts and stored
+telemetry remain responsive and unchanged. The service-owned named pack catalog,
+selection versus import semantics and nominal provenance are documented in
+[product-store/BATTERY_PRESETS.md](product-store/BATTERY_PRESETS.md).
 Read-only history, archive and maintenance workers use bounded independent
 readers and service-issued leases. An exclusive root lock prevents a second
 process owner from recovering or deleting resources still in use.

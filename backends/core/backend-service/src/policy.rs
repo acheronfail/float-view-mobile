@@ -711,7 +711,7 @@ impl BackendService {
         let Some(a) = self.policy.active.as_mut() else {
             return Ok(());
         };
-        a.battery.reset_filter();
+        a.battery.reconnect();
         if a.reconnect_started.is_none() {
             a.reconnect_started = Some(self.policy.exchange.now);
         }
@@ -972,7 +972,7 @@ impl BackendService {
                         }
                     }
                     c::Effect::PublishTelemetry(sample) => {
-                        self.accept_battery_sample(*sample);
+                        self.accept_battery_sample(*sample)?;
                     }
                     c::Effect::PublishBmsObservation(sample) => {
                         if let Some(a) = self.policy.active.as_mut() {
@@ -1039,6 +1039,11 @@ impl BackendService {
             return Err(Failure::InvalidState);
         }
         let a = self.policy.active.as_mut().ok_or(Failure::InvalidState)?;
+        if a.battery
+            .controller(facts.selected.identity.controller_uuid)
+        {
+            a.latest = None;
+        }
         let mut session_started = false;
         if a.saved {
             let board = self
@@ -1645,6 +1650,176 @@ mod tests {
         }
     }
     #[test]
+    fn temporal_charge_survives_identity_only_edits_and_rejected_mutations() {
+        #[allow(dead_code)]
+        mod samples {
+            use float_view_application_runtime::telemetry as float_view_refloat_telemetry_service;
+            include!("../../session-sqlite/tests/support/mod.rs");
+        }
+        use crate::battery_estimator::Method;
+        let mut t = Test::new();
+        t.activate(true);
+        let id = t
+            .service
+            .policy
+            .active
+            .as_ref()
+            .unwrap()
+            .board
+            .as_ref()
+            .unwrap()
+            .saved_device_id
+            .clone();
+        let mut profile = t
+            .service
+            .store
+            .update_profile(
+                &id,
+                0,
+                r#"{"batteryPresetId":"fungineers-funwheel-x7s-molicel-p30b"}"#,
+                1,
+            )
+            .unwrap();
+        profile = t
+            .service
+            .store
+            .update_profile(
+                &id,
+                profile.revision,
+                r#"{"batteryCapacityAh":9,"batteryMinimumCellVoltageV":2.7}"#,
+                2,
+            )
+            .unwrap();
+        let mut sample = samples::sample(1, 0);
+        sample.pack_voltage_v = Some(78.);
+        sample.battery_current_a = Some(60.);
+        t.service.policy.exchange.now = 0;
+        t.service.accept_battery_sample(sample.clone()).unwrap();
+        t.service.changed().unwrap();
+        sample.sequence = 2;
+        sample.pack_voltage_v = Some(63.);
+        t.service.policy.exchange.now = 1000;
+        t.service.accept_battery_sample(sample.clone()).unwrap();
+        t.service.changed().unwrap();
+        let tracked = t
+            .service
+            .published_snapshot()
+            .active
+            .unwrap()
+            .battery_estimate;
+        assert_eq!(tracked.method, Some(Method::ChargeIntegrated));
+        assert!((tracked.level.unwrap() - (0.8 - 1. / 540.)).abs() < 1e-12);
+        // A burst must account for every accepted current pair before publication.
+        sample.sequence = 3;
+        sample.battery_current_a = Some(0.);
+        t.service.policy.exchange.now = 1500;
+        t.service.accept_battery_sample(sample.clone()).unwrap();
+        sample.sequence = 4;
+        sample.battery_current_a = Some(60.);
+        t.service.policy.exchange.now = 2000;
+        t.service.accept_battery_sample(sample.clone()).unwrap();
+        t.service.changed().unwrap();
+        let burst = t
+            .service
+            .published_snapshot()
+            .active
+            .unwrap()
+            .battery_estimate;
+        assert!((burst.level.unwrap() - (tracked.level.unwrap() - 30. / 32400.)).abs() < 1e-12);
+        let tracked = burst;
+        // Same effective settings, different named identity; no charge reset.
+        profile = t
+            .service
+            .store
+            .update_profile(
+                &id,
+                profile.revision,
+                r#"{"batteryPresetId":null,"motor":"custom"}"#,
+                3,
+            )
+            .unwrap();
+        t.service.changed().unwrap();
+        assert_eq!(
+            t.service
+                .published_snapshot()
+                .active
+                .unwrap()
+                .battery_estimate
+                .level,
+            tracked.level
+        );
+        assert!(
+            t.service
+                .store
+                .update_profile(&id, profile.revision, r#"{"batteryCapacityAh":0}"#, 4)
+                .is_err()
+        );
+        assert!(
+            t.service
+                .store
+                .update_profile(&id, 0, r#"{"batteryCapacityAh":8}"#, 4)
+                .is_err()
+        );
+        t.service.changed().unwrap();
+        assert_eq!(
+            t.service
+                .published_snapshot()
+                .active
+                .unwrap()
+                .battery_estimate
+                .level,
+            tracked.level
+        );
+        // Reordered time and duplicate sequence leave the accepted sample/state intact.
+        sample.sequence = 3;
+        t.service.policy.exchange.now = 999;
+        t.service.accept_battery_sample(sample.clone()).unwrap();
+        t.service.changed().unwrap();
+        assert_eq!(
+            t.service
+                .published_snapshot()
+                .active
+                .unwrap()
+                .battery_estimate
+                .level,
+            tracked.level
+        );
+        sample.sequence = 2;
+        t.service.policy.exchange.now = 1100;
+        t.service.accept_battery_sample(sample.clone()).unwrap();
+        t.service.changed().unwrap();
+        assert_eq!(
+            t.service
+                .published_snapshot()
+                .active
+                .unwrap()
+                .battery_estimate
+                .level,
+            tracked.level
+        );
+        profile = t
+            .service
+            .store
+            .update_profile(&id, profile.revision, r#"{"batteryCapacityAh":null}"#, 5)
+            .unwrap();
+        t.service.changed().unwrap();
+        let cleared = t
+            .service
+            .published_snapshot()
+            .active
+            .unwrap()
+            .battery_estimate;
+        assert_eq!(cleared.profile_revision, Some(profile.revision));
+        assert!((cleared.level.unwrap() - 0.3).abs() < 1e-12);
+        assert_eq!(cleared.method, Some(Method::VoltageSmoothed));
+        // Controller replacement cannot retain the old controller's charge or sample.
+        let b = &mut t.service.policy.active.as_mut().unwrap().battery;
+        b.controller([1; 12]);
+        assert!(b.controller([2; 12]));
+        assert!(b.estimate.level.is_none());
+    }
+
+    #[test]
     fn battery_estimates_follow_accepted_samples_configuration_and_reconnect() {
         #[allow(dead_code)]
         mod samples {
@@ -1673,7 +1848,7 @@ mod tests {
         sample.battery_current_a = Some(20.);
         sample.battery_level = Some(0.8);
         t.service.policy.exchange.now = 100;
-        t.service.accept_battery_sample(sample.clone());
+        t.service.accept_battery_sample(sample.clone()).unwrap();
         t.service.changed().unwrap();
         let first = t.service.published_snapshot().active.unwrap();
         assert!((first.battery_estimate.level.unwrap() - 0.5).abs() < 1e-12);
@@ -1689,7 +1864,7 @@ mod tests {
             first.battery_estimate
         );
         sample.pack_voltage_v = Some(60.);
-        t.service.accept_battery_sample(sample.clone());
+        t.service.accept_battery_sample(sample.clone()).unwrap();
         t.service.changed().unwrap();
         assert_eq!(
             t.service
@@ -1709,7 +1884,7 @@ mod tests {
                 .battery_estimate,
             first.battery_estimate
         );
-        // Edit during reconnect recomputes old sample, but next generation starts from its own current.
+        // Edit during reconnect recomputes old sample, then the next generation retains that seed without counting the disconnect.
         let edited = t
             .service
             .store
@@ -1733,7 +1908,7 @@ mod tests {
         sample.sequence = 1;
         sample.pack_voltage_v = Some(75.5);
         sample.battery_current_a = None;
-        t.service.accept_battery_sample(sample.clone());
+        t.service.accept_battery_sample(sample.clone()).unwrap();
         t.service.changed().unwrap();
         assert!(
             (t.service
@@ -1743,13 +1918,13 @@ mod tests {
                 .battery_estimate
                 .level
                 .unwrap()
-                - 0.5)
+                - (0.5 - 0.1) / 0.9)
                 .abs()
                 < 1e-12
         );
         sample.sequence = 2;
         sample.pack_voltage_v = None;
-        t.service.accept_battery_sample(sample);
+        t.service.accept_battery_sample(sample).unwrap();
         t.service.changed().unwrap();
         assert_eq!(
             t.service

@@ -142,6 +142,12 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
       await select.selectOption('custom');
       await series.waitFor();
       assert.equal(patches.length, customBefore);
+      // Closing from Basic flushes a valid draft that mode switching deliberately did not save.
+      await series.fill('18');
+      await basic.tap();
+      assert.equal((await client.request('boardProfile.get', { savedDeviceId: id })).values.seriesCount, 19);
+      await dialog.getByRole('button', { name: 'Done', exact: true }).click();
+      await saved((v) => v.seriesCount === 18);
       assert.deepEqual(errors, []);
     } finally {
       await browser.close();

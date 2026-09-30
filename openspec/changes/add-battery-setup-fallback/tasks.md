@@ -43,3 +43,8 @@ These results predate the Basic/Advanced preset extension and do not verify task
 - Chromium and WebKit: all four battery/preset browser scenarios pass, covering fallback, both editors, touch/keyboard, cancelled/right-button activation, unsaved valid/invalid mode switches, rapid atomic selections, generic mapping, failures, conflict recovery, custom count edits, cleared/overridden capacity, explicit reset, reconnect snapshot handling, board invalidation and recreation.
 - Focused frontend unit tests: 10 passed. Svelte check: zero errors/warnings. Frontend build, changed-component ESLint/Prettier and conformance TypeScript passed.
 - Empty number bindings in the installed Svelte return null; optional battery inputs accept null and undefined. Browser coverage verifies clearing persists.
+
+Final companion integration also verifies ordinary close flushing valid hidden
+drafts after mode switches, explicit discard without retrying failed edits,
+and the temporal mock/estimate fields. All four Chromium/WebKit battery scenarios
+pass after those refinements.

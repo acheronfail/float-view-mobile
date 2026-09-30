@@ -143,3 +143,31 @@ asserts and dismisses its scoped document picker; iOS uses its lifecycle UI test
 runner to inspect and dismiss the share sheet. Background-location acceptance
 requires a persisted observation during the background dwell; lack of a sample
 is incomplete physical coverage, not an automatic deferral.
+
+## Temporal battery verification
+
+`fixtures/battery-temporal.json` contains independently calculated charge/load
+oracles consumed by `rust/battery-temporal.rs` (compiled in backend-service's
+unit tests) and the frontend mock tests. Charge arithmetic is current × elapsed
+seconds / 3600 / full-pack Ah, integrated on the original curve axis before
+zero-load reserve remapping. Numerical comparisons use a 1e-12 fraction tolerance;
+UI checks round the authoritative fraction only at display time.
+
+The vectors cover 9 Ah at 60 A for one second (1/60 Ah, 1/540 charge fraction),
+irregular signed trapezoids, observed charging, reserve remapping, an 80-to-30
+voltage observation step limited to 0.1 displayed percentage points per second,
+and gaps with no invented charge consumption. Additional canonical Rust cases
+cover low-load settling/convergence, renewed load, unstable voltage, missing
+current/voltage, charge saturation and extreme valid reserve settings. Service
+integration tests exercise rejected updates, duplicate/reordered samples,
+multiple accepted observations before publication, controller replacement,
+reconnects and effective versus identity-only edits. The runtime persistence-gate
+test establishes that rejected writes cannot reach the estimator. Direct and
+host suites assert preset/estimate contracts; Chromium/WebKit cover both editors
+and live views with the mock.
+
+No suitable captured acceleration/release/rest ride traces or reference charge
+measurements were found in the repository during the 2026-09-30 implementation.
+These synthetic results establish deterministic stability and accounting, not
+measured absolute SOC accuracy. Initial 30-second smoothing/settling and
+120-second correction constants remain unchanged; no empirical tuning is claimed.

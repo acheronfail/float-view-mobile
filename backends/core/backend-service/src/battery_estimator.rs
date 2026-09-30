@@ -1,5 +1,5 @@
-//! Deterministic cell-voltage estimation and bounded current filtering.
-use float_view_product_store::battery_catalog::{CATALOG_VERSION, Curve, profile};
+//! Coherent voltage observations and bounded, process-owned temporal charge tracking.
+use float_view_product_store::battery_catalog::{CATALOG_VERSION, profile};
 use serde::{Deserialize, Serialize};
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -27,6 +27,8 @@ pub struct Estimate {
     pub profile_revision: Option<u64>,
     pub catalog_version: String,
     pub mode: Mode,
+    pub method: Option<Method>,
+    pub provisional: bool,
     pub unavailable_reason: Option<UnavailableReason>,
 }
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -35,6 +37,7 @@ pub struct Configuration {
     pub series: Option<u8>,
     pub parallel: Option<u8>,
     pub minimum_v: Option<f64>,
+    pub capacity_ah: Option<f64>,
 }
 fn inverse(volts: &[f64; 11], v: f64) -> f64 {
     if v >= volts[0] {
@@ -50,20 +53,6 @@ fn inverse(volts: &[f64; 11], v: f64) -> f64 {
     }
     0.
 }
-fn voltage(volts: &[f64; 11], q: f64) -> f64 {
-    let index = ((1. - q).clamp(0., 1.) * 10.).min(10.);
-    let lo = (index.floor() as usize).min(9);
-    volts[lo] + (volts[lo + 1] - volts[lo]) * (index - lo as f64)
-}
-fn adjusted(curve: &Curve, minimum: f64) -> [f64; 11] {
-    let q_min = inverse(&curve.volts, minimum);
-    let mut volts = std::array::from_fn(|i| {
-        voltage(&curve.volts, q_min + (1. - q_min) * (1. - i as f64 / 10.))
-    });
-    volts[0] = 4.2;
-    volts[10] = minimum;
-    volts
-}
 impl Estimate {
     pub fn unavailable(reason: UnavailableReason) -> Self {
         Self {
@@ -74,11 +63,13 @@ impl Estimate {
             profile_revision: None,
             catalog_version: CATALOG_VERSION.into(),
             mode: Mode::Unavailable,
+            method: None,
+            provisional: false,
             unavailable_reason: Some(reason),
         }
     }
 }
-pub fn estimate(
+pub fn observe(
     config: &Configuration,
     revision: Option<u64>,
     sequence: Option<u64>,
@@ -86,40 +77,40 @@ pub fn estimate(
     controller_series: Option<u8>,
     pack_voltage: Option<f64>,
     current: Option<f64>,
-) -> Estimate {
+) -> (Estimate, Option<Observation>) {
     let mut result = Estimate::unavailable(UnavailableReason::NotApplicable);
     result.sample_sequence = sequence;
     result.profile_revision = revision;
     if !applicable {
-        return result;
+        return (result, None);
     }
     result.profile_id = config.profile_id.clone();
     result.series_count = config.series.filter(|v| (1..=36).contains(v));
     result.unavailable_reason = Some(UnavailableReason::NotConfigured);
     let Some(profile) = config.profile_id.as_deref().and_then(profile) else {
-        return result;
+        return (result, None);
     };
     let (Some(series), Some(parallel)) = (
         result.series_count,
         config.parallel.filter(|v| (1..=20).contains(v)),
     ) else {
-        return result;
+        return (result, None);
     };
     let minimum = config.minimum_v.unwrap_or(3.0);
     if !minimum.is_finite() || !(2.7..4.2).contains(&minimum) {
-        return result;
+        return (result, None);
     }
     if controller_series.is_some_and(|s| s != series) {
         result.series_count = None;
         result.unavailable_reason = Some(UnavailableReason::SeriesMismatch);
-        return result;
+        return (result, None);
     }
     let Some(v) = pack_voltage.filter(|v| v.is_finite() && *v > 0.) else {
         result.unavailable_reason = Some(UnavailableReason::MissingVoltage);
-        return result;
+        return (result, None);
     };
     let amps = current.filter(|a| a.is_finite() && *a > 0.).unwrap_or(0.) / f64::from(parallel);
-    let mut knots = adjusted(&profile.curves[0], minimum);
+    let mut knots = profile.curves[0].volts;
     result.mode = Mode::VoltageOnly;
     if amps > 0. && profile.curves.len() > 1 {
         let last = profile.curves.last().unwrap();
@@ -131,48 +122,178 @@ pub fn estimate(
         for pair in profile.curves.windows(2) {
             let fraction = ((amps - pair[0].current_a) / (pair[1].current_a - pair[0].current_a))
                 .clamp(0., 1.);
-            let low = adjusted(&pair[0], minimum);
-            let high = adjusted(&pair[1], minimum);
+            let low = pair[0].volts;
+            let high = pair[1].volts;
             knots = std::array::from_fn(|i| low[i] + fraction * (high[i] - low[i]));
             if amps <= pair[1].current_a {
                 break;
             }
         }
     }
-    result.level = Some(inverse(&knots, v / f64::from(series)).clamp(0., 1.));
+    let cell_v = v / f64::from(series);
+    // Keep a positive representable reserve denominator even at the largest valid minimum.
+    let empty = inverse(&profile.curves[0].volts, minimum).min(1. - f64::EPSILON);
+    let mut charge = inverse(&knots, cell_v);
+    if amps == 0. && cell_v <= minimum {
+        charge = charge.min(empty);
+    }
+    result.level = Some(display(charge, empty));
+    result.method = Some(Method::VoltageSmoothed);
+    result.provisional = true;
     result.unavailable_reason = None;
-    result
+    (
+        result,
+        Some(Observation {
+            charge,
+            empty,
+            cell_v,
+            single_curve: profile.curves.len() == 1,
+        }),
+    )
 }
 
-/// Constant-size filter. Call only for accepted, persistence-gated telemetry.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Method {
+    VoltageSmoothed,
+    ChargeIntegrated,
+}
+#[derive(Clone, Copy, Debug)]
+pub struct Observation {
+    pub charge: f64,
+    pub empty: f64,
+    pub cell_v: f64,
+    pub single_curve: bool,
+}
+fn display(q: f64, empty: f64) -> f64 {
+    ((q - empty) / (1. - empty)).clamp(0., 1.)
+}
+#[derive(Clone, Debug, PartialEq)]
+struct Settling {
+    since: u64,
+    min_v: f64,
+    max_v: f64,
+}
 #[derive(Clone, Debug, Default, PartialEq)]
-pub struct CurrentFilter {
-    last: Option<(u64, u64)>,
-    current: Option<f64>,
+pub struct Temporal {
+    charge: Option<f64>,
+    last: Option<(u64, Option<f64>)>,
+    settling: Option<Settling>,
+    provisional: bool,
 }
-impl CurrentFilter {
-    pub fn accept(&mut self, sequence: u64, monotonic_ms: u64, current: Option<f64>) -> bool {
-        if self
-            .last
-            .is_some_and(|(s, t)| sequence <= s || monotonic_ms < t)
-        {
-            return false;
-        }
-        let value = current.filter(|v| v.is_finite() && *v > 0.);
-        self.current = match (self.last, self.current, value) {
-            (Some((_, time)), Some(old), Some(new)) if monotonic_ms - time <= 5_000 => {
-                Some(old + (1. - (-((monotonic_ms - time) as f64) / 2_000.).exp()) * (new - old))
-            }
-            (_, _, new) => new,
+impl Temporal {
+    /// Retain charge, never integrate or smooth over an unobserved interval.
+    pub fn interrupt(&mut self) {
+        self.last = None;
+        self.settling = None;
+        self.provisional = true;
+    }
+    pub fn update(
+        &mut self,
+        result: &mut Estimate,
+        observation: Option<Observation>,
+        config: &Configuration,
+        time: u64,
+        current: Option<f64>,
+        charging: bool,
+    ) {
+        let Some(o) = observation else {
+            self.interrupt();
+            return;
         };
-        self.last = Some((sequence, monotonic_ms));
-        true
-    }
-    pub fn current(&self) -> Option<f64> {
-        self.current
+        let current = current.filter(|v| v.is_finite());
+        let interval = self.last.filter(|(t, _)| time >= *t && time - *t <= 5_000);
+        if interval.is_none() {
+            self.interrupt();
+        }
+        let dt = interval.map_or(0., |(t, _)| (time - t) as f64 / 1000.);
+        let mut q = self.charge.unwrap_or(o.charge);
+        if self.charge.is_none() {
+            self.provisional = true;
+        }
+        let capacity = config
+            .capacity_ah
+            .filter(|a| a.is_finite() && (0.1..=200.).contains(a));
+        let integrated = match (capacity, interval, current) {
+            (Some(ah), Some((_, Some(previous))), Some(amps)) if dt > 0. => {
+                q = (q - (previous + amps) * dt / (2. * 3600. * ah)).clamp(0., 1.);
+                true
+            }
+            _ => false,
+        };
+        let low = !charging
+            && current.is_some_and(|a| a.abs() <= 0.1 * f64::from(config.parallel.unwrap_or(1)));
+        if low {
+            match self.settling.as_mut() {
+                Some(window)
+                    if (window.max_v.max(o.cell_v) - window.min_v.min(o.cell_v)) <= 0.01 =>
+                {
+                    window.min_v = window.min_v.min(o.cell_v);
+                    window.max_v = window.max_v.max(o.cell_v);
+                }
+                _ => {
+                    self.settling = Some(Settling {
+                        since: time,
+                        min_v: o.cell_v,
+                        max_v: o.cell_v,
+                    })
+                }
+            }
+        } else {
+            self.settling = None;
+        }
+        let settled = self
+            .settling
+            .as_ref()
+            .is_some_and(|w| time.saturating_sub(w.since) >= 30_000);
+        if !integrated || settled {
+            let tau = if integrated { 120. } else { 30. };
+            let max_step = 0.001 * dt * (1. - o.empty);
+            let correction = (o.charge - q) * (1. - (-dt / tau).exp());
+            q = (q + correction.clamp(-max_step, max_step)).clamp(0., 1.);
+        }
+        if current.is_none()
+            || current.is_some_and(|a| a < 0.)
+            || result.mode == Mode::LoadClamped
+            || (o.single_curve && current.is_some_and(|a| a > 0.))
+        {
+            self.provisional = true;
+        }
+        if settled && (display(q, o.empty) - display(o.charge, o.empty)).abs() <= 0.02 {
+            self.provisional = false;
+        }
+        self.charge = Some(q);
+        self.last = Some((time, current));
+        result.level = Some(display(q, o.empty));
+        result.method = Some(if integrated {
+            Method::ChargeIntegrated
+        } else {
+            Method::VoltageSmoothed
+        });
+        result.provisional = self.provisional;
     }
 }
-
+#[cfg(test)]
+fn estimate(
+    config: &Configuration,
+    revision: Option<u64>,
+    sequence: Option<u64>,
+    applicable: bool,
+    controller_series: Option<u8>,
+    voltage: Option<f64>,
+    current: Option<f64>,
+) -> Estimate {
+    observe(
+        config,
+        revision,
+        sequence,
+        applicable,
+        controller_series,
+        voltage,
+        current,
+    )
+    .0
+}
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -186,6 +307,7 @@ mod tests {
             series: Some(20),
             parallel: Some(2),
             minimum_v: Some(2.7),
+            capacity_ah: None,
         }
     }
     fn calc(c: &Configuration, v: f64, a: Option<f64>) -> Estimate {
@@ -274,7 +396,7 @@ mod tests {
                     minimum_v: Some(minimum),
                     ..c.clone()
                 };
-                assert_eq!(calc(&c, minimum * 20. - 0.01, Some(1000.)).level, Some(0.));
+                assert_eq!(calc(&c, minimum * 20. - 0.01, Some(0.)).level, Some(0.));
                 assert_eq!(calc(&c, 84.1, Some(1000.)).level, Some(1.));
             }
         }
@@ -296,24 +418,8 @@ mod tests {
             Some(1.)
         );
     }
-    #[test]
-    fn filter_steps_order_gaps_and_regeneration() {
-        let mut f = CurrentFilter::default();
-        assert!(f.accept(1, 0, Some(10.)));
-        near(f.current().unwrap(), 10.);
-        assert!(f.accept(2, 2000, Some(30.)));
-        near(f.current().unwrap(), 10. + 20. * (1. - (-1_f64).exp()));
-        let before = f.clone();
-        assert!(!f.accept(2, 3000, Some(50.)));
-        assert!(!f.accept(3, 1000, Some(50.)));
-        assert_eq!(f, before);
-        assert!(f.accept(3, 7001, Some(50.)));
-        near(f.current().unwrap(), 50.);
-        assert!(f.accept(4, 7002, Some(-5.)));
-        assert_eq!(f.current(), None);
-        assert!(f.accept(5, 7003, Some(20.)));
-        near(f.current().unwrap(), 20.);
-        assert!(f.accept(6, 7004, None));
-        assert_eq!(f.current(), None);
-    }
 }
+
+#[cfg(test)]
+#[path = "../../../../conformance/rust/battery-temporal.rs"]
+mod temporal_tests;

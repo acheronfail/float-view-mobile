@@ -1,13 +1,13 @@
 //! Estimation belongs to the process-owned connection, never a view or reader.
-use crate::battery_estimator::{
-    Configuration, CurrentFilter, Estimate, UnavailableReason, estimate,
-};
+use crate::battery_estimator::{Configuration, Estimate, Temporal, UnavailableReason, observe};
 use crate::{BackendService, operations::Failure};
 #[derive(Clone, PartialEq)]
 pub(crate) struct State {
     pub estimate: Estimate,
     config: Configuration,
-    filter: CurrentFilter,
+    temporal: Temporal,
+    last_sequence: Option<u64>,
+    controller: Option<[u8; 12]>,
     sample_time: Option<u64>,
     dirty: bool,
     reset_pending: bool,
@@ -19,7 +19,9 @@ impl Default for State {
         Self {
             estimate: Estimate::unavailable(UnavailableReason::NotApplicable),
             config: Configuration::default(),
-            filter: CurrentFilter::default(),
+            temporal: Temporal::default(),
+            last_sequence: None,
+            controller: None,
             sample_time: None,
             dirty: true,
             reset_pending: true,
@@ -29,17 +31,29 @@ impl Default for State {
     }
 }
 impl State {
-    pub fn reset_filter(&mut self) {
+    pub fn reconnect(&mut self) {
         self.reset_pending = true;
     }
-    pub fn accept(&mut self, sequence: u64, time: u64, current: Option<f64>) -> bool {
-        if self.reset_pending {
-            self.filter = CurrentFilter::default();
+    pub fn controller(&mut self, identity: [u8; 12]) -> bool {
+        let changed = self.controller.is_some_and(|old| old != identity);
+        if changed {
+            *self = Self::default();
         }
-        if !self.filter.accept(sequence, time, current) {
+        self.controller = Some(identity);
+        changed
+    }
+    pub fn accept(&mut self, sequence: u64, time: u64) -> bool {
+        if !self.reset_pending
+            && (self.last_sequence.is_some_and(|old| sequence <= old)
+                || self.sample_time.is_some_and(|old| time < old))
+        {
             return false;
         }
+        if self.reset_pending {
+            self.temporal.interrupt();
+        }
         self.reset_pending = false;
+        self.last_sequence = Some(sequence);
         self.sample_time = Some(time);
         self.dirty = true;
         true
@@ -49,16 +63,17 @@ impl BackendService {
     pub(crate) fn accept_battery_sample(
         &mut self,
         sample: float_view_application_runtime::telemetry::NormalizedSample,
-    ) {
+    ) -> Result<(), Failure> {
         if let Some(active) = self.policy.active.as_mut()
-            && active.battery.accept(
-                sample.sequence,
-                self.policy.exchange.now,
-                sample.battery_current_a,
-            )
+            && active
+                .battery
+                .accept(sample.sequence, self.policy.exchange.now)
         {
             active.latest = Some(sample);
+            // Consume every accepted observation, even when a transport fact yields a batch.
+            self.refresh_battery()?;
         }
+        Ok(())
     }
     pub(crate) fn refresh_battery(&mut self) -> Result<(), Failure> {
         let Some(active) = self.policy.active.as_mut() else {
@@ -88,10 +103,12 @@ impl BackendService {
                         .map(str::to_owned),
                     series: count("seriesCount"),
                     parallel: count("parallelCount"),
+                    capacity_ah: p.values.get("batteryCapacityAh").and_then(|v| v.as_f64()),
                     minimum_v: p
                         .values
                         .get("batteryMinimumCellVoltageV")
-                        .and_then(|v| v.as_f64()),
+                        .and_then(|v| v.as_f64())
+                        .or(Some(3.0)),
                 }
             })
             .unwrap_or_default();
@@ -116,30 +133,34 @@ impl BackendService {
         }
         if config != battery.config {
             battery.dirty = true;
-            battery.filter = CurrentFilter::default();
-            if let (Some(sample), Some(time)) = (&active.latest, battery.sample_time) {
-                battery
-                    .filter
-                    .accept(sample.sequence, time, sample.battery_current_a);
-            }
+            battery.temporal = Temporal::default();
             battery.config = config;
         }
-        if !battery.dirty
-            && active.latest.is_some()
-            && battery.estimate.profile_revision == profile.as_ref().map(|p| p.revision)
-        {
+        if !battery.dirty {
+            battery.estimate.profile_revision = profile.as_ref().map(|p| p.revision);
             return Ok(());
         }
         battery.dirty = false;
-        battery.estimate = estimate(
+        let (mut result, observation) = observe(
             &battery.config,
             profile.as_ref().map(|p| p.revision),
             active.latest.as_ref().map(|s| s.sequence),
             battery.applicable,
             battery.controller_series,
             active.latest.as_ref().and_then(|s| s.pack_voltage_v),
-            battery.filter.current(),
+            active.latest.as_ref().and_then(|s| s.battery_current_a),
         );
+        if let (Some(sample), Some(time)) = (&active.latest, battery.sample_time) {
+            battery.temporal.update(
+                &mut result,
+                observation,
+                &battery.config,
+                time,
+                sample.battery_current_a,
+                sample.charging == Some(true),
+            );
+        }
+        battery.estimate = result;
         Ok(())
     }
 }

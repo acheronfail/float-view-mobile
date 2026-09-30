@@ -408,7 +408,7 @@ export interface RefloatTuneListPage {
   nextCursor: string | null;
 }
 
-/** Shared voltage-based approximation. No view-local estimation or filtering.
+/** Shared temporal charge approximation. No view-local estimation or filtering.
  * level is a nullable fraction [0,1]; seriesCount resolves pack volts to cell volts.
  * sampleSequence/profileRevision identify the accepted sample and saved configuration.
  * catalogVersion pins community curves; modes describe compensation, not accuracy.
@@ -424,6 +424,9 @@ export interface BatteryEstimate {
   /** Null without a saved profile. */
   profileRevision: number | null;
   catalogVersion: string;
+  /** Describes this update, independently of voltage compensation mode. */
+  method: 'voltage_smoothed' | 'charge_integrated' | null;
+  provisional: boolean;
   mode: 'load_compensated' | 'load_clamped' | 'voltage_only' | 'unavailable';
   unavailableReason: 'not_configured' | 'series_mismatch' | 'missing_voltage' | 'not_applicable' | null;
 }
