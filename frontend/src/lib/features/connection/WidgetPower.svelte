@@ -62,7 +62,9 @@
         <span>{sample.packVoltageV.toFixed(1)} V</span>
         {#if batterySeriesCells}
           <span class="text-xs text-muted uppercase tall:text-xs taller:text-sm">Cell</span>
-          <span>{(sample.packVoltageV / batterySeriesCells).toFixed(2)} V</span>
+          <span style:color={batteryPercent == null ? undefined : batteryColor}>
+            {(sample.packVoltageV / batterySeriesCells).toFixed(2)} V
+          </span>
         {/if}
       {/if}
     </span>
