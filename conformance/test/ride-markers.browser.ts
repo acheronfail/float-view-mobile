@@ -102,32 +102,32 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
       await page.reload();
 
       await page.goto(`${endpoint.origin}/#/sessions/${sessionId}`);
-      const select = page.getByRole('combobox', { name: 'Select ride marker' });
+      const select = page.getByRole('group', { name: 'Select ride marker' });
       await select.waitFor();
-      assert.equal(await select.locator('option').count(), 3);
+      assert.equal(await select.getByRole('button').count(), 2);
       await page
         .getByRole('button', { name: /Select marker at/ })
         .first()
         .waitFor();
       await page.getByText('No finite samples in this range.', { exact: true }).first().waitFor();
       await page.getByRole('button', { name: 'Next marker', exact: true }).click();
-      assert.match(await select.locator('option:checked').innerText(), /Marker 1.*No location/);
+      assert.match(await select.getByRole('button', { pressed: true }).innerText(), /Marker 1.*No location/);
       await page.getByRole('button', { name: 'Next marker', exact: true }).focus();
       await page.keyboard.press('Enter');
-      assert.match(await select.locator('option:checked').innerText(), /Marker 2/);
-      assert.doesNotMatch(await select.locator('option:checked').innerText(), /No location/);
+      assert.match(await select.getByRole('button', { pressed: true }).innerText(), /Marker 2/);
+      assert.doesNotMatch(await select.getByRole('button', { pressed: true }).innerText(), /No location/);
       const mapMarker = page.getByRole('button', { name: /Ride marker at/ });
       await mapMarker.waitFor();
       assert.equal(await page.locator('.location-marker').count(), 0);
       await page.getByRole('button', { name: 'Previous marker', exact: true }).click();
       await mapMarker.focus();
       await page.keyboard.press('Enter');
-      assert.match(await select.locator('option:checked').innerText(), /Marker 2/);
+      assert.match(await select.getByRole('button', { pressed: true }).innerText(), /Marker 2/);
       await page
         .getByRole('button', { name: /Select marker at/ })
         .first()
         .click();
-      assert.match(await select.locator('option:checked').innerText(), /Marker 1/);
+      assert.match(await select.getByRole('button', { pressed: true }).innerText(), /Marker 1/);
       assert.deepEqual(errors, []);
     } finally {
       await browser.close();

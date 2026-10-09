@@ -1,4 +1,5 @@
 <script lang="ts">
+  import SegmentedControl from '$lib/ui/SegmentedControl.svelte';
   import { getContext, onDestroy, onMount, tick } from 'svelte';
   import { goto } from '$app/navigation';
   import { APP_HEADER_CONTEXT, type AppHeaderContext } from '$lib/app/header';
@@ -238,21 +239,22 @@
         {saveProfile}
       />
       {#if !batteryOnly}
-        <label class="text-sm sm:col-span-2">
+        <div class="text-sm sm:col-span-2">
           <span class="mb-1 block text-muted">Motor</span>
-          <select
-            class="w-full rounded-md border border-outline bg-elevated px-3 py-2"
-            bind:value={motor}
-            onchange={() => {
+          <SegmentedControl
+            label="Motor"
+            options={[
+              { value: 'hypercore_xr', label: 'Hypercore (XR)' },
+              { value: 'superflux_hs', label: 'Superflux HS' },
+              { value: 'custom', label: 'Custom / other' },
+            ]}
+            value={motor}
+            onchange={(value) => {
+              motor = value;
               if (motor) saveProfile({ motor });
             }}
-          >
-            <option value="">Choose a motor</option>
-            <option value="hypercore_xr">Hypercore (XR)</option>
-            <option value="superflux_hs">Superflux HS</option>
-            <option value="custom">Custom / other</option>
-          </select>
-        </label>
+          />
+        </div>
       {/if}
     </div>
   {:else}

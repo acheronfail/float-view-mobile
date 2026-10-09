@@ -1,4 +1,5 @@
 <script lang="ts">
+  import SegmentedControl from '$lib/ui/SegmentedControl.svelte';
   import type { RefloatConfigurationField, RefloatConfigurationValue } from '$lib/backend/contract';
   import { activateFromKeyboardOrAssistiveClick, activateFromPointer } from '$lib/ui/activation';
   import { refloatConfigurationFieldLabel } from './refloat-configuration.svelte';
@@ -27,7 +28,7 @@
 
 <div class="block rounded-lg border border-outline bg-elevated p-3 text-sm">
   <span class="flex items-center justify-between gap-2">
-    <label for={fieldId} class="font-medium">{label}</label>
+    <span class="font-medium">{label}</span>
     <button
       bind:this={helpButton}
       type="button"
@@ -39,34 +40,36 @@
     >
   </span>
   {#if field.type === 'boolean'}
-    <span class="mt-2 flex items-center gap-2">
-      <input
+    <div class="mt-2">
+      <SegmentedControl
         id={fieldId}
-        type="checkbox"
-        class="h-5 w-5 touch-manipulation"
-        checked={value?.type === 'boolean' && value.value}
+        {label}
+        options={[
+          { value: false, label: 'Off' },
+          { value: true, label: 'On' },
+        ]}
+        value={value?.type === 'boolean' && value.value}
         {disabled}
-        aria-describedby={error ? errorId : undefined}
-        onchange={(event) => onchange({ type: 'boolean', value: event.currentTarget.checked })}
+        describedby={error ? errorId : undefined}
+        onchange={(value) => onchange({ type: 'boolean', value })}
       />
-      <span>{value?.type === 'boolean' && value.value ? 'On' : 'Off'}</span>
-    </span>
+    </div>
   {:else if field.type === 'enum'}
-    <select
-      id={fieldId}
-      class="mt-2 w-full rounded-md border border-outline bg-surface px-3 py-2"
-      {disabled}
-      aria-describedby={error ? errorId : undefined}
-      value={value?.type === 'integer' ? value.value : 0}
-      onchange={(event) => onchange({ type: 'integer', value: Number(event.currentTarget.value) })}
-    >
-      {#each field.choices as choice, index (index)}
-        <option value={index}>{choice}</option>
-      {/each}
-    </select>
+    <div class="mt-2">
+      <SegmentedControl
+        id={fieldId}
+        {label}
+        options={field.choices.map((label, value) => ({ label, value }))}
+        value={value?.type === 'integer' ? value.value : 0}
+        {disabled}
+        describedby={error ? errorId : undefined}
+        onchange={(value) => onchange({ type: 'integer', value })}
+      />
+    </div>
   {:else if field.type === 'string'}
     <input
       id={fieldId}
+      aria-label={label}
       type="text"
       maxlength="4096"
       class="mt-2 w-full rounded-md border border-outline bg-surface px-3 py-2"
@@ -79,6 +82,7 @@
     <div class="mt-2 flex items-center gap-2">
       <input
         id={fieldId}
+        aria-label={label}
         type="number"
         class="min-w-0 flex-1 rounded-md border border-outline bg-surface px-3 py-2"
         min={field.minimum ?? undefined}

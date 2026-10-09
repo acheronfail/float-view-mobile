@@ -1,4 +1,5 @@
 <script lang="ts">
+  import SegmentedControl from '$lib/ui/SegmentedControl.svelte';
   import { tick, untrack } from 'svelte';
   import { activateFromPointer, activateFromKeyboardOrAssistiveClick } from '$lib/ui/activation';
   import type { BatteryCellProfile, BatteryPreset, BoardProfileValues } from '$lib/backend/contract';
@@ -43,7 +44,6 @@
   let switching = false;
   let lastSeries = untrack(() => seriesCount);
   let lastParallel = untrack(() => parallelCount);
-  const groups = $derived([...new Set(presets.map((p) => p.manufacturer))]);
   const namedPreset = $derived(presets.find((p) => p.id === batteryPresetId));
   const matchingPreset = $derived(
     namedPreset &&
@@ -114,39 +114,31 @@
   }
 </script>
 
-<div role="group" aria-label="Battery setup mode" class="flex gap-1 sm:col-span-2">
-  {#each ['basic', 'advanced'] as choice (choice)}
-    <button
-      type="button"
-      data-battery-mode
-      aria-pressed={mode === choice}
-      class="touch-manipulation rounded-md border border-outline px-3 py-2 text-sm aria-pressed:bg-elevated"
-      onpointerdown={(event) => activateFromPointer(event, () => switchMode(choice as 'basic' | 'advanced'))}
-      onclick={(event) => activateFromKeyboardOrAssistiveClick(event, () => switchMode(choice as 'basic' | 'advanced'))}
-    >
-      {choice === 'basic' ? 'Basic' : 'Advanced'}
-    </button>
-  {/each}
+<div data-battery-mode class="sm:col-span-2">
+  <SegmentedControl
+    label="Battery setup mode"
+    value={mode}
+    options={[
+      { value: 'basic', label: 'Basic' },
+      { value: 'advanced', label: 'Advanced' },
+    ]}
+    onchange={switchMode}
+  />
 </div>
 {#if mode === 'basic'}
-  <label class="text-sm sm:col-span-2">
+  <div class="text-sm sm:col-span-2">
     <span class="mb-1 block text-muted">Battery</span>
-    <select
-      class="w-full touch-manipulation rounded-md border border-outline bg-elevated px-3 py-2"
+    <SegmentedControl
+      label="Battery"
       value={selected}
-      onchange={(event) => selectPreset(event.currentTarget.value)}
-    >
-      <option value="" disabled>Choose your battery</option>
-      {#each groups as manufacturer (manufacturer)}
-        <optgroup label={manufacturer}>
-          {#each presets.filter((p) => p.manufacturer === manufacturer) as preset (preset.id)}
-            <option value={preset.id}>{preset.label}</option>
-          {/each}
-        </optgroup>
-      {/each}
-      <option value="custom">Custom / not listed</option>
-    </select>
-  </label>
+      options={[
+        { value: '', label: 'Choose your battery', disabled: true },
+        ...presets.map((preset) => ({ value: preset.id, label: preset.label, group: preset.manufacturer })),
+        { value: 'custom', label: 'Custom / not listed' },
+      ]}
+      onchange={selectPreset}
+    />
+  </div>
   <p class="text-sm text-muted sm:col-span-2" aria-label="Battery configuration summary">
     {seriesCount ?? '—'}S{parallelCount ?? '—'}P
     {#if matchingPreset}
@@ -167,20 +159,21 @@
     </button>
   {/if}
 
-  <label class="text-sm sm:col-span-2">
-    <span id="battery-cell-profile-label" class="mb-1 block text-muted">Battery cell profile</span>
-    <select
-      class="w-full touch-manipulation rounded-md border border-outline bg-elevated px-3 py-2"
-      aria-labelledby="battery-cell-profile-label"
-      bind:value={batteryCellProfileId}
-      onchange={() => saveManual({ batteryCellProfileId: batteryCellProfileId || null })}
-    >
-      <option value="">Not configured</option>
-      {#each profiles as profile (profile.id)}
-        <option value={profile.id}>{profile.label}</option>
-      {/each}
-    </select>
-  </label>
+  <div class="text-sm sm:col-span-2">
+    <span class="mb-1 block text-muted">Battery cell profile</span>
+    <SegmentedControl
+      label="Battery cell profile"
+      value={batteryCellProfileId}
+      options={[
+        { value: '', label: 'Not configured' },
+        ...profiles.map((profile) => ({ value: profile.id, label: profile.label })),
+      ]}
+      onchange={(value) => {
+        batteryCellProfileId = value;
+        saveManual({ batteryCellProfileId: value || null });
+      }}
+    />
+  </div>
   <label class="text-sm sm:col-span-2">
     <span id="battery-empty-voltage-label" class="mb-1 block text-muted">Display empty voltage per cell</span>
     <input

@@ -105,7 +105,7 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
       assert.ok(patches.every((p) => Object.keys(p).length === 1 && 'batteryPresetId' in p));
       assert.ok(!/generic|approximation/i.test(await dialog.innerText()));
       await client.waitForState((s) => s.activeConnection?.batteryEstimate.level != null);
-      assert.equal(await page.getByRole('button', { name: 'Battery setup required', exact: true }).count(), 0);
+      await page.getByRole('button', { name: 'Battery setup required', exact: true }).waitFor({ state: 'hidden' });
       await advanced.tap();
       assert.equal(await page.getByLabel('Battery cell profile', { exact: true }).inputValue(), 'generic-linear');
       const capacity = page.getByLabel('Pack capacity (Ah, optional)', { exact: true });

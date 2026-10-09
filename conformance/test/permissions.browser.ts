@@ -81,13 +81,13 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
           await page.locator('[data-permission="bluetooth"]').count(),
           platform === 'android29' || platform === 'android30' ? 0 : 1
         );
-        const recording = page.getByRole('checkbox', { name: 'Record ride location', exact: true });
-        await recording.check();
+        const recording = page.getByRole('group', { name: 'Record ride location', exact: true });
+        await recording.getByRole('button', { name: 'On', exact: true }).tap();
         await page
           .getByText('Optional for board-only use. Ride location recording is on.', { exact: true })
           .first()
           .waitFor();
-        await recording.uncheck();
+        await recording.getByRole('button', { name: 'Off', exact: true }).tap();
         await page
           .getByText('Optional for board-only use. Ride location recording is off.', { exact: true })
           .first()

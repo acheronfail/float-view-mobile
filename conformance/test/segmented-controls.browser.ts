@@ -1,0 +1,129 @@
+import assert from 'node:assert/strict';
+import { readFile, mkdir } from 'node:fs/promises';
+import { test } from 'node:test';
+import { chromium, webkit } from 'playwright';
+import { startMockServer, stopMockServer, getMockBootstrap } from '../../frontend/backend-mock/index.ts';
+
+const html = await readFile(new URL('../../frontend/build/index.html', import.meta.url), 'utf8');
+for (const [name, engine] of Object.entries({ chromium, webkit })) {
+  test(
+    `${name}: touch, cancelled pointers, keyboard and authoritative segmented settings`,
+    { timeout: 60_000 },
+    async () => {
+      const port = await startMockServer(11002);
+      const endpoint = getMockBootstrap(port);
+      const browser = await engine.launch();
+      try {
+        const page = await browser.newPage({
+          viewport: { width: 390, height: 844 },
+          hasTouch: true,
+          reducedMotion: 'reduce',
+        });
+        page.setDefaultTimeout(5000);
+        if (name === 'chromium')
+          await page.context().grantPermissions(['local-network-access'], { origin: endpoint.origin });
+        const errors: string[] = [];
+        const patches: unknown[] = [];
+        let reject = false;
+        page.on('pageerror', (error) => errors.push(error.message));
+        await page.route(`${endpoint.origin}/`, (route) => route.fulfill({ contentType: 'text/html', body: html }));
+        await page.routeWebSocket('**/api/ws?*', (socket) => {
+          const server = socket.connectToServer();
+          socket.onMessage((raw) => {
+            const message = JSON.parse(String(raw));
+            if (message.method === 'settings.update') {
+              patches.push(message.params.patch);
+              if (reject) {
+                socket.send(
+                  JSON.stringify({
+                    id: message.id,
+                    error: { code: 'invalid_request', message: 'Settings save failed' },
+                  })
+                );
+                return;
+              }
+            }
+            server.send(raw);
+          });
+          server.onMessage((raw) => socket.send(raw));
+        });
+        await page.goto(`${endpoint.origin}/#/settings`);
+        const theme = page.getByRole('group', { name: 'Theme', exact: true });
+        const dark = theme.getByRole('button', { name: 'Dark', exact: true });
+        await dark.waitFor();
+        await dark.click({ button: 'right' });
+        await dark.dispatchEvent('pointerdown', { button: 0, isPrimary: false, pointerId: 2 });
+        await dark.dispatchEvent('pointerup', { button: 0, isPrimary: false, pointerId: 2 });
+        await dark.evaluate((el) =>
+          el.addEventListener(
+            'pointerdown',
+            (event) => el.setAttribute('data-pointer', String((event as PointerEvent).pointerId)),
+            { once: true }
+          )
+        );
+        await dark.hover();
+        await page.mouse.down();
+        await dark.dispatchEvent('pointercancel', { pointerId: Number(await dark.getAttribute('data-pointer')) });
+        await page.mouse.up();
+        assert.equal(patches.length, 0);
+        await dark.tap();
+        await page.waitForFunction(() => document.documentElement.dataset.theme === 'dark');
+        assert.equal(await dark.getAttribute('aria-pressed'), 'true');
+        assert.equal(patches.length, 1);
+        await dark.tap();
+        assert.equal(patches.length, 1);
+        const recording = page.getByRole('group', { name: 'Record ride location', exact: true });
+        const on = recording.getByRole('button', { name: 'On', exact: true });
+        await on.tap();
+        await page.waitForFunction(
+          () =>
+            document
+              .querySelector('[aria-label="Record ride location"] button:last-child')
+              ?.getAttribute('aria-pressed') === 'true'
+        );
+        assert.equal(patches.length, 2);
+        assert.ok((await on.boundingBox())!.height >= 44);
+        assert.notEqual(
+          await on.evaluate((el) => getComputedStyle(el).backgroundColor),
+          await recording
+            .getByRole('button', { name: 'Off', exact: true })
+            .evaluate((el) => getComputedStyle(el).backgroundColor)
+        );
+        const output = process.env.FLOAT_VIEW_SCREENSHOTS;
+        if (output && name === 'chromium') {
+          await mkdir(output, { recursive: true });
+          await page.waitForTimeout(250);
+          await page.screenshot({ path: `${output}/settings-dark.png` });
+        }
+        const light = theme.getByRole('button', { name: 'Light', exact: true });
+        await light.focus();
+        await page.keyboard.press('Enter');
+        await page.waitForFunction(() => document.documentElement.dataset.theme === 'light');
+        const imperial = page
+          .getByRole('group', { name: 'Units', exact: true })
+          .getByRole('button', { name: 'Imperial', exact: true });
+        await imperial.focus();
+        await page.keyboard.press('Space');
+        await page.waitForFunction(
+          () =>
+            document.querySelector('[aria-label="Units"] button:last-child')?.getAttribute('aria-pressed') === 'true'
+        );
+        assert.equal(patches.length, 4);
+        if (output && name === 'chromium') {
+          await page.waitForTimeout(250);
+          await page.screenshot({ path: `${output}/settings-light.png` });
+        }
+        reject = true;
+        await recording.getByRole('button', { name: 'Off', exact: true }).dispatchEvent('click', { detail: 0 });
+        await page.getByRole('alert').filter({ hasText: 'Settings save failed' }).waitFor();
+        assert.equal(await on.getAttribute('aria-pressed'), 'true');
+        assert.equal(patches.length, 5);
+        assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+        assert.deepEqual(errors, []);
+      } finally {
+        await browser.close();
+        await stopMockServer();
+      }
+    }
+  );
+}

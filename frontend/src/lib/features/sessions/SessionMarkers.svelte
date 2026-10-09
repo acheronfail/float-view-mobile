@@ -1,4 +1,5 @@
 <script lang="ts">
+  import SegmentedControl from '$lib/ui/SegmentedControl.svelte';
   import type { SessionRideMarker } from '$lib/backend/contract';
   import { activateFromPointer, activateFromKeyboardOrAssistiveClick } from '$lib/ui/activation';
   let {
@@ -27,21 +28,21 @@
       onpointerdown={(e) => activateFromPointer(e, () => move(-1))}
       onclick={(e) => activateFromKeyboardOrAssistiveClick(e, () => move(-1))}>←</button
     >
-    <label class="min-w-0 flex-1 text-sm"
-      >Markers ({markers.length})
-      <select
-        class="block w-full rounded border border-outline bg-surface p-2"
-        aria-label="Select ride marker"
+    <div class="min-w-0 flex-1 text-sm">
+      <p>Markers ({markers.length})</p>
+      <SegmentedControl
+        label="Select ride marker"
         value={selected ?? ''}
-        onchange={(e) => {
-          const marker = markers.find((m) => m.sequence === Number(e.currentTarget.value));
+        options={[
+          { value: '', label: 'Select a marker', disabled: true },
+          ...markers.map((marker, i) => ({ value: marker.sequence, label: label(marker, i) })),
+        ]}
+        onchange={(value) => {
+          const marker = markers.find((m) => m.sequence === value);
           if (marker) onselect(marker);
         }}
-      >
-        <option value="" disabled>Select a marker</option>
-        {#each markers as marker, i (marker.sequence)}<option value={marker.sequence}>{label(marker, i)}</option>{/each}
-      </select>
-    </label>
+      />
+    </div>
     <button
       type="button"
       aria-label="Next marker"

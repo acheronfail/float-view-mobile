@@ -1,4 +1,5 @@
 <script lang="ts">
+  import SegmentedControl from '$lib/ui/SegmentedControl.svelte';
   import { onMount } from 'svelte';
   import type { RefloatConfigurationField as RefloatConfigurationFieldContract } from '$lib/backend/contract';
   import { backendState } from '$lib/backend/state.svelte';
@@ -54,21 +55,18 @@
 <section class="flex min-h-[70vh] flex-col gap-3" aria-labelledby="refloat-configuration-title">
   <div class="sticky top-0 z-10 grid gap-2 bg-surface pb-2">
     <div class="grid gap-2 sm:grid-cols-2">
-      <label class="grid gap-1 text-sm">
+      <div class="grid gap-1 text-sm">
         <span class="font-medium">Section</span>
-        <select
-          class="w-full rounded-md border border-outline bg-elevated px-3 py-2"
+        <SegmentedControl
+          label="Section"
           disabled={controller.loading || !controller.sections.length}
           value={selectedSection?.key ?? ''}
-          onchange={(event) => {
-            selectedSectionKey = event.currentTarget.value;
+          options={controller.sections.map((section) => ({ value: section.key, label: section.label }))}
+          onchange={(value) => {
+            selectedSectionKey = value;
           }}
-        >
-          {#each controller.sections as section (section.key)}
-            <option value={section.key}>{section.label}</option>
-          {/each}
-        </select>
-      </label>
+        />
+      </div>
       <label class="grid gap-1 text-sm">
         <span class="font-medium">Search this section</span>
         <input

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import SegmentedControl from '$lib/ui/SegmentedControl.svelte';
   import type { ThemePreference, UnitPreference } from '$lib/backend/contract';
   import { backendState } from '$lib/backend/state.svelte';
   import SectionTitle from '../../ui/SectionTitle.svelte';
@@ -12,58 +13,60 @@
   {#if backendState.settings}
     <div>
       <SectionTitle title="Appearance" />
-      <label class="mt-3 block text-sm text-muted">
-        Theme
-        <select
-          class={inputClass}
+      <div class="mt-3 space-y-1 text-sm text-muted">
+        <p>Theme</p>
+        <SegmentedControl
+          label="Theme"
+          options={[
+            { value: 'system', label: 'System' },
+            { value: 'light', label: 'Light' },
+            { value: 'dark', label: 'Dark' },
+          ]}
           value={backendState.settings.themePreference}
-          onchange={(event) =>
-            backendState.updateSessionSettings({
-              themePreference: event.currentTarget.value as ThemePreference,
-            })}
-        >
-          <option value="system">System</option>
-          <option value="light">Light</option>
-          <option value="dark">Dark</option>
-        </select>
-      </label>
-      <label class="mt-3 block text-sm text-muted">
-        Units
-        <select
-          class={inputClass}
+          onchange={(themePreference: ThemePreference) => backendState.updateSessionSettings({ themePreference })}
+        />
+      </div>
+      <div class="mt-3 space-y-1 text-sm text-muted">
+        <p>Units</p>
+        <SegmentedControl
+          label="Units"
+          options={[
+            { value: 'metric', label: 'Metric' },
+            { value: 'imperial', label: 'Imperial' },
+          ]}
           value={backendState.settings.unitPreference}
-          onchange={(event) =>
-            backendState.updateSessionSettings({
-              unitPreference: event.currentTarget.value as UnitPreference,
-            })}
-        >
-          <option value="metric">Metric</option>
-          <option value="imperial">Imperial</option>
-        </select>
-      </label>
+          onchange={(unitPreference: UnitPreference) => backendState.updateSessionSettings({ unitPreference })}
+        />
+      </div>
     </div>
 
     <div>
       <SectionTitle title="Session settings" />
       <div class="mt-3 space-y-3 rounded-lg border border-outline bg-elevated p-3">
-        <label class="flex items-center gap-3 text-sm text-muted">
-          <input
-            type="checkbox"
-            checked={backendState.settings.locationRecordingEnabled}
-            onchange={(event) =>
-              backendState.updateSessionSettings({ locationRecordingEnabled: event.currentTarget.checked })}
+        <div class="space-y-2 text-sm text-muted">
+          <p>Record ride location</p>
+          <SegmentedControl
+            label="Record ride location"
+            options={[
+              { value: false, label: 'Off' },
+              { value: true, label: 'On' },
+            ]}
+            value={backendState.settings.locationRecordingEnabled}
+            onchange={(value) => backendState.updateSessionSettings({ locationRecordingEnabled: value })}
           />
-          Record ride location
-        </label>
-        <label class="flex items-center gap-3 text-sm text-muted">
-          <input
-            type="checkbox"
-            checked={backendState.settings.includeGpsLocationWhenExporting}
-            onchange={(event) =>
-              backendState.updateSessionSettings({ includeGpsLocationWhenExporting: event.currentTarget.checked })}
+        </div>
+        <div class="space-y-2 text-sm text-muted">
+          <p>Include GPS columns in CSV exports</p>
+          <SegmentedControl
+            label="Include GPS columns in CSV exports"
+            options={[
+              { value: false, label: 'Off' },
+              { value: true, label: 'On' },
+            ]}
+            value={backendState.settings.includeGpsLocationWhenExporting}
+            onchange={(value) => backendState.updateSessionSettings({ includeGpsLocationWhenExporting: value })}
           />
-          Include GPS columns in CSV exports
-        </label>
+        </div>
         <p class="text-xs text-muted">Location capture is native-owned and stops outside active riding.</p>
       </div>
       <label class="mt-3 block text-sm text-muted">
