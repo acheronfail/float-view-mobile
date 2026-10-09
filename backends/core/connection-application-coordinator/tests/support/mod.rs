@@ -173,9 +173,13 @@ pub fn dynamic_idle_payload() -> Vec<u8> {
 }
 
 pub fn selectable_fast_payload() -> Vec<u8> {
+    selectable_fixture("1.3.0-command-33-fast-float32")
+}
+
+pub fn selectable_fixture(name: &str) -> Vec<u8> {
     let document = include_str!("../../../../fixtures/refloat/detailed-source-provenance.json");
-    let marker = "\"name\": \"1.3.0-command-33-fast-float32\"";
-    let case = document.split_once(marker).expect("selectable fixture").1;
+    let marker = format!("\"name\": \"{name}\"");
+    let case = document.split_once(&marker).expect("selectable fixture").1;
     hex_bytes(string_field(case, "payloadHex"))
 }
 

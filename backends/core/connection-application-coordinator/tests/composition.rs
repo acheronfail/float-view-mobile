@@ -53,6 +53,73 @@ fn refloat_1_3_0_skips_layout_and_starts_selectable_float32_telemetry() {
     );
 }
 
+#[test]
+fn late_fast_reply_does_not_consume_pending_distance_request() {
+    let mut coordinator = ConnectionApplicationCoordinator::default();
+    coordinator.apply(Command::Begin(begin_facts(10))).unwrap();
+    receive(&mut coordinator, motor_configuration_payload(42), 20);
+    receive(&mut coordinator, selectable_info_payload(), 30);
+    activate_with_cache(&mut coordinator, 40, Some(configuration_schema_1_3_0()));
+    receive(&mut coordinator, configuration_current_response_1_3_0(), 50);
+    receive(
+        &mut coordinator,
+        current_limits_payload(0x2EFD_0142, Some(15)),
+        60,
+    );
+    receive(&mut coordinator, selectable_fast_payload(), 70);
+    let generation = coordinator.snapshot().generation;
+    coordinator
+        .apply(Command::Refresh {
+            generation,
+            now_ms: 1_100,
+        })
+        .unwrap();
+    let effects = receive(&mut coordinator, selectable_fast_payload(), 1_110);
+    let slow = write(&effects).clone();
+    assert_eq!(&slow.payload[4..8], &16384_u32.to_be_bytes());
+    let effects = receive(&mut coordinator, selectable_fast_payload(), 1_111);
+    assert!(
+        effects
+            .iter()
+            .all(|effect| matches!(effect, Effect::Diagnostic(_)))
+    );
+
+    let mut payload = selectable_fixture("1.3.0-command-33-slow-gnss-float32");
+    assert_eq!(slow.payload, payload[..12]);
+    payload[24..28].copy_from_slice(&42.5_f32.to_be_bytes());
+    let late_slow = payload.clone();
+    receive(&mut coordinator, payload, 1_112);
+    receive(
+        &mut coordinator,
+        selectable_fixture("1.3.0-command-10-mode-0-normal"),
+        1_113,
+    );
+    receive(&mut coordinator, vec![62], 1_114);
+    coordinator
+        .apply(Command::Refresh {
+            generation,
+            now_ms: 1_200,
+        })
+        .unwrap();
+    let effects = receive(&mut coordinator, late_slow, 1_201);
+    assert!(
+        effects
+            .iter()
+            .all(|effect| matches!(effect, Effect::Diagnostic(_)))
+    );
+    let effects = receive(&mut coordinator, selectable_fast_payload(), 1_210);
+    let sample = effects
+        .iter()
+        .find_map(|effect| match effect {
+            Effect::PublishTelemetry(sample) => Some(sample),
+            _ => None,
+        })
+        .expect("fast sample with accepted slow telemetry");
+    assert_eq!(sample.distance_m, Some(42.5));
+    assert_eq!(sample.odometer_m, Some(12345.0));
+    assert!(sample.slow_observed_at_epoch_ms.is_some());
+}
+
 fn ready_configuration() -> (ConnectionApplicationCoordinator, TimerToken) {
     let mut coordinator = ConnectionApplicationCoordinator::default();
     coordinator.apply(Command::Begin(begin_facts(10))).unwrap();

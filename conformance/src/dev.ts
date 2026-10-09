@@ -1,5 +1,6 @@
 import { execFileSync, spawn, type ChildProcess } from 'node:child_process';
 import { platform } from 'node:os';
+import { rmSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
@@ -281,14 +282,17 @@ async function startIOS(
 function buildMacos(root: string) {
   const cwd = `${root}/backends/apple`;
   const scratch = '/tmp/float-view-swift-build';
-  execFileSync('swift', ['build', '--scratch-path', scratch, '--product', 'FloatViewMac'], {
-    cwd,
-    stdio: 'inherit',
-  });
+  execFileSync('just', ['apple-rust-runtime', 'Debug'], { cwd: root, stdio: 'inherit' });
   const binaryRoot = execFileSync('swift', ['build', '--scratch-path', scratch, '--show-bin-path'], {
     cwd,
     encoding: 'utf8',
   }).trim();
+  // SwiftPM does not track the externally linked Rust archive as a build input.
+  rmSync(join(binaryRoot, 'FloatViewMac'), { force: true });
+  execFileSync('swift', ['build', '--scratch-path', scratch, '--product', 'FloatViewMac'], {
+    cwd,
+    stdio: 'inherit',
+  });
   return join(binaryRoot, 'FloatViewMac');
 }
 

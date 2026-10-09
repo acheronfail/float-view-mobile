@@ -604,6 +604,23 @@ impl ConnectionApplicationCoordinator {
             return Err(CoordinatorError::InvalidObservationTime);
         }
         let expected = expected_response(&payload)?;
+        // Fast and slow command-33 replies share a command ID, but echo different
+        // field masks. A late reply must not retire the other request's deadline.
+        if expected.command == CUSTOM_APP_DATA_COMMAND
+            && expected.refloat_command == Some(dynamic::SELECTABLE_REALTIME_DATA_COMMAND)
+            && let Some(header) = payload.get(3..12)
+            && let Some(request) = self.scheduler.snapshot().in_flight
+            && request.expected_response == expected
+            && let scheduler::RequestContext::RefloatTelemetry(route) = request.context
+        {
+            let offset = match route {
+                scheduler::Route::Direct => 0,
+                scheduler::Route::Can(_) => 2,
+            };
+            if request.payload.get(offset + 3..offset + 12) != Some(header) {
+                return Ok(vec![Effect::Diagnostic(Diagnostic::UnexpectedResponse)]);
+            }
+        }
         let (_, scheduler_effects) = self.scheduler.receive(
             payload,
             expected,
@@ -2493,6 +2510,60 @@ mod tests {
             routing_hint: None,
             continuity: discovery::Continuity::default(),
             preferred_bms_can_id: None,
+        }
+    }
+
+    #[test]
+    fn selectable_mismatches_preserve_direct_and_can_requests_until_deadline() {
+        for route in [scheduler::Route::Direct, scheduler::Route::Can(42)] {
+            for slow in [false, true] {
+                let mut coordinator = ConnectionApplicationCoordinator::default();
+                let request = if slow {
+                    dynamic::selectable_slow_request(false)
+                } else {
+                    dynamic::selectable_fast_request()
+                };
+                let other = if slow {
+                    dynamic::selectable_fast_request()
+                } else {
+                    dynamic::selectable_slow_request(false)
+                };
+                let effects = coordinator
+                    .scheduler
+                    .enqueue(
+                        scheduler::RequestFacts {
+                            payload: routed_scheduler_payload(route, &request).unwrap(),
+                            expected_response: expected_response(&request).unwrap(),
+                            priority: scheduler::Priority::RidingTelemetry,
+                            context: scheduler::RequestContext::RefloatTelemetry(route),
+                            timeout_ms: 900,
+                            generation: coordinator.scheduler.snapshot().generation,
+                            expects_response: true,
+                        },
+                        10,
+                    )
+                    .unwrap();
+                let token = effects
+                    .iter()
+                    .find_map(|effect| match effect {
+                        scheduler::Effect::ArmDeadline { token, .. } => Some(*token),
+                        _ => None,
+                    })
+                    .unwrap();
+                let pending = coordinator.scheduler.snapshot().in_flight;
+                let effects = coordinator
+                    .receive(coordinator.generation, other.to_vec(), 20, 20)
+                    .unwrap();
+                assert_eq!(
+                    effects,
+                    [Effect::Diagnostic(Diagnostic::UnexpectedResponse)]
+                );
+                assert_eq!(coordinator.scheduler.snapshot().in_flight, pending);
+                coordinator
+                    .deadline_fired(coordinator.generation, token, 910)
+                    .unwrap();
+                assert!(coordinator.scheduler.snapshot().in_flight.is_none());
+            }
         }
     }
 

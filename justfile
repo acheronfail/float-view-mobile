@@ -174,8 +174,12 @@ run platform target="": build
       macos)
         frontend_html="$PWD/frontend/build/index.html"
         just apple-rust-runtime
-        (cd backends/apple && FLOAT_VIEW_FRONTEND_HTML="$frontend_html" \
-          swift run --scratch-path /tmp/float-view-swift-build FloatViewMac)
+        (cd backends/apple
+          binary_root="$(swift build --scratch-path /tmp/float-view-swift-build --show-bin-path)"
+          # SwiftPM does not track the externally linked Rust archive as a build input.
+          rm -f "$binary_root/FloatViewMac"
+          FLOAT_VIEW_FRONTEND_HTML="$frontend_html" \
+            swift run --scratch-path /tmp/float-view-swift-build FloatViewMac)
         ;;
       *) echo 'Usage: just run android|ios|macos [target]' >&2; exit 2 ;;
     esac
