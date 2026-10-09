@@ -3,10 +3,9 @@ import AppKit
 @MainActor
 func installApplicationIcon(on application: NSApplication) {
   guard
-    let iconURL = Bundle.module.url(
+    let iconURL = MacResources.url(
       forResource: "FloatView",
-      withExtension: "icns",
-      subdirectory: "Resources"
+      withExtension: "icns"
     ),
     let icon = NSImage(contentsOf: iconURL)
   else { return }

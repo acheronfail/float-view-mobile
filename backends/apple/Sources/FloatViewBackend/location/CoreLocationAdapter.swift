@@ -148,7 +148,9 @@ public final class CoreLocationAdapter: NSObject, LocationProviderPort, CLLocati
       // after the shared deadline; a late delegate event remains only an OS fact.
       DispatchQueue.main.asyncAfter(deadline: .now() + 30) { [weak self] in
         guard let self, permissionGeneration == generation, let pending = permissionCompletion else { return }
-        permissionCompletion = nil; pending(false)
+        permissionCompletion = nil
+        permissionInFlight = false
+        pending(false)
       }
     }
   }

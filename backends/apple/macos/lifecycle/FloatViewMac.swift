@@ -6,7 +6,7 @@ enum FloatViewMac {
   static func main() throws {
     let environment = ProcessInfo.processInfo.environment
     let htmlURL = environment["FLOAT_VIEW_FRONTEND_HTML"].map(URL.init(fileURLWithPath:))
-      ?? Bundle.module.url(forResource: "index", withExtension: "html", subdirectory: "Resources")
+      ?? MacResources.url(forResource: "index", withExtension: "html")
     guard let htmlURL else { throw CocoaError(.fileNoSuchFile) }
     let html = try Data(contentsOf: htmlURL)
     if CommandLine.arguments.contains("--browser-host") {

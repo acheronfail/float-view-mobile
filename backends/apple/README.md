@@ -36,6 +36,15 @@ Choose the affected tests and packages using the root
 presentation checks need connected hardware only when the changed behavior
 cannot be established in software; unrelated platforms need no regression run.
 
+`just run macos` assembles and launches `/tmp/float-view-swift-build/FloatView.app`
+with `package-macos.sh`, also used by physical macOS conformance. The app bundle
+includes the permission usage descriptions and bundle identity needed by Core
+Location; launching the bare executable with `swift run` omits that metadata.
+To check location permission presentation, launch this app with Location Services
+enabled and permission not yet requested, then use Settings → Permissions →
+Location → Request access. Confirm the native prompt appears and allowing access
+updates the Location grant. This OS checkpoint cannot be established by unit tests.
+
 ## AltStore installation
 
 Run `just ipa` on macOS to build the frontend and iOS device app in Debug, as

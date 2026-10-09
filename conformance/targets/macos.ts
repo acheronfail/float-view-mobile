@@ -1,5 +1,5 @@
 import { unreachableFixtureEnvironment } from '../fixture/selection.ts';
-import { copyFileSync, mkdirSync, mkdtempSync, readdirSync, rmSync } from 'node:fs';
+import { mkdtempSync, readdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { execFileSync, spawn, type ChildProcess } from 'node:child_process';
@@ -33,13 +33,10 @@ function makeMacosTarget(
       if (physical) {
         uiRoot ??= mkdtempSync(join(tmpdir(), 'float-view-macos-ui-'));
         const bundle = join(uiRoot, 'FloatViewConformance.app');
-        const contents = join(bundle, 'Contents');
-        const binary = join(contents, 'MacOS', 'FloatViewMac');
-        mkdirSync(join(contents, 'MacOS'), { recursive: true });
-        copyFileSync(join(root, 'backends/apple/FloatViewMac-Info.plist'), join(contents, 'Info.plist'));
-        rmSync(binary, { force: true });
-        copyFileSync(executable, binary);
-        executable = binary;
+        execFileSync('bash', [join(root, 'backends/apple/package-macos.sh'), executable, bundle], {
+          stdio: 'inherit',
+        });
+        executable = join(bundle, 'Contents', 'MacOS', 'FloatViewMac');
         process.stdout.write(`  macOS UI host: ${bundle}\n`);
       }
       logRoot ??= mkdtempSync(join(tmpdir(), `float-view-macos-${physical ? 'physical' : 'software'}-`));
