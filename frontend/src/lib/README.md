@@ -117,7 +117,8 @@ missing fields remain selectable and show an unavailable value. Choices are an
 ordered four-entry `Settings.liveWidgetSlots` tuple, shared across boards and
 persisted by the Rust product store for both native hosts. Repeated fields are
 allowed. Only accepted settings replace a slot; save failures leave the picker
-open, and closing returns focus to the originating button. Numeric presentation
+open. Keyboard dismissal restores focus to the originating button; pointer
+dismissal clears its focus so it does not retain an outline. Numeric presentation
 lives in `features/connection/live-values.ts`, respects display units and source
 nullability, and does not interpret firmware. Signed battery power is pack
 voltage times battery current; its displayed sign controls draw/regen labels and

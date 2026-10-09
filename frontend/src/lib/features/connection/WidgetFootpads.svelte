@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { footpadPresentation } from './footpads';
   import type { LiveSample } from '../../backend/contract';
 
   let {
@@ -8,19 +9,14 @@
   } = $props();
 
   let fp = $derived(sample?.footpadState ?? 'unknown');
-  let adc1 = $derived(fp === 'both' || fp === 'left');
-  let adc2 = $derived(fp === 'both' || fp === 'right');
-
-  let shouldAlert = $derived((sample?.speedKph ?? 0) > 2);
-
-  let adc1Bg = $derived(adc1 ? 'bg-success' : shouldAlert ? 'bg-danger' : 'bg-surface');
-  let adc2Bg = $derived(adc2 ? 'bg-success' : shouldAlert ? 'bg-danger' : 'bg-surface');
+  const left = $derived(footpadPresentation(sample, 'left'));
+  const right = $derived(footpadPresentation(sample, 'right'));
 </script>
 
 <section class="flex h-full min-h-0 flex-col overflow-hidden" aria-label={`Footpads: ${fp}`}>
   <h3 class="text-center text-xs font-bold tracking-wider text-muted uppercase">Footpads</h3>
   <div class="flex min-h-0 w-full grow flex-row items-center justify-center">
-    <div class={`h-full w-1/2 rounded-l-full border border-outline ${adc1Bg}`}></div>
-    <div class={`h-full w-1/2 rounded-r-full border border-outline ${adc2Bg}`}></div>
+    <div class={`h-full w-1/2 rounded-l-full border border-outline ${left.background}`}></div>
+    <div class={`h-full w-1/2 rounded-r-full border border-outline ${right.background}`}></div>
   </div>
 </section>

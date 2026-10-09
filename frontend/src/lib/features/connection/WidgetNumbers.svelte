@@ -26,16 +26,17 @@
     error = null;
     selectedSlot = slot;
   }
-  async function close() {
+  async function close(keyboard: boolean) {
     if (busy) return;
     selectedSlot = null;
     await tick();
-    trigger?.focus();
+    if (keyboard) trigger?.focus();
+    else trigger?.blur();
   }
-  async function select(field: LiveWidgetField) {
+  async function select(field: LiveWidgetField, keyboard: boolean) {
     if (busy || selectedSlot == null) return;
     if (slots[selectedSlot] === field) {
-      await close();
+      await close(keyboard);
       return;
     }
     const updated: LiveWidgetSlots = [...slots];
@@ -44,7 +45,7 @@
     error = null;
     const saved = await backendState.updateSessionSettings({ liveWidgetSlots: updated });
     busy = false;
-    if (saved) await close();
+    if (saved) await close(keyboard);
     else error = backendState.error ?? 'Could not save this reading. Try again.';
   }
 </script>

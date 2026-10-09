@@ -1,7 +1,7 @@
 <script lang="ts">
   import { prefersReducedMotion, Tween } from 'svelte/motion';
   import type { LiveSample, LiveWidgetField, UnitPreference } from '$lib/backend/contract';
-  import { liveValue, liveValueColor, liveValueText } from './live-values';
+  import { liveValue, liveValueColor, liveValueText, liveValueStatus } from './live-values';
 
   let {
     field,
@@ -39,9 +39,11 @@
 <div class="[container-type:inline-size]">
   <div class="truncate text-[10px] font-semibold tracking-wide text-muted uppercase">{label}</div>
   <div
-    class={`font-mono font-semibold whitespace-nowrap tabular-nums ${liveValueColor(field, value)}`}
+    class={`font-mono font-semibold whitespace-nowrap tabular-nums ${liveValueColor(field, value, sample, units)}`}
     style:font-size={`min(0.875rem, ${fontWidth}cqi)`}
   >
-    {text}<span class="ml-0.5 text-[0.7em] font-normal">{reading.unit}</span>
+    <span class="sr-only">{liveValueStatus(field, sample)} </span>{text}<span class="ml-0.5 text-[0.7em] font-normal"
+      >{reading.unit}</span
+    >
   </div>
 </div>

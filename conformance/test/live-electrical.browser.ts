@@ -32,6 +32,8 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
         page.on('pageerror', (e) => errors.push(e.message));
         let fw: number | null = 0.7;
         let amps: number | null = 12;
+        let padState = 'both';
+        let rideSpeed = 24.8;
         let rejectSelection = false;
         let saves = 0;
         await page.route(`${endpoint.origin}/`, (route) => route.fulfill({ contentType: 'text/html', body: html }));
@@ -64,10 +66,14 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
                 batteryCurrentA: amps,
                 motorCurrentA: 32.4,
                 packVoltageV: 75,
-                speedKph: 24.8,
+                speedKph: rideSpeed,
                 dutyCycle: 0.42,
                 distanceM: 12400,
-                footpadState: 'both',
+                footpadState: padState,
+                footpadAdc1V: 0.4,
+                footpadAdc2V: 3.1,
+                motorTempC: 65,
+                batteryLevel: 0.15,
               });
             socket.send(JSON.stringify(message));
           });
@@ -201,6 +207,12 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
           await page.getByRole('button', { name: 'Choose value for box 1: Pack voltage', exact: true }).innerText(),
           /75.0/
         );
+        assert.equal(
+          await page
+            .getByRole('button', { name: 'Choose value for box 1: Pack voltage', exact: true })
+            .evaluate((el) => el === document.activeElement || el.matches(':focus-visible')),
+          false
+        );
         await page.reload();
         const voltageBox = page.getByRole('button', { name: 'Choose value for box 1: Pack voltage', exact: true });
         await voltageBox.waitFor();
@@ -217,7 +229,56 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
         await page.keyboard.press('Enter');
         await picker.waitFor({ state: 'hidden' });
         assert.equal(saves, 3);
+        assert.equal(
+          await page
+            .getByRole('button', { name: 'Choose value for box 2: Charging voltage', exact: true })
+            .evaluate((el) => el === document.activeElement && el.matches(':focus-visible')),
+          true
+        );
         assert.equal((await client.request('state.get', {})).settings.liveWidgetSlots[1], 'chargingVoltageV');
+        padState = 'left';
+        const settings = (await client.request('state.get', {})).settings;
+        await client.request('settings.update', {
+          expectedRevision: settings.revision,
+          patch: { liveWidgetSlots: ['footpadAdc1V', 'footpadAdc2V', 'motorTempC', 'batteryLevel'] },
+        });
+        const leftPad = page.getByRole('button', { name: 'Choose value for box 1: Footpad ADC 1', exact: true });
+        const rightPad = page.getByRole('button', { name: 'Choose value for box 2: Footpad ADC 2', exact: true });
+        await leftPad.locator('.text-success').waitFor();
+        await rightPad.locator('.text-danger').waitFor();
+        await page
+          .getByRole('button', { name: 'Choose value for box 3: Motor temperature', exact: true })
+          .locator('.text-danger')
+          .waitFor();
+        await page
+          .getByRole('button', { name: 'Choose value for box 4: Controller-reported battery level', exact: true })
+          .locator('.text-danger')
+          .waitFor();
+        await rightPad.tap();
+        await picker.waitFor();
+        await picker.getByRole('button', { name: 'Cancel', exact: true }).tap();
+        await picker.waitFor({ state: 'hidden' });
+        for (const theme of ['light', 'dark'] as const) {
+          await page.emulateMedia({ colorScheme: theme });
+          await page.waitForFunction((theme) => document.documentElement.dataset.theme === theme, theme);
+          await page.waitForTimeout(200);
+          if (process.env.SCREENSHOT_DIR)
+            await page.screenshot({ path: `${process.env.SCREENSHOT_DIR}/colours-${name}-${theme}.png` });
+        }
+        await rightPad.tap();
+        await picker.getByRole('button', { name: 'Footpad ADC 2', exact: true }).locator('.text-danger').waitFor();
+        rideSpeed = 0;
+        await picker
+          .getByRole('button', { name: 'Footpad ADC 2', exact: true })
+          .locator('.font-mono.text-muted')
+          .waitFor();
+        await picker.getByRole('button', { name: 'Cancel', exact: true }).tap();
+        await picker.waitFor({ state: 'hidden' });
+        await rightPad.locator('.font-mono.text-muted').waitFor();
+        assert.equal(
+          await rightPad.evaluate((el) => el === document.activeElement || el.matches(':focus-visible')),
+          false
+        );
         assert.deepEqual(errors, []);
       } finally {
         await browser.close();

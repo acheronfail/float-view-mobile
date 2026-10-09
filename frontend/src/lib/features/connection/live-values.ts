@@ -1,3 +1,4 @@
+import { footpadPresentation } from './footpads';
 import type { LiveSample, LiveWidgetField, UnitPreference } from '$lib/backend/contract';
 
 export const liveValueCatalog = {
@@ -88,11 +89,45 @@ export function liveValueText(field: LiveWidgetField, value: number | null, digi
   return field === 'powerW' && Number(text) > 0 ? `+${text}` : Number(text) === 0 ? (0).toFixed(digits) : text;
 }
 
-export function liveValueColor(field: LiveWidgetField, value: number | null) {
+export function liveValueColor(
+  field: LiveWidgetField,
+  value: number | null,
+  sample?: LiveSample | null,
+  units: UnitPreference = 'metric'
+) {
   if (value == null) return 'text-foreground';
   if (field === 'powerW')
     return Math.round(value) > 0 ? 'text-power-draw' : Math.round(value) < 0 ? 'text-success' : 'text-foreground';
-  if (field === 'motorCurrentA') return 'text-motor';
-  if (field === 'batteryCurrentA') return 'text-battery-current';
+  if (field === 'footpadAdc1V' || field === 'footpadAdc2V')
+    return footpadPresentation(sample, field === 'footpadAdc1V' ? 'left' : 'right').text;
+  if (field === 'dutyCycle') return 'text-duty';
+  if (field === 'speedKph' || field === 'erpm') return 'text-accent';
+  if (field === 'batteryLevel' || field === 'estimatedBatteryLevel')
+    return Math.round(value) <= 20 ? 'text-danger' : Math.round(value) < 50 ? 'text-warning' : 'text-success';
+  if (field === 'controllerTempC' || field === 'motorTempC') {
+    const celsius = units === 'imperial' ? (value - 32) / 1.8 : value;
+    return celsius >= 60 ? 'text-danger' : celsius > 30 ? 'text-warning' : 'text-success';
+  }
+  if (
+    [
+      'motorCurrentA',
+      'directionalMotorCurrentA',
+      'filteredMotorCurrentA',
+      'requestedBalanceCurrentA',
+      'boosterCurrentA',
+    ].includes(field)
+  )
+    return 'text-motor';
+  if (field === 'batteryCurrentA')
+    return value > 0 ? 'text-power-draw' : value < 0 ? 'text-success' : 'text-foreground';
+  if (field === 'ampHoursDrawnAh' || field === 'wattHoursDrawnWh') return 'text-power-draw';
+  if (field === 'ampHoursChargedAh' || field === 'wattHoursChargedWh' || field === 'chargingCurrentA')
+    return 'text-success';
   return 'text-foreground';
+}
+
+export function liveValueStatus(field: LiveWidgetField, sample: LiveSample | null | undefined) {
+  if ((field === 'footpadAdc1V' || field === 'footpadAdc2V') && sample?.[field] != null)
+    return footpadPresentation(sample, field === 'footpadAdc1V' ? 'left' : 'right').label;
+  return '';
 }

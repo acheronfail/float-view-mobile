@@ -2,7 +2,7 @@
   import { onMount } from 'svelte';
   import { liveWidgetFields, type LiveWidgetField, type LiveSample, type UnitPreference } from '$lib/backend/contract';
   import { activateFromPointer, activateFromKeyboardOrAssistiveClick } from '$lib/ui/activation';
-  import { liveValue, liveValueColor, liveValueText } from './live-values';
+  import { liveValue, liveValueColor, liveValueText, liveValueStatus } from './live-values';
 
   let {
     slot,
@@ -22,8 +22,8 @@
     estimatedLevel?: number | null;
     busy: boolean;
     error: string | null;
-    onselect: (field: LiveWidgetField) => void;
-    onclose: () => void;
+    onselect: (field: LiveWidgetField, keyboard: boolean) => void;
+    onclose: (keyboard: boolean) => void;
   } = $props();
   let dialog: HTMLDialogElement;
   onMount(() => {
@@ -40,7 +40,7 @@
   oncancel={(event) => {
     event.preventDefault();
     event.stopPropagation();
-    if (!busy) onclose();
+    if (!busy) onclose(true);
   }}
 >
   <div class="app-safe-area app-safe-area-without-tabs flex h-full min-h-0 flex-col">
@@ -55,8 +55,8 @@
         type="button"
         class="min-h-11 touch-manipulation rounded-lg border border-outline px-4"
         disabled={busy}
-        onpointerdown={(event) => activateFromPointer(event, onclose)}
-        onclick={(event) => activateFromKeyboardOrAssistiveClick(event, onclose)}>Cancel</button
+        onpointerdown={(event) => activateFromPointer(event, () => onclose(false))}
+        onclick={(event) => activateFromKeyboardOrAssistiveClick(event, () => onclose(true))}>Cancel</button
       >
     </header>
     {#if error}<p role="alert" class="mt-3 text-sm text-danger">{error}</p>{/if}
@@ -75,16 +75,18 @@
             class:bg-accent-soft={selected === field}
             class:border-outline={selected !== field}
             class:bg-surface={selected !== field}
-            onpointerdown={(event) => activateFromPointer(event, () => onselect(field))}
-            onclick={(event) => activateFromKeyboardOrAssistiveClick(event, () => onselect(field))}
+            onpointerdown={(event) => activateFromPointer(event, () => onselect(field, false))}
+            onclick={(event) => activateFromKeyboardOrAssistiveClick(event, () => onselect(field, true))}
           >
             <span class="text-sm font-medium">{reading.name}</span>
             <span
-              class={`font-mono text-xl font-semibold break-all tabular-nums ${liveValueColor(field, reading.value)}`}
+              class={`font-mono text-xl font-semibold break-all tabular-nums ${liveValueColor(field, reading.value, sample, units)}`}
             >
-              {liveValueText(field, reading.value, reading.digits)}<span class="ml-1 text-xs font-normal"
-                >{reading.unit}</span
-              >
+              <span class="sr-only">{liveValueStatus(field, sample)} </span>{liveValueText(
+                field,
+                reading.value,
+                reading.digits
+              )}<span class="ml-1 text-xs font-normal">{reading.unit}</span>
             </span>
             <span class="text-xs text-muted"
               >{selected === field ? '✓ Selected' : reading.value == null ? 'Unavailable' : '\u00a0'}</span
