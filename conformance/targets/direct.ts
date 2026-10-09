@@ -236,6 +236,8 @@ export function makeDirectTarget(): Target {
           bluetooth_connect: granted,
           location: unknown,
           background_location: unknown,
+          notifications: null,
+          live_updates: null,
           accuracy: 'unknown',
           scope: 'unknown',
           location_services: null,

@@ -1,7 +1,7 @@
 import type { PermissionRow, LocationState } from '../src/lib/backend/contract.ts';
 
 export function permissionInventory(
-  platform: 'ios' | 'macos' | 'android29' | 'android30' | 'android31'
+  platform: 'ios' | 'macos' | 'android29' | 'android30' | 'android31' | 'android33' | 'android36'
 ): PermissionRow[] {
   const location: PermissionRow = {
     permission: 'location',
@@ -37,8 +37,30 @@ export function permissionInventory(
     action: null,
     guidance: 'foregroundRequired',
   };
+  const notifications: PermissionRow = {
+    ...location,
+    permission: 'notifications',
+    optional: true,
+    servicesEnabled: null,
+    status: platform === 'android33' || platform === 'android36' ? 'notDetermined' : 'granted',
+    action: platform === 'android33' || platform === 'android36' ? 'requestPermission' : 'openSettings',
+    guidance: platform === 'android33' || platform === 'android36' ? 'none' : 'notificationSettings',
+  };
+  const liveUpdates: PermissionRow = {
+    ...notifications,
+    permission: 'liveUpdates',
+    status: 'denied',
+    action: null,
+    guidance: 'notificationsRequired',
+  };
   return platform.startsWith('android')
-    ? [...(platform === 'android31' ? [bluetooth] : []), location, background]
+    ? [
+        ...(!['android29', 'android30'].includes(platform) ? [bluetooth] : []),
+        location,
+        background,
+        notifications,
+        ...(platform === 'android36' ? [liveUpdates] : []),
+      ]
     : [bluetooth, location];
 }
 

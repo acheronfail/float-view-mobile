@@ -63,7 +63,7 @@ try {
   validatePermissions(initial.permissions);
   assert.deepEqual(
     initial.permissions.map((r) => r.permission),
-    ['location', 'backgroundLocation']
+    ['location', 'backgroundLocation', 'notifications']
   );
   assert.equal(initial.settings.locationRecordingEnabled, false);
   shell('pm', 'revoke', app, background);

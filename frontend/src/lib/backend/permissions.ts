@@ -2,14 +2,14 @@ import type { PermissionRow } from './contract.ts';
 
 /** Reject malformed native inventories instead of inventing labels or actions. */
 export function validatePermissions(value: unknown): asserts value is PermissionRow[] {
-  if (!Array.isArray(value) || value.length < 2 || value.length > 3) throw new Error('Invalid permission inventory');
+  if (!Array.isArray(value) || value.length < 2 || value.length > 5) throw new Error('Invalid permission inventory');
   const ids = new Set<string>();
   const grants = [null, 'unknown', 'notDetermined', 'granted', 'denied', 'restricted', 'notRequired'];
   for (const row of value) {
     if (
       !row ||
       typeof row !== 'object' ||
-      !['bluetooth', 'location', 'backgroundLocation'].includes(row.permission) ||
+      !['bluetooth', 'location', 'backgroundLocation', 'notifications', 'liveUpdates'].includes(row.permission) ||
       ids.has(row.permission) ||
       !['notDetermined', 'granted', 'limited', 'denied', 'restricted', 'unavailable'].includes(row.status) ||
       ![null, 'requestPermission', 'openSettings'].includes(row.action) ||
@@ -28,6 +28,9 @@ export function validatePermissions(value: unknown): asserts value is Permission
         'backgroundSettings',
         'alwaysAccess',
         'fineLocationForScan',
+        'notificationSettings',
+        'liveUpdateSettings',
+        'notificationsRequired',
       ].includes(row.guidance) ||
       typeof row.pending !== 'boolean' ||
       typeof row.optional !== 'boolean' ||

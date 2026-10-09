@@ -560,7 +560,7 @@ export type LocationAuthorizationStatus =
 export type LocationPermissionAction = 'requestPermission' | 'openSettings' | null;
 
 /** Complete native inventory, at most three unique rows. Labels are frontend-owned. */
-export type PermissionId = 'bluetooth' | 'location' | 'backgroundLocation';
+export type PermissionId = 'bluetooth' | 'location' | 'backgroundLocation' | 'notifications' | 'liveUpdates';
 export type PermissionAction = 'requestPermission' | 'openSettings';
 export type PermissionGrant = 'unknown' | 'notDetermined' | 'granted' | 'denied' | 'restricted' | 'notRequired';
 export type PermissionGuidance =
@@ -577,7 +577,10 @@ export type PermissionGuidance =
   | 'macLocation'
   | 'backgroundSettings'
   | 'alwaysAccess'
-  | 'fineLocationForScan';
+  | 'fineLocationForScan'
+  | 'notificationSettings'
+  | 'liveUpdateSettings'
+  | 'notificationsRequired';
 export interface PermissionRow {
   permission: PermissionId;
   status: 'notDetermined' | 'granted' | 'limited' | 'denied' | 'restricted' | 'unavailable';

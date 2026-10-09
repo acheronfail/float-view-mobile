@@ -8,6 +8,8 @@
     bluetooth: 'Bluetooth / Nearby devices',
     location: 'Location',
     backgroundLocation: 'Background location',
+    notifications: 'Notifications',
+    liveUpdates: 'Live Updates',
   };
   const grants = {
     unknown: 'Unknown',
@@ -21,6 +23,8 @@
     bluetooth: 'Discover and connect to your board.',
     location: 'Record the route of your rides.',
     backgroundLocation: 'Record ride routes while the app is in the background or the phone is locked.',
+    notifications: 'Show live ride readings in notifications and on the lock screen.',
+    liveUpdates: 'Keep ride readings prominent, including a load percentage in the status bar on supported devices.',
   };
   const statuses = {
     notDetermined: 'Not requested',
@@ -46,6 +50,9 @@
       'In app settings, open Permissions → Location and allow background access. You can cancel before opening settings.',
     alwaysAccess:
       'While Using allows foreground recording. Choose Always to record rides that begin while the phone is locked.',
+    notificationSettings: 'Manage Float View notifications and the Active board connection channel in system settings.',
+    liveUpdateSettings: 'Allow Live Updates in system settings. Your device controls where they appear.',
+    notificationsRequired: 'Allow Notifications first. Live Updates also need notification access.',
     fineLocationForScan: 'This Android version also needs precise location to scan for Bluetooth boards.',
   };
   function recover(row: PermissionRow) {
@@ -70,7 +77,10 @@
         {#if row.permission === 'location' && !row.optional}<p class="text-xs text-muted">
             This device also requires precise location to scan for Bluetooth boards.
           </p>{/if}
-        {#if row.optional}<p class="text-xs text-muted">
+        {#if row.permission === 'notifications' || row.permission === 'liveUpdates'}<p class="text-xs text-muted">
+            Optional. Bluetooth and recording work without this access.
+          </p>
+        {:else if row.optional}<p class="text-xs text-muted">
             Optional for board-only use. Ride location recording is {backendState.settings?.locationRecordingEnabled
               ? 'on'
               : 'off'}.

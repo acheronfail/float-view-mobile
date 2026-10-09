@@ -15,11 +15,15 @@ class PermissionPresentationTest {
     @Test fun `timeout and late system completion cannot finish a newer presentation`() {
         val slot = PermissionPresentation()
         val results = mutableListOf<Boolean>()
+        assertFalse(slot.busy())
         val old = slot.begin(true, results::add)!!
+        assertTrue(slot.busy())
         assertTrue(slot.startSystem(old))
         slot.finish(old, false)
+        assertTrue(slot.busy())
         assertNull(slot.begin(true, results::add))
         slot.resolveSystem(true)
+        assertFalse(slot.busy())
         val current = slot.begin(true, results::add)!!
         slot.finish(old, true)
         assertTrue(slot.active(current))

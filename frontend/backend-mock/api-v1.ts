@@ -362,7 +362,9 @@ export class MockBackend {
       case 'permissions.recover': {
         if (
           Object.keys(params).some((key) => !['permission', 'action'].includes(key)) ||
-          !['bluetooth', 'location', 'backgroundLocation'].includes(String(params.permission)) ||
+          !['bluetooth', 'location', 'backgroundLocation', 'notifications', 'liveUpdates'].includes(
+            String(params.permission)
+          ) ||
           !['requestPermission', 'openSettings'].includes(String(params.action))
         )
           return failure(id, 'invalid_request', 'Unknown permission or action');

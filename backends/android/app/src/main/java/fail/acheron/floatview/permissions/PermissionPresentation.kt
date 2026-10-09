@@ -12,6 +12,7 @@ internal class PermissionPresentation {
         current = id to done
         return id
     }
+    @Synchronized fun busy() = current != null || system != null
     @Synchronized fun active(id: Long) = current?.first == id
     @Synchronized fun startSystem(id: Long): Boolean {
         if (!active(id)) return false

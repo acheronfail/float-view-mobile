@@ -72,11 +72,11 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
       await button.dispatchEvent('click', { detail: 0 });
       await page.getByRole('alert').filter({ hasText: 'Permission action changed' }).waitFor();
       assert.equal(requests, 3);
-      for (const platform of ['macos', 'android29', 'android30', 'android31'] as const) {
+      for (const platform of ['macos', 'android29', 'android30', 'android31', 'android33', 'android36'] as const) {
         rows = permissionInventory(platform);
         await page.reload();
         await location.waitFor();
-        assert.equal(await page.locator('[data-permission]').count(), platform === 'android31' ? 3 : 2);
+        assert.equal(await page.locator('[data-permission]').count(), rows.length);
         assert.equal(
           await page.locator('[data-permission="bluetooth"]').count(),
           platform === 'android29' || platform === 'android30' ? 0 : 1
@@ -93,6 +93,31 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
           .first()
           .waitFor();
       }
+      const notifications = page.locator('[data-permission="notifications"]');
+      const liveUpdates = page.locator('[data-permission="liveUpdates"]');
+      assert.match(await notifications.innerText(), /Bluetooth and recording work without/);
+      assert.doesNotMatch(await notifications.innerText(), /Ride location recording/);
+      assert.match(await liveUpdates.innerText(), /Allow Notifications first/);
+      assert.equal(await liveUpdates.getByRole('button').count(), 0);
+      const notifyRequest = notifications.getByRole('button', { name: 'Request access' });
+      await notifyRequest.dispatchEvent('pointerdown', { button: 2, isPrimary: true, pointerId: 7 });
+      await notifyRequest.dispatchEvent('pointerup', { button: 2, isPrimary: true, pointerId: 7 });
+      assert.equal(requests, 3);
+      await notifyRequest.tap();
+      await page.getByRole('alert').filter({ hasText: 'Permission action changed' }).waitFor();
+      assert.equal(requests, 4);
+      rows = rows.map((row) =>
+        row.permission === 'notifications'
+          ? { ...row, status: 'granted', action: 'openSettings', guidance: 'notificationSettings' }
+          : row.permission === 'liveUpdates'
+            ? { ...row, action: 'openSettings', guidance: 'liveUpdateSettings' }
+            : row
+      );
+      await page.reload();
+      await liveUpdates.getByRole('button', { name: 'Open settings' }).focus();
+      await page.keyboard.press('Enter');
+      await page.getByRole('alert').filter({ hasText: 'Permission action changed' }).waitFor();
+      assert.equal(requests, 5);
       rows[1] = {
         ...rows[1]!,
         status: 'limited',
@@ -106,7 +131,7 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
       await page.reload();
       await location.getByRole('button').waitFor();
       assert.equal(await location.getByRole('button').isDisabled(), true);
-      assert.equal(requests, 3);
+      assert.equal(requests, 5);
       rows[1] = { ...rows[1]!, pending: false };
       await page.reload();
       await location.getByRole('button').waitFor();

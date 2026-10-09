@@ -4,6 +4,7 @@ import fail.acheron.floatview.bluetooth.BluetoothPermissionHistory
 import android.Manifest
 import android.app.Activity
 import android.app.AlertDialog
+import android.app.NotificationManager
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.location.LocationManager
@@ -37,6 +38,7 @@ class PermissionBroker(private val application: FloatViewApplication) : Bluetoot
     @Synchronized fun observation(bluetoothService: Boolean?, bluetoothSupported: Boolean?): JSONObject = runCatching { readObservation(bluetoothService, bluetoothSupported) }.getOrElse {
         val unknown = json("access" to "unknown", "requestable" to false, "rationale" to false)
         json("platform" to platform(), "bluetooth_scan" to unknown, "bluetooth_connect" to unknown, "location" to unknown,
+            "notifications" to unknown, "live_updates" to if (Build.VERSION.SDK_INT >= 36) unknown else null,
             "background_location" to unknown, "accuracy" to "unknown", "scope" to "unknown", "location_services" to null,
             "bluetooth_service" to null, "bluetooth_supported" to null, "background_option_label" to null)
     }
@@ -52,11 +54,52 @@ class PermissionBroker(private val application: FloatViewApplication) : Bluetoot
             "bluetooth_scan" to if (Build.VERSION.SDK_INT >= 31) grant(Manifest.permission.BLUETOOTH_SCAN) else fine,
             "bluetooth_connect" to if (Build.VERSION.SDK_INT >= 31) grant(Manifest.permission.BLUETOOTH_CONNECT) else grant(null),
             "location" to foreground, "background_location" to background,
+            "notifications" to notificationGrant(),
+            "live_updates" to if (Build.VERSION.SDK_INT >= 36) settingsGrant(application.getSystemService(NotificationManager::class.java).canPostPromotedNotifications()) else null,
             "accuracy" to when { fine.getString("access") == "granted" -> "precise"; hasForeground -> "approximate"; else -> "unknown" },
             "scope" to when { !hasForeground -> "unknown"; background.getString("access") == "granted" -> "always"; else -> "whileInUse" },
             "location_services" to services, "bluetooth_service" to bluetoothService, "bluetooth_supported" to bluetoothSupported,
             "background_option_label" to if (Build.VERSION.SDK_INT >= 30) application.packageManager.backgroundPermissionOptionLabel.toString().take(120) else null)
     }
+    private fun settingsGrant(allowed: Boolean) = json(
+        "access" to if (allowed) "granted" else "denied", "requestable" to false, "rationale" to false,
+    )
+
+    private fun notificationGrant(): JSONObject {
+        if (Build.VERSION.SDK_INT >= 33) {
+            val runtime = grant(Manifest.permission.POST_NOTIFICATIONS)
+            if (runtime.getString("access") != "granted") return runtime
+        }
+        val manager = application.getSystemService(NotificationManager::class.java)
+        val channelEnabled = manager.getNotificationChannel("active_logging")?.importance != NotificationManager.IMPORTANCE_NONE
+        return settingsGrant(manager.areNotificationsEnabled() && channelEnabled)
+    }
+
+    /** Automatic first-ride prompt shares the Settings dialog slot and history. */
+    @Synchronized fun requestRideNotifications(connected: Boolean): Boolean {
+        if (Build.VERSION.SDK_INT < 33 || wasResolved(Manifest.permission.POST_NOTIFICATIONS) ||
+            application.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED) return true
+        val current = activity.get()
+        if (!connected || current == null || !current.hasWindowFocus() || presentation.busy()) return false
+        if (grant(Manifest.permission.POST_NOTIFICATIONS).getString("access") == "restricted") return true
+        recover("notifications", "requestPermission") { }
+        return true
+    }
+
+    private fun settingsIntent(permission: String): Intent {
+        val manager = application.getSystemService(NotificationManager::class.java)
+        return when {
+            permission == "liveUpdates" && Build.VERSION.SDK_INT >= 36 ->
+                Intent(Settings.ACTION_APP_NOTIFICATION_PROMOTION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE, application.packageName)
+            permission == "notifications" && manager.getNotificationChannel("active_logging")?.importance == NotificationManager.IMPORTANCE_NONE ->
+                Intent(Settings.ACTION_CHANNEL_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE, application.packageName)
+                    .putExtra(Settings.EXTRA_CHANNEL_ID, "active_logging")
+            permission == "notifications" ->
+                Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE, application.packageName)
+            else -> Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:${application.packageName}"))
+        }
+    }
+
     @Synchronized fun recover(permission: String, action: String, done: (Boolean) -> Unit) {
         val current = activity.get()
         val id = presentation.begin(current != null && !current.isFinishing && !current.isDestroyed && current.hasWindowFocus(), done) ?: return
@@ -71,6 +114,7 @@ class PermissionBroker(private val application: FloatViewApplication) : Bluetoot
             }, 30_000)
             if (current.isFinishing || current.isDestroyed) { finish(false); return@runOnUiThread }
             val permissions = when (permission) {
+                "notifications" -> if (Build.VERSION.SDK_INT >= 33) arrayOf(Manifest.permission.POST_NOTIFICATIONS) else emptyArray()
                 "bluetooth" -> if (Build.VERSION.SDK_INT >= 31) arrayOf(Manifest.permission.BLUETOOTH_SCAN, Manifest.permission.BLUETOOTH_CONNECT) else emptyArray()
                 "location" -> arrayOf(Manifest.permission.ACCESS_COARSE_LOCATION, Manifest.permission.ACCESS_FINE_LOCATION)
                 "backgroundLocation" -> if (Build.VERSION.SDK_INT == 29) arrayOf(Manifest.permission.ACCESS_BACKGROUND_LOCATION) else emptyArray()
@@ -79,10 +123,13 @@ class PermissionBroker(private val application: FloatViewApplication) : Bluetoot
             val present = {
                 runCatching {
                     if (action == "openSettings") {
-                        current.startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:${application.packageName}")))
+                        current.startActivity(settingsIntent(permission))
                         finish(true)
                     } else if (action == "requestPermission" && permissions.isNotEmpty()) {
                         if (!presentation.startSystem(id)) return@runCatching
+                        if (permission == "notifications") {
+                            preferences.edit().putBoolean(Manifest.permission.POST_NOTIFICATIONS, true).apply()
+                        }
                         current.requestPermissions(permissions, PERMISSION_REQUEST)
                     } else finish(false)
                 }.onFailure { presentation.resolveSystem(false); finish(false) }
@@ -93,7 +140,8 @@ class PermissionBroker(private val application: FloatViewApplication) : Bluetoot
                 val message = if (permission == "backgroundLocation") {
                     val label = if (Build.VERSION.SDK_INT >= 30) application.packageManager.backgroundPermissionOptionLabel.toString() else "Allow all the time"
                     "Background location is optional. To record rides while locked, open Permissions, then Location, and choose $label."
-                } else if (permission == "bluetooth") "Nearby device access lets Float View discover and connect to your board."
+                } else if (permission == "notifications") "Notifications show live ride readings while Float View is in the background. Bluetooth and recording work without them."
+                else if (permission == "bluetooth") "Nearby device access lets Float View discover and connect to your board."
                 else "Location records optional ride routes. On older Android versions precise location also permits Bluetooth scanning."
                 dialog = runCatching { AlertDialog.Builder(current).setTitle("Permission access").setMessage(message)
                     .setPositiveButton(if (action == "openSettings") "Open settings" else "Continue") { _, _ -> present() }

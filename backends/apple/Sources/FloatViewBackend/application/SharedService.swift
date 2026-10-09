@@ -394,6 +394,7 @@ public final class SharedService: @unchecked Sendable {
       "accuracy": access.accuracy, "scope": access.scope, "location_services": access.services as Any? ?? NSNull(),
       "bluetooth_service": service as Any? ?? NSNull(), "bluetooth_supported": supported as Any? ?? NSNull(),
       "background_option_label": NSNull(),
+      "notifications": NSNull(), "live_updates": NSNull(),
     ]])
     if let (id, deadline) = bluetoothPermissionCompletion {
       let expired = UInt64(ProcessInfo.processInfo.systemUptime * 1000) >= deadline

@@ -19,7 +19,9 @@ enumeration!(Platform {
 enumeration!(Id {
     Bluetooth,
     Location,
-    BackgroundLocation
+    BackgroundLocation,
+    Notifications,
+    LiveUpdates
 });
 enumeration!(Action {
     RequestPermission,
@@ -57,7 +59,10 @@ enumeration!(Guidance {
     MacLocation,
     BackgroundSettings,
     AlwaysAccess,
-    FineLocationForScan
+    FineLocationForScan,
+    NotificationSettings,
+    LiveUpdateSettings,
+    NotificationsRequired
 });
 
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
@@ -75,6 +80,8 @@ pub struct Observation {
     pub bluetooth_connect: Grant,
     pub location: Grant,
     pub background_location: Grant,
+    pub notifications: Option<Grant>,
+    pub live_updates: Option<Grant>,
     pub accuracy: Accuracy,
     pub scope: Scope,
     pub location_services: Option<bool>,
@@ -133,6 +140,8 @@ impl Observation {
             bluetooth_connect: unknown.clone(),
             location: unknown.clone(),
             background_location: unknown,
+            notifications: None,
+            live_updates: None,
             accuracy: Accuracy::Unknown,
             scope: Scope::Unknown,
             location_services: None,
@@ -185,6 +194,12 @@ impl Observation {
         }
         if android {
             ids.push(Id::BackgroundLocation);
+            if self.notifications.is_some() {
+                ids.push(Id::Notifications);
+            }
+            if self.live_updates.is_some() {
+                ids.push(Id::LiveUpdates);
+            }
         }
         ids.into_iter()
             .map(|id| {
@@ -210,7 +225,16 @@ impl Observation {
                         .unwrap_or(&self.bluetooth_scan),
                     Id::Location => &self.location,
                     Id::BackgroundLocation => &self.background_location,
+                    Id::Notifications => self
+                        .notifications
+                        .as_ref()
+                        .expect("included notification grant"),
+                    Id::LiveUpdates => self
+                        .live_updates
+                        .as_ref()
+                        .expect("included promotion grant"),
                 };
+                let notification = matches!(id, Id::Notifications | Id::LiveUpdates);
                 let mut row = Row {
                     permission: id,
                     status: status(grant),
@@ -220,25 +244,64 @@ impl Observation {
                     optional: id != Id::Bluetooth
                         && !(id == Id::Location
                             && matches!(self.platform, Platform::Android29 | Platform::Android30)),
-                    services_enabled: if id == Id::Bluetooth {
+                    services_enabled: if notification {
+                        None
+                    } else if id == Id::Bluetooth {
                         self.bluetooth_service
                     } else {
                         self.location_services
                     },
                     scan: (id == Id::Bluetooth).then_some(self.bluetooth_scan.access),
                     connect: (id == Id::Bluetooth).then_some(self.bluetooth_connect.access),
-                    accuracy: if id == Id::Bluetooth {
+                    accuracy: if id == Id::Bluetooth || notification {
                         Accuracy::Unknown
                     } else {
                         self.accuracy
                     },
-                    scope: if id == Id::Bluetooth {
+                    scope: if id == Id::Bluetooth || notification {
                         Scope::Unknown
                     } else {
                         self.scope
                     },
                     option_label: None,
                 };
+                if notification {
+                    if !matches!(grant.access, Permission::Unknown | Permission::Restricted) {
+                        row.action = Some(
+                            if id == Id::Notifications
+                                && !granted(grant.access)
+                                && grant.requestable
+                            {
+                                Action::RequestPermission
+                            } else {
+                                Action::OpenSettings
+                            },
+                        );
+                    }
+                    row.guidance = match grant.access {
+                        Permission::Unknown => Guidance::Checking,
+                        Permission::Restricted => Guidance::Restricted,
+                        _ if row.action == Some(Action::RequestPermission) => {
+                            if grant.rationale {
+                                Guidance::Rationale
+                            } else {
+                                Guidance::None
+                            }
+                        }
+                        _ if id == Id::Notifications => Guidance::NotificationSettings,
+                        _ => Guidance::LiveUpdateSettings,
+                    };
+                    if id == Id::LiveUpdates
+                        && self
+                            .notifications
+                            .as_ref()
+                            .is_some_and(|g| !granted(g.access))
+                    {
+                        row.action = None;
+                        row.guidance = Guidance::NotificationsRequired;
+                    }
+                    return row;
+                }
                 if id == Id::Bluetooth
                     && granted(self.bluetooth_scan.access) != granted(self.bluetooth_connect.access)
                 {
@@ -356,6 +419,8 @@ mod tests {
             bluetooth_connect: grant(Permission::NotDetermined, true),
             location: grant(Permission::NotDetermined, true),
             background_location: grant(Permission::NotDetermined, true),
+            notifications: None,
+            live_updates: None,
             accuracy: Accuracy::Unknown,
             scope: Scope::Unknown,
             location_services: Some(true),
@@ -364,6 +429,43 @@ mod tests {
             background_option_label: None,
         }
     }
+    #[test]
+    fn notification_inventory_tracks_requests_denial_settings_and_promotion() {
+        let mut o = observation(Platform::Android31);
+        o.notifications = Some(grant(Permission::NotDetermined, true));
+        o.live_updates = Some(grant(Permission::Denied, false));
+        let rows = o.rows(Some(Id::Notifications));
+        assert_eq!(rows.len(), 5);
+        let notification = &rows[3];
+        assert!(notification.optional && notification.pending);
+        assert_eq!(notification.action, Some(Action::RequestPermission));
+        assert_eq!(notification.accuracy, Accuracy::Unknown);
+        assert_eq!(notification.scope, Scope::Unknown);
+        assert_eq!(notification.services_enabled, None);
+        assert_eq!(rows[4].guidance, Guidance::NotificationsRequired);
+        assert_eq!(rows[4].action, None);
+        o.notifications = Some(grant(Permission::Denied, false));
+        assert_eq!(o.rows(None)[3].action, Some(Action::OpenSettings));
+        assert_eq!(o.rows(None)[3].guidance, Guidance::NotificationSettings);
+        o.notifications = Some(grant(Permission::Denied, true));
+        o.notifications.as_mut().unwrap().rationale = true;
+        assert_eq!(o.rows(None)[3].guidance, Guidance::Rationale);
+        o.notifications = Some(grant(Permission::Granted, false));
+        assert_eq!(o.rows(None)[3].status, Status::Granted);
+        assert_eq!(o.rows(None)[4].action, Some(Action::OpenSettings));
+        assert_eq!(o.rows(None)[4].guidance, Guidance::LiveUpdateSettings);
+        o.live_updates = Some(grant(Permission::Granted, false));
+        assert_eq!(o.rows(None)[4].status, Status::Granted);
+        o.notifications = Some(grant(Permission::Restricted, false));
+        assert_eq!(o.rows(None)[3].action, None);
+        o.notifications = Some(grant(Permission::Unknown, false));
+        assert_eq!(o.rows(None)[3].guidance, Guidance::Checking);
+        o.live_updates = None;
+        assert_eq!(o.rows(None).len(), 4);
+        o.platform = Platform::Ios;
+        assert_eq!(o.rows(None).len(), 2);
+    }
+
     #[test]
     fn inventory_matrix_separates_authorization_services_accuracy_and_prerequisites() {
         for platform in [

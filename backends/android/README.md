@@ -17,7 +17,7 @@ live in Rust. There is no native SQL catalog or domain-operation bridge.
 | `bluetooth/`     | BLE/GATT, permission presentation and test adapter            |
 | `files/`         | Scoped URI import stream and export destination picker/copy   |
 | `lifecycle/`     | Application lifetime and foreground recording service         |
-| `notifications/` | Ride notification presentation and notification permission UI |
+| `notifications/` | Ride notification presentation and notification formatting    |
 | `location/`      | Location acquisition and permission broker                    |
 | `protocol/vesc/` | Emulator conformance fixture only                             |
 | `theme/`         | System bars and WebView appearance                            |
@@ -60,12 +60,17 @@ promotion. Disconnect removes the foreground notification.
 
 Android 13+ requests notification permission once after a board connects while
 the app is foregrounded. Denial does not prevent Bluetooth or recording; users
-can enable notifications later in Android Settings. `POST_PROMOTED_NOTIFICATIONS`
+can manage access later under Settings → Permissions. The Notifications row
+reports both app access and the ride-notification channel; a blocked channel
+opens its own settings. Android 16+ also shows a separate Live Updates row for
+promotion access. Both rows refresh from OS observations when returning to the
+app. The automatic first-ride prompt and Settings actions share the same native
+permission broker, dialog slot and request history. `POST_PROMOTED_NOTIFICATIONS`
 is a separate, non-runtime permission, and the system/user controls promotion.
 
-`notifications/` owns display formatting, native notification construction and
-notification permission presentation. Native code does not calculate drive load
-or battery estimates. Unit tests cover projection decoding, units, stale/missing
+`notifications/` owns display formatting and native notification construction.
+`permissions/` owns notification observations and OS permission presentation.
+Native code does not calculate drive load or battery estimates. Unit tests cover projection decoding, units, stale/missing
 readings, visible-update coalescing and dismissal across connection generations.
 
 Physical checkpoint: compare readings with the app on a connected board, then

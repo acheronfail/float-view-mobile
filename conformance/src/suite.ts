@@ -53,6 +53,22 @@ export async function runConformance(target: Target) {
         client.request('permissions.recover', { permission: row.permission, action: 'requestPermission' }),
         'invalid_state'
       );
+    // New permission IDs are recognized even on hosts where they do not apply.
+    for (const permission of ['notifications', 'liveUpdates'] as const) {
+      const row = initial.permissions.find((row) => row.permission === permission);
+      if (!row || permission === 'liveUpdates') {
+        await expectError(
+          client.request('permissions.recover', { permission, action: 'requestPermission' }),
+          'invalid_state'
+        );
+      }
+      if (row) {
+        assert.equal(row.optional, true);
+        assert.equal(row.accuracy, 'unknown');
+        assert.equal(row.scope, 'unknown');
+        assert.equal(row.servicesEnabled, null);
+      }
+    }
     const afterInvalidRecovery = await client.request('state.get', {});
     assert.equal(afterInvalidRecovery.settings.locationRecordingEnabled, initial.settings.locationRecordingEnabled);
     assert.equal(afterInvalidRecovery.bluetooth.scanning, initial.bluetooth.scanning);
