@@ -693,6 +693,56 @@ export interface SessionPrunePreview {
 export type ThemePreference = 'system' | 'light' | 'dark';
 export type UnitPreference = 'metric' | 'imperial';
 
+export const liveWidgetFields = [
+  'fieldWeakeningCurrentA',
+  'motorCurrentA',
+  'batteryCurrentA',
+  'powerW',
+  'packVoltageV',
+  'dutyCycle',
+  'estimatedBatteryLevel',
+  'batteryLevel',
+  'speedKph',
+  'distanceM',
+  'odometerM',
+  'elapsedMs',
+  'erpm',
+  'controllerTempC',
+  'motorTempC',
+  'directionalMotorCurrentA',
+  'filteredMotorCurrentA',
+  'requestedBalanceCurrentA',
+  'boosterCurrentA',
+  'pitchDeg',
+  'balancePitchDeg',
+  'rollDeg',
+  'footpadAdc1V',
+  'footpadAdc2V',
+  'remoteInput',
+  'setpointDeg',
+  'atrSetpointDeg',
+  'brakeTiltSetpointDeg',
+  'torqueTiltSetpointDeg',
+  'turnTiltSetpointDeg',
+  'remoteSetpointDeg',
+  'atrAccelerationDifferenceErpmPerSecond',
+  'atrSpeedBoost',
+  'ampHoursDrawnAh',
+  'ampHoursChargedAh',
+  'wattHoursDrawnWh',
+  'wattHoursChargedWh',
+  'chargingCurrentA',
+  'chargingVoltageV',
+] as const;
+export type LiveWidgetField = (typeof liveWidgetFields)[number];
+export type LiveWidgetSlots = [LiveWidgetField, LiveWidgetField, LiveWidgetField, LiveWidgetField];
+export const defaultLiveWidgetSlots: LiveWidgetSlots = [
+  'fieldWeakeningCurrentA',
+  'motorCurrentA',
+  'batteryCurrentA',
+  'powerW',
+];
+
 export interface Settings {
   revision: number;
   idleProbeIntervalMs: number;
@@ -703,6 +753,7 @@ export interface Settings {
   minimumSessionDistance: number;
   themePreference: ThemePreference;
   unitPreference: UnitPreference;
+  liveWidgetSlots: LiveWidgetSlots;
   historyGapThresholdSeconds: number | null;
   locationRecordingEnabled: boolean;
   includeGpsLocationWhenExporting: boolean;

@@ -45,7 +45,7 @@ fn current_storage_reopens_without_changing_revision_or_sql() {
     assert_eq!(root.open().settings().unwrap(), value);
     assert_eq!(
         fs::read_to_string(root.0.join(".schema-version")).unwrap(),
-        "13"
+        "14"
     );
     let conn = Connection::open(root.0.join("catalog.sqlite")).unwrap();
     assert_eq!(
@@ -88,7 +88,7 @@ fn ordinary_corruption_and_schema_drift_never_reset() {
     assert!(matches!(ProductStore::open(&root.0), Err(Error::Corrupt)));
     assert_eq!(
         fs::read_to_string(root.0.join(".schema-version")).unwrap(),
-        "13"
+        "14"
     );
 }
 #[test]
@@ -372,7 +372,7 @@ fn protected_root_is_reported_without_reset() {
     assert!(matches!(result, Err(Error::Io)));
     assert_eq!(
         fs::read_to_string(root.0.join(".schema-version")).unwrap(),
-        "13"
+        "14"
     );
     assert_eq!(root.open().settings().unwrap(), Settings::default());
 }
@@ -759,4 +759,40 @@ fn preset_selection_is_atomic_and_overrides_survive_reopen_and_import() {
         .update_profile(id, 7, r#"{"batteryCapacityAh":200}"#, 9)
         .unwrap();
     assert_eq!(count.values["batteryCapacityAh"], 200);
+}
+
+#[test]
+fn live_widget_slots_are_validated_and_persisted() {
+    let root = Root::new();
+    let mut store = root.open();
+    for invalid in [
+        r#"[]"#,
+        r#"["speedKph"]"#,
+        r#"["speedKph","powerW","motorTempC","unknown"]"#,
+        "null",
+    ] {
+        assert!(matches!(
+            store.update_settings(0, &format!(r#"{{"liveWidgetSlots":{invalid}}}"#)),
+            Err(Error::InvalidInput)
+        ));
+    }
+    let updated = store
+        .update_settings(
+            0,
+            r#"{"liveWidgetSlots":["speedKph","speedKph","motorTempC","powerW"]}"#,
+        )
+        .unwrap();
+    assert_eq!(
+        updated.live_widget_slots,
+        ["speedKph", "speedKph", "motorTempC", "powerW"]
+    );
+    assert!(matches!(
+        store.update_settings(
+            0,
+            r#"{"liveWidgetSlots":["powerW","powerW","powerW","powerW"]}"#
+        ),
+        Err(Error::Conflict { .. })
+    ));
+    drop(store);
+    assert_eq!(root.open().settings().unwrap(), updated);
 }

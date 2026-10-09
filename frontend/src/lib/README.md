@@ -110,3 +110,15 @@ Mode changes preserve drafts without saving. Explicit selection/reset replaces
 battery defaults atomically; capacity/empty overrides retain the selected name,
 while departing counts/curve become Custom. Accepted snapshots alone change live
 estimates. Pending/failed saves remain visible, scoped to the opened board.
+
+The four small live number widgets use the closed `liveWidgetFields` catalogue
+in the wire contract. Each opens a full-page, scrollable picker with live previews;
+missing fields remain selectable and show an unavailable value. Choices are an
+ordered four-entry `Settings.liveWidgetSlots` tuple, shared across boards and
+persisted by the Rust product store for both native hosts. Repeated fields are
+allowed. Only accepted settings replace a slot; save failures leave the picker
+open, and closing returns focus to the originating button. Numeric presentation
+lives in `features/connection/live-values.ts`, respects display units and source
+nullability, and does not interpret firmware. Signed battery power is pack
+voltage times battery current; its displayed sign controls draw/regen labels and
+theme-aware colours. Interpolation respects reduced motion.

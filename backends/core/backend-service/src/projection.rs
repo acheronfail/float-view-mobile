@@ -314,6 +314,7 @@ pub(crate) fn settings(v: &store::Settings) -> f::Settings {
         minimum_session_distance: v.minimum_session_distance,
         theme_preference: v.theme_preference.clone(),
         unit_preference: v.unit_preference.clone(),
+        live_widget_slots: v.live_widget_slots.clone(),
         history_gap_threshold_seconds: v.history_gap_threshold_seconds,
         location_recording_enabled: v.location_recording_enabled,
         include_gps_location_when_exporting: v.include_gps_location_when_exporting,

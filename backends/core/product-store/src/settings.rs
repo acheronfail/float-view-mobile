@@ -15,6 +15,7 @@ pub struct Settings {
     pub minimum_session_distance: f64,
     pub theme_preference: String,
     pub unit_preference: String,
+    pub live_widget_slots: [String; 4],
     pub history_gap_threshold_seconds: Option<f64>,
     pub location_recording_enabled: bool,
     pub include_gps_location_when_exporting: bool,
@@ -31,6 +32,13 @@ impl Default for Settings {
             minimum_session_distance: 100.,
             theme_preference: "system".into(),
             unit_preference: "metric".into(),
+            live_widget_slots: [
+                "fieldWeakeningCurrentA",
+                "motorCurrentA",
+                "batteryCurrentA",
+                "powerW",
+            ]
+            .map(str::to_owned),
             history_gap_threshold_seconds: None,
             location_recording_enabled: false,
             include_gps_location_when_exporting: false,
@@ -74,6 +82,7 @@ impl ProductStore {
                 "historyGapThresholdSeconds" => clamp_float(&mut value, 0.1, 3_600.)?,
                 "themePreference"
                     if matches!(value.as_str(), Some("system" | "light" | "dark")) => {}
+                "liveWidgetSlots" if valid_live_widget_slots(&value) => {}
                 "unitPreference" if matches!(value.as_str(), Some("metric" | "imperial")) => {}
                 "locationRecordingEnabled" | "includeGpsLocationWhenExporting"
                     if value.is_boolean() => {}
@@ -118,6 +127,10 @@ fn read(db: &rusqlite::Connection) -> Result<Settings> {
         || !value.minimum_session_distance.is_finite()
         || !(0.0..=1_000_000.0).contains(&value.minimum_session_distance)
         || !matches!(value.theme_preference.as_str(), "system" | "light" | "dark")
+        || !value
+            .live_widget_slots
+            .iter()
+            .all(|v| LIVE_WIDGET_FIELDS.contains(&v.as_str()))
         || !matches!(value.unit_preference.as_str(), "metric" | "imperial")
         || value
             .history_gap_threshold_seconds
@@ -142,4 +155,54 @@ fn clamp_float(value: &mut Value, min: f64, max: f64) -> Result<()> {
         .ok_or(Error::InvalidInput)?;
     *value = Value::from(n.clamp(min, max));
     Ok(())
+}
+
+const LIVE_WIDGET_FIELDS: &[&str] = &[
+    "fieldWeakeningCurrentA",
+    "motorCurrentA",
+    "batteryCurrentA",
+    "powerW",
+    "packVoltageV",
+    "dutyCycle",
+    "estimatedBatteryLevel",
+    "batteryLevel",
+    "speedKph",
+    "distanceM",
+    "odometerM",
+    "elapsedMs",
+    "erpm",
+    "controllerTempC",
+    "motorTempC",
+    "directionalMotorCurrentA",
+    "filteredMotorCurrentA",
+    "requestedBalanceCurrentA",
+    "boosterCurrentA",
+    "pitchDeg",
+    "balancePitchDeg",
+    "rollDeg",
+    "footpadAdc1V",
+    "footpadAdc2V",
+    "remoteInput",
+    "setpointDeg",
+    "atrSetpointDeg",
+    "brakeTiltSetpointDeg",
+    "torqueTiltSetpointDeg",
+    "turnTiltSetpointDeg",
+    "remoteSetpointDeg",
+    "atrAccelerationDifferenceErpmPerSecond",
+    "atrSpeedBoost",
+    "ampHoursDrawnAh",
+    "ampHoursChargedAh",
+    "wattHoursDrawnWh",
+    "wattHoursChargedWh",
+    "chargingCurrentA",
+    "chargingVoltageV",
+];
+fn valid_live_widget_slots(value: &Value) -> bool {
+    value.as_array().is_some_and(|slots| {
+        slots.len() == 4
+            && slots
+                .iter()
+                .all(|v| v.as_str().is_some_and(|v| LIVE_WIDGET_FIELDS.contains(&v)))
+    })
 }

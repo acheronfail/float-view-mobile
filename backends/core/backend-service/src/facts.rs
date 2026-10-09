@@ -18,7 +18,7 @@ record!(Location { authorization: String, background_capture: String, reason: Op
 record!(Settings {
     revision: u64, idle_probe_interval_ms: u64, idle_persist_interval_ms: u64,
     riding_persist_interval_ms: u64, post_ride_tail_ms: u64, reconnect_duration_ms: u64,
-    minimum_session_distance: f64, theme_preference: String, unit_preference: String,
+    minimum_session_distance: f64, theme_preference: String, unit_preference: String, live_widget_slots: [String; 4],
     history_gap_threshold_seconds: Option<f64>, location_recording_enabled: bool,
     include_gps_location_when_exporting: bool,
 });

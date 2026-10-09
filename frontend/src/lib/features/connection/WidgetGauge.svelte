@@ -31,21 +31,6 @@
   const load = $derived(driveLoad(sample, currentLimits));
   const animatedSpeed = new Tween(0);
   const animatedLoad = new Tween(0);
-  const fieldWeakening = $derived(Math.abs(sample?.fieldWeakeningCurrentA ?? 0));
-  const animatedFieldWeakening = new Tween(0);
-
-  let textbox = $derived.by(() => {
-    if (!fieldWeakening) {
-      return { title: 'DISTANCE', value: formatDistanceM(sample?.distanceM, units), color: 'undefined' };
-    }
-
-    return {
-      title: 'FIELD WEAKENING',
-      value: `${animatedFieldWeakening.current.toFixed(1)} A`,
-      color: 'success',
-    };
-  });
-
   $effect(() => {
     void animatedSpeed.set(speed ?? 0, {
       duration: prefersReducedMotion.current ? 0 : 150,
@@ -58,11 +43,6 @@
     });
   });
 
-  $effect(() => {
-    void animatedFieldWeakening.set(fieldWeakening, {
-      duration: prefersReducedMotion.current ? 0 : 150,
-    });
-  });
   const loadLabel = $derived(
     load?.source === 'duty'
       ? 'Duty'
@@ -232,24 +212,12 @@
       {load == null ? '—' : `${animatedLoad.current.toFixed(0)}%`}
     </text>
 
-    <rect
-      x="105"
-      y="236"
-      width="110"
-      height="38"
-      rx="9"
-      class="fill-elevated stroke-outline [stroke-width:1] stroke-{textbox.color} transition-colors"
-    />
-    <text
-      x="160"
-      y="251"
-      class="fill-current text-[9px] font-semibold tracking-widest text-muted text-{textbox.color} transition-colors"
-      text-anchor="middle"
-    >
-      {textbox.title}
+    <rect x="105" y="236" width="110" height="38" rx="9" class="fill-elevated stroke-outline [stroke-width:1]" />
+    <text x="160" y="251" class="fill-current text-[9px] font-semibold tracking-widest text-muted" text-anchor="middle">
+      DISTANCE
     </text>
     <text x="160" y="268" class="fill-current font-mono text-[11px] font-semibold text-foreground" text-anchor="middle">
-      {textbox.value}
+      {formatDistanceM(sample?.distanceM, units)}
     </text>
   </svg>
   <MarkerCapture {sessionId} />

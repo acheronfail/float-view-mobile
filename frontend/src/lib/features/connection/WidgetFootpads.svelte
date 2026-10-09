@@ -17,9 +17,9 @@
   let adc2Bg = $derived(adc2 ? 'bg-success' : shouldAlert ? 'bg-danger' : 'bg-surface');
 </script>
 
-<section class="flex h-full min-h-0 flex-col overflow-hidden" aria-labelledby="temperatures-title">
+<section class="flex h-full min-h-0 flex-col overflow-hidden" aria-label={`Footpads: ${fp}`}>
   <h3 class="text-center text-xs font-bold tracking-wider text-muted uppercase">Footpads</h3>
-  <div class="flex grow flex-row items-center justify-center">
+  <div class="flex min-h-0 w-full grow flex-row items-center justify-center">
     <div class={`h-full w-1/2 rounded-l-full border border-outline ${adc1Bg}`}></div>
     <div class={`h-full w-1/2 rounded-r-full border border-outline ${adc2Bg}`}></div>
   </div>

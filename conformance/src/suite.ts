@@ -1,5 +1,6 @@
 import { validatePermissions } from '../../frontend/src/lib/backend/permissions.ts';
 import assert from 'node:assert/strict';
+import { liveWidgetFields } from '../../frontend/src/lib/backend/contract.ts';
 import type {
   AppState,
   BackendMethod,
@@ -137,6 +138,7 @@ async function exerciseProductMethods(
       minimumSessionDistance: 100,
       themePreference: 'dark',
       unitPreference: 'imperial',
+      liveWidgetSlots: ['speedKph', 'packVoltageV', 'motorTempC', 'powerW'],
     },
   });
   await expectError(
@@ -149,6 +151,21 @@ async function exerciseProductMethods(
   assert.equal(settings.minimumSessionDistance, 100);
   assert.equal(settings.themePreference, 'dark');
   assert.equal(settings.unitPreference, 'imperial');
+  assert.deepEqual(settings.liveWidgetSlots, ['speedKph', 'packVoltageV', 'motorTempC', 'powerW']);
+  for (const invalid of [[], ['speedKph'], ['speedKph', 'powerW', 'motorTempC', 'unknown'], null]) {
+    await expectError(
+      client.request('settings.update', {
+        expectedRevision: settings.revision,
+        patch: { liveWidgetSlots: invalid },
+      } as never),
+      'invalid_request'
+    );
+  }
+  assert.deepEqual((await client.request('state.get', {})).settings.liveWidgetSlots, settings.liveWidgetSlots);
+  if (recreateFrontend) {
+    await recreateFrontend();
+    assert.deepEqual((await client.request('state.get', {})).settings.liveWidgetSlots, settings.liveWidgetSlots);
+  }
   const locationSettings = await client.request('settings.update', {
     expectedRevision: settings.revision,
     patch: { locationRecordingEnabled: true, includeGpsLocationWhenExporting: true },
@@ -920,6 +937,7 @@ export function assertState(state: AppState) {
     'idlePersistIntervalMs',
     'idleProbeIntervalMs',
     'includeGpsLocationWhenExporting',
+    'liveWidgetSlots',
     'locationRecordingEnabled',
     'minimumSessionDistance',
     'postRideTailMs',
@@ -937,6 +955,8 @@ export function assertState(state: AppState) {
   assert.ok(['available', 'foregroundOnly', 'unavailable'].includes(state.location.backgroundCapture));
   assert.ok(['system', 'light', 'dark'].includes(state.settings.themePreference));
   assert.ok(['metric', 'imperial'].includes(state.settings.unitPreference));
+  assert.equal(state.settings.liveWidgetSlots.length, 4);
+  assert.ok(state.settings.liveWidgetSlots.every((field) => liveWidgetFields.includes(field)));
 
   if (!active) return;
   assert.ok(active.deviceKind === null || active.deviceKind === 'board' || active.deviceKind === 'bms');

@@ -2,6 +2,8 @@ import { permissionInventory, locationSummary } from './permissions.ts';
 import { batteryPresets, batteryPresetCatalogVersion, applyBatteryPatch } from './battery-presets.ts';
 import { batteryCellProfiles, emptyEstimate, MockBattery } from './battery.ts';
 import {
+  defaultLiveWidgetSlots,
+  liveWidgetFields,
   MAX_MESSAGE_BYTES,
   MAX_REFLOAT_CONFIGURATION_CURSOR_BYTES,
   MAX_REFLOAT_CONFIGURATION_JSON_BYTES,
@@ -307,6 +309,7 @@ export class MockBackend {
       minimumSessionDistance: 100,
       themePreference: 'system',
       unitPreference: 'metric',
+      liveWidgetSlots: [...defaultLiveWidgetSlots],
       historyGapThresholdSeconds: null,
       locationRecordingEnabled: false,
       includeGpsLocationWhenExporting: false,
@@ -719,6 +722,7 @@ export class MockBackend {
           'minimumSessionDistance',
           'themePreference',
           'unitPreference',
+          'liveWidgetSlots',
           'historyGapThresholdSeconds',
           'locationRecordingEnabled',
           'includeGpsLocationWhenExporting',
@@ -728,6 +732,10 @@ export class MockBackend {
           !Object.keys(patch).length ||
           Object.keys(patch).some((key) => !allowed.has(key)) ||
           ('themePreference' in patch && !['system', 'light', 'dark'].includes(String(patch.themePreference))) ||
+          ('liveWidgetSlots' in patch &&
+            (!Array.isArray(patch.liveWidgetSlots) ||
+              patch.liveWidgetSlots.length !== 4 ||
+              patch.liveWidgetSlots.some((field) => !liveWidgetFields.includes(field)))) ||
           ('unitPreference' in patch && !['metric', 'imperial'].includes(String(patch.unitPreference))) ||
           ('historyGapThresholdSeconds' in patch &&
             historyGap !== null &&

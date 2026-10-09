@@ -300,10 +300,10 @@ export class BackendState {
     });
   }
 
-  async updateSessionSettings(patch: Omit<Partial<Settings>, 'revision'>): Promise<void> {
+  async updateSessionSettings(patch: Omit<Partial<Settings>, 'revision'>): Promise<boolean> {
     const settings = this.settings;
-    if (!settings) return;
-    await this.run(async (client) => {
+    if (!settings) return false;
+    return this.run(async (client) => {
       const updated = await client.request('settings.update', {
         expectedRevision: settings.revision,
         patch,
