@@ -32,6 +32,7 @@ ios_icon_dir="$project_root/backends/apple/ios/float-view/Assets.xcassets/AppIco
 mac_resources_dir="$project_root/backends/apple/macos/Resources"
 android_resources_dir="$project_root/backends/android/app/src/main/res"
 master_png="$temporary_dir/FloatView.png"
+mac_master_png="$temporary_dir/FloatView-macos.png"
 transparent_mark_png="$temporary_dir/FloatView-mark.png"
 adaptive_foreground_png="$temporary_dir/ic_launcher_foreground.png"
 adaptive_monochrome_png="$temporary_dir/ic_launcher_monochrome.png"
@@ -46,6 +47,14 @@ rsvg-convert -w 1024 -h 1024 "$source_svg" -o "$master_png"
 
 # iOS uses one universal 1024px PNG app-icon slot.
 magick "$master_png" -define png:exclude-chunk=all "$ios_icon_dir/AppIcon.png"
+
+# macOS does not mask ICNS artwork. Inset the face to 824px on a 1024px
+# transparent canvas and apply the rounded macOS silhouette before resizing.
+rsvg-convert -w 1024 -h 1024 "$script_dir/macos-mask.svg" \
+  -o "$temporary_dir/macos-mask.png"
+magick "$master_png" -resize 824x824! -background none -gravity center \
+  -extent 1024x1024 "$temporary_dir/macos-mask.png" \
+  -compose DstIn -composite "$mac_master_png"
 
 # macOS consumes an ICNS. sips writes a valid 512px ICNS on every supported
 # macOS version; use iconutil's richer iconset conversion when it is available
@@ -64,7 +73,7 @@ for icon_spec in \
   '512 icon_512x512.png' \
   '1024 icon_512x512@2x.png'; do
   read -r icon_size icon_name <<< "$icon_spec"
-  magick "$master_png" -resize "${icon_size}x${icon_size}!" \
+  magick "$mac_master_png" -resize "${icon_size}x${icon_size}!" \
     -define png:exclude-chunk=all "$mac_iconset_dir/$icon_name"
 done
 
@@ -77,7 +86,7 @@ if command -v iconutil >/dev/null 2>&1; then
 fi
 if [[ "$mac_icon_generated" != true ]]; then
   mac_source_png="$temporary_dir/FloatView-512.png"
-  magick "$master_png" -resize 512x512! "$mac_source_png"
+  magick "$mac_master_png" -resize 512x512! "$mac_source_png"
   sips -s format icns "$mac_source_png" --out "$mac_resources_dir/FloatView.icns" \
     >/dev/null
 fi

@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <!-- 824px face with continuous rounded corners and a 100px clear margin. -->
+  <path fill="white" d="M 300 100 H 724
+    C 864 100 924 160 924 300 V 724
+    C 924 864 864 924 724 924 H 300
+    C 160 924 100 864 100 724 V 300
+    C 100 160 160 100 300 100 Z"/>
+</svg>
