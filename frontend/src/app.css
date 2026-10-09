@@ -20,7 +20,7 @@
   --color-danger: var(--app-danger);
   --color-on-danger: var(--app-on-danger);
   --color-power-draw: var(--app-power-draw);
-  --color-duty: var(--app-warning);
+  --color-duty: var(--app-duty);
   --color-motor: var(--app-danger);
   --color-battery-current: var(--app-success);
 }
@@ -40,6 +40,7 @@
   --app-on-accent-soft: #3730a3;
   --app-success: #047857;
   --app-warning: #b45309;
+  --app-duty: #946c00;
   --app-power-draw: #c2410c;
   --app-danger: #be123c;
   --app-on-danger: #ffffff;
@@ -60,6 +61,7 @@
   --app-on-accent-soft: #e0e7ff;
   --app-success: #6ee7b7;
   --app-warning: #fcd34d;
+  --app-duty: #fcd34d;
   --app-power-draw: #fb923c;
   --app-danger: #fda4af;
   --app-on-danger: #4c0519;

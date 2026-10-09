@@ -142,7 +142,7 @@ export const sessionFieldMetadata = {
     unit: '%',
     chart: {
       axis: { kind: 'fixed', min: 0, max: 1 },
-      color: 'var(--app-warning)',
+      color: 'var(--app-duty)',
       format: 'percent',
       precision: 0,
     },
