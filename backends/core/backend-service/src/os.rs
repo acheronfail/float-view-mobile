@@ -178,6 +178,9 @@ pub enum Effect {
         path: String,
         file_name: String,
     },
+    LiveActivity {
+        state: Option<crate::live_activity::LiveActivity>,
+    },
     HostState {
         connected: bool,
         recording: bool,
@@ -205,6 +208,7 @@ pub(crate) struct Exchange {
     pub cancel_timers: bool,
     pub disconnect: Option<u64>,
     pub status: Option<Effect>,
+    pub live_activity: Option<Effect>,
 }
 impl Default for Exchange {
     fn default() -> Self {
@@ -220,6 +224,7 @@ impl Default for Exchange {
             cancel_timers: false,
             disconnect: None,
             status: None,
+            live_activity: None,
         }
     }
 }
@@ -290,6 +295,9 @@ impl Exchange {
         }
         if let Some(status) = self.status.take() {
             effects.push(status);
+        }
+        if let Some(activity) = self.live_activity.take() {
+            effects.push(activity);
         }
         let mut bytes = 4096usize;
         while effects.len() < MAX_EFFECTS_PER_DRAIN {

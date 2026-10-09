@@ -83,6 +83,7 @@ pub(crate) struct Policy {
     pub boards: Vec<crate::facts::SavedBoard>,
     pub saved_device_ids: Vec<String>,
     host_status: Option<HostStatus>,
+    live_activity: Option<crate::live_activity::LiveActivity>,
 }
 impl Policy {
     pub fn new(settings: Settings) -> Self {
@@ -110,6 +111,7 @@ impl Policy {
             boards: Vec::new(),
             saved_device_ids: Vec::new(),
             host_status: None,
+            live_activity: None,
         }
     }
 }
@@ -525,6 +527,13 @@ impl BackendService {
     }
     pub(crate) fn changed(&mut self) -> Result<(), Failure> {
         self.refresh_battery()?;
+        let live_activity = self.live_activity();
+        if self.policy.live_activity != live_activity {
+            self.policy.exchange.live_activity = Some(Effect::LiveActivity {
+                state: live_activity.clone(),
+            });
+            self.policy.live_activity = live_activity;
+        }
         let status = HostStatus(
             self.policy.active.is_some(),
             self.policy
@@ -1324,6 +1333,62 @@ mod tests {
             self.drain();
         }
     }
+    #[test]
+    fn live_activity_tracks_ready_boards_coalesces_telemetry_and_ends_on_disconnect() {
+        #[allow(dead_code)]
+        mod samples {
+            use float_view_application_runtime::telemetry as float_view_refloat_telemetry_service;
+            include!("../../session-sqlite/tests/support/mod.rs");
+        }
+        for saved in [false, true] {
+            let mut t = Test::new();
+            assert!(t.service.live_activity().is_none());
+            t.activate(saved);
+            t.service.changed().unwrap();
+            let initial = t.service.live_activity().unwrap();
+            assert!(initial.percentage.is_none());
+            t.drain();
+            t.service.policy.settings.unit_preference = "imperial".into();
+            for sequence in 1..=100 {
+                let mut sample = samples::sample(sequence, sequence * 100);
+                sample.duty_cycle = Some(0.42);
+                sample.distance_m = Some(sequence as f64);
+                sample.battery_level = Some(0.67);
+                t.service.accept_battery_sample(sample).unwrap();
+                t.service.changed().unwrap();
+            }
+            let effects = t.service.drain_os().effects;
+            let states: Vec<_> = effects
+                .iter()
+                .filter_map(|e| match e {
+                    Effect::LiveActivity { state } => Some(state),
+                    _ => None,
+                })
+                .collect();
+            assert_eq!(states.len(), 1);
+            let state = states[0].as_ref().unwrap();
+            assert_eq!(state.source.as_deref(), Some("duty"));
+            assert_eq!(state.percentage, Some(42.));
+            assert_eq!(state.distance_meters, Some(100.));
+            assert_eq!(state.battery_percent, if saved { Some(67.) } else { None });
+            assert!(state.imperial);
+            assert!(
+                !effects
+                    .iter()
+                    .any(|e| matches!(e, Effect::HostState { .. }))
+            );
+            t.service.disconnect("user").unwrap();
+            assert!(t.service.live_activity().is_none());
+            assert!(
+                t.service
+                    .drain_os()
+                    .effects
+                    .iter()
+                    .any(|e| matches!(e, Effect::LiveActivity { state: None }))
+            );
+        }
+    }
+
     #[test]
     fn ride_markers_are_session_scoped_and_survive_reconnect_and_close() {
         use crate::{dispatch::Dispatch, facts::Completion, operations::Operation};

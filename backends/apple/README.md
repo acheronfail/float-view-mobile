@@ -58,3 +58,34 @@ Transfer the IPA to Files on the iPhone and select it in AltStore's My Apps tab
 using the + button. If switching from a `just run ios` installation fails, export
 any recordings you want to keep, then remove that installation before retrying.
 Install future IPA updates through AltStore and use AltStore to refresh them.
+
+## iOS Live Activity
+
+A ready board connection starts a Live Activity while the app is foregrounded
+and Live Activities are enabled in iOS Settings. Standalone BMS connections do
+not start one. The compact/minimal Dynamic Island shows the primary gauge's
+winning drive-load percentage; the expanded Island and Lock Screen also show
+distance in the selected units and battery charge. The dark gauge palette is
+shared visually: duty yellow, motor pink, battery current green. Charge uses the
+same estimate/controller-reported selection as the frontend power widget.
+
+The shared service emits a coalesced native presentation effect. The iOS host
+keeps only its latest value and serializes ActivityKit updates at most once per
+second, independently of the WebView and loopback listener. Readings become
+unavailable after 15 seconds without telemetry. iOS controls rendering cadence
+and background execution; this is not a replacement for the in-app live gauge.
+Disconnect ends the activity immediately on the next worker iteration. A
+connection established in the background starts its activity on the next
+foreground opportunity. User dismissal is respected for that connection, and
+orphaned activities are removed on process launch.
+
+`ios/FloatViewLiveActivity/` owns the WidgetKit UI, `ios/LiveActivityShared/` the
+ActivityKit content model, and `ios/float-view/live-activity/` the OS lifecycle.
+The extension is embedded in both simulator and device app packages.
+
+Physical checkpoint: on a Dynamic Island iPhone with Live Activities allowed,
+connect a board, compare load selection/colours, distance and charge with the
+primary UI, then lock the phone and verify updates while BLE runs in the
+background. Check expanded and compact Island layouts, stale telemetry,
+disconnect/reconnect, user dismissal and disabled Live Activities. Simulator
+builds and service tests do not establish this OS/background behavior.

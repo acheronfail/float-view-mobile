@@ -9,6 +9,7 @@ pub mod battery_estimator;
 pub mod ble;
 mod dispatch;
 pub mod facts;
+pub mod live_activity;
 pub mod os;
 pub mod permissions;
 mod policy;

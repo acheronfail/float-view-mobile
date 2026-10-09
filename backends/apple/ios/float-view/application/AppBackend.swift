@@ -5,6 +5,7 @@ import SwiftUI
 final class AppBackend: ObservableObject {
   let bluetooth: any BluetoothPort
   let service: SharedService
+  let rideActivity = RideActivityController()
   @Published var frontend: FrontendEndpoint?
   @Published private(set) var frontendStartupFailed = false
   @Published private(set) var themePreference: ThemePreference
@@ -45,7 +46,10 @@ final class AppBackend: ObservableObject {
     self.service = service
     themePreference = .system
     frontendServer = LoopbackServer(html: html, port: PlatformLoopbackPort.iOS, service: service, platform: "ios")
-    try! service.start(presenter: { @Sendable value in IOSExportPresenter.schedule(value) }) { [weak self] preference in
+    try! service.start(presenter: { @Sendable value in IOSExportPresenter.schedule(value) },
+                       liveActivity: { [rideActivity] state in
+                         rideActivity.receive(state)
+                       }) { [weak self] preference in
       Task { @MainActor [weak self] in self?.themePreference = preference }
     }
     activateFrontend()

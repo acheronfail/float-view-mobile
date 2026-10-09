@@ -8,12 +8,18 @@
 
 /* Begin PBXBuildFile section */
 		BA3A10B12E5C0EED005406DA /* index.html in Resources */ = {isa = PBXBuildFile; fileRef = BA3A10B02E5C0EED005406DA /* index.html */; };
+FA110000000000000000000C = {isa = PBXBuildFile; fileRef = FA1100000000000000000001; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 /* End PBXBuildFile section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+FA110000000000000000000B = {isa = PBXCopyFilesBuildPhase; buildActionMask = 2147483647; dstPath = ""; dstSubfolderSpec = 13; files = (FA110000000000000000000C, ); name = "Embed App Extensions"; runOnlyForDeploymentPostprocessing = 0; };
+/* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
 		BA3A10B02E5C0EED005406DA /* index.html */ = {isa = PBXFileReference; lastKnownFileType = text.html; path = ../../../frontend/build/index.html; sourceTree = "<group>"; };
 		BA4ABF1C2E5BDF4600B47684 /* float-view.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "float-view.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		F20A00012F00000000000001 /* float-view-lifecycle-tests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "float-view-lifecycle-tests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
+FA1100000000000000000001 = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; path = FloatViewLiveActivity.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -33,6 +39,8 @@
 			path = "float-view-lifecycle-tests";
 			sourceTree = "<group>";
 		};
+FA1100000000000000000002 = {isa = PBXFileSystemSynchronizedRootGroup; path = FloatViewLiveActivity; sourceTree = "<group>"; };
+FA1100000000000000000003 = {isa = PBXFileSystemSynchronizedRootGroup; path = LiveActivityShared; sourceTree = "<group>"; };
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -50,13 +58,16 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+FA1100000000000000000006 = {isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
 		BA4ABF132E5BDF4600B47684 = {
 			isa = PBXGroup;
 			children = (
-				BA3A10B02E5C0EED005406DA /* index.html */,
+				FA1100000000000000000002,
+FA1100000000000000000003,
+BA3A10B02E5C0EED005406DA /* index.html */,
 				F10A00012F00000000000001 /* FloatViewBackend */,
 				BA4ABF1E2E5BDF4600B47684 /* float-view */,
 				F20A00022F00000000000002 /* float-view-lifecycle-tests */,
@@ -67,7 +78,8 @@
 		BA4ABF1D2E5BDF4600B47684 /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				BA4ABF1C2E5BDF4600B47684 /* float-view.app */,
+				FA1100000000000000000001,
+BA4ABF1C2E5BDF4600B47684 /* float-view.app */,
 				F20A00012F00000000000001 /* float-view-lifecycle-tests.xctest */,
 			);
 			name = Products;
@@ -84,12 +96,15 @@
 				BA4ABF182E5BDF4600B47684 /* Sources */,
 				BA4ABF192E5BDF4600B47684 /* Frameworks */,
 				BA4ABF1A2E5BDF4600B47684 /* Resources */,
+FA110000000000000000000B,
 			);
 			buildRules = (
 			);
 			dependencies = (
+FA110000000000000000000D,
 			);
 			fileSystemSynchronizedGroups = (
+FA1100000000000000000003,
 				BA4ABF1E2E5BDF4600B47684 /* float-view */,
 				F10A00012F00000000000001 /* FloatViewBackend */,
 			);
@@ -123,6 +138,7 @@
 			productReference = F20A00012F00000000000001 /* float-view-lifecycle-tests.xctest */;
 			productType = "com.apple.product-type.bundle.ui-testing";
 		};
+FA1100000000000000000004 = {isa = PBXNativeTarget; buildConfigurationList = FA1100000000000000000008; buildPhases = (FA1100000000000000000005, FA1100000000000000000006, FA1100000000000000000007, ); buildRules = (); dependencies = (); fileSystemSynchronizedGroups = (FA1100000000000000000002, FA1100000000000000000003, ); name = FloatViewLiveActivity; productName = FloatViewLiveActivity; productReference = FA1100000000000000000001; productType = "com.apple.product-type.app-extension"; };
 /* End PBXNativeTarget section */
 
 /* Begin PBXContainerItemProxy section */
@@ -133,6 +149,7 @@
 			remoteGlobalIDString = BA4ABF1B2E5BDF4600B47684;
 			remoteInfo = "float-view";
 		};
+FA110000000000000000000E = {isa = PBXContainerItemProxy; containerPortal = BA4ABF142E5BDF4600B47684; proxyType = 1; remoteGlobalIDString = FA1100000000000000000004; remoteInfo = FloatViewLiveActivity; };
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXProject section */
@@ -168,6 +185,7 @@
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
+FA1100000000000000000004,
 				BA4ABF1B2E5BDF4600B47684 /* float-view */,
 				F20A00042F00000000000004 /* float-view-lifecycle-tests */,
 			);
@@ -190,6 +208,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+FA1100000000000000000007 = {isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXShellScriptBuildPhase section */
@@ -235,6 +254,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+FA1100000000000000000005 = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
@@ -243,6 +263,7 @@
 			target = BA4ABF1B2E5BDF4600B47684 /* float-view */;
 			targetProxy = F20A00072F00000000000007 /* PBXContainerItemProxy */;
 		};
+FA110000000000000000000D = {isa = PBXTargetDependency; target = FA1100000000000000000004; targetProxy = FA110000000000000000000E; };
 /* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
@@ -465,6 +486,38 @@
 			};
 			name = Release;
 		};
+FA1100000000000000000009 = {isa = XCBuildConfiguration; buildSettings = {
+ APPLICATION_EXTENSION_API_ONLY = YES;
+ CODE_SIGN_STYLE = Automatic;
+ CURRENT_PROJECT_VERSION = 1;
+ DEVELOPMENT_TEAM = 8C86BN6TXL;
+ GENERATE_INFOPLIST_FILE = NO;
+ INFOPLIST_FILE = "LiveActivity-Info.plist";
+ IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+ MARKETING_VERSION = 1.0;
+ PRODUCT_BUNDLE_IDENTIFIER = "fail.acheron.float-view.live-activity";
+ PRODUCT_NAME = "$(TARGET_NAME)";
+ SKIP_INSTALL = YES;
+ SWIFT_VERSION = 5.0;
+ TARGETED_DEVICE_FAMILY = "1,2";
+ LD_RUNPATH_SEARCH_PATHS = ("$(inherited)", "@executable_path/Frameworks", "@executable_path/../../Frameworks", );
+ }; name = Debug; };
+FA110000000000000000000A = {isa = XCBuildConfiguration; buildSettings = {
+ APPLICATION_EXTENSION_API_ONLY = YES;
+ CODE_SIGN_STYLE = Automatic;
+ CURRENT_PROJECT_VERSION = 1;
+ DEVELOPMENT_TEAM = 8C86BN6TXL;
+ GENERATE_INFOPLIST_FILE = NO;
+ INFOPLIST_FILE = "LiveActivity-Info.plist";
+ IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+ MARKETING_VERSION = 1.0;
+ PRODUCT_BUNDLE_IDENTIFIER = "fail.acheron.float-view.live-activity";
+ PRODUCT_NAME = "$(TARGET_NAME)";
+ SKIP_INSTALL = YES;
+ SWIFT_VERSION = 5.0;
+ TARGETED_DEVICE_FAMILY = "1,2";
+ LD_RUNPATH_SEARCH_PATHS = ("$(inherited)", "@executable_path/Frameworks", "@executable_path/../../Frameworks", );
+ }; name = Release; };
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -495,6 +548,7 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
+FA1100000000000000000008 = {isa = XCConfigurationList; buildConfigurations = (FA1100000000000000000009, FA110000000000000000000A, ); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
 /* End XCConfigurationList section */
 
 	};

@@ -30,6 +30,7 @@ public final class SharedService: @unchecked Sendable {
   private var lastCapabilities = Date.distantPast
   private var presenter: (@Sendable (NativeFilePresentation) -> Bool)?
   private var themeHandler: (@Sendable (ThemePreference) -> Void)?
+  private var liveActivityHandler: (@Sendable (LiveActivityState?) -> Void)?
   private var stopped = false
   private var bluetoothPermissionCompletion: (UInt64, UInt64)?
 
@@ -55,11 +56,13 @@ public final class SharedService: @unchecked Sendable {
   }
 
   public func start(presenter: (@Sendable (NativeFilePresentation) -> Bool)? = nil,
+                    liveActivity: (@Sendable (LiveActivityState?) -> Void)? = nil,
                     theme: (@Sendable (ThemePreference) -> Void)? = nil) throws
   {
     try queue.sync {
       self.presenter = presenter
       themeHandler = theme
+      liveActivityHandler = liveActivity
       guard poll == nil else { return }
       try exchange(["command": "drain"])
       location.refreshAuthorization { [weak self] in self?.enqueue { $0.capabilities() } }
@@ -340,6 +343,20 @@ public final class SharedService: @unchecked Sendable {
       fact(["fact": "presentation_started", "id": id, "accepted": accepted])
       if !accepted {
         finish()
+      }
+    case "live_activity":
+      if let liveActivityHandler {
+        if value["state"] is NSNull {
+          liveActivityHandler(nil)
+        } else if let raw = value["state"],
+                  let data = try? JSONSerialization.data(withJSONObject: raw)
+        {
+          let decoder = JSONDecoder()
+          decoder.keyDecodingStrategy = .convertFromSnakeCase
+          if let state = try? decoder.decode(LiveActivityState.self, from: data) {
+            liveActivityHandler(state)
+          }
+        }
       }
     case "host_state":
       if let theme = value["theme_preference"] as? String,
