@@ -1,4 +1,6 @@
 <script lang="ts">
+  import GaugeBar from './WidgetBar.svelte';
+  import { colorForBattery, colorForTemperature } from './gauge-colors';
   import { onMount } from 'svelte';
   import type { BmsState, UnitPreference } from '$lib/backend/contract';
   import { formatTemperatureC } from '$lib/features/measurements/format';
@@ -7,6 +9,16 @@
   let { bms, units }: { bms: BmsState; units: UnitPreference } = $props();
   let now = $state(Date.now());
   const snapshot = $derived(bms.latestSnapshot);
+  const temperatures = $derived(
+    snapshot
+      ? [
+          ...snapshot.temperaturesC.map((value, index) => ({ name: `Sensor ${index + 1}`, value })),
+          { name: 'IC', value: snapshot.icTemperatureC },
+          { name: 'Highest cell', value: snapshot.highestCellTemperatureC },
+          { name: 'Humidity sensor', value: snapshot.humiditySensorTemperatureC },
+        ]
+      : []
+  );
   const candidates = $derived(
     [...bms.candidates].sort((left, right) => {
       if (left.connection.kind === 'direct') return right.connection.kind === 'direct' ? 0 : -1;
@@ -80,35 +92,55 @@
     </section>
 
     <section aria-labelledby="bms-cells-title">
-      <h3 id="bms-cells-title" class="mb-2 font-semibold">Cells and balancing</h3>
+      <h3 id="bms-cells-title" class="font-semibold">Cells and balancing</h3>
+      <p class="mb-2 text-xs text-muted">Voltage scale: 3.0–4.2 V</p>
       <ol class="grid grid-cols-2 gap-1 sm:grid-cols-4">
         {#each snapshot.cellVoltagesV as voltage, index (index)}
-          <li class="flex justify-between rounded border border-outline px-2 py-1">
-            <span>Cell {index + 1}</span><span
-              >{voltage.toFixed(3)} V {snapshot.balancing[index] ? '· balancing' : ''}</span
-            >
+          <li class="min-w-0 rounded border border-outline p-2">
+            <div class="mb-2 flex flex-wrap justify-between gap-x-2 gap-y-1 text-xs">
+              <span class="text-muted">Cell {index + 1}</span>
+              <span class="font-mono tabular-nums"
+                >{voltage.toFixed(3)} V {snapshot.balancing[index] ? '· balancing' : ''}</span
+              >
+            </div>
+            <GaugeBar
+              value={Math.max(3, Math.min(4.2, voltage))}
+              minimum={3}
+              maximum={4.2}
+              ariaLabel={`Cell ${index + 1} voltage`}
+              ariaValueText={`${voltage.toFixed(3)} V${snapshot.balancing[index] ? ', balancing' : ''}`}
+              showTicks={false}
+              heightClass="h-2"
+              fillClass="bg-[var(--cell-color)]"
+              fillStyle={`--cell-color: ${colorForBattery(((voltage - 3) / 1.2) * 100)}`}
+            />
           </li>
         {/each}
       </ol>
     </section>
 
     <section aria-labelledby="bms-temperature-title">
-      <h3 id="bms-temperature-title" class="mb-2 font-semibold">Temperatures</h3>
+      <h3 id="bms-temperature-title" class="font-semibold">Temperatures</h3>
+      <p class="mb-2 text-xs text-muted">Scale: {formatTemperatureC(0, units)}–{formatTemperatureC(100, units)}</p>
       <ul class="grid grid-cols-2 gap-1 sm:grid-cols-3">
-        {#each snapshot.temperaturesC as temperature, index (index)}
-          <li class="rounded border border-outline px-2 py-1">
-            Sensor {index + 1}: {formatTemperatureC(temperature, units)}
+        {#each temperatures as reading (reading.name)}
+          <li class="min-w-0 rounded border border-outline p-2">
+            <div class="mb-2 flex flex-wrap justify-between gap-x-2 gap-y-1 text-xs">
+              <span class="text-muted">{reading.name}:</span>
+              <span class="font-mono tabular-nums">{formatTemperatureC(reading.value, units)}</span>
+            </div>
+            <GaugeBar
+              value={Math.max(0, Math.min(100, reading.value))}
+              maximum={100}
+              ariaLabel={`${reading.name} temperature`}
+              ariaValueText={formatTemperatureC(reading.value, units)}
+              showTicks={false}
+              heightClass="h-2"
+              fillClass="bg-linear-to-r from-green-600 to-[var(--temperature-color)]"
+              fillStyle={`--temperature-color: ${colorForTemperature(reading.value)}`}
+            />
           </li>
         {/each}
-        <li class="rounded border border-outline px-2 py-1">
-          IC: {formatTemperatureC(snapshot.icTemperatureC, units)}
-        </li>
-        <li class="rounded border border-outline px-2 py-1">
-          Highest cell: {formatTemperatureC(snapshot.highestCellTemperatureC, units)}
-        </li>
-        <li class="rounded border border-outline px-2 py-1">
-          Humidity sensor: {formatTemperatureC(snapshot.humiditySensorTemperatureC, units)}
-        </li>
       </ul>
     </section>
 

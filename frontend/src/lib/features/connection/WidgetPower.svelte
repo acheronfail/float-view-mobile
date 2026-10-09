@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { LiveSample, BatteryEstimate } from '../../backend/contract';
+  import { colorForBattery } from './gauge-colors';
   import { batteryPresentation } from './battery';
   import BatterySetupWarning from './BatterySetupWarning.svelte';
   import GaugeBar from './WidgetBar.svelte';
@@ -18,30 +19,12 @@
     estimate: BatteryEstimate | null | undefined;
   } = $props();
 
-  const green = [22, 163, 74];
-  const yellow = [234, 179, 8];
-  const red = [220, 38, 38];
   const labelValues = Array.from({ length: 6 }, (_, index) => index * 20);
 
   const battery = $derived(batteryPresentation(estimate, sample?.batteryLevel, savedBoard));
   const batteryPercent = $derived(battery.percent);
   const batterySeriesCells = $derived(estimate?.seriesCount);
   const batteryColor = $derived(colorForBattery(batteryPercent));
-
-  function interpolate(start: number[], end: number[], amount: number) {
-    return start.map((value, index) => Math.round(value + (end[index] - value) * amount));
-  }
-
-  function rgb(color: number[]) {
-    return `rgb(${color.join(', ')})`;
-  }
-
-  function colorForBattery(percent: number | null) {
-    if (percent == null || percent >= 50) return rgb(green);
-    if (percent <= 20) return rgb(red);
-    if (percent < 35) return rgb(interpolate(yellow, red, (35 - percent) / 15));
-    return rgb(interpolate(green, yellow, (50 - percent) / 15));
-  }
 </script>
 
 <section class="flex h-full min-h-0 flex-col overflow-hidden" aria-labelledby="power-title">

@@ -38,9 +38,29 @@ const attached: BmsState = {
 };
 
 describe('BMS view', () => {
+  it('clamps cell and temperature bars while retaining exact readings and shared colours', () => {
+    const { body } = render(BmsView, {
+      props: {
+        units: 'metric',
+        bms: {
+          ...attached,
+          latestSnapshot: { ...snapshot, cellVoltagesV: [2.9, 3.42, 4.3], temperaturesC: [-10, 45, 110] },
+        },
+      },
+    });
+    expect(body).toContain('2.900 V');
+    expect(body).toContain('4.300 V');
+    expect(body).toContain('width: 0%');
+    expect(body).toContain('width: 100%');
+    expect(body).toContain('--cell-color: rgb(220, 38, 38)');
+    expect(body).toContain('--cell-color: rgb(234, 179, 8)');
+    expect(body).toContain('--cell-color: rgb(22, 163, 74)');
+    expect(body).toContain('--temperature-color: rgb(234, 88, 12)');
+    expect(body).toContain('aria-valuetext="110.0 °C"');
+  });
   it('renders the maximum bounded arrays, optional tail, route, and imperial temperatures', () => {
     const { body } = render(BmsView, { props: { bms: attached, units: 'imperial' } });
-    const text = body.replace(/\s+/g, ' ');
+    const text = body.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ');
 
     expect(text).toContain('CAN 42');
     expect(text).toContain('Cell 50');
@@ -64,7 +84,7 @@ describe('BMS view', () => {
       ],
     };
     const { body } = render(BmsView, { props: { bms, units: 'metric' } });
-    const text = body.replace(/\s+/g, ' ');
+    const text = body.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ');
 
     expect(text).toContain('Set Preferred BMS CAN ID in Board configuration');
     expect(text.indexOf('Local VBMS')).toBeLessThan(text.indexOf('VBMS 3'));
@@ -76,7 +96,7 @@ describe('BMS view', () => {
     const { body } = render(BmsView, {
       props: { bms: { ...attached, status: 'unavailable' }, units: 'metric' },
     });
-    const text = body.replace(/\s+/g, ' ');
+    const text = body.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ');
 
     expect(text).toContain('retained from their original observation time');
     expect(text).toContain('ago');

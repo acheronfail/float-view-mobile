@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { LiveSample } from '../../backend/contract';
+  import { colorForTemperature } from './gauge-colors';
   import GaugeBar from './WidgetBar.svelte';
 
   let {
@@ -8,26 +9,8 @@
     sample: LiveSample | null | undefined;
   } = $props();
 
-  const green = [22, 163, 74];
-  const orange = [234, 88, 12];
-  const red = [220, 38, 38];
   const maximum = 100;
   const labelValues = Array.from({ length: 6 }, (_, index) => index * 20);
-
-  function interpolate(start: number[], end: number[], amount: number) {
-    return start.map((value, index) => Math.round(value + (end[index] - value) * amount));
-  }
-
-  function rgb(color: number[]) {
-    return `rgb(${color.join(', ')})`;
-  }
-
-  function colorForTemperature(value: number | null | undefined) {
-    if (value == null || value <= 30) return rgb(green);
-    if (value >= 60) return rgb(red);
-    if (value >= 45) return rgb(interpolate(orange, red, (value - 45) / 15));
-    return rgb(interpolate(green, orange, (value - 30) / 15));
-  }
 
   function label(value: number | null | undefined) {
     return value == null ? '—' : `${value.toFixed(1)} °C`;

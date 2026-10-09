@@ -137,6 +137,37 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
         await chargingLabel.waitFor();
         chargingBms.status = 'unavailable';
         await chargingLabel.waitFor({ state: 'hidden' });
+        await page.getByRole('button', { name: 'Board actions', exact: true }).tap();
+        await page.getByRole('button', { name: 'BMS', exact: true }).tap();
+        const cellBar = page.getByRole('progressbar', { name: 'Cell 1 voltage', exact: true });
+        await cellBar.waitFor();
+        assert.equal(await cellBar.getAttribute('aria-valuemin'), '3');
+        assert.equal(await cellBar.getAttribute('aria-valuemax'), '4.2');
+        assert.equal(await cellBar.getAttribute('aria-valuenow'), '3.9');
+        assert.equal(
+          await cellBar
+            .locator('div')
+            .last()
+            .evaluate((el) => getComputedStyle(el).backgroundColor),
+          'rgb(22, 163, 74)'
+        );
+        assert.equal(
+          await page
+            .getByRole('progressbar', { name: 'Sensor 1 temperature', exact: true })
+            .getAttribute('aria-valuenow'),
+          '22'
+        );
+        for (const width of [390, 1024]) {
+          await page.setViewportSize({ width, height: 844 });
+          assert.equal(await cellBar.evaluate((el) => el.getBoundingClientRect().width > 0), true);
+          assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+          if (process.env.SCREENSHOT_DIR) {
+            await mkdir(process.env.SCREENSHOT_DIR, { recursive: true });
+            await page.screenshot({ path: `${process.env.SCREENSHOT_DIR}/bms-${name}-${width}.png` });
+          }
+        }
+        await page.setViewportSize({ width: 390, height: 844 });
+        await page.getByRole('button', { name: 'Done', exact: true }).tap();
         chargingBms = null;
         const field = page.getByRole('group', { name: 'Field weakening', exact: true });
         const power = page.getByRole('group', { name: 'Battery power', exact: true });
