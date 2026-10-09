@@ -26,7 +26,7 @@ class BackendRuntime(application: FloatViewApplication) {
     val service = SharedService(
         java.io.File(application.filesDir, "float-view/logs"), bluetooth, locationProvider, permissionBroker,
         exportPresentationBroker::present,
-        recordingChanged = { active ->
+        foregroundRequiredChanged = { active ->
             if (active) LoggingForegroundService.start(applicationContext)
             else LoggingForegroundService.stop(applicationContext)
         },

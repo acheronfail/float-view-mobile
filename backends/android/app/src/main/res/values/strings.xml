@@ -1,8 +1,11 @@
 <resources>
     <string name="app_name">Float View</string>
-    <string name="logging_channel_name">Active session logging</string>
-    <string name="logging_channel_description">Keeps Bluetooth logging active while Float View is in the background.</string>
+    <string name="logging_channel_name">Active board connection</string>
+    <string name="logging_channel_description">Live ride readings and background Bluetooth recording.</string>
     <string name="logging_notification_title">Float View is logging</string>
-    <string name="logging_notification_text">Bluetooth telemetry is being saved durably.</string>
+    <string name="ride_notification_title">Float View connected</string>
+    <string name="ride_notification_waiting_connection">Waiting for the device connection</string>
+    <string name="ride_notification_waiting_telemetry">Waiting for telemetry</string>
+    <string name="ride_notification_values">%1$s · Distance %2$s · Battery %3$s</string>
     <string name="logging_notification_stop">Stop and disconnect</string>
 </resources>

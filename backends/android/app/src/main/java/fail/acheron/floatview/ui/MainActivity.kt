@@ -33,6 +33,13 @@ class MainActivity : Activity() {
         )
     }
     private val handler = Handler(Looper.getMainLooper())
+    private val notificationPermission by lazy { fail.acheron.floatview.notifications.RideNotificationPermission(this) }
+    private val notificationPermissionCheck = object : Runnable {
+        override fun run() {
+            val connected = (application as FloatViewApplication).runtime.service.liveActivity != null
+            if (!notificationPermission.requestIfNeeded(connected)) handler.postDelayed(this, 1000)
+        }
+    }
     private val delayedTeardown = Runnable { destroyFrontend() }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -56,9 +63,16 @@ class MainActivity : Activity() {
 
     override fun onResume() {
         super.onResume()
+        handler.removeCallbacks(notificationPermissionCheck)
+        handler.post(notificationPermissionCheck)
         val preference =
             (application as FloatViewApplication).runtime.service.theme
         themeController.apply(preference)
+    }
+
+    override fun onPause() {
+        handler.removeCallbacks(notificationPermissionCheck)
+        super.onPause()
     }
 
     override fun onStop() {
@@ -135,6 +149,7 @@ class MainActivity : Activity() {
 
     override fun onDestroy() {
         handler.removeCallbacks(delayedTeardown)
+        handler.removeCallbacks(notificationPermissionCheck)
         val runtime = (application as FloatViewApplication).runtime
         runtime.permissionBroker.detach(this)
         runtime.exportPresentationBroker.detach(this)

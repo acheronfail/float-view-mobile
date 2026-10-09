@@ -17,6 +17,7 @@ live in Rust. There is no native SQL catalog or domain-operation bridge.
 | `bluetooth/`     | BLE/GATT, permission presentation and test adapter            |
 | `files/`         | Scoped URI import stream and export destination picker/copy   |
 | `lifecycle/`     | Application lifetime and foreground recording service         |
+| `notifications/` | Ride notification presentation and notification permission UI |
 | `location/`      | Location acquisition and permission broker                    |
 | `protocol/vesc/` | Emulator conformance fixture only                             |
 | `theme/`         | System bars and WebView appearance                            |
@@ -36,3 +37,39 @@ JNI exports. Select tests and packaging checks by impact using the root
 [verification policy](../../AGENTS.md#verification). Use a real Android device
 only for affected BLE, background, Activity or file-presentation behavior that
 software cannot establish; unrelated platforms need no regression run.
+
+## Ride notifications and Live Updates
+
+The foreground service runs while a device connection or recording is active,
+including guest connections. It reads the shared Rust `live_activity` projection
+and updates one ongoing notification at most once per second. The notification
+shows the primary gauge's winning load percentage, distance in the selected
+units, and battery charge. Unchanged visible readings do not trigger reposts;
+after 15 seconds without telemetry, it shows “Waiting for telemetry”. Opening
+the notification returns to the app, and “Stop and disconnect” uses the existing
+shared-service stop request.
+
+On Android 16/API 36 and newer, fresh board readings request Live Update
+promotion and put the load percentage in the status-bar chip. Older versions,
+disabled promotion and devices that decline promotion retain a standard ongoing
+notification. Android owns the layout and styling; no custom notification view
+is used. Swiping the notification away suppresses telemetry reposts for that connection
+without stopping recording. Required foreground-service type changes, such as a
+new location grant, may restore the ongoing notification without re-requesting
+promotion. Disconnect removes the foreground notification.
+
+Android 13+ requests notification permission once after a board connects while
+the app is foregrounded. Denial does not prevent Bluetooth or recording; users
+can enable notifications later in Android Settings. `POST_PROMOTED_NOTIFICATIONS`
+is a separate, non-runtime permission, and the system/user controls promotion.
+
+`notifications/` owns display formatting, native notification construction and
+notification permission presentation. Native code does not calculate drive load
+or battery estimates. Unit tests cover projection decoding, units, stale/missing
+readings, visible-update coalescing and dismissal across connection generations.
+
+Physical checkpoint: compare readings with the app on a connected board, then
+background/lock the phone and check BLE updates, notification permission denial
+and later grant, Stop, dismissal and reconnect. Check both a standard notification
+and Live Update promotion on a supporting Android 16+ device. Software checks do
+not establish OEM presentation or background BLE behavior.

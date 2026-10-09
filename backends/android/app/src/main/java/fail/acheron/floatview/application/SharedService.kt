@@ -17,7 +17,7 @@ class SharedService(
     private val location: LocationProviderPort,
     private val permissions: fail.acheron.floatview.permissions.PermissionBroker,
     private val presenter: (NativeFilePresentation) -> Boolean,
-    private val recordingChanged: (Boolean) -> Unit,
+    private val foregroundRequiredChanged: (Boolean) -> Unit,
     private val locationChanged: () -> Unit,
 ) : AutoCloseable {
     val handle: Long
@@ -35,7 +35,9 @@ class SharedService(
     private var activeDevice: DeviceId? = null
     private val timers = mutableMapOf<Long, Pair<Long, Boolean>>()
     @Volatile private var lastCapabilities = 0L
-    private var recording = false
+    private var foregroundRequired = false
+    @Volatile var recording = false; private set
+    @Volatile var liveActivity: LiveActivityState? = null; private set
     private var locationState: LocationProviderState? = null
     @Volatile private var closed = false
     @Volatile var theme = ThemePreference.SYSTEM; private set
@@ -221,13 +223,17 @@ class SharedService(
                 fact(json("fact" to "presentation_started", "id" to id, "accepted" to accepted))
                 if (!accepted) finish()
             }
+            "live_activity" -> {
+                liveActivity = value.optJSONObject("state")?.let(LiveActivityState::decode)
+            }
             "host_state" -> {
                 val preference = ThemePreference.fromWire(value.getString("theme_preference")) ?: ThemePreference.SYSTEM
                 theme = preference
                 val handlers = synchronized(this) { themeHandlers.values.toList() }
                 handlers.forEach { it(preference) }
-                val active = value.getBoolean("recording")
-                if (active != recording) { recording = active; recordingChanged(active) }
+                recording = value.getBoolean("recording")
+                val active = value.getBoolean("connected") || recording
+                if (active != foregroundRequired) { foregroundRequired = active; foregroundRequiredChanged(active) }
             }
         }
     }
