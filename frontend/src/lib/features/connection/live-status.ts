@@ -26,18 +26,20 @@ type StatusSample = Pick<
 
 export function liveStatus(
   state: ActiveConnection['state'] | undefined,
-  sample: StatusSample | null | undefined
+  sample: StatusSample | null | undefined,
+  charging = sample?.charging === true
 ): { display: string; safetyStateActive: boolean } {
   if (state !== 'ready') {
     return { display: state?.replaceAll('_', ' ') ?? 'Connecting', safetyStateActive: false };
   }
-  if (!sample) return { display: 'Connected', safetyStateActive: false };
 
   // The firmware retains beep reasons after the beep ends. They cannot establish an active warning.
-  if (sample.firmwareFault) {
+  if (sample?.firmwareFault) {
     return { display: `Firmware fault · ${telemetryState(sample.firmwareFault)}`, safetyStateActive: true };
   }
-  if (sample.charging) return { display: 'Charging', safetyStateActive: false };
+  if (charging) return { display: 'Charging', safetyStateActive: false };
+
+  if (!sample) return { display: 'Connected', safetyStateActive: false };
 
   if (sample.packageState === 'running') {
     const conditions: string[] = [];

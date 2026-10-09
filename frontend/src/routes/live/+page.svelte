@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { getContext, onDestroy, tick } from 'svelte';
+  import { getContext, onDestroy, onMount, tick } from 'svelte';
   import { goto } from '$app/navigation';
   import { APP_HEADER_CONTEXT, type AppHeaderContext } from '$lib/app/header';
   import { backendState } from '$lib/backend/state.svelte';
@@ -11,6 +11,7 @@
   import RefloatConfigurationEditor from '$lib/features/connection/RefloatConfigurationEditor.svelte';
   import RefloatTunes from '$lib/features/connection/RefloatTunes.svelte';
   import { RefloatConfigurationController } from '$lib/features/connection/refloat-configuration.svelte';
+  import { liveCharging } from '$lib/features/connection/charging';
   import { liveStatus } from '$lib/features/connection/live-status';
   import LiveView from '$lib/features/connection/LiveView.svelte';
   import BmsView from '$lib/features/connection/BmsView.svelte';
@@ -105,7 +106,13 @@
     }
   });
 
-  const deviceState = $derived(liveStatus(connection?.state, sample));
+  let nowMs = $state(Date.now());
+  onMount(() => {
+    const timer = setInterval(() => (nowMs = Date.now()), 1_000);
+    return () => clearInterval(timer);
+  });
+  const charging = $derived(liveCharging(connection, Math.max(nowMs, Date.now())));
+  const deviceState = $derived(liveStatus(connection?.state, sample, charging));
 
   $effect(() => {
     if (!connection) {
@@ -396,11 +403,11 @@
 
     {#if view === 'normal'}
       <div class="h-full min-h-0 flex-1 overflow-hidden">
-        <LiveView onconfigure={openBatteryConfigure} />
+        <LiveView {charging} onconfigure={openBatteryConfigure} />
       </div>
     {:else}
       <div class="min-h-0 flex-1 overflow-y-auto overscroll-y-auto" style="--section-header-top: 0px">
-        <DetailedView onconfigure={openBatteryConfigure} />
+        <DetailedView {charging} onconfigure={openBatteryConfigure} />
       </div>
     {/if}
   {:else}

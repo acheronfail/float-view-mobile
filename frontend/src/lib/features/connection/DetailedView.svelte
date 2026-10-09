@@ -4,7 +4,8 @@
   import { batteryPresentation } from './battery';
   import { beepReasonLabel, stopReasonLabel } from './live-status';
   import BatterySetupWarning from './BatterySetupWarning.svelte';
-  let { onconfigure }: { onconfigure?: (trigger: HTMLButtonElement) => void } = $props();
+  let { onconfigure, charging = false }: { onconfigure?: (trigger: HTMLButtonElement) => void; charging?: boolean } =
+    $props();
   import TelemetrySection from './TelemetrySection.svelte';
   import { controllerRouteDescription, firmwareAccessDescription, readingsAreDimmed } from './live';
   import {
@@ -81,7 +82,8 @@
         ['Footpad', telemetryState(sample?.footpadState)],
         ['Wheelslip', telemetryFlag(sample?.wheelslip)],
         ['Darkride', telemetryFlag(sample?.darkride)],
-        ['Charging', telemetryFlag(sample?.charging)],
+        ['Charging', telemetryFlag(charging)],
+        ['Refloat charging', telemetryFlag(sample?.charging)],
         ['Last stop reason', stopReasonLabel(sample?.stopCondition)],
         ['Setpoint adjustment / pushback', telemetryState(sample?.setpointAdjustment)],
         ['Last reported beep reason', beepReasonLabel(sample?.alertReason)],

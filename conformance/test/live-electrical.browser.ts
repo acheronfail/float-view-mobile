@@ -3,6 +3,7 @@ import { mkdir, readFile } from 'node:fs/promises';
 import { test } from 'node:test';
 import { chromium, webkit } from 'playwright';
 import { startMockServer, stopMockServer, getMockBootstrap } from '../../frontend/backend-mock/index.ts';
+import type { BmsState } from '../../frontend/src/lib/backend/contract.ts';
 import { ConformanceClient } from '../src/client.ts';
 
 const html = await readFile(new URL('../../frontend/build/index.html', import.meta.url), 'utf8');
@@ -36,6 +37,8 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
         let rideSpeed = 24.8;
         let rejectSelection = false;
         let saves = 0;
+        let chargingBms: BmsState | null = null;
+        let refreshBmsTime = true;
         await page.route(`${endpoint.origin}/`, (route) => route.fulfill({ contentType: 'text/html', body: html }));
         await page.routeWebSocket('**/api/ws?*', (socket) => {
           const server = socket.connectToServer();
@@ -75,10 +78,66 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
                 motorTempC: 65,
                 batteryLevel: 0.15,
               });
+            if (state?.activeConnection && chargingBms) {
+              state.activeConnection.latestSample.charging = false;
+              if (refreshBmsTime && chargingBms.latestSnapshot)
+                chargingBms.latestSnapshot.observedAt = new Date().toISOString();
+              state.activeConnection.bms = chargingBms;
+            }
             socket.send(JSON.stringify(message));
           });
         });
         await page.goto(`${endpoint.origin}/#/live`);
+        chargingBms = {
+          status: 'attached',
+          connection: { kind: 'can', canId: 10 },
+          candidates: [],
+          latestSnapshot: {
+            observedAt: new Date().toISOString(),
+            status: 'CHARGING',
+            dataVersion: 1,
+            totalVoltageV: 78,
+            chargeVoltageV: 84,
+            inputCurrentA: 0,
+            inputIcCurrentA: -5,
+            sessionAmpHoursAh: 0,
+            sessionWattHoursWh: 0,
+            cellVoltagesV: [3.9],
+            balancing: [false],
+            temperaturesC: [22],
+            icTemperatureC: 22,
+            humiditySensorTemperatureC: 22,
+            humidityPercent: 50,
+            highestCellTemperatureC: 22,
+            stateOfCharge: 0.6,
+            stateOfHealth: 1,
+            reportedCanId: 10,
+            lifetimeChargeAmpHoursAh: 0,
+            lifetimeChargeWattHoursWh: 0,
+            lifetimeDischargeAmpHoursAh: 0,
+            lifetimeDischargeWattHoursWh: 0,
+            pressurePa: 0,
+          },
+        };
+        const chargingLabel = page.locator('#power-title').getByText('Charging', { exact: true });
+        await chargingLabel.waitFor();
+        assert.equal(await page.getByText('Charging', { exact: true }).count(), 2);
+        await page.locator('#power-title').evaluate((element) => {
+          (window as any).chargingDisappeared = false;
+          new MutationObserver(() => {
+            if (!element.textContent?.includes('Charging')) (window as any).chargingDisappeared = true;
+          }).observe(element, { childList: true, subtree: true, characterData: true });
+        });
+        await page.waitForTimeout(2500);
+        assert.equal(await page.evaluate(() => (window as any).chargingDisappeared), false);
+        refreshBmsTime = false;
+        // Expire unchanged BMS data even while controller snapshots keep arriving.
+        await chargingLabel.waitFor({ state: 'hidden', timeout: 8000 });
+        chargingBms.latestSnapshot!.observedAt = new Date().toISOString();
+        await chargingLabel.waitFor();
+        chargingBms.status = 'unavailable';
+        await chargingLabel.waitFor({ state: 'hidden' });
+        chargingBms = null;
         const field = page.getByRole('group', { name: 'Field weakening', exact: true });
         const power = page.getByRole('group', { name: 'Battery power', exact: true });
         await page.waitForFunction(() =>

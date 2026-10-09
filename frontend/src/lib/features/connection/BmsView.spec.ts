@@ -48,6 +48,8 @@ describe('BMS view', () => {
     expect(text).toContain('Sensor 50: 76.8 °F');
     expect(text).toContain('Reported CAN ID');
     expect(text).toContain('balancing');
+    expect(text).toContain('IC current');
+    expect(text).toContain('-3.20 A');
   });
 
   it('sorts ambiguous routes and directs configuration without showing value placeholders', () => {

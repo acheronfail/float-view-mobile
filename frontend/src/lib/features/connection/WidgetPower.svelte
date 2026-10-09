@@ -7,9 +7,11 @@
   let {
     sample,
     estimate,
+    charging = sample?.charging === true,
     savedBoard = false,
     onconfigure,
   }: {
+    charging?: boolean;
     savedBoard?: boolean;
     onconfigure?: (trigger: HTMLButtonElement) => void;
     sample: LiveSample | null | undefined;
@@ -24,7 +26,6 @@
   const battery = $derived(batteryPresentation(estimate, sample?.batteryLevel, savedBoard));
   const batteryPercent = $derived(battery.percent);
   const batterySeriesCells = $derived(estimate?.seriesCount);
-  const charging = $derived(sample?.charging === true);
   const batteryColor = $derived(colorForBattery(batteryPercent));
 
   function interpolate(start: number[], end: number[], amount: number) {

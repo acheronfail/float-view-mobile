@@ -115,6 +115,8 @@
     <section aria-labelledby="bms-detail-title">
       <h3 id="bms-detail-title" class="mb-2 font-semibold">Environment and counters</h3>
       <dl class="grid grid-cols-2 gap-x-4 gap-y-1">
+        <dt class="text-muted">IC current</dt>
+        <dd>{number(snapshot.inputIcCurrentA, 'A')}</dd>
         <dt class="text-muted">Humidity</dt>
         <dd>{number(snapshot.humidityPercent, '%', 1)}</dd>
         <dt class="text-muted">Pressure</dt>
