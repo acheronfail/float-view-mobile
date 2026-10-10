@@ -138,6 +138,8 @@
         ...refloatMenuActions(connection).map((action) => ({
           label: action.label,
           disabled: action.disabled,
+          checked: action.checked,
+          pending: action.pending,
           appearance: action.kind === 'clearFatalError' ? ('warning' as const) : ('normal' as const),
           onactivate: (closeMenu: () => void) => activateRefloatAction(action, closeMenu),
         })),
@@ -231,7 +233,7 @@
   }
 
   function activateRefloatAction(action: ReturnType<typeof refloatMenuActions>[number], closeMenu: () => void) {
-    closeMenu();
+    if (action.checked === undefined) closeMenu();
     if (action.kind === 'clearFatalError') {
       void performFatalClear();
       return;
@@ -249,7 +251,7 @@
     await backendState.setRefloatControl(selectedControl, selectedEnabled);
     refloatConfirmation = null;
     await tick();
-    appHeader.focusMenu();
+    if (selectedControl !== 'leds' && selectedControl !== 'headlights') appHeader.focusMenu();
   }
 
   async function performFatalClear() {

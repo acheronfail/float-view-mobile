@@ -8,8 +8,16 @@ import type {
 } from '$lib/backend/contract';
 
 export type RefloatMenuAction =
-  | { kind: 'control'; control: RefloatControl; enabled: boolean; label: string; disabled: boolean }
-  | { kind: 'clearFatalError'; label: string; disabled: boolean };
+  | {
+      kind: 'control';
+      control: RefloatControl;
+      enabled: boolean;
+      label: string;
+      disabled: boolean;
+      checked?: boolean | null;
+      pending: boolean;
+    }
+  | { kind: 'clearFatalError'; label: string; disabled: boolean; checked?: boolean | null; pending: boolean };
 
 export interface RefloatControlConfirmation {
   control: RefloatControl;
@@ -76,8 +84,6 @@ export function refloatMenuActions(connection: ActiveConnection): RefloatMenuAct
     connection.state === 'ready' && controls.status === 'ready' && controls.writable && controls.pendingAction === null;
   const idle = connection.latestSample?.rideState === 'idle';
   const flywheel = controls.flywheelEnabled === true;
-  const stateLabel = (label: string, value: boolean | null) =>
-    `${label}: ${value === null ? 'Unknown' : value ? 'On' : 'Off'}`;
 
   if (flywheel) return [];
 
@@ -86,14 +92,21 @@ export function refloatMenuActions(connection: ActiveConnection): RefloatMenuAct
       kind: 'control',
       control: 'package',
       enabled: !(controls.packageEnabled ?? true),
-      label: stateLabel('Refloat package', controls.packageEnabled),
+      label:
+        controls.packageEnabled === null
+          ? 'Refloat (Unknown)'
+          : controls.packageEnabled
+            ? 'Disable Refloat…'
+            : 'Enable Refloat',
+      pending: controls.pendingAction === 'package',
       disabled: !actionable || !idle || controls.packageEnabled === null,
     },
     {
       kind: 'control',
       control: 'flywheel',
       enabled: !(controls.flywheelEnabled ?? false),
-      label: stateLabel('Flywheel', controls.flywheelEnabled),
+      label: controls.flywheelEnabled === null ? 'Flywheel (Unknown)' : 'Enable flywheel…',
+      pending: controls.pendingAction === 'flywheel',
       disabled:
         !actionable ||
         !idle ||
@@ -107,14 +120,18 @@ export function refloatMenuActions(connection: ActiveConnection): RefloatMenuAct
         kind: 'control',
         control: 'leds',
         enabled: !(controls.ledsEnabled ?? true),
-        label: stateLabel('LEDs', controls.ledsEnabled),
+        label: 'LEDs',
+        checked: controls.ledsEnabled,
+        pending: controls.pendingAction === 'leds',
         disabled: !actionable || controls.ledsEnabled === null,
       },
       {
         kind: 'control',
         control: 'headlights',
         enabled: !(controls.headlightsEnabled ?? true),
-        label: stateLabel('Headlights', controls.headlightsEnabled),
+        label: 'Headlights',
+        checked: controls.headlightsEnabled,
+        pending: controls.pendingAction === 'headlights',
         disabled: !actionable || controls.headlightsEnabled === null,
       }
     );
@@ -123,6 +140,7 @@ export function refloatMenuActions(connection: ActiveConnection): RefloatMenuAct
     actions.push({
       kind: 'clearFatalError',
       label: 'Clear fatal error',
+      pending: controls.pendingAction === 'clearFatalError',
       disabled: !actionable || !idle || controls.fatalErrorActive !== false || controls.fatalErrorClearable !== true,
     });
   }

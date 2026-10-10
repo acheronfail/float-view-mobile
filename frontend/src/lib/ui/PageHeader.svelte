@@ -84,6 +84,8 @@
             label={action.label}
             appearance={action.appearance}
             disabled={action.disabled}
+            checked={action.checked}
+            pending={action.pending}
             onactivate={() => action.onactivate(closeMenu)}
           />
         {/each}

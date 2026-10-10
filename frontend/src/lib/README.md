@@ -48,8 +48,10 @@ history. Frequently updating controls use primary pointer release with
 cancellation and a guarded keyboard or assistive click path.
 
 The connected-board menu consumes only authoritative `RefloatControls`. It does
-not infer package versions, protocol commands, or confirmed values. The four
-state-labelled boolean actions and conditional fatal clear remain disabled until
+not infer package versions, protocol commands, or confirmed values. Lighting uses stable labels and switches that retain confirmed state, show pending
+feedback, and keep the menu open. Unknown lighting state is displayed explicitly
+without an off switch. Package and flywheel controls use action labels, with an
+ellipsis when confirmation follows. These controls and conditional fatal clear remain disabled until
 the native owner reports ready and writable state, and no frontend state is
 optimistically changed or persisted. Package disable and flywheel enable use the
 shared confirmation UI. When authoritative state detects active flywheel mode,

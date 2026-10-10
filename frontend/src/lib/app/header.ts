@@ -5,6 +5,8 @@ export type AppHeaderAction = {
   label: string;
   appearance?: MenuItemAppearance;
   disabled?: boolean;
+  checked?: boolean | null;
+  pending?: boolean;
   onactivate: (closeMenu: () => void) => void | Promise<void>;
 };
 

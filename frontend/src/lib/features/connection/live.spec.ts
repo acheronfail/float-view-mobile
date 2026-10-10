@@ -114,17 +114,17 @@ describe('live board behavior', () => {
     ready.refloatControls = { ...refloatControls };
     ready.latestSample = { rideState: 'idle', packageState: 'ready' } as ActiveConnection['latestSample'];
     expect(refloatMenuActions(ready).map((item) => [item.label, item.disabled])).toEqual([
-      ['Refloat package: On', false],
-      ['Flywheel: Off', false],
-      ['LEDs: On', false],
-      ['Headlights: Off', false],
+      ['Disable Refloat…', false],
+      ['Enable flywheel…', false],
+      ['LEDs', false],
+      ['Headlights', false],
       ['Clear fatal error', false],
     ]);
 
     ready.latestSample = { rideState: 'riding', packageState: 'running' } as ActiveConnection['latestSample'];
     const riding = refloatMenuActions(ready);
-    expect(riding.find((item) => item.label === 'LEDs: On')?.disabled).toBe(false);
-    expect(riding.find((item) => item.label === 'Refloat package: On')?.disabled).toBe(true);
+    expect(riding.find((item) => item.label === 'LEDs')?.disabled).toBe(false);
+    expect(riding.find((item) => item.label === 'Disable Refloat…')?.disabled).toBe(true);
     expect(riding.find((item) => item.label === 'Clear fatal error')?.disabled).toBe(true);
 
     ready.refloatControls = { ...refloatControls, writable: false };
@@ -145,6 +145,30 @@ describe('live board behavior', () => {
     expect(unavailable.some((item) => item.label.startsWith('LEDs'))).toBe(false);
     expect(unavailable.find((item) => item.kind === 'clearFatalError')?.disabled).toBe(true);
     expect(unavailable.every((item) => item.disabled)).toBe(true);
+  });
+
+  it('keeps confirmed lighting state and stable labels during pending and unknown states', () => {
+    const ready = connection('ready');
+    ready.latestSample = { rideState: 'idle', packageState: 'ready' } as ActiveConnection['latestSample'];
+    ready.refloatControls = { ...refloatControls, pendingAction: 'leds' };
+    expect(refloatMenuActions(ready).find((item) => item.label === 'LEDs')).toMatchObject({
+      checked: true,
+      pending: true,
+      disabled: true,
+      enabled: false,
+    });
+    ready.refloatControls = { ...refloatControls, ledsEnabled: null, headlightsEnabled: false };
+    expect(refloatMenuActions(ready).find((item) => item.label === 'LEDs')).toMatchObject({
+      checked: null,
+      disabled: true,
+    });
+    expect(refloatMenuActions(ready).find((item) => item.label === 'Headlights')).toMatchObject({
+      checked: false,
+      disabled: false,
+      enabled: true,
+    });
+    ready.refloatControls.packageEnabled = false;
+    expect(refloatMenuActions(ready)[0]).toMatchObject({ label: 'Enable Refloat', enabled: true });
   });
 
   it('moves flywheel disable out of the menu while flywheel mode is active', () => {
