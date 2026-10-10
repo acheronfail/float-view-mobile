@@ -113,8 +113,11 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
       await leds.dispatchEvent('pointercancel', { pointerId: Number(await leds.getAttribute('data-pointer')) });
       await page.mouse.up();
       assert.equal(requests.length, 0);
+      const rowWidth = (await leds.boundingBox())!.width;
       await leds.tap();
-      await leds.getByText('Updating…').waitFor();
+      await leds.and(page.locator('[aria-busy="true"]')).waitFor();
+      assert.equal((await leds.textContent())!.trim(), 'LEDs');
+      assert.equal((await leds.boundingBox())!.width, rowWidth);
       assert.equal(requests.length, 1);
       assert.equal(await leds.getAttribute('aria-checked'), 'true');
       assert.equal(await leds.isDisabled(), true);
@@ -126,7 +129,10 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
       );
       await headlights.focus();
       await page.keyboard.press('Space');
-      await headlights.getByText('Updating…').waitFor();
+      await headlights.and(page.locator('[aria-busy="true"]')).waitFor();
+      assert.equal((await headlights.textContent())!.trim(), 'Headlights');
+      assert.equal(await headlights.isDisabled(), true);
+      assert.equal((await headlights.boundingBox())!.width, rowWidth);
       assert.equal(requests.length, 2);
       complete!();
       await page.waitForFunction(
@@ -135,7 +141,7 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
       );
       await leds.focus();
       await page.keyboard.press('Enter');
-      await leds.getByText('Updating…').waitFor();
+      await leds.and(page.locator('[aria-busy="true"]')).waitFor();
       assert.equal(requests.length, 3);
       complete!(true);
       await page.getByRole('alert').filter({ hasText: 'Control confirmation timed out' }).waitFor();
@@ -144,14 +150,14 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
         () => !document.querySelector('[role="switch"][aria-label="LEDs"]')?.hasAttribute('disabled')
       );
       await leds.dispatchEvent('click', { detail: 0 });
-      await leds.getByText('Updating…').waitFor();
+      await leds.and(page.locator('[aria-busy="true"]')).waitFor();
       assert.equal(requests.length, 4);
       complete!();
       await page.waitForFunction(
         () => document.querySelector('[role="switch"][aria-label="LEDs"]')?.getAttribute('aria-checked') === 'true'
       );
       await headlights.click();
-      await headlights.getByText('Updating…').waitFor();
+      await headlights.and(page.locator('[aria-busy="true"]')).waitFor();
       assert.deepEqual(requests, [
         { control: 'leds', enabled: false },
         { control: 'headlights', enabled: true },

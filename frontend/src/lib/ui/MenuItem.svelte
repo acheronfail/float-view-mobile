@@ -34,15 +34,15 @@
   role={typeof checked === 'boolean' ? 'switch' : undefined}
   aria-checked={typeof checked === 'boolean' ? checked : undefined}
   aria-label={label}
-  aria-describedby={pending || checked === null ? statusId : undefined}
+  aria-describedby={checked === null ? statusId : undefined}
   aria-busy={pending || undefined}
   onpointerdown={(event) => activateFromPointer(event, onactivate)}
   onclick={(event) => activateFromKeyboardOrAssistiveClick(event, onactivate)}
 >
   {#if appearance === 'warning'}<Icon name="triangle-alert" class="mr-1 text-xl" />{/if}
   <span class="flex-1 whitespace-nowrap">{label}</span>
-  {#if pending || checked === null}
-    <span id={statusId} role="status" class="text-xs text-muted">{pending ? 'Updating…' : 'Unknown'}</span>
+  {#if checked === null}
+    <span id={statusId} role="status" class="text-xs text-muted">Unknown</span>
   {/if}
   {#if typeof checked === 'boolean'}
     <span
