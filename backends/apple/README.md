@@ -70,8 +70,14 @@ shared visually: duty yellow, motor pink, battery current green. Charge uses the
 same estimate/controller-reported selection as the frontend power widget.
 
 The shared service emits a coalesced native presentation effect. The iOS host
-keeps only its latest value and serializes ActivityKit updates at most once per
-second, independently of the WebView and loopback listener. Readings become
+keeps only its latest value and checks it once per second, independently of the
+WebView and loopback listener. It submits changed displayed numbers/colours at
+most once every five seconds, comparing the widget's formatted strings rather
+than raw precision or observation timestamps. Board status, footpad and freshness
+transitions bypass this delay on the next worker iteration. Unchanged live
+readings refresh at ten seconds so their stale deadline continues to advance.
+These intervals are an experiment to reduce redundant ActivityKit submissions,
+not documented iOS refresh guarantees. Readings become
 unavailable after 15 seconds without telemetry. iOS controls rendering cadence
 and background execution; this is not a replacement for the in-app live gauge.
 Disconnect ends the activity immediately on the next worker iteration. A
@@ -82,6 +88,31 @@ orphaned activities are removed on process launch.
 `ios/FloatViewLiveActivity/` owns the WidgetKit UI, `ios/LiveActivityShared/` the
 ActivityKit content model, and `ios/float-view/live-activity/` the OS lifecycle.
 The extension is embedded in both simulator and device app packages.
+
+ActivityKit submission diagnostics use unified logging with subsystem
+`fail.acheron.float-view`, category `LiveActivity`. `update_begin` records the
+reason and source age; `update_end` records the await duration and source age at
+completion. Log timestamps supply submission start/completion times. A source
+age of `-1` means unavailable; ages are capped at one day. Logs contain no
+telemetry values, identifiers or tokens and are not part of `.floatview` exports.
+Completion means the ActivityKit call returned, not that the Island rendered it.
+
+For a device comparison, run a Debug build normally for the five-second policy,
+then launch the same build with Xcode scheme environment variable
+`FLOAT_VIEW_LIVE_ACTIVITY_BASELINE=1` for the original one-second/raw-content
+comparison. `worker_started` logs the selected mode; Release ignores the switch.
+Capture device Console logs filtered to the subsystem/category, alongside a
+timestamped observation of compact/expanded Island and Lock Screen behaviour.
+Compare fresh runs lasting at least several minutes, with the same board,
+background location setting and power conditions, without an attached debugger.
+Record the iOS version and whether Low Power Mode is enabled. Correlate with
+`liveactivitiesd` and `chronod` logs where available. Timely submissions with
+delayed visible changes point to system presentation; gaps in submission times
+or long await durations identify a different bottleneck.
+
+`NSSupportsLiveActivitiesFrequentUpdates` remains unset: Apple documents it for
+[remote push updates](https://developer.apple.com/documentation/BundleResources/Information-Property-List/NSSupportsLiveActivitiesFrequentUpdates),
+while this activity uses local updates only.
 
 Physical checkpoint: on a Dynamic Island iPhone with Live Activities allowed,
 connect a board, compare load selection/colours, distance and charge with the
