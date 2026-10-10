@@ -1,8 +1,9 @@
 <script lang="ts">
+  import LiveValueBox from './LiveValueBox.svelte';
   import MarkerCapture from './MarkerCapture.svelte';
   import { prefersReducedMotion, Tween } from 'svelte/motion';
   import type { ControllerCurrentLimits, LiveSample, UnitPreference } from '../../backend/contract';
-  import { formatDistanceM, formatSpeedKph } from '../measurements/format';
+  import { formatSpeedKph } from '../measurements/format';
   import { driveLoad } from './gauge';
 
   let {
@@ -107,7 +108,7 @@
   <svg
     viewBox="0 0 320 300"
     class="mx-auto block h-full max-h-full w-auto max-w-full overflow-visible text-foreground"
-    role="img"
+    role="group"
     aria-labelledby="gauge-title gauge-description"
   >
     <title id="gauge-title">Live speed and drive load gauge</title>
@@ -211,14 +212,9 @@
     >
       {load == null ? '—' : `${animatedLoad.current.toFixed(0)}%`}
     </text>
-
-    <rect x="105" y="236" width="110" height="38" rx="9" class="fill-elevated stroke-outline [stroke-width:1]" />
-    <text x="160" y="251" class="fill-current text-[9px] font-semibold tracking-widest text-muted" text-anchor="middle">
-      DISTANCE
-    </text>
-    <text x="160" y="268" class="fill-current font-mono text-[11px] font-semibold text-foreground" text-anchor="middle">
-      {formatDistanceM(sample?.distanceM, units)}
-    </text>
+    <foreignObject class="overflow-visible" x="105" y="232" width="110" height="56">
+      <LiveValueBox {sample} slot={4} />
+    </foreignObject>
   </svg>
   <MarkerCapture {sessionId} />
 </div>

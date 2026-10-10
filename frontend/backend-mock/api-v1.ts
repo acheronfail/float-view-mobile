@@ -753,7 +753,7 @@ export class MockBackend {
           ('themePreference' in patch && !['system', 'light', 'dark'].includes(String(patch.themePreference))) ||
           ('liveWidgetSlots' in patch &&
             (!Array.isArray(patch.liveWidgetSlots) ||
-              patch.liveWidgetSlots.length !== 4 ||
+              patch.liveWidgetSlots.length !== 5 ||
               patch.liveWidgetSlots.some((field) => !liveWidgetFields.includes(field)))) ||
           ('unitPreference' in patch && !['metric', 'imperial'].includes(String(patch.unitPreference))) ||
           ('historyGapThresholdSeconds' in patch &&

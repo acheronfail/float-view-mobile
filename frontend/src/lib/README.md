@@ -38,8 +38,7 @@ Android branches. Live telemetry groups motion, raw electrical load,
 temperatures, rider input, control contributions, accumulated values, charging,
 source age, and semantic board states. Missing source values remain
 unavailable, and actual, requested, directional, filtered, booster, and
-field-weakening currents remain distinct ampere readings. Do not calculate or
-label any current or torque utilization.
+field-weakening currents remain distinct ampere readings. Keep individual current readings in amperes; the drive-load gauge and configurable load box share the existing load calculation.
 
 Session review loads metadata through the WebSocket control plane, then requests
 only the selected stable or extension fields through the authenticated bounded
@@ -111,10 +110,10 @@ battery defaults atomically; capacity/empty overrides retain the selected name,
 while departing counts/curve become Custom. Accepted snapshots alone change live
 estimates. Pending/failed saves remain visible, scoped to the opened board.
 
-The four small live number widgets use the closed `liveWidgetFields` catalogue
+The five configurable live number widgets (four above the gauge and one inside it) use the closed `liveWidgetFields` catalogue
 in the wire contract. Each opens a full-page, scrollable picker with live previews;
 missing fields remain selectable and show an unavailable value. Choices are an
-ordered four-entry `Settings.liveWidgetSlots` tuple, shared across boards and
+ordered five-entry `Settings.liveWidgetSlots` tuple, shared across boards and
 persisted by the Rust product store for both native hosts. Repeated fields are
 allowed. Only accepted settings replace a slot; save failures leave the picker
 open. Keyboard dismissal restores focus to the originating button; pointer
@@ -123,3 +122,5 @@ lives in `features/connection/live-values.ts`, respects display units and source
 nullability, and does not interpret firmware. Signed battery power is pack
 voltage times battery current; its displayed sign controls draw/regen labels and
 theme-aware colours. Interpolation respects reduced motion.
+
+The box inside the gauge defaults to trip distance. Drive load is available in every box’s picker. Load reuses the primary gauge calculation, source label and colour with the authoritative controller current limits.

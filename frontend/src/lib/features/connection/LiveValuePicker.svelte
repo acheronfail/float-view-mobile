@@ -1,6 +1,12 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { liveWidgetFields, type LiveWidgetField, type LiveSample, type UnitPreference } from '$lib/backend/contract';
+  import {
+    liveWidgetFields,
+    type ControllerCurrentLimits,
+    type LiveWidgetField,
+    type LiveSample,
+    type UnitPreference,
+  } from '$lib/backend/contract';
   import { activateFromPointer, activateFromKeyboardOrAssistiveClick } from '$lib/ui/activation';
   import { liveValue, liveValueColor, liveValueText, liveValueStatus } from './live-values';
 
@@ -10,6 +16,7 @@
     sample,
     units,
     estimatedLevel,
+    currentLimits,
     busy,
     error,
     onselect,
@@ -20,6 +27,7 @@
     sample: LiveSample | null | undefined;
     units: UnitPreference;
     estimatedLevel?: number | null;
+    currentLimits?: ControllerCurrentLimits | null;
     busy: boolean;
     error: string | null;
     onselect: (field: LiveWidgetField, keyboard: boolean) => void;
@@ -64,7 +72,7 @@
     <div class="min-h-0 flex-1 overflow-y-auto overscroll-contain py-4">
       <div class="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
         {#each liveWidgetFields as field (field)}
-          {@const reading = liveValue(field, sample, units, estimatedLevel)}
+          {@const reading = liveValue(field, sample, units, estimatedLevel, currentLimits)}
           <button
             type="button"
             aria-label={reading.name}
@@ -80,7 +88,7 @@
           >
             <span class="text-sm font-medium">{reading.name}</span>
             <span
-              class={`font-mono text-xl font-semibold break-all tabular-nums ${liveValueColor(field, reading.value, sample, units)}`}
+              class={`font-mono text-xl font-semibold break-all tabular-nums ${liveValueColor(field, reading.value, sample, units, currentLimits)}`}
             >
               <span class="sr-only">{liveValueStatus(field, sample)} </span>{liveValueText(
                 field,

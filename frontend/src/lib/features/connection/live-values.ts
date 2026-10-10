@@ -1,5 +1,6 @@
+import { driveLoad } from './gauge';
 import { footpadPresentation } from './footpads';
-import type { LiveSample, LiveWidgetField, UnitPreference } from '$lib/backend/contract';
+import type { ControllerCurrentLimits, LiveSample, LiveWidgetField, UnitPreference } from '$lib/backend/contract';
 
 export const liveValueCatalog = {
   fieldWeakeningCurrentA: { name: 'Field weakening', label: 'Field weak.', unit: 'A', digits: 1 },
@@ -8,6 +9,7 @@ export const liveValueCatalog = {
   powerW: { name: 'Battery power', label: 'Power', unit: 'W', digits: 0 },
   packVoltageV: { name: 'Pack voltage', label: 'Voltage', unit: 'V', digits: 1 },
   dutyCycle: { name: 'Duty cycle', label: 'Duty', unit: '%', digits: 0 },
+  driveLoad: { name: 'Load', label: 'Load', unit: '%', digits: 0 },
   estimatedBatteryLevel: { name: 'Estimated battery level', label: 'Est. batt.', unit: '%', digits: 0 },
   batteryLevel: { name: 'Controller-reported battery level', label: 'Raw batt.', unit: '%', digits: 0 },
   speedKph: { name: 'Speed', label: 'Speed', unit: 'km/h', digits: 1 },
@@ -52,17 +54,24 @@ export function liveValue(
   field: LiveWidgetField,
   sample: LiveSample | null | undefined,
   units: UnitPreference,
-  estimatedLevel?: number | null
+  estimatedLevel?: number | null,
+  currentLimits?: ControllerCurrentLimits | null
 ) {
-  const definition = liveValueCatalog[field];
+  const load = field === 'driveLoad' ? driveLoad(sample, currentLimits) : null;
+  const definition = {
+    ...liveValueCatalog[field],
+    ...(load ? { label: { duty: 'Duty', motor: 'Motor', battery: 'Battery' }[load.source] } : {}),
+  };
   let value =
-    field === 'powerW'
-      ? sample?.packVoltageV == null || sample.batteryCurrentA == null
-        ? null
-        : sample.packVoltageV * sample.batteryCurrentA
-      : field === 'estimatedBatteryLevel'
-        ? estimatedLevel
-        : sample?.[field];
+    field === 'driveLoad'
+      ? load?.percentage
+      : field === 'powerW'
+        ? sample?.packVoltageV == null || sample.batteryCurrentA == null
+          ? null
+          : sample.packVoltageV * sample.batteryCurrentA
+        : field === 'estimatedBatteryLevel'
+          ? estimatedLevel
+          : sample?.[field];
   let unit: string = definition.unit;
   if (value == null || !Number.isFinite(value)) return { ...definition, value: null, unit: displayUnit(unit, units) };
   if (field === 'batteryLevel' || field === 'estimatedBatteryLevel' || field === 'dutyCycle') value *= 100;
@@ -93,9 +102,16 @@ export function liveValueColor(
   field: LiveWidgetField,
   value: number | null,
   sample?: LiveSample | null,
-  units: UnitPreference = 'metric'
+  units: UnitPreference = 'metric',
+  currentLimits?: ControllerCurrentLimits | null
 ) {
   if (value == null) return 'text-foreground';
+  if (field === 'driveLoad') {
+    const load = driveLoad(sample, currentLimits);
+    return load
+      ? { duty: 'text-duty', motor: 'text-motor', battery: 'text-battery-current' }[load.source]
+      : 'text-muted';
+  }
   if (field === 'powerW')
     return Math.round(value) > 0 ? 'text-power-draw' : Math.round(value) < 0 ? 'text-success' : 'text-foreground';
   if (field === 'footpadAdc1V' || field === 'footpadAdc2V')

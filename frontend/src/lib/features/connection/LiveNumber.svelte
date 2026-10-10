@@ -1,6 +1,6 @@
 <script lang="ts">
   import { prefersReducedMotion, Tween } from 'svelte/motion';
-  import type { LiveSample, LiveWidgetField, UnitPreference } from '$lib/backend/contract';
+  import type { ControllerCurrentLimits, LiveSample, LiveWidgetField, UnitPreference } from '$lib/backend/contract';
   import { liveValue, liveValueColor, liveValueText, liveValueStatus } from './live-values';
 
   let {
@@ -8,13 +8,15 @@
     sample,
     units,
     estimatedLevel,
+    currentLimits,
   }: {
     field: LiveWidgetField;
     sample: LiveSample | null | undefined;
     units: UnitPreference;
     estimatedLevel?: number | null;
+    currentLimits?: ControllerCurrentLimits | null;
   } = $props();
-  const reading = $derived(liveValue(field, sample, units, estimatedLevel));
+  const reading = $derived(liveValue(field, sample, units, estimatedLevel, currentLimits));
   const animated = new Tween(0);
   let previousIdentity: string | undefined;
   $effect(() => {
@@ -39,7 +41,7 @@
 <div class="[container-type:inline-size]">
   <div class="truncate text-[10px] font-semibold tracking-wide text-muted uppercase">{label}</div>
   <div
-    class={`font-mono font-semibold whitespace-nowrap tabular-nums ${liveValueColor(field, value, sample, units)}`}
+    class={`font-mono font-semibold whitespace-nowrap tabular-nums ${liveValueColor(field, value, sample, units, currentLimits)}`}
     style:font-size={`min(0.875rem, ${fontWidth}cqi)`}
   >
     <span class="sr-only">{liveValueStatus(field, sample)} </span>{text}<span class="ml-0.5 text-[0.7em] font-normal"

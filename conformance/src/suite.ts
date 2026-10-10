@@ -171,7 +171,7 @@ async function exerciseProductMethods(
       minimumSessionDistance: 100,
       themePreference: 'dark',
       unitPreference: 'imperial',
-      liveWidgetSlots: ['speedKph', 'packVoltageV', 'motorTempC', 'powerW'],
+      liveWidgetSlots: ['speedKph', 'packVoltageV', 'motorTempC', 'powerW', 'distanceM'],
     },
   });
   await expectError(
@@ -184,8 +184,8 @@ async function exerciseProductMethods(
   assert.equal(settings.minimumSessionDistance, 100);
   assert.equal(settings.themePreference, 'dark');
   assert.equal(settings.unitPreference, 'imperial');
-  assert.deepEqual(settings.liveWidgetSlots, ['speedKph', 'packVoltageV', 'motorTempC', 'powerW']);
-  for (const invalid of [[], ['speedKph'], ['speedKph', 'powerW', 'motorTempC', 'unknown'], null]) {
+  assert.deepEqual(settings.liveWidgetSlots, ['speedKph', 'packVoltageV', 'motorTempC', 'powerW', 'distanceM']);
+  for (const invalid of [[], ['speedKph'], ['speedKph', 'powerW', 'motorTempC', 'unknown', 'distanceM'], null]) {
     await expectError(
       client.request('settings.update', {
         expectedRevision: settings.revision,
@@ -988,7 +988,7 @@ export function assertState(state: AppState) {
   assert.ok(['available', 'foregroundOnly', 'unavailable'].includes(state.location.backgroundCapture));
   assert.ok(['system', 'light', 'dark'].includes(state.settings.themePreference));
   assert.ok(['metric', 'imperial'].includes(state.settings.unitPreference));
-  assert.equal(state.settings.liveWidgetSlots.length, 4);
+  assert.equal(state.settings.liveWidgetSlots.length, 5);
   assert.ok(state.settings.liveWidgetSlots.every((field) => liveWidgetFields.includes(field)));
 
   if (!active) return;

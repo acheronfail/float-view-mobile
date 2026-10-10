@@ -175,7 +175,37 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
           document.querySelector('[aria-label="Battery power"]')?.textContent?.includes('+900')
         );
         assert.match(await field.innerText(), /0\.7/);
-        assert.equal(await page.getByText('DISTANCE', { exact: true }).count(), 1);
+        const distanceBox = page.getByRole('button', { name: 'Choose value for box 5: Trip distance', exact: true });
+        await distanceBox.waitFor();
+        assert.equal(await page.getByRole('button', { name: /^Choose value for box/ }).count(), 5);
+        assert.equal(await page.locator('[aria-label="Live number widgets"] button').count(), 4);
+        assert.equal(
+          await page
+            .locator('foreignObject')
+            .getByRole('button', { name: 'Choose value for box 5: Trip distance', exact: true })
+            .count(),
+          1
+        );
+        await distanceBox.tap();
+        const distancePicker = page.getByRole('dialog', { name: 'Choose a value' });
+        await distancePicker.waitFor();
+        await distancePicker.getByRole('button', { name: 'Load', exact: true }).tap();
+        await distancePicker.waitFor({ state: 'hidden' });
+        await page.getByRole('button', { name: 'Choose value for box 5: Load', exact: true }).tap();
+        await distancePicker.getByRole('button', { name: 'Trip distance', exact: true }).tap();
+        await distancePicker.waitFor({ state: 'hidden' });
+        await distanceBox.focus();
+        await page.keyboard.press('Enter');
+        await distancePicker.waitFor();
+        const pickerBounds = await distancePicker.boundingBox();
+        assert.equal(pickerBounds?.width, 390);
+        assert.equal(pickerBounds?.height, 844);
+        if (process.env.SCREENSHOT_DIR)
+          await page.screenshot({ path: `${process.env.SCREENSHOT_DIR}/gauge-picker-${name}.png` });
+        await page.keyboard.press('Escape');
+        await distancePicker.waitFor({ state: 'hidden' });
+        assert.equal(await distanceBox.evaluate((el) => el === document.activeElement), true);
+        saves = 0;
         await page.emulateMedia({ colorScheme: 'dark' });
         await page.waitForFunction(() => document.documentElement.dataset.theme === 'dark');
         const drawColor = await power
@@ -227,7 +257,7 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
         await page.waitForFunction(() =>
           document.querySelector('[aria-label="Field weakening"]')?.textContent?.includes('0.0')
         );
-        assert.equal(await page.getByText('DISTANCE', { exact: true }).count(), 1);
+        assert.equal(await distanceBox.count(), 1);
         fw = null;
         amps = null;
         await page.waitForFunction(() =>
@@ -240,7 +270,7 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
         ]) {
           await page.setViewportSize(viewport);
           assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
-          const gauge = await page.getByRole('img', { name: 'Live speed and drive load gauge' }).boundingBox();
+          const gauge = await page.getByRole('group', { name: 'Live speed and drive load gauge' }).boundingBox();
           assert(gauge && gauge.height > 150);
         }
         await page.setViewportSize({ width: 390, height: 844 });
@@ -330,7 +360,9 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
         const settings = (await client.request('state.get', {})).settings;
         await client.request('settings.update', {
           expectedRevision: settings.revision,
-          patch: { liveWidgetSlots: ['footpadAdc1V', 'footpadAdc2V', 'motorTempC', 'batteryLevel'] },
+          patch: {
+            liveWidgetSlots: ['footpadAdc1V', 'footpadAdc2V', 'motorTempC', 'batteryLevel', 'distanceM'],
+          },
         });
         const leftPad = page.getByRole('button', { name: 'Choose value for box 1: Footpad ADC 1', exact: true });
         const rightPad = page.getByRole('button', { name: 'Choose value for box 2: Footpad ADC 2', exact: true });

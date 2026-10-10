@@ -63,7 +63,7 @@ const initial: AppState = {
     minimumSessionDistance: 100,
     themePreference: 'system',
     unitPreference: 'metric',
-    liveWidgetSlots: ['fieldWeakeningCurrentA', 'motorCurrentA', 'batteryCurrentA', 'powerW'],
+    liveWidgetSlots: ['fieldWeakeningCurrentA', 'motorCurrentA', 'batteryCurrentA', 'powerW', 'distanceM'],
     historyGapThresholdSeconds: null,
     locationRecordingEnabled: false,
     includeGpsLocationWhenExporting: false,

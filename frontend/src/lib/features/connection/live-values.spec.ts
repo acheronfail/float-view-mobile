@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { liveValue, liveValueCatalog, liveValueColor, liveValueText } from './live-values';
-import { liveWidgetFields, type LiveSample } from '$lib/backend/contract';
+import { liveWidgetFields, type ControllerCurrentLimits, type LiveSample } from '$lib/backend/contract';
 const sample = {
   packVoltageV: 75,
   batteryCurrentA: -4,
@@ -64,5 +64,31 @@ describe('live value colours', () => {
     expect(liveValueColor('dutyCycle', 40)).toBe('text-duty');
     expect(liveValueColor('wattHoursDrawnWh', 100)).toBe('text-power-draw');
     expect(liveValueColor('wattHoursChargedWh', 10)).toBe('text-success');
+  });
+});
+
+describe('load widget', () => {
+  const limits: ControllerCurrentLimits = {
+    motorCurrentMaxA: 100,
+    motorCurrentMinA: -50,
+    batteryCurrentMaxA: 50,
+    batteryCurrentMinA: -20,
+    batterySeriesCells: 18,
+  };
+  it.each([
+    [0.9, 60, 10, 90, 'Duty', 'text-duty'],
+    [0.2, 60, 10, 60, 'Motor', 'text-motor'],
+    [0.2, -10, -15, 75, 'Battery', 'text-battery-current'],
+  ] as const)(
+    'matches the gauge source and percentage',
+    (dutyCycle, motorCurrentA, batteryCurrentA, value, label, color) => {
+      const readingSample = { ...sample, dutyCycle, motorCurrentA, batteryCurrentA };
+      expect(liveValue('driveLoad', readingSample, 'metric', null, limits)).toMatchObject({ value, label, unit: '%' });
+      expect(liveValueColor('driveLoad', value, readingSample, 'metric', limits)).toBe(color);
+    }
+  );
+  it('keeps unavailable load unavailable and supports duty without limits', () => {
+    expect(liveValue('driveLoad', null, 'metric').value).toBeNull();
+    expect(liveValue('driveLoad', { ...sample, dutyCycle: 0.4 }, 'imperial').value).toBe(40);
   });
 });

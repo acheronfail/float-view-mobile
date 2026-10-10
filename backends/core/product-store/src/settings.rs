@@ -15,7 +15,7 @@ pub struct Settings {
     pub minimum_session_distance: f64,
     pub theme_preference: String,
     pub unit_preference: String,
-    pub live_widget_slots: [String; 4],
+    pub live_widget_slots: [String; 5],
     pub history_gap_threshold_seconds: Option<f64>,
     pub location_recording_enabled: bool,
     pub include_gps_location_when_exporting: bool,
@@ -37,6 +37,7 @@ impl Default for Settings {
                 "motorCurrentA",
                 "batteryCurrentA",
                 "powerW",
+                "distanceM",
             ]
             .map(str::to_owned),
             history_gap_threshold_seconds: None,
@@ -164,6 +165,7 @@ const LIVE_WIDGET_FIELDS: &[&str] = &[
     "powerW",
     "packVoltageV",
     "dutyCycle",
+    "driveLoad",
     "estimatedBatteryLevel",
     "batteryLevel",
     "speedKph",
@@ -200,7 +202,7 @@ const LIVE_WIDGET_FIELDS: &[&str] = &[
 ];
 fn valid_live_widget_slots(value: &Value) -> bool {
     value.as_array().is_some_and(|slots| {
-        slots.len() == 4
+        slots.len() == 5
             && slots
                 .iter()
                 .all(|v| v.as_str().is_some_and(|v| LIVE_WIDGET_FIELDS.contains(&v)))

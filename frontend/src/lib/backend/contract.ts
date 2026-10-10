@@ -703,6 +703,7 @@ export const liveWidgetFields = [
   'powerW',
   'packVoltageV',
   'dutyCycle',
+  'driveLoad',
   'estimatedBatteryLevel',
   'batteryLevel',
   'speedKph',
@@ -738,12 +739,13 @@ export const liveWidgetFields = [
   'chargingVoltageV',
 ] as const;
 export type LiveWidgetField = (typeof liveWidgetFields)[number];
-export type LiveWidgetSlots = [LiveWidgetField, LiveWidgetField, LiveWidgetField, LiveWidgetField];
+export type LiveWidgetSlots = [LiveWidgetField, LiveWidgetField, LiveWidgetField, LiveWidgetField, LiveWidgetField];
 export const defaultLiveWidgetSlots: LiveWidgetSlots = [
   'fieldWeakeningCurrentA',
   'motorCurrentA',
   'batteryCurrentA',
   'powerW',
+  'distanceM',
 ];
 
 export interface Settings {
