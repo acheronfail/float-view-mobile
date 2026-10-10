@@ -11,6 +11,13 @@ import {
   type SessionDataResult,
 } from './session-data';
 
+export class SessionDataHttpError extends Error {
+  constructor(readonly status: number) {
+    super(`Session-data request failed: HTTP ${status}`);
+    this.name = 'SessionDataHttpError';
+  }
+}
+
 function timestamp(): number {
   return globalThis.performance?.now() ?? Date.now();
 }
@@ -126,7 +133,10 @@ export class SessionDataClient {
       await retryDelay(RETRY_DELAYS_MS[attempt]!, signal);
     }
     signal?.throwIfAborted();
-    if (!response.ok) throw new Error(`Session-data request failed: HTTP ${response.status}`);
+    if (!response.ok) {
+      await response.body?.cancel();
+      throw new SessionDataHttpError(response.status);
+    }
     const readTiming: SessionDataReadTiming = { decodedBytes: 0, bodyMs: 0, parseMs: 0 };
     const value = await readBoundedJson(response, readTiming);
     const validationStarted = timestamp();

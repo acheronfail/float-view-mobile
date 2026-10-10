@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { SessionDisplayOptions, SessionRideMarker } from '$lib/backend/contract';
+  import { SessionDataHttpError } from '$lib/backend/session-data-client';
   import { ApiRequestError } from '$lib/backend/client';
   import SessionMarkers from './SessionMarkers.svelte';
   import { getContext, onDestroy, onMount, tick } from 'svelte';
@@ -16,6 +17,34 @@
   import SessionLocationMap from './SessionLocationMap.svelte';
   import { sessionStartDateLabel } from './session-label';
   import type { Viewport } from './viewport';
+  import type { SessionLocationPoint } from '$lib/backend/contract';
+  import { mapIntervals, type MapBounds } from './map-filter';
+  let filterByMap = $state(false);
+  let mapBounds = $state<MapBounds | null>(null);
+  let track = $state<SessionLocationPoint[][] | null>(null);
+  let trackSnapshot = $state('');
+  let refreshAttempted = false;
+  const snapshotKey = $derived(JSON.stringify(backendState.sessionMetadata?.snapshot));
+  const spatialSelection = $derived.by(() => {
+    if (!filterByMap || !mapBounds || !track || trackSnapshot !== snapshotKey) return { intervals: null, error: null };
+    try {
+      return { intervals: mapIntervals(track, mapBounds), error: null };
+    } catch (reason) {
+      return { intervals: [], error: reason instanceof Error ? reason.message : String(reason) };
+    }
+  });
+  function setMapFilter(enabled: boolean) {
+    filterByMap = enabled;
+    refreshAttempted = false;
+  }
+  function refreshSpatialSnapshot(reason: unknown) {
+    const conflict =
+      (reason instanceof ApiRequestError && reason.code === 'conflict') ||
+      (reason instanceof SessionDataHttpError && reason.status === 409);
+    if (!conflict || refreshAttempted) return;
+    refreshAttempted = true;
+    void backendState.openSession(sessionId);
+  }
 
   let { sessionId, boardSavedDeviceId }: { sessionId: string; boardSavedDeviceId?: string | null } = $props();
   let deleteConfirmationOpen = $state(false);
@@ -168,7 +197,14 @@
   });
 
   $effect(() => {
-    if (backendState.sessionMetadata?.summary.sessionId !== sessionId) chartViewport = null;
+    if (backendState.sessionMetadata?.summary.sessionId !== sessionId) {
+      chartViewport = null;
+      filterByMap = false;
+      mapBounds = null;
+      track = null;
+      trackSnapshot = '';
+      refreshAttempted = false;
+    }
   });
 
   onMount(() => {
@@ -229,7 +265,7 @@
       <SessionMarkers {markers} selected={selectedMarker?.sequence ?? null} onselect={selectMarker} />
       {#if markerError}<p role="alert" class="text-warning">{markerError}</p>{/if}
       {#if backendState.sessionMetadata.location.available || markers.some((m) => m.location)}
-        {#key `${backendState.sessionMetadata.summary.sessionId}:${backendState.sessionMetadata.snapshot.historyRevision}`}
+        {#key `${backendState.sessionMetadata.summary.sessionId}:${snapshotKey}`}
           <SessionLocationMap
             metadata={backendState.sessionMetadata}
             {selectedElapsedMs}
@@ -238,6 +274,17 @@
             onmarkerselect={selectMarker}
             onfaultselect={selectFault}
             viewport={chartViewport}
+            {filterByMap}
+            initialBounds={mapBounds}
+            onfilterchange={setMapFilter}
+            onbounds={(bounds) => {
+              mapBounds = bounds;
+            }}
+            ontrack={(segments) => {
+              track = segments;
+              trackSnapshot = snapshotKey;
+            }}
+            ontrackerror={refreshSpatialSnapshot}
             bind:height={locationMapHeight}
           />
         {/key}
@@ -246,11 +293,16 @@
       {/if}
 
       <div class="mt-3">
-        {#key backendState.sessionMetadata.snapshot.historyRevision}
+        {#key `${backendState.sessionMetadata.summary.sessionId}:${snapshotKey}`}
           <SessionHistory
             metadata={backendState.sessionMetadata}
             {markers}
             {selectedPoint}
+            {filterByMap}
+            intervals={spatialSelection.intervals}
+            filterError={spatialSelection.error}
+            ondataerror={refreshSpatialSnapshot}
+            initialViewport={chartViewport}
             onmarkerselect={selectMarker}
             onselectionchange={(elapsedMs) => {
               selectedElapsedMs = elapsedMs;
@@ -261,6 +313,9 @@
         {/key}
       </div>
 
+      {#if filterByMap}<p class="mt-3 text-xs text-muted">
+          Session totals and events are not filtered by the map.
+        </p>{/if}
       <div class="mt-4 grid grid-cols-2 gap-3">
         <div class="rounded-lg border border-outline bg-elevated p-3">
           <p class="text-sm text-muted">Samples</p>
@@ -278,6 +333,7 @@
     {#if backendState.sessionMetadata}<SessionEvents
         metadata={backendState.sessionMetadata}
         viewport={chartViewport}
+        {filterByMap}
       />{/if}
   {:else}
     <p class="mt-3 text-muted">Loading session…</p>

@@ -143,3 +143,8 @@ describe('session-data scheduling', () => {
     expect(fetcher).toHaveBeenCalledTimes(1);
   });
 });
+
+it('preserves HTTP conflict status for bounded snapshot refresh', async () => {
+  const data = client(async () => new Response('', { status: 409 }));
+  await expect(data.request(request)).rejects.toMatchObject({ name: 'SessionDataHttpError', status: 409 });
+});

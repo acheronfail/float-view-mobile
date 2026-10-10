@@ -142,3 +142,25 @@ describe('historical session geometry', () => {
     expect(motor?.y).not.toBe(controller?.y);
   });
 });
+
+it('breaks spatial joins and refuses tooltip interpolation through excluded time', () => {
+  const column = {
+    elapsedMs: [0, 100, 500, 600],
+    sequence: [0, 1, 2, 3],
+    values: [1, 2, 3, 4],
+    generations: [0, 0, 0, 0],
+  };
+  const options = {
+    width: 100,
+    height: 50,
+    viewport: { startElapsedMs: 0, endElapsedMs: 600 },
+    intervals: [
+      { startElapsedMs: 0, endElapsedMs: 100 },
+      { startElapsedMs: 500, endElapsedMs: 600 },
+    ],
+    domain: { min: 0, max: 5 },
+  };
+  expect(buildPathSegments(column, options)).toHaveLength(2);
+  expect(pointAtElapsed(column, 300, options.domain, options)).toBeNull();
+  expect(pointAtElapsed(column, 550, options.domain, options)?.x).toBe(75);
+});

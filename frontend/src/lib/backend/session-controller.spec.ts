@@ -91,3 +91,36 @@ describe('session review controller', () => {
     await expect(request).rejects.toThrow();
   });
 });
+
+it('allows independent interval owners and reuses cached reads after navigation cancellation', async () => {
+  let calls = 0;
+  const seen: { signal: AbortSignal; request: import('./session-data').SessionDataRequest }[] = [];
+  const fake = {
+    request: async (request: import('./session-data').SessionDataRequest, signal: AbortSignal) => {
+      calls++;
+      seen.push({ signal, request });
+      await Promise.resolve();
+      return {
+        kind: 'series',
+        sessionId: metadata.summary.sessionId,
+        snapshot: metadata.snapshot,
+        range: request.range,
+        gapPolicy: { thresholdSeconds: null },
+        fields: metadata.fields,
+        columns: {
+          speedKph: { elapsedMs: [request.range.startElapsedMs], sequence: [0], values: [1], generations: [0] },
+        },
+      };
+    },
+  } as unknown as SessionDataClient;
+  const controller = new SessionReviewController(metadata, fake);
+  await Promise.all([
+    controller.loadSeries(['speedKph'], 0, 100, 1, null, 'first'),
+    controller.loadSeries(['speedKph'], 500, 600, 1, null, 'second'),
+  ]);
+  expect(seen.every((item) => !item.signal.aborted)).toBe(true);
+  expect(seen.every((item) => item.request.snapshot === metadata.snapshot)).toBe(true);
+  controller.cancelPending();
+  await controller.loadSeries(['speedKph'], 0, 100, 1, null, 'first');
+  expect(calls).toBe(2);
+});

@@ -10,6 +10,11 @@
     metadata,
     onselectionchange,
     onviewportchange,
+    filterByMap = false,
+    intervals = null,
+    filterError = null,
+    ondataerror,
+    initialViewport = null,
   }: {
     markers?: SessionRideMarker[];
     selectedPoint?: { elapsedMs: number } | null;
@@ -17,9 +22,26 @@
     metadata: SessionMetadata;
     onselectionchange?: (elapsedMs: number) => void;
     onviewportchange?: (viewport: Viewport) => void;
+    filterByMap?: boolean;
+    intervals?: Viewport[] | null;
+    filterError?: string | null;
+    ondataerror?: (reason: unknown) => void;
+    initialViewport?: Viewport | null;
   } = $props();
 </script>
 
 <section aria-labelledby="history-heading">
-  <SessionHistoryChart {markers} {selectedPoint} {onmarkerselect} {metadata} {onselectionchange} {onviewportchange} />
+  <SessionHistoryChart
+    {markers}
+    {selectedPoint}
+    {onmarkerselect}
+    {metadata}
+    {onselectionchange}
+    {onviewportchange}
+    {filterByMap}
+    {intervals}
+    {filterError}
+    {ondataerror}
+    {initialViewport}
+  />
 </section>

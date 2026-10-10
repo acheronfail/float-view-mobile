@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { timeline } from './map-filter';
+  import { MapSeriesLoader } from './map-series';
   import { chartMarkerGroups } from './marker-groups';
   import { onDestroy, onMount, untrack } from 'svelte';
   import { SvelteMap, SvelteSet } from 'svelte/reactivity';
@@ -30,6 +32,11 @@
     metadata,
     onselectionchange = () => {},
     onviewportchange = () => {},
+    filterByMap = false,
+    intervals = null,
+    filterError = null,
+    ondataerror = () => {},
+    initialViewport = null,
   }: {
     markers?: SessionRideMarker[];
     selectedPoint?: { elapsedMs: number } | null;
@@ -37,10 +44,17 @@
     metadata: SessionMetadata;
     onselectionchange?: (elapsedMs: number) => void;
     onviewportchange?: (viewport: Viewport) => void;
+    filterByMap?: boolean;
+    intervals?: Viewport[] | null;
+    filterError?: string | null;
+    ondataerror?: (reason: unknown) => void;
+    initialViewport?: Viewport | null;
   } = $props();
   let plot = $state<HTMLElement | null>(null);
   let width = $state(0);
-  let viewport = $state<Viewport>({ startElapsedMs: 0, endElapsedMs: metadata.summary.totalElapsedMs });
+  let viewport = $state<Viewport>(
+    initialViewport ?? { startElapsedMs: 0, endElapsedMs: metadata.summary.totalElapsedMs }
+  );
   let previewViewport = $state<Viewport | null>(null);
   let result = $state<SessionSeriesResult | null>(null);
   let loading = $state(false);
@@ -57,6 +71,12 @@
   let groupObserver: IntersectionObserver | null = null;
   let resizeFrame: number | null = null;
   let reviewController: SessionReviewController | null = null;
+  let mapLoader: MapSeriesLoader | null = null;
+  let loadGeneration = 0;
+  let lastRequestKey = '';
+  let retryVersion = $state(0);
+  let outsideFilter = $state(false);
+  const chartIntervals = $derived(filterByMap ? (intervals ?? []) : undefined);
   let activeField = $state('');
   let inspectionMs = $state(0);
   let exactStatus = $state<'idle' | 'exact'>('idle');
@@ -97,6 +117,7 @@
   });
   const chartGroups = $derived(sessionChartGroups(fields));
   const visibleViewport = $derived(previewViewport ?? viewport);
+  const axis = $derived(timeline(chartIntervals ?? [visibleViewport]));
   const span = $derived(Math.max(1, visibleViewport.endElapsedMs - visibleViewport.startElapsedMs));
   const duration = $derived(Math.max(1, metadata.summary.totalElapsedMs));
   const isZoomed = $derived(viewport.endElapsedMs - viewport.startElapsedMs < duration);
@@ -132,12 +153,40 @@
   });
 
   $effect(() => {
-    if (!activeField && fields.length) {
-      const firstVisible = fields.find((field) => !hiddenFields.has(field.name));
-      if (firstVisible) activeField = firstVisible.name;
-    }
-    if (!width || !fieldGroups.length) return;
-    void loadSeriesGroup(0, width);
+    const requestKey = JSON.stringify([
+      filterByMap,
+      intervals,
+      filterError,
+      viewport,
+      width,
+      retryVersion,
+      metadata.snapshot,
+      backendState.settings?.historyGapThresholdSeconds,
+    ]);
+    if (requestKey === lastRequestKey) return;
+    lastRequestKey = requestKey;
+    untrack(() => {
+      loadGeneration++;
+      mapLoader?.cancel();
+      reviewController?.cancelPending();
+      inFlightGroups.clear();
+      groupResults.clear();
+      groupLoading.clear();
+      groupErrors.clear();
+      result = null;
+      loading = false;
+      error = null;
+      resetGesture();
+      if (filterByMap) interactionMode = 'info';
+      if (filterByMap && axis.indexAt(inspectionMs) < 0) {
+        outsideFilter = selectedPoint?.elapsedMs === inspectionMs;
+        dismissInspection();
+      }
+      if (!activeField && fields.length)
+        activeField = fields.find((field) => !hiddenFields.has(field.name))?.name ?? '';
+      if (!width || !fieldGroups.length || (filterByMap && (!intervals?.length || filterError))) return;
+      void loadSeriesGroup(0, width);
+    });
   });
 
   function chartGroupRequestIndex(chartGroup: SessionChartGroup): number {
@@ -161,6 +210,7 @@
       width: CHART_WIDTH,
       height: CHART_HEIGHT,
       viewport: visibleViewport,
+      intervals: chartIntervals,
     });
   }
 
@@ -191,6 +241,7 @@
                 width: CHART_WIDTH,
                 height: CHART_HEIGHT,
                 viewport: visibleViewport,
+                intervals: chartIntervals,
                 domain,
               })
             );
@@ -248,7 +299,14 @@
 
   async function loadSeriesGroup(index: number, buckets: number) {
     const group = fieldGroups[index];
-    if (!group?.length || inFlightGroups.has(index)) return;
+    if (
+      !group?.length ||
+      inFlightGroups.has(index) ||
+      groupResults.has(index) ||
+      (filterByMap && (!intervals?.length || filterError))
+    )
+      return;
+    const generation = loadGeneration;
     const started = globalThis.performance?.now() ?? Date.now();
     inFlightGroups.add(index);
     groupLoading.set(index, true);
@@ -256,13 +314,22 @@
     loading = true;
     try {
       reviewController ??= backendState.createSessionReviewController(metadata);
-      const groupResult = await reviewController.loadSeries(
-        group.map((field) => field.name),
-        Math.max(0, Math.round(viewport.startElapsedMs)),
-        Math.max(0, Math.round(viewport.endElapsedMs)),
-        Math.max(1, Math.min(1_024, Math.round(buckets))),
-        backendState.settings?.historyGapThresholdSeconds ?? null
-      );
+      mapLoader ??= new MapSeriesLoader(reviewController);
+      const groupResult = filterByMap
+        ? await mapLoader.load(
+            group.map((field) => field.name),
+            intervals!,
+            buckets,
+            backendState.settings?.historyGapThresholdSeconds ?? null
+          )
+        : await reviewController.loadSeries(
+            group.map((field) => field.name),
+            Math.max(0, Math.round(viewport.startElapsedMs)),
+            Math.max(0, Math.round(viewport.endElapsedMs)),
+            Math.max(1, Math.min(1_024, Math.round(buckets))),
+            backendState.settings?.historyGapThresholdSeconds ?? null
+          );
+      if (generation !== loadGeneration) return;
       groupResults.set(index, groupResult);
       rebuildResult();
       const paintStarted = globalThis.performance?.now() ?? Date.now();
@@ -285,15 +352,19 @@
         });
       });
     } catch (reason) {
+      if (generation !== loadGeneration) return;
       if (!(reason instanceof DOMException && reason.name === 'AbortError')) {
         const message = reason instanceof Error ? reason.message : String(reason);
         groupErrors.set(index, message);
         error = message;
+        ondataerror(reason);
       }
     } finally {
-      inFlightGroups.delete(index);
-      groupLoading.delete(index);
-      loading = [...groupLoading.values()].some(Boolean);
+      if (generation === loadGeneration) {
+        inFlightGroups.delete(index);
+        groupLoading.delete(index);
+        loading = [...groupLoading.values()].some(Boolean);
+      }
     }
   }
 
@@ -318,7 +389,12 @@
     const marker = selectedPoint;
     if (!marker) return;
     untrack(() => {
-      if (marker.elapsedMs < viewport.startElapsedMs || marker.elapsedMs > viewport.endElapsedMs) {
+      outsideFilter = filterByMap && axis.indexAt(marker.elapsedMs) < 0;
+      if (outsideFilter) {
+        dismissInspection();
+        return;
+      }
+      if (!filterByMap && (marker.elapsedMs < viewport.startElapsedMs || marker.elapsedMs > viewport.endElapsedMs)) {
         const width = Math.max(1, viewport.endElapsedMs - viewport.startElapsedMs);
         viewport = clampViewport(
           { startElapsedMs: marker.elapsedMs - width / 2, endElapsedMs: marker.elapsedMs + width / 2 },
@@ -331,7 +407,8 @@
   });
 
   function queueInspection(elapsedMs: number) {
-    if (!activeField) return;
+    if (!activeField || (filterByMap && axis.indexAt(elapsedMs) < 0)) return;
+    outsideFilter = false;
     const target = Math.max(0, Math.min(duration, Math.round(elapsedMs)));
     queuedInspection = target;
     if (inspectionFrame !== null) return;
@@ -357,10 +434,11 @@
 
   function elapsedAtClientX(clientX: number, bounds: DOMRect): number {
     const ratio = Math.max(0, Math.min(1, (clientX - bounds.left) / Math.max(1, bounds.width)));
-    return visibleViewport.startElapsedMs + ratio * span;
+    return axis.elapsedAt(ratio) ?? 0;
   }
 
   function reset() {
+    if (filterByMap) return;
     previewViewport = null;
     viewport = clampViewport({ startElapsedMs: 0, endElapsedMs: duration }, duration);
   }
@@ -397,6 +475,7 @@
   }
 
   function cycleInteractionMode() {
+    if (filterByMap) return;
     interactionMode = nextInteractionMode();
     resetGesture();
     dismissInspection();
@@ -407,6 +486,12 @@
   }
 
   function beginGesture(event: PointerEvent) {
+    if (filterByMap) {
+      if (!event.isPrimary || event.button !== 0) return;
+      pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+      queueInspection(elapsedAtClientX(event.clientX, (event.currentTarget as SVGElement).getBoundingClientRect()));
+      return;
+    }
     const rightMousePan = mouseDevice && event.pointerType === 'mouse' && event.button === 2;
     if (event.pointerType === 'mouse' && event.button !== 0 && !rightMousePan) return;
     if (!pointers.size && !event.isPrimary) return;
@@ -472,6 +557,11 @@
   }
 
   function moveGesture(event: PointerEvent) {
+    if (filterByMap) {
+      if (event.isPrimary && (pointers.has(event.pointerId) || (event.pointerType === 'mouse' && event.buttons === 0)))
+        queueInspection(elapsedAtClientX(event.clientX, (event.currentTarget as SVGElement).getBoundingClientRect()));
+      return;
+    }
     if (
       !pointers.has(event.pointerId) &&
       (event.pointerType === 'mouse' || event.pointerType === 'pen') &&
@@ -528,6 +618,10 @@
   }
 
   function endGesture(event: PointerEvent) {
+    if (filterByMap) {
+      pointers.delete(event.pointerId);
+      return;
+    }
     const mode = gestureMode ?? interactionMode;
     pointers.delete(event.pointerId);
     if (!pointers.size) {
@@ -648,11 +742,22 @@
     if (resizeFrame !== null && typeof window !== 'undefined') window.cancelAnimationFrame(resizeFrame);
     longTaskObserver?.disconnect();
     groupObserver?.disconnect();
+    loadGeneration++;
+    mapLoader?.cancel();
     reviewController?.dispose();
   });
 </script>
 
 <div bind:this={plot} class="mt-3">
+  {#if filterByMap}
+    <p class="text-xs text-muted">Map controls the chart range. Chart zoom and pan are disabled.</p>
+    {#if filterError}<p role="alert" class="text-warning">{filterError}</p>
+    {:else if intervals === null}<p role="status">Loading complete track…</p>
+    {:else if !intervals.length}<p role="status">
+        No ride segments in this map area. Use re-center to show the full route.
+      </p>{/if}
+    {#if outsideFilter}<p role="status" class="text-xs text-muted">Selected point is outside the map filter.</p>{/if}
+  {/if}
   {#if loading}
     <p class="mt-2 flex flex-row items-center gap-2 text-lg text-muted" role="status">
       <Spinner />
@@ -660,7 +765,19 @@
     </p>
   {/if}
 
-  {#if error}<p class="mt-2 text-sm text-warning" role="alert">{error}</p>{/if}
+  {#if error}<p class="mt-2 text-sm text-warning" role="alert">{error}</p>
+    <button
+      type="button"
+      class="touch-manipulation text-accent"
+      onpointerdown={(event) =>
+        activateFromPointer(event, () => {
+          retryVersion++;
+        })}
+      onclick={(event) =>
+        activateFromKeyboardOrAssistiveClick(event, () => {
+          retryVersion++;
+        })}>Retry chart data</button
+    >{/if}
 
   {#if result}
     <div class="mt-3 space-y-3">
@@ -681,7 +798,7 @@
 
           {#each chartGroupsForRequestGroup(groupIndex) as chartGroup (chartGroup.id)}
             {@const chartModel = chartModels.get(chartGroup.id)}
-            {@const domain = chartModel?.domain ?? (markers.length ? { min: 0, max: 1 } : null)}
+            {@const domain = chartModel?.domain ?? (markers.length || filterByMap ? { min: 0, max: 1 } : null)}
             {@const hasColumns = chartModel?.hasColumns ?? false}
             {@const hasFiniteValues = chartModel?.hasFiniteValues ?? false}
             {@const yTicks = chartModel?.yTicks ?? []}
@@ -692,7 +809,7 @@
             <div>
               <SectionTitle title={chartGroup.title} detail={chartGroup.unit ?? 'value'} />
 
-              {#if domain && ((hasColumns && hasFiniteValues) || markers.length)}
+              {#if domain && ((hasColumns && hasFiniteValues) || markers.length || filterByMap)}
                 <div class="mt-2 flex items-stretch gap-1">
                   <div
                     class="flex h-36 shrink-0 flex-col justify-between text-right text-[8px] leading-none text-muted"
@@ -703,7 +820,7 @@
                     {/each}
                   </div>
                   <div class="relative isolate min-w-0 flex-1">
-                    {#each chartMarkerGroups(markers, visibleViewport, width) as group (group.marker.sequence)}
+                    {#each chartMarkerGroups(markers, visibleViewport, width, chartIntervals) as group (group.marker.sequence)}
                       {@const marker = group.marker}
                       <button
                         type="button"
@@ -780,10 +897,33 @@
                           {/each}
                         {/if}
                       {/each}
+                      {#if filterByMap}
+                        {#each axis.separators as ratio (ratio)}
+                          <line
+                            data-map-separator
+                            x1={ratio * CHART_WIDTH}
+                            x2={ratio * CHART_WIDTH}
+                            y1="0"
+                            y2={CHART_HEIGHT}
+                            stroke="var(--app-canvas)"
+                            stroke-width="4"
+                            vector-effect="non-scaling-stroke"
+                          />
+                          <line
+                            x1={ratio * CHART_WIDTH}
+                            x2={ratio * CHART_WIDTH}
+                            y1="0"
+                            y2={CHART_HEIGHT}
+                            stroke="var(--app-muted)"
+                            stroke-dasharray="4 3"
+                            vector-effect="non-scaling-stroke"
+                          />
+                        {/each}
+                      {/if}
                       {#if inspectionVisible}
                         <line
-                          x1={((inspectionMs - visibleViewport.startElapsedMs) / span) * CHART_WIDTH}
-                          x2={((inspectionMs - visibleViewport.startElapsedMs) / span) * CHART_WIDTH}
+                          x1={(axis.ratioAt(inspectionMs) ?? 0) * CHART_WIDTH}
+                          x2={(axis.ratioAt(inspectionMs) ?? 0) * CHART_WIDTH}
                           y1="0"
                           y2={CHART_HEIGHT}
                           stroke="var(--app-accent)"
@@ -856,6 +996,7 @@
                         style={tooltipStyle(tooltipAnchor.x)}
                         role="status"
                       >
+                        <p>{(inspectionMs / 1000).toFixed(1)}s into ride</p>
                         <div class="grid grid-cols-[max-content_max-content] gap-x-3 gap-y-0.5">
                           {#each tooltipEntries as entry (entry.field.name)}
                             <span class="contents">
@@ -911,7 +1052,9 @@
         </div>
       {/each}
     </div>
-  {:else if !loading}<p class="mt-2 text-sm text-muted">No retained numeric history is available.</p>{/if}
+  {:else if !loading && !filterByMap}<p class="mt-2 text-sm text-muted">
+      No retained numeric history is available.
+    </p>{/if}
 
   {#if !touchDevice && isZoomed}
     <div class="mt-2 flex flex-wrap items-center justify-between gap-2">
@@ -919,6 +1062,8 @@
         <button
           type="button"
           class="rounded-lg bg-accent px-4 py-2 text-on-accent"
+          disabled={filterByMap}
+          title={filterByMap ? 'Map controls the chart range' : 'Reset chart zoom'}
           onpointerdown={(event) => activateFromPointer(event, reset)}
           onclick={(event) => activateFromKeyboardOrAssistiveClick(event, reset)}>Reset Zoom</button
         >
@@ -934,7 +1079,8 @@
         type="button"
         class="flex size-14 touch-manipulation flex-col items-center justify-center rounded-full border border-outline bg-accent text-[10px] font-bold tracking-[0.12em] text-on-accent uppercase shadow-xl"
         aria-label={`Chart mode: ${interactionMode}. Switch to ${nextInteractionMode()} mode`}
-        title={`Switch to ${nextInteractionMode()} mode`}
+        disabled={filterByMap}
+        title={filterByMap ? 'Map controls the chart range' : 'Reset chart zoom'}
         onpointerdown={(event) => activateFromPointer(event, reset)}
         onclick={(event) => activateFromKeyboardOrAssistiveClick(event, reset)}
       >
@@ -946,7 +1092,8 @@
       type="button"
       class="flex size-14 touch-manipulation flex-col items-center justify-center rounded-full border border-outline bg-accent text-[10px] font-bold tracking-[0.12em] text-on-accent uppercase shadow-xl"
       aria-label={`Chart mode: ${interactionMode}. Switch to ${nextInteractionMode()} mode`}
-      title={`Switch to ${nextInteractionMode()} mode`}
+      title={filterByMap ? 'Map controls the chart range' : `Switch to ${nextInteractionMode()} mode`}
+      disabled={filterByMap}
       onpointerdown={(event) => activateFromPointer(event, cycleInteractionMode)}
       onclick={(event) => activateFromKeyboardOrAssistiveClick(event, cycleInteractionMode)}
     >

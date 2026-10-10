@@ -9,14 +9,17 @@ export function splitLocationSegments(
 ): SessionLocationPoint[][] {
   const segments: SessionLocationPoint[][] = [];
   let segment: SessionLocationPoint[] = [];
+  const orderedGaps = [...gaps].sort((a, b) => a.startElapsedMs - b.startElapsedMs);
+  let gapIndex = 0;
+  let latestGapEnd = -1;
   for (const [index, point] of points.entries()) {
     const previous = points[index - 1];
+    while (gapIndex < orderedGaps.length && orderedGaps[gapIndex]!.startElapsedMs < point.elapsedMs) {
+      latestGapEnd = Math.max(latestGapEnd, orderedGaps[gapIndex++]!.endElapsedMs);
+    }
     const gap =
       previous !== undefined &&
-      (point.elapsedMs - previous.elapsedMs > thresholdMs ||
-        gaps.some(
-          (candidate) => previous.elapsedMs < candidate.endElapsedMs && point.elapsedMs > candidate.startElapsedMs
-        ));
+      (point.elapsedMs - previous.elapsedMs > thresholdMs || previous.elapsedMs < latestGapEnd);
     if (gap) {
       if (segment.length) segments.push(segment);
       segment = [];

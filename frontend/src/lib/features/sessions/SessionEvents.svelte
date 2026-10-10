@@ -6,7 +6,11 @@
   import type { SessionReviewController } from '$lib/backend/session-controller';
   import { backendState } from '$lib/backend/state.svelte';
 
-  let { metadata, viewport }: { metadata: SessionMetadata; viewport: Viewport | null } = $props();
+  let {
+    metadata,
+    viewport,
+    filterByMap = false,
+  }: { metadata: SessionMetadata; viewport: Viewport | null; filterByMap?: boolean } = $props();
   let expanded = $state(false);
   let context: { controller: SessionReviewController; range: Viewport; active: boolean } | null = null;
   const range = $derived(viewport ?? { startElapsedMs: 0, endElapsedMs: metadata.summary.totalElapsedMs });
@@ -91,7 +95,10 @@
   </h3>
   <div id="session-events-content" hidden={!expanded}>
     {#if expanded}
-      <p class="mt-2 text-xs text-muted">Current chart range: {range.startElapsedMs}–{range.endElapsedMs} ms</p>
+      <p class="mt-2 text-xs text-muted">
+        {filterByMap ? 'Ordinary time range (not map-filtered)' : 'Current chart range'}: {range.startElapsedMs}–{range.endElapsedMs}
+        ms
+      </p>
       {#if error}<p class="mt-2 text-sm text-warning" role="alert">{error}</p>{/if}
       {#if rows.length}
         <ol class="mt-2 space-y-1 text-sm">
@@ -100,7 +107,7 @@
           {/each}
         </ol>
       {:else if !loading && !error}<p class="mt-2 text-sm text-muted">
-          No transitions are available in this chart range.
+          No transitions are available in this {filterByMap ? 'ordinary time' : 'chart'} range.
         </p>{/if}
       {#if loading}<p class="mt-2 text-xs text-muted" role="status">Loading transitions…</p>{/if}
       {#if cursor || error}

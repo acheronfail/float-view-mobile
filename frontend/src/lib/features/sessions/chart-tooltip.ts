@@ -14,7 +14,7 @@ export function buildChartTooltipEntries(
   hiddenFields: ReadonlySet<string>,
   elapsedMs: number,
   domain: NumericDomain,
-  options: { width: number; height: number; viewport: Viewport }
+  options: { width: number; height: number; viewport: Viewport; intervals?: readonly Viewport[] }
 ): ChartTooltipEntry[] {
   return chartGroup.fields.flatMap((field) => {
     const column = columns?.[field.name];

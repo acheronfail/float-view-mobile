@@ -1,5 +1,7 @@
 <script lang="ts">
-  import { onMount, tick } from 'svelte';
+  import { loadLocationTrack } from './location-track';
+  import { unwrapLongitude, type MapBounds } from './map-filter';
+  import { onMount, onDestroy, tick } from 'svelte';
   import Leaflet from 'leaflet';
   import type {
     SessionLocationGap,
@@ -31,6 +33,12 @@
     metadata,
     selectedElapsedMs = 0,
     viewport = null,
+    filterByMap = false,
+    onfilterchange = () => {},
+    ontrack = () => {},
+    onbounds = () => {},
+    ontrackerror = () => {},
+    initialBounds = null,
     height = $bindable(0),
   }: {
     markers?: SessionRideMarker[];
@@ -40,6 +48,12 @@
     metadata: SessionMetadata;
     selectedElapsedMs?: number;
     viewport?: Viewport | null;
+    filterByMap?: boolean;
+    onfilterchange?: (enabled: boolean) => void;
+    ontrack?: (segments: SessionLocationPoint[][]) => void;
+    onbounds?: (bounds: MapBounds) => void;
+    ontrackerror?: (reason: unknown) => void;
+    initialBounds?: MapBounds | null;
     height?: number;
   } = $props();
   let node = $state<HTMLDivElement | null>(null);
@@ -119,29 +133,23 @@
 
   async function loadLocations() {
     loading = true;
+    error = null;
+    controller?.dispose();
     try {
       controller = backendState.createSessionReviewController(metadata);
-      let cursor: string | null = null;
-      const loaded: SessionLocationPoint[] = [];
-      const loadedGaps: SessionLocationGap[] = [];
-      for (let page = 0; page < 4 && metadata.location.available; page += 1) {
-        const result = await controller.loadLocations({
-          kind: 'locations',
-          range: { startElapsedMs: 0, endElapsedMs: metadata.summary.totalElapsedMs },
-          limit: 2_000,
-          cursor,
-        });
-        if (!active) return;
-        loaded.push(...result.points);
-        loadedGaps.push(...result.gaps);
-        cursor = result.nextCursor;
-        if (!cursor) break;
-      }
-      points = loaded;
-      gaps = loadedGaps;
+      const loaded = await loadLocationTrack(controller, metadata);
+      if (!active) return;
+      points = loaded.points;
+      gaps = loaded.gaps;
+      ontrack(splitLocationSegments(points, gaps));
       if (points.length || locatedMarkers.length) {
         await tick();
         if (active) initialiseMap();
+      }
+    } catch (reason) {
+      if (active) {
+        error = reason instanceof Error ? reason.message : String(reason);
+        ontrackerror(reason);
       }
     } finally {
       if (active) loading = false;
@@ -152,6 +160,7 @@
     if (!node || map || (!points.length && !locatedMarkers.length)) return;
     map = Leaflet.map(node, { preferCanvas: true, zoomControl: true });
     map.on('zoomend', drawRideMarkers);
+    map.on('moveend zoomend', publishBounds);
     Leaflet.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
       maxZoom: 19,
       attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
@@ -161,7 +170,18 @@
       return;
     }
     mapLayoutReady = true;
-    updateMap(true);
+    if (filterByMap && initialBounds) {
+      map.fitBounds(
+        [
+          [initialBounds.south, initialBounds.west],
+          [initialBounds.north, initialBounds.east],
+        ],
+        { animate: false }
+      );
+      hasInitialView = true;
+    }
+    updateMap(!filterByMap);
+    publishBounds();
     lastViewportKey = viewportKey;
   }
 
@@ -178,7 +198,9 @@
 
   const segments = $derived(splitLocationSegments(points, gaps));
   const isZoomed = $derived(
-    viewport !== null && viewport.endElapsedMs - viewport.startElapsedMs < metadata.summary.totalElapsedMs
+    !filterByMap &&
+      viewport !== null &&
+      viewport.endElapsedMs - viewport.startElapsedMs < metadata.summary.totalElapsedMs
   );
   const visibleSegments = $derived.by(() => {
     if (!isZoomed || !viewport) return segments;
@@ -218,6 +240,21 @@
     lastViewportKey = viewportKey;
   });
 
+  function displayLongitude(longitude: number) {
+    return unwrapLongitude(
+      longitude,
+      map && hasInitialView ? map.getCenter().lng : (points[0]?.longitude ?? longitude)
+    );
+  }
+
+  function routeCoordinates(segment: readonly SessionLocationPoint[]): Leaflet.LatLngTuple[] {
+    let longitude = displayLongitude(segment[0]?.longitude ?? 0);
+    return segment.map((point) => {
+      longitude = unwrapLongitude(point.longitude, longitude);
+      return [point.latitude, longitude];
+    });
+  }
+
   function updateMap(shouldRecenter = false) {
     if (!map) return;
     baseLayers.forEach((layer) => layer.remove());
@@ -225,29 +262,23 @@
     locationMarker?.remove();
 
     baseLayers = visibleSegments.map((segment) =>
-      Leaflet.polyline(
-        segment.map((point) => [point.latitude, point.longitude] as Leaflet.LatLngExpression),
-        {
-          color: '#67e8f9',
-          weight: 3,
-          opacity: 0.55,
-          dashArray: '5 5',
-          interactive: false,
-        }
-      ).addTo(map!)
+      Leaflet.polyline(routeCoordinates(segment), {
+        color: '#67e8f9',
+        weight: 3,
+        opacity: 0.55,
+        dashArray: '5 5',
+        interactive: false,
+      }).addTo(map!)
     );
     travelledLayers = travelledSegments.map((segment) =>
-      Leaflet.polyline(
-        segment.map((point) => [point.latitude, point.longitude] as Leaflet.LatLngExpression),
-        {
-          color: '#38bdf8',
-          weight: 4,
-          interactive: false,
-        }
-      ).addTo(map!)
+      Leaflet.polyline(routeCoordinates(segment), {
+        color: '#38bdf8',
+        weight: 4,
+        interactive: false,
+      }).addTo(map!)
     );
     if (marker) {
-      locationMarker = Leaflet.marker([marker.latitude, marker.longitude], {
+      locationMarker = Leaflet.marker([marker.latitude, displayLongitude(marker.longitude)], {
         icon: Leaflet.divIcon({
           className: 'location-marker',
           html: locationMarkerHtml,
@@ -257,19 +288,20 @@
         title: 'Selected location',
       }).addTo(map);
     }
-    fitVisibleRoute(shouldRecenter);
+    if (!filterByMap) fitVisibleRoute(shouldRecenter);
     drawRideMarkers();
     drawFaultMarkers();
-    map.invalidateSize();
+    map.invalidateSize({ pan: false });
   }
 
   function fitVisibleRoute(force = false) {
     if (!map || (!visiblePoints.length && !locatedMarkers.length)) return;
-    const bounds = Leaflet.latLngBounds(
-      [...visiblePoints, ...locatedMarkers.map((m) => m.location!)].map(
-        (point) => [point.latitude, point.longitude] as Leaflet.LatLngExpression
-      )
-    );
+    const bounds = Leaflet.latLngBounds([
+      ...visibleSegments.flatMap(routeCoordinates),
+      ...locatedMarkers.map(
+        (m) => [m.location!.latitude, displayLongitude(m.location!.longitude)] as Leaflet.LatLngTuple
+      ),
+    ]);
     if (force || !hasInitialView || !map.getBounds().contains(bounds)) {
       map.fitBounds(bounds.pad(0.15));
       hasInitialView = true;
@@ -278,8 +310,8 @@
 
   $effect(() => {
     const location = selectedMarker?.location;
-    if (mapLayoutReady && map && location)
-      map.setView([location.latitude, location.longitude], map.getZoom(), { animate: false });
+    if (!filterByMap && mapLayoutReady && map && location)
+      map.setView([location.latitude, displayLongitude(location.longitude)], map.getZoom(), { animate: false });
   });
 
   function drawFaultMarkers() {
@@ -296,7 +328,7 @@
       const point = locationAtElapsed([segment], fault.elapsedMs);
       if (!point) continue;
       const label = footpadFaultLabel(fault);
-      const layer = Leaflet.marker([point.latitude, point.longitude], {
+      const layer = Leaflet.marker([point.latitude, displayLongitude(point.longitude)], {
         icon: Leaflet.divIcon({
           className: 'footpad-fault-marker',
           html: `<button type="button" aria-label="${label}" style="display:block;border:0;padding:0;background:transparent;cursor:pointer;touch-action:manipulation">${footpadFaultIcon(fault.state)}</button>`,
@@ -332,7 +364,7 @@
     // eslint-disable-next-line svelte/prefer-svelte-reactivity
     const groups = new Map<string, SessionRideMarker[]>();
     for (const marker of locatedMarkers) {
-      const p = map.latLngToLayerPoint([marker.location!.latitude, marker.location!.longitude]);
+      const p = map.latLngToLayerPoint([marker.location!.latitude, displayLongitude(marker.location!.longitude)]);
       const key = `${Math.round(p.x / 24)}:${Math.round(p.y / 24)}`;
       groups.set(key, [...(groups.get(key) ?? []), marker]);
     }
@@ -342,7 +374,7 @@
         group.length > 1
           ? `${group.length} ride markers; use marker navigator to select each`
           : `Ride marker at ${(marker.elapsedMs / 1000).toFixed(1)} seconds`;
-      const layer = Leaflet.marker([marker.location!.latitude, marker.location!.longitude], {
+      const layer = Leaflet.marker([marker.location!.latitude, displayLongitude(marker.location!.longitude)], {
         icon: Leaflet.divIcon({
           className: 'ride-marker',
           html: `<span style="display:grid;place-items:center;width:28px;height:28px;border:2px solid #111;border-radius:6px;background:#f97316;color:#111;box-shadow:0 0 0 2px white;font-weight:700">${group.length > 1 ? group.length : '⚑'}</span>`,
@@ -376,6 +408,32 @@
     }
   }
 
+  let boundsKey = '';
+  let boundsFrame: number | null = null;
+  function publishBounds() {
+    if (boundsFrame !== null) return;
+    boundsFrame = requestAnimationFrame(() => {
+      boundsFrame = null;
+      if (!map || hidden) return;
+      const b = map.getBounds();
+      const bounds = { west: b.getWest(), east: b.getEast(), south: b.getSouth(), north: b.getNorth() };
+      const key = JSON.stringify(bounds);
+      if (key !== boundsKey) {
+        boundsKey = key;
+        onbounds(bounds);
+        if (filterByMap) updateMap(false);
+      }
+    });
+  }
+  onDestroy(() => {
+    if (boundsFrame !== null) cancelAnimationFrame(boundsFrame);
+  });
+  const canFilter = $derived(
+    !loading &&
+      !error &&
+      segments.some((segment) => segment.length > 1 && segment.at(-1)!.elapsedMs > segment[0]!.elapsedMs)
+  );
+
   function recenterMap() {
     fitVisibleRoute(true);
     map?.invalidateSize();
@@ -383,6 +441,7 @@
 
   function toggleMap() {
     hidden = !hidden;
+    if (hidden) onfilterchange(false);
     mapLayoutReady = false;
     lastViewportKey = null;
     if (!hidden) scheduleMapRefresh();
@@ -423,6 +482,20 @@
     </p>{/if}
   {#if error}
     <p role="alert" class="text-sm text-warning">{error}</p>
+    {#if filterByMap}<button
+        type="button"
+        aria-pressed="true"
+        class="touch-manipulation text-accent"
+        onpointerdown={(event) => activateFromPointer(event, () => onfilterchange(false))}
+        onclick={(event) => activateFromKeyboardOrAssistiveClick(event, () => onfilterchange(false))}
+        >Filter charts by map</button
+      >{/if}
+    <button
+      type="button"
+      class="touch-manipulation text-accent"
+      onpointerdown={(event) => activateFromPointer(event, loadLocations)}
+      onclick={(event) => activateFromKeyboardOrAssistiveClick(event, loadLocations)}>Retry track</button
+    >
   {:else if !points.length && !locatedMarkers.length && !loading}
     <p class="text-sm text-muted">No accepted location points were recorded.</p>
   {:else}
@@ -434,6 +507,23 @@
         class="h-64 w-full rounded-lg"
         class:hidden
       ></div>
+      {#if !hidden}
+        <button
+          type="button"
+          class="touch-manipulation rounded border border-outline px-2 py-1 text-sm disabled:opacity-50"
+          aria-pressed={filterByMap}
+          disabled={!canFilter && !filterByMap}
+          title={canFilter
+            ? 'Use the visible map area to select chart data'
+            : 'A complete continuous location track is required'}
+          onpointerdown={(event) => activateFromPointer(event, () => onfilterchange(!filterByMap))}
+          onclick={(event) => activateFromKeyboardOrAssistiveClick(event, () => onfilterchange(!filterByMap))}
+          >Filter charts by map</button
+        >
+        {#if !canFilter && !loading}<p class="text-xs text-muted">
+            Map filtering requires a complete continuous location track.
+          </p>{/if}
+      {/if}
       <div class="flex flex-row items-center justify-between">
         {#if hidden}
           <span></span>

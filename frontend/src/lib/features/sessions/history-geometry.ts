@@ -1,5 +1,6 @@
 import type { SessionSeriesColumn } from '$lib/backend/session-data';
 import type { Viewport } from './viewport';
+import { timeline } from './map-filter.ts';
 import type { SessionAxisPolicy } from './session-fields';
 
 export interface NumericDomain {
@@ -11,6 +12,7 @@ export interface PlotPathOptions {
   width: number;
   height: number;
   viewport: Viewport;
+  intervals?: readonly Viewport[];
   domain?: NumericDomain;
 }
 
@@ -43,7 +45,9 @@ export function buildPathSegments(column: SessionSeriesColumn, options: PlotPath
   const span = Math.max(1, options.viewport.endElapsedMs - options.viewport.startElapsedMs);
   const height = Math.max(2, options.height);
   const width = Math.max(1, options.width);
+  const axis = timeline(options.intervals ?? [options.viewport]);
   const segments: string[] = [];
+  let previousInterval = -1;
   let current = '';
   const flush = () => {
     // A zero-length line with a round cap renders isolated readings as dots.
@@ -59,7 +63,16 @@ export function buildPathSegments(column: SessionSeriesColumn, options: PlotPath
       return;
     }
     const elapsed = column.elapsedMs[index] ?? options.viewport.startElapsedMs;
-    const x = ((elapsed - options.viewport.startElapsedMs) / span) * width;
+    const interval = axis.indexAt(elapsed);
+    if (options.intervals && interval < 0) {
+      flush();
+      return;
+    }
+    if (options.intervals && interval !== previousInterval) flush();
+    previousInterval = interval;
+    const x = options.intervals
+      ? axis.ratioAt(elapsed)! * width
+      : ((elapsed - options.viewport.startElapsedMs) / span) * width;
     const y = height - ((value - domain.min) / Math.max(Number.EPSILON, domain.max - domain.min)) * (height - 4) - 2;
     current += `${current ? ' L' : 'M'} ${x.toFixed(2)} ${y.toFixed(2)}`;
   });
@@ -76,10 +89,14 @@ export function pointAtElapsed(
   const span = Math.max(1, options.viewport.endElapsedMs - options.viewport.startElapsedMs);
   const height = Math.max(2, options.height);
   const width = Math.max(1, options.width);
+  const axis = timeline(options.intervals ?? [options.viewport]);
+  if (options.intervals && axis.indexAt(elapsedMs) < 0) return null;
   const toPoint = (pointElapsedMs: number, value: number): PlotPoint => ({
     elapsedMs: pointElapsedMs,
     value,
-    x: ((pointElapsedMs - options.viewport.startElapsedMs) / span) * width,
+    x: options.intervals
+      ? axis.ratioAt(pointElapsedMs)! * width
+      : ((pointElapsedMs - options.viewport.startElapsedMs) / span) * width,
     y: height - ((value - domain.min) / Math.max(Number.EPSILON, domain.max - domain.min)) * (height - 4) - 2,
   });
 
@@ -101,6 +118,8 @@ export function pointAtElapsed(
       !Number.isFinite(leftValue) ||
       !Number.isFinite(rightValue) ||
       column.generations[index] !== column.generations[index - 1] ||
+      (options.intervals &&
+        (axis.indexAt(leftElapsedMs) < 0 || axis.indexAt(leftElapsedMs) !== axis.indexAt(rightElapsedMs))) ||
       rightElapsedMs <= leftElapsedMs ||
       elapsedMs < leftElapsedMs ||
       elapsedMs > rightElapsedMs

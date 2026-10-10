@@ -1,11 +1,21 @@
 import type { SessionRideMarker } from '$lib/backend/contract';
 import type { Viewport } from './viewport';
-export function chartMarkerGroups(markers: readonly SessionRideMarker[], viewport: Viewport, width: number) {
+import { timeline } from './map-filter';
+export function chartMarkerGroups(
+  markers: readonly SessionRideMarker[],
+  viewport: Viewport,
+  width: number,
+  intervals?: readonly Viewport[]
+) {
   const groups = new Map<number, { marker: SessionRideMarker; count: number; percent: number }>();
   const span = Math.max(1, viewport.endElapsedMs - viewport.startElapsedMs);
+  const axis = timeline(intervals ?? [viewport]);
   for (const marker of markers) {
-    if (marker.elapsedMs < viewport.startElapsedMs || marker.elapsedMs > viewport.endElapsedMs) continue;
-    const percent = ((marker.elapsedMs - viewport.startElapsedMs) / span) * 100;
+    if (!intervals && (marker.elapsedMs < viewport.startElapsedMs || marker.elapsedMs > viewport.endElapsedMs))
+      continue;
+    const ratio = intervals ? axis.ratioAt(marker.elapsedMs) : (marker.elapsedMs - viewport.startElapsedMs) / span;
+    if (ratio === null) continue;
+    const percent = ratio * 100;
     const bucket = Math.round(((percent / 100) * Math.max(1, width)) / 12);
     const group = groups.get(bucket);
     if (group) group.count++;

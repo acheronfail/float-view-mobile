@@ -46,10 +46,11 @@ export class SessionReviewController {
     startElapsedMs: number,
     endElapsedMs: number,
     buckets: number,
-    thresholdSeconds: number | null
+    thresholdSeconds: number | null,
+    requestOwner = ''
   ): Promise<SessionSeriesResult> {
     return this.load(
-      `series:${fields.join('\u0000')}`,
+      `series:${requestOwner}:${fields.join('\u0000')}`,
       {
         kind: 'series',
         sessionId: this.metadata.summary.sessionId,
@@ -97,12 +98,16 @@ export class SessionReviewController {
     );
   }
 
-  invalidate() {
+  cancelPending() {
     for (const channel of new Set([...this.generations.keys(), ...this.activeAbort.keys()])) {
       this.generations.set(channel, (this.generations.get(channel) ?? 0) + 1);
       this.activeAbort.get(channel)?.abort();
       this.activeAbort.delete(channel);
     }
+  }
+
+  invalidate() {
+    this.cancelPending();
     this.cache.clear();
     this.cacheBytes = 0;
   }

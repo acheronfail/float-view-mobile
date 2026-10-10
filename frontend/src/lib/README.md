@@ -139,3 +139,18 @@ visible time range. The optional read is cancelled on unmount/disable and bounde
 to 100,000 events, 1,000,000 samples and 2,000 fault episodes, with a visible error
 instead of silently truncated fault results. Pruned sessions reflect retained
 samples only.
+
+Session map filtering is transient review navigation owned by the session view.
+The map toggle selects chronological intervals from the complete continuous GPS
+track; charts concatenate included duration with dashed separators and retain
+original ride timestamps for inspection. Chart zoom/pan is disabled while the
+map controls the range. Turning filtering off or hiding the map restores the
+previous ordinary chart viewport. Session totals and event pages are not spatially
+filtered. No persisted preference or native contract is involved.
+
+Track review exhausts pagination within 100,000 points, 100,000 gaps, 16 MiB and
+128 pages; incomplete tracks cannot drive filtering. Spatial review supports up
+to 128 intervals, two concurrent series requests, 1,024 buckets per field group
+and 16 MiB of decoded chart data. Limit/failure states are explicit; no truncated
+prefix is presented as a complete result. Superseding map selections cancel
+previous requests, and chart updates never automatically fit the filtered map.
