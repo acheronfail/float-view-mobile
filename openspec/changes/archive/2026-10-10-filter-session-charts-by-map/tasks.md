@@ -43,3 +43,5 @@ Verified on 2026-10-10:
 - Conformance: `node --strip-types --test test/map-filter.browser.ts` — four Chromium/WebKit desktop/touch cases passed, covering pagination, conflict retry, delayed responses, prior-viewport restoration, disjoint intervals, disabled gestures, empty areas and outside-filter markers.
 - Conformance: `node --strip-types --test --test-concurrency=1 test/history-geometry.browser.ts test/footpad-faults.browser.ts test/ride-markers.browser.ts test/session-events.browser.ts` — eight existing browser cases passed.
 - Strict OpenSpec change validation and `git diff --check` passed. Public wire contracts, native services and persisted formats remain unchanged.
+
+Final spec sync: normal validation passed. Strict validation of the canonical spec reports the pre-existing >500-character CSV projection requirement; that unrelated requirement is unchanged. Strict validation of this change passed.
