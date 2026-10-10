@@ -702,7 +702,7 @@
                       <span>{formatSessionFieldValue(chartGroup.fields[0]!.name, tick)}</span>
                     {/each}
                   </div>
-                  <div class="relative min-w-0 flex-1">
+                  <div class="relative isolate min-w-0 flex-1">
                     {#each chartMarkerGroups(markers, visibleViewport, width) as group (group.marker.sequence)}
                       {@const marker = group.marker}
                       <button

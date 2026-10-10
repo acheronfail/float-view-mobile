@@ -128,6 +128,54 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
         .first()
         .click();
       assert.match(await select.getByRole('button', { pressed: true }).innerText(), /Marker 1/);
+
+      // Scroll chart markers underneath the sticky map and open header menu.
+      // Hit testing catches markers escaping their chart's stacking context.
+      const chartMarker = page.getByRole('button', { name: /Select marker at/ }).first();
+      const map = page.getByRole('region', { name: 'Session location map' });
+      const mapBox = await map.boundingBox();
+      assert.ok(mapBox);
+      await chartMarker.evaluate(
+        (marker, y) => {
+          const box = marker.getBoundingClientRect();
+          window.scrollBy(0, box.y + box.height / 2 - y);
+        },
+        mapBox.y + mapBox.height / 2
+      );
+      await page.evaluate(() => new Promise(requestAnimationFrame));
+      assert.equal(
+        await chartMarker.evaluate((marker) => {
+          const box = marker.getBoundingClientRect();
+          const top = document.elementFromPoint(box.x + box.width / 2 - 3, box.y + box.height / 2);
+          return !!top?.closest('[aria-label="Session location map"]');
+        }),
+        true,
+        'sticky map must cover chart markers'
+      );
+
+      await page.getByRole('button', { name: 'Session actions', exact: true }).click();
+      const share = page.getByRole('button', { name: /^(Share|Save|Download) Archive$/ });
+      const shareLabel = (await share.innerText()).trim();
+      const shareBox = await share.boundingBox();
+      assert.ok(shareBox);
+      const menuMarker = chartMarker.locator('..').getByRole('button').last();
+      await menuMarker.evaluate(
+        (marker, y) => {
+          const box = marker.getBoundingClientRect();
+          window.scrollBy(0, box.y + box.height / 2 - y);
+        },
+        shareBox.y + shareBox.height / 2
+      );
+      await page.evaluate(() => new Promise(requestAnimationFrame));
+      assert.equal(
+        await menuMarker.evaluate((marker) => {
+          const box = marker.getBoundingClientRect();
+          const top = document.elementFromPoint(box.x + box.width / 2 - 3, box.y + box.height / 2);
+          return top?.closest('button')?.textContent?.trim();
+        }),
+        shareLabel,
+        'header menu must cover chart markers'
+      );
       assert.deepEqual(errors, []);
     } finally {
       await browser.close();
