@@ -171,6 +171,7 @@ async function exerciseProductMethods(
       minimumSessionDistance: 100,
       themePreference: 'dark',
       unitPreference: 'imperial',
+      sessionDisplayOptions: { bothFootpadsOff: true, oneFootpadOff: false },
       liveWidgetSlots: ['speedKph', 'packVoltageV', 'motorTempC', 'powerW', 'distanceM'],
     },
   });
@@ -181,6 +182,22 @@ async function exerciseProductMethods(
     }),
     'conflict'
   );
+  assert.deepEqual(settings.sessionDisplayOptions, { bothFootpadsOff: true, oneFootpadOff: false });
+  for (const invalid of [
+    null,
+    {},
+    { bothFootpadsOff: true },
+    { bothFootpadsOff: true, oneFootpadOff: 1 },
+    { bothFootpadsOff: true, oneFootpadOff: false, extra: true },
+  ]) {
+    await expectError(
+      client.request('settings.update', {
+        expectedRevision: settings.revision,
+        patch: { sessionDisplayOptions: invalid },
+      } as never),
+      'invalid_request'
+    );
+  }
   assert.equal(settings.minimumSessionDistance, 100);
   assert.equal(settings.themePreference, 'dark');
   assert.equal(settings.unitPreference, 'imperial');
@@ -197,6 +214,10 @@ async function exerciseProductMethods(
   assert.deepEqual((await client.request('state.get', {})).settings.liveWidgetSlots, settings.liveWidgetSlots);
   if (recreateFrontend) {
     await recreateFrontend();
+    assert.deepEqual(
+      (await client.request('state.get', {})).settings.sessionDisplayOptions,
+      settings.sessionDisplayOptions
+    );
     assert.deepEqual((await client.request('state.get', {})).settings.liveWidgetSlots, settings.liveWidgetSlots);
   }
   const locationSettings = await client.request('settings.update', {
@@ -529,6 +550,10 @@ async function createCompletedSession(
   if (recreateFrontend) {
     const beforeRecreation = await client.request('state.get', {});
     await recreateFrontend();
+    assert.deepEqual(
+      (await client.request('state.get', {})).settings.sessionDisplayOptions,
+      beforeRecreation.settings.sessionDisplayOptions
+    );
     const afterRecreation = await client.waitForState(
       (state) =>
         (state.activeConnection?.latestSample?.sequence ?? 0) >
@@ -977,6 +1002,7 @@ export function assertState(state: AppState) {
     'reconnectDurationMs',
     'revision',
     'ridingPersistIntervalMs',
+    'sessionDisplayOptions',
     'themePreference',
     'unitPreference',
   ]);

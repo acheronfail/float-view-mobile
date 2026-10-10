@@ -315,6 +315,7 @@ pub(crate) fn settings(v: &store::Settings) -> f::Settings {
         theme_preference: v.theme_preference.clone(),
         unit_preference: v.unit_preference.clone(),
         live_widget_slots: v.live_widget_slots.clone(),
+        session_display_options: v.session_display_options.clone(),
         history_gap_threshold_seconds: v.history_gap_threshold_seconds,
         location_recording_enabled: v.location_recording_enabled,
         include_gps_location_when_exporting: v.include_gps_location_when_exporting,

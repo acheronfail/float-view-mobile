@@ -309,6 +309,7 @@ export class MockBackend {
       minimumSessionDistance: 100,
       themePreference: 'system',
       unitPreference: 'metric',
+      sessionDisplayOptions: { bothFootpadsOff: false, oneFootpadOff: false },
       liveWidgetSlots: [...defaultLiveWidgetSlots],
       historyGapThresholdSeconds: null,
       locationRecordingEnabled: false,
@@ -742,6 +743,7 @@ export class MockBackend {
           'themePreference',
           'unitPreference',
           'liveWidgetSlots',
+          'sessionDisplayOptions',
           'historyGapThresholdSeconds',
           'locationRecordingEnabled',
           'includeGpsLocationWhenExporting',
@@ -751,6 +753,11 @@ export class MockBackend {
           !Object.keys(patch).length ||
           Object.keys(patch).some((key) => !allowed.has(key)) ||
           ('themePreference' in patch && !['system', 'light', 'dark'].includes(String(patch.themePreference))) ||
+          ('sessionDisplayOptions' in patch &&
+            (!patch.sessionDisplayOptions ||
+              Object.keys(patch.sessionDisplayOptions).length !== 2 ||
+              typeof (patch.sessionDisplayOptions as Record<string, unknown>).bothFootpadsOff !== 'boolean' ||
+              typeof (patch.sessionDisplayOptions as Record<string, unknown>).oneFootpadOff !== 'boolean')) ||
           ('liveWidgetSlots' in patch &&
             (!Array.isArray(patch.liveWidgetSlots) ||
               patch.liveWidgetSlots.length !== 5 ||

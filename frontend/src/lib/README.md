@@ -126,3 +126,16 @@ voltage times battery current; its displayed sign controls draw/regen labels and
 theme-aware colours. Interpolation respects reduced motion.
 
 The box inside the gauge defaults to trip distance. Drive load is available in every box’s picker. Load reuses the primary gauge calculation, source label and colour with the authoritative controller current limits.
+
+Session map overlays use the typed `Settings.sessionDisplayOptions` object, persisted
+by the shared product store for Apple and Android. Add future session display
+preferences there and in its closed validation/projection, rather than a separate
+WebView store. Both footpad overlays default off; the session menu reuses the
+lighting switches and saves confirmed settings without closing the menu. Exact
+retained speed samples and footpad transitions identify episode starts above
+2 km/h (absolute speed); unknown states never imply a fault. Markers show each
+pad's recorded state and interpolate only within continuous GPS segments in the
+visible time range. The optional read is cancelled on unmount/disable and bounded
+to 100,000 events, 1,000,000 samples and 2,000 fault episodes, with a visible error
+instead of silently truncated fault results. Pruned sessions reflect retained
+samples only.

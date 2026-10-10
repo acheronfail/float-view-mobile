@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { SessionRideMarker } from '$lib/backend/contract';
+  import type { SessionDisplayOptions, SessionRideMarker } from '$lib/backend/contract';
   import { ApiRequestError } from '$lib/backend/client';
   import SessionMarkers from './SessionMarkers.svelte';
   import { getContext, onDestroy, onMount, tick } from 'svelte';
@@ -21,15 +21,35 @@
   let deleteConfirmationOpen = $state(false);
   let pruneOpen = $state(false);
   let deleting = $state(false);
+  let savingDisplayOptions = $state(false);
+  async function toggleDisplayOption(key: keyof SessionDisplayOptions) {
+    const settings = backendState.settings;
+    if (!settings || savingDisplayOptions) return;
+    savingDisplayOptions = true;
+    try {
+      await backendState.updateSessionSettings({
+        sessionDisplayOptions: { ...settings.sessionDisplayOptions, [key]: !settings.sessionDisplayOptions[key] },
+      });
+    } finally {
+      savingDisplayOptions = false;
+    }
+  }
   let locationMapHeight = $state(0);
   let selectedElapsedMs = $state(0);
   let markers = $state<SessionRideMarker[]>([]);
   let selectedMarker = $state<SessionRideMarker | null>(null);
+  let selectedPoint = $state<{ elapsedMs: number } | null>(null);
   let markerError = $state('');
   let markerRetry = '';
   function selectMarker(marker: SessionRideMarker) {
     selectedMarker = marker;
     selectedElapsedMs = marker.elapsedMs;
+    selectedPoint = { elapsedMs: marker.elapsedMs };
+  }
+  function selectFault(elapsedMs: number) {
+    selectedMarker = null;
+    selectedElapsedMs = elapsedMs;
+    selectedPoint = { elapsedMs };
   }
   $effect(() => {
     const metadata = backendState.sessionMetadata;
@@ -38,6 +58,7 @@
     let active = true;
     markers = [];
     selectedMarker = null;
+    selectedPoint = null;
     markerError = '';
     void (async () => {
       const loaded: SessionRideMarker[] = [];
@@ -99,6 +120,18 @@
         ? {
             menuLabel: 'Session actions',
             menu: [
+              {
+                label: 'Both footpads off at speed',
+                checked: backendState.settings?.sessionDisplayOptions.bothFootpadsOff ?? false,
+                disabled: savingDisplayOptions,
+                onactivate: () => toggleDisplayOption('bothFootpadsOff'),
+              },
+              {
+                label: 'One footpad off at speed',
+                checked: backendState.settings?.sessionDisplayOptions.oneFootpadOff ?? false,
+                disabled: savingDisplayOptions,
+                onactivate: () => toggleDisplayOption('oneFootpadOff'),
+              },
               {
                 label: sessionExportLabel(backendState.platform, 'float-view-archive'),
                 disabled: !canExport,
@@ -203,6 +236,7 @@
             {markers}
             {selectedMarker}
             onmarkerselect={selectMarker}
+            onfaultselect={selectFault}
             viewport={chartViewport}
             bind:height={locationMapHeight}
           />
@@ -216,7 +250,7 @@
           <SessionHistory
             metadata={backendState.sessionMetadata}
             {markers}
-            {selectedMarker}
+            {selectedPoint}
             onmarkerselect={selectMarker}
             onselectionchange={(elapsedMs) => {
               selectedElapsedMs = elapsedMs;

@@ -5,14 +5,14 @@
 
   let {
     markers = [],
-    selectedMarker = null,
+    selectedPoint = null,
     onmarkerselect = () => {},
     metadata,
     onselectionchange,
     onviewportchange,
   }: {
     markers?: SessionRideMarker[];
-    selectedMarker?: SessionRideMarker | null;
+    selectedPoint?: { elapsedMs: number } | null;
     onmarkerselect?: (marker: SessionRideMarker) => void;
     metadata: SessionMetadata;
     onselectionchange?: (elapsedMs: number) => void;
@@ -21,5 +21,5 @@
 </script>
 
 <section aria-labelledby="history-heading">
-  <SessionHistoryChart {markers} {selectedMarker} {onmarkerselect} {metadata} {onselectionchange} {onviewportchange} />
+  <SessionHistoryChart {markers} {selectedPoint} {onmarkerselect} {metadata} {onselectionchange} {onviewportchange} />
 </section>

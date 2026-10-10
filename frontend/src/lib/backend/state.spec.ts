@@ -63,6 +63,7 @@ const initial: AppState = {
     minimumSessionDistance: 100,
     themePreference: 'system',
     unitPreference: 'metric',
+    sessionDisplayOptions: { bothFootpadsOff: false, oneFootpadOff: false },
     liveWidgetSlots: ['fieldWeakeningCurrentA', 'motorCurrentA', 'batteryCurrentA', 'powerW', 'distanceM'],
     historyGapThresholdSeconds: null,
     locationRecordingEnabled: false,

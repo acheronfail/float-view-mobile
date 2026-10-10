@@ -748,7 +748,13 @@ export const defaultLiveWidgetSlots: LiveWidgetSlots = [
   'distanceM',
 ];
 
+export interface SessionDisplayOptions {
+  bothFootpadsOff: boolean;
+  oneFootpadOff: boolean;
+}
+
 export interface Settings {
+  sessionDisplayOptions: SessionDisplayOptions;
   revision: number;
   idleProbeIntervalMs: number;
   idlePersistIntervalMs: number;

@@ -16,6 +16,7 @@ record!(Bluetooth {
 });
 record!(Location { authorization: String, background_capture: String, reason: Option<String>, permission_action: Option<crate::permissions::Action> });
 record!(Settings {
+    session_display_options: float_view_product_store::SessionDisplayOptions,
     revision: u64, idle_probe_interval_ms: u64, idle_persist_interval_ms: u64,
     riding_persist_interval_ms: u64, post_ride_tail_ms: u64, reconnect_duration_ms: u64,
     minimum_session_distance: f64, theme_preference: String, unit_preference: String, live_widget_slots: [String; 5],

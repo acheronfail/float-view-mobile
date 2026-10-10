@@ -25,14 +25,14 @@
 
   let {
     markers = [],
-    selectedMarker = null,
+    selectedPoint = null,
     onmarkerselect = () => {},
     metadata,
     onselectionchange = () => {},
     onviewportchange = () => {},
   }: {
     markers?: SessionRideMarker[];
-    selectedMarker?: SessionRideMarker | null;
+    selectedPoint?: { elapsedMs: number } | null;
     onmarkerselect?: (marker: SessionRideMarker) => void;
     metadata: SessionMetadata;
     onselectionchange?: (elapsedMs: number) => void;
@@ -315,7 +315,7 @@
   }
 
   $effect(() => {
-    const marker = selectedMarker;
+    const marker = selectedPoint;
     if (!marker) return;
     untrack(() => {
       if (marker.elapsedMs < viewport.startElapsedMs || marker.elapsedMs > viewport.endElapsedMs) {

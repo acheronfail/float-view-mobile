@@ -6,6 +6,7 @@ use serde_json::Value;
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct Settings {
+    pub session_display_options: SessionDisplayOptions,
     pub revision: u64,
     pub idle_probe_interval_ms: u64,
     pub idle_persist_interval_ms: u64,
@@ -20,10 +21,18 @@ pub struct Settings {
     pub location_recording_enabled: bool,
     pub include_gps_location_when_exporting: bool,
 }
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct SessionDisplayOptions {
+    pub both_footpads_off: bool,
+    pub one_footpad_off: bool,
+}
+
 impl Default for Settings {
     fn default() -> Self {
         Self {
             revision: 0,
+            session_display_options: SessionDisplayOptions::default(),
             idle_probe_interval_ms: 500,
             idle_persist_interval_ms: 1_000,
             riding_persist_interval_ms: 100,
@@ -83,6 +92,8 @@ impl ProductStore {
                 "historyGapThresholdSeconds" => clamp_float(&mut value, 0.1, 3_600.)?,
                 "themePreference"
                     if matches!(value.as_str(), Some("system" | "light" | "dark")) => {}
+                "sessionDisplayOptions"
+                    if serde_json::from_value::<SessionDisplayOptions>(value.clone()).is_ok() => {}
                 "liveWidgetSlots" if valid_live_widget_slots(&value) => {}
                 "unitPreference" if matches!(value.as_str(), Some("metric" | "imperial")) => {}
                 "locationRecordingEnabled" | "includeGpsLocationWhenExporting"

@@ -18,6 +18,7 @@
     visibleLocationSegments,
   } from './location-geometry';
   import type { Viewport } from './viewport';
+  import { loadFootpadFaults, footpadFaultIcon, footpadFaultLabel, type FootpadFault } from './footpad-faults';
   import Spinner from '../../ui/Spinner.svelte';
 
   const locationMarkerHtml = `<span class="${iconClasses['map-pin']}" aria-hidden="true"></span>`;
@@ -26,6 +27,7 @@
     markers = [],
     selectedMarker = null,
     onmarkerselect = () => {},
+    onfaultselect = () => {},
     metadata,
     selectedElapsedMs = 0,
     viewport = null,
@@ -34,6 +36,7 @@
     markers?: SessionRideMarker[];
     selectedMarker?: SessionRideMarker | null;
     onmarkerselect?: (marker: SessionRideMarker) => void;
+    onfaultselect?: (elapsedMs: number) => void;
     metadata: SessionMetadata;
     selectedElapsedMs?: number;
     viewport?: Viewport | null;
@@ -48,6 +51,33 @@
   let travelledLayers: Leaflet.Polyline[] = [];
   let locationMarker: Leaflet.Marker | null = null;
   let rideLayers: Leaflet.Marker[] = [];
+  let faultLayers: Leaflet.Marker[] = [];
+  let faults = $state<FootpadFault[]>([]);
+  let faultsLoading = $state(false);
+  let faultsError = $state<string | null>(null);
+  const displayOptions = $derived(backendState.settings?.sessionDisplayOptions);
+  const showFaults = $derived(!!(displayOptions?.bothFootpadsOff || displayOptions?.oneFootpadOff));
+  $effect(() => {
+    if (!showFaults) return;
+    const review = backendState.createSessionReviewController(metadata);
+    let current = true;
+    faultsLoading = true;
+    faultsError = null;
+    void loadFootpadFaults(review, metadata)
+      .then((loaded) => {
+        if (current) faults = loaded;
+      })
+      .catch((reason) => {
+        if (current) faultsError = reason instanceof Error ? reason.message : String(reason);
+      })
+      .finally(() => {
+        if (current) faultsLoading = false;
+      });
+    return () => {
+      current = false;
+      review.dispose();
+    };
+  });
   const locatedMarkers = $derived(markers.filter((m) => m.location !== null));
   let hasInitialView = false;
   let lastViewportKey: string | null = null;
@@ -72,6 +102,7 @@
       active = false;
       controller?.dispose();
       rideLayers.forEach((layer) => layer.remove());
+      faultLayers.forEach((layer) => layer.remove());
       locationMarker?.remove();
       map?.remove();
       map = null;
@@ -175,6 +206,8 @@
   $effect(() => {
     void points;
     void markers;
+    void faults;
+    void displayOptions;
     void selectedElapsedMs;
     void viewportKey;
     void hidden;
@@ -226,6 +259,7 @@
     }
     fitVisibleRoute(shouldRecenter);
     drawRideMarkers();
+    drawFaultMarkers();
     map.invalidateSize();
   }
 
@@ -247,6 +281,48 @@
     if (mapLayoutReady && map && location)
       map.setView([location.latitude, location.longitude], map.getZoom(), { animate: false });
   });
+
+  function drawFaultMarkers() {
+    faultLayers.forEach((layer) => layer.remove());
+    faultLayers = [];
+    if (!map) return;
+    for (const fault of faults) {
+      if (!(fault.state === 'none' ? displayOptions?.bothFootpadsOff : displayOptions?.oneFootpadOff)) continue;
+      // Never use a nearest fix outside a continuous, visible GPS segment.
+      const segment = visibleSegments.find(
+        (points) => points[0]!.elapsedMs <= fault.elapsedMs && points.at(-1)!.elapsedMs >= fault.elapsedMs
+      );
+      if (!segment) continue;
+      const point = locationAtElapsed([segment], fault.elapsedMs);
+      if (!point) continue;
+      const label = footpadFaultLabel(fault);
+      const layer = Leaflet.marker([point.latitude, point.longitude], {
+        icon: Leaflet.divIcon({
+          className: 'footpad-fault-marker',
+          html: `<button type="button" aria-label="${label}" style="display:block;border:0;padding:0;background:transparent;cursor:pointer;touch-action:manipulation">${footpadFaultIcon(fault.state)}</button>`,
+          iconSize: [36, 28],
+          iconAnchor: [18, 14],
+        }),
+        title: label,
+        alt: label,
+        keyboard: false,
+      })
+        .addTo(map)
+        .bindTooltip(label);
+      const button = layer.getElement()?.querySelector('button');
+      if (button) {
+        Leaflet.DomEvent.disableClickPropagation(button);
+        button.addEventListener('pointerdown', (event) => {
+          event.stopPropagation();
+          activateFromPointer(event, () => onfaultselect(fault.elapsedMs));
+        });
+        button.addEventListener('click', (event) => {
+          activateFromKeyboardOrAssistiveClick(event, () => onfaultselect(fault.elapsedMs));
+        });
+      }
+      faultLayers.push(layer);
+    }
+  }
 
   function drawRideMarkers() {
     if (!map) return;
@@ -341,6 +417,10 @@
     {/if}
   </div>
 
+  {#if showFaults && faultsLoading}<p role="status" class="text-xs text-muted">Loading footpad faults…</p>{/if}
+  {#if showFaults && faultsError}<p role="alert" class="text-sm text-warning">
+      Footpad faults could not be loaded: {faultsError}
+    </p>{/if}
   {#if error}
     <p role="alert" class="text-sm text-warning">{error}</p>
   {:else if !points.length && !locatedMarkers.length && !loading}
