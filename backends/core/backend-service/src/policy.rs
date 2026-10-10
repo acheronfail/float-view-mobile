@@ -55,7 +55,6 @@ pub(crate) struct TimerEntry {
 pub(crate) struct Capture {
     pub id: u64,
     pub start: u64,
-    pub elapsed: u64,
 }
 #[derive(PartialEq)]
 struct HostStatus(bool, bool, String, Option<String>, Vec<String>);
@@ -474,9 +473,7 @@ impl BackendService {
                 observed_at_ms,
             } => {
                 if let Some(capture) = self.policy.capture.as_ref().filter(|c| c.id == capture_id) {
-                    let elapsed_ms = capture
-                        .elapsed
-                        .saturating_add(envelope.monotonic_ms.saturating_sub(capture.start));
+                    let elapsed_ms = envelope.monotonic_ms.saturating_sub(capture.start);
                     self.runtime_command(Command::AppendLocations(vec![
                         session::LocationObservation {
                             observed_at_epoch_ms: observed_at_ms,
@@ -1173,14 +1170,13 @@ impl BackendService {
                         == os::LocationAuthorization::Authorized));
         if enabled && self.policy.capture.is_none() {
             let id = self.policy.exchange.id()?;
-            let elapsed = self.runtime.snapshot().session_marker.map_or(0, |m| {
-                m.committed_elapsed_ms.max(m.committed_location_elapsed_ms)
-            });
-            self.policy.capture = Some(Capture {
-                id,
-                start: self.policy.exchange.now,
-                elapsed,
-            });
+            let start = self
+                .policy
+                .active
+                .as_ref()
+                .and_then(|a| a.session_start)
+                .ok_or(Failure::InvalidState)?;
+            self.policy.capture = Some(Capture { id, start });
             self.policy
                 .exchange
                 .push(Effect::StartLocation { capture_id: id })?;
@@ -1682,7 +1678,45 @@ mod tests {
             };
             marker
         };
-        assert!(save(&mut t.service, 1).location.is_some());
+        let marker = save(&mut t.service, 1);
+        let session_start = t
+            .service
+            .policy
+            .active
+            .as_ref()
+            .unwrap()
+            .session_start
+            .unwrap();
+        assert_eq!(marker.elapsed_ms, 110 - session_start);
+        assert_eq!(
+            marker.location.as_ref().unwrap().elapsed_ms,
+            marker.elapsed_ms
+        );
+        // Restart capture without changing the ride clock.
+        // The next location must stay aligned with markers and telemetry.
+        t.service.policy.capture = None;
+        t.service.location_eligibility().unwrap();
+        let resumed_capture = t.service.policy.capture.as_ref().unwrap().id;
+        t.fact(
+            Fact::Location {
+                capture_id: resumed_capture,
+                latitude: -33.81,
+                longitude: 151.21,
+                accuracy_m: Some(5.),
+                observed_at_ms: 1_700_000_000_111,
+            },
+            111,
+        )
+        .unwrap();
+        assert_eq!(
+            t.service
+                .runtime
+                .snapshot()
+                .session_marker
+                .unwrap()
+                .committed_location_elapsed_ms,
+            111 - session_start
+        );
         t.fact(Fact::Foreground { foreground: false }, 111).unwrap();
         assert!(t.service.policy.capture.is_some());
         t.fact(
@@ -1720,7 +1754,7 @@ mod tests {
                 .session_marker
                 .unwrap()
                 .recorded_location_count,
-            1
+            2
         );
         assert!(t.service.policy.latest_location.is_none());
         t.fact(Fact::Foreground { foreground: false }, 700).unwrap();

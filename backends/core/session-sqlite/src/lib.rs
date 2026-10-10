@@ -266,6 +266,14 @@ impl SessionWriter {
             .checked_add(samples.len() as u64)
             .ok_or(WriterError::InvalidInput)?;
         sqlite_integer(recorded_sample_count)?;
+        // The published boundary may include a marker later than the last sample.
+        // Use the indexed sample tail for integration, never that boundary time.
+        let last_key: Option<(u64, u64)> = transaction.query_row(
+            "SELECT monotonic_elapsed_ms, sequence FROM sample ORDER BY monotonic_elapsed_ms DESC, sequence DESC LIMIT 1",
+            [], |r| Ok((r.get(0)?, r.get(1)?)),
+        ).optional().map_err(map_sqlite)?;
+        let mut aggregate = Aggregate::from_marker(&existing_marker, last_key);
+        let mut ordered_append = true;
         let mut transitions = latest_transition_values(&transaction)?;
         let mut event_sequence: u64 = transaction
             .query_row(
@@ -341,6 +349,12 @@ impl SessionWriter {
                 continue;
             }
 
+            if last_key.is_some_and(|key| (sample.elapsed_ms, sample.sequence) <= key) {
+                ordered_append = false;
+            }
+            if ordered_append {
+                aggregate.append(sample)?;
+            }
             let sequence = sqlite_integer(sample.sequence)?;
             for (field, numeric) in numeric_values(sample) {
                 if numeric.is_some() {
@@ -384,11 +398,20 @@ impl SessionWriter {
                         ],
                     )
                     .map_err(map_sqlite)?;
+                aggregate.event_count = aggregate
+                    .event_count
+                    .checked_add(1)
+                    .ok_or(WriterError::InvalidInput)?;
                 transitions.insert((*kind).to_owned(), transition.clone());
             }
         }
 
-        let aggregate = aggregate_samples(&transaction)?;
+        aggregate.event_sequence = event_sequence;
+        // Out-of-order inserts remain supported; only those need recomputation.
+        // Normal recording and duplicate replay do work bounded by the batch.
+        if !ordered_append {
+            aggregate = aggregate_samples(&transaction)?;
+        }
         let committed_sample_sequence = existing_marker
             .committed_sample_sequence
             .max(last_submitted_sequence);
@@ -517,9 +540,10 @@ impl SessionWriter {
                 .recorded_location_count
                 .checked_add(accepted)
                 .ok_or(WriterError::InvalidInput)?;
-            let stored: i64 = transaction
-                .query_row("SELECT COUNT(*) FROM location", [], |row| row.get(0))
-                .map_err(map_sqlite)?;
+            let stored = marker
+                .stored_location_count
+                .checked_add(accepted)
+                .ok_or(WriterError::InvalidInput)?;
             transaction
                 .execute(
                     "UPDATE commit_marker SET committed_location_sequence = ?, committed_location_elapsed_ms = ?, recorded_location_count = ?, stored_location_count = ?, last_location_status = 'available' WHERE singleton = 1",
@@ -527,7 +551,7 @@ impl SessionWriter {
                         sqlite_integer(next_sequence)?,
                         sqlite_integer(committed_elapsed)?,
                         sqlite_integer(recorded)?,
-                        stored,
+                        sqlite_integer(stored)?,
                     ],
                 )
                 .map_err(map_sqlite)?;
@@ -737,6 +761,67 @@ struct Aggregate {
     maximum_duty_source_sequence: Option<u64>,
     last_speed_kph: Option<f64>,
     last_ride_state: Option<String>,
+}
+
+impl Aggregate {
+    fn from_marker(marker: &CommitMarker, last_key: Option<(u64, u64)>) -> Self {
+        Self {
+            sample_count: marker.stored_sample_count,
+            event_count: marker.committed_event_count,
+            event_sequence: marker.committed_event_sequence,
+            elapsed_ms: last_key.map_or(0, |key| key.0),
+            riding_elapsed_ms: marker.riding_elapsed_ms,
+            distance_m: marker.distance_m,
+            maximum_speed_kph: marker.maximum_speed_kph,
+            maximum_speed_source_sequence: marker.maximum_speed_source_sequence,
+            maximum_duty_cycle: marker.maximum_duty_cycle,
+            maximum_duty_source_sequence: marker.maximum_duty_source_sequence,
+            last_speed_kph: marker.last_speed_kph,
+            last_ride_state: marker.last_ride_state.clone(),
+        }
+    }
+
+    fn append(&mut self, sample: &NormalizedSample) -> Result<(), WriterError> {
+        let mut distance = self.distance_m.unwrap_or(0.0);
+        if self.sample_count > 0 {
+            let delta = sample.elapsed_ms.saturating_sub(self.elapsed_ms);
+            if sample.ride_state == RideState::Riding {
+                self.riding_elapsed_ms = self
+                    .riding_elapsed_ms
+                    .checked_add(delta)
+                    .ok_or(WriterError::InvalidInput)?;
+            }
+            if let (Some(previous), Some(current)) = (self.last_speed_kph, sample.speed_kph) {
+                distance += (previous.abs() + current.abs()) * 0.5 * delta as f64 / 3_600.0;
+            }
+        }
+        if !distance.is_finite() {
+            return Err(WriterError::InvalidInput);
+        }
+        self.distance_m = Some(distance);
+        if let Some(value) = sample.speed_kph.map(f64::abs)
+            && self.maximum_speed_kph.is_none_or(|maximum| value > maximum)
+        {
+            self.maximum_speed_kph = Some(value);
+            self.maximum_speed_source_sequence = Some(sample.sequence);
+        }
+        if let Some(value) = sample.duty_cycle.map(f64::abs)
+            && self
+                .maximum_duty_cycle
+                .is_none_or(|maximum| value > maximum)
+        {
+            self.maximum_duty_cycle = Some(value);
+            self.maximum_duty_source_sequence = Some(sample.sequence);
+        }
+        self.sample_count = self
+            .sample_count
+            .checked_add(1)
+            .ok_or(WriterError::InvalidInput)?;
+        self.elapsed_ms = sample.elapsed_ms;
+        self.last_speed_kph = sample.speed_kph;
+        self.last_ride_state = Some(ride_state(sample.ride_state).into());
+        Ok(())
+    }
 }
 
 fn aggregate_samples(transaction: &Transaction<'_>) -> Result<Aggregate, WriterError> {
@@ -1330,6 +1415,130 @@ mod tests {
                 }
             ),
             "LocationObservation([redacted])"
+        );
+    }
+}
+
+#[cfg(test)]
+mod append_regressions {
+    use super::*;
+    #[allow(dead_code)]
+    mod support {
+        include!("../tests/support/mod.rs");
+    }
+    use support::{TestDirectory, sample};
+
+    fn writer(directory: &TestDirectory) -> SessionWriter {
+        SessionWriter::create(
+            directory.file("ride.sqlite3"),
+            SessionMetadata {
+                expected_riding_persistence_ms: 100,
+                expected_idle_persistence_ms: 1000,
+                committed_at_epoch_ms: 1_000_000,
+            },
+        )
+        .unwrap()
+    }
+
+    fn assert_aggregates(writer: &mut SessionWriter) {
+        let marker = writer.marker().unwrap();
+        let tx = writer.connection.transaction().unwrap();
+        let expected = aggregate_samples(&tx).unwrap();
+        assert_eq!(marker.stored_sample_count, expected.sample_count);
+        assert_eq!(marker.committed_event_count, expected.event_count);
+        assert_eq!(marker.committed_event_sequence, expected.event_sequence);
+        assert_eq!(marker.riding_elapsed_ms, expected.riding_elapsed_ms);
+        assert_eq!(marker.distance_m, expected.distance_m);
+        assert_eq!(marker.maximum_speed_kph, expected.maximum_speed_kph);
+        assert_eq!(
+            marker.maximum_speed_source_sequence,
+            expected.maximum_speed_source_sequence
+        );
+        assert_eq!(marker.maximum_duty_cycle, expected.maximum_duty_cycle);
+        assert_eq!(
+            marker.maximum_duty_source_sequence,
+            expected.maximum_duty_source_sequence
+        );
+        assert_eq!(marker.last_speed_kph, expected.last_speed_kph);
+        assert_eq!(marker.last_ride_state, expected.last_ride_state);
+    }
+
+    #[test]
+    fn incremental_totals_match_full_reduction_across_replay_reopen_and_late_insert() {
+        let directory = TestDirectory::new();
+        let mut w = writer(&directory);
+        for n in 1..=40 {
+            let mut s = sample(n, n * 100);
+            s.ride_state = if n % 3 == 0 {
+                RideState::Idle
+            } else {
+                RideState::Riding
+            };
+            s.speed_kph = (n % 5 != 0).then_some(if n % 2 == 0 { -18. } else { 36. });
+            s.duty_cycle = (n % 7 != 0).then_some(-0.5);
+            w.append_samples(&[s.clone()]).unwrap();
+            w.append_samples(&[s]).unwrap();
+            assert_aggregates(&mut w);
+            if n == 20 {
+                w.append_ride_marker(
+                    "00000000-0000-4000-8000-000000000001",
+                    2050,
+                    1_002_050,
+                    false,
+                )
+                .unwrap();
+                w.close().unwrap();
+                w = SessionWriter::open(directory.file("ride.sqlite3")).unwrap();
+            }
+        }
+        // Accepted late inserts need the full reduction; subsequent appends do not.
+        let mut late = sample(41, 250);
+        late.speed_kph = Some(72.);
+        w.append_samples(&[late]).unwrap();
+        assert_aggregates(&mut w);
+        w.append_samples(&[sample(42, 4100), sample(43, 4100)])
+            .unwrap();
+        assert_aggregates(&mut w);
+    }
+
+    #[test]
+    fn append_database_work_does_not_grow_with_ride_length() {
+        use std::sync::{
+            Arc,
+            atomic::{AtomicUsize, Ordering},
+        };
+        let mut costs = Vec::new();
+        for count in [100, 10_605] {
+            let directory = TestDirectory::new();
+            let mut w = writer(&directory);
+            for start in (1..=count).step_by(100) {
+                let rows: Vec<_> = (start..=(start + 99).min(count))
+                    .map(|n| sample(n, n * 100))
+                    .collect();
+                w.append_samples(&rows).unwrap();
+            }
+            let steps = Arc::new(AtomicUsize::new(0));
+            let observer = steps.clone();
+            w.connection.progress_handler(
+                1,
+                Some(move || {
+                    observer.fetch_add(1, Ordering::Relaxed);
+                    false
+                }),
+            );
+            let start = std::time::Instant::now();
+            for n in count + 1..=count + 50 {
+                w.append_samples(&[sample(n, n * 100)]).unwrap();
+            }
+            eprintln!(
+                "{count} rows: {:.2} ms/append",
+                start.elapsed().as_secs_f64() * 1000. / 50.
+            );
+            costs.push(steps.load(Ordering::Relaxed));
+        }
+        assert!(
+            costs[1] < costs[0] * 2,
+            "append SQL work grew with ride length: {costs:?}"
         );
     }
 }

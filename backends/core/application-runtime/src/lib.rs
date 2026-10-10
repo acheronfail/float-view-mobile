@@ -452,6 +452,111 @@ mod tests {
     }
 
     #[test]
+    fn retained_ride_reconnects_preserve_samples_clock_and_marker_alignment() {
+        let directory = tempfile_directory("reconnect-clock");
+        let mut runtime = ApplicationRuntime::new();
+        runtime
+            .apply(Command::AttachSession {
+                path: directory.join("ride.sqlite3"),
+                mode: SessionMode::Create,
+                metadata: session_metadata(),
+            })
+            .unwrap();
+        for (index, base) in [0, 170_000, 200_000].into_iter().enumerate() {
+            let coordinator::Command::Begin(mut facts) = begin(base + 10) else {
+                unreachable!()
+            };
+            facts.continuity = Continuity::new(index > 0, None, None);
+            runtime
+                .apply(Command::Application(coordinator::Command::Begin(facts)))
+                .unwrap();
+            let generation = runtime.snapshot().application.generation;
+            // Legacy fixtures exercise the same session ownership as selectable telemetry.
+            for payload in [firmware_response(), vec![36, 101, 0, 10]] {
+                runtime
+                    .apply(Command::Application(coordinator::Command::Receive {
+                        generation,
+                        payload,
+                        now_ms: base + 20,
+                        observed_at_epoch_ms: 1_700_000_000_000 + base as i64 + 20,
+                    }))
+                    .unwrap();
+            }
+            runtime
+                .apply(Command::Application(coordinator::Command::Activate {
+                    generation,
+                    now_ms: base + 40,
+                    session_started: index == 0,
+                    cached_configuration_schema: None,
+                }))
+                .unwrap();
+            let mut limits = vec![14];
+            limits.extend_from_slice(&0x2EFD_0142_u32.to_be_bytes());
+            limits.extend_from_slice(&[0; 4]);
+            for limit in [100_f32, -100., 50., -20.] {
+                limits.extend_from_slice(&limit.to_be_bytes());
+            }
+            runtime
+                .apply(Command::Application(coordinator::Command::Receive {
+                    generation,
+                    payload: limits,
+                    now_ms: base + 45,
+                    observed_at_epoch_ms: 1_700_000_000_000 + base as i64 + 45,
+                }))
+                .unwrap();
+            let fixture = include_str!("../../../fixtures/refloat/protocol-1.0.0.json");
+            let hex = fixture
+                .split_once("legacy-riding-all-data")
+                .unwrap()
+                .1
+                .split_once("\"frameHex\": \"")
+                .unwrap()
+                .1
+                .split('"')
+                .next()
+                .unwrap();
+            let frame = hex
+                .as_bytes()
+                .chunks_exact(2)
+                .map(|bytes| u8::from_str_radix(std::str::from_utf8(bytes).unwrap(), 16).unwrap())
+                .collect();
+            let effects = runtime
+                .apply(Command::ReceiveBytes {
+                    generation,
+                    bytes: frame,
+                    now_ms: base + 70,
+                    observed_at_epoch_ms: 1_700_000_000_000 + base as i64 + 70,
+                })
+                .unwrap();
+            let sample = effects
+                .iter()
+                .find_map(|effect| match effect {
+                    Effect::Application(CoordinatorEffect::PublishTelemetry(sample)) => {
+                        Some(sample)
+                    }
+                    _ => None,
+                })
+                .expect("published telemetry");
+            assert_eq!(sample.sequence, index as u64 + 1);
+            assert_eq!(sample.elapsed_ms, base + 30);
+            let boundary = runtime.snapshot().session_marker.unwrap();
+            assert_eq!(boundary.stored_sample_count, index as u64 + 1);
+            assert_eq!(boundary.recorded_sample_count, boundary.stored_sample_count);
+            let (marker, _) = runtime
+                .save_ride_marker(
+                    &format!("00000000-0000-4000-8000-{index:012x}"),
+                    base + 35,
+                    1_700_000_000_000 + base as i64 + 75,
+                    false,
+                )
+                .unwrap();
+            assert_eq!(marker.elapsed_ms, sample.elapsed_ms + 5);
+        }
+        drop(runtime);
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
     fn begins_with_one_framed_firmware_request() {
         let mut runtime = ApplicationRuntime::new();
         let effects = runtime

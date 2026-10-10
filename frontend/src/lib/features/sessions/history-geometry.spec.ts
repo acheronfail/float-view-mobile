@@ -32,6 +32,22 @@ describe('historical session geometry', () => {
     expect(segments[1]).toMatch(/^M 100\.00 /);
   });
 
+  it('retains the first sample of each generation without bridging gaps', () => {
+    const segments = buildPathSegments(
+      { elapsedMs: [0, 1, 2, 3], sequence: [1, 2, 3, 4], values: [1, 1, 1, 1], generations: [0, 0, 1, 1] },
+      { width: 90, height: 50, viewport: { startElapsedMs: 0, endElapsedMs: 3 }, domain: { min: 0, max: 2 } }
+    );
+    expect(segments).toEqual(['M 0.00 25.00 L 30.00 25.00', 'M 60.00 25.00 L 90.00 25.00']);
+  });
+
+  it('keeps isolated readings drawable when every sample follows a gap', () => {
+    const segments = buildPathSegments(
+      { elapsedMs: [0, 1500, 3000], sequence: [1, 2, 3], values: [1, 1, 1], generations: [0, 1, 2] },
+      { width: 100, height: 50, viewport: { startElapsedMs: 0, endElapsedMs: 3000 }, domain: { min: 0, max: 2 } }
+    );
+    expect(segments).toEqual(['M 0.00 25.00 l 0 0', 'M 50.00 25.00 l 0 0', 'M 100.00 25.00 l 0 0']);
+  });
+
   it('finds the interpolated point where the inspection bar crosses a line', () => {
     expect(
       pointAtElapsed(

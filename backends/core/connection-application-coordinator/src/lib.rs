@@ -556,7 +556,12 @@ impl ConnectionApplicationCoordinator {
         facts.validate()?;
         validate_now(facts.now_ms)?;
         let mut effects = Vec::new();
-        self.reset_internal(facts.now_ms, false, &mut effects)?;
+        self.reset_internal(
+            facts.now_ms,
+            false,
+            facts.continuity.has_active_session,
+            &mut effects,
+        )?;
         self.settings = facts.settings;
         self.preferred_controller_can_id = facts.preferred_controller_can_id;
         self.routing_hint = facts.routing_hint;
@@ -994,7 +999,7 @@ impl ConnectionApplicationCoordinator {
     fn reset(&mut self, now_ms: u64) -> Result<Vec<Effect>, CoordinatorError> {
         validate_now(now_ms)?;
         let mut effects = Vec::new();
-        self.reset_internal(now_ms, true, &mut effects)?;
+        self.reset_internal(now_ms, true, false, &mut effects)?;
         Ok(effects)
     }
 
@@ -1002,6 +1007,7 @@ impl ConnectionApplicationCoordinator {
         &mut self,
         now_ms: u64,
         publish: bool,
+        retain_session: bool,
         effects: &mut Vec<Effect>,
     ) -> Result<(), CoordinatorError> {
         if self.mutations.snapshot().configured {
@@ -1017,7 +1023,13 @@ impl ConnectionApplicationCoordinator {
         self.configuration.reset();
         self.current_limits = None;
         self.configuration_token = None;
-        let telemetry_effects = self.telemetry.apply(telemetry::Command::Reset)?;
+        // A reconnect resets connection work, but the retained ride still owns
+        // its original monotonic origin and unique sample sequence.
+        let telemetry_effects = self.telemetry.apply(if retain_session {
+            telemetry::Command::ResetConnection
+        } else {
+            telemetry::Command::Reset
+        })?;
         self.process_telemetry(telemetry_effects, now_ms, effects)?;
         let bms_effects = self.bms.apply(bms::Command::Reset)?;
         self.process_bms(bms_effects, now_ms, effects)?;

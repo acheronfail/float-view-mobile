@@ -774,6 +774,7 @@
                               fill="none"
                               stroke={field.color}
                               stroke-width="1.5"
+                              stroke-linecap="round"
                               vector-effect="non-scaling-stroke"
                             />
                           {/each}

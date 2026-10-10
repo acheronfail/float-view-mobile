@@ -401,6 +401,8 @@ pub enum Command {
     Stop {
         service_generation: u64,
     },
+    /// Clear connection work while retaining the active ride's clock and sequence.
+    ResetConnection,
     Reset,
 }
 
@@ -647,6 +649,7 @@ impl RefloatTelemetryService {
                 observed_at_epoch_ms,
             } => self.receive(service_generation, *telemetry, now_ms, observed_at_epoch_ms),
             Command::Stop { service_generation } => Ok(self.stop(service_generation)),
+            Command::ResetConnection => Ok(self.reset_connection()),
             Command::Reset => Ok(self.reset()),
         }
     }
@@ -937,10 +940,14 @@ impl RefloatTelemetryService {
     }
 
     fn reset(&mut self) -> Vec<Effect> {
-        let mut effects = self.stop_active();
-        effects.extend(self.cancel_layout());
         self.started_at_ms = None;
         self.sequence = 0;
+        self.reset_connection()
+    }
+
+    fn reset_connection(&mut self) -> Vec<Effect> {
+        let mut effects = self.stop_active();
+        effects.extend(self.cancel_layout());
         self.service_generation = None;
         self.scheduler_generation = None;
         self.route = None;
@@ -2537,13 +2544,21 @@ mod tests {
         let layout_timer = timer(&layout, TimerKind::LayoutRetry);
         let polling = start(&mut service, TelemetryFamily::Dynamic, Route::Direct, 0);
         let poll_timer = timer(&polling, TimerKind::Poll);
+        service.started_at_ms = Some(100);
+        service.sequence = 510;
         assert_eq!(
-            service.apply(Command::Reset).unwrap(),
+            service.apply(Command::ResetConnection).unwrap(),
             [
                 Effect::CancelTimer(poll_timer),
                 Effect::CancelTimer(layout_timer)
             ]
         );
+        let mut retained = RefloatTelemetryService::default().snapshot();
+        retained.sequence = 510;
+        assert_eq!(service.snapshot(), retained);
+        assert_eq!(service.started_at_ms, Some(100));
+        assert!(service.apply(Command::Reset).unwrap().is_empty());
+        assert_eq!(service.started_at_ms, None);
         assert_eq!(
             service.snapshot(),
             RefloatTelemetryService::default().snapshot()

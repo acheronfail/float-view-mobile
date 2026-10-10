@@ -45,12 +45,17 @@ export function buildPathSegments(column: SessionSeriesColumn, options: PlotPath
   const width = Math.max(1, options.width);
   const segments: string[] = [];
   let current = '';
+  const flush = () => {
+    // A zero-length line with a round cap renders isolated readings as dots.
+    if (current) segments.push(current.includes(' L') ? current : `${current} l 0 0`);
+    current = '';
+  };
   column.values.forEach((value, index) => {
     const previousGeneration = index ? column.generations[index - 1] : column.generations[index];
     const generationBreak = index > 0 && column.generations[index] !== previousGeneration;
-    if (value === null || !Number.isFinite(value) || generationBreak) {
-      if (current) segments.push(current);
-      current = '';
+    if (generationBreak) flush();
+    if (value === null || !Number.isFinite(value)) {
+      flush();
       return;
     }
     const elapsed = column.elapsedMs[index] ?? options.viewport.startElapsedMs;
@@ -58,7 +63,7 @@ export function buildPathSegments(column: SessionSeriesColumn, options: PlotPath
     const y = height - ((value - domain.min) / Math.max(Number.EPSILON, domain.max - domain.min)) * (height - 4) - 2;
     current += `${current ? ' L' : 'M'} ${x.toFixed(2)} ${y.toFixed(2)}`;
   });
-  if (current) segments.push(current);
+  flush();
   return segments;
 }
 
