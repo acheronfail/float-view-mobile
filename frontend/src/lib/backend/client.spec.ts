@@ -1,5 +1,5 @@
 import { permissionInventory } from '../../../backend-mock/permissions';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { AppState } from '$lib/backend/contract';
 import { ApiClient, ApiProtocolError } from './client';
 
@@ -109,4 +109,31 @@ it('closes malformed permission inventories and notifies closure once', async ()
   await expect(pending).rejects.toThrow('invalid permission inventory');
   client.close();
   expect(closed).toBe(1);
+});
+
+it('reports bounded delivery timings at most once per ten seconds without revising state', async () => {
+  let now = 0;
+  const clock = vi.spyOn(performance, 'now').mockImplementation(() => now);
+  const { socket, client } = setup();
+  const state = { revision: 1, permissions: permissionInventory('ios') } as AppState;
+  try {
+    socket.receive({ event: 'state.changed', data: state });
+    expect(socket.sent).toHaveLength(0);
+    now = 10000;
+    socket.receive({ event: 'state.changed', data: state });
+    expect(socket.sent).toHaveLength(1);
+    const report = JSON.parse(socket.sent[0]!);
+    expect(report.method).toBe('diagnostics.report');
+    expect(report.params.snapshots).toBe(2);
+    expect(report.params.max_delivery_gap_ms).toBe(10000);
+    socket.receive({ id: report.id, error: { code: 'unavailable', message: 'Unavailable' } });
+    await Promise.resolve();
+    expect(client.isOpen).toBe(true);
+    now = 10001;
+    socket.receive({ event: 'state.changed', data: state });
+    expect(socket.sent).toHaveLength(1);
+  } finally {
+    client.close();
+    clock.mockRestore();
+  }
 });

@@ -170,6 +170,24 @@ impl Backend {
     }
     async fn dispatch(&self, client: u64, method: &str, p: Params<'_>) -> Result<Value, Failure> {
         let operation = match method {
+            "diagnostics.report" => {
+                p.only(&[
+                    "snapshots",
+                    "max_sample_age_ms",
+                    "max_delivery_gap_ms",
+                    "max_handler_ms",
+                ])?;
+                let report =
+                    serde_json::from_value::<float_view_backend_service::diagnostics::UiReport>(
+                        serde_json::to_value(p.0).map_err(|_| Failure::InvalidRequest)?,
+                    )
+                    .map_err(|_| Failure::InvalidRequest)?;
+                self.service
+                    .lock()
+                    .map_err(|_| Failure::Internal)?
+                    .report_ui_diagnostics(report)?;
+                return Ok(json!({"accepted":true}));
+            }
             "state.get" => {
                 p.only(&[])?;
                 return self.snapshot();

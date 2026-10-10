@@ -94,6 +94,12 @@ fn sink(store: &ProductStore, path: &std::path::Path) -> ImportSink {
 #[test]
 fn archive_roundtrip_preserves_portable_identity_and_uses_new_local_ids() {
     let (_dir, store, id) = setup();
+    let record = r#"{"v":1,"event":"summary","data":{"append_us":[10,100,200,300]}}"#;
+    let mut diagnostics =
+        float_view_session_sqlite::DiagnosticWriter::open(&store.session_path(&id).unwrap())
+            .unwrap();
+    diagnostics.append(&[record.into()]).unwrap();
+    drop(diagnostics);
     let cancel = FileCancellation::default();
     let export = store
         .prepare_export(&id, ExportFormat::Archive)
@@ -115,6 +121,16 @@ fn archive_roundtrip_preserves_portable_identity_and_uses_new_local_ids() {
     let value = sink(&imported, export.path()).validate(&cancel).unwrap();
     let session = imported.attach_import(value).unwrap();
     assert_ne!(session.session_id, id);
+    let db = Connection::open(imported.session_path(&session.session_id).unwrap()).unwrap();
+    assert_eq!(
+        db.query_row("SELECT record_json FROM session_diagnostic", [], |r| r
+            .get::<_, String>(
+            0
+        ))
+        .unwrap(),
+        record
+    );
+    drop(db);
     let board = imported.boards().unwrap().remove(0);
     let profile = imported.profile(&board.saved_device_id).unwrap();
     assert_eq!(profile.values["batteryCellProfileId"], "molicel-p45b");

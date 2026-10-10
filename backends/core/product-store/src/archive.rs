@@ -118,7 +118,7 @@ impl ImportSink {
             [],
             |r| r.get(0),
         )?;
-        if version != "2" || count != 2 {
+        if version != "3" || count != 2 {
             return Err(Error::InvalidInput);
         }
         let manifest: Manifest = serde_json::from_str(&text).map_err(|_| Error::InvalidInput)?;
@@ -208,7 +208,7 @@ impl ArchiveExport {
                     }
                 }
                 dest.execute_batch(META)?;
-                dest.execute("INSERT INTO float_view_archive_metadata(key,value) VALUES ('format_version','2'),('session',?)",[json(&self.manifest,MAX_MANIFEST)?])?;
+                dest.execute("INSERT INTO float_view_archive_metadata(key,value) VALUES ('format_version','3'),('session',?)",[json(&self.manifest,MAX_MANIFEST)?])?;
                 dest.execute_batch("PRAGMA wal_checkpoint(TRUNCATE)")?;
                 dest.close().map_err(|(_, e)| Error::from(e))?;
             }

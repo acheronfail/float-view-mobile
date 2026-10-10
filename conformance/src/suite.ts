@@ -39,6 +39,23 @@ export async function runConformance(target: Target) {
     const endpoint = await target.start();
     client = await ConformanceClient.open(endpoint.url, endpoint.origin);
     const initial = await client.request('state.get', {});
+    assert.deepEqual(
+      await client.request('diagnostics.report', {
+        snapshots: 10,
+        max_sample_age_ms: 50,
+        max_delivery_gap_ms: 100,
+        max_handler_ms: 2,
+      }),
+      { accepted: true }
+    );
+    await assert.rejects(
+      client.request('diagnostics.report', {
+        snapshots: 10001,
+        max_sample_age_ms: 0,
+        max_delivery_gap_ms: 0,
+        max_handler_ms: 0,
+      })
+    );
     assertState(initial);
     for (const params of [
       { permission: 'unknown', action: 'requestPermission' },
@@ -1156,6 +1173,7 @@ function required<T>(value: T | null | undefined, message: string): T {
 export const mandatoryMethods: BackendMethod[] = [
   'permissions.recover',
   'state.get',
+  'diagnostics.report',
   'bluetooth.requestPermission',
   'location.requestPermission',
   'location.openSettings',

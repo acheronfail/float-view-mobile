@@ -130,3 +130,9 @@ CREATE TABLE IF NOT EXISTS commit_marker (
   stored_location_count INTEGER NOT NULL DEFAULT 0,
   last_location_status TEXT NOT NULL DEFAULT 'disabled'
 );
+
+-- Payload-free timing diagnostics; the asynchronous writer retains the newest 5000 rows.
+CREATE TABLE IF NOT EXISTS session_diagnostic (
+  sequence INTEGER PRIMARY KEY AUTOINCREMENT,
+  record_json TEXT NOT NULL CHECK (length(CAST(record_json AS BLOB)) <= 1024)
+);

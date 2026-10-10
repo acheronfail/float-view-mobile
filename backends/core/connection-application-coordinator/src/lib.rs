@@ -377,7 +377,18 @@ impl From<custom_configuration::CustomConfigurationError> for CoordinatorError {
     }
 }
 
+#[derive(Clone, Debug)]
+pub struct RequestTiming {
+    pub generation: u64,
+    pub sequence: u64,
+    pub kind: &'static str,
+    pub outcome: &'static str,
+    pub queue_ms: u64,
+    pub response_ms: u64,
+}
+
 pub struct ConnectionApplicationCoordinator {
+    timings: VecDeque<RequestTiming>,
     generation: Generation,
     phase: Phase,
     standalone_bms: bool,
@@ -404,6 +415,7 @@ pub struct ConnectionApplicationCoordinator {
 impl Default for ConnectionApplicationCoordinator {
     fn default() -> Self {
         Self {
+            timings: VecDeque::new(),
             generation: Generation(0),
             phase: Phase::Disconnected,
             standalone_bms: false,
@@ -449,6 +461,58 @@ impl std::fmt::Debug for ConnectionApplicationCoordinator {
 }
 
 impl ConnectionApplicationCoordinator {
+    pub fn take_request_timings(&mut self) -> Vec<RequestTiming> {
+        self.timings.drain(..).collect()
+    }
+
+    fn record_request(
+        &mut self,
+        request: &scheduler::ScheduledRequest,
+        outcome: &'static str,
+        now_ms: u64,
+    ) {
+        use scheduler::RequestContext as C;
+        let kind = match request.context {
+            C::RefloatTelemetry(_) => {
+                let offset = usize::from(request.payload.first() == Some(&34)) * 2;
+                let payload = request.payload.get(offset..).unwrap_or_default();
+                if payload == dynamic::selectable_fast_request() {
+                    "fast"
+                } else if payload.get(2) == Some(&33) {
+                    "slow"
+                } else if payload == [36, 101, 10, 0] {
+                    "fault"
+                } else {
+                    "telemetry"
+                }
+            }
+            C::RefloatLighting(_) => "lighting",
+            C::BmsValues(_) => "bms",
+            C::CurrentLimits(_) => "limits",
+            C::RefloatConfigurationSchema { .. }
+            | C::RefloatConfigurationValues { .. }
+            | C::RefloatConfigurationWrite { .. }
+            | C::RefloatConfigurationVerification { .. } => "configuration",
+            _ => "discovery_or_control",
+        };
+        if self.timings.len() == 128 {
+            self.timings.pop_front();
+        }
+        self.timings.push_back(RequestTiming {
+            generation: request.generation.0,
+            sequence: request.sequence,
+            kind,
+            outcome,
+            queue_ms: request
+                .dispatched_at_ms
+                .unwrap_or(now_ms)
+                .saturating_sub(request.enqueued_at_ms),
+            response_ms: request
+                .dispatched_at_ms
+                .map_or(0, |start| now_ms.saturating_sub(start)),
+        });
+    }
+
     #[must_use]
     pub fn snapshot(&self) -> Snapshot {
         Snapshot {
@@ -1211,9 +1275,22 @@ impl ConnectionApplicationCoordinator {
                     push_effect(effects, Effect::ArmDeadline { token, timeout_ms })?;
                 }
                 scheduler::Effect::Write(request) => {
+                    self.record_request(&request, "sent", now_ms);
                     push_effect(effects, Effect::Write(request))?;
                 }
                 scheduler::Effect::Complete { request, outcome } => {
+                    self.record_request(
+                        &request,
+                        match outcome {
+                            scheduler::Completion::Response(_) => "response",
+                            scheduler::Completion::Sent => "sent_only",
+                            scheduler::Completion::TimedOut => "timeout",
+                            scheduler::Completion::QueueFull => "queue_full",
+                            scheduler::Completion::Cancelled => "cancelled",
+                            scheduler::Completion::StaleGeneration => "stale",
+                        },
+                        now_ms,
+                    );
                     self.dispatch_completion(
                         request,
                         outcome,

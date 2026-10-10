@@ -13,6 +13,14 @@ public final class SharedService: @unchecked Sendable {
   private let bluetooth: any BluetoothPort
   private let location: any LocationProviderPort
   private let root: URL
+  private var diagnosticCallbacks: UInt64 = 0
+  private var diagnosticQueueDelay: UInt64 = 0
+  private var diagnosticQueueDepth = 0
+  private var diagnosticFailures: UInt64 = 0
+  private var diagnosticLastReport: UInt64 = 0
+  // Accessed only under callbackLock.
+  private var queuedCallbacks = 0
+  private var diagnosticOverflows: UInt64 = 0
   private let queue = DispatchQueue(label: "float-view.os-capabilities")
   private let queueKey = DispatchSpecificKey<Bool>()
   private let admission = DispatchSemaphore(value: 64)
@@ -138,15 +146,24 @@ public final class SharedService: @unchecked Sendable {
   private func enqueue(generation: BluetoothConnection? = nil, _ action: @escaping @Sendable (SharedService) -> Void) {
     guard admission.wait(timeout: .now()) == .success else {
       callbackLock.withLock {
+        diagnosticOverflows = min(1_000_000, diagnosticOverflows + 1)
         if let generation, generation.generation == callbackGeneration {
           overflow = generation
         }
       }
       return
     }
+    let enqueuedAt = DispatchTime.now().uptimeNanoseconds
+    let depth = callbackLock.withLock { queuedCallbacks += 1; return queuedCallbacks }
     queue.async { [self] in
-      defer { admission.signal() }
+      defer {
+        callbackLock.withLock { queuedCallbacks -= 1 }
+        admission.signal()
+      }
       guard !stopped else { return }
+      diagnosticCallbacks = min(1_000_000, diagnosticCallbacks + 1)
+      diagnosticQueueDelay = max(diagnosticQueueDelay, (DispatchTime.now().uptimeNanoseconds - enqueuedAt) / 1_000_000)
+      diagnosticQueueDepth = max(diagnosticQueueDepth, depth)
       action(self)
     }
   }
@@ -182,6 +199,23 @@ public final class SharedService: @unchecked Sendable {
       fact(["fact": "timer", "id": id])
     }
     fact(["fact": "clock"])
+    if now >= diagnosticLastReport + 10_000 {
+      diagnosticLastReport = now
+      let overflows = callbackLock.withLock { let value = diagnosticOverflows; diagnosticOverflows = 0; return value }
+      #if os(iOS)
+        let platform = "ios"
+      #else
+        let platform = "macos"
+      #endif
+      let failures = diagnosticFailures
+      diagnosticFailures = 0
+      fact(["fact": "native_diagnostics", "platform": platform,
+            "os_version": String(ProcessInfo.processInfo.operatingSystemVersionString.prefix(128)),
+            "callbacks": diagnosticCallbacks, "max_queue_delay_ms": min(86_400_000, diagnosticQueueDelay),
+            "max_queue_depth": min(64, diagnosticQueueDepth), "overflows": overflows,
+            "exchange_failures": min(1_000_000, failures)])
+      diagnosticCallbacks = 0; diagnosticQueueDelay = 0; diagnosticQueueDepth = 0
+    }
     if Date().timeIntervalSince(lastCapabilities) >= 1 {
       capabilities()
     }
@@ -213,10 +247,12 @@ public final class SharedService: @unchecked Sendable {
 
   private func fact(_ value: [String: Any]) {
     sequence += 1
-    try? exchange(["command": "fact", "envelope": ["lifetime": lifetime, "sequence": sequence,
-                                                   "monotonic_ms": UInt64(ProcessInfo.processInfo.systemUptime * 1000),
-                                                   "epoch_ms": Int64(Date().timeIntervalSince1970 * 1000),
-                                                   "fact": value]])
+    do { try exchange(["command": "fact", "envelope": ["lifetime": lifetime, "sequence": sequence,
+                                                       "monotonic_ms": UInt64(ProcessInfo.processInfo
+                                                         .systemUptime * 1000),
+                                                       "epoch_ms": Int64(Date().timeIntervalSince1970 * 1000),
+                                                       "fact": value]])
+    } catch { diagnosticFailures = min(1_000_000, diagnosticFailures + 1) }
   }
 
   private func exchange(_ command: [String: Any]) throws {

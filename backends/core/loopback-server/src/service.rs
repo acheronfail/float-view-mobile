@@ -87,7 +87,8 @@ impl Backend {
             .map(|v| Some(v.1))
     }
     pub fn sync_service(&self) -> Result<(), Failure> {
-        let service = self.service.lock().map_err(|_| Failure::Internal)?;
+        let started = std::time::Instant::now();
+        let mut service = self.service.lock().map_err(|_| Failure::Internal)?;
         let facts = service.published_snapshot();
         let revision = service.service_revision();
         let catalog_revision = service.catalog_revision();
@@ -108,6 +109,7 @@ impl Backend {
         {
             return Err(Failure::Unavailable);
         }
+        service.record_snapshot_timing(started.elapsed().as_micros().min(u64::MAX as u128) as u64);
         publisher.facts = Some(facts);
         publisher.revision = revision;
         publisher.catalog_revision = catalog_revision;

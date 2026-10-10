@@ -357,6 +357,23 @@ export class MockBackend {
     if (!params) return failure(id, 'invalid_request', 'Params must be an object');
 
     switch (request.method as BackendMethod) {
+      case 'diagnostics.report': {
+        const limits = {
+          snapshots: 10_000,
+          max_sample_age_ms: 86_400_000,
+          max_delivery_gap_ms: 86_400_000,
+          max_handler_ms: 60_000,
+        };
+        if (
+          Object.keys(params).length !== 4 ||
+          Object.entries(limits).some(
+            ([key, limit]) =>
+              !Number.isSafeInteger(params[key]) || (params[key] as number) < 0 || (params[key] as number) > limit
+          )
+        )
+          return failure(id, 'invalid_request', 'Invalid diagnostics summary');
+        return success(id, { accepted: true });
+      }
       case 'state.get':
         return success(id, this.state);
       case 'permissions.recover': {

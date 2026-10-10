@@ -81,6 +81,14 @@ impl BackendService {
                         ) => Failure::InvalidRequest,
                         _ => Failure::Unavailable,
                     })?;
+                self.diagnostics.event(
+                    now,
+                    epoch,
+                    "ride_marker",
+                    serde_json::json!({"sequence":marker.sequence,"elapsed_ms":marker.elapsed_ms}),
+                    true,
+                );
+                self.diagnostics.capture(now, epoch, "ride_marker", true);
                 self.store
                     .apply_session_marker(&session_id, &boundary)
                     .map_err(store_failure)?;

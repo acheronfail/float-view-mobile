@@ -22,6 +22,12 @@ class SharedService(
 ) : AutoCloseable {
     val handle: Long
     private val executor = ScheduledThreadPoolExecutor(1) { action -> Thread(action, "float-view-os") }
+    private var diagnosticCallbacks = 0L
+    private var diagnosticQueueDelay = 0L
+    private var diagnosticQueueDepth = 0
+    private var diagnosticFailures = 0L
+    private var diagnosticLastReport = 0L
+    private var diagnosticOverflows = 0L // callbackLock
     private val admission = Semaphore(64)
     private val callbackLock = Any()
     private var callbackGeneration = 0L
@@ -112,11 +118,19 @@ class SharedService(
     }
     private fun enqueue(generation: BluetoothConnection? = null, action: () -> Unit) {
         if (closed) return
+        val enqueuedAt = SystemClock.elapsedRealtime()
         if (!admission.tryAcquire()) { synchronized(callbackLock) {
+            diagnosticOverflows = (diagnosticOverflows + 1).coerceAtMost(1_000_000)
             if (generation != null && generation.generation == callbackGeneration) overflow = generation
         }; return }
         try {
-            executor.execute { try { if (!closed) runCatching(action) } finally { admission.release() } }
+            val depth = 64 - admission.availablePermits()
+            executor.execute { try { if (!closed) {
+                diagnosticCallbacks = (diagnosticCallbacks + 1).coerceAtMost(1_000_000)
+                diagnosticQueueDelay = maxOf(diagnosticQueueDelay, SystemClock.elapsedRealtime() - enqueuedAt)
+                diagnosticQueueDepth = maxOf(diagnosticQueueDepth, depth)
+                runCatching(action).onFailure { diagnosticFailures = (diagnosticFailures + 1).coerceAtMost(1_000_000) }
+            } } finally { admission.release() } }
         } catch (_: java.util.concurrent.RejectedExecutionException) { admission.release() }
     }
     private fun tick() {
@@ -136,6 +150,16 @@ class SharedService(
             timers.remove(it); fact(json("fact" to "timer", "id" to it))
         }
         fact(json("fact" to "clock"))
+        if (now - diagnosticLastReport >= 10_000) {
+            diagnosticLastReport = now
+            val overflows = synchronized(callbackLock) { val value = diagnosticOverflows; diagnosticOverflows = 0; value }
+            val failures = diagnosticFailures
+            diagnosticFailures = 0
+            fact(json("fact" to "native_diagnostics", "platform" to "android", "os_version" to android.os.Build.VERSION.RELEASE.take(128),
+                "callbacks" to diagnosticCallbacks, "max_queue_delay_ms" to diagnosticQueueDelay.coerceAtMost(86_400_000),
+                "max_queue_depth" to diagnosticQueueDepth, "overflows" to overflows, "exchange_failures" to failures))
+            diagnosticCallbacks = 0; diagnosticQueueDelay = 0; diagnosticQueueDepth = 0
+        }
         if (now - lastCapabilities >= 1000) capabilities()
         exchange(json("command" to "drain"))
     }
@@ -155,7 +179,9 @@ class SharedService(
         sequence++
         runCatching { exchange(json("command" to "fact", "envelope" to json("lifetime" to lifetime,
             "sequence" to sequence, "monotonic_ms" to SystemClock.elapsedRealtime(),
-            "epoch_ms" to System.currentTimeMillis(), "fact" to value))) }
+            "epoch_ms" to System.currentTimeMillis(), "fact" to value))) }.onFailure {
+                diagnosticFailures = (diagnosticFailures + 1).coerceAtMost(1_000_000)
+            }
     }
     private fun exchange(value: JSONObject) {
         val input = value.toString().toByteArray(Charsets.UTF_8)

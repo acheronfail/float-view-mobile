@@ -187,3 +187,58 @@ Retain XCTest screen recordings by setting `SystemAttachmentLifetime` to
 `keepAlways` in the generated `.xctestrun` when collecting visual evidence.
 These physical UI observations are separate from the software gate and do not
 require an ESP32/BLE fixture.
+
+## Ride timing diagnostics
+
+Every newly recorded ride carries bounded diagnostic JSON in its SQLite
+`session_diagnostic(sequence, record_json)` table. The normal `.floatview`
+archive export includes it; no debugger or separate log export is required.
+When a slowdown occurs, add a ride marker, finish the ride, and export it.
+Markers capture recent request, BLE write, sample-sequence, and recording
+progress traces, capped at 256 events and 30 seconds. Automatic captures are
+limited to once per ten seconds; markers, reconnects, and ride close also capture.
+
+Each record has version `v`, wall-clock `at_ms`, monotonic time since diagnostic
+start `elapsed_ms`, an `event`, and structured `data`. Sample/marker elapsed
+times inside data use the ride clock. Capture records precede their earlier
+trace records in insertion order, so sort by timestamps when reconstructing
+a timeline. Metadata includes the build's Git revision, firmware/package
+versions, polling and persistence intervals. Native summaries supply platform
+and OS version.
+
+Ten-second summaries measure request queue and response time, BLE write progress,
+notification sizes/counts, timer lateness, sample intervals, SQLite append and
+catalog time, runtime work, and snapshot projection. Values named `_ms` use
+milliseconds; `_us` use microseconds. `count_p50_p95_max` contains the full-window
+count and maximum, with approximate percentiles of the most recent 256
+observations. Request traces distinguish fast, slow, fault, BMS, configuration,
+and other work. Native records count callbacks, queue depth/delay, admission
+overflows, and exchange failures. UI reports measure snapshot count, maximum
+delivery gap, sample age, and synchronous subscriber handling time; they do not
+measure completed paint or animation latency. Background suspension and wall-clock
+changes can affect these UI maxima.
+
+Recording traces include cumulative accepted/stored counts and committed sequence
+and elapsed time. Telemetry gaps, protocol diagnostics, clock/sequence
+discontinuities, foreground changes, link transitions, and disconnect reasons
+provide context. Normal idle polling can produce intervals above 500 ms; automatic
+gap capture uses riding samples.
+
+Persistence runs on a separate worker with eight pending batches of at most 32
+records. It yields on database contention and drops diagnostics on overload or
+failure, reporting cumulative `dropped_records` in subsequent summaries when
+persistence recovers. The table keeps its first record and the newest 4,999
+records, each at most 1,024 bytes. Older evidence is evicted on long rides.
+Abrupt process termination can lose pending records. Diagnostics contain timing,
+counts, closed status codes and versions, never raw BLE payloads, telemetry
+values, coordinates, addresses, device identities, or authentication tokens.
+
+For an exported archive, inspect the records with:
+
+```sh
+sqlite3 'file:ride.floatview?immutable=1' \
+  'SELECT record_json FROM session_diagnostic ORDER BY sequence;'
+```
+
+The archive format is version 3 and the owned product-storage marker is version 15. As required by the pre-release policy, old development storage is reset and
+older archive formats are rejected rather than migrated.

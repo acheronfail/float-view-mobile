@@ -7,6 +7,7 @@ use std::path::Path;
 mod battery;
 pub mod battery_estimator;
 pub mod ble;
+pub mod diagnostics;
 mod dispatch;
 pub mod facts;
 pub mod live_activity;
@@ -27,6 +28,7 @@ pub use files::{
 /// One store and one runtime. Listener handles must borrow this owner, never
 /// construct another runtime. OS exchange and command admission live here.
 pub struct BackendService {
+    diagnostics: diagnostics::Diagnostics,
     runtime: ApplicationRuntime,
     stopping: bool,
     store: ProductStore,
@@ -40,6 +42,7 @@ impl BackendService {
     pub fn open(root: &Path) -> Result<Self> {
         let store = ProductStore::open(root)?;
         let mut service = Self {
+            diagnostics: diagnostics::Diagnostics::default(),
             runtime: ApplicationRuntime::new(),
             stopping: false,
             policy: policy::Policy::new(store.settings()?),

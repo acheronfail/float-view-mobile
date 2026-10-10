@@ -56,6 +56,15 @@ pub enum Fact {
     Permissions {
         observation: crate::permissions::Observation,
     },
+    NativeDiagnostics {
+        platform: String,
+        os_version: String,
+        callbacks: u64,
+        max_queue_delay_ms: u64,
+        max_queue_depth: u64,
+        overflows: u64,
+        exchange_failures: u64,
+    },
     Clock {},
     StopRequested {},
     Bluetooth {

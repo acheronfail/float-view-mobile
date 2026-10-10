@@ -19,6 +19,8 @@ use rusqlite::{
     params,
 };
 
+mod diagnostics;
+pub use diagnostics::{DiagnosticWriter, MAX_DIAGNOSTIC_BYTES, MAX_DIAGNOSTIC_ROWS};
 mod markers;
 pub use markers::{MAX_MARKER_PAGE, MAX_RIDE_MARKERS, MarkerLocation, RideMarker};
 mod pruner;
@@ -1224,6 +1226,7 @@ fn validate_database(connection: &Connection) -> Result<(), WriterError> {
         ("table", "riding_interval"),
         ("table", "sample"),
         ("table", "session_event"),
+        ("table", "session_diagnostic"),
         ("table", "session_metadata"),
         ("table", "session_numeric_field"),
         ("table", "sqlite_sequence"),
@@ -1234,6 +1237,7 @@ fn validate_database(connection: &Connection) -> Result<(), WriterError> {
     if objects != expected {
         return Err(WriterError::Incompatible);
     }
+    diagnostics::validate_diagnostics(connection)?;
 
     let metadata = connection
         .query_row(

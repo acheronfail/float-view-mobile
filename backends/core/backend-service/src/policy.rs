@@ -160,6 +160,24 @@ impl BackendService {
             return Err(Failure::InvalidRequest);
         }
         match &envelope.fact {
+            Fact::NativeDiagnostics {
+                platform,
+                os_version,
+                callbacks,
+                max_queue_delay_ms,
+                max_queue_depth,
+                overflows,
+                exchange_failures,
+            } if !matches!(platform.as_str(), "ios" | "macos" | "android")
+                || os_version.len() > 128
+                || *callbacks > 1_000_000
+                || *max_queue_delay_ms > 86_400_000
+                || *max_queue_depth > 64
+                || *overflows > 1_000_000
+                || *exchange_failures > 1_000_000 =>
+            {
+                return Err(Failure::InvalidRequest);
+            }
             Fact::Discovered {
                 device_id, name, ..
             } => checked_device(device_id, name.as_deref())?,
@@ -209,6 +227,42 @@ impl BackendService {
         self.policy.exchange.sequence = envelope.sequence;
         self.policy.exchange.now = envelope.monotonic_ms;
         self.policy.exchange.epoch = envelope.epoch_ms;
+        let now = envelope.monotonic_ms;
+        let epoch = envelope.epoch_ms;
+        match &envelope.fact {
+            Fact::Timer { id } => {
+                if let Some(timer) = self.policy.timers.get(id) {
+                    self.diagnostics
+                        .metric("timer_lateness_ms", now.saturating_sub(timer.due));
+                }
+            }
+            Fact::Bytes { bytes, .. } => self
+                .diagnostics
+                .metric("notification_bytes", bytes.len() as u64),
+            Fact::WriteProgress {
+                operation,
+                progress,
+                ..
+            } => self
+                .diagnostics
+                .write_progress(*operation, now, epoch, *progress),
+            Fact::Link { generation, state } => self.diagnostics.event(
+                now,
+                epoch,
+                "link",
+                serde_json::json!({"generation":generation,"state":state}),
+                true,
+            ),
+            Fact::Foreground { foreground } => self.diagnostics.event(
+                now,
+                epoch,
+                "foreground",
+                serde_json::json!({"foreground":foreground}),
+                true,
+            ),
+            _ => {}
+        }
+        self.diagnostics.tick(now, epoch);
         let connection_before = self.policy.active.as_ref().map(|a| (a.generation, a.state));
         // Expire before accepting a delayed OS result, even when its timer fact is queued behind it.
         let deadline_expired = self.policy.timers.values().any(|t| {
@@ -272,6 +326,7 @@ impl BackendService {
                 | Fact::WriteProgress { .. }
                 | Fact::Link { .. }
                 | Fact::Storage { .. }
+                | Fact::NativeDiagnostics { .. }
         );
         let first_discovery = matches!(envelope.fact, Fact::Discovered { .. })
             && self.policy.visible_devices.is_empty();
@@ -285,6 +340,21 @@ impl BackendService {
                     self.policy.location_background,
                 ) = observation.location_capability();
                 self.policy.permissions = Some(observation);
+            }
+            Fact::NativeDiagnostics {
+                platform,
+                os_version,
+                callbacks,
+                max_queue_delay_ms,
+                max_queue_depth,
+                overflows,
+                exchange_failures,
+            } => {
+                self.diagnostics.event(now, epoch, "native", serde_json::json!({"platform":platform,"os_version":os_version,"callbacks":callbacks,"max_queue_delay_ms":max_queue_delay_ms,"max_queue_depth":max_queue_depth,"overflows":overflows,"exchange_failures":exchange_failures}), true);
+                if max_queue_delay_ms > 500 || overflows > 0 || exchange_failures > 0 {
+                    self.diagnostics
+                        .capture(now, epoch, "native_delay_or_failure", false);
+                }
             }
             Fact::Clock {} => {}
             Fact::StopRequested {} => self.disconnect("native_stop_requested")?,
@@ -701,6 +771,13 @@ impl BackendService {
         })))
     }
     pub fn disconnect(&mut self, reason: &str) -> Result<(), Failure> {
+        self.diagnostics.event(
+            self.policy.exchange.now,
+            self.policy.exchange.epoch,
+            "disconnect",
+            serde_json::json!({"reason":reason.chars().take(64).collect::<String>()}),
+            true,
+        );
         self.fail_kernel_requests();
         let Some(a) = self.policy.active.as_ref() else {
             return Ok(());
@@ -717,6 +794,8 @@ impl BackendService {
                 .apply(Command::DetachSession)
                 .map_err(|_| Failure::Internal)?;
         }
+        self.diagnostics
+            .finish(self.policy.exchange.now, self.policy.exchange.epoch);
         if let Some(session) = self.policy.active.as_ref().and_then(|a| a.session.as_ref()) {
             self.store
                 .close_session(&session.session_id, self.policy.exchange.epoch, reason)
@@ -733,6 +812,12 @@ impl BackendService {
         self.changed()
     }
     fn reconnect(&mut self) -> Result<(), Failure> {
+        self.diagnostics.capture(
+            self.policy.exchange.now,
+            self.policy.exchange.epoch,
+            "reconnect",
+            true,
+        );
         self.fail_kernel_requests();
         let Some(a) = self.policy.active.as_mut() else {
             return Ok(());
@@ -900,6 +985,12 @@ impl BackendService {
     fn emit_ble_write(&mut self) -> Result<(), Failure> {
         let operation = self.policy.exchange.id()?;
         if let Some((mode, bytes)) = self.policy.ble.next(operation) {
+            self.diagnostics.write_started(
+                operation,
+                self.policy.exchange.now,
+                self.policy.exchange.epoch,
+                bytes.len(),
+            );
             self.arm_timer(Timer::BleWrite, crate::ble::DEADLINE_MS, None)?;
             self.policy.exchange.push(Effect::Write {
                 generation: self.policy.ble.generation,
@@ -911,6 +1002,7 @@ impl BackendService {
         Ok(())
     }
     pub(crate) fn runtime_command(&mut self, command: Command) -> Result<(), Failure> {
+        let runtime_started = std::time::Instant::now();
         let mut effects: VecDeque<_> = self
             .runtime
             .apply(command)
@@ -931,12 +1023,18 @@ impl BackendService {
                     self.emit_ble_write()?;
                 }
                 RuntimeEffect::PublishSessionMarker(marker) => {
+                    self.diagnostics.event(self.policy.exchange.now, self.policy.exchange.epoch, "recording", serde_json::json!({"accepted":marker.recorded_sample_count,"stored":marker.stored_sample_count,"sequence":marker.committed_sample_sequence,"elapsed_ms":marker.committed_elapsed_ms}), false);
+                    let catalog_started = std::time::Instant::now();
                     if let Some(session) =
                         self.policy.active.as_mut().and_then(|a| a.session.as_mut())
                     {
                         self.store
                             .apply_session_marker(&session.session_id, &marker)
                             .map_err(crate::store_failure)?;
+                        self.diagnostics.metric(
+                            "catalog_us",
+                            catalog_started.elapsed().as_micros().min(u64::MAX as u128) as u64,
+                        );
                         let old = session.clone();
                         *session = self
                             .store
@@ -998,6 +1096,13 @@ impl BackendService {
                         }
                     }
                     c::Effect::PublishTelemetry(sample) => {
+                        self.diagnostics.sample(
+                            self.policy.exchange.now,
+                            self.policy.exchange.epoch,
+                            sample.sequence,
+                            sample.elapsed_ms,
+                            sample.ride_state == telemetry::RideState::Riding,
+                        );
                         self.accept_battery_sample(*sample)?;
                     }
                     c::Effect::PublishBmsObservation(sample) => {
@@ -1052,9 +1157,52 @@ impl BackendService {
                         c::MutationEvent::Released(_) => {}
                     },
                     c::Effect::Failure(_) => self.fail_kernel_requests(),
-                    c::Effect::PublishBmsState(_) | c::Effect::Diagnostic(_) => {}
+                    c::Effect::Diagnostic(value) => {
+                        self.diagnostics.event(
+                            self.policy.exchange.now,
+                            self.policy.exchange.epoch,
+                            "protocol_diagnostic",
+                            serde_json::json!({"code":format!("{value:?}")}),
+                            true,
+                        );
+                    }
+                    c::Effect::PublishBmsState(_) => {}
                     c::Effect::Write(_) => return Err(Failure::Internal),
                 },
+            }
+        }
+        self.diagnostics.metric(
+            "runtime_us",
+            runtime_started.elapsed().as_micros().min(u64::MAX as u128) as u64,
+        );
+        for duration in self.runtime.take_persistence_timings() {
+            self.diagnostics.metric("append_us", duration);
+            if duration > 50_000 {
+                self.diagnostics.capture(
+                    self.policy.exchange.now,
+                    self.policy.exchange.epoch,
+                    "slow_storage",
+                    false,
+                );
+            }
+        }
+        for request in self.runtime.take_request_timings() {
+            self.diagnostics
+                .metric("request_queue_ms", request.queue_ms);
+            if request.outcome != "sent" {
+                self.diagnostics
+                    .metric("request_response_ms", request.response_ms);
+            }
+            let anomaly =
+                request.outcome == "timeout" || request.queue_ms > 500 || request.response_ms > 500;
+            self.diagnostics.event(self.policy.exchange.now, self.policy.exchange.epoch, "request", serde_json::json!({"generation":request.generation,"sequence":request.sequence,"kind":request.kind,"outcome":request.outcome,"queue_ms":request.queue_ms,"response_ms":request.response_ms}), anomaly);
+            if anomaly {
+                self.diagnostics.capture(
+                    self.policy.exchange.now,
+                    self.policy.exchange.epoch,
+                    "request_delay",
+                    false,
+                );
             }
         }
         self.complete_configuration();
@@ -1135,6 +1283,25 @@ impl BackendService {
                     .map_err(|_| Failure::Internal)?;
             }
         }
+        if session_started {
+            let id = &a.session.as_ref().ok_or(Failure::Internal)?.session_id;
+            if let Ok(lease) = self.store.lease_session(id) {
+                self.diagnostics.start(lease, self.policy.exchange.now, self.policy.exchange.epoch, serde_json::json!({
+                    "build":env!("FLOAT_VIEW_BUILD_REVISION"), "firmware_major":facts.selected.identity.major,
+                    "firmware_minor":facts.selected.identity.minor, "package":facts.refloat_version.to_string(),
+                    "riding_poll_ms":telemetry::RIDING_INTERVAL_MS, "idle_poll_ms":self.policy.settings.idle_probe_interval_ms,
+                    "riding_persist_ms":self.policy.settings.riding_persist_interval_ms, "idle_persist_ms":self.policy.settings.idle_persist_interval_ms,
+                    "foreground":self.policy.foreground, "percentiles":"last_256_observations_per_window", "row_limit":5000
+                }));
+            }
+        }
+        self.diagnostics.event(
+            self.policy.exchange.now,
+            self.policy.exchange.epoch,
+            "activated",
+            serde_json::json!({"generation":facts.generation.0,"new_session":session_started}),
+            true,
+        );
         a.package_version = Some(facts.refloat_version.to_string());
         self.refresh_boards().map_err(crate::store_failure)?;
         let cached = facts
@@ -1204,6 +1371,51 @@ mod tests {
         path::PathBuf,
         sync::atomic::{AtomicU64, Ordering},
     };
+
+    #[test]
+    fn native_and_ui_diagnostics_are_bounded_and_do_not_publish_state() {
+        let mut t = Test::new();
+        let revision = t.service.service_revision();
+        for platform in ["ios", "macos", "android"] {
+            t.fact(
+                Fact::NativeDiagnostics {
+                    platform: platform.into(),
+                    os_version: "test".into(),
+                    callbacks: 10,
+                    max_queue_delay_ms: 20,
+                    max_queue_depth: 2,
+                    overflows: 0,
+                    exchange_failures: 0,
+                },
+                100,
+            )
+            .unwrap();
+        }
+        t.service
+            .report_ui_diagnostics(crate::diagnostics::UiReport {
+                snapshots: 10,
+                max_sample_age_ms: 20,
+                max_delivery_gap_ms: 30,
+                max_handler_ms: 1,
+            })
+            .unwrap();
+        assert_eq!(t.service.service_revision(), revision);
+        assert!(matches!(
+            t.fact(
+                Fact::NativeDiagnostics {
+                    platform: "ios".into(),
+                    os_version: "test".into(),
+                    callbacks: 10,
+                    max_queue_delay_ms: 20,
+                    max_queue_depth: 65,
+                    overflows: 0,
+                    exchange_failures: 0,
+                },
+                100
+            ),
+            Err(Failure::InvalidRequest)
+        ));
+    }
     static SEQUENCE: AtomicU64 = AtomicU64::new(0);
     struct Test {
         service: BackendService,

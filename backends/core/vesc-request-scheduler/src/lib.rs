@@ -145,6 +145,8 @@ impl RequestFacts {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ScheduledRequest {
+    pub enqueued_at_ms: u64,
+    pub dispatched_at_ms: Option<u64>,
     pub sequence: u64,
     pub payload: Vec<u8>,
     pub expected_response: ExpectedResponse,
@@ -308,6 +310,8 @@ impl VescRequestScheduler {
             .ok_or(SchedulerError::MonotonicOverflow)?;
         self.next_sequence = self.next_sequence.wrapping_add(1);
         let request = ScheduledRequest {
+            enqueued_at_ms: now_ms,
+            dispatched_at_ms: None,
             sequence: self.next_sequence,
             payload: facts.payload,
             expected_response: facts.expected_response,
@@ -513,6 +517,7 @@ impl VescRequestScheduler {
                 ));
                 continue;
             }
+            pending.request.dispatched_at_ms = Some(now_ms);
             pending.request.deadline_monotonic_ms = now_ms
                 .checked_add(pending.timeout_ms)
                 .ok_or(SchedulerError::MonotonicOverflow)?;
@@ -771,6 +776,15 @@ mod tests {
             )
             .unwrap();
         assert_eq!(writes(&effects), [31]);
+        let dispatched = effects
+            .iter()
+            .find_map(|effect| match effect {
+                Effect::Write(request) => Some(request),
+                _ => None,
+            })
+            .unwrap();
+        assert_eq!(dispatched.enqueued_at_ms, 0);
+        assert_eq!(dispatched.dispatched_at_ms, Some(2_550));
         assert_eq!(
             scheduler
                 .snapshot()

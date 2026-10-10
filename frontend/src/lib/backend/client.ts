@@ -41,6 +41,9 @@ export class ApiClient {
   private readonly stateHandlers = new Set<(state: AppState) => void>();
   private readonly closedHandlers = new Set<() => void>();
   private closed = false;
+  private diagnosticsAt = performance.now();
+  private lastSnapshotAt = this.diagnosticsAt;
+  private deliveryDiagnostics = { snapshots: 0, max_sample_age_ms: 0, max_delivery_gap_ms: 0, max_handler_ms: 0 };
 
   constructor(
     private readonly socket: WebSocket,
@@ -133,7 +136,27 @@ export class ApiClient {
         this.failProtocol('Backend sent an invalid permission inventory');
         return;
       }
+      const started = performance.now();
       for (const handler of this.stateHandlers) handler(envelope.data);
+      const now = performance.now();
+      const stats = this.deliveryDiagnostics;
+      stats.snapshots = Math.min(10_000, stats.snapshots + 1);
+      stats.max_delivery_gap_ms = Math.min(
+        86_400_000,
+        Math.max(stats.max_delivery_gap_ms, Math.round(started - this.lastSnapshotAt))
+      );
+      stats.max_handler_ms = Math.min(60_000, Math.max(stats.max_handler_ms, Math.round(now - started)));
+      const observed = Date.parse(envelope.data.activeConnection?.latestSample?.observedAt ?? '');
+      if (Number.isFinite(observed))
+        stats.max_sample_age_ms = Math.min(86_400_000, Math.max(stats.max_sample_age_ms, Date.now() - observed, 0));
+      this.lastSnapshotAt = started;
+      if (now - this.diagnosticsAt >= 10_000) {
+        this.diagnosticsAt = now;
+        this.deliveryDiagnostics = { snapshots: 0, max_sample_age_ms: 0, max_delivery_gap_ms: 0, max_handler_ms: 0 };
+        void this.request('diagnostics.report', stats).catch(() => {
+          /* Diagnostics never disrupt the client. */
+        });
+      }
       return;
     }
     if (!Number.isSafeInteger(envelope.id)) {

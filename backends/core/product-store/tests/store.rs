@@ -45,7 +45,7 @@ fn current_storage_reopens_without_changing_revision_or_sql() {
     assert_eq!(root.open().settings().unwrap(), value);
     assert_eq!(
         fs::read_to_string(root.0.join(".schema-version")).unwrap(),
-        "14"
+        "15"
     );
     let conn = Connection::open(root.0.join("catalog.sqlite")).unwrap();
     assert_eq!(
@@ -88,7 +88,7 @@ fn ordinary_corruption_and_schema_drift_never_reset() {
     assert!(matches!(ProductStore::open(&root.0), Err(Error::Corrupt)));
     assert_eq!(
         fs::read_to_string(root.0.join(".schema-version")).unwrap(),
-        "14"
+        "15"
     );
 }
 #[test]
@@ -372,7 +372,7 @@ fn protected_root_is_reported_without_reset() {
     assert!(matches!(result, Err(Error::Io)));
     assert_eq!(
         fs::read_to_string(root.0.join(".schema-version")).unwrap(),
-        "14"
+        "15"
     );
     assert_eq!(root.open().settings().unwrap(), Settings::default());
 }

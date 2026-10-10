@@ -115,6 +115,7 @@ impl Debug for Snapshot {
 }
 
 pub struct ApplicationRuntime {
+    persistence_us: Vec<u64>,
     application: ConnectionApplicationCoordinator,
     stream: StreamDecoder,
     session: Option<SessionWriter>,
@@ -137,9 +138,17 @@ impl Debug for ApplicationRuntime {
 }
 
 impl ApplicationRuntime {
+    pub fn take_request_timings(&mut self) -> Vec<coordinator::RequestTiming> {
+        self.application.take_request_timings()
+    }
+    pub fn take_persistence_timings(&mut self) -> Vec<u64> {
+        std::mem::take(&mut self.persistence_us)
+    }
+
     #[must_use]
     pub fn new() -> Self {
         Self {
+            persistence_us: Vec::new(),
             application: ConnectionApplicationCoordinator::default(),
             stream: StreamDecoder::new(),
             session: None,
@@ -309,7 +318,13 @@ impl ApplicationRuntime {
                 }
                 CoordinatorEffect::PublishTelemetry(sample) => {
                     if let Some(writer) = self.session.as_mut() {
-                        match writer.append_samples(std::slice::from_ref(sample.as_ref())) {
+                        let started = std::time::Instant::now();
+                        let result = writer.append_samples(std::slice::from_ref(sample.as_ref()));
+                        if self.persistence_us.len() < 128 {
+                            self.persistence_us
+                                .push(started.elapsed().as_micros().min(u64::MAX as u128) as u64);
+                        }
+                        match result {
                             Ok(marker) => {
                                 self.session_marker = Some(marker.clone());
                                 push_bounded(&mut output, Effect::PublishSessionMarker(marker))?;

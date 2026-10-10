@@ -806,6 +806,11 @@ export interface Accepted {
 
 export interface BackendMethods {
   'state.get': { params: EmptyParams; result: AppState };
+  /** Bounded, best-effort UI timing summary; never changes public state. */
+  'diagnostics.report': {
+    params: { snapshots: number; max_sample_age_ms: number; max_delivery_gap_ms: number; max_handler_ms: number };
+    result: { accepted: true };
+  };
   'permissions.recover': { params: { permission: PermissionId; action: PermissionAction }; result: PermissionRow[] };
   'bluetooth.requestPermission': { params: EmptyParams; result: BluetoothState };
   'bluetooth.scan': { params: { timeoutMs?: number }; result: Accepted };
