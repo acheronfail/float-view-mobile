@@ -65,7 +65,7 @@ A ready board connection starts a Live Activity while the app is foregrounded
 and Live Activities are enabled in iOS Settings. Standalone BMS connections do
 not start one. The compact/minimal Dynamic Island shows the primary gauge's
 winning drive-load percentage; the expanded Island and Lock Screen also show
-distance in the selected units and battery charge. The dark gauge palette is
+distance in the selected units, battery charge and pack voltage to one decimal place. The dark gauge palette is
 shared visually: duty yellow, motor pink, battery current green. Charge uses the
 same estimate/controller-reported selection as the frontend power widget.
 

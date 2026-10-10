@@ -8,6 +8,7 @@ public struct LiveActivityState: Codable, Hashable, Sendable {
   public let percentage: Double?
   public let distanceMeters: Double?
   public let batteryPercent: Double?
+  public let batteryVoltage: Double?
   public let status: String?
   public let footpadLeft: String
   public let footpadRight: String

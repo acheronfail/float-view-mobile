@@ -14,14 +14,14 @@ class RideNotificationTest {
     @After fun restoreLocale() { Locale.setDefault(originalLocale) }
     private fun state() = LiveActivityState.decode(JSONObject("""
         {"footpad_left":"active","footpad_right":"warning","status":null,"generation":7,"observed_at":100000,"source":"motor","percentage":82,
-         "distance_meters":1609.344,"battery_percent":67,"imperial":true}
+         "distance_meters":1609.344,"battery_voltage":75.56,"battery_percent":67,"imperial":true}
     """))
 
     @Test fun nativeProjectionFormatsRideWithoutRecalculatingGauge() {
         val model = RideNotification.from(state(), true, 100001)
         assertEquals("Motor 82%", model.load)
         assertEquals("1.00 mi", model.distance)
-        assertEquals("67%", model.battery)
+        assertEquals("67% · 75.6 V", model.battery)
         assertEquals("82%", model.chip)
         assertFalse(model.stale)
         assertTrue(model.recording)
@@ -54,9 +54,15 @@ class RideNotificationTest {
         assertEquals("neutral", stale.footpadRight)
     }
 
+    @Test fun voltageIsIndependentOfChargeAvailability() {
+        assertEquals("— · 75.6 V", RideNotification.from(state().copy(batteryPercent = null), false, 100001).battery)
+        assertEquals("67% · —", RideNotification.from(state().copy(batteryVoltage = null), false, 100001).battery)
+    }
+
     @Test fun timestampsAreCoalescedButVisibleChangesArePublished() {
         val initial = RideNotification.from(state(), true, 100001)
         assertEquals(initial, RideNotification.from(state().copy(observedAt = 100001), true, 100002))
+        assertNotEquals(initial, RideNotification.from(state().copy(batteryVoltage = 76.0), true, 100002))
         assertNotEquals(initial, RideNotification.from(state().copy(percentage = 83.0), true, 100002))
     }
 
@@ -81,11 +87,12 @@ class RideNotificationTest {
     @Test fun nullPayloadValuesRemainUnavailable() {
         val state = LiveActivityState.decode(JSONObject("""
             {"footpad_left":"active","footpad_right":"warning","status":null,"generation":8,"observed_at":null,"source":null,"percentage":null,
-             "distance_meters":null,"battery_percent":null,"imperial":false}
+             "distance_meters":null,"battery_voltage":null,"battery_percent":null,"imperial":false}
         """))
         assertNull(state.observedAt)
         assertNull(state.source)
         assertNull(state.percentage)
         assertNull(state.batteryPercent)
+        assertNull(state.batteryVoltage)
     }
 }

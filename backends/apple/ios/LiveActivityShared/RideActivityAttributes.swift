@@ -7,6 +7,7 @@ struct RideActivityAttributes: ActivityAttributes {
     var percentage: Double?
     var distanceMeters: Double?
     var batteryPercent: Double?
+    var batteryVoltage: Double?
     var status: String?
     var footpadLeft: String
     var footpadRight: String
@@ -28,6 +29,10 @@ struct RideActivityAttributes: ActivityAttributes {
 
     var batteryText: String {
       batteryPercent.map { String(format: "%.0f%%", $0) } ?? "—"
+    }
+
+    var voltageText: String {
+      batteryVoltage.map { String(format: "%.1f V", $0) } ?? "—"
     }
 
     var distanceText: String {

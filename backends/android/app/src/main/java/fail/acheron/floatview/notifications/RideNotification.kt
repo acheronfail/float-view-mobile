@@ -31,9 +31,10 @@ data class RideNotification(
                 String.format(Locale.getDefault(), "%.2f %s", it / if (state.imperial) 1609.344 else 1000.0,
                     if (state.imperial) "mi" else "km")
             } ?: "—"
+            val voltage = state?.batteryVoltage?.let { String.format(Locale.getDefault(), "%.1f V", it) } ?: "—"
             return RideNotification(state?.generation, if (stale || state?.status != null) null else state?.source,
                 if (stale) "$label —" else state?.status ?: "$label $load", distance,
-                if (stale) "—" else percent(state?.batteryPercent),
+                if (stale) "—" else "${percent(state?.batteryPercent)} · $voltage",
                 if (stale) null else state?.status ?: load.takeIf { state?.percentage != null }, stale, recording,
                 if (stale) "neutral" else state?.footpadLeft ?: "neutral",
                 if (stale) "neutral" else state?.footpadRight ?: "neutral")

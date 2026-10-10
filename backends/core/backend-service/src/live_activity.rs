@@ -12,6 +12,7 @@ pub struct LiveActivity {
     pub percentage: Option<f64>,
     pub distance_meters: Option<f64>,
     pub battery_percent: Option<f64>,
+    pub battery_voltage: Option<f64>,
     pub imperial: bool,
     pub status: Option<String>,
     pub footpad_left: FootpadIndicator,
@@ -145,6 +146,9 @@ impl BackendService {
             percentage,
             distance_meters: sample.and_then(|s| s.distance_m),
             battery_percent: level.map(|v| (v * 100.).round()),
+            battery_voltage: sample
+                .and_then(|s| s.pack_voltage_v)
+                .filter(|v| v.is_finite()),
             imperial: self.policy.settings.unit_preference == "imperial",
         })
     }

@@ -1555,6 +1555,7 @@ mod tests {
             t.service.changed().unwrap();
             let initial = t.service.live_activity().unwrap();
             assert!(initial.percentage.is_none());
+            assert!(initial.battery_voltage.is_none());
             t.drain();
             t.service.policy.settings.unit_preference = "imperial".into();
             for sequence in 1..=100 {
@@ -1567,6 +1568,7 @@ mod tests {
                 sample.speed_kph = Some(3.);
                 sample.distance_m = Some(sequence as f64);
                 sample.battery_level = Some(0.67);
+                sample.pack_voltage_v = Some(75.56);
                 t.service.accept_battery_sample(sample).unwrap();
                 t.service.changed().unwrap();
             }
@@ -1593,6 +1595,8 @@ mod tests {
             );
             assert_eq!(state.distance_meters, Some(100.));
             assert_eq!(state.battery_percent, if saved { Some(67.) } else { None });
+            assert_eq!(state.battery_voltage, Some(75.56));
+            assert_eq!(serde_json::to_value(state).unwrap()["battery_voltage"], 75.56);
             assert!(state.imperial);
             assert!(
                 !effects

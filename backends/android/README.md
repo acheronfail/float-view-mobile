@@ -44,7 +44,7 @@ The foreground service runs while a device connection or recording is active,
 including guest connections. It reads the shared Rust `live_activity` projection
 and updates one ongoing notification at most once per second. The notification
 shows the primary gauge's winning load percentage, distance in the selected
-units, and battery charge. Unchanged visible readings do not trigger reposts;
+units, battery charge and pack voltage to one decimal place. Unchanged visible readings do not trigger reposts;
 after 15 seconds without telemetry, it shows “Waiting for telemetry”. Opening
 the notification returns to the app, and “Stop and disconnect” uses the existing
 shared-service stop request.

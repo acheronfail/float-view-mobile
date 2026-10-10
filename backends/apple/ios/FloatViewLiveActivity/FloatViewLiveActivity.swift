@@ -50,7 +50,12 @@ private struct RideSummary: View {
         Spacer(minLength: 0)
         metric("Distance", value: stale ? "—" : state.distanceText)
         Spacer(minLength: 0)
-        metric("Battery charge", value: stale ? "—" : state.batteryText)
+        VStack(alignment: .leading, spacing: 3) {
+          metric("Battery charge", value: stale ? "—" : state.batteryText)
+          Text(stale ? "—" : state.voltageText)
+            .font(.caption).monospacedDigit()
+            .accessibilityLabel("Battery voltage \(stale ? "unavailable" : state.voltageText)")
+        }
       }
     }
     .foregroundStyle(.white)
