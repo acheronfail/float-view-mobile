@@ -10,6 +10,7 @@
   import PageHeader from '$lib/ui/PageHeader.svelte';
   import { browserThemeEnvironment, ThemeController } from './theme';
   import { connectionRedirect } from './connection-navigation';
+  import { trackKeyboardNavigation } from './focus';
 
   let { children }: { children: Snippet } = $props();
   let themeController = $state<ThemeController | undefined>(undefined);
@@ -56,6 +57,7 @@
   );
 
   onMount(() => {
+    const stopKeyboardNavigation = trackKeyboardNavigation();
     themeController = new ThemeController(browserThemeEnvironment());
     const stopTheme = themeController.start();
     const handleNativeImportStarted = () => {
@@ -82,6 +84,7 @@
     if (preference) themeController.reconcile(preference);
     void backendState.connect();
     return () => {
+      stopKeyboardNavigation();
       window.removeEventListener('floatview:session-import-started', handleNativeImportStarted);
       window.removeEventListener('floatview:session-imported', handleNativeImport);
       window.removeEventListener('floatview:session-import-failed', handleNativeImportFailure);

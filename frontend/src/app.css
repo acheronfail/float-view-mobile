@@ -158,3 +158,11 @@ a {
 button:disabled {
   cursor: default;
 }
+
+/* Touch-first devices start without focus outlines, including text fields and
+ * programmatically restored focus. Keyboard navigation restores normal styles. */
+@media (hover: none) and (pointer: coarse) {
+  :root:not([data-keyboard-navigation='true']) :focus {
+    outline: none;
+  }
+}
