@@ -6,6 +6,7 @@
   import { reportFrontendPerformance } from '$lib/backend/performance-log';
   import BoardList from '$lib/features/boards/BoardList.svelte';
   import PruneDialog from '$lib/features/sessions/PruneDialog.svelte';
+  import LastRideSubtitle from '$lib/features/sessions/LastRideSubtitle.svelte';
 
   const appHeader = getContext<AppHeaderContext>(APP_HEADER_CONTEXT);
   let importInput = $state<HTMLInputElement>();
@@ -13,6 +14,7 @@
 
   $effect(() => {
     appHeader.set('/sessions', {
+      subtitleSnippet: sessionSubtitle,
       menuLabel: 'Session actions',
       menu: [
         {
@@ -61,6 +63,10 @@
     if (sessionId) await goto(await backendState.sessionHref(sessionId));
   }
 </script>
+
+{#snippet sessionSubtitle()}
+  <LastRideSubtitle />
+{/snippet}
 
 <section aria-labelledby="app-title" class="space-y-4">
   <input

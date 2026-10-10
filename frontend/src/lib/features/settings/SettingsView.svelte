@@ -1,4 +1,6 @@
 <script lang="ts">
+  import AppHeaderSubtitle from '$lib/app/AppHeaderSubtitle.svelte';
+  import { formatDistanceM } from '$lib/features/measurements/format';
   import SegmentedControl from '$lib/ui/SegmentedControl.svelte';
   import type { ThemePreference, UnitPreference } from '$lib/backend/contract';
   import { backendState } from '$lib/backend/state.svelte';
@@ -6,8 +8,20 @@
 
   import Permissions from './Permissions.svelte';
 
+  const trackedDistanceM = $derived(
+    backendState.savedDevices.reduce((total, device) => total + (device.summary.totalDistanceM ?? 0), 0)
+  );
+
   const inputClass = 'mt-1 block w-full rounded border border-outline bg-elevated px-3 py-2 text-foreground';
 </script>
+
+<AppHeaderSubtitle owner="/settings">
+  {#if backendState.snapshot}
+    {formatDistanceM(trackedDistanceM, backendState.settings?.unitPreference ?? 'metric')} tracked across all rides
+  {:else}
+    Loading ride totals…
+  {/if}
+</AppHeaderSubtitle>
 
 <section aria-label="Settings" class="space-y-4">
   {#if backendState.settings}
