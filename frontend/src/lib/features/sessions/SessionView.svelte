@@ -275,7 +275,10 @@
       </div>
     {/if}
 
-    {#if backendState.sessionMetadata}<SessionEvents metadata={backendState.sessionMetadata} />{/if}
+    {#if backendState.sessionMetadata}<SessionEvents
+        metadata={backendState.sessionMetadata}
+        viewport={chartViewport}
+      />{/if}
   {:else}
     <p class="mt-3 text-muted">Loading session…</p>
   {/if}
