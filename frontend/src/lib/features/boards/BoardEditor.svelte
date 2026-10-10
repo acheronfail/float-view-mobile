@@ -22,7 +22,7 @@
   let batteryPresetId = $state('');
   let batteryCapacityAh = $state<number | undefined>();
   let pendingSaves = $state(0);
-  let batteryFields: BatteryFields | undefined;
+  let batteryFields = $state<BatteryFields | undefined>();
   let batteryMinimumCellVoltageV = $state<number | undefined>();
   let motor = $state('');
   let preferredCanId = $state<number | undefined>();
