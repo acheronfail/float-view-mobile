@@ -6,7 +6,7 @@ final class LiveActivityStateTests: XCTestCase {
   func testNativeProjectionDecodesWithoutFrontend() throws {
     let decoder = JSONDecoder()
     decoder.keyDecodingStrategy = .convertFromSnakeCase
-    let data = Data(#"{"generation":7,"observed_at":1800000000000,"source":"motor","percentage":82,"distance_meters":1234,"battery_percent":67,"imperial":true}"#
+    let data = Data(#"{"footpad_left":"active","footpad_right":"warning","status":"Stopped","generation":7,"observed_at":1800000000000,"source":"motor","percentage":82,"distance_meters":1234,"battery_percent":67,"imperial":true}"#
       .utf8)
     let state = try decoder.decode(LiveActivityState.self, from: data)
     XCTAssertEqual(state.generation, 7)
@@ -16,5 +16,8 @@ final class LiveActivityStateTests: XCTestCase {
     XCTAssertEqual(state.distanceMeters, 1234)
     XCTAssertEqual(state.batteryPercent, 67)
     XCTAssertTrue(state.imperial)
+    XCTAssertEqual(state.status, "Stopped")
+    XCTAssertEqual(state.footpadLeft, "active")
+    XCTAssertEqual(state.footpadRight, "warning")
   }
 }

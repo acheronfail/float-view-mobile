@@ -11,6 +11,9 @@ data class LiveActivityState(
     val distanceMeters: Double?,
     val batteryPercent: Double?,
     val imperial: Boolean,
+    val status: String?,
+    val footpadLeft: String,
+    val footpadRight: String,
 ) {
     companion object {
         fun decode(value: JSONObject): LiveActivityState = LiveActivityState(
@@ -21,6 +24,9 @@ data class LiveActivityState(
             distanceMeters = value.numberOrNull("distance_meters"),
             batteryPercent = value.numberOrNull("battery_percent"),
             imperial = value.getBoolean("imperial"),
+            status = if (value.isNull("status")) null else value.getString("status"),
+            footpadLeft = value.getString("footpad_left"),
+            footpadRight = value.getString("footpad_right"),
         )
 
         private fun JSONObject.numberOrNull(key: String): Double? =

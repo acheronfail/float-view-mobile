@@ -1,6 +1,7 @@
 //! Small native presentation projection. No transport or ActivityKit ownership.
 use crate::{BackendService, battery_estimator::UnavailableReason, os::LinkState};
 use float_view_application_runtime::coordinator::Phase;
+use float_view_application_runtime::telemetry::{FootpadState, PackageState};
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -12,6 +13,52 @@ pub struct LiveActivity {
     pub distance_meters: Option<f64>,
     pub battery_percent: Option<f64>,
     pub imperial: bool,
+    pub status: Option<String>,
+    pub footpad_left: FootpadIndicator,
+    pub footpad_right: FootpadIndicator,
+}
+
+/// Shared semantic colours; native hosts select their theme's palette.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FootpadIndicator {
+    Neutral,
+    Active,
+    Warning,
+}
+
+fn footpads(
+    state: Option<FootpadState>,
+    speed: Option<f64>,
+) -> (FootpadIndicator, FootpadIndicator) {
+    let inactive = if speed.is_some_and(|speed| speed > 2.) {
+        FootpadIndicator::Warning
+    } else {
+        FootpadIndicator::Neutral
+    };
+    let left = matches!(state, Some(FootpadState::Left | FootpadState::Both));
+    let right = matches!(state, Some(FootpadState::Right | FootpadState::Both));
+    (
+        if left {
+            FootpadIndicator::Active
+        } else {
+            inactive
+        },
+        if right {
+            FootpadIndicator::Active
+        } else {
+            inactive
+        },
+    )
+}
+
+fn status(state: Option<PackageState>) -> Option<String> {
+    match state {
+        Some(PackageState::Ready) => Some("Stopped".into()),
+        Some(PackageState::Disabled) => Some("Disabled".into()),
+        Some(PackageState::Startup) => Some("Starting".into()),
+        _ => None,
+    }
 }
 
 // Keep tie order, signed-limit selection and filtered-current preference aligned
@@ -84,7 +131,14 @@ impl BackendService {
                 None
             }
         });
+        let (footpad_left, footpad_right) = footpads(
+            sample.and_then(|s| s.footpad_state),
+            sample.and_then(|s| s.speed_kph),
+        );
         Some(LiveActivity {
+            status: status(sample.and_then(|s| s.package_state)),
+            footpad_left,
+            footpad_right,
             generation: active.generation,
             observed_at: sample.map(|s| s.observed_at_epoch_ms),
             source: source.map(str::to_owned),
@@ -99,6 +153,46 @@ impl BackendService {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn footpads_match_frontend_colours_and_status_uses_package_state() {
+        use FootpadIndicator::*;
+        assert_eq!(
+            footpads(Some(FootpadState::Both), Some(10.)),
+            (Active, Active)
+        );
+        assert_eq!(
+            footpads(Some(FootpadState::Left), Some(2.)),
+            (Active, Neutral)
+        );
+        assert_eq!(
+            footpads(Some(FootpadState::Right), Some(2.1)),
+            (Warning, Active)
+        );
+        assert_eq!(
+            footpads(Some(FootpadState::None), Some(3.)),
+            (Warning, Warning)
+        );
+        assert_eq!(footpads(None, None), (Neutral, Neutral));
+        assert_eq!(
+            footpads(Some(FootpadState::Unknown), Some(-3.)),
+            (Neutral, Neutral)
+        );
+        assert_eq!(
+            status(Some(PackageState::Ready)).as_deref(),
+            Some("Stopped")
+        );
+        assert_eq!(
+            status(Some(PackageState::Disabled)).as_deref(),
+            Some("Disabled")
+        );
+        assert_eq!(
+            status(Some(PackageState::Startup)).as_deref(),
+            Some("Starting")
+        );
+        assert_eq!(status(Some(PackageState::Running)), None);
+        assert_eq!(status(None), None);
+    }
+
     #[test]
     fn gauge_winner_ties_clamping_and_missing_values() {
         assert_eq!(drive_load(None, None, None), (None, None));

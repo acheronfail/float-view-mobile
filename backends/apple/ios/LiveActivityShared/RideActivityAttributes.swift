@@ -7,6 +7,9 @@ struct RideActivityAttributes: ActivityAttributes {
     var percentage: Double?
     var distanceMeters: Double?
     var batteryPercent: Double?
+    var status: String?
+    var footpadLeft: String
+    var footpadRight: String
     var imperial: Bool
     var observedAt: Date?
 

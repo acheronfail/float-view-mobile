@@ -43,6 +43,7 @@ final class RideActivityController: @unchecked Sendable {
           let content = RideActivityAttributes.ContentState(
             source: state.source, percentage: state.percentage,
             distanceMeters: state.distanceMeters, batteryPercent: state.batteryPercent,
+            status: state.status, footpadLeft: state.footpadLeft, footpadRight: state.footpadRight,
             imperial: state.imperial,
             observedAt: state.observedAt.map { Date(timeIntervalSince1970: Double($0) / 1000) }
           )

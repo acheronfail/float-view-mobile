@@ -1352,6 +1352,11 @@ mod tests {
             for sequence in 1..=100 {
                 let mut sample = samples::sample(sequence, sequence * 100);
                 sample.duty_cycle = Some(0.42);
+                sample.package_state =
+                    Some(float_view_application_runtime::telemetry::PackageState::Ready);
+                sample.footpad_state =
+                    Some(float_view_application_runtime::telemetry::FootpadState::Left);
+                sample.speed_kph = Some(3.);
                 sample.distance_m = Some(sequence as f64);
                 sample.battery_level = Some(0.67);
                 t.service.accept_battery_sample(sample).unwrap();
@@ -1369,6 +1374,15 @@ mod tests {
             let state = states[0].as_ref().unwrap();
             assert_eq!(state.source.as_deref(), Some("duty"));
             assert_eq!(state.percentage, Some(42.));
+            assert_eq!(state.status.as_deref(), Some("Stopped"));
+            assert_eq!(
+                state.footpad_left,
+                crate::live_activity::FootpadIndicator::Active
+            );
+            assert_eq!(
+                state.footpad_right,
+                crate::live_activity::FootpadIndicator::Warning
+            );
             assert_eq!(state.distance_meters, Some(100.));
             assert_eq!(state.battery_percent, if saved { Some(67.) } else { None });
             assert!(state.imperial);

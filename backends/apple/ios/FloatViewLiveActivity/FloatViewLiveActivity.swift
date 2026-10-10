@@ -17,17 +17,17 @@ struct FloatViewLiveActivity: Widget {
           RideSummary(state: context.state, stale: context.isStale)
         }
       } compactLeading: {
-        Text(context.isStale ? "—" : context.state.loadLabel)
-          .font(.caption2.bold())
-          .foregroundStyle(context.state.loadColor)
+        FootpadIndicator(state: context.state, stale: context.isStale)
+          .frame(width: 24, height: 14)
       } compactTrailing: {
-        Text(context.isStale ? "—" : context.state.loadText)
-          .monospacedDigit().foregroundStyle(context.state.loadColor)
+        Text(context.isStale ? "—" : (context.state.status ?? context.state.loadText))
+          .monospacedDigit().foregroundStyle(context.state.status == nil ? context.state.loadColor : .white)
       } minimal: {
-        Text(context.isStale ? "—" : context.state.loadText)
+        Text(context.isStale ? "—" : (context.state.status ?? context.state.loadText))
           .font(.caption2.bold()).monospacedDigit()
-          .foregroundStyle(context.state.loadColor)
-          .accessibilityLabel("\(context.state.loadLabel) \(context.isStale ? "unavailable" : context.state.loadText)")
+          .lineLimit(1).minimumScaleFactor(0.6)
+          .foregroundStyle(context.state.status == nil ? context.state.loadColor : .white)
+          .accessibilityLabel("\(context.state.status == nil ? context.state.loadLabel : "Board") \(context.isStale ? "unavailable" : (context.state.status ?? context.state.loadText))")
       }
     }
   }
@@ -41,11 +41,12 @@ private struct RideSummary: View {
     VStack(alignment: .leading, spacing: 10) {
       HStack {
         Label("Float View", systemImage: "bolt.circle.fill").font(.caption.bold())
+        FootpadIndicator(state: state, stale: stale).frame(width: 28, height: 16)
         Spacer()
         Text(stale ? "Waiting for telemetry" : "Connected").font(.caption).foregroundStyle(.secondary)
       }
       HStack(alignment: .firstTextBaseline, spacing: 16) {
-        metric(state.loadLabel, value: stale ? "—" : state.loadText, color: state.loadColor)
+        metric(state.status == nil ? state.loadLabel : "Board", value: stale ? "—" : (state.status ?? state.loadText), color: state.status == nil ? state.loadColor : .white)
         Spacer(minLength: 0)
         metric("Distance", value: stale ? "—" : state.distanceText)
         Spacer(minLength: 0)
@@ -73,6 +74,38 @@ private extension RideActivityAttributes.ContentState {
     case "motor": Color(red: 253 / 255, green: 164 / 255, blue: 175 / 255)
     case "battery": Color(red: 110 / 255, green: 231 / 255, blue: 183 / 255)
     default: .gray
+    }
+  }
+}
+
+private struct FootpadIndicator: View {
+  let state: RideActivityAttributes.ContentState
+  let stale: Bool
+
+  var body: some View {
+    HStack(spacing: 2) {
+      Rectangle().fill(color(state.footpadLeft))
+      Rectangle().fill(color(state.footpadRight))
+    }
+    .clipShape(Capsule())
+    .overlay(Capsule().stroke(.gray.opacity(0.6), lineWidth: 1))
+    .accessibilityElement(children: .ignore)
+    .accessibilityLabel(stale ? "Footpads unavailable" : "Footpads: left \(label(state.footpadLeft)), right \(label(state.footpadRight))")
+  }
+
+  private func label(_ value: String) -> String {
+    switch value {
+    case "active": "Enabled"
+    case "warning": "Disabled while moving"
+    default: "Disabled"
+    }
+  }
+
+  private func color(_ value: String) -> Color {
+    switch stale ? "neutral" : value {
+    case "active": Color(red: 110 / 255, green: 231 / 255, blue: 183 / 255)
+    case "warning": Color(red: 253 / 255, green: 164 / 255, blue: 175 / 255)
+    default: Color(red: 15 / 255, green: 23 / 255, blue: 42 / 255)
     }
   }
 }

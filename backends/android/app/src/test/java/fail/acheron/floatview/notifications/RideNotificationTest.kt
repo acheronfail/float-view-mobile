@@ -13,7 +13,7 @@ class RideNotificationTest {
     @Before fun setLocale() { Locale.setDefault(Locale.US) }
     @After fun restoreLocale() { Locale.setDefault(originalLocale) }
     private fun state() = LiveActivityState.decode(JSONObject("""
-        {"generation":7,"observed_at":100000,"source":"motor","percentage":82,
+        {"footpad_left":"active","footpad_right":"warning","status":null,"generation":7,"observed_at":100000,"source":"motor","percentage":82,
          "distance_meters":1609.344,"battery_percent":67,"imperial":true}
     """))
 
@@ -38,6 +38,20 @@ class RideNotificationTest {
         val missing = state().copy(observedAt = null, percentage = null, batteryPercent = null)
         assertTrue(RideNotification.from(missing, false, 100001).stale)
         assertNull(RideNotification.from(null, true, 100001).generation)
+    }
+
+    @Test fun stoppedBoardReplacesLoadIncludingTheCompactChip() {
+        val stopped = RideNotification.from(state().copy(status = "Stopped"), false, 100001)
+        assertEquals("Stopped", stopped.load)
+        assertEquals("Stopped", stopped.chip)
+        assertNull(stopped.source)
+        assertEquals("active", stopped.footpadLeft)
+        assertEquals("warning", stopped.footpadRight)
+        assertNotEquals(stopped, RideNotification.from(state().copy(status = "Stopped", footpadRight = "active"), false, 100001))
+        val stale = RideNotification.from(state().copy(status = "Stopped"), false, 115000)
+        assertNull(stale.chip)
+        assertEquals("neutral", stale.footpadLeft)
+        assertEquals("neutral", stale.footpadRight)
     }
 
     @Test fun timestampsAreCoalescedButVisibleChangesArePublished() {
@@ -66,7 +80,7 @@ class RideNotificationTest {
 
     @Test fun nullPayloadValuesRemainUnavailable() {
         val state = LiveActivityState.decode(JSONObject("""
-            {"generation":8,"observed_at":null,"source":null,"percentage":null,
+            {"footpad_left":"active","footpad_right":"warning","status":null,"generation":8,"observed_at":null,"source":null,"percentage":null,
              "distance_meters":null,"battery_percent":null,"imperial":false}
         """))
         assertNull(state.observedAt)

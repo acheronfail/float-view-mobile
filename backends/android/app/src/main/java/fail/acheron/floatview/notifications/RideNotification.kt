@@ -13,6 +13,8 @@ data class RideNotification(
     val chip: String?,
     val stale: Boolean,
     val recording: Boolean,
+    val footpadLeft: String,
+    val footpadRight: String,
 ) {
     companion object {
         fun from(state: LiveActivityState?, recording: Boolean, now: Long): RideNotification {
@@ -29,9 +31,12 @@ data class RideNotification(
                 String.format(Locale.getDefault(), "%.2f %s", it / if (state.imperial) 1609.344 else 1000.0,
                     if (state.imperial) "mi" else "km")
             } ?: "—"
-            return RideNotification(state?.generation, if (stale) null else state?.source, "$label $load", distance,
+            return RideNotification(state?.generation, if (stale || state?.status != null) null else state?.source,
+                if (stale) "$label —" else state?.status ?: "$label $load", distance,
                 if (stale) "—" else percent(state?.batteryPercent),
-                if (stale || state?.percentage == null) null else load, stale, recording)
+                if (stale) null else state?.status ?: load.takeIf { state?.percentage != null }, stale, recording,
+                if (stale) "neutral" else state?.footpadLeft ?: "neutral",
+                if (stale) "neutral" else state?.footpadRight ?: "neutral")
         }
     }
 }
