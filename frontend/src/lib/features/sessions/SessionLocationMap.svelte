@@ -22,6 +22,7 @@
   import type { Viewport } from './viewport';
   import { loadFootpadFaults, footpadFaultIcon, footpadFaultLabel, type FootpadFault } from './footpad-faults';
   import Spinner from '../../ui/Spinner.svelte';
+  import ToggleIndicator from '$lib/ui/ToggleIndicator.svelte';
 
   const locationMarkerHtml = `<span class="${iconClasses['map-pin']}" aria-hidden="true"></span>`;
 
@@ -461,6 +462,25 @@
   }
 </script>
 
+{#snippet filterToggle()}
+  <button
+    type="button"
+    class="flex min-h-11 w-full touch-manipulation items-center justify-between gap-3 rounded-lg border border-outline bg-surface px-3 py-2 text-sm font-medium text-foreground select-none hover:bg-elevated disabled:opacity-50"
+    aria-label="Filter charts by map"
+    role="switch"
+    aria-checked={filterByMap}
+    disabled={!canFilter && !filterByMap}
+    title={canFilter
+      ? 'Use the visible map area to select chart data'
+      : 'A complete continuous location track is required'}
+    onpointerdown={(event) => activateFromPointer(event, () => onfilterchange(!filterByMap))}
+    onclick={(event) => activateFromKeyboardOrAssistiveClick(event, () => onfilterchange(!filterByMap))}
+  >
+    <span>Filter charts by map</span>
+    <ToggleIndicator checked={filterByMap} />
+  </button>
+{/snippet}
+
 <section
   use:observeSize
   aria-label="Session location map"
@@ -482,14 +502,7 @@
     </p>{/if}
   {#if error}
     <p role="alert" class="text-sm text-warning">{error}</p>
-    {#if filterByMap}<button
-        type="button"
-        aria-pressed="true"
-        class="touch-manipulation text-accent"
-        onpointerdown={(event) => activateFromPointer(event, () => onfilterchange(false))}
-        onclick={(event) => activateFromKeyboardOrAssistiveClick(event, () => onfilterchange(false))}
-        >Filter charts by map</button
-      >{/if}
+    {#if filterByMap}{@render filterToggle()}{/if}
     <button
       type="button"
       class="touch-manipulation text-accent"
@@ -508,18 +521,7 @@
         class:hidden
       ></div>
       {#if !hidden}
-        <button
-          type="button"
-          class="touch-manipulation rounded border border-outline px-2 py-1 text-sm disabled:opacity-50"
-          aria-pressed={filterByMap}
-          disabled={!canFilter && !filterByMap}
-          title={canFilter
-            ? 'Use the visible map area to select chart data'
-            : 'A complete continuous location track is required'}
-          onpointerdown={(event) => activateFromPointer(event, () => onfilterchange(!filterByMap))}
-          onclick={(event) => activateFromKeyboardOrAssistiveClick(event, () => onfilterchange(!filterByMap))}
-          >Filter charts by map</button
-        >
+        {@render filterToggle()}
         {#if !canFilter && !loading}<p class="text-xs text-muted">
             Map filtering requires a complete continuous location track.
           </p>{/if}

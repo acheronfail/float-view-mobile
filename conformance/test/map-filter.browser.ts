@@ -130,7 +130,7 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
           });
           await page.goto(`${endpoint.origin}/#/sessions/session-1`);
 
-          const toggle = page.getByRole('button', { name: 'Filter charts by map', exact: true });
+          const toggle = page.getByRole('switch', { name: 'Filter charts by map', exact: true });
           await toggle.waitFor().catch(async (error) => {
             console.error(await page.locator('body').innerText(), errors);
             throw error;
@@ -139,21 +139,27 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
             () =>
               !(
                 document.querySelector(
-                  'button[aria-pressed="false"][title="Use the visible map area to select chart data"]'
+                  'button[aria-checked="false"][title="Use the visible map area to select chart data"]'
                 ) as HTMLButtonElement
               )?.disabled
           );
-          assert.equal(await toggle.getAttribute('aria-pressed'), 'false');
+          assert.equal(await toggle.getAttribute('aria-checked'), 'false');
+          const inactiveBackground = await toggle
+            .locator('[aria-hidden="true"]')
+            .evaluate((node) => getComputedStyle(node).backgroundColor);
+          await toggle.dispatchEvent('pointerdown', { button: 0, isPrimary: false, pointerId: 2 });
+          await toggle.dispatchEvent('pointerup', { button: 0, isPrimary: false, pointerId: 2 });
+          assert.equal(await toggle.getAttribute('aria-checked'), 'false');
           await toggle.dispatchEvent('pointerdown', { button: 2, isPrimary: true, pointerId: 1 });
           await toggle.dispatchEvent('pointerup', { button: 2, isPrimary: true, pointerId: 1 });
-          assert.equal(await toggle.getAttribute('aria-pressed'), 'false');
+          assert.equal(await toggle.getAttribute('aria-checked'), 'false');
           const toggleBox = await toggle.boundingBox();
           assert.ok(toggleBox);
           await page.mouse.move(toggleBox.x + 10, toggleBox.y + 10);
           await page.mouse.down();
           await toggle.dispatchEvent('pointercancel', { pointerId: 1 });
           await page.mouse.up();
-          assert.equal(await toggle.getAttribute('aria-pressed'), 'false');
+          assert.equal(await toggle.getAttribute('aria-checked'), 'false');
           assert.equal(locationPages, 7);
           let ordinaryRange = { startElapsedMs: 0, endElapsedMs: 60000 };
           if (hasTouch) {
@@ -163,7 +169,7 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
               .last()
               .click();
             const chart = page.getByRole('img', { name: 'Speed over elapsed time' });
-            await chart.evaluate((node) => node.scrollIntoView({ block: 'center' }));
+            await chart.evaluate((node) => node.scrollIntoView({ block: 'end' }));
             const b = await chart.boundingBox();
             assert.ok(b);
             const zoomResponse = page.waitForResponse((response) => {
@@ -188,7 +194,11 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
           failSeries = false;
           await page.getByRole('button', { name: 'Retry chart data' }).click();
           await page.getByRole('img', { name: 'Speed over elapsed time' }).waitFor();
-          assert.equal(await toggle.getAttribute('aria-pressed'), 'true');
+          assert.equal(await toggle.getAttribute('aria-checked'), 'true');
+          assert.notEqual(
+            await toggle.locator('[aria-hidden="true"]').evaluate((node) => getComputedStyle(node).backgroundColor),
+            inactiveBackground
+          );
           const mode = page.getByRole('button', { name: /Chart mode: info/ }).last();
           if (hasTouch) assert.equal(await mode.isDisabled(), true);
           // A late response for abandoned bounds must not repaint the current range.
@@ -223,7 +233,7 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
             });
           const before = await page.locator('[data-map-separator]').first().getAttribute('x1');
           const svg = page.getByRole('img', { name: 'Speed over elapsed time' });
-          await svg.evaluate((node) => node.scrollIntoView({ block: 'center' }));
+          await svg.evaluate((node) => node.scrollIntoView({ block: 'end' }));
           const box = await svg.boundingBox();
           assert.ok(box);
           await page.mouse.move(box.x + box.width * 0.25, box.y + box.height / 2);
@@ -284,7 +294,11 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
           await page.waitForFunction(() => document.querySelectorAll('[data-map-separator]').length === 0);
           await toggle.focus();
           await page.keyboard.press('Space');
-          assert.equal(await toggle.getAttribute('aria-pressed'), 'false');
+          assert.equal(
+            await toggle.locator('[aria-hidden="true"]').evaluate((node) => getComputedStyle(node).backgroundColor),
+            inactiveBackground
+          );
+          assert.equal(await toggle.getAttribute('aria-checked'), 'false');
           if (hasTouch) assert.equal(await mode.isDisabled(), false);
           await page.getByRole('button', { name: /State transitions/ }).click();
           assert.match(
@@ -294,7 +308,7 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
           await (hasTouch ? toggle.tap() : toggle.click());
           await page.getByRole('button', { name: 'Show/hide the map' }).click();
           await page.getByRole('button', { name: 'Show/hide the map' }).click();
-          assert.equal(await toggle.getAttribute('aria-pressed'), 'false');
+          assert.equal(await toggle.getAttribute('aria-checked'), 'false');
           assert.deepEqual(errors, []);
         } finally {
           for (const context of browser.contexts())
