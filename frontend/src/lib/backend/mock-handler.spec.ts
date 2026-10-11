@@ -250,6 +250,13 @@ describe('deterministic mock backend', () => {
     const after = (backend.handle({ id: 4, method: 'state.get', params: {} }) as { result: AppState }).result;
     expect(after.revision).toBeGreaterThan(before.revision);
     expect(after.sessionCatalogRevision).toBe(before.sessionCatalogRevision);
+    const sessionId = after.activeConnection!.activeSession!.sessionId;
+    expect(backend.handle({ id: 5, method: 'session.get', params: { sessionId } })).toMatchObject({
+      result: {
+        summary: after.activeConnection!.activeSession,
+        snapshot: { committedElapsedMs: after.activeConnection!.activeSession!.totalElapsedMs },
+      },
+    });
     expect(after).not.toHaveProperty('recentSessions');
     expect(after).not.toHaveProperty('sessionGroups');
   });

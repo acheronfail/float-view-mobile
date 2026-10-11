@@ -494,3 +494,39 @@ describe('board profile ownership', () => {
     store.close();
   });
 });
+
+describe('session review request ownership', () => {
+  it('ignores refreshes after close and superseded opens', async () => {
+    const client = new FakeClient();
+    const store = new BackendState(
+      async () => ({ webSocketUrl: 'ws://test' }),
+      async () => client as unknown as ApiClient
+    );
+    await store.connect();
+    await store.openSession('session-1');
+    const metadata = store.sessionMetadata!;
+    const original = client.request.bind(client);
+    let finish!: (value: unknown) => void;
+    vi.spyOn(client, 'request').mockImplementation(((method: BackendMethod, params: never) =>
+      method === 'session.get'
+        ? new Promise<unknown>((resolve) => {
+            finish = resolve;
+          })
+        : original(method, params)) as typeof client.request);
+    const refresh = store.refreshSession('session-1', () => true);
+    expect(store.busy).toBe(false);
+    store.closeSession();
+    finish(metadata);
+    await refresh;
+    expect(store.sessionMetadata).toBeNull();
+    const first = store.openSession('session-1');
+    const finishFirst = finish;
+    const second = store.openSession('session-2');
+    finish({ ...metadata, summary: { ...metadata.summary, sessionId: 'session-2' } });
+    await second;
+    finishFirst(metadata);
+    await first;
+    expect(store.selectedSession?.sessionId).toBe('session-2');
+    store.close();
+  });
+});

@@ -140,6 +140,16 @@ to 100,000 events, 1,000,000 samples and 2,000 fault episodes, with a visible er
 instead of silently truncated fault results. Pruned sessions reflect retained
 samples only.
 
+Current ride entry points on Live and Sessions open the same session review route
+for saved connections. Visible active review refreshes persisted metadata every
+three seconds with one request in flight. Chart inspection and map navigation
+pause following; Jump to live clears selection and filtering and resumes the full
+ride view. Chart field visibility and the map instance survive snapshot updates.
+Readers are replaced per snapshot and late metadata responses are scoped to the
+open session and visible page. Recording remains native-owned; completion gets a
+final refresh even while inspection is paused, and refresh failures retain the
+last loaded data with visible feedback. Guest connections have no current history.
+
 Session map filtering is transient review navigation owned by the session view.
 The map toggle selects chronological intervals from the complete continuous GPS
 track, holding the last known location during GPS gaps through the session end

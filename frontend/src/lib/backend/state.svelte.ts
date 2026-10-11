@@ -397,13 +397,26 @@ export class BackendState {
     });
   }
 
+  private sessionGeneration = 0;
+
   async openSession(sessionId: string): Promise<boolean> {
+    const generation = ++this.sessionGeneration;
     return this.run(async (client) => {
       const metadata = await client.request('session.get', { sessionId });
+      if (generation !== this.sessionGeneration) return;
       this.sessionMetadata = metadata;
       this.selectedSession = metadata.summary;
       this.exportStatus = null;
     });
+  }
+
+  async refreshSession(sessionId: string, accept: () => boolean): Promise<void> {
+    const generation = this.sessionGeneration;
+    if (!this.client?.isOpen) throw new Error('Backend is not connected');
+    const metadata = await this.client.request('session.get', { sessionId });
+    if (generation !== this.sessionGeneration || this.selectedSession?.sessionId !== sessionId || !accept()) return;
+    this.sessionMetadata = metadata;
+    this.selectedSession = metadata.summary;
   }
 
   async sessionHref(sessionId: string): Promise<string> {
@@ -511,6 +524,7 @@ export class BackendState {
   }
 
   closeSession() {
+    this.sessionGeneration++;
     this.selectedSession = null;
     this.sessionMetadata = null;
     this.exportStatus = null;

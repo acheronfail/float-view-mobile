@@ -7,7 +7,9 @@
 </script>
 
 {#if sessionId.length > 0 && sessionId.length <= 512}
-  <SessionView {sessionId} {boardSavedDeviceId} />
+  {#key sessionId}
+    <SessionView {sessionId} {boardSavedDeviceId} />
+  {/key}
 {:else}
   <section class="rounded-2xl border border-outline bg-surface p-5">
     <p role="alert" class="mt-3 text-warning">This session identifier is invalid.</p>

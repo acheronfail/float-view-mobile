@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { startRideRefresh } from './ride-refresh';
+  import { activateFromPointer, activateFromKeyboardOrAssistiveClick } from '$lib/ui/activation';
   import type { SessionDisplayOptions, SessionRideMarker } from '$lib/backend/contract';
   import { SessionDataHttpError } from '$lib/backend/session-data-client';
   import { ApiRequestError } from '$lib/backend/client';
@@ -37,6 +39,7 @@
     }
   });
   function setMapFilter(enabled: boolean) {
+    pauseFollowing();
     filterByMap = enabled;
     refreshAttempted = false;
   }
@@ -50,6 +53,29 @@
   }
 
   let { sessionId, boardSavedDeviceId }: { sessionId: string; boardSavedDeviceId?: string | null } = $props();
+  const activeConnection = $derived(backendState.snapshot?.activeConnection);
+  const isCurrentRide = $derived(activeConnection?.activeSession?.sessionId === sessionId);
+  const isActive = $derived(backendState.selectedSession?.state === 'active');
+  let following = $state(true);
+  let wasActive = $state(false);
+  $effect(() => {
+    if (isActive) wasActive = true;
+  });
+  let liveVersion = $state(0);
+  let refreshError = $state('');
+  let unavailable = $state(false);
+  let refresher: ReturnType<typeof startRideRefresh> | null = null;
+  function pauseFollowing() {
+    following = false;
+  }
+  function jumpToLive() {
+    following = true;
+    filterByMap = false;
+    selectedMarker = null;
+    selectedPoint = null;
+    liveVersion++;
+    void refresher?.refresh();
+  }
   let deleteConfirmationOpen = $state(false);
   let pruneOpen = $state(false);
   let deleting = $state(false);
@@ -74,11 +100,13 @@
   let markerError = $state('');
   let markerRetry = '';
   function selectMarker(marker: SessionRideMarker) {
+    pauseFollowing();
     selectedMarker = marker;
     selectedElapsedMs = marker.elapsedMs;
     selectedPoint = { elapsedMs: marker.elapsedMs };
   }
   function selectFault(elapsedMs: number) {
+    pauseFollowing();
     selectedMarker = null;
     selectedElapsedMs = elapsedMs;
     selectedPoint = { elapsedMs };
@@ -88,9 +116,6 @@
     if (!metadata || metadata.summary.sessionId !== sessionId) return;
     const controller = backendState.createSessionReviewController(metadata);
     let active = true;
-    markers = [];
-    selectedMarker = null;
-    selectedPoint = null;
     markerError = '';
     void (async () => {
       const loaded: SessionRideMarker[] = [];
@@ -145,9 +170,9 @@
     const session = backendState.selectedSession;
     const canExport = !backendState.busy && session?.state !== 'active';
     appHeader.set(headerOwner, {
-      title: sessionStartDateLabel(session?.startedAt) ?? 'Session',
-      backHref: returnHref,
-      backLabel: owningBoardSavedDeviceId ? 'Board sessions' : 'Sessions',
+      title: isActive ? 'Current ride' : (sessionStartDateLabel(session?.startedAt) ?? 'Session'),
+      backHref: isCurrentRide ? '#/live' : returnHref,
+      backLabel: isCurrentRide ? 'Back to Live' : owningBoardSavedDeviceId ? 'Board sessions' : 'Sessions',
       ...(session
         ? {
             menuLabel: 'Session actions',
@@ -212,11 +237,26 @@
 
   onMount(() => {
     let active = true;
+    refresher = startRideRefresh({
+      shouldRefresh: () => isActive && !unavailable && (following || !isCurrentRide),
+      refresh: async (accept) => {
+        await backendState.refreshSession(sessionId, accept);
+        if (active) refreshError = '';
+      },
+      onerror: (reason) => {
+        unavailable = reason instanceof ApiRequestError && reason.code === 'not_found';
+        refreshError = unavailable
+          ? 'This ride is no longer available. It may not have met the minimum distance to be saved.'
+          : 'Could not refresh this ride. Showing the last loaded data; retrying automatically.';
+      },
+    });
     void backendState.openSession(sessionId).then((opened) => {
       if (active && !opened) void goto(returnHref, { replaceState: true });
     });
     return () => {
       active = false;
+      refresher?.dispose();
+      refresher = null;
       backendState.closeSession();
     };
   });
@@ -264,56 +304,78 @@
   style={`--section-header-top: calc(var(--app-header-bottom) + ${locationMapHeight}px)`}
 >
   {#if backendState.selectedSession}
+    {#if isActive && !unavailable}
+      <div class="flex items-center justify-between gap-3 rounded-lg border border-outline bg-surface px-3 py-2">
+        <p role="status" class="text-sm">
+          {isCurrentRide
+            ? activeConnection?.state === 'reconnecting'
+              ? 'Reconnecting'
+              : 'Recording'
+            : 'Finishing ride…'}
+          · {following ? 'Following live' : 'Viewing earlier data'}
+        </p>
+        {#if !following}
+          <button
+            type="button"
+            class="min-h-11 touch-manipulation rounded border border-outline px-3 text-sm"
+            onpointerdown={(event) => activateFromPointer(event, jumpToLive)}
+            onclick={(event) => activateFromKeyboardOrAssistiveClick(event, jumpToLive)}>Jump to live</button
+          >
+        {/if}
+      </div>
+    {/if}
+    {#if refreshError}<p role="alert" class="text-sm text-warning">{refreshError}</p>{/if}
     {#if backendState.sessionMetadata}
       <SessionMarkers {markers} selected={selectedMarker?.sequence ?? null} onselect={selectMarker} />
       {#if markerError}<p role="alert" class="text-warning">{markerError}</p>{/if}
       {#if backendState.sessionMetadata.location.available || markers.some((m) => m.location)}
-        {#key `${backendState.sessionMetadata.summary.sessionId}:${snapshotKey}`}
-          <SessionLocationMap
-            metadata={backendState.sessionMetadata}
-            {selectedElapsedMs}
-            {markers}
-            {selectedMarker}
-            onmarkerselect={selectMarker}
-            onfaultselect={selectFault}
-            viewport={chartViewport}
-            {filterByMap}
-            initialBounds={mapBounds}
-            onfilterchange={setMapFilter}
-            onbounds={(bounds) => {
-              mapBounds = bounds;
-            }}
-            ontrack={(segments) => {
-              track = segments;
-              trackSnapshot = snapshotKey;
-            }}
-            ontrackerror={refreshSpatialSnapshot}
-            bind:height={locationMapHeight}
-          />
-        {/key}
+        <SessionLocationMap
+          metadata={backendState.sessionMetadata}
+          {selectedElapsedMs}
+          {markers}
+          {selectedMarker}
+          onmarkerselect={selectMarker}
+          onfaultselect={selectFault}
+          viewport={chartViewport}
+          {filterByMap}
+          initialBounds={mapBounds}
+          oninspect={pauseFollowing}
+          {liveVersion}
+          onfilterchange={setMapFilter}
+          onbounds={(bounds) => {
+            mapBounds = bounds;
+          }}
+          ontrack={(segments) => {
+            track = segments;
+            trackSnapshot = snapshotKey;
+          }}
+          ontrackerror={refreshSpatialSnapshot}
+          bind:height={locationMapHeight}
+        />
       {:else}
         <div class="rounded-lg border border-outline bg-elevated p-3">No location data was saved for this ride.</div>
       {/if}
 
       <div class="mt-3">
-        {#key `${backendState.sessionMetadata.summary.sessionId}:${snapshotKey}`}
-          <SessionHistory
-            metadata={backendState.sessionMetadata}
-            {markers}
-            {selectedPoint}
-            {filterByMap}
-            intervals={spatialSelection.intervals}
-            filterError={spatialSelection.error}
-            ondataerror={refreshSpatialSnapshot}
-            initialViewport={chartViewport}
-            onmarkerselect={selectMarker}
-            onselectionchange={(elapsedMs) => {
-              selectedElapsedMs = elapsedMs;
-              if (selectedMarker?.elapsedMs !== elapsedMs) selectedMarker = null;
-            }}
-            onviewportchange={(viewport) => (chartViewport = viewport)}
-          />
-        {/key}
+        <SessionHistory
+          metadata={backendState.sessionMetadata}
+          {markers}
+          {selectedPoint}
+          following={following && wasActive}
+          oninspect={pauseFollowing}
+          {liveVersion}
+          {filterByMap}
+          intervals={spatialSelection.intervals}
+          filterError={spatialSelection.error}
+          ondataerror={refreshSpatialSnapshot}
+          initialViewport={chartViewport}
+          onmarkerselect={selectMarker}
+          onselectionchange={(elapsedMs) => {
+            selectedElapsedMs = elapsedMs;
+            if (selectedMarker?.elapsedMs !== elapsedMs) selectedMarker = null;
+          }}
+          onviewportchange={(viewport) => (chartViewport = viewport)}
+        />
       </div>
 
       {#if filterByMap}<p class="mt-3 text-xs text-muted">

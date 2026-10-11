@@ -1,4 +1,5 @@
 <script lang="ts">
+  import CurrentRideButton from '$lib/features/sessions/CurrentRideButton.svelte';
   import { getContext, onDestroy, onMount, tick } from 'svelte';
   import { goto } from '$app/navigation';
   import { APP_HEADER_CONTEXT, type AppHeaderContext } from '$lib/app/header';
@@ -379,6 +380,7 @@
 
 <section aria-labelledby="app-title" class="flex h-full min-h-0 flex-1 flex-col gap-2">
   {#if connection}
+    <CurrentRideButton />
     {#if locationNeedsAction && location}
       <div
         class="flex items-center justify-between gap-3 rounded-lg border border-warning/40 bg-warning/10 px-3 py-2 text-sm"

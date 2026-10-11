@@ -1,4 +1,5 @@
 <script lang="ts">
+  import CurrentRideButton from '$lib/features/sessions/CurrentRideButton.svelte';
   import { getContext, onDestroy, tick } from 'svelte';
   import { goto } from '$app/navigation';
   import { APP_HEADER_CONTEXT, type AppHeaderContext } from '$lib/app/header';
@@ -82,6 +83,7 @@
   {#if backendState.error}
     <p class="text-warning" role="alert">{backendState.error}</p>
   {/if}
+  <CurrentRideButton />
   <BoardList />
 </section>
 

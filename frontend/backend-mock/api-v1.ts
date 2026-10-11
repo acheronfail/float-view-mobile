@@ -1035,6 +1035,11 @@ export class MockBackend {
           maxDutyCycle: latestSample.dutyCycle,
         }
       : null;
+    if (activeSession) {
+      this.sessionCatalog = this.sessionCatalog.map((item) =>
+        item.sessionId === activeSession.sessionId ? activeSession : item
+      );
+    }
     const latestLocation =
       active.trackingMode === 'saved'
         ? {

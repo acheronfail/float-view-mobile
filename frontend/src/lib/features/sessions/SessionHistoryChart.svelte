@@ -26,6 +26,9 @@
   import Spinner from '../../ui/Spinner.svelte';
 
   let {
+    following = false,
+    oninspect = () => {},
+    liveVersion = 0,
     markers = [],
     selectedPoint = null,
     onmarkerselect = () => {},
@@ -38,6 +41,9 @@
     ondataerror = () => {},
     initialViewport = null,
   }: {
+    following?: boolean;
+    oninspect?: () => void;
+    liveVersion?: number;
     markers?: SessionRideMarker[];
     selectedPoint?: { elapsedMs: number } | null;
     onmarkerselect?: (marker: SessionRideMarker) => void;
@@ -74,6 +80,7 @@
   let mapLoader: MapSeriesLoader | null = null;
   let loadGeneration = 0;
   let lastRequestKey = '';
+  let lastSnapshotKey = '';
   let retryVersion = $state(0);
   let outsideFilter = $state(false);
   const chartIntervals = $derived(filterByMap ? (intervals ?? []) : undefined);
@@ -149,6 +156,21 @@
   let inspectionVisible = $derived(exactStatus !== 'idle');
 
   $effect(() => {
+    if (!following) return;
+    const endElapsedMs = metadata.summary.totalElapsedMs;
+    untrack(() => {
+      viewport = { startElapsedMs: 0, endElapsedMs };
+    });
+  });
+  $effect(() => {
+    if (!liveVersion) return;
+    untrack(() => {
+      reset();
+      dismissInspection();
+    });
+  });
+
+  $effect(() => {
     onviewportchange(viewport);
   });
 
@@ -165,15 +187,20 @@
     ]);
     if (requestKey === lastRequestKey) return;
     lastRequestKey = requestKey;
+    const snapshotKey = JSON.stringify(metadata.snapshot);
+    const growingSnapshot = lastSnapshotKey !== '' && lastSnapshotKey !== snapshotKey && following && !filterByMap;
+    lastSnapshotKey = snapshotKey;
     untrack(() => {
       loadGeneration++;
       mapLoader?.cancel();
-      reviewController?.cancelPending();
+      reviewController?.dispose();
+      reviewController = null;
+      mapLoader = null;
       inFlightGroups.clear();
       groupResults.clear();
       groupLoading.clear();
       groupErrors.clear();
-      result = null;
+      if (!growingSnapshot) result = null;
       loading = false;
       error = null;
       resetGesture();
@@ -186,6 +213,12 @@
         activeField = fields.find((field) => !hiddenFields.has(field.name))?.name ?? '';
       if (!width || !fieldGroups.length || (filterByMap && (!intervals?.length || filterError))) return;
       void loadSeriesGroup(0, width);
+      // Existing nodes stay mounted across refreshes; re-observe them so nearby
+      // lazy groups are requested against the new snapshot too.
+      groupNodes.forEach((node) => {
+        groupObserver?.unobserve(node);
+        groupObserver?.observe(node);
+      });
     });
   });
 
@@ -407,6 +440,7 @@
   });
 
   function queueInspection(elapsedMs: number) {
+    oninspect();
     if (!activeField || (filterByMap && axis.indexAt(elapsedMs) < 0)) return;
     outsideFilter = false;
     const target = Math.max(0, Math.min(duration, Math.round(elapsedMs)));
@@ -476,6 +510,7 @@
 
   function cycleInteractionMode() {
     if (filterByMap) return;
+    oninspect();
     interactionMode = nextInteractionMode();
     resetGesture();
     dismissInspection();
@@ -495,6 +530,7 @@
     const rightMousePan = mouseDevice && event.pointerType === 'mouse' && event.button === 2;
     if (event.pointerType === 'mouse' && event.button !== 0 && !rightMousePan) return;
     if (!pointers.size && !event.isPrimary) return;
+    oninspect();
     if (rightMousePan) event.preventDefault();
     (event.currentTarget as SVGElement).setPointerCapture?.(event.pointerId);
     pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });

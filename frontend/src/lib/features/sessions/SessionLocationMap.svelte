@@ -1,7 +1,7 @@
 <script lang="ts">
   import { loadLocationTrack } from './location-track';
   import { unwrapLongitude, type MapBounds } from './map-filter';
-  import { onMount, onDestroy, tick } from 'svelte';
+  import { onMount, onDestroy, tick, untrack } from 'svelte';
   import Leaflet from 'leaflet';
   import type {
     SessionLocationGap,
@@ -27,6 +27,8 @@
   const locationMarkerHtml = `<span class="${iconClasses['map-pin']}" aria-hidden="true"></span>`;
 
   let {
+    oninspect = () => {},
+    liveVersion = 0,
     markers = [],
     selectedMarker = null,
     onmarkerselect = () => {},
@@ -42,6 +44,8 @@
     initialBounds = null,
     height = $bindable(0),
   }: {
+    oninspect?: () => void;
+    liveVersion?: number;
     markers?: SessionRideMarker[];
     selectedMarker?: SessionRideMarker | null;
     onmarkerselect?: (marker: SessionRideMarker) => void;
@@ -105,20 +109,22 @@
   let error = $state<string | null>(null);
   let hidden = $state(false);
 
-  let active = false;
+  let active = $state(false);
+  let locationGeneration = 0;
   let controller: SessionReviewController | null = null;
   onMount(() => {
     active = true;
 
-    void loadLocations().catch((reason) => {
-      if (active) error = reason instanceof Error ? reason.message : String(reason);
-    });
     return () => {
       active = false;
+      locationGeneration++;
       controller?.dispose();
       rideLayers.forEach((layer) => layer.remove());
       faultLayers.forEach((layer) => layer.remove());
       locationMarker?.remove();
+      node?.removeEventListener('wheel', oninspect);
+      node?.removeEventListener('pointerdown', inspectMapPointer);
+      node?.removeEventListener('keydown', oninspect);
       map?.remove();
       map = null;
       hasInitialView = false;
@@ -132,35 +138,57 @@
     };
   });
 
-  async function loadLocations() {
+  $effect(() => {
+    const currentMetadata = metadata;
+    if (!active) return;
+    untrack(() => void loadLocations(currentMetadata));
+  });
+
+  $effect(() => {
+    if (!liveVersion) return;
+    untrack(() => {
+      if (map) updateMap(true);
+    });
+  });
+
+  async function loadLocations(currentMetadata: SessionMetadata) {
+    const generation = ++locationGeneration;
     loading = true;
     error = null;
     controller?.dispose();
     try {
-      controller = backendState.createSessionReviewController(metadata);
-      const loaded = await loadLocationTrack(controller, metadata);
-      if (!active) return;
+      controller = backendState.createSessionReviewController(currentMetadata);
+      const loaded = await loadLocationTrack(controller, currentMetadata);
+      if (!active || generation !== locationGeneration) return;
       points = loaded.points;
       gaps = loaded.gaps;
       ontrack(splitLocationSegments(points, gaps));
       if (points.length || locatedMarkers.length) {
         await tick();
-        if (active) initialiseMap();
+        if (active && generation === locationGeneration) initialiseMap();
       }
     } catch (reason) {
-      if (active) {
+      if (active && generation === locationGeneration) {
         error = reason instanceof Error ? reason.message : String(reason);
         ontrackerror(reason);
       }
     } finally {
-      if (active) loading = false;
+      if (active && generation === locationGeneration) loading = false;
     }
+  }
+
+  function inspectMapPointer(event: PointerEvent) {
+    if (event.isPrimary && event.button === 0) oninspect();
   }
 
   function initialiseMap() {
     if (!node || map || (!points.length && !locatedMarkers.length)) return;
+    node.addEventListener('wheel', oninspect, { passive: true });
+    node.addEventListener('pointerdown', inspectMapPointer);
+    node.addEventListener('keydown', oninspect);
     map = Leaflet.map(node, { preferCanvas: true, zoomControl: true });
     map.on('zoomend', drawRideMarkers);
+    map.on('dragstart', oninspect);
     map.on('moveend zoomend', publishBounds);
     Leaflet.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
       maxZoom: 19,
@@ -504,10 +532,12 @@
     <button
       type="button"
       class="touch-manipulation text-accent"
-      onpointerdown={(event) => activateFromPointer(event, loadLocations)}
-      onclick={(event) => activateFromKeyboardOrAssistiveClick(event, loadLocations)}>Retry track</button
+      onpointerdown={(event) => activateFromPointer(event, () => loadLocations(metadata))}
+      onclick={(event) => activateFromKeyboardOrAssistiveClick(event, () => loadLocations(metadata))}
+      >Retry track</button
     >
-  {:else if !points.length && !locatedMarkers.length && !loading}
+  {/if}
+  {#if !points.length && !locatedMarkers.length && !loading}
     <p class="text-sm text-muted">No accepted location points were recorded.</p>
   {:else}
     <div class="flex flex-col gap-1">

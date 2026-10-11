@@ -4,6 +4,9 @@
   import SessionHistoryChart from './SessionHistoryChart.svelte';
 
   let {
+    following = false,
+    oninspect = () => {},
+    liveVersion = 0,
     markers = [],
     selectedPoint = null,
     onmarkerselect = () => {},
@@ -16,6 +19,9 @@
     ondataerror,
     initialViewport = null,
   }: {
+    following?: boolean;
+    oninspect?: () => void;
+    liveVersion?: number;
     markers?: SessionRideMarker[];
     selectedPoint?: { elapsedMs: number } | null;
     onmarkerselect?: (marker: SessionRideMarker) => void;
@@ -32,6 +38,9 @@
 
 <section aria-labelledby="history-heading">
   <SessionHistoryChart
+    {following}
+    {oninspect}
+    {liveVersion}
     {markers}
     {selectedPoint}
     {onmarkerselect}
