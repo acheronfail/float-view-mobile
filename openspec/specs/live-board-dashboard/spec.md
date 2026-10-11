@@ -98,7 +98,7 @@ The live view SHALL present the active saved session's sample count, riding elap
 
 ### Requirement: Extensible live action menu
 
-The live header SHALL provide one accessible menu trigger whose menu contains the current view switch, stateful Refloat package and flywheel actions, lighting actions only when lighting capability is present, Clear fatal error only when a Refloat 1.2.x fatal latch remains after its active firmware fault has ended, Shut down controller when the VESC core profile supports the command, Configure board when saved identity exists, and Stop and disconnect. Each Refloat item SHALL display its last confirmed on/off state, SHALL be disabled unless its native preconditions are currently satisfied, and SHALL remain unavailable while its action is pending. Shutdown SHALL be unavailable unless authoritative controller-action state permits it. While authoritative state reports flywheel enabled, a non-dismissible full-application modal overlay SHALL replace access to normal application interaction and SHALL expose exactly one action, Disable, which requests the safety-gated flywheel-off transition. Disabling Refloat, enabling flywheel, and shutting down the controller SHALL require explicit contextual confirmation before the backend request is sent. Every menu, confirmation, and flywheel-overlay control SHALL retain native button semantics, use primary Pointer Events with cancellation and a guarded keyboard/assistive click path, avoid double activation, and manage focus within the modal surface.
+The live header SHALL provide one accessible menu trigger whose menu contains the current view switch, stateful Refloat package and flywheel actions, Charts… for an active saved session, Clear fatal error only when a Refloat 1.2.x fatal latch remains after its active firmware fault has ended, Shut down controller when the VESC core profile supports the command, Configure board when saved identity exists, and Stop and disconnect. LED and headlight menu items SHALL be absent. Each remaining Refloat item SHALL display its last confirmed on/off state, SHALL be disabled unless its native preconditions are currently satisfied, and SHALL remain unavailable while its action is pending. Shutdown SHALL be unavailable unless authoritative controller-action state permits it. While authoritative state reports flywheel enabled, a non-dismissible full-application modal overlay SHALL replace access to normal application interaction and SHALL expose exactly one action, Disable, which requests the safety-gated flywheel-off transition. Disabling Refloat, enabling flywheel, and shutting down the controller SHALL require explicit contextual confirmation before the backend request is sent. Every menu, confirmation, and flywheel-overlay control SHALL retain native button semantics, use primary Pointer Events with cancellation and a guarded keyboard/assistive click path, avoid double activation, and manage focus within the modal surface.
 
 #### Scenario: Open menu
 
@@ -113,7 +113,7 @@ The live header SHALL provide one accessible menu trigger whose menu contains th
 #### Scenario: Lighting unavailable
 
 - **WHEN** Refloat INFO reports no lighting capability
-- **THEN** LED and headlight actions are absent and no lighting request is issued by the frontend
+- **THEN** configured lighting boxes show unavailable state and no lighting request is issued by the frontend
 
 #### Scenario: Read-only or reconnecting connection
 
@@ -567,7 +567,7 @@ The shared frontend SHALL route an active connection with authoritative `deviceK
 
 ### Requirement: Generated Refloat configuration experience
 
-The live-board action surface SHALL present `Configure Refloat` after configuration discovery begins and `Tunes…` when an exact supported package identity is available. Configure Refloat SHALL open a full-height responsive editor generated from bounded normalized schema pages, with a native selector that presents one logical schema subgroup at a time, search scoped to the selected subgroup, typed controls, on-demand sanitized help, source selection between current and defaults, dirty and validation state, a bounded write diff, explicit persistent-write confirmation, operation progress, and unsaved-change handling. The editor SHALL combine consecutive or non-consecutive transport pages with the same exact group and subgroup identity into one ordered logical subgroup without changing complete-editor draft, validation, or write behavior. Each field SHALL expose a `(?)` help button instead of permanently rendering its description; activation SHALL open a non-urgent modal dialog containing that field's label and help text, with bounded dismissal, focus containment, and focus restoration. Persistent schema fields such as LEDs On and Headlights On SHALL be labelled as startup defaults, while the live menu SHALL label the dedicated lighting controls as current runtime state. In flywheel mode schema/default inspection may remain available, but reading current, editing or saving from current, persistent write, and Tune apply SHALL be visibly unavailable until normal mode and a fresh current read are established. It SHALL never render raw XML or infer protocol encodings. Every interactive control MUST retain native semantics, primary-pointer cancellation behavior, guarded keyboard/assistive click behavior, and focus restoration without double activation.
+The live-board action surface SHALL present `Configure Refloat` after configuration discovery begins and `Tunes…` when an exact supported package identity is available. Configure Refloat SHALL open a full-height responsive editor generated from bounded normalized schema pages, with a native selector that presents one logical schema subgroup at a time, search scoped to the selected subgroup, typed controls, on-demand sanitized help, source selection between current and defaults, dirty and validation state, a bounded write diff, explicit persistent-write confirmation, operation progress, and unsaved-change handling. The editor SHALL combine consecutive or non-consecutive transport pages with the same exact group and subgroup identity into one ordered logical subgroup without changing complete-editor draft, validation, or write behavior. Each field SHALL expose a `(?)` help button instead of permanently rendering its description; activation SHALL open a non-urgent modal dialog containing that field's label and help text, with bounded dismissal, focus containment, and focus restoration. Persistent schema fields such as LEDs On and Headlights On SHALL be labelled as startup defaults, while the live boxes SHALL label the dedicated lighting controls as current runtime state. In flywheel mode schema/default inspection may remain available, but reading current, editing or saving from current, persistent write, and Tune apply SHALL be visibly unavailable until normal mode and a fresh current read are established. It SHALL never render raw XML or infer protocol encodings. Every interactive control MUST retain native semantics, primary-pointer cancellation behavior, guarded keyboard/assistive click behavior, and focus restoration without double activation.
 
 #### Scenario: Open generated editor
 
@@ -825,3 +825,36 @@ Battery configuration SHALL offer optional full-pack capacity in Ah with validat
 
 - **WHEN** a user explicitly re-selects a preset after overriding or clearing capacity
 - **THEN** the preset's capacity and other battery defaults are restored in one accepted revision
+
+### Requirement: Hold to configure live boxes
+
+The five live boxes SHALL be configured by a primary-pointer hold, with no short-tap configuration. A completed hold SHALL NOT trigger a tap action. Movement, cancellation, lost capture, hiding and disposal SHALL cancel pending holds. Keyboard and assistive users SHALL have equivalent configuration access. New settings SHALL default to Empty, Wattage, Session timer, Odometer and centre Trip distance; Empty SHALL display Hold to set.
+
+#### Scenario: Hold and cancel
+
+- **WHEN** the user holds a box without moving
+- **THEN** the shared picker opens once, while a short numeric tap, cancelled gesture, moved gesture or non-primary pointer opens nothing
+
+#### Scenario: Keyboard configuration
+
+- **WHEN** a keyboard or assistive user configures any box
+- **THEN** the same picker and revisioned save flow are available with dismissal and focus restoration
+
+### Requirement: Configurable runtime lighting boxes
+
+The slot catalogue SHALL include Empty, Headlights and LEDs alongside numeric readings. Lighting boxes SHALL display confirmed runtime state and toggle on short tap through existing lighting requests. Unknown, unavailable, read-only, reconnecting and pending states SHALL block mutation while allowing configuration. A hold SHALL configure without changing lights. Accepted settings SHALL persist across frontend and host recreation.
+
+#### Scenario: Tap and confirmation
+
+- **WHEN** an eligible lighting box is tapped
+- **THEN** exactly one request is sent, pending feedback retains the confirmed state, and only authoritative updates change the switch
+
+#### Scenario: Hold lighting or failure
+
+- **WHEN** the user holds a lighting box or its toggle request fails
+- **THEN** holding opens configuration without toggling, and failure retains confirmed state with visible feedback
+
+#### Scenario: Persist choices
+
+- **WHEN** any combination of five valid numeric, empty or lighting choices is saved
+- **THEN** both host integrations retain the exact choices and reject unknown fields or an invalid slot count
