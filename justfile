@@ -125,10 +125,17 @@ _ipa copy: build
     derived_data=/tmp/float-view-ios-ipa
     output_dir={{ quote(invocation_directory()) }}
     output="$output_dir/FloatView-$(date '+%Y%m%d-%H%M%S').ipa"
+    build_settings=(CODE_SIGNING_ALLOWED=NO)
+    if [[ -n "${FLOAT_VIEW_BUILD_NUMBER:-}" ]]; then
+      [[ "$FLOAT_VIEW_BUILD_NUMBER" =~ ^[1-9][0-9]*$ ]] || { echo 'Invalid build number' >&2; exit 2; }
+      printf -v version 'build-%010d' "$FLOAT_VIEW_BUILD_NUMBER"
+      output="$output_dir/FloatView-$version.ipa"
+      build_settings+=("CURRENT_PROJECT_VERSION=$FLOAT_VIEW_BUILD_NUMBER")
+    fi
     xcodebuild -project backends/apple/ios/float-view.xcodeproj \
       -scheme float-view -configuration Debug -sdk iphoneos \
       -destination 'generic/platform=iOS' -derivedDataPath "$derived_data" \
-      CODE_SIGNING_ALLOWED=NO build
+      "${build_settings[@]}" build
     staging="$(mktemp -d)"
     trap 'rm -rf "$staging"' EXIT
     mkdir -p "$staging/Payload" "$(dirname "$output")"

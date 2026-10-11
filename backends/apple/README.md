@@ -54,6 +54,28 @@ the current local date and time. No connected device or Xcode signing
 account is required: AltStore signs the IPA when installing it. The archive omits
 macOS metadata files that can confuse AltStore's app detection.
 
+GitHub Actions runs the same `just ipa` command on every push to `master` and
+publishes the IPA to a [GitHub release](https://github.com/acheronfail/float-view-mobile/releases).
+The workflow run number is the release title and app/extension build number.
+Tags use ten-digit zero padding (`build-0000000001`) so lexical and numeric order
+agree; the asset is named `FloatView-build-0000000001.ipa`. Rerunning a workflow
+keeps its number and replaces that release's IPA. Failed runs can leave gaps.
+Locally, `FLOAT_VIEW_BUILD_NUMBER=1 just ipa` produces the same numbered package;
+without that variable, local builds retain the timestamp filename.
+
+To build another branch manually, open **Actions → Build IPA → Run workflow**
+and select the branch. Manual builds do not publish releases. Download the
+`FloatView-ipa-<run number>` artifact from the run's summary and extract the
+numbered IPA inside. Artifacts are retained for 14 days; release assets remain
+available independently of that expiry.
+The [workflow](../../.github/workflows/ipa.yml) uses a macOS runner, Node.js 24,
+and the repository's pinned Rust toolchain with the iOS device target. It fetches
+locked Cargo dependencies before Xcode's offline build. npm downloads, Cargo
+downloads, and Rust iOS compilation outputs are cached; the Rust cache separates
+runner architectures, Xcode versions, Rust toolchains and dependency lockfiles,
+and allows reuse of unchanged dependencies across source changes. No signing certificates,
+Apple account secrets, or connected device are required; AltStore signs the IPA.
+
 Run `just ipa-copy` to build the same IPA and copy that exact file to
 `/Documents/FloatView-YYYYMMDD-HHMMSS.ipa` in VLC (`org.videolan.vlc-ios`) on a
 connected iOS device. This requires `pymobiledevice3` on your PATH and VLC installed

@@ -1,0 +1,90 @@
+name: Build IPA
+
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: ipa-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  ipa:
+    runs-on: macos-15
+    timeout-minutes: 45
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install build tools
+        id: tools
+        run: |
+          brew install just ripgrep
+          toolchain="$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)"
+          rustup toolchain install "$toolchain" --profile minimal
+          rustup target add aarch64-apple-ios
+          xcodebuild -version
+          echo "xcode=$(xcodebuild -version | shasum -a 256 | cut -d ' ' -f 1)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache Cargo downloads and iOS compilation
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            /tmp/float-view-ios-ipa/Build/Intermediates.noindex/**/DerivedSources/cargo
+          key: ios-rust-${{ runner.os }}-${{ runner.arch }}-${{ steps.tools.outputs.xcode }}-${{ hashFiles('rust-toolchain.toml', 'backends/core/Cargo.lock') }}-${{ hashFiles('backends/core/**/*.rs', 'backends/core/**/Cargo.toml', 'backends/core/*.sh', 'backends/sql/**') }}
+          restore-keys: |
+            ios-rust-${{ runner.os }}-${{ runner.arch }}-${{ steps.tools.outputs.xcode }}-${{ hashFiles('rust-toolchain.toml', 'backends/core/Cargo.lock') }}-
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
+      # The Xcode build phase invokes Cargo with --locked --offline.
+      - name: Fetch locked Rust dependencies
+        working-directory: backends/core
+        run: cargo fetch --locked --target aarch64-apple-ios
+
+      - name: Build AltStore IPA
+        env:
+          FLOAT_VIEW_BUILD_NUMBER: ${{ github.run_number }}
+        run: just ipa
+
+      - name: Upload IPA
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: FloatView-ipa-${{ github.run_number }}
+          path: FloatView-*.ipa
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
+
+      - name: Publish numbered release
+        if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          printf -v version 'build-%010d' "$GITHUB_RUN_NUMBER"
+          ipa="FloatView-$version.ipa"
+          # A rerun keeps the same number and updates its existing asset.
+          if gh release view "$version" >/dev/null 2>&1; then
+            gh release upload "$version" "$ipa" --clobber
+          else
+            gh release create "$version" "$ipa" \
+              --target "$GITHUB_SHA" --title "$GITHUB_RUN_NUMBER" \
+              --notes "Unsigned Debug IPA for AltStore. Build $GITHUB_RUN_NUMBER from commit $GITHUB_SHA."
+          fi
