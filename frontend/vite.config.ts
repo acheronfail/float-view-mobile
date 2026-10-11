@@ -6,6 +6,21 @@ import { sveltekit } from '@sveltejs/kit/vite';
 import { defineConfig, type Plugin, type ProxyOptions } from 'vite';
 import { MOCK_BACKEND_PORT, startMockServer, stopMockServer } from './backend-mock';
 import { iconClasses } from './src/lib/ui/icon';
+import { execFileSync } from 'node:child_process';
+
+let revision: string | null = null;
+try {
+  revision = execFileSync('git', ['describe', '--always', '--dirty', '--exclude=*', '--abbrev=7'], {
+    cwd: import.meta.dirname,
+    encoding: 'utf8',
+  }).trim();
+} catch {
+  // Source archives can be built without Git metadata.
+}
+const buildNumber = process.env.FLOAT_VIEW_BUILD_NUMBER ?? null;
+if (buildNumber !== null && !/^[1-9][0-9]*$/.test(buildNumber)) {
+  throw new Error('FLOAT_VIEW_BUILD_NUMBER must be a positive integer');
+}
 
 export const DEVELOPMENT_PORT = 11002;
 export const MOCK_BACKEND_ORIGIN = `http://127.0.0.1:${MOCK_BACKEND_PORT}`;
@@ -76,6 +91,9 @@ function mockBackend(target: string): Plugin {
 const backendOrigin = selectedBackendOrigin();
 
 export default defineConfig({
+  define: {
+    __FLOAT_VIEW_BUILD_INFO__: JSON.stringify({ buildNumber, revision }),
+  },
   plugins: [
     mockBackend(backendOrigin),
     tailwindcss(),

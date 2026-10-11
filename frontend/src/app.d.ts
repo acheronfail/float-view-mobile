@@ -1,6 +1,11 @@
 // See https://svelte.dev/docs/kit/types#app.d.ts
 // for information about these interfaces
 declare global {
+  const __FLOAT_VIEW_BUILD_INFO__: {
+    readonly buildNumber: string | null;
+    readonly revision: string | null;
+  };
+
   namespace App {
     // interface Error {}
     // interface Locals {}

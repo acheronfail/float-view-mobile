@@ -13,6 +13,7 @@
   );
 
   const inputClass = 'mt-1 block w-full rounded border border-outline bg-elevated px-3 py-2 text-foreground';
+  const buildInfo = __FLOAT_VIEW_BUILD_INFO__;
 </script>
 
 <AppHeaderSubtitle owner="/settings">
@@ -215,4 +216,11 @@
     <div class="rounded-2xl border border-outline bg-surface p-5 text-muted">Loading settings…</div>
   {/if}
   {#if backendState.error}<p role="alert" class="text-warning">{backendState.error}</p>{/if}
+
+  <footer aria-label="Application version" class="border-t border-outline pt-4 pb-2 text-center text-xs text-muted">
+    <p>Float View · {buildInfo.buildNumber ? `Build ${buildInfo.buildNumber}` : 'Development build'}</p>
+    {#if buildInfo.revision}
+      <p class="mt-1 font-mono">{buildInfo.revision}</p>
+    {/if}
+  </footer>
 </section>
