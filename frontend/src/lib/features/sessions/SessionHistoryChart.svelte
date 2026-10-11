@@ -651,9 +651,9 @@
   }
 
   function tooltipStyle(pointX: number): string {
-    const alignLeft = pointX > CHART_WIDTH / 2;
-    const left = `${(Math.max(0, Math.min(CHART_WIDTH, pointX)) / CHART_WIDTH) * 100}%`;
-    return `left: ${left}; transform: ${alignLeft ? 'translateX(calc(-100% - 0.25rem))' : 'translateX(0.25rem)'}`;
+    const percent = (Math.max(0, Math.min(CHART_WIDTH, pointX)) / CHART_WIDTH) * 100;
+    // Match the anchor fraction on both boxes so even wide tooltips stay inside the plot.
+    return `left: ${percent}%; transform: translateX(-${percent}%)`;
   }
 
   function formatTooltipValue(fieldName: string, value: number): string {
@@ -994,18 +994,21 @@
                     {/if}
                     {#if inspectionVisible && tooltipAnchor}
                       <div
-                        class="pointer-events-none absolute top-1 z-10 w-max max-w-none rounded border border-outline bg-surface px-2 py-1 font-mono text-[10px] leading-tight whitespace-nowrap shadow"
+                        class="pointer-events-none absolute top-1 z-30 w-max max-w-full rounded border border-outline bg-surface px-2 py-1 font-mono text-[10px] leading-tight shadow"
                         style={tooltipStyle(tooltipAnchor.x)}
                         role="status"
                       >
                         <p>{(inspectionMs / 1000).toFixed(1)}s into ride</p>
-                        <div class="grid grid-cols-[max-content_max-content] gap-x-3 gap-y-0.5">
+                        <div class="grid grid-cols-[minmax(0,1fr)_max-content] gap-x-3 gap-y-0.5">
                           {#each tooltipEntries as entry (entry.field.name)}
                             <span class="contents">
-                              <span class="text-left" style={`color: ${entry.field.color}`}>
+                              <span
+                                class="min-w-0 text-left [overflow-wrap:anywhere]"
+                                style={`color: ${entry.field.color}`}
+                              >
                                 {entry.field.displayName}:
                               </span>
-                              <span class="text-right" style={`color: ${entry.field.color}`}>
+                              <span class="text-right whitespace-nowrap" style={`color: ${entry.field.color}`}>
                                 {formatTooltipValue(entry.field.name, entry.point.value)}
                                 {#if sessionFieldUnit(entry.field.name) && entry.field.format !== 'percent'}
                                   {sessionFieldUnit(entry.field.name)}
