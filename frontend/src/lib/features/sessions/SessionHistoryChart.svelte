@@ -750,7 +750,9 @@
 
 <div bind:this={plot} class="mt-3">
   {#if filterByMap}
-    <p class="text-xs text-muted">Map controls the chart range. Chart zoom and pan are disabled.</p>
+    <p class="text-xs text-muted">
+      Map controls the chart range. GPS gaps use the last known location. Chart zoom and pan are disabled.
+    </p>
     {#if filterError}<p role="alert" class="text-warning">{filterError}</p>
     {:else if intervals === null}<p role="status">Loading complete track…</p>
     {:else if !intervals.length}<p role="status">

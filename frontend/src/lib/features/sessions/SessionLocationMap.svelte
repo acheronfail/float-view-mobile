@@ -430,9 +430,7 @@
     if (boundsFrame !== null) cancelAnimationFrame(boundsFrame);
   });
   const canFilter = $derived(
-    !loading &&
-      !error &&
-      segments.some((segment) => segment.length > 1 && segment.at(-1)!.elapsedMs > segment[0]!.elapsedMs)
+    !loading && !error && points.some((point) => point.elapsedMs < metadata.summary.totalElapsedMs)
   );
 
   function recenterMap() {

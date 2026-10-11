@@ -13,15 +13,40 @@ const mercator = (latitude: number) =>
 export const unwrapLongitude = (longitude: number, center: number) =>
   longitude + 360 * Math.round((center - longitude) / 360);
 
-/** Clip continuous edges, not just fixes: both endpoints may be outside. */
-export function mapIntervals(segments: readonly (readonly SessionLocationPoint[])[], bounds: MapBounds): Viewport[] {
+/** Clip continuous edges; hold the last fix during gaps for chart selection only. */
+export function mapIntervals(
+  segments: readonly (readonly SessionLocationPoint[])[],
+  bounds: MapBounds,
+  endElapsedMs = segments.at(-1)?.at(-1)?.elapsedMs ?? 0
+): Viewport[] {
   const result: Viewport[] = [];
   const east = bounds.east < bounds.west ? bounds.east + 360 : bounds.east;
   const center = (bounds.west + east) / 2;
   const south = mercator(bounds.south),
     north = mercator(bounds.north);
+  function include(startElapsedMs: number, endElapsedMs: number) {
+    if (endElapsedMs <= startElapsedMs) return;
+    const previous = result.at(-1);
+    if (previous && previous.endElapsedMs === startElapsedMs) previous.endElapsedMs = endElapsedMs;
+    else result.push({ startElapsedMs, endElapsedMs });
+    if (result.length > MAX_MAP_INTERVALS)
+      throw new Error('Too many visible ride segments (maximum 128). Zoom out or disable map filtering.');
+  }
+  function hold(point: SessionLocationPoint | undefined, until: number) {
+    if (!point) return;
+    const longitude = unwrapLongitude(point.longitude, center);
+    if (
+      longitude >= bounds.west &&
+      longitude <= east &&
+      point.latitude >= bounds.south &&
+      point.latitude <= bounds.north
+    )
+      include(point.elapsedMs, until);
+  }
+  let lastFix: SessionLocationPoint | undefined;
   for (const segment of segments) {
-    let previous: Viewport | undefined;
+    if (!segment.length) continue;
+    hold(lastFix, segment[0]!.elapsedMs);
     for (let i = 1; i < segment.length; i++) {
       const a = segment[i - 1]!,
         b = segment[i]!;
@@ -51,7 +76,6 @@ export function mapIntervals(segments: readonly (readonly SessionLocationPoint[]
         else exit = Math.min(exit, q! / p!);
       }
       if (exit <= enter) {
-        previous = undefined;
         continue;
       }
       const duration = b.elapsedMs - a.elapsedMs;
@@ -59,18 +83,13 @@ export function mapIntervals(segments: readonly (readonly SessionLocationPoint[]
       const startElapsedMs = Math.ceil(a.elapsedMs + enter * duration);
       const endElapsedMs = Math.floor(a.elapsedMs + exit * duration);
       if (endElapsedMs <= startElapsedMs) {
-        previous = undefined;
         continue;
       }
-      if (previous && previous.endElapsedMs === startElapsedMs) previous.endElapsedMs = endElapsedMs;
-      else {
-        previous = { startElapsedMs, endElapsedMs };
-        result.push(previous);
-      }
-      if (result.length > MAX_MAP_INTERVALS)
-        throw new Error('Too many visible ride segments (maximum 128). Zoom out or disable map filtering.');
+      include(startElapsedMs, endElapsedMs);
     }
+    lastFix = segment.at(-1);
   }
+  hold(lastFix, endElapsedMs);
   return result;
 }
 

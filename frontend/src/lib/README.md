@@ -142,7 +142,9 @@ samples only.
 
 Session map filtering is transient review navigation owned by the session view.
 The map toggle selects chronological intervals from the complete continuous GPS
-track; charts concatenate included duration with dashed separators and retain
+track, holding the last known location during GPS gaps through the session end
+for chart selection only. Time before the first fix remains excluded; map route
+geometry remains gap-aware. Charts concatenate included duration with dashed separators and retain
 original ride timestamps for inspection. Chart zoom/pan is disabled while the
 map controls the range. Turning filtering off or hiding the map restores the
 previous ordinary chart viewport. Session totals and event pages are not spatially

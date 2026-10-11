@@ -122,7 +122,7 @@ Session review SHALL offer an off-by-default **Filter charts by map** toggle whe
 
 #### Scenario: Unavailable track
 
-- **WHEN** only marker locations, isolated points, incomplete track data, or a failed track load are available
+- **WHEN** only marker locations, no recorded fix before session end, incomplete track data, or a failed track load are available
 - **THEN** spatial filtering is unavailable with an explanation, and ordinary session review remains usable
 
 #### Scenario: Reopen review
@@ -132,7 +132,7 @@ Session review SHALL offer an off-by-default **Filter charts by map** toggle whe
 
 ### Requirement: Geographic selection preserves ride chronology
 
-Map filtering SHALL include the portions of continuous recorded route segments inside the visible geographic bounds, ordered by original ride time. Boundary crossings SHALL be interpolated only within eligible continuous location segments. Explicit location gaps and excessive time gaps SHALL not create inferred included intervals.
+Map filtering SHALL include the portions of continuous recorded route segments inside the visible geographic bounds, ordered by original ride time. Boundary crossings SHALL be interpolated only within eligible continuous location segments. During explicit location gaps and excessive time gaps, chart selection SHALL hold the last recorded location until the next fix or session end. This selection policy SHALL NOT create map route edges or synthetic recorded coordinates.
 
 #### Scenario: Repeated visits
 
@@ -144,14 +144,21 @@ Map filtering SHALL include the portions of continuous recorded route segments i
 - **WHEN** a continuous route edge crosses the visible area while both recorded endpoints lie outside it
 - **THEN** the crossing portion is included using its interpolated entry and exit times
 
-#### Scenario: Unknown location
+#### Scenario: Location gap after a recorded fix
 
-- **WHEN** a time span lies in a location gap or has no continuous track
-- **THEN** that span is excluded without extrapolating a route from isolated points or markers
+- **WHEN** a time span lies after a recorded fix and before the next continuous segment or session end
+- **THEN** that span is included exactly when the last recorded location is inside the map bounds, including when that fix is an isolated point
+- **AND** adjacent included intervals are merged so GPS gaps alone do not introduce chart separators
+- **AND** no route is interpolated across the gap
+
+#### Scenario: No previous location
+
+- **WHEN** a time span precedes the first recorded fix or the session has no fixes
+- **THEN** that span is excluded without inferring a location from future fixes or markers
 
 #### Scenario: Empty area
 
-- **WHEN** no positive-duration route portion intersects the map
+- **WHEN** no positive-duration route portion or held-location interval intersects the map
 - **THEN** charts show an explicit empty-area state and offer a full-route reset instead of showing unfiltered or stale telemetry
 
 ### Requirement: Disjoint chart timeline

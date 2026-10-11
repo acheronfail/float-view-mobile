@@ -28,7 +28,10 @@
   const spatialSelection = $derived.by(() => {
     if (!filterByMap || !mapBounds || !track || trackSnapshot !== snapshotKey) return { intervals: null, error: null };
     try {
-      return { intervals: mapIntervals(track, mapBounds), error: null };
+      return {
+        intervals: mapIntervals(track, mapBounds, backendState.sessionMetadata!.summary.totalElapsedMs),
+        error: null,
+      };
     } catch (reason) {
       return { intervals: [], error: reason instanceof Error ? reason.message : String(reason) };
     }

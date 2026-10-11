@@ -64,7 +64,11 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
               notifyHeld();
               await selectionReleased;
             }
-            if (request.kind === 'series' && failSeries && request.range.endElapsedMs <= 30000) {
+            if (
+              request.kind === 'series' &&
+              failSeries &&
+              (request.range.startElapsedMs === 1000 || request.range.endElapsedMs <= 31000)
+            ) {
               await route.fulfill({ status: 409, body: '' });
               return;
             }
@@ -76,16 +80,16 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
                 points: [
                   {
                     locationSequence: index + 1,
-                    elapsedMs: index * 5000,
+                    elapsedMs: 1000 + index * 5000,
                     latitude: 0,
                     longitude: [-0.02, 0, 0.02, 0, -0.02, 0, 0.02][index],
                     accuracyM: 5,
                     observedAt: '2026-01-01T00:00:00Z',
                   },
                 ],
-                gaps: [],
+                gaps: index === 3 ? [{ startElapsedMs: 12000, endElapsedMs: 15000, reason: 'noFix' }] : [],
                 nextCursor: index < 6 ? `map-page-${index + 1}` : null,
-                locationBoundary: { lastSequence: 7, lastElapsedMs: 30000 },
+                locationBoundary: { lastSequence: 7, lastElapsedMs: 31000 },
               };
               await route.fulfill({ json: value });
               return;
@@ -186,6 +190,7 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
             ordinaryRange = (await zoomResponse).request().postDataJSON().range;
           }
           const priorMetadataRequests = metadataRequests;
+          requests.length = 0;
           failSeries = true;
           await (hasTouch ? toggle.tap() : toggle.click());
           await page.getByRole('button', { name: 'Retry chart data' }).waitFor();
@@ -198,6 +203,11 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
           assert.notEqual(
             await toggle.locator('[aria-hidden="true"]').evaluate((node) => getComputedStyle(node).backgroundColor),
             inactiveBackground
+          );
+          assert.equal(await page.locator('[data-map-separator]').count(), 0, 'GPS gaps do not split the full route');
+          assert.ok(
+            requests.some((r) => r.startElapsedMs === 1000 && r.endElapsedMs === 60000),
+            'last fix extends through session end'
           );
           const mode = page.getByRole('button', { name: /Chart mode: info/ }).last();
           if (hasTouch) assert.equal(await mode.isDisabled(), true);
