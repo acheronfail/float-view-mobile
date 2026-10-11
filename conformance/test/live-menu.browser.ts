@@ -26,7 +26,7 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
       await client.request('settings.update', {
         expectedRevision: settings.revision,
         patch: {
-          liveWidgetSlots: ['leds', 'headlights', 'elapsedMs', 'odometerM', 'distanceM'],
+          liveWidgetSlots: ['leds', 'headlights', 'empty', 'odometerM', 'distanceM'],
         },
       });
       const page = await browser.newPage({
@@ -108,7 +108,13 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
       await leds.waitFor();
       assert.equal(await leds.getAttribute('aria-checked'), 'true');
       assert.equal(await headlights.getAttribute('aria-checked'), 'false');
-      assert.ok((await leds.boundingBox())!.height >= 44);
+      const assertBoxHeights = async () => {
+        const heights = await page
+          .locator('[aria-keyshortcuts="Shift+Enter"]')
+          .evaluateAll((boxes) => boxes.map((box) => getComputedStyle(box).height));
+        assert.deepEqual(heights, Array(5).fill('56px'));
+      };
+      await assertBoxHeights();
       await leds.click({ button: 'right' });
       await leds.dispatchEvent('pointerdown', { button: 0, isPrimary: false, pointerId: 2 });
       await leds.dispatchEvent('pointerup', { button: 0, isPrimary: false, pointerId: 2 });
@@ -129,6 +135,7 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
       await leds.and(page.locator('[aria-busy="true"]')).waitFor();
       assert.equal(await leds.getAttribute('aria-label'), 'LEDs');
       await leds.getByText('Pending…').waitFor();
+      await assertBoxHeights();
       assert.equal((await leds.boundingBox())!.width, rowWidth);
       assert.equal(requests.length, 1);
       assert.equal(await leds.getAttribute('aria-checked'), 'true');
@@ -185,6 +192,7 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
       controls.headlightsEnabled = null;
       const unknown = page.getByRole('button', { name: 'Headlights', exact: true });
       await unknown.getByText('Unknown').waitFor();
+      await assertBoxHeights();
       assert.equal(await unknown.getAttribute('aria-disabled'), 'true');
       assert.equal(await headlights.count(), 0);
       await unknown.focus();

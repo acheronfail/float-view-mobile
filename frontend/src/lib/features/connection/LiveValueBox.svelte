@@ -87,7 +87,7 @@
       : `Choose value for box ${slot + 1}: ${liveValueCatalog[field].name}`}
     aria-describedby={`live-number-${slot} live-box-help-${slot}`}
     aria-keyshortcuts="Shift+Enter"
-    class="block min-h-11 w-full min-w-0 touch-pan-y rounded-lg border border-outline bg-surface px-1 py-1.5 text-center select-none focus-visible:outline-2 focus-visible:outline-accent"
+    class="flex h-14 w-full min-w-0 touch-pan-y items-center justify-center rounded-lg border border-outline bg-surface px-1 py-1.5 text-center select-none focus-visible:outline-2 focus-visible:outline-accent"
     style="-webkit-touch-callout: none"
     onclick={(event) => activateFromKeyboardOrAssistiveClick(event, keyboardActivate)}
     onkeydown={(event) => {
@@ -101,18 +101,19 @@
       }
     }}
   >
-    <div id={`live-number-${slot}`} role="group" aria-label={liveValueCatalog[field].name}>
+    <div class="w-full" id={`live-number-${slot}`} role="group" aria-label={liveValueCatalog[field].name}>
       {#if field === 'empty'}
-        <span class="flex min-h-10 items-center justify-center text-xs text-muted">Hold to set</span>
+        <span class="flex items-center justify-center text-xs text-muted">Hold to set</span>
       {:else if lighting}
         <div
-          class="flex min-h-10 flex-col items-center justify-center gap-1"
+          class="flex flex-col items-center justify-center gap-1"
           class:opacity-50={lighting.disabled && !lighting.pending}
         >
-          <span class="text-[10px] text-muted uppercase">{liveValueCatalog[field].label}</span>
+          <span class="text-[10px] text-muted uppercase">
+            {lighting.pending || toggling ? 'Pending…' : liveValueCatalog[field].label}
+          </span>
           {#if lighting.checked != null}
             <ToggleIndicator checked={lighting.checked} />
-            {#if lighting.pending || toggling}<span class="text-[10px] text-muted">Pending…</span>{/if}
           {:else}<span class="text-xs text-muted">{lighting.status}</span>{/if}
         </div>
       {:else}
