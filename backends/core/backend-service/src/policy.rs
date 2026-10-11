@@ -1071,7 +1071,14 @@ impl BackendService {
                     }
                     c::Effect::CancelDeadline(token) => self.cancel_timer(Timer::Deadline(token)),
                     c::Effect::ReplaceTimer { token, interval_ms } => {
-                        self.arm_timer(Timer::Kernel(token), interval_ms, Some(interval_ms))?
+                        // Refloat owns periodic poll/layout timers. BMS consumes its
+                        // timer on fire and schedules a new one after the response;
+                        // mutation timers are also one-shot (lighting rearms itself).
+                        let repeat = match token {
+                            c::TimerToken::Refloat(_) => Some(interval_ms),
+                            c::TimerToken::Bms(_) | c::TimerToken::Mutation(_) => None,
+                        };
+                        self.arm_timer(Timer::Kernel(token), interval_ms, repeat)?
                     }
                     c::Effect::CancelTimer(token) => self.cancel_timer(Timer::Kernel(token)),
                     c::Effect::PrepareActivation(facts) => {
@@ -1542,6 +1549,137 @@ mod tests {
         }
     }
     #[test]
+    fn refloat_poll_timer_keeps_repeating_without_a_response() {
+        let mut t = Test::new();
+        t.activate(false);
+        for _ in 0..3 {
+            let (id, due, kind, interval) = t
+                .service
+                .policy
+                .timers
+                .iter()
+                .find_map(|(id, timer)| match timer.kind {
+                    Timer::Kernel(c::TimerToken::Refloat(token))
+                        if token.kind == telemetry::TimerKind::Poll =>
+                    {
+                        Some((*id, timer.due, timer.kind, timer.repeat.unwrap()))
+                    }
+                    _ => None,
+                })
+                .expect("periodic Refloat poll");
+            t.fact(Fact::Timer { id }, due).unwrap();
+            assert!(!t.service.policy.timers.contains_key(&id));
+            let replacement = t
+                .service
+                .policy
+                .timers
+                .values()
+                .find(|timer| timer.kind == kind)
+                .expect("poll rearmed");
+            assert_eq!(replacement.due, due + interval);
+            t.drain();
+        }
+    }
+
+    #[test]
+    fn completed_bms_polls_do_not_accumulate_host_timers() {
+        let mut t = Test::new();
+        t.discover();
+        t.service.connect("test-device", false).unwrap();
+        let generation = t.service.policy.active.as_ref().unwrap().generation;
+        t.fact(
+            Fact::Link {
+                generation,
+                state: LinkState::Ready,
+            },
+            4,
+        )
+        .unwrap();
+        let fixtures: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../fixtures/vesc-bms/source-derived.json"
+        ))
+        .unwrap();
+        let payload = |name: &str| {
+            let hex = fixtures["cases"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|case| case["name"] == name)
+                .unwrap()["payloadHex"]
+                .as_str()
+                .unwrap();
+            (0..hex.len())
+                .step_by(2)
+                .map(|i| u8::from_str_radix(&hex[i..i + 2], 16).unwrap())
+                .collect::<Vec<_>>()
+        };
+        let mut now = 10;
+        for cycle in 0..32 {
+            // Complete host writes before delivering the device response.
+            for effect in t.service.drain_os().effects {
+                if let Effect::Write {
+                    generation,
+                    operation,
+                    ..
+                } = effect
+                {
+                    for progress in [
+                        crate::ble::Progress::Submitted,
+                        crate::ble::Progress::Acknowledged,
+                    ] {
+                        t.fact(
+                            Fact::WriteProgress {
+                                generation,
+                                operation,
+                                progress,
+                            },
+                            now,
+                        )
+                        .unwrap();
+                    }
+                }
+            }
+            t.service.policy.exchange.now = now;
+            t.service
+                .runtime_command(Command::Application(c::Command::Receive {
+                    generation: t.service.runtime.snapshot().application.generation,
+                    payload: payload(if cycle == 0 {
+                        "vbms32-firmware-6.06"
+                    } else {
+                        "vbms-values-legacy-typical"
+                    }),
+                    now_ms: now,
+                    observed_at_epoch_ms: 1_700_000_000_000 + now as i64,
+                }))
+                .unwrap();
+            if cycle == 0 {
+                now += 100;
+                continue;
+            }
+            let timers: Vec<_> = t
+                .service
+                .policy
+                .timers
+                .iter()
+                .filter(|(_, timer)| matches!(timer.kind, Timer::Kernel(c::TimerToken::Bms(_))))
+                .map(|(id, timer)| (*id, timer.due))
+                .collect();
+            assert_eq!(timers.len(), 1, "BMS poll {cycle} leaked a host timer");
+            let (id, due) = timers[0];
+            t.fact(Fact::Timer { id }, due).unwrap();
+            assert!(
+                !t.service
+                    .policy
+                    .timers
+                    .values()
+                    .any(|timer| matches!(timer.kind, Timer::Kernel(c::TimerToken::Bms(_)))),
+                "a consumed BMS timer must stay disarmed while its request is in flight"
+            );
+            now = due + 100;
+        }
+    }
+
+    #[test]
     fn live_activity_tracks_ready_boards_coalesces_telemetry_and_ends_on_disconnect() {
         #[allow(dead_code)]
         mod samples {
@@ -1596,7 +1734,10 @@ mod tests {
             assert_eq!(state.distance_meters, Some(100.));
             assert_eq!(state.battery_percent, if saved { Some(67.) } else { None });
             assert_eq!(state.battery_voltage, Some(75.56));
-            assert_eq!(serde_json::to_value(state).unwrap()["battery_voltage"], 75.56);
+            assert_eq!(
+                serde_json::to_value(state).unwrap()["battery_voltage"],
+                75.56
+            );
             assert!(state.imperial);
             assert!(
                 !effects
