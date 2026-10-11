@@ -48,8 +48,8 @@ history. Frequently updating controls use primary pointer release with
 cancellation and a guarded keyboard or assistive click path.
 
 The connected-board menu consumes only authoritative `RefloatControls`. It does
-not infer package versions, protocol commands, or confirmed values. Lighting uses stable labels and switches that retain confirmed state, show pending
-feedback, and keep the menu open. Unknown lighting state is displayed explicitly
+not infer package versions, protocol commands, or confirmed values. Lighting lives in configurable boxes with stable labels and switches that retain confirmed state and show pending
+feedback. Unknown lighting state is displayed explicitly
 without an off switch. Package and flywheel controls use action labels, with an
 ellipsis when confirmation follows. These controls and conditional fatal clear remain disabled until
 the native owner reports ready and writable state, and no frontend state is
@@ -112,12 +112,20 @@ battery defaults atomically; capacity/empty overrides retain the selected name,
 while departing counts/curve become Custom. Accepted snapshots alone change live
 estimates. Pending/failed saves remain visible, scoped to the opened board.
 
-The five configurable live number widgets (four above the gauge and one inside it) use the closed `liveWidgetFields` catalogue
-in the wire contract. Each opens a full-page, scrollable picker with live previews;
+The five configurable live boxes (four above the gauge and one inside it) use the closed `liveWidgetFields` catalogue
+in the wire contract. A 600 ms primary-pointer hold opens a full-page, scrollable picker with live previews;
 missing fields remain selectable and show an unavailable value. Choices are an
 ordered five-entry `Settings.liveWidgetSlots` tuple, shared across boards and
 persisted by the Rust product store for both native hosts. Repeated fields are
-allowed. Only accepted settings replace a slot; save failures leave the picker
+allowed. Defaults are Empty (Hold to set), Wattage, Session timer, Odometer,
+and centre Trip distance. Empty, Headlights and LEDs are selectable alongside
+readings. Short taps on lighting request runtime changes through the existing
+native control path; a hold only configures. Movement over 10 px, cancellation,
+lost capture, hidden pages and disposal cancel the gesture. Keyboard activation
+configures numeric/empty boxes; lighting uses Enter/Space to toggle and
+Shift+Enter or the context-menu key to configure, with an alternate configure
+button exposed to assistive technology. Unknown/unavailable lighting stays
+configurable without showing a false off switch. Existing saved slots remain. Only accepted settings replace a slot; save failures leave the picker
 open. Keyboard dismissal restores focus to the originating button; pointer
 dismissal clears its focus so it does not retain an outline. Numeric presentation
 lives in `features/connection/live-values.ts`, respects display units and source
@@ -140,7 +148,7 @@ to 100,000 events, 1,000,000 samples and 2,000 fault episodes, with a visible er
 instead of silently truncated fault results. Pruned sessions reflect retained
 samples only.
 
-Current ride entry points on Live and Sessions open the same session review route
+Charts… in the Live menu and Current ride in Sessions open the same session review route
 for saved connections. Visible active review refreshes persisted metadata every
 three seconds with one request in flight. Chart inspection and map navigation
 pause following; Jump to live clears selection and filtering and resumes the full

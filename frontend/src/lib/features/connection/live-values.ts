@@ -3,6 +3,9 @@ import { footpadPresentation } from './footpads';
 import type { ControllerCurrentLimits, LiveSample, LiveWidgetField, UnitPreference } from '$lib/backend/contract';
 
 export const liveValueCatalog = {
+  empty: { name: 'Empty', label: 'Hold to set', unit: '', digits: 0 },
+  headlights: { name: 'Headlights', label: 'Headlights', unit: '', digits: 0 },
+  leds: { name: 'LEDs', label: 'LEDs', unit: '', digits: 0 },
   fieldWeakeningCurrentA: { name: 'Field weakening', label: 'Field weak.', unit: 'A', digits: 1 },
   motorCurrentA: { name: 'Actual motor current', label: 'Motor', unit: 'A', digits: 1 },
   batteryCurrentA: { name: 'Battery current', label: 'Battery', unit: 'A', digits: 1 },
@@ -71,7 +74,9 @@ export function liveValue(
           : sample.packVoltageV * sample.batteryCurrentA
         : field === 'estimatedBatteryLevel'
           ? estimatedLevel
-          : sample?.[field];
+          : field === 'empty' || field === 'headlights' || field === 'leds'
+            ? null
+            : sample?.[field];
   let unit: string = definition.unit;
   if (value == null || !Number.isFinite(value)) return { ...definition, value: null, unit: displayUnit(unit, units) };
   if (field === 'batteryLevel' || field === 'estimatedBatteryLevel' || field === 'dutyCycle') value *= 100;

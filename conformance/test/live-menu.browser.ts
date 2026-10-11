@@ -8,7 +8,7 @@ import type { RefloatControls } from '../../frontend/src/lib/backend/contract.ts
 
 const html = await readFile(new URL('../../frontend/build/index.html', import.meta.url), 'utf8');
 for (const [name, engine] of Object.entries({ chromium, webkit })) {
-  test(`${name}: live menu switches, confirmations, pending and unknown state`, { timeout: 60_000 }, async () => {
+  test(`${name}: live lighting boxes, holds, menu confirmations and pending state`, { timeout: 60_000 }, async () => {
     const browser = await engine.launch();
     const port = await startMockServer(11002);
     const endpoint = getMockBootstrap(port);
@@ -22,6 +22,13 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
         trackingMode: 'saved',
       });
       await client.waitForState((s) => s.activeConnection?.state === 'ready');
+      const settings = (await client.request('state.get', {})).settings;
+      await client.request('settings.update', {
+        expectedRevision: settings.revision,
+        patch: {
+          liveWidgetSlots: ['leds', 'headlights', 'elapsedMs', 'odometerM', 'distanceM'],
+        },
+      });
       const page = await browser.newPage({
         viewport: { width: 390, height: 844 },
         hasTouch: true,
@@ -92,6 +99,10 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
       await page.goto(`${endpoint.origin}/#/live`);
       const menu = page.getByRole('button', { name: 'Board actions', exact: true });
       await menu.tap();
+      await page.getByRole('button', { name: 'Charts…', exact: true }).waitFor();
+      assert.equal(await page.getByRole('button', { name: 'LEDs', exact: true }).count(), 0);
+      assert.equal(await page.getByRole('button', { name: 'Headlights', exact: true }).count(), 0);
+      await page.keyboard.press('Escape');
       const leds = page.getByRole('switch', { name: 'LEDs', exact: true });
       const headlights = page.getByRole('switch', { name: 'Headlights', exact: true });
       await leds.waitFor();
@@ -116,13 +127,14 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
       const rowWidth = (await leds.boundingBox())!.width;
       await leds.tap();
       await leds.and(page.locator('[aria-busy="true"]')).waitFor();
-      assert.equal((await leds.textContent())!.trim(), 'LEDs');
+      assert.equal(await leds.getAttribute('aria-label'), 'LEDs');
+      await leds.getByText('Pending…').waitFor();
       assert.equal((await leds.boundingBox())!.width, rowWidth);
       assert.equal(requests.length, 1);
       assert.equal(await leds.getAttribute('aria-checked'), 'true');
       assert.equal(await leds.isDisabled(), true);
       assert.equal(await headlights.isDisabled(), true);
-      assert.equal(await menu.getAttribute('aria-expanded'), 'true');
+      assert.equal(await menu.getAttribute('aria-expanded'), 'false');
       complete!();
       await page.waitForFunction(
         () => document.querySelector('[role="switch"][aria-label="LEDs"]')?.getAttribute('aria-checked') === 'false'
@@ -130,7 +142,7 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
       await headlights.focus();
       await page.keyboard.press('Space');
       await headlights.and(page.locator('[aria-busy="true"]')).waitFor();
-      assert.equal((await headlights.textContent())!.trim(), 'Headlights');
+      assert.equal(await headlights.getAttribute('aria-label'), 'Headlights');
       assert.equal(await headlights.isDisabled(), true);
       assert.equal((await headlights.boundingBox())!.width, rowWidth);
       assert.equal(requests.length, 2);
@@ -147,7 +159,7 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
       await page.getByRole('alert').filter({ hasText: 'Control confirmation timed out' }).waitFor();
       assert.equal(await leds.getAttribute('aria-checked'), 'false');
       await page.waitForFunction(
-        () => !document.querySelector('[role="switch"][aria-label="LEDs"]')?.hasAttribute('disabled')
+        () => document.querySelector('[role="switch"][aria-label="LEDs"]')?.getAttribute('aria-disabled') === 'false'
       );
       await leds.dispatchEvent('click', { detail: 0 });
       await leds.and(page.locator('[aria-busy="true"]')).waitFor();
@@ -173,10 +185,24 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
       controls.headlightsEnabled = null;
       const unknown = page.getByRole('button', { name: 'Headlights', exact: true });
       await unknown.getByText('Unknown').waitFor();
-      assert.equal(await unknown.isDisabled(), true);
+      assert.equal(await unknown.getAttribute('aria-disabled'), 'true');
       assert.equal(await headlights.count(), 0);
+      await unknown.focus();
+      await page.keyboard.press('Shift+Enter');
+      const picker = page.getByRole('dialog', { name: 'Choose a value' });
+      await picker.waitFor();
+      assert.equal(requests.length, 5);
+      await page.keyboard.press('Escape');
       controls.headlightsEnabled = false;
       await headlights.waitFor();
+      await headlights.hover();
+      await page.mouse.down();
+      await page.waitForTimeout(650);
+      await page.mouse.up();
+      await picker.waitFor();
+      assert.equal(requests.length, 5, 'holding a light configures without toggling');
+      await page.keyboard.press('Escape');
+      await menu.tap();
       for (const label of ['Disable Refloat…', 'Enable flywheel…']) {
         await page.getByRole('button', { name: label, exact: true }).tap();
         const dialog = page.getByRole('alertdialog');

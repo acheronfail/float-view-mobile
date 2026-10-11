@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { liveValue, liveValueCatalog, liveValueColor, liveValueText } from './live-values';
-import { liveWidgetFields, type ControllerCurrentLimits, type LiveSample } from '$lib/backend/contract';
+import {
+  defaultLiveWidgetSlots,
+  liveWidgetFields,
+  type ControllerCurrentLimits,
+  type LiveSample,
+} from '$lib/backend/contract';
 const sample = {
   packVoltageV: 75,
   batteryCurrentA: -4,
@@ -11,6 +16,7 @@ const sample = {
 } as LiveSample;
 describe('live value selection', () => {
   it('offers every allowed widget field', () => {
+    expect(defaultLiveWidgetSlots).toEqual(['empty', 'powerW', 'elapsedMs', 'odometerM', 'distanceM']);
     expect(Object.keys(liveValueCatalog)).toEqual([...liveWidgetFields]);
   });
   it('keeps sign, units and missing values', () => {

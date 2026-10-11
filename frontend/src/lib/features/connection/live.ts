@@ -10,14 +10,13 @@ import type {
 export type RefloatMenuAction =
   | {
       kind: 'control';
-      control: RefloatControl;
+      control: 'package' | 'flywheel';
       enabled: boolean;
       label: string;
       disabled: boolean;
-      checked?: boolean | null;
       pending: boolean;
     }
-  | { kind: 'clearFatalError'; label: string; disabled: boolean; checked?: boolean | null; pending: boolean };
+  | { kind: 'clearFatalError'; label: string; disabled: boolean; pending: boolean };
 
 export interface RefloatControlConfirmation {
   control: RefloatControl;
@@ -114,28 +113,6 @@ export function refloatMenuActions(connection: ActiveConnection): RefloatMenuAct
         (controls.flywheelEnabled === false && connection.latestSample?.packageState !== 'ready'),
     },
   ];
-  if (controls.lightingAvailable) {
-    actions.push(
-      {
-        kind: 'control',
-        control: 'leds',
-        enabled: !(controls.ledsEnabled ?? true),
-        label: 'LEDs',
-        checked: controls.ledsEnabled,
-        pending: controls.pendingAction === 'leds',
-        disabled: !actionable || controls.ledsEnabled === null,
-      },
-      {
-        kind: 'control',
-        control: 'headlights',
-        enabled: !(controls.headlightsEnabled ?? true),
-        label: 'Headlights',
-        checked: controls.headlightsEnabled,
-        pending: controls.pendingAction === 'headlights',
-        disabled: !actionable || controls.headlightsEnabled === null,
-      }
-    );
-  }
   if (controls.fatalErrorClearAvailable && controls.fatalErrorLatched === true) {
     actions.push({
       kind: 'clearFatalError',

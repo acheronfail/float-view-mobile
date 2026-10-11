@@ -697,6 +697,9 @@ export type ThemePreference = 'system' | 'light' | 'dark';
 export type UnitPreference = 'metric' | 'imperial';
 
 export const liveWidgetFields = [
+  'empty',
+  'headlights',
+  'leds',
   'fieldWeakeningCurrentA',
   'motorCurrentA',
   'batteryCurrentA',
@@ -740,13 +743,7 @@ export const liveWidgetFields = [
 ] as const;
 export type LiveWidgetField = (typeof liveWidgetFields)[number];
 export type LiveWidgetSlots = [LiveWidgetField, LiveWidgetField, LiveWidgetField, LiveWidgetField, LiveWidgetField];
-export const defaultLiveWidgetSlots: LiveWidgetSlots = [
-  'fieldWeakeningCurrentA',
-  'motorCurrentA',
-  'batteryCurrentA',
-  'powerW',
-  'distanceM',
-];
+export const defaultLiveWidgetSlots: LiveWidgetSlots = ['empty', 'powerW', 'elapsedMs', 'odometerM', 'distanceM'];
 
 export interface SessionDisplayOptions {
   bothFootpadsOff: boolean;

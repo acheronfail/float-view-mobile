@@ -1,5 +1,8 @@
 <script lang="ts">
   import { onMount } from 'svelte';
+  import { backendState } from '$lib/backend/state.svelte';
+  import { isLighting, lightingBox } from './lighting';
+  import ToggleIndicator from '$lib/ui/ToggleIndicator.svelte';
   import {
     liveWidgetFields,
     type ControllerCurrentLimits,
@@ -56,7 +59,7 @@
       <div>
         <h2 id="live-value-picker-title" class="text-xl font-bold">Choose a value</h2>
         <p id="live-value-picker-description" class="mt-1 text-sm text-muted">
-          Box {slot + 1} · Tap a reading to use it.
+          Box {slot + 1} · Tap a reading or control to use it.
         </p>
       </div>
       <button
@@ -73,6 +76,7 @@
       <div class="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
         {#each liveWidgetFields as field (field)}
           {@const reading = liveValue(field, sample, units, estimatedLevel, currentLimits)}
+          {@const lighting = isLighting(field) ? lightingBox(backendState.snapshot?.activeConnection, field) : null}
           <button
             type="button"
             aria-label={reading.name}
@@ -87,17 +91,30 @@
             onclick={(event) => activateFromKeyboardOrAssistiveClick(event, () => onselect(field, true))}
           >
             <span class="text-sm font-medium">{reading.name}</span>
-            <span
-              class={`font-mono text-xl font-semibold break-all tabular-nums ${liveValueColor(field, reading.value, sample, units, currentLimits)}`}
-            >
-              <span class="sr-only">{liveValueStatus(field, sample)} </span>{liveValueText(
-                field,
-                reading.value,
-                reading.digits
-              )}<span class="ml-1 text-xs font-normal">{reading.unit}</span>
-            </span>
+            {#if field === 'empty'}
+              <span class="text-sm text-muted">Hold to set</span>
+            {:else if lighting}
+              {#if lighting.checked != null}<ToggleIndicator checked={lighting.checked} />{/if}
+              <span class="text-sm text-muted">{lighting.status}</span>
+            {:else}
+              <span
+                class={`font-mono text-xl font-semibold break-all tabular-nums ${liveValueColor(field, reading.value, sample, units, currentLimits)}`}
+              >
+                <span class="sr-only">{liveValueStatus(field, sample)} </span>{liveValueText(
+                  field,
+                  reading.value,
+                  reading.digits
+                )}<span class="ml-1 text-xs font-normal">{reading.unit}</span>
+              </span>
+            {/if}
             <span class="text-xs text-muted"
-              >{selected === field ? '✓ Selected' : reading.value == null ? 'Unavailable' : '\u00a0'}</span
+              >{selected === field
+                ? '✓ Selected'
+                : field === 'empty' || lighting
+                  ? '\u00a0'
+                  : reading.value == null
+                    ? 'Unavailable'
+                    : '\u00a0'}</span
             >
           </button>
         {/each}

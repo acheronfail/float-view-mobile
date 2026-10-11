@@ -765,6 +765,10 @@ fn preset_selection_is_atomic_and_overrides_survive_reopen_and_import() {
 fn live_widget_slots_are_validated_and_persisted() {
     let root = Root::new();
     let mut store = root.open();
+    assert_eq!(
+        store.settings().unwrap().live_widget_slots,
+        ["empty", "powerW", "elapsedMs", "odometerM", "distanceM"]
+    );
     for invalid in [
         r#"[]"#,
         r#"["speedKph"]"#,
@@ -779,12 +783,12 @@ fn live_widget_slots_are_validated_and_persisted() {
     let updated = store
         .update_settings(
             0,
-            r#"{"liveWidgetSlots":["speedKph","speedKph","motorTempC","powerW","driveLoad"]}"#,
+            r#"{"liveWidgetSlots":["empty","headlights","leds","powerW","powerW"]}"#,
         )
         .unwrap();
     assert_eq!(
         updated.live_widget_slots,
-        ["speedKph", "speedKph", "motorTempC", "powerW", "driveLoad"]
+        ["empty", "headlights", "leds", "powerW", "powerW"]
     );
     assert!(matches!(
         store.update_settings(

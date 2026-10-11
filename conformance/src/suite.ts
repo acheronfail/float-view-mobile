@@ -172,7 +172,7 @@ async function exerciseProductMethods(
       themePreference: 'dark',
       unitPreference: 'imperial',
       sessionDisplayOptions: { bothFootpadsOff: true, oneFootpadOff: false },
-      liveWidgetSlots: ['speedKph', 'packVoltageV', 'motorTempC', 'powerW', 'distanceM'],
+      liveWidgetSlots: ['empty', 'headlights', 'leds', 'elapsedMs', 'distanceM'],
     },
   });
   await expectError(
@@ -201,7 +201,7 @@ async function exerciseProductMethods(
   assert.equal(settings.minimumSessionDistance, 100);
   assert.equal(settings.themePreference, 'dark');
   assert.equal(settings.unitPreference, 'imperial');
-  assert.deepEqual(settings.liveWidgetSlots, ['speedKph', 'packVoltageV', 'motorTempC', 'powerW', 'distanceM']);
+  assert.deepEqual(settings.liveWidgetSlots, ['empty', 'headlights', 'leds', 'elapsedMs', 'distanceM']);
   for (const invalid of [[], ['speedKph'], ['speedKph', 'powerW', 'motorTempC', 'unknown', 'distanceM'], null]) {
     await expectError(
       client.request('settings.update', {

@@ -1,5 +1,4 @@
 <script lang="ts">
-  import CurrentRideButton from '$lib/features/sessions/CurrentRideButton.svelte';
   import { getContext, onDestroy, onMount, tick } from 'svelte';
   import { goto } from '$app/navigation';
   import { APP_HEADER_CONTEXT, type AppHeaderContext } from '$lib/app/header';
@@ -136,10 +135,21 @@
           label: nextView.displayName,
           onactivate: (closeMenu: () => void) => cycleView(closeMenu),
         },
+        ...(connection.trackingMode === 'saved' && connection.activeSession
+          ? [
+              {
+                label: 'Charts…',
+                onactivate: (closeMenu: () => void) => {
+                  closeMenu();
+                  if (connection?.activeSession)
+                    void goto(`#/sessions/${encodeURIComponent(connection.activeSession.sessionId)}`);
+                },
+              },
+            ]
+          : []),
         ...refloatMenuActions(connection).map((action) => ({
           label: action.label,
           disabled: action.disabled,
-          checked: action.checked,
           pending: action.pending,
           appearance: action.kind === 'clearFatalError' ? ('warning' as const) : ('normal' as const),
           onactivate: (closeMenu: () => void) => activateRefloatAction(action, closeMenu),
@@ -234,7 +244,7 @@
   }
 
   function activateRefloatAction(action: ReturnType<typeof refloatMenuActions>[number], closeMenu: () => void) {
-    if (action.checked === undefined) closeMenu();
+    closeMenu();
     if (action.kind === 'clearFatalError') {
       void performFatalClear();
       return;
@@ -252,7 +262,7 @@
     await backendState.setRefloatControl(selectedControl, selectedEnabled);
     refloatConfirmation = null;
     await tick();
-    if (selectedControl !== 'leds' && selectedControl !== 'headlights') appHeader.focusMenu();
+    appHeader.focusMenu();
   }
 
   async function performFatalClear() {
@@ -380,7 +390,6 @@
 
 <section aria-labelledby="app-title" class="flex h-full min-h-0 flex-1 flex-col gap-2">
   {#if connection}
-    <CurrentRideButton />
     {#if locationNeedsAction && location}
       <div
         class="flex items-center justify-between gap-3 rounded-lg border border-warning/40 bg-warning/10 px-3 py-2 text-sm"

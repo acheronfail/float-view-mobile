@@ -1,3 +1,4 @@
+import { lightingBox } from './lighting';
 import { emptyEstimate } from '../../../../backend-mock/battery';
 import { describe, expect, it } from 'vitest';
 import type { ActiveConnection } from '$lib/backend/contract';
@@ -116,20 +117,21 @@ describe('live board behavior', () => {
     expect(refloatMenuActions(ready).map((item) => [item.label, item.disabled])).toEqual([
       ['Disable Refloat…', false],
       ['Enable flywheel…', false],
-      ['LEDs', false],
-      ['Headlights', false],
       ['Clear fatal error', false],
     ]);
 
     ready.latestSample = { rideState: 'riding', packageState: 'running' } as ActiveConnection['latestSample'];
     const riding = refloatMenuActions(ready);
-    expect(riding.find((item) => item.label === 'LEDs')?.disabled).toBe(false);
+    expect(lightingBox(ready, 'leds').disabled).toBe(false);
     expect(riding.find((item) => item.label === 'Disable Refloat…')?.disabled).toBe(true);
     expect(riding.find((item) => item.label === 'Clear fatal error')?.disabled).toBe(true);
 
     ready.refloatControls = { ...refloatControls, writable: false };
+    expect(lightingBox(ready, 'leds').disabled).toBe(true);
     expect(refloatMenuActions(ready).every((item) => item.disabled)).toBe(true);
+    ready.refloatControls = { ...refloatControls };
     ready.state = 'reconnecting';
+    expect(lightingBox(ready, 'headlights').disabled).toBe(true);
     expect(refloatMenuActions(ready).every((item) => item.disabled)).toBe(true);
 
     ready.state = 'ready';
@@ -141,6 +143,7 @@ describe('live board behavior', () => {
       fatalErrorClearable: false,
       pendingAction: 'package',
     };
+    expect(lightingBox(ready, 'leds')).toMatchObject({ checked: null, disabled: true, status: 'Unavailable' });
     const unavailable = refloatMenuActions(ready);
     expect(unavailable.some((item) => item.label.startsWith('LEDs'))).toBe(false);
     expect(unavailable.find((item) => item.kind === 'clearFatalError')?.disabled).toBe(true);
@@ -151,21 +154,19 @@ describe('live board behavior', () => {
     const ready = connection('ready');
     ready.latestSample = { rideState: 'idle', packageState: 'ready' } as ActiveConnection['latestSample'];
     ready.refloatControls = { ...refloatControls, pendingAction: 'leds' };
-    expect(refloatMenuActions(ready).find((item) => item.label === 'LEDs')).toMatchObject({
+    expect(lightingBox(ready, 'leds')).toMatchObject({
       checked: true,
       pending: true,
       disabled: true,
-      enabled: false,
     });
     ready.refloatControls = { ...refloatControls, ledsEnabled: null, headlightsEnabled: false };
-    expect(refloatMenuActions(ready).find((item) => item.label === 'LEDs')).toMatchObject({
+    expect(lightingBox(ready, 'leds')).toMatchObject({
       checked: null,
       disabled: true,
     });
-    expect(refloatMenuActions(ready).find((item) => item.label === 'Headlights')).toMatchObject({
+    expect(lightingBox(ready, 'headlights')).toMatchObject({
       checked: false,
       disabled: false,
-      enabled: true,
     });
     ready.refloatControls.packageEnabled = false;
     expect(refloatMenuActions(ready)[0]).toMatchObject({ label: 'Enable Refloat', enabled: true });
@@ -179,6 +180,7 @@ describe('live board behavior', () => {
       packageState: 'ready',
       packageMode: 'flywheel',
     } as ActiveConnection['latestSample'];
+    expect(lightingBox(ready, 'leds').disabled).toBe(true);
     expect(refloatMenuActions(ready)).toEqual([]);
     expect(flywheelOverlayVisible(ready)).toBe(true);
     expect(flywheelDisableUnavailable(ready)).toBe(false);

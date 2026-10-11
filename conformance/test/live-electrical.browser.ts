@@ -25,6 +25,14 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
           trackingMode: 'saved',
         });
         await client.waitForState((s) => s.activeConnection?.state === 'ready');
+        const initialSettings = (await client.request('state.get', {})).settings;
+        assert.deepEqual(initialSettings.liveWidgetSlots, ['empty', 'powerW', 'elapsedMs', 'odometerM', 'distanceM']);
+        await client.request('settings.update', {
+          expectedRevision: initialSettings.revision,
+          patch: {
+            liveWidgetSlots: ['fieldWeakeningCurrentA', 'motorCurrentA', 'batteryCurrentA', 'powerW', 'distanceM'],
+          },
+        });
         const page = await browser.newPage({ viewport: { width: 390, height: 844 }, hasTouch: true });
         page.setDefaultTimeout(5000);
         if (name === 'chromium')
@@ -186,12 +194,16 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
             .count(),
           1
         );
-        await distanceBox.tap();
+        await distanceBox.hover();
+        await page.mouse.down();
+        await page.waitForTimeout(650);
+        await page.mouse.up();
         const distancePicker = page.getByRole('dialog', { name: 'Choose a value' });
         await distancePicker.waitFor();
         await distancePicker.getByRole('button', { name: 'Load', exact: true }).tap();
         await distancePicker.waitFor({ state: 'hidden' });
-        await page.getByRole('button', { name: 'Choose value for box 5: Load', exact: true }).tap();
+        await page.getByRole('button', { name: 'Choose value for box 5: Load', exact: true }).focus();
+        await page.keyboard.press('Enter');
         await distancePicker.getByRole('button', { name: 'Trip distance', exact: true }).tap();
         await distancePicker.waitFor({ state: 'hidden' });
         await distanceBox.focus();
@@ -297,6 +309,11 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
         await page.mouse.up();
         assert.equal(await page.getByRole('dialog').count(), 0);
         await firstBox.tap();
+        assert.equal(await page.getByRole('dialog').count(), 0, 'short taps do not configure');
+        await firstBox.hover();
+        await page.mouse.down();
+        await page.waitForTimeout(650);
+        await page.mouse.up();
         const picker = page.getByRole('dialog', { name: 'Choose a value' });
         await picker.waitFor();
         assert.equal(
@@ -376,7 +393,8 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
           .getByRole('button', { name: 'Choose value for box 4: Controller-reported battery level', exact: true })
           .locator('.text-danger')
           .waitFor();
-        await rightPad.tap();
+        await rightPad.focus();
+        await page.keyboard.press('Enter');
         await picker.waitFor();
         await picker.getByRole('button', { name: 'Cancel', exact: true }).tap();
         await picker.waitFor({ state: 'hidden' });
@@ -387,7 +405,8 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
           if (process.env.SCREENSHOT_DIR)
             await page.screenshot({ path: `${process.env.SCREENSHOT_DIR}/colours-${name}-${theme}.png` });
         }
-        await rightPad.tap();
+        await rightPad.focus();
+        await page.keyboard.press('Enter');
         await picker.getByRole('button', { name: 'Footpad ADC 2', exact: true }).locator('.text-danger').waitFor();
         rideSpeed = 0;
         await picker

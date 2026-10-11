@@ -71,7 +71,10 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
         await page.route(`${endpoint.origin}/`, (route) => route.fulfill({ contentType: 'text/html', body: html }));
         await page.route('https://tile.openstreetmap.org/**', (route) => route.abort());
         await page.goto(`${endpoint.origin}/#/live`);
-        const current = page.getByRole('button', { name: /Current ride/ });
+        const menu = page.getByRole('button', { name: 'Board actions', exact: true });
+        assert.equal(await page.getByRole('button', { name: /Current ride/ }).count(), 0);
+        await menu.click();
+        const current = page.getByRole('button', { name: 'Charts…', exact: true });
         await current.waitFor();
         await current.dispatchEvent('pointerdown', { pointerId: 11, isPrimary: false, button: 0 });
         await current.dispatchEvent('pointerup', { pointerId: 11, isPrimary: false, button: 0 });
@@ -131,6 +134,7 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
         failRefresh = false;
         await page.getByText(/Could not refresh this ride/).waitFor({ state: 'hidden' });
         await page.getByRole('link', { name: 'Back to Live', exact: true }).click();
+        await menu.click();
         await current.waitFor();
         const afterReturn = metadataRequests;
         await page.waitForTimeout(3400);
@@ -140,8 +144,7 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
         await page.evaluate(() => {
           location.hash = '#/sessions';
         });
-        await current.waitFor();
-        await current.click();
+        await page.getByRole('button', { name: /Current ride/ }).click();
         await page.getByText('Recording · Following live', { exact: true }).waitFor();
         await client.request('device.disconnect', {});
         await page.getByText('Recording · Following live', { exact: true }).waitFor({ state: 'hidden' });
@@ -156,6 +159,7 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
         await client.waitForState((state) => state.activeConnection?.state === 'ready');
         await page.goto(`${endpoint.origin}/#/live`);
         await page.getByText('Guest connection — live data will not be saved or tracked.').waitFor();
+        await menu.click();
         assert.equal(await current.count(), 0);
         assert.deepEqual(errors, []);
       } finally {

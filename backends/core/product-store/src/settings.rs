@@ -41,14 +41,8 @@ impl Default for Settings {
             minimum_session_distance: 100.,
             theme_preference: "system".into(),
             unit_preference: "metric".into(),
-            live_widget_slots: [
-                "fieldWeakeningCurrentA",
-                "motorCurrentA",
-                "batteryCurrentA",
-                "powerW",
-                "distanceM",
-            ]
-            .map(str::to_owned),
+            live_widget_slots: ["empty", "powerW", "elapsedMs", "odometerM", "distanceM"]
+                .map(str::to_owned),
             history_gap_threshold_seconds: None,
             location_recording_enabled: false,
             include_gps_location_when_exporting: false,
@@ -170,6 +164,9 @@ fn clamp_float(value: &mut Value, min: f64, max: f64) -> Result<()> {
 }
 
 const LIVE_WIDGET_FIELDS: &[&str] = &[
+    "empty",
+    "headlights",
+    "leds",
     "fieldWeakeningCurrentA",
     "motorCurrentA",
     "batteryCurrentA",
