@@ -130,15 +130,21 @@
           ? 'text-sm capitalize text-success'
           : 'text-sm capitalize text-warning',
       menuLabel: 'Board actions',
+      menuPresentation: 'overlay',
+      menuUnavailable: flywheelOverlayVisible(connection),
       menu: [
         {
           label: nextView.displayName,
+          icon: nextView.type === 'detailed' ? 'list' : 'layout-dashboard',
+          group: 'View',
           onactivate: (closeMenu: () => void) => cycleView(closeMenu),
         },
         ...(connection.trackingMode === 'saved' && connection.activeSession
           ? [
               {
-                label: 'Charts…',
+                label: 'Session…',
+                icon: 'chart-no-axes-combined' as const,
+                group: 'View',
                 onactivate: (closeMenu: () => void) => {
                   closeMenu();
                   if (connection?.activeSession)
@@ -149,6 +155,13 @@
           : []),
         ...refloatMenuActions(connection).map((action) => ({
           label: action.label,
+          icon:
+            action.kind === 'clearFatalError'
+              ? ('triangle-alert' as const)
+              : action.control === 'flywheel'
+                ? ('rotate-cw' as const)
+                : ('power' as const),
+          group: 'Refloat',
           disabled: action.disabled,
           pending: action.pending,
           appearance: action.kind === 'clearFatalError' ? ('warning' as const) : ('normal' as const),
@@ -157,6 +170,8 @@
         ...(connection.refloatConfiguration
           ? [
               {
+                group: 'Refloat',
+                icon: 'sliders-horizontal' as const,
                 label:
                   connection.refloatConfiguration.availability === 'loading'
                     ? 'Configure Refloat (loading…)'
@@ -173,6 +188,8 @@
           ? [
               {
                 label: 'Tunes…',
+                icon: 'sliders-vertical' as const,
+                group: 'Refloat',
                 disabled: connection.refloatConfiguration.availability !== 'ready',
                 onactivate: (closeMenu: () => void) => {
                   closeMenu();
@@ -181,19 +198,12 @@
               },
             ]
           : []),
-        {
-          label: 'Shut down controller',
-          appearance: 'destructive' as const,
-          disabled: backendState.busy || controllerShutdownDisabled(connection),
-          onactivate: (closeMenu: () => void) => {
-            closeMenu();
-            shutdownConfirmationOpen = true;
-          },
-        },
         ...(connection.savedDeviceId
           ? [
               {
                 label: 'Configure board',
+                icon: 'settings' as const,
+                group: 'Board',
                 appearance: savedDevice && !savedDevice.profileComplete ? ('warning' as const) : ('normal' as const),
                 onactivate: (closeMenu: () => void) => openConfigure(closeMenu),
               },
@@ -203,6 +213,8 @@
           ? [
               {
                 label: 'BMS',
+                icon: 'battery' as const,
+                group: 'Board',
                 onactivate: (closeMenu: () => void) => {
                   closeMenu();
                   bmsOpen = true;
@@ -211,7 +223,20 @@
             ]
           : []),
         {
+          label: 'Shut down controller',
+          icon: 'power',
+          group: 'Connection',
+          appearance: 'destructive' as const,
+          disabled: backendState.busy || controllerShutdownDisabled(connection),
+          onactivate: (closeMenu: () => void) => {
+            closeMenu();
+            shutdownConfirmationOpen = true;
+          },
+        },
+        {
           label: 'Disconnect',
+          icon: 'bluetooth-off',
+          group: 'Connection',
           appearance: 'destructive' as const,
           disabled: backendState.busy,
           onactivate: (closeMenu: () => void) => requestDisconnect(closeMenu),

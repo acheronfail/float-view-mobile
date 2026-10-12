@@ -47,7 +47,16 @@ event pages remain separate revisioned queries; `session.get` never embeds
 history. Frequently updating controls use primary pointer release with
 cancellation and a guarded keyboard or assistive click path.
 
-The connected-board menu consumes only authoritative `RefloatControls`. It does
+The connected-board action overlay uses the same full-page modal pattern as the
+live box picker, with scrollable two-column buttons grouped into View, Refloat,
+Board and Connection. Each action has an icon; incomplete board setup retains
+the warning triangle. Touch activation finishes the synthesized mouse events
+before handing focus to the next dialog or route. Done and Escape dismiss it; keyboard dismissal restores
+focus to the header button. Actions close the overlay before navigation or
+confirmation, and active flywheel mode closes and disables it. Other header
+menus retain their compact presentation.
+
+The connected-board action overlay consumes only authoritative `RefloatControls`. It does
 not infer package versions, protocol commands, or confirmed values. Lighting lives in configurable boxes with stable labels and switches that retain confirmed state and show pending
 feedback. Unknown lighting state is displayed explicitly
 without an off switch. Package and flywheel controls use action labels, with an
@@ -148,7 +157,7 @@ to 100,000 events, 1,000,000 samples and 2,000 fault episodes, with a visible er
 instead of silently truncated fault results. Pruned sessions reflect retained
 samples only.
 
-Charts… in the Live menu and Current ride in Sessions open the same session review route
+Session… in the Live menu and Current ride in Sessions open the same session review route
 for saved connections. Visible active review refreshes persisted metadata every
 three seconds with one request in flight. Chart inspection and map navigation
 pause following; Jump to live clears selection and filtering and resumes the full

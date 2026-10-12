@@ -68,6 +68,8 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
               if (!fail) {
                 if (message.params.control === 'leds') controls.ledsEnabled = message.params.enabled;
                 if (message.params.control === 'headlights') controls.headlightsEnabled = message.params.enabled;
+                if (message.params.control === 'package') controls.packageEnabled = message.params.enabled;
+                if (message.params.control === 'flywheel') controls.flywheelEnabled = message.params.enabled;
               }
               socket.send(
                 JSON.stringify(
@@ -99,10 +101,80 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
       await page.goto(`${endpoint.origin}/#/live`);
       const menu = page.getByRole('button', { name: 'Board actions', exact: true });
       await menu.tap();
-      await page.getByRole('button', { name: 'Charts…', exact: true }).waitFor();
+      const actionOverlay = page.getByRole('dialog', { name: 'Board actions', exact: true });
+      await actionOverlay.waitFor();
+      const detailed = actionOverlay.getByRole('button', { name: 'Detailed View', exact: true });
+      const configureBoard = actionOverlay.getByRole('button', { name: 'Configure board', exact: true });
+      assert.equal(await configureBoard.locator('.i-lucide-settings').count(), 1);
+      assert.equal(await configureBoard.locator('.i-lucide-triangle-alert').count(), 1);
+      for (const tile of await actionOverlay.locator('section button').all()) {
+        assert.ok((await tile.locator('span[aria-hidden="true"]').count()) >= 1);
+      }
+      await page.getByRole('button', { name: 'Session…', exact: true }).waitFor();
+      assert.deepEqual(await actionOverlay.getByRole('heading', { level: 3 }).allTextContents(), [
+        'View',
+        'Refloat',
+        'Board',
+        'Connection',
+      ]);
+      assert.equal(
+        await actionOverlay
+          .getByRole('button', { name: 'Done', exact: true })
+          .evaluate((el) => el === document.activeElement),
+        true
+      );
+      await page.keyboard.press('Shift+Tab');
+      assert.equal(
+        await actionOverlay
+          .getByRole('button', { name: 'Disconnect', exact: true })
+          .evaluate((el) => el === document.activeElement),
+        true
+      );
+      await page.keyboard.press('Tab');
+      assert.equal(
+        await actionOverlay
+          .getByRole('button', { name: 'Done', exact: true })
+          .evaluate((el) => el === document.activeElement),
+        true
+      );
+      await detailed.click({ button: 'right' });
+      await detailed.dispatchEvent('pointerdown', { button: 0, isPrimary: false, pointerId: 2 });
+      await detailed.dispatchEvent('pointerup', { button: 0, isPrimary: false, pointerId: 2 });
+      assert.equal(await menu.getAttribute('aria-expanded'), 'true');
+      // Scroll gestures and cancelled taps must not activate a tile.
+      for (const gesture of ['scroll', 'cancel']) {
+        await detailed.evaluate((el) =>
+          el.addEventListener(
+            'pointerdown',
+            (event) => {
+              el.setAttribute('data-pointer', String((event as PointerEvent).pointerId));
+            },
+            { once: true }
+          )
+        );
+        await detailed.hover();
+        const point = (await detailed.boundingBox())!;
+        await page.mouse.down();
+        if (gesture === 'scroll') await page.mouse.move(point.x + point.width / 2, point.y + point.height / 2 + 30);
+        else
+          await detailed.dispatchEvent('pointercancel', {
+            pointerId: Number(await detailed.getAttribute('data-pointer')),
+          });
+        await page.mouse.up();
+        assert.equal(await menu.getAttribute('aria-expanded'), 'true');
+      }
+      await detailed.focus();
+      await page.keyboard.press('Enter');
+      await actionOverlay.waitFor({ state: 'hidden' });
+      assert.equal(await menu.evaluate((el) => el === document.activeElement), true);
+      await menu.tap();
+      await actionOverlay.getByRole('button', { name: 'Normal View', exact: true }).tap();
+      await actionOverlay.waitFor({ state: 'hidden' });
+      await menu.tap();
       assert.equal(await page.getByRole('button', { name: 'LEDs', exact: true }).count(), 0);
       assert.equal(await page.getByRole('button', { name: 'Headlights', exact: true }).count(), 0);
       await page.keyboard.press('Escape');
+      assert.equal(await menu.evaluate((el) => el === document.activeElement), true);
       const leds = page.getByRole('switch', { name: 'LEDs', exact: true });
       const headlights = page.getByRole('switch', { name: 'Headlights', exact: true });
       await leds.waitFor();
@@ -210,17 +282,78 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
       await picker.waitFor();
       assert.equal(requests.length, 5, 'holding a light configures without toggling');
       await page.keyboard.press('Escape');
-      await menu.tap();
-      for (const label of ['Disable Refloat…', 'Enable flywheel…']) {
-        await page.getByRole('button', { name: label, exact: true }).tap();
-        const dialog = page.getByRole('alertdialog');
-        await dialog.waitFor();
-        assert.equal(await menu.getAttribute('aria-expanded'), 'false');
-        assert.equal(requests.length, 5);
-        await dialog.getByRole('button', { name: 'Cancel', exact: true }).tap();
-        await menu.tap();
-      }
       const output = process.env.FLOAT_VIEW_SCREENSHOTS;
+      for (const [label, title, confirmLabel, control] of [
+        ['Disable Refloat…', 'Disable Refloat package?', 'Disable package', 'package'],
+        ['Enable flywheel…', 'Enable flywheel?', 'Enable flywheel', 'flywheel'],
+      ]) {
+        const before: number = requests.length;
+        await menu.tap();
+        await page.getByRole('button', { name: label, exact: true }).tap();
+        const dialog = page.getByRole('alertdialog', { name: title, exact: true });
+        await dialog.waitFor();
+        await actionOverlay.waitFor({ state: 'hidden' });
+        assert.equal(await menu.getAttribute('aria-expanded'), 'false');
+        assert.equal(requests.length, before);
+        const cancel = dialog.getByRole('button', { name: 'Cancel', exact: true });
+        const confirm = dialog.getByRole('button', { name: confirmLabel, exact: true });
+        assert.equal(await cancel.evaluate((el) => el === document.activeElement), true);
+        await page.keyboard.press('Shift+Tab');
+        assert.equal(await confirm.evaluate((el) => el === document.activeElement), true);
+        await page.keyboard.press('Tab');
+        assert.equal(await cancel.evaluate((el) => el === document.activeElement), true);
+        if (output && name === 'chromium') {
+          await mkdir(output, { recursive: true });
+          await page.screenshot({ path: `${output}/live-${control}-confirmation.png` });
+        }
+        await cancel.tap();
+        await dialog.waitFor({ state: 'hidden' });
+        assert.equal(requests.length, before);
+        assert.equal(await menu.evaluate((el) => el === document.activeElement), true);
+        await page.keyboard.press('Enter');
+        const option = actionOverlay.getByRole('button', { name: label, exact: true });
+        await option.focus();
+        await page.keyboard.press('Enter');
+        await dialog.waitFor();
+        await page.keyboard.press('Escape');
+        await dialog.waitFor({ state: 'hidden' });
+        assert.equal(requests.length, before);
+        // Failed requests preserve confirmed state; a retry submits only once.
+        for (const fail of [true, false]) {
+          await menu.tap();
+          await page.getByRole('button', { name: label, exact: true }).tap();
+          await confirm.tap();
+          const working = dialog.getByRole('button', { name: 'Working…', exact: true });
+          await working.waitFor();
+          assert.equal(await working.isDisabled(), true);
+          assert.equal(await cancel.isDisabled(), true);
+          const expected = before + (fail ? 1 : 2);
+          assert.equal(requests.length, expected);
+          assert.deepEqual(requests.at(-1), { control, enabled: control === 'flywheel' });
+          await page.keyboard.press('Escape');
+          assert.equal(await dialog.isVisible(), true);
+          await working.dispatchEvent('click', { detail: 0 });
+          assert.equal(requests.length, expected);
+          complete!(fail);
+          await dialog.waitFor({ state: 'hidden' });
+          if (fail) {
+            await page.getByRole('alert').filter({ hasText: 'Control confirmation timed out' }).waitFor();
+            assert.equal(controls.packageEnabled, true);
+            assert.equal(controls.flywheelEnabled, false);
+          } else if (control === 'package') {
+            await menu.tap();
+            await actionOverlay.getByRole('button', { name: 'Enable Refloat', exact: true }).waitFor();
+            await page.keyboard.press('Escape');
+            controls.packageEnabled = true;
+          } else {
+            const safety = page.getByRole('alertdialog', { name: 'Flywheel mode is active' });
+            await safety.waitFor();
+            assert.equal(await menu.isDisabled(), true);
+            controls.flywheelEnabled = false;
+            await safety.waitFor({ state: 'hidden' });
+          }
+        }
+      }
       for (const theme of ['light', 'dark'] as const) {
         await client.request('settings.update', {
           expectedRevision: client.currentState()!.settings.revision,
@@ -230,14 +363,38 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
         await page.goto(`${endpoint.origin}/#/settings`);
         await page.getByRole('group', { name: 'Theme', exact: true }).waitFor();
         await page.goto(`${endpoint.origin}/#/live`);
-        await menu.tap();
         await leds.waitFor();
+        await menu.tap();
+        await actionOverlay.waitFor();
         if (output && name === 'chromium') {
           await mkdir(output, { recursive: true });
-          await page.screenshot({ path: `${output}/live-menu-${theme}.png` });
+          await page.screenshot({ path: `${output}/live-actions-${theme}-mobile.png` });
+          await page.setViewportSize({ width: 1280, height: 900 });
+          await page.screenshot({ path: `${output}/live-actions-${theme}-desktop.png` });
+          await page.setViewportSize({ width: 390, height: 844 });
         }
         assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+        // Small landscape screens scroll inside the overlay and keep dismissal available.
+        await page.setViewportSize({ width: 568, height: 320 });
+        await actionOverlay.getByRole('button', { name: 'Disconnect', exact: true }).scrollIntoViewIfNeeded();
+        assert.equal(await actionOverlay.getByRole('button', { name: 'Done', exact: true }).isVisible(), true);
+        await actionOverlay.getByRole('button', { name: 'Done', exact: true }).tap();
+        assert.equal(await menu.getAttribute('aria-expanded'), 'false');
+        await page.setViewportSize({ width: 390, height: 844 });
       }
+      await menu.tap();
+      controls.flywheelEnabled = true;
+      await page.getByRole('alertdialog', { name: 'Flywheel mode is active' }).waitFor();
+      await actionOverlay.waitFor({ state: 'hidden' });
+      assert.equal(await menu.isDisabled(), true);
+      assert.equal(await menu.getAttribute('aria-expanded'), 'false');
+      await page.keyboard.press('Escape');
+      assert.equal(await page.getByRole('alertdialog', { name: 'Flywheel mode is active' }).isVisible(), true);
+      controls.flywheelEnabled = false;
+      await page.getByRole('alertdialog', { name: 'Flywheel mode is active' }).waitFor({ state: 'hidden' });
+      await menu.tap();
+      await actionOverlay.waitFor();
+      await page.keyboard.press('Escape');
       assert.deepEqual(errors, []);
     } finally {
       await browser.close();

@@ -1,8 +1,11 @@
 import type { Snippet } from 'svelte';
+import type { IconName } from '$lib/ui/icon';
 import type { MenuItemAppearance } from '$lib/ui/MenuItem.svelte';
 
 export type AppHeaderAction = {
   label: string;
+  group?: string;
+  icon?: IconName;
   appearance?: MenuItemAppearance;
   disabled?: boolean;
   checked?: boolean | null;
@@ -20,6 +23,8 @@ export type AppHeaderPatch = {
   backHref?: string;
   backLabel?: string;
   menuLabel?: string;
+  menuPresentation?: 'overlay';
+  menuUnavailable?: boolean;
   menu?: AppHeaderAction[];
 };
 

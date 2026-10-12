@@ -141,6 +141,8 @@
       backLabel={appHeader.backLabel}
       menuLabel={appHeader.menu?.length ? appHeader.menuLabel : undefined}
       actions={appHeader.menu}
+      menuPresentation={appHeader.menuPresentation}
+      menuUnavailable={appHeader.menuUnavailable}
     />
 
     <div class="flex flex-1 flex-col" class:min-h-0={liveRoute}>

@@ -60,7 +60,7 @@ export function refloatControlConfirmation(
       control,
       enabled,
       title: 'Disable Refloat package?',
-      description: 'Balancing will be disabled. Keep the board disengaged and supported before continuing.',
+      description: 'Balancing will be disabled. Keep the board disengaged before continuing.',
       confirmLabel: 'Disable package',
     };
   }

@@ -118,7 +118,7 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
         const menu = page.getByRole('button', { name: 'Board actions', exact: true });
         assert.equal(await page.getByRole('button', { name: /Current ride/ }).count(), 0);
         await menu.click();
-        const current = page.getByRole('button', { name: 'Charts…', exact: true });
+        const current = page.getByRole('button', { name: 'Session…', exact: true });
         await current.waitFor();
         await current.dispatchEvent('pointerdown', { pointerId: 11, isPrimary: false, button: 0 });
         await current.dispatchEvent('pointerup', { pointerId: 11, isPrimary: false, button: 0 });

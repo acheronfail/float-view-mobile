@@ -3,6 +3,7 @@
   import type { AppHeaderAction } from '$lib/app/header';
   import Icon from './Icon.svelte';
   import Menu from './Menu.svelte';
+  import HeaderActionOverlay from '$lib/app/HeaderActionOverlay.svelte';
   import MenuItem from './MenuItem.svelte';
 
   let {
@@ -15,6 +16,8 @@
     bottomBorder = true,
     menuLabel,
     actions,
+    menuPresentation,
+    menuUnavailable = false,
     backHref,
     backLabel = 'Back',
     headerHeight = $bindable(0),
@@ -29,6 +32,8 @@
     bottomBorder?: boolean;
     menuLabel?: string;
     actions?: AppHeaderAction[];
+    menuPresentation?: 'overlay';
+    menuUnavailable?: boolean;
     backHref?: string;
     backLabel?: string;
     headerHeight?: number;
@@ -77,19 +82,23 @@
     {/if}
   </div>
   {#if actions?.length && menuLabel}
-    <Menu label={menuLabel} bind:button>
-      {#snippet children(closeMenu)}
-        {#each actions as action (action.label)}
-          <MenuItem
-            label={action.label}
-            appearance={action.appearance}
-            disabled={action.disabled}
-            checked={action.checked}
-            pending={action.pending}
-            onactivate={() => action.onactivate(closeMenu)}
-          />
-        {/each}
-      {/snippet}
-    </Menu>
+    {#if menuPresentation === 'overlay'}
+      <HeaderActionOverlay label={menuLabel} subtitle={title} {actions} unavailable={menuUnavailable} bind:button />
+    {:else}
+      <Menu label={menuLabel} bind:button>
+        {#snippet children(closeMenu)}
+          {#each actions as action (action.label)}
+            <MenuItem
+              label={action.label}
+              appearance={action.appearance}
+              disabled={action.disabled}
+              checked={action.checked}
+              pending={action.pending}
+              onactivate={() => action.onactivate(closeMenu)}
+            />
+          {/each}
+        {/snippet}
+      </Menu>
+    {/if}
   {/if}
 </header>
