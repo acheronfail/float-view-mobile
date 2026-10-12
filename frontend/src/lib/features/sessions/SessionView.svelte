@@ -331,6 +331,7 @@
       {#if backendState.sessionMetadata.location.available || markers.some((m) => m.location)}
         <SessionLocationMap
           metadata={backendState.sessionMetadata}
+          following={following && wasActive}
           {selectedElapsedMs}
           {markers}
           {selectedMarker}

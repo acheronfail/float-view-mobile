@@ -39,6 +39,7 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
         let disconnectRequests = 0;
         let reconnecting = false;
         let failRefresh = false;
+        let lastLongitude = 151.21;
         await page.routeWebSocket('**/api/ws?*', (socket) => {
           const server = socket.connectToServer();
           socket.onMessage((raw) => {
@@ -57,6 +58,17 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
           });
           server.onMessage((raw) => {
             const message = JSON.parse(String(raw));
+            if (message.result?.summary?.sessionId === sessionId && message.result.snapshot) {
+              message.result.location = {
+                available: true,
+                count: 2,
+                lastSequence: 2,
+                lastElapsedMs: 100,
+                status: 'available',
+              };
+              message.result.snapshot.committedLocationSequence = 2;
+              message.result.snapshot.committedLocationElapsedMs = 100;
+            }
             const state = message.data ?? message.result;
             if (reconnecting && state?.activeConnection) state.activeConnection.state = 'reconnecting';
             socket.send(JSON.stringify(message));
@@ -66,6 +78,38 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
         await page.route('**/api/session-data', async (route) => {
           const request = route.request().postDataJSON();
           if (request.kind === 'series') ends.push(request.range.endElapsedMs);
+          if (request.kind === 'locations') {
+            await route.fulfill({
+              json: {
+                kind: 'locations',
+                sessionId,
+                snapshot: request.snapshot,
+                range: request.range,
+                points: [
+                  {
+                    locationSequence: 1,
+                    elapsedMs: 0,
+                    latitude: -33.86,
+                    longitude: 151.2,
+                    accuracyM: 5,
+                    observedAt: '2026-01-01T00:00:00.000Z',
+                  },
+                  {
+                    locationSequence: 2,
+                    elapsedMs: 100,
+                    latitude: -33.87,
+                    longitude: lastLongitude,
+                    accuracyM: 5,
+                    observedAt: '2026-01-01T00:00:00.100Z',
+                  },
+                ],
+                gaps: [],
+                nextCursor: null,
+                locationBoundary: { lastSequence: 2, lastElapsedMs: 100 },
+              },
+            });
+            return;
+          }
           await route.continue();
         });
         await page.route(`${endpoint.origin}/`, (route) => route.fulfill({ contentType: 'text/html', body: html }));
@@ -92,12 +136,21 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
         }
         await page.getByText('Recording · Following live', { exact: true }).waitFor();
         await page.waitForFunction(() => document.querySelectorAll('[data-history-group] svg').length > 0);
+        const riderPosition = page.locator('.location-marker[title="Last known rider position"]');
+        await riderPosition.waitFor();
+        assert.equal(await riderPosition.getAttribute('aria-label'), 'Last known rider position');
+        const initialPosition = await riderPosition.evaluate((node) => (node as HTMLElement).style.transform);
+        lastLongitude = 151.209;
         const firstEnd = ends[0]!;
         await page.waitForTimeout(3400);
         assert(
           ends.some((end) => end > firstEnd),
           'growing snapshots should extend charts'
         );
+        await page.waitForFunction((initial) => {
+          const marker = document.querySelector<HTMLElement>('.location-marker[title="Last known rider position"]');
+          return marker && marker.style.transform !== initial;
+        }, initialPosition);
         const legend = page.getByRole('button', { name: /^Hide .+ line$/ }).first();
         // Capture an element identity to prove refresh does not recreate the chart.
         await page
@@ -110,6 +163,8 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
         await page.mouse.down();
         await page.mouse.up();
         await page.getByRole('button', { name: 'Jump to live', exact: true }).waitFor();
+        assert.equal(await riderPosition.count(), 0);
+        await page.locator('.location-marker[title="Selected location"]').waitFor();
         const pausedRequests = metadataRequests;
         await page.waitForTimeout(3400);
         assert.equal(metadataRequests, pausedRequests);
@@ -120,6 +175,7 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
         await showLegend.waitFor();
         await page.getByRole('button', { name: 'Jump to live', exact: true }).click();
         await page.getByText('Recording · Following live', { exact: true }).waitFor();
+        await riderPosition.waitFor();
         await page.waitForTimeout(500);
         assert(metadataRequests > pausedRequests);
         assert.equal(await chart.getAttribute('data-preserved'), 'yes');

@@ -29,6 +29,7 @@
   let {
     oninspect = () => {},
     liveVersion = 0,
+    following = false,
     markers = [],
     selectedMarker = null,
     onmarkerselect = () => {},
@@ -46,6 +47,7 @@
   }: {
     oninspect?: () => void;
     liveVersion?: number;
+    following?: boolean;
     markers?: SessionRideMarker[];
     selectedMarker?: SessionRideMarker | null;
     onmarkerselect?: (marker: SessionRideMarker) => void;
@@ -238,10 +240,11 @@
   const visiblePoints = $derived(visibleSegments.flat());
   const travelledSegments = $derived(
     visibleSegments
-      .map((segment) => segment.filter((point) => point.elapsedMs <= selectedElapsedMs))
+      .map((segment) => segment.filter((point) => following || point.elapsedMs <= selectedElapsedMs))
       .filter((segment) => segment.length > 0)
   );
   const marker = $derived.by(() => {
+    if (following) return points.at(-1) ?? null;
     if (!isZoomed || !viewport) return locationAtOrBefore(points, selectedElapsedMs);
     if (!visiblePoints.length) return null;
     if (selectedElapsedMs >= viewport.startElapsedMs && selectedElapsedMs <= viewport.endElapsedMs) {
@@ -260,6 +263,7 @@
     void faults;
     void displayOptions;
     void selectedElapsedMs;
+    void following;
     void viewportKey;
     void hidden;
     void mapLayoutReady;
@@ -307,15 +311,21 @@
       }).addTo(map!)
     );
     if (marker) {
+      const label = following ? 'Last known rider position' : 'Selected location';
       locationMarker = Leaflet.marker([marker.latitude, displayLongitude(marker.longitude)], {
         icon: Leaflet.divIcon({
           className: 'location-marker',
           html: locationMarkerHtml,
-          iconSize: [32, 48],
-          iconAnchor: [16, 40],
+          iconSize: [32, 32],
+          iconAnchor: [16, 32],
         }),
-        title: 'Selected location',
+        title: label,
+        interactive: false,
+        keyboard: false,
       }).addTo(map);
+      const element = locationMarker.getElement();
+      element?.setAttribute('role', 'img');
+      element?.setAttribute('aria-label', label);
     }
     if (!filterByMap) fitVisibleRoute(shouldRecenter);
     drawRideMarkers();
