@@ -122,6 +122,7 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
       assert.equal(await warning.evaluate((el) => el === document.activeElement), true);
       await page.getByRole('button', { name: 'Board actions', exact: true }).click();
       await page.getByRole('button', { name: 'Detailed View', exact: true }).click();
+      await page.getByRole('dialog', { name: 'Board actions', exact: true }).waitFor({ state: 'hidden' });
       await warning.focus();
       await page.keyboard.press('Enter');
       await batteryDialog.waitFor();

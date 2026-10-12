@@ -57,7 +57,6 @@ describe('controller selection prompt', () => {
     expect(text).toContain('Unsupported');
     expect(text).toContain('Supported');
     expect(text).toContain('Disconnect');
-    expect(body).toContain('fixed inset-0 z-40 h-screen bg-black/55');
-    expect(body).toContain('absolute inset-x-0 bottom-0');
+    expect(body).toContain('fixed inset-0 z-40 h-dvh w-screen bg-canvas');
   });
 });

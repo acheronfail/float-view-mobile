@@ -2,7 +2,7 @@
   import type { ActiveConnection } from '$lib/backend/contract';
   import { backendState } from '$lib/backend/state.svelte';
   import { activateFromKeyboardOrAssistiveClick, activateFromPointer } from '$lib/ui/activation';
-  import BottomSheet from '$lib/ui/BottomSheet.svelte';
+  import FullScreenOverlay from '$lib/ui/FullScreenOverlay.svelte';
   import { sortedControllerCandidates } from './live';
 
   let { connection, ondisconnect }: { connection: ActiveConnection; ondisconnect: () => Promise<void> } = $props();
@@ -17,7 +17,7 @@
   }
 </script>
 
-<BottomSheet
+<FullScreenOverlay
   title={`Choose a controller (${candidates.length} found)`}
   titleId="controller-selection-title"
   closeLabel="Disconnect"
@@ -51,4 +51,4 @@
     {/each}
   </ul>
   {#if backendState.error}<p role="alert" class="mt-3 text-warning">{backendState.error}</p>{/if}
-</BottomSheet>
+</FullScreenOverlay>

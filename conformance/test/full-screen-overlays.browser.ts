@@ -1,0 +1,128 @@
+import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
+import { test } from 'node:test';
+import { chromium, webkit } from 'playwright';
+import { startMockServer, stopMockServer, getMockBootstrap } from '../../frontend/backend-mock/index.ts';
+import { ConformanceClient } from '../src/client.ts';
+
+const html = await readFile(new URL('../../frontend/build/index.html', import.meta.url), 'utf8');
+for (const [name, engine] of Object.entries({ chromium, webkit })) {
+  test(`${name}: full-screen panels, dismissal and nested confirmations`, { timeout: 60_000 }, async () => {
+    const port = await startMockServer(11002);
+    const endpoint = getMockBootstrap(port);
+    const client = await ConformanceClient.open(endpoint.webSocketUrl, endpoint.origin);
+    const browser = await engine.launch();
+    try {
+      await client.request('bluetooth.requestPermission', {});
+      await client.request('bluetooth.scan', { timeoutMs: 100 });
+      const scanned = await client.waitForState((s) => s.discoveredDevices.length > 0);
+      await client.request('device.connect', {
+        deviceId: scanned.discoveredDevices[0]!.deviceId,
+        trackingMode: 'saved',
+      });
+      await client.waitForState((s) => s.activeConnection?.state === 'ready');
+      const page = await browser.newPage({ hasTouch: true, reducedMotion: 'reduce' });
+      page.setDefaultTimeout(5000);
+      if (name === 'chromium')
+        await page.context().grantPermissions(['local-network-access'], { origin: endpoint.origin });
+      const errors: string[] = [];
+      page.on('pageerror', (e) => errors.push(e.message));
+      await page.route(`${endpoint.origin}/`, (route) => route.fulfill({ contentType: 'text/html', body: html }));
+      await page.routeWebSocket('**/api/ws?*', (socket) => {
+        const server = socket.connectToServer();
+        server.onMessage((raw) => {
+          const message = JSON.parse(String(raw));
+          const state =
+            message.event === 'state.changed' ? message.data : message.result?.activeConnection ? message.result : null;
+          if (state?.activeConnection) {
+            state.activeConnection.bms = {
+              status: 'attached',
+              connection: { kind: 'can', canId: 10 },
+              candidates: [],
+              latestSnapshot: null,
+            };
+          }
+          socket.send(JSON.stringify(message));
+        });
+      });
+      await page.goto(`${endpoint.origin}/#/live`);
+      const menu = page.getByRole('button', { name: 'Board actions', exact: true });
+      const actionOverlay = page.getByRole('dialog', { name: 'Board actions', exact: true });
+      for (const viewport of [
+        { width: 390, height: 844 },
+        { width: 1280, height: 800 },
+      ]) {
+        await page.setViewportSize(viewport);
+        for (const [label, title] of [
+          ['Configure Refloat', 'Configure Refloat'],
+          ['Tunes…', 'Tunes'],
+          ['BMS', 'Battery management system'],
+          ['Configure board', 'Board configuration'],
+        ]) {
+          await menu.tap();
+          await actionOverlay.getByRole('button', { name: label, exact: true }).tap();
+          const panel = page.getByRole('dialog', { name: title, exact: true });
+          await panel.waitFor();
+          await actionOverlay.waitFor({ state: 'hidden' });
+          assert.deepEqual(await panel.boundingBox(), { x: 0, y: 0, ...viewport });
+          const done = panel.getByRole('button', { name: 'Done', exact: true });
+          assert.equal(await done.evaluate((el) => el === document.activeElement), true);
+          await done.click({ button: 'right' });
+          assert.equal(await panel.isVisible(), true, 'non-primary activation must leave the panel open');
+          await done.evaluate((el) =>
+            el.addEventListener(
+              'pointerdown',
+              (event) => {
+                el.setAttribute('data-test-pointer', String((event as PointerEvent).pointerId));
+              },
+              { once: true }
+            )
+          );
+          await done.hover();
+          await page.mouse.down();
+          await done.dispatchEvent('pointercancel', {
+            pointerId: Number(await done.getAttribute('data-test-pointer')),
+          });
+          await page.mouse.up();
+          assert.equal(await panel.isVisible(), true, 'cancelled activation must leave the panel open');
+          await page.keyboard.press('Shift+Tab');
+          assert.equal(
+            await panel.evaluate((el) => el.contains(document.activeElement)),
+            true,
+            'focus stays inside the panel, including panels with only a Done control'
+          );
+          await page.keyboard.press('Tab');
+          assert.equal(await done.evaluate((el) => el === document.activeElement), true);
+          const scroll = panel.locator('div.overflow-y-auto');
+          const headerY = (await done.boundingBox())!.y;
+          await scroll.evaluate((el) => {
+            el.scrollTop = el.scrollHeight;
+          });
+          assert.equal((await done.boundingBox())!.y, headerY, 'header stays visible while content scrolls');
+          if (viewport.width === 390) await done.tap();
+          else await page.keyboard.press('Escape');
+          await panel.waitFor({ state: 'hidden' });
+          assert.equal(await menu.evaluate((el) => el === document.activeElement), true);
+        }
+      }
+      await menu.tap();
+      await actionOverlay.getByRole('button', { name: 'Configure Refloat', exact: true }).tap();
+      const editor = page.getByRole('dialog', { name: 'Configure Refloat', exact: true });
+      await editor.getByRole('spinbutton').first().fill('0.85');
+      await editor.getByRole('button', { name: 'Done', exact: true }).tap();
+      const discard = page.getByRole('alertdialog', { name: 'Discard unsaved Refloat changes?', exact: true });
+      await discard.waitFor();
+      await page.keyboard.press('Escape');
+      await discard.waitFor({ state: 'hidden' });
+      assert.equal(await editor.isVisible(), true, 'Escape cancels the confirmation without closing the editor');
+      await editor.getByRole('button', { name: 'Done', exact: true }).tap();
+      await discard.getByRole('button', { name: 'Discard', exact: true }).tap();
+      await editor.waitFor({ state: 'hidden' });
+      assert.deepEqual(errors, []);
+    } finally {
+      await browser.close();
+      await client.close();
+      await stopMockServer();
+    }
+  });
+}

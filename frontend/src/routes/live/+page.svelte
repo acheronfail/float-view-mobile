@@ -27,7 +27,7 @@
     shouldConfirmDisconnect,
     type RefloatControlConfirmation,
   } from '$lib/features/connection/live';
-  import BottomSheet from '$lib/ui/BottomSheet.svelte';
+  import FullScreenOverlay from '$lib/ui/FullScreenOverlay.svelte';
   import ConfirmDialog from '$lib/ui/ConfirmDialog.svelte';
   import { activateFromKeyboardOrAssistiveClick, activateFromPointer } from '$lib/ui/activation';
   import { locationRequiresAction } from '$lib/features/connection/location-presentation';
@@ -497,26 +497,26 @@
 {/if}
 
 {#if bmsOpen && connection}
-  <BottomSheet title="Battery management system" titleId="bms-sheet-title" closeLabel="Done" onclose={closeBms}>
+  <FullScreenOverlay title="Battery management system" titleId="bms-overlay-title" closeLabel="Done" onclose={closeBms}>
     <BmsView bms={connection.bms} units={backendState.settings?.unitPreference ?? 'metric'} />
-  </BottomSheet>
+  </FullScreenOverlay>
 {/if}
 
 {#if refloatConfigurationOpen && connection?.refloatConfiguration}
-  <BottomSheet
+  <FullScreenOverlay
     title="Configure Refloat"
     titleId="refloat-configuration-title"
     closeLabel="Done"
     onclose={requestCloseRefloatConfiguration}
   >
     <RefloatConfigurationEditor bind:this={refloatEditor} controller={refloatConfiguration} />
-  </BottomSheet>
+  </FullScreenOverlay>
 {/if}
 
 {#if refloatTunesOpen && connection?.refloatConfiguration}
-  <BottomSheet title="Tunes" titleId="refloat-tunes-title" closeLabel="Done" onclose={closeRefloatTunes}>
+  <FullScreenOverlay title="Tunes" titleId="refloat-tunes-title" closeLabel="Done" onclose={closeRefloatTunes}>
     <RefloatTunes controller={refloatConfiguration} />
-  </BottomSheet>
+  </FullScreenOverlay>
 {/if}
 
 <ConfirmDialog
@@ -569,9 +569,9 @@
 />
 
 {#if configuration}
-  <BottomSheet
+  <FullScreenOverlay
     title={configuration.batteryOnly ? 'Battery configuration' : 'Board configuration'}
-    titleId="configure-sheet-title"
+    titleId="configure-overlay-title"
     onclose={closeConfigure}
   >
     {#key configuration.savedDeviceId}
@@ -583,7 +583,7 @@
         onclose={closeConfigure}
       />
     {/key}
-  </BottomSheet>
+  </FullScreenOverlay>
 {/if}
 
 {#if connection?.state === 'selecting_controller'}

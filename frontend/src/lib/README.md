@@ -53,8 +53,12 @@ Board and Connection. Each action has an icon; incomplete board setup retains
 the warning triangle. Touch activation finishes the synthesized mouse events
 before handing focus to the next dialog or route. Done and Escape dismiss it; keyboard dismissal restores
 focus to the header button. Actions close the overlay before navigation or
-confirmation, and active flywheel mode closes and disables it. Other header
-menus retain their compact presentation.
+confirmation, and active flywheel mode closes and disables it. Refloat
+configuration, Tunes, BMS details, board/battery configuration and controller
+selection share a full-screen overlay with the same safe-area layout, fixed header
+and scrollable content. The header close action and Escape follow the existing
+save/discard flow; these panels have no swipe or backdrop dismissal. Other header menus retain their
+compact presentation.
 
 The connected-board action overlay consumes only authoritative `RefloatControls`. It does
 not infer package versions, protocol commands, or confirmed values. Lighting lives in configurable boxes with stable labels and switches that retain confirmed state and show pending

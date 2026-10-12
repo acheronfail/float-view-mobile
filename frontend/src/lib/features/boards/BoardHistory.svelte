@@ -5,7 +5,7 @@
   import { backendState } from '$lib/backend/state.svelte';
   import { formatDistanceM } from '$lib/features/measurements/format';
   import SessionList from '$lib/features/sessions/SessionList.svelte';
-  import BottomSheet from '$lib/ui/BottomSheet.svelte';
+  import FullScreenOverlay from '$lib/ui/FullScreenOverlay.svelte';
   import ConfirmDialog from '$lib/ui/ConfirmDialog.svelte';
   import BoardEditor from './BoardEditor.svelte';
 
@@ -150,7 +150,7 @@
 />
 
 {#if configureOpen && board}
-  <BottomSheet title="Board configuration" titleId="board-history-configure-title" onclose={closeConfigure}>
+  <FullScreenOverlay title="Board configuration" titleId="board-history-configure-title" onclose={closeConfigure}>
     <BoardEditor bind:this={editor} {savedDeviceId} embedded onclose={closeConfigure} />
-  </BottomSheet>
+  </FullScreenOverlay>
 {/if}
