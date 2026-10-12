@@ -712,6 +712,41 @@ async function createCompletedSession(
     sessionId: markerSession.sessionId,
     operationId: '00000000-0000-4000-8000-000000000002',
   });
+  // Recording can append between metadata and any history request. All read
+  // kinds must still accept the earlier committed prefix and exclude new rows.
+  const prefix = {
+    sessionId: markerSession.sessionId,
+    snapshot: savedMarker.snapshot,
+    range: { startElapsedMs: 0, endElapsedMs: secondMarker.snapshot.committedElapsedMs },
+  };
+  for (const request of [
+    { ...prefix, kind: 'series' as const, fields: ['speedKph'], buckets: 16, gapPolicy: { thresholdSeconds: null } },
+    { ...prefix, kind: 'samples' as const, fields: ['speedKph'], mode: 'window' as const, limit: 100 },
+    { ...prefix, kind: 'events' as const, limit: 100 },
+    { ...prefix, kind: 'markers' as const, limit: 256 },
+    { ...prefix, kind: 'locations' as const, limit: 100 },
+  ]) {
+    const result = await client.sessionData(request);
+    assert.deepEqual(result.snapshot, savedMarker.snapshot);
+    if (result.kind === 'samples')
+      assert.ok(result.sequence.every((sequence) => sequence <= savedMarker.snapshot.committedSampleSequence));
+    if (result.kind === 'events')
+      assert.ok(result.page.sequence.every((sequence) => sequence <= savedMarker.snapshot.committedEventSequence));
+    if (result.kind === 'markers') assert.deepEqual(result.markers, [savedMarker.marker]);
+    if (result.kind === 'locations') {
+      assert.equal(result.locationBoundary.lastSequence, savedMarker.snapshot.committedLocationSequence);
+      assert.equal(result.locationBoundary.lastElapsedMs, savedMarker.snapshot.committedLocationElapsedMs);
+    }
+  }
+  await assert.rejects(
+    client.sessionData({
+      ...prefix,
+      kind: 'events',
+      limit: 100,
+      snapshot: { ...savedMarker.snapshot, historyRevision: savedMarker.snapshot.historyRevision + 1 },
+    }),
+    /HTTP 400/
+  );
   await client.request('device.disconnect', {});
   await client.waitForState((value) => value.activeConnection === null, {
     afterRevision: ridingState.revision,

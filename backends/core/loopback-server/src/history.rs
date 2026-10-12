@@ -147,7 +147,17 @@ impl Backend {
         else {
             return Err(Failure::Internal);
         };
-        if projection::boundary(&source.boundary) != request["snapshot"] {
+        // Appends advance the published tail while a review is loading. Keep
+        // reads pinned to the requested prefix, but reject replaced history or
+        // a boundary that has not been committed yet.
+        let current = &source.boundary;
+        if snapshot.history_revision != current.history_revision
+            || snapshot.committed_sample_sequence > current.committed_sample_sequence
+            || snapshot.committed_event_sequence > current.committed_event_sequence
+            || snapshot.committed_elapsed_ms > current.committed_elapsed_ms
+            || snapshot.committed_location_sequence > current.committed_location_sequence
+            || snapshot.committed_location_elapsed_ms > current.committed_location_elapsed_ms
+        {
             return Err(Failure::InvalidRequest);
         }
         let query = HistoryQuery {
@@ -257,7 +267,7 @@ impl Backend {
                 response["points"] = projection::value(&page.points);
                 response["gaps"] = projection::value(&page.gaps);
                 response["nextCursor"] = json!(page.next_cursor);
-                response["locationBoundary"] = json!({"lastSequence":page.snapshot.committed_location_sequence,"lastElapsedMs":page.snapshot.committed_location_elapsed_ms});
+                response["locationBoundary"] = json!({"lastSequence":request["snapshot"]["committedLocationSequence"],"lastElapsedMs":request["snapshot"]["committedLocationElapsedMs"]});
             }
             _ => return Err(Failure::Internal),
         }
