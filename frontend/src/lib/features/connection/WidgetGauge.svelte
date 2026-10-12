@@ -104,117 +104,119 @@
   }
 </script>
 
-<div class="relative flex h-full min-h-0 items-center justify-center overflow-hidden">
-  <svg
-    viewBox="0 0 320 300"
-    class="mx-auto block h-full max-h-full w-auto max-w-full overflow-visible text-foreground"
-    role="group"
-    aria-labelledby="gauge-title gauge-description"
-  >
-    <title id="gauge-title">Live speed and drive load gauge</title>
-    <desc id="gauge-description">
-      Speed is {formatSpeedKph(sample?.speedKph, units)} and {loadLabel.toLowerCase()} is {load == null
-        ? 'unavailable'
-        : `${load.percentage.toFixed(0)} percent`}.
-    </desc>
+<div class="[container-type:size] relative flex h-full min-h-0 items-center justify-center overflow-hidden">
+  <div class="relative aspect-[320/300] max-h-full max-w-full" style:width="min(100%, calc(320 / 300 * 100cqh))">
+    <svg
+      viewBox="0 0 320 300"
+      class="block h-full w-full overflow-visible text-foreground"
+      role="group"
+      aria-labelledby="gauge-title gauge-description"
+    >
+      <title id="gauge-title">Live speed and drive load gauge</title>
+      <desc id="gauge-description">
+        Speed is {formatSpeedKph(sample?.speedKph, units)} and {loadLabel.toLowerCase()} is {load == null
+          ? 'unavailable'
+          : `${load.percentage.toFixed(0)} percent`}.
+      </desc>
 
-    <path
-      d={arc(outerRadius)}
-      pathLength="100"
-      class="fill-none stroke-outline [stroke-width:15] opacity-55 [stroke-linecap:round]"
-    />
-    <path
-      d={arc(outerRadius)}
-      pathLength="100"
-      class="fill-none stroke-accent [stroke-width:15] [stroke-linecap:round]"
-      stroke-dasharray={`${progress(speed == null ? null : animatedSpeed.current, speedMaximum)} 100`}
-    />
-    <path
-      d={arc(innerRadius)}
-      pathLength="100"
-      class="fill-none stroke-outline [stroke-width:9] opacity-55 [stroke-linecap:round]"
-    />
-    <path
-      d={arc(innerRadius)}
-      pathLength="100"
-      class={`fill-none ${loadStrokeClass} [stroke-width:9] transition-colors [stroke-linecap:round]`}
-      stroke-dasharray={`${progress(load == null ? null : animatedLoad.current, 100)} 100`}
-    />
+      <path
+        d={arc(outerRadius)}
+        pathLength="100"
+        class="fill-none stroke-outline [stroke-width:15] opacity-55 [stroke-linecap:round]"
+      />
+      <path
+        d={arc(outerRadius)}
+        pathLength="100"
+        class="fill-none stroke-accent [stroke-width:15] [stroke-linecap:round]"
+        stroke-dasharray={`${progress(speed == null ? null : animatedSpeed.current, speedMaximum)} 100`}
+      />
+      <path
+        d={arc(innerRadius)}
+        pathLength="100"
+        class="fill-none stroke-outline [stroke-width:9] opacity-55 [stroke-linecap:round]"
+      />
+      <path
+        d={arc(innerRadius)}
+        pathLength="100"
+        class={`fill-none ${loadStrokeClass} [stroke-width:9] transition-colors [stroke-linecap:round]`}
+        stroke-dasharray={`${progress(load == null ? null : animatedLoad.current, 100)} 100`}
+      />
 
-    <g class="text-muted/40" aria-hidden="true">
-      {#each speedTicks as tick (tick.value)}
-        <line
-          class="stroke-current [stroke-width:1.5]"
-          x1={tick.outer.x}
-          y1={tick.outer.y}
-          x2={tick.inner.x}
-          y2={tick.inner.y}
-        />
-        <text
-          class="fill-current text-[10px] font-semibold"
-          x={tick.label.x}
-          y={tick.label.y}
-          text-anchor="middle"
-          dominant-baseline="middle"
-        >
-          {tick.value}
-        </text>
-      {/each}
-    </g>
-    <g class="text-muted/40" aria-hidden="true">
-      {#each dutyTicks as tick (tick.value)}
-        <line
-          class="stroke-current [stroke-width:1.5]"
-          x1={tick.outer.x}
-          y1={tick.outer.y}
-          x2={tick.inner.x}
-          y2={tick.inner.y}
-        />
-        <text
-          class="fill-current text-[9px]"
-          x={tick.label.x}
-          y={tick.label.y}
-          text-anchor="middle"
-          dominant-baseline="middle"
-        >
-          {tick.value}%
-        </text>
-      {/each}
-    </g>
+      <g class="text-muted/40" aria-hidden="true">
+        {#each speedTicks as tick (tick.value)}
+          <line
+            class="stroke-current [stroke-width:1.5]"
+            x1={tick.outer.x}
+            y1={tick.outer.y}
+            x2={tick.inner.x}
+            y2={tick.inner.y}
+          />
+          <text
+            class="fill-current text-[10px] font-semibold"
+            x={tick.label.x}
+            y={tick.label.y}
+            text-anchor="middle"
+            dominant-baseline="middle"
+          >
+            {tick.value}
+          </text>
+        {/each}
+      </g>
+      <g class="text-muted/40" aria-hidden="true">
+        {#each dutyTicks as tick (tick.value)}
+          <line
+            class="stroke-current [stroke-width:1.5]"
+            x1={tick.outer.x}
+            y1={tick.outer.y}
+            x2={tick.inner.x}
+            y2={tick.inner.y}
+          />
+          <text
+            class="fill-current text-[9px]"
+            x={tick.label.x}
+            y={tick.label.y}
+            text-anchor="middle"
+            dominant-baseline="middle"
+          >
+            {tick.value}%
+          </text>
+        {/each}
+      </g>
 
-    <text
-      x="160"
-      y="116"
-      class="fill-current text-[9px] font-semibold tracking-[0.12em] text-muted"
-      text-anchor="middle">{speedUnit}</text
-    >
-    <text
-      x="160"
-      y="141"
-      class="fill-current font-mono text-[25px] font-bold text-foreground tabular-nums"
-      text-anchor="middle"
-    >
-      {speed == null ? '—' : animatedSpeed.current.toFixed(1)}
-    </text>
-    <text
-      x="160"
-      y="163"
-      class={`fill-current text-[9px] font-semibold tracking-[0.12em] ${loadTextClass} transition-colors`}
-      text-anchor="middle"
-    >
-      {loadLabel}
-    </text>
-    <text
-      x="160"
-      y="188"
-      class={`fill-current font-mono text-[25px] font-bold tabular-nums ${loadTextClass} transition-colors`}
-      text-anchor="middle"
-    >
-      {load == null ? '—' : `${animatedLoad.current.toFixed(0)}%`}
-    </text>
-    <foreignObject class="overflow-visible" x="105" y="232" width="110" height="56">
+      <text
+        x="160"
+        y="116"
+        class="fill-current text-[9px] font-semibold tracking-[0.12em] text-muted"
+        text-anchor="middle">{speedUnit}</text
+      >
+      <text
+        x="160"
+        y="141"
+        class="fill-current font-mono text-[25px] font-bold text-foreground tabular-nums"
+        text-anchor="middle"
+      >
+        {speed == null ? '—' : animatedSpeed.current.toFixed(1)}
+      </text>
+      <text
+        x="160"
+        y="163"
+        class={`fill-current text-[9px] font-semibold tracking-[0.12em] ${loadTextClass} transition-colors`}
+        text-anchor="middle"
+      >
+        {loadLabel}
+      </text>
+      <text
+        x="160"
+        y="188"
+        class={`fill-current font-mono text-[25px] font-bold tabular-nums ${loadTextClass} transition-colors`}
+        text-anchor="middle"
+      >
+        {load == null ? '—' : `${animatedLoad.current.toFixed(0)}%`}
+      </text>
+    </svg>
+    <div class="absolute top-[77.333333%] left-[32.8125%] w-[34.375%]">
       <LiveValueBox {sample} slot={4} />
-    </foreignObject>
-  </svg>
+    </div>
+  </div>
   <MarkerCapture {sessionId} />
 </div>

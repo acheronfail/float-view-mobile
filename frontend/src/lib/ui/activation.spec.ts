@@ -69,4 +69,42 @@ describe('cross-platform control activation', () => {
     target.dispatchEvent(event('pointerup'));
     expect(action).not.toHaveBeenCalled();
   });
+
+  it.each(['drag', 'release', 'cancel', 'tap'])(
+    'scrollable choices handle %s without suppressing scrolling',
+    (gesture) => {
+      const action = vi.fn();
+      const preventDefault = vi.fn();
+      const target = new EventTarget();
+      const send = (type: string, y: number, pointerId = 9) => {
+        const next = new Event(type);
+        Object.assign(next, { pointerId, clientX: 20, clientY: y, isPrimary: true });
+        target.dispatchEvent(next);
+      };
+      activateFromPointer(
+        {
+          button: 0,
+          isPrimary: true,
+          pointerId: 9,
+          clientX: 20,
+          clientY: 20,
+          currentTarget: target,
+          preventDefault,
+        } as unknown as PointerEvent,
+        action,
+        { scrollable: true }
+      );
+      // An unrelated finger cannot cancel the primary tap.
+      send('pointermove', 100, 10);
+      if (gesture === 'drag') {
+        send('pointermove', 60);
+        send('pointermove', 20);
+      }
+      if (gesture === 'cancel') send('pointercancel', 20);
+      send('pointerup', gesture === 'release' ? 60 : 20);
+      activateFromKeyboardOrAssistiveClick({ detail: 1 } as MouseEvent, action);
+      expect(preventDefault).not.toHaveBeenCalled();
+      expect(action).toHaveBeenCalledTimes(gesture === 'tap' ? 1 : 0);
+    }
+  );
 });

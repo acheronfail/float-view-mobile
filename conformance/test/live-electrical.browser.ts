@@ -189,16 +189,88 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
         assert.equal(await page.locator('[aria-label="Live number widgets"] button').count(), 4);
         assert.equal(
           await page
-            .locator('foreignObject')
+            .locator('svg + div')
             .getByRole('button', { name: 'Choose value for box 5: Trip distance', exact: true })
             .count(),
           1
         );
+        const checkCentreBox = async (target = distanceBox) => {
+          const bounds = await target.evaluate((button) => {
+            const box = button.getBoundingClientRect();
+            const gauge = button.parentElement!.parentElement!.previousElementSibling!.getBoundingClientRect();
+            const readings = [
+              ...button.querySelectorAll('[role="group"], [aria-hidden="true"], [aria-hidden="true"] > span'),
+            ].map((element) => element.getBoundingClientRect());
+            return {
+              centreOffset: Math.abs((box.left + box.right - gauge.left - gauge.right) / 2),
+              topOffset: Math.abs(box.top - (gauge.top + (232 / 300) * gauge.height)),
+              contained: readings.every(
+                (reading) =>
+                  reading.left >= box.left &&
+                  reading.right <= box.right &&
+                  reading.top >= box.top &&
+                  reading.bottom <= box.bottom
+              ),
+            };
+          });
+          assert.ok(bounds.centreOffset < 1, JSON.stringify(bounds));
+          assert.ok(bounds.topOffset < 1, JSON.stringify(bounds));
+          assert.ok(bounds.contained, JSON.stringify(bounds));
+        };
+        await checkCentreBox();
+        await page.setViewportSize({ width: 844, height: 390 });
+        await checkCentreBox();
+        await page.setViewportSize({ width: 390, height: 844 });
         await distanceBox.hover();
         await page.mouse.down();
         await page.waitForTimeout(650);
         await page.mouse.up();
         const distancePicker = page.getByRole('dialog', { name: 'Choose a value' });
+        await distancePicker.waitFor();
+        // A drag that starts on a choice must leave the scrollable picker open.
+        const firstChoice = distancePicker.getByRole('button', { name: 'Empty', exact: true });
+        const savesBeforeScroll = saves;
+        if (name === 'chromium') {
+          const touch = await page.context().newCDPSession(page);
+          const start = (await firstChoice.boundingBox())!;
+          const x = start.x + start.width / 2;
+          const y = start.y + start.height - 20;
+          await touch.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x, y }] });
+          for (const offset of [20, 40, 60, 80]) {
+            await touch.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x, y: y - offset }] });
+            await page.waitForTimeout(20);
+          }
+          await touch.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+          await touch.detach();
+          assert.ok(await distancePicker.locator('.overflow-y-auto').evaluate((element) => element.scrollTop > 0));
+          assert.equal(await distancePicker.isVisible(), true);
+          assert.equal(saves, savesBeforeScroll);
+        }
+        await firstChoice.scrollIntoViewIfNeeded();
+        const choiceBounds = (await firstChoice.boundingBox())!;
+        await page.mouse.move(choiceBounds.x + 20, choiceBounds.y + 20);
+        await page.mouse.down();
+        await page.mouse.move(choiceBounds.x + 20, choiceBounds.y + 65, { steps: 5 });
+        await page.mouse.wheel(0, 400);
+        await page.mouse.up();
+        assert.equal(await distancePicker.isVisible(), true);
+        assert.equal(saves, savesBeforeScroll);
+        await distancePicker.getByRole('button', { name: 'LEDs', exact: true }).tap();
+        await distancePicker.waitFor({ state: 'hidden' });
+        const ledBox = page.locator('svg + div').getByRole('switch', { name: 'LEDs', exact: true });
+        await ledBox.waitFor();
+        await checkCentreBox(ledBox);
+        await page.setViewportSize({ width: 844, height: 390 });
+        await checkCentreBox(ledBox);
+        await page.setViewportSize({ width: 390, height: 844 });
+        const checked = await ledBox.getAttribute('aria-checked');
+        await ledBox.tap();
+        await page.waitForFunction(
+          (checked) => document.querySelector('svg + div [role="switch"]')?.getAttribute('aria-checked') !== checked,
+          checked
+        );
+        await ledBox.focus();
+        await page.keyboard.press('Shift+Enter');
         await distancePicker.waitFor();
         await distancePicker.getByRole('button', { name: 'Load', exact: true }).tap();
         await distancePicker.waitFor({ state: 'hidden' });
