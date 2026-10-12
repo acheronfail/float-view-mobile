@@ -7,12 +7,16 @@
     title,
     titleId,
     closeLabel = 'Done',
+    fixedContent = false,
+    headerShadow = false,
     onclose,
     children,
   }: {
     title: string;
     titleId: string;
     closeLabel?: string;
+    fixedContent?: boolean;
+    headerShadow?: boolean;
     onclose: Activation;
     children: Snippet;
   } = $props();
@@ -71,8 +75,13 @@
   aria-labelledby={titleId}
   class="fixed inset-0 z-40 h-dvh w-screen bg-canvas text-foreground"
 >
-  <div class="app-safe-area app-safe-area-without-tabs mx-auto flex h-full min-h-0 max-w-3xl flex-col">
-    <header class="flex shrink-0 items-center justify-between gap-3 border-b border-outline pb-3">
+  <div
+    class:app-safe-area-without-tabs={!fixedContent}
+    class="app-safe-area mx-auto flex h-full min-h-0 max-w-3xl flex-col"
+  >
+    <header
+      class={`relative z-10 flex shrink-0 items-center justify-between gap-3 border-b border-outline bg-canvas pb-3 ${headerShadow ? 'shadow-[0_4px_8px_-4px_rgb(0_0_0_/_0.35)]' : ''}`}
+    >
       <h2 id={titleId} class="min-w-0 text-xl font-bold">{title}</h2>
       <button
         bind:this={closeButton}
@@ -84,7 +93,12 @@
         >{closing ? 'Saving…' : closeLabel}</button
       >
     </header>
-    <div class="min-h-0 flex-1 overflow-y-auto overscroll-contain py-3">
+    <div
+      class:overflow-y-auto={!fixedContent}
+      class:overscroll-contain={!fixedContent}
+      class:py-3={!fixedContent}
+      class="min-h-0 flex-1"
+    >
       {@render children()}
     </div>
   </div>

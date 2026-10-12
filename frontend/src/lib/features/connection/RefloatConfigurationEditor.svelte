@@ -52,8 +52,8 @@
   }
 </script>
 
-<section class="flex min-h-[70vh] flex-col gap-3" aria-labelledby="refloat-configuration-title">
-  <div class="sticky top-0 z-10 grid gap-2 bg-surface pb-2">
+<section class="flex h-full min-h-0 flex-col" aria-labelledby="refloat-configuration-title">
+  <div class="z-10 grid shrink-0 gap-2 bg-surface py-3">
     <div class="grid gap-2 sm:grid-cols-2">
       <div class="grid gap-1 text-sm">
         <span class="font-medium">Section</span>
@@ -97,51 +97,58 @@
     </div>
   </div>
 
-  {#if controller.loading && !controller.pages.length}
-    <p class="text-muted">Loading audited Refloat schema…</p>
-  {:else if controller.error}
-    <p role="alert" class="text-warning">{controller.error}</p>
-  {:else}
-    <div class="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-outline p-3 text-sm">
-      <span>
-        Source: <strong
-          >{controller.source === 'current' ? 'Current device values' : 'Persistent firmware defaults'}</strong
-        >
-      </span>
-      <span>{controller.diff.length} changed</span>
-    </div>
-    {#if controller.summary?.writable === false}
-      <p class="rounded-lg border border-warning/40 bg-warning/10 p-3 text-sm text-warning">
-        Persistent writes are unavailable. The board may be read-only, reconnecting, unsafe, or in flywheel mode.
-      </p>
+  <div class="min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain pb-3">
+    {#if controller.loading && !controller.pages.length}
+      <p class="text-muted">Loading audited Refloat schema…</p>
+    {:else if controller.error}
+      <p role="alert" class="text-warning">{controller.error}</p>
+    {:else}
+      <div class="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-outline p-3 text-sm">
+        <span>
+          Source: <strong
+            >{controller.source === 'current' ? 'Current device values' : 'Persistent firmware defaults'}</strong
+          >
+        </span>
+        <span>{controller.diff.length} changed</span>
+      </div>
+      {#if controller.summary?.writable === false}
+        <p class="rounded-lg border border-warning/40 bg-warning/10 p-3 text-sm text-warning">
+          Persistent writes are unavailable. The board may be read-only, reconnecting, unsafe, or in flywheel mode.
+        </p>
+      {/if}
+      {#if selectedSection}
+        <section class="grid gap-2" aria-labelledby="refloat-selected-section">
+          <h3 id="refloat-selected-section" class="text-lg font-semibold">
+            {selectedSection.group} · {selectedSection.subgroup}
+          </h3>
+          {#if visibleFields.length}
+            <div class="grid gap-2 md:grid-cols-2">
+              {#each visibleFields as field (field.name)}
+                <RefloatConfigurationField
+                  {field}
+                  value={controller.draft[field.name]}
+                  error={controller.validationErrors[field.name]}
+                  disabled={controller.loading || backendState.busy}
+                  onchange={(value) => controller.setValue(field.name, value)}
+                  onhelp={showHelp}
+                />
+              {/each}
+            </div>
+          {:else}
+            <p class="rounded-lg border border-outline p-3 text-sm text-muted">No fields match this search.</p>
+          {/if}
+        </section>
+      {/if}
     {/if}
-    {#if selectedSection}
-      <section class="grid gap-2" aria-labelledby="refloat-selected-section">
-        <h3 id="refloat-selected-section" class="text-lg font-semibold">
-          {selectedSection.group} · {selectedSection.subgroup}
-        </h3>
-        {#if visibleFields.length}
-          <div class="grid gap-2 md:grid-cols-2">
-            {#each visibleFields as field (field.name)}
-              <RefloatConfigurationField
-                {field}
-                value={controller.draft[field.name]}
-                error={controller.validationErrors[field.name]}
-                disabled={controller.loading || backendState.busy}
-                onchange={(value) => controller.setValue(field.name, value)}
-                onhelp={showHelp}
-              />
-            {/each}
-          </div>
-        {:else}
-          <p class="rounded-lg border border-outline p-3 text-sm text-muted">No fields match this search.</p>
-        {/if}
-      </section>
-    {/if}
-    <div class="sticky bottom-0 flex items-center justify-end gap-2 border-t border-outline bg-surface py-3">
+  </div>
+
+  {#if !(controller.loading && !controller.pages.length) && !controller.error}
+    <div
+      class="-mx-4 grid shrink-0 grid-cols-2 gap-2 border-t border-outline bg-surface px-4 pt-2 pb-[max(1rem,env(safe-area-inset-bottom,0px))] shadow-[0_-4px_8px_-6px_rgb(0_0_0_/_0.35)]"
+    >
       <button
         type="button"
-        class="touch-manipulation rounded-md border border-outline px-4 py-2"
+        class="min-h-11 touch-manipulation rounded-md border border-outline px-3 py-2 text-sm leading-tight"
         disabled={!controller.diff.length || controller.loading}
         onpointerdown={(event) => activateFromPointer(event, () => controller.resetDraft())}
         onclick={(event) => activateFromKeyboardOrAssistiveClick(event, () => controller.resetDraft())}
@@ -149,7 +156,7 @@
       >
       <button
         type="button"
-        class="touch-manipulation rounded-md bg-accent px-4 py-2 text-on-accent disabled:opacity-50"
+        class="min-h-11 touch-manipulation rounded-md bg-accent px-3 py-2 text-sm leading-tight text-on-accent disabled:opacity-50"
         disabled={!controller.canWrite || controller.loading || backendState.busy}
         onpointerdown={(event) =>
           activateFromPointer(event, () => {
@@ -158,7 +165,7 @@
         onclick={(event) =>
           activateFromKeyboardOrAssistiveClick(event, () => {
             writeConfirmation = true;
-          })}>Write complete configuration</button
+          })}>Write configuration</button
       >
     </div>
   {/if}

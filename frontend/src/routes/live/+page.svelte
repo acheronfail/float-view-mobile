@@ -507,6 +507,8 @@
     title="Configure Refloat"
     titleId="refloat-configuration-title"
     closeLabel="Done"
+    fixedContent
+    headerShadow
     onclose={requestCloseRefloatConfiguration}
   >
     <RefloatConfigurationEditor bind:this={refloatEditor} controller={refloatConfiguration} />

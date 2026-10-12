@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { readFile } from 'node:fs/promises';
+import { mkdir, readFile } from 'node:fs/promises';
 import { test } from 'node:test';
 import { chromium, webkit } from 'playwright';
 import { startMockServer, stopMockServer, getMockBootstrap } from '../../frontend/backend-mock/index.ts';
@@ -99,6 +99,31 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
             el.scrollTop = el.scrollHeight;
           });
           assert.equal((await done.boundingBox())!.y, headerY, 'header stays visible while content scrolls');
+          if (title === 'Configure Refloat') {
+            const footer = panel.getByRole('button', { name: 'Write configuration' }).locator('..');
+            const footerBox = (await footer.boundingBox())!;
+            assert.equal(Math.round(footerBox.y + footerBox.height), viewport.height, 'actions cover the bottom edge');
+            assert.ok(footerBox.height <= 80, 'actions remain compact');
+            assert.notEqual(
+              await panel.locator('header').evaluate((el) => getComputedStyle(el).boxShadow),
+              'none',
+              'header separates from the list'
+            );
+            const output = process.env.FLOAT_VIEW_SCREENSHOTS;
+            if (output && name === 'chromium') {
+              await mkdir(output, { recursive: true });
+              await scroll.evaluate((el) => {
+                el.scrollTop = Math.min(300, el.scrollHeight - el.clientHeight);
+              });
+              await page.evaluate(() => {
+                document.documentElement.dataset.theme = 'dark';
+              });
+              await page.screenshot({ path: `${output}/refloat-configure-${viewport.width}.png` });
+              await page.evaluate(() => {
+                document.documentElement.dataset.theme = 'light';
+              });
+            }
+          }
           if (viewport.width === 390) await done.tap();
           else await page.keyboard.press('Escape');
           await panel.waitFor({ state: 'hidden' });
