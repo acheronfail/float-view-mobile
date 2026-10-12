@@ -13,6 +13,7 @@
   import { RefloatConfigurationController } from '$lib/features/connection/refloat-configuration.svelte';
   import { liveCharging } from '$lib/features/connection/charging';
   import { liveStatus } from '$lib/features/connection/live-status';
+  import LiveCharts from '$lib/features/connection/LiveCharts.svelte';
   import LiveView from '$lib/features/connection/LiveView.svelte';
   import BmsView from '$lib/features/connection/BmsView.svelte';
   import { bmsMenuVisible } from '$lib/features/connection/bms';
@@ -40,6 +41,7 @@
   // TODO: persist this state
   let view = $state<View>('normal');
   let configuration = $state<{ savedDeviceId: string; batteryOnly: boolean; trigger?: HTMLButtonElement } | null>(null);
+  let liveChartsOpen = $state(false);
   let bmsOpen = $state(false);
   let refloatConfigurationOpen = $state(false);
   let refloatTunesOpen = $state(false);
@@ -138,6 +140,15 @@
           icon: nextView.type === 'detailed' ? 'list' : 'layout-dashboard',
           group: 'View',
           onactivate: (closeMenu: () => void) => cycleView(closeMenu),
+        },
+        {
+          label: 'Live charts…',
+          icon: 'chart-no-axes-combined',
+          group: 'View',
+          onactivate: (closeMenu: () => void) => {
+            closeMenu();
+            liveChartsOpen = true;
+          },
         },
         ...(connection.trackingMode === 'saved' && connection.activeSession
           ? [
@@ -385,6 +396,12 @@
     else appHeader.focusMenu();
   }
 
+  async function closeLiveCharts(keyboard: boolean) {
+    liveChartsOpen = false;
+    await tick();
+    if (keyboard) appHeader.focusMenu();
+  }
+
   async function closeBms() {
     bmsOpen = false;
     await tick();
@@ -579,4 +596,8 @@
     disabled={flywheelDisableUnavailable(connection)}
     ondisable={disableFlywheelMode}
   />
+{/if}
+
+{#if liveChartsOpen && !flywheelOverlayVisible(connection)}
+  <LiveCharts onclose={closeLiveCharts} />
 {/if}

@@ -111,6 +111,14 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
         assert.ok((await tile.locator('span[aria-hidden="true"]').count()) >= 1);
       }
       await page.getByRole('button', { name: 'Session…', exact: true }).waitFor();
+      const disconnectBounds = (await actionOverlay
+        .getByRole('button', { name: 'Disconnect', exact: true })
+        .boundingBox())!;
+      assert.ok(disconnectBounds.y + disconnectBounds.height <= 844, 'all menu groups fit on the mobile screen');
+      for (const tile of await actionOverlay.locator('section button').all()) {
+        assert.ok((await tile.boundingBox())!.height >= 44, 'compact actions retain touch target height');
+      }
+
       assert.deepEqual(await actionOverlay.getByRole('heading', { level: 3 }).allTextContents(), [
         'View',
         'Refloat',

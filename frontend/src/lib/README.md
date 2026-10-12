@@ -183,3 +183,11 @@ to 128 intervals, two concurrent series requests, 1,024 buckets per field group
 and 16 MiB of decoded chart data. Limit/failure states are explicit; no truncated
 prefix is presented as a complete result. Superseding map selections cancel
 previous requests, and chart updates never automatically fit the filtered map.
+
+Live charts… in the connected-board menu opens a full-screen, live-only telemetry
+page for saved and guest connections. Six full-width charts follow a rolling
+30-second window without inspection, zoom or pan. The disposable frontend buffer
+is bounded to 1,500 samples and resets for device or sequence changes; missing
+values and source gaps break the lines. Stale readings show unavailable values
+while existing points scroll out. Display units match the live widgets. Session
+remains the history review path.

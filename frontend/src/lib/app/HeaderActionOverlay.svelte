@@ -113,38 +113,38 @@
         onclick={(event) => activateFromKeyboardOrAssistiveClick(event, () => close(true))}>Done</button
       >
     </header>
-    <div class="min-h-0 flex-1 overflow-y-auto overscroll-contain py-5">
-      <div class="space-y-6">
+    <div class="min-h-0 flex-1 overflow-y-auto overscroll-contain py-3">
+      <div class="space-y-4">
         {#each groups as group, index (group)}
           <section aria-labelledby={`${titleId}-${index}`}>
-            <h3 id={`${titleId}-${index}`} class="mb-3 text-xs font-semibold tracking-widest text-muted uppercase">
+            <h3 id={`${titleId}-${index}`} class="mb-2 text-xs font-semibold tracking-widest text-muted uppercase">
               {group}
             </h3>
-            <div class="grid grid-cols-2 gap-3">
+            <div class="grid grid-cols-2 gap-2">
               {#each actions.filter((action) => (action.group ?? 'Actions') === group) as action (action.label)}
                 <button
                   type="button"
                   aria-label={action.label}
                   aria-busy={action.pending || undefined}
                   disabled={action.disabled || action.pending}
-                  class="flex min-h-24 min-w-0 touch-pan-y flex-col justify-between gap-2 rounded-xl border border-outline bg-surface p-4 text-left hover:bg-elevated focus-visible:outline-2 focus-visible:outline-accent disabled:cursor-not-allowed disabled:opacity-50"
+                  class="flex min-h-14 min-w-0 touch-pan-y items-center gap-2 rounded-lg border border-outline bg-surface px-3 py-2 text-left hover:bg-elevated focus-visible:outline-2 focus-visible:outline-accent disabled:cursor-not-allowed disabled:opacity-50"
                   class:text-danger={action.appearance === 'destructive'}
                   class:text-warning={action.appearance === 'warning'}
                   onpointerdown={(event) =>
                     activateFromPointer(event, () => activate(action, false), { scrollable: true })}
                   onclick={(event) => activateFromKeyboardOrAssistiveClick(event, () => activate(action, true))}
                 >
-                  <span class="flex items-center justify-between gap-2">
-                    {#if action.icon}<Icon name={action.icon} class="text-xl" />{/if}
-                    {#if action.appearance === 'warning' && action.icon !== 'triangle-alert'}
-                      <Icon name="triangle-alert" class="text-xl" />
+                  {#if action.icon}<Icon name={action.icon} class="shrink-0 text-lg" />{/if}
+                  <span class="min-w-0 flex-1">
+                    <span class="block text-sm font-medium">{action.label}</span>
+                    {#if action.pending}
+                      <span class="block text-xs text-muted">Pending…</span>
+                    {:else if action.disabled}
+                      <span class="block text-xs text-muted">Unavailable</span>
                     {/if}
                   </span>
-                  <span class="text-sm font-medium">{action.label}</span>
-                  {#if action.pending}
-                    <span class="text-xs text-muted">Pending…</span>
-                  {:else if action.disabled}
-                    <span class="text-xs text-muted">Unavailable</span>
+                  {#if action.appearance === 'warning' && action.icon !== 'triangle-alert'}
+                    <Icon name="triangle-alert" class="shrink-0 text-lg" />
                   {/if}
                 </button>
               {/each}
