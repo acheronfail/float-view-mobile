@@ -50,12 +50,17 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
       const location = page.locator('[data-permission="location"]');
       const button = location.getByRole('button', { name: 'Request access' });
       await button.waitFor();
-      assert.match(await location.innerText(), /recording is off/);
+      assert.match(await location.innerText(), /Record the route of your rides/);
       await button.dispatchEvent('pointerdown', { button: 2, isPrimary: true, pointerId: 2 });
       await button.dispatchEvent('pointerup', { button: 2, isPrimary: true, pointerId: 2 });
       await button.dispatchEvent('pointerdown', { button: 0, isPrimary: true, pointerId: 3 });
       await button.dispatchEvent('pointercancel', { pointerId: 3 });
       await button.dispatchEvent('pointerup', { button: 0, isPrimary: true, pointerId: 3 });
+      await button.dispatchEvent('pointerdown', { button: 0, isPrimary: false, pointerId: 4 });
+      await button.dispatchEvent('pointerup', { button: 0, isPrimary: false, pointerId: 4 });
+      await button.dispatchEvent('pointerdown', { button: 0, isPrimary: true, pointerId: 5, clientX: 20, clientY: 20 });
+      await button.dispatchEvent('pointermove', { pointerId: 5, clientX: 20, clientY: 50 });
+      await button.dispatchEvent('pointerup', { button: 0, isPrimary: true, pointerId: 5, clientX: 20, clientY: 50 });
       assert.equal(requests, 0);
       await button.tap();
       await page.waitForFunction(
@@ -81,21 +86,11 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
           await page.locator('[data-permission="bluetooth"]').count(),
           platform === 'android29' || platform === 'android30' ? 0 : 1
         );
-        const recording = page.getByRole('group', { name: 'Record ride location', exact: true });
-        await recording.getByRole('button', { name: 'On', exact: true }).tap();
-        await page
-          .getByText('Optional for board-only use. Ride location recording is on.', { exact: true })
-          .first()
-          .waitFor();
-        await recording.getByRole('button', { name: 'Off', exact: true }).tap();
-        await page
-          .getByText('Optional for board-only use. Ride location recording is off.', { exact: true })
-          .first()
-          .waitFor();
+        assert.equal(await page.getByText(/Optional for board-only use/).count(), 0);
       }
       const notifications = page.locator('[data-permission="notifications"]');
       const liveUpdates = page.locator('[data-permission="liveUpdates"]');
-      assert.match(await notifications.innerText(), /Bluetooth and recording work without/);
+      assert.match(await notifications.innerText(), /Optional/);
       assert.doesNotMatch(await notifications.innerText(), /Ride location recording/);
       assert.match(await liveUpdates.innerText(), /Allow Notifications first/);
       assert.equal(await liveUpdates.getByRole('button').count(), 0);
@@ -218,7 +213,7 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
       await page.getByRole('link', { name: 'settings', exact: true }).click();
       const bluetooth = page.locator('[data-permission="bluetooth"]');
       await bluetooth.getByText('Bluetooth is off.', { exact: true }).waitFor();
-      assert.match(await bluetooth.innerText(), /already has Bluetooth permission/);
+      assert.match(await bluetooth.innerText(), /Bluetooth permission is already allowed/);
       await page.getByRole('link', { name: 'connect', exact: true }).click();
       await page.getByRole('heading', { name: 'Bluetooth is off' }).waitFor();
       resume();

@@ -1,5 +1,8 @@
 export const iconClasses = {
   'arrow-left': 'i-lucide-arrow-left',
+  bell: 'i-lucide-bell',
+  check: 'i-lucide-check',
+  'lock-keyhole': 'i-lucide-lock-keyhole',
   bluetooth: 'i-lucide-bluetooth',
   'bluetooth-off': 'i-lucide-bluetooth-off',
   'layout-dashboard': 'i-lucide-layout-dashboard',
