@@ -46,7 +46,7 @@ The frontend SHALL render a bottom tab bar on exactly the Home, Sessions, and Se
 
 ### Requirement: Home and live connection flow
 
-Home SHALL show Bluetooth readiness, discovery, and connection controls when no board is active. Discovery SHALL include an advertising saved board whose exact platform identifier matches even when its advertisement omits the UART service, while unrelated advertisements remain hidden. A successful connection request or a recovered active connection SHALL navigate to a live view that represents connecting, identifying, selecting-controller, ready, reconnecting, disconnected, and failed backend states.
+Home SHALL show Bluetooth readiness, discovery, and connection controls when no board is active. Discovery SHALL include an advertising saved board whose exact platform identifier matches even when its advertisement omits the UART service, while unrelated advertisements remain hidden. A successful connection request or a recovered active connection SHALL navigate to a live view that represents connecting, identifying, selecting-controller, ready, reconnecting, disconnected, and failed backend states. During frontend startup, an eligible process-lifetime UI checkpoint destination SHALL take precedence over recovered Home-to-Live navigation.
 
 #### Scenario: Accepted connection
 
@@ -55,17 +55,22 @@ Home SHALL show Bluetooth readiness, discovery, and connection controls when no 
 
 #### Scenario: Recovered active connection
 
-- **WHEN** the frontend reconnects after lifecycle recreation and `state.get` contains an active connection
+- **WHEN** the frontend reconnects after lifecycle recreation, `state.get` contains an active connection and no eligible checkpoint destination takes precedence
 - **THEN** it replaces the inactive Home view with the live view without starting another native connection
+
+#### Scenario: Restored non-live destination
+
+- **WHEN** the frontend is recreated with an eligible Sessions, session detail, board history or Settings checkpoint while a connection remains active
+- **THEN** it restores that destination without briefly navigating to Live, scanning Home or starting another native connection
 
 #### Scenario: Recovered controller selection
 
-- **WHEN** the recovered active connection is awaiting a controller choice
+- **WHEN** the recovered active connection is awaiting a controller choice and the chosen destination is Live
 - **THEN** the live route presents that choice from authoritative candidates without returning to Home
 
 #### Scenario: Recovered failed connection
 
-- **WHEN** the recovered active connection is failed with a connection issue
+- **WHEN** the recovered active connection is failed with a connection issue and the chosen destination is Live
 - **THEN** the live route retains its configuration, retry, and disconnect actions without returning to Home
 
 #### Scenario: Live route without a connection

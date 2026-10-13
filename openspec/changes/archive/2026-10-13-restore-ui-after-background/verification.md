@@ -51,3 +51,10 @@ scoped physical iOS check should background from a session detail screen and an
 ordinary Live panel, confirm actual WebView/server teardown and restored
 destination/mode/surface on return, and observe permitted native recording and
 connection continuity. No physical success is claimed by this archive.
+
+## Spec synchronization
+
+The new `ui-state-restoration` canonical spec passes strict validation. Updated
+`app-navigation` and `backend-contract` specs pass normal validation; their
+existing long requirement descriptions retain the CLI length advisories.
+Unrelated requirements/scenarios were preserved.
